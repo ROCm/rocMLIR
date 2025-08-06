@@ -4,19 +4,24 @@
 // clang-format off
 #ifdef NonAccel_DEFINITIONS_GEN
 
-// BEGIN_GEMM_NonAccel_f32_gfx1030_DEFS
-const InitParamsNonAccel PopulateParams::initParametersGemmGfx1030[PopulateParams::nInitParametersGemmGfx1030] = {
+// BEGIN_GEMM_NonAccel_f32_gfx1000_DEFS
+const InitParamsNonAccel PopulateParams::initParametersGemmGfx1000[PopulateParams::nInitParametersGemmGfx1000] = {
+    {128,128,128,16,4,4,1,1,2},
+    {128,128,128,16,2,4,1,1,2},
+    {128,128,128,4,2,4,1,1,2},
+    {64,64,128,8,2,4,1,1,2},
     {128,128,128,16,2,2,1,1,2},
-    {64,64,64,16,2,2,1,1,2},
+    {128,32,32,16,2,4,1,1,2},
+    {64,64,64,8,2,2,1,1,2},
+    {256,32,128,8,2,2,1,1,2},
+    {64,32,64,8,4,2,1,1,2},
+    {64,32,128,16,4,2,1,1,2},
+    {128,64,128,4,4,2,1,1,2},
     {64,64,32,16,4,2,1,1,2},
-    {256,64,128,8,2,2,1,1,2},
-    {64,32,64,8,4,4,1,1,2},
-    {128,128,32,16,2,4,1,1,2},
-    {64,32,32,8,2,2,1,1,2},
-    {256,64,128,16,4,2,1,1,2},
-    {256,128,64,16,4,2,1,1,2}
+    {64,64,32,8,2,2,1,1,2},
+    {64,32,32,4,2,4,1,1,2}
 };
-// END_GEMM_NonAccel_f32_gfx1030_DEFS
+// END_GEMM_NonAccel_f32_gfx1000_DEFS
 
 // BEGIN_GEMM_NonAccel_f32_gfx1100_DEFS
 const InitParamsNonAccel PopulateParams::initParametersGemmGfx1100[PopulateParams::nInitParametersGemmGfx1100] = {
@@ -52,27 +57,34 @@ const InitParamsNonAccel PopulateParams::initParametersGemmGfx1200[PopulateParam
 };
 // END_GEMM_NonAccel_f32_gfx1200_DEFS
 
-// BEGIN_CONV_NonAccel_f32_gfx1030_DEFS
-const InitParamsNonAccel PopulateParams::initParametersConvGfx1030[PopulateParams::nInitParametersConvGfx1030] = {
-    {128,32,32,16,2,2,1,1,2},
-    {128,32,32,8,2,4,1,1,2},
-    {128,64,64,16,4,2,1,1,2},
-    {64,64,64,16,2,4,1,1,2},
-    {128,64,32,8,2,2,1,1,2},
-    {64,32,32,16,4,4,1,1,2},
-    {64,32,32,4,4,2,1,1,2},
-    {64,32,64,4,4,2,1,1,2},
-    {128,128,128,16,4,4,1,1,2},
-    {64,64,32,8,4,4,1,1,2},
+// BEGIN_CONV_NonAccel_f32_gfx1000_DEFS
+const InitParamsNonAccel PopulateParams::initParametersConvGfx1000[PopulateParams::nInitParametersConvGfx1000] = {
+    {128,128,128,4,2,4,1,1,2},
+    {128,128,128,16,2,4,1,1,2},
+    {64,128,64,16,2,4,1,1,2},
+    {128,128,64,4,2,2,1,1,2},
+    {64,64,128,4,4,4,1,1,2},
+    {128,64,32,16,2,2,1,1,2},
+    {64,128,64,16,4,2,1,1,2},
     {64,64,128,16,2,2,1,1,2},
-    {128,128,32,8,2,2,1,1,2},
-    {256,32,64,16,2,4,1,1,2},
-    {64,128,32,16,2,4,1,1,2},
-    {64,128,64,8,2,2,1,1,2},
-    {128,64,128,8,4,4,1,1,2},
-    {128,32,128,8,2,4,1,1,2}
+    {64,32,32,16,4,4,1,1,2},
+    {128,32,32,16,2,2,1,1,2},
+    {256,128,128,8,2,4,1,1,2},
+    {64,64,128,16,4,4,1,1,2},
+    {64,32,64,8,2,2,1,1,2},
+    {64,128,32,8,2,2,1,1,2},
+    {64,32,128,8,2,4,1,1,2},
+    {64,64,64,16,2,4,1,1,2},
+    {64,64,32,8,2,2,1,1,2},
+    {64,128,32,16,2,2,1,1,2},
+    {128,32,64,8,2,2,1,1,2},
+    {128,128,32,16,2,4,1,1,2},
+    {64,32,32,8,2,4,1,1,2},
+    {64,32,64,4,2,2,1,1,2},
+    {256,32,32,16,2,2,1,1,2},
+    {128,64,32,4,2,2,1,1,2}
 };
-// END_CONV_NonAccel_f32_gfx1030_DEFS
+// END_CONV_NonAccel_f32_gfx1000_DEFS
 
 // BEGIN_CONV_NonAccel_f32_gfx1100_DEFS
 const InitParamsNonAccel PopulateParams::initParametersConvGfx1100[PopulateParams::nInitParametersConvGfx1100] = {
@@ -140,10 +152,10 @@ const InitParamsNonAccel PopulateParams::initParametersConvGfx1200[PopulateParam
 
 #ifdef NonAccel_DECLARATIONS_GEN
 
-// BEGIN_GEMM_NonAccel_f32_gfx1030_DECS
-static constexpr size_t nInitParametersGemmGfx1030 = 9;
-static const InitParamsNonAccel initParametersGemmGfx1030[nInitParametersGemmGfx1030];
-// END_GEMM_NonAccel_f32_gfx1030_DECS
+// BEGIN_GEMM_NonAccel_f32_gfx1000_DECS
+static constexpr size_t nInitParametersGemmGfx1000 = 14;
+static const InitParamsNonAccel initParametersGemmGfx1000[nInitParametersGemmGfx1000];
+// END_GEMM_NonAccel_f32_gfx1000_DECS
 
 // BEGIN_GEMM_NonAccel_f32_gfx1100_DECS
 static constexpr size_t nInitParametersGemmGfx1100 = 13;
@@ -155,10 +167,10 @@ static constexpr size_t nInitParametersGemmGfx1200 = 11;
 static const InitParamsNonAccel initParametersGemmGfx1200[nInitParametersGemmGfx1200];
 // END_GEMM_NonAccel_f32_gfx1200_DECS
 
-// BEGIN_CONV_NonAccel_f32_gfx1030_DECS
-static constexpr size_t nInitParametersConvGfx1030 = 17;
-static const InitParamsNonAccel initParametersConvGfx1030[nInitParametersConvGfx1030];
-// END_CONV_NonAccel_f32_gfx1030_DECS
+// BEGIN_CONV_NonAccel_f32_gfx1000_DECS
+static constexpr size_t nInitParametersConvGfx1000 = 24;
+static const InitParamsNonAccel initParametersConvGfx1000[nInitParametersConvGfx1000];
+// END_CONV_NonAccel_f32_gfx1000_DECS
 
 // BEGIN_CONV_NonAccel_f32_gfx1100_DECS
 static constexpr size_t nInitParametersConvGfx1100 = 25;
@@ -1004,23 +1016,27 @@ static const InitParamsAccel initParametersForwardI8ConvGfx950[nInitParametersFo
 
 #ifdef Wmma_DEFINITIONS_GEN
 
-// BEGIN_GEMM_Wmma_f16_gfx1030_DEFS
-const InitParamsAccel PopulateParamsWmma::initParametersFp16GemmGfx1030[PopulateParamsWmma::nInitParametersFp16GemmGfx1030] = {
-    {128,32,64,8,2,4,1,1,2,true,true},
-    {64,32,64,16,2,4,1,1,2,true,true},
-    {128,64,64,16,4,2,1,1,2,true,true},
-    {256,32,32,16,2,2,1,1,2,true,true},
-    {64,32,128,16,4,4,1,1,2,true,true},
-    {64,128,32,16,2,4,1,1,2,true,true},
-    {128,128,128,16,2,4,1,1,2,true,true},
-    {256,128,64,16,4,4,1,1,2,true,true},
-    {128,64,64,4,2,4,1,1,2,true,true},
-    {128,32,64,4,2,4,1,1,2,true,true},
-    {64,64,128,8,4,2,1,1,2,true,true},
-    {64,64,32,8,4,4,1,1,2,true,true},
-    {128,128,32,16,4,2,1,1,2,true,true}
+// BEGIN_GEMM_Wmma_f16_gfx1000_DEFS
+const InitParamsAccel PopulateParamsWmma::initParametersFp16GemmGfx1000[PopulateParamsWmma::nInitParametersFp16GemmGfx1000] = {
+    {64,128,8,64,32,8,1,1,2,true,true},
+    {128,64,8,32,64,8,1,1,2,true,true},
+    {64,128,4,64,64,8,1,1,2,true,true},
+    {64,256,4,64,32,8,1,1,2,true,true},
+    {128,256,8,128,32,8,1,1,2,true,true},
+    {16,32,8,16,16,16,1,1,2,true,true},
+    {128,16,8,32,16,8,1,1,2,true,true},
+    {64,32,8,32,16,8,1,1,2,true,true},
+    {64,32,8,16,16,8,1,1,2,true,true},
+    {16,16,4,16,16,8,1,1,2,true,true},
+    {128,256,2,32,32,8,1,1,2,true,true},
+    {16,128,4,16,128,8,1,1,2,true,true},
+    {16,32,4,16,16,16,1,1,2,true,true},
+    {128,256,4,32,128,8,1,1,2,true,true},
+    {64,32,8,32,32,16,1,1,2,true,true},
+    {128,64,2,64,64,16,1,1,2,true,true},
+    {128,64,2,32,64,8,1,1,2,true,true}
 };
-// END_GEMM_Wmma_f16_gfx1030_DEFS
+// END_GEMM_Wmma_f16_gfx1000_DEFS
 
 // BEGIN_GEMM_Wmma_f16_gfx1100_DEFS
 const InitParamsAccel PopulateParamsWmma::initParametersFp16GemmGfx1100[PopulateParamsWmma::nInitParametersFp16GemmGfx1100] = {
@@ -1079,21 +1095,36 @@ const InitParamsAccel PopulateParamsWmma::initParametersFp16GemmGfx1200[Populate
 };
 // END_GEMM_Wmma_f16_gfx1200_DEFS
 
-// BEGIN_CONV_Wmma_f16_gfx1030_DEFS
-const InitParamsAccel PopulateParamsWmma::initParametersFp16ConvGfx1030[PopulateParamsWmma::nInitParametersFp16ConvGfx1030] = {
-    {128,64,64,16,2,4,1,1,2,true,true},
-    {128,64,64,16,4,4,1,1,2,true,true},
-    {128,64,64,16,4,2,1,1,2,true,true},
-    {64,32,32,16,2,2,1,1,2,true,true},
-    {128,32,32,16,2,4,1,1,2,true,true},
-    {128,32,32,8,2,4,1,1,2,true,true},
-    {256,32,32,16,2,2,1,1,2,true,true},
-    {128,32,128,16,2,4,1,1,2,true,true},
-    {64,64,64,4,2,4,1,1,2,true,true},
-    {256,128,64,4,2,4,1,1,2,true,true},
-    {64,32,64,8,2,2,1,1,2,true,true}
+// BEGIN_CONV_Wmma_f16_gfx1000_DEFS
+const InitParamsAccel PopulateParamsWmma::initParametersFp16ConvGfx1000[PopulateParamsWmma::nInitParametersFp16ConvGfx1000] = {
+    {128,64,8,32,64,8,1,1,2,true,true},
+    {64,128,8,64,32,8,1,1,2,true,true},
+    {128,128,4,64,64,8,1,1,2,true,true},
+    {256,128,8,128,32,8,1,1,2,true,true},
+    {64,128,4,32,64,8,1,1,2,true,true},
+    {64,256,2,64,64,8,1,1,2,true,true},
+    {256,64,2,64,64,8,1,1,2,true,true},
+    {256,256,8,64,32,8,1,1,2,true,true},
+    {64,32,8,32,32,8,1,1,2,true,true},
+    {64,64,4,32,32,8,1,1,2,true,true},
+    {128,32,2,32,32,8,1,1,2,true,true},
+    {128,16,8,32,16,8,1,1,2,true,true},
+    {128,128,2,32,32,8,1,1,2,true,true},
+    {64,16,8,16,16,8,1,1,2,true,true},
+    {128,64,2,64,32,8,1,1,2,true,true},
+    {16,128,8,16,16,8,1,1,2,true,true},
+    {128,256,4,64,32,8,1,1,2,true,true},
+    {256,128,4,32,64,8,1,1,2,true,true},
+    {128,256,2,64,32,8,1,1,2,true,true},
+    {32,128,2,32,32,8,1,1,2,true,true},
+    {64,16,8,16,16,16,1,1,2,true,true},
+    {16,16,8,16,16,8,1,1,2,true,true},
+    {16,16,4,16,16,8,1,1,2,true,true},
+    {128,256,8,128,16,8,1,1,2,true,true},
+    {16,32,4,16,16,16,1,1,2,true,true},
+    {16,32,4,16,32,8,1,1,2,true,true}
 };
-// END_CONV_Wmma_f16_gfx1030_DEFS
+// END_CONV_Wmma_f16_gfx1000_DEFS
 
 // BEGIN_CONV_Wmma_f16_gfx1100_DEFS
 const InitParamsAccel PopulateParamsWmma::initParametersFp16ConvGfx1100[PopulateParamsWmma::nInitParametersFp16ConvGfx1100] = {
@@ -1161,8 +1192,8 @@ const InitParamsAccel PopulateParamsWmma::initParametersFp16ConvGfx1200[Populate
 };
 // END_CONV_Wmma_f16_gfx1200_DEFS
 
-// BEGIN_GEMM_Wmma_fp8_gfx1030_DEFS
-const InitParamsAccel PopulateParamsWmma::initParametersFp8GemmGfx1030[PopulateParamsWmma::nInitParametersFp8GemmGfx1030] = {
+// BEGIN_GEMM_Wmma_fp8_gfx1000_DEFS
+const InitParamsAccel PopulateParamsWmma::initParametersFp8GemmGfx1000[PopulateParamsWmma::nInitParametersFp8GemmGfx1000] = {
     {128,128,4,32,64,16,1,1,2,true,true},
     {128,64,4,32,64,16,1,1,2,true,true},
     {128,128,8,32,64,16,1,1,2,true,true},
@@ -1182,7 +1213,7 @@ const InitParamsAccel PopulateParamsWmma::initParametersFp8GemmGfx1030[PopulateP
     {64,16,8,16,16,16,1,1,2,true,true},
     {128,128,4,32,16,8,1,1,2,true,true}
 };
-// END_GEMM_Wmma_fp8_gfx1030_DEFS
+// END_GEMM_Wmma_fp8_gfx1000_DEFS
 
 // BEGIN_GEMM_Wmma_fp8_gfx1100_DEFS
 const InitParamsAccel PopulateParamsWmma::initParametersFp8GemmGfx1100[PopulateParamsWmma::nInitParametersFp8GemmGfx1100] = {
@@ -1230,8 +1261,8 @@ const InitParamsAccel PopulateParamsWmma::initParametersFp8GemmGfx1200[PopulateP
 };
 // END_GEMM_Wmma_fp8_gfx1200_DEFS
 
-// BEGIN_CONV_Wmma_fp8_gfx1030_DEFS
-const InitParamsAccel PopulateParamsWmma::initParametersForwardFp8ConvGfx1030[PopulateParamsWmma::nInitParametersForwardFp8ConvGfx1030] = {
+// BEGIN_CONV_Wmma_fp8_gfx1000_DEFS
+const InitParamsAccel PopulateParamsWmma::initParametersForwardFp8ConvGfx1000[PopulateParamsWmma::nInitParametersForwardFp8ConvGfx1000] = {
     {128,64,8,64,32,16,1,1,2,true,true},
     {128,128,4,32,64,16,1,1,2,true,true},
     {128,128,8,32,64,8,1,1,2,true,true},
@@ -1254,7 +1285,7 @@ const InitParamsAccel PopulateParamsWmma::initParametersForwardFp8ConvGfx1030[Po
     {16,32,4,16,32,16,1,1,2,true,true},
     {16,64,8,16,64,16,1,1,2,true,true}
 };
-// END_CONV_Wmma_fp8_gfx1030_DEFS
+// END_CONV_Wmma_fp8_gfx1000_DEFS
 
 // BEGIN_CONV_Wmma_fp8_gfx1100_DEFS
 const InitParamsAccel PopulateParamsWmma::initParametersForwardFp8ConvGfx1100[PopulateParamsWmma::nInitParametersForwardFp8ConvGfx1100] = {
@@ -1308,16 +1339,25 @@ const InitParamsAccel PopulateParamsWmma::initParametersForwardFp8ConvGfx1200[Po
 };
 // END_CONV_Wmma_fp8_gfx1200_DEFS
 
-// BEGIN_GEMM_Wmma_i8_gfx1030_DEFS
-const InitParamsAccel PopulateParamsWmma::initParametersI8GemmGfx1030[PopulateParamsWmma::nInitParametersI8GemmGfx1030] = {
-    {256,64,64,16,4,2,1,1,2,true,true},
-    {256,64,32,16,4,2,1,1,2,true,true},
-    {64,64,32,16,4,4,1,1,2,true,true},
-    {64,32,32,4,4,4,1,1,2,true,true},
-    {64,64,32,8,2,4,1,1,2,true,true},
-    {64,128,32,4,2,4,1,1,2,true,true}
+// BEGIN_GEMM_Wmma_i8_gfx1000_DEFS
+const InitParamsAccel PopulateParamsWmma::initParametersI8GemmGfx1000[PopulateParamsWmma::nInitParametersI8GemmGfx1000] = {
+    {128,128,4,64,64,16,1,1,2,true,true},
+    {128,64,8,32,64,16,1,1,2,true,true},
+    {64,16,8,16,16,16,1,1,2,true,true},
+    {16,128,8,16,16,16,1,1,2,true,true},
+    {64,256,4,64,64,8,1,1,2,true,true},
+    {64,32,4,16,32,16,1,1,2,true,true},
+    {64,64,4,16,32,16,1,1,2,true,true},
+    {64,128,8,64,32,16,1,1,2,true,true},
+    {128,128,4,128,16,16,1,1,2,true,true},
+    {256,32,2,64,32,16,1,1,2,true,true},
+    {256,128,2,128,32,16,1,1,2,true,true},
+    {16,32,4,16,16,8,1,1,2,true,true},
+    {16,16,4,16,16,8,1,1,2,true,true},
+    {256,128,4,16,128,16,1,1,2,true,true},
+    {256,256,8,128,32,8,1,1,2,true,true}
 };
-// END_GEMM_Wmma_i8_gfx1030_DEFS
+// END_GEMM_Wmma_i8_gfx1000_DEFS
 
 // BEGIN_GEMM_Wmma_i8_gfx1100_DEFS
 const InitParamsAccel PopulateParamsWmma::initParametersI8GemmGfx1100[PopulateParamsWmma::nInitParametersI8GemmGfx1100] = {
@@ -1347,13 +1387,21 @@ const InitParamsAccel PopulateParamsWmma::initParametersI8GemmGfx1200[PopulatePa
 };
 // END_GEMM_Wmma_i8_gfx1200_DEFS
 
-// BEGIN_CONV_Wmma_i8_gfx1030_DEFS
-const InitParamsAccel PopulateParamsWmma::initParametersForwardI8ConvGfx1030[PopulateParamsWmma::nInitParametersForwardI8ConvGfx1030] = {
-    {128,32,32,16,2,4,1,1,2,true,true},
-    {128,32,32,8,2,4,1,1,2,true,true},
-    {128,128,32,4,4,4,1,1,2,true,true}
+// BEGIN_CONV_Wmma_i8_gfx1000_DEFS
+const InitParamsAccel PopulateParamsWmma::initParametersForwardI8ConvGfx1000[PopulateParamsWmma::nInitParametersForwardI8ConvGfx1000] = {
+    {128,64,8,32,64,16,1,1,2,true,true},
+    {256,64,8,32,64,16,1,1,2,true,true},
+    {128,32,4,64,16,16,1,1,2,true,true},
+    {32,64,4,16,64,16,1,1,2,true,true},
+    {64,64,4,64,16,16,1,1,2,true,true},
+    {128,128,2,128,32,16,1,1,2,true,true},
+    {256,128,2,128,32,16,1,1,2,true,true},
+    {64,16,8,32,16,16,1,1,2,true,true},
+    {128,128,4,128,16,16,1,1,2,true,true},
+    {32,256,4,32,16,4,1,1,2,true,true},
+    {256,32,8,32,16,4,1,1,2,true,true}
 };
-// END_CONV_Wmma_i8_gfx1030_DEFS
+// END_CONV_Wmma_i8_gfx1000_DEFS
 
 // BEGIN_CONV_Wmma_i8_gfx1100_DEFS
 const InitParamsAccel PopulateParamsWmma::initParametersForwardI8ConvGfx1100[PopulateParamsWmma::nInitParametersForwardI8ConvGfx1100] = {
@@ -1401,10 +1449,10 @@ const InitParamsAccel PopulateParamsWmma::initParametersForwardI8ConvGfx1200[Pop
 
 #ifdef Wmma_DECLARATIONS_GEN
 
-// BEGIN_GEMM_Wmma_f16_gfx1030_DECS
-static constexpr size_t nInitParametersFp16GemmGfx1030 = 13;
-static const InitParamsAccel initParametersFp16GemmGfx1030[nInitParametersFp16GemmGfx1030];
-// END_GEMM_Wmma_f16_gfx1030_DECS
+// BEGIN_GEMM_Wmma_f16_gfx1000_DECS
+static constexpr size_t nInitParametersFp16GemmGfx1000 = 17;
+static const InitParamsAccel initParametersFp16GemmGfx1000[nInitParametersFp16GemmGfx1000];
+// END_GEMM_Wmma_f16_gfx1000_DECS
 
 // BEGIN_GEMM_Wmma_f16_gfx1100_DECS
 static constexpr size_t nInitParametersFp16GemmGfx1100 = 21;
@@ -1416,10 +1464,10 @@ static constexpr size_t nInitParametersFp16GemmGfx1200 = 26;
 static const InitParamsAccel initParametersFp16GemmGfx1200[nInitParametersFp16GemmGfx1200];
 // END_GEMM_Wmma_f16_gfx1200_DECS
 
-// BEGIN_CONV_Wmma_f16_gfx1030_DECS
-static constexpr size_t nInitParametersFp16ConvGfx1030 = 11;
-static const InitParamsAccel initParametersFp16ConvGfx1030[nInitParametersFp16ConvGfx1030];
-// END_CONV_Wmma_f16_gfx1030_DECS
+// BEGIN_CONV_Wmma_f16_gfx1000_DECS
+static constexpr size_t nInitParametersFp16ConvGfx1000 = 26;
+static const InitParamsAccel initParametersFp16ConvGfx1000[nInitParametersFp16ConvGfx1000];
+// END_CONV_Wmma_f16_gfx1000_DECS
 
 // BEGIN_CONV_Wmma_f16_gfx1100_DECS
 static constexpr size_t nInitParametersFp16ConvGfx1100 = 27;
@@ -1431,10 +1479,10 @@ static constexpr size_t nInitParametersFp16ConvGfx1200 = 29;
 static const InitParamsAccel initParametersFp16ConvGfx1200[nInitParametersFp16ConvGfx1200];
 // END_CONV_Wmma_f16_gfx1200_DECS
 
-// BEGIN_GEMM_Wmma_fp8_gfx1030_DECS
-static constexpr size_t nInitParametersFp8GemmGfx1030 = 18;
-static const InitParamsAccel initParametersFp8GemmGfx1030[nInitParametersFp8GemmGfx1030];
-// END_GEMM_Wmma_fp8_gfx1030_DECS
+// BEGIN_GEMM_Wmma_fp8_gfx1000_DECS
+static constexpr size_t nInitParametersFp8GemmGfx1000 = 18;
+static const InitParamsAccel initParametersFp8GemmGfx1000[nInitParametersFp8GemmGfx1000];
+// END_GEMM_Wmma_fp8_gfx1000_DECS
 
 // BEGIN_GEMM_Wmma_fp8_gfx1100_DECS
 static constexpr size_t nInitParametersFp8GemmGfx1100 = 18;
@@ -1446,10 +1494,10 @@ static constexpr size_t nInitParametersFp8GemmGfx1200 = 18;
 static const InitParamsAccel initParametersFp8GemmGfx1200[nInitParametersFp8GemmGfx1200];
 // END_GEMM_Wmma_fp8_gfx1200_DECS
 
-// BEGIN_CONV_Wmma_fp8_gfx1030_DECS
-static constexpr size_t nInitParametersForwardFp8ConvGfx1030 = 21;
-static const InitParamsAccel initParametersForwardFp8ConvGfx1030[nInitParametersForwardFp8ConvGfx1030];
-// END_CONV_Wmma_fp8_gfx1030_DECS
+// BEGIN_CONV_Wmma_fp8_gfx1000_DECS
+static constexpr size_t nInitParametersForwardFp8ConvGfx1000 = 21;
+static const InitParamsAccel initParametersForwardFp8ConvGfx1000[nInitParametersForwardFp8ConvGfx1000];
+// END_CONV_Wmma_fp8_gfx1000_DECS
 
 // BEGIN_CONV_Wmma_fp8_gfx1100_DECS
 static constexpr size_t nInitParametersForwardFp8ConvGfx1100 = 21;
@@ -1461,10 +1509,10 @@ static constexpr size_t nInitParametersForwardFp8ConvGfx1200 = 21;
 static const InitParamsAccel initParametersForwardFp8ConvGfx1200[nInitParametersForwardFp8ConvGfx1200];
 // END_CONV_Wmma_fp8_gfx1200_DECS
 
-// BEGIN_GEMM_Wmma_i8_gfx1030_DECS
-static constexpr size_t nInitParametersI8GemmGfx1030 = 6;
-static const InitParamsAccel initParametersI8GemmGfx1030[nInitParametersI8GemmGfx1030];
-// END_GEMM_Wmma_i8_gfx1030_DECS
+// BEGIN_GEMM_Wmma_i8_gfx1000_DECS
+static constexpr size_t nInitParametersI8GemmGfx1000 = 15;
+static const InitParamsAccel initParametersI8GemmGfx1000[nInitParametersI8GemmGfx1000];
+// END_GEMM_Wmma_i8_gfx1000_DECS
 
 // BEGIN_GEMM_Wmma_i8_gfx1100_DECS
 static constexpr size_t nInitParametersI8GemmGfx1100 = 9;
@@ -1476,10 +1524,10 @@ static constexpr size_t nInitParametersI8GemmGfx1200 = 9;
 static const InitParamsAccel initParametersI8GemmGfx1200[nInitParametersI8GemmGfx1200];
 // END_GEMM_Wmma_i8_gfx1200_DECS
 
-// BEGIN_CONV_Wmma_i8_gfx1030_DECS
-static constexpr size_t nInitParametersForwardI8ConvGfx1030 = 3;
-static const InitParamsAccel initParametersForwardI8ConvGfx1030[nInitParametersForwardI8ConvGfx1030];
-// END_CONV_Wmma_i8_gfx1030_DECS
+// BEGIN_CONV_Wmma_i8_gfx1000_DECS
+static constexpr size_t nInitParametersForwardI8ConvGfx1000 = 11;
+static const InitParamsAccel initParametersForwardI8ConvGfx1000[nInitParametersForwardI8ConvGfx1000];
+// END_CONV_Wmma_i8_gfx1000_DECS
 
 // BEGIN_CONV_Wmma_i8_gfx1100_DECS
 static constexpr size_t nInitParametersForwardI8ConvGfx1100 = 13;
