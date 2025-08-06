@@ -1,6 +1,5 @@
 add_rocmlir_dialect_library(MLIRRockUtility
   AccelEmitter.cpp
-  AmdArchDb.cpp
   builderUtils.cpp
   loweringUtils.cpp
   transformMapUtils.cpp

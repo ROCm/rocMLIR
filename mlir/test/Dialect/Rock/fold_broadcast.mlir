@@ -20,7 +20,7 @@ func.func @mlir_dot_add_1(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
   // CHECK: %[[foldC:.*]] = rock.transform %[[alloc]] by {{.*}} : tensor<4x8x32xf16> to tensor<32x32xf16>
   // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] * %[[unbroadcastB]] {{.*}} : tensor<32x32xf16> = tensor<32x16xf16> * tensor<16x32xf16>
   // CHECK: %[[untransform:.*]] = rock.tensor_untransform_cast %[[gemmOut]] aka %[[foldC]] : tensor<32x32xf16> to tensor<4x8x32xf16>
-  %5 = rock.gemm %4 = %arg1 * %3 features =  none storeMethod =  set {arch = ""} : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
+  %5 = rock.gemm %4 = %arg1 * %3 features =  none storeMethod =  set : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
   %6 = tensor.empty() : tensor<4x8x32xf16>
   // CHECK: linalg.generic {{.*}} ins(%[[untransform]], {{.*}}, {{.*}})
   %7 = linalg.generic {indexing_maps = [#map3, #map3, #map3], iterator_types = ["parallel", "parallel", "parallel"]} ins(%5, %1 : tensor<4x8x32xf16>, tensor<4x8x32xf16>) outs(%6 : tensor<4x8x32xf16>) {
@@ -50,9 +50,9 @@ func.func @mlir_dot_add_2(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
   // CHECK: %[[foldA:.*]] = rock.transform %arg1 by {{.*}} : tensor<4x8x16xf16> to tensor<32x16xf16>
   // CHECK: %[[unbroadcastB:.*]] = rock.transform {{.*}} by {{.*}} : tensor<4x16x32xf16> to tensor<16x32xf16>
   // CHECK: %[[foldC:.*]] = rock.transform %[[alloc]] by {{.*}} : tensor<4x8x32xf16> to tensor<32x32xf16>
-  // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] * %[[unbroadcastB]] features =  none storeMethod =  set {arch = "", perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<32x32xf16> = tensor<32x16xf16> * tensor<16x32xf16>
+  // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] * %[[unbroadcastB]] features =  none storeMethod =  set {perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<32x32xf16> = tensor<32x16xf16> * tensor<16x32xf16>
   // CHECK: %[[untransform:.*]] = rock.tensor_untransform_cast %[[gemmOut]] aka %[[foldC]] : tensor<32x32xf16> to tensor<4x8x32xf16>
-  %5 = rock.gemm %4 = %arg1 * %p features =  none storeMethod =  set {arch = "", perf_config="v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
+  %5 = rock.gemm %4 = %arg1 * %p features =  none storeMethod =  set {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
   %6 = tensor.empty() : tensor<4x8x32xf16>
   // CHECK: linalg.generic {{.*}} ins(%[[untransform]], {{.*}}, {{.*}})
   %7 = linalg.generic {indexing_maps = [#map3, #map3, #map3], iterator_types = ["parallel", "parallel", "parallel"]} ins(%5, %1 : tensor<4x8x32xf16>, tensor<4x8x32xf16>) outs(%6 : tensor<4x8x32xf16>) {
@@ -69,7 +69,7 @@ func.func @mlir_dot_add_2(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
 #transform_map7 = #rock.transform_map<#map7 by [<Unmerge{1, 1, 16} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>, <PassThrough ["exp3"] at [3] -> ["dim1"] at [1]>] bounds = [1, 1, 16, 32] -> [16, 32]>
 #transform_map8 = #rock.transform_map<#map8 by [<Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 4, 16, 32] -> [1, 1, 16, 32]>
 #transform_map9 = #rock.transform_map<#map9 by [<Merge{1, 4} ["dim0"] at [0] -> ["dim0", "dim1"] at [0, 1]>, <PassThrough ["dim1", "dim2"] at [1,2] -> ["dim2", "dim3"] at [3,4]>] bounds = [4, 16, 32] -> [1, 4, 16, 32]>
-func.func @mlir_dot_add_3(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "", kernel} {
+func.func @mlir_dot_add_3(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, %arg2: tensor<16x32xf16>) -> tensor<4x8x32xf16> attributes {arch = "gfx1100", kernel} {
   %0 = rock.transform %arg0 by #transform_map : tensor<8x32x1xf16> to tensor<1x8x32xf16>
   %1 = rock.transform %0 by #transform_map1 : tensor<1x8x32xf16> to tensor<4x8x32xf16>
 
@@ -84,7 +84,7 @@ func.func @mlir_dot_add_3(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
   // CHECK: %[[foldC:.*]] = rock.transform %[[alloc]] by {{.*}} : tensor<4x8x32xf16> to tensor<32x32xf16>
   // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] * %[[unbroadcastB]] {{.*}} : tensor<32x32xf16> = tensor<32x16xf16> * tensor<16x32xf16>
   // CHECK: %[[untransform:.*]] = rock.tensor_untransform_cast %[[gemmOut]] aka %[[foldC]] : tensor<32x32xf16> to tensor<4x8x32xf16>
-  %5 = rock.gemm %4 = %arg1 * %p features =  none storeMethod =  set {arch = ""} : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
+  %5 = rock.gemm %4 = %arg1 * %p storeMethod =  set : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
   %6 = tensor.empty() : tensor<4x8x32xf16>
   // CHECK: linalg.generic {{.*}} ins(%[[untransform]], {{.*}}, {{.*}})
   %7 = linalg.generic {indexing_maps = [#map3, #map3, #map3], iterator_types = ["parallel", "parallel", "parallel"]} ins(%5, %1 : tensor<4x8x32xf16>, tensor<4x8x32xf16>) outs(%6 : tensor<4x8x32xf16>) {
@@ -105,7 +105,7 @@ func.func @mlir_dot_broadcastA(%arg0: tensor<1x2x3xf16>, %arg1: tensor<3x3x4xf16
   // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[unbroadcastA]] * %[[foldB]] {{.*}} : tensor<2x12xf16> = tensor<2x3xf16> * tensor<3x12xf16>
   %0 = rock.transform %arg0 by #transform_map10 : tensor<1x2x3xf16> to tensor<3x2x3xf16>
   %1 = bufferization.alloc_tensor() : tensor<3x2x4xf16>
-  %2 = rock.gemm %1 = %0 * %arg1 features =  none storeMethod =  set {arch = "gfx1100", numCU = 42 : i32} : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
+  %2 = rock.gemm %1 = %0 * %arg1 features =  none storeMethod =  set : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
   return %2 : tensor<3x2x4xf16>
 }
 
@@ -119,7 +119,7 @@ func.func @mlir_dot_both_broadcast(%arg0: tensor<1x2x3xf16>, %arg1: tensor<1x3x4
   %0 = rock.transform %arg0 by #transform_map10 : tensor<1x2x3xf16> to tensor<3x2x3xf16>
   %1 = rock.transform %arg1 by #transform_map11 : tensor<1x3x4xf16> to tensor<3x3x4xf16>
   %2 = bufferization.alloc_tensor() : tensor<3x2x4xf16>
-  %3 = rock.gemm %2 = %0 * %1 features =  none storeMethod =  set {arch = "gfx1100", numCU = 42 : i32} : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
+  %3 = rock.gemm %2 = %0 * %1 features =  none storeMethod =  set : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
   return %3 : tensor<3x2x4xf16>
 }
 
@@ -134,6 +134,6 @@ func.func @mlir_dot_broadcastA_addDim(%arg0: tensor<6xf16>, %arg1: tensor<3x3x4x
   %0 = rock.transform %arg0 by #transform_map12 : tensor<6xf16> to tensor<1x2x3xf16>
   %1 = rock.transform %0 by #transform_map10 : tensor<1x2x3xf16> to tensor<3x2x3xf16>
   %2 = bufferization.alloc_tensor() : tensor<3x2x4xf16>
-  %3 = rock.gemm %2 = %1 * %arg1 features =  none storeMethod =  set {arch = "gfx1100", numCU = 42 : i32} : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
+  %3 = rock.gemm %2 = %1 * %arg1 features =  none storeMethod =  set : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
   return %3 : tensor<3x2x4xf16>
 }

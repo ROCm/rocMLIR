@@ -21,11 +21,12 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -2243,9 +2244,18 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0
+           ? b.getI64IntegerAttr(num_cu)
+           : b.getI64IntegerAttr(
+                 rock::lookupArchInfo(archAttr.getValue()).minNumCU));
+  SmallVector<NamedAttribute> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
+
   SmallVector<Type, 3> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
   auto func =
@@ -2272,12 +2282,10 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? b.getI32IntegerAttr(num_cu) : nullptr);
   auto gemm = b.create<rock::GemmOp>(
       loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
-      transposeB, transposeC, archAttr.getValue(), numCUAttr, params.features,
-      storeMethod,
+      transposeB, transposeC,
+      rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
 
   if (!params.perfConfig.empty())
@@ -2789,10 +2797,15 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
-
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
+  SmallVector<NamedAttribute, 3> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_attention");
   auto func = builder.create<func::FuncOp>(
@@ -2851,17 +2864,14 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   keys = broadcastGQARock(builder, loc, keys);
   values = broadcastGQARock(builder, loc, values);
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
-                                      : nullptr);
-
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, transposeQ, transposeK, transposeV,
-      transposeO, causalMasking, archAttr, params.features, softmaxType,
-      numCUAttr,
+      transposeO, causalMasking,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
+      softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
     Block *preSoftmaxElemwiseBlock =
@@ -2953,10 +2963,15 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       getConvElementwiseGemmTypes(argTypes, config, params.types);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
-
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
+  SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_conv_gemm");
   auto func = builder.create<func::FuncOp>(
@@ -2981,10 +2996,6 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   Value output = unflattenedArgs[3];
   SmallVector<Value> elemwiseInputs;
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
-                                      : nullptr);
-
   SmallVector<int64_t, 8> pad;
   for (const auto &[left, right] :
        zip(config->paddingLeftDims, config->paddingRightDims)) {
@@ -2993,7 +3004,8 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   }
   auto convElntGemm = builder.create<rock::ConvElementwiseGemmOp>(
       loc, TypeRange{}, filter, input, c, elemwiseInputs, output, transposeC,
-      transposeO, archAttr, params.features, numCUAttr,
+      transposeO,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       builder.getIndexArrayAttr(pad),
       builder.getIndexArrayAttr(config->strideDims),
       builder.getIndexArrayAttr(config->dilationDims),
@@ -3060,10 +3072,15 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   getGemmElementwiseGemmTypes(argTypes, params.types);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
-
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
+  SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_gemm_gemm");
   auto func = builder.create<func::FuncOp>(
@@ -3088,12 +3105,10 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   Value output = unflattenedArgs[3];
   SmallVector<Value> elemwiseInputs;
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
-                                      : nullptr);
   auto gemmElntGemm = builder.create<rock::GemmElementwiseGemmOp>(
       loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA, transposeB,
-      transposeC, transposeO, archAttr, params.features, numCUAttr,
+      transposeC, transposeO,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
     Block *preSecondGemmBlock =
@@ -5048,7 +5063,7 @@ int main(int argc, char **argv) {
 
   if (emitSplitKSelectionLikelihood) {
     module->walk([](rock::RockGemmWrapperInterface gemmOp) {
-      const int32_t numCU = rock::lookupArchInfo(gemmOp.getArch()).minNumCU;
+      const int32_t numCU = rock::getNumCUValue(gemmOp);
       const rock::GemmSize gemmSize = gemmOp.getGemmSize();
       const auto likelihood = rock::isSplitKFaster(
           gemmSize.g, gemmSize.m, gemmSize.n, gemmSize.k, numCU);

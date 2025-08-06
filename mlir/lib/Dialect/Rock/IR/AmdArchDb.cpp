@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -49,7 +49,7 @@ static constexpr AmdArchInfo
                   GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16,
               /*waveSize=*/64, /*maxWavesPerEU*/ 10, /*totalSGPRPerEU*/ 512,
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
-              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/228,
+              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
               /*hasFp8ConversionInstrs=*/true,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/8),
     cdna35Info(GemmFeatures::mfma | GemmFeatures::dot |
@@ -140,7 +140,14 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
 GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   GemmFeatures theseFeatures = defaultFeatures;
   bool isWmma = bitEnumContainsAll(theseFeatures, GemmFeatures::wmma);
+
+  // Get the underlying element type of the dataType. We may have to do this
+  // recursively if the initial dataType is a nested vector.
   Type elementType = getElementTypeOrSelf(dataType);
+  while (isa<ShapedType>(elementType)) {
+    elementType = getElementTypeOrSelf(elementType);
+  }
+
   if (isWmma) {
     if (!(isa<Float16Type, BFloat16Type>(elementType) ||
           elementType.isInteger(8) ||

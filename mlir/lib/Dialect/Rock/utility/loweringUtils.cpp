@@ -8,7 +8,8 @@
 
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
@@ -40,10 +41,6 @@ bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, Type dataType,
   return isAccel(features) &&
          bitEnumContainsAll(features, GemmFeatures::atomic_add) &&
          (dataType.isF32() || dataType.isF16()) && !requiredPadding;
-}
-
-bool mlir::rock::isAccel(GemmFeatures features) {
-  return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
 }
 
 bool mlir::rock::is4GBMemoryType(ShapedType type) {
@@ -678,20 +675,13 @@ mlir::rock::transposeSubTileViews(PatternRewriter &rewriter, Location loc,
   }
 }
 
+// Helper function to get attributes from parents
 template <typename RetAttrType>
-static FailureOr<RetAttrType> getAttrFromOpOrParents(
+FailureOr<RetAttrType> getAttrFromOpOrParents(
     Operation *op, StringRef opAttr,
     std::optional<StringRef> maybeDialectAttr = std::nullopt) {
   StringRef dialectAttr = maybeDialectAttr.value_or(opAttr);
-  Operation *func;
-  if (isa<func::FuncOp, gpu::GPUFuncOp>(op)) {
-    func = op;
-  } else {
-    func = op->getParentOfType<func::FuncOp>();
-    if (!func) {
-      func = op->getParentOfType<gpu::GPUFuncOp>();
-    }
-  }
+  Operation *func = getParentFuncOp(op);
   RetAttrType attr;
   auto getAnyAttr = [&](ArrayRef<StringRef> attrNames, Operation *op) {
     for (StringRef attrName : attrNames) {
@@ -702,48 +692,28 @@ static FailureOr<RetAttrType> getAttrFromOpOrParents(
       }
     }
   };
+
+  // First check for the attribute on the op
   getAnyAttr({opAttr}, op);
   if (!attr) {
+    // If that fails then try checking for the attribute on the func
     getAnyAttr({opAttr, dialectAttr}, func);
   }
+
+  // If there is no desired attribute on the func, then check the nearest parent
+  // with a symbol table (covers both ModuleOp and gpu::GPUModuleOp)
   if (!attr) {
-    auto mod = func->getParentOfType<ModuleOp>();
-    getAnyAttr({opAttr, dialectAttr}, mod);
-  }
-  if (!attr) {
-    if (auto mod = func->getParentOfType<gpu::GPUModuleOp>()) {
-      getAnyAttr({opAttr, dialectAttr}, mod);
+    if (auto symbolTableOp = func->getParentWithTrait<OpTrait::SymbolTable>()) {
+      getAnyAttr({opAttr, dialectAttr}, symbolTableOp);
+      if (attr)
+        return attr;
     }
   }
+
   if (!attr) {
     return failure();
   }
   return attr;
-}
-
-FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
-  return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
-}
-
-FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
-  FailureOr<StringAttr> maybeArch = getArch(op);
-  if (failed(maybeArch)) {
-    return failure();
-  }
-  StringAttr arch = maybeArch.value();
-  FailureOr<IntegerAttr> maybeNumCU =
-      getAttrFromOpOrParents<IntegerAttr>(op, "num_cu");
-  if (failed(maybeNumCU)) {
-    return failure();
-  }
-  IntegerAttr numCU = maybeNumCU.value();
-  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  if (numCU.getValue().getSExtValue() < archInfo.minNumCU) {
-    return op->emitError() << "num_cu=" << numCU
-                           << " cannot be lower than arch minNumCU="
-                           << archInfo.minNumCU;
-  }
-  return numCU.getValue().getSExtValue();
 }
 
 FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {
