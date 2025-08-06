@@ -10,11 +10,12 @@ Usage:
 """
 
 import os
+import sys
 
-newConfigs = "./problem-config-tier-1-models"
-convConfigs = "./configs/tier1-conv-configs"
-gemmConfigs = "./configs/tier1-gemm-configs"
-attentionConfigs = "./configs/tier1-attention-configs"
+newConfigs = "../../mlir/utils/performance/problem-config-tier-1-models"
+convConfigs = "../../mlir/utils/performance/configs/tier1-conv-configs"
+gemmConfigs = "../../mlir/utils/performance/configs/tier1-gemm-configs"
+attentionConfigs = "../../mlir/utils/performance/configs/tier1-attention-configs"
 
 def loadExistingConfigs(filepath):
     """Load existing configs from a file into a set (stripped, ignoring empty lines and comments)."""
@@ -25,12 +26,16 @@ def loadExistingConfigs(filepath):
                 line = line.strip()
                 if line and not line.startswith("#"):
                     configs.add(line)
+    else:
+        print(f"Error: {filepath} does not exist")
+        sys.exit(-1)
+    
     return configs
 
 def detectConfigType(config):
     """Detect config type: returns 'conv', 'gemm', or 'attention'."""
     # Conv configs start with conv, convfp16, convbfp16, convfp8, convint8, etc.
-    if config.startswith(("conv", "convfp16", "convbfp16", "convfp8", "convint8")):
+    if config.startswith("conv"):
         return "conv"
     # Attention configs have -transQ, -transK, -transV, -transO, -seq_len_q, etc.
     if any(flag in config for flag in ["-transQ", "-seq_len_q", "-head_dim_qk"]):
@@ -68,7 +73,8 @@ def main():
                     newAttention.append(config)
                     existingAttention.add(config)
             else:
-                print(f"Warning: Could not determine config type for: {config}")
+                print(f"Error: Could not determine config type for: {config}")
+                sys.exit(-1)
 
     # Append new configs to their respective files
     if newConv:
