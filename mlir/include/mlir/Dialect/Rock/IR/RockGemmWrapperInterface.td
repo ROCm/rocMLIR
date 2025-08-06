@@ -30,20 +30,20 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
   let methods = [
     InterfaceMethod<
         /*desc=*/[{
-          Return the KernelType of this op
+          Return the type from this op that is needed to calculate GemmFeatures
         }],
-        /*retType=*/"::mlir::rock::KernelType",
-        /*methodName=*/"getKernelType",
+        /*retType=*/"SmallVector<::mlir::Type>",
+        /*methodName=*/"getTypesForFeature",
         /*args=*/(ins),
-        /*methodBody=*/"",
+        /*methodBody=*/"return {$_op.getAType()};",
         /*defaultImplementation=*/""
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Return the arch string of this op
+          Return the KernelType of this op
         }],
-        /*retType=*/"StringRef",
-        /*methodName=*/"getArch",
+        /*retType=*/"::mlir::rock::KernelType",
+        /*methodName=*/"getKernelType",
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
@@ -102,9 +102,9 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Return the features attribute of this op.
+          Return the optional features attribute of this op.
         }],
-        /*retType=*/"::mlir::rock::GemmFeatures",
+        /*retType=*/"std::optional<::mlir::rock::GemmFeatures>",
         /*methodName=*/"getGemmFeatures",
         /*args=*/(ins),
         /*methodBody=*/"",
@@ -114,13 +114,15 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
       >,
     InterfaceMethod<
         /*desc=*/[{
-          Return the optional number of Compute Units the GPU provides.
+          Return the features attribute of this op.
         }],
-        /*retType=*/"std::optional<uint32_t>",
-        /*methodName=*/"getNumCU",
+        /*retType=*/"::mlir::rock::GemmFeaturesAttr",
+        /*methodName=*/"getGemmFeaturesAttr",
         /*args=*/(ins),
         /*methodBody=*/"",
-        /*defaultImplementation=*/ ""
+        /*defaultImplementation=*/[{
+          return $_op.getFeaturesAttr();
+        }]
       >,
 
     /// Setters for tuning-related data

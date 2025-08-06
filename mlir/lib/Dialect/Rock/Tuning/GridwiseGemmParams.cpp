@@ -1,6 +1,8 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/ConvolutionDims.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
@@ -8,7 +10,6 @@
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Support/LogicalResult.h"
@@ -43,12 +44,13 @@ llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
 // clang-format on
 
 PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
-  PopulateParamsInfo info{op.getGemmSize(), op.getArch(),  op.getGemmFeatures(),
-                          op.getAType(),    op.getBType(), op.getKernelType()};
+  PopulateParamsInfo info{op.getGemmSize(),      rock::getArchValue(op),
+                          rock::getFeatures(op), op.getAType(),
+                          op.getBType(),         op.getKernelType()};
 
   if (auto convOp = dyn_cast<ConvBwdWeightOp>(*op)) {
     auto convDims = ConvolutionDims::fromOp(op);
-    info.numCu = convOp.getNumCU();
+    info.numCu = rock::getNumCUValue(convOp);
     info.batchSize = convDims.n;
   }
   func::FuncOp func = op->getParentOfType<func::FuncOp>();

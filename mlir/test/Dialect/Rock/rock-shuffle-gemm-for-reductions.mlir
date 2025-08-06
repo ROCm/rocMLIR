@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt -rock-shuffle-gemm-for-reductions -mlir-print-local-scope %s | FileCheck %s
 
 // CHECK-LABEL: @mlir_convolution_multi_reduce
-func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32>, %arg5: memref<2621440xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, kernel = "mixr"} {
+func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32>, %arg5: memref<2621440xf32>) attributes {arch = "gfx942:sramecc+:xnack-", block_size = 256 : i32, grid_size = 320 : i32, kernel = "mixr", numCU = 228 : i32} {
   %cst = arith.constant 2.44140629E-5 : f32
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3, d4) -> (d0 * 10 + d1 + d2 + d3 + d4)> by [<Unmerge{32, 10, 1, 1, 1} ["exp0", "exp1", "exp2", "exp3", "exp4"] at [0, 1, 2, 3, 4] -> ["dim0"] at [0]>] bounds = [32, 10, 1, 1, 1] -> [320]> : memref<320xf32> to memref<32x10x1x1x1xf32>
   %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3, d4) -> (d1, d2, d3, d4, d0)> by [<PassThrough ["dim4", "dim0", "dim1", "dim2", "dim3"] at [0, 1, 2, 3, 4] -> ["dim4", "dim0", "dim1", "dim2", "dim3"] at [4, 0, 1, 2, 3]>] bounds = [1, 32, 10, 1, 1] -> [32, 10, 1, 1, 1]> : memref<32x10x1x1x1xf32> to memref<1x32x10x1x1xf32>
@@ -34,7 +34,7 @@ func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<3
   // CHECK: %[[GEMM_OUT_C_TR3:.+]] = rock.transform %[[GEMM_OUT_C_TR2]] by <affine_map<(d0, d1, d2) -> (d0, d1 floordiv 64, (d1 mod 64) floordiv 2, d1 mod 2, d2 floordiv 256, (d2 mod 256) floordiv 128, d2 mod 128)> by [<PassThrough ["G"] at [0] -> ["G"] at [0]>, <Merge{5, 32, 2} ["M"] at [1] -> ["m_rh", "m_nr", "m_rl"] at [1, 2, 3]>, <Merge{32, 2, 128} ["N"] at [2] -> ["n_rh", "n_nr", "n_rl"] at [4, 5, 6]>] bounds = [1, 320, 8192] -> [1, 5, 32, 2, 32, 2, 128]> : memref<1x5x32x2x32x2x128xf32> to memref<1x320x8192xf32>
   %13 = rock.transform %8 by <affine_map<(d0, d1, d2) -> (d2 floordiv 4096, d0, d1, (d2 mod 4096) floordiv 64, d2 mod 64)> by [<PassThrough ["gemmG"] at [0] -> ["go"] at [1]>, <PassThrough ["gemmM"] at [1] -> ["ko"] at [2]>, <Merge{2, 64, 64} ["gemmN"] at [2] -> ["no", "0o", "1o"] at [0, 3, 4]>] bounds = [1, 320, 8192] -> [2, 1, 320, 64, 64]> : memref<2x1x320x64x64xf32> to memref<1x320x8192xf32>
   // CHECK: rock.gridwise_gemm_accel(%[[GEMM_IN_A_TR3]], %[[GEMM_IN_B_TR3]], %[[GEMM_OUT_C_TR3]])
-  rock.gridwise_gemm_accel(%9, %12, %13) storeMethod( set) features =  mfma|dot|atomic_add|atomic_add_f16 {arch = "gfx942:sramecc+:xnack-", blockSize = 256 : i32, gridSize = 320 : i32, numCU = 228 : i32, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 128, kpack = 1, mPerWave = 64, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x36x320xf32>, memref<1x36x8192xf32>, memref<1x320x8192xf32>
+  rock.gridwise_gemm_accel(%9, %12, %13) storeMethod( set) {blockSize = 256 : i32, gridSize = 320 : i32, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 128, kpack = 1, mPerWave = 64, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x36x320xf32>, memref<1x36x8192xf32>, memref<1x320x8192xf32>
   %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<2x32x10x64x64xf32>
   %alloc_1 = memref.alloc() : memref<2621440xf32>
   %14 = rock.transform %alloc_1 by <affine_map<(d0, d1, d2, d3, d4) -> ((((d0 * 32 + d1) * 10 + d2) * 64 + d3) * 64 + d4)> by [<Unmerge{2, 32, 10, 64, 64} ["col0", "col1", "col2", "col3", "col4"] at [0, 1, 2, 3, 4] -> ["dim0"] at [0]>] bounds = [2, 32, 10, 64, 64] -> [2621440]> : memref<2621440xf32> to memref<2x32x10x64x64xf32>
@@ -57,7 +57,7 @@ func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<3
   }
   %alloc_5 = memref.alloc() : memref<64xf32>
   %16 = rock.transform %alloc_5 by <affine_map<(d0, d1, d2) -> (d0 * 32 + d1 + d2)> by [<Unmerge{2, 32, 1} ["col0", "col1", "col2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [2, 32, 1] -> [64]> : memref<64xf32> to memref<2x32x1xf32>
-  rock.reduce  sum %alloc_4 into %16 features =  mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960xf32> into memref<2x32x1xf32>
+  rock.reduce  sum %alloc_4 into %16 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960xf32> into memref<2x32x1xf32>
   %alloc_6 = memref.alloc() : memref<2x32x40960xf32>
   %17 = rock.transform %alloc_6 by <affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, (d2 * 64 + d3) * 64 + d4)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Unmerge{10, 64, 64} ["col2", "col3", "col4"] at [2, 3, 4] -> ["dim2"] at [2]>] bounds = [2, 32, 10, 64, 64] -> [2, 32, 40960]> : memref<2x32x40960xf32> to memref<2x32x10x64x64xf32>
   linalg.generic {indexing_maps = [affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>, affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel"]} ins(%alloc_3 : memref<2x32x10x64x64xf32>) outs(%17 : memref<2x32x10x64x64xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
@@ -68,7 +68,7 @@ func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<3
   }
   %alloc_7 = memref.alloc() : memref<64xf32>
   %18 = rock.transform %alloc_7 by <affine_map<(d0, d1, d2) -> (d0 * 32 + d1 + d2)> by [<Unmerge{2, 32, 1} ["col0", "col1", "col2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [2, 32, 1] -> [64]> : memref<64xf32> to memref<2x32x1xf32>
-  rock.reduce  sum %alloc_6 into %18 features =  mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960xf32> into memref<2x32x1xf32>
+  rock.reduce  sum %alloc_6 into %18 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960xf32> into memref<2x32x1xf32>
   memref.copy %alloc_5, %arg3 : memref<64xf32> to memref<64xf32>
   memref.copy %alloc_7, %arg4 : memref<64xf32> to memref<64xf32>
   memref.copy %alloc_1, %arg5 : memref<2621440xf32> to memref<2621440xf32>

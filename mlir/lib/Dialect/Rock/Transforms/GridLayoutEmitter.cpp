@@ -21,7 +21,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 
 #include "llvm/Support/Debug.h"

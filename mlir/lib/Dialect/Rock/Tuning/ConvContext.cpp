@@ -1,9 +1,11 @@
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
@@ -72,11 +74,10 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
   // XXX: Do we need these, especially since we're not actually serializing
   // anything to sqlite?
   if (opType == ConvOpType::BwdWeight) {
-    assert(op->hasAttrOfType<IntegerAttr>("numCU"));
+    assert(succeeded(rock::getNumCU(op)));
   }
-  auto archVal = op->getAttrOfType<StringAttr>("arch").getValue();
-  int numCu = getOptionalIntAttribute(op, "numCU",
-                                      rock::lookupArchInfo(archVal).minNumCU);
+  auto archVal = llvm::SmallString<8>(rock::getArchValue(op));
+  int numCu = rock::getNumCUValue(op);
   int gemmId = getOptionalIntAttribute(op, "gemmId", 0);
 
   llvm::StringMap<DimIndexAndSize> dimIndexAndSize;
@@ -111,9 +112,8 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
 
 ConvolutionContext
 mlir::rock::populateConvContextFromConvGemm(ConvElementwiseGemmOp op) {
-  auto archVal = op->getAttrOfType<StringAttr>("arch").getValue();
-  int numCu = getOptionalIntAttribute(op, "numCU",
-                                      rock::lookupArchInfo(archVal).minNumCU);
+  auto archVal = llvm::SmallString<8>(rock::getArchValue(op));
+  int numCu = rock::getNumCUValue(op);
   int gemmId = getOptionalIntAttribute(op, "gemmId", 0);
 
   llvm::StringMap<DimIndexAndSize> dimIndexAndSize;

@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
@@ -150,7 +151,7 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
           auto outElementType =
               cast<ShapedType>(blockArg.getType()).getElementType();
           if (failed(validOutputAtomicAdd(outElementType,
-                                          gemmOp.getGemmFeatures())))
+                                          rock::getFeatures(gemmOp))))
             return WalkResult::interrupt();
         }
 
@@ -186,7 +187,7 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
 
           if (failed(checkValidOutputFusion(
                   cast<linalg::GenericOp>(genericOpOperand->getOwner()),
-                  inputAlloc.value(), gemmOp.getGemmFeatures(), adds)))
+                  inputAlloc.value(), rock::getFeatures(gemmOp), adds)))
             return WalkResult::interrupt();
         }
 
@@ -211,11 +212,11 @@ LogicalResult mlir::rock::testFusionLegalityReduce(func::FuncOp func) {
       if (!isa<Float32Type>(outElemType))
         return WalkResult::interrupt();
 
-      if (!bitEnumContainsAll(reduceOp.getFeatures(),
+      if (!bitEnumContainsAll(rock::getFeatures(func),
                               GemmFeatures::atomic_fmax_f32))
         return WalkResult::interrupt();
     } else {
-      if (failed(validOutputAtomicAdd(outElemType, reduceOp.getFeatures())))
+      if (failed(validOutputAtomicAdd(outElemType, rock::getFeatures(func))))
         return WalkResult::interrupt();
     }
     return WalkResult::advance();

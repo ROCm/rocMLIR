@@ -17,6 +17,8 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -592,8 +594,11 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
   Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType(),
        elemTypeC = gemmOp.getCType();
 
-  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), gemmOp.getArch(),
-                         elemTypeA, elemTypeB, elemTypeC);
+  StringAttr arch = rock::getArchValue(gemmOp);
+  GemmFeatures features = rock::getFeatures(gemmOp);
+
+  return verifyGemmTypes(gemmOp, features, arch, elemTypeA, elemTypeB,
+                         elemTypeC);
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
@@ -603,8 +608,10 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();
 
-  bool isAccel = bitEnumContainsAny(convOp.getFeatures(),
-                                    GemmFeatures::mfma | GemmFeatures::wmma);
+  auto features = rock::getFeatures(gemmOp);
+
+  // Only perform this check for ops that have a feature attribute
+  bool isAccel = rock::isAccel(features);
   if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
@@ -841,8 +848,9 @@ LogicalResult GemmOp::verify() {
     return emitOpError("K dimensions don't match")
            << " k_a = " << kA << " k_b = " << kB;
 
-  bool isXdlops = bitEnumContainsAll(getFeatures(), GemmFeatures::mfma);
-  bool isWmma = bitEnumContainsAll(getFeatures(), GemmFeatures::wmma);
+  auto features = rock::getFeatures(this->getOperation());
+  bool isXdlops = bitEnumContainsAll(features, GemmFeatures::mfma);
+  bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isXdlops &&
         !isa<XdlopsGemmParamsAttr, XdlopsGemmDerivedParamsAttr>(params))
@@ -902,8 +910,8 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
        cElem = cType.getElementType();
 
-  if (failed(
-          verifyGemmTypes(op, op.getFeatures(), "gfx00", aElem, bElem, cElem)))
+  if (failed(verifyGemmTypes(op, rock::getFeatures(op), "gfx00", aElem, bElem,
+                             cElem)))
     return failure();
   if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
@@ -1712,10 +1720,11 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
   if (!getAcceptingViewOperands().contains(&operand)) {
     return getOperation();
   }
+
   // Only one operand supports view
   auto newOp = builder.create<ThreadwiseWriteAllOp>(
       getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
-      getFeatures(), getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
+      getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
 }
 

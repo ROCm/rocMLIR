@@ -22,14 +22,15 @@
 #include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -139,7 +140,7 @@ static LogicalResult commonAttentionGemmElmtGemm(
   if (!isa<MemRefType>(op.getAType()))
     return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
-  bool isAccel = rock::isAccel(op.getGemmFeatures());
+  bool isAccel = rock::isAccel(rock::getFeatures(op));
   if (!isAccel) {
     return op.emitError("Currently, op is only supported on GPUs "
                         "with matrix accelerator extensions");
@@ -212,11 +213,10 @@ static LogicalResult commonAttentionGemmElmtGemm(
   if (gemm0ExtraPad.n) {
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
+
   auto newOp = rw.create<GridwiseAttentionAccelOp>(
       loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
-      rw.getStringAttr(op.getArch()),
-      rw.getAttr<rock::GemmFeaturesAttr>(op.getGemmFeatures()), blockSizeAttr,
-      gridSizeAttr,
+      op.getGemmFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, softmaxType,
       params0, params1, rw.getI32IntegerAttr(op.getFirstGemmIndex()),
       rw.getBoolAttr(enableSoftmax));
@@ -349,13 +349,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
-  IntegerAttr numCUAttr = op.getNumCUAttr();
-  if (!numCUAttr) {
-    int64_t minNumCU = rock::lookupArchInfo(op.getArchAttr()).minNumCU;
-    numCUAttr = rw.getI32IntegerAttr(minNumCU);
-  }
 
-  bool isAccel = rock::isAccel(op.getFeatures());
+  bool isAccel = rock::isAccel(rock::getFeatures(op));
 
   if (isAccel && !blockSize)
     return op.emitOpError("block size must be set at lowering");
@@ -366,12 +361,11 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   auto accumulator = getAccumulator(a, b, c, rw, loc);
   if (isAccel) {
     rw.create<GridwiseGemmAccelOp>(
-        loc, a, b, accumulator, op.getArchAttr(), numCUAttr,
-        op.getFeaturesAttr(), op.getStoreMethodAttr(), blockSize, gridSize,
-        cast<RockAccelTuningParamAttrInterface>(params));
+        loc, a, b, accumulator, op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        blockSize, gridSize, cast<RockAccelTuningParamAttrInterface>(params));
   } else {
     rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(),
-                              op.getStoreMethodAttr(), numCUAttr, gridSize,
+                              op.getStoreMethodAttr(), gridSize,
                               cast<GeneralGemmParamsAttr>(params));
   }
 
@@ -543,7 +537,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
                                                   GemmOp op, Value a,
                                                   Value b) const {
-  GemmFeatures features = op.getGemmFeatures();
+  GemmFeatures features = rock::getFeatures(op);
   Attribute params = op.getParams().value();
 
   const auto aShape = cast<MemRefType>(a.getType()).getShape();

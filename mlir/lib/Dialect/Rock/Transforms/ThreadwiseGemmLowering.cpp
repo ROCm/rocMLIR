@@ -24,6 +24,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -256,11 +257,14 @@ struct ThreadwiseAccelGemmRewritePattern
 
     size_t computeIndices = op.getComputeIndices().size();
     auto emitter = rock::accel::AccelEmitter::select(
-        op.getFeatures(), dataTypeA, dataTypeB, op.getArch(), tuningParams);
+        rock::getFeatures(op), dataTypeA, dataTypeB, rock::getArchValue(op),
+        tuningParams);
 
-    if (!emitter)
+    if (!emitter) {
+      llvm::dbgs() << rock::getFeatures(op) << "\n";
       return emitError(loc)
              << "Failed to select any accelerator instruction.\n";
+    }
 
     // Extract relevant accel emitter parameters
     rock::accel::AccelEmitterParams params = emitter->getParams();
@@ -784,7 +788,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     b.setInsertionPointToStart(outLoop.getBody());
     if (dstAddrSpace == gpu::AddressSpace::Global) {
       b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                              op.getFeaturesAttr(), op.getStoreMethodAttr(),
+                              op.getStoreMethodAttr(),
                               outLoop.getLowerCoords(
                                   /*domain=*/0)[extraIdxCount],
                               outLoop.getValidity(/*domain=*/1),
