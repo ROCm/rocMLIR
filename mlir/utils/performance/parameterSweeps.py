@@ -297,8 +297,12 @@ async def dropGoodConfig(config, options: Options, paths: Paths):
             print(f"{result.name}: {multilineRepr(config)}")
     if result == TestResult.FAIL:
         if options.logFailures:
-            with open("failing_attn_configs.txt", "a") as f:
-                f.write(multilineRepr(config) + "\n")
+            if isinstance(config, perfRunner.AttentionConfiguration):
+                with open("failing_attn_configs.txt", "a") as f:
+                    f.write(multilineRepr(config) + "\n")
+            else:
+                with open("failing_conv_configs.txt", "a") as f:
+                    f.write(multilineRepr(config) + "\n")
         return config
     return result
 
@@ -491,6 +495,8 @@ def main() -> bool:
         help='Use xdlops when generating kernels (default off)')
     parser.add_argument('--no-xdlops', '-X', dest='xdlops', action='store_false',
         help='Explicitly disable xdlops usage')
+    parser.add_argument('--log-failures', '-L', action='store_true', default=False,
+        help='Save failures to file')
     parser.add_argument(
         '--codepath',
         type=str,
@@ -536,7 +542,7 @@ def main() -> bool:
             # unknow arch info
             print(f"""Unknown arch {arch}""", file=sys.stderr)
 
-    options = Options(debug=args.debug, quiet=args.quiet,
+    options = Options(debug=args.debug, quiet=args.quiet, logFailures=args.log_failures,
         arch=arch, flags=rocmlir_gen_flags, concurrent_tests=args.jobs, numCu=getNumCU(perfRunner.getChip()))
 
     paths = perfRunner.create_paths(None, args.mlir_build_dir)
