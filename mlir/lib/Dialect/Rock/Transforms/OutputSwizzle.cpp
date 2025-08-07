@@ -19,10 +19,11 @@
 // GPU memory
 //
 //===-----------------------------------------------------===//
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -259,7 +260,7 @@ struct ThreadwiseWriteAllRewritePattern
     b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
                                    /*extraViews=*/idToLDS,
                                    /*extraIndices=*/ValueRange{tid},
-                                   op.getFeatures(), StoreMethod::Set,
+                                   StoreMethod::Set,
                                    /*forceUnroll=*/forceUnroll,
                                    /*useIndexDiffs=*/useIndexDiffs);
 
@@ -397,8 +398,7 @@ struct ThreadwiseWriteAllRewritePattern
     b.replaceOpWithNewOp<ThreadwiseWriteAllOp>(
         op, finalC, matC, idToMatrixCMaps,
         /*extraIndices=*/
-        op.getExtraIndices(), op.getFeatures(), op.getStoreMethod(),
-        forceUnroll, useIndexDiffs);
+        op.getExtraIndices(), op.getStoreMethod(), forceUnroll, useIndexDiffs);
     return success();
   }
 };

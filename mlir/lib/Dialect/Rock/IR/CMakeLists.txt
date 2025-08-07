@@ -1,5 +1,7 @@
 
 add_rocmlir_dialect_library(MLIRRockOps
+  AmdArchDb.cpp
+  GetRockInfo.cpp
   TransformMapBuilder.cpp
   RockDialect.cpp
   RockGemmWrapperInterface.cpp
