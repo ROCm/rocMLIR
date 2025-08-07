@@ -10,7 +10,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
         %1 = arith.extf %arg3 : f16 to f32
         linalg.yield %1 : f32
     }
-    rock.gemm %arg2 = %0 * %arg1 features =  dot|atomic_add|atomic_fmax_f32 storeMethod =  set {arch = "amdgcn-amd-amdhsa:gfx1100"} : memref<1x1x1xf32> = memref<1x1x1xf32> * memref<1x1x1xf32>
+    rock.gemm %arg2 = %0 * %arg1 features =  dot|atomic_add|atomic_fmax_f32 storeMethod =  set : memref<1x1x1xf32> = memref<1x1x1xf32> * memref<1x1x1xf32>
     return
   }
 }

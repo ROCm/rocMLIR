@@ -1,7 +1,7 @@
 // RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt -split-input-file --tosa-to-rock --rock-view-to-transform -verify-diagnostics -o -| FileCheck %s
 
 // CHECK-LABEL: test_fusion
-// CHECK: %[[convRes:.*]] = rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) features = {{.*}} {arch = "{{.*}}", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : tensor<1x128x3x3x8xf32>, tensor<128x32x32x1x8xf32>, tensor<128x30x30x1x128xf32> -> tensor<128x30x30x1x128xf32>
+// CHECK: %[[convRes:.*]] = rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : tensor<1x128x3x3x8xf32>, tensor<128x32x32x1x8xf32>, tensor<128x30x30x1x128xf32> -> tensor<128x30x30x1x128xf32>
 // CHECK-NEXT: %[[castRes:.*]] = rock.tensor_untransform_cast %[[convRes]] aka %{{.*}} : tensor<128x30x30x1x128xf32> to tensor<128x30x30x128xf32>
 // CHECK-NEXT: tosa.abs %[[castRes]]
 
@@ -19,7 +19,7 @@ func.func @test_fusion(%arg0: tensor<128x32x32x8xf32>, %arg1: tensor<128x3x3x8xf
 // -----
 
 // CHECK-LABEL: mlir_conv3d
-// CHECK: %[[convRes:.*]] = rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) features = {{.*}} {arch = "{{.*}}", dilations = [1 : index, 1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "2", "c"], input_layout = ["ni", "0i", "1i", "2i", "gi", "ci"], output_layout = ["no", "0o", "1o", "2o", "go", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index, 1 : index]} : tensor<1x4x2x2x2x3xf32>, tensor<2x5x5x5x1x3xf32>, tensor<2x2x2x2x1x4xf32> -> tensor<2x2x2x2x1x4xf32>
+// CHECK: %[[convRes:.*]] = rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) {dilations = [1 : index, 1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "2", "c"], input_layout = ["ni", "0i", "1i", "2i", "gi", "ci"], output_layout = ["no", "0o", "1o", "2o", "go", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index, 1 : index]} : tensor<1x4x2x2x2x3xf32>, tensor<2x5x5x5x1x3xf32>, tensor<2x2x2x2x1x4xf32> -> tensor<2x2x2x2x1x4xf32>
 // CHECK-NEXT: %[[castRes:.*]] = rock.tensor_untransform_cast %[[convRes]] aka %{{.*}} : tensor<2x2x2x2x1x4xf32> to tensor<2x2x2x2x4xf32>
 
 func.func private @mlir_conv3d(%arg0: tensor<4x1x1x1x1xf32>, %arg1: tensor<2x5x5x5x3xf32>, %arg2: tensor<4x2x2x2x3xf32>) -> tensor<2x2x2x2x4xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
@@ -31,7 +31,7 @@ func.func private @mlir_conv3d(%arg0: tensor<4x1x1x1x1xf32>, %arg1: tensor<2x5x5
 }
 
 // CHECK-LABEL: mlir_conv1d
-// CHECK: %[[convRes:.*]] = rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) features = {{.*}} {arch = "{{.*}}", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [3 : index, 3 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : tensor<1x64x7x1x3xf32>, tensor<1x224x1x1x3xf32>, tensor<1x224x1x1x64xf32> -> tensor<1x224x1x1x64xf32>
+// CHECK: %[[convRes:.*]] = rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [3 : index, 3 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : tensor<1x64x7x1x3xf32>, tensor<1x224x1x1x3xf32>, tensor<1x224x1x1x64xf32> -> tensor<1x224x1x1x64xf32>
 // CHECK-NEXT: %[[castRes:.*]] = rock.tensor_untransform_cast %[[convRes]] aka %{{.*}} : tensor<1x224x1x1x64xf32> to tensor<1x224x1x64xf32>
 // CHECK-NEXT: %[[reshapeRes:.*]] = tosa.reshape %[[castRes]], %{{.*}} : (tensor<1x224x1x64xf32>, !tosa.shape<3>) -> tensor<1x224x64xf32>
 
@@ -67,7 +67,7 @@ func.func private @mlir_conv1d(%arg0: tensor<64xf32>, %arg1: tensor<672xf32>, %a
 // -----
 
 // CHECK-LABEL: mlir_dot_transpose_add
-// CHECK: %[[gemmRes:.*]] = rock.gemm %{{.*}} = %{{.*}} * %{{.*}} features = {{.*}} storeMethod =  set {arch = "{{.*}}"} : tensor<1x4x5xf32> = tensor<1x4x5xf32> * tensor<1x5x5xf32> -> tensor<1x4x5xf32>
+// CHECK: %[[gemmRes:.*]] = rock.gemm %{{.*}} = %{{.*}} * %{{.*}} storeMethod =  set : tensor<1x4x5xf32> = tensor<1x4x5xf32> * tensor<1x5x5xf32> -> tensor<1x4x5xf32>
 // CHECK-NEXT: %{{.*}} = tosa.reshape %[[gemmRes]]
 // CHECK-NEXT: %[[transRes:.*]] = rock.transform %[[gemmRes]] by #{{.*}} : tensor<1x4x5xf32> to tensor<1x5x4xf32>
 
@@ -92,7 +92,7 @@ func.func private @mlir_dot_transpose_add(%arg0: tensor<20xf32>, %arg1: tensor<2
 // -----
 
 // CHECK-LABEL: mlir_conv_transpose_add
-// CHECK: %[[convRes:.*]] = rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) features = {{.*}} {arch = "{{.*}}", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : tensor<1x128x3x3x8xf32>, tensor<128x32x32x1x8xf32>, tensor<128x30x30x1x128xf32> -> tensor<128x30x30x1x128xf32>
+// CHECK: %[[convRes:.*]] = rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : tensor<1x128x3x3x8xf32>, tensor<128x32x32x1x8xf32>, tensor<128x30x30x1x128xf32> -> tensor<128x30x30x1x128xf32>
 // CHECK-NEXT: %[[castRes:.*]] = rock.tensor_untransform_cast %[[convRes]] aka %{{.*}} : tensor<128x30x30x1x128xf32> to tensor<128x30x30x128xf32>
 // CHECK-NEXT: %{{.*}} = tosa.reshape %[[castRes]]
 // CHECK-NEXT: %[[transRes:.*]] = rock.transform %[[castRes]] by #{{.*}} : tensor<128x30x30x128xf32> to tensor<128x30x128x30xf32>

@@ -3,7 +3,7 @@
 
 // Padding_One-LABEL: func.func @rock_conv_gkc01_ngc01_ngk01_0
 // Padding_One-SAME: ([[arg0:%.+]]: memref<8192xf32>, [[arg1:%.+]]: memref<200704xf32>, [[arg2:%.+]]: memref<1949696xf32>)
-// Padding_One-SAME: attributes {enable_splitk_for_tuning, kernel = 0 : i32, mhal.arch = "{{.*}}"}
+// Padding_One-SAME: attributes {enable_splitk_for_tuning, kernel = 0 : i32, mhal.arch = "{{.*}}", num_cu = {{.*}}}
 // Padding_One-NEXT: [[exp0:%.+]] = rock.transform [[arg0]] by
 // Padding_One-SAME: Unmerge{256, 32}
 // Padding_One-SAME: AddDim{1} ["g"]
@@ -15,11 +15,11 @@
 // Padding_One-NEXT: [[exp2:%.+]] = rock.transform [[arg2]] by
 // Padding_One-SAME: Unmerge{32, 256, 14, 17}
 // Padding_One-SAME: AddDim{1} ["go"]
-// Padding_One-NEXT: rock.conv([[exp0]], [[exp1]], [[exp2]]) features = {{.*}} {arch = "{{.*}}", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], numCU = {{.*}} : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 1 : index, 2 : index], strides = [1 : index, 1 : index]} : memref<1x256x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x256x14x17xf32>
+// Padding_One-NEXT: rock.conv([[exp0]], [[exp1]], [[exp2]]) features = {{.*}} {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 1 : index, 2 : index], strides = [1 : index, 1 : index]} : memref<1x256x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x256x14x17xf32>
 
 // Padding_Two-LABEL: func.func @rock_conv_gkc01_ngc01_ngk01_0
 // Padding_Two-SAME: ([[arg0:%.+]]: memref<8192xf32>, [[arg1:%.+]]: memref<200704xf32>, [[arg2:%.+]]: memref<2785280xf32>)
-// Padding_Two-SAME: attributes {enable_splitk_for_tuning, kernel = 0 : i32, mhal.arch = "{{.*}}"}
+// Padding_Two-SAME: attributes {enable_splitk_for_tuning, kernel = 0 : i32, mhal.arch = "{{.*}}", num_cu = {{.*}}}
 // Padding_Two-NEXT: [[exp0:%.+]] = rock.transform [[arg0]] by
 // Padding_Two-SAME: Unmerge{256, 32}
 // Padding_Two-SAME: AddDim{1} ["g"]
@@ -31,4 +31,4 @@
 // Padding_Two-NEXT: [[exp2:%.+]] = rock.transform [[arg2]] by
 // Padding_Two-SAME: Unmerge{32, 256, 20, 17}
 // Padding_Two-SAME: AddDim{1} ["go"]
-// Padding_Two-NEXT: rock.conv([[exp0]], [[exp1]], [[exp2]]) features = {{.*}} {arch = "{{.*}}", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], numCU = {{.*}} : i32, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [3 : index, 3 : index, 1 : index, 2 : index], strides = [1 : index, 1 : index]} : memref<1x256x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x256x20x17xf32>
+// Padding_Two-NEXT: rock.conv([[exp0]], [[exp1]], [[exp2]]) features = {{.*}} {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], output_layout = ["no", "go", "ko", "0o", "1o"], padding = [3 : index, 3 : index, 1 : index, 2 : index], strides = [1 : index, 1 : index]} : memref<1x256x32x1x1xf32>, memref<32x1x32x14x14xf32>, memref<32x1x256x20x17xf32>

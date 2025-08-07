@@ -35,7 +35,7 @@
 #transform_map13 = #rock.transform_map<#map14 by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Unmerge{40960} ["exp2"] at [2] -> ["dim2"] at [2]>, <AddDim{1} ["unit3"] at [3] -> [] at []>] bounds = [2, 32, 40960, 1] -> [2, 32, 40960]>
 #transform_map14 = #rock.transform_map<#map15 by [<Merge{2, 32, 1, 1} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3"] at [0, 1, 2, 3]>] bounds = [64] -> [2, 32, 1, 1]>
 module {
-  func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf16>, %arg1: memref<32768xf16>, %arg2: memref<11520xf16>, %arg3: memref<64xf16> {mhal.read_access, rock.prefill = 0.000000e+00 : f16}, %arg4: memref<2621440xf16>) attributes {arch = "gfx942:sramecc+:xnack-", enable_splitk_for_tuning, kernel = "mixr"} {
+  func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf16>, %arg1: memref<32768xf16>, %arg2: memref<11520xf16>, %arg3: memref<64xf16> {mhal.read_access, rock.prefill = 0.000000e+00 : f16}, %arg4: memref<2621440xf16>) attributes {arch = "gfx942:sramecc+:xnack-", enable_splitk_for_tuning, kernel = "mixr", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>} {
     %cst = arith.constant 2.443790e-05 : f16
     %0 = rock.transform %arg0 by #transform_map : memref<320xf16> to memref<32x10x1x1x1xf16>
     %1 = rock.transform %0 by #transform_map1 : memref<32x10x1x1x1xf16> to memref<1x32x10x1x1xf16>
@@ -48,7 +48,7 @@ module {
     %7 = rock.transform %alloc by #transform_map7 : memref<2x320x64x64xf16> to memref<2x1x320x64x64xf16>
     %8 = rock.transform %6 by #transform_map8 : memref<1x320x4x3x3xf16> to memref<320x4x3x1x3xf16>
     %9 = rock.transform %5 by #transform_map9 : memref<2x1x4x64x64xf16> to memref<2x4x64x1x64xf16>
-    rock.conv(%6, %5, %7) features =  mfma|dot|atomic_add|atomic_add_f16 {arch = "gfx942:sramecc+:xnack-", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x320x4x3x3xf16>, memref<2x1x4x64x64xf16>, memref<2x1x320x64x64xf16>
+    rock.conv(%6, %5, %7) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x320x4x3x3xf16>, memref<2x1x4x64x64xf16>, memref<2x1x320x64x64xf16>
     %10 = rock.transform %alloc by #transform_map10 : memref<2x320x64x64xf16> to memref<2x32x10x64x64xf16>
     %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<2x32x10x64x64xf16>
     linalg.generic {indexing_maps = [#map11, #map11, #map11], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel"]} ins(%10, %2 : memref<2x32x10x64x64xf16>, memref<2x32x10x64x64xf16>) outs(%alloc_0 : memref<2x32x10x64x64xf16>) {
@@ -66,7 +66,7 @@ module {
     %12 = rock.transform %alloc_1 by #transform_map12 : memref<2x32x10x64x64xf16> to memref<2x32x40960xf16>
     %13 = rock.transform %12 by #transform_map13 : memref<2x32x40960xf16> to memref<2x32x40960x1xf16>
     %alloc_2 = memref.alloc() {alignment = 64 : i64} : memref<2x32x1x1xf16>
-    rock.reduce  sum %13 into %alloc_2 features =  mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960x1xf16> into memref<2x32x1x1xf16>
+    rock.reduce  sum %13 into %alloc_2 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960x1xf16> into memref<2x32x1x1xf16>
     %14 = rock.transform %alloc_2 by #transform_map14 : memref<2x32x1x1xf16> to memref<64xf16>
     memref.copy %14, %arg3 : memref<64xf16> to memref<64xf16>
     memref.copy %11, %arg4 : memref<2621440xf16> to memref<2621440xf16>

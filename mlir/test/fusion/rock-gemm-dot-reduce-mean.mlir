@@ -32,13 +32,13 @@ func.func @mlir_dot_add_reduce_mean(%arg0: memref<1024xf32>, %arg1: memref<4096x
     }
     %5 = rock.transform %alloc_0 by #transform_map4 : memref<32x32xf32> to memref<1x32x32xf32>
     %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<1x32x1xf32>
-    rock.reduce  sum %5 into %alloc_1 features =  mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 256 : i32, gridSize = 4 : i32} : memref<1x32x32xf32> into memref<1x32x1xf32>
+    rock.reduce  sum %5 into %alloc_1 {axis = 2 : index, blockSize = 256 : i32, gridSize = 4 : i32} : memref<1x32x32xf32> into memref<1x32x1xf32>
     %6 = rock.transform %alloc_1 by #transform_map5 : memref<1x32x1xf32> to memref<32xf32>
     // CHECK: %[[OUT_VIEW0:.+]] = rock.transform %arg3 by <affine_map<(d0, d1, d2) -> (d0 * 32 + d1 + d2)> by [<Unmerge{1, 32, 1} ["col0", "col1", "col2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [1, 32, 1] -> [32]> : memref<32xf32> to memref<1x32x1xf32>
     // CHECK: %[[OUT_VIEW1:.+]] = rock.transform %[[OUT_VIEW0]] by <affine_map<(d0, d1, d2) -> (d0, d1, 0)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{1} ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [1, 32, 32] -> [1, 32, 1]> : memref<1x32x1xf32> to memref<1x32x32xf32>
     // CHECK: %[[OUT_VIEW2:.+]] = rock.transform %[[OUT_VIEW1]] by <affine_map<(d0, d1) -> (0, d0, d1)> by [<Merge{1, 32} ["dim0"] at [0] -> ["exp0", "exp1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>] bounds = [32, 32] -> [1, 32, 32]> : memref<1x32x32xf32> to memref<32x32xf32>
     // CHECK: %[[OUT_VIEW3:.+]] = rock.transform %[[OUT_VIEW2]] by <affine_map<(d0, d1, d2) -> (d0 * 32 + d1, d2)> by [<Unmerge{1, 32} ["col0", "col1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>] bounds = [1, 32, 32] -> [32, 32]> : memref<32x32xf32> to memref<1x32x32xf32>
-    // rock.threadwise_write_all features =  mfma|dot|atomic_add|atomic_add_f16 {forceUnroll, useIndexDiffs} %{{.+}} -> [{{.*}}](%[[OUT_VIEW3]]) [{{.*}}] by  atomic_add : memref<4xf32, #gpu.address_space<private>> -> memref<1x32x32xf32>
+    // rock.threadwise_write_all {forceUnroll, useIndexDiffs} %{{.+}} -> [{{.*}}](%[[OUT_VIEW3]]) [{{.*}}] by  atomic_add : memref<4xf32, #gpu.address_space<private>> -> memref<1x32x32xf32>
     memref.copy %6, %arg3 : memref<32xf32> to memref<32xf32>
     return
   }

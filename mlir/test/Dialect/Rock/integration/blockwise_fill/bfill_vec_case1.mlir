@@ -18,6 +18,6 @@ func.func @rock_blockwise_fill_vec_case1(%output : memref<1x64xf32>) attributes{
     rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<64xf32, #gpu.address_space<workgroup>>, vector<4xf32>
     rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map, #transform_map1](%ldsbuf) -> %output_reg : memref<64xf32, #gpu.address_space<workgroup>> ->  memref<4xf32, #gpu.address_space<private>>
-    rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map4, #transform_map5](%output) by set : memref<4xf32, #gpu.address_space<private>> -> memref<1x64xf32>
+    rock.threadwise_write_all {forceUnroll, useIndexDiffs} %output_reg -> [#transform_map4, #transform_map5](%output) by set : memref<4xf32, #gpu.address_space<private>> -> memref<1x64xf32>
     return
 }

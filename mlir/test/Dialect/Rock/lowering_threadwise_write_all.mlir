@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt --rock-threadwise-gemm-lowering %s | FileCheck %s
 
 // CHECK-LABEL: func @write_to_lds_gated_waves
-func.func @write_to_lds_gated_waves(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<2x64x30xf32>) {
+func.func @write_to_lds_gated_waves(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<2x64x30xf32>) attributes {arch = "gfx942"} {
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
   // CHECK-DAG: [[zero1:%.+]] = arith.constant 0
   // CHECK-DAG: [[zero2:%.+]] = arith.constant 0
@@ -29,7 +29,7 @@ func.func @write_to_lds_gated_waves(%source: memref<32xf32, #gpu.address_space<p
   %32 = rock.transform %31 by <affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)> by [<PassThrough ["m_thread", "kouterPerThread", "m_iter", "kpackPerThread"] at [1, 2, 3, 4] -> ["m_thread", "kouterPerThread", "m_iter", "kpackPerThread"] at [1, 2, 3, 4]>, <Pad{0, 2} ["k_thread"] at [0] -> ["k_thread"] at [0]>] bounds = [4, 64, 1, 1, 1] -> [2, 64, 1, 1, 1]> : memref<2x64x1x1x1xf32, #gpu.address_space<workgroup>> to memref<4x64x1x1x1xf32, #gpu.address_space<workgroup>>
   %33 = rock.transform %32 by <affine_map<(d0, d1) -> (d0 floordiv 64, d0 mod 64, 0, 0, 0)> by [<Merge{4, 64} ["tid"] at [0] -> ["k_thread", "m_thread"] at [0, 1]>, <Merge{1, 1, 1} ["iter"] at [1] -> ["kouterPerThread", "m_iter", "kpackPerThread"] at [2, 3, 4]>] bounds = [256, 1] -> [4, 64, 1, 1, 1]> : memref<4x64x1x1x1xf32, #gpu.address_space<workgroup>> to memref<256x1xf32, #gpu.address_space<workgroup>>
 
-  rock.threadwise_write_all features =  mfma|dot|atomic_add|atomic_add_f16 {forceUnroll, useIndexDiffs} %reg -> [](%33) [%wid] by  set : memref<1xf32, #gpu.address_space<private>> -> memref<256x1xf32, #gpu.address_space<workgroup>>
+  rock.threadwise_write_all {forceUnroll, useIndexDiffs} %reg -> [](%33) [%wid] by  set : memref<1xf32, #gpu.address_space<private>> -> memref<256x1xf32, #gpu.address_space<workgroup>>
 
   func.return
 }
