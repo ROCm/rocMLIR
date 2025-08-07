@@ -3,7 +3,7 @@
 // CHECK: test_gemm_reduce_last_axis_fusion
 func.func @test_gemm_reduce_last_axis_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x1xf32>) attributes {arch = "##TOKEN_ARCH##", kernel} {
   %0 = memref.alloc() : memref<1x128x256xf32>
-  rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = "##TOKEN_ARCH##"} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
+  rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = "##TOKEN_ARCH##", perf_config = "v3:128,128,128,16,4,4,1,1,2"} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
   // CHECK: rock.blockwise_broadcast_reduce  sum {{.*}} into %[[BLOCK_RED_OUT:[0-9]+]]
 
   // CHECK: %[[TR0:.+]] = rock.transform %arg2 by {{.*}}    : memref<1x128x1xf32> to memref<1x128x256xf32>
@@ -27,7 +27,7 @@ func.func @test_gemm_reduce_last_axis_fusion(%arg0: memref<1x128x64xf32>, %arg1:
 // CHECK: test_gemm_reduce_middle_axis_fusion
 func.func @test_gemm_reduce_middle_axis_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x1x256xf32>) attributes {arch = "##TOKEN_ARCH##", kernel} {
   %0 = memref.alloc() : memref<1x128x256xf32>
-  rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = "##TOKEN_ARCH##"} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
+  rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = "##TOKEN_ARCH##", perf_config = "v3:128,128,128,16,4,4,1,1,2"} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
   // CHECK: rock.blockwise_broadcast_reduce  sum {{.*}} into %[[BLOCK_RED_OUT:[0-9]+]]
 
   // CHECK: %[[TR0:.+]] = rock.transform %arg2 by {{.*}}    : memref<1x1x256xf32> to memref<1x128x256xf32>
@@ -51,7 +51,7 @@ func.func @test_gemm_reduce_middle_axis_fusion(%arg0: memref<1x128x64xf32>, %arg
 #map = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 func.func @test_gemm_add_reduce_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x256xf32>, %arg3: memref<1x128x1xf32>) attributes {arch = "##TOKEN_ARCH##", kernel} {
   %0 = memref.alloc() : memref<1x128x256xf32>
-  rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = "##TOKEN_ARCH##"} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
+  rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = "##TOKEN_ARCH##", perf_config = "v3:128,128,128,16,4,4,1,1,2"} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
   %1 = memref.alloc() : memref<1x128x256xf32>
   linalg.generic {indexing_maps = [#map, #map, #map], iterator_types = ["parallel", "parallel", "parallel"]} ins(%0, %arg2 : memref<1x128x256xf32>, memref<1x128x256xf32>) outs(%1 : memref<1x128x256xf32>) {
   ^bb0(%arg4: f32, %arg5: f32, %arg6: f32):
@@ -80,7 +80,7 @@ func.func @test_gemm_add_reduce_fusion(%arg0: memref<1x128x64xf32>, %arg1: memre
 // CHECK: test_gemm_reduce_max
 func.func @test_gemm_reduce_max(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x1xf32>) attributes {arch = "##TOKEN_ARCH##", kernel} {
   %0 = memref.alloc() : memref<1x128x256xf32>
-  rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = "##TOKEN_ARCH##"} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
+  rock.gemm %0 = %arg0 * %arg1 features =  none storeMethod =  set {arch = "##TOKEN_ARCH##", perf_config = "v3:128,128,128,16,4,4,1,1,2"} : memref<1x128x256xf32> = memref<1x128x64xf32> * memref<1x64x256xf32>
   // CHECK: rock.blockwise_broadcast_reduce  max {{.*}} into %[[BLOCK_RED_OUT:[0-9]+]]
 
   // CHECK: %[[TR0:.+]] = rock.transform %arg2 by {{.*}}    : memref<1x128x1xf32> to memref<1x128x256xf32>
