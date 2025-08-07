@@ -16,13 +16,12 @@ import re
 import os
 import subprocess
 import sys
-import csv
 
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Sequence, Optional, Tuple, TypeVar, Union
 
 import perfRunner
-from perfRunner import ConvConfiguration, AttentionConfiguration
+from perfRunner import ConvConfiguration
 from perfRunner import Paths
 from perfRunner import getArch
 from perfRunner import getNumCU
@@ -187,15 +186,6 @@ class TestResult(enum.Enum):
     INVALID = 2
     FAIL = 3
 
-def logFailingConfigs(config, filename='failed_configs.csv'):
-    fileExists = os.path.isfile(filename)
-    with open(filename, mode='a', newline='') as csvfile:
-        if not fileExists:
-            # Write header only if the file did not exist before
-            csvfile.write('CommandLine\n')
-        cmd = ' '.join(config.generateMlirDriverCommandLine([]))
-        csvfile.write(f"{cmd}\n")
-
 async def testConfig(config, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
@@ -338,8 +328,6 @@ async def sweepParameters(paramIter: Iterable[IterType],
                 invalid = invalid + 1
             else:
                 failingConfigs.append(result)
-                if isinstance(result, AttentionConfiguration):
-                    logFailingConfigs(result, filename='failed_attention_configs.csv')
 
     return (passed, invalid, failingConfigs)
 
