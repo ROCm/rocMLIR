@@ -596,6 +596,82 @@ getElementwiseRegion(Value input, OpBuilder &regionBuilder, Block *block,
   return {res, failure()};
 }
 
+// static FailureOr<rock::ConvBwdDataOp>
+//   makeRockBwdDataConv(ConversionPatternRewriter &rw, Operation *op, 
+//                       Value input, Value filter, Value output,
+//                       DenseI64ArrayAttr pad, DenseI64ArrayAttr stride,
+//                       DenseI64ArrayAttr dilation, int64_t group, int64_t kernelId) {
+//   Location loc = op->getLoc();
+  
+//   // Use similar expansion logic as forward convolution
+//   ConvFields convFields = commonConv(rw, op, input, filter, output, 
+//                                     pad, stride, dilation, group);
+  
+//   // Create BwdData convolution operation
+//   auto bwdDataOp = rw.create<rock::ConvBwdDataOp>(
+//       loc, convFields.outputExp.getType(),
+//       convFields.filterExp,      // Filter tensor
+//       convFields.inputExp,       // Input (acts as output gradient)
+//       convFields.outputExp,      // Output (acts as input gradient)
+//       /*features=*/nullptr,
+//       /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+//       convFields.pad, convFields.stride, convFields.dilation,
+//       rw.getIndexAttr(kernelId),  // Important: set kernel ID
+//       /*params=*/nullptr);
+  
+//   addConvAttributes(rw, bwdDataOp, convFields);
+  
+//   return bwdDataOp;
+// }
+
+// static FailureOr<rock::ConvBwdWeightOp>
+//   makeRockBwdWeightConv(ConversionPatternRewriter &rw, Operation *op, 
+//                         Value input, Value filter, Value output,
+//                         DenseI64ArrayAttr pad, DenseI64ArrayAttr stride,
+//                         DenseI64ArrayAttr dilation, int64_t group, int64_t kernelId) {
+//   Location loc = op->getLoc();
+  
+//   // Use similar expansion logic as forward convolution
+//   ConvFields convFields = commonConv(rw, op, input, filter, output, 
+//                                     pad, stride, dilation, group);
+  
+//   // Create BwdWeight convolution operation
+//   auto bwdWeightOp = rw.create<rock::ConvBwdWeightOp>(
+//       loc, convFields.outputExp.getType(),
+//       convFields.inputExp,       // Input tensor
+//       convFields.filterExp,      // Filter (acts as output gradient)
+//       convFields.outputExp,      // Output (acts as weight gradient)
+//       /*features=*/nullptr,
+//       /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+//       convFields.pad, convFields.stride, convFields.dilation,
+//       rw.getIndexAttr(kernelId),  // Important: set kernel ID
+//       /*params=*/nullptr);
+  
+//   addConvAttributes(rw, bwdWeightOp, convFields);
+  
+//   return bwdWeightOp;
+// }
+
+// template <typename OpT>
+// class BwdConvConverter final : public OpConversionPattern<OpT> {
+// public:
+//   using OpConversionPattern<OpT>::OpConversionPattern;
+
+//   LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
+//                                 ConversionPatternRewriter &rw) const final {
+//     auto operands = adaptor.getOperands();
+//     auto loc = op->getLoc();
+//     auto input = operands[0];     // Input tensor
+//     auto filter = operands[1];    // Weight/filter tensor
+//     auto bias = operands[2];      // Bias tensor
+//     auto outputType = cast<RankedTensorType>(op.getType());
+
+//     // Check for the conversion type attribute
+//     // TODO: Need to implement the logic for this
+//     return failure();
+//   }
+// };
+
 template <typename OpT>
 class ConvConverter final : public OpConversionPattern<OpT> {
 public:
@@ -2177,6 +2253,7 @@ public:
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ConvConverter<tosa::Conv2DOp>, ConvConverter<tosa::Conv3DOp>,
+               BwdConvConverter<tosa::TransposeConv2DOp>,
                MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
       context);
 }

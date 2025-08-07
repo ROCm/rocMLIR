@@ -373,6 +373,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   // translate attributes
   auto padAttr = cast<ArrayAttr>(op->getAttr("padding"));
   auto strideAttr = cast<ArrayAttr>(op->getAttr("stride"));
+  auto dilationAttr = cast<ArrayAttr>(op->getAttr("dilation"));
   // MIGraphX padAttr is [hlow, wlow, hhigh, whigh] while TOSA padAttr
   // is [hlow, hhigh, wlow, whigh]. The padding attribute on the MIGraphX ops
   // represents input padding for forwards convolutions, and output padding for
@@ -385,8 +386,10 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   SmallVector<int64_t> strides;
   SmallVector<int64_t> dilations;
-  for (size_t i = 0; i < strideAttr.size(); i++)
+  for (size_t i = 0; i < strideAttr.size(); i++) {
     strides.push_back(dyn_cast<IntegerAttr>(strideAttr[i]).getInt());
+    dilations.push_back(dyn_cast<IntegerAttr>(dilationAttr[i]).getInt());
+  }
 
   // Determine the accumulation type based on the output type.
   Type accType;
@@ -400,39 +403,25 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   }
   // convolution config attributes
   if (dims == 1) {
-    if ((strides.size() != 1) ||
-        (pads.size() != 2)) {
+    if ((strides.size() != 1) || (pads.size() != 2) ||
+        (dilations.size() != 1)) {
       return op->emitError(
-          "1-D convolution has improper stride, or pad.");
+          "1-D convolution has improper dilation, stride, or pad.");
     }
+    dilations.push_back(1);
     strides.push_back(1);
     pads.push_back(0);
     pads.push_back(0);
   }
 
   // Set attributes common to both forwards and backwards conv
+  cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(dilations));
   cop->setAttr("stride", rewriter.getDenseI64ArrayAttr(strides));
   cop->setAttr("acc_type", TypeAttr::get(accType));
 
-  // Backwards convolution does not need dilation or group
+  // Backwards convolution does not need group
   if (!isBwdConvOp) {
-    auto dilationAttr = cast<ArrayAttr>(op->getAttr("dilation"));
-    SmallVector<int64_t> dilations;
-
-    for (size_t i = 0; i < strideAttr.size(); i++) {
-      dilations.push_back(dyn_cast<IntegerAttr>(dilationAttr[i]).getInt());
-    }
-
-    if (dims == 1) {
-      if (dilations.size() != 1) {
-        return op->emitError(
-            "1-D convolution has improper dilation");
-      }
-      dilations.push_back(1);
-    }
-
     int64_t group = op.getGroup();
-    cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(dilations));
     cop->setAttr("group", rewriter.getI64IntegerAttr(group));
   }
 
