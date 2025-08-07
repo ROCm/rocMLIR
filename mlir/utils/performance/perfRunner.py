@@ -1337,7 +1337,7 @@ class AttentionConfiguration(PerfConfiguration):
     def setPerfConfig(self, perf_config):
         self.perfConfig = perf_config
 
-    def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
+    def generateMlirDriverCommandLine(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
         result = ' '.join(['-operation', 'attention',
                            '-t', self.dataType,
                            '--arch', self.arch,
@@ -1357,7 +1357,7 @@ class AttentionConfiguration(PerfConfiguration):
                            f"-transO={self.transO}",
                            f"-causal={self.causal}",
                            f"-return_lse={self.return_lse}",
-                           '--kernel-repeats', str(MLIR_N_REPEATS),
+                        *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
                            f"--perf_config={self.perfConfig}"])
         result += ' '
         if rocmlir_gen_flags != '':
