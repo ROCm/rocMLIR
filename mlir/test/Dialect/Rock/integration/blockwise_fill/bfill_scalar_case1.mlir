@@ -13,6 +13,6 @@ func.func @rock_blockwise_fill_scalar_case1(%output : memref<1x256x1xf32>) attri
     rock.blockwise_fill(%ldsbuf, %c1) {blockSize = 256 : i32} : memref<256xf32, #gpu.address_space<workgroup>>, f32
     rock.threadwise_read_into {forceUnroll, useIndexDiffs}
     [#transform_map, #transform_map1](%ldsbuf) -> %output_reg : memref<256xf32, #gpu.address_space<workgroup>> ->  memref<1xf32, #gpu.address_space<private>>
-    rock.threadwise_write_all features = none {forceUnroll, useIndexDiffs} %output_reg -> [](%output) by set : memref<1xf32, #gpu.address_space<private>> -> memref<1x256x1xf32>
+    rock.threadwise_write_all {forceUnroll, useIndexDiffs} %output_reg -> [](%output) by set : memref<1xf32, #gpu.address_space<private>> -> memref<1x256x1xf32>
     return
 }

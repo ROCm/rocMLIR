@@ -37,7 +37,7 @@
 #transform_map14 = #rock.transform_map<#map15 by [<Merge{2, 32, 1, 1} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3"] at [0, 1, 2, 3]>] bounds = [64] -> [2, 32, 1, 1]>
 #transform_map15 = #rock.transform_map<#map16 by [<Merge{2, 32, 1} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [64] -> [2, 32, 1]>
 module {
-  func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg5: memref<2621440xf32>) attributes {arch = "gfx942:sramecc+:xnack-", enable_splitk_for_tuning, kernel = "mixr"} {
+  func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg5: memref<2621440xf32>) attributes {arch = "gfx942:sramecc+:xnack-", enable_splitk_for_tuning, kernel = "mixr", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>} {
     %cst = arith.constant 2.44140629E-5 : f32
     %0 = rock.transform %arg0 by #transform_map : memref<320xf32> to memref<32x10x1x1x1xf32>
     %1 = rock.transform %0 by #transform_map1 : memref<32x10x1x1x1xf32> to memref<1x32x10x1x1xf32>
@@ -50,7 +50,7 @@ module {
     %7 = rock.transform %alloc by #transform_map7 : memref<2x320x64x64xf32> to memref<2x1x320x64x64xf32>
     %8 = rock.transform %6 by #transform_map8 : memref<1x320x4x3x3xf32> to memref<320x4x3x1x3xf32>
     %9 = rock.transform %5 by #transform_map9 : memref<2x1x4x64x64xf32> to memref<2x4x64x1x64xf32>
-    rock.conv(%6, %5, %7) features =  mfma|dot|atomic_add|atomic_add_f16 {arch = "gfx942:sramecc+:xnack-", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x320x4x3x3xf32>, memref<2x1x4x64x64xf32>, memref<2x1x320x64x64xf32>
+    rock.conv(%6, %5, %7) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "gi", "ci", "hi", "wi"], output_layout = ["no", "go", "ko", "ho", "wo"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x320x4x3x3xf32>, memref<2x1x4x64x64xf32>, memref<2x1x320x64x64xf32>
     %10 = rock.transform %alloc by #transform_map10 : memref<2x320x64x64xf32> to memref<2x32x10x64x64xf32>
     %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<2x32x10x64x64xf32>
     linalg.generic {indexing_maps = [#map11, #map11, #map11], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel"]} ins(%10, %2 : memref<2x32x10x64x64xf32>, memref<2x32x10x64x64xf32>) outs(%alloc_0 : memref<2x32x10x64x64xf32>) {
@@ -68,7 +68,7 @@ module {
     %12 = rock.transform %alloc_1 by #transform_map12 : memref<2x32x10x64x64xf32> to memref<2x32x40960xf32>
     %13 = rock.transform %12 by #transform_map13 : memref<2x32x40960xf32> to memref<2x32x40960x1xf32>
     %alloc_2 = memref.alloc() {alignment = 64 : i64} : memref<2x32x1x1xf32>
-    rock.reduce  sum %13 into %alloc_2 features =  mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960x1xf32> into memref<2x32x1x1xf32>
+    rock.reduce  sum %13 into %alloc_2 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960x1xf32> into memref<2x32x1x1xf32>
     %14 = rock.transform %alloc_2 by #transform_map14 : memref<2x32x1x1xf32> to memref<64xf32>
     %alloc_3 = memref.alloc() {alignment = 64 : i64} : memref<2x32x10x64x64xf32>
     linalg.generic {indexing_maps = [#map11, #map11], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel"]} ins(%alloc_0 : memref<2x32x10x64x64xf32>) outs(%alloc_3 : memref<2x32x10x64x64xf32>) {
@@ -79,7 +79,7 @@ module {
     }
     %15 = rock.transform %alloc_3 by #transform_map12 : memref<2x32x10x64x64xf32> to memref<2x32x40960xf32>
     %alloc_4 = memref.alloc() {alignment = 64 : i64} : memref<2x32x1xf32>
-    rock.reduce  sum %15 into %alloc_4 features =  mfma|dot|atomic_add|atomic_add_f16 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960xf32> into memref<2x32x1xf32>
+    rock.reduce  sum %15 into %alloc_4 {axis = 2 : index, blockSize = 256 : i32, gridSize = 10240 : i32} : memref<2x32x40960xf32> into memref<2x32x1xf32>
     %16 = rock.transform %alloc_4 by #transform_map15 : memref<2x32x1xf32> to memref<64xf32>
     memref.copy %14, %arg3 : memref<64xf32> to memref<64xf32>
     memref.copy %16, %arg4 : memref<64xf32> to memref<64xf32>

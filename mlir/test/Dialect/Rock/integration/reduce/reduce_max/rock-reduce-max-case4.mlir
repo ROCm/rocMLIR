@@ -29,7 +29,7 @@ module {
   }
   module @__xmodule_ attributes {mhal.arch = "##TOKEN_ARCH##", mhal.module} {
     func.func private @test_reduce__part_1(%arg0: memref<1000x250x100xf32> {mhal.read_access}, %arg1: memref<1x250x100xf32> {mhal.read_access, mhal.write_access, rock.prefill = 0xFF800000 : f32}) attributes {kernel, original_func = @test_reduce__part_1, grid_size = 16, block_size = 1024} {
-      rock.reduce max %arg0 into %arg1 features = ##TOKEN_FEATURES## {axis = 0 : index, blockSize = 1024 : i32, gridSize = 16 : i32} : memref<1000x250x100xf32> into memref<1x250x100xf32>
+      rock.reduce max %arg0 into %arg1 {axis = 0 : index, blockSize = 1024 : i32, gridSize = 16 : i32} : memref<1000x250x100xf32> into memref<1x250x100xf32>
       return
     }
   }

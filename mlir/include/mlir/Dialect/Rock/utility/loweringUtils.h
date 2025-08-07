@@ -84,8 +84,6 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
 
-bool isAccel(GemmFeatures features);
-
 // Return true if this shaped type will occupy more than 4 GB (2 ^ 32 bytes)
 // in memory.
 bool is4GBMemoryType(ShapedType type);
@@ -174,12 +172,6 @@ FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
 
 /// Compute, if possible, the constant different between two values.
 std::optional<int64_t> computeConstDiff(Value l, Value u);
-
-// Get the arch from the op
-FailureOr<StringAttr> getArch(Operation *op);
-
-// Get the num_cu from the op
-FailureOr<int64_t> getNumCU(Operation *op);
 
 // Get whether to reverse the grid
 FailureOr<UnitAttr> getReverseGrid(Operation *op);
