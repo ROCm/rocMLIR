@@ -45,7 +45,7 @@ OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i32'
 MLIR_N_REPEATS = 100
 
 FILTER_LAYOUT_MAP = {'N':'k', 'C':'c', 'H':'y', 'W':'x', 'G':'g', '0':'0', '1':'1'}
-INPUT_LAYOUT_MAP = {'N':'n', 'C':'c', 'H':'0', 'W':'1', 'G':'g'}
+INPUT_LAYOUT_MAP = {'N':'n', 'C':'c', 'H':'h', 'W':'w', 'G':'g', '0':'0', '1':'1'}
 OUTPUT_LAYOUT_MAP = {'N':'n', 'C':'k', 'H':'h', 'W':'w', 'G':'g', '0':'0', '1':'1'}
 
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
@@ -54,6 +54,9 @@ ELAPSED_TIME_RE = re.compile(r"Elapsed: ([0-9\.]*) ms")
 GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
 INFO_ARCH_NAME = re.compile(r"Name:\s*(.*)")
 INFO_ARCH_CU = re.compile(r"Compute Unit:\s*(.*)")
+
+def input_layouts(input_layout):
+    return "".join(INPUT_LAYOUT_MAP[char] for char in input_layout)
 
 def output_layouts(output_layout):
     return "".join(OUTPUT_LAYOUT_MAP[char] for char in output_layout)
@@ -64,6 +67,10 @@ def filter_layouts(filter_layout):
 def inverse_output_layouts(output_layout):
     map = {v: k for k, v in OUTPUT_LAYOUT_MAP.items()}
     return "".join(map[char] for char in output_layout)
+
+def inverse_input_layouts(input_layout):
+    map = {v: k for k, v in INPUT_LAYOUT_MAP.items()}
+    return "".join(map[char] for char in input_layout)
 
 def inverse_filter_layouts(filter_layout):
     map = {v: k for k, v in FILTER_LAYOUT_MAP.items()}
@@ -561,9 +568,9 @@ class ConvConfiguration(PerfConfiguration):
         self.dataType = dtype
         self.direction = direction
 
-        self.filterLayout = ''.join(FILTER_LAYOUT_MAP.get(c, c).lower() for c in filterLayout)
-        self.inputLayout = ''.join(INPUT_LAYOUT_MAP.get(c, c).lower() for c in inputLayout)
-        self.outputLayout = ''.join(OUTPUT_LAYOUT_MAP.get(c, c).lower() for c in outputLayout)
+        self.filterLayout = filter_layouts(filterLayout)
+        self.inputLayout = input_layouts(inputLayout)
+        self.outputLayout = output_layouts(outputLayout)
 
         self.n = n
         self.c = c
@@ -923,8 +930,8 @@ class ConvGemmConfiguration(PerfConfiguration):
 
         self.dataType = dtype
         
-        self.filterLayout = ''.join(FILTER_LAYOUT_MAP.get(c, c).lower() for c in filterLayout)
-        self.inputLayout = ''.join(INPUT_LAYOUT_MAP.get(c, c).lower() for c in inputLayout)
+        self.filterLayout = filter_layouts(filterLayout)
+        self.inputLayout = input_layouts(inputLayout)
         self.transC = transC
         self.transO = transO
         
