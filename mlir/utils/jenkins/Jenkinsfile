@@ -202,7 +202,7 @@ void preMergeCheck(String codepath) {
         fi
         '''
         def targetBranch = env.CHANGE_TARGET
-        if(targetBranch == null || targetBranch == '') {
+        if (!targetBranch) {
             targetBranch = "origin/develop"
         }
         if (params.ignoreExternalLinting == true) {
