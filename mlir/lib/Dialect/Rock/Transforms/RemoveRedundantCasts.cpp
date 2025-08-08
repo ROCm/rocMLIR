@@ -75,16 +75,12 @@ struct RemoveRedundantTruncExtfPattern
       // Try to replace the extf with the memref input to the original truncf
       // if possible. We do not touch the original truncf operation here, as we
       // allow for it to get cleaned up by DCE if applicable.
-      auto res = replaceExtfWithMemref(extfInfo.extfOp, extfInfo.memref,
+      auto res = replaceExtfWithMemref(extfInfo.extfOp, extfInfo.storeMemref,
                                        extfInfo.srcMemref, rewriter);
-      if (res) {
-        LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf: " << extfInfo.extfOp
-                                << " with: " << extfInfo.srcMemref << "\n");
-      }
 
       // TODO: If after the removal of the extfOps, the truncfOp (or its store)
       // no longer has any uses, we can also remove it. Note, DCE will not do
-      // this removal for us.
+      // this removal for us?
       // We will have to check and see if all uses of the stored memref are
       // no longer used (if there are any left)
 
@@ -95,12 +91,12 @@ struct RemoveRedundantTruncExtfPattern
   }
 
 private:
+  // The memref and storeOp will be set to nullptr if the pattern is a
+  // direct truncf -> extf use
   struct ExtfInfo {
     arith::ExtFOp extfOp;
+    Value storeMemref;
     Value srcMemref;
-    // The two params below will be set to nullptr if the pattern is a direct
-    // truncf -> extf use
-    Value memref;
     Operation *storeOp;
   };
 
@@ -112,12 +108,14 @@ private:
 
   // This function will try to replace the extfOp with the srcMemref (the
   // orignal input to the truncfOp) if possible.
-  bool replaceExtfWithMemref(arith::ExtFOp extfOp, Value memref,
+  bool replaceExtfWithMemref(arith::ExtFOp extfOp, Value storeMemref,
                              Value srcMemref, PatternRewriter &rewriter) const {
     // If the optional memref value of the ExtfInfo struct is not set, then
     // this directly corresponds to the direct truncf -> extf case and we do
     // not need to do any additional handling work (e.g., for linalg.generic)
-    if (!memref) {
+    if (!storeMemref) {
+      LLVM_DEBUG(llvm::dbgs() << "\tReplacing extf: " << extfOp
+                              << " with: " << srcMemref << "\n");
       extfOp.replaceAllUsesWith(srcMemref);
       extfOp.erase();
       return true;
@@ -130,22 +128,17 @@ private:
       // above. So we can safely assume that the extfOp is in a separate
       // linalg.generic.
       LLVM_DEBUG(llvm::dbgs() << "\tEXTFOP: " << extfOp << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "\tMEMREF: " << memref << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "\tMEMREF: " << storeMemref << "\n");
       LLVM_DEBUG(llvm::dbgs() << "\tSRC MEMREF: " << srcMemref << "\n");
 
-      // Step 1: Create new rock.alloc op to hold the result from before the
-      // truncf operation. This is only for the case where the input to the
-      // truncf operation is not a memref<shapexf32>, but is instead something
-      // like memref<vector<shapexf32>>
-      
+      // Step 1: Transform the srcMemref, if necessary, to match the expected
+      // input type to the linalg.generic operation that contains the extfop
 
-      // Step 2: Transform the rock.alloc if necessary to match the expected
-      // output type
 
-      // Step 3: Create a clone of the linalg.generic operation with the extf op
-      // with the new (potentially transformed rock.alloc) as the input
+      // Step 2: Create a clone of the linalg.generic operation with the extf op
+      // with the new (potentially transformed memref) as the input
 
-      // Step 4: Remove the original linalg.generic operation
+      // Step 3: Remove the original linalg.generic operation
 
     }
     
