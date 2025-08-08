@@ -25,6 +25,22 @@ endif()
 # Set policy CMP0057 to support IN_LIST operators
 cmake_policy(SET CMP0057 NEW)
 
+if(MSVC AND MSVC_VERSION GREATER_EQUAL 1900)
+  set(ROCMLIR_BINSKIM OFF CACHE BOOL "Prepare rocMLIR binaries for BinSkim Binary Analyzer")
+  set(ROCMLIR_SPECTRE OFF CACHE BOOL "Use Spectre-mitigated libraries")
+  if(ROCMLIR_BINSKIM)
+    message(STATUS "Control Flow Guard feature enabled")
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/guard:cf>)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /guard:cf /DYNAMICBASE")
+    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} /guard:cf /DYNAMICBASE")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /guard:cf /DYNAMICBASE")
+  endif()
+  if(ROCMLIR_SPECTRE)
+    message(STATUS "Address Sanitizer (Spectre) enabled")
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:/Qspectre>)
+  endif()
+endif()
+
 # Rock dialect.
 set(ROCMLIR_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for Rock driver")
 set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
