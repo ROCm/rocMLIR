@@ -201,7 +201,7 @@ void preMergeCheck(String codepath) {
           ln -s build/compile_commands.json compile_commands.json
         fi
         '''
-        def targetBranch = "${env.CHANGE_TARGET}"
+        def targetBranch = env.CHANGE_TARGET
         if(targetBranch == null || targetBranch == '') {
             targetBranch = "origin/develop"
         } 
