@@ -175,7 +175,6 @@ computeCopyPerThreadAccelLayout(Type elementType, int64_t copyPerThread,
                                 int64_t kpack, int64_t blockSize,
                                 Location loc) {
   int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
-  maxVlen = math_util::gcd(maxVlen, kpack);
   int64_t copyKPerThread = 0;
   int64_t copyDPerThread = 0;
   int64_t repeatKPerThread = 0;
@@ -185,7 +184,7 @@ computeCopyPerThreadAccelLayout(Type elementType, int64_t copyPerThread,
          "blockSize should be divisible by dThread");
   int64_t kThread = blockSize / dThread;
 
-  copyKPerThread = math_util::gcd(maxVlen, copyPerThread);
+  copyKPerThread = math_util::gcd(math_util::gcd(maxVlen, copyPerThread), kpack);
   assert(dPerBlock % dThread == 0 &&
          "dPerBlock should be divisible by dThread");
   copyDPerThread = dPerBlock / dThread;
