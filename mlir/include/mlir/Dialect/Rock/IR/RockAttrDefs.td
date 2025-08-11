@@ -471,12 +471,21 @@ def Rock_GemmFeatures_AtomicAdd : I32BitEnumAttrCaseBit<"atomic_add", 3>;
 def Rock_GemmFeatures_AtomicAddBF16 : I32BitEnumAttrCaseBit<"atomic_add_bf16", 4>;
 def Rock_GemmFeatures_AtomicAddF16 : I32BitEnumAttrCaseBit<"atomic_add_f16", 5>;
 def Rock_GemmFeatures_AtomicFmaxF32 : I32BitEnumAttrCaseBit<"atomic_fmax_f32", 6>;
+def Rock_GemmFeatures_DirectToLDS32B
+    : I32BitEnumAttrCaseBit<"direct_to_lds_32b", 7>;
+def Rock_GemmFeatures_DirectToLDS128B
+    : I32BitEnumAttrCaseBit<"direct_to_lds_128b", 8>;
 
-def Rock_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
-    "Features that can be enabled on GEMM-based operations",
-    [Rock_GemmFeatures_None, Rock_GemmFeatures_Mfma, Rock_GemmFeatures_Wmma,
-     Rock_GemmFeatures_Dot, Rock_GemmFeatures_AtomicAdd, Rock_GemmFeatures_AtomicAddBF16, 
-     Rock_GemmFeatures_AtomicAddF16, Rock_GemmFeatures_AtomicFmaxF32]> {
+def Rock_GemmFeatures
+    : I32BitEnumAttr<
+          "GemmFeatures",
+          "Features that can be enabled on GEMM-based operations",
+          [Rock_GemmFeatures_None, Rock_GemmFeatures_Mfma,
+           Rock_GemmFeatures_Wmma, Rock_GemmFeatures_Dot,
+           Rock_GemmFeatures_AtomicAdd, Rock_GemmFeatures_AtomicAddBF16,
+           Rock_GemmFeatures_AtomicAddF16, Rock_GemmFeatures_AtomicFmaxF32,
+           Rock_GemmFeatures_DirectToLDS32B,
+           Rock_GemmFeatures_DirectToLDS128B]> {
   let cppNamespace = "::mlir::rock";
   let genSpecializedAttr = 0;
 }
