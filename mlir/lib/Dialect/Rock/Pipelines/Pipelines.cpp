@@ -124,6 +124,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   auto &funcPm3 = pm.nest<func::FuncOp>();
   funcPm3.addPass(bufferization::createEmptyTensorToAllocTensorPass());
   funcPm3.addPass(createLinalgFoldUnitExtentDimsPass());
+  funcPm3.addPass(rock::createRockRemoveRedundantCastsPass());
 
   bufferization::OneShotBufferizePassOptions bufOpts;
   bufOpts.allowReturnAllocsFromLoops = true;
@@ -161,7 +162,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   funcPm.addPass(rock::createRockRegularizePass());
   funcPm.addPass(rock::createRockShuffleGemmForReductions());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
-  funcPm.addPass(rock::createRockRemoveRedundantCastsPass());
   // We want to delay blockwise lowering in the fusion cases
   // until after linalg align pass because with reduction fusion
   // it may introduce blockwise_reductions.
