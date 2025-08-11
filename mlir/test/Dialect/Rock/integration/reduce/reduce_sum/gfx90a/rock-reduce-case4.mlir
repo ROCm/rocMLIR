@@ -29,7 +29,7 @@ module {
   }
   module @__xmodule_gfx90a attributes {mhal.arch = "gfx90a", mhal.module} {
     func.func private @test_reduce__part_1(%arg0: memref<1000x250x100xf32> {mhal.read_access}, %arg1: memref<1x250x100xf32> {mhal.read_access, mhal.write_access, rock.prefill = 0.000000e+00 : f32}) attributes {kernel, original_func = @test_reduce__part_1, grid_size = 16, block_size = 1024} {
-      rock.reduce sum %arg0 into %arg1 features = mfma|dot|atomic_add|atomic_add_f16 {axis = 0 : index, blockSize = 1024 : i32, gridSize = 16 : i32} : memref<1000x250x100xf32> into memref<1x250x100xf32>
+      rock.reduce sum %arg0 into %arg1 {axis = 0 : index, blockSize = 1024 : i32, gridSize = 16 : i32} : memref<1000x250x100xf32> into memref<1x250x100xf32>
       return
     }
   }

@@ -178,4 +178,13 @@ def RockSortDimensionsMemoryLayoutPass : Pass<"rock-sort-dimensions-memory-layou
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "arith::ArithDialect", "linalg::LinalgDialect"];
 }
 
+def RockFindFirstGemmIndexPass
+    : Pass<"rock-find-first-gemm-index", "::mlir::func::FuncOp"> {
+  let summary = "Fusions input arguments and linalg.generic input arguments "
+                "don't have to match. This pass sets the first gemm index of "
+                "the linalg.generic correctly.";
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect",
+                           "linalg::LinalgDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

@@ -1,12 +1,13 @@
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -823,10 +824,13 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Annotate kernel attribute to the FuncOp.
   StringAttr archStrAttr = builder.getStringAttr(config.arch);
   NamedAttribute archAttr = builder.getNamedAttr("mhal.arch", archStrAttr);
+  IntegerAttr numCUIntAttr =
+      builder.getIntegerAttr(builder.getI32Type(), getNumCU());
+  NamedAttribute numCUAttr = builder.getNamedAttr("num_cu", numCUIntAttr);
 
   SmallVector<NamedAttribute, 2> kernelAttrs = {
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(rawKernelId)),
-      archAttr};
+      archAttr, numCUAttr};
 
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
@@ -883,8 +887,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   }
 
   std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr("arch", archStrAttr),
-
       builder.getNamedAttr(
           "filter_layout",
           builder.getArrayAttr(ArrayRef<Attribute>(filterLayoutSpec.begin(),
@@ -896,7 +898,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
           "output_layout",
           builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
                                                    outputLayoutSpec.end()))),
-      builder.getNamedAttr("numCU", builder.getI32IntegerAttr(getNumCU())),
   };
 
   // The backwards data kernel needs to know its kernel ID, as there are
@@ -985,7 +986,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
       // Workspace -> filter tensor
       builder.create<ConvertingCopyKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{},
-          func.getArgument(3), func.getArgument(0), features,
+          func.getArgument(3), func.getArgument(0),
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
     } else {

@@ -11,7 +11,8 @@
 // MIGRAPHX-NEXT:builtin.module(func.func(migraphx-realize-int4,
 // MIGRAPHX-NEXT:migraphx-transform,
 // MIGRAPHX-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
-// MIGRAPHX-NEXT:migraphx-to-tosa))
+// MIGRAPHX-NEXT:migraphx-to-tosa,
+// MIGRAPHX-NEXT:migraphx-tosa-simplify))
 
 // GPU:Kernel pipeline:
 // GPU-NEXT:builtin.module(func.func(rock-affix-params{fallback=false},
@@ -157,4 +158,5 @@
 // HIGHLEVEL-NEXT:linalg-fold-unit-extent-dims{use-rank-reducing-slices=false}),
 // HIGHLEVEL-NEXT:one-shot-bufferize{allow-return-allocs-from-loops=true allow-unknown-ops=false analysis-fuzzer-seed=0 analysis-heuristic=bottom-up buffer-alignment=64 bufferize-function-boundaries=true check-parallel-regions=true copy-before-write=false  dump-alias-sets=false function-boundary-type-conversion=identity-layout-map must-infer-memory-space=false  print-conflicts=false test-analysis-only=false unknown-type-conversion=identity-layout-map use-encoding-for-memory-space=false},
 // HIGHLEVEL-NEXT:buffer-results-to-out-params{add-result-attr=false hoist-static-allocs=false},
-// HIGHLEVEL-NEXT:func.func(rock-sort-dimensions-memory-layout))
+// HIGHLEVEL-NEXT:func.func(rock-find-first-gemm-index,
+// HIGHLEVEL-NEXT:rock-sort-dimensions-memory-layout))

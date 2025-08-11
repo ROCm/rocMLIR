@@ -21,11 +21,12 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -942,35 +943,34 @@ namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
+static bool isConv(rock::KernelType kernelType) {
+  return kernelType == rock::KernelType::Conv ||
+         kernelType == rock::KernelType::ConvBwdData ||
+         kernelType == rock::KernelType::ConvBwdWeight ||
+         kernelType == rock::KernelType::ConvElementwiseGemm;
+}
+
 static void correctConvParameters() {
-  std::string filterLayoutValue = filterLayout.getValue();
-
-  // yxcgk not implement yet
-  if (filterLayoutValue.find('g') == std::string::npos &&
-      (filterLayoutValue.substr(0, 2) == "kc" ||
-       (filterLayoutValue[0] == 'k' && filterLayoutValue.back() == 'c') ||
-       filterLayoutValue.substr(filterLayoutValue.size() - 2) == "ck"))
-    filterLayout = "g" + filterLayoutValue;
-
-  auto addGToLayout = [&](std::string ch,
-                          std::string &layoutValue) -> std::string {
+  auto addGToLayout = [](std::string &layoutValue) -> std::string {
     std::string layout;
     if (layoutValue.find('g') == std::string::npos) {
-      if (layoutValue.substr(0, 2) == "n" + ch)
-        layout = "ng" + ch + layoutValue.substr(2);
-      else if (layoutValue[0] == 'n' && layoutValue.back() == ch[0])
-        layout = layoutValue.substr(0, layoutValue.size() - 1) + "g" + ch;
-      else
-        layout = "g" + layoutValue;
-    } else
+      // Always add 'g' after 'n' when it's missing
+      size_t nPos = layoutValue.find('n');
+      assert(nPos != std::string::npos);
+      layout =
+          layoutValue.substr(0, nPos + 1) + "g" + layoutValue.substr(nPos + 1);
+    } else {
       layout = layoutValue;
+    }
     return layout;
   };
 
-  inputLayout = addGToLayout("c", inputLayout.getValue());
-  outputLayout = addGToLayout("k", outputLayout.getValue());
+  if (filterLayout.getValue().find('g') == std::string::npos)
+    filterLayout = "g" + filterLayout.getValue();
+  inputLayout = addGToLayout(inputLayout.getValue());
+  outputLayout = addGToLayout(outputLayout.getValue());
 
-  // +++pf:  update old key names.
+  // update old key names.
   std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
                'y', '0');
   std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
@@ -1077,28 +1077,6 @@ static void correctConvParameters() {
   // successfully.
   if (di_minimum > di_specified)
     paddingDepthRight = in_right_pad_d + (di_minimum - di_specified);
-}
-
-static void verifyConvLayout() {
-  std::string filterLayoutValue = filterLayout.getValue();
-  std::string inputLayoutValue = inputLayout.getValue();
-
-  if (filterLayoutValue.find("yx") == std::string::npos &&
-      filterLayoutValue.find("xy") == std::string::npos &&
-      filterLayoutValue.find("01") == std::string::npos &&
-      filterLayoutValue.find("10") == std::string::npos) {
-    llvm::errs() << "Unsupported filter layout: disjointed yx!\n";
-    exit(1);
-  }
-
-  if (inputLayoutValue.find("hw") == std::string::npos &&
-      inputLayoutValue.find("wh") == std::string::npos &&
-      inputLayoutValue.find("01") == std::string::npos &&
-      inputLayoutValue.find("10") == std::string::npos) {
-
-    llvm::errs() << "Unsupported input layout: disjointed hw!\n";
-    exit(1);
-  }
 }
 
 static void populateDefaults() {
@@ -2243,9 +2221,18 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0
+           ? b.getI64IntegerAttr(num_cu)
+           : b.getI64IntegerAttr(
+                 rock::lookupArchInfo(archAttr.getValue()).minNumCU));
+  SmallVector<NamedAttribute> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
+
   SmallVector<Type, 3> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
   auto func =
@@ -2272,12 +2259,10 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? b.getI32IntegerAttr(num_cu) : nullptr);
   auto gemm = b.create<rock::GemmOp>(
       loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
-      transposeB, transposeC, archAttr.getValue(), numCUAttr, params.features,
-      storeMethod,
+      transposeB, transposeC,
+      rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
 
   if (!params.perfConfig.empty())
@@ -2789,10 +2774,15 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
-
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
+  SmallVector<NamedAttribute, 3> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_attention");
   auto func = builder.create<func::FuncOp>(
@@ -2851,17 +2841,14 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   keys = broadcastGQARock(builder, loc, keys);
   values = broadcastGQARock(builder, loc, values);
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
-                                      : nullptr);
-
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, transposeQ, transposeK, transposeV,
-      transposeO, causalMasking, archAttr, params.features, softmaxType,
-      numCUAttr,
+      transposeO, causalMasking,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
+      softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
     Block *preSoftmaxElemwiseBlock =
@@ -2953,10 +2940,15 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       getConvElementwiseGemmTypes(argTypes, config, params.types);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
-
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
+  SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_conv_gemm");
   auto func = builder.create<func::FuncOp>(
@@ -2981,10 +2973,6 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   Value output = unflattenedArgs[3];
   SmallVector<Value> elemwiseInputs;
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
-                                      : nullptr);
-
   SmallVector<int64_t, 8> pad;
   for (const auto &[left, right] :
        zip(config->paddingLeftDims, config->paddingRightDims)) {
@@ -2993,7 +2981,8 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   }
   auto convElntGemm = builder.create<rock::ConvElementwiseGemmOp>(
       loc, TypeRange{}, filter, input, c, elemwiseInputs, output, transposeC,
-      transposeO, archAttr, params.features, numCUAttr,
+      transposeO,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       builder.getIndexArrayAttr(pad),
       builder.getIndexArrayAttr(config->strideDims),
       builder.getIndexArrayAttr(config->dilationDims),
@@ -3060,10 +3049,15 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   getGemmElementwiseGemmTypes(argTypes, params.types);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
-
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
+  SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_gemm_gemm");
   auto func = builder.create<func::FuncOp>(
@@ -3088,12 +3082,10 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   Value output = unflattenedArgs[3];
   SmallVector<Value> elemwiseInputs;
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
-                                      : nullptr);
   auto gemmElntGemm = builder.create<rock::GemmElementwiseGemmOp>(
       loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA, transposeB,
-      transposeC, transposeO, archAttr, params.features, numCUAttr,
+      transposeC, transposeO,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
   {
     Block *preSecondGemmBlock =
@@ -3729,14 +3721,15 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   // expsSums = sum e^(x-qkMaxs)
   // lse = (log(expsSums) + qkMaxs)
   if (returnLSE) {
-    Value expsSumsForLSE = createOpAndInfer<tosa::CastOp>(
-        builder, loc, resultOutElementType, expsSums);
-    Value qkMaxsForLSE = createOpAndInfer<tosa::CastOp>(
-        builder, loc, resultOutElementType, qkMaxs);
-    lseTensor = createOpAndInfer<tosa::LogOp>(
-        builder, loc, resultOutElementType, expsSumsForLSE);
-    lseTensor = createOpAndInfer<tosa::AddOp>(
-        builder, loc, resultOutElementType, lseTensor, qkMaxsForLSE);
+    Type lseType = cast<ShapedType>(lseOut.getType()).getElementType();
+    Value expsSumsForLSE =
+        createOpAndInfer<tosa::CastOp>(builder, loc, lseType, expsSums);
+    Value qkMaxsForLSE =
+        createOpAndInfer<tosa::CastOp>(builder, loc, lseType, qkMaxs);
+    lseTensor =
+        createOpAndInfer<tosa::LogOp>(builder, loc, lseType, expsSumsForLSE);
+    lseTensor = createOpAndInfer<tosa::AddOp>(builder, loc, lseType, lseTensor,
+                                              qkMaxsForLSE);
   }
 
   auto invExpsSums =
@@ -5017,10 +5010,9 @@ int main(int argc, char **argv) {
     outputDataType = canonicaliseF8Type(outputDataType);
   }
 
-  if (operation != rock::KernelType::Gemm) {
-    verifyConvLayout();
+  if (isConv(operation))
     correctConvParameters();
-  }
+
   populateDefaults();
 
   bool hasUserKernel = !testFuncName.empty();
@@ -5047,7 +5039,7 @@ int main(int argc, char **argv) {
 
   if (emitSplitKSelectionLikelihood) {
     module->walk([](rock::RockGemmWrapperInterface gemmOp) {
-      const int32_t numCU = rock::lookupArchInfo(gemmOp.getArch()).minNumCU;
+      const int32_t numCU = rock::getNumCUValue(gemmOp);
       const rock::GemmSize gemmSize = gemmOp.getGemmSize();
       const auto likelihood = rock::isSplitKFaster(
           gemmSize.g, gemmSize.m, gemmSize.n, gemmSize.k, numCU);

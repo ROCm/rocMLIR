@@ -9,7 +9,7 @@ module {
     %b = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 3, 1>} : (tensor<64x128x3x3xf32>) -> tensor<64x3x3x128xf32>
     %input_zp = "tosa.const"() {values = dense<0.0> : tensor<1xf32>} : () -> tensor<1xf32>
     %weight_zp = "tosa.const"() {values = dense<0.0> : tensor<1xf32>} : () -> tensor<1xf32>
-    // CHECK: rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) features = dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x64x128x3x3xf32>, memref<256x28x28x1x128xf32>, memref<256x28x28x1x64xf32>
+    // CHECK: rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x64x128x3x3xf32>, memref<256x28x28x1x128xf32>, memref<256x28x28x1x64xf32>
     // CHECK-COUNT-1: linalg.generic
     // CHECK-NOT: linalg.generic
     %c0 = "tosa.conv2d"(%a2, %b, %cst_0, %input_zp, %weight_zp) {acc_type = f32, dilation = array<i64: 1, 1>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>} : (tensor<256x28x28x128xf32>, tensor<64x3x3x128xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<256x28x28x64xf32>
@@ -29,7 +29,7 @@ module {
     %a2 = "tosa.transpose"(%a) {perms = array<i32: 0, 1, 3, 4, 2>} : (tensor<1x256x128x28x28xf32>) -> tensor<1x256x28x28x128xf32>
     %b = "tosa.transpose"(%arg1) {perms = array<i32: 0, 1, 3, 4, 2>} : (tensor<1x64x128x3x3xf32>) -> tensor<1x64x3x3x128xf32>
 
-    // CHECK: rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) features =  dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x64x128x3x3xf32>, memref<256x28x28x1x128xf32>, memref<256x28x28x1x64xf32>
+    // CHECK: rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x64x128x3x3xf32>, memref<256x28x28x1x128xf32>, memref<256x28x28x1x64xf32>
     // CHECK-COUNT-1: linalg.generic
     // CHECK-NOT: linalg.generic
     %const_shape = "tosa.const_shape"() { values = dense<[256, 28, 28, 128]> : tensor<4xindex> } : () -> !tosa.shape<4>
@@ -59,7 +59,7 @@ module {
     %a2 = "tosa.transpose"(%a) {perms = array<i32: 0, 2, 3, 1, 4>} : (tensor<256x128x28x28x1xf32>) -> tensor<256x28x28x128x1xf32>
     %b = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 3, 1, 4>} : (tensor<64x128x3x3x1xf32>) -> tensor<64x3x3x128x1xf32>
 
-    // CHECK: rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) features =  dot {arch = "amdgcn-amd-amdhsa:gfx906", dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x64x128x3x3xf32>, memref<256x28x28x1x128xf32>, memref<256x28x28x1x64xf32>
+    // CHECK: rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x64x128x3x3xf32>, memref<256x28x28x1x128xf32>, memref<256x28x28x1x64xf32>
     // CHECK-COUNT-1: linalg.generic
     // CHECK-NOT: linalg.generic
     %const_shape = "tosa.const_shape"() { values = dense<[256, 28, 28, 128]> : tensor<4xindex> } : () -> !tosa.shape<4>

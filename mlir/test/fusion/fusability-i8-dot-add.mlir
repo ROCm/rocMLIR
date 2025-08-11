@@ -5,7 +5,7 @@
 module {
   func.func @mlir_dot_add(%arg0: memref<1x2x320xi8>, %arg1: memref<1x2x1280xi8>, %arg2: memref<1x1280x320xi8>, %arg3: memref<1x2x320xi8>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x2x320xi8>
-    rock.gemm %alloc = %arg1 * %arg2 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set {arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} : memref<1x2x320xi8> = memref<1x2x1280xi8> * memref<1x1280x320xi8>
+    rock.gemm %alloc = %arg1 * %arg2 storeMethod =  set : memref<1x2x320xi8> = memref<1x2x1280xi8> * memref<1x1280x320xi8>
     %0 = rock.transform %alloc by <affine_map<(d0, d1) -> (0, d0, d1)> by [<Merge{1, 2} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>] bounds = [2, 320] -> [1, 2, 320]> : memref<1x2x320xi8> to memref<2x320xi8>
     %1 = rock.transform %arg0 by <affine_map<(d0, d1) -> (0, d0, d1)> by [<Merge{1, 2} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>] bounds = [2, 320] -> [1, 2, 320]> : memref<1x2x320xi8> to memref<2x320xi8>
     %alloc_0 = memref.alloc() {alignment = 64 : i64} : memref<2x320xi8>

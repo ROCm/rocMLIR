@@ -11,7 +11,7 @@ func.func @base_case(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: index)
   %buf = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   rock.in_bounds_store %v -> %buf[%c0] : vector<4xf32> -> memref<4xf32, #gpu.address_space<private>>, index
   // CHECK: rock.global_store
-  rock.global_store set %buf[%c0] -> %arg1[%arg2] if %true features = none {length = 2 : index} : memref<4xf32, #gpu.address_space<private>> -> memref<16xf32>
+  rock.global_store set %buf[%c0] -> %arg1[%arg2] if %true {length = 2 : index} : memref<4xf32, #gpu.address_space<private>> -> memref<16xf32>
   func.return
 }
 
@@ -23,7 +23,7 @@ func.func @atomic_case(%arg0: memref<16xf32>, %arg1: memref<16xf32>, %arg2: inde
   %v = rock.global_load %arg0[%arg2] if %true : memref<16xf32> -> vector<4xf32>
   %buf = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   rock.in_bounds_store %v -> %buf[%c0] : vector<4xf32> -> memref<4xf32, #gpu.address_space<private>>, index
-  rock.global_store atomic_add %buf[%c0] -> %arg1[%arg2] if %true features = none {length = 2 : index} : memref<4xf32, #gpu.address_space<private>> -> memref<16xf32>
+  rock.global_store atomic_add %buf[%c0] -> %arg1[%arg2] if %true {length = 2 : index} : memref<4xf32, #gpu.address_space<private>> -> memref<16xf32>
   func.return
 }
 
@@ -36,7 +36,7 @@ func.func @collapse_case(%arg0: memref<4x4xf32>, %arg1: memref<16xf32>, %arg2: i
   %v = rock.global_load %arg0_1[%arg2] if %true : memref<16xf32> -> vector<4xf32>
   %buf = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
   rock.in_bounds_store %v -> %buf[%c0] : vector<4xf32> -> memref<4xf32, #gpu.address_space<private>>, index
-  rock.global_store set %buf[%c0] -> %arg1[%arg2] if %true features = none {length = 2 : index} : memref<4xf32, #gpu.address_space<private>> -> memref<16xf32>
+  rock.global_store set %buf[%c0] -> %arg1[%arg2] if %true {length = 2 : index} : memref<4xf32, #gpu.address_space<private>> -> memref<16xf32>
   func.return
 }
 
@@ -53,7 +53,7 @@ func.func @block_readonly_writeonly(%arg0: memref<16xf32>, %arg1: memref<16xf32>
   rock.in_bounds_store %v -> %buf[%c0] : vector<4xf32> -> memref<4xf32, #gpu.address_space<private>>, index
   // Blocks `writeonly`
   memref.store %v0, %arg1[%arg2] : memref<16xf32>
-  rock.global_store set %buf[%c0] -> %arg1[%arg2] if %true features = none {length = 2 : index} : memref<4xf32, #gpu.address_space<private>> -> memref<16xf32>
+  rock.global_store set %buf[%c0] -> %arg1[%arg2] if %true {length = 2 : index} : memref<4xf32, #gpu.address_space<private>> -> memref<16xf32>
   func.return
 }
 

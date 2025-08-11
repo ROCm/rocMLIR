@@ -28,7 +28,7 @@ module {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<32x384x3072xi32>
     // CHECK: [[gemmTile:%.+]] = rock.alloc() : memref<128xi32
     %47 = rock.alloc() : memref<128xi32, #gpu.address_space<private>>
-    rock.threadwise_write_all features =  dot|atomic_add|atomic_fmax_f32|wmma {forceUnroll, useIndexDiffs} %47 -> [#transform_map22, #transform_map23](%alloc) [%c0, %c0, %c0, %c0] by  set : memref<128xi32, #gpu.address_space<private>> -> memref<32x384x3072xi32>
+    rock.threadwise_write_all {forceUnroll, useIndexDiffs} %47 -> [#transform_map22, #transform_map23](%alloc) [%c0, %c0, %c0, %c0] by  set : memref<128xi32, #gpu.address_space<private>> -> memref<32x384x3072xi32>
     // CHECK: [[cstTile:%.+]] = rock.alloc() : memref<128xf32, #gpu.address_space<private>>
     // CHECK-NEXT: linalg.generic
     // CHECK-SAME: outs([[cstTile]]
