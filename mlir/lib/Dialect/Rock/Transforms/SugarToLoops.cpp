@@ -1276,6 +1276,76 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
   }
 };
 
+struct GlobalLoadToLDSRewritePattern
+    : public OpRewritePattern<GlobalLoadToLDSOp> {
+  using OpRewritePattern<GlobalLoadToLDSOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(GlobalLoadToLDSOp op,
+                                PatternRewriter &b) const override {
+    Location loc = op.getLoc();
+    Value source = op.getSource();
+    Value dest = op.getDest();
+    Value valid = op.getValid();
+    SmallVector<Value> coords(op.getSourceCoord());
+    SmallVector<Value> destCoords(op.getDestCoord());
+
+    llvm::APInt validConst = APInt::getZero(1);
+    bool hasI64Idx = op.getNeeds64BitIdx();
+    bool isAlwaysValid =
+        matchPattern(valid, m_ConstantInt(&validConst)) && validConst.isOne();
+    Value numElems = computeMemRefNumElements(b, loc, source);
+    APInt numElemsConst(64, 0);
+    bool isStaticSize = matchPattern(numElems, m_ConstantInt(&numElemsConst));
+    bool emitOobChecks =
+        !isStaticSize || !isAlwaysValid || (hasI64Idx && op.getCanReadOffEnd());
+
+    APInt numBytes =
+        numElemsConst *
+        (cast<ShapedType>(source.getType()).getElementTypeBitWidth() / 8);
+    // In cases where we need more than 2 GB of offset to index but are still
+    // using 32-bit indexing, we'll need to use buffer operations. In the
+    // dynamic shape case, we'll already be in the i64 case, so we don't set
+    // this.
+    bool useBufferOps = !hasI64Idx && (numBytes.trunc(32).isNegative() ||
+                                       emitOobChecks || op.getCanReadOffEnd());
+
+    if (emitOobChecks && !useBufferOps) {
+      return op->emitError(
+          "If we need to emit OOB checks, we must use buffer ops");
+    }
+
+    source = asGlobal(b, source);
+    if (useBufferOps && emitOobChecks && coords.empty()) {
+      source = zeroDMemrefAsOneD(b, source);
+      coords.push_back(b.createOrFold<ConstantIndexOp>(loc, 0));
+    }
+    if (useBufferOps) {
+      // Implement bounds checks for buffer ops by sending any out of bounds
+      // write off the end of the buffer, causing the hardware to return 0
+      // if the write is out of bounds.
+      if (emitOobChecks) {
+        Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
+        for (Value &c : MutableArrayRef<Value>(coords).drop_back())
+          c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
+        Value &lastCoord = coords.back();
+        lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
+      }
+      for (Value &c : MutableArrayRef<Value>(coords))
+        c = b.create<IndexCastOp>(loc, b.getIndexType(), c);
+
+      source = b.create<amdgpu::FatRawBufferCastOp>(
+          loc, source, /*validBytes=*/Value{},
+          /*cacheSwizzleStride=*/Value{},
+          /*boundsCheck=*/(emitOobChecks || op.getCanReadOffEnd()),
+          /*resetOffset=*/false);
+    }
+
+    auto gaterToLDS = b.create<amdgpu::GatherToLDSOp>(
+        loc, source, coords, dest, destCoords, op.getTransferType());
+    b.replaceOp(op, gaterToLDS);
+    return success();
+  }
+};
+
 //===----------------------------------------------------------------------===//
 // GlobalStore lowering.
 //===----------------------------------------------------------------------===//
@@ -1543,8 +1613,9 @@ void RockSugarToLoopsPass::runOnOperation() {
 
   RewritePatternSet patterns(ctx);
   patterns.add<ExtractSliceRewritePattern, InsertSliceRewritePattern,
-               GlobalLoadRewritePattern, GlobalStoreRewritePattern,
-               InBoundsLoadRewritePattern, InBoundsStoreRewritePattern>(ctx);
+               GlobalLoadRewritePattern, GlobalLoadToLDSRewritePattern,
+               GlobalStoreRewritePattern, InBoundsLoadRewritePattern,
+               InBoundsStoreRewritePattern>(ctx);
   if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 

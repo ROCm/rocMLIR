@@ -426,6 +426,30 @@ static llvm::cl::opt<FeatureToggle> atomicFMaxF32Feature(
                                 "remove atomic_add from the feature list")),
     llvm::cl::init(FeatureToggle::infer));
 
+// directToLDS32B
+static llvm::cl::opt<FeatureToggle> directToLDS32BFeature(
+    "direct_to_lds_32b", llvm::cl::desc("toggle feature direct_to_lds_32b"),
+    llvm::cl::values(
+        clEnumValN(FeatureToggle::infer, "infer",
+                   "use the default value provided by the chip"),
+        clEnumValN(FeatureToggle::on, "on",
+                   "force direct_to_lds_32b into the feature list"),
+        clEnumValN(FeatureToggle::off, "off",
+                   "remove direct_to_lds_32b from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
+
+// directToLDS128B
+static llvm::cl::opt<FeatureToggle> directToLDS128BFeature(
+    "direct_to_lds_128b", llvm::cl::desc("toggle feature direct_to_lds_128b"),
+    llvm::cl::values(
+        clEnumValN(FeatureToggle::infer, "infer",
+                   "use the default value provided by the chip"),
+        clEnumValN(FeatureToggle::on, "on",
+                   "force direct_to_lds_128b into the feature list"),
+        clEnumValN(FeatureToggle::off, "off",
+                   "remove direct_to_lds_128b from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
+
 static llvm::cl::opt<std::string>
     filterDataType("fil_dtype",
                    llvm::cl::desc("Data type for filter tensor or matrix A"),
@@ -4721,6 +4745,14 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       enabledFeatures =
           bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
                      atomicFMaxF32Feature == FeatureToggle::on);
+    if (directToLDS32BFeature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_32b,
+                     directToLDS32BFeature == FeatureToggle::on);
+    if (directToLDS128BFeature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_128b,
+                     directToLDS128BFeature == FeatureToggle::on);
 
     if (wmmaFeature == FeatureToggle::infer) {
       // Disable acceleration for mixed types

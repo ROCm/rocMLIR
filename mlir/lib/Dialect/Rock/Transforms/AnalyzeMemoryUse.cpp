@@ -31,7 +31,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
-#define DEBUG_TYPE "rock-buffer-load-merge"
+#define DEBUG_TYPE "rock-analyze-memory-use"
 
 namespace mlir {
 namespace rock {
@@ -62,6 +62,9 @@ void RockAnalyzeMemoryUsePass::runOnOperation() {
     if (auto globalLoad = dyn_cast<GlobalLoadOp>(op))
       return globalLoad.getNeeds64BitIdx() ? WalkResult::interrupt()
                                            : WalkResult::advance();
+    if (auto globalLoadToLDS = dyn_cast<GlobalLoadToLDSOp>(op))
+      return globalLoadToLDS.getNeeds64BitIdx() ? WalkResult::interrupt()
+                                                : WalkResult::advance();
     if (auto globalStore = dyn_cast<GlobalStoreOp>(op))
       return globalStore.getNeeds64BitIdx() ? WalkResult::interrupt()
                                             : WalkResult::advance();
@@ -85,7 +88,7 @@ void RockAnalyzeMemoryUsePass::runOnOperation() {
         worklist.append(user->getUsers().begin(), user->getUsers().end());
         continue;
       }
-      if (!isa<GlobalLoadOp>(user))
+      if (!isa<GlobalLoadOp>(user) && !isa<GlobalLoadToLDSOp>(user))
         isReadonly = false;
       auto storeOp = dyn_cast<GlobalStoreOp>(user);
       if (!storeOp || storeOp.getStoreMethod() != StoreMethod::Set)
