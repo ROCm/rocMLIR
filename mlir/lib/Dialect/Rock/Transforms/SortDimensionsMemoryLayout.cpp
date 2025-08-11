@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -150,6 +151,86 @@ static LogicalResult traceGemmInputToBlockArgs(
 }
 
 template <typename Container>
+static UnitAttr isAccelLayout(Value tensor, const Container &layout, StringAttr perfConfig, PatternRewriter &b) {
+  if(perfConfig == nullptr)
+    return nullptr;
+
+  rock::InitParamsAccel validParams;
+  bool isValidPerfConfig = validParams.deserialize(perfConfig.str());
+  if(!isValidPerfConfig)
+    return nullptr;
+
+  int64_t mPerBlock = validParams.gemmMPerBlock;
+  int64_t nPerBlock = validParams.gemmNPerBlock;
+  int64_t kpackPerBlock = validParams.gemmKPerBlock;
+  int64_t kPack = validParams.getKPack();
+
+  // trace input tensor to blockArgument first and do necessary error checking
+  llvm::DenseMap<Value, SmallVector<Attribute>> transformAttrsMap;
+  llvm::SmallSetVector<Value, 2> blockArgs;
+  BufferDependencyAnalysis deps(tensor.getParentBlock()->getParentOp());
+  if (failed(traceGemmInputToBlockArgs(tensor, b, transformAttrsMap, blockArgs,
+                                       deps))) {
+    return nullptr;
+  }
+  assert(!blockArgs.empty());
+  SmallVector<Attribute> transformsList;
+  for (const auto blockArg : blockArgs) {
+    // make sure all the blockArgs have been mapped to some transform sequence
+    // or empty transform sequence
+    if (!transformAttrsMap.contains(blockArg)) {
+      return nullptr;
+    }
+    if (transformsList.empty()) {
+      transformsList = transformAttrsMap[blockArg];
+    } else if (transformsList != transformAttrsMap[blockArg]) {
+      // Currently we do not handle case where some block arg goes through
+      // different sequence of transforms. All blockArgs must have same
+      // transforms for now.
+      return nullptr;
+    }
+  }
+  if (transformsList.empty()) {
+    return nullptr;
+  }
+  ArrayAttr transforms = b.getArrayAttr(transformsList);
+  rock::TransformMapAttr firstCoordTransform =
+      cast<rock::TransformMapAttr>(transformsList[0]);
+  int64_t upperRank = firstCoordTransform.getUpperBounds().size();
+  SmallVector<uint32_t> strides(upperRank);
+  bool isAccelLayoutD = false;
+  bool isAccelLayoutK = false;
+  int64_t dPerBlock = 0;
+  int64_t kpackPerBlockStride = 0;
+  assert(upperRank == static_cast<int64_t>(layout.size()));
+
+  for (int64_t idx = 0; idx < upperRank; idx++) {
+    FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<rock::SubDimInfo>>>
+        maybeLowerSubDims = rock::getLowerSubDimensions(b, transforms, idx);
+    if (failed(maybeLowerSubDims)) {
+      return nullptr;
+    }
+    auto lowerSubDims = maybeLowerSubDims.value();
+    if(layout[idx] == "M" || layout[idx] == "N") {
+      dPerBlock = (layout[idx] == "M") ? mPerBlock : nPerBlock;
+      if(lowerSubDims.size() == 1) {
+        SmallVector<rock::SubDimInfo> subDims = lowerSubDims[0];
+        isAccelLayoutD = subDims.size() == 2 && subDims[1].size == dPerBlock && subDims[1].stride == kPack;
+      }
+    } else if(layout[idx] == "K") {
+      if(lowerSubDims.size() == 1) {
+        SmallVector<rock::SubDimInfo> subDims = lowerSubDims[0];
+        kpackPerBlockStride = subDims.size() == 3 ? subDims[1].stride : 0;
+        isAccelLayoutK = subDims.size() == 3 && subDims[1].size == kpackPerBlock && subDims[2].size == kPack && subDims[2].stride == 1;
+      }
+    }
+  }
+  isAccelLayoutK &= kpackPerBlockStride == kPack*dPerBlock;
+
+  return (isAccelLayoutD && isAccelLayoutK) ? b.getUnitAttr() : nullptr;
+}
+
+template <typename Container>
 static FailureOr<std::tuple<Value, Container, SmallVector<uint32_t>>>
 sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
   // trace input tensor to blockArgument first and do necessary error checking
@@ -197,6 +278,7 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
     uint32_t minStride =
         lowerSubDims.empty() ? 1 : std::numeric_limits<uint32_t>::max();
 
+    LLVM_DEBUG(llvm::dbgs() << "SUBDIMS FOR dim=" << idx << "=\n");
     for (auto [dim, subDimInfos] : lowerSubDims) {
       LLVM_DEBUG(llvm::dbgs() << "dim=" << dim << ":");
       LLVM_DEBUG(llvm::interleaveComma(subDimInfos, llvm::dbgs()));
@@ -205,6 +287,7 @@ sortByMemoryLayout(Value tensor, const Container &layout, PatternRewriter &b) {
         minStride = std::min(minStride, static_cast<uint32_t>(subDim.stride));
     }
     strides[idx] = minStride;
+    LLVM_DEBUG(llvm::dbgs() << "END SUBDIMS FOR dim=" << idx << "=\n");
   }
 
   LLVM_DEBUG(llvm::dbgs() << "strides=");
@@ -505,6 +588,10 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
     if (tensorB.getType().getRank() == 2)
       layoutB = {layoutB[1], layoutB[2]};
 
+    StringAttr perfConfig = op->getAttrOfType<StringAttr>("perf_config");
+    UnitAttr isAccelLayoutA = isAccelLayout(tensorA, layoutA, perfConfig, b);
+    UnitAttr isAccelLayoutB = isAccelLayout(tensorB, layoutB, perfConfig, b);
+
     auto maybeSortedA = sortByMemoryLayout(tensorA, layoutA, b);
     auto maybeSortedB = sortByMemoryLayout(tensorB, layoutB, b);
 
@@ -535,21 +622,24 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
                             << " newTensorB=" << newTensorB << "\n");
     LLVM_DEBUG(llvm::dbgs() << "transposedA=" << transposedA
                             << "\ntransposedB=" << transposedB << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "isAccelLayoutA=" << isAccelLayoutA
+                            << "\nisAccelLayoutB=" << isAccelLayoutB << "\n");
 
     // no need to create transforms if it's the same tensor
-    if (finalLayoutA == layoutA && finalLayoutB == layoutB)
+    if (finalLayoutA == layoutA && finalLayoutB == layoutB && isAccelLayoutA == op.getAAccelLayoutAttr() &&
+        isAccelLayoutB == op.getBAccelLayoutAttr())
       return failure();
 
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
         op, op->getResultTypes(), newTensorA, newTensorB, op.getC(),
         transposedA, transposedB, op.getCTransposedAttr(),
-        op.getAAccelLayoutAttr(), op.getBAccelLayoutAttr(), op.getArchAttr(),
+        isAccelLayoutA, isAccelLayoutB, op.getArchAttr(),
         op.getNumCUAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
         op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
 
-    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
-      newGemm->setAttr("perf_config", attr);
+    if (perfConfig)
+      newGemm->setAttr("perf_config", perfConfig);
 
     return success();
   }
