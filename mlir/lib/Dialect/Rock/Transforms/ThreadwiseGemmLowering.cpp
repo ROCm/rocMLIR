@@ -34,6 +34,7 @@
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
@@ -197,9 +198,6 @@ struct ThreadwiseGemmRewritePattern
 
       b.create<InBoundsStoreOp>(loc, result, bufferC, cCoords);
     }
-    LLVM_DEBUG(llvm::dbgs() << "debug before\n");
-    b.eraseOp(op);
-    LLVM_DEBUG(llvm::dbgs() << "debug 202\n");
     return success();
   }
 };
@@ -844,12 +842,12 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   }
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::ThreadwiseAccelGemmOp>();
+  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseAccelGemmOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
-                         memref::MemRefDialect, vector::VectorDialect,
-                         scf::SCFDialect>();
-  target.addLegalOp<gpu::PrintfOp>();
+                         memref::MemRefDialect, vector::VectorDialect>();
+  // vector::TransferReadOp constructor uses poison
+  target.addLegalOp<gpu::PrintfOp, ub::PoisonOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseAccelGemmRewritePattern>(
