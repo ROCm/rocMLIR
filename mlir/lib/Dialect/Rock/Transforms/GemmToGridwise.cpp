@@ -371,6 +371,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   if (accumulator != c) {
     auto map = rw.getMultiDimIdentityMap(3);
+    llvm::dbgs() << "INPUT " << accumulator << "\n";
+    llvm::dbgs() << "OUTPUT " << c << "\n";
     rw.create<linalg::GenericOp>(
         loc, ValueRange{accumulator}, ValueRange{c},
         ArrayRef<AffineMap>{map, map},

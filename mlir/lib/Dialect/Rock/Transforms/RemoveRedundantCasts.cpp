@@ -1,4 +1,4 @@
-//===- RemoveRedundantCasts - MLIR Rock ops lowering passes -----===//
+//===------- RemoveRedundantCasts - MLIR Rock ops lowering passes ---------===//
 //
 // Copyright 2025 The MLIR Authors.
 //
@@ -13,15 +13,15 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-// ============================================================
+// =============================================================================
 //
-// This pass identifies and removes redundant floating-point cast chains in the
+// This pass identifies and removes redundant cast chains in the
 // IR, specifically patterns where a value is converted from f32 to a smaller
 // type (e.g., f16) and then immediately extended back to f32. By eliminating
 // these unnecessary conversions, the pass simplifies the IR and can improve
 // performance by reducing superfluous operations and memory traffic.
 //
-//===-----------------------------------------------------===//
+//===----------------------------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -72,15 +72,20 @@ struct RemoveRedundantTruncExtfPattern
 
     bool changed = false;
 
-    // Now we need to check the input of the cast (linalg.generic with extf) to
-    // see if it is a RockOp that makes use of MFMA. MFMA in rocmlir does
-    // accumulation in higher precision, so if our rock op is using MFMA and
-    // the return type is F16, then it means that there will be a truncf op
-    // inserted in RockGemmToGridwise that will potentially be redundant.
-    auto input = getExtfInput(generic).getDefiningOp();
+    auto extfInput = getExtfInput(generic);
+    if (!extfInput)
+      return failure();
+    auto input = extfInput.getDefiningOp();
+
     if (auto rockI = dyn_cast<RockGemmWrapperInterface>(input)) {
+      // Now we need to check the input of the cast (linalg.generic with extf)
+      // to see if it is a RockOp that makes use of MFMA. MFMA in rocmlir does
+      // accumulation in higher precision, so if our rock op is using MFMA and
+      // the return type is F16, then it means that there will be a truncf op
+      // inserted in RockGemmToGridwise that will potentially be redundant.
       changed |= handleRockGemmWrapper(input, generic, rewriter);
     } else if (auto inputGeneric = dyn_cast<linalg::GenericOp>(input)) {
+      // We also want to handle an arbitrary truncf op followed by extf ops
       if (isGenericWithSingleOp<arith::TruncFOp>(inputGeneric))
         changed |= handleLinalgGeneric(inputGeneric, generic, rewriter);
     } else {
@@ -96,6 +101,9 @@ private:
   // This is a helper function that checks if the generic operation contains
   // only a single operation of type OpType, and that the yield returns that
   // value.
+  // NOTE: A convert in migraphx, will eventually be lowered to a linalg
+  // with either a single truncf or extf op. e.g.,:
+  // %1 = migraphx.convert %0 : <1x5x3xf16, 15x3x1> to <1x5x3xf32, 15x3x1>
   template <typename OpType>
   bool isGenericWithSingleOp(linalg::GenericOp generic) const {
     Block &body = generic.getRegion().front();
@@ -154,9 +162,13 @@ private:
       return nullptr;
     }
 
+    // We don't need to investigate BlockArguments any further
+    Value input = generic.getInputs()[0];
+    if (isa<BlockArgument>(input))
+      return nullptr;
+
     // If the input is a rock.transform op, we need to untransform it to get
     // to the original input value.
-    Value input = generic.getInputs()[0];
     if (auto rockTransformOp =
             dyn_cast<rock::TransformOp>(input.getDefiningOp())) {
       // We need to traverse the rock.transform ops to find the original input
@@ -261,7 +273,7 @@ private:
     return false;
   }
 
-  linalg::GenericOp createTruncFGeneric(Operation *input, Operation *output,
+  linalg::GenericOp createTruncGeneric(Operation *input, Operation *output,
                                         PatternRewriter &rewriter) const {
     // Get the input and output types
     auto inputType = cast<RankedTensorType>(input->getResult(0).getType());
@@ -288,19 +300,25 @@ private:
         rank, utils::IteratorType::parallel);
 
     // Create the linalg.generic operation
+    auto loc = input->getLoc();
     auto genericOp = rewriter.create<linalg::GenericOp>(
-        input->getLoc(),
+        loc,
+        /*resultTypes=*/TypeRange{outputType},
         /*inputs=*/ValueRange{input->getResult(0)},
         /*outputs=*/ValueRange{output->getResult(0)},
         /*indexingMaps=*/indexingMaps,
         /*iteratorTypes=*/iteratorTypes,
-        /*bodyBuilder=*/[&](OpBuilder &b, Location loc, ValueRange args) {
-          // args[0] is the input (f32), args[1] is the output (f16/bf16/etc.)
-          Value inputVal = args[0];
-          Value truncResult = b.create<arith::TruncFOp>(
-              loc, outputType.getElementType(), inputVal);
-          b.create<linalg::YieldOp>(loc, truncResult);
-        });
+        /*doc=*/"",
+        /*library_call=*/"",
+        /*bodyBuild=*/
+        [](OpBuilder &builder, Location loc, ValueRange args) {
+          Value blockArg = args[0];
+          Value outputArg = args[1];
+          Type oType = outputArg.getType();
+          Value truncResult = builder.create<arith::TruncFOp>(loc, oType, blockArg);
+          builder.create<linalg::YieldOp>(loc, truncResult);
+        }
+    );
 
     return genericOp;
   }
@@ -370,6 +388,7 @@ private:
     }
 
     // Replace and remove the extf op
+    rewriter.setInsertionPoint(rockOp);
     auto tup = getAllNonTransformedUses(rockOp);
     rewriter.replaceAllUsesWith(extfGen.getResult(0), prevValue);
     rewriter.eraseOp(extfGen);
@@ -385,9 +404,9 @@ private:
       // Otherwise, we need to create a truncF from our new rock op, and update
       // all of the users of the old rockOp
       auto newTruncF =
-          createTruncFGeneric(clonedOp, rockOutputOp.getDefiningOp(), rewriter);
+          createTruncGeneric(clonedOp, rockOutputOp.getDefiningOp(), rewriter);
       rewriter.replaceAllUsesWith(rockOp->getResult(0),
-                                  newTruncF->getResult(0));
+                                  newTruncF.getResult(0));
     }
 
     // Now we can safely clean up the original rock op
