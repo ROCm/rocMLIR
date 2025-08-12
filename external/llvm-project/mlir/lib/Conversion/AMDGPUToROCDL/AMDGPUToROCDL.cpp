@@ -1850,7 +1850,7 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
            ScaledMFMAOpLowering, WMMAOpLowering, ExtPackedFp8OpLowering,
            ScaledExtPackedOpLowering, PackedScaledTruncOpLowering,
            PackedTrunc2xFp8OpLowering, PackedStochRoundFp8OpLowering,
-           GatherToLDSOpLowering>(converter, chipset);
+           GatherToLDSOpLowering, TransposeLoadOpLowering>(converter, chipset);
   patterns.add<LDSBarrierOpLowering>(converter, chipset, hackForDirectToLDS);
   patterns.add<AMDGPUSwizzleBitModeLowering>(converter);
 }
