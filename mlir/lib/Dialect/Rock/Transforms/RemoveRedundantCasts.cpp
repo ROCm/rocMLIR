@@ -77,7 +77,8 @@ struct RemoveRedundantTruncExtfPattern
       return failure();
     auto input = extfInput.getDefiningOp();
 
-    if (auto rockI = dyn_cast<RockGemmWrapperInterface>(input)) {
+    if (isa<RockGemmWrapperInterface>(input) ||
+        isa<RockGemmGemmWrapperInterface>(input)) {
       // Now we need to check the input of the cast (linalg.generic with extf)
       // to see if it is a RockOp that makes use of MFMA. MFMA in rocmlir does
       // accumulation in higher precision, so if our rock op is using MFMA and
@@ -180,8 +181,8 @@ private:
   }
 
   // Helper function to create a new f32 output value for a
-  // RockGemmWrapperInterface Op or LinalgGeneric TruncFOp, and any
-  // corresponding rock.transformOps
+  // RockGemmWrapperInterface/RockGemmGemmwrapperInterface Op or LinalgGeneric
+  // TruncFOp, and any corresponding rock.transformOps
   Value createNewF32Output(Value prevValue,
                            SmallVector<rock::TransformOp> outputTransforms,
                            OpBuilder &builder) const {
@@ -325,11 +326,23 @@ private:
 
   bool handleRockGemmWrapper(Operation *rockOp, linalg::GenericOp extfGen,
                              PatternRewriter &rewriter) const {
-    auto rockI = cast<RockGemmWrapperInterface>(rockOp);
-    LLVM_DEBUG(llvm::dbgs()
-               << "\tFound RockGemmWrapperInterface: " << *rockI << "\n");
-    auto rockOutputElementType = rockI.getCType();
-    auto rockOutputOp = rockI.getOutArgument()->get();
+    LLVM_DEBUG(llvm::dbgs() << "\tFound "
+                << "RockGemmWrapperInterface/RockGemmGemmWrapperInterface: "
+                << *rockOp << "\n");
+    Type rockOutputElementType;
+    Value rockOutputOp;
+    if (auto rockI = dyn_cast<RockGemmWrapperInterface>(rockOp)) {
+      rockOutputElementType = rockI.getCType();
+      rockOutputOp = rockI.getOutArgument()->get();
+    } else if (auto rockGemmI =
+                   dyn_cast<RockGemmGemmWrapperInterface>(rockOp)) {
+      rockOutputElementType = rockGemmI.getCType();
+      rockOutputOp = rockGemmI.getOutArgument()->get();
+    } else {
+      LLVM_DEBUG(llvm::dbgs() << "\tNot a RockGemmWrapperInterface, skipping\n");
+      return false;
+    }
+
     auto rockOutputType = dyn_cast<RankedTensorType>(rockOutputOp.getType());
     if (!rockOutputType) {
       LLVM_DEBUG(llvm::dbgs()
@@ -341,7 +354,7 @@ private:
     builder.setInsertionPoint(rockOp);
 
     // If this op uses mfma, it will accumulate in higher precision (F32)
-    auto features = rock::getFeatures(rockI);
+    auto features = rock::getFeatures(rockOp);
     bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
     if (!isMfma || !(cast<FloatType>(rockOutputElementType).getWidth() < 32)) {
       LLVM_DEBUG(llvm::dbgs()
@@ -350,7 +363,7 @@ private:
       return false;
     }
 
-    // Now we can create a clone of the original RockGemmWrapperInterface with
+    // Now we can create a clone of the original Interface op with
     // the new output type/value
     SmallVector<rock::TransformOp> resultTransforms;
     Value untransformedOutput =
@@ -367,14 +380,20 @@ private:
     Value newF32Output =
         createNewF32Output(newAllocTensorOp, resultTransforms, builder);
     Operation *clonedOp = builder.clone(*rockOp);
-    auto clonedRockI = cast<RockGemmWrapperInterface>(clonedOp);
-    unsigned outArgIndex = clonedRockI.getOutArgument()->getOperandNumber();
+    int outArgIndex = -1;
+    if (auto rockI = dyn_cast<RockGemmWrapperInterface>(clonedOp)) {
+      outArgIndex = rockI.getOutArgument()->getOperandNumber();
+    } else if (auto rockGemmI =
+                   dyn_cast<RockGemmGemmWrapperInterface>(clonedOp)) {
+      outArgIndex = rockGemmI.getOutArgument()->getOperandNumber();
+    }
+    assert(outArgIndex != -1 && "outArgIndex was not initialized");
     clonedOp->setOperand(outArgIndex, newF32Output);
     Type newResultType =
         rockOutputType.cloneWith(std::nullopt, builder.getF32Type());
     clonedOp->getResult(0).setType(newResultType);
 
-    // If the RockGemmWrapperInterface op had rock.transforms between it and
+    // If the Interface op had rock.transforms between it and
     // the extf generic use, then we need to create those transforms for our
     // new Rock op
     SmallVector<rock::TransformOp> extfInputTransforms;
