@@ -27,9 +27,9 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
+#include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -61,7 +61,8 @@ struct RemoveRedundantTruncExtfPattern
 
   LogicalResult matchAndRewrite(linalg::GenericOp generic,
                                 PatternRewriter &rewriter) const override {
-    LLVM_DEBUG(llvm::dbgs() << "Looking at generic: " << generic.getLoc() << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "Looking at generic: " << generic.getLoc() << "\n");
 
     // Check if the generic operation only contains an extf operation.
     if (!isGenericWithSingleOp<arith::ExtFOp>(generic)) {
@@ -98,12 +99,12 @@ private:
   template <typename OpType>
   bool isGenericWithSingleOp(linalg::GenericOp generic) const {
     Block &body = generic.getRegion().front();
-    
+
     // Check that the body has exactly 2 operations: OpType and yield
-    if (std::distance(body.begin(), body.end())  != 2) {
+    if (std::distance(body.begin(), body.end()) != 2) {
       return false;
     }
-    
+
     // First operation should be an OpType
     auto firstOp = body.begin();
     if (!isa<OpType>(firstOp)) {
@@ -127,20 +128,21 @@ private:
     } else if (isa<arith::TruncFOp>(requiredOp)) {
       // We only want to handle truncf ops that truncate from f32
       if (!requiredOp.getIn().getType().isF32()) {
-        LLVM_DEBUG(llvm::dbgs() << "\tTruncf does not truncate from f32, skipping\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << "\tTruncf does not truncate from f32, skipping\n");
         return false;
       }
     }
-    
+
     // Second operation should be yield
     auto secondOp = std::next(body.begin());
     if (!isa<linalg::YieldOp>(secondOp)) {
       return false;
     }
     auto yieldOp = cast<linalg::YieldOp>(secondOp);
-    
+
     // Verify that the yield operation yields the result of the required op
-    return yieldOp.getValues().size() == 1 && 
+    return yieldOp.getValues().size() == 1 &&
            yieldOp.getValues()[0] == requiredOp.getResult();
   }
 
@@ -153,9 +155,10 @@ private:
     }
 
     // If the input is a rock.transform op, we need to untransform it to get
-    // to the original input value. 
+    // to the original input value.
     Value input = generic.getInputs()[0];
-    if (auto rockTransformOp = dyn_cast<rock::TransformOp>(input.getDefiningOp())) {
+    if (auto rockTransformOp =
+            dyn_cast<rock::TransformOp>(input.getDefiningOp())) {
       // We need to traverse the rock.transform ops to find the original input
       SmallVector<rock::TransformOp> inputTransforms;
       return std::get<0>(untransform(input, inputTransforms));
@@ -167,18 +170,15 @@ private:
   // Helper function to create a new f32 output value for a
   // RockGemmWrapperInterface Op or LinalgGeneric TruncFOp, and any
   // corresponding rock.transformOps
-  Value createNewF32Output(Value prevValue, 
+  Value createNewF32Output(Value prevValue,
                            SmallVector<rock::TransformOp> outputTransforms,
                            OpBuilder &builder) const {
     for (auto &transform : outputTransforms) {
       auto newTransformOp = builder.create<rock::TransformOp>(
-          transform.getLoc(),
-          prevValue,
-          transform.getTransform()
-      );
+          transform.getLoc(), prevValue, transform.getTransform());
       prevValue = newTransformOp.getResult();
     }
-    
+
     return prevValue;
   }
 
@@ -186,13 +186,14 @@ private:
   // us the true number of uses of the base value without all of the
   // rock.TransformOps. The boolean value returned tells us if there is a single
   // non-TransformOp user that is an ExtFOp
-  std::tuple<SmallVector<Operation*>, bool> getAllNonTransformedUses(Operation *baseOp) const {
-    SmallVector<Operation*> finalValues;
+  std::tuple<SmallVector<Operation *>, bool>
+  getAllNonTransformedUses(Operation *baseOp) const {
+    SmallVector<Operation *> finalValues;
     bool allExtFOps = true;
     int extFCount = 0;
     LLVM_DEBUG(llvm::dbgs() << *baseOp << "\n");
     // Start with just the base value
-    SmallVector<Operation*> worklist = {baseOp};
+    SmallVector<Operation *> worklist = {baseOp};
     while (!worklist.empty()) {
       Operation *currentOp = worklist.pop_back_val();
 
@@ -201,12 +202,13 @@ private:
           // This value is used by a transform op, add the result to worklist
           worklist.push_back(transformOp.getOperation());
         } else if (isa<linalg::GenericOp>(user) &&
-              isGenericWithSingleOp<arith::ExtFOp>(cast<linalg::GenericOp>(user))) {
-            finalValues.push_back(user);
-            extFCount++;
-        } else  {
-            finalValues.push_back(user);
-            allExtFOps = false;
+                   isGenericWithSingleOp<arith::ExtFOp>(
+                       cast<linalg::GenericOp>(user))) {
+          finalValues.push_back(user);
+          extFCount++;
+        } else {
+          finalValues.push_back(user);
+          allExtFOps = false;
         }
       }
     }
@@ -217,13 +219,14 @@ private:
   bool handleLinalgGeneric(linalg::GenericOp truncfGen,
                            linalg::GenericOp extfGen,
                            PatternRewriter &rewriter) const {
-    LLVM_DEBUG(llvm::dbgs() << "\tFound truncf Linalg GenericOp: " << *truncfGen
-                            << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "\tFound truncf Linalg GenericOp: " << *truncfGen << "\n");
     Value truncfGenResult = truncfGen.getResult(0);
     Value truncfGenInput = truncfGen.getInputs()[0];
     auto outputType = dyn_cast<RankedTensorType>(truncfGenResult.getType());
     if (!outputType) {
-      LLVM_DEBUG(llvm::dbgs() << "\tOutput type is not RankedTensorType, skipping\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tOutput type is not RankedTensorType, skipping\n");
       return false;
     }
 
@@ -232,7 +235,8 @@ private:
     Value extfGenInput = extfGen.getInputs()[0];
     auto trueInput = std::get<0>(untransform(extfGenInput, transforms));
     if (trueInput != truncfGenResult) {
-      LLVM_DEBUG(llvm::dbgs() << "\tExtfGen input is not the truncfGen result, skipping\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tExtfGen input is not the truncfGen result, skipping\n");
       return false;
     }
 
@@ -240,8 +244,8 @@ private:
     OpBuilder builder(truncfGen->getContext());
     auto tup = getAllNonTransformedUses(truncfGen);
     builder.setInsertionPoint(truncfGen);
-    Value newF32Output = createNewF32Output(truncfGenInput, transforms,
-                                            builder);
+    Value newF32Output =
+        createNewF32Output(truncfGenInput, transforms, builder);
     rewriter.replaceAllUsesWith(extfGen.getResult(0), newF32Output);
     rewriter.eraseOp(extfGen);
 
@@ -257,16 +261,17 @@ private:
     return false;
   }
 
-  linalg::GenericOp createTruncFGeneric(Operation *input, Operation *output, PatternRewriter &rewriter) const {
+  linalg::GenericOp createTruncFGeneric(Operation *input, Operation *output,
+                                        PatternRewriter &rewriter) const {
     // Get the input and output types
     auto inputType = cast<RankedTensorType>(input->getResult(0).getType());
     auto outputType = cast<RankedTensorType>(output->getResult(0).getType());
-    
+
     // Verify that input is f32 and output element type is smaller
-    assert(inputType.getElementType().isF32() && 
-          "Input to truncf generic must be f32");
+    assert(inputType.getElementType().isF32() &&
+           "Input to truncf generic must be f32");
     assert(cast<FloatType>(outputType.getElementType()).getWidth() < 32 &&
-          "Output element type must be smaller than f32");
+           "Output element type must be smaller than f32");
 
     // Create indexing maps - both input and output use the same identity map
     MLIRContext *ctx = rewriter.getContext();
@@ -277,10 +282,11 @@ private:
     }
     auto identityMap = AffineMap::get(rank, 0, exprs, ctx);
     SmallVector<AffineMap> indexingMaps = {identityMap, identityMap};
-    
+
     // Create iterator types - all parallel
-    SmallVector<utils::IteratorType> iteratorTypes(rank, utils::IteratorType::parallel);
-    
+    SmallVector<utils::IteratorType> iteratorTypes(
+        rank, utils::IteratorType::parallel);
+
     // Create the linalg.generic operation
     auto genericOp = rewriter.create<linalg::GenericOp>(
         input->getLoc(),
@@ -294,23 +300,22 @@ private:
           Value truncResult = b.create<arith::TruncFOp>(
               loc, outputType.getElementType(), inputVal);
           b.create<linalg::YieldOp>(loc, truncResult);
-        }
-    );
+        });
 
     return genericOp;
   }
 
-  bool handleRockGemmWrapper(Operation *rockOp,
-                             linalg::GenericOp extfGen,
+  bool handleRockGemmWrapper(Operation *rockOp, linalg::GenericOp extfGen,
                              PatternRewriter &rewriter) const {
     auto rockI = cast<RockGemmWrapperInterface>(rockOp);
-    LLVM_DEBUG(llvm::dbgs() << "\tFound RockGemmWrapperInterface: " << *rockI
-                            << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "\tFound RockGemmWrapperInterface: " << *rockI << "\n");
     auto rockOutputElementType = rockI.getCType();
     auto rockOutputOp = rockI.getOutArgument()->get();
     auto rockOutputType = dyn_cast<RankedTensorType>(rockOutputOp.getType());
     if (!rockOutputType) {
-      LLVM_DEBUG(llvm::dbgs() << "\tOutput type is not RankedTensorType, skipping\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tOutput type is not RankedTensorType, skipping\n");
       return false;
     }
 
@@ -321,32 +326,34 @@ private:
     auto features = rock::getFeatures(rockI);
     bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
     if (!isMfma || !(cast<FloatType>(rockOutputElementType).getWidth() < 32)) {
-      LLVM_DEBUG(llvm::dbgs() << "\tNot an op that uses mfma with an output "
-                                 "that has a type smaller than F32, skipping\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tNot an op that uses mfma with an output "
+                    "that has a type smaller than F32, skipping\n");
       return false;
     }
 
     // Now we can create a clone of the original RockGemmWrapperInterface with
     // the new output type/value
     SmallVector<rock::TransformOp> resultTransforms;
-    Value untransformedOutput = std::get<0>(untransform(rockOutputOp,
-                                                        resultTransforms));
-    assert(isa<bufferization::AllocTensorOp>(untransformedOutput.getDefiningOp()) &&
-            "Expected output to be a bufferization.alloc_tensor op");
-    
-    Type newrockOutputType = rockOutputType.cloneWith(std::nullopt, builder.getF32Type());
+    Value untransformedOutput =
+        std::get<0>(untransform(rockOutputOp, resultTransforms));
+    assert(isa<bufferization::AllocTensorOp>(
+               untransformedOutput.getDefiningOp()) &&
+           "Expected output to be a bufferization.alloc_tensor op");
+
+    Type newrockOutputType =
+        rockOutputType.cloneWith(std::nullopt, builder.getF32Type());
     auto newAllocTensorOp = builder.create<bufferization::AllocTensorOp>(
-        untransformedOutput.getLoc(),
-        cast<RankedTensorType>(newrockOutputType),
-        ValueRange{}
-    );
-    Value newF32Output = createNewF32Output(newAllocTensorOp, resultTransforms,
-                                            builder);
+        untransformedOutput.getLoc(), cast<RankedTensorType>(newrockOutputType),
+        ValueRange{});
+    Value newF32Output =
+        createNewF32Output(newAllocTensorOp, resultTransforms, builder);
     Operation *clonedOp = builder.clone(*rockOp);
     auto clonedRockI = cast<RockGemmWrapperInterface>(clonedOp);
     unsigned outArgIndex = clonedRockI.getOutArgument()->getOperandNumber();
     clonedOp->setOperand(outArgIndex, newF32Output);
-    Type newResultType = rockOutputType.cloneWith(std::nullopt, builder.getF32Type());
+    Type newResultType =
+        rockOutputType.cloneWith(std::nullopt, builder.getF32Type());
     clonedOp->getResult(0).setType(newResultType);
 
     // If the RockGemmWrapperInterface op had rock.transforms between it and
@@ -358,10 +365,7 @@ private:
     Value prevValue = clonedOp->getResult(0);
     for (auto &transform : extfInputTransforms) {
       auto newTransformOp = builder.create<rock::TransformOp>(
-          transform.getLoc(),
-          prevValue,
-          transform.getTransform()
-      );
+          transform.getLoc(), prevValue, transform.getTransform());
       prevValue = newTransformOp.getResult();
     }
 
@@ -380,8 +384,10 @@ private:
     } else {
       // Otherwise, we need to create a truncF from our new rock op, and update
       // all of the users of the old rockOp
-      auto newTruncF = createTruncFGeneric(clonedOp, rockOutputOp.getDefiningOp(), rewriter);
-      rewriter.replaceAllUsesWith(rockOp->getResult(0), newTruncF->getResult(0));
+      auto newTruncF =
+          createTruncFGeneric(clonedOp, rockOutputOp.getDefiningOp(), rewriter);
+      rewriter.replaceAllUsesWith(rockOp->getResult(0),
+                                  newTruncF->getResult(0));
     }
 
     // Now we can safely clean up the original rock op
