@@ -1062,6 +1062,41 @@ def Rock_GlobalLoadOp :
   let hasVerifier = 1;
 }
 
+// global_load_to_lds
+def Rock_GlobalLoadToLDSOp
+    : Rock_Op<"global_load_to_lds", [AllElementTypesMatch<["source", "dest"]>,
+                                     AttrSizedOperandSegments]>,
+      Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>,
+                         "source memory", [MemRead]>:$source,
+          Arg<MemRefOf<SupportedMemoryElems>,
+              "destination memory", [MemWrite]>:$dest,
+          I1:$valid, TypeAttr:$transferType, Variadic<Index>:$sourceCoord,
+          Variadic<Index>:$destCoord, UnitAttr:$needs64BitIdx,
+          UnitAttr:$canReadOffEnd)> {
+  let summary = "Load from global memory to LDS, applying bounds checks";
+  let description = [{
+    `global_load_to_lds` loads an item or vector of items from the provided memref
+    (applying no coordinate transformations), starting at `sourceCoord` and stores.
+    to LDS. However, if `valid` is false, it will instead store 0s.
+    Note that the lowering of this operation may be optimized when `valid`
+    is unconditionally true.
+
+    If `needs64BitIdx` is present, then this operation will force its containing
+    kernel to be compiled with `index == i64` and will use less-efficient
+    implementations of bounds-checked load.
+
+    If `canReadOffEnd` is present, then the `valid` input is ignored and the
+    bounds-checked implementation of this operation is always used. This
+    is used to simplify the implementation of certain utility kernels.
+  }];
+  let assemblyFormat = [{
+    $source `[` $sourceCoord `]` 
+    `->` $dest `[` $destCoord `]`  `if` $valid attr-dict
+    `:` type($source) `->` type($dest)
+  }];
+  let hasVerifier = 1;
+}
+
 // global_store
 def Rock_GlobalStoreOp
     : Rock_Op<"global_store", [AllElementTypesMatch<["source", "dest"]>]>,
