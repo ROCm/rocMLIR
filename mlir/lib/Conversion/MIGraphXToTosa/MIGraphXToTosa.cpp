@@ -375,9 +375,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   auto strideAttr = cast<ArrayAttr>(op->getAttr("stride"));
   auto dilationAttr = cast<ArrayAttr>(op->getAttr("dilation"));
   // MIGraphX padAttr is [hlow, wlow, hhigh, whigh] while TOSA padAttr
-  // is [hlow, hhigh, wlow, whigh]. The padding attribute on the MIGraphX ops
-  // represents input padding for forwards convolutions, and output padding for
-  // backwards convolutions
+  // is [hlow, hhigh, wlow, whigh].
   SmallVector<int64_t> pads;
   for (int i = 0; i < dims; i++) {
     pads.push_back(dyn_cast<IntegerAttr>(padAttr[i]).getInt());
@@ -403,8 +401,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   }
   // convolution config attributes
   if (dims == 1) {
-    if ((strides.size() != 1) || (pads.size() != 2) ||
-        (dilations.size() != 1)) {
+    if ((dilations.size() != 1) || (strides.size() != 2) ||
+        (pads.size() != 1)) {
       return op->emitError(
           "1-D convolution has improper dilation, stride, or pad.");
     }
