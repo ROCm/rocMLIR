@@ -401,8 +401,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   }
   // convolution config attributes
   if (dims == 1) {
-    if ((dilations.size() != 1) || (strides.size() != 2) ||
-        (pads.size() != 1)) {
+    if ((dilations.size() != 1) || (strides.size() != 1) ||
+        (pads.size() != 2)) {
       return op->emitError(
           "1-D convolution has improper dilation, stride, or pad.");
     }
