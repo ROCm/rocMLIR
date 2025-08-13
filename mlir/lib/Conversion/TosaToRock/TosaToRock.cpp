@@ -596,329 +596,6 @@ getElementwiseRegion(Value input, OpBuilder &regionBuilder, Block *block,
   return {res, failure()};
 }
 
-static Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape,
-                             Location loc, OpBuilder &b) {
-  ArrayRef<int64_t> inpShape = cast<ShapedType>(inp.getType()).getShape();
-  bool broadcastDone = false;
-  rock::BottomUpTMBuilder broadcastDims(b, inpShape, loc);
-  for (unsigned int i = 0; i < outShape.size(); i++) {
-    if (inpShape[i] == 1 && outShape[i] != 1) {
-      broadcastDims.broadcast({i}, {outShape[i]});
-      broadcastDone = true;
-    } else {
-      broadcastDims.passThrough({i}, {i});
-    }
-  }
-  if (!broadcastDone) {
-    return inp;
-  }
-  return b.create<rock::TransformOp>(loc, inp, broadcastDims.get());
-}
-
-static FailureOr<rock::ConvBwdDataOp>
-  makeRockBwdDataConv(ConversionPatternRewriter &rw, Operation *op, 
-                      Value input, Value filter, Value output,
-                      DenseI64ArrayAttr pad, DenseI64ArrayAttr stride,
-                      DenseI64ArrayAttr dilation, int64_t kernelId) {
-  Location loc = op->getLoc();
-  
-  // Use similar expansion logic as forward convolution.
-  ConvFields convFields = commonConv(rw, op, input, filter, output, 
-                                    pad, stride, dilation, /*group=*/1);
-  
-  // Create BwdData convolution operation - fix the parameter order
-  auto bwdDataOp = rw.create<rock::ConvBwdDataOp>(
-      loc, convFields.outputExp.getType(),
-      convFields.filterExp,
-      convFields.outputExp,
-      convFields.inputExp,
-      /*features=*/nullptr,
-      /*derivedBlockSize=*/nullptr, 
-      /*gridSize=*/nullptr,
-      convFields.pad, convFields.stride, convFields.dilation,
-      /*params=*/nullptr,
-      rw.getIndexAttr(kernelId));  // kernelId is the LAST parameter
-  
-  addConvAttributes(rw, bwdDataOp, convFields);
-  
-  return bwdDataOp;
-}
-
-static FailureOr<rock::ConvBwdWeightOp>
-  makeRockBwdWeightConv(ConversionPatternRewriter &rw, Operation *op, 
-                        Value input, Value filter, Value output,
-                        DenseI64ArrayAttr pad, DenseI64ArrayAttr stride,
-                        DenseI64ArrayAttr dilation, int64_t kBlocks) {
-  Location loc = op->getLoc();
-  
-  // Use similar expansion logic as forward convolution
-  ConvFields convFields = commonConv(rw, op, input, filter, output, 
-                                    pad, stride, dilation, /*group=*/1);
-  
-  // Create BwdWeight convolution operation
-  auto bwdWeightOp = rw.create<rock::ConvBwdWeightOp>(
-      loc, convFields.outputExp.getType(),
-      convFields.outputExp,   // Output (acts as weight gradient)
-      convFields.inputExp,    // Input tensor (acts as input for bwd weight)
-      convFields.filterExp,   // Filter (acts as output gradient for bwd weight)  
-      /*features=*/nullptr,
-      /*derivedBlockSize=*/nullptr,
-      /*gridSize=*/nullptr,
-      convFields.pad, convFields.stride, convFields.dilation,
-      /*params=*/nullptr,
-      /*workspace=*/nullptr,
-      rw.getIndexAttr(kBlocks)); // kBlocks parameter
-  
-  addConvAttributes(rw, bwdWeightOp, convFields);
-  
-  return bwdWeightOp;
-}
-
-// Helper function to get backward data kernel IDs (replicates ConvGenerator logic)
-static llvm::SmallVector<int64_t> getBwdDataKernelIds(
-    ArrayRef<int64_t> strideDims, ArrayRef<int64_t> dilationDims,
-    ArrayRef<int64_t> filterDims) {
-  
-  // This replicates the logic from rock::backwardDataKernelIds()
-  llvm::SmallVector<int64_t> kernelIds;
-  
-  // Check if we need multiple kernels based on stride/dilation patterns
-  bool needsMultipleKernels = false;
-  for (size_t i = 0; i < strideDims.size(); ++i) {
-    if (strideDims[i] > 1 || dilationDims[i] > 1) {
-      needsMultipleKernels = true;
-      break;
-    }
-  }
-  
-  if (needsMultipleKernels) {
-    // Check if we need zero initialization first
-    bool needsZeroInit = std::any_of(strideDims.begin(), strideDims.end(),
-                                    [](int64_t s) { return s > 1; });
-    if (needsZeroInit) {
-      kernelIds.push_back(-1); // Negative ID indicates zero-init kernel
-    }
-    
-    // Add computation kernels based on stride pattern
-    int64_t numKernels = 1;
-    for (int64_t stride : strideDims) {
-      if (stride > 1) {
-        numKernels *= stride;
-      }
-    }
-    
-    for (int64_t i = 0; i < numKernels; ++i) {
-      kernelIds.push_back(i);
-    }
-  } else {
-    // Simple case - single kernel
-    kernelIds.push_back(0);
-  }
-  
-  return kernelIds;
-}
-
-template <typename OpT>
-class BwdConvConverter final : public OpConversionPattern<OpT> {
-public:
-  using OpConversionPattern<OpT>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(OpT op, typename OpT::Adaptor adaptor,
-                                ConversionPatternRewriter &rw) const final {
-    auto operands = adaptor.getOperands();
-    auto loc = op->getLoc();
-    auto input = operands[0];     // Input tensor
-    auto filter = operands[1];    // Weight/filter tensor
-    auto bias = operands[2];      // Bias tensor
-    auto outputType = cast<RankedTensorType>(op.getType());
-
-    // Determine if this is going to be a BwdData or BwdWeight convolution
-    auto convKindAttr = cast<StringAttr>(op->getAttr("conv_kind"));
-    if (!convKindAttr)
-      return op->emitError("missing conv_kind attribute");
-    auto convKind = convKindAttr.getValue();
-
-    // Get convolution parameters
-    DenseI64ArrayAttr padAttr = op.getOutPadAttr();
-    DenseI64ArrayAttr strideAttr = op.getStrideAttr();
-    // Note: TOSA TransposeConv2D does not have a dilation input, but we have
-    // added it in as an attribute.
-    auto dilationAttr = cast<DenseI64ArrayAttr>(op->getAttr("dilation"));
-    if (!dilationAttr)
-      return op->emitError("missing dilation attribute");
-
-    // Create output tensor allocation
-    Value output = rw.create<bufferization::AllocTensorOp>(loc, outputType,
-                                                           ValueRange{});
-    
-    Value result;
-    if (convKind == "bwd_data") {
-      result = handleBwdDataConversion(rw, op, input, filter, output, 
-                                       padAttr, strideAttr, dilationAttr);
-    }
-    // } else if (convKind == "bwd_weight") {
-    //   result = handleBwdWeightConversion(rw, op, input, filter, output,
-    //                                    padAttr, strideAttr, dilationAttr, group);
-    // } else {
-    //   return rw.notifyMatchFailure(op, "unknown rock.conv_kind value");
-    // }
-
-    if (!result)
-      return failure();
-
-    // Handle bias addition if non-zero
-    if (!isConstantZero(bias)) {
-      result = addBiasToResult(rw, loc, result, bias, outputType);
-      if (!result)
-        return failure();
-    }
-    
-    rw.replaceOp(op, result);
-    return success();
-  }
-
-private:
-  Value handleBwdDataConversion(ConversionPatternRewriter &rw, Operation *op,
-                               Value input, Value filter, Value output,
-                               DenseI64ArrayAttr pad, DenseI64ArrayAttr stride,
-                               DenseI64ArrayAttr dilation) const {
-    // Get stride and dilation dimensions for kernel count calculation
-    ArrayRef<int64_t> strides = stride.asArrayRef();
-    ArrayRef<int64_t> dilations = dilation.asArrayRef();
-    auto filterShape = cast<ShapedType>(filter.getType()).getShape();
-    
-    // Extract spatial dimensions (assuming OHWI layout for TransposeConv2D)
-    SmallVector<int64_t> filterSpatialDims;
-    if (filterShape.size() == 4) { // [O,H,W,I] or similar
-      filterSpatialDims = {filterShape[1], filterShape[2]}; // H, W
-    }
-    
-    // Get all kernel IDs needed for this BwdData operation
-    llvm::SmallVector<int64_t> kernelIds = 
-        getBwdDataKernelIds(strides, dilations, filterSpatialDims);
-    
-    Value currentOutput = output;
-    
-    // Generate all required BwdData kernels
-    for (size_t i = 0; i < kernelIds.size(); ++i) {
-      int64_t kernelId = kernelIds[i];
-      
-      if (kernelId < 0) {
-        // Zero initialization kernel
-        currentOutput = createZeroInitKernel(rw, op->getLoc(), currentOutput);
-        if (!currentOutput)
-          return nullptr;
-      } else {
-        // Actual backward data convolution kernel
-        FailureOr<rock::ConvBwdDataOp> rockBwdDataOp = 
-            makeRockBwdDataConv(rw, op, input, filter, currentOutput, 
-                               pad, stride, dilation, kernelId);
-        
-        if (failed(rockBwdDataOp))
-          return nullptr;
-        
-        currentOutput = rockBwdDataOp->getResult();
-      }
-    }
-    
-    auto outputType = cast<RankedTensorType>(op->getResult(0).getType());
-    Value result = rw.create<rock::TensorUntransformCastOp>(
-        op->getLoc(), outputType, currentOutput, rockConv->getOutput());
-    
-    return result;
-  }
-
-  // Value handleBwdWeightConversion(ConversionPatternRewriter &rw, Operation *op,
-  //                                Value input, Value filter, Value output,
-  //                                DenseI64ArrayAttr pad, DenseI64ArrayAttr stride,
-  //                                DenseI64ArrayAttr dilation, int64_t group) const {
-  //   // For BwdWeight, determine number of kernels needed
-  //   Type elementType = cast<ShapedType>(output.getType()).getElementType();
-  //   bool needsExtraPad = false; // Would need to implement padding check
-    
-  //   Value currentOutput = output;
-  //   int kernelCount = 1;
-    
-  //   // Determine kernel count based on element type and padding needs
-  //   if (!needsExtraPad) {
-  //     if (elementType.isF32()) {
-  //       kernelCount = 2; // zero-init + computation
-  //     } else if (elementType.isF16() || elementType.isBF16()) {
-  //       kernelCount = 3; // zero-init workspace + computation + conversion
-  //     }
-  //   }
-    
-  //   for (int i = 0; i < kernelCount; ++i) {
-  //     if (i == 0 && kernelCount > 1) {
-  //       // Zero initialization kernel
-  //       currentOutput = createZeroInitKernel(rw, op->getLoc(), currentOutput);
-  //       if (!currentOutput)
-  //         return nullptr;
-  //     } else {
-  //       // Main computation kernel(s)
-  //       int64_t kBlocks = (kernelCount == 1) ? 0 : i - 1;
-  //       FailureOr<rock::ConvBwdWeightOp> rockBwdWeightOp = 
-  //           makeRockBwdWeightConv(rw, op, input, filter, currentOutput,
-  //                                pad, stride, dilation, group, kBlocks);
-        
-  //       if (failed(rockBwdWeightOp))
-  //         return nullptr;
-        
-  //       currentOutput = rockBwdWeightOp->getResult().empty() ? 
-  //           currentOutput : rockBwdWeightOp->getResult(0);
-  //     }
-  //   }
-    
-  //   return currentOutput;
-  // }
-  
-  Value createZeroInitKernel(ConversionPatternRewriter &rw, Location loc,
-                           Value output) const {
-    // Create a kernel that initializes the output tensor to zero
-    auto outputType = cast<RankedTensorType>(output.getType());
-    auto elementType = outputType.getElementType();
-    
-    // Create zero constant and broadcast to full shape
-    Attribute zeroAttr;
-    if (elementType.isIntOrIndex()) {
-      zeroAttr = rw.getIntegerAttr(elementType, 0);
-    } else {
-      zeroAttr = rw.getFloatAttr(elementType, 0.0);
-    }
-    
-    auto zeroType = RankedTensorType::get({}, elementType);
-    auto zeroConst = rw.create<tosa::ConstOp>(loc, zeroType, 
-        DenseElementsAttr::get(zeroType, zeroAttr));
-    
-    // Broadcast to full shape
-    return insertBroadcast(zeroConst, outputType.getShape(), loc, rw);
-  }
-  
-  Value addBiasToResult(ConversionPatternRewriter &rw, Location loc,
-                       Value result, Value bias, RankedTensorType outputType) const {
-    auto biasType = cast<ShapedType>(bias.getType());
-    if (!biasType.hasStaticShape())
-      return nullptr;
-
-    int64_t nDims = outputType.getRank();
-    SmallVector<int64_t> biasShape;
-    for (int i = 0; i < nDims - 1; i++)
-      biasShape.push_back(1);
-    biasShape.push_back(biasType.getShape()[0]);
-    
-    auto newType = RankedTensorType::get(biasShape, biasType.getElementType());
-    
-    ReassociationExprs exprs;
-    for (int i = 0; i < nDims; i++)
-      exprs.push_back(getAffineDimExpr(i, rw.getContext()));
-    SmallVector<ReassociationExprs, 1> reassociations;
-    reassociations.push_back(exprs);
-
-    auto biasExpand = rw.create<tensor::ExpandShapeOp>(loc, newType, bias, reassociations);
-    return rw.create<tosa::AddOp>(loc, outputType, ValueRange{result, biasExpand});
-  }
-};
-
 template <typename OpT>
 class ConvConverter final : public OpConversionPattern<OpT> {
 public:
@@ -987,6 +664,25 @@ public:
     return success();
   }
 };
+
+static Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape,
+                             Location loc, OpBuilder &b) {
+  ArrayRef<int64_t> inpShape = cast<ShapedType>(inp.getType()).getShape();
+  bool broadcastDone = false;
+  rock::BottomUpTMBuilder broadcastDims(b, inpShape, loc);
+  for (unsigned int i = 0; i < outShape.size(); i++) {
+    if (inpShape[i] == 1 && outShape[i] != 1) {
+      broadcastDims.broadcast({i}, {outShape[i]});
+      broadcastDone = true;
+    } else {
+      broadcastDims.passThrough({i}, {i});
+    }
+  }
+  if (!broadcastDone) {
+    return inp;
+  }
+  return b.create<rock::TransformOp>(loc, inp, broadcastDims.get());
+}
 
 class MatMulConverter final : public OpConversionPattern<tosa::MatMulOp> {
 public:
@@ -2481,7 +2177,6 @@ public:
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ConvConverter<tosa::Conv2DOp>, ConvConverter<tosa::Conv3DOp>,
-               BwdConvConverter<tosa::TransposeConv2DOp>,
                MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
       context);
 }
