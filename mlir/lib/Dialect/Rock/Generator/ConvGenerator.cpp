@@ -768,10 +768,10 @@ void zeroInitArg(OpBuilder &builder, func::FuncOp func, unsigned argIndex) {
     zero = builder.getFloatAttr(elementType, 0.0);
   } else {
     assert(isa<IntegerType>(elementType) &&
-            "Unsupported element type for prefill attribute");
+           "Unsupported element type for prefill attribute");
     zero = builder.getIntegerAttr(elementType, 0);
   }
-  func.setArgAttrs(argToPrefill.getArgNumber(), 
+  func.setArgAttrs(argToPrefill.getArgNumber(),
                    builder.getNamedAttr(attrName, zero));
 }
 
@@ -981,7 +981,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
         if (dataType.isF32()) {
           needsZeroInit = true;
         } else if (dataType.isF16()) {
-          needsZeroInit =true;
+          needsZeroInit = true;
         }
       }
     }
