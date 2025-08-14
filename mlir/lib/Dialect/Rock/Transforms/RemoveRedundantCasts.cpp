@@ -85,7 +85,7 @@ struct RemoveRedundantTruncExtfPattern
       // to see if it is a RockOp that makes use of MFMA. MFMA in rocmlir does
       // accumulation in higher precision, so if our rock op is using MFMA and
       // the return type isn't F32 or I32 (highest level of precision), then it
-      // means that there will be a trunc op inserted in RockGemmToGridwise 
+      // means that there will be a trunc op inserted in RockGemmToGridwise
       // that will potentially be redundant.
       changed |= handleRockGemmWrapper(input, generic, rewriter);
     } else if (auto inputGeneric = dyn_cast<linalg::GenericOp>(input)) {
@@ -198,7 +198,7 @@ private:
           worklist.push_back(transformOp.getOperation());
         } else if (isa<linalg::GenericOp>(user) &&
                    (isGenericWithSingleOp<arith::ExtFOp>(
-                       cast<linalg::GenericOp>(user)) ||
+                        cast<linalg::GenericOp>(user)) ||
                     isGenericWithSingleOp<arith::ExtSIOp>(
                         cast<linalg::GenericOp>(user)) ||
                     isGenericWithSingleOp<arith::ExtUIOp>(
@@ -215,8 +215,7 @@ private:
     return std::make_tuple(finalValues, (extFCount == 1 && allExtFOps));
   }
 
-  bool handleLinalgGeneric(linalg::GenericOp truncGen,
-                           linalg::GenericOp extGen,
+  bool handleLinalgGeneric(linalg::GenericOp truncGen, linalg::GenericOp extGen,
                            PatternRewriter &rewriter) const {
     LLVM_DEBUG(llvm::dbgs()
                << "\tFound truncf Linalg GenericOp: " << *truncGen << "\n");
@@ -226,23 +225,25 @@ private:
     Value truncGenInput = truncGen.getInputs()[0];
     Value extGenResult = extGen.getResult(0);
     Value extGenInput = extGen.getInputs()[0];
-    
+
     auto truncOutputType = dyn_cast<RankedTensorType>(truncGenResult.getType());
     auto truncInputType = dyn_cast<RankedTensorType>(truncGenInput.getType());
     auto extOutputType = dyn_cast<RankedTensorType>(extGenResult.getType());
     auto extInputType = dyn_cast<RankedTensorType>(extGenInput.getType());
-    
-    if (!truncOutputType || !extOutputType || !truncInputType || !extInputType) {
+
+    if (!truncOutputType || !extOutputType || !truncInputType ||
+        !extInputType) {
       LLVM_DEBUG(llvm::dbgs()
-                << "\tOne or more types are not RankedTensorType, skipping\n");
+                 << "\tOne or more types are not RankedTensorType, skipping\n");
       return false;
     }
 
     if (truncInputType.getElementType() != extOutputType.getElementType() ||
         truncOutputType.getElementType() != extInputType.getElementType()) {
-      LLVM_DEBUG(llvm::dbgs()
-                << "\tTrunc input type doesn't match ext output type, or trunc "
-                << "output type doesn't match ext input type, skipping\n");
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "\tTrunc input type doesn't match ext output type, or trunc "
+          << "output type doesn't match ext input type, skipping\n");
       return false;
     }
 
@@ -259,8 +260,7 @@ private:
     OpBuilder builder(truncGen->getContext());
     auto tup = getAllNonTransformedUses(truncGen);
     builder.setInsertionPoint(truncGen);
-    Value newOutput =
-        createNewOutput(truncGenInput, transforms, builder);
+    Value newOutput = createNewOutput(truncGenInput, transforms, builder);
     rewriter.replaceAllUsesWith(extGen.getResult(0), newOutput);
     rewriter.eraseOp(extGen);
 
@@ -277,7 +277,7 @@ private:
   }
 
   linalg::GenericOp createTruncGeneric(Operation *input, Operation *output,
-                                        PatternRewriter &rewriter) const {
+                                       PatternRewriter &rewriter) const {
     // Get the input and output types
     auto inputType = cast<RankedTensorType>(input->getResult(0).getType());
     auto outputType = cast<RankedTensorType>(output->getResult(0).getType());
@@ -321,29 +321,30 @@ private:
           Value blockArg = args[0];
           Value outputArg = args[1];
           Type oType = outputArg.getType();
-          Value truncResult = builder.create<arith::TruncFOp>(loc, oType, blockArg);
+          Value truncResult =
+              builder.create<arith::TruncFOp>(loc, oType, blockArg);
           builder.create<linalg::YieldOp>(loc, truncResult);
-        }
-    );
+        });
 
     return genericOp;
   }
 
   bool handleRockGemmWrapper(Operation *rockOp, linalg::GenericOp extGen,
                              PatternRewriter &rewriter) const {
-    LLVM_DEBUG(llvm::dbgs() << "\tFound "
-                << "RockGemmWrapperInterface/RockGemmGemmWrapperInterface: "
-                << *rockOp << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "\tFound "
+               << "RockGemmWrapperInterface/RockGemmGemmWrapperInterface: "
+               << *rockOp << "\n");
 
     Value extGenResult = extGen.getResult(0);
     Value extGenInput = extGen.getInputs()[0];
 
     auto extOutputType = dyn_cast<RankedTensorType>(extGenResult.getType());
     auto extInputType = dyn_cast<RankedTensorType>(extGenInput.getType());
-    
+
     if (!extOutputType || !extInputType) {
       LLVM_DEBUG(llvm::dbgs()
-                << "\tOne or more types are not RankedTensorType, skipping\n");
+                 << "\tOne or more types are not RankedTensorType, skipping\n");
       return false;
     }
 
@@ -357,7 +358,8 @@ private:
       rockOutputElementType = rockGemmI.getCType();
       rockOutputOp = rockGemmI.getOutArgument()->get();
     } else {
-      LLVM_DEBUG(llvm::dbgs() << "\tNot a RockGemmWrapperInterface, skipping\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tNot a RockGemmWrapperInterface, skipping\n");
       return false;
     }
 
@@ -369,9 +371,10 @@ private:
     }
 
     if (rockOutputType.getElementType() != extInputType.getElementType()) {
-      LLVM_DEBUG(llvm::dbgs()
-                << "\tTrunc input type doesn't match ext output type, or trunc "
-                << "output type doesn't match ext input type, skipping\n");
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "\tTrunc input type doesn't match ext output type, or trunc "
+          << "output type doesn't match ext input type, skipping\n");
       return false;
     }
 
@@ -381,8 +384,9 @@ private:
     // If this op uses mfma, it will accumulate in higher precision (F32 or I32)
     auto features = rock::getFeatures(rockOp);
     bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
-    if (!isMfma || !((cast<FloatType>(rockOutputElementType).getWidth() < 32) ||
-                     (cast<IntegerType>(rockOutputElementType).getWidth() < 32))) {
+    if (!isMfma ||
+        !((cast<FloatType>(rockOutputElementType).getWidth() < 32) ||
+          (cast<IntegerType>(rockOutputElementType).getWidth() < 32))) {
       LLVM_DEBUG(llvm::dbgs()
                  << "\tNot an op that uses mfma with an output "
                     "that has a type smaller than F32/I32, skipping\n");
@@ -397,21 +401,21 @@ private:
     assert(isa<bufferization::AllocTensorOp>(
                untransformedOutput.getDefiningOp()) &&
            "Expected output to be a bufferization.alloc_tensor op");
-    
+
     Type newRockOutputType;
     if (isa<IntegerType>(rockOutputElementType)) {
       newRockOutputType =
-                 rockOutputType.cloneWith(std::nullopt, builder.getI32Type());
+          rockOutputType.cloneWith(std::nullopt, builder.getI32Type());
     } else {
       newRockOutputType =
-                  rockOutputType.cloneWith(std::nullopt, builder.getF32Type());
+          rockOutputType.cloneWith(std::nullopt, builder.getF32Type());
     }
 
     auto newAllocTensorOp = builder.create<bufferization::AllocTensorOp>(
         untransformedOutput.getLoc(), cast<RankedTensorType>(newRockOutputType),
         ValueRange{});
-    Value newOutput = createNewOutput(newAllocTensorOp, resultTransforms,
-                                      builder);
+    Value newOutput =
+        createNewOutput(newAllocTensorOp, resultTransforms, builder);
     Operation *clonedOp = builder.clone(*rockOp);
     int outArgIndex = -1;
     if (auto rockI = dyn_cast<RockGemmWrapperInterface>(clonedOp)) {
@@ -462,8 +466,7 @@ private:
       // all of the users of the old rockOp
       auto newTruncF =
           createTruncGeneric(clonedOp, rockOutputOp.getDefiningOp(), rewriter);
-      rewriter.replaceAllUsesWith(rockOp->getResult(0),
-                                  newTruncF.getResult(0));
+      rewriter.replaceAllUsesWith(rockOp->getResult(0), newTruncF.getResult(0));
     }
 
     // Now we can safely clean up the original rock op
