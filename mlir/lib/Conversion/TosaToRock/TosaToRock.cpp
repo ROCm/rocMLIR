@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -636,14 +637,45 @@ public:
     int64_t group = 1;
     if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
       group = attr.getInt(); // Use op.getGroup() when all OpT have it.
-    FailureOr<rock::ConvOp> rockConv =
-        makeRockConv(rw, op, input, filter, output, op.getPadAttr(),
-                     op.getStrideAttr(), op.getDilationAttr(), group);
-    if (failed(rockConv))
-      return failure();
 
-    Value result = rw.create<rock::TensorUntransformCastOp>(
-        loc, outputType, rockConv->getResult(), rockConv->getOutput());
+    Value result;                      
+    // For backwards convolution we want to make use of ConvGenerator to
+    // generate the multiple kernels that are needed for backwards conv ops
+    if (isa<tosa::TransposeConv2DOp>(op)) {
+      OpBuilder builder(op);
+      auto mod = op->template getParentOfType<ModuleOp>();
+      auto convGenerator = getConvGenerator(op, adaptor);
+      int kernelCount = 0;
+      if (failed(convGenerator.getKernelCount(builder, kernelCount)))
+        return failure();
+
+      // generate all sub-kernels, and get corresponding gemmId
+      auto convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
+      std::string kernelBaseName = convKind;
+      for (int i = 0; i < kernelCount; ++i) {
+        convGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
+        if (failed(convGenerator.genConvModule(mod, i)))
+          return failure();
+      }
+
+      result = output;
+      // TODO: Make sure that the input and output to the newly created funcs
+      // is correct
+
+    } else {
+      // Directly create the rock::ConvOp for the simpler forwards convolution
+      auto padAttr = op->template getAttrOfType<DenseI64ArrayAttr>("pad");
+      auto dilationAttr = op->template getAttrOfType<DenseI64ArrayAttr>("dilation");
+      FailureOr<rock::ConvOp> rockConv =
+        makeRockConv(rw, op, input, filter, output, padAttr,
+                     op.getStrideAttr(), dilationAttr, group);
+      if (failed(rockConv))
+        return failure();
+
+      Value result = rw.create<rock::TensorUntransformCastOp>(
+          loc, outputType, rockConv->getResult(), rockConv->getOutput());
+    }
+    
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
@@ -676,6 +708,119 @@ public:
     rw.replaceOp(op, result);
 
     return success();
+  }
+
+private:
+  mlir::rock::ConvGenerator getConvGenerator(OpT op, typename OpT::Adaptor) const {
+    // Gather up all of the information that we need to create an instance
+    // of ConvGenerator
+    auto arch = rock::getArchValue(op);
+    auto numCU = rock::getNumCUValue(op);
+    std::string chip;
+    RocmDeviceName splitter;
+    if (succeeded(splitter.parse(arch))) {
+      chip = splitter.getChip().str();
+    }
+
+    auto filterType = cast<RankedTensorType>(op.getWeight().getType());
+    auto inputType = cast<RankedTensorType>(op.getInput().getType());
+    auto outputType = cast<RankedTensorType>(op.getResult().getType());
+
+    rock::GemmFeatures features = getGemmFeaturesFromOp(op, inputType);
+    auto perfConfig = op->template getAttrOfType<StringAttr>("perf_config");
+    bool disableSplitKForTuning = false;
+    if (perfConfig && rock::isSplitKRequested(features, perfConfig)) {
+      disableSplitKForTuning = true;
+    }
+
+    std::optional<rock::ConvOpType> operation;
+    auto convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
+    if (convKind == "bwd_data") {
+      operation = rock::ConvOpType::BwdData;
+    } else {
+      assert(convKind == "bwd_weight" && "Expect bwd_weight or bwd_data");
+      operation = rock::ConvOpType::BwdWeight;
+    }
+
+    // Helper lambda to convert element type to string
+    auto getTypeString = [](Type elementType) -> std::string {
+      if (elementType.isF32()) return "f32";
+      if (elementType.isF16()) return "f16";
+      if (elementType.isBF16()) return "bf16";
+      if (elementType.isF64()) return "f64";
+      if (auto intType = dyn_cast<IntegerType>(elementType)) {
+        return "i" + std::to_string(intType.getWidth());
+      }
+      return "unknown";
+    };
+
+    auto filterDataTypeStr = getTypeString(filterType.getElementType());
+    auto inputDataTypeStr = getTypeString(inputType.getElementType());
+    auto outputDataTypeStr = getTypeString(outputType.getElementType());
+
+    SmallVector<int> filterDims;
+    auto filterShape = filterType.getShape();
+    if (filterShape.size() == 4) {
+        // For 2D convolution: extract spatial dimensions [Y, X]
+        filterDims = {static_cast<int>(filterShape[1]),
+                      static_cast<int>(filterShape[2])};
+    } else {
+        llvm_unreachable("Unsupported filter rank for ConvGenerator");
+    }
+    SmallVector<int64_t, 5> filterDimension = llvm::to_vector<5>(filterType.getShape());
+    SmallVector<int64_t, 5> inputDimension = llvm::to_vector<5>(inputType.getShape());
+    SmallVector<int64_t, 5> outputDimension = llvm::to_vector<5>(outputType.getShape());
+
+    // TOSA standard layouts for conv2d
+    std::string filterLayout = "kyxc";
+    std::string inputLayout = "nhwc";
+    std::string outputLayout = "nhwc";
+
+    auto getIntArray = [&](StringRef attrName) {
+      auto attr = op->template getAttrOfType<DenseI64ArrayAttr>(attrName);
+      return llvm::to_vector<4>(llvm::map_range(attr.asArrayRef(), [](int64_t x) { return static_cast<int>(x); }));
+    };
+
+    SmallVector<int, 4> dilationInts = getIntArray("dilation");
+    SmallVector<int, 4> strideInts = getIntArray("stride");
+
+    auto outPadValues = op->template getAttrOfType<DenseI64ArrayAttr>("out_pad").asArrayRef();
+    SmallVector<int, 4> paddingLeftInts = {static_cast<int>(outPadValues[0]), static_cast<int>(outPadValues[2])};
+    SmallVector<int, 4> paddingRightInts = {static_cast<int>(outPadValues[1]), static_cast<int>(outPadValues[3])};
+
+    std::string perfConfigStr = perfConfig ? perfConfig.str() : "";
+
+    rock::ConvGenerator::Config c{arch.str(),
+                                  chip,
+                                  disableSplitKForTuning,
+                                  /*scheduleVersion=*/1,
+                                  /*triple=*/"",
+                                  /*chipFeatures=*/"",
+                                  perfConfigStr,
+                                  numCU,
+                                  /*reverseGrid=*/false,
+                                  features,
+                                  operation,
+                                  filterDataTypeStr,
+                                  inputDataTypeStr,
+                                  outputDataTypeStr,
+                                  {dilationInts.begin(), dilationInts.end()},
+                                  {strideInts.begin(), strideInts.end()},
+                                  {paddingLeftInts.begin(), paddingLeftInts.end()},
+                                  {paddingRightInts.begin(), paddingRightInts.end()},
+                                  filterLayout,
+                                  inputLayout,
+                                  outputLayout,
+                                  "",
+                                  -1,
+                                  filterDimension,
+                                  inputDimension,
+                                  outputDimension,
+                                  {filterDims.begin(), filterDims.end()},
+                                  };
+
+    auto convGenerator = rock::ConvGenerator(c);
+    return convGenerator;
   }
 };
 
@@ -2167,6 +2312,7 @@ public:
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ConvConverter<tosa::Conv2DOp>, ConvConverter<tosa::Conv3DOp>,
+               ConvConverter<tosa::TransposeConv2DOp>,
                MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
       context);
 }
