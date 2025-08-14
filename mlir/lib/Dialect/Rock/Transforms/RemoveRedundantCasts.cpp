@@ -68,7 +68,7 @@ struct RemoveRedundantTruncExtfPattern
     if (!(isGenericWithSingleOp<arith::ExtFOp>(generic) ||
           isGenericWithSingleOp<arith::ExtSIOp>(generic) ||
           isGenericWithSingleOp<arith::ExtUIOp>(generic))) {
-      LLVM_DEBUG(llvm::dbgs() << "Generic doesn't contain only extf\n");
+      LLVM_DEBUG(llvm::dbgs() << "Generic doesn't contain only ext\n");
       return failure();
     }
 
@@ -77,6 +77,9 @@ struct RemoveRedundantTruncExtfPattern
     auto extInput = getExtInput(generic);
     if (!extInput)
       return failure();
+
+    // We have checks in getExtInput to ensure that the input is not a
+    // BlockArgument, so we can assume that it has a defining op.
     auto input = extInput.getDefiningOp();
 
     if (isa<RockGemmWrapperInterface>(input) ||
@@ -157,7 +160,11 @@ private:
             dyn_cast<rock::TransformOp>(input.getDefiningOp())) {
       // We need to traverse the rock.transform ops to find the original input
       SmallVector<rock::TransformOp> inputTransforms;
-      return std::get<0>(untransform(input, inputTransforms));
+      auto untransformed = std::get<0>(untransform(input, inputTransforms));
+      if (isa<BlockArgument>(untransformed)) {
+        return nullptr;
+      }
+      input = untransformed;
     }
 
     return input;
