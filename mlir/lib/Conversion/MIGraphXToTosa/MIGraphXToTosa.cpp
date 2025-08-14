@@ -350,7 +350,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     break;
   case 3:
     if (isBwdConvOp)
-      op->emitError("Only 1-D and 2-D backwards convulation ops are supported");
+      op->emitError("Only 1-D and 2-D backwards convolution ops are supported");
 
     inputZp =
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
