@@ -107,9 +107,9 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
 
 // Heuristic to determine if every pixel in the output would be written by the
 // backward data convolution algorithm.
-bool isEveryPixelWritten(ArrayRef<int64_t> strideDims,
-                        ArrayRef<int64_t> dilationDims,
-                        ArrayRef<int64_t> filterDims) {
+bool mlir::rock::isEveryPixelWritten(ArrayRef<int64_t> strideDims,
+                                     ArrayRef<int64_t> dilationDims,
+                                     ArrayRef<int64_t> filterDims) {
   bool result = true;
   for (const auto &[stride, dilation, filterSize] :
        zip(strideDims, dilationDims, filterDims)) {

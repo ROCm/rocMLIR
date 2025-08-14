@@ -977,8 +977,11 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     if (rock::isAccel(config.features) &&
         succeeded(needExtraPadBwdWeight(builder, needExtraPad))) {
       if (!needExtraPad) {
-        if (getInputDataType(builder).isF32()) {
+        auto dataType = getInputDataType(builder);
+        if (dataType.isF32()) {
           needsZeroInit = true;
+        } else if (dataType.isF16()) {
+          needsZeroInit =true;
         }
       }
     }
