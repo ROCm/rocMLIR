@@ -283,12 +283,16 @@ private:
     auto outputType = cast<RankedTensorType>(output->getResult(0).getType());
 
     // Verify that the output element type is smaller than the input
-    if (isa<IntegerType>(inputType.getElementType())) {
+    if (isa<IntegerType>(inputType.getElementType()) &&
+        isa<IntegerType>(outputType.getElementType())) {
       assert(cast<IntegerType>(outputType.getElementType()).getWidth() < 32 &&
              "Output element type must be smaller than i32");
-    } else {
+    } else if (isa<FloatType>(inputType.getElementType()) &&
+               isa<FloatType>(outputType.getElementType())) {
       assert(cast<FloatType>(outputType.getElementType()).getWidth() < 32 &&
              "Output element type must be smaller than f32");
+    } else {
+      llvm_unreachable("Unsupported element type for truncation");
     }
 
     // Create indexing maps - both input and output use the same identity map
@@ -385,8 +389,10 @@ private:
     auto features = rock::getFeatures(rockOp);
     bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
     if (!isMfma ||
-        !((cast<FloatType>(rockOutputElementType).getWidth() < 32) ||
-          (cast<IntegerType>(rockOutputElementType).getWidth() < 32))) {
+        !((isa<FloatType>(rockOutputElementType) &&
+           cast<FloatType>(rockOutputElementType).getWidth() < 32) ||
+          (isa<IntegerType>(rockOutputElementType) &&
+           cast<IntegerType>(rockOutputElementType).getWidth() < 32))) {
       LLVM_DEBUG(llvm::dbgs()
                  << "\tNot an op that uses mfma with an output "
                     "that has a type smaller than F32/I32, skipping\n");
