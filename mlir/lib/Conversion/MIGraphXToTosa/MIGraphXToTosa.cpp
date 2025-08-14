@@ -304,22 +304,22 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
     if (isBwdConvOp) {
       cop = rewriter.create<tosa::TransposeConv2DOp>(
-        loc, new1DOutTy,
-        ValueRange{
-            input, filter,
-            getZeroTensor(loc, newOutElementTy,
-                          cast<ShapedType>(filter.getType()).getShape()[0],
-                          rewriter),
-            inputZp, weightZp});
+          loc, new1DOutTy,
+          ValueRange{
+              input, filter,
+              getZeroTensor(loc, newOutElementTy,
+                            cast<ShapedType>(filter.getType()).getShape()[0],
+                            rewriter),
+              inputZp, weightZp});
     } else {
       cop = rewriter.create<tosa::Conv2DOp>(
-        loc, new1DOutTy,
-        ValueRange{
-            input, filter,
-            getZeroTensor(loc, newOutElementTy,
-                          cast<ShapedType>(filter.getType()).getShape()[0],
-                          rewriter),
-            inputZp, weightZp});
+          loc, new1DOutTy,
+          ValueRange{
+              input, filter,
+              getZeroTensor(loc, newOutElementTy,
+                            cast<ShapedType>(filter.getType()).getShape()[0],
+                            rewriter),
+              inputZp, weightZp});
     }
     break;
 
@@ -330,22 +330,22 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
     if (isBwdConvOp) {
       cop = rewriter.create<tosa::TransposeConv2DOp>(
-        loc, newOutTy,
-        ValueRange{
-            input, filter,
-            getZeroTensor(loc, newOutElementTy,
-                          cast<ShapedType>(filter.getType()).getShape()[0],
-                          rewriter),
-            inputZp, weightZp});
+          loc, newOutTy,
+          ValueRange{
+              input, filter,
+              getZeroTensor(loc, newOutElementTy,
+                            cast<ShapedType>(filter.getType()).getShape()[0],
+                            rewriter),
+              inputZp, weightZp});
     } else {
       cop = rewriter.create<tosa::Conv2DOp>(
-        loc, newOutTy,
-        ValueRange{
-            input, filter,
-            getZeroTensor(loc, newOutElementTy,
-                          cast<ShapedType>(filter.getType()).getShape()[0],
-                          rewriter),
-            inputZp, weightZp}); 
+          loc, newOutTy,
+          ValueRange{
+              input, filter,
+              getZeroTensor(loc, newOutElementTy,
+                            cast<ShapedType>(filter.getType()).getShape()[0],
+                            rewriter),
+              inputZp, weightZp});
     }
     break;
   case 3:
