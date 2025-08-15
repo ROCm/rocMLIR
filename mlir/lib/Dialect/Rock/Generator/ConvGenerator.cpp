@@ -759,7 +759,8 @@ ConvolutionDims ConvGenerator::getConvolutionDims(const Config *config) {
 }
 
 LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
-                                           bool isVerifier, bool ignoreTuning) {
+                                           bool isVerifier, bool ignoreTuning,
+                                           bool useTensors) {
   OpBuilder builder(module.getContext());
 
   Type filterDataType = getFilterDataType(builder);
@@ -769,18 +770,37 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     return failure();
 
   // Construct a new FuncOp.
-  auto filterArgType =
-      MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
+  Type filterArgType;
+  Type inputArgType;
+  Type outputArgType;
+
+  if (useTensors) {
+    filterArgType =
+        RankedTensorType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
+                                                config.filterDimension.end()),
+                              filterDataType);
+    inputArgType =
+        RankedTensorType::get(ArrayRef<int64_t>(config.inputDimension.begin(),
+                                                config.inputDimension.end()),
+                              inputDataType);
+    outputArgType =
+        RankedTensorType::get(ArrayRef<int64_t>(config.outputDimension.begin(),
+                                                config.outputDimension.end()),
+                              outputDataType);
+  } else {
+    filterArgType =
+        MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
                                         config.filterDimension.end()),
-                      filterDataType);
-  auto inputArgType =
-      MemRefType::get(ArrayRef<int64_t>(config.inputDimension.begin(),
-                                        config.inputDimension.end()),
-                      inputDataType);
-  auto outputArgType =
-      MemRefType::get(ArrayRef<int64_t>(config.outputDimension.begin(),
-                                        config.outputDimension.end()),
-                      outputDataType);
+                        filterDataType);
+    inputArgType =
+        MemRefType::get(ArrayRef<int64_t>(config.inputDimension.begin(),
+                                          config.inputDimension.end()),
+                        inputDataType);
+    outputArgType =
+        MemRefType::get(ArrayRef<int64_t>(config.outputDimension.begin(),
+                                          config.outputDimension.end()),
+                        outputDataType);
+  }
 
   bool hasWorkspace = false;
   if (failed(this->hasWorkspace(builder, hasWorkspace))) {
@@ -788,10 +808,17 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   }
   Type workspaceArgType;
   if (hasWorkspace) {
-    workspaceArgType =
-        MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
-                                          config.filterDimension.end()),
-                        builder.getF32Type());
+    if (useTensors) {
+      workspaceArgType =
+              RankedTensorType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
+                                                      config.filterDimension.end()),
+                                    builder.getF32Type());
+    } else {
+      workspaceArgType =
+              MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
+                                                config.filterDimension.end()),
+                              builder.getF32Type());
+    }
   }
 
   SmallVector<Type, 3> logicalFuncArgTypes = {filterArgType, inputArgType,
@@ -800,9 +827,15 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     logicalFuncArgTypes = {filterArgType, inputArgType, outputArgType,
                            workspaceArgType};
   }
-  SmallVector<Type, 3> physicalFuncArgTypes =
+
+  FunctionType funcType;
+  if (useTensors) {
+    funcType = builder.getFunctionType(logicalFuncArgTypes, {});
+  } else {
+    SmallVector<Type, 3> physicalFuncArgTypes =
       llvm::map_to_vector(logicalFuncArgTypes, getFlattenedType);
-  auto funcType = builder.getFunctionType(physicalFuncArgTypes, {});
+    funcType = builder.getFunctionType(physicalFuncArgTypes, {});
+  }
 
   std::string kernelName = config.kernelBaseName;
   if (isVerifier) {

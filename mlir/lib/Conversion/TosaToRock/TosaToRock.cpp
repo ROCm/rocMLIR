@@ -625,6 +625,7 @@ public:
     auto filter = operands[1];
     auto bias = operands[2];
     auto outputType = cast<RankedTensorType>(op.getType());
+    auto filterType = cast<RankedTensorType>(filter.getType());
 
     rock::GemmFeatures features = getGemmFeaturesFromOp(op, input.getType());
 
@@ -652,16 +653,43 @@ public:
       // generate all sub-kernels, and get corresponding gemmId
       auto convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
       std::string kernelBaseName = convKind;
+      SmallVector<std::tuple<func::FuncOp, bool>> funcs;
       for (int i = 0; i < kernelCount; ++i) {
         convGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
-        if (failed(convGenerator.genConvModule(mod, i)))
+        if (failed(convGenerator.genConvModule(mod, i,
+                                               /*isVerifier=*/false,
+                                               /*ignoreTuning=*/false,
+                                               /*useTensors=*/ true)))
           return failure();
+        
+        // Determine if a workspace is needed
+        bool needWorkspace = false;
+        if (failed(convGenerator.hasWorkspace(builder, needWorkspace)))
+          return failure();
+      
+        // Create the (func, bool) tuple
+        funcs.push_back(std::make_tuple(convGenerator.getKernelFunc(),
+                                        needWorkspace));
       }
 
+      // Call the newly created functions from the original func
+      SmallVector<Value> callOperands = {filter, input, output};
+      for (auto tup : funcs) {
+        auto func = std::get<0>(tup);
+        auto hasWorkspace = std::get<1>(tup);
+        if (hasWorkspace) {
+          // Create a new workspace tensor
+          Value workspace =
+              rw.create<bufferization::AllocTensorOp>(loc, filterType, ValueRange{});
+          SmallVector<Value> workplaceOperands = {filter, input, output, workspace};
+          rw.create<func::CallOp>(loc, TypeRange{}, 
+                                  func.getSymName(), workplaceOperands);
+        } else {
+          rw.create<func::CallOp>(loc, TypeRange{}, 
+                                  func.getSymName(), callOperands);
+        }
+      }
       result = output;
-      // TODO: Make sure that the input and output to the newly created funcs
-      // is correct
-
     } else {
       // Directly create the rock::ConvOp for the simpler forwards convolution
       auto padAttr = op->template getAttrOfType<DenseI64ArrayAttr>("pad");
@@ -675,7 +703,7 @@ public:
       Value result = rw.create<rock::TensorUntransformCastOp>(
           loc, outputType, rockConv->getResult(), rockConv->getOutput());
     }
-    
+
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
@@ -704,9 +732,7 @@ public:
       result = rw.create<tosa::AddOp>(loc, op.getType(),
                                       ValueRange{result, biasExpand});
     }
-
     rw.replaceOp(op, result);
-
     return success();
   }
 
