@@ -22,7 +22,7 @@
 // ALLUNIT-SAME: <Unmerge{1} ["n"]
 // ALLUNIT-SAME: <AddDim{1} ["g"]
 // ALLUNIT-SAME: <AddDim{1} ["m"]
-// ALLUNIT-NEXT: rock.gemm [[gemmOut]] = [[gemmA]] * [[gemmB]] features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set : memref<1x1x1x[[$OTYPE]]> = memref<1x1x1x[[$ITYPE]]> * memref<1x1x1x[[$ITYPE]]>
+// ALLUNIT-NEXT: rock.gemm [[gemmOut]] = [[gemmA]] * [[gemmB]] features = mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b storeMethod = set : memref<1x1x1x[[$OTYPE]]> = memref<1x1x1x[[$ITYPE]]> * memref<1x1x1x[[$ITYPE]]>
 
 // ONLYG-LABEL: module
 // ONLYG-NEXT: func.func @rock_gemm
@@ -40,7 +40,7 @@
 // ONLYG-SAME: <Unmerge{2} ["g"]
 // ONLYG-SAME: <AddDim{1} ["m"]
 // ONLYG-SAME: <AddDim{1} ["n"]
-// ONLYG-NEXT: rock.gemm [[gemmOut]] = [[gemmA]] * [[gemmB]] features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set : memref<2x1x1x[[$OTYPE]]> = memref<2x1x1x[[$ITYPE]]> * memref<2x1x1x[[$ITYPE]]>
+// ONLYG-NEXT: rock.gemm [[gemmOut]] = [[gemmA]] * [[gemmB]] features = mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b storeMethod = set : memref<2x1x1x[[$OTYPE]]> = memref<2x1x1x[[$ITYPE]]> * memref<2x1x1x[[$ITYPE]]>
 
 // ONLYM-LABEL: module
 // ONLYM-NEXT: func.func @rock_gemm
@@ -58,7 +58,7 @@
 // ONLYM-SAME: <Unmerge{2} ["m"]
 // ONLYM-SAME: <AddDim{1} ["g"]
 // ONLYM-SAME: <AddDim{1} ["n"]
-// ONLYM-NEXT: rock.gemm [[gemmOut]] = [[gemmA]] * [[gemmB]] features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set : memref<1x2x1x[[$OTYPE]]> = memref<1x2x1x[[$ITYPE]]> * memref<1x1x1x[[$ITYPE]]>
+// ONLYM-NEXT: rock.gemm [[gemmOut]] = [[gemmA]] * [[gemmB]] features = mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b storeMethod = set : memref<1x2x1x[[$OTYPE]]> = memref<1x2x1x[[$ITYPE]]> * memref<1x1x1x[[$ITYPE]]>
 
 // ONLYK-LABEL: module
 // ONLYK-NEXT: func.func @rock_gemm
@@ -76,7 +76,7 @@
 // ONLYK-SAME: <Unmerge{1} ["n"]
 // ONLYK-SAME: <AddDim{1} ["g"]
 // ONLYK-SAME: <AddDim{1} ["m"]
-// ONLYK-NEXT: rock.gemm [[gemmOut]] = [[gemmA]] * [[gemmB]] features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set : memref<1x1x1x[[$OTYPE]]> = memref<1x1x2x[[$ITYPE]]> * memref<1x2x1x[[$ITYPE]]>
+// ONLYK-NEXT: rock.gemm [[gemmOut]] = [[gemmA]] * [[gemmB]] features = mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b storeMethod = set : memref<1x1x1x[[$OTYPE]]> = memref<1x1x2x[[$ITYPE]]> * memref<1x2x1x[[$ITYPE]]>
 
 // ONLYN-LABEL: module
 // ONLYN-NEXT: func.func @rock_gemm
@@ -94,4 +94,4 @@
 // ONLYN-SAME: <Unmerge{2} ["n"]
 // ONLYN-SAME: <AddDim{1} ["g"]
 // ONLYN-SAME: <AddDim{1} ["m"]
-// ONLYN-NEXT: rock.gemm [[gemmOut]] = [[gemmA]] * [[gemmB]] features = mfma|dot|atomic_add|atomic_add_f16 storeMethod = set : memref<1x1x2x[[$OTYPE]]> = memref<1x1x1x[[$ITYPE]]> * memref<1x1x2x[[$ITYPE]]>
+// ONLYN-NEXT: rock.gemm [[gemmOut]] = [[gemmA]] * [[gemmB]] features = mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b storeMethod = set : memref<1x1x2x[[$OTYPE]]> = memref<1x1x1x[[$ITYPE]]> * memref<1x1x2x[[$ITYPE]]>

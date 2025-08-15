@@ -248,8 +248,8 @@ LogicalResult PopulateParams::obtainTuningParameters(
 
   // Backup path: Use the set of default tuning parameters
   LogicalResult res = failure();
-  auto paramSets =
-      getTuningParameters(info.kernelType, info.gemmAType, info.gemmBType);
+  auto paramSets = getTuningParameters(info.kernelType, info.gemmAType,
+                                       info.gemmBType, info.arch);
   for (auto &params : orderInitParams(paramSets, info.gemmSize)) {
     res = populateDerived(params);
     if (failed(res)) {
@@ -275,12 +275,22 @@ PopulateParams::obtainTuningParameters(RockGemmWrapperInterface op,
 
 std::vector<InitParamsNonAccel>
 PopulateParams::getTuningParameters(KernelType opType, Type dataTypeA,
-                                    Type dataTypeB) const {
+                                    Type dataTypeB, StringRef arch) const {
   ArrayRef<InitParamsNonAccel> params;
   if (opType == KernelType::Gemm) {
-    params = {initParametersGemm, nInitParametersGemm};
+    if (arch.contains("gfx10"))
+      params = {initParametersGemmGfx1000, nInitParametersGemmGfx1000};
+    else if (arch.contains("gfx11"))
+      params = {initParametersGemmGfx1100, nInitParametersGemmGfx1100};
+    else
+      params = {initParametersGemmGfx1200, nInitParametersGemmGfx1200};
   } else {
-    params = {initParametersConv, nInitParametersConv};
+    if (arch.contains("gfx10"))
+      params = {initParametersConvGfx1000, nInitParametersConvGfx1000};
+    else if (arch.contains("gfx11"))
+      params = {initParametersConvGfx1100, nInitParametersConvGfx1100};
+    else
+      params = {initParametersConvGfx1200, nInitParametersConvGfx1200};
   }
   return std::vector<InitParamsNonAccel>(params);
 }
@@ -551,29 +561,96 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
   if (opType == KernelType::Gemm) {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      dataTypeA.isInteger()
-          ? params = {initParametersI8Gemm, nInitParametersI8Gemm}
-          : params = {initParametersFp8Gemm, nInitParametersFp8Gemm};
+      if (dataTypeA.isInteger()) {
+        if (arch.contains("gfx908"))
+          params = {initParametersI8GemmGfx908, nInitParametersI8GemmGfx908};
+        else if (arch.contains("gfx90a"))
+          params = {initParametersI8GemmGfx90a, nInitParametersI8GemmGfx90a};
+        else if (arch.contains("gfx942"))
+          params = {initParametersI8GemmGfx942, nInitParametersI8GemmGfx942};
+        else
+          params = {initParametersI8GemmGfx950, nInitParametersI8GemmGfx950};
+      } else {
+        if (arch.contains("gfx908"))
+          params = {initParametersFp8GemmGfx908, nInitParametersFp8GemmGfx908};
+        else if (arch.contains("gfx90a"))
+          params = {initParametersFp8GemmGfx90a, nInitParametersFp8GemmGfx90a};
+        else if (arch.contains("gfx942"))
+          params = {initParametersFp8GemmGfx942, nInitParametersFp8GemmGfx942};
+        else
+          params = {initParametersFp8GemmGfx950, nInitParametersFp8GemmGfx950};
+      }
       break;
     case 16:
-      params = {initParametersFp16Gemm, nInitParametersFp16Gemm};
+      if (arch.contains("gfx908"))
+        params = {initParametersFp16GemmGfx908, nInitParametersFp16GemmGfx908};
+      else if (arch.contains("gfx90a"))
+        params = {initParametersFp16GemmGfx90a, nInitParametersFp16GemmGfx90a};
+      else if (arch.contains("gfx942"))
+        params = {initParametersFp16GemmGfx942, nInitParametersFp16GemmGfx942};
+      else
+        params = {initParametersFp16GemmGfx950, nInitParametersFp16GemmGfx950};
       break;
     default:
-      params = {initParametersGemm, nInitParametersGemm};
+      if (arch.contains("gfx908"))
+        params = {initParametersGemmGfx908, nInitParametersGemmGfx908};
+      else if (arch.contains("gfx90a"))
+        params = {initParametersGemmGfx90a, nInitParametersGemmGfx90a};
+      else if (arch.contains("gfx942"))
+        params = {initParametersGemmGfx942, nInitParametersGemmGfx942};
+      else
+        params = {initParametersGemmGfx950, nInitParametersGemmGfx950};
     }
   } else {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      dataTypeA.isInteger()
-          ? params = {initParametersForwardI8Conv, nInitParametersForwardI8Conv}
-          : params = {initParametersForwardFp8Conv,
-                      nInitParametersForwardFp8Conv};
+      if (dataTypeA.isInteger()) {
+        if (arch.contains("gfx908"))
+          params = {initParametersForwardI8ConvGfx908,
+                    nInitParametersForwardI8ConvGfx908};
+        else if (arch.contains("gfx90a"))
+          params = {initParametersForwardI8ConvGfx90a,
+                    nInitParametersForwardI8ConvGfx90a};
+        else if (arch.contains("gfx942"))
+          params = {initParametersForwardI8ConvGfx942,
+                    nInitParametersForwardI8ConvGfx942};
+        else
+          params = {initParametersForwardI8ConvGfx950,
+                    nInitParametersForwardI8ConvGfx950};
+      } else {
+        if (arch.contains("gfx908"))
+          params = {initParametersForwardFp8ConvGfx908,
+                    nInitParametersForwardFp8ConvGfx908};
+        else if (arch.contains("gfx90a"))
+          params = {initParametersForwardFp8ConvGfx90a,
+                    nInitParametersForwardFp8ConvGfx90a};
+        else if (arch.contains("gfx942"))
+          params = {initParametersForwardFp8ConvGfx942,
+                    nInitParametersForwardFp8ConvGfx942};
+        else
+          params = {initParametersForwardFp8ConvGfx950,
+                    nInitParametersForwardFp8ConvGfx950};
+      }
       break;
     case 16:
-      params = {initParametersFp16Conv, nInitParametersFp16Conv};
+      if (arch.contains("gfx908"))
+        params = {initParametersFp16ConvGfx908, nInitParametersFp16ConvGfx908};
+      else if (arch.contains("gfx90a"))
+        params = {initParametersFp16ConvGfx90a, nInitParametersFp16ConvGfx90a};
+      else if (arch.contains("gfx942"))
+        params = {initParametersFp16ConvGfx942, nInitParametersFp16ConvGfx942};
+      else
+        params = {initParametersFp16ConvGfx950, nInitParametersFp16ConvGfx950};
       break;
     default:
-      params = {initParametersConv, nInitParametersConv};
+      if (arch.contains("gfx908"))
+        params = {initParametersConvGfx908, nInitParametersConvGfx908};
+      else if (arch.contains("gfx90a"))
+        params = {initParametersConvGfx90a, nInitParametersConvGfx90a};
+      else if (arch.contains("gfx942"))
+        params = {initParametersConvGfx942, nInitParametersConvGfx942};
+      else
+        params = {initParametersConvGfx950, nInitParametersConvGfx950};
     }
   }
   std::vector<InitParamsAccel> res;
@@ -723,12 +800,35 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
   if (opType == KernelType::Gemm) {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      dataTypeA.isInteger()
-          ? params = {initParametersI8Gemm, nInitParametersI8Gemm}
-          : params = {initParametersFp8Gemm, nInitParametersFp8Gemm};
+      if (dataTypeA.isInteger()) {
+        if (arch.contains("gfx10"))
+          params = {initParametersI8GemmGfx1000, nInitParametersI8GemmGfx1000};
+        else if (arch.contains("gfx11"))
+          params = {initParametersI8GemmGfx1100, nInitParametersI8GemmGfx1100};
+        else
+          params = {initParametersI8GemmGfx1200, nInitParametersI8GemmGfx1200};
+      } else {
+        if (arch.contains("gfx10"))
+          params = {initParametersFp8GemmGfx1000,
+                    nInitParametersFp8GemmGfx1000};
+        else if (arch.contains("gfx11"))
+          params = {initParametersFp8GemmGfx1100,
+                    nInitParametersFp8GemmGfx1100};
+        else
+          params = {initParametersFp8GemmGfx1200,
+                    nInitParametersFp8GemmGfx1200};
+      }
       break;
     case 16:
-      params = {initParametersFp16Gemm, nInitParametersFp16Gemm};
+      if (arch.contains("gfx10"))
+        params = {initParametersFp16GemmGfx1000,
+                  nInitParametersFp16GemmGfx1000};
+      else if (arch.contains("gfx11"))
+        params = {initParametersFp16GemmGfx1100,
+                  nInitParametersFp16GemmGfx1100};
+      else
+        params = {initParametersFp16GemmGfx1200,
+                  nInitParametersFp16GemmGfx1200};
       break;
     default:
       return res;
@@ -736,13 +836,38 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
   } else {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      dataTypeA.isInteger()
-          ? params = {initParametersForwardI8Conv, nInitParametersForwardI8Conv}
-          : params = {initParametersForwardFp8Conv,
-                      nInitParametersForwardFp8Conv};
+      if (dataTypeA.isInteger()) {
+        if (arch.contains("gfx10"))
+          params = {initParametersForwardI8ConvGfx1000,
+                    nInitParametersForwardI8ConvGfx1000};
+        else if (arch.contains("gfx11"))
+          params = {initParametersForwardI8ConvGfx1100,
+                    nInitParametersForwardI8ConvGfx1100};
+        else
+          params = {initParametersForwardI8ConvGfx1200,
+                    nInitParametersForwardI8ConvGfx1200};
+      } else {
+        if (arch.contains("gfx10"))
+          params = {initParametersForwardFp8ConvGfx1000,
+                    nInitParametersForwardFp8ConvGfx1000};
+        else if (arch.contains("gfx11"))
+          params = {initParametersForwardFp8ConvGfx1100,
+                    nInitParametersForwardFp8ConvGfx1100};
+        else
+          params = {initParametersForwardFp8ConvGfx1200,
+                    nInitParametersForwardFp8ConvGfx1200};
+      }
       break;
     case 16:
-      params = {initParametersFp16Conv, nInitParametersFp16Conv};
+      if (arch.contains("gfx10"))
+        params = {initParametersFp16ConvGfx1000,
+                  nInitParametersFp16ConvGfx1000};
+      else if (arch.contains("gfx11"))
+        params = {initParametersFp16ConvGfx1100,
+                  nInitParametersFp16ConvGfx1100};
+      else
+        params = {initParametersFp16ConvGfx1200,
+                  nInitParametersFp16ConvGfx1200};
       break;
     default:
       return res;

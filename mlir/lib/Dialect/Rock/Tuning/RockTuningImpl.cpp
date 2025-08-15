@@ -412,7 +412,7 @@ static void createQuickTuningRange(TuningParamSet *newSpace,
     PopulateParams tuningInfo;
     for (InitParamsNonAccel param : tuningInfo.orderInitParams(
              tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
-                                            info.gemmBType),
+                                            info.gemmBType, info.arch),
              info.gemmSize)) {
       if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
           succeeded(tuningInfo.couldBePerformant(info, param)))
