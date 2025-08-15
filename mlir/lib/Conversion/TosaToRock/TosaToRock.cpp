@@ -639,7 +639,7 @@ public:
     if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
       group = attr.getInt(); // Use op.getGroup() when all OpT have it.
 
-    Value result;                      
+    Value result;
     // For backwards convolution we want to make use of ConvGenerator to
     // generate the multiple kernels that are needed for backwards conv ops
     if (isa<tosa::TransposeConv2DOp>(op)) {
@@ -681,9 +681,9 @@ public:
           // Create a new workspace tensor
           Value workspace =
               rw.create<bufferization::AllocTensorOp>(loc, filterType, ValueRange{});
-          SmallVector<Value> workplaceOperands = {filter, input, output, workspace};
+          SmallVector<Value> workspaceOperands = {filter, input, output, workspace};
           rw.create<func::CallOp>(loc, TypeRange{}, 
-                                  func.getSymName(), workplaceOperands);
+                                  func.getSymName(), workspaceOperands);
         } else {
           rw.create<func::CallOp>(loc, TypeRange{}, 
                                   func.getSymName(), callOperands);
