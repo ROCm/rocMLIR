@@ -700,8 +700,8 @@ public:
       if (failed(rockConv))
         return failure();
 
-      Value result = rw.create<rock::TensorUntransformCastOp>(
-          loc, outputType, rockConv->getResult(), rockConv->getOutput());
+      result = rw.create<rock::TensorUntransformCastOp>(
+               loc, outputType, rockConv->getResult(), rockConv->getOutput());
     }
 
     // test for zero bias, and ignore
