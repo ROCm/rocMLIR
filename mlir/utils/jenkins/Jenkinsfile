@@ -986,7 +986,6 @@ pipeline {
 
                                                 if (errors) {
                                                     error("Tuning failed: Detected errors in tuning log")
-                                                    currentBuild.result = 'FAILURE'
                                                 } else {
                                                     echo "No errors found in tuning log"
                                                 }
