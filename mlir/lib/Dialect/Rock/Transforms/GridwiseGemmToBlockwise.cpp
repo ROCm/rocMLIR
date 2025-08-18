@@ -58,7 +58,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
 #include <optional>
-#include <unistd.h>
 
 namespace mlir {
 namespace rock {
