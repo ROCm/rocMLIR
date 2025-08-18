@@ -759,7 +759,8 @@ ConvolutionDims ConvGenerator::getConvolutionDims(const Config *config) {
 
 // Helper function to zero-initialize an argument of a FuncOp using the
 // prefill attribute
-void zeroInitArg(OpBuilder &builder, func::FuncOp func, unsigned argIndex) {
+static void zeroInitArg(OpBuilder &builder, func::FuncOp func,
+                        unsigned argIndex) {
   auto argToPrefill = func.getArgument(argIndex);
   auto attrName = rock::PrefillAttr::getMnemonic();
   auto elementType = getElementTypeOrSelf(argToPrefill.getType());
@@ -775,7 +776,7 @@ void zeroInitArg(OpBuilder &builder, func::FuncOp func, unsigned argIndex) {
                    builder.getNamedAttr(attrName, zero));
 }
 
-LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
+LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
                                            bool isVerifier, bool ignoreTuning) {
   OpBuilder builder(module.getContext());
 
@@ -836,8 +837,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Fix raw kernel ID in case it is less than 0.
   // The only case this could happen is to query the number of kernels needed
   // from MIIR API, where the kernel ID is not yet unknown.
-  if (rawKernelId < 0)
-    rawKernelId = 0;
+  if (kernelId < 0)
+    kernelId = 0;
 
   // Annotate kernel attribute to the FuncOp.
   StringAttr archStrAttr = builder.getStringAttr(config.arch);
@@ -847,7 +848,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   NamedAttribute numCUAttr = builder.getNamedAttr("num_cu", numCUIntAttr);
 
   SmallVector<NamedAttribute, 2> kernelAttrs = {
-      builder.getNamedAttr("kernel", builder.getI32IntegerAttr(rawKernelId)),
+      builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernelId)),
       archAttr, numCUAttr};
 
   // Construct the FuncOp.
@@ -961,6 +962,9 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
       // For all backwards data convolution ops that don't write to every pixel,
       // we want to zeroinitialize the buffer in the second argument
       // (input tensor)
+      // TODO: This is okay for right now since we are not doing any fusions.
+      // When we do handle fusions in the future there is no guarantee that
+      // arg 1 is going to be the input tensor.
       zeroInitArg(builder, func, 1);
     }
     builder.create<ConvBwdDataOp>(builder.getUnknownLoc(), ArrayRef<Type>{},
@@ -978,15 +982,11 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
         succeeded(needExtraPadBwdWeight(builder, needExtraPad))) {
       if (!needExtraPad) {
         auto dataType = getInputDataType(builder);
-        if (dataType.isF32()) {
-          needsZeroInit = true;
-        } else if (dataType.isF16()) {
-          needsZeroInit = true;
-        }
+        needsZeroInit = dataType.isF32() || dataType.isF16();
       }
     }
 
-    if (rawKernelId == 1) {
+    if (kernelId == 1) {
       // Workspace -> filter tensor
       builder.create<ConvertingCopyKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{},

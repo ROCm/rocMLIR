@@ -114,7 +114,7 @@ LogicalResult calculateKBlockNum(const int64_t batchSize,
                                  int64_t &nKBlock);
 
 /// This is a helper function for BwdData convolution ops to determine if every
-/// pixel is being written to, which ultimately determines if there will need
+/// element is being written to, which ultimately determines if there will need
 /// to be multiple kernels to handle the backward data convolution.
 bool isEveryPixelWritten(ArrayRef<int64_t> strideDims,
                          ArrayRef<int64_t> dilationDims,
