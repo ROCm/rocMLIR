@@ -245,8 +245,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   auto outputTy = cast<MIXRShapedType>(results[0].getType());
   Type outElementTy = outputTy.getElementType();
   Type newOutElementTy = getTypeConverter()->convertType(outElementTy);
-  bool isBwdConvOp = isa<migraphx::BwdDataConvolutionOp>(op) ||
-                     isa<migraphx::BwdWeightConvolutionOp>(op);
+  bool isBwdConvOp = isa<migraphx::ConvolutionBwdDataOp>(op) ||
+                     isa<migraphx::ConvolutionBwdWeightOp>(op);
 
   if (outElementTy.isUnsignedInteger())
     return op.emitError("No support for unsigned convolution.\n");
@@ -416,12 +416,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(dilations));
   cop->setAttr("stride", rewriter.getDenseI64ArrayAttr(strides));
   cop->setAttr("acc_type", TypeAttr::get(accType));
-
-  // Backwards convolution does not need group
-  if (!isBwdConvOp) {
-    int64_t group = op.getGroup();
-    cop->setAttr("group", rewriter.getI64IntegerAttr(group));
-  }
+  int64_t group = op.getGroup();
+  cop->setAttr("group", rewriter.getI64IntegerAttr(group));
 
   // Set input padding for forwards convolution, and output padding for
   // backwards convolution
@@ -434,9 +430,9 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   // For both types of backwards convolution, we will be using
   // tosa.transpose_conv2d, so we are going to add a conv_kind attribute so
   // that we can distinguish between the two types in TosaToRock
-  if (isa<migraphx::BwdDataConvolutionOp>(op)) {
+  if (isa<migraphx::ConvolutionBwdDataOp>(op)) {
     cop->setAttr("conv_kind", rewriter.getStringAttr("bwd_data"));
-  } else if (isa<migraphx::BwdWeightConvolutionOp>(op)) {
+  } else if (isa<migraphx::ConvolutionBwdWeightOp>(op)) {
     cop->setAttr("conv_kind", rewriter.getStringAttr("bwd_weight"));
   }
 
@@ -1547,8 +1543,8 @@ LogicalResult MHALLaunchConverter::matchAndRewrite(
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
-  patterns.add<ConvConverter<BwdDataConvolutionOp>,
-               ConvConverter<BwdWeightConvolutionOp>,
+  patterns.add<ConvConverter<ConvolutionBwdDataOp>,
+               ConvConverter<ConvolutionBwdWeightOp>,
                ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
                DotConverter<DotOp>, DotConverter<QuantDotOp>,
                BroadcastConverter, MultiBroadcastConverter, TransposeConverter,
