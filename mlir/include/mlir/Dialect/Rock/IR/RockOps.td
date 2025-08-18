@@ -374,35 +374,6 @@ def Rock_ConvElementwiseGemmOp
   }];
 }
 
-def Rock_InitKernelOp
-    : Rock_Op<"init_kernel", []>,
-      Arguments<(ins AnyTensorOrMemRef:$buffer,
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          OptionalAttr<AnyAttrOf<[F32Attr, I32Attr]>>:$initValueAttr,
-          OptionalAttr<I32Attr>:$blockSize, OptionalAttr<I32Attr>:$gridSize,
-          OptionalAttr<IndexAttr>:$elemsPerThread)>,
-      Results<(outs Optional<AnyTensor>:$result)> {
-  let summary = "initialize a buffer";
-
-  let description = [{
-    Initialize a given buffer.
-
-    This operation is meant to operate as its own kernel, and is needed
-    for correctness in some cases (backwards data kernels where not all
-    pixels are written and backwards weight atomic add kernels).
-  }];
-
-  let assemblyFormat = [{
-    $buffer (`features` `=` $features^)? attr-dict `:` type($buffer) (`->` type($result)^)?
-  }];
-
-  // Declaration to enable the bufferization implementation to work as if this werr
-  // a gemm wrapper kernel
-  let extraClassDeclaration = [{
-    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(0); }
-  }];
-}
-
 def Rock_ConvertingCopyKernelOp
     : Rock_Op<"converting_copy_kernel", [AllShapesMatch<["input", "output"]>]>,
       Arguments<(ins AnyTensorOrMemRef:$input, AnyTensorOrMemRef:$output,
