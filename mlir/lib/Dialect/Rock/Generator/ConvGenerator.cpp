@@ -835,7 +835,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
-
   // TODO[split-K]: split-K does not work with BwdWeight
   if (!config.disableSplitKForTuning &&
       config.operation.value() != ConvOpType::BwdWeight) {
