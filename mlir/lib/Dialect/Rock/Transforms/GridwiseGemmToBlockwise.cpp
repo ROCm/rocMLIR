@@ -58,7 +58,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/FormatVariadic.h"
 #include <optional>
-#include <unistd.h>
 
 namespace mlir {
 namespace rock {
@@ -1596,7 +1595,7 @@ struct GridwiseAttentionAccelRewritePattern
       // Obtain transform stack from gemmOutput to linalg generic input.
       ArrayAttr linalgToGemmOutMaps;
       Value gemm0BasedArg =
-          genOp.getInputs()[op.getFirstGemmIndicesValue()[linalgOpIndex]];
+          genOp.getInputs()[op.getFirstGemmIndices()[linalgOpIndex]];
       std::tie(std::ignore, linalgToGemmOutMaps, std::ignore) =
           untransform(rewriter, gemm0BasedArg);
       // The obtained transforms will be linalg generic being the upperview
@@ -1620,8 +1619,8 @@ struct GridwiseAttentionAccelRewritePattern
       }
 
       for (auto [idx, genOpInput] : llvm::enumerate(genOp.getInputs())) {
-        if (idx == static_cast<unsigned long>(
-                       op.getFirstGemmIndicesValue()[linalgOpIndex]))
+        if (idx ==
+            static_cast<unsigned long>(op.getFirstGemmIndices()[linalgOpIndex]))
           continue;
 
         Value otherInput;
@@ -1648,12 +1647,12 @@ struct GridwiseAttentionAccelRewritePattern
             int64_t blockArgNum = blockArg.getArgNumber();
             // we are processing other inputs. Block Argument number shouldn't
             // be the same as gemm input to first linalg generic op
-            assert(blockArgNum != op.getFirstGemmIndicesValue()[0]);
+            assert(blockArgNum != op.getFirstGemmIndices()[0]);
 
             // if the gemm index is smaller, we need to substract one from the
             // index as `getPreSoftmaxElemWiseInputs()` doesn't contain
             // gemm0 output explictly
-            if (blockArgNum > op.getFirstGemmIndicesValue()[0])
+            if (blockArgNum > op.getFirstGemmIndices()[0])
               --blockArgNum;
             otherInput = op.getPreSoftmaxElemWiseInputs()[blockArgNum];
           }
@@ -1668,7 +1667,7 @@ struct GridwiseAttentionAccelRewritePattern
       // Insert the first gemm output buffer according to which input
       // it was to the linalg generic
       inputTileBuffers.insert(inputTileBuffers.begin() +
-                                  op.getFirstGemmIndicesValue()[linalgOpIndex],
+                                  op.getFirstGemmIndices()[linalgOpIndex],
                               prevGemm0OutBuffer);
       Type outputType = genOp.getOutputs().back().getType();
       if (outputType != destGemm0OutBuffer.getType()) {
@@ -1717,7 +1716,7 @@ struct GridwiseAttentionAccelRewritePattern
            "after the regularization final output buffer type should match "
            "previously allocated fusion buffer type");
     assert(static_cast<size_t>(linalgOpIndex + 1) ==
-               op.getFirstGemmIndicesValue().size() &&
+               op.getFirstGemmIndices().size() &&
            "number of linalg generic ops and number of firstGemmIndices must "
            "match");
     return prevGemm0OutBuffer;

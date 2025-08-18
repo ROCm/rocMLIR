@@ -232,24 +232,12 @@ def RockGemmGemmWrapperInterface : OpInterface<"RockGemmGemmWrapperInterface"> {
         This method returns the indices of that argument for each elementwise region in the order 
         they appear after the first GEMM.
       }],
-      /*retType=*/"SmallVector<int64_t>",
-      /*methodName=*/"getFirstGemmIndicesValue",
+      /*retType=*/"ArrayRef<int64_t>",
+      /*methodName=*/"getFirstGemmIndices",
       /*args=*/(ins),
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
-        SmallVector<int64_t> indices;
-        if (auto indicesAttr = $_op.getFirstGemmIndicesAttr()) {
-          for (auto attr : indicesAttr) {
-            if (auto indexAttr = ::llvm::dyn_cast<::mlir::IntegerAttr>(attr)) {
-              indices.push_back(indexAttr.getInt());
-            } else {
-              $_op->emitOpError("firstGemmIndices must contain only integer attributes");
-            }
-          }
-        } else {
-          $_op->emitOpError("firstGemmIndices attribute is required");
-        }
-        return indices;
+        return $_op.getFirstGemmIndices();
       }]
     >, 
     InterfaceMethod<
@@ -257,12 +245,11 @@ def RockGemmGemmWrapperInterface : OpInterface<"RockGemmGemmWrapperInterface"> {
         Set the indices of the first GEMM dependent arguments for the elementwise regions that come after it.
       }],
       /*retType=*/"void",
-      /*methodName=*/"setFirstGemmIndicesValue",
+      /*methodName=*/"setFirstGemmIndices",
       /*args=*/(ins "ArrayRef<int64_t>":$indices),
       /*methodBody=*/"",
       /*defaultImplementation=*/[{
-      $_op.setFirstGemmIndicesAttr(
-        ::mlir::OpBuilder($_op).getIndexArrayAttr(indices));
+      $_op.setFirstGemmIndices(indices);
       }]
     >, 
     InterfaceMethod<

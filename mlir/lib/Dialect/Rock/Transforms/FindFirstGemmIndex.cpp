@@ -62,7 +62,7 @@ static LogicalResult
 reassignFirstGemmIndex(func::FuncOp &func,
                        rock::RockGemmGemmWrapperInterface gemmGemmOp) {
   // Get the first gemm indices from the gemmGemmOp.
-  SmallVector<int64_t> firstGemmIndices = gemmGemmOp.getFirstGemmIndicesValue();
+  ArrayRef<int64_t> firstGemmIndices = gemmGemmOp.getFirstGemmIndices();
   // initially firstGemmIndices should refer to blockArgument index for the
   // first gemm in preSecondGemmRegion and therefore it's size should be 1
   if (firstGemmIndices.size() != 1) {
@@ -151,7 +151,7 @@ reassignFirstGemmIndex(func::FuncOp &func,
   SmallVector<int64_t> newfirstGemmIndices(indicesRange.begin(),
                                            indicesRange.end());
   // Set the new first gemm index in the gemmGemmOp.
-  gemmGemmOp.setFirstGemmIndicesValue(newfirstGemmIndices);
+  gemmGemmOp.setFirstGemmIndices(newfirstGemmIndices);
   return success();
 }
 
