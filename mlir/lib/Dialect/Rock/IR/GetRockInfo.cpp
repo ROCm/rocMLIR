@@ -153,8 +153,11 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
 
     // If the initial op is a func and there is no `features` attribute, then
     // we cannot proceed
-    if (isa<func::FuncOp>(op) || isa<gpu::GPUFuncOp>(op))
+    if (isa<func::FuncOp>(op) || isa<gpu::GPUFuncOp>(op)) {
+      if (auto module = op->getParentOfType<mlir::ModuleOp>())
+        llvm::errs() << *module << "\n";
       llvm_unreachable("Trying to get 'features' for an invalid func op");
+    }
   }
 
   // Next, check to see if the op has a 'features' attribute.
