@@ -187,6 +187,11 @@ def Rock_ReduceOp
   }];
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
+
+    SmallVector<::mlir::Type> getTypesForFeature() {
+      SmallVector<::mlir::Type> types = {getIn().getType()};
+      return types;
+    }
   }];
 }
 def Rock_AttentionOp
