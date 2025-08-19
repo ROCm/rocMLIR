@@ -946,6 +946,34 @@ pipeline {
                             }
                         }
                     }
+                    
+                    environment {
+                            // Temporarily here, for testing
+                            TUNA_DB_USER_NAME     = credentials('tuna-db-user')
+                            TUNA_DB_USER_PASSWORD = credentials('tuna-db-pass')
+                            TUNA_DB_HOSTNAME      = 'mysql.internal'
+                            TUNA_DB_NAME          = 'mituna'
+                            CELERY_BROKER_URL      = 'redis://127.0.0.1:6379/14'
+                            CELERY_RESULT_BACKEND  = 'redis://127.0.0.1:6379/15'
+                    }
+
+                    stage('Start Redis') {
+                        steps {
+                            sh '''
+                                docker rm -f mituna-redis || true
+                                docker run -d --name mituna-redis -p 6379:6379 redis:7-alpine
+                                (echo -e "PING\\r\\n"; sleep 1) | nc -w 2 127.0.0.1 6379 || (echo "Redis not up" && exit 1)
+                            '''
+                        }
+                    }
+                    stage('Start Celery') {
+                        steps {
+                            sh '''
+                                cd MITuna
+                                nohup bash -lc "celery -A tuna.celery_app.celery worker -l info -E -n worker_gpu_0 -Q default -c 1" > celery_0.log 2>&1 &
+                            '''
+                        }
+                    }
                     stage("Tune rocMLIR") {
                         steps {
                             script {
