@@ -170,10 +170,10 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
           .Case<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp,
                 rock::BlockwiseGemmAccelOp, rock::ThreadwiseAccelGemmOp,
                 rock::GridwiseAttentionAccelOp, rock::ReduceOp,
-                RockGemmGemmWrapperInterface,
-                RockGemmWrapperInterface>([](auto opWithFeatures) {
-            return opWithFeatures.getTypesForFeature();
-          })
+                RockGemmGemmWrapperInterface, RockGemmWrapperInterface>(
+              [](auto opWithFeatures) {
+                return opWithFeatures.getTypesForFeature();
+              })
           .Default([](Operation *op) -> SmallVector<Type> {
             llvm_unreachable("Trying to get feature type on unsupported op");
           });

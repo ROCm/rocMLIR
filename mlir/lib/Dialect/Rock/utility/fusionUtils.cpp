@@ -216,8 +216,8 @@ LogicalResult mlir::rock::testFusionLegalityReduce(func::FuncOp func) {
                               GemmFeatures::atomic_fmax_f32))
         return WalkResult::interrupt();
     } else {
-      if (failed(validOutputAtomicAdd(outElemType,
-                                      rock::getFeatures(reduceOp))))
+      if (failed(
+              validOutputAtomicAdd(outElemType, rock::getFeatures(reduceOp))))
         return WalkResult::interrupt();
     }
     return WalkResult::advance();
