@@ -48,6 +48,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/IR/Visitors.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/RegionUtils.h"
@@ -56,6 +57,7 @@
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 #include <optional>
 
@@ -1568,7 +1570,12 @@ struct GridwiseAttentionAccelRewritePattern
     MemRefType destBufType = cast<MemRefType>(destGemm0OutBuffer.getType());
     Value prevGemm0OutBuffer = srcGemm0OutBuffer;
     ArrayAttr linalgGridSubTileMaps = gemm0OutViews.gridSubTile;
-
+    if (op.getPreSoftmaxBody().getBlocks().empty()) {
+      // nothing to process
+      return prevGemm0OutBuffer;
+    }
+    int64_t firstGemmBlockArgNum = -1;
+    Block &preSoftMaxBodyBlock = op.getPreSoftmaxBody().getBlocks().front();
     WalkResult res = op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
       linalgOpIndex++;
       auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
@@ -1587,8 +1594,24 @@ struct GridwiseAttentionAccelRewritePattern
       ArrayAttr linalgToGemmOutMaps;
       Value gemm0BasedArg =
           genOp.getInputs()[op.getFirstGemmIndices()[linalgOpIndex]];
-      std::tie(std::ignore, linalgToGemmOutMaps, std::ignore) =
+      Value mayBeFirstGemmBlockArg;
+      std::tie(mayBeFirstGemmBlockArg, linalgToGemmOutMaps, std::ignore) =
           untransform(rewriter, gemm0BasedArg);
+
+      // If the gemm0BasedArg is a block argument, we need to get its
+      // blockArgNum
+      if (auto firstGemmBlockArg =
+              dyn_cast<BlockArgument>(mayBeFirstGemmBlockArg)) {
+        assert(firstGemmBlockArgNum == -1 &&
+               "firstGemmBlockArgNum should be set only once");
+        // trace it back to block input
+        if (firstGemmBlockArg.getOwner() == &preSoftMaxBodyBlock) {
+          firstGemmBlockArgNum = firstGemmBlockArg.getArgNumber();
+        } else {
+          llvm::report_fatal_error("first gemm block argument does not belong "
+                                   "to block of preSoftBody\n");
+        }
+      }
       // The obtained transforms will be linalg generic being the upperview
       // leading to gemmOutput being the lowerview. However, we need to
       // construct
@@ -1633,19 +1656,25 @@ struct GridwiseAttentionAccelRewritePattern
         // If other input is a block argument of the attention op fusion
         if (auto blockArg = dyn_cast<BlockArgument>(otherInput)) {
           // trace it back to block input
-          Block &block = op.getPreSoftmaxBody().getBlocks().front();
-          if (blockArg.getOwner() == &block) {
+          if (blockArg.getOwner() == &preSoftMaxBodyBlock) {
             int64_t blockArgNum = blockArg.getArgNumber();
             // we are processing other inputs. Block Argument number shouldn't
             // be the same as gemm input to first linalg generic op
-            assert(blockArgNum != op.getFirstGemmIndices()[0]);
+            assert(firstGemmBlockArgNum != -1 &&
+                   "firstGemmBlockArgNum should be set before processing other "
+                   "inputs");
+            assert(blockArgNum != firstGemmBlockArgNum);
 
             // if the gemm index is smaller, we need to substract one from the
             // index as `getPreSoftmaxElemWiseInputs()` doesn't contain
             // gemm0 output explictly
-            if (blockArgNum > op.getFirstGemmIndices()[0])
+            if (blockArgNum > firstGemmBlockArgNum) {
               --blockArgNum;
+            }
             otherInput = op.getPreSoftmaxElemWiseInputs()[blockArgNum];
+          } else {
+            llvm::report_fatal_error("Found blockArgument that does not belong "
+                                     "to block of preSoftBody\n");
           }
         }
         rewriter.create<ThreadwiseReadIntoOp>(
@@ -2467,6 +2496,7 @@ struct GridwiseAttentionAccelRewritePattern
 
       // Align the preSoftmaxElementWise (if any) linalg.generic to
       // be performed on the output of the first gemm.
+      // llvm::dbgs() << op->getParentOfType<func::FuncOp>() << "\n";
       FailureOr<Value> maybeFusionOutBuffer = postProcessFirstGemm(
           rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer, fusionOutBuffer,
           gemm0OutSubTileViewsTrUnPadded);
