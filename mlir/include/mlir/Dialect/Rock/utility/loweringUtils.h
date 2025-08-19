@@ -113,13 +113,6 @@ LogicalResult calculateKBlockNum(const int64_t batchSize,
                                  int64_t KPack, int64_t num_cu,
                                  int64_t &nKBlock);
 
-/// This is a helper function for BwdData convolution ops to determine if every
-/// element is being written to, which ultimately determines if there will need
-/// to be multiple kernels to handle the backward data convolution.
-bool isEveryPixelWritten(ArrayRef<int64_t> strideDims,
-                         ArrayRef<int64_t> dilationDims,
-                         ArrayRef<int64_t> filterDims);
-
 /// Populate a vector of kernel IDs to be used by a backward data convolution
 /// algorithm. In the current v4r1 algorithm, several kernels may be needed to
 /// realize a complete backward data convolution.
