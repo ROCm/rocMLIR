@@ -21,3 +21,4 @@ module {
         return %0 : !migraphx.shaped<1x16x4x4x4xf32, 1024x64x16x4x1>
     }
 }
+
