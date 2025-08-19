@@ -1568,15 +1568,6 @@ struct GridwiseAttentionAccelRewritePattern
     MemRefType destBufType = cast<MemRefType>(destGemm0OutBuffer.getType());
     Value prevGemm0OutBuffer = srcGemm0OutBuffer;
     ArrayAttr linalgGridSubTileMaps = gemm0OutViews.gridSubTile;
-    // Print the entire region
-    LLVM_DEBUG({
-      llvm::dbgs() << "preSoftmaxBody Region:\n";
-      for (auto &op : op.getPreSoftmaxBody().getOps()) {
-        op.print(llvm::dbgs());
-        llvm::dbgs() << "\n";
-      }
-      llvm::dbgs() << "\n";
-    });
 
     WalkResult res = op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
       linalgOpIndex++;
