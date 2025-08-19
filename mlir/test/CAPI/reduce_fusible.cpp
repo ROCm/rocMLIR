@@ -71,23 +71,23 @@ static bool testReduceFusible(MlirContext ctx) {
   // Parse the module from the string
   MlirStringRef moduleStr = mlirStringRefCreateFromCString(mlirModuleText);
   MlirModule moduleOp = mlirModuleCreateParse(ctx, moduleStr);
-  
+
   if (mlirModuleIsNull(moduleOp)) {
     std::cerr << "Failed to parse module" << std::endl;
     return false;
   }
-  
+
   // Create performance configuration string
   std::string perfConfigStr = "v3:64,64,16,32,32,4,4,1,2,1,1";
   MlirStringRef perfStr = mlirStringRefCreateFromCString(perfConfigStr.c_str());
-  
+
   // Test whether the module is fusible
   const bool isFusible = mlirIsModuleFusible(moduleOp, perfStr);
   std::cout << "is fusible: " << isFusible << std::endl;
-  
+
   // Clean up
   mlirModuleDestroy(moduleOp);
-  
+
   return true;
 }
 int main(int argc, char *argv[]) {
@@ -102,10 +102,10 @@ int main(int argc, char *argv[]) {
 
   // Test the module fusibility
   bool isOk = testReduceFusible(ctx);
-  
+
   // Clean up
   mlirContextDestroy(ctx);
-  
+
   if (!isOk) {
     printf("FAILED!\n");
     return 1;
