@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -670,6 +671,22 @@ OpOperand *ConvBwdWeightOp::getOutArgument() {
   return &(*this)->getOpOperand(0);
 }
 
+SmallVector<mlir::Type> GemmOp::getTypesForFeature() {
+  return {getAType()};
+}
+
+SmallVector<mlir::Type> ConvOp::getTypesForFeature() {
+  return {getAType()};
+}
+
+SmallVector<mlir::Type> ConvBwdDataOp::getTypesForFeature() {
+  return {getAType()};
+}
+
+SmallVector<mlir::Type> ConvBwdWeightOp::getTypesForFeature() {
+  return {getAType()};
+}
+
 GemmSize ConvOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   return GemmSize::fromConvolution(ConvOpType::Fwd, sizes);
@@ -951,6 +968,14 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
            << n << " cannot be greater than int32_max " << intMax;
 
   return success();
+}
+
+SmallVector<mlir::Type> GridwiseGemmOp::getTypesForFeature() {
+  return {getA().getType()};
+}
+
+SmallVector<mlir::Type> GridwiseGemmAccelOp::getTypesForFeature() {
+  return {getA().getType()};
 }
 
 LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
@@ -1857,6 +1882,13 @@ LogicalResult BlockwiseGemmOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// BlockwiseGemmAccelOp
+//===----------------------------------------------------------------------===//
+SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
+  return {getMatrixA().getType()};
+}
+
+//===----------------------------------------------------------------------===//
 // ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//
 LogicalResult ThreadwiseGemmOp::verify() {
@@ -1878,6 +1910,10 @@ LogicalResult ThreadwiseGemmOp::verify() {
 //===----------------------------------------------------------------------===//
 // ThreadwiseAccelGemmOp
 //===----------------------------------------------------------------------===//
+SmallVector<mlir::Type> ThreadwiseAccelGemmOp::getTypesForFeature() {
+  return {getMatrixA().getType()};
+}
+
 LogicalResult ThreadwiseAccelGemmOp::verify() {
   ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
                     bShape = getMatrixB().getType().getShape(),
@@ -1923,6 +1959,10 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
         "More than 1 linalg generic op found in pre softmax fusion point.");
   }
   return success();
+}
+
+SmallVector<mlir::Type> GridwiseAttentionAccelOp::getTypesForFeature() {
+  return {getKeys().getType(), getValues().getType()};
 }
 
 void GridwiseAttentionAccelOp::getEffects(
@@ -1980,6 +2020,10 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
 //===-----------------------------------------------------===//
 // ReduceOp
 //===-----------------------------------------------------===//
+
+SmallVector<mlir::Type> ReduceOp::getTypesForFeature() {
+  return {getIn().getType()};
+}
 
 LogicalResult ReduceOp::verify() {
   APInt axis = getAxis();
@@ -2165,6 +2209,10 @@ Region &GemmElementwiseGemmOp::getPreSecondGemmRegion() {
   return getPreSecondGemmBody();
 }
 
+SmallVector<mlir::Type> GemmElementwiseGemmOp::getTypesForFeature() {
+  return {getAType(), getCType()};
+}
+
 GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
@@ -2341,6 +2389,10 @@ Region &ConvElementwiseGemmOp::getPreSecondGemmRegion() {
   return getPreSecondGemmBody();
 }
 
+SmallVector<mlir::Type> ConvElementwiseGemmOp::getTypesForFeature() {
+  return {getAType(), getCType()};
+}
+
 GemmGemmSize ConvElementwiseGemmOp::getGemmGemmSize() {
   auto strideVal = extractFromIntegerArrayAttr<int64_t>(getStrides());
   auto dilationVal = extractFromIntegerArrayAttr<int64_t>(getDilations());
@@ -2432,6 +2484,10 @@ GemmGemmSize AttentionOp::getGemmGemmSize() {
           n = dimsB[offsetB + (getKTransposed() ? 0 : 1)],
           o = dimsC[offsetC + (getVTransposed() ? 1 : 0)];
   return GemmGemmSize(g, m, k, n, o);
+}
+
+SmallVector<mlir::Type> AttentionOp::getTypesForFeature() {
+  return {getAType(), getCType()};
 }
 
 LogicalResult AttentionOp::verify() {

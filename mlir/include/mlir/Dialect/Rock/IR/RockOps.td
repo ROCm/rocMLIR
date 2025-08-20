@@ -15,6 +15,7 @@
 
 include "mlir/Dialect/Rock/IR/RockAttrDefs.td"
 include "mlir/Dialect/Rock/IR/RockConvInterface.td"
+include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.td"
@@ -65,6 +66,7 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], l
     Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockConvInterface>,
                        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                       DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                        RockFusionRoot]>{
   dag commonConvArgs = (ins TensorOrMemRefOf<inputTypes>:$filter,
       TensorOrMemRefOf<inputTypes>:$input,
@@ -132,6 +134,7 @@ def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 
 def Rock_GemmOp
     : Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
+                       DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                        RockFusionRoot]>,
       Arguments<(
           ins Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix A", [MemRead]>:$a,
@@ -172,7 +175,9 @@ def Rock_GemmOp
 }
 
 def Rock_ReduceOp
-    : Rock_Op<"reduce", [AllElementTypesMatch<["in", "out"]>]>,
+    : Rock_Op<"reduce", 
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               AllElementTypesMatch<["in", "out"]>]>,
       Arguments<(
           ins Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "input", [MemRead]>:$in,
           Arg<TensorOrMemRefOf<[BF16, F16, F32]>,
@@ -187,17 +192,13 @@ def Rock_ReduceOp
   }];
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
-
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getIn().getType()};
-      return types;
-    }
   }];
 }
 def Rock_AttentionOp
     : Rock_Op<
           "attention", [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
                         DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                        DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                         RockFusionRoot, AttrSizedOperandSegments,
                         AttrSizedResultSegments]>,
       Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16, I8]>:$queries,
@@ -265,6 +266,7 @@ def Rock_GemmElementwiseGemmOp
     : Rock_Op<"gemm_elementwise_gemm",
               [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                RockFusionRoot]>,
       AllElementTypesMatch<["a", "b"]>,
       Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16]>:$a,
@@ -315,6 +317,7 @@ def Rock_ConvElementwiseGemmOp
     : Rock_Op<"conv_elementwise_gemm",
               [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                RockFusionRoot]>,
       AllElementTypesMatch<["filter", "input"]>,
       Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16]>:$filter,
@@ -491,7 +494,9 @@ def Rock_TensorUntransformCastOp :
 }
 
 def Rock_GridwiseGemmOp
-    : Rock_Op<"gridwise_gemm", [RockFusionRoot]>,
+    : Rock_Op<"gridwise_gemm",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               RockFusionRoot]>,
       Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>,
                          "matrix A view", [MemRead]>:$a,
           Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
@@ -508,19 +513,13 @@ def Rock_GridwiseGemmOp
     $c `=` $a `*` $b `storeMethod` `(` $storeMethod `)` (`features` `=` $features^)? attr-dict `:` type($c) `=` type($a) `*` type($b)
   }];
   let hasVerifier = 1;
-
-  // Return the type from this op that is needed to calculate GemmFeatures
-  let extraClassDeclaration = [{
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getA().getType()};
-      return types;
-    }
-  }];
 }
 
 // gridwise_gemm_accel
 def Rock_GridwiseGemmAccelOp
-    : Rock_Op<"gridwise_gemm_accel", [RockFusionRoot]>,
+    : Rock_Op<"gridwise_gemm_accel",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               RockFusionRoot]>,
       Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>,
                          "matrix A view", [MemRead]>:$a,
           Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
@@ -537,21 +536,14 @@ def Rock_GridwiseGemmAccelOp
     `(` operands `)` `storeMethod` `(` $storeMethod `)` (`features` `=` $features^)? attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
-
-  // Return the type from this op that is needed to calculate GemmFeatures
-  let extraClassDeclaration = [{
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getA().getType()};
-      return types;
-    }
-  }];
 }
 
 // gridwise_attention_accel
 def Rock_GridwiseAttentionAccelOp
     : Rock_Op<"gridwise_attention_accel",
               [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-               RockFusionRoot, AttrSizedOperandSegments]>,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               RockFusionRoot, AttrSizedOperandSegments,]>,
       Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
           MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
           MemRefRankOf<[F32, F16, BF16], [3]>:$values,
@@ -576,15 +568,6 @@ def Rock_GridwiseAttentionAccelOp
     `(` operands `)` (`features` `=` $features^)? `preSoftmaxOps` `=` $preSoftmaxBody attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
-
-  // Return the type from this op that is needed to calculate GemmFeatures
-  let extraClassDeclaration = [{
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getKeys().getType(),
-                                         getValues().getType()};
-      return types;
-    }
-  }];
 }
 
 // Memory allocation on GPU memory hierachy.
@@ -1374,7 +1357,8 @@ defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF
 
 // blockwise_gemm_accel
 def Rock_BlockwiseGemmAccelOp
-    : Rock_Op<"blockwise_gemm_accel">,
+    : Rock_Op<"blockwise_gemm_accel",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>]>,
       Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
           MemRefOf<LdsBufferTypes>:$matrixB, I32Attr:$inMPerThread,
           I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
@@ -1396,14 +1380,6 @@ def Rock_BlockwiseGemmAccelOp
                         $bufferB `from` $matrixB (`features` `=` $features^)? attr-dict
     `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
                                   type($bufferB) `from` type($matrixB)
-  }];
-
-  // Return the type from this op that is needed to calculate GemmFeatures
-  let extraClassDeclaration = [{
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getMatrixA().getType()};
-      return types;
-    }
   }];
 }
 
@@ -1430,7 +1406,8 @@ def Rock_ThreadwiseGemmOp:
 }
 // threadwise_accel_gemm
 def Rock_ThreadwiseAccelGemmOp
-    : Rock_Op<"threadwise_accel_gemm">,
+    : Rock_Op<"threadwise_accel_gemm",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>]>,
       Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
                          "source register view A", [MemRead]>:$matrixA,
           Arg<MemRefOf<NativeMemoryOpTypes>,
@@ -1452,14 +1429,6 @@ def Rock_ThreadwiseAccelGemmOp
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
   let hasVerifier = 1;
-
-  // Return the type from this op that is needed to calculate GemmFeatures
-  let extraClassDeclaration = [{
-    SmallVector<::mlir::Type> getTypesForFeature() {
-      SmallVector<::mlir::Type> types = {getMatrixA().getType()};
-      return types;
-    }
-  }];
 }
 
 // blockwise_broadcasting_reduction

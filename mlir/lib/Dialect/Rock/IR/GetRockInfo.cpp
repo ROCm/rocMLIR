@@ -134,10 +134,7 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
 bool mlir::rock::opHasOptionalFeature(Operation *op) {
   bool hasOptionalFeature =
       llvm::TypeSwitch<Operation *, bool>(op)
-          .Case<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp,
-                rock::BlockwiseGemmAccelOp, rock::ThreadwiseAccelGemmOp,
-                rock::GridwiseAttentionAccelOp, RockGemmGemmWrapperInterface,
-                RockGemmWrapperInterface>(
+          .Case<RockGemmFeaturesInterface>(
               [](auto opWithFeatures) { return true; })
           .Default([](Operation *op) -> bool { return false; });
 
@@ -167,10 +164,7 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   // Get the types needed for feature calculation using TypeSwitch
   SmallVector<Type> typesForFeature =
       llvm::TypeSwitch<Operation *, SmallVector<Type>>(op)
-          .Case<rock::GridwiseGemmOp, rock::GridwiseGemmAccelOp,
-                rock::BlockwiseGemmAccelOp, rock::ThreadwiseAccelGemmOp,
-                rock::GridwiseAttentionAccelOp, rock::ReduceOp,
-                RockGemmGemmWrapperInterface, RockGemmWrapperInterface>(
+          .Case<RockGemmFeaturesInterface>(
               [](auto opWithFeatures) {
                 return opWithFeatures.getTypesForFeature();
               })
