@@ -1008,6 +1008,9 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
     } else {
+      // TODO: This is okay for right now since we are not doing any fusions.
+      // When we do handle fusions in the future there is no guarantee that
+      // these specific args are going to be the input tensor.
       if (needsZeroInit) {
         zeroInitArg(builder, func, hasWorkspace ? 3 : 0);
       }
