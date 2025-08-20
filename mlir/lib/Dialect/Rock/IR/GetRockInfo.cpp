@@ -131,16 +131,6 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
   return minCU;
 }
 
-bool mlir::rock::opHasOptionalFeature(Operation *op) {
-  bool hasOptionalFeature =
-      llvm::TypeSwitch<Operation *, bool>(op)
-          .Case<RockGemmFeaturesInterface>(
-              [](auto opWithFeatures) { return true; })
-          .Default([](Operation *op) -> bool { return false; });
-
-  return hasOptionalFeature;
-}
-
 mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   // First, check to see if the func has a 'features' attribute.
   auto func = getParentFuncOp(op);
@@ -164,7 +154,7 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
   // Get the types needed for feature calculation using TypeSwitch
   SmallVector<Type> typesForFeature =
       llvm::TypeSwitch<Operation *, SmallVector<Type>>(op)
-          .Case<RockGemmFeaturesInterface>(
+          .Case<RockGemmFeaturesInterface, rock::ReduceOp>(
               [](auto opWithFeatures) {
                 return opWithFeatures.getTypesForFeature();
               })

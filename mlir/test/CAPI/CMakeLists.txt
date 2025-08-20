@@ -99,3 +99,4 @@ target_link_libraries(mlir-reduce-fusible-test
   MLIRCAPIGPU
   MLIRRockPipeline
 )
+

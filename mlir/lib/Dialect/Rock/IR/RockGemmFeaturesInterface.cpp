@@ -19,3 +19,4 @@ namespace rock {
 #include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.cpp.inc"
 } // namespace rock
 } // namespace mlir
+

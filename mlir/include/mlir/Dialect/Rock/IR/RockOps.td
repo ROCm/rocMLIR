@@ -175,9 +175,7 @@ def Rock_GemmOp
 }
 
 def Rock_ReduceOp
-    : Rock_Op<"reduce", 
-              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               AllElementTypesMatch<["in", "out"]>]>,
+    : Rock_Op<"reduce", [AllElementTypesMatch<["in", "out"]>]>,
       Arguments<(
           ins Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "input", [MemRead]>:$in,
           Arg<TensorOrMemRefOf<[BF16, F16, F32]>,
@@ -192,6 +190,10 @@ def Rock_ReduceOp
   }];
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
+
+    SmallVector<::mlir::Type> getTypesForFeature() {
+      return {getIn().getType()};
+    }
   }];
 }
 def Rock_AttentionOp

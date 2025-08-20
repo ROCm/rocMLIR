@@ -2020,11 +2020,6 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
 //===-----------------------------------------------------===//
 // ReduceOp
 //===-----------------------------------------------------===//
-
-SmallVector<mlir::Type> ReduceOp::getTypesForFeature() {
-  return {getIn().getType()};
-}
-
 LogicalResult ReduceOp::verify() {
   APInt axis = getAxis();
   ArrayRef<int64_t> inpShape = cast<ShapedType>(getIn().getType()).getShape();
