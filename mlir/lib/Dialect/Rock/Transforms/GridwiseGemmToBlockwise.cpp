@@ -2496,7 +2496,6 @@ struct GridwiseAttentionAccelRewritePattern
 
       // Align the preSoftmaxElementWise (if any) linalg.generic to
       // be performed on the output of the first gemm.
-      // llvm::dbgs() << op->getParentOfType<func::FuncOp>() << "\n";
       FailureOr<Value> maybeFusionOutBuffer = postProcessFirstGemm(
           rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer, fusionOutBuffer,
           gemm0OutSubTileViewsTrUnPadded);
