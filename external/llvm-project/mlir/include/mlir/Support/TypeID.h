@@ -164,7 +164,7 @@ namespace detail {
 class FallbackTypeIDResolver {
 protected:
   /// Register an implicit type ID for the given type name.
-  LLVM_ALWAYS_EXPORT static TypeID registerImplicitTypeID(StringRef name);
+  static TypeID registerImplicitTypeID(StringRef name);
 };
 
 template <typename T>

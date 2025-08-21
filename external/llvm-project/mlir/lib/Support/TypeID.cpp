@@ -80,7 +80,7 @@ struct ImplicitTypeIDRegistry {
 };
 } // end namespace
 
-LLVM_ALWAYS_EXPORT TypeID
+TypeID
 detail::FallbackTypeIDResolver::registerImplicitTypeID(StringRef name) {
   static ImplicitTypeIDRegistry registry;
   return registry.lookupOrInsert(name);
