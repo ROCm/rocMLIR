@@ -1442,6 +1442,7 @@ static Type typeFromString(StringRef name, MLIRContext *ctx) {
           .Case("bf16", BFloat16Type::get(ctx))
           .Case("i8", IntegerType::get(ctx, 8))
           .Case("i32", IntegerType::get(ctx, 32))
+          .Case("f4E2M1FN", Float4E2M1FNType::get(ctx))
           .Case("f8E5M2", Float8E5M2Type::get(ctx))
           .Case("f8E4M3FN", Float8E4M3FNType::get(ctx))
           .Case("f8E5M2FNUZ", Float8E5M2FNUZType::get(ctx))
@@ -5179,6 +5180,7 @@ int main(int argc, char **argv) {
   // generating a kernel.
   if (applyBufferizationPipeline.getValue() && !hasUserKernel) {
     PassManager pm(module.get()->getName(), PassManager::Nesting::Implicit);
+    // pm.enableIRPrinting();
 
     rock::BufferizeOptions bufferizeOptions;
     bufferizeOptions.disableRock = true;

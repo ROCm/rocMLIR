@@ -226,7 +226,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {1, 2, 4, 8},
       {4, 8, 16, 32, 64, 128},
       {4, 16, 32},
-      {1, 4, 8},
+      {1, 4, 8, 16, 32},
       getGemmSchedules(kind),
       {0, 1}};
 

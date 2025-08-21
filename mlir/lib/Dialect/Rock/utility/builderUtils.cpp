@@ -20,6 +20,7 @@
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/Support/MathExtras.h"
 
 using mlir::arith::ConstantOp;
 
@@ -209,7 +210,7 @@ Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
 int64_t getByteWidth(Type type) {
   if (auto vecType = dyn_cast<VectorType>(type))
     return (vecType.getElementTypeBitWidth() * vecType.getNumElements()) / 8;
-  return type.getIntOrFloatBitWidth() / 8;
+  return llvm::divideCeil(type.getIntOrFloatBitWidth(), 8);
 }
 
 Type getFlattenedType(Type type) {

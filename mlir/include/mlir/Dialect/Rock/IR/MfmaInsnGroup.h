@@ -30,7 +30,8 @@ enum class MfmaTypeId : uint32_t {
   Fp8Fp8TyId,
   Fp8Bf8TyId,
   Bf8Fp8TyId,
-  Bf8Bf8TyId
+  Bf8Bf8TyId,
+  Fp4Fp4TyId
 };
 
 struct MfmaInsnInfo {

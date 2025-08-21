@@ -77,7 +77,7 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], l
   let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
-defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
+defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN, F4E2M1FN];
 // This can be extended for quantization.
 defvar GemmOutputTypes = [F32, F16, BF16, I32, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
 defvar GemmAccumulatorTypes = [F32, F16, BF16, I32];
@@ -980,13 +980,13 @@ def Rock_IndexDiffUpdateOp :
 }
 
 defvar SupportedMemoryElems = [F32, F16, BF16, I1, I<4>, I8, I16, I32,
-                               F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
+                               F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN, F4E2M1FN];
 defvar NativeMemoryOpTypes = [F32, F16, BF16, I<4>, I8, I16, I32,
-                           F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN,
+                           F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN, F4E2M1FN,
                            VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32]>,
                            VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
                            VectorOfLengthAndType<[2, 4, 8, 16],
-                             [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>];
+                             [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>, VectorOfLengthAndType<[1, 2, 4, 8, 16, 32], [F4E2M1FN]>];
 
 // in_bounds_load
 def Rock_InBoundsLoadOp :
@@ -1365,7 +1365,7 @@ def Rock_BlockwiseGemmOp:
 defvar AccelArgTypes = [F32,
                     VectorOfLengthAndType<[2, 4], [F32]>,
                     VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-                    VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>];
+                    VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>, VectorOfLengthAndType<[8, 16, 32], [F4E2M1FN]>];
 defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF16]>];
 
 // blockwise_gemm_accel
@@ -1424,6 +1424,7 @@ def Rock_ThreadwiseGemmOp:
   }];
   let hasVerifier = 1;
 }
+
 // threadwise_accel_gemm
 def Rock_ThreadwiseAccelGemmOp
     : Rock_Op<"threadwise_accel_gemm">,
