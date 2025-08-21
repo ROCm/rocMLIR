@@ -67,7 +67,8 @@ func.func @rock_conv_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?
     output_layout = ["n", "go", "k", "0o", "1o"],
     dilations = [1 : index,  1 : index],
     strides = [1 : index,  1 : index],
-    padding = [0 : index,  0 : index,  0 : index,  0 : index]
+    padding = [0 : index,  0 : index,  0 : index,  0 : index],
+    usesV4R1 = true
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -82,7 +83,8 @@ func.func @rock_conv_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : memr
     output_layout = ["n", "go", "k", "0o", "1o"],
     dilations = [1 : index,  1 : index],
     strides = [1 : index,  1 : index],
-    padding = [0 : index,  0 : index,  0 : index,  0 : index]
+    padding = [0 : index,  0 : index,  0 : index,  0 : index],
+    usesV4R1 = true
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
@@ -97,7 +99,8 @@ func.func @rock_conv_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref
     output_layout = ["n", "go", "k", "0o", "1o"],
     dilations = [1 : index,  1 : index],
     strides = [1 : index,  1 : index],
-    padding = [0 : index,  0 : index,  0 : index,  0 : index]
+    padding = [0 : index,  0 : index,  0 : index,  0 : index],
+    usesV4R1 = true
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }

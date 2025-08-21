@@ -115,7 +115,8 @@ func.func @rock_conv_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: memr
     output_layout = ["no", "go", "ko", "0o", "1o"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
     params = #xdlops_gemm_params1,
-    strides = [1 : index, 1 : index]
+    strides = [1 : index, 1 : index],
+    usesV4R1 = true
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
   return
 }
@@ -145,7 +146,8 @@ rock.conv_bwd_data(%filter, %input, %output) {
     output_layout = ["no", "go", "ko", "0o", "1o"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
     params = #xdlops_gemm_params1,
-    strides = [1 : index, 1 : index]
+    strides = [1 : index, 1 : index],
+    usesV4R1 = true
   } : memref<1x1024x1024x1x1xf16>, memref<128x1x1024x14x14xf16>, memref<128x1x1024x14x14xf16>
   return
 }
@@ -174,7 +176,8 @@ func.func @rock_conv_bwd_weight(%filter : memref<1x128x8x3x3xf32>, %input : memr
     output_layout = ["no", "go", "ko", "0o", "1o"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
     params = #general_gemm_params1,
-    strides = [1 : index,  1 : index]
+    strides = [1 : index,  1 : index],
+    usesV4R1 = true
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }

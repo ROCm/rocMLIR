@@ -17,10 +17,10 @@
 #include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
@@ -314,26 +314,43 @@ static void addConvAttributes(PatternRewriter &rw, Operation *cop,
                                                      outputLayoutSpec.end())));
 }
 
-static FailureOr<rock::ConvOp>
+static FailureOr<rock::RockConvInterface>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              Value filter, Value output, DenseI64ArrayAttr pad,
              DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group) {
+             int64_t group, int64_t kernelID, bool usesV4R1,
+             std::string convKind) {
   Location loc = op->getLoc();
-
   ConvFields convFields =
       commonConv(rw, op, input, filter, output, pad, stride, dilation, group);
 
-  auto cop = rw.create<rock::ConvOp>(
-      loc, convFields.outputExp.getType(), convFields.filterExp,
-      convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
-      /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
-      convFields.stride, convFields.dilation,
-      /*params=*/nullptr);
+  Operation *cop = nullptr;
+  if (convKind == "bwd_data") {
+    cop = rw.create<rock::ConvBwdDataOp>(loc, convFields.outputExp.getType(),
+                                         convFields.filterExp,
+                                         convFields.inputExp,
+                                         convFields.outputExp,
+                                         /*features=*/nullptr,
+                                         /*blockSize=*/nullptr,
+                                         /*gridSize=*/nullptr,
+                                         convFields.pad, convFields.stride,
+                                         convFields.dilation,
+                                         /*params=*/nullptr,
+                                         rw.getI64IntegerAttr(kernelID),
+                                         rw.getBoolAttr(usesV4R1));
+  } else {
+    // Handle forwards convolution
+    cop = rw.create<rock::ConvOp>(loc, convFields.outputExp.getType(),
+                                  convFields.filterExp, convFields.inputExp,
+                                  convFields.outputExp, /*features=*/nullptr,
+                                  /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+                                  convFields.pad, convFields.stride,
+                                  convFields.dilation,/*params=*/nullptr);
+  }
 
   addConvAttributes(rw, cop, convFields);
 
-  return cop;
+  return cast<rock::RockConvInterface>(cop);
 }
 
 static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
@@ -625,7 +642,6 @@ public:
     auto filter = operands[1];
     auto bias = operands[2];
     auto outputType = cast<RankedTensorType>(op.getType());
-    auto filterType = cast<RankedTensorType>(filter.getType());
 
     rock::GemmFeatures features = getGemmFeaturesFromOp(op, input.getType());
 
@@ -635,74 +651,44 @@ public:
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
+    auto groupAttr = op->template getAttrOfType<IntegerAttr>("group");
+    auto padAttr = op->template getAttrOfType<DenseI64ArrayAttr>("pad");
+    auto dilationAttr = op->template getAttrOfType<DenseI64ArrayAttr>("dilation");
+
+    // Verify all required attributes are present
     int64_t group = 1;
-    if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
-      group = attr.getInt(); // Use op.getGroup() when all OpT have it.
+    if (groupAttr)
+      group = groupAttr.getInt();
 
-    Value result;
-    // For backwards convolution we want to make use of ConvGenerator to
-    // generate the multiple kernels that are needed for backwards conv ops
+    if (!padAttr)
+      return op->emitError("Expected 'pad' attribute to be present on the operation");
+
+    if (!dilationAttr)
+      return op->emitError("Expected 'dilation' attribute to be present on the operation");
+
+    std::string convKind = "";
     if (isa<tosa::TransposeConv2DOp>(op)) {
-      OpBuilder builder(op);
-      auto mod = op->template getParentOfType<ModuleOp>();
-      auto convGenerator = getConvGenerator(op, adaptor);
-      int kernelCount = 0;
-      if (failed(convGenerator.getKernelCount(builder, kernelCount)))
-        return failure();
-
-      // generate all sub-kernels, and get corresponding gemmId
-      auto convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
-      std::string kernelBaseName = convKind;
-      SmallVector<std::tuple<func::FuncOp, bool>> funcs;
-      for (int i = 0; i < kernelCount; ++i) {
-        convGenerator.setKernelName(kernelBaseName + "_" + std::to_string(i));
-        if (failed(convGenerator.genConvModule(mod, i,
-                                               /*isVerifier=*/false,
-                                               /*ignoreTuning=*/false,
-                                               /*useTensors=*/ true)))
-          return failure();
-        
-        // Determine if a workspace is needed
-        bool needWorkspace = false;
-        if (failed(convGenerator.hasWorkspace(builder, needWorkspace)))
-          return failure();
-      
-        // Create the (func, bool) tuple
-        funcs.push_back(std::make_tuple(convGenerator.getKernelFunc(),
-                                        needWorkspace));
+      // If we are trying to convert bwd_weight, fail as it's currently not
+      // supported
+      convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
+      if (convKind == "bwd_weight") {
+        op->emitError("TosaToRock lowering support for bwd_weight not supported");
       }
-
-      // Call the newly created functions from the original func
-      SmallVector<Value> callOperands = {filter, input, output};
-      for (auto tup : funcs) {
-        auto func = std::get<0>(tup);
-        auto hasWorkspace = std::get<1>(tup);
-        if (hasWorkspace) {
-          // Create a new workspace tensor
-          Value workspace =
-              rw.create<bufferization::AllocTensorOp>(loc, filterType, ValueRange{});
-          SmallVector<Value> workspaceOperands = {filter, input, output, workspace};
-          rw.create<func::CallOp>(loc, TypeRange{}, 
-                                  func.getSymName(), workspaceOperands);
-        } else {
-          rw.create<func::CallOp>(loc, TypeRange{}, 
-                                  func.getSymName(), callOperands);
-        }
-      }
-      result = output;
-    } else {
-      // Directly create the rock::ConvOp for the simpler forwards convolution
-      auto padAttr = op->template getAttrOfType<DenseI64ArrayAttr>("pad");
-      auto dilationAttr = op->template getAttrOfType<DenseI64ArrayAttr>("dilation");
-      FailureOr<rock::ConvOp> rockConv =
-        makeRockConv(rw, op, input, filter, output, padAttr,
-                     op.getStrideAttr(), dilationAttr, group);
-      if (failed(rockConv))
-        return failure();
-
-      result = rw.create<rock::TensorUntransformCastOp>(
-               loc, outputType, rockConv->getResult(), rockConv->getOutput());
+      assert(convKind == "bwd_data" && "Expected bwd_data conv op");
     }
+
+    FailureOr<rock::RockConvInterface> rockConv =
+                  makeRockConv(rw, op, input, filter, output, padAttr,
+                                op.getStrideAttr(), dilationAttr, group,
+                                /*kernelID=*/0, /*usesV4R1=*/false,
+                                convKind);
+
+    if (failed(rockConv))
+        return failure();
+
+    Operation *rockConvOp = rockConv->getOperation();
+    Value result = rw.create<rock::TensorUntransformCastOp>(
+               loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
 
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
@@ -734,119 +720,6 @@ public:
     }
     rw.replaceOp(op, result);
     return success();
-  }
-
-private:
-  mlir::rock::ConvGenerator getConvGenerator(OpT op, typename OpT::Adaptor) const {
-    // Gather up all of the information that we need to create an instance
-    // of ConvGenerator
-    auto arch = rock::getArchValue(op);
-    auto numCU = rock::getNumCUValue(op);
-    std::string chip;
-    RocmDeviceName splitter;
-    if (succeeded(splitter.parse(arch))) {
-      chip = splitter.getChip().str();
-    }
-
-    auto filterType = cast<RankedTensorType>(op.getWeight().getType());
-    auto inputType = cast<RankedTensorType>(op.getInput().getType());
-    auto outputType = cast<RankedTensorType>(op.getResult().getType());
-
-    rock::GemmFeatures features = getGemmFeaturesFromOp(op, inputType);
-    auto perfConfig = op->template getAttrOfType<StringAttr>("perf_config");
-    bool disableSplitKForTuning = false;
-    if (perfConfig && rock::isSplitKRequested(features, perfConfig)) {
-      disableSplitKForTuning = true;
-    }
-
-    std::optional<rock::ConvOpType> operation;
-    auto convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
-    if (convKind == "bwd_data") {
-      operation = rock::ConvOpType::BwdData;
-    } else {
-      assert(convKind == "bwd_weight" && "Expect bwd_weight or bwd_data");
-      operation = rock::ConvOpType::BwdWeight;
-    }
-
-    // Helper lambda to convert element type to string
-    auto getTypeString = [](Type elementType) -> std::string {
-      if (elementType.isF32()) return "f32";
-      if (elementType.isF16()) return "f16";
-      if (elementType.isBF16()) return "bf16";
-      if (elementType.isF64()) return "f64";
-      if (auto intType = dyn_cast<IntegerType>(elementType)) {
-        return "i" + std::to_string(intType.getWidth());
-      }
-      return "unknown";
-    };
-
-    auto filterDataTypeStr = getTypeString(filterType.getElementType());
-    auto inputDataTypeStr = getTypeString(inputType.getElementType());
-    auto outputDataTypeStr = getTypeString(outputType.getElementType());
-
-    SmallVector<int> filterDims;
-    auto filterShape = filterType.getShape();
-    if (filterShape.size() == 4) {
-        // For 2D convolution: extract spatial dimensions [Y, X]
-        filterDims = {static_cast<int>(filterShape[1]),
-                      static_cast<int>(filterShape[2])};
-    } else {
-        llvm_unreachable("Unsupported filter rank for ConvGenerator");
-    }
-    SmallVector<int64_t, 5> filterDimension = llvm::to_vector<5>(filterType.getShape());
-    SmallVector<int64_t, 5> inputDimension = llvm::to_vector<5>(inputType.getShape());
-    SmallVector<int64_t, 5> outputDimension = llvm::to_vector<5>(outputType.getShape());
-
-    // TOSA standard layouts for conv2d
-    std::string filterLayout = "kyxc";
-    std::string inputLayout = "nhwc";
-    std::string outputLayout = "nhwc";
-
-    auto getIntArray = [&](StringRef attrName) {
-      auto attr = op->template getAttrOfType<DenseI64ArrayAttr>(attrName);
-      return llvm::to_vector<4>(llvm::map_range(attr.asArrayRef(), [](int64_t x) { return static_cast<int>(x); }));
-    };
-
-    SmallVector<int, 4> dilationInts = getIntArray("dilation");
-    SmallVector<int, 4> strideInts = getIntArray("stride");
-
-    auto outPadValues = op->template getAttrOfType<DenseI64ArrayAttr>("out_pad").asArrayRef();
-    SmallVector<int, 4> paddingLeftInts = {static_cast<int>(outPadValues[0]), static_cast<int>(outPadValues[2])};
-    SmallVector<int, 4> paddingRightInts = {static_cast<int>(outPadValues[1]), static_cast<int>(outPadValues[3])};
-
-    std::string perfConfigStr = perfConfig ? perfConfig.str() : "";
-
-    rock::ConvGenerator::Config c{arch.str(),
-                                  chip,
-                                  disableSplitKForTuning,
-                                  /*scheduleVersion=*/1,
-                                  /*triple=*/"",
-                                  /*chipFeatures=*/"",
-                                  perfConfigStr,
-                                  numCU,
-                                  /*reverseGrid=*/false,
-                                  features,
-                                  operation,
-                                  filterDataTypeStr,
-                                  inputDataTypeStr,
-                                  outputDataTypeStr,
-                                  {dilationInts.begin(), dilationInts.end()},
-                                  {strideInts.begin(), strideInts.end()},
-                                  {paddingLeftInts.begin(), paddingLeftInts.end()},
-                                  {paddingRightInts.begin(), paddingRightInts.end()},
-                                  filterLayout,
-                                  inputLayout,
-                                  outputLayout,
-                                  "",
-                                  -1,
-                                  filterDimension,
-                                  inputDimension,
-                                  outputDimension,
-                                  {filterDims.begin(), filterDims.end()},
-                                  };
-
-    auto convGenerator = rock::ConvGenerator(c);
-    return convGenerator;
   }
 };
 

@@ -94,7 +94,8 @@ func.func @rock_conv_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: memr
     input_layout = ["ni", "gi", "ci", "0i", "1i"],
     output_layout = ["no", "go", "ko", "0o", "1o"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
-    strides = [1 : index, 1 : index]
+    strides = [1 : index, 1 : index],
+    usesV4R1 = true
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
   return
 }
@@ -114,7 +115,8 @@ func.func @rock_conv_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input: 
     input_layout = ["ni", "gi", "ci", "0i", "1i"],
     output_layout = ["no", "go", "ko", "0o", "1o"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
-    strides = [1 : index, 1 : index]
+    strides = [1 : index, 1 : index],
+    usesV4R1 = true
   } : memref<1x1024x1024x1x1xf16>, memref<128x1x1024x14x14xf16>, memref<128x1x1024x14x14xf16>
   return
 }
@@ -133,7 +135,8 @@ func.func @rock_conv_bwd_data_padMN(%filter : memref<1x64x3x1x1xf32>, %input : m
     dilations = [1 : index, 1 : index],
     strides = [1 : index, 1 : index],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
-    kernelId = 0 : index
+    kernelId = 0 : index,
+    usesV4R1 = true
   } : memref<1x64x3x1x1xf32>, memref<11x1x3x15x15xf32>, memref<11x1x64x15x15xf32>
   return
 }
@@ -152,7 +155,8 @@ func.func @rock_conv_bwd_data_padMK(%filter : memref<1x11x3x1x1xf32>, %input : m
     dilations = [1 : index, 1 : index],
     strides = [1 : index, 1 : index],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
-    kernelId = 0 : index
+    kernelId = 0 : index,
+    usesV4R1 = true
   } : memref<1x11x3x1x1xf32>, memref<128x1x3x15x15xf32>, memref<128x1x11x15x15xf32>
   return
 }
@@ -305,7 +309,8 @@ func.func @rock_conv_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: m
     output_layout = ["no", "go", "ko", "0o", "1o"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
     perf_config = "v3:16,128,8,16,16,4,1,1,2,1,1",
-    strides = [2 : index, 2 : index]
+    strides = [2 : index, 2 : index],
+    usesV4R1 = true
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }
@@ -325,7 +330,8 @@ func.func @rock_conv_bwd_data_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<2
     input_layout = ["ni", "gi", "ci", "0i", "1i"],
     output_layout = ["no", "go", "ko", "0o", "1o"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
-    strides = [2 : index, 2 : index]
+    strides = [2 : index, 2 : index],
+    usesV4R1 = true
   } : memref<1x64x3x7x7xf32>, memref<256x1x3x230x230xf32>, memref<256x1x64x112x112xf32>
   return
 }

@@ -119,8 +119,7 @@ public:
 
   LogicalResult genConvModule(ModuleOp &module, int rawKernelId = -1,
                               bool isVerifier = false,
-                              bool ignoreTuning = false,
-                              bool useTensors = false);
+                              bool ignoreTuning = false);
 
   func::FuncOp getKernelFunc() const;
 
