@@ -218,7 +218,7 @@ static LogicalResult commonAttentionGemmElmtGemm(
       loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
       op.getGemmFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, softmaxType,
-      params0, params1, rw.getI32IntegerAttr(op.getFirstGemmIndex()),
+      params0, params1, rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
       rw.getBoolAttr(enableSoftmax));
   bool linalgOpFound = false;
   preSecondOpRegion.walk(

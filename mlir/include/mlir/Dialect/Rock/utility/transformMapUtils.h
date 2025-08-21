@@ -173,7 +173,7 @@ Value insertTransposeAndBroadcastTransforms(OpBuilder &b,
 // This function will pull non identity affine maps in the indexing of a
 // linalg generic maps as rock.transform ops, in effect making the linalg
 // generic use identity maps.
-LogicalResult makeLinalgGenericWithIdentityAffMaps(PatternRewriter &rw,
+LogicalResult makeLinalgGenericWithIdentityAffMaps(PatternRewriter &b,
                                                    linalg::GenericOp laOp);
 
 // This function will take an input TransformMapAttr and invert the

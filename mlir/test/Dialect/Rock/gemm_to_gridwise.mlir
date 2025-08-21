@@ -209,7 +209,7 @@ func.func @rock_attention_simple(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x6
   } { 
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIdx = 0 : i32
+    firstGemmIndices = array<i64: 0>
   }
   return
 }
@@ -230,7 +230,7 @@ func.func @rock_attention_tr_padded(%arg0: memref<1x49x7xf32>, %arg1: memref<1x7
   } { 
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIdx = 0 : i32
+    firstGemmIndices = array<i64: 0>
   }
   return
 }
@@ -246,7 +246,7 @@ func.func @rock_attention_kvcache(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x
   } {
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIdx = 0 : i32
+    firstGemmIndices = array<i64: 0>
   }
   return
 }
@@ -263,7 +263,7 @@ func.func @rock_attention_causal(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x6
   } {
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIdx = 0 : i32
+    firstGemmIndices = array<i64: 0>
   }
   return
 }
@@ -279,7 +279,7 @@ func.func @rock_attention_lse(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1
   } {
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIdx = 0 : i32
+    firstGemmIndices = array<i64: 0>
   }
   return
 }
@@ -296,7 +296,7 @@ func.func @rock_attention_softmaxtype(%arg0: memref<1x64x1024xf16>, %arg1: memre
   } {
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIdx = 0 : i32,
+    firstGemmIndices = array<i64: 0>,
     softmaxType = f32
   }
   return
@@ -313,7 +313,7 @@ func.func @rock_gemmelementwisegemm_simple(%arg0: memref<1x64x1024xf32>, %arg1: 
   } { 
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIdx = 0 : i32
+    firstGemmIndices = array<i64: 0>
   }
   return
 }
@@ -335,7 +335,7 @@ func.func @rock_gemmelementwisegemm_tr_padded(%arg0: memref<1x49x7xf32>, %arg1: 
   } { 
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIdx = 0 : i32
+    firstGemmIndices = array<i64: 0>
   }
   return
 }
