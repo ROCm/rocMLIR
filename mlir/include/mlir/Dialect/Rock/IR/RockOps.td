@@ -208,7 +208,7 @@ def Rock_AttentionOp
           OptionalAttr<TypeAttr>:$softmaxType,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
-          IndexArrayAttr:$firstGemmIndices)>,
+          DenseI64ArrayAttr:$firstGemmIndices)>,
       Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result,
           Optional<TensorOf<[F32, F16, BF16]>>:$lseOut)> {
   let summary = "Attention operation of transformer models";
@@ -271,7 +271,7 @@ def Rock_GemmElementwiseGemmOp
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
-          IndexArrayAttr:$firstGemmIndices)>,
+          DenseI64ArrayAttr:$firstGemmIndices)>,
       Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
   let summary = "GEMM-elementwise-GEMM operation";
   let description = [{
@@ -322,7 +322,7 @@ def Rock_ConvElementwiseGemmOp
           IndexArrayLength<2>:$dilations,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
-          IndexArrayAttr:$firstGemmIndices)>,
+          DenseI64ArrayAttr:$firstGemmIndices)>,
       Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
   let summary = "CONV-elementwise-GEMM operation";
   let description = [{
@@ -561,7 +561,7 @@ def Rock_GridwiseAttentionAccelOp
           OptionalAttr<TypeAttr>:$softmaxType,
           RockAccelTuningParamAttrInterface:$params0,
           RockAccelTuningParamAttrInterface:$params1,
-          IndexArrayAttr:$firstGemmIndices,
+          DenseI64ArrayAttr:$firstGemmIndices,
           DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax)> {
   let summary = "Gridwise attention accelerated version";
   let description = [{
@@ -579,24 +579,6 @@ def Rock_GridwiseAttentionAccelOp
       SmallVector<::mlir::Type> types = {getKeys().getType(),
                                          getValues().getType()};
       return types;
-    }
-
-    SmallVector<int64_t> getFirstGemmIndicesValue() {
-      SmallVector<int64_t> indices;
-      mlir::ArrayAttr indicesAttr = getFirstGemmIndices();
-      for (auto attr : indicesAttr) {
-        auto indexAttr = ::llvm::dyn_cast<::mlir::IntegerAttr>(attr);
-        if (!indexAttr) {
-          llvm::report_fatal_error("Failed to convert attribute to IntegerAttr in getFirstGemmIndicesValue");
-        }
-        indices.push_back(indexAttr.getInt());
-      }
-      return indices;
-    }
-
-    void setFirstGemmIndicesValue(const SmallVector<int64_t>& indices) {
-      mlir::Builder builder(getContext());
-      setFirstGemmIndicesAttr(builder.getIndexArrayAttr(indices));
     }
   }];
 }

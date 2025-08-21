@@ -526,7 +526,7 @@ getElementwiseRegion(Value input, OpBuilder &regionBuilder, Block *block,
       fusionMemRef = addBlockArgument(regionBuilder, input, block, loc.value());
       rock::RockGemmGemmWrapperInterface gemmGemmLikeOp =
           cast<rock::RockGemmGemmWrapperInterface>(block->getParentOp());
-      gemmGemmLikeOp.setFirstGemmIndicesValue(
+      gemmGemmLikeOp.setFirstGemmIndices(
           {static_cast<long>(block->getArguments().size() - 1)});
     }
     LLVM_DEBUG(llvm::dbgs() << std::string(recDepth, '\t')
@@ -1153,7 +1153,7 @@ struct ConvElementwiseGemmRewritePattern
         /*oTransposed=*/nullptr, /*features=*/nullptr, convFields.pad,
         convFields.stride, convFields.dilation,
         /*params0=*/nullptr, /*params1=*/nullptr,
-        /*firstGemmIndices=*/rewriter.getIndexArrayAttr({0}));
+        /*firstGemmIndices=*/rewriter.getDenseI64ArrayAttr({0}));
 
     addConvAttributes(rewriter, convElentwiseGemmOp, convFields);
 
@@ -1222,7 +1222,6 @@ struct GemmElementwiseGemmRewritePattern
                                              elementwiseOtherArgs);
     // This is guranteed by the matcher
     tosa::MatMulOp firstMatMulOp = maybeFirstMatMul.value();
-    SmallVector<int64_t, 2> firstGemmIndices = {0};
     rock::GemmElementwiseGemmOp gemmElentwiseGemmOp =
         rewriter.create<rock::GemmElementwiseGemmOp>(
             loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(),
@@ -1234,7 +1233,7 @@ struct GemmElementwiseGemmRewritePattern
             /*features=*/nullptr,
             /*params0=*/nullptr, /*params1=*/nullptr,
             /*firstGemmIndices=*/
-            rewriter.getIndexArrayAttr(ArrayRef<int64_t>(firstGemmIndices)));
+            rewriter.getDenseI64ArrayAttr(ArrayRef<int64_t>({0})));
     Block *preSecondGemmElemwiseBlock =
         &gemmElentwiseGemmOp.getPreSecondGemmBody().emplaceBlock();
     {
@@ -1988,7 +1987,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*oTransposed=*/nullptr, causalAttr,
         /*features=*/nullptr, softmaxTypeAttr,
         /*params0=*/nullptr, /*params1=*/nullptr,
-        /*firstGemmIndices=*/rewriter.getIndexArrayAttr({0}));
+        /*firstGemmIndices=*/rewriter.getDenseI64ArrayAttr({0}));
 
     Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();
     {

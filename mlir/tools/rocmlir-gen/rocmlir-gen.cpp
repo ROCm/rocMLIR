@@ -2874,7 +2874,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,
-      /*firstGemmIdx=*/builder.getIndexArrayAttr({0}));
+      /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
     Block *preSoftmaxElemwiseBlock =
         &attention.getPreSoftmaxBody().emplaceBlock();
@@ -3012,7 +3012,7 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       builder.getIndexArrayAttr(config->strideDims),
       builder.getIndexArrayAttr(config->dilationDims),
       /*params0=*/nullptr, /*params1=*/nullptr,
-      /*firstGemmIdx=*/builder.getIndexArrayAttr({0}));
+      /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
     Block *preSecondGemmBlock =
         &convElntGemm.getPreSecondGemmBody().emplaceBlock();
@@ -3113,7 +3113,7 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       transposeC, transposeO,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       /*params0=*/nullptr, /*params1=*/nullptr,
-      /*firstGemmIdx=*/builder.getIndexArrayAttr({0}));
+      /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
     Block *preSecondGemmBlock =
         &gemmElntGemm.getPreSecondGemmBody().emplaceBlock();
