@@ -350,7 +350,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     break;
   case 3:
     if (isBwdConvOp)
-      op->emitError("Only 1-D and 2-D backwards convolution ops are supported");
+      return op->emitError("Only 1-D and 2-D backwards convolution ops are "
+                           "supported");
 
     inputZp =
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
@@ -419,13 +420,15 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   int64_t group = op.getGroup();
   cop->setAttr("group", rewriter.getI64IntegerAttr(group));
 
-  // Set input padding for forwards convolution, and output padding for
-  // backwards convolution
+  // Set padding for forwards and backwards convolution. Note: the padding here
+  // applies to input padding (which transpose.conv2D does not inherently
+  // support). TransposeConv2D will still require an output pad attribute, so we
+  // can just set that to zeros
   if (isBwdConvOp) {
-    cop->setAttr("out_pad", rewriter.getDenseI64ArrayAttr(pads));
-  } else {
-    cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(pads));
+    SmallVector<int64_t> zeroPads(pads.size(), 0);
+    cop->setAttr("out_pad", rewriter.getDenseI64ArrayAttr(zeroPads));
   }
+  cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(pads));
 
   // For both types of backwards convolution, we will be using
   // tosa.transpose_conv2d, so we are going to add a conv_kind attribute so
