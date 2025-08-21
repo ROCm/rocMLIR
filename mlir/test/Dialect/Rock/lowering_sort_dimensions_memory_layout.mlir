@@ -59,7 +59,7 @@ func.func @test_attention(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg
     rock.yield
   }
     %alloc = softmax(qk) * %1 : memref<1x64x8xf16> -> memref<1x32x8xf16>
-  } {arch = "gfx1200", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|atomic_add_f16|wmma>, firstGemmIdx = 0 : i32}
+  } {arch = "gfx1200", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|atomic_add_f16|wmma>, firstGemmIndices = array<i64: 0>}
   %7 = rock.transform %alloc by <affine_map<(d0) -> (0, d0 floordiv 8, d0 mod 8)> by [<Merge{1, 32, 8} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [256] -> [1, 32, 8]> : memref<1x32x8xf16> to memref<256xf16>
   memref.copy %7, %arg3 : memref<256xf16> to memref<256xf16>
   return
@@ -245,7 +245,7 @@ func.func @test_gemm_gemm(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg
     rock.yield
   }
     %alloc = ab * %1 : memref<1x64x8xf16> -> memref<1x32x8xf16>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIdx = 0 : i32}
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIndices = array<i64: 0>}
   %7 = rock.transform %alloc by <affine_map<(d0) -> (0, d0 floordiv 8, d0 mod 8)> by [<Merge{1, 32, 8} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [256] -> [1, 32, 8]> : memref<1x32x8xf16> to memref<256xf16>
   memref.copy %7, %arg3 : memref<256xf16> to memref<256xf16>
   return
@@ -271,6 +271,6 @@ func.func @test_conv_gemm(%arg0: memref<147456xf32>, %arg1: memref<802816xf32>, 
     rock.yield
   }
     %3 = ab * %2 : memref<1x256x256xf32> -> memref<1x9216x256xf32>
-  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, filter_layout = ["g", "k", "0", "1", "c"], firstGemmIdx = 0 : i32, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
+  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, filter_layout = ["g", "k", "0", "1", "c"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
   return
 }

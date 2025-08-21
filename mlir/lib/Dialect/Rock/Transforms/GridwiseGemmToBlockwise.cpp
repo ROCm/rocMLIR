@@ -46,7 +46,9 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/RegionUtils.h"
@@ -55,6 +57,7 @@
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 #include <optional>
 
@@ -1560,23 +1563,55 @@ struct GridwiseAttentionAccelRewritePattern
       PatternRewriter &rewriter, Location loc, GridwiseAttentionAccelOp op,
       layout::GridCoordinates gridCoords, Value srcGemm0OutBuffer,
       Value destGemm0OutBuffer, RegsAsMatrixSubTiles gemm0OutViews) const {
-    LogicalResult res = success();
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
-    bool linalgOpFound = false;
-    op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
-      linalgOpFound = true;
+    int64_t linalgOpIndex = -1;
+    MemRefType srcBufType = cast<MemRefType>(srcGemm0OutBuffer.getType());
+    MemRefType destBufType = cast<MemRefType>(destGemm0OutBuffer.getType());
+    Value prevGemm0OutBuffer = srcGemm0OutBuffer;
+    ArrayAttr linalgGridSubTileMaps = gemm0OutViews.gridSubTile;
+    if (op.getPreSoftmaxBody().getBlocks().empty()) {
+      // nothing to process
+      return prevGemm0OutBuffer;
+    }
+    int64_t firstGemmBlockArgNum = -1;
+    Block &preSoftMaxBodyBlock = op.getPreSoftmaxBody().getBlocks().front();
+    WalkResult res = op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
+      linalgOpIndex++;
       auto tid = rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
       SmallVector<Value> inputTileBuffers;
-      MemRefType srcBufType = cast<MemRefType>(srcGemm0OutBuffer.getType());
 
       // Pull non-identiy index maps to rock transforms
-      res = makeLinalgGenericWithIdentityAffMaps(rewriter, genOp);
+      LogicalResult linalgIdentityRes =
+          makeLinalgGenericWithIdentityAffMaps(rewriter, genOp);
+      if (failed(linalgIdentityRes)) {
+        genOp.emitError(
+            "Failed to make linalg generic with identity affine maps");
+        return WalkResult::interrupt();
+      }
 
       // Obtain transform stack from gemmOutput to linalg generic input.
       ArrayAttr linalgToGemmOutMaps;
-      std::tie(std::ignore, linalgToGemmOutMaps, std::ignore) =
-          untransform(rewriter, genOp.getInputs()[op.getFirstGemmIdx()]);
+      Value gemm0BasedArg =
+          genOp.getInputs()[op.getFirstGemmIndices()[linalgOpIndex]];
+      Value mayBeFirstGemmBlockArg;
+      std::tie(mayBeFirstGemmBlockArg, linalgToGemmOutMaps, std::ignore) =
+          untransform(rewriter, gemm0BasedArg);
+
+      // If the gemm0BasedArg is a block argument, we need to get its
+      // blockArgNum
+      if (auto firstGemmBlockArg =
+              dyn_cast<BlockArgument>(mayBeFirstGemmBlockArg)) {
+        assert(firstGemmBlockArgNum == -1 &&
+               "firstGemmBlockArgNum should be set only once");
+        // trace it back to block input
+        if (firstGemmBlockArg.getOwner() == &preSoftMaxBodyBlock) {
+          firstGemmBlockArgNum = firstGemmBlockArg.getArgNumber();
+        } else {
+          llvm::report_fatal_error("first gemm block argument does not belong "
+                                   "to block of preSoftBody\n");
+        }
+      }
       // The obtained transforms will be linalg generic being the upperview
       // leading to gemmOutput being the lowerview. However, we need to
       // construct
@@ -1584,14 +1619,12 @@ struct GridwiseAttentionAccelRewritePattern
       //  (bid, tid, iter) > ... > [gemmOutput: k x d]
       //                         > invertTr(linalg input to gemmOutput maps)
       //                         > (linalgOtherInput to op arg maps)
-      ArrayAttr linalgGridSubTileMaps = gemm0OutViews.gridSubTile;
       ArrayAttr gemmOutToLinalgMaps =
           invertTransforms(rewriter, loc, linalgToGemmOutMaps);
 
       if (!gemmOutToLinalgMaps) {
-        res = rewriter.notifyMatchFailure(
-            genOp, "we can't invert linalg input to gemmOutput maps");
-        return;
+        genOp.emitError("We can't invert linalg input to gemmOutput maps");
+        return WalkResult::interrupt();
       }
 
       if (!gemmOutToLinalgMaps.empty()) {
@@ -1600,7 +1633,8 @@ struct GridwiseAttentionAccelRewritePattern
       }
 
       for (auto [idx, genOpInput] : llvm::enumerate(genOp.getInputs())) {
-        if (idx == op.getFirstGemmIdx())
+        if (idx ==
+            static_cast<unsigned long>(op.getFirstGemmIndices()[linalgOpIndex]))
           continue;
 
         Value otherInput;
@@ -1622,16 +1656,25 @@ struct GridwiseAttentionAccelRewritePattern
         // If other input is a block argument of the attention op fusion
         if (auto blockArg = dyn_cast<BlockArgument>(otherInput)) {
           // trace it back to block input
-          Block &block = op.getPreSoftmaxBody().getBlocks().front();
-          if (blockArg.getOwner() == &block) {
+          if (blockArg.getOwner() == &preSoftMaxBodyBlock) {
             int64_t blockArgNum = blockArg.getArgNumber();
-            assert(blockArgNum != op.getFirstGemmIdx());
+            // we are processing other inputs. Block Argument number shouldn't
+            // be the same as gemm input to first linalg generic op
+            assert(firstGemmBlockArgNum != -1 &&
+                   "firstGemmBlockArgNum should be set before processing other "
+                   "inputs");
+            assert(blockArgNum != firstGemmBlockArgNum);
 
             // if the gemm index is smaller, we need to substract one from the
-            // index
-            if (blockArgNum > op.getFirstGemmIdx())
+            // index as `getPreSoftmaxElemWiseInputs()` doesn't contain
+            // gemm0 output explictly
+            if (blockArgNum > firstGemmBlockArgNum) {
               --blockArgNum;
+            }
             otherInput = op.getPreSoftmaxElemWiseInputs()[blockArgNum];
+          } else {
+            llvm::report_fatal_error("Found blockArgument that does not belong "
+                                     "to block of preSoftBody\n");
           }
         }
         rewriter.create<ThreadwiseReadIntoOp>(
@@ -1643,10 +1686,22 @@ struct GridwiseAttentionAccelRewritePattern
       }
       // Insert the first gemm output buffer according to which input
       // it was to the linalg generic
-      inputTileBuffers.insert(inputTileBuffers.begin() + op.getFirstGemmIdx(),
-                              srcGemm0OutBuffer);
-      // Output is overwriting the same input buffer
-      inputTileBuffers.push_back(destGemm0OutBuffer);
+      inputTileBuffers.insert(inputTileBuffers.begin() +
+                                  op.getFirstGemmIndices()[linalgOpIndex],
+                              prevGemm0OutBuffer);
+      Type outputType = genOp.getOutputs().back().getType();
+      if (outputType != destGemm0OutBuffer.getType()) {
+        MemRefType genOpOutMemrefType = cast<MemRefType>(outputType);
+        MemRefType outTileBufType = MemRefType::get(
+            destBufType.getShape(), genOpOutMemrefType.getElementType(),
+            AffineMap{}, privateMemoryAddressSpace);
+        auto outTileBuffer =
+            rewriter.create<rock::GpuAllocOp>(loc, outTileBufType);
+        inputTileBuffers.push_back(outTileBuffer);
+      } else {
+        // reuse the same dest buffer if types match
+        inputTileBuffers.push_back(destGemm0OutBuffer);
+      }
       linalg::GenericOp newLinalgOp;
 
       mlir::IRMapping mapper;
@@ -1666,14 +1721,25 @@ struct GridwiseAttentionAccelRewritePattern
           1, linalg::IteratorTypeAttr::get(rewriter.getContext(),
                                            utils::IteratorType::parallel));
       newLinalgOp.setIteratorTypesAttr(rewriter.getArrayAttr(iteratorTypes));
+      // set previous source buffer for the next linalg generic
+      prevGemm0OutBuffer = inputTileBuffers.back();
+      return WalkResult::advance();
     });
-    if (failed(res)) {
+    if (res.wasInterrupted()) {
       return op.emitError("pre softmax linalg regularization failed.\n");
     }
-    if (!linalgOpFound) {
+    // if not linalg generic was found, we just return the srcBuffer
+    if (linalgOpIndex == -1) {
       return srcGemm0OutBuffer;
     }
-    return destGemm0OutBuffer;
+    assert(prevGemm0OutBuffer.getType() == destGemm0OutBuffer.getType() &&
+           "after the regularization final output buffer type should match "
+           "previously allocated fusion buffer type");
+    assert(static_cast<size_t>(linalgOpIndex + 1) ==
+               op.getFirstGemmIndices().size() &&
+           "number of linalg generic ops and number of firstGemmIndices must "
+           "match");
+    return prevGemm0OutBuffer;
   }
 
   void loadGemmOperandsFromLDSToRegs(PatternRewriter &rewriter, Location loc,
@@ -2055,6 +2121,7 @@ struct GridwiseAttentionAccelRewritePattern
     }
     Type fusionOutElemType = elemTypeV;
     op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
+      // Keep visiting to get the fusionOutElement type from the last genOp
       fusionOutElemType =
           cast<ShapedType>(genOp.getOutputs()[0].getType()).getElementType();
     });
