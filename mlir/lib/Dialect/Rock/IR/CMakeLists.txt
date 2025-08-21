@@ -21,7 +21,6 @@ add_rocmlir_dialect_library(MLIRRockOps
   DEPENDS
   MLIRRockAttrDefsIncGen
   MLIRRockGemmFeaturesInterfaceIncGen
-  MLIRRockGemmFeaturesInterfaceIncGen
   MLIRRockGemmWrapperInterfaceIncGen
   MLIRRockGemmGemmWrapperInterfaceIncGen
   MLIRRockTuningParamAttrInterfaceIncGen
