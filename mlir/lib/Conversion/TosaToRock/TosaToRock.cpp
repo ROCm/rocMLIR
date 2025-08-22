@@ -326,26 +326,22 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
 
   Operation *cop = nullptr;
   if (convKind == "bwd_data") {
-    cop = rw.create<rock::ConvBwdDataOp>(loc, convFields.outputExp.getType(),
-                                         convFields.filterExp,
-                                         convFields.inputExp,
-                                         convFields.outputExp,
-                                         /*features=*/nullptr,
-                                         /*blockSize=*/nullptr,
-                                         /*gridSize=*/nullptr,
-                                         convFields.pad, convFields.stride,
-                                         convFields.dilation,
-                                         /*params=*/nullptr,
-                                         rw.getI64IntegerAttr(kernelID),
-                                         rw.getBoolAttr(usesV4R1));
+    cop = rw.create<rock::ConvBwdDataOp>(
+        loc, convFields.outputExp.getType(), convFields.filterExp,
+        convFields.inputExp, convFields.outputExp,
+        /*features=*/nullptr,
+        /*blockSize=*/nullptr,
+        /*gridSize=*/nullptr, convFields.pad, convFields.stride,
+        convFields.dilation,
+        /*params=*/nullptr, rw.getI64IntegerAttr(kernelID),
+        rw.getBoolAttr(usesV4R1));
   } else {
     // Handle forwards convolution
-    cop = rw.create<rock::ConvOp>(loc, convFields.outputExp.getType(),
-                                  convFields.filterExp, convFields.inputExp,
-                                  convFields.outputExp, /*features=*/nullptr,
-                                  /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-                                  convFields.pad, convFields.stride,
-                                  convFields.dilation,/*params=*/nullptr);
+    cop = rw.create<rock::ConvOp>(
+        loc, convFields.outputExp.getType(), convFields.filterExp,
+        convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
+        /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
+        convFields.stride, convFields.dilation, /*params=*/nullptr);
   }
 
   addConvAttributes(rw, cop, convFields);
@@ -653,7 +649,8 @@ public:
 
     auto groupAttr = op->template getAttrOfType<IntegerAttr>("group");
     auto padAttr = op->template getAttrOfType<DenseI64ArrayAttr>("pad");
-    auto dilationAttr = op->template getAttrOfType<DenseI64ArrayAttr>("dilation");
+    auto dilationAttr =
+        op->template getAttrOfType<DenseI64ArrayAttr>("dilation");
 
     // Verify all required attributes are present
     int64_t group = 1;
@@ -661,10 +658,12 @@ public:
       group = groupAttr.getInt();
 
     if (!padAttr)
-      return op->emitError("Expected 'pad' attribute to be present on the operation");
+      return op->emitError(
+          "Expected 'pad' attribute to be present on the operation");
 
     if (!dilationAttr)
-      return op->emitError("Expected 'dilation' attribute to be present on the operation");
+      return op->emitError(
+          "Expected 'dilation' attribute to be present on the operation");
 
     std::string convKind = "";
     if (isa<tosa::TransposeConv2DOp>(op)) {
@@ -672,23 +671,23 @@ public:
       // supported
       convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
       if (convKind == "bwd_weight") {
-        op->emitError("TosaToRock lowering support for bwd_weight not supported");
+        op->emitError(
+            "TosaToRock lowering support for bwd_weight not supported");
       }
       assert(convKind == "bwd_data" && "Expected bwd_data conv op");
     }
 
     FailureOr<rock::RockConvInterface> rockConv =
-                  makeRockConv(rw, op, input, filter, output, padAttr,
-                                op.getStrideAttr(), dilationAttr, group,
-                                /*kernelID=*/0, /*usesV4R1=*/false,
-                                convKind);
+        makeRockConv(rw, op, input, filter, output, padAttr, op.getStrideAttr(),
+                     dilationAttr, group,
+                     /*kernelID=*/0, /*usesV4R1=*/false, convKind);
 
     if (failed(rockConv))
-        return failure();
+      return failure();
 
     Operation *rockConvOp = rockConv->getOperation();
     Value result = rw.create<rock::TensorUntransformCastOp>(
-               loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
+        loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
 
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
@@ -2211,9 +2210,8 @@ public:
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ConvConverter<tosa::Conv2DOp>, ConvConverter<tosa::Conv3DOp>,
-               ConvConverter<tosa::TransposeConv2DOp>,
-               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
-      context);
+               ConvConverter<tosa::TransposeConv2DOp>, MatMulConverter,
+               ReduceSumConverter, ReduceMaxConverter>(context);
 }
 
 void tosa::populateTosaToRockAttentionConversionPatterns(

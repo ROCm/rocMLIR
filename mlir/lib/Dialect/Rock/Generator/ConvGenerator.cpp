@@ -771,7 +771,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Construct a new FuncOp.
   auto filterArgType =
       MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
-                                      config.filterDimension.end()),
+                                        config.filterDimension.end()),
                       filterDataType);
   auto inputArgType =
       MemRefType::get(ArrayRef<int64_t>(config.inputDimension.begin(),
@@ -789,9 +789,9 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   Type workspaceArgType;
   if (hasWorkspace) {
     workspaceArgType =
-            MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
-                                              config.filterDimension.end()),
-                            builder.getF32Type());
+        MemRefType::get(ArrayRef<int64_t>(config.filterDimension.begin(),
+                                          config.filterDimension.end()),
+                        builder.getF32Type());
   }
 
   SmallVector<Type, 3> logicalFuncArgTypes = {filterArgType, inputArgType,
@@ -802,7 +802,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   }
 
   SmallVector<Type, 3> physicalFuncArgTypes =
-    llvm::map_to_vector(logicalFuncArgTypes, getFlattenedType);
+      llvm::map_to_vector(logicalFuncArgTypes, getFlattenedType);
   auto funcType = builder.getFunctionType(physicalFuncArgTypes, {});
 
   std::string kernelName = config.kernelBaseName;

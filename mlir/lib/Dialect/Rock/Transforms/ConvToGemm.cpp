@@ -804,8 +804,8 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   return std::make_tuple(Value(), Value(), Value());
 }
 
-FailureOr<std::tuple<Value, Value, Value>> backwardDataV4R1(ConvBwdDataOp op,
-                                                            PatternRewriter &b) {
+FailureOr<std::tuple<Value, Value, Value>>
+backwardDataV4R1(ConvBwdDataOp op, PatternRewriter &b) {
   Location loc = op.getLoc();
   IntegerAttr kernelIdAttr = op.getKernelIdAttr();
 
@@ -1176,7 +1176,8 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   Type dataType = op.getInput().getType().getElementType();
   if (ConvOpType::BwdData == convOpType) {
     auto bwdDataOp = cast<ConvBwdDataOp>(op);
-    bool usesV4R1 = bwdDataOp->template getAttrOfType<BoolAttr>("usesV4R1").getValue();
+    bool usesV4R1 =
+        bwdDataOp->template getAttrOfType<BoolAttr>("usesV4R1").getValue();
     if (usesV4R1)
       return backwardDataV4R1(bwdDataOp, b);
   }
@@ -1348,7 +1349,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   // For ConvBwdDataOp:
   // - Part 1: ci, y, x dimensions to dimension 1, name it as gemmK.
   // - Part 2: ni, ho, wo dimensions to dimension 2, name it as gemmN.
-  
+
   auto gemmInputTransform =
       BottomUpTMBuilder::above(embedInputTransform, embedInputTransformAttr);
   gemmInputTransform.passThrough({"gemmG"}, {0}, {"gi"});
