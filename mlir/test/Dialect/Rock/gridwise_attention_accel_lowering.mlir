@@ -585,7 +585,7 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096
 
 // TEST For regularization when there are multiple linalg.generic ops in preSoftmaxOps
 // CHECK-LABEL: @multiple_linalg_generics_in_presoftmax_ops
-func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, grid_size = 36 : i32, kernel} {
   // CHECK: %[[GEMM0_BUFFER:.*]] =  rock.alloc() : memref<1xvector<16xf32>, #gpu.address_space<private>>
   // CHECK: %[[GEMM0_BUFFER_FLAT:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
   // CHECK: rock.lds_barrier
@@ -629,7 +629,7 @@ func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, 
   %19 = rock.transform %17 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 19} ["gemm0MPad"] at [2] -> ["gemm0M"] at [2]>] bounds = [12, 64, 96] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<12x64x96xf16>
   %20 = rock.transform %15 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1KPad"] at [1] -> ["gemm1K"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
   %21 = rock.transform %9 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1NPad"] at [1] -> ["gemm1N"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
-  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %21) preSoftmaxOps = {
+  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %21) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {
   ^bb0(%arg5: memref<12x77x77xf16>, %arg6: memref<5929xf16>, %arg7: memref<12x77x77xf32>):
     %22 = rock.transform %arg5 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<Unmerge{12} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
     %23 = rock.transform %arg6 by <affine_map<(d0, d1, d2, d3) -> (d2 * 77 + d3)> by [<Unmerge{77, 77} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 77, 77] -> [5929]> : memref<5929xf16> to memref<1x1x77x77xf16>
@@ -652,7 +652,7 @@ func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, 
     }
     memref.copy %alloc_1, %arg7 : memref<12x77x77xf32> to memref<12x77x77xf32>
     rock.yield
-  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
+  } {arch = "gfx942", blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
   memref.copy %alloc, %arg4 : memref<59136xf16> to memref<59136xf16>
   return
 }
@@ -660,7 +660,7 @@ func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, 
 // -----
 
 // CHECK-LABEL: @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween
-func.func @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<5929xf32>, %arg4: memref<59136xf16>, %arg5: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+func.func @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<5929xf32>, %arg4: memref<59136xf16>, %arg5: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, grid_size = 36 : i32, kernel} {
   // CHECK: %[[GEMM0_BUFFER:.*]] =  rock.alloc() : memref<1xvector<16xf32>, #gpu.address_space<private>>
   // CHECK: %[[GEMM0_BUFFER_FLAT:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
   // CHECK: rock.lds_barrier
@@ -708,7 +708,7 @@ func.func @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween(
   %19 = rock.transform %17 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 19} ["gemm0MPad"] at [2] -> ["gemm0M"] at [2]>] bounds = [12, 64, 96] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<12x64x96xf16>
   %20 = rock.transform %15 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1KPad"] at [1] -> ["gemm1K"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
   %21 = rock.transform %9 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1NPad"] at [1] -> ["gemm1N"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
-  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %arg3, %21) preSoftmaxOps = {
+  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %arg3, %21) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {
   ^bb0(%arg6: memref<12x77x77xf16>, %arg7: memref<5929xf16>, %arg8: memref<5929xf32>, %arg9: memref<12x77x77xf32>):
     %22 = rock.transform %arg6 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<Unmerge{12} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
     %23 = rock.transform %arg7 by <affine_map<(d0, d1, d2, d3) -> (d2 * 77 + d3)> by [<Unmerge{77, 77} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 77, 77] -> [5929]> : memref<5929xf16> to memref<1x1x77x77xf16>
@@ -738,14 +738,14 @@ func.func @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween(
     %35 = rock.transform %alloc_1 by <affine_map<(d0, d1, d2) -> (d0 floordiv 6, d0 mod 6, d1, d2)> by [<Merge{2, 6} ["dim0"] at [0] -> ["dim0", "dim1"] at [0, 1]>, <PassThrough ["dim2"] at [1] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [2] -> ["dim3"] at [3]>] bounds = [12, 77, 77] -> [2, 6, 77, 77]> : memref<2x6x77x77xf32> to memref<12x77x77xf32>
     memref.copy %35, %arg9 : memref<12x77x77xf32> to memref<12x77x77xf32>
     rock.yield
-  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<5929xf32>, memref<12x96x64xf16>
+  } {arch = "gfx942", blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<5929xf32>, memref<12x96x64xf16>
   memref.copy %alloc, %arg5 : memref<59136xf16> to memref<59136xf16>
   return
 }
 
 // -----
 
-func.func @non_invertible_transformations_while_regularizing(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+func.func @non_invertible_transformations_while_regularizing(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, grid_size = 36 : i32, kernel} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
   %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
   %2 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
@@ -772,7 +772,7 @@ func.func @non_invertible_transformations_while_regularizing(%arg0: memref<59136
   // expected-error @below {{pre softmax linalg regularization failed}}
   // expected-error @below {{post processing first gemm failed.}}
   // expected-error @below {{failed to legalize operation 'rock.gridwise_attention_accel' that was explicitly marked illegal}}
-  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %21) preSoftmaxOps = {
+  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %21) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {
   ^bb0(%arg5: memref<12x77x77xf16>, %arg6: memref<5929xf16>, %arg7: memref<12x77x77xf32>):
     %22 = rock.transform %arg5 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<Unmerge{12} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
     %23 = rock.transform %arg6 by <affine_map<(d0, d1, d2, d3) -> (d2 * 77 + d3)> by [<Unmerge{77, 77} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 77, 77] -> [5929]> : memref<5929xf16> to memref<1x1x77x77xf16>
@@ -799,14 +799,14 @@ func.func @non_invertible_transformations_while_regularizing(%arg0: memref<59136
     %32 = rock.transform %31 by <affine_map<(d0, d1, d2) -> (d0 floordiv 6, d0 mod 6, d1, d2)> by [<Merge{2, 6} ["dim0"] at [0] -> ["dim0", "dim1"] at [0, 1]>, <PassThrough ["dim2"] at [1] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [2] -> ["dim3"] at [3]>] bounds = [12, 77, 77] -> [2, 6, 77, 77]> : memref<2x6x77x77xf32> to memref<12x77x77xf32>
     memref.copy %32, %arg7 : memref<12x77x77xf32> to memref<12x77x77xf32>
     rock.yield
-  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
+  } {arch = "gfx942", blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
   memref.copy %alloc, %arg4 : memref<59136xf16> to memref<59136xf16>
   return
 }
 
 // -----
 
-func.func @multiple_outputs_linalg_while_regularizing(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+func.func @multiple_outputs_linalg_while_regularizing(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, grid_size = 36 : i32, kernel} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
   %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
   %2 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
@@ -833,7 +833,7 @@ func.func @multiple_outputs_linalg_while_regularizing(%arg0: memref<59136xf16>, 
   // expected-error @below {{pre softmax linalg regularization failed}}
   // expected-error @below {{post processing first gemm failed.}}
   // expected-error @below {{failed to legalize operation 'rock.gridwise_attention_accel' that was explicitly marked illegal}}
-  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %21) preSoftmaxOps = {
+  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %21) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {
   ^bb0(%arg5: memref<12x77x77xf16>, %arg6: memref<5929xf16>, %arg7: memref<12x77x77xf32>):
     %22 = rock.transform %arg5 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<Unmerge{12} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
     %23 = rock.transform %arg6 by <affine_map<(d0, d1, d2, d3) -> (d2 * 77 + d3)> by [<Unmerge{77, 77} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 77, 77] -> [5929]> : memref<5929xf16> to memref<1x1x77x77xf16>
@@ -862,7 +862,7 @@ func.func @multiple_outputs_linalg_while_regularizing(%arg0: memref<59136xf16>, 
     }
     memref.copy %alloc_2, %arg7 : memref<12x77x77xf32> to memref<12x77x77xf32>
     rock.yield
-  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
+  } {arch = "gfx942", blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
   memref.copy %alloc, %arg4 : memref<59136xf16> to memref<59136xf16>
   return
 }
