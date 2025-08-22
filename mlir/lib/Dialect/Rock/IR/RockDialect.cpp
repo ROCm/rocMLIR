@@ -1947,13 +1947,6 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   if (!getEnableSoftmax() && getSoftmaxType()) {
     return emitError("Setting softmax type only works for attention.");
   }
-
-  int64_t linalgOpCount = 0;
-  getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) { linalgOpCount++; });
-  if (linalgOpCount > 1) {
-    return emitError(
-        "More than 1 linalg generic op found in pre softmax fusion point.");
-  }
   return success();
 }
 
@@ -2188,14 +2181,6 @@ KernelType GemmElementwiseGemmOp::getKernelType() {
   return KernelType::GemmElementwiseGemm;
 }
 
-uint32_t GemmElementwiseGemmOp::getFirstGemmIndex() {
-  return getFirstGemmIdx();
-}
-
-void GemmElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
-  setFirstGemmIdx(index);
-}
-
 Region &GemmElementwiseGemmOp::getPreSecondGemmRegion() {
   return getPreSecondGemmBody();
 }
@@ -2368,14 +2353,6 @@ KernelType ConvElementwiseGemmOp::getKernelType() {
   return KernelType::ConvElementwiseGemm;
 }
 
-uint32_t ConvElementwiseGemmOp::getFirstGemmIndex() {
-  return getFirstGemmIdx();
-}
-
-void ConvElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
-  setFirstGemmIdx(index);
-}
-
 Region &ConvElementwiseGemmOp::getPreSecondGemmRegion() {
   return getPreSecondGemmBody();
 }
@@ -2454,10 +2431,6 @@ bool AttentionOp::getTransposedC() { return getVTransposed(); }
 bool AttentionOp::getTransposedOut() { return getOTransposed(); }
 
 KernelType AttentionOp::getKernelType() { return KernelType::Attention; }
-
-uint32_t AttentionOp::getFirstGemmIndex() { return getFirstGemmIdx(); }
-
-void AttentionOp::setFirstGemmIndex(uint32_t index) { setFirstGemmIdx(index); }
 
 Region &AttentionOp::getPreSecondGemmRegion() { return getPreSoftmaxBody(); }
 

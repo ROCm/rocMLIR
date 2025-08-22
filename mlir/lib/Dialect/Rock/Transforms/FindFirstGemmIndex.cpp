@@ -13,6 +13,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -25,6 +26,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/STLExtras.h"
 #include <cstdint>
+#include <optional>
 
 namespace mlir {
 namespace rock {
@@ -59,45 +61,97 @@ static bool canTraceToFirstGemmArg(Value input, Value firstGemmArg) {
 static LogicalResult
 reassignFirstGemmIndex(func::FuncOp &func,
                        rock::RockGemmGemmWrapperInterface gemmGemmOp) {
-  // Get the first gemm index from the gemmGemmOp.
-  uint32_t firstGemmIndex = gemmGemmOp.getFirstGemmIndex();
+  // Get the first gemm indices from the gemmGemmOp.
+  ArrayRef<int64_t> firstGemmIndices = gemmGemmOp.getFirstGemmIndices();
+  // initially firstGemmIndices should refer to blockArgument index for the
+  // first gemm in preSecondGemmRegion and therefore it's size should be 1
+  if (firstGemmIndices.size() != 1) {
+    return gemmGemmOp.emitError(
+        "Expected exactly one first gemm index, found: " +
+        std::to_string(firstGemmIndices.size()));
+  }
 
   // get linalg.generic ops in the preSecondGemmRegion
-  SmallVector<linalg::GenericOp> genOps;
+  SmallVector<linalg::GenericOp> genOpsList;
   gemmGemmOp.getPreSecondGemmRegion().walk(
-      [&genOps](linalg::GenericOp genOp) { genOps.push_back(genOp); });
+      [&genOpsList](linalg::GenericOp genOp) { genOpsList.push_back(genOp); });
 
   // no fusion, nothing to do
-  if (genOps.empty())
+  if (genOpsList.empty())
     return success();
-
-  if (genOps.size() != 1)
+  llvm::MapVector<linalg::GenericOp, int64_t> genOpToIndexMap;
+  if (firstGemmIndices[0] >=
+      gemmGemmOp.getPreSecondGemmRegion().getNumArguments()) {
     return gemmGemmOp.emitError(
-        "More than one linalg.generic operation found, expected only one.");
+        "First gemm index out of bounds for preSecondGemmRegion");
+  }
+  Value firstGemmOutArg =
+      gemmGemmOp.getPreSecondGemmRegion().getArgument(firstGemmIndices[0]);
 
-  linalg::GenericOp genOp = genOps[0];
-  assert(firstGemmIndex <
-         gemmGemmOp.getPreSecondGemmRegion().getNumArguments());
-  Value firstGemmArg =
-      gemmGemmOp.getPreSecondGemmRegion().getArgument(firstGemmIndex);
-
-  // try to trace args of linalg.generic op back to the first gemm argument
-  int64_t newFirstGemmIndex = -1;
-  for (auto [index, input] : llvm::enumerate(genOp.getInputs())) {
-    if (canTraceToFirstGemmArg(input, firstGemmArg)) {
-      // If the input can be traced back to the first gemm argument, we found
-      // the new index.
-      newFirstGemmIndex = index;
-      break;
+  BufferDependencyAnalysis analysis(func.getOperation());
+  /*
+  genOpsList is list of linalg.generic ops in the preSecondGemmRegion in the
+  order they appear after the first gemm
+  */
+  for (auto genOp : genOpsList) {
+    SmallVector<int64_t> newFirstGemmIndices;
+    for (auto [index, input] : llvm::enumerate(genOp.getInputs())) {
+      if (canTraceToFirstGemmArg(input, firstGemmOutArg)) {
+        // If the input can be traced back to the first gemm argument, we found
+        // the new index.
+        newFirstGemmIndices.push_back(index);
+      } else {
+        // trace input to any of the previously visited linalg.generic ops
+        SmallVector<rock::TransformOp> transformOps;
+        Value untransformed;
+        std::tie(untransformed, std::ignore) =
+            rock::untransform(input, transformOps);
+        if (memref::AllocOp allocOp =
+                untransformed.getDefiningOp<memref::AllocOp>()) {
+          std::optional<llvm::SmallVector<OpOperand *>> writers =
+              analysis.getWriters(allocOp);
+          if (writers == std::nullopt) {
+            // If the allocOp has no writers, we cannot trace it back to a
+            // previous linalg.generic op.
+            continue;
+          }
+          // else
+          // If the allocOp has writers, check if any of them is a
+          // linalg.generic op that we have already visited.
+          for (OpOperand *writer : writers.value()) {
+            if (auto writerOp =
+                    dyn_cast<linalg::GenericOp>(writer->getOwner())) {
+              // If the writer is a linalg.generic op, check if it is in the
+              // genOpsList and if it has been processed already.
+              if (genOpToIndexMap.contains(writerOp))
+                newFirstGemmIndices.push_back(index);
+            }
+          }
+        }
+      }
     }
+    if (newFirstGemmIndices.empty()) {
+      // If no inputs can be traced back to the first gemm argument, we cannot
+      // reassign the index for this generic op.
+      LLVM_DEBUG(llvm::dbgs() << genOp << "\n");
+      return gemmGemmOp.emitError(
+          "Cannot trace first gemm index for linalg.generic op");
+    }
+    if (newFirstGemmIndices.size() > 1) {
+      // If multiple inputs can be traced back, we cannot determine a single
+      // index.
+      LLVM_DEBUG(llvm::dbgs() << genOp << "\n");
+      return gemmGemmOp.emitError(
+          "Multiple inputs trace back to first gemm argument");
+    }
+    genOpToIndexMap[genOp] = newFirstGemmIndices[0];
   }
-  if (newFirstGemmIndex == -1) {
-    return gemmGemmOp.emitError(
-        "Could not find a matching input for the first gemm index.");
-  }
-
+  auto indicesRange = llvm::map_range(
+      genOpToIndexMap, [](const auto &pair) { return pair.second; });
+  SmallVector<int64_t> newfirstGemmIndices(indicesRange.begin(),
+                                           indicesRange.end());
   // Set the new first gemm index in the gemmGemmOp.
-  gemmGemmOp.setFirstGemmIndex(static_cast<uint32_t>(newFirstGemmIndex));
+  gemmGemmOp.setFirstGemmIndices(newfirstGemmIndices);
   return success();
 }
 

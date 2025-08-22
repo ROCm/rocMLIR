@@ -1435,7 +1435,7 @@ struct ConvGemmRewritePattern : public OpRewritePattern<ConvElementwiseGemmOp> {
         op.getElemwiseInputs(), op.getOut(),
         /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
         op.getCTransposedAttr(), op.getOTransposedAttr(), op.getFeaturesAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIdxAttr());
+        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;
