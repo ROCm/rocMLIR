@@ -804,8 +804,8 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   return std::make_tuple(Value(), Value(), Value());
 }
 
-FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
-                                                        PatternRewriter &b) {
+FailureOr<std::tuple<Value, Value, Value>> backwardDataV4R1(ConvBwdDataOp op,
+                                                            PatternRewriter &b) {
   Location loc = op.getLoc();
   IntegerAttr kernelIdAttr = op.getKernelIdAttr();
 
@@ -1175,7 +1175,10 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
 
   Type dataType = op.getInput().getType().getElementType();
   if (ConvOpType::BwdData == convOpType) {
-    return backwardData(cast<ConvBwdDataOp>(op), b);
+    auto bwdDataOp = cast<ConvBwdDataOp>(op);
+    bool usesV4R1 = bwdDataOp->template getAttrOfType<BoolAttr>("usesV4R1").getValue();
+    if (usesV4R1)
+      return backwardDataV4R1(bwdDataOp, b);
   }
   Location loc = op.getLoc();
 
@@ -1228,6 +1231,11 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   // - PassThrough G dimension to dimension 0, name it gemmG
   // - PassThrough K dimension to dimension 1, name it as gemmM.
   // - Merge non-K dimensions to dimension 2, name it as gemmN.
+  //
+  // Weight tensor transformation for ConvBwdDataOp
+  // - PassThrough G dimension to dimension 0, name it gemmG
+  // - PassThrough K dimension to dimension 1, name it gemmK.
+  // - Merge non-K dimensions to dimension 2, name it gemmM.
   SmallVector<StringRef, 5> filterNonKDims;
   for (StringRef name : filterNames)
     if (name != "g" && name != "k")
@@ -1245,7 +1253,8 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
     filterTransform.merge("gemmN", 2, filterNonKDims);
     break;
   case ConvOpType::BwdData:
-    llvm_unreachable("Backward data has been sent elsewhere");
+    filterTransform.passThrough({"gemmK"}, {1}, {"k"});
+    filterTransform.merge("gemmM", 2, filterNonKDims);
     break;
   }
 
@@ -1335,7 +1344,11 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   // For ConvBwdWeightOp:
   // - Part 1: Merge ni, ho, wo dimensions to dimension 1, name it as gemmK.
   // - Part 2: Merge ci, y, x dimensions to dimension 2, name it as gemmN.
-
+  //
+  // For ConvBwdDataOp:
+  // - Part 1: ci, y, x dimensions to dimension 1, name it as gemmK.
+  // - Part 2: ni, ho, wo dimensions to dimension 2, name it as gemmN.
+  
   auto gemmInputTransform =
       BottomUpTMBuilder::above(embedInputTransform, embedInputTransformAttr);
   gemmInputTransform.passThrough({"gemmG"}, {0}, {"gi"});
@@ -1352,18 +1365,18 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   llvm::SmallVector<StringRef, 3> mergeToK, mergeToN;
   switch (convOpType) {
   case ConvOpType::Fwd:
-    mergeToK = std::move(nonNHWDims);
-    mergeToN = std::move(nhwDims);
+    gemmInputTransform.merge("gemmK", 1, nonNHWDims);
+    gemmInputTransform.merge("gemmN", 2, nhwDims);
     break;
   case ConvOpType::BwdWeight:
-    mergeToK = std::move(nhwDims);
-    mergeToN = std::move(nonNHWDims);
+    gemmInputTransform.merge("gemmK", 1, nhwDims);
+    gemmInputTransform.merge("gemmN", 2, nonNHWDims);
     break;
   case ConvOpType::BwdData:
-    llvm_unreachable("Backward data is in another function");
+    gemmInputTransform.merge("gemmM", 1, nonNHWDims);
+    gemmInputTransform.merge("gemmN", 2, nhwDims);
+    break;
   }
-  gemmInputTransform.merge("gemmK", 1, mergeToK);
-  gemmInputTransform.merge("gemmN", 2, mergeToN);
 
   TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
   Value gemmInput =
@@ -1383,6 +1396,10 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
     // Output tensor transformation for backward weight:
     // - Merge non-K dimensions to dimension 1, named gemmK
     // - PassThrough K dimension to dimension 2, name it gemmM
+
+    // Output tensor transformation for backward data:
+    // - PassThrough 'ko', named gemmK
+    // - Merge non-k dimensions, named gemmN
     SmallVector<StringRef, 5> outputNonKDims;
     for (StringRef name : outputNames)
       if (name != "go" && name != "ko")
@@ -1400,7 +1417,8 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
       outputTransform.passThrough({"gemmM"}, {2}, {"ko"});
       break;
     case ConvOpType::BwdData:
-      llvm_unreachable("Backward data has been sent elsewhere");
+      outputTransform.passThrough({"gemmK"}, {1}, {"ko"});
+      outputTransform.merge("gemmN", 2, outputNonKDims);
       break;
     }
 
