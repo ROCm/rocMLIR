@@ -100,7 +100,9 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
   pm.addPass(createAsyncParallelForPass());
 
   auto &funcPm2 = pm.nest<func::FuncOp>();
-  funcPm2.addPass(arith::createArithExpandOpsPass());
+  arith::ArithExpandOpsPassOptions arithExpandOpsOptions;
+  arithExpandOpsOptions.includeF4E2M1 = true;
+  funcPm2.addPass(arith::createArithExpandOpsPass(arithExpandOpsOptions));
   funcPm2.addPass(createArithToLLVMConversionPass());
   funcPm2.addPass(createConvertMathToLLVMPass());
   pm.addPass(createConvertMathToLibmPass());

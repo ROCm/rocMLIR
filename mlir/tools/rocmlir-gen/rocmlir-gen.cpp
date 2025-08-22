@@ -4559,8 +4559,9 @@ static LogicalResult populateHostHarnessLogic(
       bool printp = printInputs.getValue();
       if (lvar == localVars[outIdx])
         printp = printResults.getValue();
-      if (printp)
+      if (printp) {
         emitPrintTensor(b, lvar);
+      }
     }
   }
 
