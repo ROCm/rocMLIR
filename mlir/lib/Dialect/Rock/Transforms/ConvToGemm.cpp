@@ -1518,11 +1518,9 @@ void RockConvToGemmPass::runOnOperation() {
                          scf::SCFDialect>();
 
   RewritePatternSet patterns(ctx);
-  patterns
-      .add<ConvRewritePattern<ConvOp>, ConvRewritePattern<ConvBwdDataOp>,
-           ConvRewritePattern<ConvBwdWeightOp>, ConvGemmRewritePattern,
-           ConvertingCopyKernelRewritePattern>(
-          ctx);
+  patterns.add<ConvRewritePattern<ConvOp>, ConvRewritePattern<ConvBwdDataOp>,
+               ConvRewritePattern<ConvBwdWeightOp>, ConvGemmRewritePattern,
+               ConvertingCopyKernelRewritePattern>(ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
