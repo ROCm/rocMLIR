@@ -671,13 +671,9 @@ OpOperand *ConvBwdWeightOp::getOutArgument() {
   return &(*this)->getOpOperand(0);
 }
 
-SmallVector<mlir::Type> GemmOp::getTypesForFeature() {
-  return {getAType()};
-}
+SmallVector<mlir::Type> GemmOp::getTypesForFeature() { return {getAType()}; }
 
-SmallVector<mlir::Type> ConvOp::getTypesForFeature() {
-  return {getAType()};
-}
+SmallVector<mlir::Type> ConvOp::getTypesForFeature() { return {getAType()}; }
 
 SmallVector<mlir::Type> ConvBwdDataOp::getTypesForFeature() {
   return {getAType()};

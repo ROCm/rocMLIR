@@ -23,4 +23,3 @@
 #include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.h.inc"
 
 #endif // MLIR_DIALECT_ROCK_IR_ROCKGEMMFEATURESINTERFACE_H
-
