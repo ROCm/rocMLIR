@@ -245,8 +245,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   auto outputTy = cast<MIXRShapedType>(results[0].getType());
   Type outElementTy = outputTy.getElementType();
   Type newOutElementTy = getTypeConverter()->convertType(outElementTy);
-  bool isBwdConvOp = isa<migraphx::ConvolutionBwdDataOp>(op) ||
-                     isa<migraphx::ConvolutionBwdWeightOp>(op);
+  bool isBwdConvOp = isa<migraphx::ConvolutionBwdDataOp>(op);
 
   if (outElementTy.isUnsignedInteger())
     return op.emitError("No support for unsigned convolution.\n");
@@ -432,11 +431,11 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
   // For both types of backwards convolution, we will be using
   // tosa.transpose_conv2d, so we are going to add a conv_kind attribute so
-  // that we can distinguish between the two types in TosaToRock
+  // that we can distinguish between the two types in TosaToRock.
+  // TODO: We will need to add conv_kind = "bwd_weight" when we eventually
+  // add support for bwd_weight ops in MIGraphX.
   if (isa<migraphx::ConvolutionBwdDataOp>(op)) {
     cop->setAttr("conv_kind", rewriter.getStringAttr("bwd_data"));
-  } else if (isa<migraphx::ConvolutionBwdWeightOp>(op)) {
-    cop->setAttr("conv_kind", rewriter.getStringAttr("bwd_weight"));
   }
 
   // Convert optional attributes
@@ -1547,7 +1546,6 @@ LogicalResult MHALLaunchConverter::matchAndRewrite(
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
   patterns.add<ConvConverter<ConvolutionBwdDataOp>,
-               ConvConverter<ConvolutionBwdWeightOp>,
                ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
                DotConverter<DotOp>, DotConverter<QuantDotOp>,
                BroadcastConverter, MultiBroadcastConverter, TransposeConverter,

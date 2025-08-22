@@ -351,16 +351,6 @@ def MIGraphX_ConvolutionBwdDataOp :
   }];
 }
 
-def MIGraphX_ConvolutionBwdWeightOp :
-    MIGraphX_ConvOpBase<"backwards_weight_convolution", [F32, F16, BF16],
-                        [F32, F16, BF16]> {
-  let summary = "Backwards weight convolution";
-  let description = [{
-    The `migraphx.backwards_weight_convolution` op computes gradients with
-    respect to the filter weights
-  }];
-}
-
 def MIGraphX_BatchNormOp :
     MIGraphX_Op<"batch_norm_inference">,
     Arguments<(ins AnyMIXRShaped:$input,

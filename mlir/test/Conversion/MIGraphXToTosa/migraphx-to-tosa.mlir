@@ -239,14 +239,6 @@ func.func @bwd_data_conv1d(%arg0: !migraphx.shaped<1x64x224xf32, 0x1x0>, %arg1: 
   return %1 : !migraphx.shaped<1x64x224xf32, 14336x224x1>
 }
 
-// CHECK-LABEL: @bwd_weight_conv
-func.func @bwd_weight_conv(%arg0: !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>, %arg1: !migraphx.shaped<16x16x1x1xf32, 16x1x1x1>, %arg2: !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>) -> !migraphx.shaped<1x16x4x4xf32, 256x16x4x1> {
-  // CHECK: tosa.transpose_conv2d
-  // CHECK-SAME: {acc_type = f32, conv_kind = "bwd_weight", dilation = array<i64: 1, 1>, group = 1 : i64, out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<16x1x1x16xf32>, tensor<1x4x4x16xf32>, tensor<1xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x4x4x16xf32>
-  %0 = migraphx.backwards_weight_convolution %arg1, %arg0 {dilation = [1, 1], group = 1 : i64, padding = [0, 0, 0, 0], padding_mode = 0 : i64, stride = [1, 1], kernelId = 0 : i64} : <16x16x1x1xf32, 16x1x1x1>, <1x16x4x4xf32, 256x16x4x1> -> <1x16x4x4xf32, 256x16x4x1>  
-  return %0 : !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>  
-}
-
 // -----
 
 // CHECK-LABEL: @dot_f16
