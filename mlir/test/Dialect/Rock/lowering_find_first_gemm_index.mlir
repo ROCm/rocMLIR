@@ -40,8 +40,8 @@ func.func @find_first_gemm_index_change(%arg0: memref<12288xf16>, %arg1: memref<
     rock.yield
   }
     %alloc = softmax(qk) * %7 : memref<32x2048x128xf16> -> memref<32x1x128xf16>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIdx = 1 : i32, softmaxType = f16}
-  // CHECK: firstGemmIdx = 2 : i32
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIndices = array<i64: 1>, softmaxType = f16}
+  // CHECK: firstGemmIndices = array<i64: 2> 
   %8 = rock.transform %alloc by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<Unmerge{32} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 32, 1, 128] -> [32, 1, 128]> : memref<32x1x128xf16> to memref<1x32x1x128xf16>
   %9 = rock.transform %8 by <affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)> by [<PassThrough ["dim0", "dim2", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim2", "dim1", "dim3"] at [0, 2, 1, 3]>] bounds = [1, 1, 32, 128] -> [1, 32, 1, 128]> : memref<1x32x1x128xf16> to memref<1x1x32x128xf16>
   %10 = rock.transform %9 by <affine_map<(d0) -> (0, 0, d0 floordiv 128, d0 mod 128)> by [<Merge{1, 1, 32, 128} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3"] at [0, 1, 2, 3]>] bounds = [4096] -> [1, 1, 32, 128]> : memref<1x1x32x128xf16> to memref<4096xf16>
@@ -63,9 +63,344 @@ func.func @find_no_change(%arg0: memref<4096xf32>, %arg1: memref<4096xf32>, %arg
     rock.yield
   }
     %alloc = softmax(qk) * %0 : memref<1x64x64xf32> -> memref<1x64x64xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIdx = 0 : i32, softmaxType = f32}
-  // CHECK: firstGemmIdx = 0 : i32
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIndices = array<i64: 0>, softmaxType = f32}
+  // CHECK: firstGemmIndices = array<i64: 0> 
   %3 = rock.transform %alloc by <affine_map<(d0) -> (0, d0 floordiv 64, d0 mod 64)> by [<Merge{1, 64, 64} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [4096] -> [1, 64, 64]> : memref<1x64x64xf32> to memref<4096xf32>
   memref.copy %3, %arg3 : memref<4096xf32> to memref<4096xf32>
+  return
+}
+
+#map = affine_map<(d0, d1) -> (d0, d1)>
+#map1 = affine_map<(d0, d1) -> (d0, d1)>
+// CHECK-LABEL: @basic_transformed_inputs
+func.func @basic_transformed_inputs(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {kernel} {
+  // CHECK: rock.attention
+  // CHECK: firstGemmIndices = array<i64: 0> 
+  %0 = rock.transform %arg3 by <affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim0", "dim1"] at [0, 1]>] bounds = [16, 16] -> [16, 16]> : memref<16x16xf32> to memref<16x16xf32>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  rock.attention{
+    qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
+    qk = elementwise otherIns(%0 : memref<16x16xf32>) {
+    ^bb0(%gemm0_out: memref<16x16xf32>, %transformed_input: memref<16x16xf32>, %output: memref<16x16xf32>):
+      %alloc_0 = memref.alloc() : memref<16x16xf32>
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%gemm0_out, %transformed_input : memref<16x16xf32>, memref<16x16xf32>) 
+        outs(%alloc_0 : memref<16x16xf32>) {
+      ^bb0(%in: f32, %in_1: f32, %out: f32):
+        %add = arith.addf %in, %in_1 : f32
+        linalg.yield %add : f32
+      }
+      memref.copy %alloc_0, %output : memref<16x16xf32> to memref<16x16xf32>
+      rock.yield
+    }
+    %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, softmaxType = f32}
+  
+  memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
+  return
+}
+
+// CHECK-LABEL: @test_first_gemm_at_index_1_in_block
+func.func @test_first_gemm_at_index_1_in_block(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {kernel} {
+  // CHECK: rock.attention
+  // CHECK: firstGemmIndices = array<i64: 0>
+  %0 = rock.transform %arg3 by <affine_map<(d0, d1) -> (d0, d1)> by [<PassThrough ["dim0", "dim1"] at [0, 1] -> ["dim0", "dim1"] at [0, 1]>] bounds = [16, 16] -> [16, 16]> : memref<16x16xf32> to memref<16x16xf32>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  rock.attention{
+    qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
+    qk = elementwise otherIns(%0 : memref<16x16xf32>) {
+    ^bb0(%transformed_input: memref<16x16xf32>, %gemm0_out: memref<16x16xf32>, %output: memref<16x16xf32>):
+      %t1 = rock.transform %transformed_input by <affine_map<(d0, d1) -> (d0, d1)> by [<Pad{0, 0, 1, 0, 0, 1} ["dim0_padded", "dim1_padded"] at [0, 1] -> ["dim0", "dim1"] at [0, 1]>] bounds = [16, 16] -> [16, 16]> : memref<16x16xf32> to memref<16x16xf32>
+      %alloc_0 = memref.alloc() : memref<16x16xf32>
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%gemm0_out, %t1 : memref<16x16xf32>, memref<16x16xf32>) 
+        outs(%alloc_0 : memref<16x16xf32>) {
+      ^bb0(%in: f32, %in_1: f32, %out: f32):
+        %mul = arith.mulf %in, %in_1 : f32
+        linalg.yield %mul : f32
+      }
+      memref.copy %alloc_0, %output : memref<16x16xf32> to memref<16x16xf32>
+      rock.yield
+    }
+    %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 1>, softmaxType = f32}
+  
+  memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
+  return
+}
+
+// CHECK-LABEL: @test_first_gemm_at_index_1_in_block_at_1_in_linalg_op
+func.func @test_first_gemm_at_index_1_in_block_at_1_in_linalg_op(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {kernel} {
+  // CHECK: rock.attention
+  // CHECK: firstGemmIndices = array<i64: 1> 
+  %0 = rock.transform %arg3 by <affine_map<(d0, d1) -> (d0, d1)> by [<PassThrough ["dim0", "dim1"] at [0, 1] -> ["dim0", "dim1"] at [0, 1]>] bounds = [16, 16] -> [16, 16]> : memref<16x16xf32> to memref<16x16xf32>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  rock.attention{
+    qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
+    qk = elementwise otherIns(%0 : memref<16x16xf32>) {
+    ^bb0(%transformed_input: memref<16x16xf32>, %gemm0_out: memref<16x16xf32>, %output: memref<16x16xf32>):
+      %t1 = rock.transform %transformed_input by <affine_map<(d0, d1) -> (d0, d1)> by [<Pad{0, 0, 1, 0, 0, 1} ["dim0_padded", "dim1_padded"] at [0, 1] -> ["dim0", "dim1"] at [0, 1]>] bounds = [16, 16] -> [16, 16]> : memref<16x16xf32> to memref<16x16xf32>
+      %alloc_0 = memref.alloc() : memref<16x16xf32>
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%t1, %gemm0_out: memref<16x16xf32>, memref<16x16xf32>) 
+        outs(%alloc_0 : memref<16x16xf32>) {
+      ^bb0(%in: f32, %in_1: f32, %out: f32):
+        %mul = arith.mulf %in, %in_1 : f32
+        linalg.yield %mul : f32
+      }
+      memref.copy %alloc_0, %output : memref<16x16xf32> to memref<16x16xf32>
+      rock.yield
+    }
+    %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 1>, softmaxType = f32}
+  
+  memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
+  return
+}
+
+// CHECK-LABEL: @multiple_linalg_ops_gemm_at_0_0
+func.func @multiple_linalg_ops_gemm_at_0_0(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>, %arg5: memref<16x16xf32>) attributes {kernel} {
+  // CHECK: rock.attention
+  // CHECK: firstGemmIndices = array<i64: 0, 0> 
+  %0 = rock.transform %arg3 by <affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim0", "dim1"] at [0, 1]>] bounds = [16, 16] -> [16, 16]> : memref<16x16xf32> to memref<16x16xf32>
+  %1 = rock.transform %arg4 by <affine_map<(d0, d1, d2) -> (d0, d1)> by [<AddDim{1} ["batch"] at [0] -> [] at []>, <PassThrough ["dim0", "dim1"] at [1, 2] -> ["dim0", "dim1"] at [0, 1]>] bounds = [1, 16, 16] -> [16, 16]> : memref<16x16xf32> to memref<1x16x16xf32>
+  %2 = rock.transform %1 by <affine_map<(d0, d1) -> (0, d0, d1)> by [<PassThrough ["dim1", "dim2"] at [0, 1] -> ["dim0", "dim1"] at [1, 2]>] bounds = [16, 16] -> [1, 16, 16]> : memref<1x16x16xf32> to memref<16x16xf32>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  rock.attention{
+    qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
+    qk = elementwise otherIns(%0, %2 : memref<16x16xf32>, memref<16x16xf32>) {
+    ^bb0(%gemm0_out: memref<16x16xf32>, %transposed_input: memref<16x16xf32>, %dim_transformed_input: memref<16x16xf32>, %output: memref<16x16xf32>):
+      %alloc_0 = memref.alloc() : memref<16x16xf32>
+      
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%gemm0_out, %transposed_input : memref<16x16xf32>, memref<16x16xf32>) 
+        outs(%alloc_0 : memref<16x16xf32>) {
+      ^bb0(%in: f32, %in_1: f32, %out: f32):
+        %add = arith.addf %in, %in_1 : f32
+        linalg.yield %add : f32
+      }
+      
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%alloc_0, %dim_transformed_input : memref<16x16xf32>, memref<16x16xf32>) 
+        outs(%output : memref<16x16xf32>) {
+      ^bb0(%in: f32, %in_1: f32, %out: f32):
+        %mul = arith.mulf %in, %in_1 : f32
+        linalg.yield %mul : f32
+      }
+      
+      rock.yield
+    }
+    %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, softmaxType = f32}
+
+  memref.copy %alloc, %arg5 : memref<16x16xf32> to memref<16x16xf32>
+  return
+}
+
+// CHECK-LABEL: @multiple_linalg_ops_gemm_at_0_1
+func.func @multiple_linalg_ops_gemm_at_0_1(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>, %arg5: memref<16x16xf32>) attributes {kernel} {
+  // CHECK: rock.attention
+  // CHECK: firstGemmIndices = array<i64: 0, 1>
+  %0 = rock.transform %arg3 by <affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim0", "dim1"] at [0, 1]>] bounds = [16, 16] -> [16, 16]> : memref<16x16xf32> to memref<16x16xf32>
+  %1 = rock.transform %arg4 by <affine_map<(d0, d1, d2) -> (d0, d1)> by [<AddDim{1} ["batch"] at [0] -> [] at []>, <PassThrough ["dim0", "dim1"] at [1, 2] -> ["dim0", "dim1"] at [0, 1]>] bounds = [1, 16, 16] -> [16, 16]> : memref<16x16xf32> to memref<1x16x16xf32>
+  %2 = rock.transform %1 by <affine_map<(d0, d1) -> (0, d0, d1)> by [<PassThrough ["dim1", "dim2"] at [0, 1] -> ["dim0", "dim1"] at [1, 2]>] bounds = [16, 16] -> [1, 16, 16]> : memref<1x16x16xf32> to memref<16x16xf32>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  rock.attention{
+    qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
+    qk = elementwise otherIns(%0, %2 : memref<16x16xf32>, memref<16x16xf32>) {
+    ^bb0(%gemm0_out: memref<16x16xf32>, %transposed_input: memref<16x16xf32>, %dim_transformed_input: memref<16x16xf32>, %output: memref<16x16xf32>):
+      %alloc_0 = memref.alloc() : memref<16x16xf32>
+      
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%gemm0_out, %transposed_input : memref<16x16xf32>, memref<16x16xf32>) 
+        outs(%alloc_0 : memref<16x16xf32>) {
+      ^bb0(%in: f32, %in_1: f32, %out: f32):
+        %add = arith.addf %in, %in_1 : f32
+        linalg.yield %add : f32
+      }
+      
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%dim_transformed_input, %alloc_0: memref<16x16xf32>, memref<16x16xf32>) 
+        outs(%output : memref<16x16xf32>) {
+      ^bb0(%in: f32, %in_1: f32, %out: f32):
+        %mul = arith.mulf %in, %in_1 : f32
+        linalg.yield %mul : f32
+      }
+      
+      rock.yield
+    }
+    %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, softmaxType = f32}
+
+  memref.copy %alloc, %arg5 : memref<16x16xf32> to memref<16x16xf32>
+  return
+}
+
+// CHECK-LABEL: @multiple_linalg_ops_gemm_at_0_1_block_arg_1
+func.func @multiple_linalg_ops_gemm_at_0_1_block_arg_1(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>, %arg5: memref<16x16xf32>) attributes {kernel} {
+  // CHECK: rock.attention
+  // CHECK: firstGemmIndices = array<i64: 0, 1>
+  %0 = rock.transform %arg3 by <affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim0", "dim1"] at [0, 1]>] bounds = [16, 16] -> [16, 16]> : memref<16x16xf32> to memref<16x16xf32>
+  %1 = rock.transform %arg4 by <affine_map<(d0, d1, d2) -> (d0, d1)> by [<AddDim{1} ["batch"] at [0] -> [] at []>, <PassThrough ["dim0", "dim1"] at [1, 2] -> ["dim0", "dim1"] at [0, 1]>] bounds = [1, 16, 16] -> [16, 16]> : memref<16x16xf32> to memref<1x16x16xf32>
+  %2 = rock.transform %1 by <affine_map<(d0, d1) -> (0, d0, d1)> by [<PassThrough ["dim1", "dim2"] at [0, 1] -> ["dim0", "dim1"] at [1, 2]>] bounds = [16, 16] -> [1, 16, 16]> : memref<1x16x16xf32> to memref<16x16xf32>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  rock.attention{
+    qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
+    qk = elementwise otherIns(%0, %2 : memref<16x16xf32>, memref<16x16xf32>) {
+    ^bb0(%transposed_input: memref<16x16xf32>, %gemm0_out: memref<16x16xf32>, %dim_transformed_input: memref<16x16xf32>, %output: memref<16x16xf32>):
+      %alloc_0 = memref.alloc() : memref<16x16xf32>
+      
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%gemm0_out, %transposed_input : memref<16x16xf32>, memref<16x16xf32>) 
+        outs(%alloc_0 : memref<16x16xf32>) {
+      ^bb0(%in: f32, %in_1: f32, %out: f32):
+        %add = arith.addf %in, %in_1 : f32
+        linalg.yield %add : f32
+      }
+      
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%dim_transformed_input, %alloc_0: memref<16x16xf32>, memref<16x16xf32>) 
+        outs(%output : memref<16x16xf32>) {
+      ^bb0(%in: f32, %in_1: f32, %out: f32):
+        %mul = arith.mulf %in, %in_1 : f32
+        linalg.yield %mul : f32
+      }
+      
+      rock.yield
+    }
+    %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 1>, softmaxType = f32}
+
+  memref.copy %alloc, %arg5 : memref<16x16xf32> to memref<16x16xf32>
+  return
+}
+
+// CHECK-LABEL: @multiple_linalg_generics_with_converts
+func.func @multiple_linalg_generics_with_converts(%arg0: memref<32x64xf16>, %arg1: memref<64x32xf16>, %arg2: memref<32x32xf16>, %arg3: memref<1xf32>, %arg4: memref<32x32xf16>) attributes {kernel} {
+  // CHECK: rock.attention
+  // CHECK: firstGemmIndices = array<i64: 0, 0>
+  %0 = rock.transform %arg3 by <affine_map<(d0) -> (d0)> by [<Slice{0, 1} ["dim0_sliced"] at [0] -> ["dim0"] at [0]>] bounds = [1] -> [1]> : memref<1xf32> to memref<1xf32>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<32x32xf16>
+  rock.attention{
+    qk = %arg0 * %arg1 : memref<32x64xf16>, memref<64x32xf16>
+    qk = elementwise otherIns(%0 : memref<1xf32>) {
+    ^bb0(%gemm0_out: memref<32x32xf16>, %scale: memref<1xf32>, %scaled_out: memref<32x32xf16>):
+      %t1 = rock.transform %scale by <affine_map<(d0, d1) -> (0, 0)> by [<AddDim{32} ["dim0"] at [0] -> [] at []>, <Broadcast{32} ["dim1"] at [1] -> ["dim1"] at [0]>] bounds = [32, 32] -> [1, 1]> : memref<1xf32> to memref<32x32xf32>
+      
+      %alloc_0 = memref.alloc() : memref<32x32xf32>
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%gemm0_out, %t1 : memref<32x32xf16>, memref<32x32xf32>) 
+        outs(%alloc_0 : memref<32x32xf32>) {
+      ^bb0(%in: f16, %in_scale: f32, %out: f32):
+        %extf = arith.extf %in : f16 to f32
+        %1 = arith.mulf %extf, %in_scale : f32
+        linalg.yield %1 : f32
+      }
+      
+      linalg.generic {indexing_maps = [#map, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%alloc_0 : memref<32x32xf32>) 
+        outs(%scaled_out : memref<32x32xf16>) {
+      ^bb0(%in: f32, %out: f16):
+        %truncf = arith.truncf %in : f32 to f16
+        linalg.yield %truncf : f16
+      }
+      
+      rock.yield
+    }
+    %alloc = softmax(qk) * %arg2 : memref<32x32xf16> -> memref<32x32xf16>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIndices = array<i64: 0>, softmaxType = f16}
+  
+  memref.copy %alloc, %arg4 : memref<32x32xf16> to memref<32x32xf16>
+  return
+}
+
+// CHECK-LABEL: @multiple_transforms_between_linalg_generics
+func.func @multiple_transforms_between_linalg_generics(%arg0: memref<32x64xf16>, %arg1: memref<64x32xf16>, %arg2: memref<32x32xf16>, %arg3: memref<1xf32>, %arg4: memref<32x32xf16>) attributes {kernel} {
+  // CHECK: rock.attention
+  // CHECK: firstGemmIndices = array<i64: 0, 0, 0>
+  %0 = rock.transform %arg3 by <affine_map<(d0) -> (d0)> by [<Slice{0, 1} ["dim0_sliced"] at [0] -> ["dim0"] at [0]>] bounds = [1] -> [1]> : memref<1xf32> to memref<1xf32>
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<32x32xf16>
+  rock.attention{
+    qk = %arg0 * %arg1 : memref<32x64xf16>, memref<64x32xf16>
+    qk = elementwise otherIns(%0 : memref<1xf32>) {
+    ^bb0(%gemm0_out: memref<32x32xf16>, %scale: memref<1xf32>, %scaled_out: memref<32x32xf16>):
+      // First linalg.generic - convert f16 to f32
+      %alloc_0 = memref.alloc() : memref<32x32xf32>
+      linalg.generic {indexing_maps = [#map, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%gemm0_out : memref<32x32xf16>) 
+        outs(%alloc_0 : memref<32x32xf32>) {
+      ^bb0(%in: f16, %out: f32):
+        %extf = arith.extf %in : f16 to f32
+        linalg.yield %extf : f32
+      }
+      
+      // Multiple rock.transforms between the two linalg.generics
+      %t1 = rock.transform %alloc_0 by <affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim0", "dim1"] at [0, 1]>] bounds = [32, 32] -> [32, 32]> : memref<32x32xf32> to memref<32x32xf32>
+      
+      %t2 = rock.transform %t1 by <affine_map<(d0, d1, d2) -> (d1, d2)> by [<AddDim{1} ["batch"] at [0] -> [] at []>, <PassThrough ["dim0", "dim1"] at [1, 2] -> ["dim0", "dim1"] at [0, 1]>] bounds = [1, 32, 32] -> [32, 32]> : memref<32x32xf32> to memref<1x32x32xf32>
+      
+      %t3 = rock.transform %t2 by <affine_map<(d0, d1) -> (0, d0, d1)> by [<PassThrough ["dim1", "dim2"] at [0, 1] -> ["dim0", "dim1"] at [1, 2]>] bounds = [32, 32] -> [1, 32, 32]> : memref<1x32x32xf32> to memref<32x32xf32>
+      
+      %t4 = rock.transform %t3 by <affine_map<(d0, d1) -> (d1, d0)> by [<PassThrough ["dim1", "dim0"] at [1, 0] -> ["dim0", "dim1"] at [0, 1]>] bounds = [32, 32] -> [32, 32]> : memref<32x32xf32> to memref<32x32xf32>
+      
+      %t5 = rock.transform %scale by <affine_map<(d0, d1) -> (0)> by [<Broadcast{32} ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{32} ["dim1"] at [1] -> ["dim0"] at [0]>] bounds = [32, 32] -> [1]> : memref<1xf32> to memref<32x32xf32>
+      
+      // Second linalg.generic - scale and convert back to f16
+      %alloc_1 = memref.alloc() : memref<32x32xf32>
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%t4, %t5 : memref<32x32xf32>, memref<32x32xf32>) 
+        outs(%alloc_1 : memref<32x32xf32>) {
+      ^bb0(%in: f32, %in_scale: f32, %out: f32):
+        %1 = arith.mulf %in, %in_scale : f32
+        linalg.yield %1 : f32
+      }
+      
+      linalg.generic {indexing_maps = [#map, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%alloc_1 : memref<32x32xf32>) 
+        outs(%scaled_out : memref<32x32xf16>) {
+      ^bb0(%in: f32, %out: f16):
+        %truncf = arith.truncf %in : f32 to f16
+        linalg.yield %truncf : f16
+      }
+      
+      rock.yield
+    }
+    %alloc = softmax(qk) * %arg2 : memref<32x32xf16> -> memref<32x32xf16>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIndices = array<i64: 0>, softmaxType = f16}
+  
+  memref.copy %alloc, %arg4 : memref<32x32xf16> to memref<32x32xf16>
+  return
+}
+
+
+// CHECK-LABEL: @nested_transforms_chain
+func.func @nested_transforms_chain(%arg0: memref<16x16xf32>, %arg1: memref<16x16xf32>, %arg2: memref<16x16xf32>, %arg3: memref<16x16xf32>, %arg4: memref<16x16xf32>) attributes {kernel} {
+  // CHECK: rock.attention
+  // CHECK: firstGemmIndices = array<i64: 0>
+  %0 = rock.transform %arg3 by <affine_map<(d0, d1) -> (d0, d1)> by [<PassThrough ["dim0", "dim1"] at [0, 1] -> ["dim0", "dim1"] at [0, 1]>] bounds = [16, 16] -> [16, 16]> : memref<16x16xf32> to memref<16x16xf32>
+  
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<16x16xf32>
+  rock.attention{
+    qk = %arg0 * %arg1 : memref<16x16xf32>, memref<16x16xf32>
+    qk = elementwise otherIns(%0 : memref<16x16xf32>) {
+    ^bb0(%gemm0_out: memref<16x16xf32>, %nested_transformed: memref<16x16xf32>, %output: memref<16x16xf32>):
+      // Apply one more transform to nested input
+      %t1 = rock.transform %nested_transformed by <affine_map<(d0, d1) -> (d0, d1)> by [<PassThrough ["dim0", "dim1"] at [0, 1] -> ["dim0", "dim1"] at [0, 1]>] bounds = [16, 16] -> [16, 16]> : memref<16x16xf32> to memref<16x16xf32>
+      
+      %alloc_0 = memref.alloc() : memref<16x16xf32>
+      linalg.generic {indexing_maps = [#map, #map1, #map1], iterator_types = ["parallel", "parallel"]} 
+        ins(%gemm0_out, %t1 : memref<16x16xf32>, memref<16x16xf32>) 
+        outs(%alloc_0 : memref<16x16xf32>) {
+      ^bb0(%in: f32, %in_1: f32, %out: f32):
+        %5 = arith.addf %in, %in_1 : f32
+        linalg.yield %5 : f32
+      }
+      memref.copy %alloc_0, %output : memref<16x16xf32> to memref<16x16xf32>
+      rock.yield
+    }
+    %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, softmaxType = f32}
+  
+  memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
   return
 }
