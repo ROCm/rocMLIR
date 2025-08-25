@@ -138,8 +138,8 @@ module attributes {mhal.arch = "##TOKEN_ARCH##"} {
       rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%4) [%arg3, %9, %16, %18, %6] -> %8 : memref<16x1x6x16x256x16xf16> -> memref<16xf16, #gpu.address_space<private>>
       rock.threadwise_copy %22 -> %24 : memref<8x2xf16, #gpu.address_space<private>> -> memref<8x2xf16, #gpu.address_space<private>>
       rock.threadwise_copy %26 -> %28 : memref<8x2xf16, #gpu.address_space<private>> -> memref<8x2xf16, #gpu.address_space<private>>
-      rock.threadwise_write_all features = ##TOKEN_FEATURES## {forceUnroll, useIndexDiffs} %19 -> [](%37) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
-      rock.threadwise_write_all features = ##TOKEN_FEATURES## {forceUnroll, useIndexDiffs} %20 -> [](%41) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
+      rock.threadwise_write_all {forceUnroll, useIndexDiffs} %19 -> [](%37) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
+      rock.threadwise_write_all {forceUnroll, useIndexDiffs} %20 -> [](%41) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
       rock.blockwise_gemm_accel %49 += %47 from %view_4 * %48 from %view_6 features = ##TOKEN_FEATURES## {arch = "##TOKEN_ARCH##", blockSize = 256 : i32, inMPerThread = 2 : i32, inNPerThread = 2 : i32, params = #xldops_gemm_params, rotateMWithK} : memref<1xvector<16xf32>, #gpu.address_space<private>> += memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>> * memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
@@ -153,7 +153,7 @@ module attributes {mhal.arch = "##TOKEN_ARCH##"} {
       rock.in_bounds_store %51 -> %50[%arg4] : vector<16xf32> -> memref<16xf32, #gpu.address_space<private>>, index
       rock.yield
     }
-    rock.threadwise_write_all features =  ##TOKEN_FEATURES## {forceUnroll, useIndexDiffs} %50 -> [#transform_map25, #transform_map26, #transform_map27, #transform_map28, #transform_map29](%alloc) [%9, %16, %18, %6] by  set : memref<16xf32, #gpu.address_space<private>> -> memref<1x384x1024xf32>
+    rock.threadwise_write_all {forceUnroll, useIndexDiffs} %50 -> [#transform_map25, #transform_map26, #transform_map27, #transform_map28, #transform_map29](%alloc) [%9, %16, %18, %6] by  set : memref<16xf32, #gpu.address_space<private>> -> memref<1x384x1024xf32>
     linalg.generic {indexing_maps = [#map26, #map26], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc : memref<1x384x1024xf32>) outs(%arg2 : memref<1x384x1024xf16>) {
     ^bb0(%in: f32, %out: f16):
       %51 = arith.truncf %in : f32 to f16

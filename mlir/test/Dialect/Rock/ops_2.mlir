@@ -113,7 +113,6 @@ func.func @rock_global_store(%source : memref<32xf32, #gpu.address_space<private
     %source[%c0] ->
     %dest[%c1, %c1, %c1, %c1, %c1]
     if %valid
-    features = none
     {length = 1 : index}
     : memref<32xf32, #gpu.address_space<private>> -> memref<?x?x?x?x?xf32>
 

@@ -1,7 +1,7 @@
 // RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx | rocmlir-driver -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -RMS_threshold 0.0015 -rand 1 -rand_type float -fut mlir_attention_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 // CHECK: [1 1 1]
 module {
-  func.func @mlir_attention(%arg0: !migraphx.shaped<1x96x2x128xf16, 24576x128x12288x1>, %arg1: !migraphx.shaped<1x32x64x128xf16, 262144x8192x128x1>, %arg2: !migraphx.shaped<1x32x64x128xf16, 262144x8192x128x1>, %scale: !migraphx.shaped<1x32x2x64xf16, 4096x128x64x1> {mhal.read_access}, %bias: !migraphx.shaped<1x32x2x64xf16, 4096x128x64x1> {mhal.read_access}) -> !migraphx.shaped<1x2x4096xf16, 8192x4096x1> {
+  func.func @mlir_attention(%arg0: !migraphx.shaped<1x96x2x128xf16, 24576x128x12288x1>, %arg1: !migraphx.shaped<1x32x64x128xf16, 262144x8192x128x1>, %arg2: !migraphx.shaped<1x32x64x128xf16, 262144x8192x128x1>, %scale: !migraphx.shaped<1x32x2x64xf16, 4096x128x64x1>, %bias: !migraphx.shaped<1x32x2x64xf16, 4096x128x64x1>) -> !migraphx.shaped<1x2x4096xf16, 8192x4096x1> {
     %0 = migraphx.literal(dense<[0, 1]> : tensor<2xsi32>) : <2xsi32, 1>
     %1 = migraphx.literal(dense<8.837890e-02> : tensor<1xf16>) : <1xf16, 1>
     %2 = migraphx.literal(dense<0xFC00> : tensor<1xf16>) : <1xf16, 1>

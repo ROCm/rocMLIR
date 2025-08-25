@@ -17,6 +17,8 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
@@ -592,8 +594,11 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
   Type elemTypeA = gemmOp.getAType(), elemTypeB = gemmOp.getBType(),
        elemTypeC = gemmOp.getCType();
 
-  return verifyGemmTypes(gemmOp, gemmOp.getGemmFeatures(), gemmOp.getArch(),
-                         elemTypeA, elemTypeB, elemTypeC);
+  StringAttr arch = rock::getArchValue(gemmOp);
+  GemmFeatures features = rock::getFeatures(gemmOp);
+
+  return verifyGemmTypes(gemmOp, features, arch, elemTypeA, elemTypeB,
+                         elemTypeC);
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
@@ -603,8 +608,10 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();
 
-  bool isAccel = bitEnumContainsAny(convOp.getFeatures(),
-                                    GemmFeatures::mfma | GemmFeatures::wmma);
+  auto features = rock::getFeatures(gemmOp);
+
+  // Only perform this check for ops that have a feature attribute
+  bool isAccel = rock::isAccel(features);
   if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
@@ -841,8 +848,9 @@ LogicalResult GemmOp::verify() {
     return emitOpError("K dimensions don't match")
            << " k_a = " << kA << " k_b = " << kB;
 
-  bool isXdlops = bitEnumContainsAll(getFeatures(), GemmFeatures::mfma);
-  bool isWmma = bitEnumContainsAll(getFeatures(), GemmFeatures::wmma);
+  auto features = rock::getFeatures(this->getOperation());
+  bool isXdlops = bitEnumContainsAll(features, GemmFeatures::mfma);
+  bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isXdlops &&
         !isa<XdlopsGemmParamsAttr, XdlopsGemmDerivedParamsAttr>(params))
@@ -902,8 +910,8 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
        cElem = cType.getElementType();
 
-  if (failed(
-          verifyGemmTypes(op, op.getFeatures(), "gfx00", aElem, bElem, cElem)))
+  if (failed(verifyGemmTypes(op, rock::getFeatures(op), "gfx00", aElem, bElem,
+                             cElem)))
     return failure();
   if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
@@ -1519,22 +1527,49 @@ LogicalResult IndexDiffUpdateOp::verify() {
   return success();
 }
 
-//===-----------------------------------------------------===//
-// GlobalLoadOp
-//===-----------------------------------------------------===//
-LogicalResult GlobalLoadOp::verify() {
-  MemRefType sourceType = getSource().getType();
+template <typename Load>
+static LogicalResult verifyGlobalLoad(Load op) {
+  MemRefType sourceType = op.getSource().getType();
   size_t nDims = sourceType.getRank();
 
-  if (getSourceCoord().size() != nDims)
-    return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  if (getCanReadOffEnd() && nDims != 1)
-    return emitOpError("can only have one dimension in canReadOffEnd loads");
+  if (op.getSourceCoord().size() != nDims)
+    return op.emitOpError("Expected " + Twine(nDims) + " coordinates for load");
+  if (op.getCanReadOffEnd() && nDims != 1)
+    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
   Attribute memSpaceAttr = sourceType.getMemorySpace();
   auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
-    return emitOpError("Source memref must live in global memory");
+    return op.emitOpError("Source memref must live in global memory");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// GlobalLoadOp
+//===-----------------------------------------------------===//
+LogicalResult GlobalLoadOp::verify() { return verifyGlobalLoad(*this); }
+
+//===-----------------------------------------------------===//
+// GlobalLoadToLDSOp
+//===-----------------------------------------------------===//
+LogicalResult GlobalLoadToLDSOp::verify() {
+  LogicalResult res = verifyGlobalLoad(*this);
+  if (failed(res))
+    return res;
+
+  MemRefType destType = getDest().getType();
+  Attribute destMemSpaceAttr = destType.getMemorySpace();
+  auto destGpuMemSpaceAttr =
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(destMemSpaceAttr);
+  if (destMemSpaceAttr &&
+      (!destGpuMemSpaceAttr ||
+       destGpuMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup))
+    return emitOpError("Destination memref must live in workgroup memory");
+
+  int64_t numBits = getTransferType().getIntOrFloatBitWidth();
+  if (numBits != 128 && numBits != 32)
+    return emitOpError(
+        "Direct to LDS is implemented for 128bit and 32bit loads only");
   return success();
 }
 
@@ -1712,10 +1747,11 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
   if (!getAcceptingViewOperands().contains(&operand)) {
     return getOperation();
   }
+
   // Only one operand supports view
   auto newOp = builder.create<ThreadwiseWriteAllOp>(
       getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
-      getFeatures(), getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
+      getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
 }
 
@@ -1878,13 +1914,6 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
 
   if (!getEnableSoftmax() && getSoftmaxType()) {
     return emitError("Setting softmax type only works for attention.");
-  }
-
-  int64_t linalgOpCount = 0;
-  getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) { linalgOpCount++; });
-  if (linalgOpCount > 1) {
-    return emitError(
-        "More than 1 linalg generic op found in pre softmax fusion point.");
   }
   return success();
 }
@@ -2117,12 +2146,8 @@ KernelType GemmElementwiseGemmOp::getKernelType() {
   return KernelType::GemmElementwiseGemm;
 }
 
-uint32_t GemmElementwiseGemmOp::getFirstGemmIndex() {
-  return getFirstGemmIdx();
-}
-
-void GemmElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
-  setFirstGemmIdx(index);
+Region &GemmElementwiseGemmOp::getPreSecondGemmRegion() {
+  return getPreSecondGemmBody();
 }
 
 GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
@@ -2289,12 +2314,8 @@ KernelType ConvElementwiseGemmOp::getKernelType() {
   return KernelType::ConvElementwiseGemm;
 }
 
-uint32_t ConvElementwiseGemmOp::getFirstGemmIndex() {
-  return getFirstGemmIdx();
-}
-
-void ConvElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
-  setFirstGemmIdx(index);
+Region &ConvElementwiseGemmOp::getPreSecondGemmRegion() {
+  return getPreSecondGemmBody();
 }
 
 GemmGemmSize ConvElementwiseGemmOp::getGemmGemmSize() {
@@ -2368,9 +2389,7 @@ bool AttentionOp::getTransposedOut() { return getOTransposed(); }
 
 KernelType AttentionOp::getKernelType() { return KernelType::Attention; }
 
-uint32_t AttentionOp::getFirstGemmIndex() { return getFirstGemmIdx(); }
-
-void AttentionOp::setFirstGemmIndex(uint32_t index) { setFirstGemmIdx(index); }
+Region &AttentionOp::getPreSecondGemmRegion() { return getPreSoftmaxBody(); }
 
 GemmGemmSize AttentionOp::getGemmGemmSize() {
   ShapedType typeA = getQueries().getType(), typeB = getKeys().getType(),

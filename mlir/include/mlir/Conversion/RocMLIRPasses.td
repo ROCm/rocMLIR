@@ -85,23 +85,6 @@ def MIGraphXToTosaPass : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
 }
 
 //===----------------------------------------------------------------------===//
-// GPUToMIGraphX
-//===----------------------------------------------------------------------===//
-
-def GPUToMIGraphXPass : Pass<"gpu-to-migraphx", "::mlir::func::FuncOp"> {
-  let summary = "Lower fused gpu launch to MIGraphX code object";
-  let description = [{
-    Pass that converts func operations with gpu.launch to MIGraphX operation.
-  }];
-
-  let dependentDialects = [
-    "migraphx::MIGraphXDialect",
-    "func::FuncDialect",
-    "gpu::GPUDialect"
-  ];
-}
-
-//===----------------------------------------------------------------------===//
 // EmulateFp8ExtTrunc
 //===----------------------------------------------------------------------===//
 

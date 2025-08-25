@@ -124,7 +124,7 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
         gemmNPerThread(attr.getNPerThread()), blockSize(attr.getBlockSize()),
         splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
-        outputSwizzle(attr.getOutputSwizzle()){};
+        outputSwizzle(attr.getOutputSwizzle()) {};
 
   int64_t getKPack() { return 1; }
 
@@ -172,7 +172,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false){};
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   InitParamsAccel(WmmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -183,7 +183,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false){};
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   int64_t getKPack() { return gemmKPack; }
 
@@ -333,8 +333,10 @@ public:
 
   // Return the vector of heuristic parameters for a given kernel type and dat
   // type.
-  std::vector<InitParamsNonAccel>
-  getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB) const;
+  std::vector<InitParamsNonAccel> getTuningParameters(KernelType opType,
+                                                      Type dataTypeA,
+                                                      Type dataTypeB,
+                                                      StringRef arch) const;
 
   Attribute getGemmParamsAttr(OpBuilder &b,
                               const InitParamsNonAccel &params) const override;

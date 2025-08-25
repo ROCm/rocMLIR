@@ -10,11 +10,13 @@
 
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 #include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
@@ -124,11 +126,13 @@ struct LaunchOpInterface
       Type returnType = returnVal.getType();
       if (isa<TensorType>(returnType)) {
         assert(returnType == callResultTypes[funcResultIdx++]);
-        FailureOr<BaseMemRefType> memrefType =
+        FailureOr<BufferLikeType> bufferType =
             bufferization::getBufferType(returnVal, options, state);
-        if (failed(memrefType))
+        if (failed(bufferType))
           return failure();
-        resultTypes.push_back(*memrefType);
+        assert(isa<BaseMemRefType>(*bufferType) && "expected memref type");
+        BaseMemRefType memrefType = cast<BaseMemRefType>(*bufferType);
+        resultTypes.push_back(memrefType);
       } else {
         // Non-tensor values are returned.
         resultTypes.push_back(returnType);

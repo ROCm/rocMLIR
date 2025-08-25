@@ -32,9 +32,10 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -317,7 +318,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
             auto blockVal = b.create<arith::ConstantIndexOp>(loc, blockSize);
             auto cst1 = b.create<arith::ConstantIndexOp>(loc, 1);
             auto dynamicSharedMemSize =
-                b.create<arith::ConstantIntOp>(loc, 0, b.getI32Type());
+                b.create<arith::ConstantIntOp>(loc, b.getI32Type(), 0);
             gpu::KernelDim3 gridDims{gridVal, cst1, cst1};
             gpu::KernelDim3 blockDims{blockVal, cst1, cst1};
             b.create<gpu::LaunchFuncOp>(loc, gpuFunc, gridDims, blockDims,

@@ -15,16 +15,18 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -422,6 +424,30 @@ static llvm::cl::opt<FeatureToggle> atomicFMaxF32Feature(
                                 "force atomic_add into the feature list"),
                      clEnumValN(FeatureToggle::off, "off",
                                 "remove atomic_add from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
+
+// directToLDS32B
+static llvm::cl::opt<FeatureToggle> directToLDS32BFeature(
+    "direct_to_lds_32b", llvm::cl::desc("toggle feature direct_to_lds_32b"),
+    llvm::cl::values(
+        clEnumValN(FeatureToggle::infer, "infer",
+                   "use the default value provided by the chip"),
+        clEnumValN(FeatureToggle::on, "on",
+                   "force direct_to_lds_32b into the feature list"),
+        clEnumValN(FeatureToggle::off, "off",
+                   "remove direct_to_lds_32b from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
+
+// directToLDS128B
+static llvm::cl::opt<FeatureToggle> directToLDS128BFeature(
+    "direct_to_lds_128b", llvm::cl::desc("toggle feature direct_to_lds_128b"),
+    llvm::cl::values(
+        clEnumValN(FeatureToggle::infer, "infer",
+                   "use the default value provided by the chip"),
+        clEnumValN(FeatureToggle::on, "on",
+                   "force direct_to_lds_128b into the feature list"),
+        clEnumValN(FeatureToggle::off, "off",
+                   "remove direct_to_lds_128b from the feature list")),
     llvm::cl::init(FeatureToggle::infer));
 
 static llvm::cl::opt<std::string>
@@ -941,35 +967,34 @@ namespace test {
 void registerTestDialect(DialectRegistry &);
 } // namespace test
 
+static bool isConv(rock::KernelType kernelType) {
+  return kernelType == rock::KernelType::Conv ||
+         kernelType == rock::KernelType::ConvBwdData ||
+         kernelType == rock::KernelType::ConvBwdWeight ||
+         kernelType == rock::KernelType::ConvElementwiseGemm;
+}
+
 static void correctConvParameters() {
-  std::string filterLayoutValue = filterLayout.getValue();
-
-  // yxcgk not implement yet
-  if (filterLayoutValue.find('g') == std::string::npos &&
-      (filterLayoutValue.substr(0, 2) == "kc" ||
-       (filterLayoutValue[0] == 'k' && filterLayoutValue.back() == 'c') ||
-       filterLayoutValue.substr(filterLayoutValue.size() - 2) == "ck"))
-    filterLayout = "g" + filterLayoutValue;
-
-  auto addGToLayout = [&](std::string ch,
-                          std::string &layoutValue) -> std::string {
+  auto addGToLayout = [](std::string &layoutValue) -> std::string {
     std::string layout;
     if (layoutValue.find('g') == std::string::npos) {
-      if (layoutValue.substr(0, 2) == "n" + ch)
-        layout = "ng" + ch + layoutValue.substr(2);
-      else if (layoutValue[0] == 'n' && layoutValue.back() == ch[0])
-        layout = layoutValue.substr(0, layoutValue.size() - 1) + "g" + ch;
-      else
-        layout = "g" + layoutValue;
-    } else
+      // Always add 'g' after 'n' when it's missing
+      size_t nPos = layoutValue.find('n');
+      assert(nPos != std::string::npos);
+      layout =
+          layoutValue.substr(0, nPos + 1) + "g" + layoutValue.substr(nPos + 1);
+    } else {
       layout = layoutValue;
+    }
     return layout;
   };
 
-  inputLayout = addGToLayout("c", inputLayout.getValue());
-  outputLayout = addGToLayout("k", outputLayout.getValue());
+  if (filterLayout.getValue().find('g') == std::string::npos)
+    filterLayout = "g" + filterLayout.getValue();
+  inputLayout = addGToLayout(inputLayout.getValue());
+  outputLayout = addGToLayout(outputLayout.getValue());
 
-  // +++pf:  update old key names.
+  // update old key names.
   std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
                'y', '0');
   std::replace(filterLayout.getValue().begin(), filterLayout.getValue().end(),
@@ -1076,28 +1101,6 @@ static void correctConvParameters() {
   // successfully.
   if (di_minimum > di_specified)
     paddingDepthRight = in_right_pad_d + (di_minimum - di_specified);
-}
-
-static void verifyConvLayout() {
-  std::string filterLayoutValue = filterLayout.getValue();
-  std::string inputLayoutValue = inputLayout.getValue();
-
-  if (filterLayoutValue.find("yx") == std::string::npos &&
-      filterLayoutValue.find("xy") == std::string::npos &&
-      filterLayoutValue.find("01") == std::string::npos &&
-      filterLayoutValue.find("10") == std::string::npos) {
-    llvm::errs() << "Unsupported filter layout: disjointed yx!\n";
-    exit(1);
-  }
-
-  if (inputLayoutValue.find("hw") == std::string::npos &&
-      inputLayoutValue.find("wh") == std::string::npos &&
-      inputLayoutValue.find("01") == std::string::npos &&
-      inputLayoutValue.find("10") == std::string::npos) {
-
-    llvm::errs() << "Unsupported input layout: disjointed hw!\n";
-    exit(1);
-  }
 }
 
 static void populateDefaults() {
@@ -1366,8 +1369,8 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
   // Emit device selection
   if (deviceNum.getNumOccurrences() > 0)
     b.create<gpu::SetDefaultDeviceOp>(
-        loc, b.create<arith::ConstantIntOp>(loc, deviceNum.getValue(),
-                                            b.getIntegerType(32)));
+        loc, b.create<arith::ConstantIntOp>(loc, b.getIntegerType(32),
+                                            deviceNum.getValue()));
 
   SmallVector<Value, 4> cpuMem;
   SmallVector<Value, 4> gpuMem;
@@ -1574,7 +1577,7 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
     if (i16vals.find(v) == i16vals.end()) {
       auto i16Type = b.getIntegerType(16);
       i16vals.try_emplace(
-          v, b.createOrFold<arith::ConstantIntOp>(loc, v, i16Type));
+          v, b.createOrFold<arith::ConstantIntOp>(loc, i16Type, v));
     }
     return i16vals[v];
   };
@@ -2242,9 +2245,18 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
   constexpr StringLiteral kernelNameVerifier("rock_gemm_ver");
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0
+           ? b.getI64IntegerAttr(num_cu)
+           : b.getI64IntegerAttr(
+                 rock::lookupArchInfo(archAttr.getValue()).minNumCU));
+  SmallVector<NamedAttribute> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
+
   SmallVector<Type, 3> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
   auto func =
@@ -2271,12 +2283,10 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? b.getI32IntegerAttr(num_cu) : nullptr);
   auto gemm = b.create<rock::GemmOp>(
       loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
-      transposeB, transposeC, archAttr.getValue(), numCUAttr, params.features,
-      storeMethod,
+      transposeB, transposeC,
+      rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
 
   if (!params.perfConfig.empty())
@@ -2788,10 +2798,15 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
-
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
+  SmallVector<NamedAttribute, 3> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_attention");
   auto func = builder.create<func::FuncOp>(
@@ -2850,18 +2865,16 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   keys = broadcastGQARock(builder, loc, keys);
   values = broadcastGQARock(builder, loc, values);
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
-                                      : nullptr);
-
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
   auto attention = builder.create<rock::AttentionOp>(
       loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, transposeQ, transposeK, transposeV,
-      transposeO, causalMasking, archAttr, params.features, softmaxType,
-      numCUAttr,
-      /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
+      transposeO, causalMasking,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
+      softmaxType,
+      /*params0=*/nullptr, /*params1=*/nullptr,
+      /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
     Block *preSoftmaxElemwiseBlock =
         &attention.getPreSoftmaxBody().emplaceBlock();
@@ -2920,8 +2933,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     MemRefType resMemRefType =
         MemRefType::get({qShape[0], sequenceLengthQ, sequenceLengthK},
                         cast<ShapedType>(qkTensor.getType()).getElementType());
-    Value resMemref =
-        builder.create<bufferization::ToBufferOp>(loc, resMemRefType, qkTensor);
+    Value resMemref = builder.create<bufferization::ToBufferOp>(
+        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
+        qkTensor);
     Value outMemref = preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
     builder.create<memref::CopyOp>(loc, resMemref, outMemref);
     builder.create<rock::YieldOp>(loc);
@@ -2951,10 +2965,15 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       getConvElementwiseGemmTypes(argTypes, config, params.types);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
-
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
+  SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_conv_gemm");
   auto func = builder.create<func::FuncOp>(
@@ -2979,10 +2998,6 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   Value output = unflattenedArgs[3];
   SmallVector<Value> elemwiseInputs;
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
-                                      : nullptr);
-
   SmallVector<int64_t, 8> pad;
   for (const auto &[left, right] :
        zip(config->paddingLeftDims, config->paddingRightDims)) {
@@ -2991,11 +3006,13 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   }
   auto convElntGemm = builder.create<rock::ConvElementwiseGemmOp>(
       loc, TypeRange{}, filter, input, c, elemwiseInputs, output, transposeC,
-      transposeO, archAttr, params.features, numCUAttr,
+      transposeO,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       builder.getIndexArrayAttr(pad),
       builder.getIndexArrayAttr(config->strideDims),
       builder.getIndexArrayAttr(config->dilationDims),
-      /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
+      /*params0=*/nullptr, /*params1=*/nullptr,
+      /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
     Block *preSecondGemmBlock =
         &convElntGemm.getPreSecondGemmBody().emplaceBlock();
@@ -3011,8 +3028,9 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     MemRefType resMemRefType =
         MemRefType::get({aShape[0], firstGemmSize.m, firstGemmSize.n},
                         cast<ShapedType>(abTensor.getType()).getElementType());
-    Value resMemref =
-        builder.create<bufferization::ToBufferOp>(loc, resMemRefType, abTensor);
+    Value resMemref = builder.create<bufferization::ToBufferOp>(
+        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
+        abTensor);
     Value outMemref = preSecondGemmBlock->addArgument(resMemRefType, loc);
     builder.create<memref::CopyOp>(loc, resMemref, outMemref);
     builder.create<rock::YieldOp>(loc);
@@ -3057,10 +3075,15 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   getGemmElementwiseGemmTypes(argTypes, params.types);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
-
-  SmallVector<NamedAttribute, 2> funcAttrs = {
+  IntegerAttr numCUAttr =
+      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
+                                      : nullptr);
+  SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
+
+  if (numCUAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_gemm_gemm");
   auto func = builder.create<func::FuncOp>(
@@ -3085,13 +3108,12 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   Value output = unflattenedArgs[3];
   SmallVector<Value> elemwiseInputs;
 
-  IntegerAttr numCUAttr =
-      (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
-                                      : nullptr);
   auto gemmElntGemm = builder.create<rock::GemmElementwiseGemmOp>(
       loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA, transposeB,
-      transposeC, transposeO, archAttr, params.features, numCUAttr,
-      /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
+      transposeC, transposeO,
+      rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
+      /*params0=*/nullptr, /*params1=*/nullptr,
+      /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
     Block *preSecondGemmBlock =
         &gemmElntGemm.getPreSecondGemmBody().emplaceBlock();
@@ -3107,8 +3129,9 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     MemRefType resMemRefType =
         MemRefType::get({aShape[0], gemmM, gemmN},
                         cast<ShapedType>(abTensor.getType()).getElementType());
-    Value resMemref =
-        builder.create<bufferization::ToBufferOp>(loc, resMemRefType, abTensor);
+    Value resMemref = builder.create<bufferization::ToBufferOp>(
+        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
+        abTensor);
     Value outMemref = preSecondGemmBlock->addArgument(resMemRefType, loc);
     builder.create<memref::CopyOp>(loc, resMemref, outMemref);
     builder.create<rock::YieldOp>(loc);
@@ -3289,7 +3312,10 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
                                           bool isWritable = false) {
     constexpr bool isRestrict{true};
     Value flatTensor = builder.create<bufferization::ToTensorOp>(
-        loc, block->getArgument(blockArgIndex), isRestrict, isWritable);
+        loc,
+        memref::getTensorTypeFromMemRefType(
+            block->getArgument(blockArgIndex).getType()),
+        block->getArgument(blockArgIndex), isRestrict, isWritable);
     ArrayRef<int64_t> origShape =
         cast<ShapedType>(argTypes[blockArgIndex]).getShape();
 
@@ -3357,15 +3383,13 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, filterTensor.getType(), 0)
           .value();
 
-  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
-  // be more similar to what the gpu code does
   Type convOutElemType = params.types[2];
   // accumulate in 32 bit
   Type firstAccType = getAccType(params.types[0], builder);
   assert(firstAccType == getAccType(params.types[1], builder));
 
   auto biasTy = RankedTensorType::get(
-      cast<ShapedType>(filterTensor.getType()).getShape()[0], firstAccType);
+      cast<ShapedType>(filterTensor.getType()).getShape()[0], convOutElemType);
   auto biasTensor = builder.create<tosa::ConstOp>(
       loc, biasTy, cast<ElementsAttr>(builder.getZeroAttr(biasTy)));
 
@@ -3376,30 +3400,12 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
     pads.push_back(config->paddingRightDims[i]);
   }
 
-  // Determine the accumulation type based on the output type.
-  Type accType;
-  if (isa<FloatType>(params.types[0]) &&
-      params.types[0].getIntOrFloatBitWidth() >= 16) {
-    accType = builder.getF32Type();
-  } else if (isa<FloatType>(params.types[0]) &&
-             params.types[0].getIntOrFloatBitWidth() <= 8) {
-    accType = builder.getF16Type();
-  } else if (isa<IntegerType>(params.types[0])) {
-    accType = builder.getI32Type();
-  }
-
-  Value convOutBeforeConversion = createOpAndInfer<tosa::Conv2DOp>(
-      builder, loc, firstAccType, inputTensor, filterTensor, biasTensor,
+  Value convOut = createOpAndInfer<tosa::Conv2DOp>(
+      builder, loc, convOutElemType, inputTensor, filterTensor, biasTensor,
       inputZp, weightZp, builder.getDenseI64ArrayAttr(pads),
       builder.getDenseI64ArrayAttr(config->strideDims),
-      builder.getDenseI64ArrayAttr(config->dilationDims), accType,
+      builder.getDenseI64ArrayAttr(config->dilationDims), firstAccType,
       builder.getI64IntegerAttr(groupSize));
-
-  Value convOut = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(convOutBeforeConversion.getType())
-          .clone(convOutElemType),
-      convOutBeforeConversion);
 
   // convert conv output to matmul A matrix
   // tensor<bxhxwxkxf16> -> tensor<1x(b*h*w)xkxf16>
@@ -3412,25 +3418,21 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
   // accumulate in 32 bit
   Type secondAccType = getAccType(convOutElemType, builder);
   assert(secondAccType == getAccType(params.types[2], builder));
-  Value resultTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, secondAccType, gemmA, cTensor, abZp, cZp);
-
-  Value resultTensor = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(resultTensorBeforeConversion.getType())
-          .clone(secondGemmOutElemType),
-      resultTensorBeforeConversion);
+  auto resultTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, secondGemmOutElemType, gemmA, cTensor, abZp, cZp);
+  resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
+  Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
   }
 
   Value output = block->getArguments().back();
-  auto outputType = cast<MemRefType>(output.getType());
+  auto outputType = cast<bufferization::BufferLikeType>(output.getType());
 
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
-  auto shapeValue =
-      tosa::getTosaConstShape(implicitBuilder, outputType.getShape());
+  auto shapeValue = tosa::getTosaConstShape(
+      implicitBuilder, cast<ShapedType>(outputType).getShape());
   auto flatResultTensor =
       builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
 
@@ -3468,7 +3470,10 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
                                           bool isWritable = false) {
     constexpr bool isRestrict{true};
     Value flatTensor = builder.create<bufferization::ToTensorOp>(
-        loc, block->getArgument(blockArgIndex), isRestrict, isWritable);
+        loc,
+        memref::getTensorTypeFromMemRefType(
+            block->getArgument(blockArgIndex).getType()),
+        block->getArgument(blockArgIndex), isRestrict, isWritable);
     ArrayRef<int64_t> origShape =
         cast<ShapedType>(argTypes[blockArgIndex]).getShape();
 
@@ -3506,19 +3511,14 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
   auto bZp =
       tosa::createZeroPointTensor(builder, loc, bTensor.getType(), 0).value();
 
-  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
-  // be more similar to what the gpu code does
   Type firstGemmOutElemType = params.types[2];
   // accumulate in 32 bit
   Type firstAccType = getAccType(params.types[0], builder);
   assert(firstAccType == getAccType(params.types[1], builder));
-  Value abTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, firstAccType, aTensor, bTensor, aZp, bZp);
-  Value abTensor = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(abTensorBeforeConversion.getType())
-          .clone(firstGemmOutElemType),
-      abTensorBeforeConversion);
+  auto abTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, firstGemmOutElemType, aTensor, bTensor, aZp, bZp);
+  abTensorMatMul->setAttr("acc_type", TypeAttr::get(firstAccType));
+  Value abTensor = abTensorMatMul.getResult();
 
   auto abZp =
       tosa::createZeroPointTensor(builder, loc, abTensor.getType(), 0).value();
@@ -3528,24 +3528,21 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
   // accumulate in 32 bit
   Type secondAccType = getAccType(firstGemmOutElemType, builder);
   assert(secondAccType == getAccType(params.types[2], builder));
-  Value resultTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, secondAccType, abTensor, cTensor, abZp, cZp);
-  Value resultTensor = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(resultTensorBeforeConversion.getType())
-          .clone(secondGemmOutElemType),
-      resultTensorBeforeConversion);
+  auto resultTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, secondGemmOutElemType, abTensor, cTensor, abZp, cZp);
+  resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
+  Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
   }
 
   Value output = block->getArguments().back();
-  auto outputType = cast<MemRefType>(output.getType());
+  auto outputType = cast<mlir::bufferization::BufferLikeType>(output.getType());
 
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
-  auto shapeValue =
-      tosa::getTosaConstShape(implicitBuilder, outputType.getShape());
+  auto shapeValue = tosa::getTosaConstShape(
+      implicitBuilder, cast<ShapedType>(outputType).getShape());
   auto flatResultTensor =
       builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
 
@@ -3583,7 +3580,10 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
                                           bool isWritable = false) {
     constexpr bool isRestrict{true};
     Value flatTensor = builder.create<bufferization::ToTensorOp>(
-        loc, block->getArgument(blockArgIndex), isRestrict, isWritable);
+        loc,
+        memref::getTensorTypeFromMemRefType(
+            block->getArgument(blockArgIndex).getType()),
+        block->getArgument(blockArgIndex), isRestrict, isWritable);
     ArrayRef<int64_t> origShape =
         cast<ShapedType>(argTypes[blockArgIndex]).getShape();
 
@@ -3630,18 +3630,14 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto keysZp =
       tosa::createZeroPointTensor(builder, loc, keysTensor.getType(), 0)
           .value();
-  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
-  // be more similar to what the gpu code does
   // accumulate in 32 bit
   Type firstAccType = getAccType(firstGemmOutElemType, builder);
   assert(firstAccType == getAccType(params.types[1], builder));
-  Value qkTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, firstAccType, queriesTensor, keysTensor, queriesZp, keysZp);
-  Value qkTensor = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(qkTensorBeforeConversion.getType())
-          .clone(firstGemmOutElemType),
-      qkTensorBeforeConversion);
+  auto qkTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, firstGemmOutElemType, queriesTensor, keysTensor, queriesZp,
+      keysZp);
+  qkTensorMatMul->setAttr("acc_type", TypeAttr::get(firstAccType));
+  Value qkTensor = qkTensorMatMul.getResult();
 
   // get currentSeqLenTensor
   Value currentSeqLenTensor;
@@ -3752,14 +3748,15 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   // expsSums = sum e^(x-qkMaxs)
   // lse = (log(expsSums) + qkMaxs)
   if (returnLSE) {
-    Value expsSumsForLSE = createOpAndInfer<tosa::CastOp>(
-        builder, loc, resultOutElementType, expsSums);
-    Value qkMaxsForLSE = createOpAndInfer<tosa::CastOp>(
-        builder, loc, resultOutElementType, qkMaxs);
-    lseTensor = createOpAndInfer<tosa::LogOp>(
-        builder, loc, resultOutElementType, expsSumsForLSE);
-    lseTensor = createOpAndInfer<tosa::AddOp>(
-        builder, loc, resultOutElementType, lseTensor, qkMaxsForLSE);
+    Type lseType = cast<ShapedType>(lseOut.getType()).getElementType();
+    Value expsSumsForLSE =
+        createOpAndInfer<tosa::CastOp>(builder, loc, lseType, expsSums);
+    Value qkMaxsForLSE =
+        createOpAndInfer<tosa::CastOp>(builder, loc, lseType, qkMaxs);
+    lseTensor =
+        createOpAndInfer<tosa::LogOp>(builder, loc, lseType, expsSumsForLSE);
+    lseTensor = createOpAndInfer<tosa::AddOp>(builder, loc, lseType, lseTensor,
+                                              qkMaxsForLSE);
   }
 
   auto invExpsSums =
@@ -3781,28 +3778,23 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, valuesTensor.getType(), 0)
           .value();
 
-  // TODO: if/when tosa::matmul has acc_type implemented, we can use it here to
-  // be more similar to what the gpu code does
   // accumulate in 32 bit
   Type secondAccType = getAccType(resultOutElementType, builder);
-  Value resultTensorBeforeConversion = createOpAndInfer<tosa::MatMulOp>(
-      builder, loc, secondAccType, softmaxTensor, valuesTensor, softmaxZp,
-      valuesZp);
-  Value resultTensor = builder.createOrFold<tosa::CastOp>(
-      loc,
-      cast<ShapedType>(resultTensorBeforeConversion.getType())
-          .clone(resultOutElementType),
-      resultTensorBeforeConversion);
+  auto resultTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+      builder, loc, resultOutElementType, softmaxTensor, valuesTensor,
+      softmaxZp, valuesZp);
+  resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
+  Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
     resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
   }
 
   Value output = block->getArguments().back();
-  auto outputType = cast<MemRefType>(output.getType());
+  auto outputType = cast<mlir::bufferization::BufferLikeType>(output.getType());
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
-  auto shapeValue =
-      tosa::getTosaConstShape(implicitBuilder, outputType.getShape());
+  auto shapeValue = tosa::getTosaConstShape(
+      implicitBuilder, cast<ShapedType>(outputType).getShape());
   auto flatResultTensor =
       builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
 
@@ -3813,9 +3805,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 
   // return LSE (log-sum-exp)
   if (returnLSE) {
-    auto lseOutType = cast<MemRefType>(lseOut.getType());
-    auto lseShapeValue =
-        tosa::getTosaConstShape(implicitBuilder, lseOutType.getShape());
+    auto lseOutType = cast<bufferization::BufferLikeType>(lseOut.getType());
+    auto lseShapeValue = tosa::getTosaConstShape(
+        implicitBuilder, cast<ShapedType>(lseOutType).getShape());
     auto flatLseTensor =
         builder.create<tosa::ReshapeOp>(loc, lseTensor, lseShapeValue);
 
@@ -3934,7 +3926,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
   auto getF32Val = [&](float val) -> Value {
     llvm::APFloat apVal(val);
-    return b.create<arith::ConstantFloatOp>(loc, apVal, floatType);
+    return b.create<arith::ConstantFloatOp>(loc, floatType, apVal);
   };
   // Thresholds for different metrics
   // RMS: 0.00003f for all data types
@@ -3945,7 +3937,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   char printDebug = static_cast<char>(printVerifyResults.getValue());
 
   auto printDebugVal =
-      b.create<arith::ConstantIntOp>(loc, printDebug, charType);
+      b.create<arith::ConstantIntOp>(loc, charType, printDebug);
 
   // obtain function name of the verifier wrapper
   std::string verifyFuncName = "mcpuVerify";
@@ -4396,7 +4388,7 @@ static LogicalResult populateHostHarnessLogic(
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
     int seed = getRandomSeed();
-    Value seedConst = b.create<arith::ConstantIntOp>(loc, seed, b.getI32Type());
+    Value seedConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), seed);
     b.create<func::CallOp>(loc, seedFunc, seedConst);
   }
 
@@ -4468,7 +4460,7 @@ static LogicalResult populateHostHarnessLogic(
       for (auto pair : llvm::enumerate(currentSeqLen)) {
         Value index = b.create<arith::ConstantIndexOp>(loc, pair.index());
         Value value =
-            b.create<arith::ConstantIntOp>(loc, pair.value(), b.getI32Type());
+            b.create<arith::ConstantIntOp>(loc, b.getI32Type(), pair.value());
         b.create<memref::StoreOp>(loc, value, lvar, ValueRange{index});
       }
     } else if (!isRandom) {
@@ -4756,6 +4748,14 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       enabledFeatures =
           bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
                      atomicFMaxF32Feature == FeatureToggle::on);
+    if (directToLDS32BFeature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_32b,
+                     directToLDS32BFeature == FeatureToggle::on);
+    if (directToLDS128BFeature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_128b,
+                     directToLDS128BFeature == FeatureToggle::on);
 
     if (wmmaFeature == FeatureToggle::infer) {
       // Disable acceleration for mixed types
@@ -5045,10 +5045,9 @@ int main(int argc, char **argv) {
     outputDataType = canonicaliseF8Type(outputDataType);
   }
 
-  if (operation != rock::KernelType::Gemm) {
-    verifyConvLayout();
+  if (isConv(operation))
     correctConvParameters();
-  }
+
   populateDefaults();
 
   bool hasUserKernel = !testFuncName.empty();
@@ -5075,7 +5074,7 @@ int main(int argc, char **argv) {
 
   if (emitSplitKSelectionLikelihood) {
     module->walk([](rock::RockGemmWrapperInterface gemmOp) {
-      const int32_t numCU = rock::lookupArchInfo(gemmOp.getArch()).minNumCU;
+      const int32_t numCU = rock::getNumCUValue(gemmOp);
       const rock::GemmSize gemmSize = gemmOp.getGemmSize();
       const auto likelihood = rock::isSplitKFaster(
           gemmSize.g, gemmSize.m, gemmSize.n, gemmSize.k, numCU);

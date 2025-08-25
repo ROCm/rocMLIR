@@ -21,11 +21,12 @@
 //
 //===-----------------------------------------------------===//
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -145,8 +146,7 @@ struct BlockwiseFillRewritePattern
         rewriter.createOrFold<rock::WorkitemIdOp>(loc, rewriter.getIndexType());
     rewriter.create<ThreadwiseWriteAllOp>(
         loc, valueReg, op.getMemref(), rewriter.getArrayAttr({unmerge, pad}),
-        /*extraIndices=*/ValueRange{tid}, GemmFeatures::none, StoreMethod::Set,
-        true, true);
+        /*extraIndices=*/ValueRange{tid}, StoreMethod::Set, true, true);
     rewriter.eraseOp(op);
     return success();
   }
@@ -401,7 +401,7 @@ struct BlockwiseGemmAccelRewritePattern
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
-    StringAttr arch = op.getArchAttr();
+    StringAttr arch = rock::getArchValue(op);
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
     int64_t mPerWave = tuningParams.getMPerWave();
@@ -417,8 +417,9 @@ struct BlockwiseGemmAccelRewritePattern
     if (auto bufferVecTypeB = dyn_cast<VectorType>(bufferElemTypeB))
       dataTypeB = bufferVecTypeB.getElementType();
 
+    auto features = rock::getFeatures(op);
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
-        op.getFeatures(), dataTypeA, dataTypeB, arch, tuningParams);
+        features, dataTypeA, dataTypeB, arch, tuningParams);
 
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");
@@ -504,7 +505,7 @@ struct BlockwiseGemmAccelRewritePattern
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();
           b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
-                                          ValueRange{i, j, k}, arch,
+                                          ValueRange{i, j, k},
                                           op.getFeaturesAttr(), tuningParams);
         }
       }
