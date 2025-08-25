@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -canonicalize %s | FileCheck %s
+// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -canonicalize -verify-diagnostics %s | FileCheck %s
 
 #xdlops_gemm_params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 32, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor=1, scheduleVersion=1, outputSwizzle=2, forceUnroll = true>
 // CHECK-LABEL: @gridwise_attn_simple
@@ -259,7 +259,7 @@ func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x
     gridSize = 24 : i32,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    firstGemmIdx = 0 : i32,
+    firstGemmIndices = array<i64: 0>,
     operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
@@ -281,7 +281,7 @@ func.func @gridwise_attn_grid_reversed(%arg0: memref<1x384x64xf32>, %arg1: memre
     gridSize = 24 : i32,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    firstGemmIdx = 0 : i32,
+    firstGemmIndices = array<i64: 0>,
     operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
@@ -305,7 +305,7 @@ func.func @gridwise_attn_issue_1661_workaround(%arg0: memref<256xf16>, %arg1: me
   // CHECK-NEXT: scf.if %[[cmpres]]
   // CHECK-NEXT: rock.in_bounds_store %[[neginf]] -> %{{.*}}[%{{.*}}] : f16 -> memref<32xf16, #gpu.address_space<private>>, index
   rock.gridwise_attention_accel(%5, %1, %2, %6) preSoftmaxOps = {
-  } {blockSize = 32 : i32, firstGemmIdx = 0 : i32, gridSize = 4 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0N = 1 : index} : memref<4x64x32xf16>, memref<4x64x384xf16>, memref<4x384x64xf16>, memref<4x32x64xf16>
+  } {blockSize = 32 : i32, firstGemmIndices = array<i64: 0>, gridSize = 4 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0N = 1 : index} : memref<4x64x32xf16>, memref<4x64x384xf16>, memref<4x384x64xf16>, memref<4x32x64xf16>
   return
 }
 
@@ -338,7 +338,7 @@ func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    firstGemmIdx = 0 : i32
+    firstGemmIndices = array<i64: 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>
   return
 }
@@ -384,7 +384,7 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    firstGemmIdx = 0 : i32
+    firstGemmIndices = array<i64: 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>
   return
 }
@@ -429,7 +429,7 @@ func.func @gridwise_attn_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 1>,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    firstGemmIdx = 0 : i32
+    firstGemmIndices = array<i64: 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>, memref<1x384xf32>
   return
 }
@@ -464,7 +464,7 @@ func.func @gridwise_attn_softmaxtype(%arg0: memref<1x384x64xf16>, %arg1: memref<
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 1>,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    firstGemmIdx = 0 : i32,
+    firstGemmIndices = array<i64: 0>,
     softmaxType = f32
   } : memref<1x64x384xf16>, memref<1x64x384xf16>, memref<1x384x64xf16>, memref<1xi32>, memref<1x384x64xf16>, memref<1x384xf16>
   return
@@ -520,7 +520,7 @@ func.func @gridwise_attn_softmaxtype_with_scaling(%arg0: memref<1x384x64xf16>, %
     operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 1>,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    firstGemmIdx = 0 : i32,
+    firstGemmIndices = array<i64: 0>,
     softmaxType = f32
   } : memref<1x64x384xf16>, memref<1x64x384xf16>, memref<1x384x64xf16>, memref<1xi32>, memref<1x384x64xf16>, memref<1x384xf16>
   return
@@ -571,7 +571,293 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096
     }
     memref.copy %alloc, %arg9 : memref<1x64x64xf16> to memref<1x64x64xf16>
     rock.yield
-  } {arch = "amdgcn-amd-amdhsa:gfx1100", blockSize = 64 : i32, firstGemmIdx = 0 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 1, 0>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 16, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 4, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xi8>, memref<1x128x64xi8>, memref<1x64x64xf16>, memref<1x1x1xi8>, memref<1x1x1xf16>, memref<1x64x64xf16>
+  } {arch = "amdgcn-amd-amdhsa:gfx1100", blockSize = 64 : i32, firstGemmIndices = array<i64: 0>, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 1, 0>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 16, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 4, mPerBlock = 32, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xi8>, memref<1x128x64xi8>, memref<1x64x64xf16>, memref<1x1x1xi8>, memref<1x1x1xf16>, memref<1x64x64xf16>
+  return
+}
+
+// -----
+
+// TEST For regularization when there are multiple linalg.generic ops in preSoftmaxOps
+// CHECK-LABEL: @multiple_linalg_generics_in_presoftmax_ops
+func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+  // CHECK: %[[GEMM0_BUFFER:.*]] =  rock.alloc() : memref<1xvector<16xf32>, #gpu.address_space<private>>
+  // CHECK: %[[GEMM0_BUFFER_FLAT:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+  // CHECK: rock.lds_barrier
+  // CHECK: %[[GEMM0_BUFFER_TRANS:.*]] = rock.transform %[[GEMM0_BUFFER]]
+  // CHECK-SAME: memref<1xvector<16xf32>, #gpu.address_space<private>> to memref<1x1xvector<16xf32>, #gpu.address_space<private>>
+  // CHECK: rock.threadwise_accel_gemm %[[GEMM0_BUFFER_TRANS]]
+  // CHECK: rock.transforming_for
+  // CHECK: rock.in_bounds_store
+  // CHECK-SAME: %[[GEMM0_BUFFER_FLAT]] 
+  // CHECK: %[[ARG2_BUFFER:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>> 
+  // CHECK: rock.threadwise_read_into 
+  // CHECK-SAME: (%arg2)
+  // CHECK-SAME: %[[ARG2_BUFFER]] : memref<5929xf16> -> memref<16xf16, #gpu.address_space<private>>
+  // CHECK: %[[GENOP_ALLOC0:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+  // CHECK: linalg.generic
+  // CHECK-SAME: ins(%[[GEMM0_BUFFER_FLAT]], %[[ARG2_BUFFER]] : memref<16xf16, #gpu.address_space<private>>, memref<16xf16, #gpu.address_space<private>>) outs(%[[GENOP_ALLOC0]] : memref<16xf16, #gpu.address_space<private>>)
+  // CHECK: %[[GENOP_ALLOC1:.*]] = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
+  // CHECK: linalg.generic
+  // CHECK-SAME: ins(%[[GENOP_ALLOC0]] : memref<16xf16, #gpu.address_space<private>>) outs(%[[GENOP_ALLOC1]] : memref<16xf32, #gpu.address_space<private>>)
+  // CHECK: rock.lds_barrier
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
+  %2 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
+  %3 = rock.transform %arg1 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %4 = rock.transform %3 by <affine_map<(d0, d1, d2, d3) -> (d2, d3, d0, d1)> by [<PassThrough ["dim2", "dim3", "dim0", "dim1"] at [0, 1, 2, 3] -> ["dim2", "dim3", "dim0", "dim1"] at [2, 3, 0, 1]>] bounds = [12, 64, 1, 77] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x64x1x77xf16>
+  %5 = rock.transform %4 by <affine_map<(d0, d1, d2) -> (d0, d1, 0, d2)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Merge{64, 1} ["dim1"] at [1] -> ["col1", "col2"] at [1, 2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 64, 77] -> [12, 64, 1, 77]> : memref<12x64x1x77xf16> to memref<12x64x77xf16>
+  %6 = rock.transform %arg3 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %7 = rock.transform %6 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
+  %8 = rock.transform %7 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
+  %alloc = memref.alloc() : memref<59136xf16>
+  %9 = rock.transform %alloc by <affine_map<(d0, d1, d2) -> ((d0 * 77 + d1) * 64 + d2)> by [<Unmerge{12, 77, 64} ["col0", "col1", "col2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [12, 77, 64] -> [59136]> : memref<59136xf16> to memref<12x77x64xf16>
+  %10 = rock.transform %2 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [77, 12, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<77x12x64xf16>
+  %11 = rock.transform %5 by <affine_map<(d0, d1, d2) -> (d1, d2, d0)> by [<PassThrough ["dim2", "dim0", "dim1"] at [0, 1, 2] -> ["dim2", "dim0", "dim1"] at [2, 0, 1]>] bounds = [77, 12, 64] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<77x12x64xf16>
+  %12 = rock.transform %8 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [77, 12, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<77x12x64xf16>
+  %13 = rock.transform %10 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %14 = rock.transform %11 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %15 = rock.transform %12 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %16 = rock.transform %13 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [12, 64, 77] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x64x77xf16>
+  %17 = rock.transform %14 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0N"] at [1, 2] -> ["gemm0K", "gemm0N"] at [2, 1]>] bounds = [12, 64, 77] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x64x77xf16>
+  %18 = rock.transform %16 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 19} ["gemm0NPad"] at [2] -> ["gemm0N"] at [2]>] bounds = [12, 64, 96] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<12x64x96xf16>
+  %19 = rock.transform %17 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 19} ["gemm0MPad"] at [2] -> ["gemm0M"] at [2]>] bounds = [12, 64, 96] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<12x64x96xf16>
+  %20 = rock.transform %15 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1KPad"] at [1] -> ["gemm1K"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
+  %21 = rock.transform %9 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1NPad"] at [1] -> ["gemm1N"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
+  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %21) preSoftmaxOps = {
+  ^bb0(%arg5: memref<12x77x77xf16>, %arg6: memref<5929xf16>, %arg7: memref<12x77x77xf32>):
+    %22 = rock.transform %arg5 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<Unmerge{12} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
+    %23 = rock.transform %arg6 by <affine_map<(d0, d1, d2, d3) -> (d2 * 77 + d3)> by [<Unmerge{77, 77} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 77, 77] -> [5929]> : memref<5929xf16> to memref<1x1x77x77xf16>
+    %24 = rock.transform %23 by <affine_map<(d0, d1, d2, d3) -> (d0, 0, d2, d3)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 12, 77, 77] -> [1, 1, 77, 77]> : memref<1x1x77x77xf16> to memref<1x12x77x77xf16>
+    %25 = rock.transform %22 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    %26 = rock.transform %24 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    %alloc_0 = memref.alloc() : memref<12x77x77xf16>
+    %27 = rock.transform %alloc_0 by <affine_map<(d0, d1, d2, d3) -> (d0 * 12 + d1, d2, d3)> by [<Unmerge{1, 12} ["col0", "col1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
+    %28 = rock.transform %27 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{12} ["dim0"] at [0] -> ["exp1"] at [1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>, <ConstDim{0, 1} [] at [] -> ["unit0"] at [0]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%25, %26 : memref<12x77x77xf16>, memref<12x77x77xf16>) outs(%28 : memref<12x77x77xf16>) attrs =  {rock.majorTensorNumber = 0 : index} {
+    ^bb0(%in: f16, %in_2: f16, %out: f16):
+      %29 = arith.addf %in, %in_2 : f16
+      linalg.yield %29 : f16
+    }
+    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<12x77x77xf32>
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc_0 : memref<12x77x77xf16>) outs(%alloc_1 : memref<12x77x77xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
+    ^bb0(%in: f16, %out: f32):
+      %29 = arith.extf %in : f16 to f32
+      linalg.yield %29 : f32
+    }
+    memref.copy %alloc_1, %arg7 : memref<12x77x77xf32> to memref<12x77x77xf32>
+    rock.yield
+  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
+  memref.copy %alloc, %arg4 : memref<59136xf16> to memref<59136xf16>
+  return
+}
+
+// -----
+
+// CHECK-LABEL: @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween
+func.func @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<5929xf32>, %arg4: memref<59136xf16>, %arg5: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+  // CHECK: %[[GEMM0_BUFFER:.*]] =  rock.alloc() : memref<1xvector<16xf32>, #gpu.address_space<private>>
+  // CHECK: %[[GEMM0_BUFFER_FLAT:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+  // CHECK: rock.lds_barrier
+  // CHECK: %[[GEMM0_BUFFER_TRANS:.*]] = rock.transform %[[GEMM0_BUFFER]]
+  // CHECK-SAME: memref<1xvector<16xf32>, #gpu.address_space<private>> to memref<1x1xvector<16xf32>, #gpu.address_space<private>>
+  // CHECK: rock.threadwise_accel_gemm %[[GEMM0_BUFFER_TRANS]]
+  // CHECK: rock.transforming_for
+  // CHECK: rock.in_bounds_store
+  // CHECK-SAME: %[[GEMM0_BUFFER_FLAT]] 
+  // CHECK: %[[ARG2_BUFFER:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>> 
+  // CHECK: rock.threadwise_read_into 
+  // CHECK-SAME: (%arg2)
+  // CHECK-SAME: %[[ARG2_BUFFER]] : memref<5929xf16> -> memref<16xf16, #gpu.address_space<private>>
+  // CHECK: %[[GENOP_ALLOC0:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+  // CHECK: linalg.generic
+  // CHECK-SAME: ins(%[[GEMM0_BUFFER_FLAT]], %[[ARG2_BUFFER]] : memref<16xf16, #gpu.address_space<private>>, memref<16xf16, #gpu.address_space<private>>) outs(%[[GENOP_ALLOC0]] : memref<16xf16, #gpu.address_space<private>>)
+  // CHECK: %[[ARG3_BUFFER:.*]] = rock.alloc() : memref<16xf32, #gpu.address_space<private>> 
+  // CHECK: rock.threadwise_read_into
+  // CHECK-SAME: (%arg3)
+  // CHECK-SAME: %[[ARG3_BUFFER]] : memref<5929xf32> -> memref<16xf32, #gpu.address_space<private>>
+  // CHECK: %[[GENOP_ALLOC1:.*]] = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
+  // CHECK: linalg.generic
+  // CHECK-SAME: ins(%[[GENOP_ALLOC0]], %[[ARG3_BUFFER]] : memref<16xf16, #gpu.address_space<private>>, memref<16xf32, #gpu.address_space<private>>) outs(%[[GENOP_ALLOC1]] : memref<16xf32, #gpu.address_space<private>>)
+  // CHECK: rock.lds_barrier
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
+  %2 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
+  %3 = rock.transform %arg1 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %4 = rock.transform %3 by <affine_map<(d0, d1, d2, d3) -> (d2, d3, d0, d1)> by [<PassThrough ["dim2", "dim3", "dim0", "dim1"] at [0, 1, 2, 3] -> ["dim2", "dim3", "dim0", "dim1"] at [2, 3, 0, 1]>] bounds = [12, 64, 1, 77] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x64x1x77xf16>
+  %5 = rock.transform %4 by <affine_map<(d0, d1, d2) -> (d0, d1, 0, d2)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Merge{64, 1} ["dim1"] at [1] -> ["col1", "col2"] at [1, 2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 64, 77] -> [12, 64, 1, 77]> : memref<12x64x1x77xf16> to memref<12x64x77xf16>
+  %6 = rock.transform %arg5 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %7 = rock.transform %6 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
+  %8 = rock.transform %7 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
+  %alloc = memref.alloc() : memref<59136xf16>
+  %9 = rock.transform %alloc by <affine_map<(d0, d1, d2) -> ((d0 * 77 + d1) * 64 + d2)> by [<Unmerge{12, 77, 64} ["col0", "col1", "col2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [12, 77, 64] -> [59136]> : memref<59136xf16> to memref<12x77x64xf16>
+  %10 = rock.transform %2 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [77, 12, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<77x12x64xf16>
+  %11 = rock.transform %5 by <affine_map<(d0, d1, d2) -> (d1, d2, d0)> by [<PassThrough ["dim2", "dim0", "dim1"] at [0, 1, 2] -> ["dim2", "dim0", "dim1"] at [2, 0, 1]>] bounds = [77, 12, 64] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<77x12x64xf16>
+  %12 = rock.transform %8 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [77, 12, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<77x12x64xf16>
+  %13 = rock.transform %10 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %14 = rock.transform %11 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %15 = rock.transform %12 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %16 = rock.transform %13 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [12, 64, 77] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x64x77xf16>
+  %17 = rock.transform %14 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0N"] at [1, 2] -> ["gemm0K", "gemm0N"] at [2, 1]>] bounds = [12, 64, 77] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x64x77xf16>
+  %18 = rock.transform %16 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 19} ["gemm0NPad"] at [2] -> ["gemm0N"] at [2]>] bounds = [12, 64, 96] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<12x64x96xf16>
+  %19 = rock.transform %17 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 19} ["gemm0MPad"] at [2] -> ["gemm0M"] at [2]>] bounds = [12, 64, 96] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<12x64x96xf16>
+  %20 = rock.transform %15 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1KPad"] at [1] -> ["gemm1K"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
+  %21 = rock.transform %9 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1NPad"] at [1] -> ["gemm1N"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
+  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %arg3, %21) preSoftmaxOps = {
+  ^bb0(%arg6: memref<12x77x77xf16>, %arg7: memref<5929xf16>, %arg8: memref<5929xf32>, %arg9: memref<12x77x77xf32>):
+    %22 = rock.transform %arg6 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<Unmerge{12} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
+    %23 = rock.transform %arg7 by <affine_map<(d0, d1, d2, d3) -> (d2 * 77 + d3)> by [<Unmerge{77, 77} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 77, 77] -> [5929]> : memref<5929xf16> to memref<1x1x77x77xf16>
+    %24 = rock.transform %23 by <affine_map<(d0, d1, d2, d3) -> (d0, 0, d2, d3)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 12, 77, 77] -> [1, 1, 77, 77]> : memref<1x1x77x77xf16> to memref<1x12x77x77xf16>
+    %25 = rock.transform %22 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    %26 = rock.transform %24 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    %alloc_0 = memref.alloc() : memref<12x77x77xf16>
+    %27 = rock.transform %alloc_0 by <affine_map<(d0, d1, d2, d3) -> (d0 * 12 + d1, d2, d3)> by [<Unmerge{1, 12} ["col0", "col1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
+    %28 = rock.transform %27 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{12} ["dim0"] at [0] -> ["exp1"] at [1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>, <ConstDim{0, 1} [] at [] -> ["unit0"] at [0]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%25, %26 : memref<12x77x77xf16>, memref<12x77x77xf16>) outs(%28 : memref<12x77x77xf16>) attrs =  {rock.majorTensorNumber = 0 : index} {
+    ^bb0(%in: f16, %in_2: f16, %out: f16):
+      %29 = arith.addf %in, %in_2 : f16
+      linalg.yield %29 : f16
+    }
+    %30 = rock.transform %alloc_0 by <affine_map<(d0, d1, d2, d3) -> (d0 * 2 + d1, d2, d3)> by [<Unmerge{2, 6} ["dim0", "dim1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim2"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim3"] at [3] -> ["dim2"] at [2]>] bounds = [2, 6, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<2x6x77x77xf16>
+    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<2x6x77x77xf32>
+    %31 = rock.transform %arg8 by <affine_map<(d0, d1, d2, d3) -> (d2 * 77 + d3)> by [<Unmerge{77, 77} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 77, 77] -> [5929]> : memref<5929xf32> to memref<1x1x77x77xf32>
+    %32 = rock.transform %31 by <affine_map<(d0, d1, d2, d3) -> (d0, 0, d2, d3)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 12, 77, 77] -> [1, 1, 77, 77]> : memref<1x1x77x77xf32> to memref<1x12x77x77xf32>
+    %33 = rock.transform %32 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf32> to memref<12x77x77xf32>
+    %34 = rock.transform %33 by <affine_map<(d0, d1, d2, d3) -> (d0 * 2 + d1, d2, d3)> by [<Unmerge{2, 6} ["dim0", "dim1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [1]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [2]>] bounds = [2, 6, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf32> to memref<2x6x77x77xf32>
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%30, %34 : memref<2x6x77x77xf16>, memref<2x6x77x77xf32>) outs(%alloc_1 : memref<2x6x77x77xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
+    ^bb0(%in: f16, %in2 : f32, %out: f32):
+      %29 = arith.extf %in : f16 to f32
+      %mul = arith.mulf %29, %in2 :f32
+      linalg.yield %mul : f32
+    }
+    %35 = rock.transform %alloc_1 by <affine_map<(d0, d1, d2) -> (d0 floordiv 6, d0 mod 6, d1, d2)> by [<Merge{2, 6} ["dim0"] at [0] -> ["dim0", "dim1"] at [0, 1]>, <PassThrough ["dim2"] at [1] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [2] -> ["dim3"] at [3]>] bounds = [12, 77, 77] -> [2, 6, 77, 77]> : memref<2x6x77x77xf32> to memref<12x77x77xf32>
+    memref.copy %35, %arg9 : memref<12x77x77xf32> to memref<12x77x77xf32>
+    rock.yield
+  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<5929xf32>, memref<12x96x64xf16>
+  memref.copy %alloc, %arg5 : memref<59136xf16> to memref<59136xf16>
+  return
+}
+
+// -----
+
+func.func @non_invertible_transformations_while_regularizing(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
+  %2 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
+  %3 = rock.transform %arg1 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %4 = rock.transform %3 by <affine_map<(d0, d1, d2, d3) -> (d2, d3, d0, d1)> by [<PassThrough ["dim2", "dim3", "dim0", "dim1"] at [0, 1, 2, 3] -> ["dim2", "dim3", "dim0", "dim1"] at [2, 3, 0, 1]>] bounds = [12, 64, 1, 77] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x64x1x77xf16>
+  %5 = rock.transform %4 by <affine_map<(d0, d1, d2) -> (d0, d1, 0, d2)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Merge{64, 1} ["dim1"] at [1] -> ["col1", "col2"] at [1, 2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 64, 77] -> [12, 64, 1, 77]> : memref<12x64x1x77xf16> to memref<12x64x77xf16>
+  %6 = rock.transform %arg3 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %7 = rock.transform %6 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
+  %8 = rock.transform %7 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
+  %alloc = memref.alloc() : memref<59136xf16>
+  %9 = rock.transform %alloc by <affine_map<(d0, d1, d2) -> ((d0 * 77 + d1) * 64 + d2)> by [<Unmerge{12, 77, 64} ["col0", "col1", "col2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [12, 77, 64] -> [59136]> : memref<59136xf16> to memref<12x77x64xf16>
+  %10 = rock.transform %2 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [77, 12, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<77x12x64xf16>
+  %11 = rock.transform %5 by <affine_map<(d0, d1, d2) -> (d1, d2, d0)> by [<PassThrough ["dim2", "dim0", "dim1"] at [0, 1, 2] -> ["dim2", "dim0", "dim1"] at [2, 0, 1]>] bounds = [77, 12, 64] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<77x12x64xf16>
+  %12 = rock.transform %8 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [77, 12, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<77x12x64xf16>
+  %13 = rock.transform %10 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %14 = rock.transform %11 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %15 = rock.transform %12 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %16 = rock.transform %13 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [12, 64, 77] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x64x77xf16>
+  %17 = rock.transform %14 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0N"] at [1, 2] -> ["gemm0K", "gemm0N"] at [2, 1]>] bounds = [12, 64, 77] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x64x77xf16>
+  %18 = rock.transform %16 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 19} ["gemm0NPad"] at [2] -> ["gemm0N"] at [2]>] bounds = [12, 64, 96] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<12x64x96xf16>
+  %19 = rock.transform %17 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 19} ["gemm0MPad"] at [2] -> ["gemm0M"] at [2]>] bounds = [12, 64, 96] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<12x64x96xf16>
+  %20 = rock.transform %15 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1KPad"] at [1] -> ["gemm1K"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
+  %21 = rock.transform %9 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1NPad"] at [1] -> ["gemm1N"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
+  // expected-error @below {{pre softmax linalg regularization failed}}
+  // expected-error @below {{post processing first gemm failed.}}
+  // expected-error @below {{failed to legalize operation 'rock.gridwise_attention_accel' that was explicitly marked illegal}}
+  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %21) preSoftmaxOps = {
+  ^bb0(%arg5: memref<12x77x77xf16>, %arg6: memref<5929xf16>, %arg7: memref<12x77x77xf32>):
+    %22 = rock.transform %arg5 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<Unmerge{12} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
+    %23 = rock.transform %arg6 by <affine_map<(d0, d1, d2, d3) -> (d2 * 77 + d3)> by [<Unmerge{77, 77} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 77, 77] -> [5929]> : memref<5929xf16> to memref<1x1x77x77xf16>
+    %24 = rock.transform %23 by <affine_map<(d0, d1, d2, d3) -> (d0, 0, d2, d3)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 12, 77, 77] -> [1, 1, 77, 77]> : memref<1x1x77x77xf16> to memref<1x12x77x77xf16>
+    %25 = rock.transform %22 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    %26 = rock.transform %24 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    %alloc_0 = memref.alloc() : memref<12x77x77xf16>
+    %27 = rock.transform %alloc_0 by <affine_map<(d0, d1, d2, d3) -> (d0 * 12 + d1, d2, d3)> by [<Unmerge{1, 12} ["col0", "col1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
+    %28 = rock.transform %27 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{12} ["dim0"] at [0] -> ["exp1"] at [1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>, <ConstDim{0, 1} [] at [] -> ["unit0"] at [0]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%25, %26 : memref<12x77x77xf16>, memref<12x77x77xf16>) outs(%28 : memref<12x77x77xf16>) attrs =  {rock.majorTensorNumber = 0 : index} {
+    ^bb0(%in: f16, %in_2: f16, %out: f16):
+      %29 = arith.addf %in, %in_2 : f16
+      linalg.yield %29 : f16
+    }
+    %30 = rock.transform %alloc_0 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<Slice{0, 6} ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>] bounds = [6, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<6x77x77xf16>
+    %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<6x77x77xf32>
+    // expected-error @below {{We can't invert linalg input to gemmOutput maps}}
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%30 : memref<6x77x77xf16>) outs(%alloc_1 : memref<6x77x77xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
+    ^bb0(%in: f16, %out: f32):
+      %29 = arith.extf %in : f16 to f32
+      linalg.yield %29 : f32
+    }
+    %31 = rock.transform %alloc_1 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<AddDim{2} ["unit0"] at [0] -> [] at []>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [0]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [1]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [2]>] bounds = [2, 6, 77, 77] -> [6, 77, 77]> : memref<6x77x77xf32> to memref<2x6x77x77xf32>
+    %32 = rock.transform %31 by <affine_map<(d0, d1, d2) -> (d0 floordiv 6, d0 mod 6, d1, d2)> by [<Merge{2, 6} ["dim0"] at [0] -> ["dim0", "dim1"] at [0, 1]>, <PassThrough ["dim2"] at [1] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [2] -> ["dim3"] at [3]>] bounds = [12, 77, 77] -> [2, 6, 77, 77]> : memref<2x6x77x77xf32> to memref<12x77x77xf32>
+    memref.copy %32, %arg7 : memref<12x77x77xf32> to memref<12x77x77xf32>
+    rock.yield
+  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
+  memref.copy %alloc, %arg4 : memref<59136xf16> to memref<59136xf16>
+  return
+}
+
+// -----
+
+func.func @multiple_outputs_linalg_while_regularizing(%arg0: memref<59136xf16>, %arg1: memref<59136xf16>, %arg2: memref<5929xf16>, %arg3: memref<59136xf16>, %arg4: memref<59136xf16>) attributes {arch = "gfx942", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, grid_size = 36 : i32, kernel} {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
+  %2 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
+  %3 = rock.transform %arg1 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %4 = rock.transform %3 by <affine_map<(d0, d1, d2, d3) -> (d2, d3, d0, d1)> by [<PassThrough ["dim2", "dim3", "dim0", "dim1"] at [0, 1, 2, 3] -> ["dim2", "dim3", "dim0", "dim1"] at [2, 3, 0, 1]>] bounds = [12, 64, 1, 77] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x64x1x77xf16>
+  %5 = rock.transform %4 by <affine_map<(d0, d1, d2) -> (d0, d1, 0, d2)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Merge{64, 1} ["dim1"] at [1] -> ["col1", "col2"] at [1, 2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 64, 77] -> [12, 64, 1, 77]> : memref<12x64x1x77xf16> to memref<12x64x77xf16>
+  %6 = rock.transform %arg3 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 12 + d2) * 64 + d3)> by [<Unmerge{77, 12, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 77, 12, 64] -> [59136]> : memref<59136xf16> to memref<1x77x12x64xf16>
+  %7 = rock.transform %6 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)> by [<PassThrough ["dim2", "dim0", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim2", "dim0", "dim1", "dim3"] at [2, 0, 1, 3]>] bounds = [12, 1, 77, 64] -> [1, 77, 12, 64]> : memref<1x77x12x64xf16> to memref<12x1x77x64xf16>
+  %8 = rock.transform %7 by <affine_map<(d0, d1, d2) -> (d0, 0, d1, d2)> by [<Merge{12, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 64] -> [12, 1, 77, 64]> : memref<12x1x77x64xf16> to memref<12x77x64xf16>
+  %alloc = memref.alloc() : memref<59136xf16>
+  %9 = rock.transform %alloc by <affine_map<(d0, d1, d2) -> ((d0 * 77 + d1) * 64 + d2)> by [<Unmerge{12, 77, 64} ["col0", "col1", "col2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [12, 77, 64] -> [59136]> : memref<59136xf16> to memref<12x77x64xf16>
+  %10 = rock.transform %2 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [77, 12, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<77x12x64xf16>
+  %11 = rock.transform %5 by <affine_map<(d0, d1, d2) -> (d1, d2, d0)> by [<PassThrough ["dim2", "dim0", "dim1"] at [0, 1, 2] -> ["dim2", "dim0", "dim1"] at [2, 0, 1]>] bounds = [77, 12, 64] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<77x12x64xf16>
+  %12 = rock.transform %8 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [77, 12, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<77x12x64xf16>
+  %13 = rock.transform %10 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %14 = rock.transform %11 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %15 = rock.transform %12 by <affine_map<(d0, d1, d2) -> (d1, d0, d2)> by [<PassThrough ["dim1", "dim0", "dim2"] at [0, 1, 2] -> ["dim1", "dim0", "dim2"] at [1, 0, 2]>] bounds = [12, 77, 64] -> [77, 12, 64]> : memref<77x12x64xf16> to memref<12x77x64xf16>
+  %16 = rock.transform %13 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [12, 64, 77] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x64x77xf16>
+  %17 = rock.transform %14 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0N"] at [1, 2] -> ["gemm0K", "gemm0N"] at [2, 1]>] bounds = [12, 64, 77] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x64x77xf16>
+  %18 = rock.transform %16 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 19} ["gemm0NPad"] at [2] -> ["gemm0N"] at [2]>] bounds = [12, 64, 96] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<12x64x96xf16>
+  %19 = rock.transform %17 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 19} ["gemm0MPad"] at [2] -> ["gemm0M"] at [2]>] bounds = [12, 64, 96] -> [12, 64, 77]> : memref<12x64x77xf16> to memref<12x64x96xf16>
+  %20 = rock.transform %15 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1KPad"] at [1] -> ["gemm1K"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
+  %21 = rock.transform %9 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 19} ["gemm1NPad"] at [1] -> ["gemm1N"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [12, 96, 64] -> [12, 77, 64]> : memref<12x77x64xf16> to memref<12x96x64xf16>
+  // expected-error @below {{pre softmax linalg regularization failed}}
+  // expected-error @below {{post processing first gemm failed.}}
+  // expected-error @below {{failed to legalize operation 'rock.gridwise_attention_accel' that was explicitly marked illegal}}
+  rock.gridwise_attention_accel(%18, %19, %20, %arg2, %21) preSoftmaxOps = {
+  ^bb0(%arg5: memref<12x77x77xf16>, %arg6: memref<5929xf16>, %arg7: memref<12x77x77xf32>):
+    %22 = rock.transform %arg5 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<Unmerge{12} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
+    %23 = rock.transform %arg6 by <affine_map<(d0, d1, d2, d3) -> (d2 * 77 + d3)> by [<Unmerge{77, 77} ["exp2", "exp3"] at [2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit1"] at [1] -> [] at []>] bounds = [1, 1, 77, 77] -> [5929]> : memref<5929xf16> to memref<1x1x77x77xf16>
+    %24 = rock.transform %23 by <affine_map<(d0, d1, d2, d3) -> (d0, 0, d2, d3)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <Broadcast{1} ["dim1"] at [1] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 12, 77, 77] -> [1, 1, 77, 77]> : memref<1x1x77x77xf16> to memref<1x12x77x77xf16>
+    %25 = rock.transform %22 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    %26 = rock.transform %24 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 12} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    %alloc_0 = memref.alloc() : memref<12x77x77xf16>
+    %alloc_1 = memref.alloc() : memref<12x77x77xf16>
+    %27 = rock.transform %alloc_0 by <affine_map<(d0, d1, d2, d3) -> (d0 * 12 + d1, d2, d3)> by [<Unmerge{1, 12} ["col0", "col1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>] bounds = [1, 12, 77, 77] -> [12, 77, 77]> : memref<12x77x77xf16> to memref<1x12x77x77xf16>
+    %28 = rock.transform %27 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{12} ["dim0"] at [0] -> ["exp1"] at [1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>, <ConstDim{0, 1} [] at [] -> ["unit0"] at [0]>] bounds = [12, 77, 77] -> [1, 12, 77, 77]> : memref<1x12x77x77xf16> to memref<12x77x77xf16>
+    // expected-error @below {{Only 1 output supported}}
+    // expected-error @below {{Failed to make linalg generic with identity affine maps}}
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%25, %26 : memref<12x77x77xf16>, memref<12x77x77xf16>) outs(%28, %alloc_1 : memref<12x77x77xf16>, memref<12x77x77xf16>) attrs =  {rock.majorTensorNumber = 0 : index} {
+    ^bb0(%in: f16, %in_2: f16, %out1: f16, %out2: f16):
+      %29 = arith.addf %in, %in_2 : f16
+      %30 = arith.mulf %29, %in_2 : f16
+      linalg.yield %29, %30 : f16, f16
+    }
+    %alloc_2 = memref.alloc() {alignment = 64 : i64} : memref<12x77x77xf32>
+    linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1, d2)>], iterator_types = ["parallel", "parallel", "parallel"]} ins(%alloc_0, %alloc_1 : memref<12x77x77xf16>, memref<12x77x77xf16>) outs(%alloc_2 : memref<12x77x77xf32>) attrs =  {rock.majorTensorNumber = 0 : index} {
+    ^bb0(%in: f16, %in2 : f16, %out: f32):
+      %29 = arith.extf %in : f16 to f32
+      %30 = arith.extf %in2 : f16 to f32
+      %31 = arith.mulf %29, %30 : f32
+      linalg.yield %31 : f32
+    }
+    memref.copy %alloc_2, %arg7 : memref<12x77x77xf32> to memref<12x77x77xf32>
+    rock.yield
+  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
+  memref.copy %alloc, %arg4 : memref<59136xf16> to memref<59136xf16>
   return
 }
 
@@ -595,7 +881,7 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1844(%arg0: memref<3276
   %4 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 128, 256] -> [1, 256, 128]> : memref<1x256x128xf16> to memref<1x128x256xf16>
   %5 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0N"] at [1, 2] -> ["gemm0K", "gemm0N"] at [2, 1]>] bounds = [1, 128, 256] -> [1, 256, 128]> : memref<1x256x128xf16> to memref<1x128x256xf16>
   rock.gridwise_attention_accel(%4, %5, %2, %3) preSoftmaxOps = {
-  } {blockSize = 256 : i32, enableSoftmax = false, firstGemmIdx = 0 : i32, gridSize = 2 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x256xf16>, memref<1x128x256xf16>, memref<1x256x128xf16>, memref<1x256x128xf16>
+  } {blockSize = 256 : i32, enableSoftmax = false, firstGemmIndices = array<i64: 0>, gridSize = 2 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x256xf16>, memref<1x128x256xf16>, memref<1x256x128xf16>, memref<1x256x128xf16>
   return
 }
 
@@ -619,7 +905,7 @@ func.func @gridwise_attn_barriers_before_lds_write_nobarriers(%arg0: memref<1638
   %4 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 128, 128] -> [1, 128, 128]> : memref<1x128x128xf16> to memref<1x128x128xf16>
   %5 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0N"] at [1, 2] -> ["gemm0K", "gemm0N"] at [2, 1]>] bounds = [1, 128, 128] -> [1, 128, 128]> : memref<1x128x128xf16> to memref<1x128x128xf16>
   rock.gridwise_attention_accel(%4, %5, %2, %3) preSoftmaxOps = {
-  } {blockSize = 256 : i32, enableSoftmax = false, firstGemmIdx = 0 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>
+  } {blockSize = 256 : i32, enableSoftmax = false, firstGemmIndices = array<i64: 0>, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>
   return
 }
 
@@ -642,6 +928,6 @@ func.func @gridwise_attn_barriers_before_lds_write_nofallback_barrier(%arg0: mem
   %4 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 256, 128] -> [1, 128, 256]> : memref<1x128x256xf16> to memref<1x256x128xf16>
   %5 = rock.transform %1 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0N"] at [1, 2] -> ["gemm0K", "gemm0N"] at [2, 1]>] bounds = [1, 256, 128] -> [1, 128, 256]> : memref<1x128x256xf16> to memref<1x256x128xf16>
   rock.gridwise_attention_accel(%4, %5, %2, %3) preSoftmaxOps = {
-  } {blockSize = 256 : i32, enableSoftmax = false, firstGemmIdx = 0 : i32, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x256x128xf16>, memref<1x256x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>
+  } {blockSize = 256 : i32, enableSoftmax = false, firstGemmIndices = array<i64: 0>, gridSize = 1 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 128, nPerBlock = 128, kpack = 4, mPerWave = 128, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x256x128xf16>, memref<1x256x128xf16>, memref<1x128x128xf16>, memref<1x128x128xf16>
   return
 }
