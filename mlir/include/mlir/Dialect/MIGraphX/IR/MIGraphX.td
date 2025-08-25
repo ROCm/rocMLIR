@@ -345,9 +345,10 @@ def MIGraphX_ConvolutionBwdDataOp :
                         [F32, F16, BF16]> {
   let summary = "Backwards data convolution";
   let description = [{
-    The `migraphx.backwards_data_convolution` op computes a convolution
-    operation where the output shape is larger than the input shape
-    and thus requires upsampling.
+    The `migraphx.backwards_data_convolution` op computes a transposed
+    convolution op which effectively reverses a standard convolution's
+    spatial transformation. It is an upsampling technique that increases
+    the height and width of an input feature map. 
   }];
 }
 
