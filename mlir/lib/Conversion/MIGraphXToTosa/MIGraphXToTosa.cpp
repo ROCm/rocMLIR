@@ -245,7 +245,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   auto outputTy = cast<MIXRShapedType>(results[0].getType());
   Type outElementTy = outputTy.getElementType();
   Type newOutElementTy = getTypeConverter()->convertType(outElementTy);
-  bool isBwdConvOp = isa<migraphx::ConvolutionBwdDataOp>(op);
+  bool isBwdDataConvOp = isa<migraphx::ConvolutionBwdDataOp>(op);
 
   if (outElementTy.isUnsignedInteger())
     return op.emitError("No support for unsigned convolution.\n");
@@ -301,7 +301,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
 
-    if (isBwdConvOp) {
+    if (isBwdDataConvOp) {
       cop = rewriter.create<tosa::TransposeConv2DOp>(
           loc, new1DOutTy,
           ValueRange{
@@ -327,7 +327,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
-    if (isBwdConvOp) {
+    if (isBwdDataConvOp) {
       cop = rewriter.create<tosa::TransposeConv2DOp>(
           loc, newOutTy,
           ValueRange{
@@ -348,7 +348,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     }
     break;
   case 3:
-    if (isBwdConvOp)
+    if (isBwdDataConvOp)
       return op->emitError("Only 1-D and 2-D backwards convolution ops are "
                            "supported");
 
@@ -423,7 +423,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   // applies to input padding (which transpose.conv2D does not inherently
   // support). TransposeConv2D will still require an output pad attribute, so we
   // can just set that to zeros
-  if (isBwdConvOp) {
+  if (isBwdDataConvOp) {
     SmallVector<int64_t> zeroPads(pads.size(), 0);
     cop->setAttr("out_pad", rewriter.getDenseI64ArrayAttr(zeroPads));
   }

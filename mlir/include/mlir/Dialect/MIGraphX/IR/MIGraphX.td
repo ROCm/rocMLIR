@@ -345,9 +345,9 @@ def MIGraphX_ConvolutionBwdDataOp :
                         [F32, F16, BF16]> {
   let summary = "Backwards data convolution";
   let description = [{
-    The `migraphx.backwards_data_convolution` op computes gradients with
-    respect to the input tensor during back propagation, or can be used in
-    forward passes to do upsampling.
+    The `migraphx.backwards_data_convolution` op computes a convolution
+    operation where the output shape is larger than the input shape
+    and thus requires upsampling.
   }];
 }
 
