@@ -49,7 +49,7 @@ ConvGenerator::ConvGenerator(
     ArrayRef<int> strides, ArrayRef<int> paddingLeft,
     ArrayRef<int> paddingRight, const std::string &filterLayout,
     const std::string &inputLayout, const std::string &outputLayout,
-    const std::string &kernelBaseName)
+    const bool usesV4R1, const std::string &kernelBaseName)
     : config{arch,
              chip,
              disableSplitKForTuning,
@@ -71,6 +71,7 @@ ConvGenerator::ConvGenerator(
              filterLayout,
              inputLayout,
              outputLayout,
+             usesV4R1,
              kernelBaseName,
              -1,
              {},
@@ -308,7 +309,7 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
 
 int ConvGenerator::getBwdDataKernelCount() const {
   llvm::SmallVector<int64_t> gemmIds = backwardDataKernelIds(
-      config.strideDims, config.dilationDims, config.filterDims);
+      config.strideDims, config.dilationDims, config.filterDims, config.usesV4R1);
   return static_cast<int>(gemmIds.size());
 }
 
@@ -502,6 +503,12 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
     }
   };
 
+  auto strToBool = [&argMap](const std::string &key, bool &setting) {
+    if (argMap.find(key) != argMap.end()) {
+      setting = (argMap[key] == "true");
+    }
+  };
+  
   std::string arch;
   strToStr("arch", arch);
   RocmDeviceName splitter;
@@ -517,6 +524,10 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   config.chip = splitter.getChip().str();
   config.chipFeatures = splitter.getFeaturesForBackend();
   config.triple = splitter.getTriple().str();
+  
+  bool usesV4R1Config = true;
+  strToBool("usesV4R1", usesV4R1Config);
+  config.usesV4R1 = usesV4R1Config;
 
   FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(config.chip);
   if (failed(maybeChipset)) {
@@ -882,7 +893,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // 0-indexed kernel ID.
   if (config.operation.value() == ConvOpType::BwdData) {
     llvm::SmallVector<int64_t> kernelIds = backwardDataKernelIds(
-        config.strideDims, config.dilationDims, config.filterDims);
+        config.strideDims, config.dilationDims, config.filterDims,
+        config.usesV4R1);
     assert(kernelIds.size() > static_cast<size_t>(rawKernelId));
     kernelId = kernelIds[rawKernelId];
   }

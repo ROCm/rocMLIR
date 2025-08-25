@@ -123,7 +123,8 @@ LogicalResult calculateKBlockNum(const int64_t batchSize,
 /// would be placed in the front of the vector.
 SmallVector<int64_t> backwardDataKernelIds(ArrayRef<int64_t> strideDims,
                                            ArrayRef<int64_t> dilationDims,
-                                           ArrayRef<int64_t> filterDims);
+                                           ArrayRef<int64_t> filterDims,
+                                           bool usesV4R1);
 
 /// Return a vector type of length `len` if `len` is more than 1, otherwise,
 /// return `type`.

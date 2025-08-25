@@ -107,7 +107,8 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
 SmallVector<int64_t>
 mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
                                   ArrayRef<int64_t> dilationDims,
-                                  ArrayRef<int64_t> filterDims) {
+                                  ArrayRef<int64_t> filterDims,
+                                  bool usesV4R1) {
   assert(strideDims.size() == dilationDims.size());
   SmallVector<int64_t, 5> gcdStrideDilations;
   for (const auto &[stride, dilation] : zip(strideDims, dilationDims))
@@ -133,6 +134,13 @@ mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
   llvm::SmallVector<int64_t> kernelIds;
   if (needZeroInitKernel)
     kernelIds.push_back(-1);
+
+  // If we are not using the V4R1 algorithm then we will only need a single
+  // kernel for compute
+  if (!usesV4R1) {
+    kernelIds.push_back(0);
+    return kernelIds;
+  }
 
   // Populate the kernel IDs according to the current backward data convolution
   // algorithm implementation.

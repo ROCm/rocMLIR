@@ -1,6 +1,8 @@
-// RUN: rocmlir-gen --arch gfx906  -fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=3 -fil_w=3 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1 --operation=conv_bwd_data | rocmlir-opt -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STRIDE2
+// RUN: rocmlir-gen --arch gfx906  -fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=3 -fil_w=3 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1 --operation=conv_bwd_data -v4r1 1 | rocmlir-opt -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STRIDE2
+// RUN: rocmlir-gen --arch gfx906  -fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=3 -fil_w=3 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1 --operation=conv_bwd_data -v4r1 0 | rocmlir-opt -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STRIDE2_NO_V4R1
 
-// RUN: rocmlir-gen --arch gfx906 -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=3 -fil_w=3 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1  --operation=conv_bwd_data | rocmlir-opt -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STRIDE2_GKYXC
+// RUN: rocmlir-gen --arch gfx906 -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=3 -fil_w=3 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1  --operation=conv_bwd_data -v4r1 1 | rocmlir-opt -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STRIDE2_GKYXC
+// RUN: rocmlir-gen --arch gfx906 -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=3 -fil_w=3 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1  --operation=conv_bwd_data -v4r1 0 | rocmlir-opt -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STRIDE2_GKYXC_NO_V4R1
 
 // This config requires a zero initialization utility kernel.
 // Check at the top-level there is a utility kernel.
@@ -13,10 +15,14 @@
 // STRIDE2: {{rock.gemm.*kernelId = 2 : index.*}}
 // STRIDE2: {{rock.gemm.*kernelId = 3 : index.*}}
 
+// STRIDE2_NO_V4R1: {{rock.gemm.*kernelId = 0 : index.*}} 
+
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 0 : index.*}}
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 1 : index.*}}
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 2 : index.*}}
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 3 : index.*}}
+
+// STRIDE2_GKYXC_NO_V4R1: {{rock.gemm.*kernelId = 0 : index.*}}
 
 // STRIDE2_1x1_TOP_LEVEL: rock.init_kernel %arg1 features = {{.*}} : memref<200704xf32>
 // STRIDE2_1x1_TOP_LEVEL: [[exp0:%.+]] = rock.transform %arg0 by {{.*}} : memref<1024xf32> to memref<1x32x32x1x1xf32>

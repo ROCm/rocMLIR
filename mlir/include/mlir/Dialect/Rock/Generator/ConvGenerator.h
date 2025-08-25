@@ -51,15 +51,13 @@ public:
     std::string filterLayout;
     std::string inputLayout;
     std::string outputLayout;
+    bool usesV4R1;
 
     std::string kernelBaseName;
-
     int kernelId;
-
     SmallVector<int64_t, 5> filterDimension;
     SmallVector<int64_t, 5> inputDimension;
     SmallVector<int64_t, 5> outputDimension;
-
     SmallVector<int64_t, 4> filterDims;
   };
 
@@ -79,6 +77,7 @@ public:
       const std::string &filterLayout = "kcyx",
       const std::string &inputLayout = "nchw",
       const std::string &outputLayout = "nkhw",
+      const bool usesV4R1 = false,
       const std::string &kernelBaseName = "");
 
   ConvGenerator(const Config &_config);
