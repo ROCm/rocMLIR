@@ -62,12 +62,13 @@ class TensorOrMemRefOf<list<Type> allowedTypes> :
 
 class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayMinCount<n>]>;
 
-class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
-    Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
-                       DeclareOpInterfaceMethods<RockConvInterface>,
-                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                       DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-                       RockFusionRoot]>{
+class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes = [F32, F16, BF16],
+                      list<Type> outputTypes = [F32, F16, BF16]>
+    : Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
+                         DeclareOpInterfaceMethods<RockConvInterface>,
+                         DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                         DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+                         RockFusionRoot]> {
   dag commonConvArgs = (ins TensorOrMemRefOf<inputTypes>:$filter,
       TensorOrMemRefOf<inputTypes>:$input,
       TensorOrMemRefOf<outputTypes>:$output,
@@ -496,9 +497,9 @@ def Rock_TensorUntransformCastOp :
 }
 
 def Rock_GridwiseGemmOp
-    : Rock_Op<"gridwise_gemm",
-              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               RockFusionRoot]>,
+    : Rock_Op<"gridwise_gemm", [DeclareOpInterfaceMethods<
+                                    RockGemmFeaturesInterface>,
+                                RockFusionRoot]>,
       Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>,
                          "matrix A view", [MemRead]>:$a,
           Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
@@ -519,9 +520,9 @@ def Rock_GridwiseGemmOp
 
 // gridwise_gemm_accel
 def Rock_GridwiseGemmAccelOp
-    : Rock_Op<"gridwise_gemm_accel",
-              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               RockFusionRoot]>,
+    : Rock_Op<"gridwise_gemm_accel", [DeclareOpInterfaceMethods<
+                                          RockGemmFeaturesInterface>,
+                                      RockFusionRoot]>,
       Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>,
                          "matrix A view", [MemRead]>:$a,
           Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
@@ -545,7 +546,8 @@ def Rock_GridwiseAttentionAccelOp
     : Rock_Op<"gridwise_attention_accel",
               [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               RockFusionRoot, AttrSizedOperandSegments,]>,
+               RockFusionRoot, AttrSizedOperandSegments,
+]>,
       Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
           MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
           MemRefRankOf<[F32, F16, BF16], [3]>:$values,
@@ -1360,8 +1362,8 @@ defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF
 
 // blockwise_gemm_accel
 def Rock_BlockwiseGemmAccelOp
-    : Rock_Op<"blockwise_gemm_accel",
-              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>]>,
+    : Rock_Op<"blockwise_gemm_accel", [DeclareOpInterfaceMethods<
+                                          RockGemmFeaturesInterface>]>,
       Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
           MemRefOf<LdsBufferTypes>:$matrixB, I32Attr:$inMPerThread,
           I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
@@ -1409,8 +1411,8 @@ def Rock_ThreadwiseGemmOp:
 }
 // threadwise_accel_gemm
 def Rock_ThreadwiseAccelGemmOp
-    : Rock_Op<"threadwise_accel_gemm",
-              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>]>,
+    : Rock_Op<"threadwise_accel_gemm", [DeclareOpInterfaceMethods<
+                                           RockGemmFeaturesInterface>]>,
       Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
                          "source register view A", [MemRead]>:$matrixA,
           Arg<MemRefOf<NativeMemoryOpTypes>,
