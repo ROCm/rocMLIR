@@ -88,7 +88,7 @@ def advancedNodeCheck(Map params) {
                 def n = sh(script: "lspci | grep -e 'controller' -e 'accelerators' | grep 'AMD/ATI' | wc -l",
                            returnStdout: true).trim().toInteger()
                 if (n == 0) {
-                    throw NodeCheckFailedException.newInstance("No GPUs detected on ${env.NODE_NAME}")
+                    error "No GPUs detected on ${env.NODE_NAME}"
                 }
                 echo "Number of GPUs on ${env.NODE_NAME}: ${n}"
             }
@@ -304,6 +304,7 @@ void setHeartbeat() {
 
 String getLabelFromCodepath(String codepath) {
     echo "codepath is ${codepath}"
+    String label
     if (codepath == "mfma") {
         label = 'mlir && (gfx950 || gfx942 || gfx908 || gfx90a)'
     } else if (codepath == "navi21") {
