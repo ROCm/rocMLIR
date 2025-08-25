@@ -85,10 +85,7 @@ static bool testReduceFusible(MlirContext ctx) {
   // Clean up
   mlirModuleDestroy(moduleOp);
 
-  if (!isFusible)
-    return true;
-
-  return false;
+  return !isFusible;
 }
 int main(int argc, char *argv[]) {
   // Create MLIR context and register dialects
