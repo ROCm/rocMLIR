@@ -2,10 +2,8 @@
 // having GemmFeatures set on the func
 
 // clang-format off
-// RUN: mlir-reduce-fusible-test 2>&1 | FileCheck %s --check-prefix=REDUCE_FUSIBLE
+// RUN: mlir-reduce-fusible-test
 // clang-format on
-
-// REDUCE_FUSIBLE: is fusible: 0
 
 #include "mlir-c/Dialect/Rock.h"
 #include "mlir-c/RegisterRocMLIR.h"
@@ -83,12 +81,14 @@ static bool testReduceFusible(MlirContext ctx) {
 
   // Test whether the module is fusible
   const bool isFusible = mlirIsModuleFusible(moduleOp, perfStr);
-  std::cout << "is fusible: " << isFusible << std::endl;
-
+ 
   // Clean up
   mlirModuleDestroy(moduleOp);
 
-  return true;
+  if (!isFusible)
+    return true;
+
+  return false;
 }
 int main(int argc, char *argv[]) {
   // Create MLIR context and register dialects
@@ -107,7 +107,7 @@ int main(int argc, char *argv[]) {
   mlirContextDestroy(ctx);
 
   if (!isOk) {
-    printf("FAILED!\n");
+    std::cout << "FAILED!" << std::endl;
     return 1;
   }
 
