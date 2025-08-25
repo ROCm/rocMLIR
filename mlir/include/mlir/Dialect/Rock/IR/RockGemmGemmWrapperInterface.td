@@ -226,25 +226,32 @@ def RockGemmGemmWrapperInterface : OpInterface<"RockGemmGemmWrapperInterface"> {
         }]
       >,
     InterfaceMethod<
-        /*desc=*/[{
-          Return the index of the elementwise region argument that comes from the first GEMM.
-        }],
-        /*retType=*/"uint32_t",
-        /*methodName=*/"getFirstGemmIndex",
-        /*args=*/(ins),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/ ""
-      >,
+      /*desc=*/[{
+        Output of the first GEMM feeds into elementwise region that comes after it. 
+        Those elementwise regions can have one argument that is dependent on the first GEMM.
+        This method returns the indices of that argument for each elementwise region in the order 
+        they appear after the first GEMM.
+      }],
+      /*retType=*/"ArrayRef<int64_t>",
+      /*methodName=*/"getFirstGemmIndices",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return $_op.getFirstGemmIndices();
+      }]
+    >, 
     InterfaceMethod<
-        /*desc=*/[{
-          Set the index of the elementwise region argument that comes from the first GEMM.
-        }],
-        /*retType=*/"void",
-        /*methodName=*/"setFirstGemmIndex",
-        /*args=*/(ins "uint32_t":$index),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/ ""
-      >,
+      /*desc=*/[{
+        Set the indices of the first GEMM dependent arguments for the elementwise regions that come after it.
+      }],
+      /*retType=*/"void",
+      /*methodName=*/"setFirstGemmIndices",
+      /*args=*/(ins "ArrayRef<int64_t>":$indices),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+      $_op.setFirstGemmIndices(indices);
+      }]
+    >, 
     InterfaceMethod<
         /*desc=*/[{
           Return the region corresponding to the fusion between first and second GEMM.
