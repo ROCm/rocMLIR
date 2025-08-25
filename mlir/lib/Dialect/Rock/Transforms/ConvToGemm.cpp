@@ -1347,7 +1347,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   // - Part 2: Merge ci, y, x dimensions to dimension 2, name it as gemmN.
   //
   // For ConvBwdDataOp:
-  // - Part 1: ci, y, x dimensions to dimension 1, name it as gemmK.
+  // - Part 1: ci, y, x dimensions to dimension 1, name it as gemmM.
   // - Part 2: ni, ho, wo dimensions to dimension 2, name it as gemmN.
 
   auto gemmInputTransform =

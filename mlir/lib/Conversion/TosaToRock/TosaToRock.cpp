@@ -318,7 +318,7 @@ static FailureOr<rock::RockConvInterface>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              Value filter, Value output, DenseI64ArrayAttr pad,
              DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group, int64_t kernelID, bool usesV4R1,
+             int64_t group, int64_t kernelID,
              std::string convKind) {
   Location loc = op->getLoc();
   ConvFields convFields =
@@ -334,9 +334,10 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
         /*gridSize=*/nullptr, convFields.pad, convFields.stride,
         convFields.dilation,
         /*params=*/nullptr, rw.getI64IntegerAttr(kernelID),
-        rw.getBoolAttr(usesV4R1));
+        /*usesV4R1=*/rw.getBoolAttr(false));
   } else {
     // Handle forwards convolution
+    assert(convKind != "bwd_weight" && "bwd_weight currently not implemented");
     cop = rw.create<rock::ConvOp>(
         loc, convFields.outputExp.getType(), convFields.filterExp,
         convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
@@ -679,8 +680,7 @@ public:
 
     FailureOr<rock::RockConvInterface> rockConv =
         makeRockConv(rw, op, input, filter, output, padAttr, op.getStrideAttr(),
-                     dilationAttr, group,
-                     /*kernelID=*/0, /*usesV4R1=*/false, convKind);
+                     dilationAttr, group, /*kernelID=*/0, convKind);
 
     if (failed(rockConv))
       return failure();

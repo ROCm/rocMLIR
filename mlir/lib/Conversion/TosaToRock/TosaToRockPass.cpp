@@ -68,7 +68,7 @@ public:
     RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect,
-                           tensor::TensorDialect, func::FuncDialect,
+                           tensor::TensorDialect,
                            bufferization::BufferizationDialect>();
     target.addIllegalOp<tosa::Conv2DOp, tosa::Conv3DOp, tosa::TransposeConv2DOp,
                         tosa::MatMulOp, tosa::ReduceSumOp, tosa::ReduceMaxOp>();
