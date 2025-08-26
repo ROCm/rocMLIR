@@ -556,14 +556,15 @@ struct ElementwiseRegionFinder {
   }
 
   SmallVector<Value> getElementwiseArgs() const {
-    // ElementwiseArgs doesn't contain output from the first gemm explictly. Therefore remove it.
+    // ElementwiseArgs doesn't contain output from the first gemm explictly.
+    // Therefore remove it.
     SmallVector<Value> elementwiseArgs = blockArgCandidates;
     uint64_t firstGemmBlockIndex = getFirstGemmBlockIndex();
     elementwiseArgs.erase(elementwiseArgs.begin() + firstGemmBlockIndex);
     return elementwiseArgs;
   }
 
-  uint64_t getFirstGemmBlockIndex() const {
+  int64_t getFirstGemmBlockIndex() const {
     return std::find_if(blockArgCandidates.begin(), blockArgCandidates.end(),
                         [this](Value v) { return v == firstGemmBasedVal; }) -
            blockArgCandidates.begin();
@@ -1170,7 +1171,7 @@ struct ConvElementwiseGemmRewritePattern
         convFields.stride, convFields.dilation,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIndices=*/
-        rewriter.getDenseI64ArrayAttr(ArrayRef<int64_t>({firstGemmBlockIndex})));
+        rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
 
     addConvAttributes(rewriter, convElentwiseGemmOp, convFields);
 
@@ -1227,6 +1228,7 @@ struct GemmElementwiseGemmRewritePattern
         elemwiseFinder.getElementwiseArgs();
     // This is guranteed by the matcher
     tosa::MatMulOp firstMatMulOp = elemwiseFinder.getFirstGemmBasedOp().value();
+    int64_t firstGemmBlockIndex = elemwiseFinder.getFirstGemmBlockIndex();
     rock::GemmElementwiseGemmOp gemmElentwiseGemmOp =
         rewriter.create<rock::GemmElementwiseGemmOp>(
             loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(),
@@ -1238,8 +1240,7 @@ struct GemmElementwiseGemmRewritePattern
             /*features=*/nullptr,
             /*params0=*/nullptr, /*params1=*/nullptr,
             /*firstGemmIndices=*/
-            rewriter.getDenseI64ArrayAttr(
-                ArrayRef<int64_t>(elemwiseFinder.getFirstGemmBlockIndex())));
+            rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
     Block *preSecondGemmElemwiseBlock =
         &gemmElentwiseGemmOp.getPreSecondGemmBody().emplaceBlock();
     {
@@ -1977,6 +1978,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
         attentionMatcherValues.preSoftmaxElementwiseFinder;
+    int64_t firstGemmBlockIndex = elemwiseRegion.getFirstGemmBlockIndex();
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, lseType, firstMatMulOp.getA(), firstMatMulOp.getB(),
         op.getB(), elementwiseOtherArgs, currentSeqLen, output, lseOut,
@@ -1987,7 +1989,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*features=*/nullptr, softmaxTypeAttr,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIndices=*/
-        rewriter.getDenseI64ArrayAttr(elemwiseRegion.getFirstGemmBlockIndex()));
+        rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
     Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();
     {
       PatternRewriter::InsertionGuard guard(rewriter);
