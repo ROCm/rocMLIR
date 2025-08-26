@@ -538,7 +538,6 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
 
         echo "[withHealthyNode] attempt #${attempt}: looking for '${expr}'"
         node(expr.toString()) {
-
             // Retry ONLY the health-check. We don't want to retry the actual stages
             try {
                 healthChecks()
