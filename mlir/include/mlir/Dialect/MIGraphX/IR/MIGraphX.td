@@ -340,9 +340,9 @@ def MIGraphX_ConvolutionOp :
   }];
 }
 
-def MIGraphX_ConvolutionBwdDataOp :
-    MIGraphX_ConvOpBase<"backwards_data_convolution", [F32, F16, BF16],
-                        [F32, F16, BF16]> {
+def MIGraphX_ConvolutionBwdDataOp
+    : MIGraphX_ConvOpBase<
+          "backwards_data_convolution", [F32, F16, BF16], [F32, F16, BF16]> {
   let summary = "Backwards data convolution";
   let description = [{
     The `migraphx.backwards_data_convolution` op computes a transposed
