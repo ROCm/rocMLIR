@@ -494,8 +494,19 @@ static Operation *getConvOp(Operation *op) {
   return (isa_and_nonnull<tosa::Conv2DOp>(op)) ? op : nullptr;
 }
 
+/*
+GEMM+GEMM based ops can have elementwise region between first gemm and second
+gemm. This helps with matching such GEMM+GEMM ops and also constructing the
+elementwise region afterwards.
+*/
 template <typename OpT>
 struct ElementwiseRegionFinder {
+  /*
+  This is simple DFS traversal to find out if it can hit gemm/conv op from the
+  input. It keeps track of visited nodes to avoid cycles. It caches visited ops
+  in topological order for rewrite. It also caches constant values and block
+  argument candidates which will be used during rewrite.
+  */
   void visit(Value input) {
     if (visitedSet.contains(input))
       return;
@@ -571,7 +582,8 @@ struct ElementwiseRegionFinder {
       auto newBlockArg = addBlockArgument(regionBuilder, v, block, loc);
       mapper.map(v, newBlockArg);
     }
-    // make sure firstGemmInput is passed through
+    // make sure firstGemmBasedVal is passed as blockArgument for it is always
+    // present
     Value lastRes = mapper.lookup(firstGemmBasedVal);
     for (Operation *op : visitedOps) {
       auto *newOp = regionBuilder.clone(*op, mapper);
