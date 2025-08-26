@@ -545,7 +545,7 @@ struct ElementwiseRegionFinder {
   }
 
   SmallVector<Value> getElementwiseArgs() const {
-    // remove fusionValue from the candidates
+    // ElementwiseArgs doesn't contain output from the first gemm explictly. Therefore remove it.
     SmallVector<Value> elementwiseArgs = blockArgCandidates;
     uint64_t firstGemmBlockIndex = getFirstGemmBlockIndex();
     elementwiseArgs.erase(elementwiseArgs.begin() + firstGemmBlockIndex);
