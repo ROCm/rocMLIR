@@ -212,11 +212,12 @@ LogicalResult mlir::rock::testFusionLegalityReduce(func::FuncOp func) {
       if (!isa<Float32Type>(outElemType))
         return WalkResult::interrupt();
 
-      if (!bitEnumContainsAll(rock::getFeatures(func),
+      if (!bitEnumContainsAll(rock::getFeatures(reduceOp),
                               GemmFeatures::atomic_fmax_f32))
         return WalkResult::interrupt();
     } else {
-      if (failed(validOutputAtomicAdd(outElemType, rock::getFeatures(func))))
+      if (failed(
+              validOutputAtomicAdd(outElemType, rock::getFeatures(reduceOp))))
         return WalkResult::interrupt();
     }
     return WalkResult::advance();
