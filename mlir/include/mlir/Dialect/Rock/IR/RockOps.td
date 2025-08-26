@@ -136,12 +136,13 @@ def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 def Rock_GemmOp
     : Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                        RockFusionRoot]>,
       Arguments<(
-          ins Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix A", [MemRead]>:$a,
-          Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix B", [MemRead]>:$b,
+          ins Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix A">:$a,
+          Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix B">:$b,
           Arg<TensorOrMemRefOf<GemmOutputTypes>,
-              "matrix C", [MemRead, MemWrite]>:$c,
+              "matrix C">:$c,
           UnitAttr:$aTransposed, UnitAttr:$bTransposed, UnitAttr:$cTransposed,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, OptionalAttr<I32Attr>:$derivedBlockSize,
@@ -497,14 +498,15 @@ def Rock_TensorUntransformCastOp :
 }
 
 def Rock_GridwiseGemmOp
-    : Rock_Op<"gridwise_gemm", [DeclareOpInterfaceMethods<
-                                    RockGemmFeaturesInterface>,
-                                RockFusionRoot]>,
+    : Rock_Op<"gridwise_gemm",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               RockFusionRoot]>,
       Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>,
-                         "matrix A view", [MemRead]>:$a,
-          Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
+                         "matrix A view">:$a,
+          Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
           Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>,
-              "matrix C view", [MemRead, MemWrite]>:$c,
+              "matrix C view">:$c,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, I32Attr:$gridSize,
           Rock_GeneralGemmParamsAttr:$params)> {
@@ -520,14 +522,13 @@ def Rock_GridwiseGemmOp
 
 // gridwise_gemm_accel
 def Rock_GridwiseGemmAccelOp
-    : Rock_Op<"gridwise_gemm_accel", [DeclareOpInterfaceMethods<
-                                          RockGemmFeaturesInterface>,
-                                      RockFusionRoot]>,
-      Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>,
-                         "matrix A view", [MemRead]>:$a,
-          Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
-          Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>,
-              "matrix C view", [MemRead, MemWrite]>:$c,
+    : Rock_Op<"gridwise_gemm_accel",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               RockFusionRoot]>,
+      Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
+          Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
+          Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view">:$c,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
           RockAccelTuningParamAttrInterface:$params)> {
@@ -1315,7 +1316,9 @@ defvar LdsBufferTypes = GemmInputTypes # [VectorOfRankAndType<[1], GemmInputType
 
 // blockwise_gemm
 def Rock_BlockwiseGemmOp:
-    Rock_Op<"blockwise_gemm", [DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
+    Rock_Op<"blockwise_gemm",
+            [DeclareOpInterfaceMethods<RockWriterOpInterface>,
+             DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
     Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$matrixA,
                    MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
                    MemRefRankOf<GemmAccumulatorTypes, [2]>:$matrixC,
@@ -1362,8 +1365,9 @@ defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF
 
 // blockwise_gemm_accel
 def Rock_BlockwiseGemmAccelOp
-    : Rock_Op<"blockwise_gemm_accel", [DeclareOpInterfaceMethods<
-                                          RockGemmFeaturesInterface>]>,
+    : Rock_Op<"blockwise_gemm_accel",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
       Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
           MemRefOf<LdsBufferTypes>:$matrixB, I32Attr:$inMPerThread,
           I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
@@ -1391,7 +1395,8 @@ def Rock_BlockwiseGemmAccelOp
 // threadwise_gemm
 def Rock_ThreadwiseGemmOp:
     Rock_Op<"threadwise_gemm",
-      [AllElementTypesMatch<["matrixA", "matrixB", "matrixC"]>]>,
+      [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+       AllElementTypesMatch<["matrixA", "matrixB", "matrixC"]>]>,
     Arguments<(ins MemRefRankOf<GemmAccumulatorTypes, [3]>:$matrixA,
                    MemRefRankOf<GemmAccumulatorTypes, [3]>:$matrixB,
                    MemRefRankOf<GemmAccumulatorTypes, [2]>:$matrixC)> {
@@ -1411,14 +1416,15 @@ def Rock_ThreadwiseGemmOp:
 }
 // threadwise_accel_gemm
 def Rock_ThreadwiseAccelGemmOp
-    : Rock_Op<"threadwise_accel_gemm", [DeclareOpInterfaceMethods<
-                                           RockGemmFeaturesInterface>]>,
+    : Rock_Op<"threadwise_accel_gemm",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
       Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
-                         "source register view A", [MemRead]>:$matrixA,
+                         "source register view A">:$matrixA,
           Arg<MemRefOf<NativeMemoryOpTypes>,
-              "source register view B", [MemRead]>:$matrixB,
+              "source register view B">:$matrixB,
           Arg<MemRefOf<NativeMemoryOpTypes>,
-              "dest register view C", [MemRead, MemWrite]>:$matrixC,
+              "dest register view C">:$matrixC,
           Variadic<Index>:$computeIndices,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           RockAccelTuningParamAttrInterface:$params)> {

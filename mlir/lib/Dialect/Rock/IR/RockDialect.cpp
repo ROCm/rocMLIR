@@ -913,6 +913,17 @@ GemmSize GemmOp::getGemmSize() {
   return GemmSize(g, m, k, n);
 }
 
+void GemmOp::getEffects(
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getCMutable());
+  effects.emplace_back(write, &getCMutable());
+
+  effects.emplace_back(read, &getAMutable());
+  effects.emplace_back(read, &getBMutable());
+}
+
 //===-----------------------------------------------------===//
 // GridwiseGemmOp and GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
@@ -978,6 +989,28 @@ LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 
 LogicalResult GridwiseGemmAccelOp::verify() {
   return verifyGridwiseGemm(*this);
+}
+
+void GridwiseGemmOp::getEffects(
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getCMutable());
+  effects.emplace_back(write, &getCMutable());
+
+  effects.emplace_back(read, &getAMutable());
+  effects.emplace_back(read, &getBMutable());
+}
+
+void GridwiseGemmAccelOp::getEffects(
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getCMutable());
+  effects.emplace_back(write, &getCMutable());
+
+  effects.emplace_back(read, &getAMutable());
+  effects.emplace_back(read, &getBMutable());
 }
 
 //===-----------------------------------------------------===//
@@ -1877,11 +1910,38 @@ LogicalResult BlockwiseGemmOp::verify() {
   return success();
 }
 
+void BlockwiseGemmOp::getEffects(
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getMatrixCMutable());
+  effects.emplace_back(write, &getMatrixCMutable());
+
+  effects.emplace_back(read, &getMatrixAMutable());
+  effects.emplace_back(read, &getMatrixBMutable());
+}
+
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmAccelOp
 //===----------------------------------------------------------------------===//
 SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
   return {getMatrixA().getType()};
+}
+
+void BlockwiseGemmAccelOp::getEffects(
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getMatrixCMutable());
+  effects.emplace_back(write, &getMatrixCMutable());
+
+  effects.emplace_back(read, &getBufferAMutable());
+  effects.emplace_back(read, &getBufferBMutable());
+  effects.emplace_back(write, &getBufferAMutable());
+  effects.emplace_back(write, &getBufferBMutable());
+
+  effects.emplace_back(read, &getMatrixAMutable());
+  effects.emplace_back(read, &getMatrixBMutable());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1901,6 +1961,17 @@ LogicalResult ThreadwiseGemmOp::verify() {
   if (aShape[2] != bShape[2])
     return emitOpError("KPack dimensions don't match");
   return success();
+}
+
+void ThreadwiseGemmOp::getEffects(
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getMatrixCMutable());
+  effects.emplace_back(write, &getMatrixCMutable());
+
+  effects.emplace_back(read, &getMatrixAMutable());
+  effects.emplace_back(read, &getMatrixBMutable());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1927,6 +1998,17 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
     return emitOpError("ComputeIndices need to be a <i,j,k> tuple");
 
   return success();
+}
+
+void ThreadwiseAccelGemmOp::getEffects(
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getMatrixCMutable());
+  effects.emplace_back(write, &getMatrixCMutable());
+
+  effects.emplace_back(read, &getMatrixAMutable());
+  effects.emplace_back(read, &getMatrixBMutable());
 }
 
 //===----------------------------------------------------------------------===//
