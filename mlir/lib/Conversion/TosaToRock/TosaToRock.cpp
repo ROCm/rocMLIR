@@ -559,7 +559,7 @@ struct ElementwiseRegionFinder {
   }
 
   void rewrite(Value input, OpBuilder &regionBuilder, Block *block,
-               Location loc, uint32_t recDepth = 0) const {
+               Location loc) const {
     PatternRewriter::InsertionGuard guard(regionBuilder);
     regionBuilder.setInsertionPointToEnd(block);
     IRMapping mapper;
