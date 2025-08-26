@@ -10,6 +10,7 @@
 #define ROCK_ATTRS
 
 include "mlir/Dialect/Rock/IR/RockBase.td"
+include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
