@@ -1158,7 +1158,7 @@ struct ConvElementwiseGemmRewritePattern
         convFields.stride, convFields.dilation,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIndices=*/
-        rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
+        rewriter.getDenseI64ArrayAttr(ArrayRef<int64_t>({firstGemmBlockIndex})));
 
     addConvAttributes(rewriter, convElentwiseGemmOp, convFields);
 
