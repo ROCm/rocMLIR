@@ -544,7 +544,7 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
             } catch (Exception err) {
                 echo "[withHealthyNode] ❌  ${env.NODE_NAME} rejected: ${err}"
                 blacklist << env.NODE_NAME
-                // return exists the node {} block here, not the whole function. Some groovy magic
+                // return exits the node {} block here, not the whole function. Some groovy magic
                 return
             }
             // Health-check passed. Do real work
