@@ -47,7 +47,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstdint>
 #include <utility>
 
 #define DEBUG_TYPE "convert-tosa-to-rock"
@@ -498,7 +497,7 @@ static Operation *getConvOp(Operation *op) {
 template <typename OpT>
 struct ElementwiseRegionFinder {
   void visit(Value input) {
-    if (visitedSet.contains(input)) 
+    if (visitedSet.contains(input))
       return;
     visitedSet.insert(input);
     OpT fusionOp = input.getDefiningOp<OpT>();
@@ -1227,14 +1226,15 @@ struct GemmElementwiseGemmRewritePattern
             /*features=*/nullptr,
             /*params0=*/nullptr, /*params1=*/nullptr,
             /*firstGemmIndices=*/
-            rewriter.getDenseI64ArrayAttr(ArrayRef<int64_t>(elemwiseFinder.getFirstGemmBlockIndex())));
+            rewriter.getDenseI64ArrayAttr(
+                ArrayRef<int64_t>(elemwiseFinder.getFirstGemmBlockIndex())));
     Block *preSecondGemmElemwiseBlock =
         &gemmElentwiseGemmOp.getPreSecondGemmBody().emplaceBlock();
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(preSecondGemmElemwiseBlock);
-      elemwiseFinder.rewrite(op.getA(), rewriter,
-                                         preSecondGemmElemwiseBlock, loc);
+      elemwiseFinder.rewrite(op.getA(), rewriter, preSecondGemmElemwiseBlock,
+                             loc);
     }
     rewriter.replaceOp(op, gemmElentwiseGemmOp.getResult());
   }
@@ -1963,9 +1963,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           op.getLoc(), currentSeqLen, reassocIndices);
     }
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
-    ElementwiseRegionFinder<tosa::MatMulOp>
-        elemwiseRegion =
-            attentionMatcherValues.preSoftmaxElementwiseFinder;
+    ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
+        attentionMatcherValues.preSoftmaxElementwiseFinder;
     rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
         loc, outputType, lseType, firstMatMulOp.getA(), firstMatMulOp.getB(),
         op.getB(), elementwiseOtherArgs, currentSeqLen, output, lseOut,
@@ -1975,13 +1974,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*oTransposed=*/nullptr, causalAttr,
         /*features=*/nullptr, softmaxTypeAttr,
         /*params0=*/nullptr, /*params1=*/nullptr,
-        /*firstGemmIndices=*/rewriter.getDenseI64ArrayAttr(elemwiseRegion.getFirstGemmBlockIndex()));
+        /*firstGemmIndices=*/
+        rewriter.getDenseI64ArrayAttr(elemwiseRegion.getFirstGemmBlockIndex()));
     Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(preSoftmaxElemwiseBlock);
-      elemwiseRegion.rewrite(
-          causalMaskInput, rewriter, preSoftmaxElemwiseBlock, loc);
+      elemwiseRegion.rewrite(causalMaskInput, rewriter, preSoftmaxElemwiseBlock,
+                             loc);
     }
     tosa::AddOp addOp;
     Value expandedOutLse;
