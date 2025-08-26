@@ -308,7 +308,7 @@ void setHeartbeat() {
 
 String getLabelFromCodepath(String codepath) {
     echo "codepath is ${codepath}"
-    String label
+    String label = ''
     if (codepath == "mfma") {
         label = 'mlir && (gfx950 || gfx942 || gfx908 || gfx90a)'
     } else if (codepath == "navi21") {
