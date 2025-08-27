@@ -150,10 +150,23 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
     float maxNum = std::max(fabs(valNum), fabs(gpuNum));
     maxMag = std::max(maxMag, maxNum);
 
-    // If cpu value is a denorm, we skip checks.
-    // We need this because we only preserve sign in denorm fp (GPU).
-    if (valNum == gpuNum || std::fpclassify(valNum) == FP_SUBNORMAL) {
+    if (valNum == gpuNum) {
       hist_relDiff[0]++;
+    } else if (std::fpclassify(valNum) == FP_SUBNORMAL) {
+      // If cpu value is subnormal, treat as correct only if gpu value is zero
+      // and the sign bits match
+      if ((gpuNum == 0.0f || (std::fpclassify(gpuNum) == FP_SUBNORMAL)) &&
+          (std::signbit(valNum) == std::signbit(gpuNum))) {
+        hist_relDiff[0]++;
+      } else {
+        // Count as a failure otherwise and put it into the last failure bucket
+        hist_relDiff[NUM_BUCKETS - 1]++;
+        if (print_option == PrintOption::Always ||
+            print_option == PrintOption::Failure) {
+          printf("%lld: subnormal valNum=%f, gpuNum=%f (expected gpuNum==0)\n",
+                 i, valNum, gpuNum);
+        }
+      }
     } else {
       // We know valNum != gpuNum. If valNum is inf, this branch will simply
       // return nan. Let's instead represent infinite with max<fp16> and let's
