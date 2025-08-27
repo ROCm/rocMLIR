@@ -71,22 +71,24 @@ using namespace mlir::rock;
 // Utility Functions
 //===----------------------------------------------------------------------===//
 template <typename OpType>
-void getGemmEffects(OpType& op, SmallVectorImpl<MemoryEffects::EffectInstance>& effects) {
-  auto* read = MemoryEffects::Read::get();
-  auto* write = MemoryEffects::Write::get();
-  
+void getGemmEffects(OpType &op,
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
   effects.emplace_back(read, &op.getCMutable());
   effects.emplace_back(write, &op.getCMutable());
-  
+
   effects.emplace_back(read, &op.getAMutable());
   effects.emplace_back(read, &op.getBMutable());
 }
 
 template <typename OpType>
-void getGemmMatrixEffects(OpType& op, SmallVectorImpl<MemoryEffects::EffectInstance>& effects) {
-  auto* read = MemoryEffects::Read::get();
-  auto* write = MemoryEffects::Write::get();
-  
+void getGemmMatrixEffects(
+    OpType &op, SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
   effects.emplace_back(read, &op.getMatrixCMutable());
   effects.emplace_back(write, &op.getMatrixCMutable());
 
@@ -942,7 +944,7 @@ GemmSize GemmOp::getGemmSize() {
 }
 
 void GemmOp::getEffects(
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getGemmEffects(*this, effects);
 }
 
@@ -1014,12 +1016,12 @@ LogicalResult GridwiseGemmAccelOp::verify() {
 }
 
 void GridwiseGemmOp::getEffects(
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getGemmEffects(*this, effects);
 }
 
 void GridwiseGemmAccelOp::getEffects(
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getGemmEffects(*this, effects);
 }
 
@@ -1921,7 +1923,7 @@ LogicalResult BlockwiseGemmOp::verify() {
 }
 
 void BlockwiseGemmOp::getEffects(
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getGemmMatrixEffects(*this, effects);
 }
 
@@ -1933,7 +1935,7 @@ SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
 }
 
 void BlockwiseGemmAccelOp::getEffects(
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
   effects.emplace_back(read, &getMatrixCMutable());
@@ -1970,7 +1972,7 @@ LogicalResult ThreadwiseGemmOp::verify() {
 }
 
 void ThreadwiseGemmOp::getEffects(
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getGemmMatrixEffects(*this, effects);
 }
 
@@ -2001,7 +2003,7 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
 }
 
 void ThreadwiseAccelGemmOp::getEffects(
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getGemmMatrixEffects(*this, effects);
 }
 
