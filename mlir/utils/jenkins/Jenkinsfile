@@ -44,11 +44,12 @@ void gitHealthCheck() {
                                           passwordVariable: 'GIT_PASS')]) {
             withEnv(["REPO=${repo}", "REF=${ref}"]) {
                 sh '''
-                    set -euo pipefail
-                    ASK=$(mktemp); trap 'rm -f "$ASK"' EXIT
-                    printf '%s\n' '#!/bin/sh' 'printf %s "$GIT_PASS"' > "$ASK"
+                    set -eu
+                    ASK="$(mktemp)"; trap 'rm -f "$ASK"' EXIT
+                    printf '#!/bin/sh\nprintf %s "$GIT_PASS"\n' > "$ASK"
                     chmod +x "$ASK"
-                    git -c credential.username="$GIT_USER" -c core.askPass="$ASK" \
+                    GIT_ASKPASS="$ASK" \
+                    git -c credential.username="$GIT_USER" \
                         ls-remote --exit-code "$REPO" "$REF" >/dev/null
                 '''
             }
