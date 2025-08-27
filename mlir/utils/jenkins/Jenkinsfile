@@ -663,7 +663,11 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            checkout scm
+                                            try {
+                                                checkout scm
+                                            } catch (e) {
+                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            }
                                             // Fill in the docker args from the node
                                             dockerArgs()
 
@@ -748,9 +752,10 @@ pipeline {
                                                 }
                                             }
                                         }
-                                        // Post block in scripted Jenkins
-                                        catch(Exception e) {
+                                        // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                        catch (e) {
                                             rebootNode()
+                                            throw e
                                         }
                                         finally {
                                             cleanWs()
@@ -796,7 +801,11 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            checkout scm
+                                            try {
+                                                checkout scm
+                                            } catch (e) {
+                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            }
                                             // Fill in the docker args from the node
                                             dockerArgs()
                                             def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
@@ -825,9 +834,10 @@ pipeline {
                                                 }
                                             }
                                         }
-                                        // Post block in scripted Jenkins
-                                        catch(Exception e) {
+                                        // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                        catch (e) {
                                             rebootNode()
+                                            throw e
                                         }
                                         finally {
                                             cleanWs()
@@ -873,7 +883,11 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            checkout scm
+                                            try {
+                                                checkout scm
+                                            } catch (e) {
+                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            }
                                             // Fill in the docker args from the node
                                             dockerArgs()
                                             def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
@@ -963,9 +977,10 @@ pipeline {
                                                 }
                                             }
                                         }
-                                        // Post block in scripted Jenkins
-                                        catch(Exception e) {
+                                        // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                        catch (e) {
                                             rebootNode()
+                                            throw e
                                         }
                                         finally {
                                             cleanWs()
@@ -1029,7 +1044,11 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            checkout scm
+                                            try {
+                                                checkout scm
+                                            } catch (e) {
+                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            }
                                             // Fill in the docker args from the node
                                             dockerArgs()
                                             def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
@@ -1190,9 +1209,10 @@ pipeline {
                                                 }
                                             }
                                         }
-                                        // Post block in scripted Jenkins
-                                        catch(Exception e) {
+                                        // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                        catch (e) {
                                             rebootNode()
+                                            throw e
                                         }
                                         finally {
                                             cleanWs()
@@ -1236,7 +1256,11 @@ pipeline {
                                     },
                                     {
                                         try {
-                                            checkout scm
+                                            try {
+                                                checkout scm
+                                            } catch (e) {
+                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            }
                                             // Fill in the docker args from the node
                                             dockerArgs()
                                             def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
@@ -1299,9 +1323,10 @@ pipeline {
                                                 }
                                             }
                                         }
-                                        // Post block in scripted Jenkins
-                                        catch(Exception e) {
+                                        // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                        catch (e) {
                                             rebootNode()
+                                            throw e
                                         }
                                         finally {
                                             cleanWs()
@@ -1343,7 +1368,11 @@ pipeline {
                                         },
                                         {
                                             try {
-                                                checkout scm
+                                                try {
+                                                    checkout scm
+                                                } catch (e) {
+                                                    error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                                }
                                                 // Fill in the docker args from the node
                                                 dockerArgs()
                                                 def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
@@ -1397,9 +1426,10 @@ pipeline {
                                                     }
                                                 }
                                             }
-                                            // Post block in scripted Jenkins
-                                            catch(Exception e) {
+                                            // Post block in scripted Jenkins works as try {} catch {} finally {}
+                                            catch (e) {
                                                 rebootNode()
+                                                throw e
                                             }
                                             finally {
                                                 cleanWs()
