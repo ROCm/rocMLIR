@@ -23,6 +23,10 @@ void buildProject(String target, String cmakeOpts) {
 
 // Lightweight Git probe: verifies auth + network + ref exists
 void gitHealthCheck() {
+    // Check if git installed
+    sh "git --version"
+
+    // Check if git commands are healthy
     String repo = scm?.userRemoteConfigs?.getAt(0)?.url
     String cred = scm?.userRemoteConfigs?.getAt(0)?.credentialsId
     String ref  = env.CHANGE_ID ? "refs/pull/${env.CHANGE_ID}/head"
