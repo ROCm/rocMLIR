@@ -749,11 +749,11 @@ pipeline {
                                                 // Fill in the docker args from the node
                                                 dockerArgs()
 
-                                                def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                def img = docker.image(dockerImage())
-                                                def pulled = img?.pull()
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -893,11 +893,11 @@ pipeline {
                                                 // Fill in the docker args from the node
                                                 dockerArgs()
 
-                                                def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                def img = docker.image(dockerImage())
-                                                def pulled = img?.pull()
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -982,11 +982,11 @@ pipeline {
                                                 // Fill in the docker args from the node
                                                 dockerArgs()
 
-                                                def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                def img = docker.image(dockerImage())
-                                                def pulled = img?.pull()
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1150,11 +1150,11 @@ pipeline {
                                                 // Fill in the docker args from the node
                                                 dockerArgs()
 
-                                                def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                def img = docker.image(dockerImage())
-                                                def pulled = img?.pull()
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1369,11 +1369,11 @@ pipeline {
                                                 // Fill in the docker args from the node
                                                 dockerArgs()
 
-                                                def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                def img = docker.image(dockerImage())
-                                                def pulled = img?.pull()
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1488,11 +1488,11 @@ pipeline {
                                                     // Fill in the docker args from the node
                                                     dockerArgs()
 
-                                                    def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                    args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
                                                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                    def img = docker.image(dockerImage())
-                                                    def pulled = img?.pull()
+                                                    img = docker.image(dockerImage())
+                                                    img?.pull()
                                                 }
                                                 // Spin up ONE container and stay in it for all substages
                                                 img.inside(args) {
