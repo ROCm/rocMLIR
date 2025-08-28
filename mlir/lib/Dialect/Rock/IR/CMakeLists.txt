@@ -4,6 +4,7 @@ add_rocmlir_dialect_library(MLIRRockOps
   GetRockInfo.cpp
   TransformMapBuilder.cpp
   RockDialect.cpp
+  RockGemmFeaturesInterface.cpp
   RockGemmWrapperInterface.cpp
   RockGemmGemmWrapperInterface.cpp
   RockConvInterface.cpp
@@ -19,6 +20,7 @@ add_rocmlir_dialect_library(MLIRRockOps
 
   DEPENDS
   MLIRRockAttrDefsIncGen
+  MLIRRockGemmFeaturesInterfaceIncGen
   MLIRRockGemmWrapperInterfaceIncGen
   MLIRRockGemmGemmWrapperInterfaceIncGen
   MLIRRockTuningParamAttrInterfaceIncGen
