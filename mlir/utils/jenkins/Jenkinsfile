@@ -612,16 +612,20 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
         node(expr.toString()) {
             // Retry ONLY the health-check. We don't want to retry the actual stages
             try {
-                healthChecks()
-                gitHealthCheck()
+                stage("Health checks on ${env.NODE_NAME}") {
+                    healthChecks()
+                    gitHealthCheck()
+                }
             } catch (Exception err) {
                 echo "[withHealthyNode] ❌  ${env.NODE_NAME} rejected: ${err}"
                 blacklist << env.NODE_NAME
                 // return exits the node {} block here, not the whole function. Some groovy magic
                 return
             }
-            // Health-check passed. Do real work
-            echo "[withHealthyNode] ✅  using ${env.NODE_NAME}"
+            stage("Node selected") {
+                // Health-check passed. Do real work
+                echo "[withHealthyNode] ✅  using ${env.NODE_NAME}"
+            }
             body()
             done = true
         }
