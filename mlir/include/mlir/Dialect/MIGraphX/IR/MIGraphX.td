@@ -340,6 +340,18 @@ def MIGraphX_ConvolutionOp :
   }];
 }
 
+def MIGraphX_ConvolutionBwdDataOp
+    : MIGraphX_ConvOpBase<
+          "backwards_data_convolution", [F32, F16, BF16], [F32, F16, BF16]> {
+  let summary = "Backwards data convolution";
+  let description = [{
+    The `migraphx.backwards_data_convolution` op computes a transposed
+    convolution op which effectively reverses a standard convolution's
+    spatial transformation. It is an upsampling technique that increases
+    the height and width of an input feature map. 
+  }];
+}
+
 def MIGraphX_BatchNormOp :
     MIGraphX_Op<"batch_norm_inference">,
     Arguments<(ins AnyMIXRShaped:$input,
