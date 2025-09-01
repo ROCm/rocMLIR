@@ -2678,8 +2678,13 @@ struct GridwiseAttentionAccelRewritePattern
               PatternRewriter::InsertionGuard guard(rewriter);
               rewriter.setInsertionPointToStart(nRepeatsLoop.getBody());
               Value ni = nRepeatsLoop.getInductionVar();
+              Value subview = preAccelRegBufferQxK;
+              if (accelParamsGemm1.nRepeats > 1) {
+                subview = createSliceOfFirstDim(rewriter, loc,
+                                                preAccelRegBufferQxK, ni);
+              }
               rewriter.create<ThreadwiseReadIntoOp>(
-                  loc, gemm1BDxKThreadwiseView, preAccelRegBufferQxK,
+                  loc, gemm1BDxKThreadwiseView, subview,
                   rewriter.getArrayAttr({}), ValueRange{ni}, true, true);
             }
           }
