@@ -1687,27 +1687,28 @@ HexagonTargetLowering::LowerHvxConcatVectors(SDValue Op, SelectionDAG &DAG)
     // all operations are expected to be type-legalized, and i16 is not
     // a legal type. If any of the extracted elements is not of a valid
     // type, sign-extend it to a valid one.
-    for (SDValue &V : Elems) {
+    for (unsigned i = 0, e = Elems.size(); i != e; ++i) {
+      SDValue V = Elems[i];
       MVT Ty = ty(V);
       if (!isTypeLegal(Ty)) {
         MVT NTy = typeLegalize(Ty, DAG);
         if (V.getOpcode() == ISD::EXTRACT_VECTOR_ELT) {
-          V = DAG.getNode(ISD::SIGN_EXTEND_INREG, dl, NTy,
-                          DAG.getNode(ISD::EXTRACT_VECTOR_ELT, dl, NTy,
-                                      V.getOperand(0), V.getOperand(1)),
-                          DAG.getValueType(Ty));
+          Elems[i] = DAG.getNode(ISD::SIGN_EXTEND_INREG, dl, NTy,
+                                 DAG.getNode(ISD::EXTRACT_VECTOR_ELT, dl, NTy,
+                                             V.getOperand(0), V.getOperand(1)),
+                                 DAG.getValueType(Ty));
           continue;
         }
         // A few less complicated cases.
         switch (V.getOpcode()) {
           case ISD::Constant:
-            V = DAG.getSExtOrTrunc(V, dl, NTy);
+            Elems[i] = DAG.getSExtOrTrunc(V, dl, NTy);
             break;
           case ISD::UNDEF:
-            V = DAG.getUNDEF(NTy);
+            Elems[i] = DAG.getUNDEF(NTy);
             break;
           case ISD::TRUNCATE:
-            V = V.getOperand(0);
+            Elems[i] = V.getOperand(0);
             break;
           default:
             llvm_unreachable("Unexpected vector element");

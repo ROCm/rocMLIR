@@ -366,15 +366,9 @@ public:
   /// \returns the index where the substitution is to be performed in RegExStr.
   size_t getIndex() const { return InsertIdx; }
 
-  /// \returns a regular expression string that matches the result of the
-  /// substitution represented by this class instance or an error if
-  /// substitution failed.
-  virtual Expected<std::string> getResultRegex() const = 0;
-
   /// \returns a string containing the result of the substitution represented
-  /// by this class instance in a form suitable for diagnostics, or an error if
-  /// substitution failed.
-  virtual Expected<std::string> getResultForDiagnostics() const = 0;
+  /// by this class instance or an error if substitution failed.
+  virtual Expected<std::string> getResult() const = 0;
 };
 
 class StringSubstitution : public Substitution {
@@ -385,12 +379,7 @@ public:
 
   /// \returns the text that the string variable in this substitution matched
   /// when defined, or an error if the variable is undefined.
-  Expected<std::string> getResultRegex() const override;
-
-  /// \returns the text that the string variable in this substitution matched
-  /// when defined, in a form suitable for diagnostics, or an error if the
-  /// variable is undefined.
-  Expected<std::string> getResultForDiagnostics() const override;
+  Expected<std::string> getResult() const override;
 };
 
 class NumericSubstitution : public Substitution {
@@ -408,12 +397,7 @@ public:
 
   /// \returns a string containing the result of evaluating the expression in
   /// this substitution, or an error if evaluation failed.
-  Expected<std::string> getResultRegex() const override;
-
-  /// \returns a string containing the result of evaluating the expression in
-  /// this substitution, in a form suitable for diagnostics, or an error if
-  /// evaluation failed.
-  Expected<std::string> getResultForDiagnostics() const override;
+  Expected<std::string> getResult() const override;
 };
 
 //===----------------------------------------------------------------------===//

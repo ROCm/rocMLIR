@@ -7,9 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #define __FLOAT_ONLY
-#define FUNCTION fast_distance
+#define __CLC_FUNCTION fast_distance
 #define __CLC_BODY <clc/geometric/binary_decl.inc>
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __FLOAT_ONLY
+#undef __CLC_FUNCTION

@@ -4,9 +4,7 @@
 #include <vector>
 
 struct S {
-  S() = default;
-  S(S &&) { throw 42; }
-  S &operator=(S &&) = default;
+  operator int() { throw 42; }
 };
 
 int main() {
@@ -23,7 +21,7 @@ int main() {
   std::variant<int, double, char> v2;
   std::variant<int, double, char> v3;
   std::variant<std::variant<int, double, char>> v_v1;
-  std::variant<int, char, S> v_valueless = 5;
+  std::variant<int, double, char> v_no_value;
   // The next variant has many types, meaning the type index does not fit in
   // a byte and must be `unsigned short` instead of `unsigned char` when
   // using the unstable libc++ ABI. With stable libc++ ABI, the type index
@@ -45,11 +43,8 @@ int main() {
       int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
       int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
       int, int, int, int, int, int, int, int, int, int, int, int, int, int, int,
-      int, int, int, int, int, int, int, int, int, int, int, int, S>
-      v_many_types_valueless;
-
-  v_valueless = 5;
-  v_many_types_valueless.emplace<0>(10);
+      int, int, int, int, int, int, int, int, int, int, int, int>
+      v_many_types_no_value;
 
   v1 = 12; // v contains int
   v1_typedef = v1;
@@ -72,22 +67,18 @@ int main() {
   printf("%f\n", d); // break here
 
   try {
-    // Exception in type-changing move-assignment is guaranteed to put
-    // std::variant into a valueless state.
-    v_valueless = S();
+    v_no_value.emplace<0>(S());
   } catch (...) {
   }
 
-  printf("%d\n", v_valueless.valueless_by_exception());
+  printf("%zu\n", v_no_value.index());
 
   try {
-    // Exception in move-assignment is guaranteed to put std::variant into a
-    // valueless state.
-    v_many_types_valueless = S();
+    v_many_types_no_value.emplace<0>(S());
   } catch (...) {
   }
 
-  printf("%d\n", v_many_types_valueless.valueless_by_exception());
+  printf("%zu\n", v_many_types_no_value.index());
 
   return 0; // break here
 }

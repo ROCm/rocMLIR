@@ -98,10 +98,6 @@ class CompressInstEmitter {
     // Tied operand index within the instruction.
     int TiedOpIdx = -1;
   };
-  struct ArgData {
-    unsigned DAGOpNo;
-    unsigned MIOpNo;
-  };
   struct CompressPat {
     // The source instruction definition.
     CodeGenInstruction Source;
@@ -118,9 +114,8 @@ class CompressInstEmitter {
 
     bool IsCompressOnly;
     CompressPat(const CodeGenInstruction &S, const CodeGenInstruction &D,
-                std::vector<const Record *> RF,
-                const IndexedMap<OpData> &SourceMap,
-                const IndexedMap<OpData> &DestMap, bool IsCompressOnly)
+                std::vector<const Record *> RF, IndexedMap<OpData> &SourceMap,
+                IndexedMap<OpData> &DestMap, bool IsCompressOnly)
         : Source(S), Dest(D), PatReqFeatures(std::move(RF)),
           SourceOperandMap(SourceMap), DestOperandMap(DestMap),
           IsCompressOnly(IsCompressOnly) {}
@@ -131,23 +126,26 @@ class CompressInstEmitter {
   std::vector<CompressPat> CompressPatterns;
   void addDagOperandMapping(const Record *Rec, const DagInit *Dag,
                             const CodeGenInstruction &Inst,
-                            IndexedMap<OpData> &OperandMap,
-                            StringMap<ArgData> &Operands, bool IsSourceInst);
+                            IndexedMap<OpData> &OperandMap, bool IsSourceInst,
+                            unsigned *SourceLastTiedOpPtr);
   void evaluateCompressPat(const Record *Compress);
   void emitCompressInstEmitter(raw_ostream &OS, EmitterType EType);
   bool validateTypes(const Record *DagOpType, const Record *InstOpType,
                      bool IsSourceInst);
   bool validateRegister(const Record *Reg, const Record *RegClass);
-  void checkDagOperandMapping(const Record *Rec,
-                              const StringMap<ArgData> &DestOperands,
-                              const DagInit *SourceDag, const DagInit *DestDag);
+  void createDagOperandMapping(const Record *Rec,
+                               StringMap<unsigned> &SourceOperands,
+                               StringMap<unsigned> &DestOperands,
+                               const DagInit *SourceDag, const DagInit *DestDag,
+                               IndexedMap<OpData> &SourceOperandMap);
 
   void createInstOperandMapping(const Record *Rec, const DagInit *SourceDag,
                                 const DagInit *DestDag,
                                 IndexedMap<OpData> &SourceOperandMap,
                                 IndexedMap<OpData> &DestOperandMap,
-                                StringMap<ArgData> &SourceOperands,
-                                const CodeGenInstruction &DestInst);
+                                StringMap<unsigned> &SourceOperands,
+                                const CodeGenInstruction &DestInst,
+                                unsigned SourceLastTiedOp);
 
 public:
   CompressInstEmitter(const RecordKeeper &R) : Records(R), Target(R) {}
@@ -199,10 +197,6 @@ bool CompressInstEmitter::validateTypes(const Record *DagOpType,
   return true;
 }
 
-static bool validateArgsTypes(const Init *Arg1, const Init *Arg2) {
-  return cast<DefInit>(Arg1)->getDef() == cast<DefInit>(Arg2)->getDef();
-}
-
 /// The patterns in the Dag contain different types of operands:
 /// Register operands, e.g.: GPRC:$rs1; Fixed registers, e.g: X1; Immediate
 /// operands, e.g.: simm6:$imm; Fixed immediate operands, e.g.: 0. This function
@@ -214,12 +208,11 @@ void CompressInstEmitter::addDagOperandMapping(const Record *Rec,
                                                const DagInit *Dag,
                                                const CodeGenInstruction &Inst,
                                                IndexedMap<OpData> &OperandMap,
-                                               StringMap<ArgData> &Operands,
-                                               bool IsSourceInst) {
+                                               bool IsSourceInst,
+                                               unsigned *SourceLastTiedOpPtr) {
   unsigned NumMIOperands = 0;
-  if (!Inst.Operands.empty())
-    NumMIOperands =
-        Inst.Operands.back().MIOperandNo + Inst.Operands.back().MINumOperands;
+  for (const auto &Op : Inst.Operands)
+    NumMIOperands += Op.MINumOperands;
   OperandMap.grow(NumMIOperands);
 
   // TiedCount keeps track of the number of operands skipped in Inst
@@ -229,12 +222,16 @@ void CompressInstEmitter::addDagOperandMapping(const Record *Rec,
   // are represented.
   unsigned TiedCount = 0;
   unsigned OpNo = 0;
+  if (IsSourceInst)
+    *SourceLastTiedOpPtr = std::numeric_limits<unsigned int>::max();
   for (const auto &Opnd : Inst.Operands) {
     int TiedOpIdx = Opnd.getTiedRegister();
     if (-1 != TiedOpIdx) {
-      assert((unsigned)TiedOpIdx < OpNo);
       // Set the entry in OperandMap for the tied operand we're skipping.
-      OperandMap[OpNo] = OperandMap[TiedOpIdx];
+      OperandMap[OpNo].Kind = OperandMap[TiedOpIdx].Kind;
+      OperandMap[OpNo].Data = OperandMap[TiedOpIdx].Data;
+      if (IsSourceInst)
+        *SourceLastTiedOpPtr = OpNo;
       ++OpNo;
       ++TiedCount;
       continue;
@@ -291,30 +288,6 @@ void CompressInstEmitter::addDagOperandMapping(const Record *Rec,
       } else {
         llvm_unreachable("Unhandled CompressPat argument type!");
       }
-
-      // Create a mapping between the operand name in the Dag (e.g. $rs1) and
-      // its index in the list of Dag operands and check that operands with the
-      // same name have the same type. For example in 'C_ADD $rs1, $rs2' we
-      // generate the mapping $rs1 --> 0, $rs2 ---> 1. If the operand appears
-      // twice in the same Dag (tied in the compressed instruction), we note
-      // the previous index in the TiedOpIdx field.
-      StringRef ArgName = Dag->getArgNameStr(DAGOpNo);
-      if (ArgName.empty())
-        continue;
-
-      if (IsSourceInst) {
-        auto It = Operands.find(ArgName);
-        if (It != Operands.end()) {
-          OperandMap[OpNo].TiedOpIdx = It->getValue().MIOpNo;
-          if (!validateArgsTypes(Dag->getArg(It->getValue().DAGOpNo),
-                                 Dag->getArg(DAGOpNo)))
-            PrintFatalError(Rec->getLoc(),
-                            "Input Operand '" + ArgName +
-                                "' has a mismatched tied operand!");
-        }
-      }
-
-      Operands[ArgName] = {DAGOpNo, OpNo};
     }
   }
 }
@@ -324,11 +297,14 @@ static bool verifyDagOpCount(const CodeGenInstruction &Inst, const DagInit *Dag,
                              bool IsSource) {
   unsigned NumMIOperands = 0;
 
-  unsigned TiedOpCount = 0;
+  // Use this to count number of tied Operands in Source Inst in this function.
+  // This counter is required here to error out when there is a Source
+  // Inst with two or more tied operands.
+  unsigned SourceInstTiedOpCount = 0;
   for (const auto &Op : Inst.Operands) {
     NumMIOperands += Op.MINumOperands;
     if (Op.getTiedRegister() != -1)
-      TiedOpCount++;
+      SourceInstTiedOpCount++;
   }
 
   if (Dag->getNumArgs() == NumMIOperands)
@@ -336,7 +312,7 @@ static bool verifyDagOpCount(const CodeGenInstruction &Inst, const DagInit *Dag,
 
   // Source instructions are non compressed instructions and have at most one
   // tied operand.
-  if (IsSource && (TiedOpCount > 1))
+  if (IsSource && (SourceInstTiedOpCount >= 2))
     PrintFatalError(Inst.TheDef->getLoc(),
                     "Input operands for Inst '" + Inst.TheDef->getName() +
                         "' and input Dag operand count mismatch");
@@ -349,36 +325,68 @@ static bool verifyDagOpCount(const CodeGenInstruction &Inst, const DagInit *Dag,
 
   // The Instruction might have tied operands so the Dag might have
   // a fewer operand count.
-  if (Dag->getNumArgs() != (NumMIOperands - TiedOpCount))
+  unsigned RealCount = NumMIOperands;
+  for (const auto &Operand : Inst.Operands)
+    if (Operand.getTiedRegister() != -1)
+      --RealCount;
+
+  if (Dag->getNumArgs() != RealCount)
     PrintFatalError(Inst.TheDef->getLoc(),
                     "Inst '" + Inst.TheDef->getName() +
                         "' and Dag operand count mismatch");
   return true;
 }
 
-// Check that all names in the source DAG appear in the destionation DAG.
-void CompressInstEmitter::checkDagOperandMapping(
-    const Record *Rec, const StringMap<ArgData> &DestOperands,
-    const DagInit *SourceDag, const DagInit *DestDag) {
+static bool validateArgsTypes(const Init *Arg1, const Init *Arg2) {
+  return cast<DefInit>(Arg1)->getDef() == cast<DefInit>(Arg2)->getDef();
+}
+
+// Creates a mapping between the operand name in the Dag (e.g. $rs1) and
+// its index in the list of Dag operands and checks that operands with the same
+// name have the same types. For example in 'C_ADD $rs1, $rs2' we generate the
+// mapping $rs1 --> 0, $rs2 ---> 1. If the operand appears twice in the (tied)
+// same Dag we use the last occurrence for indexing.
+void CompressInstEmitter::createDagOperandMapping(
+    const Record *Rec, StringMap<unsigned> &SourceOperands,
+    StringMap<unsigned> &DestOperands, const DagInit *SourceDag,
+    const DagInit *DestDag, IndexedMap<OpData> &SourceOperandMap) {
+  for (unsigned I = 0; I < DestDag->getNumArgs(); ++I) {
+    // Skip fixed immediates and registers, they were handled in
+    // addDagOperandMapping.
+    if ("" == DestDag->getArgNameStr(I))
+      continue;
+    DestOperands[DestDag->getArgNameStr(I)] = I;
+  }
 
   for (unsigned I = 0; I < SourceDag->getNumArgs(); ++I) {
     // Skip fixed immediates and registers, they were handled in
     // addDagOperandMapping.
-    StringRef ArgName = SourceDag->getArgNameStr(I);
-    if (ArgName.empty())
+    if ("" == SourceDag->getArgNameStr(I))
       continue;
 
-    auto It = DestOperands.find(ArgName);
+    StringMap<unsigned>::iterator It =
+        SourceOperands.find(SourceDag->getArgNameStr(I));
+    if (It != SourceOperands.end()) {
+      // Operand sharing the same name in the Dag should be mapped as tied.
+      SourceOperandMap[I].TiedOpIdx = It->getValue();
+      if (!validateArgsTypes(SourceDag->getArg(It->getValue()),
+                             SourceDag->getArg(I)))
+        PrintFatalError(Rec->getLoc(),
+                        "Input Operand '" + SourceDag->getArgNameStr(I) +
+                            "' has a mismatched tied operand!\n");
+    }
+    It = DestOperands.find(SourceDag->getArgNameStr(I));
     if (It == DestOperands.end())
-      PrintFatalError(Rec->getLoc(), "Operand " + ArgName +
+      PrintFatalError(Rec->getLoc(), "Operand " + SourceDag->getArgNameStr(I) +
                                          " defined in Input Dag but not used in"
-                                         " Output Dag!");
+                                         " Output Dag!\n");
     // Input Dag operand types must match output Dag operand type.
-    if (!validateArgsTypes(DestDag->getArg(It->getValue().DAGOpNo),
+    if (!validateArgsTypes(DestDag->getArg(It->getValue()),
                            SourceDag->getArg(I)))
       PrintFatalError(Rec->getLoc(), "Type mismatch between Input and "
                                      "Output Dag operand '" +
-                                         ArgName + "'!");
+                                         SourceDag->getArgNameStr(I) + "'!");
+    SourceOperands[SourceDag->getArgNameStr(I)] = I;
   }
 }
 
@@ -388,7 +396,8 @@ void CompressInstEmitter::checkDagOperandMapping(
 void CompressInstEmitter::createInstOperandMapping(
     const Record *Rec, const DagInit *SourceDag, const DagInit *DestDag,
     IndexedMap<OpData> &SourceOperandMap, IndexedMap<OpData> &DestOperandMap,
-    StringMap<ArgData> &SourceOperands, const CodeGenInstruction &DestInst) {
+    StringMap<unsigned> &SourceOperands, const CodeGenInstruction &DestInst,
+    unsigned SourceLastTiedOp) {
   // TiedCount keeps track of the number of operands skipped in Inst
   // operands list to get to the corresponding Dag operand.
   unsigned TiedCount = 0;
@@ -398,8 +407,8 @@ void CompressInstEmitter::createInstOperandMapping(
     int TiedInstOpIdx = Operand.getTiedRegister();
     if (TiedInstOpIdx != -1) {
       ++TiedCount;
-      assert((unsigned)TiedInstOpIdx < OpNo);
-      DestOperandMap[OpNo] = DestOperandMap[TiedInstOpIdx];
+      DestOperandMap[OpNo].Data = DestOperandMap[TiedInstOpIdx].Data;
+      DestOperandMap[OpNo].Kind = DestOperandMap[TiedInstOpIdx].Kind;
       if (DestOperandMap[OpNo].Kind == OpData::Operand)
         // No need to fill the SourceOperandMap here since it was mapped to
         // destination operand 'TiedInstOpIdx' in a previous iteration.
@@ -418,21 +427,29 @@ void CompressInstEmitter::createInstOperandMapping(
         continue;
 
       unsigned DagArgIdx = OpNo - TiedCount;
-      StringRef ArgName = DestDag->getArgNameStr(DagArgIdx);
-      auto SourceOp = SourceOperands.find(ArgName);
+      StringMap<unsigned>::iterator SourceOp =
+          SourceOperands.find(DestDag->getArgNameStr(DagArgIdx));
       if (SourceOp == SourceOperands.end())
         PrintFatalError(Rec->getLoc(),
-                        "Output Dag operand '" + ArgName +
+                        "Output Dag operand '" +
+                            DestDag->getArgNameStr(DagArgIdx) +
                             "' has no matching input Dag operand.");
 
-      assert(ArgName ==
-                 SourceDag->getArgNameStr(SourceOp->getValue().DAGOpNo) &&
+      assert(DestDag->getArgNameStr(DagArgIdx) ==
+                 SourceDag->getArgNameStr(SourceOp->getValue()) &&
              "Incorrect operand mapping detected!\n");
 
-      unsigned SourceOpNo = SourceOp->getValue().MIOpNo;
-      DestOperandMap[OpNo].Data.Operand = SourceOpNo;
-      SourceOperandMap[SourceOpNo].Data.Operand = OpNo;
-      LLVM_DEBUG(dbgs() << "    " << SourceOpNo << " ====> " << OpNo << "\n");
+      // Following four lines ensure the correct handling of a single tied
+      // operand in the Source Inst. SourceDagOp points to the position of
+      // appropriate Dag argument which is not correct in presence of tied
+      // operand in the Source Inst and must be incremented by 1 to reflect
+      // correct position of the operand in Source Inst
+      unsigned SourceDagOp = SourceOp->getValue();
+      if (SourceDagOp >= SourceLastTiedOp)
+        SourceDagOp++;
+      DestOperandMap[OpNo].Data.Operand = SourceDagOp;
+      SourceOperandMap[SourceDagOp].Data.Operand = OpNo;
+      LLVM_DEBUG(dbgs() << "    " << SourceDagOp << " ====> " << OpNo << "\n");
     }
   }
 }
@@ -491,24 +508,25 @@ void CompressInstEmitter::evaluateCompressPat(const Record *Rec) {
   // Fill the mapping from the source to destination instructions.
 
   IndexedMap<OpData> SourceOperandMap;
-  // Map from arg name to DAG operand number and MI operand number.
-  StringMap<ArgData> SourceOperands;
+  unsigned SourceLastTiedOp; // postion of the last tied operand in Source Inst
   // Create a mapping between source Dag operands and source Inst operands.
   addDagOperandMapping(Rec, SourceDag, SourceInst, SourceOperandMap,
-                       SourceOperands, /*IsSourceInst*/ true);
+                       /*IsSourceInst*/ true, &SourceLastTiedOp);
 
   IndexedMap<OpData> DestOperandMap;
-  // Map from arg name to DAG operand number and MI operand number.
-  StringMap<ArgData> DestOperands;
   // Create a mapping between destination Dag operands and destination Inst
   // operands.
-  addDagOperandMapping(Rec, DestDag, DestInst, DestOperandMap, DestOperands,
-                       /*IsSourceInst*/ false);
+  addDagOperandMapping(Rec, DestDag, DestInst, DestOperandMap,
+                       /*IsSourceInst*/ false, nullptr);
 
-  checkDagOperandMapping(Rec, DestOperands, SourceDag, DestDag);
+  StringMap<unsigned> SourceOperands;
+  StringMap<unsigned> DestOperands;
+  createDagOperandMapping(Rec, SourceOperands, DestOperands, SourceDag, DestDag,
+                          SourceOperandMap);
   // Create operand mapping between the source and destination instructions.
   createInstOperandMapping(Rec, SourceDag, DestDag, SourceOperandMap,
-                           DestOperandMap, SourceOperands, DestInst);
+                           DestOperandMap, SourceOperands, DestInst,
+                           SourceLastTiedOp);
 
   // Get the target features for the CompressPat.
   std::vector<const Record *> PatReqFeatures;
@@ -517,9 +535,9 @@ void CompressInstEmitter::evaluateCompressPat(const Record *Rec) {
     return R->getValueAsBit("AssemblerMatcherPredicate");
   });
 
-  CompressPatterns.emplace_back(SourceInst, DestInst, std::move(PatReqFeatures),
-                                SourceOperandMap, DestOperandMap,
-                                Rec->getValueAsBit("isCompressOnly"));
+  CompressPatterns.push_back(CompressPat(
+      SourceInst, DestInst, std::move(PatReqFeatures), SourceOperandMap,
+      DestOperandMap, Rec->getValueAsBit("isCompressOnly")));
 }
 
 static void
@@ -606,7 +624,7 @@ void CompressInstEmitter::emitCompressInstEmitter(raw_ostream &OS,
   if (!AsmWriter->getValueAsInt("PassSubtarget"))
     PrintFatalError(AsmWriter->getLoc(),
                     "'PassSubtarget' is false. SubTargetInfo object is needed "
-                    "for target features.");
+                    "for target features.\n");
 
   StringRef TargetName = Target.getName();
 
@@ -762,7 +780,7 @@ void CompressInstEmitter::emitCompressInstEmitter(raw_ostream &OS,
               << ").getReg() ==  MI.getOperand("
               << SourceOperandMap[OpNo].TiedOpIdx << ").getReg()) &&\n";
         else
-          PrintFatalError("Unexpected tied operand types!");
+          PrintFatalError("Unexpected tied operand types!\n");
       }
       for (unsigned SubOp = 0; SubOp != SourceOperand.MINumOperands; ++SubOp) {
         // Check for fixed immediates\registers in the source instruction.

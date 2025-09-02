@@ -13,7 +13,7 @@
 #include "MCTargetDesc/PPCInstPrinter.h"
 #include "MCTargetDesc/PPCMCTargetDesc.h"
 #include "MCTargetDesc/PPCPredicates.h"
-#include "PPCMCAsmInfo.h"
+#include "PPCMCExpr.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"

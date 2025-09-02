@@ -17,6 +17,7 @@
 #include "mlir/Dialect/ArmNeon/Transforms.h"
 #include "mlir/Dialect/ArmSVE/IR/ArmSVEDialect.h"
 #include "mlir/Dialect/ArmSVE/Transforms/Transforms.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -84,7 +85,7 @@ void ConvertVectorToLLVMPass::runOnOperation() {
     populateVectorGatherLoweringPatterns(patterns);
     if (armI8MM) {
       if (armNeon)
-        arm_neon::populateLowerContractionToNeonI8MMPatternPatterns(patterns);
+        arm_neon::populateLowerContractionToSMMLAPatternPatterns(patterns);
       if (armSVE)
         populateLowerContractionToSVEI8MMPatternPatterns(patterns);
     }

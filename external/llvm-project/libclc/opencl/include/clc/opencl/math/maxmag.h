@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #define __CLC_BODY <clc/shared/binary_decl.inc>
-#define FUNCTION maxmag
+#define __CLC_FUNCTION maxmag
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

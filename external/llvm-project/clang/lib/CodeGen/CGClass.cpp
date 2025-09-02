@@ -626,7 +626,6 @@ static void EmitMemberInitializer(CodeGenFunction &CGF,
                                   CXXCtorInitializer *MemberInit,
                                   const CXXConstructorDecl *Constructor,
                                   FunctionArgList &Args) {
-  ApplyAtomGroup Grp(CGF.getDebugInfo());
   ApplyDebugLocation Loc(CGF, MemberInit->getSourceLocation());
   assert(MemberInit->isAnyMemberInitializer() &&
          "Must have member initializer!");
@@ -1000,8 +999,7 @@ namespace {
     void emitMemcpyIR(Address DestPtr, Address SrcPtr, CharUnits Size) {
       DestPtr = DestPtr.withElementType(CGF.Int8Ty);
       SrcPtr = SrcPtr.withElementType(CGF.Int8Ty);
-      auto *I = CGF.Builder.CreateMemCpy(DestPtr, SrcPtr, Size.getQuantity());
-      CGF.addInstToCurrentSourceAtom(I, nullptr);
+      CGF.Builder.CreateMemCpy(DestPtr, SrcPtr, Size.getQuantity());
     }
 
     void addInitialField(FieldDecl *F) {
@@ -1114,7 +1112,6 @@ namespace {
       }
 
       pushEHDestructors();
-      ApplyAtomGroup Grp(CGF.getDebugInfo());
       emitMemcpy();
       AggregatedInits.clear();
     }
@@ -1250,7 +1247,6 @@ namespace {
         reset();
       }
 
-      ApplyAtomGroup Grp(CGF.getDebugInfo());
       emitMemcpy();
       AggregatedStmts.clear();
     }
@@ -1341,9 +1337,9 @@ void CodeGenFunction::EmitCtorPrologue(const CXXConstructorDecl *CD,
     assert(!Member->isBaseInitializer());
     assert(Member->isAnyMemberInitializer() &&
            "Delegating initializer on non-delegating constructor");
+    ApplyAtomGroup Grp(getDebugInfo());
     CM.addMemberInitializer(Member);
   }
-
   CM.finish();
 }
 
@@ -1566,7 +1562,6 @@ void CodeGenFunction::emitImplicitAssignmentOperatorBody(FunctionArgList &Args) 
   AssignmentMemcpyizer AM(*this, AssignOp, Args);
   for (auto *I : RootCS->body())
     AM.emitAssignment(I);
-
   AM.finish();
 }
 

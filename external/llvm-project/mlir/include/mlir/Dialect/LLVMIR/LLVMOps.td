@@ -425,7 +425,7 @@ def LLVM_LoadOp : LLVM_MemAccessOpBase<"load",
     auto *inst = builder.CreateLoad($_resultType, $addr, $volatile_);
     $res = inst;
     if ($invariant) {
-      llvm::MDNode *metadata = llvm::MDNode::get(inst->getContext(), {});
+      llvm::MDNode *metadata = llvm::MDNode::get(inst->getContext(), std::nullopt);
       inst->setMetadata(llvm::LLVMContext::MD_invariant_load, metadata);
     }
     if ($dereferenceable)

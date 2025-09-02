@@ -431,6 +431,9 @@ bool Preprocessor::HandleMacroExpandedIdentifier(Token &Identifier,
   // to disable the optimization in this case.
   if (CurPPLexer) CurPPLexer->MIOpt.ExpandedMacro();
 
+  if (!hasSeenMainFileFirstPPToken())
+    HandleMainFileFirstPPToken(Identifier);
+
   // If this is a builtin macro, like __LINE__ or _Pragma, handle it specially.
   if (MI->isBuiltinMacro()) {
     if (Callbacks)
@@ -1461,7 +1464,8 @@ static IdentifierInfo *ExpectFeatureIdentifierInfo(Token &Tok,
 
 /// Implements the __is_target_arch builtin macro.
 static bool isTargetArch(const TargetInfo &TI, const IdentifierInfo *II) {
-  llvm::Triple Arch(II->getName().lower() + "--");
+  std::string ArchName = II->getName().lower() + "--";
+  llvm::Triple Arch(ArchName);
   const llvm::Triple &TT = TI.getTriple();
   if (TT.isThumb()) {
     // arm matches thumb or thumbv7. armv7 matches thumbv7.
@@ -1490,7 +1494,9 @@ static bool isTargetVendor(const TargetInfo &TI, const IdentifierInfo *II) {
 
 /// Implements the __is_target_os builtin macro.
 static bool isTargetOS(const TargetInfo &TI, const IdentifierInfo *II) {
-  llvm::Triple OS(llvm::Twine("unknown-unknown-") + II->getName().lower());
+  std::string OSName =
+      (llvm::Twine("unknown-unknown-") + II->getName().lower()).str();
+  llvm::Triple OS(OSName);
   if (OS.getOS() == llvm::Triple::Darwin) {
     // Darwin matches macos, ios, etc.
     return TI.getTriple().isOSDarwin();
@@ -1501,11 +1507,12 @@ static bool isTargetOS(const TargetInfo &TI, const IdentifierInfo *II) {
 /// Implements the __is_target_environment builtin macro.
 static bool isTargetEnvironment(const TargetInfo &TI,
                                 const IdentifierInfo *II) {
-  llvm::Triple Env(llvm::Twine("---") + II->getName().lower());
+  std::string EnvName = (llvm::Twine("---") + II->getName().lower()).str();
+  llvm::Triple Env(EnvName);
   // The unknown environment is matched only if
   // '__is_target_environment(unknown)' is used.
   if (Env.getEnvironment() == llvm::Triple::UnknownEnvironment &&
-      Env.getEnvironmentName() != "unknown")
+      EnvName != "---unknown")
     return false;
   return TI.getTriple().getEnvironment() == Env.getEnvironment();
 }
@@ -1517,7 +1524,9 @@ static bool isTargetVariantOS(const TargetInfo &TI, const IdentifierInfo *II) {
     if (!VariantTriple)
       return false;
 
-    llvm::Triple OS(llvm::Twine("unknown-unknown-") + II->getName().lower());
+    std::string OSName =
+        (llvm::Twine("unknown-unknown-") + II->getName().lower()).str();
+    llvm::Triple OS(OSName);
     if (OS.getOS() == llvm::Triple::Darwin) {
       // Darwin matches macos, ios, etc.
       return VariantTriple->isOSDarwin();
@@ -1534,7 +1543,8 @@ static bool isTargetVariantEnvironment(const TargetInfo &TI,
     const llvm::Triple *VariantTriple = TI.getDarwinTargetVariantTriple();
     if (!VariantTriple)
       return false;
-    llvm::Triple Env(llvm::Twine("---") + II->getName().lower());
+    std::string EnvName = (llvm::Twine("---") + II->getName().lower()).str();
+    llvm::Triple Env(EnvName);
     return VariantTriple->getEnvironment() == Env.getEnvironment();
   }
   return false;

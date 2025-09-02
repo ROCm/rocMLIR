@@ -982,10 +982,6 @@ Value *ScalarExprEmitter::EmitConversionToBool(Value *Src, QualType SrcType) {
   if (const MemberPointerType *MPT = dyn_cast<MemberPointerType>(SrcType))
     return CGF.CGM.getCXXABI().EmitMemberPointerIsNotNull(CGF, Src, MPT);
 
-  // The conversion is a NOP, and will be done when CodeGening the builtin.
-  if (SrcType == CGF.getContext().AMDGPUFeaturePredicateTy)
-    return Src;
-
   assert((SrcType->isIntegerType() || isa<llvm::PointerType>(Src->getType())) &&
          "Unknown scalar type to convert");
 
@@ -2444,7 +2440,7 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   case CK_BlockPointerToObjCPointerCast:
   case CK_AnyPointerToBlockPointerCast:
   case CK_BitCast: {
-    Value *Src = Visit(E);
+    Value *Src = Visit(const_cast<Expr*>(E));
     llvm::Type *SrcTy = Src->getType();
     llvm::Type *DstTy = ConvertType(DestTy);
 
@@ -2610,10 +2606,11 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   case CK_AtomicToNonAtomic:
   case CK_NonAtomicToAtomic:
   case CK_UserDefinedConversion:
-    return Visit(E);
+    return Visit(const_cast<Expr*>(E));
 
   case CK_NoOp: {
-    return CE->changesVolatileQualification() ? EmitLoadOfLValue(CE) : Visit(E);
+    return CE->changesVolatileQualification() ? EmitLoadOfLValue(CE)
+                                              : Visit(const_cast<Expr *>(E));
   }
 
   case CK_BaseToDerived: {
@@ -2715,10 +2712,10 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   case CK_LValueToRValue:
     assert(CGF.getContext().hasSameUnqualifiedType(E->getType(), DestTy));
     assert(E->isGLValue() && "lvalue-to-rvalue applied to r-value!");
-    return Visit(E);
+    return Visit(const_cast<Expr*>(E));
 
   case CK_IntegralToPointer: {
-    Value *Src = Visit(E);
+    Value *Src = Visit(const_cast<Expr*>(E));
 
     // First, convert to the correct width so that we control the kind of
     // extension.
@@ -2771,7 +2768,7 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   case CK_HLSLAggregateSplatCast:
   case CK_VectorSplat: {
     llvm::Type *DstTy = ConvertType(DestTy);
-    Value *Elt = Visit(E);
+    Value *Elt = Visit(const_cast<Expr *>(E));
     // Splat the element across to all elements
     llvm::ElementCount NumElements =
         cast<llvm::VectorType>(DstTy)->getElementCount();
@@ -2909,7 +2906,7 @@ Value *ScalarExprEmitter::VisitCastExpr(CastExpr *CE) {
   case CK_HLSLVectorTruncation: {
     assert((DestTy->isVectorType() || DestTy->isBuiltinType()) &&
            "Destination type must be a vector or builtin type.");
-    Value *Vec = Visit(E);
+    Value *Vec = Visit(const_cast<Expr *>(E));
     if (auto *VecTy = DestTy->getAs<VectorType>()) {
       SmallVector<int> Mask;
       unsigned NumElts = VecTy->getNumElements();

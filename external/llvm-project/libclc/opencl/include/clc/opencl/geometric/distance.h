@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define FUNCTION distance
+#define __CLC_FUNCTION distance
 #define __CLC_BODY <clc/geometric/binary_decl.inc>
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

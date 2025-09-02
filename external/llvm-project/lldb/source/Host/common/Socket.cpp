@@ -69,7 +69,7 @@ SharedSocket::SharedSocket(const Socket *socket, Status &error) {
   m_fd = kInvalidFD;
 
   // Create a pipe to transfer WSAPROTOCOL_INFO to the child process.
-  error = m_socket_pipe.CreateNew();
+  error = m_socket_pipe.CreateNew(true);
   if (error.Fail())
     return;
 
@@ -313,7 +313,8 @@ Socket::DecodeHostAndPort(llvm::StringRef host_and_port) {
 }
 
 IOObject::WaitableHandle Socket::GetWaitableHandle() {
-  return (IOObject::WaitableHandle)m_socket;
+  // TODO: On Windows, use WSAEventSelect
+  return m_socket;
 }
 
 Status Socket::Read(void *buf, size_t &num_bytes) {

@@ -41,11 +41,25 @@ enum CondCode {
   COND_GE,
   COND_LTU,
   COND_GEU,
+  COND_CV_BEQIMM,
+  COND_CV_BNEIMM,
+  COND_QC_BEQI,
+  COND_QC_BNEI,
+  COND_QC_BLTI,
+  COND_QC_BGEI,
+  COND_QC_BLTUI,
+  COND_QC_BGEUI,
+  COND_QC_E_BEQI,
+  COND_QC_E_BNEI,
+  COND_QC_E_BLTI,
+  COND_QC_E_BGEI,
+  COND_QC_E_BLTUI,
+  COND_QC_E_BGEUI,
   COND_INVALID
 };
 
 CondCode getOppositeBranchCondition(CondCode);
-unsigned getBrCond(CondCode CC, unsigned SelectOpc = 0);
+unsigned getBrCond(CondCode CC);
 
 } // end of namespace RISCVCC
 
@@ -65,6 +79,7 @@ public:
   explicit RISCVInstrInfo(RISCVSubtarget &STI);
 
   MCInst getNop() const override;
+  const MCInstrDesc &getBrCond(RISCVCC::CondCode CC) const;
 
   Register isLoadFromStackSlot(const MachineInstr &MI,
                                int &FrameIndex) const override;
@@ -310,11 +325,9 @@ public:
 #define GET_INSTRINFO_HELPER_DECLS
 #include "RISCVGenInstrInfo.inc"
 
-  static RISCVCC::CondCode getCondFromBranchOpc(unsigned Opc);
-
   /// Return the result of the evaluation of C0 CC C1, where CC is a
   /// RISCVCC::CondCode.
-  static bool evaluateCondBranch(RISCVCC::CondCode CC, int64_t C0, int64_t C1);
+  static bool evaluateCondBranch(unsigned CC, int64_t C0, int64_t C1);
 
   /// Return true if the operand is a load immediate instruction and
   /// sets Imm to the immediate value.

@@ -43,22 +43,32 @@ public:
   bool allows(Profile prof) const { return enabledProfiles.count(prof) != 0; }
 
   bool allowsAnyOf(ArrayRef<Profile> profs) const {
-    return llvm::any_of(profs, [&](Profile prof) { return allows(prof); });
+    const auto *chosen = llvm::find_if(
+        profs, [this](tosa::Profile prof) { return allows(prof); });
+    return chosen != profs.end() ? true : false;
   }
 
   bool allowsAllOf(ArrayRef<Profile> profs) const {
-    return llvm::all_of(profs, [&](Profile prof) { return allows(prof); });
+    bool is_allowed = true;
+    llvm::for_each(profs,
+                   [&](tosa::Profile prof) { is_allowed &= allows(prof); });
+    return is_allowed;
   }
 
   // Returns true if the given extension is allowed.
   bool allows(Extension ext) const { return enabledExtensions.count(ext) != 0; }
 
   bool allowsAnyOf(ArrayRef<Extension> exts) const {
-    return llvm::any_of(exts, [&](Extension ext) { return allows(ext); });
+    const auto *chosen = llvm::find_if(
+        exts, [this](tosa::Extension ext) { return allows(ext); });
+    return chosen != exts.end() ? true : false;
   }
 
   bool allowsAllOf(ArrayRef<Extension> exts) const {
-    return llvm::all_of(exts, [&](Extension ext) { return allows(ext); });
+    bool is_allowed = true;
+    llvm::for_each(exts,
+                   [&](tosa::Extension ext) { is_allowed &= allows(ext); });
+    return is_allowed;
   }
 
 private:

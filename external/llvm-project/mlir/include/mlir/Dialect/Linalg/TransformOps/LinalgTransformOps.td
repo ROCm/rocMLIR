@@ -9,7 +9,6 @@
 #ifndef LINALG_TRANSFORM_OPS
 #define LINALG_TRANSFORM_OPS
 
-include "mlir/Dialect/Linalg/IR/LinalgEnums.td"
 include "mlir/Dialect/Linalg/TransformOps/LinalgTransformEnums.td"
 include "mlir/Dialect/Transform/IR/TransformAttrs.td"
 include "mlir/Dialect/Transform/IR/TransformDialect.td"
@@ -1402,7 +1401,6 @@ def PromoteOp : Op<Transform_Dialect, "structured.promote",
                        DefaultValuedAttr<I64ArrayAttr, "{}">:$operands_to_promote,
                        DefaultValuedAttr<BoolArrayAttr, "{}">:$use_full_tile_buffers,
                        UnitAttr:$use_full_tiles_by_default,
-                       UnitAttr:$use_original_subview_size,
                        UnitAttr:$use_alloca,
                        OptionalAttr<AnyAttr>:$memory_space,
                        OptionalAttr<DeviceMappingArrayAttr>:$mapping,
@@ -2904,7 +2902,8 @@ def WinogradConv2DOp : Op<Transform_Dialect,
   }];
 
   let arguments = (ins TransformHandleTypeInterface:$target,
-                       WinogradConv2DFmr:$fmr);
+                       I64Attr:$m,
+                       I64Attr:$r);
   let results = (outs TransformHandleTypeInterface:$transformed);
 
   let assemblyFormat =

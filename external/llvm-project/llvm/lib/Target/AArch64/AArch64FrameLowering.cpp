@@ -3934,11 +3934,6 @@ void AArch64FrameLowering::determineCalleeSaves(MachineFunction &MF,
       CSStackSize += SpillSize;
   }
 
-  // Save number of saved regs, so we can easily update CSStackSize later to
-  // account for any additional 64-bit GPR saves. Note: After this point
-  // only 64-bit GPRs can be added to SavedRegs.
-  unsigned NumSavedRegs = SavedRegs.count();
-
   // Increase the callee-saved stack size if the function has streaming mode
   // changes, as we will need to spill the value of the VG register.
   // For locally streaming functions, we spill both the streaming and
@@ -3957,9 +3952,8 @@ void AArch64FrameLowering::determineCalleeSaves(MachineFunction &MF,
   if (AFI->hasStackHazardSlotIndex())
     CSStackSize += getStackHazardSize(MF);
 
-  // If we must call __arm_get_current_vg in the prologue preserve the LR.
-  if (requiresSaveVG(MF) && !Subtarget.hasSVE())
-    SavedRegs.set(AArch64::LR);
+  // Save number of saved regs, so we can easily update CSStackSize later.
+  unsigned NumSavedRegs = SavedRegs.count();
 
   // The frame record needs to be created by saving the appropriate registers
   uint64_t EstimatedStackSize = MFI.estimateStackSize(MF);

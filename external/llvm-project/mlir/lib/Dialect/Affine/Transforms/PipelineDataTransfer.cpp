@@ -115,16 +115,13 @@ static bool doubleBuffer(Value oldMemRef, AffineForOp forOp) {
 
   // replaceAllMemRefUsesWith will succeed unless the forOp body has
   // non-dereferencing uses of the memref (dealloc's are fine though).
-  auto userFilterFn = [&](Operation *user) {
-    auto domInfo = std::make_unique<DominanceInfo>(
-        forOp->getParentOfType<FunctionOpInterface>());
-    return domInfo->dominates(&*forOp.getBody()->begin(), user);
-  };
-  if (failed(replaceAllMemRefUsesWith(oldMemRef, newMemRef,
-                                      /*extraIndices=*/{ivModTwoOp},
-                                      /*indexRemap=*/AffineMap(),
-                                      /*extraOperands=*/{},
-                                      /*symbolOperands=*/{}, userFilterFn))) {
+  if (failed(replaceAllMemRefUsesWith(
+          oldMemRef, newMemRef,
+          /*extraIndices=*/{ivModTwoOp},
+          /*indexRemap=*/AffineMap(),
+          /*extraOperands=*/{},
+          /*symbolOperands=*/{},
+          /*domOpFilter=*/&*forOp.getBody()->begin()))) {
     LLVM_DEBUG(
         forOp.emitError("memref replacement for double buffering failed"));
     ivModTwoOp.erase();

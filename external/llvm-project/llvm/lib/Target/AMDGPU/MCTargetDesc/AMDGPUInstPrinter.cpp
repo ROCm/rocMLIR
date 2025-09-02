@@ -173,12 +173,13 @@ void AMDGPUInstPrinter::printTH(const MCInst *MI, int64_t TH, int64_t Scope,
 
   const unsigned Opcode = MI->getOpcode();
   const MCInstrDesc &TID = MII.get(Opcode);
-  unsigned THType = AMDGPU::getTemporalHintType(TID);
-  bool IsStore = (THType == AMDGPU::CPol::TH_TYPE_STORE);
+  bool IsStore = TID.mayStore();
+  bool IsAtomic =
+      TID.TSFlags & (SIInstrFlags::IsAtomicNoRet | SIInstrFlags::IsAtomicRet);
 
   O << " th:";
 
-  if (THType == AMDGPU::CPol::TH_TYPE_ATOMIC) {
+  if (IsAtomic) {
     O << "TH_ATOMIC_";
     if (TH & AMDGPU::CPol::TH_ATOMIC_CASCADE) {
       if (Scope >= AMDGPU::CPol::SCOPE_DEV)
@@ -195,6 +196,9 @@ void AMDGPUInstPrinter::printTH(const MCInst *MI, int64_t TH, int64_t Scope,
     if (!IsStore && TH == AMDGPU::CPol::TH_RESERVED)
       O << formatHex(TH);
     else {
+      // This will default to printing load variants when neither MayStore nor
+      // MayLoad flag is present which is the case with instructions like
+      // image_get_resinfo.
       O << (IsStore ? "TH_STORE_" : "TH_LOAD_");
       switch (TH) {
       case AMDGPU::CPol::TH_NT:

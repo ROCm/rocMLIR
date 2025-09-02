@@ -4086,6 +4086,8 @@ protected:
     // Dump all sections for all modules images
 
     if (command.GetArgumentCount() == 0) {
+      ModuleSP current_module;
+
       // Where it is possible to look in the current symbol context first,
       // try that.  If this search was successful and --all was not passed,
       // don't print anything else.
@@ -4108,7 +4110,8 @@ protected:
       }
 
       for (ModuleSP module_sp : target_modules.ModulesNoLocking()) {
-        if (LookupInModule(m_interpreter, module_sp.get(), result,
+        if (module_sp != current_module &&
+            LookupInModule(m_interpreter, module_sp.get(), result,
                            syntax_error)) {
           result.GetOutputStream().EOL();
           num_successful_lookups++;

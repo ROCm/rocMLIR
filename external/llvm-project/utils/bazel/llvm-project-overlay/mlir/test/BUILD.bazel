@@ -613,7 +613,6 @@ cc_library(
         "//mlir:AffineDialect",
         "//mlir:Analysis",
         "//mlir:ArithDialect",
-        "//mlir:DialectUtils",
         "//mlir:FuncDialect",
         "//mlir:IR",
         "//mlir:InliningUtils",

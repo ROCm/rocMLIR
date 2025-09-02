@@ -149,17 +149,13 @@ std::string ReductionProcessor::getReductionName(
     reductionName = "multiply_reduction";
     break;
   case omp::clause::DefinedOperator::IntrinsicOperator::AND:
-    reductionName = "and_reduction";
-    break;
+    return "and_reduction";
   case omp::clause::DefinedOperator::IntrinsicOperator::EQV:
-    reductionName = "eqv_reduction";
-    break;
+    return "eqv_reduction";
   case omp::clause::DefinedOperator::IntrinsicOperator::OR:
-    reductionName = "or_reduction";
-    break;
+    return "or_reduction";
   case omp::clause::DefinedOperator::IntrinsicOperator::NEQV:
-    reductionName = "neqv_reduction";
-    break;
+    return "neqv_reduction";
   default:
     reductionName = "other_reduction";
     break;
@@ -375,10 +371,8 @@ static void genBoxCombiner(fir::FirOpBuilder &builder, mlir::Location loc,
 
   // Get ShapeShift with default lower bounds. This makes it possible to use
   // unmodified LoopNest's indices with ArrayCoorOp.
-  fir::ShapeShiftOp shapeShift =
-      getShapeShift(builder, loc, lhs,
-                    /*cannotHaveNonDefaultLowerBounds=*/false,
-                    /*useDefaultLowerBounds=*/true);
+  fir::ShapeShiftOp shapeShift = getShapeShift(builder, loc, lhs,
+                                               /*useDefaultLowerBounds=*/true);
 
   // Iterate over array elements, applying the equivalent scalar reduction:
 
@@ -677,6 +671,9 @@ void ReductionProcessor::processReductionArguments(
     const auto &kindMap = firOpBuilder.getKindMap();
     std::string reductionName;
     ReductionIdentifier redId;
+    mlir::Type redNameTy = redType;
+    if (mlir::isa<fir::LogicalType>(redType.getEleTy()))
+      redNameTy = builder.getI1Type();
 
     if (const auto &redDefinedOp =
             std::get_if<omp::clause::DefinedOperator>(&redOperator.u)) {
@@ -698,7 +695,8 @@ void ReductionProcessor::processReductionArguments(
         break;
       }
 
-      reductionName = getReductionName(intrinsicOp, kindMap, redType, isByRef);
+      reductionName =
+          getReductionName(intrinsicOp, kindMap, redNameTy, isByRef);
     } else if (const auto *reductionIntrinsic =
                    std::get_if<omp::clause::ProcedureDesignator>(
                        &redOperator.u)) {
@@ -709,7 +707,7 @@ void ReductionProcessor::processReductionArguments(
       redId = getReductionType(*reductionIntrinsic);
       reductionName =
           getReductionName(getRealName(*reductionIntrinsic).ToString(), kindMap,
-                           redType, isByRef);
+                           redNameTy, isByRef);
     } else {
       TODO(currentLocation, "Unexpected reduction type");
     }

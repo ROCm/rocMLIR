@@ -834,8 +834,6 @@ enum class CCEKind {
                            ///< message.
 };
 
-void inferNoReturnAttr(Sema &S, const Decl *D);
-
 /// Sema - This implements semantic analysis and AST building for C.
 /// \nosubgrouping
 class Sema final : public SemaBase {
@@ -7723,12 +7721,12 @@ public:
 
   class ConditionResult {
     Decl *ConditionVar;
-    ExprResult Condition;
+    FullExprArg Condition;
     bool Invalid;
     std::optional<bool> KnownValue;
 
     friend class Sema;
-    ConditionResult(Sema &S, Decl *ConditionVar, ExprResult Condition,
+    ConditionResult(Sema &S, Decl *ConditionVar, FullExprArg Condition,
                     bool IsConstexpr)
         : ConditionVar(ConditionVar), Condition(Condition), Invalid(false) {
       if (IsConstexpr && Condition.get()) {
@@ -7739,7 +7737,7 @@ public:
       }
     }
     explicit ConditionResult(bool Invalid)
-        : ConditionVar(nullptr), Condition(Invalid), Invalid(Invalid),
+        : ConditionVar(nullptr), Condition(nullptr), Invalid(Invalid),
           KnownValue(std::nullopt) {}
 
   public:
@@ -15192,17 +15190,10 @@ public:
                                SourceLocation Loc);
   QualType BuiltinRemoveReference(QualType BaseType, UTTKind UKind,
                                   SourceLocation Loc);
-
-  QualType BuiltinRemoveCVRef(QualType BaseType, SourceLocation Loc) {
-    return BuiltinRemoveReference(BaseType, UTTKind::RemoveCVRef, Loc);
-  }
-
   QualType BuiltinChangeCVRQualifiers(QualType BaseType, UTTKind UKind,
                                       SourceLocation Loc);
   QualType BuiltinChangeSignedness(QualType BaseType, UTTKind UKind,
                                    SourceLocation Loc);
-
-  bool BuiltinIsBaseOf(SourceLocation RhsTLoc, QualType LhsT, QualType RhsT);
 
   /// Ensure that the type T is a literal type.
   ///

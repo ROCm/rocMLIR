@@ -24,24 +24,32 @@ namespace NVPTXISD {
 enum NodeType : unsigned {
   // Start the numbering from where ISD NodeType finishes.
   FIRST_NUMBER = ISD::BUILTIN_OP_END,
-  RET_GLUE,
-
-  /// These nodes represent a parameter declaration. In PTX this will look like:
-  ///   .param .align 16 .b8 param0[1024];
-  ///   .param .b32 retval0;
-  ///
-  /// DeclareArrayParam(Chain, Externalsym, Align, Size, Glue)
-  /// DeclareScalarParam(Chain, Externalsym, Size, Glue)
-  DeclareScalarParam,
-  DeclareArrayParam,
-
-  /// This node represents a PTX call instruction. It's operands are as follows:
-  ///
-  /// CALL(Chain, IsConvergent, IsIndirectCall/IsUniform, NumReturns,
-  ///      NumParams, Callee, Proto, InGlue)
+  Wrapper,
   CALL,
-
+  RET_GLUE,
+  LOAD_PARAM,
+  DeclareParam,
+  DeclareScalarParam,
+  DeclareRetParam,
+  DeclareRet,
+  DeclareScalarRet,
+  PrintCall,
+  PrintConvergentCall,
+  PrintCallUni,
+  PrintConvergentCallUni,
+  CallArgBegin,
+  CallArg,
+  LastCallArg,
+  CallArgEnd,
+  CallVoid,
+  CallVal,
+  CallSymbol,
+  Prototype,
   MoveParam,
+  PseudoUseParam,
+  RETURN,
+  CallSeqBegin,
+  CallSeqEnd,
   CallPrototype,
   ProxyReg,
   FSHL_CLAMP,
@@ -75,6 +83,7 @@ enum NodeType : unsigned {
   CLUSTERLAUNCHCONTROL_QUERY_CANCEL_GET_FIRST_CTAID_X,
   CLUSTERLAUNCHCONTROL_QUERY_CANCEL_GET_FIRST_CTAID_Y,
   CLUSTERLAUNCHCONTROL_QUERY_CANCEL_GET_FIRST_CTAID_Z,
+  Dummy,
 
   FIRST_MEMORY_OPCODE,
   LoadV2 = FIRST_MEMORY_OPCODE,
@@ -91,7 +100,12 @@ enum NodeType : unsigned {
   StoreParam,
   StoreParamV2,
   StoreParamV4,
-  LAST_MEMORY_OPCODE = StoreParamV4,
+  StoreParamS32, // to sext and store a <32bit value, not used currently
+  StoreParamU32, // to zext and store a <32bit value, not used currently
+  StoreRetval,
+  StoreRetvalV2,
+  StoreRetvalV4,
+  LAST_MEMORY_OPCODE = StoreRetvalV4,
 };
 }
 
@@ -105,6 +119,8 @@ public:
   explicit NVPTXTargetLowering(const NVPTXTargetMachine &TM,
                                const NVPTXSubtarget &STI);
   SDValue LowerOperation(SDValue Op, SelectionDAG &DAG) const override;
+
+  SDValue LowerGlobalAddress(SDValue Op, SelectionDAG &DAG) const;
 
   const char *getTargetNodeName(unsigned Opcode) const override;
 
@@ -179,6 +195,7 @@ public:
 
   std::string getPrototype(const DataLayout &DL, Type *, const ArgListTy &,
                            const SmallVectorImpl<ISD::OutputArg> &,
+                           MaybeAlign RetAlign,
                            std::optional<unsigned> FirstVAArg,
                            const CallBase &CB, unsigned UniqueCallSite) const;
 
@@ -276,8 +293,8 @@ private:
   const NVPTXSubtarget &STI; // cache the subtarget here
   mutable unsigned GlobalUniqueCallSite;
 
-  SDValue getParamSymbol(SelectionDAG &DAG, int I, EVT T) const;
-  SDValue getCallParamSymbol(SelectionDAG &DAG, int I, EVT T) const;
+  SDValue getParamSymbol(SelectionDAG &DAG, int idx, EVT) const;
+
   SDValue LowerADDRSPACECAST(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerBITCAST(SDValue Op, SelectionDAG &DAG) const;
 

@@ -35,7 +35,7 @@ LLVM_LIBC_FUNCTION(size_t, wcrtomb,
                     : reinterpret_cast<internal::mbstate *>(ps));
 
   if (!result.has_value()) {
-    libc_errno = result.error();
+    libc_errno = EILSEQ;
     return -1;
   }
 

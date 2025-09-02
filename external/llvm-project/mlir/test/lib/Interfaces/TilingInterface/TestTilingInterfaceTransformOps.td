@@ -50,8 +50,7 @@ def TestFuseAndYieldOp : Op<Transform_Dialect, "test.fuse_and_yield",
 }
 
 def TestFuseConsumerOp : Op<Transform_Dialect, "test.fuse_consumer",
-       [AttrSizedOperandSegments,
-        DeclareOpInterfaceMethods<TransformOpInterface>,
+       [DeclareOpInterfaceMethods<TransformOpInterface>,
         DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
         ReportTrackingListenerFailuresOpTrait]> {
   let description = [{
@@ -60,14 +59,14 @@ def TestFuseConsumerOp : Op<Transform_Dialect, "test.fuse_consumer",
   }];
 
   let arguments = (ins 
-      Variadic<TransformHandleTypeInterface>:$targets,
+      TransformHandleTypeInterface:$target,
       Variadic<TransformHandleTypeInterface>:$loops,
       DefaultValuedAttr<I32Attr, "1">:$num_consumer_to_fuse);
   let results = (outs TransformHandleTypeInterface:$consumer,
                       TransformHandleTypeInterface:$fused_consumer);
 
   let assemblyFormat = [{
-    $targets `in` `(` $loops `)`
+    $target `in` `(` $loops `)`
     (`num_consumer_to_fuse` `=` $num_consumer_to_fuse^)? 
     attr-dict `:` functional-type(operands, results)
   }];

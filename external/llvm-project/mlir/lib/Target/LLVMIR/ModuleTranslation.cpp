@@ -22,16 +22,21 @@
 #include "mlir/Dialect/LLVMIR/LLVMInterfaces.h"
 #include "mlir/Dialect/LLVMIR/Transforms/DIExpressionLegalization.h"
 #include "mlir/Dialect/LLVMIR/Transforms/LegalizeForExport.h"
+#include "mlir/Dialect/OpenMP/OpenMPDialect.h"
+#include "mlir/Dialect/OpenMP/OpenMPInterfaces.h"
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectResourceBlobManager.h"
+#include "mlir/IR/RegionGraphTraits.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Target/LLVMIR/LLVMTranslationInterface.h"
 #include "mlir/Target/LLVMIR/TypeToLLVM.h"
 
+#include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Analysis/TargetFolder.h"
@@ -42,6 +47,7 @@
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InlineAsm.h"
+#include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Module.h"
@@ -721,8 +727,10 @@ llvm::Constant *mlir::LLVM::detail::getLLVMConstant(
   }
 
   if (auto stringAttr = dyn_cast<StringAttr>(attr)) {
-    return llvm::ConstantDataArray::get(moduleTranslation.getLLVMContext(),
-                                        ArrayRef<char>{stringAttr.getValue()});
+    return llvm::ConstantDataArray::get(
+        moduleTranslation.getLLVMContext(),
+        ArrayRef<char>{stringAttr.getValue().data(),
+                       stringAttr.getValue().size()});
   }
 
   // Handle arrays of structs that cannot be represented as DenseElementsAttr
@@ -769,7 +777,7 @@ ModuleTranslation::ModuleTranslation(Operation *module,
 }
 
 ModuleTranslation::~ModuleTranslation() {
-  if (ompBuilder && !ompBuilder->isFinalized())
+  if (ompBuilder)
     ompBuilder->finalize();
 }
 
@@ -1914,7 +1922,7 @@ ModuleTranslation::getOrCreateAliasScope(AliasScopeAttr aliasScopeAttr) {
   if (!scopeInserted)
     return scopeIt->second;
   llvm::LLVMContext &ctx = llvmModule->getContext();
-  auto dummy = llvm::MDNode::getTemporary(ctx, {});
+  auto dummy = llvm::MDNode::getTemporary(ctx, std::nullopt);
   // Convert the domain metadata node if necessary.
   auto [domainIt, insertedDomain] = aliasDomainMetadataMapping.try_emplace(
       aliasScopeAttr.getDomain(), nullptr);
@@ -2217,6 +2225,8 @@ ModuleTranslation::getOrInsertNamedModuleMetadata(StringRef name) {
   return llvmModule->getOrInsertNamedMetadata(name);
 }
 
+void ModuleTranslation::StackFrame::anchor() {}
+
 static std::unique_ptr<llvm::Module>
 prepareLLVMModule(Operation *m, llvm::LLVMContext &llvmContext,
                   StringRef name) {
@@ -2322,10 +2332,6 @@ mlir::translateModuleToLLVMIR(Operation *module, llvm::LLVMContext &llvmContext,
   // Add the necessary debug info module flags, if they were not encoded in MLIR
   // beforehand.
   translator.debugTranslation->addModuleFlagsIfNotPresent();
-
-  // Call the OpenMP IR Builder callbacks prior to verifying the module
-  if (auto *ompBuilder = translator.getOpenMPBuilder())
-    ompBuilder->finalize();
 
   if (!disableVerification &&
       llvm::verifyModule(*translator.llvmModule, &llvm::errs()))

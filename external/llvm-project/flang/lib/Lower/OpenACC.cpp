@@ -4561,8 +4561,7 @@ void createOpenACCRoutineConstruct(
     llvm::SmallVector<mlir::Attribute> &vectorDeviceTypes) {
 
   for (auto routineOp : mod.getOps<mlir::acc::RoutineOp>()) {
-    if (routineOp.getFuncName().getLeafReference().str().compare(funcName) ==
-        0) {
+    if (routineOp.getFuncName().str().compare(funcName) == 0) {
       // If the routine is already specified with the same clauses, just skip
       // the operation creation.
       if (compareDeviceTypeInfo(routineOp, bindNames, bindNameDeviceTypes,
@@ -4580,9 +4579,7 @@ void createOpenACCRoutineConstruct(
   mlir::OpBuilder modBuilder(mod.getBodyRegion());
   fir::FirOpBuilder &builder = converter.getFirOpBuilder();
   modBuilder.create<mlir::acc::RoutineOp>(
-      loc, routineOpStr,
-      mlir::SymbolRefAttr::get(builder.getContext(), funcName),
-      getArrayAttrOrNull(builder, bindNames),
+      loc, routineOpStr, funcName, getArrayAttrOrNull(builder, bindNames),
       getArrayAttrOrNull(builder, bindNameDeviceTypes),
       getArrayAttrOrNull(builder, workerDeviceTypes),
       getArrayAttrOrNull(builder, vectorDeviceTypes),

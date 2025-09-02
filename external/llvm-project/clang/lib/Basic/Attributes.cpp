@@ -260,7 +260,8 @@ static constexpr const char *AttrScopeSpellingList[] = {
 std::optional<StringRef>
 AttributeCommonInfo::tryGetCorrectedScopeName(StringRef ScopeName) const {
   if (ScopeName.size() > 0 &&
-      !llvm::is_contained(AttrScopeSpellingList, ScopeName)) {
+      llvm::none_of(AttrScopeSpellingList,
+                    [&](const char *S) { return S == ScopeName; })) {
     SimpleTypoCorrection STC(ScopeName);
     for (const auto &Scope : AttrScopeSpellingList)
       STC.add(Scope);
@@ -274,7 +275,8 @@ AttributeCommonInfo::tryGetCorrectedScopeName(StringRef ScopeName) const {
 std::optional<StringRef> AttributeCommonInfo::tryGetCorrectedAttrName(
     StringRef ScopeName, StringRef AttrName, const TargetInfo &Target,
     const LangOptions &LangOpts) const {
-  if (!llvm::is_contained(AttrSpellingList, AttrName)) {
+  if (llvm::none_of(AttrSpellingList,
+                    [&](const char *A) { return A == AttrName; })) {
     SimpleTypoCorrection STC(AttrName);
     for (const auto &Attr : AttrSpellingList)
       STC.add(Attr);

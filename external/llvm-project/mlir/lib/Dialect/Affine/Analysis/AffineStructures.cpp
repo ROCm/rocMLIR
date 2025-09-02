@@ -526,7 +526,7 @@ LogicalResult mlir::affine::getRelationFromMap(AffineMap &map,
   SmallVector<int64_t, 8> eq(localVarCst.getNumCols());
   for (unsigned i = 0, e = map.getNumResults(); i < e; ++i) {
     // Zero fill.
-    llvm::fill(eq, 0);
+    std::fill(eq.begin(), eq.end(), 0);
     // Fill equality.
     for (unsigned j = 0, f = oldDimNum; j < f; ++j)
       eq[j] = flatExprs[i][j];

@@ -376,9 +376,9 @@ static bool PrintDemangledArgumentList(Stream &s, const SymbolContext &sc) {
 
   auto info_or_err = GetAndValidateInfo(sc);
   if (!info_or_err) {
-    LLDB_LOG_ERROR(GetLog(LLDBLog::Language), info_or_err.takeError(),
-                   "Failed to handle ${{function.formatted-arguments}} "
-                   "frame-format variable: {0}");
+    LLDB_LOG_ERROR(
+        GetLog(LLDBLog::Language), info_or_err.takeError(),
+        "Failed to handle ${{function.basename}} frame-format variable: {0}");
     return false;
   }
   auto [demangled_name, info] = *info_or_err;
@@ -1016,15 +1016,15 @@ static void LoadLibCxxFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
   stl_summary_flags.SetDontShowChildren(false);
   stl_summary_flags.SetSkipPointers(false);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::bitset summary provider",
                 "^std::__[[:alnum:]]+::bitset<.+>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::vector summary provider",
                 "^std::__[[:alnum:]]+::vector<.+>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::valarray summary provider",
                 "^std::__[[:alnum:]]+::valarray<.+>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
@@ -1033,16 +1033,16 @@ static void LoadLibCxxFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
                 "^std::__[[:alnum:]]+::slice_array<.+>$", stl_summary_flags,
                 true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ summary provider for the valarray proxy arrays",
                 "^std::__[[:alnum:]]+::(gslice|mask|indirect)_array<.+>$",
                 stl_summary_flags, true);
   AddCXXSummary(
-      cpp_category_sp, lldb_private::formatters::ContainerSizeSummaryProvider,
+      cpp_category_sp, lldb_private::formatters::LibcxxContainerSummaryProvider,
       "libc++ std::list summary provider",
       "^std::__[[:alnum:]]+::forward_list<.+>$", stl_summary_flags, true);
   AddCXXSummary(
-      cpp_category_sp, lldb_private::formatters::ContainerSizeSummaryProvider,
+      cpp_category_sp, lldb_private::formatters::LibcxxContainerSummaryProvider,
       "libc++ std::list summary provider",
       // A POSIX variant of: "^std::__(?!cxx11:)[[:alnum:]]+::list<.+>$"
       // so that it does not clash with: "^std::(__cxx11::)?list<.+>$"
@@ -1050,35 +1050,35 @@ static void LoadLibCxxFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
       "cxx11[[:alnum:]])[[:alnum:]]*::list<.+>$",
       stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::map summary provider",
                 "^std::__[[:alnum:]]+::map<.+>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::deque summary provider",
                 "^std::__[[:alnum:]]+::deque<.+>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::queue summary provider",
                 "^std::__[[:alnum:]]+::queue<.+>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::set summary provider",
                 "^std::__[[:alnum:]]+::set<.+>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::multiset summary provider",
                 "^std::__[[:alnum:]]+::multiset<.+>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::multimap summary provider",
                 "^std::__[[:alnum:]]+::multimap<.+>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::unordered containers summary provider",
                 "^std::__[[:alnum:]]+::unordered_(multi)?(map|set)<.+> >$",
                 stl_summary_flags, true);
-  AddCXXSummary(cpp_category_sp, ContainerSizeSummaryProvider,
+  AddCXXSummary(cpp_category_sp, LibcxxContainerSummaryProvider,
                 "libc++ std::tuple summary provider",
                 "^std::__[[:alnum:]]+::tuple<.*>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
@@ -1094,7 +1094,7 @@ static void LoadLibCxxFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
                 "libc++ std::variant summary provider",
                 "^std::__[[:alnum:]]+::variant<.+>$", stl_summary_flags, true);
   AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
+                lldb_private::formatters::LibcxxContainerSummaryProvider,
                 "libc++ std::span summary provider",
                 "^std::__[[:alnum:]]+::span<.+>$", stl_summary_flags, true);
 
@@ -1344,31 +1344,38 @@ static void LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
       .SetShowMembersOneLiner(false)
       .SetHideItemNames(false);
 
-  lldb::TypeSummaryImplSP string_summary_sp(new CXXFunctionSummaryFormat(
+  lldb::TypeSummaryImplSP std_string_summary_sp(
+      new StringSummaryFormat(stl_summary_flags, "${var._M_dataplus._M_p}"));
+
+  lldb::TypeSummaryImplSP cxx11_string_summary_sp(new CXXFunctionSummaryFormat(
       stl_summary_flags, LibStdcppStringSummaryProvider,
-      "libstdc++ std::(w)string summary provider"));
+      "libstdc++ c++11 std::string summary provider"));
+  lldb::TypeSummaryImplSP cxx11_wstring_summary_sp(new CXXFunctionSummaryFormat(
+      stl_summary_flags, LibStdcppWStringSummaryProvider,
+      "libstdc++ c++11 std::wstring summary provider"));
 
   cpp_category_sp->AddTypeSummary("std::string", eFormatterMatchExact,
-                                  string_summary_sp);
+                                  std_string_summary_sp);
   cpp_category_sp->AddTypeSummary("std::basic_string<char>",
-                                  eFormatterMatchExact, string_summary_sp);
+                                  eFormatterMatchExact, std_string_summary_sp);
   cpp_category_sp->AddTypeSummary(
       "std::basic_string<char,std::char_traits<char>,std::allocator<char> >",
-      eFormatterMatchExact, string_summary_sp);
+      eFormatterMatchExact, std_string_summary_sp);
   cpp_category_sp->AddTypeSummary(
       "std::basic_string<char, std::char_traits<char>, std::allocator<char> >",
-      eFormatterMatchExact, string_summary_sp);
+      eFormatterMatchExact, std_string_summary_sp);
 
   cpp_category_sp->AddTypeSummary("std::__cxx11::string", eFormatterMatchExact,
-                                  string_summary_sp);
+                                  cxx11_string_summary_sp);
   cpp_category_sp->AddTypeSummary(
       "std::__cxx11::basic_string<char, std::char_traits<char>, "
       "std::allocator<char> >",
-      eFormatterMatchExact, string_summary_sp);
+      eFormatterMatchExact, cxx11_string_summary_sp);
   cpp_category_sp->AddTypeSummary("std::__cxx11::basic_string<unsigned char, "
                                   "std::char_traits<unsigned char>, "
                                   "std::allocator<unsigned char> >",
-                                  eFormatterMatchExact, string_summary_sp);
+                                  eFormatterMatchExact,
+                                  cxx11_string_summary_sp);
 
   // making sure we force-pick the summary for printing wstring (_M_p is a
   // wchar_t*)
@@ -1388,11 +1395,11 @@ static void LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
       eFormatterMatchExact, std_wstring_summary_sp);
 
   cpp_category_sp->AddTypeSummary("std::__cxx11::wstring", eFormatterMatchExact,
-                                  string_summary_sp);
+                                  cxx11_wstring_summary_sp);
   cpp_category_sp->AddTypeSummary(
       "std::__cxx11::basic_string<wchar_t, std::char_traits<wchar_t>, "
       "std::allocator<wchar_t> >",
-      eFormatterMatchExact, string_summary_sp);
+      eFormatterMatchExact, cxx11_wstring_summary_sp);
 
   SyntheticChildren::Flags stl_synth_flags;
   stl_synth_flags.SetCascades(true).SetSkipPointers(false).SetSkipReferences(
@@ -1456,54 +1463,44 @@ static void LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
 
   stl_summary_flags.SetDontShowChildren(false);
   stl_summary_flags.SetSkipPointers(false);
-
-  AddCXXSummary(
-      cpp_category_sp, lldb_private::formatters::ContainerSizeSummaryProvider,
-      "libstdc++ std::bitset summary provider",
-      "^std::(__debug::)?bitset<.+>(( )?&)?$", stl_summary_flags, true);
-
-  AddCXXSummary(
-      cpp_category_sp, lldb_private::formatters::ContainerSizeSummaryProvider,
-      "libstdc++ std::vector summary provider",
-      "^std::(__debug::)?vector<.+>(( )?&)?$", stl_summary_flags, true);
-
-  AddCXXSummary(
-      cpp_category_sp, lldb_private::formatters::ContainerSizeSummaryProvider,
-      "libstdc++ std::map summary provider",
-      "^std::(__debug::)?map<.+> >(( )?&)?$", stl_summary_flags, true);
-
-  AddCXXSummary(
-      cpp_category_sp, lldb_private::formatters::ContainerSizeSummaryProvider,
-      "libstdc++ std::set summary provider",
-      "^std::(__debug::)?set<.+> >(( )?&)?$", stl_summary_flags, true);
-
-  AddCXXSummary(
-      cpp_category_sp, lldb_private::formatters::ContainerSizeSummaryProvider,
-      "libstdc++ std::deque summary provider",
-      "^std::(__debug::)?deque<.+>(( )?&)?$", stl_summary_flags, true);
-
-  AddCXXSummary(
-      cpp_category_sp, lldb_private::formatters::ContainerSizeSummaryProvider,
-      "libstdc++ std::multimap summary provider",
-      "^std::(__debug::)?multimap<.+> >(( )?&)?$", stl_summary_flags, true);
-
-  AddCXXSummary(
-      cpp_category_sp, lldb_private::formatters::ContainerSizeSummaryProvider,
-      "libstdc++ std::multiset summary provider",
-      "^std::(__debug::)?multiset<.+> >(( )?&)?$", stl_summary_flags, true);
-
-  AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
-                "libstdc++ std unordered container summary provider",
-                "^std::(__debug::)?unordered_(multi)?(map|set)<.+> >$",
-                stl_summary_flags, true);
-
-  AddCXXSummary(cpp_category_sp,
-                lldb_private::formatters::ContainerSizeSummaryProvider,
-                "libstdc++ std::list summary provider",
-                "^std::((__debug::)?|(__cxx11::)?)list<.+>(( )?&)?$",
-                stl_summary_flags, true);
-
+  cpp_category_sp->AddTypeSummary("^std::(__debug::)?bitset<.+>(( )?&)?$",
+                                  eFormatterMatchRegex,
+                                  TypeSummaryImplSP(new StringSummaryFormat(
+                                      stl_summary_flags, "size=${svar%#}")));
+  cpp_category_sp->AddTypeSummary("^std::(__debug::)?vector<.+>(( )?&)?$",
+                                  eFormatterMatchRegex,
+                                  TypeSummaryImplSP(new StringSummaryFormat(
+                                      stl_summary_flags, "size=${svar%#}")));
+  cpp_category_sp->AddTypeSummary("^std::(__debug::)?map<.+> >(( )?&)?$",
+                                  eFormatterMatchRegex,
+                                  TypeSummaryImplSP(new StringSummaryFormat(
+                                      stl_summary_flags, "size=${svar%#}")));
+  cpp_category_sp->AddTypeSummary("^std::(__debug::)?set<.+> >(( )?&)?$",
+                                  eFormatterMatchRegex,
+                                  TypeSummaryImplSP(new StringSummaryFormat(
+                                      stl_summary_flags, "size=${svar%#}")));
+  cpp_category_sp->AddTypeSummary("^std::(__debug::)?deque<.+>(( )?&)?$",
+                                  eFormatterMatchRegex,
+                                  TypeSummaryImplSP(new StringSummaryFormat(
+                                      stl_summary_flags, "size=${svar%#}")));
+  cpp_category_sp->AddTypeSummary("^std::(__debug::)?multimap<.+> >(( )?&)?$",
+                                  eFormatterMatchRegex,
+                                  TypeSummaryImplSP(new StringSummaryFormat(
+                                      stl_summary_flags, "size=${svar%#}")));
+  cpp_category_sp->AddTypeSummary("^std::(__debug::)?multiset<.+> >(( )?&)?$",
+                                  eFormatterMatchRegex,
+                                  TypeSummaryImplSP(new StringSummaryFormat(
+                                      stl_summary_flags, "size=${svar%#}")));
+  cpp_category_sp->AddTypeSummary(
+      "^std::(__debug::)?unordered_(multi)?(map|set)<.+> >$",
+      eFormatterMatchRegex,
+      TypeSummaryImplSP(
+          new StringSummaryFormat(stl_summary_flags, "size=${svar%#}")));
+  cpp_category_sp->AddTypeSummary(
+      "^std::((__debug::)?|(__cxx11::)?)list<.+>(( )?&)?$",
+      eFormatterMatchRegex,
+      TypeSummaryImplSP(
+          new StringSummaryFormat(stl_summary_flags, "size=${svar%#}")));
   cpp_category_sp->AddTypeSummary(
       "^std::((__debug::)?|(__cxx11::)?)forward_list<.+>(( )?&)?$",
       eFormatterMatchRegex,
@@ -1525,8 +1522,8 @@ static void LoadLibStdcppFormatters(lldb::TypeCategoryImplSP cpp_category_sp) {
   AddCXXSynthetic(
       cpp_category_sp,
       lldb_private::formatters::LibstdcppMapIteratorSyntheticFrontEndCreator,
-      "std::map iterator synthetic children",
-      "^std::_Rb_tree_(const_)?iterator<.+>$", stl_synth_flags, true);
+      "std::map iterator synthetic children", "^std::_Rb_tree_iterator<.+>$",
+      stl_synth_flags, true);
 
   AddCXXSynthetic(
       cpp_category_sp,

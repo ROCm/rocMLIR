@@ -171,7 +171,8 @@ void RegBankLegalizeHelper::lowerVccExtToSel(MachineInstr &MI) {
   MI.eraseFromParent();
 }
 
-std::pair<Register, Register> RegBankLegalizeHelper::unpackZExt(Register Reg) {
+const std::pair<Register, Register>
+RegBankLegalizeHelper::unpackZExt(Register Reg) {
   auto PackedS32 = B.buildBitcast(SgprRB_S32, Reg);
   auto Mask = B.buildConstant(SgprRB_S32, 0x0000ffff);
   auto Lo = B.buildAnd(SgprRB_S32, PackedS32, Mask);
@@ -179,14 +180,16 @@ std::pair<Register, Register> RegBankLegalizeHelper::unpackZExt(Register Reg) {
   return {Lo.getReg(0), Hi.getReg(0)};
 }
 
-std::pair<Register, Register> RegBankLegalizeHelper::unpackSExt(Register Reg) {
+const std::pair<Register, Register>
+RegBankLegalizeHelper::unpackSExt(Register Reg) {
   auto PackedS32 = B.buildBitcast(SgprRB_S32, Reg);
   auto Lo = B.buildSExtInReg(SgprRB_S32, PackedS32, 16);
   auto Hi = B.buildAShr(SgprRB_S32, PackedS32, B.buildConstant(SgprRB_S32, 16));
   return {Lo.getReg(0), Hi.getReg(0)};
 }
 
-std::pair<Register, Register> RegBankLegalizeHelper::unpackAExt(Register Reg) {
+const std::pair<Register, Register>
+RegBankLegalizeHelper::unpackAExt(Register Reg) {
   auto PackedS32 = B.buildBitcast(SgprRB_S32, Reg);
   auto Lo = PackedS32;
   auto Hi = B.buildLShr(SgprRB_S32, PackedS32, B.buildConstant(SgprRB_S32, 16));

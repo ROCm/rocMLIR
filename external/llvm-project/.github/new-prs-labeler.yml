@@ -632,10 +632,6 @@ llvm:instcombine:
   - llvm/test/Transforms/InstCombine/**
   - llvm/test/Transforms/InstSimplify/**
 
-llvm:vectorcombine:
-  - llvm/lib/Transforms/Vectorize/VectorCombine.cpp
-  - llvm/test/Transforms/VectorCombine/**
-
 clangd:
   - clang-tools-extra/clangd/**
 

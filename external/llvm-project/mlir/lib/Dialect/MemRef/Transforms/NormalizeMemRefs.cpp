@@ -297,7 +297,8 @@ void NormalizeMemRefs::updateFunctionSignature(func::FuncOp funcOp,
                                           /*indexRemap=*/layoutMap,
                                           /*extraOperands=*/{},
                                           /*symbolOperands=*/{},
-                                          /*userFilterFn=*/nullptr,
+                                          /*domOpFilter=*/nullptr,
+                                          /*postDomOpFilter=*/nullptr,
                                           /*allowNonDereferencingOps=*/true,
                                           /*replaceInDeallocOp=*/true))) {
         // If it failed (due to escapes for example), bail out.
@@ -406,7 +407,8 @@ void NormalizeMemRefs::normalizeFuncOpMemRefs(func::FuncOp funcOp,
                                         /*indexRemap=*/layoutMap,
                                         /*extraOperands=*/{},
                                         /*symbolOperands=*/{},
-                                        /*userFilterFn=*/nullptr,
+                                        /*domOpFilter=*/nullptr,
+                                        /*postDomOpFilter=*/nullptr,
                                         /*allowNonDereferencingOps=*/true,
                                         /*replaceInDeallocOp=*/true))) {
       // If it failed (due to escapes for example), bail out. Removing the
@@ -455,7 +457,8 @@ void NormalizeMemRefs::normalizeFuncOpMemRefs(func::FuncOp funcOp,
                                               /*indexRemap=*/layoutMap,
                                               /*extraOperands=*/{},
                                               /*symbolOperands=*/{},
-                                              /*userFilterFn=*/nullptr,
+                                              /*domOpFilter=*/nullptr,
+                                              /*postDomOpFilter=*/nullptr,
                                               /*allowNonDereferencingOps=*/true,
                                               /*replaceInDeallocOp=*/true))) {
             newOp->erase();

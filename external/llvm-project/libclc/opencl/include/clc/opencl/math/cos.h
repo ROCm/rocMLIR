@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #define __CLC_BODY <clc/math/unary_decl.inc>
-#define FUNCTION cos
+#define __CLC_FUNCTION cos
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

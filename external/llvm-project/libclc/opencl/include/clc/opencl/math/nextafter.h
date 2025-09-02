@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define FUNCTION nextafter
+#define __CLC_FUNCTION nextafter
 #define __CLC_BODY <clc/shared/binary_decl.inc>
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

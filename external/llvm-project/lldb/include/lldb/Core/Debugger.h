@@ -227,8 +227,6 @@ public:
 
   const char *GetIOHandlerHelpPrologue();
 
-  void RefreshIOHandler();
-
   void ClearIOHandlers();
 
   bool EnableLog(llvm::StringRef channel,
@@ -604,6 +602,10 @@ public:
   void FlushProcessOutput(Process &process, bool flush_stdout,
                           bool flush_stderr);
 
+  void AddProtocolServer(lldb::ProtocolServerSP protocol_server_sp);
+  void RemoveProtocolServer(lldb::ProtocolServerSP protocol_server_sp);
+  lldb::ProtocolServerSP GetProtocolServer(llvm::StringRef protocol) const;
+
   SourceManager::SourceFileCache &GetSourceFileCache() {
     return m_source_file_cache;
   }
@@ -773,6 +775,8 @@ protected:
   llvm::SmallVector<ProgressReport, 4> m_progress_reports;
   mutable std::mutex m_progress_reports_mutex;
   /// @}
+
+  llvm::SmallVector<lldb::ProtocolServerSP> m_protocol_servers;
 
   std::mutex m_destroy_callback_mutex;
   lldb::callback_token_t m_destroy_callback_next_token = 0;

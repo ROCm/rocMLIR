@@ -211,7 +211,7 @@ struct CallOpInterface
     return result;
   }
 
-  FailureOr<BufferLikeType>
+  FailureOr<BaseMemRefType>
   getBufferType(Operation *op, Value value, const BufferizationOptions &options,
                 const BufferizationState &state,
                 SmallVector<Value> &invocationStack) const {
@@ -229,13 +229,12 @@ struct CallOpInterface
     Type resultType =
         funcType.getResult(cast<OpResult>(value).getResultNumber());
     if (auto bufferizedType = dyn_cast<BaseMemRefType>(resultType))
-      return cast<BufferLikeType>(bufferizedType);
+      return bufferizedType;
 
     // Otherwise, call the type converter to compute the bufferized type.
     auto tensorType = cast<TensorType>(resultType);
-    return cast<BufferLikeType>(options.functionArgTypeConverterFn(
-        tensorType, *options.defaultMemorySpaceFn(tensorType), funcOp,
-        options));
+    return options.functionArgTypeConverterFn(
+        tensorType, *options.defaultMemorySpaceFn(tensorType), funcOp, options);
   }
 
   /// All function arguments are writable. It is the responsibility of the
@@ -397,7 +396,7 @@ struct FuncOpInterface
     return getAliasingBranchOpOperands(op, cast<BlockArgument>(value), state);
   }
 
-  FailureOr<BufferLikeType>
+  FailureOr<BaseMemRefType>
   getBufferType(Operation *op, Value value, const BufferizationOptions &options,
                 const BufferizationState &state,
                 SmallVector<Value> &invocationStack) const {
@@ -406,8 +405,8 @@ struct FuncOpInterface
 
     // Function arguments are special.
     if (bbArg.getOwner() == &funcOp.getBody().front())
-      return cast<BufferLikeType>(
-          getBufferizedFunctionArgType(funcOp, bbArg.getArgNumber(), options));
+      return getBufferizedFunctionArgType(funcOp, bbArg.getArgNumber(),
+                                          options);
 
     return OpWithUnstructuredControlFlowBufferizableOpInterfaceExternalModel::
         getBufferType(op, value, options, state, invocationStack);

@@ -25,7 +25,7 @@ cir::FuncOp CIRGenModule::codegenCXXStructor(GlobalDecl gd) {
   cir::FuncType funcType = getTypes().getFunctionType(fnInfo);
   cir::FuncOp fn = getAddrOfCXXStructor(gd, &fnInfo, /*FnType=*/nullptr,
                                         /*DontDefer=*/true, ForDefinition);
-  setFunctionLinkage(gd, fn);
+  assert(!cir::MissingFeatures::opFuncLinkage());
   CIRGenFunction cgf{*this, builder};
   curCGF = &cgf;
   {

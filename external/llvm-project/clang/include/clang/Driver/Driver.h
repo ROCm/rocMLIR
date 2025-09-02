@@ -372,10 +372,10 @@ private:
 
   /// Number of parallel jobs.
   unsigned NumParallelJobs;
-
-  /// The associated offloading architectures with each toolchain.
-  llvm::DenseMap<const ToolChain *, llvm::SmallVector<llvm::StringRef>>
-      OffloadArchs;
+  /// Cache of known offloading architectures for the ToolChain already derived.
+  /// This should only be modified when we first initialize the offloading
+  /// toolchains.
+  llvm::DenseMap<const ToolChain *, llvm::DenseSet<llvm::StringRef>> KnownArchs;
 
 private:
   /// TranslateInputArgs - Create a new derived argument list from the input
@@ -545,11 +545,11 @@ public:
 
   /// Returns the set of bound architectures active for this offload kind.
   /// If there are no bound architctures we return a set containing only the
-  /// empty string.
-  llvm::SmallVector<StringRef>
+  /// empty string. The \p SuppressError option is used to suppress errors.
+  llvm::DenseSet<StringRef>
   getOffloadArchs(Compilation &C, const llvm::opt::DerivedArgList &Args,
                   Action::OffloadKind Kind, const ToolChain *TC,
-                  bool SpecificToolchain = true) const;
+                  bool SuppressError = false) const;
 
   /// Check that the file referenced by Value exists. If it doesn't,
   /// issue a diagnostic and return false.

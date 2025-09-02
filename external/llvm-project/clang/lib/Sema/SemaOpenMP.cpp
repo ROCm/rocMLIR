@@ -15952,6 +15952,9 @@ OMPClause *SemaOpenMP::ActOnOpenMPSingleExprClause(OpenMPClauseKind Kind,
   case OMPC_final:
     Res = ActOnOpenMPFinalClause(Expr, StartLoc, LParenLoc, EndLoc);
     break;
+  case OMPC_num_threads:
+    Res = ActOnOpenMPNumThreadsClause(Expr, StartLoc, LParenLoc, EndLoc);
+    break;
   case OMPC_safelen:
     Res = ActOnOpenMPSafelenClause(Expr, StartLoc, LParenLoc, EndLoc);
     break;
@@ -16005,7 +16008,6 @@ OMPClause *SemaOpenMP::ActOnOpenMPSingleExprClause(OpenMPClauseKind Kind,
     break;
   case OMPC_grainsize:
   case OMPC_num_tasks:
-  case OMPC_num_threads:
   case OMPC_device:
   case OMPC_if:
   case OMPC_default:
@@ -16352,41 +16354,10 @@ isNonNegativeIntegerValue(Expr *&ValExpr, Sema &SemaRef, OpenMPClauseKind CKind,
   return true;
 }
 
-static std::string getListOfPossibleValues(OpenMPClauseKind K, unsigned First,
-                                           unsigned Last,
-                                           ArrayRef<unsigned> Exclude = {}) {
-  SmallString<256> Buffer;
-  llvm::raw_svector_ostream Out(Buffer);
-  unsigned Skipped = Exclude.size();
-  for (unsigned I = First; I < Last; ++I) {
-    if (llvm::is_contained(Exclude, I)) {
-      --Skipped;
-      continue;
-    }
-    Out << "'" << getOpenMPSimpleClauseTypeName(K, I) << "'";
-    if (I + Skipped + 2 == Last)
-      Out << " or ";
-    else if (I + Skipped + 1 != Last)
-      Out << ", ";
-  }
-  return std::string(Out.str());
-}
-
-OMPClause *SemaOpenMP::ActOnOpenMPNumThreadsClause(
-    OpenMPNumThreadsClauseModifier Modifier, Expr *NumThreads,
-    SourceLocation StartLoc, SourceLocation LParenLoc,
-    SourceLocation ModifierLoc, SourceLocation EndLoc) {
-  assert((ModifierLoc.isInvalid() || getLangOpts().OpenMP >= 60) &&
-         "Unexpected num_threads modifier in OpenMP < 60.");
-
-  if (ModifierLoc.isValid() && Modifier == OMPC_NUMTHREADS_unknown) {
-    std::string Values = getListOfPossibleValues(OMPC_num_threads, /*First=*/0,
-                                                 OMPC_NUMTHREADS_unknown);
-    Diag(ModifierLoc, diag::err_omp_unexpected_clause_value)
-        << Values << getOpenMPClauseNameForDiag(OMPC_num_threads);
-    return nullptr;
-  }
-
+OMPClause *SemaOpenMP::ActOnOpenMPNumThreadsClause(Expr *NumThreads,
+                                                   SourceLocation StartLoc,
+                                                   SourceLocation LParenLoc,
+                                                   SourceLocation EndLoc) {
   Expr *ValExpr = NumThreads;
   Stmt *HelperValStmt = nullptr;
 
@@ -16407,9 +16378,8 @@ OMPClause *SemaOpenMP::ActOnOpenMPNumThreadsClause(
     HelperValStmt = buildPreInits(getASTContext(), Captures);
   }
 
-  return new (getASTContext())
-      OMPNumThreadsClause(Modifier, ValExpr, HelperValStmt, CaptureRegion,
-                          StartLoc, LParenLoc, ModifierLoc, EndLoc);
+  return new (getASTContext()) OMPNumThreadsClause(
+      ValExpr, HelperValStmt, CaptureRegion, StartLoc, LParenLoc, EndLoc);
 }
 
 ExprResult SemaOpenMP::VerifyPositiveIntegerConstantInClause(
@@ -16772,6 +16742,26 @@ OMPClause *SemaOpenMP::ActOnOpenMPSimpleClause(
     llvm_unreachable("Clause is not allowed.");
   }
   return Res;
+}
+
+static std::string getListOfPossibleValues(OpenMPClauseKind K, unsigned First,
+                                           unsigned Last,
+                                           ArrayRef<unsigned> Exclude = {}) {
+  SmallString<256> Buffer;
+  llvm::raw_svector_ostream Out(Buffer);
+  unsigned Skipped = Exclude.size();
+  for (unsigned I = First; I < Last; ++I) {
+    if (llvm::is_contained(Exclude, I)) {
+      --Skipped;
+      continue;
+    }
+    Out << "'" << getOpenMPSimpleClauseTypeName(K, I) << "'";
+    if (I + Skipped + 2 == Last)
+      Out << " or ";
+    else if (I + Skipped + 1 != Last)
+      Out << ", ";
+  }
+  return std::string(Out.str());
 }
 
 OMPClause *SemaOpenMP::ActOnOpenMPDefaultClause(DefaultKind Kind,
@@ -17146,14 +17136,8 @@ OMPClause *SemaOpenMP::ActOnOpenMPSingleExprWithArgClause(
         static_cast<OpenMPNumTasksClauseModifier>(Argument.back()), Expr,
         StartLoc, LParenLoc, ArgumentLoc.back(), EndLoc);
     break;
-  case OMPC_num_threads:
-    assert(Argument.size() == 1 && ArgumentLoc.size() == 1 &&
-           "Modifier for num_threads clause and its location are expected.");
-    Res = ActOnOpenMPNumThreadsClause(
-        static_cast<OpenMPNumThreadsClauseModifier>(Argument.back()), Expr,
-        StartLoc, LParenLoc, ArgumentLoc.back(), EndLoc);
-    break;
   case OMPC_final:
+  case OMPC_num_threads:
   case OMPC_safelen:
   case OMPC_simdlen:
   case OMPC_sizes:

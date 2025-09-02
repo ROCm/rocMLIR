@@ -103,11 +103,6 @@ MCCodeEmitter *llvm::createAMDGPUMCCodeEmitter(const MCInstrInfo &MCII,
   return new AMDGPUMCCodeEmitter(MCII, *Ctx.getRegisterInfo());
 }
 
-static void addFixup(SmallVectorImpl<MCFixup> &Fixups, uint32_t Offset,
-                     const MCExpr *Value, uint16_t Kind, bool PCRel = false) {
-  Fixups.push_back(MCFixup::create(Offset, Value, Kind, PCRel));
-}
-
 // Returns the encoding value to use if the given integer is an integer inline
 // immediate value, or 0 if it is not.
 template <typename IntTy>
@@ -260,9 +255,13 @@ AMDGPUMCCodeEmitter::getLitEncoding(const MCOperand &MO,
                                     const MCSubtargetInfo &STI) const {
   int64_t Imm;
   if (MO.isExpr()) {
-    if (!MO.getExpr()->evaluateAsAbsolute(Imm))
+    const auto *C = dyn_cast<MCConstantExpr>(MO.getExpr());
+    if (!C)
       return 255;
+
+    Imm = C->getValue();
   } else {
+
     assert(!MO.isDFPImm());
 
     if (!MO.isImm())
@@ -450,7 +449,8 @@ void AMDGPUMCCodeEmitter::getSOPPBrEncoding(const MCInst &MI, unsigned OpNo,
 
   if (MO.isExpr()) {
     const MCExpr *Expr = MO.getExpr();
-    addFixup(Fixups, 0, Expr, AMDGPU::fixup_si_sopp_br, true);
+    MCFixupKind Kind = (MCFixupKind)AMDGPU::fixup_si_sopp_br;
+    Fixups.push_back(MCFixup::create(0, Expr, Kind, MI.getLoc()));
     Op = APInt::getZero(96);
   } else {
     getMachineOpValue(MI, MO, Op, Fixups, STI);
@@ -656,11 +656,17 @@ void AMDGPUMCCodeEmitter::getMachineOpValueCommon(
     //
     // .Ltmp1:
     //   s_add_u32 s2, s2, (extern_const_addrspace+16)-.Ltmp1
-    bool PCRel = needsPCRel(MO.getExpr());
+    MCFixupKind Kind;
+    if (needsPCRel(MO.getExpr()))
+      Kind = FK_PCRel_4;
+    else
+      Kind = FK_Data_4;
+
     const MCInstrDesc &Desc = MCII.get(MI.getOpcode());
     uint32_t Offset = Desc.getSize();
     assert(Offset == 4 || Offset == 8);
-    addFixup(Fixups, Offset, MO.getExpr(), FK_Data_4, PCRel);
+
+    Fixups.push_back(MCFixup::create(Offset, MO.getExpr(), Kind, MI.getLoc()));
   }
 
   const MCInstrDesc &Desc = MCII.get(MI.getOpcode());

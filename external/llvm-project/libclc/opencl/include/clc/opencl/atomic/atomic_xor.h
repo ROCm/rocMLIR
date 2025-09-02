@@ -6,5 +6,5 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define FUNCTION atomic_xor
+#define __CLC_FUNCTION atomic_xor
 #include <clc/opencl/atomic/atomic_decl.inc>

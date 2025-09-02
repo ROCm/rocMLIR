@@ -8,9 +8,9 @@
 
 #undef isfinite
 
-#define FUNCTION isfinite
+#define __CLC_FUNCTION isfinite
 #define __CLC_BODY <clc/relational/unary_decl.inc>
 
 #include <clc/relational/floatn.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

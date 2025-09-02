@@ -171,10 +171,7 @@ bool FrontendAction::runParse(bool emitMessages) {
   if (emitMessages) {
     // Report any non-fatal diagnostics from getParsing now rather than
     // combining them with messages from semantics.
-    const common::LanguageFeatureControl &features{
-        ci.getInvocation().getFortranOpts().features};
-    ci.getParsing().messages().Emit(llvm::errs(), ci.getAllCookedSources(),
-                                    /*echoSourceLine=*/true, &features);
+    ci.getParsing().messages().Emit(llvm::errs(), ci.getAllCookedSources());
   }
   return true;
 }
@@ -226,8 +223,6 @@ bool FrontendAction::generateRtTypeTables() {
 
 template <unsigned N>
 bool FrontendAction::reportFatalErrors(const char (&message)[N]) {
-  const common::LanguageFeatureControl &features{
-      instance->getInvocation().getFortranOpts().features};
   if (!instance->getParsing().messages().empty() &&
       (instance->getInvocation().getWarnAsErr() ||
        instance->getParsing().messages().AnyFatalError())) {
@@ -235,8 +230,7 @@ bool FrontendAction::reportFatalErrors(const char (&message)[N]) {
         clang::DiagnosticsEngine::Error, message);
     instance->getDiagnostics().Report(diagID) << getCurrentFileOrBufferName();
     instance->getParsing().messages().Emit(llvm::errs(),
-                                           instance->getAllCookedSources(),
-                                           /*echoSourceLines=*/true, &features);
+                                           instance->getAllCookedSources());
     return true;
   }
   if (instance->getParsing().parseTree().has_value() &&
@@ -246,8 +240,7 @@ bool FrontendAction::reportFatalErrors(const char (&message)[N]) {
         clang::DiagnosticsEngine::Error, message);
     instance->getDiagnostics().Report(diagID) << getCurrentFileOrBufferName();
     instance->getParsing().messages().Emit(llvm::errs(),
-                                           instance->getAllCookedSources(),
-                                           /*echoSourceLine=*/true, &features);
+                                           instance->getAllCookedSources());
     instance->getParsing().EmitMessage(
         llvm::errs(), instance->getParsing().finalRestingPlace(),
         "parser FAIL (final position)", "error: ", llvm::raw_ostream::RED);

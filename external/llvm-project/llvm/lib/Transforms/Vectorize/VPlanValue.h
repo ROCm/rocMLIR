@@ -49,7 +49,6 @@ class VPValue {
   friend struct VPDoubleValueDef;
   friend class VPInterleaveRecipe;
   friend class VPlan;
-  friend class VPExpressionRecipe;
 
   const unsigned char SubclassID; ///< Subclass identifier (for isa/dyn_cast).
 
@@ -331,12 +330,13 @@ public:
     VPBranchOnMaskSC,
     VPDerivedIVSC,
     VPExpandSCEVSC,
-    VPExpressionSC,
     VPIRInstructionSC,
     VPInstructionSC,
     VPInterleaveSC,
     VPReductionEVLSC,
     VPReductionSC,
+    VPMulAccumulateReductionSC,
+    VPExtendedReductionSC,
     VPPartialReductionSC,
     VPReplicateSC,
     VPScalarIVStepsSC,

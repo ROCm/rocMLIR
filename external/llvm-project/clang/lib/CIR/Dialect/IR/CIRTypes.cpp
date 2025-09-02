@@ -19,16 +19,6 @@
 #include "llvm/ADT/TypeSwitch.h"
 
 //===----------------------------------------------------------------------===//
-// CIR Helpers
-//===----------------------------------------------------------------------===//
-bool cir::isSized(mlir::Type ty) {
-  if (auto sizedTy = mlir::dyn_cast<cir::SizedTypeInterface>(ty))
-    return sizedTy.isSized();
-  assert(!cir::MissingFeatures::unsizedTypes());
-  return false;
-}
-
-//===----------------------------------------------------------------------===//
 // CIR Custom Parser/Printer Signatures
 //===----------------------------------------------------------------------===//
 
@@ -549,7 +539,8 @@ uint64_t FP128Type::getABIAlignment(const mlir::DataLayout &dataLayout,
 }
 
 const llvm::fltSemantics &LongDoubleType::getFloatSemantics() const {
-  return mlir::cast<cir::FPTypeInterface>(getUnderlying()).getFloatSemantics();
+  return mlir::cast<cir::CIRFPTypeInterface>(getUnderlying())
+      .getFloatSemantics();
 }
 
 llvm::TypeSize

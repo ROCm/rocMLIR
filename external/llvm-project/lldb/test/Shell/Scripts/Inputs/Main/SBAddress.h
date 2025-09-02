@@ -6,7 +6,6 @@
 // e.g. #include "lldb/API/SBDefines.h" -> #include <LLDB/SBDefines.h>
 #include "lldb/API/SBDefines.h"
 #include "lldb/API/SBModule.h"
-#include "lldb/lldb-types.h"
 
 // Any include guards specified at the command line must be removed.
 #ifndef SWIG

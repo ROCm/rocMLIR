@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Tooling/DependencyScanning/DependencyScanningFilesystem.h"
+#include "clang/Tooling/DependencyScanning/DependencyScanningService.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Threading.h"
 #include <optional>
@@ -107,39 +108,31 @@ DependencyScanningFilesystemSharedCache::getShardForUID(
   return CacheShards[Hash % NumShards];
 }
 
-std::vector<DependencyScanningFilesystemSharedCache::OutOfDateEntry>
-DependencyScanningFilesystemSharedCache::getOutOfDateEntries(
+std::vector<StringRef>
+DependencyScanningFilesystemSharedCache::getInvalidNegativeStatCachedPaths(
     llvm::vfs::FileSystem &UnderlyingFS) const {
   // Iterate through all shards and look for cached stat errors.
-  std::vector<OutOfDateEntry> InvalidDiagInfo;
+  std::vector<StringRef> InvalidPaths;
   for (unsigned i = 0; i < NumShards; i++) {
     const CacheShard &Shard = CacheShards[i];
     std::lock_guard<std::mutex> LockGuard(Shard.CacheLock);
     for (const auto &[Path, CachedPair] : Shard.CacheByFilename) {
       const CachedFileSystemEntry *Entry = CachedPair.first;
 
-      llvm::ErrorOr<llvm::vfs::Status> Status = UnderlyingFS.status(Path);
-      if (Status) {
-        if (Entry->getError()) {
+      if (Entry->getError()) {
+        // Only examine cached errors.
+        llvm::ErrorOr<llvm::vfs::Status> Stat = UnderlyingFS.status(Path);
+        if (Stat) {
           // This is the case where we have cached the non-existence
-          // of the file at Path first, and a file at the path is created
+          // of the file at Path first, and a a file at the path is created
           // later. The cache entry is not invalidated (as we have no good
           // way to do it now), which may lead to missing file build errors.
-          InvalidDiagInfo.emplace_back(Path.data());
-        } else {
-          llvm::vfs::Status CachedStatus = Entry->getStatus();
-          uint64_t CachedSize = CachedStatus.getSize();
-          uint64_t ActualSize = Status->getSize();
-          if (CachedSize != ActualSize) {
-            // This is the case where the cached file has a different size
-            // from the actual file that comes from the underlying FS.
-            InvalidDiagInfo.emplace_back(Path.data(), CachedSize, ActualSize);
-          }
+          InvalidPaths.push_back(Path);
         }
       }
     }
   }
-  return InvalidDiagInfo;
+  return InvalidPaths;
 }
 
 const CachedFileSystemEntry *
@@ -240,19 +233,19 @@ bool DependencyScanningWorkerFilesystem::shouldBypass(StringRef Path) const {
 }
 
 DependencyScanningWorkerFilesystem::DependencyScanningWorkerFilesystem(
-    DependencyScanningFilesystemSharedCache &SharedCache,
+    DependencyScanningService &Service,
     IntrusiveRefCntPtr<llvm::vfs::FileSystem> FS)
     : llvm::RTTIExtends<DependencyScanningWorkerFilesystem,
                         llvm::vfs::ProxyFileSystem>(std::move(FS)),
-      SharedCache(SharedCache),
-      WorkingDirForCacheLookup(llvm::errc::invalid_argument) {
+      Service(Service), WorkingDirForCacheLookup(llvm::errc::invalid_argument) {
   updateWorkingDirForCacheLookup();
 }
 
 const CachedFileSystemEntry &
 DependencyScanningWorkerFilesystem::getOrEmplaceSharedEntryForUID(
     TentativeEntry TEntry) {
-  auto &Shard = SharedCache.getShardForUID(TEntry.Status.getUniqueID());
+  auto &Shard =
+      Service.getSharedCache().getShardForUID(TEntry.Status.getUniqueID());
   return Shard.getOrEmplaceEntryForUID(TEntry.Status.getUniqueID(),
                                        std::move(TEntry.Status),
                                        std::move(TEntry.Contents));
@@ -263,10 +256,34 @@ DependencyScanningWorkerFilesystem::findEntryByFilenameWithWriteThrough(
     StringRef Filename) {
   if (const auto *Entry = LocalCache.findEntryByFilename(Filename))
     return Entry;
-  auto &Shard = SharedCache.getShardForFilename(Filename);
+  auto &Shard = Service.getSharedCache().getShardForFilename(Filename);
   if (const auto *Entry = Shard.findEntryByFilename(Filename))
     return &LocalCache.insertEntryForFilename(Filename, *Entry);
   return nullptr;
+}
+
+const CachedFileSystemEntry *
+DependencyScanningWorkerFilesystem::findSharedEntryByUID(
+    llvm::vfs::Status Stat) const {
+  return Service.getSharedCache()
+      .getShardForUID(Stat.getUniqueID())
+      .findEntryByUID(Stat.getUniqueID());
+}
+
+const CachedFileSystemEntry &
+DependencyScanningWorkerFilesystem::getOrEmplaceSharedEntryForFilename(
+    StringRef Filename, std::error_code EC) {
+  return Service.getSharedCache()
+      .getShardForFilename(Filename)
+      .getOrEmplaceEntryForFilename(Filename, EC);
+}
+
+const CachedFileSystemEntry &
+DependencyScanningWorkerFilesystem::getOrInsertSharedEntryForFilename(
+    StringRef Filename, const CachedFileSystemEntry &Entry) {
+  return Service.getSharedCache()
+      .getShardForFilename(Filename)
+      .getOrInsertEntryForFilename(Filename, Entry);
 }
 
 llvm::ErrorOr<const CachedFileSystemEntry &>
@@ -275,6 +292,8 @@ DependencyScanningWorkerFilesystem::computeAndStoreResult(
   llvm::ErrorOr<llvm::vfs::Status> Stat =
       getUnderlyingFS().status(OriginalFilename);
   if (!Stat) {
+    if (!Service.shouldCacheNegativeStats())
+      return Stat.getError();
     const auto &Entry =
         getOrEmplaceSharedEntryForFilename(FilenameForLookup, Stat.getError());
     return insertLocalEntryForFilename(FilenameForLookup, Entry);
@@ -428,7 +447,8 @@ DependencyScanningWorkerFilesystem::getRealPath(const Twine &Path,
     return HandleCachedRealPath(*RealPath);
 
   // If we have the result in the shared cache, cache it locally.
-  auto &Shard = SharedCache.getShardForFilename(*FilenameForLookup);
+  auto &Shard =
+      Service.getSharedCache().getShardForFilename(*FilenameForLookup);
   if (const auto *ShardRealPath =
           Shard.findRealPathByFilename(*FilenameForLookup)) {
     const auto &RealPath = LocalCache.insertRealPathForFilename(

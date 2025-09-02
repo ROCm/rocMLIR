@@ -7,6 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/TableGen/Class.h"
+#include "mlir/TableGen/Format.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Debug.h"
 

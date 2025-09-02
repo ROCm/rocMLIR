@@ -275,10 +275,6 @@ struct Config {
   llvm::SmallVector<llvm::StringRef, 0> searchPaths;
   llvm::SmallVector<llvm::StringRef, 0> symbolOrderingFile;
   llvm::SmallVector<llvm::StringRef, 0> thinLTOModulesToCompile;
-  llvm::StringRef dtltoDistributor;
-  llvm::SmallVector<llvm::StringRef, 0> dtltoDistributorArgs;
-  llvm::StringRef dtltoCompiler;
-  llvm::SmallVector<llvm::StringRef, 0> dtltoCompilerArgs;
   llvm::SmallVector<llvm::StringRef, 0> undefined;
   llvm::SmallVector<SymbolVersion, 0> dynamicList;
   llvm::SmallVector<uint8_t, 0> buildIdVector;
@@ -306,7 +302,6 @@ struct Config {
   bool bpFunctionOrderForCompression = false;
   bool bpDataOrderForCompression = false;
   bool bpVerboseSectionOrderer = false;
-  bool branchToBranch = false;
   bool checkSections;
   bool checkDynamicRelocs;
   std::optional<llvm::DebugCompressionType> compressDebugSections;

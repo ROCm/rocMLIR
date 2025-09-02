@@ -9,12 +9,14 @@
 #include "mlir/Conversion/PDLToPDLInterp/PDLToPDLInterp.h"
 
 #include "PredicateTree.h"
+#include "mlir/Dialect/PDL/IR/PDL.h"
 #include "mlir/Dialect/PDL/IR/PDLTypes.h"
 #include "mlir/Dialect/PDLInterp/IR/PDLInterp.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/ADT/Sequence.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -634,7 +636,7 @@ SymbolRefAttr PatternLowering::generateRewriter(
   builder.setInsertionPointToEnd(rewriterModule.getBody());
   auto rewriterFunc = builder.create<pdl_interp::FuncOp>(
       pattern.getLoc(), "pdl_generated_rewriter",
-      builder.getFunctionType({}, {}));
+      builder.getFunctionType(std::nullopt, std::nullopt));
   rewriterSymbolTable.insert(rewriterFunc);
 
   // Generate the rewriter function body.
@@ -701,7 +703,7 @@ SymbolRefAttr PatternLowering::generateRewriter(
   // Update the signature of the rewrite function.
   rewriterFunc.setType(builder.getFunctionType(
       llvm::to_vector<8>(rewriterFunc.front().getArgumentTypes()),
-      /*results=*/{}));
+      /*results=*/std::nullopt));
 
   builder.create<pdl_interp::FinalizeOp>(rewriter.getLoc());
   return SymbolRefAttr::get(
@@ -988,8 +990,8 @@ void PDLToPDLInterpPass::runOnOperation() {
   auto matcherFunc = builder.create<pdl_interp::FuncOp>(
       module.getLoc(), pdl_interp::PDLInterpDialect::getMatcherFunctionName(),
       builder.getFunctionType(builder.getType<pdl::OperationType>(),
-                              /*results=*/{}),
-      /*attrs=*/ArrayRef<NamedAttribute>());
+                              /*results=*/std::nullopt),
+      /*attrs=*/std::nullopt);
 
   // Create a nested module to hold the functions invoked for rewriting the IR
   // after a successful match.

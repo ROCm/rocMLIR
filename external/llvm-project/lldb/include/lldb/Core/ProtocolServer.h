@@ -20,9 +20,8 @@ public:
   ProtocolServer() = default;
   virtual ~ProtocolServer() = default;
 
-  static ProtocolServer *GetOrCreate(llvm::StringRef name);
-
-  static std::vector<llvm::StringRef> GetSupportedProtocols();
+  static lldb::ProtocolServerSP Create(llvm::StringRef name,
+                                       Debugger &debugger);
 
   struct Connection {
     Socket::SocketProtocol protocol;

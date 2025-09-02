@@ -7,9 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #define __CLC_BODY <clc/math/unary_decl.inc>
-#define FUNCTION half_cos
+#define __CLC_FUNCTION half_cos
 #define __FLOAT_ONLY
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __FLOAT_ONLY
+#undef __CLC_FUNCTION

@@ -438,8 +438,7 @@ bool BreakpointOptions::InvokeCallback(StoppointCallbackContext *context,
         return m_callback(m_callback_baton_sp ? m_callback_baton_sp->data()
                                           : nullptr,
                       context, break_id, break_loc_id);
-    }
-    if (IsCallbackSynchronous()) {
+    } else if (IsCallbackSynchronous()) {
       return false;
     }
   }
@@ -483,8 +482,9 @@ const char *BreakpointOptions::GetConditionText(size_t *hash) const {
       *hash = m_condition_text_hash;
 
     return m_condition_text.c_str();
+  } else {
+    return nullptr;
   }
-  return nullptr;
 }
 
 const ThreadSpec *BreakpointOptions::GetThreadSpecNoCreate() const {

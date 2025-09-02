@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #define __CLC_BODY <clc/math/binary_decl_with_scalar_second_arg.inc>
-#define FUNCTION fmax
+#define __CLC_FUNCTION fmax
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

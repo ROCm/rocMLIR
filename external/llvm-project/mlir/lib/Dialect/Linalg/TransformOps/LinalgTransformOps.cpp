@@ -24,6 +24,9 @@
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/Dialect/Tensor/Utils/Utils.h"
+#include "mlir/Dialect/Transform/IR/TransformDialect.h"
+#include "mlir/Dialect/Transform/IR/TransformOps.h"
 #include "mlir/Dialect/Transform/IR/TransformTypes.h"
 #include "mlir/Dialect/Transform/Interfaces/TransformInterfaces.h"
 #include "mlir/Dialect/Transform/Utils/Utils.h"
@@ -36,6 +39,7 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Interfaces/TilingInterface.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Support/TypeID.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -2404,9 +2408,6 @@ transform::PromoteOp::applyToOne(transform::TransformRewriter &rewriter,
   if (getUseFullTilesByDefault())
     promotionOptions = promotionOptions.setUseFullTileBuffersByDefault(
         getUseFullTilesByDefault());
-  if (getUseOriginalSubviewSize())
-    promotionOptions =
-        promotionOptions.setUseOriginalSubviewSize(getUseOriginalSubviewSize());
   if (getUseAlloca())
     promotionOptions = promotionOptions.setUseAlloca(getUseAlloca());
   if (!getUseFullTileBuffers().empty())
@@ -3822,14 +3823,9 @@ struct VectorizationPattern : public RewritePattern {
     if (!linalg::hasVectorizationImpl(op))
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported Op, cannot vectorize");
-    FailureOr<VectorizationResult> vectorResults =
-        vectorize(rewriter, op, /*inputVectorSizes=*/{},
-                  /*inputScalableVecDims=*/{}, vectorizeNDExtract,
-                  flatten1DDepthwiseConv);
-    if (failed(vectorResults))
-      return failure();
-    rewriter.replaceOp(op, vectorResults->replacements);
-    return success();
+    return vectorize(rewriter, op, /*inputVectorSizes=*/{},
+                     /*inputScalableVecDims=*/{}, vectorizeNDExtract,
+                     flatten1DDepthwiseConv);
   }
 
 private:
@@ -3918,14 +3914,13 @@ DiagnosedSilenceableFailure transform::VectorizeOp::apply(
       return mlir::emitSilenceableFailure(target->getLoc())
              << "Unsupported Op, cannot vectorize";
     }
-    FailureOr<VectorizationResult> vectorResults =
-        linalg::vectorize(rewriter, target, vectorSizes, getScalableSizes(),
-                          getVectorizeNdExtract().value_or(false));
-    if (failed(vectorResults)) {
+
+    if (failed(linalg::vectorize(rewriter, target, vectorSizes,
+                                 getScalableSizes(),
+                                 getVectorizeNdExtract().value_or(false)))) {
       return mlir::emitSilenceableFailure(target->getLoc())
              << "Attempted to vectorize, but failed";
     }
-    rewriter.replaceOp(target, vectorResults->replacements);
   }
 
   return DiagnosedSilenceableFailure::success();
@@ -4249,7 +4244,7 @@ DiagnosedSilenceableFailure transform::WinogradConv2DOp::applyToOne(
   bool supported = TypeSwitch<Operation *, bool>(target)
                        .Case([&](linalg::Conv2DNhwcFhwcOp op) {
                          maybeTransformed =
-                             winogradConv2D(rewriter, op, getFmr());
+                             winogradConv2D(rewriter, op, getM(), getR());
                          return true;
                        })
                        .Default([&](Operation *op) { return false; });

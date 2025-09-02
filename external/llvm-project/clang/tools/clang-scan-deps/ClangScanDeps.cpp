@@ -85,6 +85,7 @@ static ScanningOutputFormat Format = ScanningOutputFormat::Make;
 static ScanningOptimizations OptimizeArgs;
 static std::string ModuleFilesDir;
 static bool EagerLoadModules;
+static bool CacheNegativeStats = true;
 static unsigned NumThreads = 0;
 static std::string CompilationDB;
 static std::optional<std::string> ModuleName;
@@ -190,6 +191,8 @@ static void ParseArgs(int argc, char **argv) {
     OutputFileName = A->getValue();
 
   EagerLoadModules = Args.hasArg(OPT_eager_load_pcm);
+
+  CacheNegativeStats = !Args.hasArg(OPT_no_cache_negative_stats);
 
   if (const llvm::opt::Arg *A = Args.getLastArg(OPT_j)) {
     StringRef S{A->getValue()};
@@ -393,9 +396,7 @@ public:
     ID.FileName = std::string(Input);
     ID.ContextHash = std::move(TUDeps.ID.ContextHash);
     ID.FileDeps = std::move(TUDeps.FileDeps);
-    ID.NamedModule = std::move(TUDeps.ID.ModuleName);
-    ID.NamedModuleDeps = std::move(TUDeps.NamedModuleDeps);
-    ID.ClangModuleDeps = std::move(TUDeps.ClangModuleDeps);
+    ID.ModuleDeps = std::move(TUDeps.ClangModuleDeps);
     ID.DriverCommandLine = std::move(TUDeps.DriverCommandLine);
     ID.Commands = std::move(TUDeps.Commands);
 
@@ -510,15 +511,8 @@ public:
                   JOS.object([&] {
                     JOS.attribute("clang-context-hash",
                                   StringRef(I.ContextHash));
-                    if (!I.NamedModule.empty())
-                      JOS.attribute("named-module", (I.NamedModule));
-                    if (!I.NamedModuleDeps.empty())
-                      JOS.attributeArray("named-module-deps", [&] {
-                        for (const auto &Dep : I.NamedModuleDeps)
-                          JOS.value(Dep);
-                      });
                     JOS.attributeArray("clang-module-deps",
-                                       toJSONSorted(JOS, I.ClangModuleDeps));
+                                       toJSONSorted(JOS, I.ModuleDeps));
                     JOS.attributeArray("command-line",
                                        toJSONStrings(JOS, Cmd.Arguments));
                     JOS.attribute("executable", StringRef(Cmd.Executable));
@@ -530,15 +524,8 @@ public:
               } else {
                 JOS.object([&] {
                   JOS.attribute("clang-context-hash", StringRef(I.ContextHash));
-                  if (!I.NamedModule.empty())
-                    JOS.attribute("named-module", (I.NamedModule));
-                  if (!I.NamedModuleDeps.empty())
-                    JOS.attributeArray("named-module-deps", [&] {
-                      for (const auto &Dep : I.NamedModuleDeps)
-                        JOS.value(Dep);
-                    });
                   JOS.attributeArray("clang-module-deps",
-                                     toJSONSorted(JOS, I.ClangModuleDeps));
+                                     toJSONSorted(JOS, I.ModuleDeps));
                   JOS.attributeArray("command-line",
                                      toJSONStrings(JOS, I.DriverCommandLine));
                   JOS.attribute("executable", "clang");
@@ -593,9 +580,7 @@ private:
     std::string FileName;
     std::string ContextHash;
     std::vector<std::string> FileDeps;
-    std::string NamedModule;
-    std::vector<std::string> NamedModuleDeps;
-    std::vector<ModuleID> ClangModuleDeps;
+    std::vector<ModuleID> ModuleDeps;
     std::vector<std::string> DriverCommandLine;
     std::vector<Command> Commands;
   };
@@ -1098,8 +1083,9 @@ int clang_scan_deps_main(int argc, char **argv, const llvm::ToolContext &) {
     });
   };
 
-  DependencyScanningService Service(ScanMode, Format, OptimizeArgs,
-                                    EagerLoadModules, /*TraceVFS=*/Verbose);
+  DependencyScanningService Service(
+      ScanMode, Format, OptimizeArgs, EagerLoadModules, /*TraceVFS=*/Verbose,
+      llvm::sys::toTimeT(std::chrono::system_clock::now()), CacheNegativeStats);
 
   llvm::Timer T;
   T.startTimer();

@@ -609,11 +609,6 @@ class VectorType;
 
     bool isMaskAndCmp0FoldingBeneficial(const Instruction &AndI) const override;
 
-    bool hasAndNotCompare(SDValue V) const override {
-      // We can use bics for any scalar.
-      return V.getValueType().isScalarInteger();
-    }
-
     bool
     isShuffleMaskLegal(ArrayRef<int> M, EVT VT) const override;
     bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;

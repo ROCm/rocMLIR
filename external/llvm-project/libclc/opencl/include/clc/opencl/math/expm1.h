@@ -9,8 +9,8 @@
 #undef exp
 
 #define __CLC_BODY <clc/math/unary_decl.inc>
-#define FUNCTION expm1
+#define __CLC_FUNCTION expm1
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

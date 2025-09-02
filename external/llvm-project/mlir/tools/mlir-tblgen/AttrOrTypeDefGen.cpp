@@ -245,15 +245,17 @@ void DefGen::createParentWithTraits() {
                    ? cast<NativeTrait>(&trait)->getFullyQualifiedTraitName()
                    : cast<InterfaceTrait>(&trait)->getFullyQualifiedTraitName();
       }));
-  for (auto &traitName : traitNames)
+  llvm::for_each(traitNames, [&](auto &traitName) {
     defParent.addTemplateParam(traitName);
+  });
 
   // Add OpAsmInterface::Trait if we automatically generate mnemonic alias
   // method.
   std::string opAsmInterfaceTraitName =
       strfmt("::mlir::OpAsm{0}Interface::Trait", defType);
-  if (def.genMnemonicAlias() &&
-      !llvm::is_contained(traitNames, opAsmInterfaceTraitName)) {
+  if (def.genMnemonicAlias() && llvm::none_of(traitNames, [&](auto &traitName) {
+        return traitName == opAsmInterfaceTraitName;
+      })) {
     defParent.addTemplateParam(opAsmInterfaceTraitName);
   }
   defCls.addParent(std::move(defParent));

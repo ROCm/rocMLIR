@@ -313,23 +313,19 @@ tileConsumerAndFuseProducersUsingSCF(RewriterBase &rewriter,
                                      TilingInterface consumer,
                                      const SCFTileAndFuseOptions &options);
 
-/// Fuse the consumer `candidateSlices` by computing the required slice of the
-/// consumer in-place. All the entries of `candidateSlices` are expected to map
-/// to the same consumer. The method returns an error if the consumer cannot be
-/// tiled in a manner that is consistent for all the passed slices. Note that
-/// the method replaces the uses of `candidateSlices` with the tiled and fused
-/// consumer value but does not delete the slice operations.
+/// Fuse the consumer of the source of `candidateSliceOp` by computing the
+/// required slice of the consumer in-place.  Note that the method
+/// replaces the uses of `candidateSliceOp` with the tiled and fused consumer
+/// value but does not delete the slice operation.
 struct SCFFuseConsumerOfSliceResult {
-  // Original untiled consumer operands.
-  SmallVector<OpOperand *> origConsumerOperands;
-  // Tiled and fused consumer operands.
-  SmallVector<OpOperand *> tiledAndFusedConsumerOperands;
+  OpOperand *origConsumerOperand; // Original untiled consumer's operand.
+  OpOperand
+      *tiledAndFusedConsumerOperand; // Tiled and fused consumer's operand.
   SmallVector<Operation *> tiledOps;
 };
 FailureOr<scf::SCFFuseConsumerOfSliceResult>
-tileAndFuseConsumerOfSlices(RewriterBase &rewriter,
-                            ArrayRef<Operation *> candidateSlices,
-                            MutableArrayRef<LoopLikeOpInterface> loops);
+tileAndFuseConsumerOfSlice(RewriterBase &rewriter, Operation *candidateSliceOp,
+                           MutableArrayRef<LoopLikeOpInterface> loops);
 
 /// Method to lower an `op` that implements the `TilingInterface` to
 /// loops/scalars.

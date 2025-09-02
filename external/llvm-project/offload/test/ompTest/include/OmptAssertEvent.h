@@ -16,6 +16,7 @@ enum class ObserveState { generated, always, never };
 const char *to_string(ObserveState State);
 
 struct OmptAssertEvent {
+
   static OmptAssertEvent AssertionSyncPoint(const std::string &Name,
                                             const std::string &Group,
                                             const ObserveState &Expected,
@@ -339,7 +340,6 @@ private:
   std::unique_ptr<internal::InternalEvent> TheEvent;
 };
 
-/// POD type, which holds the target region id, corresponding to an event group.
 struct AssertEventGroup {
   AssertEventGroup(uint64_t TargetRegion) : TargetRegion(TargetRegion) {}
   uint64_t TargetRegion;

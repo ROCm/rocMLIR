@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #define __CLC_BODY <clc/math/unary_decl.inc>
-#define FUNCTION log
+#define __CLC_FUNCTION log
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

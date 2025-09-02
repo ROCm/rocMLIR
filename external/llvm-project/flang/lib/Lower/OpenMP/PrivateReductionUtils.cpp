@@ -123,15 +123,16 @@ static void createCleanupRegion(Fortran::lower::AbstractConverter &converter,
   typeError();
 }
 
-fir::ShapeShiftOp Fortran::lower::omp::getShapeShift(
-    fir::FirOpBuilder &builder, mlir::Location loc, mlir::Value box,
-    bool cannotHaveNonDefaultLowerBounds, bool useDefaultLowerBounds) {
+fir::ShapeShiftOp
+Fortran::lower::omp::getShapeShift(fir::FirOpBuilder &builder,
+                                   mlir::Location loc, mlir::Value box,
+                                   bool useDefaultLowerBounds) {
   fir::SequenceType sequenceType = mlir::cast<fir::SequenceType>(
       hlfir::getFortranElementOrSequenceType(box.getType()));
   const unsigned rank = sequenceType.getDimension();
-
   llvm::SmallVector<mlir::Value> lbAndExtents;
   lbAndExtents.reserve(rank * 2);
+
   mlir::Type idxTy = builder.getIndexType();
 
   mlir::Value oneVal;
@@ -141,8 +142,7 @@ fir::ShapeShiftOp Fortran::lower::omp::getShapeShift(
     return oneVal;
   };
 
-  if ((cannotHaveNonDefaultLowerBounds || useDefaultLowerBounds) &&
-      !sequenceType.hasDynamicExtents()) {
+  if ((useDefaultLowerBounds) && !sequenceType.hasDynamicExtents()) {
     // We don't need fir::BoxDimsOp if all of the extents are statically known
     // and we can assume default lower bounds. This helps avoids reads from the
     // mold arg.
@@ -273,13 +273,12 @@ public:
       mlir::Type argType, mlir::Value scalarInitValue,
       mlir::Value allocatedPrivVarArg, mlir::Value moldArg,
       mlir::Block *initBlock, mlir::Region &cleanupRegion,
-      DeclOperationKind kind, const Fortran::semantics::Symbol *sym,
-      bool cannotHaveLowerBounds)
+      DeclOperationKind kind, const Fortran::semantics::Symbol *sym)
       : converter{converter}, builder{converter.getFirOpBuilder()}, loc{loc},
         argType{argType}, scalarInitValue{scalarInitValue},
         allocatedPrivVarArg{allocatedPrivVarArg}, moldArg{moldArg},
         initBlock{initBlock}, cleanupRegion{cleanupRegion}, kind{kind},
-        sym{sym}, cannotHaveNonDefaultLowerBounds{cannotHaveLowerBounds} {
+        sym{sym} {
     valType = fir::unwrapRefType(argType);
   }
 
@@ -320,10 +319,6 @@ private:
 
   /// Any length parameters which have been fetched for the type
   mlir::SmallVector<mlir::Value> lenParams;
-
-  /// If the source variable being privatized definitely can't have non-default
-  /// lower bounds then we don't need to generate code to read them.
-  bool cannotHaveNonDefaultLowerBounds;
 
   void createYield(mlir::Value ret) {
     builder.create<mlir::omp::YieldOp>(loc, ret);
@@ -462,8 +457,7 @@ void PopulateInitAndCleanupRegionsHelper::initAndCleanupBoxedArray(
   // Special case for (possibly allocatable) arrays of polymorphic types
   // e.g. !fir.class<!fir.heap<!fir.array<?x!fir.type<>>>>
   if (source.isPolymorphic()) {
-    fir::ShapeShiftOp shape =
-        getShapeShift(builder, loc, source, cannotHaveNonDefaultLowerBounds);
+    fir::ShapeShiftOp shape = getShapeShift(builder, loc, source);
     mlir::Type arrayType = source.getElementOrSequenceType();
     mlir::Value allocatedArray = builder.create<fir::AllocMemOp>(
         loc, arrayType, /*typeparams=*/mlir::ValueRange{}, shape.getExtents());
@@ -511,8 +505,8 @@ void PopulateInitAndCleanupRegionsHelper::initAndCleanupBoxedArray(
   // Put the temporary inside of a box:
   // hlfir::genVariableBox doesn't handle non-default lower bounds
   mlir::Value box;
-  fir::ShapeShiftOp shapeShift = getShapeShift(builder, loc, getLoadedMoldArg(),
-                                               cannotHaveNonDefaultLowerBounds);
+  fir::ShapeShiftOp shapeShift =
+      getShapeShift(builder, loc, getLoadedMoldArg());
   mlir::Type boxType = getLoadedMoldArg().getType();
   if (mlir::isa<fir::BaseBoxType>(temp.getType()))
     // the box created by the declare form createTempFromMold is missing
@@ -647,10 +641,10 @@ void Fortran::lower::omp::populateByRefInitAndCleanupRegions(
     mlir::Type argType, mlir::Value scalarInitValue, mlir::Block *initBlock,
     mlir::Value allocatedPrivVarArg, mlir::Value moldArg,
     mlir::Region &cleanupRegion, DeclOperationKind kind,
-    const Fortran::semantics::Symbol *sym, bool cannotHaveLowerBounds) {
+    const Fortran::semantics::Symbol *sym) {
   PopulateInitAndCleanupRegionsHelper helper(
       converter, loc, argType, scalarInitValue, allocatedPrivVarArg, moldArg,
-      initBlock, cleanupRegion, kind, sym, cannotHaveLowerBounds);
+      initBlock, cleanupRegion, kind, sym);
   helper.populateByRefInitAndCleanupRegions();
 
   // Often we load moldArg to check something (e.g. length parameters, shape)

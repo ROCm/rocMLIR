@@ -2316,18 +2316,9 @@ bool CallAnalyzer::visitStore(StoreInst &I) {
 }
 
 bool CallAnalyzer::visitExtractValue(ExtractValueInst &I) {
-  Value *Op = I.getAggregateOperand();
-
-  // Special handling, because we want to simplify extractvalue with a
-  // potential insertvalue from the caller.
-  if (Value *SimpleOp = getSimplifiedValueUnchecked(Op)) {
-    SimplifyQuery SQ(DL);
-    Value *SimpleV = simplifyExtractValueInst(SimpleOp, I.getIndices(), SQ);
-    if (SimpleV) {
-      SimplifiedValues[&I] = SimpleV;
-      return true;
-    }
-  }
+  // Constant folding for extract value is trivial.
+  if (simplifyInstruction(I))
+    return true;
 
   // SROA can't look through these, but they may be free.
   return Base::visitExtractValue(I);

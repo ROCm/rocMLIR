@@ -9,8 +9,8 @@
 #undef erfc
 
 #define __CLC_BODY <clc/math/unary_decl.inc>
-#define FUNCTION erf
+#define __CLC_FUNCTION erf
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

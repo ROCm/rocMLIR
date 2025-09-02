@@ -1507,9 +1507,10 @@ static VersionTuple getMachoBuildVersionSupportedOS(const Triple &Target) {
   case Triple::WatchOS:
     return VersionTuple(5);
   case Triple::DriverKit:
-  case Triple::BridgeOS:
+    // DriverKit always uses the build version load command.
+    return VersionTuple();
   case Triple::XROS:
-    // DriverKit/BridgeOS/XROS always use the build version load command.
+    // XROS always uses the build version load command.
     return VersionTuple();
   default:
     break;
@@ -1540,8 +1541,6 @@ getMachoBuildVersionPlatformType(const Triple &Target) {
   case Triple::XROS:
     return Target.isSimulatorEnvironment() ? MachO::PLATFORM_XROS_SIMULATOR
                                            : MachO::PLATFORM_XROS;
-  case Triple::BridgeOS:
-    return MachO::PLATFORM_BRIDGEOS;
   default:
     break;
   }
@@ -1575,7 +1574,6 @@ void MCStreamer::emitVersionForTarget(
     Version = Target.getDriverKitVersion();
     break;
   case Triple::XROS:
-  case Triple::BridgeOS:
     Version = Target.getOSVersion();
     break;
   default:

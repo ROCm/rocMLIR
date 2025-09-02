@@ -44,7 +44,7 @@ private:
   ::mlir::FlatSymbolRefAttr mesh;
   SmallVector<MeshAxesAttr> split_axes;
   SmallVector<MeshAxis> partial_axes;
-  ReductionKind partial_type = ReductionKind::Sum;
+  ReductionKind partial_type;
   SmallVector<int64_t> static_halo_sizes;
   SmallVector<int64_t> static_sharded_dims_offsets;
   SmallVector<Value> dynamic_halo_sizes;

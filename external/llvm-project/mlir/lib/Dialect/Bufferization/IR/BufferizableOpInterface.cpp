@@ -7,12 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Bufferization/IR/BufferizableOpInterface.h"
-#include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AsmState.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
@@ -194,12 +195,9 @@ FailureOr<Value> bufferization::allocateTensorForShapedValue(
         reifiedShapes = true;
         auto &shape =
             resultDims[llvm::cast<OpResult>(shapedValue).getResultNumber()];
-        for (const auto &dim : enumerate(tensorType.getShape())) {
-          if (ShapedType::isDynamic(dim.value())) {
-            dynamicSizes.push_back(
-                getValueOrCreateConstantIndexOp(b, loc, shape[dim.index()]));
-          }
-        }
+        for (const auto &dim : enumerate(tensorType.getShape()))
+          if (ShapedType::isDynamic(dim.value()))
+            dynamicSizes.push_back(cast<Value>(shape[dim.index()]));
       }
     }
 
@@ -947,7 +945,7 @@ AliasingOpOperandList bufferization::detail::defaultGetAliasingOpOperands(
   return AliasingOpOperandList(std::move(result));
 }
 
-FailureOr<BufferLikeType> bufferization::detail::defaultGetBufferType(
+FailureOr<BaseMemRefType> bufferization::detail::defaultGetBufferType(
     Value value, const BufferizationOptions &options,
     const BufferizationState &bufferizationState,
     SmallVector<Value> &invocationStack) {
@@ -955,10 +953,8 @@ FailureOr<BufferLikeType> bufferization::detail::defaultGetBufferType(
   auto tensorType = cast<TensorType>(value.getType());
 
   // No further analysis is possible for a block argument.
-  if (llvm::isa<BlockArgument>(value)) {
-    return cast<BufferLikeType>(
-        bufferization::getMemRefType(tensorType, options));
-  }
+  if (llvm::isa<BlockArgument>(value))
+    return bufferization::getMemRefType(tensorType, options);
 
   // Value is an OpResult.
   Operation *op = getOwnerOfValue(value);
@@ -970,8 +966,8 @@ FailureOr<BufferLikeType> bufferization::detail::defaultGetBufferType(
     // If the OpResult has an equivalent OpOperand, both OpResult and
     // OpOperand bufferize to the exact same buffer type.
     Value equivalentOperand = aliases.getAliases().front().opOperand->get();
-    return getBufferType(equivalentOperand, options, bufferizationState,
-                         invocationStack);
+    return asMemRefType(getBufferType(equivalentOperand, options,
+                                      bufferizationState, invocationStack));
   }
 
   // If we do not know the memory space and there is no default memory space,
@@ -981,8 +977,7 @@ FailureOr<BufferLikeType> bufferization::detail::defaultGetBufferType(
   if (!memSpace.has_value())
     return op->emitError("could not infer memory space");
 
-  return cast<BufferLikeType>(
-      getMemRefType(tensorType, options, /*layout=*/{}, *memSpace));
+  return getMemRefType(tensorType, options, /*layout=*/{}, *memSpace);
 }
 
 bool bufferization::detail::defaultIsRepetitiveRegion(

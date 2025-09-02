@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #define __CLC_BODY <clc/shared/binary_decl.inc>
-#define FUNCTION half_powr
+#define __CLC_FUNCTION half_powr
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

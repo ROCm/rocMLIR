@@ -21,7 +21,7 @@ namespace lldb_private::mcp {
 
 class ProtocolServerMCP : public ProtocolServer {
 public:
-  ProtocolServerMCP();
+  ProtocolServerMCP(Debugger &debugger);
   virtual ~ProtocolServerMCP() override;
 
   virtual llvm::Error Start(ProtocolServer::Connection connection) override;
@@ -33,7 +33,7 @@ public:
   static llvm::StringRef GetPluginNameStatic() { return "MCP"; }
   static llvm::StringRef GetPluginDescriptionStatic();
 
-  static lldb::ProtocolServerUP CreateInstance();
+  static lldb::ProtocolServerSP CreateInstance(Debugger &debugger);
 
   llvm::StringRef GetPluginName() override { return GetPluginNameStatic(); }
 
@@ -70,6 +70,8 @@ private:
 
   llvm::StringLiteral kName = "lldb-mcp";
   llvm::StringLiteral kVersion = "0.1.0";
+
+  Debugger &m_debugger;
 
   bool m_running = false;
 

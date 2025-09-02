@@ -85,8 +85,7 @@ static lldb::SBAddress GetDisassembleStartAddress(lldb::SBTarget target,
 }
 
 static DisassembledInstruction ConvertSBInstructionToDisassembledInstruction(
-    DAP &dap, lldb::SBInstruction &inst, bool resolve_symbols) {
-  lldb::SBTarget target = dap.target;
+    lldb::SBTarget &target, lldb::SBInstruction &inst, bool resolve_symbols) {
   if (!inst.IsValid())
     return GetInvalidInstruction();
 
@@ -139,14 +138,14 @@ static DisassembledInstruction ConvertSBInstructionToDisassembledInstruction(
     si << " ; " << c;
   }
 
-  std::optional<protocol::Source> source = dap.ResolveSource(addr);
+  protocol::Source source = CreateSource(addr, target);
   lldb::SBLineEntry line_entry = GetLineEntryForAddress(target, addr);
 
   // If the line number is 0 then the entry represents a compiler generated
   // location.
-  if (source && !IsAssemblySource(*source) &&
-      line_entry.GetStartAddress() == addr && line_entry.IsValid() &&
-      line_entry.GetFileSpec().IsValid() && line_entry.GetLine() != 0) {
+  if (!IsAssemblySource(source) && line_entry.GetStartAddress() == addr &&
+      line_entry.IsValid() && line_entry.GetFileSpec().IsValid() &&
+      line_entry.GetLine() != 0) {
 
     disassembled_inst.location = std::move(source);
     const auto line = line_entry.GetLine();
@@ -222,7 +221,7 @@ DisassembleRequestHandler::Run(const DisassembleArguments &args) const {
       original_address_index = i;
 
     instructions.push_back(ConvertSBInstructionToDisassembledInstruction(
-        dap, inst, resolve_symbols));
+        dap.target, inst, resolve_symbols));
   }
 
   // Check if we miss instructions at the beginning.

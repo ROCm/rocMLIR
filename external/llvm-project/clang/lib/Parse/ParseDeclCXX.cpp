@@ -25,6 +25,7 @@
 #include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
+#include "clang/Sema/Lookup.h"
 #include "clang/Sema/ParsedTemplate.h"
 #include "clang/Sema/Scope.h"
 #include "clang/Sema/SemaCodeCompletion.h"
@@ -4956,8 +4957,7 @@ void Parser::ParseHLSLRootSignatureAttributeArgs(ParsedAttributes &Attrs) {
     // Invoke the root signature parser to construct the in-memory constructs
     hlsl::RootSignatureLexer Lexer(Signature, SignatureLoc);
     SmallVector<llvm::hlsl::rootsig::RootElement> RootElements;
-    hlsl::RootSignatureParser Parser(getLangOpts().HLSLRootSigVer, RootElements,
-                                     Lexer, PP);
+    hlsl::RootSignatureParser Parser(RootElements, Lexer, PP);
     if (Parser.parse()) {
       T.consumeClose();
       return;

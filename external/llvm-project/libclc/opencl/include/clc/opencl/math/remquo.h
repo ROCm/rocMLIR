@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#define FUNCTION remquo
+#define __CLC_FUNCTION remquo
 
 #define __CLC_BODY <clc/math/remquo_decl.inc>
 #include <clc/math/gentype.inc>
@@ -18,4 +18,4 @@
 #undef __CLC_ADDRESS_SPACE
 #endif
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

@@ -350,8 +350,8 @@ private:
   /// Whether the last token we lexed was an '@'.
   bool LastTokenWasAt = false;
 
-  /// First pp-token source location in current translation unit.
-  SourceLocation FirstPPTokenLoc;
+  /// First pp-token in current translation unit.
+  std::optional<Token> FirstPPToken;
 
   /// A position within a C++20 import-seq.
   class StdCXXImportSeq {
@@ -1769,13 +1769,20 @@ public:
   std::optional<LexEmbedParametersResult> LexEmbedParameters(Token &Current,
                                                              bool ForHasEmbed);
 
-  /// Get the start location of the first pp-token in main file.
-  SourceLocation getMainFileFirstPPTokenLoc() const {
-    assert(FirstPPTokenLoc.isValid() &&
-           "Did not see the first pp-token in the main file");
-    return FirstPPTokenLoc;
+  /// Whether the preprocessor already seen the first pp-token in main file.
+  bool hasSeenMainFileFirstPPToken() const { return FirstPPToken.has_value(); }
+
+  /// Record first pp-token and check if it has a Token::FirstPPToken flag.
+  void HandleMainFileFirstPPToken(const Token &Tok) {
+    if (!hasSeenMainFileFirstPPToken() && Tok.isFirstPPToken() &&
+        SourceMgr.isWrittenInMainFile(Tok.getLocation()))
+      FirstPPToken = Tok;
   }
 
+  Token getMainFileFirstPPToken() const {
+    assert(FirstPPToken && "First main file pp-token doesn't exists");
+    return *FirstPPToken;
+  }
   bool LexAfterModuleImport(Token &Result);
   void CollectPpImportSuffix(SmallVectorImpl<Token> &Toks);
 
@@ -2297,9 +2304,7 @@ public:
 
   /// Check whether the next pp-token is one of the specificed token kind. this
   /// method should have no observable side-effect on the lexed tokens.
-  template <typename... Ts> bool isNextPPTokenOneOf(Ts... Ks) {
-    static_assert(sizeof...(Ts) > 0,
-                  "requires at least one tok::TokenKind specified");
+  template <tok::TokenKind K, tok::TokenKind... Ks> bool isNextPPTokenOneOf() {
     // Do some quick tests for rejection cases.
     std::optional<Token> Val;
     if (CurLexer)
@@ -2330,7 +2335,7 @@ public:
 
     // Okay, we found the token and return.  Otherwise we found the end of the
     // translation unit.
-    return Val->isOneOf(Ks...);
+    return Val->is(K) || (... || Val->is(Ks));
   }
 
 private:

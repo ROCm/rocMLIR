@@ -1,5 +1,4 @@
 // Check if we can merge bitfields across empty members
-// XFAIL: *
 
 // Configs that have cheap unaligned access
 // Little Endian

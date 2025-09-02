@@ -214,8 +214,6 @@ class PredicateInfoBuilder {
   // whether it returned a valid result.
   DenseMap<Value *, unsigned int> ValueInfoNums;
 
-  BumpPtrAllocator &Allocator;
-
   ValueInfo &getOrCreateValueInfo(Value *);
   const ValueInfo &getValueInfo(Value *) const;
 
@@ -244,8 +242,8 @@ class PredicateInfoBuilder {
 
 public:
   PredicateInfoBuilder(PredicateInfo &PI, Function &F, DominatorTree &DT,
-                       AssumptionCache &AC, BumpPtrAllocator &Allocator)
-      : PI(PI), F(F), DT(DT), AC(AC), Allocator(Allocator) {
+                       AssumptionCache &AC)
+      : PI(PI), F(F), DT(DT), AC(AC) {
     // Push an empty operand info so that we can detect 0 as not finding one
     ValueInfos.resize(1);
   }
@@ -343,6 +341,7 @@ void PredicateInfoBuilder::addInfoFor(SmallVectorImpl<Value *> &OpsToRename,
   auto &OperandInfo = getOrCreateValueInfo(Op);
   if (OperandInfo.Infos.empty())
     OpsToRename.push_back(Op);
+  PI.AllInfos.push_back(PB);
   OperandInfo.Infos.push_back(PB);
 }
 
@@ -374,7 +373,7 @@ void PredicateInfoBuilder::processAssume(
 
     for (Value *V : Values) {
       if (shouldRename(V)) {
-        auto *PA = new (Allocator) PredicateAssume(V, II, Cond);
+        auto *PA = new PredicateAssume(V, II, Cond);
         addInfoFor(OpsToRename, V, PA);
       }
     }
@@ -420,8 +419,8 @@ void PredicateInfoBuilder::processBranch(
 
       for (Value *V : Values) {
         if (shouldRename(V)) {
-          PredicateBase *PB = new (Allocator)
-              PredicateBranch(V, BranchBB, Succ, Cond, TakenEdge);
+          PredicateBase *PB =
+              new PredicateBranch(V, BranchBB, Succ, Cond, TakenEdge);
           addInfoFor(OpsToRename, V, PB);
         }
       }
@@ -446,7 +445,7 @@ void PredicateInfoBuilder::processSwitch(
   for (auto C : SI->cases()) {
     BasicBlock *TargetBlock = C.getCaseSuccessor();
     if (SwitchEdges.lookup(TargetBlock) == 1) {
-      PredicateSwitch *PS = new (Allocator) PredicateSwitch(
+      PredicateSwitch *PS = new PredicateSwitch(
           Op, SI->getParent(), TargetBlock, C.getCaseValue(), SI);
       addInfoFor(OpsToRename, Op, PS);
     }
@@ -705,9 +704,9 @@ PredicateInfoBuilder::getValueInfo(Value *Operand) const {
 }
 
 PredicateInfo::PredicateInfo(Function &F, DominatorTree &DT,
-                             AssumptionCache &AC, BumpPtrAllocator &Allocator)
+                             AssumptionCache &AC)
     : F(F) {
-  PredicateInfoBuilder Builder(*this, F, DT, AC, Allocator);
+  PredicateInfoBuilder Builder(*this, F, DT, AC);
   Builder.buildPredicateInfo();
 }
 
@@ -798,8 +797,7 @@ PreservedAnalyses PredicateInfoPrinterPass::run(Function &F,
   auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
   auto &AC = AM.getResult<AssumptionAnalysis>(F);
   OS << "PredicateInfo for function: " << F.getName() << "\n";
-  BumpPtrAllocator Allocator;
-  auto PredInfo = std::make_unique<PredicateInfo>(F, DT, AC, Allocator);
+  auto PredInfo = std::make_unique<PredicateInfo>(F, DT, AC);
   PredInfo->print(OS);
 
   replaceCreatedSSACopys(*PredInfo, F);
@@ -861,8 +859,7 @@ PreservedAnalyses PredicateInfoVerifierPass::run(Function &F,
                                                  FunctionAnalysisManager &AM) {
   auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
   auto &AC = AM.getResult<AssumptionAnalysis>(F);
-  BumpPtrAllocator Allocator;
-  std::make_unique<PredicateInfo>(F, DT, AC, Allocator)->verifyPredicateInfo();
+  std::make_unique<PredicateInfo>(F, DT, AC)->verifyPredicateInfo();
 
   return PreservedAnalyses::all();
 }

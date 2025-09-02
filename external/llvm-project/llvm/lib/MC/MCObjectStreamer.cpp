@@ -63,14 +63,28 @@ void MCObjectStreamer::resolvePendingFixups() {
     PendingFixup.Fixup.setOffset(PendingFixup.Sym->getOffset() +
                                  PendingFixup.Fixup.getOffset());
 
-    // If the location symbol to relocate is in MCEncodedFragment,
+    // If the location symbol to relocate is in MCEncodedFragmentWithFixups,
     // put the Fixup into location symbol's fragment. Otherwise
     // put into PendingFixup.DF
     MCFragment *SymFragment = PendingFixup.Sym->getFragment();
-    if (auto *F = dyn_cast<MCEncodedFragment>(SymFragment))
-      F->addFixup(PendingFixup.Fixup);
-    else
-      PendingFixup.DF->addFixup(PendingFixup.Fixup);
+    switch (SymFragment->getKind()) {
+    case MCFragment::FT_Relaxable:
+    case MCFragment::FT_Dwarf:
+    case MCFragment::FT_PseudoProbe:
+      cast<MCEncodedFragmentWithFixups<8, 1>>(SymFragment)
+          ->getFixups()
+          .push_back(PendingFixup.Fixup);
+      break;
+    case MCFragment::FT_Data:
+    case MCFragment::FT_CVDefRange:
+      cast<MCEncodedFragmentWithFixups<32, 4>>(SymFragment)
+          ->getFixups()
+          .push_back(PendingFixup.Fixup);
+      break;
+    default:
+      PendingFixup.DF->getFixups().push_back(PendingFixup.Fixup);
+      break;
+    }
   }
   PendingFixups.clear();
 }
@@ -187,8 +201,8 @@ void MCObjectStreamer::emitValueImpl(const MCExpr *Value, unsigned Size,
     emitIntValue(AbsValue, Size);
     return;
   }
-  DF->addFixup(MCFixup::create(DF->getContents().size(), Value,
-                               MCFixup::getDataKindForSize(Size)));
+  DF->getFixups().push_back(MCFixup::create(
+      DF->getContents().size(), Value, MCFixup::getDataKindForSize(Size), Loc));
   DF->appendContents(Size, 0);
 }
 
@@ -376,22 +390,6 @@ void MCObjectStreamer::emitInstructionImpl(const MCInst &Inst,
   emitInstToFragment(Inst, STI);
 }
 
-void MCObjectStreamer::emitInstToData(const MCInst &Inst,
-                                      const MCSubtargetInfo &STI) {
-  MCDataFragment *DF = getOrCreateDataFragment();
-  SmallVector<MCFixup, 1> Fixups;
-  SmallString<256> Code;
-  getAssembler().getEmitter().encodeInstruction(Inst, Code, Fixups, STI);
-
-  auto CodeOffset = DF->getContents().size();
-  for (MCFixup &Fixup : Fixups)
-    Fixup.setOffset(Fixup.getOffset() + CodeOffset);
-  if (!Fixups.empty())
-    DF->appendFixups(Fixups);
-  DF->setHasInstructions(STI);
-  DF->appendContents(Code);
-}
-
 void MCObjectStreamer::emitInstToFragment(const MCInst &Inst,
                                           const MCSubtargetInfo &STI) {
   // Always create a new, separate fragment here, because its size can change
@@ -400,11 +398,8 @@ void MCObjectStreamer::emitInstToFragment(const MCInst &Inst,
       getContext().allocFragment<MCRelaxableFragment>(Inst, STI);
   insert(IF);
 
-  SmallVector<MCFixup, 1> Fixups;
-  getAssembler().getEmitter().encodeInstruction(
-      Inst, IF->getContentsForAppending(), Fixups, STI);
-  IF->doneAppending();
-  IF->appendFixups(Fixups);
+  getAssembler().getEmitter().encodeInstruction(Inst, IF->getContents(),
+                                                IF->getFixups(), STI);
 }
 
 #ifndef NDEBUG
@@ -441,8 +436,9 @@ void MCObjectStreamer::emitDwarfLocDirective(unsigned FileNo, unsigned Line,
 static const MCExpr *buildSymbolDiff(MCObjectStreamer &OS, const MCSymbol *A,
                                      const MCSymbol *B, SMLoc Loc) {
   MCContext &Context = OS.getContext();
-  const MCExpr *ARef = MCSymbolRefExpr::create(A, Context);
-  const MCExpr *BRef = MCSymbolRefExpr::create(B, Context);
+  MCSymbolRefExpr::VariantKind Variant = MCSymbolRefExpr::VK_None;
+  const MCExpr *ARef = MCSymbolRefExpr::create(A, Variant, Context);
+  const MCExpr *BRef = MCSymbolRefExpr::create(B, Variant, Context);
   const MCExpr *AddrDelta =
       MCBinaryExpr::create(MCBinaryExpr::Sub, ARef, BRef, Context, Loc);
   return AddrDelta;
@@ -696,7 +692,8 @@ MCObjectStreamer::emitRelocDirective(const MCExpr &Offset, StringRef Name,
   if (OffsetVal.isAbsolute()) {
     if (OffsetVal.getConstant() < 0)
       return std::make_pair(false, std::string(".reloc offset is negative"));
-    DF->addFixup(MCFixup::create(OffsetVal.getConstant(), Expr, Kind));
+    DF->getFixups().push_back(
+        MCFixup::create(OffsetVal.getConstant(), Expr, Kind, Loc));
     return std::nullopt;
   }
   if (OffsetVal.getSubSym())
@@ -712,13 +709,14 @@ MCObjectStreamer::emitRelocDirective(const MCExpr &Offset, StringRef Name,
     if (Error != std::nullopt)
       return Error;
 
-    DF->addFixup(
-        MCFixup::create(SymbolOffset + OffsetVal.getConstant(), Expr, Kind));
+    DF->getFixups().push_back(
+        MCFixup::create(SymbolOffset + OffsetVal.getConstant(),
+                        Expr, Kind, Loc));
     return std::nullopt;
   }
 
   PendingFixups.emplace_back(
-      &Symbol, DF, MCFixup::create(OffsetVal.getConstant(), Expr, Kind));
+      &Symbol, DF, MCFixup::create(OffsetVal.getConstant(), Expr, Kind, Loc));
   return std::nullopt;
 }
 

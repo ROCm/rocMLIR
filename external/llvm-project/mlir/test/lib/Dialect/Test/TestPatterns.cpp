@@ -1014,7 +1014,7 @@ struct TestPassthroughInvalidOp : public ConversionPattern {
               .getResult());
     }
     rewriter.replaceOpWithNewOp<TestValidOp>(op, TypeRange(), flattened,
-                                             ArrayRef<NamedAttribute>());
+                                             std::nullopt);
     return success();
   }
 };
@@ -1030,7 +1030,7 @@ struct TestDropAndReplaceInvalidOp : public ConversionPattern {
   matchAndRewrite(Operation *op, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.replaceOpWithNewOp<TestValidOp>(op, TypeRange(), ValueRange(),
-                                             ArrayRef<NamedAttribute>());
+                                             std::nullopt);
     return success();
   }
 };

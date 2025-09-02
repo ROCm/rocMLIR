@@ -1393,7 +1393,7 @@ public:
       return getTargetSymbol(BinaryExpr->getLHS());
 
     auto *SymbolRefExpr = dyn_cast<const MCSymbolRefExpr>(Expr);
-    if (SymbolRefExpr && SymbolRefExpr->getSpecifier() == 0)
+    if (SymbolRefExpr && SymbolRefExpr->getKind() == MCSymbolRefExpr::VK_None)
       return &SymbolRefExpr->getSymbol();
 
     return nullptr;

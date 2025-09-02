@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_DEBUGINFO_DWARF_LOWLEVEL_DWARFCFIPROGRAM_H
-#define LLVM_DEBUGINFO_DWARF_LOWLEVEL_DWARFCFIPROGRAM_H
+#ifndef LLVM_DEBUGINFO_DWARF_DWARFCFIPROGRAM_H
+#define LLVM_DEBUGINFO_DWARF_DWARFCFIPROGRAM_H
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallString.h"
@@ -106,11 +106,17 @@ public:
   };
 
   /// Get the OperandType as a "const char *".
-  LLVM_ABI static const char *operandTypeString(OperandType OT);
+  static const char *operandTypeString(OperandType OT);
 
   /// Retrieve the array describing the types of operands according to the enum
   /// above. This is indexed by opcode.
-  LLVM_ABI static ArrayRef<OperandType[MaxOperands]> getOperandTypes();
+  static ArrayRef<OperandType[MaxOperands]> getOperandTypes();
+
+private:
+  std::vector<Instruction> Instructions;
+  const uint64_t CodeAlignmentFactor;
+  const int64_t DataAlignmentFactor;
+  Triple::ArchType Arch;
 
   /// Convenience method to add a new instruction with the given opcode.
   void addInstruction(uint8_t Opcode) {
@@ -138,16 +144,10 @@ public:
     Instructions.back().Ops.push_back(Operand2);
     Instructions.back().Ops.push_back(Operand3);
   }
-
-private:
-  std::vector<Instruction> Instructions;
-  const uint64_t CodeAlignmentFactor;
-  const int64_t DataAlignmentFactor;
-  Triple::ArchType Arch;
 };
 
 } // end namespace dwarf
 
 } // end namespace llvm
 
-#endif // LLVM_DEBUGINFO_DWARF_LOWLEVEL_DWARFCFIPROGRAM_H
+#endif // LLVM_DEBUGINFO_DWARF_DWARFCFIPROGRAM_H

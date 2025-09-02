@@ -1105,7 +1105,6 @@ public:
                                               VectorType *&SubTy) const {
     if (Mask.empty())
       return Kind;
-    int NumDstElts = Mask.size();
     int NumSrcElts = SrcTy->getElementCount().getKnownMinValue();
     switch (Kind) {
     case TTI::SK_PermuteSingleSrc: {
@@ -1116,8 +1115,8 @@ public:
       if (isSplatMask(Mask, NumSrcElts, Index))
         return TTI::SK_Broadcast;
       if (ShuffleVectorInst::isExtractSubvectorMask(Mask, NumSrcElts, Index) &&
-          (Index + NumDstElts) <= NumSrcElts) {
-        SubTy = FixedVectorType::get(SrcTy->getElementType(), NumDstElts);
+          (Index + Mask.size()) <= (size_t)NumSrcElts) {
+        SubTy = FixedVectorType::get(SrcTy->getElementType(), Mask.size());
         return TTI::SK_ExtractSubvector;
       }
       break;
@@ -1127,8 +1126,8 @@ public:
         return improveShuffleKindFromMask(TTI::SK_PermuteSingleSrc, Mask, SrcTy,
                                           Index, SubTy);
       int NumSubElts;
-      if (NumDstElts > 2 && ShuffleVectorInst::isInsertSubvectorMask(
-                                Mask, NumSrcElts, NumSubElts, Index)) {
+      if (Mask.size() > 2 && ShuffleVectorInst::isInsertSubvectorMask(
+                                 Mask, NumSrcElts, NumSubElts, Index)) {
         if (Index + NumSubElts > NumSrcElts)
           return Kind;
         SubTy = FixedVectorType::get(SrcTy->getElementType(), NumSubElts);
@@ -2243,9 +2242,6 @@ public:
     case Intrinsic::log2:
       ISD = ISD::FLOG2;
       break;
-    case Intrinsic::ldexp:
-      ISD = ISD::FLDEXP;
-      break;
     case Intrinsic::fabs:
       ISD = ISD::FABS;
       break;
@@ -2299,12 +2295,6 @@ public:
       break;
     case Intrinsic::roundeven:
       ISD = ISD::FROUNDEVEN;
-      break;
-    case Intrinsic::lround:
-      ISD = ISD::LROUND;
-      break;
-    case Intrinsic::llround:
-      ISD = ISD::LLROUND;
       break;
     case Intrinsic::pow:
       ISD = ISD::FPOW;

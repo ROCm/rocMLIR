@@ -222,7 +222,7 @@ AliasingValueList AllocTensorOp::getAliasingValues(OpOperand &opOperand,
   return {};
 }
 
-FailureOr<BufferLikeType>
+FailureOr<BaseMemRefType>
 AllocTensorOp::getBufferType(Value value, const BufferizationOptions &options,
                              const BufferizationState &state,
                              SmallVector<Value> &invocationStack) {
@@ -245,8 +245,7 @@ AllocTensorOp::getBufferType(Value value, const BufferizationOptions &options,
     return getOperation()->emitError("could not infer memory space");
   }
 
-  return cast<BufferLikeType>(
-      getMemRefTypeWithStaticIdentityLayout(getType(), memorySpace));
+  return getMemRefTypeWithStaticIdentityLayout(getType(), memorySpace);
 }
 
 LogicalResult AllocTensorOp::verify() {

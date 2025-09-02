@@ -1094,12 +1094,6 @@ def FeatureBitOp3Insts : SubtargetFeature<"bitop3-insts",
   "Has v_bitop3_b32/v_bitop3_b16 instructions"
 >;
 
-def FeatureTransposeLoadF4F6Insts : SubtargetFeature<"transpose-load-f4f6-insts",
-  "HasTransposeLoadF4F6Insts",
-  "true",
-  "Has ds_load_tr4/tr6 and global_load_tr4/tr6 instructions"
->;
-
 def FeaturePrngInst : SubtargetFeature<"prng-inst",
   "HasPrngInst",
   "true",
@@ -1317,12 +1311,6 @@ def FeatureMemToLDSLoad : SubtargetFeature<"vmem-to-lds-load-insts",
   "HasVMemToLDSLoad",
   "true",
   "The platform has memory to lds instructions (global_load w/lds bit set, buffer_load w/lds bit set or global_load_lds. This does not include scratch_load_lds."
->;
-
-def FeatureLdsBarrierArriveAtomic : SubtargetFeature< "lds-barrier-arrive-atomic",
-  "HasLdsBarrierArriveAtomic",
-  "true",
-  "Has LDS barrier-arrive atomic instructions"
 >;
 
 // Dummy feature used to disable assembler instructions.
@@ -1944,7 +1932,6 @@ def FeatureISAVersion12_50 : FeatureSet<
    FeatureScalarDwordx3Loads,
    FeatureDPPSrc1SGPR,
    FeatureBitOp3Insts,
-   FeatureTransposeLoadF4F6Insts,
    FeatureBF16ConversionInsts,
    FeatureCvtPkF16F32Inst,
    FeatureMinimum3Maximum3PKF16,
@@ -1960,7 +1947,6 @@ def FeatureISAVersion12_50 : FeatureSet<
    FeatureMemoryAtomicFAddF32DenormalSupport,
    FeatureKernargPreload,
    FeatureLshlAddU64Inst,
-   FeatureLdsBarrierArriveAtomic,
    FeatureSetPrioIncWgInst,
 ]>;
 
@@ -2367,17 +2353,11 @@ def D16PreservesUnusedBits :
 def LDSRequiresM0Init : Predicate<"Subtarget->ldsRequiresM0Init()">;
 def NotLDSRequiresM0Init : Predicate<"!Subtarget->ldsRequiresM0Init()">;
 
-def HasMTBUFInsts : Predicate<"Subtarget->hasMTBUFInsts()">,
-  AssemblerPredicate<(all_of (not FeatureGFX1250Insts))>;
-
-def HasFormattedMUBUFInsts : Predicate<"Subtarget->hasFormattedMUBUFInsts()">,
-  AssemblerPredicate<(all_of (not FeatureGFX1250Insts))>;
-
 def HasExportInsts : Predicate<"Subtarget->hasExportInsts()">,
-  AssemblerPredicate<(all_of (not FeatureGFX90AInsts), (not FeatureGFX1250Insts))>;
+  AssemblerPredicate<(all_of (not FeatureGFX90AInsts))>;
 
 def HasVINTERPEncoding : Predicate<"Subtarget->hasVINTERPEncoding()">,
-  AssemblerPredicate<(all_of FeatureGFX11Insts, (not FeatureGFX1250Insts))>;
+  AssemblerPredicate<(all_of FeatureGFX11Insts)>;
 
 def HasDSAddTid : Predicate<"Subtarget->getGeneration() >= AMDGPUSubtarget::GFX9">,
   AssemblerPredicate<(all_of FeatureGFX9Insts)>;
@@ -2640,9 +2620,6 @@ def HasPseudoScalarTrans : Predicate<"Subtarget->hasPseudoScalarTrans()">,
 def HasBitOp3Insts : Predicate<"Subtarget->hasBitOp3Insts()">,
   AssemblerPredicate<(all_of FeatureBitOp3Insts)>;
 
-def HasTransposeLoadF4F6Insts : Predicate<"Subtarget->hasTransposeLoadF4F6Insts()">,
-  AssemblerPredicate<(all_of FeatureTransposeLoadF4F6Insts)>;
-
 def HasPrngInst : Predicate<"Subtarget->hasPrngInst()">,
   AssemblerPredicate<(all_of FeaturePrngInst)>;
 
@@ -2692,9 +2669,6 @@ def HasAshrPkInsts : Predicate<"Subtarget->hasAshrPkInsts()">,
 
 def HasLshlAddU64Inst : Predicate<"Subtarget->hasLshlAddU64Inst()">,
                         AssemblerPredicate<(all_of FeatureLshlAddU64Inst)>;
-
-def HasLdsBarrierArriveAtomic : Predicate<"Subtarget->hasLdsBarrierArriveAtomic()">,
-  AssemblerPredicate<(all_of FeatureLdsBarrierArriveAtomic)>;
 
 def HasSetPrioIncWgInst : Predicate<"Subtarget->hasSetPrioIncWgInst()">,
  AssemblerPredicate<(all_of FeatureSetPrioIncWgInst)>;

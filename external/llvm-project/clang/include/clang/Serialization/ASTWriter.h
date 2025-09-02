@@ -115,6 +115,8 @@ private:
   using TypeIdxMap = llvm::DenseMap<QualType, serialization::TypeIdx,
                                     serialization::UnsafeQualTypeDenseMapInfo>;
 
+  using LocSeq = SourceLocationSequence;
+
   /// The bitstream writer used to emit this precompiled header.
   llvm::BitstreamWriter &Stream;
 
@@ -376,7 +378,6 @@ private:
   /// Only meaningful for standard C++ named modules. See the comments in
   /// createSignatureForNamedModule() for details.
   llvm::SetVector<Module *> TouchedTopLevelModules;
-  llvm::SetVector<serialization::ModuleFile *> TouchedModuleFiles;
 
   /// An update to a Decl.
   class DeclUpdate {
@@ -732,14 +733,16 @@ public:
   void AddFileID(FileID FID, RecordDataImpl &Record);
 
   /// Emit a source location.
-  void AddSourceLocation(SourceLocation Loc, RecordDataImpl &Record);
+  void AddSourceLocation(SourceLocation Loc, RecordDataImpl &Record,
+                         LocSeq *Seq = nullptr);
 
   /// Return the raw encodings for source locations.
   SourceLocationEncoding::RawLocEncoding
-  getRawSourceLocationEncoding(SourceLocation Loc);
+  getRawSourceLocationEncoding(SourceLocation Loc, LocSeq *Seq = nullptr);
 
   /// Emit a source range.
-  void AddSourceRange(SourceRange Range, RecordDataImpl &Record);
+  void AddSourceRange(SourceRange Range, RecordDataImpl &Record,
+                      LocSeq *Seq = nullptr);
 
   /// Emit a reference to an identifier.
   void AddIdentifierRef(const IdentifierInfo *II, RecordDataImpl &Record);
@@ -913,8 +916,6 @@ public:
   }
 
   void handleVTable(CXXRecordDecl *RD);
-
-  void addTouchedModuleFile(serialization::ModuleFile *);
 
 private:
   // ASTDeserializationListener implementation

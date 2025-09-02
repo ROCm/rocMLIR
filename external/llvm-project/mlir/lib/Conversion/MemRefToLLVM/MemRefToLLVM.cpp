@@ -24,6 +24,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Pass/Pass.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/Support/MathExtras.h"
 #include <optional>
 
@@ -407,7 +408,8 @@ struct AllocaScopeOpLowering
 
     // Save stack and then branch into the body of the region.
     rewriter.setInsertionPointToEnd(currentBlock);
-    auto stackSaveOp = rewriter.create<LLVM::StackSaveOp>(loc, getPtrType());
+    auto stackSaveOp =
+        rewriter.create<LLVM::StackSaveOp>(loc, getVoidPtrType());
     rewriter.create<LLVM::BrOp>(loc, ValueRange(), beforeBody);
 
     // Replace the alloca_scope return with a branch that jumps out of the body.
@@ -1120,7 +1122,8 @@ public:
     };
 
     // Save stack position before promoting descriptors
-    auto stackSaveOp = rewriter.create<LLVM::StackSaveOp>(loc, getPtrType());
+    auto stackSaveOp =
+        rewriter.create<LLVM::StackSaveOp>(loc, getVoidPtrType());
 
     auto srcMemRefType = dyn_cast<MemRefType>(srcType);
     Value unrankedSource =
@@ -1246,7 +1249,7 @@ struct MemorySpaceCastOpLowering
                                              result, resultAddrSpace, sizes);
       Value resultUnderlyingSize = sizes.front();
       Value resultUnderlyingDesc = rewriter.create<LLVM::AllocaOp>(
-          loc, getPtrType(), rewriter.getI8Type(), resultUnderlyingSize);
+          loc, getVoidPtrType(), rewriter.getI8Type(), resultUnderlyingSize);
       result.setMemRefDescPtr(rewriter, loc, resultUnderlyingDesc);
 
       // Copy pointers, performing address space casts.
@@ -1527,7 +1530,8 @@ private:
     UnrankedMemRefDescriptor::computeSizes(rewriter, loc, *getTypeConverter(),
                                            targetDesc, addressSpace, sizes);
     Value underlyingDescPtr = rewriter.create<LLVM::AllocaOp>(
-        loc, getPtrType(), IntegerType::get(getContext(), 8), sizes.front());
+        loc, getVoidPtrType(), IntegerType::get(getContext(), 8),
+        sizes.front());
     targetDesc.setMemRefDescPtr(rewriter, loc, underlyingDescPtr);
 
     // Extract pointers and offset from the source memref.

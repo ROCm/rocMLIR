@@ -1914,9 +1914,10 @@ bool ASTReader::ReadSLocEntry(int ID) {
   }
 
   case SM_SLOC_EXPANSION_ENTRY: {
-    SourceLocation SpellingLoc = ReadSourceLocation(*F, Record[1]);
-    SourceLocation ExpansionBegin = ReadSourceLocation(*F, Record[2]);
-    SourceLocation ExpansionEnd = ReadSourceLocation(*F, Record[3]);
+    LocSeq::State Seq;
+    SourceLocation SpellingLoc = ReadSourceLocation(*F, Record[1], Seq);
+    SourceLocation ExpansionBegin = ReadSourceLocation(*F, Record[2], Seq);
+    SourceLocation ExpansionEnd = ReadSourceLocation(*F, Record[3], Seq);
     SourceMgr.createExpansionLoc(SpellingLoc, ExpansionBegin, ExpansionEnd,
                                  Record[5], Record[4], ID,
                                  BaseOffset + Record[0]);
@@ -7071,10 +7072,13 @@ QualType ASTReader::readTypeRecord(TypeID ID) {
 namespace clang {
 
 class TypeLocReader : public TypeLocVisitor<TypeLocReader> {
-  ASTRecordReader &Reader;
+  using LocSeq = SourceLocationSequence;
 
-  SourceLocation readSourceLocation() { return Reader.readSourceLocation(); }
-  SourceRange readSourceRange() { return Reader.readSourceRange(); }
+  ASTRecordReader &Reader;
+  LocSeq *Seq;
+
+  SourceLocation readSourceLocation() { return Reader.readSourceLocation(Seq); }
+  SourceRange readSourceRange() { return Reader.readSourceRange(Seq); }
 
   TypeSourceInfo *GetTypeSourceInfo() {
     return Reader.readTypeSourceInfo();
@@ -7089,7 +7093,8 @@ class TypeLocReader : public TypeLocVisitor<TypeLocReader> {
   }
 
 public:
-  TypeLocReader(ASTRecordReader &Reader) : Reader(Reader) {}
+  TypeLocReader(ASTRecordReader &Reader, LocSeq *Seq)
+      : Reader(Reader), Seq(Seq) {}
 
   // We want compile-time assurance that we've enumerated all of
   // these, so unfortunately we have to declare them first, then
@@ -7453,8 +7458,9 @@ void TypeLocReader::VisitDependentBitIntTypeLoc(
   TL.setNameLoc(readSourceLocation());
 }
 
-void ASTRecordReader::readTypeLoc(TypeLoc TL) {
-  TypeLocReader TLR(*this);
+void ASTRecordReader::readTypeLoc(TypeLoc TL, LocSeq *ParentSeq) {
+  LocSeq::State Seq(ParentSeq);
+  TypeLocReader TLR(*this, Seq);
   for (; !TL.isNull(); TL = TL.getNextTypeLoc())
     TLR.Visit(TL);
 }
@@ -8375,15 +8381,6 @@ bool ASTReader::LoadExternalSpecializationsImpl(
   if (It == SpecLookups.end())
     return false;
 
-  llvm::TimeTraceScope TimeScope("Load External Specializations for ", [&] {
-    std::string Name;
-    llvm::raw_string_ostream OS(Name);
-    auto *ND = cast<NamedDecl>(D);
-    ND->getNameForDiagnostic(OS, ND->getASTContext().getPrintingPolicy(),
-                             /*Qualified=*/true);
-    return Name;
-  });
-
   Deserializing LookupResults(this);
   auto HashValue = StableHashForTemplateArguments(TemplateArgs);
 
@@ -8564,22 +8561,14 @@ bool ASTReader::FindExternalVisibleDeclsByName(const DeclContext *DC,
     Find(It->second.Table, Name);
   }
 
-  auto FindModuleLocalLookup = [&, this](Module *NamedModule) {
+  if (auto *NamedModule =
+          OriginalDC ? cast<Decl>(OriginalDC)->getTopLevelOwningNamedModule()
+                     : nullptr) {
     if (auto It = ModuleLocalLookups.find(DC); It != ModuleLocalLookups.end()) {
       ++NumModuleLocalVisibleDeclContexts;
       Find(It->second.Table, std::make_pair(Name, NamedModule));
     }
-  };
-  if (auto *NamedModule =
-          OriginalDC ? cast<Decl>(OriginalDC)->getTopLevelOwningNamedModule()
-                     : nullptr)
-    FindModuleLocalLookup(NamedModule);
-  // See clang/test/Modules/ModulesLocalNamespace.cppm for the motiviation case.
-  // We're going to find a decl but the decl context of the lookup is
-  // unspecified. In this case, the OriginalDC may be the decl context in other
-  // module.
-  if (ContextObj && ContextObj->getCurrentNamedModule())
-    FindModuleLocalLookup(ContextObj->getCurrentNamedModule());
+  }
 
   if (auto It = TULocalLookups.find(DC); It != TULocalLookups.end()) {
     ++NumTULocalVisibleDeclContexts;
@@ -9463,7 +9452,8 @@ void ASTReader::AssignedLambdaNumbering(CXXRecordDecl *Lambda) {
 
   // Keep track of this lambda so it can be merged with another lambda that
   // is loaded later.
-  LambdaDeclarationsForMerging.insert({LambdaInfo, Lambda});
+  LambdaDeclarationsForMerging.insert(
+      {LambdaInfo, const_cast<CXXRecordDecl *>(Lambda)});
 }
 
 void ASTReader::LoadSelector(Selector Sel) {
@@ -9682,7 +9672,7 @@ ModuleFile *ASTReader::getLocalModuleFile(ModuleFile &M, unsigned ID) const {
     // It's a prefix (preamble, PCH, ...). Look it up by index.
    int IndexFromEnd = static_cast<int>(ID >> 1);
     assert(IndexFromEnd && "got reference to unknown module file");
-    return getModuleManager().pch_modules().end()[-IndexFromEnd];
+    return getModuleManager().pch_modules().end()[-static_cast<int>(IndexFromEnd)];
   }
 }
 
@@ -9730,6 +9720,10 @@ ExternalASTSource::ExtKind ASTReader::hasExternalDefinitions(const Decl *FD) {
 
 bool ASTReader::wasThisDeclarationADefinition(const FunctionDecl *FD) {
   return ThisDeclarationWasADefinitionSet.contains(FD);
+}
+
+bool ASTReader::hasInitializerWithSideEffects(const VarDecl *VD) const {
+  return InitSideEffectVars.count(VD);
 }
 
 Selector ASTReader::getLocalSelector(ModuleFile &M, unsigned LocalID) {
@@ -10022,9 +10016,9 @@ ASTRecordReader::readNestedNameSpecifierLoc() {
 }
 
 SourceRange ASTReader::ReadSourceRange(ModuleFile &F, const RecordData &Record,
-                                       unsigned &Idx) {
-  SourceLocation beg = ReadSourceLocation(F, Record, Idx);
-  SourceLocation end = ReadSourceLocation(F, Record, Idx);
+                                       unsigned &Idx, LocSeq *Seq) {
+  SourceLocation beg = ReadSourceLocation(F, Record, Idx, Seq);
+  SourceLocation end = ReadSourceLocation(F, Record, Idx, Seq);
   return SourceRange(beg, end);
 }
 
@@ -10202,7 +10196,8 @@ void ASTReader::ReadComments() {
     for (RawComment *C : Comments) {
       SourceLocation CommentLoc = C->getBeginLoc();
       if (CommentLoc.isValid()) {
-        FileIDAndOffset Loc = SourceMgr.getDecomposedLoc(CommentLoc);
+        std::pair<FileID, unsigned> Loc =
+            SourceMgr.getDecomposedLoc(CommentLoc);
         if (Loc.first.isValid())
           Context.Comments.OrderedComments[Loc.first].emplace(Loc.second, C);
       }
@@ -11466,9 +11461,7 @@ void OMPClauseReader::VisitOMPFinalClause(OMPFinalClause *C) {
 
 void OMPClauseReader::VisitOMPNumThreadsClause(OMPNumThreadsClause *C) {
   VisitOMPClauseWithPreInit(C);
-  C->setModifier(Record.readEnum<OpenMPNumThreadsClauseModifier>());
   C->setNumThreads(Record.readSubExpr());
-  C->setModifierLoc(Record.readSourceLocation());
   C->setLParenLoc(Record.readSourceLocation());
 }
 

@@ -26,7 +26,7 @@ protected:
 
   std::unique_ptr<Module> M;
 
-  TargetLibraryInfoTest() : TLII(Triple()), TLI(TLII) {}
+  TargetLibraryInfoTest() : TLI(TLII) {}
 
   void parseAssembly(const char *Assembly) {
     SMDiagnostic Error;

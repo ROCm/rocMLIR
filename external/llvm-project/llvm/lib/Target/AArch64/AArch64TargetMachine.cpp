@@ -481,8 +481,7 @@ AArch64TargetMachine::getSubtargetImpl(const Function &F) const {
         MaxSVEVectorSize, IsStreaming, IsStreamingCompatible, HasMinSize);
   }
 
-  if (IsStreaming && !I->hasSME())
-    reportFatalUsageError("streaming SVE functions require SME");
+  assert((!IsStreaming || I->hasSME()) && "Expected SME to be available");
 
   return I.get();
 }
@@ -510,15 +509,6 @@ AArch64TargetMachine::createPostMachineScheduler(MachineSchedContext *C) const {
   }
 
   return DAG;
-}
-
-size_t AArch64TargetMachine::clearLinkerOptimizationHints(
-    const SmallPtrSetImpl<MachineInstr *> &MIs) const {
-  if (MIs.empty())
-    return 0;
-  auto *MI = *MIs.begin();
-  auto *FuncInfo = MI->getMF()->getInfo<AArch64FunctionInfo>();
-  return FuncInfo->clearLinkerOptimizationHints(MIs);
 }
 
 void AArch64leTargetMachine::anchor() { }

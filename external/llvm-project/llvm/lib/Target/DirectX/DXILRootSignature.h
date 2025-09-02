@@ -32,7 +32,6 @@ enum class RootSignatureElementKind {
   UAV = 4,
   CBV = 5,
   DescriptorTable = 6,
-  StaticSamplers = 7
 };
 class RootSignatureAnalysis : public AnalysisInfoMixin<RootSignatureAnalysis> {
   friend AnalysisInfoMixin<RootSignatureAnalysis>;

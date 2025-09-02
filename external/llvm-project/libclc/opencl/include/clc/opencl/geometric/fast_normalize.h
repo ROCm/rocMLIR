@@ -7,11 +7,12 @@
 //===----------------------------------------------------------------------===//
 
 #define __FLOAT_ONLY
-#define FUNCTION fast_normalize
+#define __CLC_FUNCTION fast_normalize
 #define __CLC_GEOMETRIC_RET_GENTYPE
 #define __CLC_BODY <clc/geometric/unary_decl.inc>
 
 #include <clc/math/gentype.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION
 #undef __CLC_GEOMETRIC_RET_GENTYPE
+#undef __FLOAT_ONLY

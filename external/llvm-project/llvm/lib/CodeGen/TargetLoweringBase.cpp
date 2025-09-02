@@ -396,10 +396,6 @@ RTLIB::Libcall RTLIB::getPOWI(EVT RetVT) {
                       POWI_PPCF128);
 }
 
-RTLIB::Libcall RTLIB::getPOW(EVT RetVT) {
-  return getFPLibCall(RetVT, POW_F32, POW_F64, POW_F80, POW_F128, POW_PPCF128);
-}
-
 RTLIB::Libcall RTLIB::getLDEXP(EVT RetVT) {
   return getFPLibCall(RetVT, LDEXP_F32, LDEXP_F64, LDEXP_F80, LDEXP_F128,
                       LDEXP_PPCF128);
@@ -685,8 +681,9 @@ void TargetLoweringBase::initActions() {
   memset(TruncStoreActions, 0, sizeof(TruncStoreActions));
   memset(IndexedModeActions, 0, sizeof(IndexedModeActions));
   memset(CondCodeActions, 0, sizeof(CondCodeActions));
-  llvm::fill(RegClassForVT, nullptr);
-  llvm::fill(TargetDAGCombineArray, 0);
+  std::fill(std::begin(RegClassForVT), std::end(RegClassForVT), nullptr);
+  std::fill(std::begin(TargetDAGCombineArray),
+            std::end(TargetDAGCombineArray), 0);
 
   // Let extending atomic loads be unsupported by default.
   for (MVT ValVT : MVT::all_valuetypes())

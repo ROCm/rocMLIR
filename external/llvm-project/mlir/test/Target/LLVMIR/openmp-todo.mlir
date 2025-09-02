@@ -1,5 +1,4 @@
 // RUN: mlir-translate -mlir-to-llvmir -split-input-file -verify-diagnostics %s
-// XFAIL: *
 
 llvm.func @atomic_hint(%v : !llvm.ptr, %x : !llvm.ptr, %expr : i32) {
   // expected-warning@below {{hint clause discarded}}
@@ -159,8 +158,7 @@ atomic {
   omp.yield
 }
 llvm.func @simd_reduction(%lb : i32, %ub : i32, %step : i32, %x : !llvm.ptr) {
-  // expected-error@below {{not yet implemented: Unhandled clause reduction in omp.simd operation}}
-  // expected-error@below {{LLVM Translation failed for operation: omp.simd}}
+  // expected-warning@below {{ignored clause: reduction in omp.simd operation}}
   omp.simd reduction(@add_f32 %x -> %prv : !llvm.ptr) {
     omp.loop_nest (%iv) : i32 = (%lb) to (%ub) step (%step) {
       omp.yield

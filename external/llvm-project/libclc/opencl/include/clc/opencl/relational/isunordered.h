@@ -8,9 +8,9 @@
 
 #undef isunordered
 
-#define FUNCTION isunordered
+#define __CLC_FUNCTION isunordered
 #define __CLC_BODY <clc/relational/binary_decl.inc>
 
 #include <clc/relational/floatn.inc>
 
-#undef FUNCTION
+#undef __CLC_FUNCTION

@@ -16,11 +16,9 @@
 #define LLVM_LIB_TARGET_XTENSA_MCTARGETDESC_XTENSATARGETASMINFO_H
 
 #include "llvm/MC/MCAsmInfoELF.h"
-#include "llvm/MC/MCExpr.h"
 
 namespace llvm {
 class Triple;
-class StringRef;
 
 class XtensaMCAsmInfo : public MCAsmInfoELF {
 public:
@@ -29,13 +27,6 @@ public:
   void printSpecifierExpr(raw_ostream &OS,
                           const MCSpecifierExpr &Expr) const override;
 };
-
-namespace Xtensa {
-enum Specifier { S_None, S_TPOFF };
-
-uint8_t parseSpecifier(StringRef name);
-StringRef getSpecifierName(uint8_t S);
-} // namespace Xtensa
 
 } // namespace llvm
 

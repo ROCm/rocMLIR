@@ -1714,14 +1714,12 @@ public:
   ///
   /// By default, performs semantic analysis to build the new OpenMP clause.
   /// Subclasses may override this routine to provide different behavior.
-  OMPClause *RebuildOMPNumThreadsClause(OpenMPNumThreadsClauseModifier Modifier,
-                                        Expr *NumThreads,
+  OMPClause *RebuildOMPNumThreadsClause(Expr *NumThreads,
                                         SourceLocation StartLoc,
                                         SourceLocation LParenLoc,
-                                        SourceLocation ModifierLoc,
                                         SourceLocation EndLoc) {
-    return getSema().OpenMP().ActOnOpenMPNumThreadsClause(
-        Modifier, NumThreads, StartLoc, LParenLoc, ModifierLoc, EndLoc);
+    return getSema().OpenMP().ActOnOpenMPNumThreadsClause(NumThreads, StartLoc,
+                                                          LParenLoc, EndLoc);
   }
 
   /// Build a new OpenMP 'safelen' clause.
@@ -4561,13 +4559,6 @@ bool TreeTransform<Derived>::TransformExprs(Expr *const *Inputs,
 template <typename Derived>
 Sema::ConditionResult TreeTransform<Derived>::TransformCondition(
     SourceLocation Loc, VarDecl *Var, Expr *Expr, Sema::ConditionKind Kind) {
-
-  EnterExpressionEvaluationContext Eval(
-      SemaRef, Sema::ExpressionEvaluationContext::ConstantEvaluated,
-      /*LambdaContextDecl=*/nullptr,
-      /*ExprContext=*/Sema::ExpressionEvaluationContextRecord::EK_Other,
-      /*ShouldEnter=*/Kind == Sema::ConditionKind::ConstexprIf);
-
   if (Var) {
     VarDecl *ConditionVar = cast_or_null<VarDecl>(
         getDerived().TransformDefinition(Var->getLocation(), Var));
@@ -10470,8 +10461,7 @@ TreeTransform<Derived>::TransformOMPNumThreadsClause(OMPNumThreadsClause *C) {
   if (NumThreads.isInvalid())
     return nullptr;
   return getDerived().RebuildOMPNumThreadsClause(
-      C->getModifier(), NumThreads.get(), C->getBeginLoc(), C->getLParenLoc(),
-      C->getModifierLoc(), C->getEndLoc());
+      NumThreads.get(), C->getBeginLoc(), C->getLParenLoc(), C->getEndLoc());
 }
 
 template <typename Derived>
@@ -15730,9 +15720,13 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
   // FIXME: Sema's lambda-building mechanism expects us to push an expression
   // evaluation context even if we're not transforming the function body.
-  getSema().PushExpressionEvaluationContextForFunction(
-      Sema::ExpressionEvaluationContext::PotentiallyEvaluated,
-      E->getCallOperator());
+  getSema().PushExpressionEvaluationContext(
+      E->getCallOperator()->isConsteval() ?
+      Sema::ExpressionEvaluationContext::ImmediateFunctionContext :
+      Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
+  getSema().currentEvaluationContext().InImmediateEscalatingFunctionContext =
+      getSema().getLangOpts().CPlusPlus20 &&
+      E->getCallOperator()->isImmediateEscalating();
 
   Sema::CodeSynthesisContext C;
   C.Kind = clang::Sema::CodeSynthesisContext::LambdaExpressionSubstitution;
