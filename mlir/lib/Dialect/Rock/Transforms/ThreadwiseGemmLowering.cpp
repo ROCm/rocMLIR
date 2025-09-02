@@ -35,6 +35,7 @@
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
@@ -45,6 +46,7 @@
 #include <iterator>
 #include <memory>
 #include <numeric>
+#include <optional>
 
 namespace mlir {
 namespace rock {
@@ -169,9 +171,11 @@ struct ThreadwiseGemmRewritePattern
       // result so that FMA doesn't complain
       Value aVal = b.create<vector::TransferReadOp>(
           loc, abType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0),
+          std::nullopt,
           /*inBounds=*/ArrayRef<bool>(true));
       Value bVal = b.create<vector::TransferReadOp>(
           loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1),
+          std::nullopt,
           /*inBounds=*/ArrayRef<bool>(true));
       ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
       Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, cCoords);
@@ -848,7 +852,8 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();
-  target.addLegalOp<gpu::PrintfOp>();
+  // vector::TransferReadOp constructor uses poison
+  target.addLegalOp<gpu::PrintfOp, ub::PoisonOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseAccelGemmRewritePattern>(
