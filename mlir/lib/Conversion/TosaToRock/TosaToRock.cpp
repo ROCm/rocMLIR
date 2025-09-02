@@ -1180,11 +1180,6 @@ struct ConvElementwiseGemmRewritePattern
     std::optional<uint32_t> numCu;
     rock::GemmFeatures features;
     std::tie(arch, numCu, features) = getArchAttributes(op, op.getType());
-    SmallVector<Value> elementwiseOtherArgs;
-
-    FailureOr<tosa::Conv2DOp> maybeConv;
-    std::tie(std::ignore, maybeConv) = getElementwiseRegion<tosa::Conv2DOp>(
-        op.getA(), rewriter, nullptr, elementwiseOtherArgs);
 
     // This is guaranteed by the matcher
     tosa::Conv2DOp firstConv =
