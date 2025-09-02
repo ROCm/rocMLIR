@@ -2,6 +2,8 @@
 // used for private CI
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
+import jenkins.model.Jenkins
+import hudson.slaves.OfflineCause
 
 // ConcurrentHashMap helps when we need to write variables in parallel
 // one instance for the whole run
@@ -11,13 +13,13 @@ ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
-            buildDir: 'build',\
-            buildType: 'RelWithDebInfo',\
-            installation: 'InSearchPath',\
-            steps: [[args: target]],\
-            cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-              -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-              ${cmakeOpts}"""
+                   buildDir: 'build',\
+                   buildType: 'RelWithDebInfo',\
+                   installation: 'InSearchPath',\
+                   steps: [[args: target]],\
+                   cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                     -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                     ${cmakeOpts}"""
     }
 }
 
@@ -30,8 +32,8 @@ void gitHealthCheck() {
     String repo = scm?.userRemoteConfigs?.getAt(0)?.url
     String cred = scm?.userRemoteConfigs?.getAt(0)?.credentialsId
     String ref  = env.CHANGE_ID ? "refs/pull/${env.CHANGE_ID}/head"
-               : env.BRANCH_NAME ? "refs/heads/${env.BRANCH_NAME}"
-               : "HEAD"
+                : env.BRANCH_NAME ? "refs/heads/${env.BRANCH_NAME}"
+                : "HEAD"
 
     if (!repo || !cred) {
         error "[healthcheck] SCM not configured (repo='${repo}', cred='${cred}')"
@@ -40,8 +42,8 @@ void gitHealthCheck() {
 
     timeout(time: 2, unit: 'MINUTES') {
         withCredentials([usernamePassword(credentialsId: cred,
-                                          usernameVariable: 'GIT_USER',
-                                          passwordVariable: 'GIT_PASS')]) {
+                                           usernameVariable: 'GIT_USER',
+                                           passwordVariable: 'GIT_PASS')]) {
             withEnv(["REPO=${repo}", "REF=${ref}"]) {
                 sh '''
                     set -eu
@@ -137,8 +139,8 @@ def advancedNodeCheck(Map params) {
 
 def checkNodeHealth(Map opts = [:]) {
     advancedNodeCheck(
-        doCleanWs:                 opts.get('doCleanWs', true),
-        doGPUcheck:                opts.get('doGPUcheck', true)
+        doCleanWs:               opts.get('doCleanWs', true),
+        doGPUcheck:              opts.get('doGPUcheck', true)
     )
 }
 
@@ -147,9 +149,9 @@ Map<String,String> dockerArgs() {
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
     // discover devices
     String renderFlags = run("ls -1 /dev/dri/renderD* 2>/dev/null || true")
-                       .split()
-                       .collect { "--device=${it}" }
-                       .join(' ')
+                         .split()
+                         .collect { "--device=${it}" }
+                         .join(' ')
     // /dev/kfd appears only on GPU-enabled nodes
     boolean haveKfd = sh(script: '[ -e /dev/kfd ]', returnStatus: true) == 0
     String kfdFlg = haveKfd ? '--device=/dev/kfd' : ''
@@ -177,9 +179,9 @@ void buildCK(String cmakeOpts) {
         buildType: 'Release',\
         installation: 'InSearchPath',\
         cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                     ${cmakeOpts}
-                     """
+                          -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                         ${cmakeOpts}
+                         """
     sh 'cd build; make -j $(nproc)'
 }
 
@@ -190,9 +192,9 @@ void buildMIGraphX(String cmakeOpts) {
         buildType: 'Release',\
         installation: 'InSearchPath',\
         cmakeArgs: """-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                      -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                     ${cmakeOpts}
-                     """
+                          -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                         ${cmakeOpts}
+                         """
     sh 'cd build; make -j $(nproc)'
 }
 
@@ -292,19 +294,19 @@ void postProcessPerfRes(String chip) {
 
   if (fileExists("build/${chip}_mlir_vs_miopen_perf_for_plot.csv")) {
     plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
-        csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
-        title: "Test performance summary ${chip}, Conv",\
-        yaxis: 'TFlops',\
-        style: 'line',\
-        group: 'Performance plots'
+         csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
+         title: "Test performance summary ${chip}, Conv",\
+         yaxis: 'TFlops',\
+         style: 'line',\
+         group: 'Performance plots'
   }
   if (fileExists("build/${chip}_mlir_vs_rocblas_perf_for_plot.csv")) {
     plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
-        csvSeries: [[file: "build/${chip}_mlir_vs_rocblas_perf_for_plot.csv", displayTableFlag: false]],\
-        title: "Test performance summary ${chip}, GEMM",\
-        yaxis: 'TFlops',\
-        style: 'line',\
-        group: 'Performance plots'
+         csvSeries: [[file: "build/${chip}_mlir_vs_rocblas_perf_for_plot.csv", displayTableFlag: false]],\
+         title: "Test performance summary ${chip}, GEMM",\
+         yaxis: 'TFlops',\
+         style: 'line',\
+         group: 'Performance plots'
   }
     // Save results for future comparison
     archiveArtifacts artifacts: 'build/*_mlir_*.csv,build/perf-run-date', allowEmptyArchive: true, onlyIfSuccessful: true
@@ -393,6 +395,24 @@ String getLabelFromChip(String chip) {
     }
 }
 
+
+// Disables a Jenkins agent (node) by marking it temporarily offline
+@NonCPS
+void disableNode(String nodeName, String reason) {
+    try {
+        def jenkins = Jenkins.get()
+        def computer = jenkins.getComputer(nodeName)
+        if (computer) {
+            echo "[withHealthyNode] Disabling node ${nodeName} due to health check failure: ${reason}"
+            computer.setTemporarilyOffline(true, new OfflineCause.ByCLI(reason))
+        } else {
+            echo "[withHealthyNode] Could not find computer for node name: ${nodeName}"
+        }
+    } catch (Exception e) {
+        echo "[withHealthyNode] 🚨 Could not disable node ${nodeName}: ${e.getMessage()}"
+    }
+}
+
 def rebootNode() {
     build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
 }
@@ -412,27 +432,27 @@ void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
     buildProject('check-mlir-build-only check-rocmlir-build-only', """
-              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
-              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-              -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
-              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
-              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-             """)
+                  -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
+                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                  -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
+                  -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+                  -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
+                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                  """)
 }
 
 void check_randomE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
     buildProject('check-rocmlir', """
-              -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
-              -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
-              -DROCK_E2E_TEST_ENABLED=1
-              -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
-              -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
-              -DCMAKE_EXPORT_COMPILE_COMMANDS=1
-             """)
+                  -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=0
+                  -DROCMLIR_DRIVER_E2E_TEST_ENABLED=1
+                  -DROCK_E2E_TEST_ENABLED=1
+                  -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
+                  -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
+                  -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
+                  -DCMAKE_EXPORT_COMPILE_COMMANDS=1
+                  """)
 }
 
 void parameterSweep(String CONFIG, String codepath) {
@@ -534,16 +554,16 @@ boolean isNotNavi3x(String chip) {
 
 void collectCoverageData(String profdata, String cov, String cpath) {
     sh """
-       rm -f *.profraw
-       # Arbitrarily 150 GB;  we typically see 125 GB of *.profraw.
-       if [ `df --output=avail -k . | tail -1l` -lt 153600000 ]; then
+        rm -f *.profraw
+        # Arbitrarily 150 GB;  we typically see 125 GB of *.profraw.
+        if [ `df --output=avail -k . | tail -1l` -lt 153600000 ]; then
           echo Not enough free disk space for profiling.
           exit 1
-       fi
-       ninja check-rocmlir
-       # Profile processing.
-       ${profdata} merge -sparse ./*.profraw -o ./coverage.profdata
-       rm -f build/*.profraw
+        fi
+        ninja check-rocmlir
+        # Profile processing.
+        ${profdata} merge -sparse ./*.profraw -o ./coverage.profdata
+        rm -f build/*.profraw
        ${cov} report --object ./bin/rocmlir-opt --object ./bin/rocmlir-driver      \
           --object ./bin/rocmlir-gen --instr-profile ./coverage.profdata           \
           --ignore-filename-regex=external/llvm-project > ./coverage_${cpath}.report
@@ -561,6 +581,7 @@ void collectCoverageData(String profdata, String cov, String cpath) {
 
 // Run the body on a node that passes the supplied healthChecks() block
 // The health check is retried on fresh executors; the body is not retried.
+// This function now disables a node if it fails the healthChecks
 def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, int maxAttempts = 3) {
     def blacklist = [] // nodes and pods that already failed the check
     int attempt = 0
@@ -580,8 +601,11 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
                 healthChecks()
                 gitHealthCheck()
             } catch (Exception err) {
-                echo "[withHealthyNode] ❌  ${env.NODE_NAME} rejected: ${err}"
-                blacklist << env.NODE_NAME
+                def failedNode = env.NODE_NAME
+                echo "[withHealthyNode] ❌  ${failedNode} rejected: ${err.message}"
+                blacklist << failedNode
+                // Disable the node so it's not picked up by other jobs
+                disableNode(failedNode, "Health check failed: ${err.message}")
                 // return exits the node {} block here, not the whole function. Some groovy magic
                 return
             }
@@ -602,11 +626,11 @@ pipeline {
     parameters {
         // Below should be set statically by Jenkins job
         booleanParam(name: 'nightly', defaultValue: params.nightly ? true : false,
-                     description: 'Run extra nightly-only tests')
+                       description: 'Run extra nightly-only tests')
         booleanParam(name: 'canXdlops', defaultValue: params.canXdlops == false ? false : true,
-                     description: 'Can this CI instance use xdlops (no for public server)')
+                       description: 'Can this CI instance use xdlops (no for public server)')
         booleanParam(name: 'weekly', defaultValue: params.weekly ? true : false,
-                     description: 'Run weekly-only jobs')
+                       description: 'Run weekly-only jobs')
         // Temporary change to MIGraphX branch because of upstream merge.
         string(name: 'MIGraphXBranch', defaultValue: 'develop',
                description: 'The MIGraphX branch/commit to verify against.')
@@ -616,15 +640,15 @@ pipeline {
         // Each below control whether to run a individual stage from parallel run
         // They default to true or empty but developer can toggle them for debugging purpose
         booleanParam(name: 'sharedLib', defaultValue: true,
-                     description: 'Run the shared library stage')
+                       description: 'Run the shared library stage')
         booleanParam(name: 'staticLib', defaultValue: true,
-                     description: 'Run the static library stage')
+                       description: 'Run the static library stage')
         booleanParam(name: 'checkMIGraphX', defaultValue: false,
-                     description: 'Run the MIGraphX integration tests')
+                       description: 'Run the MIGraphX integration tests')
         booleanParam(name: 'checkCK', defaultValue: true,
-                     description: 'Compare performance against CK')
+                       description: 'Compare performance against CK')
         booleanParam(name: 'runCodeCoverage', defaultValue: params.weekly || (!params.weekly && !params.nightly),
-                     description: 'Collect and upload code-coverage info.')
+                       description: 'Collect and upload code-coverage info.')
 
         // choose the codepath for testing
         choice(name: 'codepath',
@@ -632,25 +656,25 @@ pipeline {
                description: 'Choose the codepath to test')
         // option to disable navi21 cells in case nodes are offline
         booleanParam(name: 'disableNavi21', defaultValue: true,
-                     description: 'Disable testing on Navi21')
+                       description: 'Disable testing on Navi21')
         // option to disable navi3x cells in case nodes are offline
         booleanParam(name: 'disableNavi3x', defaultValue: false,
-                     description: 'Disable testing on Navi3x')
+                       description: 'Disable testing on Navi3x')
         // option to disable navi4x cells in case nodes are offline
         booleanParam(name: 'disableNavi4x', defaultValue: false,
-                     description: 'Disable testing on Navi4x')
+                       description: 'Disable testing on Navi4x')
         booleanParam(name: 'disable90a', defaultValue: false,
-                     description: 'Disable testing on gfx90a')
+                       description: 'Disable testing on gfx90a')
         booleanParam(name: 'disable908', defaultValue: false,
-                     description: 'Disable testing on gfx908')
+                       description: 'Disable testing on gfx908')
         booleanParam(name: 'disable942', defaultValue: false,
-                     description: 'Disable testing on gfx942')
+                       description: 'Disable testing on gfx942')
         booleanParam(name: 'disable950', defaultValue: false,
-                     description: 'Disable testing on gfx950')
+                       description: 'Disable testing on gfx950')
 
         // option only to be used with upstream merges
         booleanParam(name: 'ignoreExternalLinting', defaultValue: false,
-                     description: 'Ignore linting on files in external')
+                       description: 'Ignore linting on files in external')
 
         // choose the task to run in weekly
         choice(name: 'weeklyTasks',
@@ -856,7 +880,7 @@ pipeline {
                                                 // The only way the env variables worked with all other changes
                                                 withEnv([
                                                     "HOME=${env.WORKSPACE}"
-                                                ]) {                                               
+                                                ]) {                                                
                                                     stage("Prepare Performance Scripts") {
                                                         echo "codepath is ${CODEPATH}"
                                                         echo "Container environment:"
@@ -992,7 +1016,7 @@ pipeline {
                                                                     echo "No errors found in tuning log"
                                                                 }
                                                             }
-                                                        }                                                      
+                                                        }                                                         
                                                     }
 
                                                     stage("Tune Fusion") {
@@ -1208,10 +1232,10 @@ pipeline {
                                                                 }
                                                                 sh 'rm -f build/CMakeCache.txt'
                                                                 buildProject("ck-benchmark-driver",
-                                                                            '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
-                                                                                -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                                                -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
-                                                                                -DROCMLIR_ENABLE_BENCHMARKS=ck''')
+                                                                             '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
+                                                                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                                                 -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
+                                                                                 -DROCMLIR_ENABLE_BENCHMARKS=ck''')
 
 
                                                                 dir('build') {
@@ -1224,8 +1248,8 @@ pipeline {
                                                                         }
                                                                     }
                                                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                                --configs_file=${gemmToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
+                                                                    --configs_file=${gemmToUse} \
+                                                                    --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv --data-type f32 f16 i8_i8 --external-gemm-library CK"""
                                                                     sh 'python3 ./bin/createPerformanceReports.py ${CHIP} CK'
                                                                 }
                                                             }
@@ -1326,10 +1350,10 @@ pipeline {
                                                         sh 'rm -rf MIGraphX'
                                                         dir('MIGraphX') {
                                                             getAndBuildMIGraphX("""
-                                                                            -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
-                                                                            -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
-                                                                            -DGPU_TARGETS="${gpu_arch}"
-                                                                            """)
+                                                                        -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
+                                                                        -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
+                                                                        -DGPU_TARGETS="${gpu_arch}"
+                                                                        """)
                                                         }
                                                     }
 
@@ -1438,13 +1462,13 @@ pipeline {
                                                                     sh 'rm -f build/CMakeCache.txt'
                                                                     sh 'rm -f build/*.profraw'
                                                                     buildProject('check-rocmlir-build-only',
-                                                                                '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
+                                                                                 '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
                                                                     dir ('build') {
                                                                         // Run tests.
                                                                         collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
                                                                         // Upload to codecov.
                                                                         withCredentials([string(credentialsId: 'codecov-token-rocmlir',
-                                                                                                variable: 'CODECOV_TOKEN')]) {
+                                                                                               variable: 'CODECOV_TOKEN')]) {
                                                                             sh '''
                                                                             curl -Os https://uploader.codecov.io/latest/linux/codecov && chmod +x ./codecov
                                                                             proxy_opt=""
