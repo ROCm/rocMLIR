@@ -165,7 +165,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx90a"} {
       // CHECK: rock.threadwise_write_all {{.*}} -> [](%[[t11]])
       rock.threadwise_write_all {forceUnroll, useIndexDiffs} %20 -> [](%41) [%6] by  set : memref<16xf16, #gpu.address_space<private>> -> memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
-      rock.blockwise_gemm_accel %49 += %47 from %view_4 * %48 from %view_6 {blockSize = 256 : i32, inMPerThread = 2 : i32, inNPerThread = 2 : i32, params = #xldops_gemm_params, rotateMWithK} : memref<1xvector<16xf32>, #gpu.address_space<private>> += memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>> * memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
+      rock.blockwise_gemm_accel %49 += %47 from %view_4 * %48 from %view_6 {blockSize = 256 : i32, inMPerThread = 2 : i32, inNPerThread = 2 : i32, params = #xldops_gemm_params, rotateMWithK, loadAfromLDS, loadBfromLDS} : memref<1xvector<16xf32>, #gpu.address_space<private>> += memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>> * memref<8xvector<4xf16>, #gpu.address_space<private>> from memref<512xvector<8xf16>, #gpu.address_space<workgroup>>
       rock.lds_barrier
     }
     return
