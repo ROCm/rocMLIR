@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -670,6 +671,18 @@ OpOperand *ConvBwdWeightOp::getOutArgument() {
   return &(*this)->getOpOperand(0);
 }
 
+SmallVector<mlir::Type> GemmOp::getTypesForFeature() { return {getAType()}; }
+
+SmallVector<mlir::Type> ConvOp::getTypesForFeature() { return {getAType()}; }
+
+SmallVector<mlir::Type> ConvBwdDataOp::getTypesForFeature() {
+  return {getAType()};
+}
+
+SmallVector<mlir::Type> ConvBwdWeightOp::getTypesForFeature() {
+  return {getAType()};
+}
+
 GemmSize ConvOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   return GemmSize::fromConvolution(ConvOpType::Fwd, sizes);
@@ -951,6 +964,14 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
            << n << " cannot be greater than int32_max " << intMax;
 
   return success();
+}
+
+SmallVector<mlir::Type> GridwiseGemmOp::getTypesForFeature() {
+  return {getA().getType()};
+}
+
+SmallVector<mlir::Type> GridwiseGemmAccelOp::getTypesForFeature() {
+  return {getA().getType()};
 }
 
 LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
@@ -1527,22 +1548,49 @@ LogicalResult IndexDiffUpdateOp::verify() {
   return success();
 }
 
-//===-----------------------------------------------------===//
-// GlobalLoadOp
-//===-----------------------------------------------------===//
-LogicalResult GlobalLoadOp::verify() {
-  MemRefType sourceType = getSource().getType();
+template <typename Load>
+static LogicalResult verifyGlobalLoad(Load op) {
+  MemRefType sourceType = op.getSource().getType();
   size_t nDims = sourceType.getRank();
 
-  if (getSourceCoord().size() != nDims)
-    return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  if (getCanReadOffEnd() && nDims != 1)
-    return emitOpError("can only have one dimension in canReadOffEnd loads");
+  if (op.getSourceCoord().size() != nDims)
+    return op.emitOpError("Expected " + Twine(nDims) + " coordinates for load");
+  if (op.getCanReadOffEnd() && nDims != 1)
+    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
   Attribute memSpaceAttr = sourceType.getMemorySpace();
   auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
-    return emitOpError("Source memref must live in global memory");
+    return op.emitOpError("Source memref must live in global memory");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// GlobalLoadOp
+//===-----------------------------------------------------===//
+LogicalResult GlobalLoadOp::verify() { return verifyGlobalLoad(*this); }
+
+//===-----------------------------------------------------===//
+// GlobalLoadToLDSOp
+//===-----------------------------------------------------===//
+LogicalResult GlobalLoadToLDSOp::verify() {
+  LogicalResult res = verifyGlobalLoad(*this);
+  if (failed(res))
+    return res;
+
+  MemRefType destType = getDest().getType();
+  Attribute destMemSpaceAttr = destType.getMemorySpace();
+  auto destGpuMemSpaceAttr =
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(destMemSpaceAttr);
+  if (destMemSpaceAttr &&
+      (!destGpuMemSpaceAttr ||
+       destGpuMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup))
+    return emitOpError("Destination memref must live in workgroup memory");
+
+  int64_t numBits = getTransferType().getIntOrFloatBitWidth();
+  if (numBits != 128 && numBits != 32)
+    return emitOpError(
+        "Direct to LDS is implemented for 128bit and 32bit loads only");
   return success();
 }
 
@@ -1830,6 +1878,13 @@ LogicalResult BlockwiseGemmOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// BlockwiseGemmAccelOp
+//===----------------------------------------------------------------------===//
+SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
+  return {getMatrixA().getType()};
+}
+
+//===----------------------------------------------------------------------===//
 // ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//
 LogicalResult ThreadwiseGemmOp::verify() {
@@ -1851,6 +1906,10 @@ LogicalResult ThreadwiseGemmOp::verify() {
 //===----------------------------------------------------------------------===//
 // ThreadwiseAccelGemmOp
 //===----------------------------------------------------------------------===//
+SmallVector<mlir::Type> ThreadwiseAccelGemmOp::getTypesForFeature() {
+  return {getMatrixA().getType()};
+}
+
 LogicalResult ThreadwiseAccelGemmOp::verify() {
   ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
                     bShape = getMatrixB().getType().getShape(),
@@ -1888,14 +1947,11 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   if (!getEnableSoftmax() && getSoftmaxType()) {
     return emitError("Setting softmax type only works for attention.");
   }
-
-  int64_t linalgOpCount = 0;
-  getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) { linalgOpCount++; });
-  if (linalgOpCount > 1) {
-    return emitError(
-        "More than 1 linalg generic op found in pre softmax fusion point.");
-  }
   return success();
+}
+
+SmallVector<mlir::Type> GridwiseAttentionAccelOp::getTypesForFeature() {
+  return {getKeys().getType(), getValues().getType()};
 }
 
 void GridwiseAttentionAccelOp::getEffects(
@@ -1953,7 +2009,6 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
 //===-----------------------------------------------------===//
 // ReduceOp
 //===-----------------------------------------------------===//
-
 LogicalResult ReduceOp::verify() {
   APInt axis = getAxis();
   ArrayRef<int64_t> inpShape = cast<ShapedType>(getIn().getType()).getShape();
@@ -2126,16 +2181,12 @@ KernelType GemmElementwiseGemmOp::getKernelType() {
   return KernelType::GemmElementwiseGemm;
 }
 
-uint32_t GemmElementwiseGemmOp::getFirstGemmIndex() {
-  return getFirstGemmIdx();
-}
-
-void GemmElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
-  setFirstGemmIdx(index);
-}
-
 Region &GemmElementwiseGemmOp::getPreSecondGemmRegion() {
   return getPreSecondGemmBody();
+}
+
+SmallVector<mlir::Type> GemmElementwiseGemmOp::getTypesForFeature() {
+  return {getAType(), getCType()};
 }
 
 GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
@@ -2302,16 +2353,12 @@ KernelType ConvElementwiseGemmOp::getKernelType() {
   return KernelType::ConvElementwiseGemm;
 }
 
-uint32_t ConvElementwiseGemmOp::getFirstGemmIndex() {
-  return getFirstGemmIdx();
-}
-
-void ConvElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
-  setFirstGemmIdx(index);
-}
-
 Region &ConvElementwiseGemmOp::getPreSecondGemmRegion() {
   return getPreSecondGemmBody();
+}
+
+SmallVector<mlir::Type> ConvElementwiseGemmOp::getTypesForFeature() {
+  return {getAType(), getCType()};
 }
 
 GemmGemmSize ConvElementwiseGemmOp::getGemmGemmSize() {
@@ -2385,10 +2432,6 @@ bool AttentionOp::getTransposedOut() { return getOTransposed(); }
 
 KernelType AttentionOp::getKernelType() { return KernelType::Attention; }
 
-uint32_t AttentionOp::getFirstGemmIndex() { return getFirstGemmIdx(); }
-
-void AttentionOp::setFirstGemmIndex(uint32_t index) { setFirstGemmIdx(index); }
-
 Region &AttentionOp::getPreSecondGemmRegion() { return getPreSoftmaxBody(); }
 
 GemmGemmSize AttentionOp::getGemmGemmSize() {
@@ -2405,6 +2448,10 @@ GemmGemmSize AttentionOp::getGemmGemmSize() {
           n = dimsB[offsetB + (getKTransposed() ? 0 : 1)],
           o = dimsC[offsetC + (getVTransposed() ? 1 : 0)];
   return GemmGemmSize(g, m, k, n, o);
+}
+
+SmallVector<mlir::Type> AttentionOp::getTypesForFeature() {
+  return {getAType(), getCType()};
 }
 
 LogicalResult AttentionOp::verify() {

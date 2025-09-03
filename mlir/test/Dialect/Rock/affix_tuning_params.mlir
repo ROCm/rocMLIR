@@ -422,7 +422,7 @@ func.func @rock_attention_default(%arg0: memref<1x384x64xf16>, %arg1: memref<1x3
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIdx = 0 : i32}
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>}
   return
 }
 
@@ -438,7 +438,7 @@ func.func @rock_attention_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x
   rock.attention{
     qk = %arg0 * %arg1 : memref<1x16384x512xf32>, memref<1x512x16384xf32>
     %arg3 = softmax(qk) * %arg2 : memref<1x16384x512xf32> -> memref<1x16384x512xf32>
-  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,128,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
+  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,128,128,2,64,64,8,1", firstGemmIndices = array<i64: 0>}
   return
 }
 
@@ -453,7 +453,7 @@ func.func @rock_attention_mperblockg1_wmma(%arg0: memref<1x384x64xf16>, %arg1: m
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIndices = array<i64: 0>}
   return
 }
 
@@ -468,7 +468,7 @@ func.func @rock_attention_mperblockg1_mfma(%arg0: memref<1x384x64xf16>, %arg1: m
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
+  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIndices = array<i64: 0>}
   return
 }
 
@@ -482,7 +482,7 @@ func.func @rock_gemm_gemm_default(%arg0: memref<1x384x64xf16>, %arg1: memref<1x3
   rock.gemm_elementwise_gemm{
    ab = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = ab * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIdx = 0 : i32}
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>}
   return
 }
 
@@ -498,7 +498,7 @@ func.func @rock_gemm_gemm_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x
   rock.gemm_elementwise_gemm{
     ab = %arg0 * %arg1 : memref<1x16384x512xf32>, memref<1x512x16384xf32>
     %arg3 = ab * %arg2 : memref<1x16384x512xf32> -> memref<1x16384x512xf32>
-  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,128,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
+  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,128,128,2,64,64,8,1", firstGemmIndices = array<i64: 0>}
   return
 }
 
@@ -513,7 +513,7 @@ func.func @rock_gemm_gemm_mperblockg1_wmma(%arg0: memref<1x384x64xf16>, %arg1: m
   rock.gemm_elementwise_gemm{
    ab = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = ab * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIndices = array<i64: 0>}
   return
 }
 
@@ -528,7 +528,7 @@ func.func @rock_gemm_gemm_mperblockg1_mfma(%arg0: memref<1x384x64xf32>, %arg1: m
   rock.gemm_elementwise_gemm{
    ab = %arg0 * tr %arg1 : memref<1x384x64xf32>, memref<1x384x64xf32>
    %arg3 = ab * %arg2 : memref<1x384x64xf32> -> memref<1x384x64xf32>
-  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIdx = 0 : i32}
+  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", firstGemmIndices = array<i64: 0>}
   return
 }
 
@@ -542,7 +542,7 @@ func.func @rock_conv_gemm_default(%arg0: memref<1x128x256x1x1xf16>, %arg1: memre
   rock.conv_elementwise_gemm{
    ab = conv(%arg0, %arg1) : memref<1x128x256x1x1xf16>, memref<2x1x256x32x32xf16>
    %arg3 = ab * %arg2 : memref<1x128x64xf16> -> memref<1x2048x64xf16>
-  } {dilations = [1 : index, 1 : index], features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, filter_layout = ["g", "k", "c", "0", "1"], firstGemmIdx = 0 : i32, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
+  } {dilations = [1 : index, 1 : index], features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, filter_layout = ["g", "k", "c", "0", "1"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
   return
 }
 
@@ -557,7 +557,7 @@ func.func @rock_conv_gemm_large(%arg0: memref<1x128x256x3x3xf32>, %arg1: memref<
   rock.conv_elementwise_gemm{
    ab = conv(%arg0, %arg1) : memref<1x128x256x3x3xf32>, memref<2x1x256x128x128xf32>
    %arg3 = ab * %arg2 : memref<1x128x128xf32> -> memref<1x32768x128xf32>
-  } {dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,128,128,2,64,64,8,1", filter_layout = ["g", "k", "c", "0", "1"], firstGemmIdx = 0 : i32, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]}
+  } {dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,128,128,2,64,64,8,1", filter_layout = ["g", "k", "c", "0", "1"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]}
   return
 }
 
@@ -573,7 +573,7 @@ func.func @rock_conv_gemm_mperblockg1_wmma(%arg0: memref<1x128x256x1x1xf16>, %ar
   rock.conv_elementwise_gemm{
    ab = conv(%arg0, %arg1) : memref<1x128x256x1x1xf16>, memref<2x1x256x128x128xf16>
    %arg3 = ab * %arg2 : memref<1x128x128xf16> -> memref<1x32768x128xf16>
-  } {dilations = [1 : index, 1 : index], features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", filter_layout = ["g", "k", "c", "0", "1"], firstGemmIdx = 0 : i32, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
+  } {dilations = [1 : index, 1 : index], features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", filter_layout = ["g", "k", "c", "0", "1"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
   return
 }
 
@@ -588,7 +588,7 @@ func.func @rock_conv_gemm_mperblockg1_mfma(%arg0: memref<1x128x256x1x1xf32>, %ar
   rock.conv_elementwise_gemm{
    ab = conv(%arg0, %arg1) : memref<1x128x256x1x1xf32>, memref<2x1x256x128x128xf32>
    %arg3 = ab * %arg2 : memref<1x128x128xf32> -> memref<1x32768x128xf32>
-  } {dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", filter_layout = ["g", "k", "c", "0", "1"], firstGemmIdx = 0 : i32, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
+  } {dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v1:128,256,128,2,64,64,8,1", filter_layout = ["g", "k", "c", "0", "1"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
   return
 }
 

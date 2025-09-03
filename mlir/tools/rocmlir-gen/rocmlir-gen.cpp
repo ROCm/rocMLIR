@@ -426,6 +426,30 @@ static llvm::cl::opt<FeatureToggle> atomicFMaxF32Feature(
                                 "remove atomic_add from the feature list")),
     llvm::cl::init(FeatureToggle::infer));
 
+// directToLDS32B
+static llvm::cl::opt<FeatureToggle> directToLDS32BFeature(
+    "direct_to_lds_32b", llvm::cl::desc("toggle feature direct_to_lds_32b"),
+    llvm::cl::values(
+        clEnumValN(FeatureToggle::infer, "infer",
+                   "use the default value provided by the chip"),
+        clEnumValN(FeatureToggle::on, "on",
+                   "force direct_to_lds_32b into the feature list"),
+        clEnumValN(FeatureToggle::off, "off",
+                   "remove direct_to_lds_32b from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
+
+// directToLDS128B
+static llvm::cl::opt<FeatureToggle> directToLDS128BFeature(
+    "direct_to_lds_128b", llvm::cl::desc("toggle feature direct_to_lds_128b"),
+    llvm::cl::values(
+        clEnumValN(FeatureToggle::infer, "infer",
+                   "use the default value provided by the chip"),
+        clEnumValN(FeatureToggle::on, "on",
+                   "force direct_to_lds_128b into the feature list"),
+        clEnumValN(FeatureToggle::off, "off",
+                   "remove direct_to_lds_128b from the feature list")),
+    llvm::cl::init(FeatureToggle::infer));
+
 static llvm::cl::opt<std::string>
     filterDataType("fil_dtype",
                    llvm::cl::desc("Data type for filter tensor or matrix A"),
@@ -1338,15 +1362,36 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
       func::FuncOp::create(loc, StringRef(funcNameGpu), gpuWrapperFuncType);
   module.push_back(gpuWrapperFunc);
 
+  // Emit device selection
+  if (deviceNum.getNumOccurrences() > 0) {
+    const int32_t priority = 122;
+    const StringRef constructorName = "setDeviceCtor";
+    auto func = module.lookupSymbol<mlir::LLVM::LLVMFuncOp>(constructorName);
+    if (!func) {
+      func = b.create<mlir::LLVM::LLVMFuncOp>(
+          module.getLoc(), constructorName,
+          mlir::LLVM::LLVMFunctionType::get(LLVM::LLVMVoidType::get(context),
+                                            {}));
+      module.push_back(func);
+
+      Block *block = func.addEntryBlock(b);
+      b.setInsertionPoint(block, block->begin());
+      b.create<gpu::SetDefaultDeviceOp>(
+          loc, b.create<arith::ConstantIntOp>(loc, b.getIntegerType(32),
+                                              deviceNum.getValue()));
+      b.create<mlir::LLVM::ReturnOp>(loc, ValueRange{});
+
+      b.setInsertionPointToEnd(module.getBody());
+      b.create<mlir::LLVM::GlobalCtorsOp>(
+          loc, b.getArrayAttr(mlir::SymbolRefAttr::get(func)),
+          b.getI32ArrayAttr({priority}),
+          b.getArrayAttr(mlir::LLVM::ZeroAttr::get(context)));
+    }
+  }
+
   // Emit gpu convolution logic.
   Block *block = gpuWrapperFunc.addEntryBlock();
   b.setInsertionPoint(block, block->begin());
-
-  // Emit device selection
-  if (deviceNum.getNumOccurrences() > 0)
-    b.create<gpu::SetDefaultDeviceOp>(
-        loc, b.create<arith::ConstantIntOp>(loc, b.getIntegerType(32),
-                                            deviceNum.getValue()));
 
   SmallVector<Value, 4> cpuMem;
   SmallVector<Value, 4> gpuMem;
@@ -2849,7 +2894,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       transposeO, causalMasking,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       softmaxType,
-      /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
+      /*params0=*/nullptr, /*params1=*/nullptr,
+      /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
     Block *preSoftmaxElemwiseBlock =
         &attention.getPreSoftmaxBody().emplaceBlock();
@@ -2986,7 +3032,8 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       builder.getIndexArrayAttr(pad),
       builder.getIndexArrayAttr(config->strideDims),
       builder.getIndexArrayAttr(config->dilationDims),
-      /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
+      /*params0=*/nullptr, /*params1=*/nullptr,
+      /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
     Block *preSecondGemmBlock =
         &convElntGemm.getPreSecondGemmBody().emplaceBlock();
@@ -3086,7 +3133,8 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA, transposeB,
       transposeC, transposeO,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
-      /*params0=*/nullptr, /*params1=*/nullptr, /*firstGemmIdx=*/0);
+      /*params0=*/nullptr, /*params1=*/nullptr,
+      /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
     Block *preSecondGemmBlock =
         &gemmElntGemm.getPreSecondGemmBody().emplaceBlock();
@@ -4721,6 +4769,14 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       enabledFeatures =
           bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
                      atomicFMaxF32Feature == FeatureToggle::on);
+    if (directToLDS32BFeature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_32b,
+                     directToLDS32BFeature == FeatureToggle::on);
+    if (directToLDS128BFeature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_128b,
+                     directToLDS128BFeature == FeatureToggle::on);
 
     if (wmmaFeature == FeatureToggle::infer) {
       // Disable acceleration for mixed types
@@ -4971,7 +5027,8 @@ int main(int argc, char **argv) {
                       math::MathDialect, arith::ArithDialect,
                       vector::VectorDialect, gpu::GPUDialect,
                       linalg::LinalgDialect, mhal::MHALDialect,
-                      bufferization::BufferizationDialect, tosa::TosaDialect>();
+                      bufferization::BufferizationDialect, tosa::TosaDialect,
+                      mlir::LLVM::LLVMDialect>();
 
   // Parse pass names in main to ensure static initialization completed.
   llvm::cl::ParseCommandLineOptions(argc, argv,

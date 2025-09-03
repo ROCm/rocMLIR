@@ -157,7 +157,7 @@ func.func @self_attention_with_dot_product(%arg0: tensor<1x1x64xf32>, %arg1: ten
 
 // CHECK: rock.attention
 // CHECK: elementwise otherIns(%arg2, %arg3 : tensor<786432xi8>, tensor<786432xf16>)
-// CHECK: firstGemmIdx = 1 : i32
+// CHECK: firstGemmIndices = array<i64: 1>
 func.func @mlir_attention_where(%arg0: tensor<786432xf16>, %arg1: tensor<786432xf16>, %arg2: tensor<786432xi8>, %arg3: tensor<786432xf16>, %arg4: tensor<786432xf16>) -> tensor<786432xf16> attributes {arch = "gfx942", kernel = "mixr"} {
   %expanded = tensor.expand_shape %arg4 [[0, 1, 2, 3]] output_shape [1, 12, 256, 256] : tensor<786432xf16> into tensor<1x12x256x256xf16>
   %expanded_0 = tensor.expand_shape %arg3 [[0, 1, 2, 3]] output_shape [1, 12, 256, 256] : tensor<786432xf16> into tensor<1x12x256x256xf16>

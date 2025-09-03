@@ -107,15 +107,13 @@ class MLIROnlyConfig(ConvConfiguration):
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
             raise ValueError(f"Invalid direction: {direction}")
-        if layout not in perfRunner.MLIR_OUTPUT_LAYOUTS:
-            raise ValueError(f"Invalid layout: {layout}")
 
         self.dataType = dtype
         self.direction = direction
 
-        self.filterLayout = perfRunner.MLIR_FILTER_LAYOUTS[layout]
+        self.filterLayout = perfRunner.filter_layouts(layout)
         self.inputLayout = layout.lower()
-        self.outputLayout = perfRunner.MLIR_OUTPUT_LAYOUTS[layout]
+        self.outputLayout = perfRunner.output_layouts(layout)
 
         self.n = n
         self.c = c
@@ -519,12 +517,15 @@ def main() -> bool:
     codepath = args.codepath
     rocmlir_gen_flags = []
     if codepath not in supported_codepath:
-        if 'gfx908' in arch or 'gfx90a' in arch or 'gfx94' in arch:
+        if 'gfx908' in arch or 'gfx90a' in arch:
             codepath = 'mfma'
             rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on']
+        elif 'gfx942' in arch:
+            codepath = 'mfma'
+            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on', '-direct_to_lds_32b=on']
         elif 'gfx95' in arch:
             codepath = 'mfma'
-            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on', '-atomic_add_bf16=on']
+            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on', '-atomic_add_bf16=on', '-direct_to_lds_32b=on', '-direct_to_lds_128b=on']
         elif 'gfx906' in arch:
             codepath = 'vanilla'
             rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']

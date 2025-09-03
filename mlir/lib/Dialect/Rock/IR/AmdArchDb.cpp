@@ -46,7 +46,8 @@ static constexpr AmdArchInfo
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
     cdna3Info(GemmFeatures::mfma | GemmFeatures::dot |
-                  GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16,
+                  GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
+                  GemmFeatures::direct_to_lds_32b,
               /*waveSize=*/64, /*maxWavesPerEU*/ 10, /*totalSGPRPerEU*/ 512,
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
@@ -54,7 +55,9 @@ static constexpr AmdArchInfo
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/8),
     cdna35Info(GemmFeatures::mfma | GemmFeatures::dot |
                    GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
-                   GemmFeatures::atomic_add_bf16,
+                   GemmFeatures::atomic_add_bf16 |
+                   GemmFeatures::direct_to_lds_32b |
+                   GemmFeatures::direct_to_lds_128b,
                /*waveSize=*/64, /*maxWavesPerEU*/ 8, /*totalSGPRPerEU*/ 800,
                /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 163840,
                /*maxSharedMemPerWG*/ 163840, /*numEUPerCU=*/4, /*minNumCU=*/256,

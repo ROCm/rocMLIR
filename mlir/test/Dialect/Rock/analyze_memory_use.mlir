@@ -40,6 +40,22 @@ func.func @collapse_case(%arg0: memref<4x4xf32>, %arg1: memref<16xf32>, %arg2: i
   func.return
 }
 
+// CHECK-LABEL: @direct_to_lds_case
+// CHECK-SAME: (%{{.*}}: memref<4xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 16 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.readonly}, %{{.*}}: memref<4xf32> {llvm.align = 16 : i64, llvm.dereferenceable = 16 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.writeonly}, %{{.*}}: index)
+func.func @direct_to_lds_case(%arg0: memref<4xf32>, %arg1: memref<4xf32>, %arg2: index) attributes {kernel} {
+  %c0 = arith.constant 0 : index
+  %true = arith.constant true
+  %lds = rock.alloc() : memref<64xi8, #gpu.address_space<workgroup>>
+  %lds_view = memref.view %lds[%c0][] : memref<64xi8, #gpu.address_space<workgroup>> to memref<4xf32, #gpu.address_space<workgroup>>
+  rock.global_load_to_lds %arg0[%arg2] -> %lds_view[%c0] if %true {transferType = f32} : memref<4xf32> -> memref<4xf32, #gpu.address_space<workgroup>>
+  %v = rock.in_bounds_load %lds_view[%arg2] : memref<4xf32, #gpu.address_space<workgroup>>, index -> vector<4xf32>
+  %buf = rock.alloc() : memref<4xf32, #gpu.address_space<private>>
+  rock.in_bounds_store %v -> %buf[%c0] : vector<4xf32> -> memref<4xf32, #gpu.address_space<private>>, index
+  // CHECK: rock.global_store
+  rock.global_store set %buf[%c0] -> %arg1[%arg2] if %true {length = 1 : index} : memref<4xf32, #gpu.address_space<private>> -> memref<4xf32>
+  func.return
+}
+
 // CHECK-LABEL: @block_readonly_writeonly
 // CHECK-NOT: llvm.readonly
 // CHECK-NOT: llvm.writeonly

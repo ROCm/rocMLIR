@@ -856,7 +856,11 @@ void OpenMPIRBuilder::finalize(Function *Fn) {
         M.getGlobalVariable("__openmp_nvptx_data_transfer_temporary_storage")};
     emitUsed("llvm.compiler.used", LLVMCompilerUsed);
   }
+
+  IsFinalized = true;
 }
+
+bool OpenMPIRBuilder::isFinalized() { return IsFinalized; }
 
 OpenMPIRBuilder::~OpenMPIRBuilder() {
   assert(OutlineInfos.empty() && "There must be no outstanding outlinings");
@@ -6943,7 +6947,6 @@ static void FixupDebugInfoForOutlinedFunction(
   if (!NewSP)
     return;
 
-  DenseMap<const MDNode *, MDNode *> Cache;
   SmallDenseMap<DILocalVariable *, DILocalVariable *> RemappedVariables;
 
   auto GetUpdatedDIVariable = [&](DILocalVariable *OldVar, unsigned arg) {
@@ -6953,13 +6956,11 @@ static void FixupDebugInfoForOutlinedFunction(
     if (NewVar && (arg == NewVar->getArg()))
       return NewVar;
 
-    DILocalScope *NewScope = DILocalScope::cloneScopeForSubprogram(
-        *OldVar->getScope(), *NewSP, Builder.getContext(), Cache);
     NewVar = llvm::DILocalVariable::get(
-        Builder.getContext(), NewScope, OldVar->getName(), OldVar->getFile(),
-        OldVar->getLine(), OldVar->getType(), arg, OldVar->getFlags(),
-        OldVar->getDWARFMemorySpace(), OldVar->getAlignInBits(),
-        OldVar->getAnnotations());
+        Builder.getContext(), OldVar->getScope(), OldVar->getName(),
+        OldVar->getFile(), OldVar->getLine(), OldVar->getType(), arg,
+        OldVar->getFlags(), OldVar->getDWARFMemorySpace(),
+        OldVar->getAlignInBits(), OldVar->getAnnotations());
     return NewVar;
   };
 
@@ -7020,7 +7021,8 @@ static void FixupDebugInfoForOutlinedFunction(
       }
     }
 
-    DR->setVariable(GetUpdatedDIVariable(OldVar, ArgNo));
+    if (ArgNo != 0)
+      DR->setVariable(GetUpdatedDIVariable(OldVar, ArgNo));
   };
 
   // The location and scope of variable intrinsics and records still point to
@@ -7099,36 +7101,9 @@ static Expected<Function *> createOutlinedFunction(
 
   // Save insert point.
   IRBuilder<>::InsertPointGuard IPG(Builder);
-  // If there's a DISubprogram associated with current function, then
-  // generate one for the outlined function.
-  if (Function *ParentFunc = BB->getParent()) {
-    if (DISubprogram *SP = ParentFunc->getSubprogram()) {
-      DICompileUnit *CU = SP->getUnit();
-      DIBuilder DB(*M, true, CU);
-      DebugLoc DL = Builder.getCurrentDebugLocation();
-      if (DL) {
-        // TODO: We are using nullopt for arguments at the moment. This will
-        // need to be updated when debug data is being generated for variables.
-        DISubroutineType *Ty =
-            DB.createSubroutineType(DB.getOrCreateTypeArray({}));
-        DISubprogram::DISPFlags SPFlags = DISubprogram::SPFlagDefinition |
-                                          DISubprogram::SPFlagOptimized |
-                                          DISubprogram::SPFlagLocalToUnit;
-
-        DISubprogram *OutlinedSP = DB.createFunction(
-            CU, FuncName, FuncName, SP->getFile(), DL.getLine(), Ty,
-            DL.getLine(), DINode::DIFlags::FlagArtificial, SPFlags);
-
-        // Attach subprogram to the function.
-        Func->setSubprogram(OutlinedSP);
-        // Update the CurrentDebugLocation in the builder so that right scope
-        // is used for things inside outlined function.
-        Builder.SetCurrentDebugLocation(
-            DILocation::get(Func->getContext(), DL.getLine(), DL.getCol(),
-                            OutlinedSP, DL.getInlinedAt()));
-      }
-    }
-  }
+  // We will generate the entries in the outlined function but the debug
+  // location may still be pointing to the parent function. Reset it now.
+  Builder.SetCurrentDebugLocation(llvm::DebugLoc());
 
   // Generate the region into the function.
   BasicBlock *EntryBB = BasicBlock::Create(Builder.getContext(), "entry", Func);
@@ -9951,7 +9926,7 @@ void OffloadEntriesInfoManager::getTargetRegionEntryFnName(
 TargetRegionEntryInfo
 OpenMPIRBuilder::getTargetEntryUniqueInfo(FileIdentifierInfoCallbackTy CallBack,
                                           StringRef ParentName) {
-  sys::fs::UniqueID ID;
+  sys::fs::UniqueID ID(0xdeadf17e, 0);
   auto FileIDInfo = CallBack();
   uint64_t FileID = 0;
   std::error_code EC = sys::fs::getUniqueID(std::get<0>(FileIDInfo), ID);
