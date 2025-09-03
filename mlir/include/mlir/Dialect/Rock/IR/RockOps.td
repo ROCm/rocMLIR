@@ -177,11 +177,13 @@ def Rock_GemmOp
 }
 
 def Rock_ReduceOp
-    : Rock_Op<"reduce", [AllElementTypesMatch<["in", "out"]>]>,
+    : Rock_Op<"reduce",
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               AllElementTypesMatch<["in", "out"]>]>,
       Arguments<(
-          ins Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "input", [MemRead]>:$in,
+          ins Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "input">:$in,
           Arg<TensorOrMemRefOf<[BF16, F16, F32]>,
-              "output", [MemRead, MemWrite]>:$out,
+              "output">:$out,
           ReduceMethodAttr:$reduceMethod, IndexAttr:$axis, I32Attr:$blockSize,
           I32Attr:$gridSize, UnitAttr:$useLDS, UnitAttr:$useDPP)>,
       Results<(outs Optional<TensorOf<[BF16, F16, F32]>>:$result)> {
@@ -983,9 +985,11 @@ defvar NativeMemoryOpTypes = [F32, F16, BF16, I<4>, I8, I16, I32,
 
 // in_bounds_load
 def Rock_InBoundsLoadOp :
-    Rock_Op<"in_bounds_load", [AllElementTypesMatch<["source", "result"]>]>,
+    Rock_Op<"in_bounds_load",
+            [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+             AllElementTypesMatch<["source", "result"]>]>,
     Arguments<(ins Arg<AnyMemRef,
-        "buffer to load from", [MemRead]>:$source,
+        "buffer to load from">:$source,
       Variadic<Index>:$coords)>,
     Results<(outs AnyType:$result)> {
   let summary = "Load one or more contiguous items from `source`";
@@ -1026,8 +1030,10 @@ def Rock_InBoundsStoreOp :
 
 // global_load
 def Rock_GlobalLoadOp :
-    Rock_Op<"global_load", [AllElementTypesMatch<["source", "result"]>]>,
-    Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source memory", [MemRead]>:$source,
+    Rock_Op<"global_load",
+            [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+             AllElementTypesMatch<["source", "result"]>]>,
+    Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source memory">:$source,
                    I1:$valid,
                    Variadic<Index>:$sourceCoord,
                    UnitAttr:$needs64BitIdx,
@@ -1058,12 +1064,14 @@ def Rock_GlobalLoadOp :
 
 // global_load_to_lds
 def Rock_GlobalLoadToLDSOp
-    : Rock_Op<"global_load_to_lds", [AllElementTypesMatch<["source", "dest"]>,
+    : Rock_Op<"global_load_to_lds",
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               AllElementTypesMatch<["source", "dest"]>,
                                      AttrSizedOperandSegments]>,
       Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>,
-                         "source memory", [MemRead]>:$source,
+                         "source memory">:$source,
           Arg<MemRefOf<SupportedMemoryElems>,
-              "destination memory", [MemWrite]>:$dest,
+              "destination memory">:$dest,
           I1:$valid, TypeAttr:$transferType, Variadic<Index>:$sourceCoord,
           Variadic<Index>:$destCoord, UnitAttr:$needs64BitIdx,
           UnitAttr:$canReadOffEnd)> {
@@ -1139,7 +1147,9 @@ defvar SameShapeVectorOfI1 = [{
 def Rock_ThreadwiseReadIntoOp :
     Rock_Op<"threadwise_read_into",
     [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
-     DeclareOpInterfaceMethods<RockWriterOpInterface>, AttrSizedOperandSegments,
+     DeclareOpInterfaceMethods<RockWriterOpInterface>,
+     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+     AttrSizedOperandSegments,
      // This wasn't being enforced and broke buffers of vectors.
      //AllElementTypesMatch<["source", "dest"]>,
      OptionalTypesMatchWith<"validity record is a vector of one boolean per dest entry",
@@ -1151,8 +1161,8 @@ def Rock_ThreadwiseReadIntoOp :
           return llvm::all_of(rhs, [lhs](::mlir::Type t) { return t == lhs; });
         }
       }]>]>,
-    Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source view", [MemRead]>:$source,
-      Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers", [MemWrite]>:$dest,
+    Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source view">:$source,
+      Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
       Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
       TransformMapArrayAttr:$extraViews,
       Variadic<Index>:$extraIndices,
@@ -1242,12 +1252,13 @@ def Rock_ThreadwiseReadIntoOp :
 def Rock_ThreadwiseWriteAllOp
     : Rock_Op<"threadwise_write_all",
               [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
-               DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
+               DeclareOpInterfaceMethods<RockWriterOpInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
       AllElementTypesMatch<["source", "dest"]>,
       Arguments<(ins Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
-                         "source registers", [MemRead]>:$source,
+                         "source registers">:$source,
           Arg<MemRefOf<NativeMemoryOpTypes>,
-              "detination view", [MemWrite]>:$dest,
+              "detination view">:$dest,
           TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
           StoreMethodAttr:$storeMethod, UnitAttr:$forceUnroll,
           UnitAttr:$useIndexDiffs)> {
@@ -1492,12 +1503,15 @@ def Rock_BlockwiseBroadcastReduceOp:
 }
 
 def Rock_ThreadwiseCopyOp :
-    Rock_Op<"threadwise_copy", [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>, AttrSizedOperandSegments]>,
+    Rock_Op<"threadwise_copy",
+            [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
+             DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+             AttrSizedOperandSegments]>,
     AllElementTypesMatch<["source", "dest"]>,
     Arguments<(ins
-      Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
+      Arg<MemRefOf<SupportedMemoryElems>, "source view">:$source,
       Variadic<Index>:$extraIndicesSource,
-      Arg<MemRefOf<SupportedMemoryElems>, "detination view", [MemWrite]>:$dest,
+      Arg<MemRefOf<SupportedMemoryElems>, "detination view">:$dest,
       Variadic<Index>:$extraIndicesDest,
       UnitAttr:$forceUnroll,
       UnitAttr:$useIndexDiffs

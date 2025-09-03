@@ -130,6 +130,15 @@ void getConvEffects(OpType &op,
                        transform::TransformMappingResource::get());
 }
 
+template <typename OpType>
+void getCommonEffects(OpType &op,
+                      SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &op.getSourceMutable());
+  effects.emplace_back(write, &op.getDestMutable());
+}
+
 //===----------------------------------------------------------------------===//
 // RockDialect Interfaces
 //===----------------------------------------------------------------------===//
@@ -1635,11 +1644,22 @@ static LogicalResult verifyGlobalLoad(Load op) {
 //===-----------------------------------------------------===//
 // GlobalLoadOp
 //===-----------------------------------------------------===//
+void GlobalLoadOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  effects.emplace_back(read, &getSourceMutable());
+}
+
 LogicalResult GlobalLoadOp::verify() { return verifyGlobalLoad(*this); }
 
 //===-----------------------------------------------------===//
 // GlobalLoadToLDSOp
 //===-----------------------------------------------------===//
+void GlobalLoadToLDSOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
+}
+
 LogicalResult GlobalLoadToLDSOp::verify() {
   LogicalResult res = verifyGlobalLoad(*this);
   if (failed(res))
@@ -1686,6 +1706,12 @@ LogicalResult GlobalStoreOp::verify() {
 //===-----------------------------------------------------===//
 // InBoundsLoadOp
 //===-----------------------------------------------------===//
+void InBoundsLoadOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  effects.emplace_back(read, &getSourceMutable());
+}
+
 LogicalResult InBoundsLoadOp::verify() {
   MemRefType sourceType = getSource().getType();
   size_t nDims = sourceType.getRank();
@@ -1742,6 +1768,11 @@ ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder,
       getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
       getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
+}
+
+void ThreadwiseReadIntoOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
 }
 
 LogicalResult ThreadwiseReadIntoOp::verify() {
@@ -1843,6 +1874,11 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
   return newOp.getOperation();
 }
 
+void ThreadwiseWriteAllOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
+}
+
 LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
   Attribute memSpaceAttr = sourceType.getMemorySpace();
@@ -1903,6 +1939,11 @@ ThreadwiseCopyOp::cloneWithExtraIndices(OpBuilder &builder, OpOperand &operand,
         getForceUnroll(), getUseIndexDiffs());
   }
   return newOp.getOperation();
+}
+
+void ThreadwiseCopyOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
 }
 
 LogicalResult ThreadwiseCopyOp::verify() {
@@ -2088,6 +2129,15 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
 //===-----------------------------------------------------===//
 // ReduceOp
 //===-----------------------------------------------------===//
+void ReduceOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getInMutable());
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+}
+
 LogicalResult ReduceOp::verify() {
   APInt axis = getAxis();
   ArrayRef<int64_t> inpShape = cast<ShapedType>(getIn().getType()).getShape();
