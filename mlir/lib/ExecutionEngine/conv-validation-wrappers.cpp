@@ -165,7 +165,6 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
         // Otherwise, if cpu value is subnormal, treat as correct only if gpu
         // value is zero and the sign bits match
         hist_relDiff[0]++;
-      }
       } else {
         // Count as a failure otherwise and put it into the last failure
         // bucket
