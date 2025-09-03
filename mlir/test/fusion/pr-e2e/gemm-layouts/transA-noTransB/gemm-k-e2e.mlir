@@ -6,9 +6,9 @@
 // EMITKEY: -t f16 -out_datatype f16 -transA true -transB false -g 2 -m 4096 -n 640 -k 320
 
 // VECTORIZATION: aVectorDim: GemmDimension::MorN
-// VECTORIZATION-NEXT: aVectorLen: 4
+// VECTORIZATION-NEXT: aVectorLen: 2
 // VECTORIZATION: bVectorDim: GemmDimension::MorN
-// VECTORIZATION-NEXT: bVectorLen: 8
+// VECTORIZATION-NEXT: bVectorLen: 2
 
 module {
   func.func @test(%arg0: !migraphx.shaped<2x4096x320xf16, 1310720x1x4096>, %arg1: !migraphx.shaped<2x640x320xf16, 204800x1x640>, %arg2: !migraphx.shaped<2x64x10x64x64xf16, 0x10x1x40960x640>) -> !migraphx.shaped<2x64x10x64x64xf16, 2621440x10x1x40960x640> {

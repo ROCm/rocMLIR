@@ -15,7 +15,6 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Transforms/Passes.h"
 
 #include "mlir/Conversion/AMDGPUToROCDL/AMDGPUToROCDL.h"
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h"
@@ -35,7 +34,6 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
-#include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
@@ -43,7 +41,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/Support/FormatVariadic.h"
 
 #include "../GPUCommon/GPUOpsLowering.h"
 #include "../GPUCommon/IndexIntrinsicsOpLowering.h"
@@ -375,8 +372,15 @@ struct LowerGpuOpsToROCDLOpsPass final
                                                      llvmPatterns);
     }
 
+    // workaround for https://ontrack-internal.amd.com/browse/SWDEV-514726
+    WalkResult walkResult =
+        getOperation()->walk([](amdgpu::GatherToLDSOp) -> WalkResult {
+          return WalkResult::interrupt();
+        });
+    bool hackForDirectToLDS = walkResult.wasInterrupted();
+
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
-                                            *maybeChipset);
+                                            *maybeChipset, hackForDirectToLDS);
     // TODO (rocmlir): remove hardcoded passes
     // related PR: https://github.com/llvm/llvm-project/pull/124439
     mlir::vector::populateVectorInsertExtractStridedSliceTransforms(

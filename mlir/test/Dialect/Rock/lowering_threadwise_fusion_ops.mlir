@@ -94,7 +94,7 @@ func.func @threadwise_read_into_extra_idx( %source: memref<3x2x64x30xf32>, %dest
 
 // CHECK-LABEL: func @threadwise_write_all
 // CHECK-SAME: [[source:%.+]]: memref<32xf32, #gpu.address_space<private>>, [[dest:%.+]]: memref<2x64x30xf32>
-func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<2x64x30xf32>) {
+func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<private>>, %dest: memref<2x64x30xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx906"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK-DAG: [[bid:%.+]] = rock.workgroup_id
   // CHECK-DAG: [[tid:%.+]] = rock.workitem_id
@@ -109,7 +109,7 @@ func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<priva
   %view = rock.transform %dest by #transform_map1 : memref<2x64x30xf32> to memref<2x64x32xf32>
   %bid = rock.workgroup_id : index
   %tid = rock.workitem_id : index
-  rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
+  rock.threadwise_write_all {forceUnroll, useIndexDiffs}
     %source -> [#transform_map0](%view)[%bid, %tid] by set
     : memref<32xf32, #gpu.address_space<private>> -> memref<2x64x32xf32>
   func.return
@@ -117,7 +117,7 @@ func.func @threadwise_write_all(%source: memref<32xf32, #gpu.address_space<priva
 
 // CHECK-LABEL: func @threadwise_write_all_scalar
 // CHECK-SAME: [[source:%.+]]: memref<1xf32, #gpu.address_space<private>>, [[dest:%.+]]: memref<f32>
-func.func @threadwise_write_all_scalar(%source: memref<1xf32, #gpu.address_space<private>>, %dest: memref<f32>) {
+func.func @threadwise_write_all_scalar(%source: memref<1xf32, #gpu.address_space<private>>, %dest: memref<f32>) attributes {arch = "amdgcn-amd-amdhsa:gfx906"} {
   // CHECK-DAG: [[zero:%.+]] = arith.constant 0
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs}
   // CHECK-SAME: ([[i:%.+]]) = []([[zero]])
@@ -127,7 +127,7 @@ func.func @threadwise_write_all_scalar(%source: memref<1xf32, #gpu.address_space
   // CHECK-SAME: strides [1]
   // CHECK-NEXT: rock.global_store set [[source]][[[i]]] -> [[dest]][] if [[valid]]
 
-  rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
+  rock.threadwise_write_all {forceUnroll, useIndexDiffs}
     %source -> [](%dest)[] by set
     : memref<1xf32, #gpu.address_space<private>> -> memref<f32>
   func.return
@@ -152,7 +152,7 @@ func.func @threadwise_write_all_extra_idx(%source: memref<32xf32, #gpu.address_s
   %extra_idx = arith.constant 2 : index
   %bid = rock.workgroup_id : index
   %tid = rock.workitem_id : index
-  rock.threadwise_write_all features = dot {forceUnroll, useIndexDiffs}
+  rock.threadwise_write_all {forceUnroll, useIndexDiffs}
     %source -> [#transform_map2](%view)[%extra_idx, %bid, %tid] by set
     : memref<32xf32, #gpu.address_space<private>> -> memref<3x2x64x32xf32>
   func.return

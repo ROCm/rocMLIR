@@ -9,7 +9,7 @@
 // VECTORIZATION: aVectorDim: GemmDimension::K
 // VECTORIZATION-NEXT: aVectorLen: 8
 // VECTORIZATION: bVectorDim: GemmDimension::MorN
-// VECTORIZATION-NEXT: bVectorLen: 2
+// VECTORIZATION-NEXT: bVectorLen: 4
 
 module {
   func.func @test(%arg0: !migraphx.shaped<2x1x320xf16, 320x1x1>, %arg1: !migraphx.shaped<2x640x320xf16, 204800x1x640>, %arg2: !migraphx.shaped<2x64x10xf16, 0x10x1>) -> !migraphx.shaped<2x64x10xf16, 640x10x1> {

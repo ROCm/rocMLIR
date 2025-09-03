@@ -113,7 +113,6 @@ func.func @rock_global_store(%source : memref<32xf32, #gpu.address_space<private
     %source[%c0] ->
     %dest[%c1, %c1, %c1, %c1, %c1]
     if %valid
-    features = none
     {length = 1 : index}
     : memref<32xf32, #gpu.address_space<private>> -> memref<?x?x?x?x?xf32>
 
@@ -201,6 +200,8 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<12288xf32, 3>,
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    loadAFromLDS,
+    loadBFromLDS,
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
@@ -230,6 +231,8 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<12288xf32, 3>
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    loadAFromLDS,
+    loadBFromLDS,
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,

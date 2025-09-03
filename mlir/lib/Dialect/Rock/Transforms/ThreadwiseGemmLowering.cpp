@@ -24,6 +24,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
@@ -34,6 +35,7 @@
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
@@ -44,6 +46,7 @@
 #include <iterator>
 #include <memory>
 #include <numeric>
+#include <optional>
 
 namespace mlir {
 namespace rock {
@@ -168,9 +171,11 @@ struct ThreadwiseGemmRewritePattern
       // result so that FMA doesn't complain
       Value aVal = b.create<vector::TransferReadOp>(
           loc, abType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0),
+          std::nullopt,
           /*inBounds=*/ArrayRef<bool>(true));
       Value bVal = b.create<vector::TransferReadOp>(
           loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1),
+          std::nullopt,
           /*inBounds=*/ArrayRef<bool>(true));
       ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
       Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, cCoords);
@@ -256,11 +261,14 @@ struct ThreadwiseAccelGemmRewritePattern
 
     size_t computeIndices = op.getComputeIndices().size();
     auto emitter = rock::accel::AccelEmitter::select(
-        op.getFeatures(), dataTypeA, dataTypeB, op.getArch(), tuningParams);
+        rock::getFeatures(op), dataTypeA, dataTypeB, rock::getArchValue(op),
+        tuningParams);
 
-    if (!emitter)
+    if (!emitter) {
+      llvm::dbgs() << rock::getFeatures(op) << "\n";
       return emitError(loc)
              << "Failed to select any accelerator instruction.\n";
+    }
 
     // Extract relevant accel emitter parameters
     rock::accel::AccelEmitterParams params = emitter->getParams();
@@ -784,7 +792,7 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     b.setInsertionPointToStart(outLoop.getBody());
     if (dstAddrSpace == gpu::AddressSpace::Global) {
       b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                              op.getFeaturesAttr(), op.getStoreMethodAttr(),
+                              op.getStoreMethodAttr(),
                               outLoop.getLowerCoords(
                                   /*domain=*/0)[extraIdxCount],
                               outLoop.getValidity(/*domain=*/1),
@@ -844,7 +852,8 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();
-  target.addLegalOp<gpu::PrintfOp>();
+  // vector::TransferReadOp constructor uses poison
+  target.addLegalOp<gpu::PrintfOp, ub::PoisonOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseAccelGemmRewritePattern>(

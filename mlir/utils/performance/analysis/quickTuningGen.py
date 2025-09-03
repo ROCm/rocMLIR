@@ -85,11 +85,18 @@ class FileWriter():
             "XDL": ["f32", "f16", "fp8", "i8"],
             "Wmma": ["f16", "fp8", "i8"]
         }
-        markers = [
-            "// BEGIN_GEMM",
-            "// END_GEMM",
-            "// BEGIN_CONV",
-            "// END_CONV",
+        ops = [
+            "GEMM",
+            "CONV"
+        ]
+        architectures = [
+            "gfx908",
+            "gfx90a",
+            "gfx942",
+            "gfx950",
+            "gfx1030",
+            "gfx1100",
+            "gfx1200"
         ]
 
         with open(file_path, 'w') as file:
@@ -99,16 +106,20 @@ class FileWriter():
             for instruction_type, datatypes in instruction_types_to_datatypes.items():
                 file.write(f"#ifdef {instruction_type}_DEFINITIONS_GEN\n\n")
                 for datatype in datatypes:
-                    for marker in markers:
-                        file.write(
-                            f"{marker}_{instruction_type}_{datatype}_DEFS\n\n")
+                    for op in ops:
+                        for arch in architectures:
+                            if self.get_instruction_type(arch, datatype) == instruction_type:
+                                file.write(f"// BEGIN_{op}_{instruction_type}_{datatype}_{arch}_DEFS\n\n")
+                                file.write(f"// END_{op}_{instruction_type}_{datatype}_{arch}_DEFS\n\n")
                 file.write(f"#endif\n\n")
 
                 file.write(f"#ifdef {instruction_type}_DECLARATIONS_GEN\n\n")
                 for datatype in datatypes:
-                    for marker in markers:
-                        file.write(
-                            f"{marker}_{instruction_type}_{datatype}_DECS\n\n")
+                    for op in ops:
+                        for arch in architectures:
+                            if self.get_instruction_type(arch, datatype) == instruction_type:
+                                file.write(f"// BEGIN_{op}_{instruction_type}_{datatype}_{arch}_DECS\n\n")
+                                file.write(f"// END_{op}_{instruction_type}_{datatype}_{arch}_DECS\n\n")
                 file.write(f"#endif\n\n")
 
     def get_init_params_definitions(self, arch, dtype, op):
@@ -117,30 +128,26 @@ class FileWriter():
         """
         accel_type = 'Accel' if self.is_accel(arch, dtype) else 'NonAccel'
         instruction_type = self.get_instruction_type(arch, dtype)
-        op_cap = op.capitalize()
 
         if dtype == 'f32':
-            init_params = f"initParameters{op_cap}"
-            n_init_params = f"nInitParameters{op_cap}"
+            init_params = f"initParameters"
             if not self.is_accel(arch, dtype):
                 instruction_type = ''
         elif dtype == 'f16':
-            init_params = f"initParametersFp16{op_cap}"
-            n_init_params = f"nInitParametersFp16{op_cap}"
+            init_params = "initParametersFp16"
         elif dtype == 'fp8' and op == 'conv':
-            init_params = f"initParametersForwardFp8{op_cap}"
-            n_init_params = f"nInitParametersForwardFp8{op_cap}"
+            init_params = "initParametersForwardFp8"
         elif dtype == 'fp8' and op == 'gemm':
-            init_params = f"initParametersFp8{op_cap}"
-            n_init_params = f"nInitParametersFp8{op_cap}"
+            init_params = "initParametersFp8"
         elif dtype == 'i8' and op == 'conv':
-            init_params = f"initParametersForwardI8{op_cap}"
-            n_init_params = f"nInitParametersForwardI8{op_cap}"
+            init_params = "initParametersForwardI8"
         elif dtype == 'i8' and op == 'gemm':
-            init_params = f"initParametersI8{op_cap}"
-            n_init_params = f"nInitParametersI8{op_cap}"
+            init_params = "initParametersI8"
         else:
             raise ValueError("Unsupported dtype")
+
+        init_params = f"{init_params}{op.capitalize()}{arch.capitalize()}"
+        n_init_params = f"n{init_params[0].upper()}{init_params[1:]}"
 
         return f"const InitParams{accel_type} PopulateParams{instruction_type}::{init_params}[PopulateParams{instruction_type}::{n_init_params}]"
 
@@ -148,29 +155,25 @@ class FileWriter():
         """
         Generates initialization parameter declarations for a given data type and operation.
         """
-        op_cap = op.capitalize()
         accel_type = 'Accel' if self.is_accel(arch, dtype) else 'NonAccel'
 
         if dtype == 'f32':
-            init_params = f"initParameters{op_cap}"
-            n_init_params = f"nInitParameters{op_cap}"
+            init_params = "initParameters"
         elif dtype == 'f16':
-            init_params = f"initParametersFp16{op_cap}"
-            n_init_params = f"nInitParametersFp16{op_cap}"
+            init_params = "initParametersFp16"
         elif dtype == 'fp8' and op == 'conv':
-            init_params = f"initParametersForwardFp8{op_cap}"
-            n_init_params = f"nInitParametersForwardFp8{op_cap}"
+            init_params = "initParametersForwardFp8"
         elif dtype == 'fp8' and op == 'gemm':
-            init_params = f"initParametersFp8{op_cap}"
-            n_init_params = f"nInitParametersFp8{op_cap}"
+            init_params = "initParametersFp8"
         elif dtype == 'i8' and op == 'conv':
-            init_params = f"initParametersForwardI8{op_cap}"
-            n_init_params = f"nInitParametersForwardI8{op_cap}"
+            init_params = "initParametersForwardI8"
         elif dtype == 'i8' and op == 'gemm':
-            init_params = f"initParametersI8{op_cap}"
-            n_init_params = f"nInitParametersI8{op_cap}"
+            init_params = "initParametersI8"
         else:
             raise ValueError("Unsupported dtype")
+
+        init_params = f"{init_params}{op.capitalize()}{arch.capitalize()}"
+        n_init_params = f"n{init_params[0].upper()}{init_params[1:]}"
 
         return (f"static const InitParams{accel_type} {init_params}[{n_init_params}]",
                 f"static constexpr size_t {n_init_params}")
@@ -206,8 +209,8 @@ class FileWriter():
             new_content = '\n'.join(lines)
             self.replace_section(
                 file_path,
-                f"// BEGIN_{self.op.upper()}_{self.get_instruction_type(self.arch, datatype)}_{datatype}_DEFS",
-                f"// END_{self.op.upper()}_{self.get_instruction_type(self.arch, datatype)}_{datatype}_DEFS",
+                f"// BEGIN_{self.op.upper()}_{self.get_instruction_type(self.arch, datatype)}_{datatype}_{self.arch}_DEFS",
+                f"// END_{self.op.upper()}_{self.get_instruction_type(self.arch, datatype)}_{datatype}_{self.arch}_DEFS",
                 new_content)
 
         datatype_names_decs = {}
@@ -228,8 +231,8 @@ class FileWriter():
             new_content = '\n'.join(lines)
             self.replace_section(
                 file_path,
-                f"// BEGIN_{self.op.upper()}_{self.get_instruction_type(self.arch, datatype)}_{datatype}_DECS",
-                f"// END_{self.op.upper()}_{self.get_instruction_type(self.arch, datatype)}_{datatype}_DECS",
+                f"// BEGIN_{self.op.upper()}_{self.get_instruction_type(self.arch, datatype)}_{datatype}_{self.arch}_DECS",
+                f"// END_{self.op.upper()}_{self.get_instruction_type(self.arch, datatype)}_{datatype}_{self.arch}_DECS",
                 new_content)
 
 

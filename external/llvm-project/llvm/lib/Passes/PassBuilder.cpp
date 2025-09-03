@@ -374,121 +374,6 @@
 
 using namespace llvm;
 
-// AOCC begin
-static cl::opt<bool>
-    EnableNaNsForSQRT("enable-nans-for-sqrt", cl::init(false), cl::Hidden,
-                       cl::desc("Enable NaNs for SQRT."));
-
-static cl::opt<bool> EnableBranchFuse(
-            "phi-elim-preserve-cmpjmp-glue", cl::init(false), cl::Hidden,
-                cl::desc("Place copy statements of PHI nodes before cmp"
-                         "statement during PHI elimination"));
-
-static cl::opt<bool> DelayVectorizationToLTO(
-    "delay-vectorization-to-lto", cl::init(false), cl::Hidden,
-    cl::desc("Delay Vectorization to LTO for resolving memory dependencies."));
-
-
-static cl::opt<bool> EnablePartialUnswitching(
-    "enable-partial-unswitch", cl::init(false), cl::Hidden,
-    cl::desc("Enable experimental partial loop unswitcing"));
-
-static cl::opt<bool> EnableAggressiveUnswitching(
-    "aggressive-loop-unswitch", cl::init(false), cl::Hidden,
-    cl::desc("Enable experimental aggressive loop unswitching"));
-
-static cl::opt<bool>
-    ConvertPowExpToInt("convert-pow-exp-to-int", cl::Hidden,
-                         cl::init(true),
-                         cl::desc("Allow converting exponent of pow "
-                                  "from float to int and call powi"));
-static cl::opt<bool> RunGlobalSLPVectorization(
-    "global-vectorize-slp", cl::init(false), cl::Hidden,
-    cl::desc("Run the Global SLP vectorization passes"));
-static cl::opt<bool> MoveLoadSliceGSLP(
-    "move-load-slice-gslp", cl::init(false), cl::Hidden,
-    cl::desc("Move Load Slices to aid global slp vectorization"));
-static cl::opt<int> EnableReduceArrayComputations(
-    "reduce-array-computations", cl::init(0), cl::Hidden,
-    cl::desc("Enable reduction of array computations"));
-
-static cl::opt<bool>
-RunArrayRemap("remap-arrays", cl::init(false), cl::Hidden,
-                     cl::desc("Run the Array Remap passes"));
-
-static cl::opt<int>
-InputStructPeelMemBlockSize("struct-peel-mem-block-size",
-    cl::init(0), cl::Hidden,
-    cl::desc("structure peeling memory block size."));
-
-static cl::opt<bool> EnableLVFunctionSpecialization(
-    "lv-function-specialization", cl::init(false), cl::Hidden,
-    cl::desc("Enable Linktime Function Specialization For Vectorization"));
-
-static cl::opt<bool> DisableI2DCallPromotion(
-    "disable-itodcalls", cl::init(false), cl::Hidden,
-    cl::desc("Disable indirect calls to direct calls promotion"));
-
-static cl::opt<bool> DisableI2DCallPromotionByClone(
-    "disable-itodcallsbyclone", cl::init(false), cl::Hidden,
-    cl::desc("Disable indirect calls to direct calls promotion by function cloning"));
-
-static cl::opt<bool> rvBoscc(
-    "rv-boscc", cl::init(true), cl::Hidden,
-    cl::desc("enable BOSCC transform with region vectorization"));
-
-static cl::opt<bool> rvVectorize(
-    "region-vectorize", cl::init(false), cl::Hidden,
-    cl::desc("enable region vectorization"));
-
-static cl::opt<bool> markOutlined(
-    "mark-rv-outline", cl::init(true), cl::Hidden,
-    cl::desc("mark outlined functions as inline"));
-
-static cl::opt<bool> rvOutline(
-    "rv-outline", cl::init(false), cl::Hidden,
-    cl::desc("outline conditional code in Region vectorization"));
-
-static cl::opt<unsigned>
-rvDepth("rv-depth", cl::init(0),
-        cl::Hidden,
-        cl::desc("vector factor for the RV vectorized loop"));
-
-static cl::opt<int>
-rvMaxVectorRegSizeOption("rv-max-reg-size", cl::init(128), cl::Hidden,
-    cl::desc("Attempt to vectorize for this register size in bits"));
-
-static cl::opt<bool> EnableBranchCombine("enable-branch-combine",
-    cl::desc("Enable branch fusion pass"),
-    cl::init(false), cl::Hidden);
-
-
-static cl::opt<bool>
-    noStoreSink("simplifycfg-no-storesink", cl::Hidden, cl::init(false),
-               cl::desc("Sink store instructions down to the end block generating phi nodes for address and value"));
-
-
-enum PrefetchLevel {
-    zero, one
-};
-
-static cl::opt<PrefetchLevel> EnablePrefetch("enable-X86-prefetching",
-    cl::desc("enable software prefetching on X86"),
-    cl::ValueOptional, cl::init(PrefetchLevel::zero));
-
-static cl::opt<bool>
-    EnableVRP("enable-licm-vrp", cl::Hidden, cl::init(false),
-    cl::desc("enable register pressure awareness in LICM pass"));
-
-static cl::opt<bool> DoFunctionSpecialize("function-specialize",
-    cl::init(true), cl::desc("Specialize function calls."), cl::Hidden);
-
-// AOCC end
-
-static const Regex DefaultAliasRegex(
-    "^(default|default-post-link|thinlto-pre-link|thinlto|lto-pre-link|lto)"
-    "<(O[0123sz])>$");
-
 cl::opt<bool> llvm::PrintPipelinePasses(
     "print-pipeline-passes",
     cl::desc("Print a '-passes' compatible string describing the pipeline "
@@ -728,6 +613,15 @@ static std::optional<OptimizationLevel> parseOptLevel(StringRef S) {
       .Case("Os", OptimizationLevel::Os)
       .Case("Oz", OptimizationLevel::Oz)
       .Default(std::nullopt);
+}
+
+static Expected<OptimizationLevel> parseOptLevelParam(StringRef S) {
+  std::optional<OptimizationLevel> OptLevel = parseOptLevel(S);
+  if (OptLevel)
+    return *OptLevel;
+  return make_error<StringError>(
+      formatv("invalid optimization level '{}'", S).str(),
+      inconvertibleErrorCode());
 }
 
 Expected<bool> PassBuilder::parseSinglePassOption(StringRef Params,
@@ -1044,6 +938,19 @@ parseLowerAllowCheckPassOptions(StringRef Params) {
 
         Result.cutoffs[index] = cutoff;
       }
+    } else if (ParamName.starts_with("runtime_check")) {
+      StringRef ValueString;
+      std::tie(std::ignore, ValueString) = ParamName.split("=");
+      int runtime_check;
+      if (ValueString.getAsInteger(0, runtime_check)) {
+        return make_error<StringError>(
+            formatv("invalid LowerAllowCheck pass runtime_check parameter '{}' "
+                    "({})",
+                    ValueString, Params)
+                .str(),
+            inconvertibleErrorCode());
+      }
+      Result.runtime_check = runtime_check;
     } else {
       return make_error<StringError>(
           formatv("invalid LowerAllowCheck pass parameter '{}'", ParamName)
@@ -1617,14 +1524,42 @@ Expected<bool> parseVirtRegRewriterPassOptions(StringRef Params) {
   return ClearVirtRegs;
 }
 
-} // namespace
+struct FatLTOOptions {
+  OptimizationLevel OptLevel;
+  bool ThinLTO = false;
+  bool EmitSummary = false;
+};
 
-/// Tests whether a pass name starts with a valid prefix for a default pipeline
-/// alias.
-static bool startsWithDefaultPipelineAliasPrefix(StringRef Name) {
-  return Name.starts_with("default") || Name.starts_with("thinlto") ||
-         Name.starts_with("lto");
+Expected<FatLTOOptions> parseFatLTOOptions(StringRef Params) {
+  FatLTOOptions Result;
+  bool HaveOptLevel = false;
+  while (!Params.empty()) {
+    StringRef ParamName;
+    std::tie(ParamName, Params) = Params.split(';');
+
+    if (ParamName == "thinlto") {
+      Result.ThinLTO = true;
+    } else if (ParamName == "emit-summary") {
+      Result.EmitSummary = true;
+    } else if (std::optional<OptimizationLevel> OptLevel =
+                   parseOptLevel(ParamName)) {
+      Result.OptLevel = *OptLevel;
+      HaveOptLevel = true;
+    } else {
+      return make_error<StringError>(
+          formatv("invalid fatlto-pre-link pass parameter '{}'", ParamName)
+              .str(),
+          inconvertibleErrorCode());
+    }
+  }
+  if (!HaveOptLevel)
+    return make_error<StringError>(
+        "missing optimization level for fatlto-pre-link pipeline",
+        inconvertibleErrorCode());
+  return Result;
 }
+
+} // namespace
 
 /// Tests whether registered callbacks will accept a given pass name.
 ///
@@ -1647,10 +1582,6 @@ static bool callbacksAcceptPassName(StringRef Name, CallbacksT &Callbacks) {
 
 template <typename CallbacksT>
 static bool isModulePassName(StringRef Name, CallbacksT &Callbacks) {
-  // Manually handle aliases for pre-configured pipeline fragments.
-  if (startsWithDefaultPipelineAliasPrefix(Name))
-    return DefaultAliasRegex.match(Name);
-
   StringRef NameNoBracket = Name.take_until([](char C) { return C == '<'; });
 
   // Explicitly handle pass manager names.
@@ -1849,6 +1780,15 @@ PassBuilder::parsePipelineText(StringRef Text) {
   return {std::move(ResultPipeline)};
 }
 
+static void setupOptionsForPipelineAlias(PipelineTuningOptions &PTO,
+                                         OptimizationLevel L) {
+  // This is consistent with old pass manager invoked via opt, but
+  // inconsistent with clang. Clang doesn't enable loop vectorization
+  // but does enable slp vectorization at Oz.
+  PTO.LoopVectorization = L.getSpeedupLevel() > 1 && L != OptimizationLevel::Oz;
+  PTO.SLPVectorization = L.getSpeedupLevel() > 1 && L != OptimizationLevel::Oz;
+}
+
 Error PassBuilder::parseModulePass(ModulePassManager &MPM,
                                    const PipelineElement &E) {
   auto &Name = E.Name;
@@ -1899,50 +1839,6 @@ Error PassBuilder::parseModulePass(ModulePassManager &MPM,
         formatv("invalid use of '{}' pass as module pipeline", Name).str(),
         inconvertibleErrorCode());
     ;
-  }
-
-  // Manually handle aliases for pre-configured pipeline fragments.
-  if (startsWithDefaultPipelineAliasPrefix(Name)) {
-    SmallVector<StringRef, 3> Matches;
-    if (!DefaultAliasRegex.match(Name, &Matches))
-      return make_error<StringError>(
-          formatv("unknown default pipeline alias '{}'", Name).str(),
-          inconvertibleErrorCode());
-
-    assert(Matches.size() == 3 && "Must capture two matched strings!");
-
-    OptimizationLevel L = *parseOptLevel(Matches[2]);
-
-    // This is consistent with old pass manager invoked via opt, but
-    // inconsistent with clang. Clang doesn't enable loop vectorization
-    // but does enable slp vectorization at Oz.
-    PTO.LoopVectorization =
-        L.getSpeedupLevel() > 1 && L != OptimizationLevel::Oz;
-    PTO.SLPVectorization =
-        L.getSpeedupLevel() > 1 && L != OptimizationLevel::Oz;
-
-    if (Matches[1] == "default") {
-      MPM.addPass(buildPerModuleDefaultPipeline(L));
-    } else if (Matches[1] == "default-post-link") {
-      MPM.addPass(buildPerModuleDefaultPipeline(
-          L, ThinOrFullLTOPhase::CustomLTOPostLink));
-    } else if (Matches[1] == "thinlto-pre-link") {
-      MPM.addPass(buildThinLTOPreLinkDefaultPipeline(L));
-    } else if (Matches[1] == "thinlto") {
-      MPM.addPass(buildThinLTODefaultPipeline(L, nullptr));
-    } else if (Matches[1] == "lto-pre-link") {
-      if (PTO.UnifiedLTO)
-        // When UnifiedLTO is enabled, use the ThinLTO pre-link pipeline. This
-        // avoids compile-time performance regressions and keeps the pre-link
-        // LTO pipeline "unified" for both LTO modes.
-        MPM.addPass(buildThinLTOPreLinkDefaultPipeline(L));
-      else
-        MPM.addPass(buildLTOPreLinkDefaultPipeline(L));
-    } else {
-      assert(Matches[1] == "lto" && "Not one of the matched options!");
-      MPM.addPass(buildLTODefaultPipeline(L, nullptr));
-    }
-    return Error::success();
   }
 
   // Finally expand the basic registered passes from the .inc file.
@@ -2322,9 +2218,18 @@ Error PassBuilder::parseLoopPass(LoopPassManager &LPM,
 Error PassBuilder::parseMachinePass(MachineFunctionPassManager &MFPM,
                                     const PipelineElement &E) {
   StringRef Name = E.Name;
-  if (!E.InnerPipeline.empty())
+  // Handle any nested pass managers.
+  if (!E.InnerPipeline.empty()) {
+    if (E.Name == "machine-function") {
+      MachineFunctionPassManager NestedPM;
+      if (auto Err = parseMachinePassPipeline(NestedPM, E.InnerPipeline))
+        return Err;
+      MFPM.addPass(std::move(NestedPM));
+      return Error::success();
+    }
     return make_error<StringError>("invalid pipeline",
                                    inconvertibleErrorCode());
+  }
 
 #define MACHINE_MODULE_PASS(NAME, CREATE_PASS)                                 \
   if (Name == NAME) {                                                          \
