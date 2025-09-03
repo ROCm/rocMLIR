@@ -96,6 +96,40 @@ void getGemmMatrixEffects(
   effects.emplace_back(read, &op.getMatrixBMutable());
 }
 
+template <typename OpType>
+void getAttentionEffects(OpType &op,
+                         SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &op.getOutMutable());
+  effects.emplace_back(write, &op.getOutMutable());
+
+  if (op.getLse()) {
+    effects.emplace_back(read, &op.getLseMutable()[0]);
+    effects.emplace_back(write, &op.getLseMutable()[0]);
+  }
+  if (op.getCurrentSeqLen()) {
+    effects.emplace_back(read, &op.getCurrentSeqLenMutable()[0]);
+  }
+
+  effects.emplace_back(read, &op.getQueriesMutable());
+  effects.emplace_back(read, &op.getKeysMutable());
+  effects.emplace_back(read, &op.getValuesMutable());
+  for (auto &regionArg : op.getPreSoftmaxElemWiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
+}
+
+template <typename OpType>
+void getConvEffects(OpType &op,
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &op.getInputMutable(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), &op.getFilterMutable(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), &op.getOutputMutable(),
+                       transform::TransformMappingResource::get());
+}
+
 //===----------------------------------------------------------------------===//
 // RockDialect Interfaces
 //===----------------------------------------------------------------------===//
@@ -805,27 +839,15 @@ GemmSize ConvBwdWeightOp::getGemmSize() {
 
 void ConvOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), &getOutputMutable(),
-                       transform::TransformMappingResource::get());
+  getConvEffects(*this, effects);
   effects.emplace_back(MemoryEffects::Write::get(), &getOutputMutable(),
-                       transform::TransformMappingResource::get());
-
-  effects.emplace_back(MemoryEffects::Read::get(), &getFilterMutable(),
-                       transform::TransformMappingResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
                        transform::TransformMappingResource::get());
 }
 
 void ConvBwdDataOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
-                       transform::TransformMappingResource::get());
+  getConvEffects(*this, effects);
   effects.emplace_back(MemoryEffects::Write::get(), &getInputMutable(),
-                       transform::TransformMappingResource::get());
-
-  effects.emplace_back(MemoryEffects::Read::get(), &getFilterMutable(),
-                       transform::TransformMappingResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), &getOutputMutable(),
                        transform::TransformMappingResource::get());
 }
 
@@ -1936,20 +1958,16 @@ SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
 
 void BlockwiseGemmAccelOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-  effects.emplace_back(read, &getMatrixCMutable());
-  effects.emplace_back(write, &getMatrixCMutable());
+  getGemmMatrixEffects(*this, effects);
 
   // We also mark the buffers as both read/write since we will need to transfer
   // data to/from the buffers.
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
   effects.emplace_back(read, &getBufferAMutable());
   effects.emplace_back(read, &getBufferBMutable());
   effects.emplace_back(write, &getBufferAMutable());
   effects.emplace_back(write, &getBufferBMutable());
-
-  effects.emplace_back(read, &getMatrixAMutable());
-  effects.emplace_back(read, &getMatrixBMutable());
 }
 
 //===----------------------------------------------------------------------===//
@@ -2034,24 +2052,7 @@ SmallVector<mlir::Type> GridwiseAttentionAccelOp::getTypesForFeature() {
 
 void GridwiseAttentionAccelOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-  effects.emplace_back(read, &getOutMutable());
-  effects.emplace_back(write, &getOutMutable());
-
-  if (getLse()) {
-    effects.emplace_back(read, &getLseMutable()[0]);
-    effects.emplace_back(write, &getLseMutable()[0]);
-  }
-  if (getCurrentSeqLen()) {
-    effects.emplace_back(read, &getCurrentSeqLenMutable()[0]);
-  }
-
-  effects.emplace_back(read, &getQueriesMutable());
-  effects.emplace_back(read, &getKeysMutable());
-  effects.emplace_back(read, &getValuesMutable());
-  for (auto &regionArg : getPreSoftmaxElemWiseInputsMutable())
-    effects.emplace_back(read, &regionArg);
+  getAttentionEffects(*this, effects);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2538,24 +2539,7 @@ LogicalResult AttentionOp::verify() {
 
 void AttentionOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-  effects.emplace_back(read, &getOutMutable());
-  effects.emplace_back(write, &getOutMutable());
-
-  if (getLse()) {
-    effects.emplace_back(read, &getLseMutable()[0]);
-    effects.emplace_back(write, &getLseMutable()[0]);
-  }
-  if (getCurrentSeqLen()) {
-    effects.emplace_back(read, &getCurrentSeqLenMutable()[0]);
-  }
-
-  effects.emplace_back(read, &getQueriesMutable());
-  effects.emplace_back(read, &getKeysMutable());
-  effects.emplace_back(read, &getValuesMutable());
-  for (auto &regionArg : getPreSoftmaxElemWiseInputsMutable())
-    effects.emplace_back(read, &regionArg);
+  getAttentionEffects(*this, effects);
 }
 
 //===-----------------------------------------------------===//
