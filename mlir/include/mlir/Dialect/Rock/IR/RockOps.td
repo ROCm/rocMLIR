@@ -1008,10 +1008,12 @@ def Rock_InBoundsLoadOp :
 
 // in_bounds_store
 def Rock_InBoundsStoreOp :
-    Rock_Op<"in_bounds_store", [AllElementTypesMatch<["data", "dest"]>]>,
+    Rock_Op<"in_bounds_store",
+            [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+             AllElementTypesMatch<["data", "dest"]>]>,
     Arguments<(ins AnyType:$data,
       Arg<MemRefOf<SupportedMemoryElems>,
-        "Buffer to store to", [MemWrite]>:$dest,
+        "Buffer to store to">:$dest,
       Variadic<Index>:$coords)> {
   let summary = "Store one or more items to contiguous indices in `dest`";
 

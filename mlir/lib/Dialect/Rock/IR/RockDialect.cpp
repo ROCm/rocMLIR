@@ -1725,8 +1725,14 @@ LogicalResult InBoundsLoadOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// InBoundsLoadOp
+// InBoundsStoreOp
 //===-----------------------------------------------------===//
+void InBoundsStoreOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(write, &getDestMutable());
+}
+
 LogicalResult InBoundsStoreOp::verify() {
   MemRefType destType = getDest().getType();
   size_t nDims = destType.getRank();
