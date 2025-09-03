@@ -153,18 +153,19 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
     if (valNum == gpuNum) {
       hist_relDiff[0]++;
     } else if (std::fpclassify(valNum) == FP_SUBNORMAL) {
-      // If cpu value is subnormal, treat as correct only if gpu value is zero
-      // and the sign bits match
-      if ((gpuNum == 0.0f || (std::fpclassify(gpuNum) == FP_SUBNORMAL)) &&
-          (std::signbit(valNum) == std::signbit(gpuNum))) {
-        hist_relDiff[0]++;
-      } else if (std::is_same<T, float>::value) {
+      if (std::is_same<T, float>::value) {
         // Since we are comparing the output of the kernel, and not the direct
         // output of operations there is a chance that fusion can modify f32
         // values such that the sign of the GPU and CPU result will differ even
         // though the results are correct. In this case we are going to treat
         // f32 subnormals as always being correct
         hist_relDiff[0]++;
+      } else if ((gpuNum == 0.0f || (std::fpclassify(gpuNum) == FP_SUBNORMAL)) &&
+          (std::signbit(valNum) == std::signbit(gpuNum))) {
+        // Otherwise, if cpu value is subnormal, treat as correct only if gpu
+        // value is zero and the sign bits match
+        hist_relDiff[0]++;
+      }
       } else {
         // Count as a failure otherwise and put it into the last failure
         // bucket
