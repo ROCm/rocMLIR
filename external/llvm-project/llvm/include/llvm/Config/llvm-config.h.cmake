@@ -17,7 +17,7 @@
 /* The number of commits in the linear history from the
  * start of the universe up to the latest llvm main commit
  * that has been merged */
-#define LLVM_MAIN_REVISION 541644
+#define LLVM_MAIN_REVISION 543426
 
 /* Define if LLVM_ENABLE_DUMP is enabled */
 #cmakedefine LLVM_ENABLE_DUMP
@@ -114,6 +114,9 @@
 
 /* Define if building LLVM with BUILD_SHARED_LIBS */
 #cmakedefine LLVM_BUILD_SHARED_LIBS
+
+/* Define if exporting LLVM public interface for shared library */
+#cmakedefine LLVM_ENABLE_LLVM_EXPORT_ANNOTATIONS
 
 /* Define if building LLVM with LLVM_FORCE_USE_OLD_TOOLCHAIN_LIBS */
 #cmakedefine LLVM_FORCE_USE_OLD_TOOLCHAIN ${LLVM_FORCE_USE_OLD_TOOLCHAIN}

@@ -231,6 +231,7 @@ protected:
   bool HasPseudoScalarTrans = false;
   bool HasRestrictedSOffset = false;
   bool HasBitOp3Insts = false;
+  bool HasTransposeLoadF4F6Insts = false;
   bool HasPrngInst = false;
   bool HasBVHDualAndBVH8Insts = false;
   bool HasPermlane16Swap = false;
@@ -262,6 +263,7 @@ protected:
   bool HasMinimum3Maximum3PKF16 = false;
   bool HasLshlAddU64Inst = false;
   bool HasPointSampleAccel = false;
+  bool HasLdsBarrierArriveAtomic = false;
   bool HasSetPrioIncWgInst = false;
 
   bool RequiresCOV6 = false;
@@ -269,8 +271,6 @@ protected:
 
   // Dummy feature to use for assembler in tablegen.
   bool FeatureDisable = false;
-
-  bool ShouldCoerceIllegalTypes = false;
 
 private:
   SIInstrInfo InstrInfo;
@@ -691,13 +691,15 @@ public:
     return GFX10_BEncoding;
   }
 
+  bool hasMTBUFInsts() const { return !hasGFX1250Insts(); }
+
+  bool hasFormattedMUBUFInsts() const { return !hasGFX1250Insts(); }
+
   bool hasExportInsts() const {
-    return !hasGFX940Insts();
+    return !hasGFX940Insts() && !hasGFX1250Insts();
   }
 
-  bool hasVINTERPEncoding() const {
-    return GFX11Insts;
-  }
+  bool hasVINTERPEncoding() const { return GFX11Insts && !hasGFX1250Insts(); }
 
   // DS_ADD_F64/DS_ADD_RTN_F64
   bool hasLdsAtomicAddF64() const { return hasGFX90AInsts(); }
@@ -1290,7 +1292,7 @@ public:
   bool hasVALUReadSGPRHazard() const { return getGeneration() == GFX12; }
 
   /// Return if operations acting on VGPR tuples require even alignment.
-  bool needsAlignedVGPRs() const { return GFX90AInsts; }
+  bool needsAlignedVGPRs() const { return GFX90AInsts || GFX1250Insts; }
 
   /// Return true if the target has the S_PACK_HL_B32_B16 instruction.
   bool hasSPackHL() const { return GFX11Insts; }
@@ -1372,11 +1374,15 @@ public:
     return HasMinimum3Maximum3PKF16;
   }
 
+  bool hasTransposeLoadF4F6Insts() const { return HasTransposeLoadF4F6Insts; }
+
   /// \returns true if the target has s_wait_xcnt insertion. Supported for
   /// GFX1250.
   bool hasWaitXCnt() const { return HasWaitXcnt; }
 
   bool hasPointSampleAccel() const { return HasPointSampleAccel; }
+
+  bool hasLdsBarrierArriveAtomic() const { return HasLdsBarrierArriveAtomic; }
 
   /// \returns The maximum number of instructions that can be enclosed in an
   /// S_CLAUSE on the given subtarget, or 0 for targets that do not support that
@@ -1477,10 +1483,6 @@ public:
   // \returns true if S_GETPC_B64 zero-extends the result from 48 bits instead
   // of sign-extending.
   bool hasGetPCZeroExtension() const { return GFX12Insts; }
-
-  /// \returns whether or not we should coerce illegal types into vectors of
-  // legal types for values that span basic blocks.
-  bool shouldCoerceIllegalTypes() const { return ShouldCoerceIllegalTypes; }
 
   /// \returns SGPR allocation granularity supported by the subtarget.
   unsigned getSGPRAllocGranule() const {

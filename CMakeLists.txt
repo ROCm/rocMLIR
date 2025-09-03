@@ -39,6 +39,32 @@ if(MSVC AND MSVC_VERSION GREATER_EQUAL 1900)
   endif()
 endif()
 
+#
+# Seperate linking jobs from compiling
+# Too many concurrent linking jobs can break the build
+# Copied from LLVM
+set(ROCMLIR_PARALLEL_LINK_JOBS "" CACHE STRING
+  "Define the maximum number of concurrent link jobs (Ninja only).")
+if(CMAKE_GENERATOR MATCHES "Ninja")
+  if(ROCMLIR_PARALLEL_LINK_JOBS)
+    set_property(GLOBAL APPEND PROPERTY JOB_POOLS link_job_pool=${ROCMLIR_PARALLEL_LINK_JOBS})
+    set(CMAKE_JOB_POOL_LINK link_job_pool)
+  endif()
+elseif(ROCMLIR_PARALLEL_LINK_JOBS)
+  message(WARNING "Job pooling is only available with Ninja generators.")
+endif()
+# Similar for compiling
+set(ROCMLIR_PARALLEL_COMPILE_JOBS "" CACHE STRING
+  "Define the maximum number of concurrent compile jobs (Ninja only).")
+if(CMAKE_GENERATOR MATCHES "Ninja")
+  if(ROCMLIR_PARALLEL_COMPILE_JOBS)
+    set_property(GLOBAL APPEND PROPERTY JOB_POOLS compile_job_pool=${ROCMLIR_PARALLEL_COMPILE_JOBS})
+    set(CMAKE_JOB_POOL_COMPILE compile_job_pool)
+  endif()
+elseif(ROCMLIR_PARALLEL_COMPILE_JOBS)
+  message(WARNING "Job pooling is only available with Ninja generators.")
+endif()
+
 # Rock dialect.
 set(ROCMLIR_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for Rock driver")
 set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")

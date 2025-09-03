@@ -58,6 +58,41 @@ void gitHealthCheck() {
     echo "[healthcheck] Git OK"
 }
 
+// Retry checkout without shallow clone if GitSCM chokes on a specific SHA
+void robustScmCheckout() {
+    try {
+        checkout scm
+        return
+    } catch (err) {
+        def msg = "${err}".toLowerCase()
+        if (!msg.contains("reference is not a tree")) {
+            echo "[SCM] Default checkout failed: ${err}"
+            throw err
+        }
+        echo "[SCM] Default checkout failed: ${err}. Retrying with robust scmcheckout"
+        // Build a non-shallow GitSCM pointed at the same repo/ref
+        String repo = scm?.userRemoteConfigs?.getAt(0)?.url
+        String cred = scm?.userRemoteConfigs?.getAt(0)?.credentialsId
+        String ref  = env.CHANGE_ID ? "refs/pull/${env.CHANGE_ID}/head"
+                   : env.BRANCH_NAME ? "refs/heads/${env.BRANCH_NAME}"
+                   : "HEAD"
+
+        // Map-based GitSCM (no shallow), honoring the ref we want
+        def deepScm = [
+          $class: 'GitSCM',
+          userRemoteConfigs: [[url: repo, credentialsId: cred,
+                               refspec: "+${ref}:${ref}"]],
+          branches: [[name: ref]],
+          doGenerateSubmoduleConfigurations: false,
+          extensions: [
+            [$class: 'CloneOption', depth: 0, shallow: false, noTags: false, honorRefspec: true],
+            [$class: 'CheckoutOption', timeout: 20]
+          ]
+        ]
+        checkout(deepScm)
+    }
+}
+
 def resetGPUs() {
     // Abort this if runs longer than 10 minutes
     timeout(time: 10, unit: 'MINUTES') {
@@ -577,16 +612,20 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
         node(expr.toString()) {
             // Retry ONLY the health-check. We don't want to retry the actual stages
             try {
-                healthChecks()
-                gitHealthCheck()
+                stage("Health checks on ${env.NODE_NAME}") {
+                    healthChecks()
+                    gitHealthCheck()
+                }
             } catch (Exception err) {
                 echo "[withHealthyNode] ❌  ${env.NODE_NAME} rejected: ${err}"
                 blacklist << env.NODE_NAME
                 // return exits the node {} block here, not the whole function. Some groovy magic
                 return
             }
-            // Health-check passed. Do real work
-            echo "[withHealthyNode] ✅  using ${env.NODE_NAME}"
+            stage("Node selected") {
+                // Health-check passed. Do real work
+                echo "[withHealthyNode] ✅  using ${env.NODE_NAME}"
+            }
             body()
             done = true
         }
@@ -700,20 +739,26 @@ pipeline {
                                         checkNodeHealth()
                                     },
                                     {
-                                        try {
-                                            checkout scm
-                                        } catch (e) {
-                                            error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                        stage("SCM Checkout") {
+                                            try {
+                                                robustScmCheckout()
+                                            } catch (e) {
+                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            }
                                         }
                                         try {
-                                            // Fill in the docker args from the node
-                                            dockerArgs()
+                                            String args = ''
+                                            def img = null
+                                            stage("Prepare Docker environment") {
+                                                // Fill in the docker args from the node
+                                                dockerArgs()
 
-                                            def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                            // Check these args
-                                            echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                            def img = docker.image(dockerImage())
-                                            def pulled = img?.pull()
+                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                // Check these args
+                                                echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
+                                            }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
                                                 withEnv([
@@ -838,19 +883,26 @@ pipeline {
                                         checkNodeHealth()
                                     },
                                     {
-                                        try {
-                                            checkout scm
-                                        } catch (e) {
-                                            error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                        stage("SCM Checkout") {
+                                            try {
+                                                robustScmCheckout()
+                                            } catch (e) {
+                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            }
                                         }
                                         try {
-                                            // Fill in the docker args from the node
-                                            dockerArgs()
-                                            def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                            // Check these args
-                                            echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                            def img = docker.image(dockerImage())
-                                            def pulled = img?.pull()
+                                            String args = ''
+                                            def img = null
+                                            stage("Prepare Docker environment") {
+                                                // Fill in the docker args from the node
+                                                dockerArgs()
+
+                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                // Check these args
+                                                echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
+                                            }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
                                                 // The only way the env variables worked with all other changes
@@ -920,19 +972,26 @@ pipeline {
                                         checkNodeHealth()
                                     },
                                     {
-                                        try {
-                                            checkout scm
-                                        } catch (e) {
-                                            error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                        stage("SCM Checkout") {
+                                            try {
+                                                robustScmCheckout()
+                                            } catch (e) {
+                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            }
                                         }
                                         try {
-                                            // Fill in the docker args from the node
-                                            dockerArgs()
-                                            def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                            // Check these args
-                                            echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
-                                            def img = docker.image(dockerImage())
-                                            def pulled = img?.pull()
+                                            String args = ''
+                                            def img = null
+                                            stage("Prepare Docker environment") {
+                                                // Fill in the docker args from the node
+                                                dockerArgs()
+
+                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                // Check these args
+                                                echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
+                                            }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
                                                 // The only way the env variables worked with all other changes
@@ -1081,19 +1140,26 @@ pipeline {
                                         checkNodeHealth()
                                     },
                                     {
-                                        try {
-                                            checkout scm
-                                        } catch (e) {
-                                            error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                        stage("SCM Checkout") {
+                                            try {
+                                                robustScmCheckout()
+                                            } catch (e) {
+                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            }
                                         }
                                         try {
-                                            // Fill in the docker args from the node
-                                            dockerArgs()
-                                            def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                            // Check these args
-                                            echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
-                                            def img = docker.image(dockerImage())
-                                            def pulled = img?.pull()
+                                            String args = ''
+                                            def img = null
+                                            stage("Prepare Docker environment") {
+                                                // Fill in the docker args from the node
+                                                dockerArgs()
+
+                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                // Check these args
+                                                echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
+                                            }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
                                                 // The only way the env variables worked with all other changes
@@ -1293,19 +1359,26 @@ pipeline {
                                         checkNodeHealth()
                                     },
                                     {
-                                        try {
-                                            checkout scm
-                                        } catch (e) {
-                                            error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                        stage("SCM Checkout") {
+                                            try {
+                                                robustScmCheckout()
+                                            } catch (e) {
+                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            }
                                         }
                                         try {
-                                            // Fill in the docker args from the node
-                                            dockerArgs()
-                                            def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                            // Check these args
-                                            echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                            def img = docker.image(dockerImageCIMIGraphX())
-                                            def pulled = img?.pull()
+                                            String args = ''
+                                            def img = null
+                                            stage("Prepare Docker environment") {
+                                                // Fill in the docker args from the node
+                                                dockerArgs()
+
+                                                args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                // Check these args
+                                                echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
+                                            }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
                                                 // The only way the env variables worked with all other changes
@@ -1405,19 +1478,26 @@ pipeline {
                                             checkNodeHealth()
                                         },
                                         {
-                                            try {
-                                                checkout scm
-                                            } catch (e) {
-                                                error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                            stage("SCM Checkout") {
+                                                try {
+                                                    robustScmCheckout()
+                                                } catch (e) {
+                                                    error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
+                                                }
                                             }
                                             try {
-                                                // Fill in the docker args from the node
-                                                dockerArgs()
-                                                def args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                                // Check these args
-                                                echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                def img = docker.image(dockerImage())
-                                                def pulled = img?.pull()
+                                                String args = ''
+                                                def img = null
+                                                stage("Prepare Docker environment") {
+                                                    // Fill in the docker args from the node
+                                                    dockerArgs()
+
+                                                    args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
+                                                    // Check these args
+                                                    echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                    img = docker.image(dockerImage())
+                                                    img?.pull()
+                                                }
                                                 // Spin up ONE container and stay in it for all substages
                                                 img.inside(args) {
                                                     // The only way the env variables worked with all other changes
