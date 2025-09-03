@@ -920,7 +920,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     attributes.push_back(
         builder.getNamedAttr("kernelId", builder.getIndexAttr(kernelId)));
     attributes.push_back(
-        builder.getNamedAttr("usesV4R1", builder.getBoolAttr(true)));
+        builder.getNamedAttr("usesV4R1", builder.getBoolAttr(config.usesV4R1)));
   }
   // features
   GemmFeaturesAttr features =

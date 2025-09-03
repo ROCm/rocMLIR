@@ -11,6 +11,7 @@ prefix = "--operation "
 name = "v4r1"
 values = ["0", "1"]
 prefix = "-v4r1 "
+when = { operation = "conv_bwd_data" }
 
 [[axis]]
 name = "layout"

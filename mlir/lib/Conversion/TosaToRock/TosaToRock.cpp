@@ -1067,11 +1067,11 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 
     Value tInput = top.getInput1();
     Value tOutput = top.getResult();
-
-    if (isa<tosa::Conv2DOp>(tInput.getDefiningOp()) ||
-        isa<tosa::TransposeConv2DOp>(tInput.getDefiningOp())) {
-      auto transposeConv2D = dyn_cast<tosa::TransposeConv2DOp>(tInput.getDefiningOp());
-      auto conv2D = dyn_cast<tosa::Conv2DOp>(tInput.getDefiningOp());
+    auto definingOp = tInput.getDefiningOp();
+    if (definingOp && (isa<tosa::Conv2DOp>(definingOp) ||
+                       isa<tosa::TransposeConv2DOp>(definingOp))) {
+      auto transposeConv2D = dyn_cast<tosa::TransposeConv2DOp>(definingOp);
+      auto conv2D = dyn_cast<tosa::Conv2DOp>(definingOp);
       auto convOp = (transposeConv2D ? transposeConv2D : conv2D);
       if (checkInputHasUses(b, top, tInput).failed()) {
         return failure();

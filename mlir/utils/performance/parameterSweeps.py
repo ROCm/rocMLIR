@@ -335,32 +335,41 @@ async def sweepParameters(paramIter: Iterable[IterType],
 
     return (passed, invalid, failingConfigs)
 
-CONV_STRUCTURE = itertools.product(
-    # Small/large - that is, do we have padding
-    [False, True],
-    # op
-    ['fwd', 'wrw', 'bwd'],
-    # layout
-    ['NCHW', 'NHWC'],
-    # dtype
-    # TODO(kdrewnia): add bf16 once we're confident in that support
-    # and add int8 for fwd only
-    ['f32', 'f16'],
-    # Padding - hl, hr, wl, wr in [0, 3]
-    # [0, 3] hits the cases 0, < y/x, == y/x, > y/x
-    range(0, 4),
-    range(0, 4),
-    range(0, 4),
-    range(0, 4),
-    # Stride - 1 or 2 - all meaningful strides before breaking past h/w=4
-    range(1, 3),
-    range(1, 3),
-    # Dilation in [1, 2] - all meaningful dilations befor breaking past h/w=4
-    range(1, 3),
-    range(1, 3),
-    # UsesV4R1
-    # Note: This only applies to bwd_data ops, it will be a no-op for all others
-    range(0, 1))
+def filtered_conv_structure():
+    for size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw, usesV4R1 in itertools.product(
+        # Small/large - that is, do we have padding
+        [False, True],
+        # op
+        ['fwd', 'wrw', 'bwd'],
+        # layout
+        ['NCHW', 'NHWC'],
+        # dtype
+        # TODO(kdrewnia): add bf16 once we're confident in that support
+        # and add int8 for fwd only
+        ['f32', 'f16'],
+        # Padding - hl, hr, wl, wr in [0, 3]
+        # [0, 3] hits the cases 0, < y/x, == y/x, > y/x
+        range(0, 4),
+        range(0, 4),
+        range(0, 4),
+        range(0, 4),
+        # Stride - 1 or 2 - all meaningful strides before breaking past h/w=4
+        range(1, 3),
+        range(1, 3),
+        # Dilation in [1, 2] - all meaningful dilations before breaking past h/w=4
+        range(1, 3),
+        range(1, 3),
+        # UsesV4R1
+        # Note: This only applies to bwd_data ops, it will be a no-op for all others
+        range(0, 1)
+    ):
+        # Only include usesV4R1 for bwd ops, otherwise set to None
+        if op == 'bwd':
+            yield (size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw, usesV4R1)
+        else:
+            yield (size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw, None)
+
+CONV_STRUCTURE = filtered_conv_structure()
 
 def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
     size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw, usesV4R1 = params

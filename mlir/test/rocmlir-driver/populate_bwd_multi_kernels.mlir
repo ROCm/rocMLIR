@@ -15,14 +15,14 @@
 // STRIDE2: {{rock.gemm.*kernelId = 2 : index.*}}
 // STRIDE2: {{rock.gemm.*kernelId = 3 : index.*}}
 
-// STRIDE2_NO_V4R1: {{rock.gemm.*kernelId = 0 : index.*}} 
+// STRIDE2_NO_V4R1: {{rock.gemm.*}} 
 
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 0 : index.*}}
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 1 : index.*}}
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 2 : index.*}}
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 3 : index.*}}
 
-// STRIDE2_GKYXC_NO_V4R1: {{rock.gemm.*kernelId = 0 : index.*}}
+// STRIDE2_GKYXC_NO_V4R1: {{rock.gemm.*}}
 
 // STRIDE2_1x1_TOP_LEVEL: rock.init_kernel %arg1 features = {{.*}} : memref<200704xf32>
 // STRIDE2_1x1_TOP_LEVEL: [[exp0:%.+]] = rock.transform %arg0 by {{.*}} : memref<1024xf32> to memref<1x32x32x1x1xf32>
