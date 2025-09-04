@@ -428,10 +428,6 @@ String getLabelFromChip(String chip) {
     }
 }
 
-def rebootNode() {
-    build job: 'maintenance/reboot-slaves', propagate: false , parameters: [string(name: 'server', value: "${env.NODE_NAME}"),]
-}
-
 int setLitWorkerCount() {
     int limit_lit_workers = 8
     def gpu_arch = get_gpu_architecture()
@@ -837,7 +833,6 @@ pipeline {
                                         }
                                         // Post block in scripted Jenkins works as try {} catch {} finally {}
                                         catch (e) {
-                                            rebootNode()
                                             throw e
                                         }
                                         finally {
@@ -926,7 +921,6 @@ pipeline {
                                         }
                                         // Post block in scripted Jenkins works as try {} catch {} finally {}
                                         catch (e) {
-                                            rebootNode()
                                             throw e
                                         }
                                         finally {
@@ -1076,7 +1070,6 @@ pipeline {
                                         }
                                         // Post block in scripted Jenkins works as try {} catch {} finally {}
                                         catch (e) {
-                                            rebootNode()
                                             throw e
                                         }
                                         finally {
@@ -1315,7 +1308,6 @@ pipeline {
                                         }
                                         // Post block in scripted Jenkins works as try {} catch {} finally {}
                                         catch (e) {
-                                            rebootNode()
                                             throw e
                                         }
                                         finally {
@@ -1436,7 +1428,6 @@ pipeline {
                                         }
                                         // Post block in scripted Jenkins works as try {} catch {} finally {}
                                         catch (e) {
-                                            rebootNode()
                                             throw e
                                         }
                                         finally {
@@ -1546,7 +1537,6 @@ pipeline {
                                             }
                                             // Post block in scripted Jenkins works as try {} catch {} finally {}
                                             catch (e) {
-                                                rebootNode()
                                                 throw e
                                             }
                                             finally {
