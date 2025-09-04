@@ -104,7 +104,7 @@ enum class PrintOption : char {
 template <typename T>
 void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
                 float thr_RMS, float thr_absDiff, float thr_relDiff,
-                char printDebug) {
+                char printDebug, bool isFP32) {
   float valNum, gpuNum;
   // metric maxAbsDiff
   float maxAbsDiff = 0.0f;
@@ -152,8 +152,7 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
 
     if (valNum == gpuNum) {
       hist_relDiff[0]++;
-    } else if ((std::fpclassify(valNum) == FP_SUBNORMAL) &&
-               (std::is_same<T, float>::value)) {
+    } else if ((std::fpclassify(valNum) == FP_SUBNORMAL) && isFP32) {
         // Since we are comparing the output of the kernel, and not the direct
         // output of operations there is a chance that fusion can modify f32
         // values such that the sign of the GPU and CPU result will differ even
@@ -230,10 +229,11 @@ extern "C" void mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned,
                                 float *valAligned, int64_t valOffset,
                                 int64_t valSize, int64_t valStride,
                                 float thr_RMS, float thr_absDiff,
-                                float thr_relDiff, char printDebug) {
+                                float thr_relDiff, char printDebug,
+                                bool isFP32) {
   assert(gpuSize == valSize);
   mcpuVerify<float>(gpuAligned, valAligned, valSize, thr_RMS, thr_absDiff,
-                    thr_relDiff, printDebug);
+                    thr_relDiff, printDebug, isFP32);
 }
 
 // Compare the results in int32
