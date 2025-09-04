@@ -634,6 +634,7 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
 
 pipeline {
     agent none
+    options { parallelsAlwaysFailFast() }
     parameters {
         // Below should be set statically by Jenkins job
         booleanParam(name: 'nightly', defaultValue: params.nightly ? true : false,
