@@ -126,9 +126,8 @@ static Value createCastOp(PatternRewriter &rewriter, Location loc,
       resElementTypeBeforeConvert.isUnsignedInteger()) {
     assert(!inputType.isSignedInteger() &&
            !resElementTypeBeforeConvert.isSignedInteger());
-    res = rewriter
-              .create<tosa::CustomOp>(loc, resType, "unsigned_cast", "rocmlir",
-                                      "", input)
+    res = tosa::CustomOp::create(rewriter, loc, resType, "unsigned_cast",
+                                 "rocmlir", "", input)
               .getResult(0);
   } else {
     res = rewriter.createOrFold<tosa::CastOp>(loc, resType, input);

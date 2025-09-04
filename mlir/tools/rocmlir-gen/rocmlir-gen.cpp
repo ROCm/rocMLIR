@@ -1830,9 +1830,9 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
     auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
     auto iv0 = loop0.getInductionVar();
 
-    Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
+    Value loadOp = memref::LoadOp::create(bt0, loc, src, ValueRange{iv0});
     loadOp = insertConversionLogic(bt0, loadOp);
-    bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
+    memref::StoreOp::create(bt0, loc, loadOp, dst, ValueRange{iv0});
   } else {
     Value loadOp = memref::LoadOp::create(b, loc, src, ValueRange{});
     loadOp = insertConversionLogic(b, loadOp);
@@ -2120,23 +2120,23 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
     }
 
     auto loadOp1 =
-        thenBody.create<affine::AffineLoadOp>(loc, opd1, opd1Map, idx1);
+        affine::AffineLoadOp::create(thenBody, loc, opd1, opd1Map, idx1);
     auto loadOp2 =
-        thenBody.create<affine::AffineLoadOp>(loc, opd2, opd2Map, idx2);
+        affine::AffineLoadOp::create(thenBody, loc, opd2, opd2Map, idx2);
     size_t nIVs = genConfig.inputDimension.size();
-    auto loadOutput = thenBody.create<affine::AffineLoadOp>(
-        loc, result, resultStoreMap, ivs.take_front(nIVs));
+    auto loadOutput = affine::AffineLoadOp::create(
+        thenBody, loc, result, resultStoreMap, ivs.take_front(nIVs));
     if (elemType.isIntOrIndex()) {
-      auto muliOp = thenBody.create<arith::MulIOp>(loc, loadOp1, loadOp2);
-      auto extsiOp = thenBody.create<arith::ExtSIOp>(loc, elemType, muliOp);
-      auto addiOp = thenBody.create<arith::AddIOp>(loc, loadOutput, extsiOp);
-      thenBody.create<affine::AffineStoreOp>(
-          loc, addiOp, result, resultStoreMap, ivs.take_front(nIVs));
+      auto muliOp = arith::MulIOp::create(thenBody, loc, loadOp1, loadOp2);
+      auto extsiOp = arith::ExtSIOp::create(thenBody, loc, elemType, muliOp);
+      auto addiOp = arith::AddIOp::create(thenBody, loc, loadOutput, extsiOp);
+      affine::AffineStoreOp::create(thenBody, loc, addiOp, result,
+                                    resultStoreMap, ivs.take_front(nIVs));
     } else {
-      auto mulfOp = thenBody.create<arith::MulFOp>(loc, loadOp1, loadOp2);
-      auto addfOp = thenBody.create<arith::AddFOp>(loc, loadOutput, mulfOp);
-      thenBody.create<affine::AffineStoreOp>(
-          loc, addfOp, result, resultStoreMap, ivs.take_front(nIVs));
+      auto mulfOp = arith::MulFOp::create(thenBody, loc, loadOp1, loadOp2);
+      auto addfOp = arith::AddFOp::create(thenBody, loc, loadOutput, mulfOp);
+      affine::AffineStoreOp::create(thenBody, loc, addfOp, result,
+                                    resultStoreMap, ivs.take_front(nIVs));
     }
   };
 
