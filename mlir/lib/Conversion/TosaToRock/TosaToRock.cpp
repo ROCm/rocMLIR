@@ -594,12 +594,12 @@ struct ElementwiseRegionFinder {
     RankedTensorType resTensorType = cast<RankedTensorType>(lastRes.getType());
     MemRefType resMemRefType = MemRefType::get(resTensorType.getShape(),
                                                resTensorType.getElementType());
-    Value resMemref = regionbufferization::ToBufferOp::create(
-        builder, loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
-        lastRes);
+    Value resMemref = bufferization::ToBufferOp::create(
+        regionBuilder, loc,
+        cast<mlir::bufferization::BufferLikeType>(resMemRefType), lastRes);
     Value outMemref = block->addArgument(resMemRefType, loc);
-    regionmemref::CopyOp::create(builder, loc, resMemref, outMemref);
-    regionrock::YieldOp::create(builder, loc);
+    memref::CopyOp::create(regionBuilder, loc, resMemref, outMemref);
+    rock::YieldOp::create(regionBuilder, loc);
   }
 
 private:

@@ -1161,8 +1161,8 @@ struct BlockwiseReduceRewritePattern
                                               /*withElseRegion=*/false);
             {
               OpBuilder thenb = ifb.getThenBodyBuilder();
-              thenInBoundsStoreOp::create(
-                  b, loc, reduced, workspaceLDSBuffer,
+              InBoundsStoreOp::create(
+                  thenb, loc, reduced, workspaceLDSBuffer,
                   reductionLoop.getLowerCoords(/*domain=*/2));
             }
           }
@@ -1307,8 +1307,8 @@ struct BlockwiseReduceRewritePattern
               SmallVector<int64_t> bounds{1, 1, 1};
               SmallVector<int64_t> strides{1, 1, 1};
 
-              TransformingForOp reductionLoop = thenTransformingForOp::create(
-                  b, loc, ArrayRef<ValueRange>{firstInits, secondInits},
+              TransformingForOp reductionLoop = TransformingForOp::create(
+                  thenb, loc, ArrayRef<ValueRange>{firstInits, secondInits},
                   ArrayRef<Attribute>{threadToLDSViewTrs, threadToLDSViewTrs},
                   ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
                   /*forceUnroll=*/true, /*useIndexDiffs=*/true);
@@ -1317,16 +1317,18 @@ struct BlockwiseReduceRewritePattern
                 thenb.setInsertionPointToStart(reductionLoop.getBody());
                 Block::BlockArgListType firstLDSLoadCoords =
                     reductionLoop.getLowerCoords(/*domain=*/0);
-                Value firstLoadVal = thenInBoundsLoadOp::create(
-                    b, loc, elemType, workspaceLDSBuffer, firstLDSLoadCoords);
+                Value firstLoadVal = InBoundsLoadOp::create(
+                    thenb, loc, elemType, workspaceLDSBuffer,
+                    firstLDSLoadCoords);
                 Block::BlockArgListType secondLDSLoadCoords =
                     reductionLoop.getLowerCoords(/*domain=*/1);
-                Value secondLoadVal = thenInBoundsLoadOp::create(
-                    b, loc, elemType, workspaceLDSBuffer, secondLDSLoadCoords);
+                Value secondLoadVal = InBoundsLoadOp::create(
+                    thenb, loc, elemType, workspaceLDSBuffer,
+                    secondLDSLoadCoords);
                 Value reduced =
                     createReducingOp(op, firstLoadVal, secondLoadVal, thenb);
-                thenInBoundsStoreOp::create(b, loc, reduced, workspaceLDSBuffer,
-                                            firstLDSLoadCoords);
+                InBoundsStoreOp::create(thenb, loc, reduced, workspaceLDSBuffer,
+                                        firstLDSLoadCoords);
               }
             }
             LDSBarrierOp::create(rewriter, loc);

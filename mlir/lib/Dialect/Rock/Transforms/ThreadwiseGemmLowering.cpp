@@ -635,17 +635,19 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         OpBuilder thenb = ifb.getThenBodyBuilder();
         Value loaded;
         if (!isSrcVectorBuffer)
-          loaded = thenInBoundsLoadOp::create(
-              b, loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
+          loaded =
+              InBoundsLoadOp::create(thenb, loc, loadType, buffer,
+                                     loadLoop.getLowerCoords(/*domain=*/0));
         else
-          loaded = thenmemref::LoadOp::create(
-              b, loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
-        thenscf::YieldOp::create(b, loc, loaded);
+          loaded =
+              memref::LoadOp::create(thenb, loc, loadType, buffer,
+                                     loadLoop.getLowerCoords(/*domain=*/0));
+        scf::YieldOp::create(thenb, loc, loaded);
       }
       {
         OpBuilder elseb = ifb.getElseBodyBuilder();
         Value zeroVal = createZeroConstantOp(elseb, loc, loadType);
-        elsescf::YieldOp::create(b, loc, zeroVal);
+        scf::YieldOp::create(elseb, loc, zeroVal);
       }
 
       if (!isDstVectorBuffer && !isSrcVectorBuffer) {
@@ -812,16 +814,15 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
           scf::IfOp::create(b, loc, valid, /*withElseRegion=*/false);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
-        Value loaded =
-            thenInBoundsLoadOp::create(b, loc, loadType, source,
-                                       outLoop.getLowerCoords(
-                                           /*domain=*/0)[extraIdxCount]);
+        Value loaded = InBoundsLoadOp::create(thenb, loc, loadType, source,
+                                              outLoop.getLowerCoords(
+                                                  /*domain=*/0)[extraIdxCount]);
         if (!isa<VectorType>(destElemType)) {
-          thenInBoundsStoreOp::create(b, loc, loaded, buffer,
-                                      outLoop.getLowerCoords(/*domain=*/1));
+          InBoundsStoreOp::create(thenb, loc, loaded, buffer,
+                                  outLoop.getLowerCoords(/*domain=*/1));
         } else {
-          thenmemref::StoreOp::create(b, loc, loaded, buffer,
-                                      outLoop.getLowerCoords(/*domain=*/1));
+          memref::StoreOp::create(thenb, loc, loaded, buffer,
+                                  outLoop.getLowerCoords(/*domain=*/1));
         }
       }
     }

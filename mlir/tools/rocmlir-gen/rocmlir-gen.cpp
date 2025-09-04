@@ -1794,27 +1794,27 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
         if (dstElemType.isIntOrIndex()) {
           if (srcBitWidth < dstBitWidth)
             newLoadOp =
-                oparith::ExtSIOp::create(builder, loc, dstElemType, loadOp);
+                arith::ExtSIOp::create(opBuilder, loc, dstElemType, loadOp);
           else
             newLoadOp =
-                oparith::TruncIOp::create(builder, loc, dstElemType, loadOp);
+                arith::TruncIOp::create(opBuilder, loc, dstElemType, loadOp);
         } else {
           assert(isa<FloatType>(dstElemType));
           newLoadOp =
-              oparith::SIToFPOp::create(builder, loc, dstElemType, loadOp);
+              arith::SIToFPOp::create(opBuilder, loc, dstElemType, loadOp);
         }
       } else {
         assert(isa<FloatType>(srcElemType));
         if (dstElemType.isIntOrIndex()) {
           newLoadOp =
-              oparith::FPToSIOp::create(builder, loc, dstElemType, loadOp);
+              arith::FPToSIOp::create(opBuilder, loc, dstElemType, loadOp);
         } else {
           if (srcBitWidth < dstBitWidth)
             newLoadOp =
-                oparith::ExtFOp::create(builder, loc, dstElemType, loadOp);
+                arith::ExtFOp::create(opBuilder, loc, dstElemType, loadOp);
           else
             newLoadOp =
-                oparith::TruncFOp::create(builder, loc, dstElemType, loadOp);
+                arith::TruncFOp::create(opBuilder, loc, dstElemType, loadOp);
         }
       }
     }

@@ -203,7 +203,7 @@ struct TransformingForRewritePattern
         // Start by offsetting the upper inputs.
         for (auto p : llvm::zip(op.getUpperInits(i), ivs)) {
           computed.push_back(
-              AddIOp > (loc, std::get<0>(p), std::get < 1 ::create(b, p)));
+              AddIOp::create(b, loc, std::get<0>(p), std::get<1>(p)));
         }
         for (const auto &[composedMap, transform] : allComposedMaps[i]) {
           if (!composedMap) // empty transformations

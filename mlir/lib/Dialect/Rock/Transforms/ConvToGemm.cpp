@@ -270,9 +270,8 @@ LogicalResult createElementwiseLoop(
 
   Value offset = MulIOp::create(
       b, loc,
-      AddIOp > (loc,
-                b.create < MulIOp::create(b, loc, workgroupId, workgroupDim),
-                workitemId),
+      AddIOp::create(b, loc, MulIOp::create(b, loc, workgroupId, workgroupDim),
+                     workitemId),
       elemsPerThreadOp);
 
   Value zero = arith::ConstantIndexOp::create(b, loc, 0);

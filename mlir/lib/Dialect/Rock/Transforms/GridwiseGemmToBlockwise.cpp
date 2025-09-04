@@ -1467,8 +1467,8 @@ struct GridwiseAttentionAccelRewritePattern
                                         /*withElseRegion=*/false);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
-        thenInBoundsStoreOp::create(b, loc, negInfTyped, gemm0OutBuffer,
-                                    ValueRange{upperCoords[4]});
+        InBoundsStoreOp::create(thenb, loc, negInfTyped, gemm0OutBuffer,
+                                ValueRange{upperCoords[4]});
       }
     }
   }
@@ -1496,11 +1496,11 @@ struct GridwiseAttentionAccelRewritePattern
             gemm0OutBufferType.getElementType(),
             -std::numeric_limits<float>::infinity(), APFloat::opOK);
         // Get current workitem ID.
-        auto tid = thenWorkitemIdOp::create(b, loc, thenb.getIndexType());
+        auto tid = WorkitemIdOp::create(thenb, loc, thenb.getIndexType());
         int64_t elementsInThreadBuffer = gemm0OutBufferType.getNumElements();
         Value zero = thenb.createOrFold<ConstantIndexOp>(loc, 0);
-        auto loop = thenTransformingForOp::create(
-            b, loc,
+        auto loop = TransformingForOp::create(
+            thenb, loc,
             ArrayRef<ValueRange>{{gridCoords.g_block, gridCoords.m_block,
                                   gridCoords.n_block, tid, zero},
                                  {zero, zero, zero, zero, zero}},
@@ -1520,22 +1520,22 @@ struct GridwiseAttentionAccelRewritePattern
           case OutOfScopeType::KVCache:
             assert(currentSeqLen != nullptr);
             isInvalid =
-                thenarith::CmpIOp::create(b, loc, arith::CmpIPredicate::ugt,
-                                          lowerCoords[2], currentSeqLen);
+                arith::CmpIOp::create(thenb, loc, arith::CmpIPredicate::ugt,
+                                      lowerCoords[2], currentSeqLen);
             break;
           case OutOfScopeType::Causal:
             isInvalid =
-                thenarith::CmpIOp::create(b, loc, arith::CmpIPredicate::ugt,
-                                          lowerCoords[2], lowerCoords[1]);
+                arith::CmpIOp::create(thenb, loc, arith::CmpIPredicate::ugt,
+                                      lowerCoords[2], lowerCoords[1]);
             break;
           }
 
-          scf::IfOp ifb = thenscf::IfOp::create(b, loc, isInvalid,
-                                                /*withElseRegion=*/false);
+          scf::IfOp ifb = scf::IfOp::create(thenb, loc, isInvalid,
+                                            /*withElseRegion=*/false);
           {
             OpBuilder thenb = ifb.getThenBodyBuilder();
-            thenInBoundsStoreOp::create(b, loc, negInfTyped, gemm0OutBuffer,
-                                        ValueRange{upperCoords[4]});
+            InBoundsStoreOp::create(thenb, loc, negInfTyped, gemm0OutBuffer,
+                                    ValueRange{upperCoords[4]});
           }
         }
       }
@@ -1557,17 +1557,17 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter, loc, ValueRange(gemm0OutBuffer), ValueRange(gemm0OutBuffer),
         indexingMaps, iteratorTypes,
         [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
-          Value splatScalarConst = nestedarith::ConstantOp::create(
-              builder, loc, bufType.getElementType(), splatVal);
+          Value splatScalarConst = arith::ConstantOp::create(
+              nestedBuilder, loc, bufType.getElementType(), splatVal);
           Value elementwiseOp;
           if (bufType.getElementType().isIntOrIndex()) {
-            elementwiseOp = nestedtypename ElementwiseOpType::Int::create(
-                builder, loc, args[0], splatScalarConst);
+            elementwiseOp = ElementwiseOpType::Int::create(
+                nestedBuilder, loc, args[0], splatScalarConst);
           } else {
-            elementwiseOp = nestedtypename ElementwiseOpType::Float::create(
-                builder, loc, args[0], splatScalarConst);
+            elementwiseOp = ElementwiseOpType::Float::create(
+                nestedBuilder, loc, args[0], splatScalarConst);
           }
-          nestedlinalg::YieldOp::create(builder, nestedLoc, elementwiseOp);
+          linalg::YieldOp::create(nestedBuilder, nestedLoc, elementwiseOp);
         });
   }
 
