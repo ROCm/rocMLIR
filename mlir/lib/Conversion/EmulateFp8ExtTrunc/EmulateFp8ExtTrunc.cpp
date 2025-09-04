@@ -186,8 +186,8 @@ static Value getFloatValueTableFor(Type elementType, Operation *op,
   ElementsAttr tableElemsAttr = DenseElementsAttr::get<float>(
       RankedTensorType::get(256, rewriter.getF32Type()), tableElems);
   OpBuilder nowhereBuilder(module->getContext(), rewriter.getListener());
-  table = nowherememref::GlobalOp::create(
-      builder, op->getLoc(), extTableName,
+  table = memref::GlobalOp::create(
+      nowhereBuilder, op->getLoc(), extTableName,
       /*sym_visibility=*/rewriter.getStringAttr("private"),
       /*type=*/globalType,
       /*initial_value=*/tableElemsAttr,
@@ -391,8 +391,8 @@ static FlatSymbolRefAttr makeFp8TruncFunction(Location loc, FloatType outType,
 
   b.setInsertionPointToStart(ifThen70);
   Value ir5 = TruncIOp::create(b, i8, ir1);
-  Value conv =
-      OrIOp > (ir5, b.create < ConstantIntOp::create(b, b.getI8Type(), 127));
+  Value c127 = ConstantIntOp::create(b, i8, 127);
+  Value conv = OrIOp::create(b, ir5, c127);
   Value convOut = BitcastOp::create(b, outType, conv);
   cf::BranchOp::create(b, ret, convOut);
 

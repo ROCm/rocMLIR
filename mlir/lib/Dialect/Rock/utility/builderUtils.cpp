@@ -156,7 +156,7 @@ void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
       [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
         Value cast = createTypeConversionOp(rewriter, loc, args[0],
                                             dstType.getElementType());
-        nestedlinalg::YieldOp::create(builder, nestedLoc, cast);
+        linalg::YieldOp::create(nestedBuilder, nestedLoc, cast);
       });
 }
 
