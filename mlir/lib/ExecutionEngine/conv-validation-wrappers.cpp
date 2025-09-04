@@ -160,8 +160,9 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
         // though the results are correct. In this case we are going to treat
         // f32 subnormals as always being correct
         hist_relDiff[0]++;
-      } else if ((gpuNum == 0.0f || (std::fpclassify(gpuNum) == FP_SUBNORMAL)) &&
-          (std::signbit(valNum) == std::signbit(gpuNum))) {
+      } else if ((gpuNum == 0.0f ||
+                  (std::fpclassify(gpuNum) == FP_SUBNORMAL)) &&
+                 (std::signbit(valNum) == std::signbit(gpuNum))) {
         // Otherwise, if cpu value is subnormal, treat as correct only if gpu
         // value is zero and the sign bits match
         hist_relDiff[0]++;
