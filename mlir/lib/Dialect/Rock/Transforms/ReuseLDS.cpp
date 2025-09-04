@@ -347,7 +347,7 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
 
     Location loc = func.getLoc();
     GpuAllocOp colorAlloc =
-        rewriter.create<GpuAllocOp>(loc, ldsMemRefBufferType);
+        GpuAllocOp::create(rewriter, loc, ldsMemRefBufferType);
     colorAllocs[color] = colorAlloc;
     LLVM_DEBUG(llvm::dbgs()
                << "allocating " << size << " bytes, color: " << color << "\n");
@@ -400,7 +400,7 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
 
     // add barrier if needed
     if (useLDSBarrier) {
-      rewriter.create<LDSBarrierOp>(loc);
+      LDSBarrierOp::create(rewriter, loc);
     }
   }
 
@@ -417,7 +417,7 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
           GpuAllocOp alloc = std::get<1>(pair);
           rewriter.setInsertionPointAfter(prevDealloc);
           Location loc = prevDealloc.getLoc();
-          prevDealloc = rewriter.create<GpuDeallocOp>(loc, alloc);
+          prevDealloc = GpuDeallocOp::create(rewriter, loc, alloc);
         }
       }
     } else {

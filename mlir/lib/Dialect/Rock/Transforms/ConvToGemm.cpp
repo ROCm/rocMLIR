@@ -241,10 +241,10 @@ LogicalResult createElementwiseLoop(
   if (elemsPerThread % vectorLen != 0)
     return kernelOp.emitOpError("unevenly vectorized elementwise kernel");
 
-  Value workgroupId = b.create<WorkgroupIdOp>(loc, b.getIndexType());
-  Value workgroupDim = b.create<ConstantIndexOp>(loc, blockSize);
-  Value elemsPerThreadOp = b.create<ConstantIndexOp>(loc, elemsPerThread);
-  Value workitemId = b.create<WorkitemIdOp>(loc, b.getIndexType());
+  Value workgroupId = WorkgroupIdOp::create(b, loc, b.getIndexType());
+  Value workgroupDim = ConstantIndexOp::create(b, loc, blockSize);
+  Value elemsPerThreadOp = ConstantIndexOp::create(b, loc, elemsPerThread);
+  Value workitemId = WorkitemIdOp::create(b, loc, b.getIndexType());
 
   SmallVector<Value, 2> collapsedBufs;
   for (Value memref : memrefs) {
@@ -268,19 +268,20 @@ LogicalResult createElementwiseLoop(
       return kernelOp.emitOpError(
           "utility kernel arguments have different lengths");
 
-  Value offset = b.create<MulIOp>(
-      loc,
-      b.create<AddIOp>(loc, b.create<MulIOp>(loc, workgroupId, workgroupDim),
-                       workitemId),
+  Value offset = MulIOp::create(
+      b, loc,
+      AddIOp > (loc,
+                b.create < MulIOp::create(b, loc, workgroupId, workgroupDim),
+                workitemId),
       elemsPerThreadOp);
 
-  Value zero = b.create<arith::ConstantIndexOp>(loc, 0);
-  Value vectorLenOp = b.create<arith::ConstantIndexOp>(loc, vectorLen);
-  auto loop = b.create<scf::ForOp>(loc, zero, elemsPerThreadOp, vectorLenOp);
+  Value zero = arith::ConstantIndexOp::create(b, loc, 0);
+  Value vectorLenOp = arith::ConstantIndexOp::create(b, loc, vectorLen);
+  auto loop = scf::ForOp::create(b, loc, zero, elemsPerThreadOp, vectorLenOp);
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(loop.getBody());
-    Value index = b.create<arith::AddIOp>(loc, offset, loop.getInductionVar());
+    Value index = arith::AddIOp::create(b, loc, offset, loop.getInductionVar());
     emitBodyFunc(b, loc, collapsedBufs, index);
   }
   return success();
@@ -298,7 +299,7 @@ static Value makePrivateGpuAlloc(OpBuilder &b, Location loc, Type type) {
       MemRefType::get(numElems, elemTy, nullptr,
                       gpu::AddressSpaceAttr::get(type.getContext(),
                                                  gpu::AddressSpace::Private));
-  Value memref = b.create<rock::GpuAllocOp>(loc, memrefTy);
+  Value memref = rock::GpuAllocOp::create(b, loc, memrefTy);
   return memref;
 }
 
@@ -308,8 +309,8 @@ static Value makeGpuAllocContaining(OpBuilder &b, Value v) {
   Location loc = v.getLoc();
   Type type = v.getType();
   Value memref = makePrivateGpuAlloc(b, loc, type);
-  b.create<rock::InBoundsStoreOp>(
-      loc, v, memref, b.createOrFold<arith::ConstantIndexOp>(loc, 0));
+  rock::InBoundsStoreOp::create(b, loc, v, memref,
+                                b.createOrFold<arith::ConstantIndexOp>(loc, 0));
   return memref;
 }
 
@@ -359,11 +360,11 @@ struct ZeroInitKernelRewritePattern final
     auto loopBody = [&memref, &initVectorLen, &trueOp, &zeroIndex,
                      &needs64BitIdx](OpBuilder &b, Location loc,
                                      ValueRange collapsed, Value index) {
-      b.create<GlobalStoreOp>(loc, memref, collapsed[0],
-                              APInt(64, initVectorLen), StoreMethod::Set,
-                              /*sourceCoord=*/zeroIndex,
-                              /*valid=*/trueOp, index, needs64BitIdx,
-                              /*canStoreOffEnd=*/true);
+      GlobalStoreOp::create(b, loc, memref, collapsed[0],
+                            APInt(64, initVectorLen), StoreMethod::Set,
+                            /*sourceCoord=*/zeroIndex,
+                            /*valid=*/trueOp, index, needs64BitIdx,
+                            /*canStoreOffEnd=*/true);
     };
     LogicalResult res =
         createElementwiseLoop(b, loc, op, buffer, initVectorLen, loopBody);
@@ -397,7 +398,7 @@ struct ConvertingCopyKernelRewritePattern final
 
     Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
     Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
-    Value trueOp = b.create<arith::ConstantIntOp>(loc, b.getI1Type(), true);
+    Value trueOp = arith::ConstantIntOp::create(b, loc, b.getI1Type(), true);
     bool needs64BitIdx =
         is4GBMemoryType(input.getType()) || is4GBMemoryType(output.getType());
     Value storeMemref = makePrivateGpuAlloc(b, loc, storeType);
@@ -406,13 +407,14 @@ struct ConvertingCopyKernelRewritePattern final
                      &storeMemref, &zeroIndex,
                      &needs64BitIdx](OpBuilder &b, Location loc,
                                      ValueRange collapsed, Value index) {
-      Value loaded = b.create<GlobalLoadOp>(
-          loc, loadType, collapsed[0], /*valid=*/trueOp, index, needs64BitIdx,
-          /*canReadOffEnd=*/true);
+      Value loaded =
+          GlobalLoadOp::create(b, loc, loadType, collapsed[0], /*valid=*/trueOp,
+                               index, needs64BitIdx,
+                               /*canReadOffEnd=*/true);
       Value converted = createTypeConversionOp(b, loc, loaded, storeType);
-      b.create<InBoundsStoreOp>(loc, converted, storeMemref, zeroIndex);
-      b.create<GlobalStoreOp>(
-          loc, storeMemref, collapsed[1], APInt(64, conversionVectorLen),
+      InBoundsStoreOp::create(b, loc, converted, storeMemref, zeroIndex);
+      GlobalStoreOp::create(
+          b, loc, storeMemref, collapsed[1], APInt(64, conversionVectorLen),
           StoreMethod::Set, /*sourceCoord=*/zeroIndex,
           /*valid=*/trueOp, index, needs64BitIdx, /*canWriteOffEnd=*/true);
     };
@@ -503,7 +505,7 @@ static LogicalResult makeToLayoutLikeFromLayoutAlong(
   relayoutWrapped.passThrough(oldToLayoutRefs);
   TransformMapAttr relayoutAttr = relayout.get();
 
-  Value transformed = b.create<TransformOp>(op->getLoc(), toArg, relayoutAttr);
+  Value transformed = TransformOp::create(b, op->getLoc(), toArg, relayoutAttr);
   for (OpOperand &operand : op->getOpOperands())
     if (operand.get() == toArg)
       operand.set(transformed);
@@ -644,8 +646,8 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     TransformMapAttr addKBlockTransformAttr = addKBlockTransform.get();
     Value filterTensorInUse =
         (hasWorkspace) ? op.getWorkspace() : op.getFilter();
-    Value withKBlock = b.create<rock::TransformOp>(loc, filterTensorInUse,
-                                                   addKBlockTransformAttr);
+    Value withKBlock = rock::TransformOp::create(b, loc, filterTensorInUse,
+                                                 addKBlockTransformAttr);
 
     // Create GEMM filter tensor
     // Here, we merge the KBlock dimension into the G dimension
@@ -658,7 +660,7 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     gemmTransform.merge("gemmN", 2, nonKDims);
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmFilter = b.create<TransformOp>(loc, withKBlock, gemmTransformAttr);
+    gemmFilter = TransformOp::create(b, loc, withKBlock, gemmTransformAttr);
     // This kernel is only invoked when there's no need for gemm padding
   }
 
@@ -693,7 +695,7 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value firstTransformed =
-        b.create<TransformOp>(loc, op.getInput(), firstTransformAttr);
+        TransformOp::create(b, loc, op.getInput(), firstTransformAttr);
 
     // The usual mapping of input space to dimensions such that filter elements
     // get multiplied by the right thing
@@ -729,7 +731,7 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
-        b.create<TransformOp>(loc, firstTransformed, embedTransformAttr);
+        TransformOp::create(b, loc, firstTransformed, embedTransformAttr);
 
     // Merge N1HoWO to gemmK and CYX to gemmN
     auto gemmInputTransform =
@@ -752,7 +754,7 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
     gemmInputTransform.merge("gemmN", 2, nonNHWDims);
 
     TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
-    gemmInput = b.create<TransformOp>(loc, embedded, gemmInputTransformAttr);
+    gemmInput = TransformOp::create(b, loc, embedded, gemmInputTransformAttr);
   }
 
   // Transform output tensor
@@ -772,7 +774,7 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
 
     TransformMapAttr firstTransformAttr = firstTransform.get();
     Value transformed =
-        b.create<TransformOp>(loc, op.getOutput(), firstTransformAttr);
+        TransformOp::create(b, loc, op.getOutput(), firstTransformAttr);
 
     // Map G and N0 to gemmG, N1HW to gemmK and K to gemmM
     auto gemmOutputTransform =
@@ -787,13 +789,13 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
 
     TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
     gemmOutput =
-        b.create<TransformOp>(loc, transformed, gemmOutputTransformAttr);
+        TransformOp::create(b, loc, transformed, gemmOutputTransformAttr);
   }
 
   // This kernel is not run when there is padding on the GEMM
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
-  b.create<GemmOp>(
-      loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
+  GemmOp::create(
+      b, loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
       op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
@@ -934,7 +936,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embeddedFilter =
-        b.create<TransformOp>(loc, op.getFilter(), embedTransformAttr);
+        TransformOp::create(b, loc, op.getFilter(), embedTransformAttr);
 
     // Take slices in the ydot, ytilda, xdot, and xtilda dimensions
     // to reflect which kernel we're performing
@@ -963,7 +965,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value slicedFilter =
-        b.create<TransformOp>(loc, embeddedFilter, sliceTransformAttr);
+        TransformOp::create(b, loc, embeddedFilter, sliceTransformAttr);
 
     // Set up gemm by passing g -> gemmG, merging
     // [k, ydotslice, xdotslice] to gemmK, and [c, ytildaslice, xtildaslice]
@@ -984,7 +986,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
 
     TransformMapAttr gemmFilterTransformAttr = gemmFilterTransform.get();
     gemmFilter =
-        b.create<TransformOp>(loc, slicedFilter, gemmFilterTransformAttr);
+        TransformOp::create(b, loc, slicedFilter, gemmFilterTransformAttr);
   }
 
   // Transform input tensor
@@ -1004,7 +1006,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
 
     TransformMapAttr padTransformAttr = padInputTransform.get();
     Value paddedInput =
-        b.create<TransformOp>(loc, op.getInput(), padTransformAttr);
+        TransformOp::create(b, loc, op.getInput(), padTransformAttr);
 
     // Split 0ipad, 1ipad into 0ftilda, 0itilda, 1ftilda, 1itilda
     llvm::StringMap<SmallVector<StringRef, 2>> expansions;
@@ -1031,7 +1033,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
 
     TransformMapAttr tildaEmbedTransformAttr = tildaEmbedTransform.get();
     Value tildaEmbedded =
-        b.create<TransformOp>(loc, paddedInput, tildaEmbedTransformAttr);
+        TransformOp::create(b, loc, paddedInput, tildaEmbedTransformAttr);
 
     // Slice all the tilda dimensions: ytilda and xtilda get slices of length
     // 1 while htilda and wtilda have slice indices computed above
@@ -1058,7 +1060,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
     Value sliced =
-        b.create<TransformOp>(loc, tildaEmbedded, sliceTransformAttr);
+        TransformOp::create(b, loc, tildaEmbedded, sliceTransformAttr);
 
     // C plus the length 1 slices (yslice and xslice) become the gemmM
     // dimension G, N, and the h and w slices become gemmN
@@ -1077,7 +1079,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
     gemmTransform.merge("gemmN", 2, lowers);
 
     TransformMapAttr gemmTransformAttr = gemmTransform.get();
-    gemmInput = b.create<TransformOp>(loc, sliced, gemmTransformAttr);
+    gemmInput = TransformOp::create(b, loc, sliced, gemmTransformAttr);
   }
 
   // Transform output tensor
@@ -1105,7 +1107,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
 
     TransformMapAttr embedTransformAttr = embedTransform.get();
     Value embedded =
-        b.create<TransformOp>(loc, op.getOutput(), embedTransformAttr);
+        TransformOp::create(b, loc, op.getOutput(), embedTransformAttr);
 
     // Take the same slices in ydot, xdot, 0tilda, and 1tilda as were taken in
     // the filter and input
@@ -1130,7 +1132,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
     sliceTransform.slice(uppers, lowers, iTildaLeft, iTildaRight);
 
     TransformMapAttr sliceTransformAttr = sliceTransform.get();
-    Value sliced = b.create<TransformOp>(loc, embedded, sliceTransformAttr);
+    Value sliced = TransformOp::create(b, loc, embedded, sliceTransformAttr);
 
     // Merge k, yslice, and xslice to gemmK and n, hslice, and wslice to gemmN
     auto gemmOutputTransform =
@@ -1148,13 +1150,13 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
     gemmOutputTransform.merge("gemmN", 2, lowers);
 
     TransformMapAttr gemmOutputTransformAttr = gemmOutputTransform.get();
-    gemmOutput = b.create<TransformOp>(loc, sliced, gemmOutputTransformAttr);
+    gemmOutput = TransformOp::create(b, loc, sliced, gemmOutputTransformAttr);
   }
 
   // Emit rock.gemm op.
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
-  auto gemm = b.create<GemmOp>(
-      loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
+  auto gemm = GemmOp::create(
+      b, loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
       op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
@@ -1251,7 +1253,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
 
   TransformMapAttr filterTransformAttr = filterTransform.get();
   Value gemmFilter =
-      b.create<TransformOp>(loc, op.getFilter(), filterTransformAttr);
+      TransformOp::create(b, loc, op.getFilter(), filterTransformAttr);
 
   // Transform input tensor.
   // Input tensor step 1: padded input.
@@ -1279,7 +1281,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   TransformMapAttr padInputTransformAttr = padInputTransform.get();
 
   Value paddedInput =
-      b.create<TransformOp>(loc, op.getInput(), padInputTransformAttr);
+      TransformOp::create(b, loc, op.getInput(), padInputTransformAttr);
 
   // Input tensor step 2 : embedded input.
   // Embedded input tensor transformation:
@@ -1323,7 +1325,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
 
   TransformMapAttr embedInputTransformAttr = embedInputTransform.get();
   Value embeddedInput =
-      b.create<TransformOp>(loc, paddedInput, embedInputTransformAttr);
+      TransformOp::create(b, loc, paddedInput, embedInputTransformAttr);
 
   // Input tensor step 3: GEMM'd input
   //
@@ -1367,7 +1369,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
 
   TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
   Value gemmInput =
-      b.create<TransformOp>(loc, embeddedInput, gemmInputTransformAttr);
+      TransformOp::create(b, loc, embeddedInput, gemmInputTransformAttr);
 
   Value gemmOutput;
   if constexpr (notConvGemm) {
@@ -1406,7 +1408,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
 
     TransformMapAttr outputTransformAttr = outputTransform.get();
     gemmOutput =
-        b.create<TransformOp>(loc, op.getOutput(), outputTransformAttr);
+        TransformOp::create(b, loc, op.getOutput(), outputTransformAttr);
   }
 
   return std::make_tuple(gemmFilter, gemmInput, gemmOutput);
@@ -1430,8 +1432,8 @@ struct ConvGemmRewritePattern : public OpRewritePattern<ConvElementwiseGemmOp> {
     Location loc = op.getLoc();
 
     // note that here A = input, B = filter, ConvToGemm is the opposite
-    auto newOp = b.create<rock::GemmElementwiseGemmOp>(
-        loc, op->getResultTypes(), gemmInput, gemmFilter, op.getC(),
+    auto newOp = rock::GemmElementwiseGemmOp::create(
+        b, loc, op->getResultTypes(), gemmInput, gemmFilter, op.getC(),
         op.getElemwiseInputs(), op.getOut(),
         /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
         op.getCTransposedAttr(), op.getOTransposedAttr(), op.getFeaturesAttr(),
@@ -1484,11 +1486,11 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     Location loc = op.getLoc();
     auto tuningParams = op.getParamsAttr();
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
-    b.create<GemmOp>(loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
-                     /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-                     /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
-                     op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
-                     tuningParams);
+    GemmOp::create(b, loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
+                   /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
+                   /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
+                   op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
+                   tuningParams);
 
     // Finally, erase the original Conv op.
     b.eraseOp(op);

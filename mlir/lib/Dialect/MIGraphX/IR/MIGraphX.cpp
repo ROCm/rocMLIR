@@ -63,7 +63,7 @@ Operation *MIGraphXDialect::materializeConstant(OpBuilder &builder,
   ElementsAttr elemsValue = dyn_cast<ElementsAttr>(value);
   if (!elemsValue)
     return nullptr;
-  return builder.create<LiteralOp>(loc, type, elemsValue);
+  return LiteralOp::create(builder, loc, type, elemsValue);
 }
 
 //===----------------------------------------------------------------------===//

@@ -45,8 +45,8 @@ public:
     Location loc = op->getLoc();
     auto inA = op->getOperand(0);
     auto outputTy = cast<ShapedType>(op->getResults()[0].getType());
-    auto rSop = rewriter.create<migraphx::RsqrtOp>(loc, outputTy, inA);
-    auto rCop = rewriter.create<migraphx::RecipOp>(loc, outputTy, rSop);
+    auto rSop = migraphx::RsqrtOp::create(rewriter, loc, outputTy, inA);
+    auto rCop = migraphx::RecipOp::create(rewriter, loc, outputTy, rSop);
 
     rewriter.replaceOp(op, rCop->getResults()[0]);
     return success();

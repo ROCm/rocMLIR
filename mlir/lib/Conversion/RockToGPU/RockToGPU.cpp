@@ -119,7 +119,7 @@ struct MIOpRewritePattern : public OpRewritePattern<Tmi> {
   using OpRewritePattern<Tmi>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(Tmi op, PatternRewriter &b) const override {
-    b.create<Tgpu>(op.getLoc());
+    Tgpu::create(b, op.getLoc());
     op.erase();
     return success();
   }
@@ -151,7 +151,7 @@ struct WorkgroupIdRewritePattern
       int64_t gridSize = maybeGridSize.value().getValue().getSExtValue();
       AffineMap reverseMap = rock::getIdxReversalMap(b);
       Value gridSizeVal = b.createOrFold<arith::ConstantIndexOp>(loc, gridSize);
-      Value blockIdVal = b.create<gpu::BlockIdOp>(loc, gpu::Dimension::x);
+      Value blockIdVal = gpu::BlockIdOp::create(b, loc, gpu::Dimension::x);
       b.replaceOpWithNewOp<affine::AffineApplyOp>(
           op, b.getIndexType(), reverseMap,
           ValueRange{blockIdVal, gridSizeVal});
@@ -176,7 +176,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
 
   auto makeGpuModule = [&](StringRef name) {
     // create a GPUModuleOp in case the GPU module specified does not exist.
-    auto gpuModule = b.create<gpu::GPUModuleOp>(loc, name);
+    auto gpuModule = gpu::GPUModuleOp::create(b, loc, name);
 
     // add the GPUModuleOp into the symbol table.
     SymbolTable symbolTable(op);
@@ -196,7 +196,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     // create a GPUFuncOp.
     FunctionType gpuFuncType = theFunc.getFunctionType();
     auto gpuFunc =
-        b.create<gpu::GPUFuncOp>(loc, theFunc.getName(), gpuFuncType);
+        gpu::GPUFuncOp::create(b, loc, theFunc.getName(), gpuFuncType);
 
     // insert the GPUFuncOp into GPUModuleOp.
     gpuModuleSymbolTable.insert(gpuFunc);
@@ -269,7 +269,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     Block *clonedFuncEntry = map.lookup(&funcEntry);
     Block &gpuFuncEntry = gpuFuncBody.front();
     b.setInsertionPointToEnd(&gpuFuncEntry);
-    b.create<cf::BranchOp>(loc, clonedFuncEntry);
+    cf::BranchOp::create(b, loc, clonedFuncEntry);
 
     // Ask LLVM to use atomic intrinsics instead of generic CAS loops whenever
     // it can
@@ -314,16 +314,16 @@ void LowerRockOpsToGPUPass::runOnOperation() {
                 mlir::dyn_cast<SymbolRefAttr>(callable))) {
           if (symRef.getValue() == theFunc.getName()) {
             OpBuilder b(call);
-            auto gridVal = b.create<arith::ConstantIndexOp>(loc, gridSize);
-            auto blockVal = b.create<arith::ConstantIndexOp>(loc, blockSize);
-            auto cst1 = b.create<arith::ConstantIndexOp>(loc, 1);
+            auto gridVal = arith::ConstantIndexOp::create(b, loc, gridSize);
+            auto blockVal = arith::ConstantIndexOp::create(b, loc, blockSize);
+            auto cst1 = arith::ConstantIndexOp::create(b, loc, 1);
             auto dynamicSharedMemSize =
-                b.create<arith::ConstantIntOp>(loc, b.getI32Type(), 0);
+                arith::ConstantIntOp::create(b, loc, b.getI32Type(), 0);
             gpu::KernelDim3 gridDims{gridVal, cst1, cst1};
             gpu::KernelDim3 blockDims{blockVal, cst1, cst1};
-            b.create<gpu::LaunchFuncOp>(loc, gpuFunc, gridDims, blockDims,
-                                        dynamicSharedMemSize,
-                                        call.getArgOperands());
+            gpu::LaunchFuncOp::create(b, loc, gpuFunc, gridDims, blockDims,
+                                      dynamicSharedMemSize,
+                                      call.getArgOperands());
             calls.push_back(call);
           }
         }

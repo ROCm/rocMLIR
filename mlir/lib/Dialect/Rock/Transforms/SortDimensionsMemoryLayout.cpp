@@ -572,10 +572,10 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
     std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
              transposedV) = maybeRewrite.value();
 
-    auto newOp = b.create<rock::AttentionOp>(
-        op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
-        op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(), op.getOut(),
-        op.getLse(), transposedQ, transposedK, transposedV,
+    auto newOp = rock::AttentionOp::create(
+        b, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
+        newTensorV, op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(),
+        op.getOut(), op.getLse(), transposedQ, transposedK, transposedV,
         op.getOTransposedAttr(), op.getCausalAttr(), op.getFeaturesAttr(),
         op.getSoftmaxTypeAttr(), op.getParams0Attr(), op.getParams1Attr(),
         op.getFirstGemmIndicesAttr());
@@ -637,8 +637,8 @@ struct ConvElementwiseGemmRewritePattern
     if (convNoChange && finalLayoutC == layoutC)
       return failure();
 
-    auto newOp = rw.create<rock::ConvElementwiseGemmOp>(
-        op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
+    auto newOp = rock::ConvElementwiseGemmOp::create(
+        rw, op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
         op.getElemwiseInputs(), op.getOut(), transposedC,
         op.getOTransposedAttr(), op.getFeaturesAttr(), op.getPaddingAttr(),
         op.getStridesAttr(), op.getDilationsAttr(), op.getParams0Attr(),
@@ -682,10 +682,10 @@ struct GemmElementwiseGemmRewritePattern
     std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
              transposedV) = maybeRewrite.value();
 
-    auto newOp = rw.create<rock::GemmElementwiseGemmOp>(
-        op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
-        op.getElemwiseInputs(), op.getOut(), transposedQ, transposedK,
-        transposedV, op.getOTransposedAttr(), op.getFeaturesAttr(),
+    auto newOp = rock::GemmElementwiseGemmOp::create(
+        rw, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
+        newTensorV, op.getElemwiseInputs(), op.getOut(), transposedQ,
+        transposedK, transposedV, op.getOTransposedAttr(), op.getFeaturesAttr(),
         op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
 
     // copy linalg::GenericOp if there's any

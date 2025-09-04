@@ -951,20 +951,20 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
                               logicalFuncArgTypes, args);
   switch (config.operation.value()) {
   case ConvOpType::Fwd: {
-    builder.create<ConvOp>(builder.getUnknownLoc(), ArrayRef<Type>{}, args,
-                           attributes);
+    ConvOp::create(builder, builder.getUnknownLoc(), ArrayRef<Type>{}, args,
+                   attributes);
   } break;
   case ConvOpType::BwdData: {
     if (kernelId < 0) {
       // zero init input tensor
-      builder.create<InitKernelOp>(
-          builder.getUnknownLoc(), /*resultType=*/TypeRange{},
-          func.getArgument(1), features, /*initValueAttr=*/nullptr,
-          /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-          /*elemsPerThread=*/nullptr);
+      InitKernelOp::create(builder, builder.getUnknownLoc(),
+                           /*resultType=*/TypeRange{}, func.getArgument(1),
+                           features, /*initValueAttr=*/nullptr,
+                           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+                           /*elemsPerThread=*/nullptr);
     } else {
-      builder.create<ConvBwdDataOp>(builder.getUnknownLoc(), ArrayRef<Type>{},
-                                    args, attributes);
+      ConvBwdDataOp::create(builder, builder.getUnknownLoc(), ArrayRef<Type>{},
+                            args, attributes);
     }
   } break;
   case ConvOpType::BwdWeight: {
@@ -976,27 +976,27 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     if (hasUtilities && kernelId == 0) {
       // If there is a workspace, zero-init it, otherwise fill the filter
       // tensor
-      builder.create<InitKernelOp>(builder.getUnknownLoc(),
-                                   /*resultType=*/TypeRange{},
-                                   func.getArgument(hasWorkspace ? 3 : 0),
-                                   features, /*initValueAttr=*/nullptr,
-                                   /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-                                   /*elemsPerThread=*/nullptr);
+      InitKernelOp::create(builder, builder.getUnknownLoc(),
+                           /*resultType=*/TypeRange{},
+                           func.getArgument(hasWorkspace ? 3 : 0), features,
+                           /*initValueAttr=*/nullptr,
+                           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+                           /*elemsPerThread=*/nullptr);
     } else if (hasUtilities && kernelId == 2) {
       // Workspace -> filter tensor
-      builder.create<ConvertingCopyKernelOp>(
-          builder.getUnknownLoc(), /*resultType=*/TypeRange{},
+      ConvertingCopyKernelOp::create(
+          builder, builder.getUnknownLoc(), /*resultType=*/TypeRange{},
           func.getArgument(3), func.getArgument(0),
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
     } else {
-      builder.create<ConvBwdWeightOp>(builder.getUnknownLoc(), ArrayRef<Type>{},
-                                      args, attributes);
+      ConvBwdWeightOp::create(builder, builder.getUnknownLoc(),
+                              ArrayRef<Type>{}, args, attributes);
     }
   } break;
   }
 
-  builder.create<func::ReturnOp>(builder.getUnknownLoc(), ValueRange{});
+  func::ReturnOp::create(builder, builder.getUnknownLoc(), ValueRange{});
   return success();
 }
 

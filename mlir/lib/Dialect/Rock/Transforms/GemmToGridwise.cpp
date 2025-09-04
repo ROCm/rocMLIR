@@ -214,8 +214,8 @@ static LogicalResult commonAttentionGemmElmtGemm(
     prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
   }
 
-  auto newOp = rw.create<GridwiseAttentionAccelOp>(
-      loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
+  auto newOp = GridwiseAttentionAccelOp::create(
+      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
       op.getGemmFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, softmaxType,
       params0, params1, rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
@@ -268,7 +268,7 @@ static Value getAccumulator(Value a, Value b, Value c, OpBuilder &builder,
     auto accumulatorShape = cast<MemRefType>(c.getType()).getShape();
     auto accumulatorType =
         MemRefType::get(accumulatorShape, accumulatorElementType);
-    return builder.create<memref::AllocOp>(loc, accumulatorType);
+    return memref::AllocOp::create(builder, loc, accumulatorType);
   }
   return c;
 }
@@ -303,12 +303,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
        elemAWidth != 8 || elemBWidth != 8)) {
     if (elemTypeA.getIntOrFloatBitWidth() > elemTypeB.getIntOrFloatBitWidth()) {
       MemRefType newBType = MemRefType::get(bShape, elemTypeA);
-      memref::AllocOp newB = rw.create<memref::AllocOp>(loc, newBType);
+      memref::AllocOp newB = memref::AllocOp::create(rw, loc, newBType);
       createTypeConversionLaGeneric(rw, loc, b, newB);
       b = newB;
     } else {
       MemRefType newAType = MemRefType::get(aShape, elemTypeB);
-      memref::AllocOp newA = rw.create<memref::AllocOp>(loc, newAType);
+      memref::AllocOp newA = memref::AllocOp::create(rw, loc, newAType);
       createTypeConversionLaGeneric(rw, loc, a, newA);
       a = newA;
     }
@@ -360,19 +360,20 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   auto accumulator = getAccumulator(a, b, c, rw, loc);
   if (isAccel) {
-    rw.create<GridwiseGemmAccelOp>(
-        loc, a, b, accumulator, op.getFeaturesAttr(), op.getStoreMethodAttr(),
-        blockSize, gridSize, cast<RockAccelTuningParamAttrInterface>(params));
+    GridwiseGemmAccelOp::create(
+        rw, loc, a, b, accumulator, op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), blockSize, gridSize,
+        cast<RockAccelTuningParamAttrInterface>(params));
   } else {
-    rw.create<GridwiseGemmOp>(loc, a, b, accumulator, op.getFeaturesAttr(),
-                              op.getStoreMethodAttr(), gridSize,
-                              cast<GeneralGemmParamsAttr>(params));
+    GridwiseGemmOp::create(rw, loc, a, b, accumulator, op.getFeaturesAttr(),
+                           op.getStoreMethodAttr(), gridSize,
+                           cast<GeneralGemmParamsAttr>(params));
   }
 
   if (accumulator != c) {
     auto map = rw.getMultiDimIdentityMap(3);
-    rw.create<linalg::GenericOp>(
-        loc, ValueRange{accumulator}, ValueRange{c},
+    linalg::GenericOp::create(
+        rw, loc, ValueRange{accumulator}, ValueRange{c},
         ArrayRef<AffineMap>{map, map},
         ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
                                       utils::IteratorType::parallel,
@@ -383,12 +384,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
           Type cType = c.getType();
           if (isa<IntegerType>(cType)) {
             Value cElement =
-                builder.create<arith::TruncIOp>(loc, cType, accumulator);
-            builder.create<linalg::YieldOp>(loc, cElement);
+                arith::TruncIOp::create(builder, loc, cType, accumulator);
+            linalg::YieldOp::create(builder, loc, cElement);
           } else {
             Value cElement =
-                builder.create<arith::TruncFOp>(loc, cType, accumulator);
-            builder.create<linalg::YieldOp>(loc, cElement);
+                arith::TruncFOp::create(builder, loc, cType, accumulator);
+            linalg::YieldOp::create(builder, loc, cElement);
           }
         });
   }

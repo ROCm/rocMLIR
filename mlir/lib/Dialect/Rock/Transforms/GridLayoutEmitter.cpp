@@ -42,19 +42,19 @@ static Value rearrangeWorkgroupsForXCC(Location loc, PatternRewriter &b,
       b.createOrFold<ConstantIndexOp>(loc, numChipletsPerGroup);
   int64_t wgsPerChiplet = (gridSize) / numChipletsPerGroup;
   Value wgsPerChipletVal = b.createOrFold<ConstantIndexOp>(loc, wgsPerChiplet);
-  Value logicalChipletId = b.create<RemUIOp>(loc, bid, numChipletsVal);
-  Value wgIdPerLogicalChiplet = b.create<DivUIOp>(loc, bid, numChipletsVal);
-  Value rearrangedBid = b.create<AddIOp>(
-      loc, wgIdPerLogicalChiplet,
-      b.create<MulIOp>(loc, logicalChipletId, wgsPerChipletVal));
+  Value logicalChipletId = RemUIOp::create(b, loc, bid, numChipletsVal);
+  Value wgIdPerLogicalChiplet = DivUIOp::create(b, loc, bid, numChipletsVal);
+  Value rearrangedBid = AddIOp::create(
+      b, loc, wgIdPerLogicalChiplet,
+      MulIOp::create(b, loc, logicalChipletId, wgsPerChipletVal));
   int64_t lastNumChipletMultiple =
       (gridSize - 1) - (gridSize % numChipletsPerGroup);
   Value lastNumChipletMultipleVal =
       b.createOrFold<ConstantIndexOp>(loc, lastNumChipletMultiple);
-  Value isBidLargerThanlastNumChipletMultiple = b.create<arith::CmpIOp>(
-      loc, arith::CmpIPredicate::sgt, bid, lastNumChipletMultipleVal);
-  bid = b.create<arith::SelectOp>(loc, isBidLargerThanlastNumChipletMultiple,
-                                  bid, rearrangedBid);
+  Value isBidLargerThanlastNumChipletMultiple = arith::CmpIOp::create(
+      b, loc, arith::CmpIPredicate::sgt, bid, lastNumChipletMultipleVal);
+  bid = arith::SelectOp::create(b, loc, isBidLargerThanlastNumChipletMultiple,
+                                bid, rearrangedBid);
   return bid;
 }
 
@@ -93,18 +93,19 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
   // Compute g_block first and the bid in the actual group g_block
   Value mnBlocks =
       b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
-  Value g_block = b.create<DivUIOp>(loc, bid, mnBlocks);
-  bid = b.create<RemUIOp>(loc, bid, mnBlocks);
+  Value g_block = DivUIOp::create(b, loc, bid, mnBlocks);
+  bid = RemUIOp::create(b, loc, bid, mnBlocks);
 
   // Group together the workgroups in g_block
-  Value groupId = b.create<DivUIOp>(loc, bid, blocksPerGroup);
-  Value firstBidM = b.create<MulIOp>(loc, groupId, mBlocksPerGroup);
-  Value thisMBlocksPerGroup = b.create<MinUIOp>(
-      loc, b.create<SubIOp>(loc, mBlocksValue, firstBidM), mBlocksPerGroup);
-  Value m_block = b.create<AddIOp>(
-      loc, firstBidM, b.create<RemUIOp>(loc, bid, thisMBlocksPerGroup));
-  Value n_block = b.create<DivUIOp>(
-      loc, b.create<RemUIOp>(loc, bid, blocksPerGroup), thisMBlocksPerGroup);
+  Value groupId = DivUIOp::create(b, loc, bid, blocksPerGroup);
+  Value firstBidM = MulIOp::create(b, loc, groupId, mBlocksPerGroup);
+  Value thisMBlocksPerGroup = MinUIOp::create(
+      b, loc, SubIOp::create(b, loc, mBlocksValue, firstBidM), mBlocksPerGroup);
+  Value m_block = AddIOp::create(
+      b, loc, firstBidM, RemUIOp::create(b, loc, bid, thisMBlocksPerGroup));
+  Value n_block =
+      DivUIOp::create(b, loc, RemUIOp::create(b, loc, bid, blocksPerGroup),
+                      thisMBlocksPerGroup);
   return {g_block, m_block, n_block};
 }
 
@@ -114,12 +115,12 @@ GridCoordinates rock::layout::makeGxMxNGridLayout(PatternRewriter &b,
   Value g1MxNBlockCountVal =
       b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
   Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, info.nBlocks);
-  Value gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1MxNBlockCountVal);
-  Value nonGBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1MxNBlockCountVal);
+  Value gBlockIdx = arith::DivUIOp::create(b, loc, bid, g1MxNBlockCountVal);
+  Value nonGBlockIdx = arith::RemUIOp::create(b, loc, bid, g1MxNBlockCountVal);
   Value mBlockIdx =
-      b.create<arith::DivUIOp>(loc, nonGBlockIdx, g1NBlockCountVal);
+      arith::DivUIOp::create(b, loc, nonGBlockIdx, g1NBlockCountVal);
   Value nBlockIdx =
-      b.create<arith::RemUIOp>(loc, nonGBlockIdx, g1NBlockCountVal);
+      arith::RemUIOp::create(b, loc, nonGBlockIdx, g1NBlockCountVal);
 
   return {gBlockIdx, mBlockIdx, nBlockIdx};
 }
@@ -144,7 +145,7 @@ GridCoordinates rock::layout::makeGxNGridLayout(PatternRewriter &b,
   }
 
   Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, nBlocks);
-  Value gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1NBlockCountVal);
-  Value nBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1NBlockCountVal);
+  Value gBlockIdx = arith::DivUIOp::create(b, loc, bid, g1NBlockCountVal);
+  Value nBlockIdx = arith::RemUIOp::create(b, loc, bid, g1NBlockCountVal);
   return {gBlockIdx, mIter, nBlockIdx};
 }

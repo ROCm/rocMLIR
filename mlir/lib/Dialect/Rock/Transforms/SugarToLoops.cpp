@@ -181,7 +181,7 @@ struct TransformingForRewritePattern
         llvm::copy(loops[loops.size() - 1].getRegionIterArgs(),
                    std::back_inserter(iterInits));
       auto loop =
-          b.create<affine::AffineForOp>(loc, 0, bound, stride, iterInits);
+          affine::AffineForOp::create(b, loc, 0, bound, stride, iterInits);
       ivs.push_back(loop.getInductionVar());
       // remove default affine.yield for cleaner code later
       if (iterInits.empty())
@@ -199,11 +199,11 @@ struct TransformingForRewritePattern
       if (!useDiffs || transforms.empty()) {
         AffineResults computed;
         Value isValid =
-            b.create<arith::ConstantIntOp>(loc, b.getI1Type(), true);
+            arith::ConstantIntOp::create(b, loc, b.getI1Type(), true);
         // Start by offsetting the upper inputs.
         for (auto p : llvm::zip(op.getUpperInits(i), ivs)) {
           computed.push_back(
-              b.create<AddIOp>(loc, std::get<0>(p), std::get<1>(p)));
+              AddIOp > (loc, std::get<0>(p), std::get < 1 ::create(b, p)));
         }
         for (const auto &[composedMap, transform] : allComposedMaps[i]) {
           if (!composedMap) // empty transformations
@@ -227,14 +227,14 @@ struct TransformingForRewritePattern
       } else { // index diff maps
         IndexDiffUpdateOp lastDiff;
         Value isValid =
-            b.create<arith::ConstantIntOp>(loc, b.getI1Type(), true);
+            arith::ConstantIntOp::create(b, loc, b.getI1Type(), true);
         for (const auto &[t, lowerInit] : llvm::zip(
                  transforms.getAsRange<TransformMapAttr>(), lowerInits[i])) {
           if (!lastDiff)
-            lastDiff = b.create<IndexDiffUpdateOp>(loc, t, ivs, lowerInit);
+            lastDiff = IndexDiffUpdateOp::create(b, loc, t, ivs, lowerInit);
           else
-            lastDiff = b.create<IndexDiffUpdateOp>(
-                loc, t, lastDiff.getLowerDiff(), lowerInit);
+            lastDiff = IndexDiffUpdateOp::create(
+                b, loc, t, lastDiff.getLowerDiff(), lowerInit);
           if (mapImpactsValidity(t)) {
             Value validityUpdate =
                 updateValidityAfter(b, loc, t, lastDiff.getLowerIndices());
@@ -277,7 +277,7 @@ struct TransformingForRewritePattern
         for (Value v : op.getBody()->getTerminator()->getOperands()) {
           terminatorArgs.push_back(cloneMap.lookupOrDefault(v));
         }
-        b.create<affine::AffineYieldOp>(loc, terminatorArgs);
+        affine::AffineYieldOp::create(b, loc, terminatorArgs);
       } else {
         b.clone(bodyOp, cloneMap);
       }
@@ -287,7 +287,7 @@ struct TransformingForRewritePattern
       for (size_t i = 0, e = loops.size() - 1; i < e; ++i) {
         affine::AffineForOp inner = loops[i + 1];
         b.setInsertionPointToEnd(loops[i].getBody());
-        b.create<affine::AffineYieldOp>(loc, inner.getResults());
+        affine::AffineYieldOp::create(b, loc, inner.getResults());
       }
     }
 
@@ -335,14 +335,14 @@ struct ExtractMultiBufferRewritePattern
     Value mbFactor = b.createOrFold<ConstantIndexOp>(loc, multiBufferFactor);
     Value currentBuffer = buffers.back();
     Value modSelectIndex =
-        b.create<arith::RemUIOp>(loc, op.getSelectIndex(), mbFactor);
+        arith::RemUIOp::create(b, loc, op.getSelectIndex(), mbFactor);
     for (size_t i = 1; i < multiBufferFactor; i++) {
       auto idx =
           b.createOrFold<ConstantIndexOp>(loc, multiBufferFactor - i - 1);
-      auto cmp = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ugt,
-                                         modSelectIndex, idx);
-      currentBuffer = b.create<arith::SelectOp>(
-          loc, cmp, currentBuffer, buffers[multiBufferFactor - i - 1]);
+      auto cmp = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ugt,
+                                       modSelectIndex, idx);
+      currentBuffer = arith::SelectOp::create(
+          b, loc, cmp, currentBuffer, buffers[multiBufferFactor - i - 1]);
     }
     b.replaceAllUsesWith(op.getResult(), currentBuffer);
 
@@ -389,7 +389,7 @@ struct IndexDiffUpdateRewritePattern
       }
     } while (reevaluateOps);
 
-    Value zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+    Value zeroConstantOp = ConstantIndexOp::create(b, loc, 0);
     // Obtain the shape of lower level memref.
     ArrayRef<int64_t> lowerLayerShape = transformMap.getLowerBounds();
 
@@ -506,10 +506,11 @@ struct IndexDiffUpdateRewritePattern
         }
         auto mbOriginalConst = isConstantValue(original);
         if (mbOriginalConst.has_value()) {
-          return b.create<ConstantIndexOp>(loc, diff + mbOriginalConst.value());
+          return ConstantIndexOp::create(b, loc,
+                                         diff + mbOriginalConst.value());
         }
       }
-      return b.create<AddIOp>(loc, original, diff);
+      return AddIOp::create(b, loc, original, diff);
     };
 
     LLVM_DEBUG(llvm::dbgs()
@@ -534,14 +535,15 @@ struct IndexDiffUpdateRewritePattern
           auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
           auto mbLowerDiff = isConstantValue(lowerDiff);
           if (mbUpperDiff.has_value() && mbLowerDiff.has_value()) {
-            lowerDiff = b.create<ConstantIndexOp>(
-                loc, mbLowerDiff.value() + coefficient * mbUpperDiff.value());
+            lowerDiff = ConstantIndexOp::create(
+                b, loc,
+                mbLowerDiff.value() + coefficient * mbUpperDiff.value());
           } else {
-            lowerDiff = b.create<AddIOp>(
-                loc, lowerDiff,
-                b.create<MulIOp>(loc,
-                                 b.create<ConstantIndexOp>(loc, coefficient),
-                                 upperIndicesDiff[upperDim]));
+            lowerDiff = AddIOp::create(
+                b, loc, lowerDiff,
+                MulIOp::create(b, loc,
+                               ConstantIndexOp::create(b, loc, coefficient),
+                               upperIndicesDiff[upperDim]));
           }
         }
 
@@ -560,14 +562,15 @@ struct IndexDiffUpdateRewritePattern
           auto mbUpperDiff = isConstantValue(upperIndicesDiff[upperDim]);
           auto mbLowerDiff = isConstantValue(lowerDiff);
           if (mbUpperDiff.has_value() && mbLowerDiff.has_value()) {
-            lowerDiff = b.create<ConstantIndexOp>(
-                loc, mbUpperDiff.value() + coefficient * mbLowerDiff.value());
+            lowerDiff = ConstantIndexOp::create(
+                b, loc,
+                mbUpperDiff.value() + coefficient * mbLowerDiff.value());
           } else {
-            lowerDiff = b.create<AddIOp>(
-                loc, upperIndicesDiff[upperDim],
-                b.create<MulIOp>(loc,
-                                 b.create<ConstantIndexOp>(loc, coefficient),
-                                 lowerDiff));
+            lowerDiff = AddIOp::create(
+                b, loc, upperIndicesDiff[upperDim],
+                MulIOp::create(b, loc,
+                               ConstantIndexOp::create(b, loc, coefficient),
+                               lowerDiff));
           }
         }
         uint32_t lowerDim = q[0];
@@ -617,8 +620,8 @@ struct IndexDiffUpdateRewritePattern
           assert(lowerDiffModifiedAttr.size() == lowerIndicesOriginal.size());
 
           for (uint32_t iter = 0; iter < lowerDiffModifiedAttr.size(); ++iter) {
-            lowerDiffModified.push_back(b.create<ConstantIndexOp>(
-                loc,
+            lowerDiffModified.push_back(ConstantIndexOp::create(
+                b, loc,
                 mlir::cast<IntegerAttr>(lowerDiffModifiedAttr[iter]).getInt()));
           }
           assert(lowerDiffModified.size() == lowerIndicesOriginal.size());
@@ -720,18 +723,18 @@ struct IndexDiffUpdateRewritePattern
             if (index < upperBound) {
               overflowOp = zeroConstantOp;
               lowerIndicesCarryChecked[lowerDim] =
-                  b.create<ConstantIndexOp>(loc, index);
+                  ConstantIndexOp::create(b, loc, index);
               lowerDiffsCarryChecked[lowerDim] =
-                  b.create<ConstantIndexOp>(loc, diff);
+                  ConstantIndexOp::create(b, loc, diff);
             } else {
               int64_t carry = index / upperBound;
               int64_t newIndex = index % upperBound;
               int64_t newDiff = diff - (carry * upperBound);
-              overflowOp = b.create<ConstantIndexOp>(loc, carry);
+              overflowOp = ConstantIndexOp::create(b, loc, carry);
               lowerIndicesCarryChecked[lowerDim] =
-                  b.create<ConstantIndexOp>(loc, newIndex);
+                  ConstantIndexOp::create(b, loc, newIndex);
               lowerDiffsCarryChecked[lowerDim] =
-                  b.create<ConstantIndexOp>(loc, newDiff);
+                  ConstantIndexOp::create(b, loc, newDiff);
             }
             continue;
           }
@@ -743,14 +746,14 @@ struct IndexDiffUpdateRewritePattern
             continue;
           }
 
-          Value upperBoundOp = b.create<ConstantIndexOp>(loc, upperBound);
-          Value carry = b.create<DivUIOp>(loc, index, upperBoundOp);
-          Value newIndex = b.create<RemUIOp>(loc, index, upperBoundOp);
+          Value upperBoundOp = ConstantIndexOp::create(b, loc, upperBound);
+          Value carry = DivUIOp::create(b, loc, index, upperBoundOp);
+          Value newIndex = RemUIOp::create(b, loc, index, upperBoundOp);
           // If the merge is, as is typical, near the end of the
           // transformations this computation should get hit by the dead code
           // eleminator
-          Value newDiff = b.create<SubIOp>(
-              loc, diff, b.create<MulIOp>(loc, carry, upperBoundOp));
+          Value newDiff = SubIOp::create(
+              b, loc, diff, MulIOp::create(b, loc, carry, upperBoundOp));
 
           overflowOp = carry;
           lowerDiffsCarryChecked[lowerDim] = newDiff;
@@ -781,12 +784,12 @@ struct IndexDiffUpdateRewritePattern
         // lower broadcast dims, uses map
         for (uint32_t i = 0; i < e.size(); ++i) {
           int64_t lowerLen = e[i];
-          Value lowerLenOp = b.create<ConstantIndexOp>(loc, lowerLen);
+          Value lowerLenOp = ConstantIndexOp::create(b, loc, lowerLen);
           auto mbUpperDiff = isConstantValue(upperIndicesDiff[p[i]]);
           Value wrappedDiff;
           if (mbUpperDiff.has_value()) {
             wrappedDiff =
-                b.create<ConstantIndexOp>(loc, *mbUpperDiff % lowerLen);
+                ConstantIndexOp::create(b, loc, *mbUpperDiff % lowerLen);
           } else {
             wrappedDiff = b.createOrFold<RemUIOp>(loc, upperIndicesDiff[p[i]],
                                                   lowerLenOp);
@@ -845,8 +848,9 @@ struct ExtractSliceRewritePattern : public OpRewritePattern<ExtractSliceOp> {
       for (int64_t i = 0; i < size; ++i) {
         Value cDest = b.createOrFold<ConstantIndexOp>(loc, i);
         Value cSrc = b.createOrFold<AddIOp>(loc, base, cDest);
-        Value v = b.create<vector::ExtractElementOp>(loc, op.getVector(), cSrc);
-        ret = b.create<vector::InsertElementOp>(loc, v, ret, cDest);
+        Value v =
+            vector::ExtractElementOp::create(b, loc, op.getVector(), cSrc);
+        ret = vector::InsertElementOp::create(b, loc, v, ret, cDest);
       }
       b.replaceOp(op, ret);
     } else {
@@ -879,8 +883,9 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
       for (int64_t i = 0; i < size; ++i) {
         Value cSrc = b.createOrFold<ConstantIndexOp>(loc, i);
         Value cDest = b.createOrFold<AddIOp>(loc, base, cSrc);
-        Value v = b.create<vector::ExtractElementOp>(loc, op.getSource(), cSrc);
-        ret = b.create<vector::InsertElementOp>(loc, v, ret, cDest);
+        Value v =
+            vector::ExtractElementOp::create(b, loc, op.getSource(), cSrc);
+        ret = vector::InsertElementOp::create(b, loc, v, ret, cDest);
       }
       b.replaceOp(op, ret);
     } else {
@@ -914,9 +919,9 @@ static Value computeMemRefNumElements(OpBuilder &b, Location loc,
 static Value getConstIntOrIndexValue(OpBuilder &b, Location loc, int64_t value,
                                      Type type) {
   if (isa<IndexType>(type)) {
-    return b.create<ConstantIndexOp>(loc, value);
+    return ConstantIndexOp::create(b, loc, value);
   }
-  return b.create<ConstantIntOp>(loc, type, value);
+  return ConstantIntOp::create(b, loc, type, value);
 }
 
 // Manually flatten a set of coordinates into a single address
@@ -927,10 +932,10 @@ static Value flattenCoords(OpBuilder &b, Location loc, ArrayRef<Value> coords,
   int64_t stride = 1;
   for (int i = shape.size() - 2; i >= 0; i--) {
     stride *= shape[i + 1];
-    flatCoord = b.create<arith::AddIOp>(
-        loc, flatCoord,
-        b.create<arith::MulIOp>(
-            loc, coords[i],
+    flatCoord = arith::AddIOp::create(
+        b, loc, flatCoord,
+        arith::MulIOp::create(
+            b, loc, coords[i],
             getConstIntOrIndexValue(b, loc, stride, coordType)));
   }
 
@@ -945,10 +950,11 @@ static void unflattenCoords(OpBuilder &b, Location loc, Value flatAddress,
   Type coordType = flatAddress.getType();
   int64_t coeff = 1;
   for (int i = shape.size() - 1; i >= 0; i--) {
-    Value thisCoord = b.create<arith::DivUIOp>(
-        loc, flatAddress, getConstIntOrIndexValue(b, loc, coeff, coordType));
-    thisCoord = b.create<arith::RemUIOp>(
-        loc, thisCoord, getConstIntOrIndexValue(b, loc, shape[i], coordType));
+    Value thisCoord = arith::DivUIOp::create(
+        b, loc, flatAddress, getConstIntOrIndexValue(b, loc, coeff, coordType));
+    thisCoord = arith::RemUIOp::create(
+        b, loc, thisCoord,
+        getConstIntOrIndexValue(b, loc, shape[i], coordType));
     unflattenedAddress[i] = thisCoord;
     coeff *= shape[i];
   }
@@ -995,16 +1001,17 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   // won't do anything. However, we cannot step back, because the step back
   // would be unaligned
   if (flattenedSize % 2 != 0) {
-    Value lastElem = b.create<arith::ConstantIntOp>(loc, flattenedSize - 1, 32);
-    Value isNotLastElem = b.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::ult, address, lastElem);
-    auto guard = b.create<scf::IfOp>(loc, isNotLastElem, true);
+    Value lastElem =
+        arith::ConstantIntOp::create(b, loc, flattenedSize - 1, 32);
+    Value isNotLastElem = arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::ult, address, lastElem);
+    auto guard = scf::IfOp::create(b, loc, isNotLastElem, true);
     b.setInsertionPointToStart(&guard.getElseRegion().front());
     SmallVector<Value> indexCoords;
     for (auto c : coords)
-      indexCoords.push_back(b.create<IndexCastOp>(loc, b.getIndexType(), c));
-    b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::addf, data, dest,
-                                  indexCoords);
+      indexCoords.push_back(IndexCastOp::create(b, loc, b.getIndexType(), c));
+    memref::AtomicRMWOp::create(b, loc, AtomicRMWKind::addf, data, dest,
+                                indexCoords);
     b.setInsertionPointToStart(&guard.getThenRegion().front());
   }
 
@@ -1017,20 +1024,20 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   // Extended packed data to use with the intrinsic
   Value dataExt =
       createZeroConstantOp(b, loc, vectorTypeOrSelf(elemTy, packedVectorLen));
-  Value dataExt0 = b.create<vector::InsertElementOp>(loc, data, dataExt, zero);
-  Value dataExt1 = b.create<vector::InsertElementOp>(loc, data, dataExt, one);
+  Value dataExt0 = vector::InsertElementOp::create(b, loc, data, dataExt, zero);
+  Value dataExt1 = vector::InsertElementOp::create(b, loc, data, dataExt, one);
 
   // Manual alignment logic : if (addr % 2 != 0) step{AddressData}Back
-  Value stepBack = b.create<arith::SubIOp>(loc, address, one);
-  Value alignment = b.create<arith::RemUIOp>(loc, address, two);
+  Value stepBack = arith::SubIOp::create(b, loc, address, one);
+  Value alignment = arith::RemUIOp::create(b, loc, address, two);
   Value stepBackCond =
-      b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne, alignment, zero);
+      arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ne, alignment, zero);
 
   // Step back data and address
   Value selectAddress =
-      b.create<arith::SelectOp>(loc, stepBackCond, stepBack, address);
+      arith::SelectOp::create(b, loc, stepBackCond, stepBack, address);
   Value selectDataExt =
-      b.create<arith::SelectOp>(loc, stepBackCond, dataExt1, dataExt0);
+      arith::SelectOp::create(b, loc, stepBackCond, dataExt1, dataExt0);
 
   SmallVector<Value> alignedCoords(coords);
   alignedCoords[lastNonUnitDim] = selectAddress;
@@ -1040,9 +1047,9 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   if (shape[lastNonUnitDim] % 2 != 0)
     unflattenCoords(b, loc, selectAddress, shape, alignedCoords);
 
-  b.create<amdgpu::RawBufferAtomicFaddOp>(loc, selectDataExt, dest,
-                                          alignedCoords, useBufferOobChecks,
-                                          nullptr, nullptr);
+  amdgpu::RawBufferAtomicFaddOp::create(b, loc, selectDataExt, dest,
+                                        alignedCoords, useBufferOobChecks,
+                                        nullptr, nullptr);
 }
 
 /// Call builder(int64_t base, Type thisElem) repeatedly, advancing `base` by
@@ -1208,17 +1215,17 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     if (emitOobChecks && !useBufferOps) {
       Value cond = valid;
       if (op.getCanReadOffEnd()) {
-        Value fallsOffEnd = b.create<arith::CmpIOp>(
-            loc, arith::CmpIPredicate::uge, coords[0], numElems);
-        cond = b.create<arith::AndIOp>(loc, fallsOffEnd, cond);
+        Value fallsOffEnd = arith::CmpIOp::create(
+            b, loc, arith::CmpIPredicate::uge, coords[0], numElems);
+        cond = arith::AndIOp::create(b, loc, fallsOffEnd, cond);
       }
       auto guard =
-          b.create<scf::IfOp>(loc, originalLoadedType, cond, true, true);
+          scf::IfOp::create(b, loc, originalLoadedType, cond, true, true);
       b.replaceOp(op, guard);
 
       b.setInsertionPointToEnd(guard.getBody(1));
       Value zeroes = createZeroConstantOp(b, loc, originalLoadedType);
-      b.create<scf::YieldOp>(loc, zeroes);
+      scf::YieldOp::create(b, loc, zeroes);
       b.setInsertionPointToEnd(guard.getBody(0));
     }
 
@@ -1229,12 +1236,12 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
       if (emitOobChecks) {
         Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
         for (Value &c : MutableArrayRef<Value>(coords).drop_back())
-          c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
+          c = arith::SelectOp::create(b, loc, valid, c, zeroConstantOp);
         Value &lastCoord = coords.back();
-        lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
+        lastCoord = arith::SelectOp::create(b, loc, valid, lastCoord, numElems);
       }
       for (Value &c : MutableArrayRef<Value>(coords))
-        c = b.create<IndexCastOp>(loc, b.getI32Type(), c);
+        c = IndexCastOp::create(b, loc, b.getI32Type(), c);
       Value origLastCoord = coords.empty() ? nullptr : coords.back();
       Value loaded = createZeroConstantOp(b, loc, loadedType);
       perHardwareOp(loadedType, [&](int64_t offset, Type thisOpTy) {
@@ -1243,10 +1250,10 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
           Value offsetI32Const =
               b.createOrFold<arith::ConstantIntOp>(loc, offset, 32);
           coords.back() =
-              b.create<arith::AddIOp>(loc, origLastCoord, offsetI32Const);
+              arith::AddIOp::create(b, loc, origLastCoord, offsetI32Const);
         }
-        Value thisLoad = b.create<amdgpu::RawBufferLoadOp>(
-            loc, thisOpTy, source, coords,
+        Value thisLoad = amdgpu::RawBufferLoadOp::create(
+            b, loc, thisOpTy, source, coords,
             /*boundsCheck=*/(emitOobChecks || op.getCanReadOffEnd()), nullptr,
             nullptr);
         if (isa<VectorType>(loadedType))
@@ -1261,14 +1268,14 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     } else {
       Value loaded;
       if (isa<VectorType>(loadedType))
-        loaded = b.create<vector::LoadOp>(loc, loadedType, source, coords);
+        loaded = vector::LoadOp::create(b, loc, loadedType, source, coords);
       else
-        loaded = b.create<memref::LoadOp>(loc, loadedType, source, coords);
+        loaded = memref::LoadOp::create(b, loc, loadedType, source, coords);
 
       loaded = selectDataIf4b(loc, b, sourceCoords, srcType, originalLoadedType,
                               loaded);
       if (emitOobChecks)
-        b.create<scf::YieldOp>(loc, loaded);
+        scf::YieldOp::create(b, loc, loaded);
       else
         b.replaceOp(op, loaded);
     }
@@ -1325,22 +1332,22 @@ struct GlobalLoadToLDSRewritePattern
       if (emitOobChecks) {
         Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
         for (Value &c : MutableArrayRef<Value>(coords).drop_back())
-          c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
+          c = arith::SelectOp::create(b, loc, valid, c, zeroConstantOp);
         Value &lastCoord = coords.back();
-        lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
+        lastCoord = arith::SelectOp::create(b, loc, valid, lastCoord, numElems);
       }
       for (Value &c : MutableArrayRef<Value>(coords))
-        c = b.create<IndexCastOp>(loc, b.getIndexType(), c);
+        c = IndexCastOp::create(b, loc, b.getIndexType(), c);
 
-      source = b.create<amdgpu::FatRawBufferCastOp>(
-          loc, source, /*validBytes=*/Value{},
+      source = amdgpu::FatRawBufferCastOp::create(
+          b, loc, source, /*validBytes=*/Value{},
           /*cacheSwizzleStride=*/Value{},
           /*boundsCheck=*/(emitOobChecks || op.getCanReadOffEnd()),
           /*resetOffset=*/false);
     }
 
-    auto gaterToLDS = b.create<amdgpu::GatherToLDSOp>(
-        loc, source, coords, dest, destCoords, op.getTransferType());
+    auto gaterToLDS = amdgpu::GatherToLDSOp::create(
+        b, loc, source, coords, dest, destCoords, op.getTransferType());
     b.replaceOp(op, gaterToLDS);
     return success();
   }
@@ -1367,41 +1374,41 @@ static Operation *makeAtomicFmax(PatternRewriter &b, Location loc, Value data,
                                  bool useBufferOps, bool useBufferOobChecks) {
   // if (bitEnumContainsAll(features, GemmFeatures::atomic_fmax_f32)) {
   if (useBufferOps)
-    return b.create<amdgpu::RawBufferAtomicFmaxOp>(
-        loc, data, dest, coords, useBufferOobChecks, nullptr, nullptr);
-  return b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::maximumf, data, dest,
-                                       coords);
+    return amdgpu::RawBufferAtomicFmaxOp::create(
+        b, loc, data, dest, coords, useBufferOobChecks, nullptr, nullptr);
+  return memref::AtomicRMWOp::create(b, loc, AtomicRMWKind::maximumf, data,
+                                     dest, coords);
 // Disabled because we can't make this hack work in general.
 #if 0
   }
-  Value dataAsInt = b.create<arith::BitcastOp>(loc, b.getI32Type(), data);
+  Value dataAsInt = arith::BitcastOp::create(b, loc, b.getI32Type(), data);
   // Note: this doesn't work, and you'd need to add an upstream op which does
   // this.
   Value destAsInt = b.createOrFold<memref::CastOp>(
       loc, cast<MemRefType>(dest.getType()).clone(b.getI32Type()), dest);
   Value zeroConstantOp = b.createOrFold<ConstantIntOp>(loc, 0, 32);
   Value signbitConstantOp = b.createOrFold<ConstantIntOp>(loc, 0x80000000, 32);
-  Value sign = b.create<arith::AndIOp>(loc, signbitConstantOp, dataAsInt);
-  auto isPos = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+  Value sign = arith::AndIOp::create(b, loc, signbitConstantOp, dataAsInt);
+  auto isPos = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq,
                                        zeroConstantOp, sign);
-  auto ret = b.create<scf::IfOp>(
+  auto ret = scf::IfOp::create(b,
       loc, isPos,
       [&](OpBuilder &b, Location loc) {
         if (useBuffers)
-          b.create<amdgpu::RawBufferAtomicSmaxOp>(loc, dataAsInt, destAsInt,
+          amdgpu::RawBufferAtomicSmaxOp::create(b, loc, dataAsInt, destAsInt,
                                                   coords, useBufferOobChecks,
                                                   nullptr, nullptr);
         else
-          b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::maxs, dataAsInt,
+          memref::AtomicRMWOp::create(b, loc, AtomicRMWKind::maxs, dataAsInt,
                                         destAsInt, coords);
       },
       [&](OpBuilder &b, Location loc) {
         if (useBuffers)
-          b.create<amdgpu::RawBufferAtomicUminOp>(loc, dataAsInt, destAsInt,
+          amdgpu::RawBufferAtomicUminOp::create(b, loc, dataAsInt, destAsInt,
                                                   coords, useBufferOobChecks,
                                                   nullptr, nullptr);
         else
-          b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::minu, dataAsInt,
+          memref::AtomicRMWOp::create(b, loc, AtomicRMWKind::minu, dataAsInt,
                                         destAsInt, coords);
       });
   return ret;
@@ -1463,11 +1470,11 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     if (emitOobChecks && !useBufferOps) {
       Value cond = valid;
       if (op.getCanStoreOffEnd()) {
-        Value fallsOffEnd = b.create<arith::CmpIOp>(
-            loc, arith::CmpIPredicate::uge, coords[0], numElems);
-        cond = b.create<arith::AndIOp>(loc, fallsOffEnd, cond);
+        Value fallsOffEnd = arith::CmpIOp::create(
+            b, loc, arith::CmpIPredicate::uge, coords[0], numElems);
+        cond = arith::AndIOp::create(b, loc, fallsOffEnd, cond);
       }
-      auto guard = b.create<scf::IfOp>(loc, cond, false);
+      auto guard = scf::IfOp::create(b, loc, cond, false);
       // This goes to the start because there's alread a terminator.
       b.setInsertionPointToStart(guard.getBody(0));
     }
@@ -1476,12 +1483,12 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
       if (emitOobChecks) {
         Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
         for (Value &c : MutableArrayRef<Value>(coords).drop_back())
-          c = b.create<arith::SelectOp>(loc, valid, c, zeroConstantOp);
+          c = arith::SelectOp::create(b, loc, valid, c, zeroConstantOp);
         Value &lastCoord = coords.back();
-        lastCoord = b.create<arith::SelectOp>(loc, valid, lastCoord, numElems);
+        lastCoord = arith::SelectOp::create(b, loc, valid, lastCoord, numElems);
       }
       for (Value &c : MutableArrayRef<Value>(coords))
-        c = b.create<IndexCastOp>(loc, b.getI32Type(), c);
+        c = IndexCastOp::create(b, loc, b.getI32Type(), c);
     }
     Value origLastCoord = coords.empty() ? nullptr : coords.back();
 
@@ -1497,7 +1504,7 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
           thisSrc = b.createOrFold<arith::AddIOp>(
               loc, thisSrc, b.createOrFold<arith::ConstantIndexOp>(loc, i));
         Value data =
-            b.create<InBoundsLoadOp>(loc, loadType, op.getSource(), thisSrc);
+            InBoundsLoadOp::create(b, loc, loadType, op.getSource(), thisSrc);
         if (i > 0) {
           Value offsetConst;
           if (useBufferOps)
@@ -1509,14 +1516,15 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
         }
         if (memoryOp == StoreMethod::AtomicAdd) {
           if (useBufferOps && (usePackedFp16 || elemTy.isF32()))
-            b.create<amdgpu::RawBufferAtomicFaddOp>(
-                loc, data, dest, coords, useBufferOobChecks, nullptr, nullptr);
+            amdgpu::RawBufferAtomicFaddOp::create(b, loc, data, dest, coords,
+                                                  useBufferOobChecks, nullptr,
+                                                  nullptr);
           else if (useBufferOps && isa<Float16Type, BFloat16Type>(elemTy))
             atomicFp16AddAligned(b, loc, data, dest, elemTy, coords,
                                  useBufferOobChecks);
           else
-            b.create<memref::AtomicRMWOp>(loc, AtomicRMWKind::addf, data, dest,
-                                          coords);
+            memref::AtomicRMWOp::create(b, loc, AtomicRMWKind::addf, data, dest,
+                                        coords);
         } else if (memoryOp == StoreMethod::AtomicMax) {
           makeAtomicFmax(b, loc, data, dest, coords, useBufferOps,
                          useBufferOobChecks);
@@ -1528,13 +1536,13 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
       return success();
     }
     Value data =
-        b.create<InBoundsLoadOp>(loc, storeTy, op.getSource(), sourceStart);
+        InBoundsLoadOp::create(b, loc, storeTy, op.getSource(), sourceStart);
     bool nontemporal = op.getNontemporal();
     if (!useBufferOps) {
       if (isa<VectorType>(storeTy))
-        b.create<vector::StoreOp>(loc, data, dest, coords, nontemporal);
+        vector::StoreOp::create(b, loc, data, dest, coords, nontemporal);
       else
-        b.create<memref::StoreOp>(loc, data, dest, coords, nontemporal);
+        memref::StoreOp::create(b, loc, data, dest, coords, nontemporal);
     } else {
       perHardwareOp(storeTy, [&](int64_t offset, Type thisStoreTy) {
         Value offsetConst = b.createOrFold<arith::ConstantIndexOp>(loc, offset);
@@ -1542,14 +1550,14 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
           Value offsetI32Const =
               b.createOrFold<arith::ConstantIntOp>(loc, offset, 32);
           coords.back() =
-              b.create<arith::AddIOp>(loc, origLastCoord, offsetI32Const);
+              arith::AddIOp::create(b, loc, origLastCoord, offsetI32Const);
         }
         Value thisData = data;
         if (isa<VectorType>(data.getType()))
           thisData =
-              b.create<ExtractSliceOp>(loc, thisStoreTy, data, offsetConst);
-        b.create<amdgpu::RawBufferStoreOp>(
-            loc, thisData, dest, coords,
+              ExtractSliceOp::create(b, loc, thisStoreTy, data, offsetConst);
+        amdgpu::RawBufferStoreOp::create(
+            b, loc, thisData, dest, coords,
             /*boundsCheck=*/(emitOobChecks || op.getCanStoreOffEnd()), nullptr,
             nullptr);
       });

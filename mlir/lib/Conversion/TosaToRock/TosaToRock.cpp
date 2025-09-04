@@ -207,7 +207,7 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
                  layout.substr(lowerDim, layout.size() - lowerDim))
                .str();
 
-  return rw.create<rock::TransformOp>(loc, operand, transform.get());
+  return rock::TransformOp::create(rw, loc, operand, transform.get());
 }
 
 static rock::GemmFeatures getGemmFeaturesFromOp(Operation *op, Type inputType) {
@@ -323,8 +323,8 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   ConvFields convFields =
       commonConv(rw, op, input, filter, output, pad, stride, dilation, group);
 
-  auto cop = rw.create<rock::ConvOp>(
-      loc, convFields.outputExp.getType(), convFields.filterExp,
+  auto cop = rock::ConvOp::create(
+      rw, loc, convFields.outputExp.getType(), convFields.filterExp,
       convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
       convFields.stride, convFields.dilation,
@@ -594,11 +594,12 @@ struct ElementwiseRegionFinder {
     RankedTensorType resTensorType = cast<RankedTensorType>(lastRes.getType());
     MemRefType resMemRefType = MemRefType::get(resTensorType.getShape(),
                                                resTensorType.getElementType());
-    Value resMemref = regionBuilder.create<bufferization::ToBufferOp>(
-        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType), lastRes);
+    Value resMemref = regionbufferization::ToBufferOp::create(
+        builder, loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
+        lastRes);
     Value outMemref = block->addArgument(resMemRefType, loc);
-    regionBuilder.create<memref::CopyOp>(loc, resMemref, outMemref);
-    regionBuilder.create<rock::YieldOp>(loc);
+    regionmemref::CopyOp::create(builder, loc, resMemref, outMemref);
+    regionrock::YieldOp::create(builder, loc);
   }
 
 private:
@@ -631,7 +632,7 @@ public:
       return failure();
 
     Value output =
-        rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
+        bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
     int64_t group = 1;
     if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
@@ -642,8 +643,8 @@ public:
     if (failed(rockConv))
       return failure();
 
-    Value result = rw.create<rock::TensorUntransformCastOp>(
-        loc, outputType, rockConv->getResult(), rockConv->getOutput());
+    Value result = rock::TensorUntransformCastOp::create(
+        rw, loc, outputType, rockConv->getResult(), rockConv->getOutput());
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
@@ -667,10 +668,10 @@ public:
       reassociations.push_back(exprs);
 
       auto biasExpand =
-          rw.create<tensor::ExpandShapeOp>(loc, newType, bias, reassociations);
+          tensor::ExpandShapeOp::create(rw, loc, newType, bias, reassociations);
 
-      result = rw.create<tosa::AddOp>(loc, op.getType(),
-                                      ValueRange{result, biasExpand});
+      result = tosa::AddOp::create(rw, loc, op.getType(),
+                                   ValueRange{result, biasExpand});
     }
 
     rw.replaceOp(op, result);
@@ -695,7 +696,7 @@ static Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape,
   if (!broadcastDone) {
     return inp;
   }
-  return b.create<rock::TransformOp>(loc, inp, broadcastDims.get());
+  return rock::TransformOp::create(b, loc, inp, broadcastDims.get());
 }
 
 class MatMulConverter final : public OpConversionPattern<tosa::MatMulOp> {
@@ -738,7 +739,7 @@ public:
     Location loc = op->getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
     Value output =
-        rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
+        bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
     rock::GemmFeatures features =
         getGemmFeaturesFromOp(op, op.getA().getType());
@@ -770,8 +771,9 @@ public:
     setLastDims(transposeB, bShape, {kDim, nDim});
     Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
 
-    auto rockGemm = rw.create<rock::GemmOp>(
-        loc, outputType, brA, brB, output, transposeA, transposeB, transposeC,
+    auto rockGemm = rock::GemmOp::create(
+        rw, loc, outputType, brA, brB, output, transposeA, transposeB,
+        transposeC,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
@@ -955,8 +957,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         }
 
         tensor::CollapseShapeOp newCollapseShapeOp =
-            rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), tInput,
-                                                     newReassocIndicesSorted);
+            tensor::CollapseShapeOp::create(rewriter, op.getLoc(), tInput,
+                                            newReassocIndicesSorted);
 
         if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), newDims,
                                          newCollapseShapeOp.getResult())
@@ -1145,8 +1147,8 @@ struct ConvElementwiseGemmRewritePattern
       PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
-    Value output = rewriter.create<bufferization::AllocTensorOp>(
-        loc, outputType, ValueRange{});
+    Value output = bufferization::AllocTensorOp::create(
+        rewriter, loc, outputType, ValueRange{});
 
     // This is guaranteed by the matcher
     tosa::Conv2DOp firstConv =
@@ -1163,9 +1165,9 @@ struct ConvElementwiseGemmRewritePattern
                    output, firstConv.getPadAttr(), firstConv.getStrideAttr(),
                    firstConv.getDilationAttr(), group);
     auto firstGemmBlockIndex = elementwiseRegionFinder.getFirstGemmBlockIndex();
-    auto convElentwiseGemmOp = rewriter.create<rock::ConvElementwiseGemmOp>(
-        loc, outputType, convFields.filterExp, convFields.inputExp, op.getB(),
-        elementwiseOtherArgs, output,
+    auto convElentwiseGemmOp = rock::ConvElementwiseGemmOp::create(
+        rewriter, loc, outputType, convFields.filterExp, convFields.inputExp,
+        op.getB(), elementwiseOtherArgs, output,
         /*cTransposed=*/nullptr,
         /*oTransposed=*/nullptr, /*features=*/nullptr, convFields.pad,
         convFields.stride, convFields.dilation,
@@ -1222,17 +1224,17 @@ struct GemmElementwiseGemmRewritePattern
                PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
-    Value output = rewriter.create<bufferization::AllocTensorOp>(
-        loc, outputType, ValueRange{});
+    Value output = bufferization::AllocTensorOp::create(
+        rewriter, loc, outputType, ValueRange{});
     SmallVector<Value> elementwiseOtherArgs =
         elemwiseFinder.getElementwiseArgs();
     // This is guranteed by the matcher
     tosa::MatMulOp firstMatMulOp = elemwiseFinder.getFirstGemmBasedOp().value();
     int64_t firstGemmBlockIndex = elemwiseFinder.getFirstGemmBlockIndex();
     rock::GemmElementwiseGemmOp gemmElentwiseGemmOp =
-        rewriter.create<rock::GemmElementwiseGemmOp>(
-            loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(),
-            op.getB(), elementwiseOtherArgs, output,
+        rock::GemmElementwiseGemmOp::create(
+            rewriter, loc, outputType, firstMatMulOp.getA(),
+            firstMatMulOp.getB(), op.getB(), elementwiseOtherArgs, output,
             /*qTransposed=*/nullptr,
             /*kTransposed=*/nullptr,
             /*vTransposed=*/nullptr,
@@ -1767,8 +1769,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         normalizedShape, inputTensor.getType().getElementType());
     auto normalizedShapeValue =
         tosa::getTosaConstShape(rewriter, loc, normalizedShape);
-    auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
-        loc, normalizedType, inputTensor, normalizedShapeValue);
+    auto reshapeOp = tosa::ReshapeOp::create(rewriter, loc, normalizedType,
+                                             inputTensor, normalizedShapeValue);
     return reshapeOp;
   }
 
@@ -1933,8 +1935,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
-    Value output = rewriter.create<bufferization::AllocTensorOp>(
-        loc, outputType, ValueRange{});
+    Value output = bufferization::AllocTensorOp::create(
+        rewriter, loc, outputType, ValueRange{});
     RankedTensorType lseType;
     Value lse = attentionMatcherValues.lse;
     Value lseOut, lseOrig;
@@ -1946,12 +1948,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
       // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
       lseOrig = lse;
-      lse = rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), lse,
-                                                     reassocIndicesLSE);
+      lse = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), lse,
+                                            reassocIndicesLSE);
 
       lseType = cast<RankedTensorType>(lse.getType());
-      lseOut = rewriter.create<bufferization::AllocTensorOp>(loc, lseType,
-                                                             ValueRange{});
+      lseOut = bufferization::AllocTensorOp::create(rewriter, loc, lseType,
+                                                    ValueRange{});
     }
     ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder =
         attentionMatcherValues.preSoftmaxElementwiseFinder;
@@ -1972,16 +1974,17 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (currentSeqLen &&
         cast<ShapedType>(currentSeqLen.getType()).getRank() == 2) {
       SmallVector<ReassociationIndices> reassocIndices = {{0, 1}};
-      currentSeqLen = rewriter.create<tensor::CollapseShapeOp>(
-          op.getLoc(), currentSeqLen, reassocIndices);
+      currentSeqLen = tensor::CollapseShapeOp::create(
+          rewriter, op.getLoc(), currentSeqLen, reassocIndices);
     }
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
         attentionMatcherValues.preSoftmaxElementwiseFinder;
     int64_t firstGemmBlockIndex = elemwiseRegion.getFirstGemmBlockIndex();
-    rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
-        loc, outputType, lseType, firstMatMulOp.getA(), firstMatMulOp.getB(),
-        op.getB(), elementwiseOtherArgs, currentSeqLen, output, lseOut,
+    rock::AttentionOp attnOp = rock::AttentionOp::create(
+        rewriter, loc, outputType, lseType, firstMatMulOp.getA(),
+        firstMatMulOp.getB(), op.getB(), elementwiseOtherArgs, currentSeqLen,
+        output, lseOut,
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
@@ -2001,8 +2004,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value expandedOutLse;
     if (lse) {
       // Reverse the collapse operation
-      expandedOutLse = rewriter.create<tensor::ExpandShapeOp>(
-          op.getLoc(), lseOrig.getType(), attnOp->getResult(1),
+      expandedOutLse = tensor::ExpandShapeOp::create(
+          rewriter, op.getLoc(), lseOrig.getType(), attnOp->getResult(1),
           reassocIndicesLSE);
 
       // collecting AddOp before the first replace
@@ -2043,7 +2046,7 @@ typename std::enable_if_t<
   Location loc = op->getLoc();
   auto outputType = cast<RankedTensorType>(op.getType());
   Value output =
-      rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
+      bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
   int32_t blockSize = 256;
   auto elementCount =
@@ -2054,8 +2057,8 @@ typename std::enable_if_t<
     gridSize = std::min((int32_t)(20 * numCU.value()), gridSize);
   }
 
-  auto rockReduce = rw.create<rock::ReduceOp>(
-      loc, outputType, op.getInput(), output,
+  auto rockReduce = rock::ReduceOp::create(
+      rw, loc, outputType, op.getInput(), output,
       rw.getAttr<rock::ReduceMethodAttr>(rMethod),
       rw.getIndexAttr(op.getAxis()), rw.getI32IntegerAttr(blockSize),
       rw.getI32IntegerAttr(gridSize),
