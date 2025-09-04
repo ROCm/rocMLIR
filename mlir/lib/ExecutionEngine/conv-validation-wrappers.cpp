@@ -152,30 +152,14 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
 
     if (valNum == gpuNum) {
       hist_relDiff[0]++;
-    } else if (std::fpclassify(valNum) == FP_SUBNORMAL) {
-      if (std::is_same<T, float>::value) {
+    } else if ((std::fpclassify(valNum) == FP_SUBNORMAL) &&
+               (std::is_same<T, float>::value)) {
         // Since we are comparing the output of the kernel, and not the direct
         // output of operations there is a chance that fusion can modify f32
         // values such that the sign of the GPU and CPU result will differ even
         // though the results are correct. In this case we are going to treat
         // f32 subnormals as always being correct
         hist_relDiff[0]++;
-      } else if ((gpuNum == 0.0f ||
-                  (std::fpclassify(gpuNum) == FP_SUBNORMAL)) &&
-                 (std::signbit(valNum) == std::signbit(gpuNum))) {
-        // Otherwise, if cpu value is subnormal, treat as correct only if gpu
-        // value is zero and the sign bits match
-        hist_relDiff[0]++;
-      } else {
-        // Count as a failure otherwise and put it into the last failure
-        // bucket
-        hist_relDiff[NUM_BUCKETS - 1]++;
-        if (print_option == PrintOption::Always ||
-            print_option == PrintOption::Failure) {
-          printf("%lld: subnormal valNum=%f, gpuNum=%f (expected gpuNum==0)\n",
-                 i, valNum, gpuNum);
-        }
-      }
     } else {
       // We know valNum != gpuNum. If valNum is inf, this branch will simply
       // return nan. Let's instead represent infinite with max<fp16> and let's
