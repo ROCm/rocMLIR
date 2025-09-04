@@ -1556,10 +1556,9 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
     } else {
       vOp = rock::createConstantFloatOp(b, loc, elemType, elemType, v.value());
     }
-    constantsVec = vector::InsertElementOp::create(
-                       b, loc, vOp, constantsVec,
-                       arith::ConstantIndexOp::create(b, loc, v.index()))
-                       .getResult();
+    constantsVec =
+        vector::InsertOp::create(b, loc, vOp, constantsVec, v.index())
+            .getResult();
   }
 
   Value toFillFlat = makeNDMemRef(b, toFill, 1);
@@ -1583,8 +1582,8 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
                                                ValueRange ivs) {
         auto selectorOp =
             affine::AffineApplyOp::create(b, loc, rowMajorMap, ivs);
-        Value toStore = vector::ExtractElementOp::create(
-                            b, loc, constantsVec, selectorOp->getResult(0))
+        Value toStore = vector::ExtractOp::create(b, loc, constantsVec,
+                                                  selectorOp->getResult(0))
                             .getResult();
         memref::StoreOp::create(b, loc, toStore, toFillFlat, ivs);
       });
@@ -4144,8 +4143,8 @@ static void insertPrefills(func::FuncOp fut) {
       for (auto argIdxAndValueAttr : argInitValues) {
         int argIdx = argIdxAndValueAttr.first;
         auto valueAttr = argIdxAndValueAttr.second;
-        auto fillValue = arith::ConstantOp >
-                         (loc, cast < TypedAttr::create(builder, valueAttr));
+        auto fillValue =
+            arith::ConstantOp::create(builder, loc, cast<TypedAttr>(valueAttr));
         Value originalArg = launchOp.getArgOperands()[argIdx];
         linalg::FillOp::create(builder, loc, ValueRange{fillValue},
                                ValueRange{originalArg});

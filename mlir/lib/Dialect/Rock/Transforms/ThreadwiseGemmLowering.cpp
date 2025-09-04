@@ -188,13 +188,13 @@ struct ThreadwiseGemmRewritePattern
         if (abType.getNumElements() != 1)
           return op.emitOpError(
               "Shouldn't've gone down the scalar code path (int)");
-        result = vector::ExtractElementOp::create(b, loc, result, zeroConst);
+        result = vector::ExtractOp::create(b, loc, result, zeroConst);
       } else if (isa<FloatType>(dataType)) {
         result = vector::FMAOp::create(b, loc, aVal, bVal, cVector);
         if (abType.getNumElements() != 1)
           return op.emitOpError(
               "Shouldn't've gone down the scalar code path (float)");
-        result = vector::ExtractElementOp::create(b, loc, result, zeroConst);
+        result = vector::ExtractOp::create(b, loc, result, zeroConst);
       } else {
         llvm_unreachable("Validation should make this ints or floats only");
       }
