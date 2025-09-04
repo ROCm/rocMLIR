@@ -1279,18 +1279,27 @@ void AMDGPUAsmPrinter::getSIProgramInfo(SIProgramInfo &ProgInfo,
       ProgInfo.NumSGPRsForWavesPerEU, ProgInfo.NumVGPRsForWavesPerEU,
       MFI->getDynamicVGPRBlockSize(), STM, Ctx);
 
-  const auto [MinWEU, MaxWEU] =
-      AMDGPU::getIntegerPairAttribute(F, "amdgpu-waves-per-eu", {0, 0}, true);
-  uint64_t Occupancy;
-  if (TryGetMCExprValue(ProgInfo.Occupancy, Occupancy) && Occupancy < MinWEU) {
-    DiagnosticInfoOptimizationFailure Diag(
-        F, F.getSubprogram(),
-        "failed to meet occupancy target given by 'amdgpu-waves-per-eu' in "
-        "'" +
-            F.getName() + "': desired occupancy was " + Twine(MinWEU) +
-            ", final occupancy is " + Twine(Occupancy));
-    F.getContext().diagnose(Diag);
-  }
+  /*
+   // Following lines are commented out as they print unnecessary occupancy
+   unmet warnings for the rocMLIR.
+   // rocDL sets minWavesPerEU in as a guide for AMD GPU Codegen, which is not
+   guranteed to be met always.
+   // DiagnosticInfoOptimizationFailure is always enabled as its severity is
+   "DS_Warning".
+   // Therefore commenting following lines.
+   const auto [MinWEU, MaxWEU] =
+       AMDGPU::getIntegerPairAttribute(F, "amdgpu-waves-per-eu", {0, 0}, true);
+   uint64_t Occupancy;
+   if (TryGetMCExprValue(ProgInfo.Occupancy, Occupancy) && Occupancy < MinWEU) {
+     DiagnosticInfoOptimizationFailure Diag(
+         F, F.getSubprogram(),
+         "failed to meet occupancy target given by 'amdgpu-waves-per-eu' in "
+         "'" +
+             F.getName() + "': desired occupancy was " + Twine(MinWEU) +
+             ", final occupancy is " + Twine(Occupancy));
+     F.getContext().diagnose(Diag);
+   }
+   */
 
   if (isGFX11Plus(STM)) {
     uint32_t CodeSizeInBytes = (uint32_t)std::min(
