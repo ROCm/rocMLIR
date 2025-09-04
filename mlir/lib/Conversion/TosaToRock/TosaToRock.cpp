@@ -1467,6 +1467,23 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   template <typename TosaOp>
+  TosaOp getDefiningNonReshapeOpNonCastOpNonBroadcastOp(Value val) const {
+    while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
+           val.getDefiningOp<tensor::ExpandShapeOp>() ||
+           val.getDefiningOp<tosa::CastOp>() ||
+           val.getDefiningOp<tosa::AddOp>()) {
+      if (val.getDefiningOp<tosa::AddOp>()) {
+        auto maybeBroadcast = addBroadcast(val);
+        if (failed(maybeBroadcast))
+          return nullptr;
+        val = maybeBroadcast.value();
+      } else
+        val = val.getDefiningOp()->getOperand(0);
+    }
+    return val.getDefiningOp<TosaOp>();
+  }
+
+  template <typename TosaOp>
   TosaOp getDefiningNonReshapeOp(Value val) const {
     while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
            val.getDefiningOp<tensor::ExpandShapeOp>()) {
@@ -1519,18 +1536,29 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                                    size_t nonOneDimFromEnd) const {
     // input is a constant with a range from 0 to maxSeqLen
     FailureOr<Value> maybeNonOne = mulBroadcast(input);
-    if (failed(maybeNonOne))
-      return failure();
+    Value rangeInput;
+    if (failed(maybeNonOne)) {
+      // If mulBroadcast fails, check if input is already a constant
+      if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(input)) {
+        rangeInput = constOp.getResult();
+      } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(input)) {
+        rangeInput = constOp.getResult();
+      } else {
+        return failure();
+      }
+    } else {
+      rangeInput = maybeNonOne.value();
+    }
 
     // check that maybeNonOne is a const with range 0..maxSeqLen
     bool isRange = false;
     Value rangeResult;
     if (auto constRange =
-            getDefiningNonReshapeOp<arith::ConstantOp>(maybeNonOne.value())) {
+            getDefiningNonReshapeOp<arith::ConstantOp>(rangeInput)) {
       rangeResult = constRange.getResult();
       isRange = rock::isConstRange(rangeResult);
     } else if (auto constRange = getDefiningNonReshapeOp<tosa::ConstOp>(
-                   maybeNonOne.value())) {
+                   rangeInput)) {
       rangeResult = constRange.getResult();
       isRange = rock::isConstRange(rangeResult);
     }
@@ -1568,8 +1596,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return failure();
 
       auto pred = select.getInput1();
-      if (auto greater =
-              getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
+      if (auto greater = getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred)) {
         // input1 is a constant with a range from 0 to maxSeqLen (KV)
         if (failed(getConstComparison(greater.getInput1(), 0)))
           return failure();
@@ -1709,7 +1736,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
       auto pred = select.getInput1();
       if (auto greater =
-              getDefiningNonReshapeOpNonCastOp<tosa::GreaterOp>(pred)) {
+              getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred)) {
         // input1 is a constant with a range from 0 to maxSeqLen
         if (failed(getConstComparison(greater.getInput1(), 0)))
           return failure();

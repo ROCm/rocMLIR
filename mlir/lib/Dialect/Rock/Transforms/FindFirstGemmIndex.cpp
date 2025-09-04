@@ -58,67 +58,6 @@ static bool canTraceToFirstGemmArg(Value input, Value firstGemmArg) {
   return maybeBlockArg.value() == firstGemmArg;
 }
 
-static bool isMaskGeneric(linalg::GenericOp genOp) {
-  // Only consider generics with a single output
-  if (genOp.getOutputs().size() != 1)
-    return false;
-
-  Value output = genOp.getOutputs()[0];
-  SmallVector<Value, 4> worklist{output};
-  llvm::SmallPtrSet<Value, 8> visited;
-  while (!worklist.empty()) {
-    Value val = worklist.pop_back_val();
-    if (!visited.insert(val).second)
-      continue;
-
-    for (OpOperand &use : val.getUses()) {
-      Operation *user = use.getOwner();
-
-      // If it's a linalg.generic, check its region for arith.select
-      if (auto nextGen = dyn_cast<linalg::GenericOp>(user)) {
-        // We don't want to look at the same generic twice
-        if (nextGen == genOp)
-          continue;
-
-        // Find which block argument corresponds to our value
-        unsigned argIdx = use.getOperandNumber();
-        Block &body = nextGen.getRegion().front();
-        BlockArgument barg = body.getArgument(argIdx);
-        
-        auto isDerivedFromBlockArg = [&](Value val, BlockArgument barg) {
-        SmallVector<Value, 4> toCheck{val};
-        llvm::SmallPtrSet<Value, 8> visited;
-        while (!toCheck.empty()) {
-          Value v = toCheck.pop_back_val();
-          if (!visited.insert(v).second)
-            continue;
-          if (v == barg)
-            return true;
-          if (auto defOp = v.getDefiningOp()) {
-            for (Value operand : defOp->getOperands())
-              toCheck.push_back(operand);
-          }
-        }
-        return false;
-      };
-
-      for (Operation &op : body) {
-        if (auto selectOp = dyn_cast<arith::SelectOp>(&op)) {
-          if (isDerivedFromBlockArg(selectOp.getCondition(), barg))
-            return true;
-        }
-      }
-      } else {
-        // For any other op, add all its results to the worklist
-        for (Value result : user->getResults()) {
-          worklist.push_back(result);
-        }
-      }
-    }
-  }
-  return false;
-}
-
 static LogicalResult
 reassignFirstGemmIndex(func::FuncOp &func,
                        rock::RockGemmGemmWrapperInterface gemmGemmOp) {
@@ -192,11 +131,6 @@ reassignFirstGemmIndex(func::FuncOp &func,
       }
     }
     if (newFirstGemmIndices.empty()) {
-      // If a linalg.generic is used for computing the mask for the select,
-      // then we can continue without reassigning the index.
-      if (isMaskGeneric(genOp))
-        continue;
-
       // If no inputs can be traced back to the first gemm argument, we cannot
       // reassign the index for this generic op.
       LLVM_DEBUG(llvm::dbgs() << genOp << "\n");
