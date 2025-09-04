@@ -1156,50 +1156,8 @@ let ManualCodegen = [{
 let UnMaskedPolicyScheme = HasPassthruOperand in {
 let ManualCodegen = [{
   {
-<<<<<<< HEAD
-    // LLVM intrinsic
-    // Unmasked: (passthru, op0, round_mode, vl)
-    // Masked:   (passthru, op0, mask, frm, vl, policy)
-
-    SmallVector<llvm::Value*, 6> Operands;
-    bool HasMaskedOff = !(
-        (IsMasked && (PolicyAttrs & RVV_VTA) && (PolicyAttrs & RVV_VMA)) ||
-        (!IsMasked && PolicyAttrs & RVV_VTA));
-    bool HasRoundModeOp = IsMasked ?
-      (HasMaskedOff ? Ops.size() == 5 : Ops.size() == 4) :
-      (HasMaskedOff ? Ops.size() == 4 : Ops.size() == 3);
-
-    unsigned Offset = IsMasked ?
-        (HasMaskedOff ? 2 : 1) : (HasMaskedOff ? 1 : 0);
-
-    if (!HasMaskedOff)
-      Operands.push_back(llvm::PoisonValue::get(ResultType));
-    else
-      Operands.push_back(Ops[IsMasked ? 1 : 0]);
-
-    Operands.push_back(Ops[Offset]); // op0
-
-    if (IsMasked)
-      Operands.push_back(Ops[0]); // mask
-
-    if (HasRoundModeOp) {
-      Operands.push_back(Ops[Offset + 1]); // frm
-      Operands.push_back(Ops[Offset + 2]); // vl
-    } else {
-      Operands.push_back(ConstantInt::get(Ops[Offset + 1]->getType(), 7)); // frm
-      Operands.push_back(Ops[Offset + 1]); // vl
-    }
-
-    if (IsMasked)
-      Operands.push_back(ConstantInt::get(Ops.back()->getType(), PolicyAttrs));
-
-    IntrinsicTypes = {ResultType, Operands.back()->getType()};
-    llvm::Function *F = CGM.getIntrinsic(ID, IntrinsicTypes);
-    return Builder.CreateCall(F, Operands, "");
-=======
     return emitRVVFloatingUnaryBuiltin(this, E, ReturnValue, ResultType, ID,
                                        Ops, PolicyAttrs, IsMasked, SegInstSEW);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 }] in {
   let HasFRMRoundModeOp = 1 in {
@@ -1361,50 +1319,8 @@ def vfwcvtbf16_f_f_v : RVVConvBuiltin<"Fw", "Fwv", "y", "vfwcvtbf16_f">;
 
 let ManualCodegen = [{
   {
-<<<<<<< HEAD
-    // LLVM intrinsic
-    // Unmasked: (passthru, op0, frm, vl)
-    // Masked:   (passthru, op0, mask, frm, vl, policy)
-    SmallVector<llvm::Value*, 6> Operands;
-    bool HasMaskedOff = !(
-        (IsMasked && (PolicyAttrs & RVV_VTA) && (PolicyAttrs & RVV_VMA)) ||
-        (!IsMasked && PolicyAttrs & RVV_VTA));
-    bool HasRoundModeOp = IsMasked ?
-      (HasMaskedOff ? Ops.size() == 5 : Ops.size() == 4) :
-      (HasMaskedOff ? Ops.size() == 4 : Ops.size() == 3);
-
-    unsigned Offset = IsMasked ?
-        (HasMaskedOff ? 2 : 1) : (HasMaskedOff ? 1 : 0);
-
-    if (!HasMaskedOff)
-      Operands.push_back(llvm::PoisonValue::get(ResultType));
-    else
-      Operands.push_back(Ops[IsMasked ? 1 : 0]);
-
-    Operands.push_back(Ops[Offset]); // op0
-
-    if (IsMasked)
-      Operands.push_back(Ops[0]); // mask
-
-    if (HasRoundModeOp) {
-      Operands.push_back(Ops[Offset + 1]); // frm
-      Operands.push_back(Ops[Offset + 2]); // vl
-    } else {
-      Operands.push_back(ConstantInt::get(Ops[Offset + 1]->getType(), 7)); // frm
-      Operands.push_back(Ops[Offset + 1]); // vl
-    }
-
-    if (IsMasked)
-      Operands.push_back(ConstantInt::get(Ops.back()->getType(), PolicyAttrs));
-
-    IntrinsicTypes = {ResultType, Ops[Offset]->getType(),
-                      Operands.back()->getType()};
-    llvm::Function *F = CGM.getIntrinsic(ID, IntrinsicTypes);
-    return Builder.CreateCall(F, Operands, "");
-=======
     return emitRVVFloatingConvBuiltin(this, E, ReturnValue, ResultType, ID,
                                       Ops, PolicyAttrs, IsMasked, SegInstSEW);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 }] in {
   let HasFRMRoundModeOp = 1 in {
@@ -1570,50 +1486,9 @@ defm vfredmax : RVVFloatingReductionBuiltin;
 defm vfredmin : RVVFloatingReductionBuiltin;
 let ManualCodegen = [{
   {
-<<<<<<< HEAD
-    // LLVM intrinsic
-    // Unmasked: (passthru, op0, op1, round_mode, vl)
-    // Masked:   (passthru, vector_in, vector_in/scalar_in, mask, frm, vl, policy)
-
-    SmallVector<llvm::Value*, 6> Operands;
-    bool HasMaskedOff = !(
-        (IsMasked && (PolicyAttrs & RVV_VTA) && (PolicyAttrs & RVV_VMA)) ||
-        (!IsMasked && PolicyAttrs & RVV_VTA));
-    bool HasRoundModeOp = IsMasked ?
-      (HasMaskedOff ? Ops.size() == 6 : Ops.size() == 5) :
-      (HasMaskedOff ? Ops.size() == 5 : Ops.size() == 4);
-
-    unsigned Offset = IsMasked ?
-        (HasMaskedOff ? 2 : 1) : (HasMaskedOff ? 1 : 0);
-
-    if (!HasMaskedOff)
-      Operands.push_back(llvm::PoisonValue::get(ResultType));
-    else
-      Operands.push_back(Ops[IsMasked ? 1 : 0]);
-
-    Operands.push_back(Ops[Offset]); // op0
-    Operands.push_back(Ops[Offset + 1]); // op1
-
-    if (IsMasked)
-      Operands.push_back(Ops[0]); // mask
-
-    if (HasRoundModeOp) {
-      Operands.push_back(Ops[Offset + 2]); // frm
-      Operands.push_back(Ops[Offset + 3]); // vl
-    } else {
-      Operands.push_back(ConstantInt::get(Ops[Offset + 2]->getType(), 7)); // frm
-      Operands.push_back(Ops[Offset + 2]); // vl
-    }
-
-    IntrinsicTypes = {ResultType, Ops[Offset]->getType(),
-                      Ops.back()->getType()};
-    llvm::Function *F = CGM.getIntrinsic(ID, IntrinsicTypes);
-    return Builder.CreateCall(F, Operands, "");
-=======
     return emitRVVFloatingReductionBuiltin(
         this, E, ReturnValue, ResultType, ID, Ops, PolicyAttrs, IsMasked,
         SegInstSEW);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 }] in {
   let HasFRMRoundModeOp = 1 in {
@@ -1738,11 +1613,7 @@ defm vrgather : RVVOutBuiltinSet<"vrgather_vv", "csilxfdy",
                                  [["vv", "v", "vvUv"]]>;
 defm vrgather : RVVOutBuiltinSet<"vrgather_vx", "csilxfdy",
                                  [["vx", "v", "vvz"]]>;
-<<<<<<< HEAD
-defm vrgatherei16 : RVVOutBuiltinSet<"vrgatherei16_vv", "csilxfd",
-=======
 defm vrgatherei16 : RVVOutBuiltinSet<"vrgatherei16_vv", "csilxfdy",
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                                      [["vv", "v", "vv(Log2EEW:4)Uv"]]>;
 // unsigned type
 defm vrgather : RVVOutBuiltinSet<"vrgather_vv", "csil",

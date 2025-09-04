@@ -408,13 +408,8 @@ struct LegalizeTransferRead : public OpRewritePattern<vector::TransferReadOp> {
       reassoc.back().push_back(i);
     if (!memref::CollapseShapeOp::isGuaranteedCollapsible(memTy, reassoc))
       return failure();
-<<<<<<< HEAD
-    Value collapsedMem = rewriter.create<memref::CollapseShapeOp>(
-        readOp.getLoc(), readOp.getBase(), reassoc);
-=======
     Value collapsedMem = memref::CollapseShapeOp::create(
         rewriter, readOp.getLoc(), readOp.getBase(), reassoc);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     // Get a vector type with collapsed trailing dimensions.
     SmallVector<int64_t> shape(origVT.getShape());
@@ -429,24 +424,14 @@ struct LegalizeTransferRead : public OpRewritePattern<vector::TransferReadOp> {
     auto indices = readOp.getIndices().drop_back(numCollapseDims - 1);
 
     // Create the new `transfer_read`.
-<<<<<<< HEAD
-    auto newReadOp = rewriter.create<vector::TransferReadOp>(
-        readOp.getLoc(), collapsedVT, collapsedMem, indices,
-=======
     auto newReadOp = vector::TransferReadOp::create(
         rewriter, readOp.getLoc(), collapsedVT, collapsedMem, indices,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         readOp.getPadding(),
         ArrayRef<bool>(origInBounds).drop_back(numCollapseDims - 1));
 
     // Cast back to the original vector type.
-<<<<<<< HEAD
-    auto toOrigShape = rewriter.create<vector::ShapeCastOp>(readOp.getLoc(),
-                                                            origVT, newReadOp);
-=======
     auto toOrigShape = vector::ShapeCastOp::create(rewriter, readOp.getLoc(),
                                                    origVT, newReadOp);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     rewriter.replaceOp(readOp, toOrigShape);
     return success();

@@ -278,8 +278,6 @@ void arith::ConstantIntOp::build(OpBuilder &builder, OperationState &result,
                            builder.getIntegerAttr(type, value));
 }
 
-<<<<<<< HEAD
-=======
 arith::ConstantIntOp arith::ConstantIntOp::create(OpBuilder &builder,
                                                   Location location, Type type,
                                                   int64_t value) {
@@ -295,15 +293,12 @@ arith::ConstantIntOp arith::ConstantIntOp::create(ImplicitLocOpBuilder &builder,
   return create(builder, builder.getLoc(), type, value);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void arith::ConstantIntOp::build(OpBuilder &builder, OperationState &result,
                                  Type type, const APInt &value) {
   arith::ConstantOp::build(builder, result, type,
                            builder.getIntegerAttr(type, value));
 }
 
-<<<<<<< HEAD
-=======
 arith::ConstantIntOp arith::ConstantIntOp::create(OpBuilder &builder,
                                                   Location location, Type type,
                                                   const APInt &value) {
@@ -320,7 +315,6 @@ arith::ConstantIntOp arith::ConstantIntOp::create(ImplicitLocOpBuilder &builder,
   return create(builder, builder.getLoc(), type, value);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 bool arith::ConstantIntOp::classof(Operation *op) {
   if (auto constOp = dyn_cast_or_null<arith::ConstantOp>(op))
     return constOp.getType().isSignlessInteger();
@@ -390,11 +384,7 @@ Value mlir::arith::getZeroConstant(OpBuilder &builder, Location loc,
          "type doesn't have a zero representation");
   TypedAttr zeroAttr = builder.getZeroAttr(type);
   assert(zeroAttr && "unsupported type for zero attribute");
-<<<<<<< HEAD
-  return builder.create<arith::ConstantOp>(loc, zeroAttr);
-=======
   return arith::ConstantOp::create(builder, loc, zeroAttr);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 //===----------------------------------------------------------------------===//

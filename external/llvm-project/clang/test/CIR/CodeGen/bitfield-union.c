@@ -28,8 +28,6 @@ typedef union {
 
 demo d;
 zero_bit z;
-<<<<<<< HEAD
-=======
 
 void f() {
     demo d;
@@ -71,4 +69,3 @@ void f() {
 // OGCG:   [[SET:%.*]] = or i8 [[CLEAR]], 2
 // OGCG:   store i8 [[SET]], ptr [[ALLOC]], align 4
 // OGCG:   store i8 0, ptr [[ALLOC]], align 4
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

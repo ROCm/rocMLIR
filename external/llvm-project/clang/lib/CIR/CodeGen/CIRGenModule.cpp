@@ -441,8 +441,6 @@ void CIRGenModule::emitGlobalFunctionDefinition(clang::GlobalDecl gd,
 
   if (funcDecl->getAttr<AnnotateAttr>())
     errorNYI(funcDecl->getSourceRange(), "deferredAnnotations");
-<<<<<<< HEAD
-=======
 }
 
 void CIRGenModule::handleCXXStaticMemberVarInstantiation(VarDecl *vd) {
@@ -457,7 +455,6 @@ void CIRGenModule::handleCXXStaticMemberVarInstantiation(VarDecl *vd) {
     getAddrOfGlobalVar(vd);
 
   emitTopLevelDecl(vd);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 mlir::Operation *CIRGenModule::getGlobalValue(StringRef name) {
@@ -997,8 +994,6 @@ void CIRGenModule::applyReplacements() {
   }
 }
 
-<<<<<<< HEAD
-=======
 cir::GlobalOp CIRGenModule::createOrReplaceCXXRuntimeVariable(
     mlir::Location loc, StringRef name, mlir::Type ty,
     cir::GlobalLinkageKind linkage, clang::CharUnits alignment) {
@@ -1039,7 +1034,6 @@ cir::GlobalOp CIRGenModule::createOrReplaceCXXRuntimeVariable(
   return gv;
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // TODO(CIR): this could be a common method between LLVM codegen.
 static bool isVarDeclStrongDefinition(const ASTContext &astContext,
                                       CIRGenModule &cgm, const VarDecl *vd,
@@ -1256,16 +1250,6 @@ CIRGenModule::getCIRLinkageVarDefinition(const VarDecl *vd, bool isConstant) {
 }
 
 cir::GlobalLinkageKind CIRGenModule::getFunctionLinkage(GlobalDecl gd) {
-<<<<<<< HEAD
-  const auto *fd = cast<FunctionDecl>(gd.getDecl());
-
-  GVALinkage linkage = astContext.GetGVALinkageForFunction(fd);
-
-  if (isa<CXXDestructorDecl>(fd))
-    errorNYI(fd->getSourceRange(), "getFunctionLinkage: CXXDestructorDecl");
-
-  return getCIRLinkageForDeclarator(fd, linkage, /*IsConstantVariable=*/false);
-=======
   const auto *d = cast<FunctionDecl>(gd.getDecl());
 
   GVALinkage linkage = astContext.GetGVALinkageForFunction(d);
@@ -1274,7 +1258,6 @@ cir::GlobalLinkageKind CIRGenModule::getFunctionLinkage(GlobalDecl gd) {
     return getCXXABI().getCXXDestructorLinkage(linkage, dtor, gd.getDtorType());
 
   return getCIRLinkageForDeclarator(d, linkage, /*isConstantVariable=*/false);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 static cir::GlobalOp
@@ -1936,8 +1919,6 @@ cir::FuncOp CIRGenModule::getOrCreateCIRFunction(
       invalidLoc ? theModule->getLoc() : getLoc(funcDecl->getSourceRange()),
       mangledName, mlir::cast<cir::FuncType>(funcType), funcDecl);
 
-<<<<<<< HEAD
-=======
   // If we already created a function with the same mangled name (but different
   // type) before, take its name and add it to the list of functions to be
   // replaced with F at the end of CodeGen.
@@ -1962,7 +1943,6 @@ cir::FuncOp CIRGenModule::getOrCreateCIRFunction(
     entry->erase();
   }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   if (d)
     setFunctionAttributes(gd, funcOp, /*isIncompleteFunction=*/false, isThunk);
 
@@ -2039,13 +2019,9 @@ CIRGenModule::createCIRFunction(mlir::Location loc, StringRef name,
     func = builder.create<cir::FuncOp>(loc, name, funcType);
 
     assert(!cir::MissingFeatures::opFuncAstDeclAttr());
-<<<<<<< HEAD
-    assert(!cir::MissingFeatures::opFuncNoProto());
-=======
 
     if (funcDecl && !funcDecl->hasPrototype())
       func.setNoProto(true);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     assert(func.isDeclaration() && "expected empty body");
 
@@ -2125,12 +2101,9 @@ CIRGenModule::getGlobalVisibilityAttrFromDecl(const Decl *decl) {
 void CIRGenModule::release() {
   emitDeferred();
   applyReplacements();
-<<<<<<< HEAD
-=======
 
   theModule->setAttr(cir::CIRDialect::getModuleLevelAsmAttrName(),
                      builder.getArrayAttr(globalScopeAsm));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // There's a lot of code that is not implemented yet.
   assert(!cir::MissingFeatures::cgmRelease());

@@ -60,16 +60,6 @@ add_object_library(
   SRCS
     mbrtowc.cpp
   DEPENDS
-<<<<<<< HEAD
-  libc.hdr.errno_macros
-  libc.hdr.types.wchar_t
-  libc.hdr.types.size_t
-  libc.src.__support.common
-  libc.src.__support.error_or
-  libc.src.__support.macros.config
-  .character_converter
-  .mbstate
-=======
     libc.hdr.errno_macros
     libc.hdr.types.wchar_t
     libc.hdr.types.size_t
@@ -112,5 +102,4 @@ add_header_library(
     .string_converter
     .character_converter
     .mbstate
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 )

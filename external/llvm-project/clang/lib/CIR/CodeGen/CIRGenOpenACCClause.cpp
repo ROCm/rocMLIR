@@ -1263,8 +1263,6 @@ public:
       applyToComputeOp(clause);
     } else {
       llvm_unreachable("Unknown construct kind in VisitAttachClause");
-<<<<<<< HEAD
-=======
     }
   }
 
@@ -1371,7 +1369,6 @@ public:
       applyToLoopOp(clause);
     } else {
       llvm_unreachable("Unknown construct kind in VisitReductionClause");
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
   }
 };

@@ -28,13 +28,8 @@ static bool isLockGuardDecl(const NamedDecl *Decl) {
 }
 
 static bool isLockGuard(const QualType &Type) {
-<<<<<<< HEAD
-  if (const auto *Record = Type->getAs<RecordType>())
-    if (const RecordDecl *Decl = Record->getDecl())
-=======
   if (const auto *Record = Type->getAsCanonical<RecordType>())
     if (const RecordDecl *Decl = Record->getOriginalDecl())
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       return isLockGuardDecl(Decl);
 
   if (const auto *TemplateSpecType = Type->getAs<TemplateSpecializationType>())
@@ -94,50 +89,22 @@ findLocksInCompoundStmt(const CompoundStmt *Block,
   return LockGuardGroups;
 }
 
-<<<<<<< HEAD
-static TemplateSpecializationTypeLoc
-getTemplateLockGuardTypeLoc(const TypeSourceInfo *SourceInfo) {
-  const TypeLoc Loc = SourceInfo->getTypeLoc();
-
-  const auto ElaboratedLoc = Loc.getAs<ElaboratedTypeLoc>();
-  if (!ElaboratedLoc)
-    return {};
-
-  return ElaboratedLoc.getNamedTypeLoc().getAs<TemplateSpecializationTypeLoc>();
-}
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // Find the exact source range of the 'lock_guard' token
 static SourceRange getLockGuardRange(const TypeSourceInfo *SourceInfo) {
   const TypeLoc LockGuardTypeLoc = SourceInfo->getTypeLoc();
 
-<<<<<<< HEAD
-  return SourceRange(LockGuardTypeLoc.getBeginLoc(),
-                     LockGuardTypeLoc.getEndLoc());
-=======
   return {LockGuardTypeLoc.getBeginLoc(), LockGuardTypeLoc.getEndLoc()};
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 // Find the exact source range of the 'lock_guard' name token
 static SourceRange getLockGuardNameRange(const TypeSourceInfo *SourceInfo) {
   const TemplateSpecializationTypeLoc TemplateLoc =
-<<<<<<< HEAD
-      getTemplateLockGuardTypeLoc(SourceInfo);
-  if (!TemplateLoc)
-    return {};
-
-  return SourceRange(TemplateLoc.getTemplateNameLoc(),
-                     TemplateLoc.getLAngleLoc().getLocWithOffset(-1));
-=======
       SourceInfo->getTypeLoc().getAs<TemplateSpecializationTypeLoc>();
   if (!TemplateLoc)
     return {};
 
   return {TemplateLoc.getTemplateNameLoc(),
           TemplateLoc.getLAngleLoc().getLocWithOffset(-1)};
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 const static StringRef UseScopedLockMessage =
@@ -158,19 +125,11 @@ void UseScopedLockCheck::registerMatchers(MatchFinder *Finder) {
   const auto LockGuardClassDecl =
       namedDecl(hasName("lock_guard"), isInStdNamespace());
 
-<<<<<<< HEAD
-  const auto LockGuardType = qualType(anyOf(
-      hasUnqualifiedDesugaredType(
-          recordType(hasDeclaration(LockGuardClassDecl))),
-      elaboratedType(namesType(hasUnqualifiedDesugaredType(
-          templateSpecializationType(hasDeclaration(LockGuardClassDecl)))))));
-=======
   const auto LockGuardType =
       qualType(anyOf(hasUnqualifiedDesugaredType(
                          recordType(hasDeclaration(LockGuardClassDecl))),
                      hasUnqualifiedDesugaredType(templateSpecializationType(
                          hasDeclaration(LockGuardClassDecl)))));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   const auto LockVarDecl = varDecl(hasType(LockGuardType));
 
@@ -195,30 +154,16 @@ void UseScopedLockCheck::registerMatchers(MatchFinder *Finder) {
   if (WarnOnUsingAndTypedef) {
     // Match 'typedef std::lock_guard<std::mutex> Lock'
     Finder->addMatcher(typedefDecl(unless(isExpansionInSystemHeader()),
-<<<<<<< HEAD
-                                   hasUnderlyingType(LockGuardType))
-=======
                                    hasType(hasUnderlyingType(LockGuardType)))
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                            .bind("lock-guard-typedef"),
                        this);
 
     // Match 'using Lock = std::lock_guard<std::mutex>'
-<<<<<<< HEAD
-    Finder->addMatcher(
-        typeAliasDecl(
-            unless(isExpansionInSystemHeader()),
-            hasType(elaboratedType(namesType(templateSpecializationType(
-                hasDeclaration(LockGuardClassDecl))))))
-            .bind("lock-guard-using-alias"),
-        this);
-=======
     Finder->addMatcher(typeAliasDecl(unless(isExpansionInSystemHeader()),
                                      hasType(templateSpecializationType(
                                          hasDeclaration(LockGuardClassDecl))))
                            .bind("lock-guard-using-alias"),
                        this);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     // Match 'using std::lock_guard'
     Finder->addMatcher(
@@ -330,13 +275,8 @@ void UseScopedLockCheck::diagOnSourceInfo(
     const ast_matchers::MatchFinder::MatchResult &Result) {
   const TypeLoc TL = LockGuardSourceInfo->getTypeLoc();
 
-<<<<<<< HEAD
-  if (const auto ElaboratedTL = TL.getAs<ElaboratedTypeLoc>()) {
-    auto Diag = diag(ElaboratedTL.getBeginLoc(), UseScopedLockMessage);
-=======
   if (const auto TTL = TL.getAs<TemplateSpecializationTypeLoc>()) {
     auto Diag = diag(TTL.getBeginLoc(), UseScopedLockMessage);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     const SourceRange LockGuardRange =
         getLockGuardNameRange(LockGuardSourceInfo);

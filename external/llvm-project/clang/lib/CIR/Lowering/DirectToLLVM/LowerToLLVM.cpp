@@ -606,8 +606,6 @@ mlir::LogicalResult CIRToLLVMAssumeOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
-<<<<<<< HEAD
-=======
 mlir::LogicalResult CIRToLLVMAssumeAlignedOpLowering::matchAndRewrite(
     cir::AssumeAlignedOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -642,7 +640,6 @@ mlir::LogicalResult CIRToLLVMAssumeSepStorageOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 mlir::LogicalResult CIRToLLVMBitClrsbOpLowering::matchAndRewrite(
     cir::BitClrsbOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -693,8 +690,6 @@ mlir::LogicalResult CIRToLLVMBitCtzOpLowering::matchAndRewrite(
   return mlir::LogicalResult::success();
 }
 
-<<<<<<< HEAD
-=======
 mlir::LogicalResult CIRToLLVMBitFfsOpLowering::matchAndRewrite(
     cir::BitFfsOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -721,7 +716,6 @@ mlir::LogicalResult CIRToLLVMBitFfsOpLowering::matchAndRewrite(
   return mlir::LogicalResult::success();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 mlir::LogicalResult CIRToLLVMBitParityOpLowering::matchAndRewrite(
     cir::BitParityOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -747,8 +741,6 @@ mlir::LogicalResult CIRToLLVMBitPopcountOpLowering::matchAndRewrite(
   return mlir::LogicalResult::success();
 }
 
-<<<<<<< HEAD
-=======
 mlir::LogicalResult CIRToLLVMBitReverseOpLowering::matchAndRewrite(
     cir::BitReverseOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -756,7 +748,6 @@ mlir::LogicalResult CIRToLLVMBitReverseOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 mlir::LogicalResult CIRToLLVMBrCondOpLowering::matchAndRewrite(
     cir::BrCondOp brOp, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -1435,8 +1426,6 @@ mlir::LogicalResult CIRToLLVMExpectOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
-<<<<<<< HEAD
-=======
 mlir::LogicalResult CIRToLLVMFAbsOpLowering::matchAndRewrite(
     cir::FAbsOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -1446,7 +1435,6 @@ mlir::LogicalResult CIRToLLVMFAbsOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 /// Convert the `cir.func` attributes to `llvm.func` attributes.
 /// Only retain those attributes that are not constructed by
 /// `LLVMFuncOp::build`. If `filterArgAttrs` is set, also filter out
@@ -2438,27 +2426,15 @@ void ConvertCIRToLLVMPass::runOnOperation() {
                CIRToLLVMBitClrsbOpLowering,
                CIRToLLVMBitClzOpLowering,
                CIRToLLVMBitCtzOpLowering,
-<<<<<<< HEAD
-               CIRToLLVMBitParityOpLowering,
-               CIRToLLVMBitPopcountOpLowering,
-=======
                CIRToLLVMBitFfsOpLowering,
                CIRToLLVMBitParityOpLowering,
                CIRToLLVMBitPopcountOpLowering,
                CIRToLLVMBitReverseOpLowering,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                CIRToLLVMBrCondOpLowering,
                CIRToLLVMBrOpLowering,
                CIRToLLVMByteSwapOpLowering,
                CIRToLLVMCallOpLowering,
                CIRToLLVMCmpOpLowering,
-<<<<<<< HEAD
-               CIRToLLVMComplexCreateOpLowering,
-               CIRToLLVMComplexImagOpLowering,
-               CIRToLLVMComplexRealOpLowering,
-               CIRToLLVMConstantOpLowering,
-               CIRToLLVMExpectOpLowering,
-=======
                CIRToLLVMComplexAddOpLowering,
                CIRToLLVMComplexCreateOpLowering,
                CIRToLLVMComplexImagOpLowering,
@@ -2471,7 +2447,6 @@ void ConvertCIRToLLVMPass::runOnOperation() {
                CIRToLLVMExpectOpLowering,
                CIRToLLVMFAbsOpLowering,
                CIRToLLVMFrameAddrOpLowering,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                CIRToLLVMFuncOpLowering,
                CIRToLLVMGetBitfieldOpLowering,
                CIRToLLVMGetGlobalOpLowering,
@@ -2479,18 +2454,11 @@ void ConvertCIRToLLVMPass::runOnOperation() {
                CIRToLLVMReturnAddrOpLowering,
                CIRToLLVMRotateOpLowering,
                CIRToLLVMSelectOpLowering,
-<<<<<<< HEAD
-=======
                CIRToLLVMSetBitfieldOpLowering,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                CIRToLLVMShiftOpLowering,
                CIRToLLVMStackRestoreOpLowering,
                CIRToLLVMStackSaveOpLowering,
                CIRToLLVMSwitchFlatOpLowering,
-<<<<<<< HEAD
-               CIRToLLVMTrapOpLowering,
-               CIRToLLVMUnaryOpLowering,
-=======
                CIRToLLVMThrowOpLowering,
                CIRToLLVMTrapOpLowering,
                CIRToLLVMUnaryOpLowering,
@@ -2498,7 +2466,6 @@ void ConvertCIRToLLVMPass::runOnOperation() {
                CIRToLLVMVAArgOpLowering,
                CIRToLLVMVAEndOpLowering,
                CIRToLLVMVAStartOpLowering,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                CIRToLLVMVecCmpOpLowering,
                CIRToLLVMVecCreateOpLowering,
                CIRToLLVMVecExtractOpLowering,
@@ -2506,15 +2473,11 @@ void ConvertCIRToLLVMPass::runOnOperation() {
                CIRToLLVMVecShuffleDynamicOpLowering,
                CIRToLLVMVecShuffleOpLowering,
                CIRToLLVMVecSplatOpLowering,
-<<<<<<< HEAD
-               CIRToLLVMVecTernaryOpLowering
-=======
                CIRToLLVMVecTernaryOpLowering,
                CIRToLLVMVTableAddrPointOpLowering,
                CIRToLLVMVTableGetVPtrOpLowering,
                CIRToLLVMVTableGetVirtualFnAddrOpLowering,
                CIRToLLVMVTTAddrPointOpLowering
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       // clang-format on
       >(converter, patterns.getContext());
 
@@ -3017,8 +2980,6 @@ mlir::LogicalResult CIRToLLVMComplexRealOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
-<<<<<<< HEAD
-=======
 mlir::LogicalResult CIRToLLVMComplexSubOpLowering::matchAndRewrite(
     cir::ComplexSubOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -3068,7 +3029,6 @@ mlir::LogicalResult CIRToLLVMComplexSubOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 mlir::LogicalResult CIRToLLVMComplexImagOpLowering::matchAndRewrite(
     cir::ComplexImagOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -3078,8 +3038,6 @@ mlir::LogicalResult CIRToLLVMComplexImagOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
-<<<<<<< HEAD
-=======
 mlir::IntegerType computeBitfieldIntType(mlir::Type storageType,
                                          mlir::MLIRContext *context,
                                          unsigned &storageSize) {
@@ -3196,7 +3154,6 @@ mlir::LogicalResult CIRToLLVMComplexRealPtrOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 mlir::LogicalResult CIRToLLVMGetBitfieldOpLowering::matchAndRewrite(
     cir::GetBitfieldOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -3212,30 +3169,11 @@ mlir::LogicalResult CIRToLLVMGetBitfieldOpLowering::matchAndRewrite(
   unsigned storageSize = 0;
 
   mlir::IntegerType intType =
-<<<<<<< HEAD
-      TypeSwitch<mlir::Type, mlir::IntegerType>(storageType)
-          .Case<cir::ArrayType>([&](cir::ArrayType atTy) {
-            storageSize = atTy.getSize() * 8;
-            return mlir::IntegerType::get(context, storageSize);
-          })
-          .Case<cir::IntType>([&](cir::IntType intTy) {
-            storageSize = intTy.getWidth();
-            return mlir::IntegerType::get(context, storageSize);
-          })
-          .Default([](mlir::Type) -> mlir::IntegerType {
-            llvm_unreachable(
-                "Either ArrayType or IntType expected for bitfields storage");
-          });
-
-  mlir::Value val = rewriter.create<mlir::LLVM::LoadOp>(
-      op.getLoc(), intType, adaptor.getAddr(), 0, op.getIsVolatile());
-=======
       computeBitfieldIntType(storageType, context, storageSize);
 
   mlir::Value val = rewriter.create<mlir::LLVM::LoadOp>(
       op.getLoc(), intType, adaptor.getAddr(), op.getAlignment(),
       op.getIsVolatile());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   val = rewriter.create<mlir::LLVM::BitcastOp>(op.getLoc(), intType, val);
 
   if (info.getIsSigned()) {
@@ -3258,8 +3196,6 @@ mlir::LogicalResult CIRToLLVMGetBitfieldOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
-<<<<<<< HEAD
-=======
 mlir::LogicalResult CIRToLLVMInlineAsmOpLowering::matchAndRewrite(
     cir::InlineAsmOp op, OpAdaptor adaptor,
     mlir::ConversionPatternRewriter &rewriter) const {
@@ -3359,7 +3295,6 @@ mlir::LogicalResult CIRToLLVMVAArgOpLowering::matchAndRewrite(
   return mlir::success();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 std::unique_ptr<mlir::Pass> createConvertCIRToLLVMPass() {
   return std::make_unique<ConvertCIRToLLVMPass>();
 }

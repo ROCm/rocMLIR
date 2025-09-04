@@ -24,8 +24,6 @@ module attributes {fir.defaultkind = "a1c4d8i4l4r4", fir.kindmap = "", gpu.conta
 // CHECK: gpu.module @cuda_device_mod
 // CHECK-DAG: fir.global @_QMm2ECc
 // CHECK-DAG: fir.global @_QMm1ECb
-<<<<<<< HEAD
-=======
 
 // -----
 
@@ -49,4 +47,3 @@ module attributes {fir.defaultkind = "a1c4d8i4l4r4", fir.kindmap = "", gpu.conta
 // CHECK: gpu.module @cuda_device_mod
 // CHECK-NAG: fir.global @_QMmEddarrays
 // CHECK-NAG: fir.global linkonce_odr @_QMmE.dt.devicearrays
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

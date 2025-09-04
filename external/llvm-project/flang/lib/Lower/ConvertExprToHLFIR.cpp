@@ -1065,10 +1065,6 @@ struct BinaryOp<Fortran::evaluate::Divide<
     mlir::Type ty = Fortran::lower::getFIRType(
         builder.getContext(), Fortran::common::TypeCategory::Complex, KIND,
         /*params=*/{});
-<<<<<<< HEAD
-    return hlfir::EntityWithAttributes{
-        fir::genDivC(builder, loc, ty, lhs, rhs)};
-=======
 
     // TODO: Ideally, complex number division operations should always be
     // lowered to MLIR. However, converting them to the runtime via MLIR causes
@@ -1080,7 +1076,6 @@ struct BinaryOp<Fortran::evaluate::Divide<
       return hlfir::EntityWithAttributes{
           mlir::complex::DivOp::create(builder, loc, lhs, rhs)};
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 };
 

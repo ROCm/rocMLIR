@@ -547,15 +547,9 @@ LogicalResult GatherToLDSOp::verify() {
   } else {
     transferSize = transferType.getIntOrFloatBitWidth();
   }
-<<<<<<< HEAD
-  if (transferSize != 8 && transferSize != 16 && transferSize != 32 &&
-      transferSize != 128)
-    return emitOpError("Transfering type size must be 8, 16, 32, or 128 bits");
-=======
   if (!llvm::is_contained({8, 16, 32, 96, 128}, transferSize))
     return emitOpError(
         "Transfering type size must be 8, 16, 32, 96 or 128 bits");
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   if (!hasGlobalMemorySpace(srcType.getMemorySpace()) &&
       !hasFatRawBufferMemorySpace(srcType.getMemorySpace()))
@@ -568,8 +562,6 @@ LogicalResult GatherToLDSOp::verify() {
   return success();
 }
 
-<<<<<<< HEAD
-=======
 namespace {
 /// If the source/target of a GatherToLDSOp is a CastOp that only removes static
 /// information or changes layout, the cast can be skipped.
@@ -606,7 +598,6 @@ void GatherToLDSOp::getCanonicalizationPatterns(RewritePatternSet &results,
 // TransposeLoadOp
 //===----------------------------------------------------------------------===//
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 LogicalResult TransposeLoadOp::verify() {
   MemRefType srcType = cast<MemRefType>(getSrc().getType());
 

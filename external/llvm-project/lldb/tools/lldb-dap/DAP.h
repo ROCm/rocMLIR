@@ -468,11 +468,8 @@ private:
   std::thread progress_event_thread;
   /// @}
 
-<<<<<<< HEAD
-=======
   const llvm::StringRef m_client_name;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   /// List of addresses mapped by sourceReference.
   std::vector<lldb::addr_t> m_source_references;
   std::mutex m_source_references_mutex;

@@ -496,19 +496,6 @@ void ClangDocBitcodeWriter::emitBlock(const FriendInfo &R) {
     emitBlock(*R.ReturnType);
 }
 
-void ClangDocBitcodeWriter::emitBlock(const FriendInfo &R) {
-  StreamSubBlockGuard Block(Stream, BI_FRIEND_BLOCK_ID);
-  emitBlock(R.Ref, FieldId::F_friend);
-  emitRecord(R.IsClass, FRIEND_IS_CLASS);
-  if (R.Template)
-    emitBlock(*R.Template);
-  if (R.Params)
-    for (const auto &P : *R.Params)
-      emitBlock(P);
-  if (R.ReturnType)
-    emitBlock(*R.ReturnType);
-}
-
 void ClangDocBitcodeWriter::emitBlock(const TypeInfo &T) {
   StreamSubBlockGuard Block(Stream, BI_TYPE_BLOCK_ID);
   emitBlock(T.Type, FieldId::F_type);

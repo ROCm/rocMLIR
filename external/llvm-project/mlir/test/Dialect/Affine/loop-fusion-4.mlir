@@ -743,8 +743,6 @@ module {
     return
   }
 }
-<<<<<<< HEAD
-=======
 
 // SIBLING-MAXIMAL-LABEL: memref_cast_reused
 func.func @memref_cast_reused(%arg: memref<*xf32>) {
@@ -773,4 +771,3 @@ func.func @memref_cast_reused(%arg: memref<*xf32>) {
   // SIBLING-MAXIMAL-NEXT:   affine.store
   return
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

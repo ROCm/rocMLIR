@@ -180,18 +180,6 @@ ReductionProcessor::getReductionName(ReductionIdentifier redId,
   case ReductionIdentifier::MULTIPLY:
     reductionName = "multiply_reduction";
     break;
-<<<<<<< HEAD:external/llvm-project/flang/lib/Lower/OpenMP/ReductionProcessor.cpp
-  case omp::clause::DefinedOperator::IntrinsicOperator::AND:
-    reductionName = "and_reduction";
-    break;
-  case omp::clause::DefinedOperator::IntrinsicOperator::EQV:
-    reductionName = "eqv_reduction";
-    break;
-  case omp::clause::DefinedOperator::IntrinsicOperator::OR:
-    reductionName = "or_reduction";
-    break;
-  case omp::clause::DefinedOperator::IntrinsicOperator::NEQV:
-=======
   case ReductionIdentifier::AND:
     reductionName = "and_reduction";
     break;
@@ -202,7 +190,6 @@ ReductionProcessor::getReductionName(ReductionIdentifier redId,
     reductionName = "or_reduction";
     break;
   case ReductionIdentifier::NEQV:
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/flang/lib/Lower/Support/ReductionProcessor.cpp
     reductionName = "neqv_reduction";
     break;
   default:
@@ -748,20 +735,6 @@ bool ReductionProcessor::processReductionArguments(
           break;
         }
 
-<<<<<<< HEAD:external/llvm-project/flang/lib/Lower/OpenMP/ReductionProcessor.cpp
-      reductionName = getReductionName(intrinsicOp, kindMap, redType, isByRef);
-    } else if (const auto *reductionIntrinsic =
-                   std::get_if<omp::clause::ProcedureDesignator>(
-                       &redOperator.u)) {
-      if (!ReductionProcessor::supportedIntrinsicProcReduction(
-              *reductionIntrinsic)) {
-        TODO(currentLocation, "Unsupported intrinsic proc reduction");
-      }
-      redId = getReductionType(*reductionIntrinsic);
-      reductionName =
-          getReductionName(getRealName(*reductionIntrinsic).ToString(), kindMap,
-                           redType, isByRef);
-=======
         reductionName = getReductionName(redId, kindMap, redType, isByRef);
       } else if (const auto *reductionIntrinsic =
                      std::get_if<omp::clause::ProcedureDesignator>(
@@ -777,7 +750,6 @@ bool ReductionProcessor::processReductionArguments(
       } else {
         TODO(currentLocation, "Unexpected reduction type");
       }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/flang/lib/Lower/Support/ReductionProcessor.cpp
     } else {
       // `do concurrent` reductions
       redId = getReductionType(redOperatorList[idx]);

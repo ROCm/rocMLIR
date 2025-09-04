@@ -18,14 +18,6 @@ namespace hlsl {
 
 using TokenKind = RootSignatureToken::Kind;
 
-<<<<<<< HEAD
-RootSignatureParser::RootSignatureParser(
-    llvm::dxbc::RootSignatureVersion Version,
-    SmallVector<RootElement> &Elements, RootSignatureLexer &Lexer,
-    Preprocessor &PP)
-    : Version(Version), Elements(Elements), Lexer(Lexer), PP(PP),
-      CurToken(SourceLocation()) {}
-=======
 static const TokenKind RootElementKeywords[] = {
     TokenKind::kw_RootFlags,
     TokenKind::kw_CBV,
@@ -40,7 +32,6 @@ RootSignatureParser::RootSignatureParser(
     Preprocessor &PP)
     : Version(Version), Signature(Signature), Lexer(Signature->getString()),
       PP(PP), CurToken(0) {}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 bool RootSignatureParser::parse() {
   // Iterate as many RootSignatureElements as possible, until we hit the
@@ -136,13 +127,10 @@ std::optional<llvm::dxbc::RootFlags> RootSignatureParser::parseRootFlags() {
     return std::nullopt;
 
   std::optional<llvm::dxbc::RootFlags> Flags = llvm::dxbc::RootFlags::None;
-<<<<<<< HEAD
-=======
 
   // Handle valid empty case
   if (tryConsumeExpectedToken(TokenKind::pu_r_paren))
     return Flags;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // Handle the edge-case of '0' to specify no flags set
   if (tryConsumeExpectedToken(TokenKind::int_literal)) {
@@ -1019,11 +1007,7 @@ std::optional<float> RootSignatureParser::parseFloatParam() {
 }
 
 std::optional<llvm::dxbc::ShaderVisibility>
-<<<<<<< HEAD
-RootSignatureParser::parseShaderVisibility() {
-=======
 RootSignatureParser::parseShaderVisibility(TokenKind Context) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   assert(CurToken.TokKind == TokenKind::pu_equal &&
          "Expects to only be invoked starting at given keyword");
 
@@ -1053,11 +1037,7 @@ RootSignatureParser::parseShaderVisibility(TokenKind Context) {
 }
 
 std::optional<llvm::dxbc::SamplerFilter>
-<<<<<<< HEAD
-RootSignatureParser::parseSamplerFilter() {
-=======
 RootSignatureParser::parseSamplerFilter(TokenKind Context) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   assert(CurToken.TokKind == TokenKind::pu_equal &&
          "Expects to only be invoked starting at given keyword");
 
@@ -1087,11 +1067,7 @@ RootSignatureParser::parseSamplerFilter(TokenKind Context) {
 }
 
 std::optional<llvm::dxbc::TextureAddressMode>
-<<<<<<< HEAD
-RootSignatureParser::parseTextureAddressMode() {
-=======
 RootSignatureParser::parseTextureAddressMode(TokenKind Context) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   assert(CurToken.TokKind == TokenKind::pu_equal &&
          "Expects to only be invoked starting at given keyword");
 
@@ -1121,11 +1097,7 @@ RootSignatureParser::parseTextureAddressMode(TokenKind Context) {
 }
 
 std::optional<llvm::dxbc::ComparisonFunc>
-<<<<<<< HEAD
-RootSignatureParser::parseComparisonFunc() {
-=======
 RootSignatureParser::parseComparisonFunc(TokenKind Context) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   assert(CurToken.TokKind == TokenKind::pu_equal &&
          "Expects to only be invoked starting at given keyword");
 
@@ -1155,11 +1127,7 @@ RootSignatureParser::parseComparisonFunc(TokenKind Context) {
 }
 
 std::optional<llvm::dxbc::StaticBorderColor>
-<<<<<<< HEAD
-RootSignatureParser::parseStaticBorderColor() {
-=======
 RootSignatureParser::parseStaticBorderColor(TokenKind Context) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   assert(CurToken.TokKind == TokenKind::pu_equal &&
          "Expects to only be invoked starting at given keyword");
 
@@ -1189,11 +1157,7 @@ RootSignatureParser::parseStaticBorderColor(TokenKind Context) {
 }
 
 std::optional<llvm::dxbc::RootDescriptorFlags>
-<<<<<<< HEAD
-RootSignatureParser::parseRootDescriptorFlags() {
-=======
 RootSignatureParser::parseRootDescriptorFlags(TokenKind Context) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   assert(CurToken.TokKind == TokenKind::pu_equal &&
          "Expects to only be invoked starting at given keyword");
 
@@ -1237,11 +1201,7 @@ RootSignatureParser::parseRootDescriptorFlags(TokenKind Context) {
 }
 
 std::optional<llvm::dxbc::DescriptorRangeFlags>
-<<<<<<< HEAD
-RootSignatureParser::parseDescriptorRangeFlags() {
-=======
 RootSignatureParser::parseDescriptorRangeFlags(TokenKind Context) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   assert(CurToken.TokKind == TokenKind::pu_equal &&
          "Expects to only be invoked starting at given keyword");
 

@@ -1647,13 +1647,8 @@ void LinkerDriver::linkerMain(ArrayRef<const char *> argsArr) {
         config->warnLocallyDefinedImported = false;
       else if (s == "longsections")
         config->warnLongSectionNames = false;
-<<<<<<< HEAD
-      else if (s == "exporteddllmain")
-        config->warnExportedDllMain = false;
-=======
       else if (s == "importeddllmain")
         config->warnImportedDllMain = false;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       // Other warning numbers are ignored.
     }
   }

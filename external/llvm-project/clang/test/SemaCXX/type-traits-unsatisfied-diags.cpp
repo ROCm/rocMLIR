@@ -489,8 +489,6 @@ static_assert(__is_trivially_copyable(S12));
 // expected-note@#tc-S12 {{'S12' defined here}}
 }
 
-<<<<<<< HEAD
-=======
 namespace constructible {
 
 struct S1 {  // #c-S1
@@ -553,7 +551,6 @@ static_assert(__is_constructible(void (int, float)));
 // expected-note@-1 {{because it is a function type}}
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 namespace assignable {
 struct S1;
 static_assert(__is_assignable(S1&, const S1&));
@@ -832,8 +829,6 @@ static_assert(__is_standard_layout(H)); // no diagnostics
 static_assert(__is_standard_layout(I)); // no diagnostics
 }
 
-<<<<<<< HEAD
-=======
 namespace is_final_tests {
     struct C {}; // #e-C
     static_assert(__is_final(C));
@@ -969,4 +964,3 @@ namespace is_aggregate {
 
   static_assert(__is_aggregate(S7[10]));
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

@@ -2886,11 +2886,8 @@ def Vector_SplatOp : Vector_Op<"splat", [
   ]> {
   let summary = "vector splat or broadcast operation";
   let description = [{
-<<<<<<< HEAD
-=======
     Note: This operation is deprecated. Please use vector.broadcast.
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     Broadcast the operand to all elements of the result vector. The type of the
     operand must match the element type of the vector type.
 

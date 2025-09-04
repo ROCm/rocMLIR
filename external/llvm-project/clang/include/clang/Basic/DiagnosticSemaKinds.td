@@ -1772,13 +1772,9 @@ def note_unsatisfied_trait
            "%Replaceable{replaceable}|"
            "%TriviallyCopyable{trivially copyable}|"
            "%Empty{empty}|"
-<<<<<<< HEAD
-           "%StandardLayout{standard-layout}"
-=======
            "%StandardLayout{standard-layout}|"
            "%Aggregate{aggregate}|"
            "%Final{final}"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
            "}1">;
 
 def note_unsatisfied_trait_reason
@@ -1799,10 +1795,7 @@ def note_unsatisfied_trait_reason
            "%NTCBase{has a non-trivially-copyable base %1}|"
            "%NTCField{has a non-trivially-copyable member %1 of type %2}|"
            "%NonEmptyMember{has a non-static data member %1 of type %2}|"
-<<<<<<< HEAD
-=======
            "%PolymorphicType{is a polymorphic type}|"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
            "%VirtualFunction{has a virtual function %1}|"
            "%NonEmptyBase{has a base class %1 that is not empty}|"
            "%NonZeroLengthField{field %1 is a non-zero-length bit-field}|"
@@ -13200,12 +13193,9 @@ def err_invalid_hlsl_resource_type: Error<
 def err_hlsl_spirv_only: Error<"%0 is only available for the SPIR-V target">;
 def err_hlsl_vk_literal_must_contain_constant: Error<"the argument to vk::Literal must be a vk::integral_constant">;
 
-<<<<<<< HEAD
-=======
 def err_hlsl_invalid_rootsig_value : Error<"value must be in the range [%0, %1]">;
 def err_hlsl_invalid_rootsig_flag : Error< "invalid flags for version 1.%0">;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 def subst_hlsl_format_ranges: TextSubstitution<
   "%select{t|u|b|s}0[%1;%select{%3]|unbounded)}2">;
 
@@ -13213,10 +13203,7 @@ def err_hlsl_resource_range_overlap: Error<
   "resource ranges %sub{subst_hlsl_format_ranges}0,1,2,3 and %sub{subst_hlsl_format_ranges}4,5,6,7 "
   "overlap within space = %8 and visibility = "
   "%select{All|Vertex|Hull|Domain|Geometry|Pixel|Amplification|Mesh}9">;
-<<<<<<< HEAD
-=======
 def note_hlsl_resource_range_here: Note<"overlapping resource range here">;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 // Layout randomization diagnostics.
 def err_non_designated_init_used : Error<
@@ -13643,9 +13630,6 @@ def err_amdgcn_predicate_type_needs_explicit_bool_cast
             "guarding of target dependent code, and thus should be avoided">;
 def note_amdgcn_protected_by_predicate : Note<"jump enters statement controlled"
                                               " by AMDGPU feature predicate">;
-<<<<<<< HEAD
-=======
 
 def err_amdgcn_coop_atomic_invalid_as : Error<"cooperative atomic requires a global or generic pointer">;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 } // end of sema component.

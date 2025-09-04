@@ -22,11 +22,8 @@ public:
 
   static ProtocolServer *GetOrCreate(llvm::StringRef name);
 
-<<<<<<< HEAD
-=======
   static llvm::Error Terminate();
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   static std::vector<llvm::StringRef> GetSupportedProtocols();
 
   struct Connection {

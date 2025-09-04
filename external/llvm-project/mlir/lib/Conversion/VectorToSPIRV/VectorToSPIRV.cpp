@@ -1060,13 +1060,8 @@ struct VectorToElementOpConvert final
       if (element.use_empty())
         continue;
 
-<<<<<<< HEAD
-      Value result = rewriter.create<spirv::CompositeExtractOp>(
-          loc, elementType, adaptor.getSource(),
-=======
       Value result = spirv::CompositeExtractOp::create(
           rewriter, loc, elementType, adaptor.getSource(),
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
           rewriter.getI32ArrayAttr({static_cast<int32_t>(idx)}));
       results[idx] = result;
     }
@@ -1092,13 +1087,8 @@ void mlir::populateVectorToSPIRVPatterns(
       VectorBitcastConvert, VectorBroadcastConvert, VectorExtractOpConvert,
       VectorExtractStridedSliceOpConvert, VectorFmaOpConvert<spirv::GLFmaOp>,
       VectorFmaOpConvert<spirv::CLFmaOp>, VectorFromElementsOpConvert,
-<<<<<<< HEAD
-      VectorToElementOpConvert, VectorInsertElementOpConvert,
-      VectorInsertOpConvert, VectorReductionPattern<GL_INT_MAX_MIN_OPS>,
-=======
       VectorToElementOpConvert, VectorInsertOpConvert,
       VectorReductionPattern<GL_INT_MAX_MIN_OPS>,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       VectorReductionPattern<CL_INT_MAX_MIN_OPS>,
       VectorReductionFloatMinMax<CL_FLOAT_MAX_MIN_OPS>,
       VectorReductionFloatMinMax<GL_FLOAT_MAX_MIN_OPS>, VectorShapeCast,

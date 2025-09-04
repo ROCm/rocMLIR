@@ -277,14 +277,6 @@ public:
     // User controlled folding function.
     if (controlFn && !controlFn(&sliceOp.getSourceMutable()))
       return failure();
-<<<<<<< HEAD
-
-    if (sliceOp.getResultType().getRank() != unpackOp.getDestType().getRank()) {
-      return rewriter.notifyMatchFailure(
-          sliceOp, "rank-reduced folding is not supported");
-    }
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     if (!unpackOp.canFoldSliceOp(sliceOp))
       return failure();

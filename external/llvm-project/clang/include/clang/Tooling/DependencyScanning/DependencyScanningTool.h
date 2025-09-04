@@ -57,13 +57,10 @@ struct TranslationUnitDeps {
   /// determined that the differences are benign for this compilation.
   std::vector<ModuleID> ClangModuleDeps;
 
-<<<<<<< HEAD
-=======
   /// A list of module names that are visible to this translation unit. This
   /// includes both direct and transitive module dependencies.
   std::vector<std::string> VisibleModules;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   /// A list of the C++20 named modules this translation unit depends on.
   std::vector<std::string> NamedModuleDeps;
 

@@ -900,8 +900,6 @@ print *, [(j,j=1,10)]
   since these default values need to be available to process incomplete
   structure constructors.
 
-<<<<<<< HEAD
-=======
 * When an `ALLOCATE` or `DEALLOCATE` statement with multiple variables
   has a `STAT=` specifier that allows the program to continue execution
   after an error, the variables after the one with the error are left
@@ -919,7 +917,6 @@ print *, [(j,j=1,10)]
   and the portable interpretation across the most common Fortran
   compilers.
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 ## De Facto Standard Features
 
 * `EXTENDS_TYPE_OF()` returns `.TRUE.` if both of its arguments have the

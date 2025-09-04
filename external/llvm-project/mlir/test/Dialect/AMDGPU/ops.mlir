@@ -551,8 +551,6 @@ func.func @transpose_load(%idx1 : index, %idx2 : index, %mem : memref<128x32xf16
   %0 = amdgpu.transpose_load %mem[%idx1, %idx2] : memref<128x32xf16, 3> -> vector<4xf16>
   func.return %0 : vector<4xf16>
 }
-<<<<<<< HEAD
-=======
 
 // CHECK-LABEL: func @gather_to_lds
 func.func @gather_to_lds(%idx1 : index, %idx2 : index, %mem1 : memref<32xf16>, %mem2 : memref<32x32xf16>, %smem1 : memref<32xf16, #gpu.address_space<workgroup>>, %smem2 : memref<32x32xf16, #gpu.address_space<workgroup>>, %smem3 : memref<?x?xf16, strided<[?, 1]>, #gpu.address_space<workgroup>>) {
@@ -583,4 +581,3 @@ func.func @memory_counter_wait() {
   amdgpu.memory_counter_wait exp(4)
   func.return
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

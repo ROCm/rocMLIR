@@ -118,10 +118,6 @@ def main():
     if not os.path.exists(os.path.dirname(output_file_path)):
         os.makedirs(os.path.dirname(output_file_path))
 
-    # Create the framework's header dir if it doesn't already exist
-    if not os.path.exists(os.path.dirname(output_file_path)):
-        os.makedirs(os.path.dirname(output_file_path))
-
     if framework_version == "lldb_main":
         modify_main_includes(input_file_path, output_file_path)
     if framework_version == "lldb_rpc":

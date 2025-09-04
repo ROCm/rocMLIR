@@ -594,9 +594,5 @@ struct S {
 void f() {
   S(S(0, 1));
 }
-<<<<<<< HEAD
-// CHECK: CXXTemporaryObjectExpr {{.*}} <col:5, col:11> 'S':'GH143711::S' 'void (int, int)'
-=======
 // CHECK: CXXTemporaryObjectExpr {{.*}} <col:5, col:11> 'S' 'void (int, int)'
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }

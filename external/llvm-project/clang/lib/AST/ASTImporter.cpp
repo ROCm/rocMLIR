@@ -6471,11 +6471,7 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
     if (GetImportedOrCreateDecl<ClassTemplatePartialSpecializationDecl>(
             D2, D, Importer.getToContext(), D->getTagKind(), DC, *BeginLocOrErr,
             *IdLocOrErr, ToTPList, ClassTemplate, ArrayRef(TemplateArgs),
-<<<<<<< HEAD
-            CanonInjType,
-=======
             /*CanonInjectedTST=*/CanQualType(),
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
             cast_or_null<ClassTemplatePartialSpecializationDecl>(PrevDecl)))
       return D2;
 

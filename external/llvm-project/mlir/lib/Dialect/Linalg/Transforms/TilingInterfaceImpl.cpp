@@ -885,12 +885,6 @@ struct PackOpTiling
           { llvm::dbgs() << "unsupported operands for consumer fusion"; });
       return failure();
     }
-<<<<<<< HEAD
-
-    ArrayRef<OpFoldResult> offsets(allOffsets[0]);
-    ArrayRef<OpFoldResult> sizes(allSizes[0]);
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     ArrayRef<OpFoldResult> offsets(allOffsets[0]);
     ArrayRef<OpFoldResult> sizes(allSizes[0]);

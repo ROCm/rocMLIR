@@ -525,15 +525,9 @@ struct UnrollLoadGatherOp : public UnrollPattern<xegpu::LoadGatherOp> {
 
     SmallVector<Value> newOps;
     for (auto [t, m] : llvm::zip(convertedTdescs, convertedMasks)) {
-<<<<<<< HEAD
-      auto newOp = rewriter.create<xegpu::LoadGatherOp>(
-          loc, newValueTy, t, m, op.getL1HintAttr(), op.getL2HintAttr(),
-          op.getL3HintAttr());
-=======
       auto newOp = xegpu::LoadGatherOp::create(
           rewriter, loc, newValueTy, t, m, op.getL1HintAttr(),
           op.getL2HintAttr(), op.getL3HintAttr());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       newOps.push_back(newOp);
     }
 
@@ -589,11 +583,7 @@ struct UnrollStoreScatterOp : public UnrollPattern<xegpu::StoreScatterOp> {
       return failure();
 
     SmallVector<int64_t> targetMaskShape(*targetShape);
-<<<<<<< HEAD
-    int64_t originalChunkSize = tdescTy.getChunkSize();
-=======
     int64_t originalChunkSize = tdescTy.getChunkSizeAsInt();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     VectorType maskTy = llvm::dyn_cast<VectorType>(op.getMask().getType());
 
@@ -630,14 +620,8 @@ struct UnrollStoreScatterOp : public UnrollPattern<xegpu::StoreScatterOp> {
       Value v = convertedValues[i];
       Value t = convertedTdescs[i];
       Value m = op.getMask() ? convertedMasks[i] : nullptr;
-<<<<<<< HEAD
-      rewriter.create<xegpu::StoreScatterOp>(loc, v, t, m, op.getL1HintAttr(),
-                                             op.getL2HintAttr(),
-                                             op.getL3HintAttr());
-=======
       xegpu::StoreScatterOp::create(rewriter, loc, v, t, m, op.getL1HintAttr(),
                                     op.getL2HintAttr(), op.getL3HintAttr());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
 
     rewriter.eraseOp(op);

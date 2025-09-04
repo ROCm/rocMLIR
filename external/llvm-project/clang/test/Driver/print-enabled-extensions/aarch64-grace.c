@@ -56,11 +56,7 @@
 // CHECK-NEXT:     FEAT_SVE_AES, FEAT_SVE_PMULL128                        Enable SVE AES and quadword SVE polynomial multiply instructions
 // CHECK-NEXT:     FEAT_SVE_BitPerm                                       Enable bit permutation SVE2 instructions
 // CHECK-NEXT:     FEAT_SVE_SHA3                                          Enable SVE SHA3 instructions
-<<<<<<< HEAD
-// CHECK-NEXT:     FEAT_SVE_SM4                                           Enable SM4 SVE2 instructions
-=======
 // CHECK-NEXT:     FEAT_SVE_SM4                                           Enable SVE SM4 instructions
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // CHECK-NEXT:     FEAT_TLBIOS, FEAT_TLBIRANGE                            Enable Armv8.4-A TLB Range and Maintenance instructions
 // CHECK-NEXT:     FEAT_TRBE                                              Enable Trace Buffer Extension
 // CHECK-NEXT:     FEAT_TRF                                               Enable Armv8.4-A Trace extension

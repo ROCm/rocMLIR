@@ -23,8 +23,6 @@
 namespace mlir {
 namespace xegpu {
 
-<<<<<<< HEAD
-=======
 bool isSharedMemory(const MemRefType &memrefTy) {
   Attribute attr = memrefTy.getMemorySpace();
   if (auto intAttr = llvm::dyn_cast<IntegerAttr>(attr))
@@ -36,7 +34,6 @@ bool isSharedMemory(const MemRefType &memrefTy) {
   return gpu::GPUDialect::isWorkgroupMemoryAddressSpace(attr);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 template <typename T>
 static std::string makeString(T array, bool breakline = false) {
   std::string buf;
@@ -798,10 +795,6 @@ LogicalResult LoadGatherOp::verify() {
   if (!isReadHintOrNone(getL3HintAttr()))
     return emitOpError("invalid l3_hint: ") << getL3HintAttr();
 
-<<<<<<< HEAD
-  return isValidGatherScatterParams(maskTy, valueTy, tdescTy,
-                                    [&]() { return emitOpError(); });
-=======
   if (tdescTy)
     return isValidGatherScatterParams(maskTy, valueTy, tdescTy,
                                       [&]() { return emitOpError(); });
@@ -840,7 +833,6 @@ void LoadGatherOp::build(OpBuilder &builder, OperationState &state,
 
   build(builder, state, valueType, source, offset, mask, chunk_size, l1_hint,
         l2_hint, l3_hint);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 //===----------------------------------------------------------------------===//
@@ -869,10 +861,6 @@ LogicalResult StoreScatterOp::verify() {
   if (!isWriteHintOrNone(getL3HintAttr()))
     return emitOpError("invalid l3_hint: ") << getL3HintAttr();
 
-<<<<<<< HEAD
-  return isValidGatherScatterParams(maskTy, valueTy, tdescTy,
-                                    [&]() { return emitOpError(); });
-=======
   if (tdescTy)
     return isValidGatherScatterParams(maskTy, valueTy, tdescTy,
                                       [&]() { return emitOpError(); });
@@ -914,7 +902,6 @@ void StoreScatterOp::build(OpBuilder &builder, OperationState &state,
   // Call the correct builder overload that does not expect result types.
   build(builder, state, value, dest, offset, mask, chunk_size, l1_hint, l2_hint,
         l3_hint);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 //===----------------------------------------------------------------------===//

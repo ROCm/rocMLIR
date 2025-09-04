@@ -983,17 +983,10 @@ winogradConv2DHelper(RewriterBase &rewriter, linalg::Conv2DNhwcFhwcOp convOp,
   int64_t tileW = llvm::divideCeilSigned(outputW, widthM);
   auto retType = RankedTensorType::get({alphaH, alphaW, filterC, filterF},
                                        filterElementType);
-<<<<<<< HEAD
-  Value retValue = rewriter.create<tensor::EmptyOp>(loc, retType.getShape(),
-                                                    filterElementType);
-  auto transformedFilter = rewriter.create<linalg::WinogradFilterTransformOp>(
-      loc, retType, filter, retValue, fmr);
-=======
   Value retValue = tensor::EmptyOp::create(rewriter, loc, retType.getShape(),
                                            filterElementType);
   auto transformedFilter = linalg::WinogradFilterTransformOp::create(
       rewriter, loc, retType, filter, retValue, fmr);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // --- Create operation for input transform ---
 
@@ -1009,17 +1002,10 @@ winogradConv2DHelper(RewriterBase &rewriter, linalg::Conv2DNhwcFhwcOp convOp,
 
   retType = RankedTensorType::get(
       {alphaH, alphaW, tileH, tileW, inputN, inputC}, inputElementType);
-<<<<<<< HEAD
-  retValue = rewriter.create<tensor::EmptyOp>(loc, retType.getShape(),
-                                              inputElementType);
-  auto transformedInput = rewriter.create<linalg::WinogradInputTransformOp>(
-      loc, retType, input, retValue, fmr);
-=======
   retValue = tensor::EmptyOp::create(rewriter, loc, retType.getShape(),
                                      inputElementType);
   auto transformedInput = linalg::WinogradInputTransformOp::create(
       rewriter, loc, retType, input, retValue, fmr);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   Type outputElementType = outputType.getElementType();
   Value matmulRet = matrixMultiply(rewriter, loc, transformedFilter,
@@ -1041,13 +1027,8 @@ winogradConv2DHelper(RewriterBase &rewriter, linalg::Conv2DNhwcFhwcOp convOp,
     outputType = alignedOutputType;
   }
 
-<<<<<<< HEAD
-  Value transformedOutput = rewriter.create<linalg::WinogradOutputTransformOp>(
-      loc, outputType, matmulRet, output, fmr);
-=======
   Value transformedOutput = linalg::WinogradOutputTransformOp::create(
       rewriter, loc, outputType, matmulRet, output, fmr);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // When output size is not aligned with output tile size, extract the
   // value from the padded buffer.

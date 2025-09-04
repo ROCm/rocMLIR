@@ -423,12 +423,6 @@ function(add_libclc_builtin_set)
   if( ARG_ARCH STREQUAL spirv OR ARG_ARCH STREQUAL spirv64 )
     set( obj_suffix ${ARG_ARCH_SUFFIX}.spv )
     set( libclc_builtins_lib ${LIBCLC_OUTPUT_LIBRARY_DIR}/${obj_suffix} )
-<<<<<<< HEAD
-    add_custom_command( OUTPUT ${libclc_builtins_lib}
-      COMMAND ${llvm-spirv_exe} ${spvflags} -o ${libclc_builtins_lib} ${builtins_link_lib}
-      DEPENDS ${llvm-spirv_target} ${builtins_link_lib} ${builtins_link_lib_tgt}
-    )
-=======
     if ( LIBCLC_USE_SPIRV_BACKEND )
       add_custom_command( OUTPUT ${libclc_builtins_lib}
         COMMAND ${clang_exe} --target=${ARG_TRIPLE} -x ir -o ${libclc_builtins_lib} ${builtins_link_lib}
@@ -440,7 +434,6 @@ function(add_libclc_builtin_set)
         DEPENDS ${llvm-spirv_target} ${builtins_link_lib} ${builtins_link_lib_tgt}
       )
     endif()
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   else()
     # Non-SPIR-V targets add an extra step to optimize the bytecode
     set( builtins_opt_lib_tgt builtins.opt.${ARG_ARCH_SUFFIX} )
@@ -470,14 +463,10 @@ function(add_libclc_builtin_set)
 
   # Add a 'prepare' target
   add_custom_target( prepare-${obj_suffix} ALL DEPENDS ${libclc_builtins_lib} )
-<<<<<<< HEAD
-  set_target_properties( "prepare-${obj_suffix}" PROPERTIES FOLDER "libclc/Device IR/Prepare" )
-=======
   set_target_properties( "prepare-${obj_suffix}" PROPERTIES
     TARGET_FILE ${libclc_builtins_lib}
     FOLDER "libclc/Device IR/Prepare"
   )
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   # Also add a 'prepare' target for the triple. Since a triple may have
   # multiple devices, ensure we only try to create the triple target once. The
@@ -486,19 +475,11 @@ function(add_libclc_builtin_set)
     add_custom_target( prepare-${ARG_TRIPLE} ALL )
   endif()
   add_dependencies( prepare-${ARG_TRIPLE} prepare-${obj_suffix} )
-<<<<<<< HEAD
-
-  install(
-    FILES ${libclc_builtins_lib}
-    DESTINATION "${CMAKE_INSTALL_DATADIR}/clc"
-  )
-=======
   # Add dependency to top-level pseudo target to ease making other
   # targets dependent on libclc.
   add_dependencies( ${ARG_PARENT_TARGET} prepare-${ARG_TRIPLE} )
 
   libclc_install(FILES ${libclc_builtins_lib})
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   # SPIR-V targets can exit early here
   if( ARG_ARCH STREQUAL spirv OR ARG_ARCH STREQUAL spirv64 )
@@ -516,13 +497,6 @@ function(add_libclc_builtin_set)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} )
   endif()
 
-<<<<<<< HEAD
-  foreach( a ${ARG_ALIASES} )
-    set( alias_suffix "${a}-${ARG_TRIPLE}.bc" )
-    add_custom_command(
-      OUTPUT ${LIBCLC_OUTPUT_LIBRARY_DIR}/${alias_suffix}
-      COMMAND ${CMAKE_COMMAND} -E create_symlink ${libclc_builtins_lib} ${LIBCLC_OUTPUT_LIBRARY_DIR}/${alias_suffix}
-=======
   foreach( a IN LISTS ARG_ALIASES )
     if(CMAKE_HOST_UNIX OR LLVM_USE_SYMLINKS)
       cmake_path(RELATIVE_PATH libclc_builtins_lib
@@ -538,27 +512,16 @@ function(add_libclc_builtin_set)
     add_custom_command(
       OUTPUT ${LIBCLC_OUTPUT_LIBRARY_DIR}/${alias_suffix}
       COMMAND ${CMAKE_COMMAND} -E ${LIBCLC_LINK_OR_COPY} ${LIBCLC_LINK_OR_COPY_SOURCE} ${LIBCLC_OUTPUT_LIBRARY_DIR}/${alias_suffix}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       DEPENDS prepare-${obj_suffix}
     )
     add_custom_target( alias-${alias_suffix} ALL
       DEPENDS ${LIBCLC_OUTPUT_LIBRARY_DIR}/${alias_suffix}
     )
-<<<<<<< HEAD
-    set_target_properties( alias-${alias_suffix}
-      PROPERTIES FOLDER "libclc/Device IR/Aliases"
-    )
-    install(
-      FILES ${LIBCLC_OUTPUT_LIBRARY_DIR}/${alias_suffix}
-      DESTINATION "${CMAKE_INSTALL_DATADIR}/clc"
-    )
-=======
     add_dependencies( ${ARG_PARENT_TARGET} alias-${alias_suffix} )
     set_target_properties( alias-${alias_suffix}
       PROPERTIES FOLDER "libclc/Device IR/Aliases"
     )
     libclc_install(FILES ${LIBCLC_OUTPUT_LIBRARY_DIR}/${alias_suffix})
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   endforeach( a )
 endfunction(add_libclc_builtin_set)
 

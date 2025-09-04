@@ -15,10 +15,7 @@
 #include "mlir/Support/LLVM.h"
 #include "flang/Optimizer/Dialect/FIRDialect.h"
 #include "flang/Optimizer/HLFIR/HLFIRDialect.h"
-<<<<<<< HEAD
-=======
 #include "flang/Optimizer/HLFIR/HLFIROps.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "flang/Optimizer/Support/DataLayout.h"
 
 using namespace mlir;

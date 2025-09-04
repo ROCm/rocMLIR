@@ -534,8 +534,6 @@ static void processHostEvalClauses(lower::AbstractConverter &converter,
       [[fallthrough]];
     case OMPD_loop:
       cp.processCollapse(loc, eval, hostInfo->ops, hostInfo->iv);
-<<<<<<< HEAD
-=======
       break;
 
     case OMPD_teams_workdistribute:
@@ -543,7 +541,6 @@ static void processHostEvalClauses(lower::AbstractConverter &converter,
       [[fallthrough]];
     case OMPD_target_teams_workdistribute:
       cp.processNumTeams(stmtCtx, hostInfo->ops);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       break;
 
     // Standalone 'target' case.
@@ -2249,11 +2246,7 @@ genSectionsOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
   assert(sectionsConstruct && "Missing additional parsing information");
 
   const auto &sectionBlocks =
-<<<<<<< HEAD
-      std::get<parser::OmpSectionBlocks>(sectionsConstruct->t);
-=======
       std::get<std::list<parser::OpenMPConstruct>>(sectionsConstruct->t);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   mlir::omp::SectionsOperands clauseOps;
   llvm::SmallVector<const semantics::Symbol *> reductionSyms;
   genSectionsClauses(converter, semaCtx, item->clauses, loc, clauseOps,
@@ -2461,20 +2454,6 @@ genTargetOp(lower::AbstractConverter &converter, lower::SymMap &symTable,
   // attribute clauses (neither data-sharing; e.g. `private`, nor `map`
   // clauses).
   auto captureImplicitMap = [&](const semantics::Symbol &sym) {
-<<<<<<< HEAD
-    if (dsp.getAllSymbolsToPrivatize().contains(&sym))
-      return;
-
-    // Skip parameters/constants as they do not need to be mapped.
-    if (semantics::IsNamedConstant(sym))
-      return;
-
-    // These symbols are mapped individually in processHasDeviceAddr.
-    if (llvm::is_contained(hasDeviceAddrSyms, &sym))
-      return;
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     // Structure component symbols don't have bindings, and can only be
     // explicitly mapped individually. If a member is captured implicitly
     // we map the entirety of the derived type when we find its symbol.
@@ -3883,9 +3862,6 @@ static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
     if (auto *ompNestedLoopCons{
             std::get_if<common::Indirection<parser::OpenMPLoopConstruct>>(
                 &*optLoopCons)}) {
-<<<<<<< HEAD
-      genOMP(converter, symTable, semaCtx, eval, ompNestedLoopCons->value());
-=======
       llvm::omp::Directive nestedDirective =
           parser::omp::GetOmpDirectiveName(*ompNestedLoopCons).v;
       switch (nestedDirective) {
@@ -3901,7 +3877,6 @@ static void genOMP(lower::AbstractConverter &converter, lower::SymMap &symTable,
                  " construct");
       }
       }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
   }
 

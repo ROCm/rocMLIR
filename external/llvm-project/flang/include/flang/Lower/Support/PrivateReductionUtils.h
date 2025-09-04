@@ -58,11 +58,7 @@ void populateByRefInitAndCleanupRegions(
     mlir::Value allocatedPrivVarArg, mlir::Value moldArg,
     mlir::Region &cleanupRegion, DeclOperationKind kind,
     const Fortran::semantics::Symbol *sym = nullptr,
-<<<<<<< HEAD:external/llvm-project/flang/lib/Lower/OpenMP/PrivateReductionUtils.h
-    bool cannotHaveNonDefaultLowerBounds = false);
-=======
     bool cannotHaveNonDefaultLowerBounds = false, bool isDoConcurrent = false);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/flang/include/flang/Lower/Support/PrivateReductionUtils.h
 
 /// Generate a fir::ShapeShift op describing the provided boxed array.
 /// `cannotHaveNonDefaultLowerBounds` should be set if `box` is known to have

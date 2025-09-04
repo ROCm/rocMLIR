@@ -12,10 +12,7 @@
 #include "Address.h"
 #include "CIRGenRecordLayout.h"
 #include "CIRGenTypeCache.h"
-<<<<<<< HEAD
-=======
 #include "clang/CIR/Dialect/IR/CIRDataLayout.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "clang/CIR/Interfaces/CIRTypeInterfaces.h"
 #include "clang/CIR/MissingFeatures.h"
 
@@ -454,16 +451,6 @@ public:
                    addr.getAlignment()};
   }
 
-  mlir::Value createComplexReal(mlir::Location loc, mlir::Value operand) {
-    auto operandTy = mlir::cast<cir::ComplexType>(operand.getType());
-    return create<cir::ComplexRealOp>(loc, operandTy.getElementType(), operand);
-  }
-
-  mlir::Value createComplexImag(mlir::Location loc, mlir::Value operand) {
-    auto operandTy = mlir::cast<cir::ComplexType>(operand.getType());
-    return create<cir::ComplexImagOp>(loc, operandTy.getElementType(), operand);
-  }
-
   /// Create a cir.ptr_stride operation to get access to an array element.
   /// \p idx is the index of the element to access, \p shouldDecay is true if
   /// the result should decay to a pointer to the element type.
@@ -536,15 +523,6 @@ public:
                                       storageType, info.name, info.size, offset,
                                       info.isSigned, isLvalueVolatile,
                                       addr.getAlignment().getAsAlign().value());
-  }
-
-  mlir::Value createGetBitfield(mlir::Location loc, mlir::Type resultType,
-                                mlir::Value addr, mlir::Type storageType,
-                                const CIRGenBitFieldInfo &info,
-                                bool isLvalueVolatile, bool useVolatile) {
-    return create<cir::GetBitfieldOp>(loc, resultType, addr, storageType,
-                                      info.name, info.size, info.offset,
-                                      info.isSigned, isLvalueVolatile);
   }
 };
 

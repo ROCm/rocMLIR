@@ -2004,8 +2004,6 @@ llvm.func @invalid_xevm_matrix_3(%a: !llvm.ptr<1>, %base_width_a: i32, %base_hei
   llvm.return %loaded_a : vector<8xi16>
 }
 
-<<<<<<< HEAD
-=======
 // -----
 
 llvm.func external @resolve_foo() -> !llvm.ptr attributes {dso_local}
@@ -2033,4 +2031,3 @@ llvm.mlir.alias external @alias_resolver : !llvm.ptr {
 }
 // expected-error@+1 {{'llvm.mlir.ifunc' op must have a function resolver}}
 llvm.mlir.ifunc external @foo : !llvm.func<void (ptr, i32)>, !llvm.ptr @alias_resolver {dso_local}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

@@ -690,13 +690,8 @@ static void instantiateGlobal(Fortran::lower::AbstractConverter &converter,
                                                         sym);
     global = defineGlobal(converter, var, globalName, linkage, dataAttr);
   }
-<<<<<<< HEAD
-  auto addrOf = builder.create<fir::AddrOfOp>(loc, global.resultType(),
-                                              global.getSymbol());
-=======
   auto addrOf = fir::AddrOfOp::create(builder, loc, global.resultType(),
                                       global.getSymbol());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // The type of the global cannot be trusted to be the same as the one
   // of the variable as some existing programs map common blocks to
   // BIND(C) module variables (e.g. mpi_argv_null in MPI and MPI_F08).
@@ -704,8 +699,6 @@ static void instantiateGlobal(Fortran::lower::AbstractConverter &converter,
   mlir::Value cast = builder.createConvert(loc, varAddrType, addrOf);
   Fortran::lower::StatementContext stmtCtx;
   mapSymbolAttributes(converter, var, symMap, stmtCtx, cast);
-<<<<<<< HEAD
-=======
 }
 
 bool needCUDAAlloc(const Fortran::semantics::Symbol &sym) {
@@ -729,7 +722,6 @@ bool needCUDAAlloc(const Fortran::semantics::Symbol &sym) {
         return true;
   }
   return false;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 //===----------------------------------------------------------------===//

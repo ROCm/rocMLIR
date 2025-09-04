@@ -42,8 +42,6 @@ static constexpr bool value = __is_standard_layout(T);
 };
 template <typename T>
 constexpr bool is_standard_layout_v = __is_standard_layout(T);
-<<<<<<< HEAD
-=======
 
 template <typename... Args>
 struct is_constructible {
@@ -68,7 +66,6 @@ struct is_final {
 template <typename T>
 constexpr bool is_final_v = __is_final(T);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #endif
 
 #ifdef STD2
@@ -107,11 +104,7 @@ constexpr bool is_assignable_v = __is_assignable(T, U);
 
 template <typename T>
 struct __details_is_empty {
-<<<<<<< HEAD
-    static constexpr bool value = __is_empty(T);
-=======
   static constexpr bool value = __is_empty(T);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 };
 template <typename T>
 using is_empty  = __details_is_empty<T>;
@@ -120,20 +113,12 @@ constexpr bool is_empty_v = __is_empty(T);
 
 template <typename T>
 struct __details_is_standard_layout {
-<<<<<<< HEAD
-static constexpr bool value = __is_standard_layout(T);
-
-
-=======
     static constexpr bool value = __is_standard_layout(T);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 };
 template <typename T>
 using is_standard_layout = __details_is_standard_layout<T>;
 template <typename T>
 constexpr bool is_standard_layout_v = __is_standard_layout(T);
-<<<<<<< HEAD
-=======
 
 template <typename... Args>
 struct __details_is_constructible{
@@ -166,7 +151,6 @@ using is_final = __details_is_final<T>;
 template <typename T>
 constexpr bool is_final_v = __is_final(T);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #endif
 
 
@@ -196,33 +180,6 @@ using is_trivially_copyable  = __details_is_trivially_copyable<T>;
 
 template <typename T>
 constexpr bool is_trivially_copyable_v = is_trivially_copyable<T>::value;
-<<<<<<< HEAD
-
-template <typename T, typename U>
-struct __details_is_assignable : bool_constant<__is_assignable(T, U)> {};
-
-template <typename T, typename U>
-using is_assignable  = __details_is_assignable<T, U>;
-
-template <typename T, typename U>
-constexpr bool is_assignable_v = is_assignable<T, U>::value;
-
-template <typename T>
-struct __details_is_empty : bool_constant<__is_empty(T)> {};
-template <typename T>
-using is_empty  = __details_is_empty<T>;
-template <typename T>
-constexpr bool is_empty_v = is_empty<T>::value;
-
-template <typename T>
-struct __details_is_standard_layout : bool_constant<__is_standard_layout(T)> {};
-template <typename T>
-using is_standard_layout = __details_is_standard_layout<T>;
-template <typename T>
-constexpr bool is_standard_layout_v = is_standard_layout<T>::value;
-#endif
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 template <typename T, typename U>
 struct __details_is_assignable : bool_constant<__is_assignable(T, U)> {};
@@ -333,8 +290,6 @@ static_assert(std::is_assignable_v<int&, void>);
 // expected-error@-1 {{static assertion failed due to requirement 'std::is_assignable_v<int &, void>'}} \
 // expected-error@-1 {{assigning to 'int' from incompatible type 'void'}}
 
-<<<<<<< HEAD
-=======
 static_assert(std::is_constructible<int, int>::value);
 
 static_assert(std::is_constructible<void>::value);
@@ -381,7 +336,6 @@ static_assert(std::is_aggregate_v<void>);
 // expected-note@-1 {{'void' is not aggregate}} \
 // expected-note@-1 {{because it is a cv void type}}
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 namespace test_namespace {
     using namespace std;
     static_assert(is_trivially_relocatable<int&>::value);
@@ -427,8 +381,6 @@ namespace test_namespace {
     // expected-error@-1 {{static assertion failed due to requirement 'is_empty_v<int &>'}} \
     // expected-note@-1 {{'int &' is not empty}} \
     // expected-note@-1 {{because it is a reference type}}
-<<<<<<< HEAD
-=======
 
     static_assert(is_constructible<void>::value);
     // expected-error-re@-1 {{static assertion failed due to requirement '{{.*}}is_constructible<void>::value'}} \
@@ -470,7 +422,6 @@ namespace test_namespace {
     // expected-note@-1 {{'Fn' (aka 'void ()') is not final}} \
     // expected-note@-1 {{because it is a function type}} \
     // expected-note@-1 {{because it is not a class or union type}}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 
@@ -499,8 +450,6 @@ concept C4 = std::is_assignable_v<T, U>; // #concept8
 
 template <C4<void> T> void g4();  // #cand8
 
-<<<<<<< HEAD
-=======
 template <typename... Args>
 requires std::is_constructible<Args...>::value void f3();  // #cand5
 
@@ -518,7 +467,6 @@ concept C5 = std::is_aggregate_v<T>; // #concept10
 
 template <C5 T> void g5();  // #cand10
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void test() {
     f<int&>();
     // expected-error@-1 {{no matching function for call to 'f'}} \
@@ -562,8 +510,6 @@ void test() {
     // expected-note@#cand8 {{because 'C4<int &, void>' evaluated to false}} \
     // expected-note@#concept8 {{because 'std::is_assignable_v<int &, void>' evaluated to false}} \
     // expected-error@#concept8 {{assigning to 'int' from incompatible type 'void'}}
-<<<<<<< HEAD
-=======
 
     f3<void>();
     // expected-error@-1 {{no matching function for call to 'f3'}} \
@@ -592,7 +538,6 @@ void test() {
     // expected-note@#concept10 {{because 'std::is_aggregate_v<void>' evaluated to false}} \
     // expected-note@#concept10 {{'void' is not aggregate}} \
     // expected-note@#concept10 {{because it is a cv void type}}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 }
 

@@ -38,19 +38,11 @@ void f4(void) {
 // CIR-NEXT:    cir.store align(4) %[[S]], %{{.+}} : !rec_S, !cir.ptr<!rec_S>
 
 // LLVM-LABEL: define{{.*}} void @f4() {
-<<<<<<< HEAD
-// LLVM:         %[[S:.+]] = call %struct.S (...) @f3()
-// LLVM-NEXT:    store %struct.S %[[S]], ptr %{{.+}}, align 4
-
-// OGCG-LABEL: define{{.*}} void @f4() #0 {
-// OGCG:         %[[S:.+]] = call i64 (...) @f3()
-=======
 // LLVM:         %[[S:.+]] = call %struct.S @f3()
 // LLVM-NEXT:    store %struct.S %[[S]], ptr %{{.+}}, align 4
 
 // OGCG-LABEL: define{{.*}} void @f4() #0 {
 // OGCG:         %[[S:.+]] = call i64 @f3()
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // OGCG-NEXT:    store i64 %[[S]], ptr %{{.+}}, align 4
 
 struct Big {
@@ -86,11 +78,7 @@ void f8(void) {
 // CIR:         cir.store align(4) %[[B]], %{{.+}} : !rec_Big, !cir.ptr<!rec_Big>
 
 // LLVM-LABEL: define{{.*}} void @f8() {
-<<<<<<< HEAD
-// LLVM:        %[[B:.+]] = call %struct.Big (...) @f6()
-=======
 // LLVM:        %[[B:.+]] = call %struct.Big @f6()
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // LLVM-NEXT:   store %struct.Big %[[B]], ptr %{{.+}}, align 4
 
 // OGCG-LABEL: define{{.*}} void @f8() #0 {

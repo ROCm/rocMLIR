@@ -229,26 +229,15 @@ SmallString<1024> getSpirvExtArg(ArrayRef<std::string> SpvExtensionArgs) {
   getSpirvExtOperand(SpvExtensionArgs[0], out);
 
   SpvExtensionArgs = SpvExtensionArgs.slice(1);
-<<<<<<< HEAD
-  for (auto Extension : SpvExtensionArgs) {
-    if (Extension != "KHR")
-      Extension = (Twine("+") + Extension).str();
-    LlvmOption = (Twine(LlvmOption) + "," + Extension).str();
-=======
   for (StringRef Extension : SpvExtensionArgs) {
     out << ",";
     getSpirvExtOperand(Extension, out);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
   return LlvmOption;
 }
 
 bool isValidSPIRVExtensionName(const std::string &str) {
-<<<<<<< HEAD
-  std::regex pattern("KHR|SPV_[a-zA-Z0-9_]+");
-=======
   std::regex pattern("dxc|DXC|khr|KHR|SPV_[a-zA-Z0-9_]+");
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return std::regex_match(str, pattern);
 }
 
@@ -392,8 +381,6 @@ HLSLToolChain::TranslateArgs(const DerivedArgList &Args, StringRef BoundArch,
       A->claim();
       continue;
     }
-<<<<<<< HEAD
-=======
     if (A->getOption().getID() == options::OPT_dxc_rootsig_define) {
       DAL->AddJoinedArg(nullptr,
                         Opts.getOption(options::OPT_fdx_rootsignature_define),
@@ -401,7 +388,6 @@ HLSLToolChain::TranslateArgs(const DerivedArgList &Args, StringRef BoundArch,
       A->claim();
       continue;
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     if (A->getOption().getID() == options::OPT__SLASH_O) {
       StringRef OStr = A->getValue();
       if (OStr == "d") {

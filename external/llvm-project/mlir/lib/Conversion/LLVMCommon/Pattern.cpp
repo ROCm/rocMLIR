@@ -281,43 +281,6 @@ LogicalResult ConvertToLLVMPattern::copyUnrankedDescriptors(
   assert(origTypes.size() == operands.size() &&
          "expected as may original types as operands");
   for (unsigned i = 0, e = operands.size(); i < e; ++i) {
-<<<<<<< HEAD
-    Type type = origTypes[i];
-    if (!isa<UnrankedMemRefType>(type))
-      continue;
-    Value allocationSize = sizes[unrankedMemrefPos++];
-    UnrankedMemRefDescriptor desc(operands[i]);
-
-    // Allocate memory, copy, and free the source if necessary.
-    Value memory =
-        toDynamic
-            ? builder
-                  .create<LLVM::CallOp>(loc, mallocFunc.value(), allocationSize)
-                  .getResult()
-            : builder.create<LLVM::AllocaOp>(loc, getPtrType(),
-                                             IntegerType::get(getContext(), 8),
-                                             allocationSize,
-                                             /*alignment=*/0);
-    Value source = desc.memRefDescPtr(builder, loc);
-    builder.create<LLVM::MemcpyOp>(loc, memory, source, allocationSize, false);
-    if (!toDynamic)
-      builder.create<LLVM::CallOp>(loc, freeFunc.value(), source);
-
-    // Create a new descriptor. The same descriptor can be returned multiple
-    // times, attempting to modify its pointer can lead to memory leaks
-    // (allocated twice and overwritten) or double frees (the caller does not
-    // know if the descriptor points to the same memory).
-    Type descriptorType = getTypeConverter()->convertType(type);
-    if (!descriptorType)
-      return failure();
-    auto updatedDesc =
-        UnrankedMemRefDescriptor::poison(builder, loc, descriptorType);
-    Value rank = desc.rank(builder, loc);
-    updatedDesc.setRank(builder, loc, rank);
-    updatedDesc.setMemRefDescPtr(builder, loc, memory);
-
-    operands[i] = updatedDesc;
-=======
     if (auto memRefType = dyn_cast<UnrankedMemRefType>(origTypes[i])) {
       Value updatedDesc = copyUnrankedDescriptor(builder, loc, memRefType,
                                                  operands[i], toDynamic);
@@ -325,7 +288,6 @@ LogicalResult ConvertToLLVMPattern::copyUnrankedDescriptors(
         return failure();
       operands[i] = updatedDesc;
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
   return success();
 }

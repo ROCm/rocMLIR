@@ -134,11 +134,7 @@ static void createCleanupRegion(Fortran::lower::AbstractConverter &converter,
   typeError();
 }
 
-<<<<<<< HEAD:external/llvm-project/flang/lib/Lower/OpenMP/PrivateReductionUtils.cpp
-fir::ShapeShiftOp Fortran::lower::omp::getShapeShift(
-=======
 fir::ShapeShiftOp Fortran::lower::getShapeShift(
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/flang/lib/Lower/Support/PrivateReductionUtils.cpp
     fir::FirOpBuilder &builder, mlir::Location loc, mlir::Value box,
     bool cannotHaveNonDefaultLowerBounds, bool useDefaultLowerBounds) {
   fir::SequenceType sequenceType = mlir::cast<fir::SequenceType>(
@@ -289,21 +285,13 @@ public:
       mlir::Value allocatedPrivVarArg, mlir::Value moldArg,
       mlir::Block *initBlock, mlir::Region &cleanupRegion,
       DeclOperationKind kind, const Fortran::semantics::Symbol *sym,
-<<<<<<< HEAD:external/llvm-project/flang/lib/Lower/OpenMP/PrivateReductionUtils.cpp
-      bool cannotHaveLowerBounds)
-=======
       bool cannotHaveLowerBounds, bool isDoConcurrent)
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/flang/lib/Lower/Support/PrivateReductionUtils.cpp
       : converter{converter}, builder{converter.getFirOpBuilder()}, loc{loc},
         argType{argType}, scalarInitValue{scalarInitValue},
         allocatedPrivVarArg{allocatedPrivVarArg}, moldArg{moldArg},
         initBlock{initBlock}, cleanupRegion{cleanupRegion}, kind{kind},
-<<<<<<< HEAD:external/llvm-project/flang/lib/Lower/OpenMP/PrivateReductionUtils.cpp
-        sym{sym}, cannotHaveNonDefaultLowerBounds{cannotHaveLowerBounds} {
-=======
         sym{sym}, cannotHaveNonDefaultLowerBounds{cannotHaveLowerBounds},
         isDoConcurrent{isDoConcurrent} {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/flang/lib/Lower/Support/PrivateReductionUtils.cpp
     valType = fir::unwrapRefType(argType);
   }
 
@@ -349,11 +337,8 @@ private:
   /// lower bounds then we don't need to generate code to read them.
   bool cannotHaveNonDefaultLowerBounds;
 
-<<<<<<< HEAD:external/llvm-project/flang/lib/Lower/OpenMP/PrivateReductionUtils.cpp
-=======
   bool isDoConcurrent;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/flang/lib/Lower/Support/PrivateReductionUtils.cpp
   void createYield(mlir::Value ret) {
     if (isDoConcurrent)
       fir::YieldOp::create(builder, loc, ret);
@@ -686,19 +671,12 @@ void Fortran::lower::populateByRefInitAndCleanupRegions(
     mlir::Type argType, mlir::Value scalarInitValue, mlir::Block *initBlock,
     mlir::Value allocatedPrivVarArg, mlir::Value moldArg,
     mlir::Region &cleanupRegion, DeclOperationKind kind,
-<<<<<<< HEAD:external/llvm-project/flang/lib/Lower/OpenMP/PrivateReductionUtils.cpp
-    const Fortran::semantics::Symbol *sym, bool cannotHaveLowerBounds) {
-  PopulateInitAndCleanupRegionsHelper helper(
-      converter, loc, argType, scalarInitValue, allocatedPrivVarArg, moldArg,
-      initBlock, cleanupRegion, kind, sym, cannotHaveLowerBounds);
-=======
     const Fortran::semantics::Symbol *sym, bool cannotHaveLowerBounds,
     bool isDoConcurrent) {
   PopulateInitAndCleanupRegionsHelper helper(
       converter, loc, argType, scalarInitValue, allocatedPrivVarArg, moldArg,
       initBlock, cleanupRegion, kind, sym, cannotHaveLowerBounds,
       isDoConcurrent);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/flang/lib/Lower/Support/PrivateReductionUtils.cpp
   helper.populateByRefInitAndCleanupRegions();
 
   // Often we load moldArg to check something (e.g. length parameters, shape)

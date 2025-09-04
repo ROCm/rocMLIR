@@ -14,13 +14,8 @@
 #define __CLC_MIN_VECSIZE 2
 #endif
 
-<<<<<<< HEAD
-#ifndef __IMPL_FUNCTION
-#define __IMPL_FUNCTION FUNCTION
-=======
 #ifndef __CLC_IMPL_FUNCTION
 #define __CLC_IMPL_FUNCTION __CLC_FUNCTION
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #endif
 
 #ifndef __CLC_DEF_SPEC
@@ -40,15 +35,9 @@
 #endif
 
 #if __CLC_MIN_VECSIZE == 1
-<<<<<<< HEAD
-_CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE FUNCTION(__CLC_ARG1_TYPE x,
-                                                     __CLC_ARG2_TYPE y) {
-  return __IMPL_FUNCTION(x, y);
-=======
 _CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE __CLC_FUNCTION(__CLC_ARG1_TYPE x,
                                                            __CLC_ARG2_TYPE y) {
   return __CLC_IMPL_FUNCTION(x, y);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 #endif // __CLC_MIN_VECSIZE == 1
 
@@ -56,17 +45,10 @@ _CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE __CLC_FUNCTION(__CLC_ARG1_TYPE x,
 #define __CLC_RET_TYPE2 __CLC_XCONCAT(__CLC_RET_TYPE, 2)
 #define __CLC_ARG1_TYPE2 __CLC_XCONCAT(__CLC_ARG1_TYPE, 2)
 #define __CLC_ARG2_TYPE2 __CLC_XCONCAT(__CLC_ARG2_TYPE, 2)
-<<<<<<< HEAD
-_CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE2 FUNCTION(__CLC_ARG1_TYPE2 x,
-                                                      __CLC_ARG2_TYPE2 y) {
-  return (__CLC_RET_TYPE2)(__IMPL_FUNCTION(x.s0, y.s0),
-                           __IMPL_FUNCTION(x.s1, y.s1));
-=======
 _CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE2
 __CLC_FUNCTION(__CLC_ARG1_TYPE2 x, __CLC_ARG2_TYPE2 y) {
   return (__CLC_RET_TYPE2)(__CLC_IMPL_FUNCTION(x.s0, y.s0),
                            __CLC_IMPL_FUNCTION(x.s1, y.s1));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 #undef __CLC_RET_TYPE2
 #undef __CLC_ARG1_TYPE2
@@ -80,19 +62,11 @@ __CLC_FUNCTION(__CLC_ARG1_TYPE2 x, __CLC_ARG2_TYPE2 y) {
 #define __CLC_RET_TYPE3 __CLC_XCONCAT(__CLC_RET_TYPE, 3)
 #define __CLC_ARG1_TYPE3 __CLC_XCONCAT(__CLC_ARG1_TYPE, 3)
 #define __CLC_ARG2_TYPE3 __CLC_XCONCAT(__CLC_ARG2_TYPE, 3)
-<<<<<<< HEAD
-_CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE3 FUNCTION(__CLC_ARG1_TYPE3 x,
-                                                      __CLC_ARG2_TYPE3 y) {
-  return (__CLC_RET_TYPE3)(__IMPL_FUNCTION(x.s0, y.s0),
-                           __IMPL_FUNCTION(x.s1, y.s1),
-                           __IMPL_FUNCTION(x.s2, y.s2));
-=======
 _CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE3
 __CLC_FUNCTION(__CLC_ARG1_TYPE3 x, __CLC_ARG2_TYPE3 y) {
   return (__CLC_RET_TYPE3)(__CLC_IMPL_FUNCTION(x.s0, y.s0),
                            __CLC_IMPL_FUNCTION(x.s1, y.s1),
                            __CLC_IMPL_FUNCTION(x.s2, y.s2));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 #undef __CLC_RET_TYPE3
 #undef __CLC_ARG1_TYPE3
@@ -101,21 +75,12 @@ __CLC_FUNCTION(__CLC_ARG1_TYPE3 x, __CLC_ARG2_TYPE3 y) {
 #define __CLC_RET_TYPE4 __CLC_XCONCAT(__CLC_RET_TYPE, 4)
 #define __CLC_ARG1_TYPE4 __CLC_XCONCAT(__CLC_ARG1_TYPE, 4)
 #define __CLC_ARG2_TYPE4 __CLC_XCONCAT(__CLC_ARG2_TYPE, 4)
-<<<<<<< HEAD
-_CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE4 FUNCTION(__CLC_ARG1_TYPE4 x,
-                                                      __CLC_ARG2_TYPE4 y) {
-  return (__CLC_RET_TYPE4)(__IMPL_FUNCTION(x.s0, y.s0),
-                           __IMPL_FUNCTION(x.s1, y.s1),
-                           __IMPL_FUNCTION(x.s2, y.s2),
-                           __IMPL_FUNCTION(x.s3, y.s3));
-=======
 _CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE4
 __CLC_FUNCTION(__CLC_ARG1_TYPE4 x, __CLC_ARG2_TYPE4 y) {
   return (__CLC_RET_TYPE4)(__CLC_IMPL_FUNCTION(x.s0, y.s0),
                            __CLC_IMPL_FUNCTION(x.s1, y.s1),
                            __CLC_IMPL_FUNCTION(x.s2, y.s2),
                            __CLC_IMPL_FUNCTION(x.s3, y.s3));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 #undef __CLC_RET_TYPE4
 #undef __CLC_ARG1_TYPE4
@@ -124,16 +89,6 @@ __CLC_FUNCTION(__CLC_ARG1_TYPE4 x, __CLC_ARG2_TYPE4 y) {
 #define __CLC_RET_TYPE8 __CLC_XCONCAT(__CLC_RET_TYPE, 8)
 #define __CLC_ARG1_TYPE8 __CLC_XCONCAT(__CLC_ARG1_TYPE, 8)
 #define __CLC_ARG2_TYPE8 __CLC_XCONCAT(__CLC_ARG2_TYPE, 8)
-<<<<<<< HEAD
-_CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE8 FUNCTION(__CLC_ARG1_TYPE8 x,
-                                                      __CLC_ARG2_TYPE8 y) {
-  return (
-      __CLC_RET_TYPE8)(__IMPL_FUNCTION(x.s0, y.s0), __IMPL_FUNCTION(x.s1, y.s1),
-                       __IMPL_FUNCTION(x.s2, y.s2), __IMPL_FUNCTION(x.s3, y.s3),
-                       __IMPL_FUNCTION(x.s4, y.s4), __IMPL_FUNCTION(x.s5, y.s5),
-                       __IMPL_FUNCTION(x.s6, y.s6),
-                       __IMPL_FUNCTION(x.s7, y.s7));
-=======
 _CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE8
 __CLC_FUNCTION(__CLC_ARG1_TYPE8 x, __CLC_ARG2_TYPE8 y) {
   return (__CLC_RET_TYPE8)(__CLC_IMPL_FUNCTION(x.s0, y.s0),
@@ -144,7 +99,6 @@ __CLC_FUNCTION(__CLC_ARG1_TYPE8 x, __CLC_ARG2_TYPE8 y) {
                            __CLC_IMPL_FUNCTION(x.s5, y.s5),
                            __CLC_IMPL_FUNCTION(x.s6, y.s6),
                            __CLC_IMPL_FUNCTION(x.s7, y.s7));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 #undef __CLC_RET_TYPE8
 #undef __CLC_ARG1_TYPE8
@@ -153,26 +107,6 @@ __CLC_FUNCTION(__CLC_ARG1_TYPE8 x, __CLC_ARG2_TYPE8 y) {
 #define __CLC_RET_TYPE16 __CLC_XCONCAT(__CLC_RET_TYPE, 16)
 #define __CLC_ARG1_TYPE16 __CLC_XCONCAT(__CLC_ARG1_TYPE, 16)
 #define __CLC_ARG2_TYPE16 __CLC_XCONCAT(__CLC_ARG2_TYPE, 16)
-<<<<<<< HEAD
-_CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE16 FUNCTION(__CLC_ARG1_TYPE16 x,
-                                                       __CLC_ARG2_TYPE16 y) {
-  return (__CLC_RET_TYPE16)(__IMPL_FUNCTION(x.s0, y.s0),
-                            __IMPL_FUNCTION(x.s1, y.s1),
-                            __IMPL_FUNCTION(x.s2, y.s2),
-                            __IMPL_FUNCTION(x.s3, y.s3),
-                            __IMPL_FUNCTION(x.s4, y.s4),
-                            __IMPL_FUNCTION(x.s5, y.s5),
-                            __IMPL_FUNCTION(x.s6, y.s6),
-                            __IMPL_FUNCTION(x.s7, y.s7),
-                            __IMPL_FUNCTION(x.s8, y.s8),
-                            __IMPL_FUNCTION(x.s9, y.s9),
-                            __IMPL_FUNCTION(x.sa, y.sa),
-                            __IMPL_FUNCTION(x.sb, y.sb),
-                            __IMPL_FUNCTION(x.sc, y.sc),
-                            __IMPL_FUNCTION(x.sd, y.sd),
-                            __IMPL_FUNCTION(x.se, y.se),
-                            __IMPL_FUNCTION(x.sf, y.sf));
-=======
 _CLC_OVERLOAD __CLC_DEF_SPEC __CLC_RET_TYPE16
 __CLC_FUNCTION(__CLC_ARG1_TYPE16 x, __CLC_ARG2_TYPE16 y) {
   return (__CLC_RET_TYPE16)(__CLC_IMPL_FUNCTION(x.s0, y.s0),
@@ -191,7 +125,6 @@ __CLC_FUNCTION(__CLC_ARG1_TYPE16 x, __CLC_ARG2_TYPE16 y) {
                             __CLC_IMPL_FUNCTION(x.sd, y.sd),
                             __CLC_IMPL_FUNCTION(x.se, y.se),
                             __CLC_IMPL_FUNCTION(x.sf, y.sf));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 #undef __CLC_RET_TYPE16
 #undef __CLC_ARG1_TYPE16

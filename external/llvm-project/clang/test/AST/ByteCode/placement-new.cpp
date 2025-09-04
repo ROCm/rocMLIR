@@ -486,8 +486,6 @@ namespace bitcast {
   }
   static_assert(foo() == 0);
 }
-<<<<<<< HEAD
-=======
 
 constexpr int modify_const_variable() {
   const int a = 10;
@@ -496,4 +494,3 @@ constexpr int modify_const_variable() {
 }
 static_assert(modify_const_variable()); // both-error {{not an integral constant expression}} \
                                         // both-note {{in call to}}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

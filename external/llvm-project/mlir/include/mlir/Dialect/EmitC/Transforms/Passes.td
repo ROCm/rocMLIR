@@ -51,14 +51,6 @@ def WrapFuncInClassPass : Pass<"wrap-emitc-func-in-class"> {
     ```
   }];
   let dependentDialects = ["emitc::EmitCDialect"];
-<<<<<<< HEAD
-  let options = [Option<
-      "namedAttribute", "named-attribute", "std::string",
-      /*default=*/"",
-      "Attribute key used to extract field names from function argument's "
-      "dictionary attributes">];
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 #endif // MLIR_DIALECT_EMITC_TRANSFORMS_PASSES

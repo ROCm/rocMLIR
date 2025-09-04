@@ -27,19 +27,11 @@ int main(int argc, char *argv[]) {
   SizeSource = setBuf(argv[1], &BufSource);
 
   amd_comgr_language_t OpenCLVersion;
-<<<<<<< HEAD
-  if (strcmp(argv[3], "1.2")) {
-    OpenCLVersion = AMD_COMGR_LANGUAGE_OPENCL_1_2;
-  }
-  else if (strcmp(argv[3], "2.0")) {
-    OpenCLVersion = AMD_COMGR_LANGUAGE_OPENCL_1_2;
-=======
   if (strcmp(argv[3], "1.2") == 0) {
     OpenCLVersion = AMD_COMGR_LANGUAGE_OPENCL_1_2;
   }
   else if (strcmp(argv[3], "2.0") == 0) {
     OpenCLVersion = AMD_COMGR_LANGUAGE_OPENCL_2_0;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
   else
     fail("unsupported OCL version: %s", argv[3]);

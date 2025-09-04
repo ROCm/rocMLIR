@@ -91,14 +91,11 @@ public:
   /// Return true if the given vector types are lax-compatible SVE vector types,
   /// false otherwise.
   bool areLaxCompatibleSveTypes(QualType FirstType, QualType SecondType);
-<<<<<<< HEAD
-=======
 
   bool checkTargetVersionAttr(const StringRef Str, const SourceLocation Loc);
   bool checkTargetClonesAttr(SmallVectorImpl<StringRef> &Params,
                              SmallVectorImpl<SourceLocation> &Locs,
                              SmallVectorImpl<SmallString<64>> &NewParams);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 };
 
 SemaARM::ArmStreamingType getArmStreamingFnType(const FunctionDecl *FD);

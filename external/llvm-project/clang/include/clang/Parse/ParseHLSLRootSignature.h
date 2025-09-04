@@ -30,12 +30,7 @@ namespace hlsl {
 class RootSignatureParser {
 public:
   RootSignatureParser(llvm::dxbc::RootSignatureVersion Version,
-<<<<<<< HEAD
-                      SmallVector<llvm::hlsl::rootsig::RootElement> &Elements,
-                      RootSignatureLexer &Lexer, clang::Preprocessor &PP);
-=======
                       StringLiteral *Signature, Preprocessor &PP);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   /// Consumes tokens from the Lexer and constructs the in-memory
   /// representations of the RootElements. Tokens are consumed until an
@@ -144,15 +139,6 @@ private:
   std::optional<float> parseFloatParam();
 
   /// Parsing methods of various enums
-<<<<<<< HEAD
-  std::optional<llvm::dxbc::ShaderVisibility> parseShaderVisibility();
-  std::optional<llvm::dxbc::SamplerFilter> parseSamplerFilter();
-  std::optional<llvm::dxbc::TextureAddressMode> parseTextureAddressMode();
-  std::optional<llvm::dxbc::ComparisonFunc> parseComparisonFunc();
-  std::optional<llvm::dxbc::StaticBorderColor> parseStaticBorderColor();
-  std::optional<llvm::dxbc::RootDescriptorFlags> parseRootDescriptorFlags();
-  std::optional<llvm::dxbc::DescriptorRangeFlags> parseDescriptorRangeFlags();
-=======
   std::optional<llvm::dxbc::ShaderVisibility>
   parseShaderVisibility(RootSignatureToken::Kind Context);
   std::optional<llvm::dxbc::SamplerFilter>
@@ -167,7 +153,6 @@ private:
   parseRootDescriptorFlags(RootSignatureToken::Kind Context);
   std::optional<llvm::dxbc::DescriptorRangeFlags>
   parseDescriptorRangeFlags(RootSignatureToken::Kind Context);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   /// Use NumericLiteralParser to convert CurToken.NumSpelling into a unsigned
   /// 32-bit integer
@@ -215,12 +200,6 @@ private:
   bool tryConsumeExpectedToken(RootSignatureToken::Kind Expected);
   bool tryConsumeExpectedToken(ArrayRef<RootSignatureToken::Kind> Expected);
 
-<<<<<<< HEAD
-private:
-  llvm::dxbc::RootSignatureVersion Version;
-  SmallVector<llvm::hlsl::rootsig::RootElement> &Elements;
-  RootSignatureLexer &Lexer;
-=======
   /// Consume tokens until the expected token has been peeked to be next
   /// or we have reached the end of the stream. Note that this means the
   /// expected token will be the next token not CurToken.
@@ -228,7 +207,6 @@ private:
   /// Returns true if it found a token of the given type.
   bool skipUntilExpectedToken(RootSignatureToken::Kind Expected);
   bool skipUntilExpectedToken(ArrayRef<RootSignatureToken::Kind> Expected);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   /// Consume tokens until we reach a closing right paren, ')', or, until we
   /// have reached the end of the stream. This will place the current token

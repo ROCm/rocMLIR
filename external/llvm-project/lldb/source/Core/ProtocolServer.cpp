@@ -13,16 +13,6 @@
 using namespace lldb_private;
 using namespace lldb;
 
-<<<<<<< HEAD
-ProtocolServer *ProtocolServer::GetOrCreate(llvm::StringRef name) {
-  static std::mutex g_mutex;
-  static llvm::StringMap<ProtocolServerUP> g_protocol_server_instances;
-
-  std::lock_guard<std::mutex> guard(g_mutex);
-
-  auto it = g_protocol_server_instances.find(name);
-  if (it != g_protocol_server_instances.end())
-=======
 static std::pair<llvm::StringMap<ProtocolServerUP> &, std::mutex &> Servers() {
   static llvm::StringMap<ProtocolServerUP> g_protocol_server_instances;
   static std::mutex g_mutex;
@@ -36,17 +26,11 @@ ProtocolServer *ProtocolServer::GetOrCreate(llvm::StringRef name) {
 
   auto it = protocol_server_instances.find(name);
   if (it != protocol_server_instances.end())
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return it->second.get();
 
   if (ProtocolServerCreateInstance create_callback =
           PluginManager::GetProtocolCreateCallbackForPluginName(name)) {
-<<<<<<< HEAD
-    auto pair =
-        g_protocol_server_instances.try_emplace(name, create_callback());
-=======
     auto pair = protocol_server_instances.try_emplace(name, create_callback());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return pair.first->second.get();
   }
 
@@ -66,8 +50,6 @@ std::vector<llvm::StringRef> ProtocolServer::GetSupportedProtocols() {
 
   return supported_protocols;
 }
-<<<<<<< HEAD
-=======
 
 llvm::Error ProtocolServer::Terminate() {
   llvm::Error error = llvm::Error::success();
@@ -83,4 +65,3 @@ llvm::Error ProtocolServer::Terminate() {
 
   return error;
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

@@ -4,10 +4,7 @@
 // RUN:   -o - | FileCheck %s
 
 // CHECK-NOT: __riscv_xandesperf {{.*$}}
-<<<<<<< HEAD
-=======
 // CHECK-NOT: __riscv_xandesbfhcvt {{.*$}}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // CHECK-NOT: __riscv_xandesvbfhcvt {{.*$}}
 // CHECK-NOT: __riscv_xandesvsintload {{.*$}}
 // CHECK-NOT: __riscv_xandesvpackfph {{.*$}}

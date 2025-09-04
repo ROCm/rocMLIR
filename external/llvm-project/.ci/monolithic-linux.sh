@@ -31,11 +31,7 @@ enable_cir="${6}"
 
 lit_args="-v --xunit-xml-output ${BUILD_DIR}/test-results.xml --use-unique-output-file-name --timeout=1200 --time-tests --succinct"
 
-<<<<<<< HEAD
-echo "::group::cmake"
-=======
 start-group "CMake"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 export PIP_BREAK_SYSTEM_PACKAGES=1
 pip install -q -r "${MONOREPO_ROOT}"/.ci/all_requirements.txt
 
@@ -70,78 +66,39 @@ cmake -S "${MONOREPO_ROOT}"/llvm -B "${BUILD_DIR}" \
 
 start-group "ninja"
 
-<<<<<<< HEAD
-echo "::endgroup::"
-echo "::group::ninja"
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 # Targets are not escaped as they are passed as separate arguments.
 ninja -C "${BUILD_DIR}" -k 0 ${targets} |& tee ninja.log
 
-echo "::endgroup::"
-
 if [[ "${runtime_targets}" != "" ]]; then
-<<<<<<< HEAD
-  echo "::group::ninja runtimes"
-
-  ninja -C "${BUILD_DIR}" ${runtime_targets}
-
-  echo "::endgroup::"
-=======
   start-group "ninja Runtimes"
 
   ninja -C "${BUILD_DIR}" ${runtime_targets} |& tee ninja_runtimes.log
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 fi
 
 # Compiling runtimes with just-built Clang and running their tests
 # as an additional testing for Clang.
 if [[ "${runtime_targets_needs_reconfig}" != "" ]]; then
-<<<<<<< HEAD
-  echo "::group::cmake runtimes C++26"
-=======
   start-group "CMake Runtimes C++26"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   cmake \
     -D LIBCXX_TEST_PARAMS="std=c++26" \
     -D LIBCXXABI_TEST_PARAMS="std=c++26" \
     "${BUILD_DIR}"
 
-<<<<<<< HEAD
-  echo "::endgroup::"
-  echo "::group::ninja runtimes C++26"
-=======
   start-group "ninja Runtimes C++26"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   ninja -C "${BUILD_DIR}" ${runtime_targets_needs_reconfig} \
     |& tee ninja_runtimes_needs_reconfig1.log
 
-<<<<<<< HEAD
-  echo "::endgroup::"
-  echo "::group::cmake runtimes clang modules"
-=======
   start-group "CMake Runtimes Clang Modules"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   cmake \
     -D LIBCXX_TEST_PARAMS="enable_modules=clang" \
     -D LIBCXXABI_TEST_PARAMS="enable_modules=clang" \
     "${BUILD_DIR}"
 
-<<<<<<< HEAD
-  echo "::endgroup::"
-  echo "::group::ninja runtimes clang modules"
-
-  ninja -C "${BUILD_DIR}" ${runtime_targets_needs_reconfig}
-
-  echo "::endgroup::"
-=======
   start-group "ninja Runtimes Clang Modules"
 
   ninja -C "${BUILD_DIR}" ${runtime_targets_needs_reconfig} \
     |& tee ninja_runtimes_needs_reconfig2.log
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 fi

@@ -116,9 +116,6 @@ void f14() {
 // LLVM:         call void @_Z3f13v() #[[LLVM_ATTR_0:.+]]
 // LLVM:       }
 
-<<<<<<< HEAD
-// LLLVM: attributes #[[LLVM_ATTR_0]] = { nounwind }
-=======
 int f15();
 void f16() {
   using T = int;
@@ -134,4 +131,3 @@ void f16() {
 // LLVM:       }
 
 // LLVM: attributes #[[LLVM_ATTR_0]] = { nounwind }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

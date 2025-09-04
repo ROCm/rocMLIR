@@ -17,10 +17,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Rewrite/PatternApplicator.h"
-<<<<<<< HEAD
-=======
 #include "llvm/ADT/ScopeExit.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/DebugLog.h"
@@ -1095,18 +1092,12 @@ struct ConversionPatternRewriterImpl : public RewriterBase::Listener {
   /// by the current pattern.
   SetVector<Block *> patternInsertedBlocks;
 
-<<<<<<< HEAD
-  /// A mapping of all unresolved materializations (UnrealizedConversionCastOp)
-  /// to the corresponding rewrite objects.
-  DenseMap<UnrealizedConversionCastOp, UnresolvedMaterializationRewrite *>
-=======
   /// A list of unresolved materializations that were created by the current
   /// pattern.
   DenseSet<UnrealizedConversionCastOp> patternMaterializations;
 
   /// A mapping for looking up metadata of unresolved materializations.
   DenseMap<UnrealizedConversionCastOp, UnresolvedMaterializationInfo>
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       unresolvedMaterializations;
 
   /// The current type converter, or nullptr if no type converter is currently
@@ -1739,12 +1730,6 @@ void ConversionPatternRewriterImpl::notifyOperationInserted(
   assert(!(config.allowPatternRollback && wasOpReplaced(op->getParentOp())) &&
          "attempting to insert into a block within a replaced/erased op");
 
-<<<<<<< HEAD
-  if (!previous.isSet()) {
-    // This is a newly created op.
-    appendRewrite<CreateOperationRewrite>(op);
-    patternNewOps.insert(op);
-=======
   // In "no rollback" mode, the listener is always notified immediately.
   if (!config.allowPatternRollback && config.listener)
     config.listener->notifyOperationInserted(op, previous);
@@ -1766,7 +1751,6 @@ void ConversionPatternRewriterImpl::notifyOperationInserted(
       // erased operations that must be kept up to date.
       erasedOps.erase(op);
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return;
   }
 
@@ -1978,13 +1962,6 @@ void ConversionPatternRewriterImpl::notifyBlockInserted(
         logger.getOStream() << "\n";
       });
 
-<<<<<<< HEAD
-  patternInsertedBlocks.insert(block);
-
-  if (!previous) {
-    // This is a newly created block.
-    appendRewrite<CreateBlockRewrite>(block);
-=======
   // In rollback mode, it is easier to misuse the API, so perform extra error
   // checking.
   assert(!(config.allowPatternRollback && wasOpReplaced(newParentOp)) &&
@@ -2009,7 +1986,6 @@ void ConversionPatternRewriterImpl::notifyBlockInserted(
       // erased blocks that must be kept up to date.
       erasedBlocks.erase(block);
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return;
   }
 
@@ -2235,12 +2211,6 @@ void ConversionPatternRewriter::startOpModification(Operation *op) {
 }
 
 void ConversionPatternRewriter::finalizeOpModification(Operation *op) {
-<<<<<<< HEAD
-  assert(!impl->wasOpReplaced(op) &&
-         "attempting to modify a replaced/erased op");
-  PatternRewriter::finalizeOpModification(op);
-  impl->patternModifiedOps.insert(op);
-=======
   impl->patternModifiedOps.insert(op);
   if (!impl->config.allowPatternRollback) {
     PatternRewriter::finalizeOpModification(op);
@@ -2248,7 +2218,6 @@ void ConversionPatternRewriter::finalizeOpModification(Operation *op) {
       getConfig().listener->notifyOperationModified(op);
     return;
   }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // There is nothing to do here, we only need to track the operation at the
   // start of the update.
@@ -2364,11 +2333,7 @@ private:
 
   /// Legalize the resultant IR after successfully applying the given pattern.
   LogicalResult legalizePatternResult(Operation *op, const Pattern &pattern,
-<<<<<<< HEAD
-                                      ConversionPatternRewriter &rewriter,
-=======
                                       const RewriterState &curState,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                                       const SetVector<Operation *> &newOps,
                                       const SetVector<Operation *> &modifiedOps,
                                       const SetVector<Block *> &insertedBlocks);
@@ -2376,27 +2341,12 @@ private:
   /// Legalizes the actions registered during the execution of a pattern.
   LogicalResult
   legalizePatternBlockRewrites(Operation *op,
-<<<<<<< HEAD
-                               ConversionPatternRewriter &rewriter,
-                               ConversionPatternRewriterImpl &impl,
-                               const SetVector<Block *> &insertedBlocks,
-                               const SetVector<Operation *> &newOps);
-  LogicalResult
-  legalizePatternCreatedOperations(ConversionPatternRewriter &rewriter,
-                                   ConversionPatternRewriterImpl &impl,
-                                   const SetVector<Operation *> &newOps);
-  LogicalResult
-  legalizePatternRootUpdates(ConversionPatternRewriter &rewriter,
-                             ConversionPatternRewriterImpl &impl,
-                             const SetVector<Operation *> &modifiedOps);
-=======
                                const SetVector<Block *> &insertedBlocks,
                                const SetVector<Operation *> &newOps);
   LogicalResult
   legalizePatternCreatedOperations(const SetVector<Operation *> &newOps);
   LogicalResult
   legalizePatternRootUpdates(const SetVector<Operation *> &modifiedOps);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   //===--------------------------------------------------------------------===//
   // Cost Model
@@ -2579,13 +2529,7 @@ static T moveAndReset(T &obj) {
   return result;
 }
 
-<<<<<<< HEAD
-LogicalResult
-OperationLegalizer::legalizeWithFold(Operation *op,
-                                     ConversionPatternRewriter &rewriter) {
-=======
 LogicalResult OperationLegalizer::legalizeWithFold(Operation *op) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   auto &rewriterImpl = rewriter.getImpl();
   LLVM_DEBUG({
     rewriterImpl.logger.startLine() << "* Fold {\n";
@@ -2713,8 +2657,6 @@ LogicalResult OperationLegalizer::legalizeWithPattern(Operation *op) {
   RewriterState curState = rewriterImpl.getCurrentState();
   auto onFailure = [&](const Pattern &pattern) {
     assert(rewriterImpl.pendingRootUpdates.empty() && "dangling root updates");
-<<<<<<< HEAD
-=======
     if (!rewriterImpl.config.allowPatternRollback) {
       // Erase all unresolved materializations.
       for (auto op : rewriterImpl.patternMaterializations) {
@@ -2732,7 +2674,6 @@ LogicalResult OperationLegalizer::legalizeWithPattern(Operation *op) {
       }
 #endif // MLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     rewriterImpl.patternNewOps.clear();
     rewriterImpl.patternModifiedOps.clear();
     rewriterImpl.patternInsertedBlocks.clear();
@@ -2756,8 +2697,6 @@ LogicalResult OperationLegalizer::legalizeWithPattern(Operation *op) {
   // successfully applied.
   auto onSuccess = [&](const Pattern &pattern) {
     assert(rewriterImpl.pendingRootUpdates.empty() && "dangling root updates");
-<<<<<<< HEAD
-=======
     if (!rewriterImpl.config.allowPatternRollback) {
       // Eagerly erase unused materializations.
       for (auto op : rewriterImpl.patternMaterializations) {
@@ -2768,17 +2707,12 @@ LogicalResult OperationLegalizer::legalizeWithPattern(Operation *op) {
       }
       rewriterImpl.patternMaterializations.clear();
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     SetVector<Operation *> newOps = moveAndReset(rewriterImpl.patternNewOps);
     SetVector<Operation *> modifiedOps =
         moveAndReset(rewriterImpl.patternModifiedOps);
     SetVector<Block *> insertedBlocks =
         moveAndReset(rewriterImpl.patternInsertedBlocks);
-<<<<<<< HEAD
-    auto result = legalizePatternResult(op, pattern, rewriter, newOps,
-=======
     auto result = legalizePatternResult(op, pattern, curState, newOps,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                                         modifiedOps, insertedBlocks);
     appliedPatterns.erase(&pattern);
     if (failed(result)) {
@@ -2820,19 +2754,11 @@ bool OperationLegalizer::canApplyPattern(Operation *op,
 }
 
 LogicalResult OperationLegalizer::legalizePatternResult(
-<<<<<<< HEAD
-    Operation *op, const Pattern &pattern, ConversionPatternRewriter &rewriter,
-    const SetVector<Operation *> &newOps,
-    const SetVector<Operation *> &modifiedOps,
-    const SetVector<Block *> &insertedBlocks) {
-  auto &impl = rewriter.getImpl();
-=======
     Operation *op, const Pattern &pattern, const RewriterState &curState,
     const SetVector<Operation *> &newOps,
     const SetVector<Operation *> &modifiedOps,
     const SetVector<Block *> &insertedBlocks) {
   [[maybe_unused]] auto &impl = rewriter.getImpl();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   assert(impl.pendingRootUpdates.empty() && "dangling root updates");
 
 #if MLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS
@@ -2850,16 +2776,9 @@ LogicalResult OperationLegalizer::legalizePatternResult(
 #endif // MLIR_ENABLE_EXPENSIVE_PATTERN_API_CHECKS
 
   // Legalize each of the actions registered during application.
-<<<<<<< HEAD
-  if (failed(legalizePatternBlockRewrites(op, rewriter, impl, insertedBlocks,
-                                          newOps)) ||
-      failed(legalizePatternRootUpdates(rewriter, impl, modifiedOps)) ||
-      failed(legalizePatternCreatedOperations(rewriter, impl, newOps))) {
-=======
   if (failed(legalizePatternBlockRewrites(op, insertedBlocks, newOps)) ||
       failed(legalizePatternRootUpdates(modifiedOps)) ||
       failed(legalizePatternCreatedOperations(newOps))) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return failure();
   }
 
@@ -2868,27 +2787,17 @@ LogicalResult OperationLegalizer::legalizePatternResult(
 }
 
 LogicalResult OperationLegalizer::legalizePatternBlockRewrites(
-<<<<<<< HEAD
-    Operation *op, ConversionPatternRewriter &rewriter,
-    ConversionPatternRewriterImpl &impl,
-    const SetVector<Block *> &insertedBlocks,
-    const SetVector<Operation *> &newOps) {
-=======
     Operation *op, const SetVector<Block *> &insertedBlocks,
     const SetVector<Operation *> &newOps) {
   ConversionPatternRewriterImpl &impl = rewriter.getImpl();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   SmallPtrSet<Operation *, 16> alreadyLegalized;
 
   // If the pattern moved or created any blocks, make sure the types of block
   // arguments get legalized.
   for (Block *block : insertedBlocks) {
-<<<<<<< HEAD
-=======
     if (impl.erasedBlocks.contains(block))
       continue;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     // Only check blocks outside of the current operation.
     Operation *parentOp = block->getParentOp();
     if (!parentOp || parentOp == op || block->getNumArguments() == 0)
@@ -2913,11 +2822,7 @@ LogicalResult OperationLegalizer::legalizePatternBlockRewrites(
     // operation, and blocks in regions created by this pattern will already be
     // legalized later on.
     if (!newOps.count(parentOp) && alreadyLegalized.insert(parentOp).second) {
-<<<<<<< HEAD
-      if (failed(legalize(parentOp, rewriter))) {
-=======
       if (failed(legalize(parentOp))) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         LLVM_DEBUG(logFailure(
             impl.logger, "operation '{0}'({1}) became illegal after rewrite",
             parentOp->getName(), parentOp));
@@ -2929,18 +2834,10 @@ LogicalResult OperationLegalizer::legalizePatternBlockRewrites(
 }
 
 LogicalResult OperationLegalizer::legalizePatternCreatedOperations(
-<<<<<<< HEAD
-    ConversionPatternRewriter &rewriter, ConversionPatternRewriterImpl &impl,
-    const SetVector<Operation *> &newOps) {
-  for (Operation *op : newOps) {
-    if (failed(legalize(op, rewriter))) {
-      LLVM_DEBUG(logFailure(impl.logger,
-=======
     const SetVector<Operation *> &newOps) {
   for (Operation *op : newOps) {
     if (failed(legalize(op))) {
       LLVM_DEBUG(logFailure(rewriter.getImpl().logger,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                             "failed to legalize generated operation '{0}'({1})",
                             op->getName(), op));
       return failure();
@@ -2950,15 +2847,6 @@ LogicalResult OperationLegalizer::legalizePatternCreatedOperations(
 }
 
 LogicalResult OperationLegalizer::legalizePatternRootUpdates(
-<<<<<<< HEAD
-    ConversionPatternRewriter &rewriter, ConversionPatternRewriterImpl &impl,
-    const SetVector<Operation *> &modifiedOps) {
-  for (Operation *op : modifiedOps) {
-    if (failed(legalize(op, rewriter))) {
-      LLVM_DEBUG(logFailure(
-          impl.logger, "failed to legalize operation updated in-place '{0}'",
-          op->getName()));
-=======
     const SetVector<Operation *> &modifiedOps) {
   for (Operation *op : modifiedOps) {
     if (failed(legalize(op))) {
@@ -2966,7 +2854,6 @@ LogicalResult OperationLegalizer::legalizePatternRootUpdates(
           logFailure(rewriter.getImpl().logger,
                      "failed to legalize operation updated in-place '{0}'",
                      op->getName()));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       return failure();
     }
   }
@@ -3291,10 +3178,6 @@ legalizeUnresolvedMaterialization(RewriterBase &rewriter,
 }
 
 LogicalResult OperationConverter::convertOperations(ArrayRef<Operation *> ops) {
-<<<<<<< HEAD
-  assert(!ops.empty() && "expected at least one operation");
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   const ConversionTarget &target = opLegalizer.getTarget();
 
   // Compute the set of operations and blocks to convert.
@@ -4102,12 +3985,8 @@ static LogicalResult applyConversion(ArrayRef<Operation *> ops,
   SmallVector<IRUnit> irUnits(ops.begin(), ops.end());
   ctx->executeAction<ApplyConversionAction>(
       [&] {
-<<<<<<< HEAD
-        OperationConverter opConverter(target, patterns, config, mode);
-=======
         OperationConverter opConverter(ops.front()->getContext(), target,
                                        patterns, config, mode);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         status = opConverter.convertOperations(ops);
       },
       irUnits);

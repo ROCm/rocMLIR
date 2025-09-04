@@ -88,8 +88,6 @@ public:
   // For the given fir.declare returns the outermost fir.dummy_scope
   // in the current function.
   fir::DummyScopeOp getOutermostScope(fir::DeclareOp declareOp) const;
-<<<<<<< HEAD
-=======
   // Returns true, if the given type of a memref of a FirAliasTagOpInterface
   // operation is a descriptor or contains a descriptor
   // (e.g. !fir.ref<!fir.type<Derived{f:!fir.box<!fir.heap<f32>>}>>).
@@ -99,7 +97,6 @@ public:
   // entities. It checks if localAllocsThreshold allows the next tag
   // attachment.
   bool attachLocalAllocTag();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 private:
   mlir::DominanceInfo &domInfo;
@@ -172,8 +169,6 @@ fir::DummyScopeOp PassState::getOutermostScope(fir::DeclareOp declareOp) const {
   return nullptr;
 }
 
-<<<<<<< HEAD
-=======
 bool PassState::typeReferencesDescriptor(mlir::Type type) {
   type = fir::unwrapAllRefAndSeqType(type);
   if (mlir::isa<fir::BaseBoxType>(type))
@@ -203,7 +198,6 @@ bool PassState::attachLocalAllocTag() {
   return true;
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 class AddAliasTagsPass : public fir::impl::AddAliasTagsBase<AddAliasTagsPass> {
 public:
   void runOnOperation() override;

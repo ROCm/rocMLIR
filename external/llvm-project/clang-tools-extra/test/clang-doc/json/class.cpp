@@ -89,10 +89,7 @@ protected:
 // CHECK-NEXT:        "IsClass": false,
 // CHECK-NEXT:        "Params": [
 // CHECK-NEXT:          {
-<<<<<<< HEAD
-=======
 // CHECK-NEXT:            "End": true,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // CHECK-NEXT:            "Name": "",
 // CHECK-NEXT:            "Type": "int"
 // CHECK-NEXT:          }
@@ -117,10 +114,7 @@ protected:
 // CHECK-NEXT:        }
 // CHECK-NEXT:      },
 // CHECK-NEXT:      {
-<<<<<<< HEAD
-=======
 // CHECK-NEXT:        "End": true,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // CHECK-NEXT:        "IsClass": true,
 // CHECK-NEXT:        "Reference": {
 // CHECK-NEXT:          "Name": "Foo",

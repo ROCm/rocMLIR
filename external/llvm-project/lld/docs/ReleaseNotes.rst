@@ -29,10 +29,6 @@ Non-comprehensive list of changes in this release
 ELF Improvements
 ----------------
 
-* For AArch64 and X86_64, added ``--branch-to-branch``, which rewrites branches
-  that point to another branch instruction to instead branch directly to the
-  target of the second instruction. Enabled by default at ``-O2``.
-  
 Breaking changes
 ----------------
 

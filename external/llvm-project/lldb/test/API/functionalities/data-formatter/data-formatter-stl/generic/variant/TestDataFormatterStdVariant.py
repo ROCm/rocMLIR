@@ -70,11 +70,6 @@ class StdVariantDataFormatterTestCase(TestBase):
         self.expect("frame variable v_valueless", substrs=["v_valueless =  No Value"])
 
         self.expect(
-<<<<<<< HEAD:external/llvm-project/lldb/test/API/functionalities/data-formatter/data-formatter-stl/libstdcpp/variant/TestDataFormatterLibStdcxxVariant.py
-            "frame variable v_many_types_valueless",
-            substrs=["v_many_types_valueless =  No Value"],
-        )
-=======
             "frame variable v_300_types_valueless",
             substrs=["v_300_types_valueless =  No Value"],
         )
@@ -83,7 +78,6 @@ class StdVariantDataFormatterTestCase(TestBase):
     def test_libcxx(self):
         self.build(dictionary={"USE_LIBCPP": 1})
         self.do_test()
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/lldb/test/API/functionalities/data-formatter/data-formatter-stl/generic/variant/TestDataFormatterStdVariant.py
 
     @add_test_categories(["libstdcxx"])
     def test_libstdcxx(self):

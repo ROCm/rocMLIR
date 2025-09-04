@@ -2174,11 +2174,7 @@ Expr<T> FoldOperation(FoldingContext &context, Power<T> &&x) {
     } else {
       if (folded->first.IsZero()) {
         if (folded->second.IsZero()) {
-<<<<<<< HEAD
-          context.messages().Say(common::UsageWarning::FoldingException,
-=======
           context.Warn(common::UsageWarning::FoldingException,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
               "REAL/COMPLEX 0**0 is not defined"_warn_en_US);
         } else {
           return Expr<T>(Constant<T>{folded->first}); // 0. ** nonzero -> 0.

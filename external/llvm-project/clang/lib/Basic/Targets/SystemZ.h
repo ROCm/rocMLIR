@@ -104,11 +104,7 @@ public:
     // -ffloat16-excess-precision=none is given, no conversions will be made
     // and instead the backend will promote each half operation to float
     // individually.
-<<<<<<< HEAD
-    HasLegalHalfType = false;
-=======
     HasFastHalfType = false;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     HasStrictFP = true;
   }

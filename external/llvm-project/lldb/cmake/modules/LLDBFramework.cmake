@@ -78,25 +78,6 @@ set_target_properties(liblldb-resource-headers PROPERTIES FOLDER "LLDB/Resources
 add_dependencies(liblldb-resource-headers liblldb-header-staging)
 add_dependencies(liblldb liblldb-resource-headers)
 
-<<<<<<< HEAD
-# Take the headers from the staging directory and fix up their includes for the framework.
-# Then write them to the output directory.
-# Also, run unifdef to remove any specified guards from the header files.
-file(GLOB lldb_framework_header_staging_list ${lldb_framework_header_staging}/*)
-foreach(header ${lldb_framework_header_staging_list})
-
-  set(input_header ${header})
-  get_filename_component(header_basename ${input_header} NAME)
-  set(output_header $<TARGET_FILE_DIR:liblldb>/Headers/${header_basename})
-
-  add_custom_command(TARGET liblldb POST_BUILD
-    COMMAND ${LLDB_SOURCE_DIR}/scripts/framework-header-fix.py -f lldb_main -i ${input_header} -o ${output_header} -p ${unifdef_EXECUTABLE} USWIG
-    COMMENT "LLDB.framework: Fix up and copy framework headers"
-  )
-endforeach()
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 # Copy vendor-specific headers from clang (without staging).
 if(NOT APPLE_EMBEDDED)
   if (TARGET clang-resource-headers)

@@ -453,11 +453,8 @@ struct IntrinsicLibrary {
   fir::ExtendedValue genTranspose(mlir::Type,
                                   llvm::ArrayRef<fir::ExtendedValue>);
   mlir::Value genThisGrid(mlir::Type, llvm::ArrayRef<mlir::Value>);
-<<<<<<< HEAD
-=======
   fir::ExtendedValue genThisImage(mlir::Type,
                                   llvm::ArrayRef<fir::ExtendedValue>);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   mlir::Value genThisThreadBlock(mlir::Type, llvm::ArrayRef<mlir::Value>);
   mlir::Value genThisWarp(mlir::Type, llvm::ArrayRef<mlir::Value>);
   void genThreadFence(llvm::ArrayRef<fir::ExtendedValue>);

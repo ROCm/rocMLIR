@@ -2,8 +2,6 @@
 // REQUIRES: amdgpu-registered-target
 // RUN: %clang_cc1 -cl-std=CL2.0 -triple amdgcn-unknown-unknown -target-cpu gfx1250 -emit-llvm -o - %s | FileCheck %s --check-prefix=CHECK-GFX1250
 
-<<<<<<< HEAD
-=======
 typedef int    v2i   __attribute__((ext_vector_type(2)));
 typedef int    v4i   __attribute__((ext_vector_type(4)));
 
@@ -127,7 +125,6 @@ void test_amdgcn_global_store_async_from_lds_b128(global v4i* gaddr, local v4i* 
   __builtin_amdgcn_global_store_async_from_lds_b128(gaddr, laddr, 16, 0);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // CHECK-GFX1250-LABEL: @test_amdgcn_ds_atomic_async_barrier_arrive_b64(
 // CHECK-GFX1250-NEXT:  entry:
 // CHECK-GFX1250-NEXT:    tail call void @llvm.amdgcn.ds.atomic.async.barrier.arrive.b64(ptr addrspace(3) [[ADDR:%.*]])

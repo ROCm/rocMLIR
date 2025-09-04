@@ -201,27 +201,6 @@ def XeVM_BlockLoad2dOp
   let description = [{
     The `xevm.blockload2d` operation loads a two dimensional matrix tile
     from a base matrix residing in global memory. The parameters are:
-<<<<<<< HEAD
-      $ptr - the base address of the base matrix containing the tile to load
-      $base_width - the width of the base matrix in number of bytes.
-      $base_height - the number of rows in the base matrix
-      $base_pitch - the physical stride between the first columns of the current
-         row and the subsequent row in number of bytes.
-      $x, $y, $tile_width, $tile_height - the starting offsets and shape of
-      the tile to load in number of elements.
-      $elem_size_in_bits - the size in bits of the matrix element type
-        - 32 for f32, tf32
-        - 16 for f16, int16, bf16
-        - 8 for int8
-      $v_blocks - number of consecutive tiles in innermost dimension direction to load
-      $transpose - transpose the tile in registers (useful for 32 bit element type)
-      $pack_register - pack element types narrower than register bit width.
-        [M, N] => [M/factor, N, factor] where factor is register_size_in_bits / elem_size_in_bits
-      $cache_control - an enumerator that sets the cache behaviour
-
-    Notes:
-      - the $transpose and $pack_register parameters are mutual exclusive
-=======
       * `ptr` - the base address of the base matrix containing the tile to load
       * `base_width` - the width of the base matrix in number of bytes.
       * `base_height` - the number of rows in the base matrix
@@ -241,7 +220,6 @@ def XeVM_BlockLoad2dOp
 
     Notes:
       - the `transpose` and `pack_register` parameters are mutual exclusive
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       - transposing the tile loaded is used for A matrix in backward path or used for the B matrix operand
         (D = C + A * B), where A has row-major layout and B should have column-major layout in memory.
       - if the tile loaded contains out of bound elements of the matrix, they are filled with 0.
@@ -284,21 +262,6 @@ def XeVM_BlockStore2dOp
   let description = [{
     The `xevm.blockstore2d` operation stores a two dimensional tile into a
     larger matrix residing in global memory. The parameters are:
-<<<<<<< HEAD
-      $ptr - the base address of the target matrix where to store the tile
-      $base_width - the width of the base matrix in number of bytes.
-      $base_height - the number of rows in the base matrix
-      $base_pitch - the physical stride between the first columns of the current
-         row and the subsequent row in number of bytes.
-      $x, $y, $tile_width, $tile_height - the starting offsets and shape of the tile to store
-      in number of elements.
-      $elem_size_in_bits - the size in bits of the matrix element
-        - 32 for f32, tf32
-        - 16 for f16, int16, bf16
-        - 8 for int8
-      $cache_control - an enumerator that sets the cache behaviour
-      $stored_val - the tile to store
-=======
       * `ptr` - the base address of the target matrix where to store the tile
       * `base_width` - the width of the base matrix in number of bytes.
       * `base_height` - the number of rows in the base matrix
@@ -312,7 +275,6 @@ def XeVM_BlockStore2dOp
         - 8 for int8
       * `cache_control` - an enumerator that sets the cache behaviour
       * `stored_val` - the tile to store
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     Example:
     ```mlir
@@ -389,17 +351,10 @@ def XeVM_MemfenceOp
     This operation ensures that all prior memory accesses of this
     work-item to `addrspace` are visible to all other work-items in `scope`.
     Parameters description:
-<<<<<<< HEAD
-    $scope - specify the memory scope at which all other work-items should observe
-                memory operations prior to the fence.
-    $addrspace - specify the address space of work-item's memory accesses
-                to be affected by the fence.
-=======
       * `scope` - specify the memory scope at which all other work-items should observe
         memory operations prior to the fence.
       * `addrspace` - specify the address space of work-item's memory accesses
         to be affected by the fence.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }];
   let assemblyFormat = [{prop-dict  attr-dict}];
 
@@ -415,15 +370,9 @@ def XeVM_PrefetchOp
   let summary = "Prefetch data into a cache subsystem.";
   let description = [{
     Work-item issues a prefetch from global memory to cache:
-<<<<<<< HEAD
-    $ptr - LLVM pointer with address space. Address space must be 1 (global)
-      or 4 (generic)
-    $cache_control - specify caching options
-=======
       * `ptr` - LLVM pointer with address space. Address space must be 1 (global)
         or 4 (generic)
       * `cache_control` - specify caching options
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }];
   let assemblyFormat = [{
     operands prop-dict attr-dict `:` `(` type(operands) `)`
@@ -446,21 +395,6 @@ def XeVM_BlockPrefetch2dOp
   let description = [{
     The `xevm.blockprefetch2d` operation prefetches a two dimensional tile
     from a larger base matrix residing in global memory. The parameters are:
-<<<<<<< HEAD
-      $ptr - the base address of the base matrix containing the tile to prefetch
-      $base_width - the width of the base matrix in number of bytes.
-      $base_height - the number of rows in the base matrix
-      $base_pitch - the physical stride between the first columns of the current
-         row and the subsequent row in number of bytes.
-      $x, $y, $tile_width, $tile_height - the starting offsets and shape of tile
-      to prefetch in number of elements.
-      $elem_size_in_bits - the size in bits of the matrix element
-      - 32 for f32, bf32
-      - 16 for f16, int16, bf16
-      - 8 for int8, int4, int2
-      $v_blocks - number of tiles in innermost dimension direction to prefetch
-      $cache_control - an enumerator that sets the cache behaviour
-=======
       * `ptr` - the base address of the base matrix containing the tile to prefetch
       * `base_width` - the width of the base matrix in number of bytes.
       * `base_height` - the number of rows in the base matrix
@@ -474,7 +408,6 @@ def XeVM_BlockPrefetch2dOp
         - 8 for int8, int4, int2
       * `v_blocks` - number of tiles in innermost dimension direction to prefetch
       * `cache_control` - an enumerator that sets the cache behaviour
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     Example:
     ```mlir
@@ -519,15 +452,9 @@ def XeVM_ElemTypeAttr : I32EnumAttr<"ElemType", "XeVM element type",
 def XeVM_MMAShapeAttr : XeVM_Attr<"MMAShape", "mma_shape"> {
   let description = [{
     MMA operation is represented as D=AxB+C, where
-<<<<<<< HEAD
-      A has the shape MxK.
-      B has the shape KxN.
-      D and C have the shape MxN.
-=======
       - A has the shape MxK.
       - B has the shape KxN.
       - D and C have the shape MxN.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     This attribute encodes the shape of all matrices that participate in MMA.
   }];
   let parameters = (ins "int":$m, "int":$n, "int":$k);
@@ -557,19 +484,6 @@ def XeVM_MMAOp
       D = C + A x B
 
       where the A, B, C input matrices and the result D have shapes:
-<<<<<<< HEAD
-        D : MxN
-        C : MxN
-        A : MxK
-        B : KxN
-
-    Parameters:
-      `a` - vector of matrix A elements.
-      `b` - vector of matrix B elements.
-      `c` - (optional) vector of matrix C elements.
-      `shape` - the shape of the matrices, specified as `M`, `N`, and `K` values.
-      `types` - the data types of the matrices, specified as `D`, `A`, `B`, and optionally `C`.
-=======
         - D : MxN
         - C : MxN
         - A : MxK
@@ -581,7 +495,6 @@ def XeVM_MMAOp
       * `c` - (optional) vector of matrix C elements.
       * `shape` - the shape of the matrices, specified as `M`, `N`, and `K` values.
       * `types` - the data types of the matrices, specified as `D`, `A`, `B`, and optionally `C`.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     Example:
     ```mlir

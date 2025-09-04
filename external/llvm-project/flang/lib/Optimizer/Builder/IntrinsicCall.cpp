@@ -954,9 +954,6 @@ static constexpr IntrinsicHandler handlers[]{
      {{{"count", asAddr}, {"count_rate", asAddr}, {"count_max", asAddr}}},
      /*isElemental=*/false},
     {"tand", &I::genTand},
-<<<<<<< HEAD
-    {"this_grid", &I::genThisGrid, {}, /*isElemental=*/false},
-=======
     {"tanpi", &I::genTanpi},
     {"this_grid", &I::genThisGrid, {}, /*isElemental=*/false},
     {"this_image",
@@ -965,7 +962,6 @@ static constexpr IntrinsicHandler handlers[]{
        {"dim", asAddr},
        {"team", asBox, handleDynamicOptional}}},
      /*isElemental=*/false},
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     {"this_thread_block", &I::genThisThreadBlock, {}, /*isElemental=*/false},
     {"this_warp", &I::genThisWarp, {}, /*isElemental=*/false},
     {"threadfence", &I::genThreadFence, {}, /*isElemental=*/false},
@@ -2723,13 +2719,6 @@ mlir::Value IntrinsicLibrary::genAcosd(mlir::Type resultType,
       mlir::FunctionType::get(context, {resultType}, {args[0].getType()});
   mlir::Value result =
       getRuntimeCallGenerator("acos", ftype)(builder, loc, {args[0]});
-<<<<<<< HEAD
-  llvm::APFloat pi = llvm::APFloat(llvm::numbers::pi);
-  mlir::Value dfactor = builder.createRealConstant(
-      loc, mlir::Float64Type::get(context), llvm::APFloat(180.0) / pi);
-  mlir::Value factor = builder.createConvert(loc, args[0].getType(), dfactor);
-  return builder.create<mlir::arith::MulFOp>(loc, result, factor);
-=======
   const llvm::fltSemantics &fltSem =
       llvm::cast<mlir::FloatType>(resultType).getFloatSemantics();
   llvm::APFloat pi = llvm::APFloat(fltSem, llvm::numbers::pis);
@@ -2751,7 +2740,6 @@ mlir::Value IntrinsicLibrary::genAcospi(mlir::Type resultType,
                     llvm::numbers::inv_pis);
   mlir::Value factor = builder.createRealConstant(loc, resultType, inv_pi);
   return mlir::arith::MulFOp::create(builder, loc, acos, factor);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 // ADJUSTL & ADJUSTR
@@ -2900,13 +2888,6 @@ mlir::Value IntrinsicLibrary::genAsind(mlir::Type resultType,
       mlir::FunctionType::get(context, {resultType}, {args[0].getType()});
   mlir::Value result =
       getRuntimeCallGenerator("asin", ftype)(builder, loc, {args[0]});
-<<<<<<< HEAD
-  llvm::APFloat pi = llvm::APFloat(llvm::numbers::pi);
-  mlir::Value dfactor = builder.createRealConstant(
-      loc, mlir::Float64Type::get(context), llvm::APFloat(180.0) / pi);
-  mlir::Value factor = builder.createConvert(loc, args[0].getType(), dfactor);
-  return builder.create<mlir::arith::MulFOp>(loc, result, factor);
-=======
   const llvm::fltSemantics &fltSem =
       llvm::cast<mlir::FloatType>(resultType).getFloatSemantics();
   llvm::APFloat pi = llvm::APFloat(fltSem, llvm::numbers::pis);
@@ -2928,7 +2909,6 @@ mlir::Value IntrinsicLibrary::genAsinpi(mlir::Type resultType,
                     llvm::numbers::inv_pis);
   mlir::Value factor = builder.createRealConstant(loc, resultType, inv_pi);
   return mlir::arith::MulFOp::create(builder, loc, asin, factor);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 // ATAND, ATAN2D
@@ -5301,15 +5281,6 @@ void IntrinsicLibrary::genIeeeGetOrSetModesOrStatus(
         isModes ? fir::runtime::genGetModesTypeSize(builder, loc)
                 : fir::runtime::genGetStatusTypeSize(builder, loc);
     byteSize = builder.createConvert(loc, builder.getIndexType(), byteSize);
-<<<<<<< HEAD
-    addr = builder.create<fir::AllocMemOp>(loc, extractSequenceType(heapTy),
-                                           /*typeparams=*/mlir::ValueRange(),
-                                           byteSize);
-    mlir::Value shape = builder.create<fir::ShapeOp>(loc, byteSize);
-    builder.create<fir::StoreOp>(
-        loc, builder.create<fir::EmboxOp>(loc, fieldTy, addr, shape), fieldRef);
-    builder.create<fir::ResultOp>(loc, addr);
-=======
     addr = fir::AllocMemOp::create(builder, loc, extractSequenceType(heapTy),
                                    /*typeparams=*/mlir::ValueRange(), byteSize);
     mlir::Value shape = fir::ShapeOp::create(builder, loc, byteSize);
@@ -5317,7 +5288,6 @@ void IntrinsicLibrary::genIeeeGetOrSetModesOrStatus(
         builder, loc, fir::EmboxOp::create(builder, loc, fieldTy, addr, shape),
         fieldRef);
     fir::ResultOp::create(builder, loc, addr);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     builder.setInsertionPointAfter(ifOp);
     addr = fir::ConvertOp::create(builder, loc, ptrTy, ifOp.getResult(0));
   } else {
@@ -8337,8 +8307,6 @@ mlir::Value IntrinsicLibrary::genTand(mlir::Type resultType,
   return getRuntimeCallGenerator("tan", ftype)(builder, loc, {arg});
 }
 
-<<<<<<< HEAD
-=======
 // TANPI
 mlir::Value IntrinsicLibrary::genTanpi(mlir::Type resultType,
                                        llvm::ArrayRef<mlir::Value> args) {
@@ -8354,32 +8322,12 @@ mlir::Value IntrinsicLibrary::genTanpi(mlir::Type resultType,
   return getRuntimeCallGenerator("tan", ftype)(builder, loc, {arg});
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // THIS_GRID
 mlir::Value IntrinsicLibrary::genThisGrid(mlir::Type resultType,
                                           llvm::ArrayRef<mlir::Value> args) {
   assert(args.size() == 0);
   auto recTy = mlir::cast<fir::RecordType>(resultType);
   assert(recTy && "RecordType expepected");
-<<<<<<< HEAD
-  mlir::Value res = builder.create<fir::AllocaOp>(loc, resultType);
-  mlir::Type i32Ty = builder.getI32Type();
-
-  mlir::Value threadIdX = builder.create<mlir::NVVM::ThreadIdXOp>(loc, i32Ty);
-  mlir::Value threadIdY = builder.create<mlir::NVVM::ThreadIdYOp>(loc, i32Ty);
-  mlir::Value threadIdZ = builder.create<mlir::NVVM::ThreadIdZOp>(loc, i32Ty);
-
-  mlir::Value blockIdX = builder.create<mlir::NVVM::BlockIdXOp>(loc, i32Ty);
-  mlir::Value blockIdY = builder.create<mlir::NVVM::BlockIdYOp>(loc, i32Ty);
-  mlir::Value blockIdZ = builder.create<mlir::NVVM::BlockIdZOp>(loc, i32Ty);
-
-  mlir::Value blockDimX = builder.create<mlir::NVVM::BlockDimXOp>(loc, i32Ty);
-  mlir::Value blockDimY = builder.create<mlir::NVVM::BlockDimYOp>(loc, i32Ty);
-  mlir::Value blockDimZ = builder.create<mlir::NVVM::BlockDimZOp>(loc, i32Ty);
-  mlir::Value gridDimX = builder.create<mlir::NVVM::GridDimXOp>(loc, i32Ty);
-  mlir::Value gridDimY = builder.create<mlir::NVVM::GridDimYOp>(loc, i32Ty);
-  mlir::Value gridDimZ = builder.create<mlir::NVVM::GridDimZOp>(loc, i32Ty);
-=======
   mlir::Value res = fir::AllocaOp::create(builder, loc, resultType);
   mlir::Type i32Ty = builder.getI32Type();
 
@@ -8397,20 +8345,10 @@ mlir::Value IntrinsicLibrary::genThisGrid(mlir::Type resultType,
   mlir::Value gridDimX = mlir::NVVM::GridDimXOp::create(builder, loc, i32Ty);
   mlir::Value gridDimY = mlir::NVVM::GridDimYOp::create(builder, loc, i32Ty);
   mlir::Value gridDimZ = mlir::NVVM::GridDimZOp::create(builder, loc, i32Ty);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // this_grid.size = ((blockDim.z * gridDim.z) * (blockDim.y * gridDim.y)) *
   // (blockDim.x * gridDim.x);
   mlir::Value resZ =
-<<<<<<< HEAD
-      builder.create<mlir::arith::MulIOp>(loc, blockDimZ, gridDimZ);
-  mlir::Value resY =
-      builder.create<mlir::arith::MulIOp>(loc, blockDimY, gridDimY);
-  mlir::Value resX =
-      builder.create<mlir::arith::MulIOp>(loc, blockDimX, gridDimX);
-  mlir::Value resZY = builder.create<mlir::arith::MulIOp>(loc, resZ, resY);
-  mlir::Value size = builder.create<mlir::arith::MulIOp>(loc, resZY, resX);
-=======
       mlir::arith::MulIOp::create(builder, loc, blockDimZ, gridDimZ);
   mlir::Value resY =
       mlir::arith::MulIOp::create(builder, loc, blockDimY, gridDimY);
@@ -8418,37 +8356,12 @@ mlir::Value IntrinsicLibrary::genThisGrid(mlir::Type resultType,
       mlir::arith::MulIOp::create(builder, loc, blockDimX, gridDimX);
   mlir::Value resZY = mlir::arith::MulIOp::create(builder, loc, resZ, resY);
   mlir::Value size = mlir::arith::MulIOp::create(builder, loc, resZY, resX);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // tmp = ((blockIdx.z * gridDim.y * gridDim.x) + (blockIdx.y * gridDim.x)) +
   //   blockIdx.x;
   // this_group.rank = tmp * ((blockDim.x * blockDim.y) * blockDim.z) +
   //   ((threadIdx.z * blockDim.y) * blockDim.x) +
   //   (threadIdx.y * blockDim.x) + threadIdx.x + 1;
-<<<<<<< HEAD
-  mlir::Value r1 = builder.create<mlir::arith::MulIOp>(loc, blockIdZ, gridDimY);
-  mlir::Value r2 = builder.create<mlir::arith::MulIOp>(loc, r1, gridDimX);
-  mlir::Value r3 = builder.create<mlir::arith::MulIOp>(loc, blockIdY, gridDimX);
-  mlir::Value r2r3 = builder.create<mlir::arith::AddIOp>(loc, r2, r3);
-  mlir::Value tmp = builder.create<mlir::arith::AddIOp>(loc, r2r3, blockIdX);
-
-  mlir::Value bXbY =
-      builder.create<mlir::arith::MulIOp>(loc, blockDimX, blockDimY);
-  mlir::Value bXbYbZ =
-      builder.create<mlir::arith::MulIOp>(loc, bXbY, blockDimZ);
-  mlir::Value tZbY =
-      builder.create<mlir::arith::MulIOp>(loc, threadIdZ, blockDimY);
-  mlir::Value tZbYbX =
-      builder.create<mlir::arith::MulIOp>(loc, tZbY, blockDimX);
-  mlir::Value tYbX =
-      builder.create<mlir::arith::MulIOp>(loc, threadIdY, blockDimX);
-  mlir::Value rank = builder.create<mlir::arith::MulIOp>(loc, tmp, bXbYbZ);
-  rank = builder.create<mlir::arith::AddIOp>(loc, rank, tZbYbX);
-  rank = builder.create<mlir::arith::AddIOp>(loc, rank, tYbX);
-  rank = builder.create<mlir::arith::AddIOp>(loc, rank, threadIdX);
-  mlir::Value one = builder.createIntegerConstant(loc, i32Ty, 1);
-  rank = builder.create<mlir::arith::AddIOp>(loc, rank, one);
-=======
   mlir::Value r1 =
       mlir::arith::MulIOp::create(builder, loc, blockIdZ, gridDimY);
   mlir::Value r2 = mlir::arith::MulIOp::create(builder, loc, r1, gridDimX);
@@ -8473,31 +8386,10 @@ mlir::Value IntrinsicLibrary::genThisGrid(mlir::Type resultType,
   rank = mlir::arith::AddIOp::create(builder, loc, rank, threadIdX);
   mlir::Value one = builder.createIntegerConstant(loc, i32Ty, 1);
   rank = mlir::arith::AddIOp::create(builder, loc, rank, one);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   auto sizeFieldName = recTy.getTypeList()[1].first;
   mlir::Type sizeFieldTy = recTy.getTypeList()[1].second;
   mlir::Type fieldIndexType = fir::FieldType::get(resultType.getContext());
-<<<<<<< HEAD
-  mlir::Value sizeFieldIndex = builder.create<fir::FieldIndexOp>(
-      loc, fieldIndexType, sizeFieldName, recTy,
-      /*typeParams=*/mlir::ValueRange{});
-  mlir::Value sizeCoord = builder.create<fir::CoordinateOp>(
-      loc, builder.getRefType(sizeFieldTy), res, sizeFieldIndex);
-  builder.create<fir::StoreOp>(loc, size, sizeCoord);
-
-  auto rankFieldName = recTy.getTypeList()[2].first;
-  mlir::Type rankFieldTy = recTy.getTypeList()[2].second;
-  mlir::Value rankFieldIndex = builder.create<fir::FieldIndexOp>(
-      loc, fieldIndexType, rankFieldName, recTy,
-      /*typeParams=*/mlir::ValueRange{});
-  mlir::Value rankCoord = builder.create<fir::CoordinateOp>(
-      loc, builder.getRefType(rankFieldTy), res, rankFieldIndex);
-  builder.create<fir::StoreOp>(loc, rank, rankCoord);
-  return res;
-}
-
-=======
   mlir::Value sizeFieldIndex = fir::FieldIndexOp::create(
       builder, loc, fieldIndexType, sizeFieldName, recTy,
       /*typeParams=*/mlir::ValueRange{});
@@ -8537,7 +8429,6 @@ IntrinsicLibrary::genThisImage(mlir::Type resultType,
   return builder.createConvert(loc, resultType, res);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // THIS_THREAD_BLOCK
 mlir::Value
 IntrinsicLibrary::genThisThreadBlock(mlir::Type resultType,
@@ -8545,33 +8436,6 @@ IntrinsicLibrary::genThisThreadBlock(mlir::Type resultType,
   assert(args.size() == 0);
   auto recTy = mlir::cast<fir::RecordType>(resultType);
   assert(recTy && "RecordType expepected");
-<<<<<<< HEAD
-  mlir::Value res = builder.create<fir::AllocaOp>(loc, resultType);
-  mlir::Type i32Ty = builder.getI32Type();
-
-  // this_thread_block%size = blockDim.z * blockDim.y * blockDim.x;
-  mlir::Value blockDimX = builder.create<mlir::NVVM::BlockDimXOp>(loc, i32Ty);
-  mlir::Value blockDimY = builder.create<mlir::NVVM::BlockDimYOp>(loc, i32Ty);
-  mlir::Value blockDimZ = builder.create<mlir::NVVM::BlockDimZOp>(loc, i32Ty);
-  mlir::Value size =
-      builder.create<mlir::arith::MulIOp>(loc, blockDimZ, blockDimY);
-  size = builder.create<mlir::arith::MulIOp>(loc, size, blockDimX);
-
-  // this_thread_block%rank = ((threadIdx.z * blockDim.y) * blockDim.x) +
-  //   (threadIdx.y * blockDim.x) + threadIdx.x + 1;
-  mlir::Value threadIdX = builder.create<mlir::NVVM::ThreadIdXOp>(loc, i32Ty);
-  mlir::Value threadIdY = builder.create<mlir::NVVM::ThreadIdYOp>(loc, i32Ty);
-  mlir::Value threadIdZ = builder.create<mlir::NVVM::ThreadIdZOp>(loc, i32Ty);
-  mlir::Value r1 =
-      builder.create<mlir::arith::MulIOp>(loc, threadIdZ, blockDimY);
-  mlir::Value r2 = builder.create<mlir::arith::MulIOp>(loc, r1, blockDimX);
-  mlir::Value r3 =
-      builder.create<mlir::arith::MulIOp>(loc, threadIdY, blockDimX);
-  mlir::Value r2r3 = builder.create<mlir::arith::AddIOp>(loc, r2, r3);
-  mlir::Value rank = builder.create<mlir::arith::AddIOp>(loc, r2r3, threadIdX);
-  mlir::Value one = builder.createIntegerConstant(loc, i32Ty, 1);
-  rank = builder.create<mlir::arith::AddIOp>(loc, rank, one);
-=======
   mlir::Value res = fir::AllocaOp::create(builder, loc, resultType);
   mlir::Type i32Ty = builder.getI32Type();
 
@@ -8597,28 +8461,10 @@ IntrinsicLibrary::genThisThreadBlock(mlir::Type resultType,
   mlir::Value rank = mlir::arith::AddIOp::create(builder, loc, r2r3, threadIdX);
   mlir::Value one = builder.createIntegerConstant(loc, i32Ty, 1);
   rank = mlir::arith::AddIOp::create(builder, loc, rank, one);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   auto sizeFieldName = recTy.getTypeList()[1].first;
   mlir::Type sizeFieldTy = recTy.getTypeList()[1].second;
   mlir::Type fieldIndexType = fir::FieldType::get(resultType.getContext());
-<<<<<<< HEAD
-  mlir::Value sizeFieldIndex = builder.create<fir::FieldIndexOp>(
-      loc, fieldIndexType, sizeFieldName, recTy,
-      /*typeParams=*/mlir::ValueRange{});
-  mlir::Value sizeCoord = builder.create<fir::CoordinateOp>(
-      loc, builder.getRefType(sizeFieldTy), res, sizeFieldIndex);
-  builder.create<fir::StoreOp>(loc, size, sizeCoord);
-
-  auto rankFieldName = recTy.getTypeList()[2].first;
-  mlir::Type rankFieldTy = recTy.getTypeList()[2].second;
-  mlir::Value rankFieldIndex = builder.create<fir::FieldIndexOp>(
-      loc, fieldIndexType, rankFieldName, recTy,
-      /*typeParams=*/mlir::ValueRange{});
-  mlir::Value rankCoord = builder.create<fir::CoordinateOp>(
-      loc, builder.getRefType(rankFieldTy), res, rankFieldIndex);
-  builder.create<fir::StoreOp>(loc, rank, rankCoord);
-=======
   mlir::Value sizeFieldIndex = fir::FieldIndexOp::create(
       builder, loc, fieldIndexType, sizeFieldName, recTy,
       /*typeParams=*/mlir::ValueRange{});
@@ -8634,7 +8480,6 @@ IntrinsicLibrary::genThisThreadBlock(mlir::Type resultType,
   mlir::Value rankCoord = fir::CoordinateOp::create(
       builder, loc, builder.getRefType(rankFieldTy), res, rankFieldIndex);
   fir::StoreOp::create(builder, loc, rank, rankCoord);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return res;
 }
 
@@ -8644,11 +8489,7 @@ mlir::Value IntrinsicLibrary::genThisWarp(mlir::Type resultType,
   assert(args.size() == 0);
   auto recTy = mlir::cast<fir::RecordType>(resultType);
   assert(recTy && "RecordType expepected");
-<<<<<<< HEAD
-  mlir::Value res = builder.create<fir::AllocaOp>(loc, resultType);
-=======
   mlir::Value res = fir::AllocaOp::create(builder, loc, resultType);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   mlir::Type i32Ty = builder.getI32Type();
 
   // coalesced_group%size = 32
@@ -8656,30 +8497,6 @@ mlir::Value IntrinsicLibrary::genThisWarp(mlir::Type resultType,
   auto sizeFieldName = recTy.getTypeList()[1].first;
   mlir::Type sizeFieldTy = recTy.getTypeList()[1].second;
   mlir::Type fieldIndexType = fir::FieldType::get(resultType.getContext());
-<<<<<<< HEAD
-  mlir::Value sizeFieldIndex = builder.create<fir::FieldIndexOp>(
-      loc, fieldIndexType, sizeFieldName, recTy,
-      /*typeParams=*/mlir::ValueRange{});
-  mlir::Value sizeCoord = builder.create<fir::CoordinateOp>(
-      loc, builder.getRefType(sizeFieldTy), res, sizeFieldIndex);
-  builder.create<fir::StoreOp>(loc, size, sizeCoord);
-
-  // coalesced_group%rank = threadIdx.x & 31 + 1
-  mlir::Value threadIdX = builder.create<mlir::NVVM::ThreadIdXOp>(loc, i32Ty);
-  mlir::Value mask = builder.createIntegerConstant(loc, i32Ty, 31);
-  mlir::Value one = builder.createIntegerConstant(loc, i32Ty, 1);
-  mlir::Value masked =
-      builder.create<mlir::arith::AndIOp>(loc, threadIdX, mask);
-  mlir::Value rank = builder.create<mlir::arith::AddIOp>(loc, masked, one);
-  auto rankFieldName = recTy.getTypeList()[2].first;
-  mlir::Type rankFieldTy = recTy.getTypeList()[2].second;
-  mlir::Value rankFieldIndex = builder.create<fir::FieldIndexOp>(
-      loc, fieldIndexType, rankFieldName, recTy,
-      /*typeParams=*/mlir::ValueRange{});
-  mlir::Value rankCoord = builder.create<fir::CoordinateOp>(
-      loc, builder.getRefType(rankFieldTy), res, rankFieldIndex);
-  builder.create<fir::StoreOp>(loc, rank, rankCoord);
-=======
   mlir::Value sizeFieldIndex = fir::FieldIndexOp::create(
       builder, loc, fieldIndexType, sizeFieldName, recTy,
       /*typeParams=*/mlir::ValueRange{});
@@ -8702,7 +8519,6 @@ mlir::Value IntrinsicLibrary::genThisWarp(mlir::Type resultType,
   mlir::Value rankCoord = fir::CoordinateOp::create(
       builder, loc, builder.getRefType(rankFieldTy), res, rankFieldIndex);
   fir::StoreOp::create(builder, loc, rank, rankCoord);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return res;
 }
 

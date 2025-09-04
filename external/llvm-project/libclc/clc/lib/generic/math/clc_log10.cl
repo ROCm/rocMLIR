@@ -21,10 +21,6 @@
 #include "clc_log_base.h"
 #undef COMPILING_LOG10
 
-<<<<<<< HEAD
-#define FUNCTION __clc_log10
-=======
 #define __CLC_FUNCTION __clc_log10
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/shared/unary_def_scalarize.inc>
 #include <clc/math/gentype.inc>

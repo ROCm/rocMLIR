@@ -15,11 +15,7 @@
 #include "mlir/Dialect/Transform/IR/TransformTypes.h"
 #include "mlir/Dialect/Transform/Interfaces/MatchInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
-<<<<<<< HEAD
-#include "llvm/Support/Debug.h"
-=======
 #include "llvm/Support/DebugLog.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/InterleavedRange.h"
 

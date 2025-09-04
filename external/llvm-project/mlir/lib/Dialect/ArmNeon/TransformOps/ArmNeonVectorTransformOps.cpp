@@ -20,16 +20,12 @@ using namespace mlir;
 
 void transform::ApplyArmNeonContractionToI8MMPatternsOp::populatePatterns(
     RewritePatternSet &patterns) {
-<<<<<<< HEAD
-  arm_neon::populateLowerContractionToNeonI8MMPatternPatterns(patterns);
-=======
   arm_neon::populateLowerContractionToNeonI8MMPatterns(patterns);
 }
 
 void transform::ApplyArmNeonContractionToBFMMLAPatternsOp::populatePatterns(
     RewritePatternSet &patterns) {
   arm_neon::populateLowerContractionToNeonBFMMLAPatterns(patterns);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 //===----------------------------------------------------------------------===//

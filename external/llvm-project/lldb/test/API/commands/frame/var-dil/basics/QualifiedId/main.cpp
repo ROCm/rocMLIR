@@ -10,11 +10,6 @@ int i = 2;
 
 } // namespace ns
 
-<<<<<<< HEAD
-int main(int argc, char **argv) {
-
-  return 0; // Set a breakpoint here
-=======
 namespace {
 int foo = 13;
 }
@@ -37,5 +32,4 @@ int main(int argc, char **argv) {
   int foo = 1;
 
   return foo + ::foo + ns1::foo + ns2::foo; // Set a breakpoint here
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }

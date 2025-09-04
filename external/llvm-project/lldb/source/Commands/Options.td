@@ -2362,32 +2362,6 @@ let Command = "trace schema" in {
 }
 
 let Command = "statistics dump" in {
-<<<<<<< HEAD
-  def statistics_dump_all: Option<"all-targets", "a">, Group<1>,
-    Desc<"Include statistics for all targets.">;
-  def statistics_dump_summary: Option<"summary", "s">, Group<1>,
-    Desc<"Dump only high-level summary statistics. "
-         "Exclude targets, modules, breakpoints etc... details.">;
-  def statistics_dump_force: Option<"load-all-debug-info", "f">, Group<1>,
-    Desc<"Dump the total possible debug info statistics. "
-    "Force loading all the debug information if not yet loaded, and collect "
-    "statistics with those.">;
-  def statistics_dump_targets: Option<"targets", "r">, Group<1>,
-    Arg<"Boolean">,
-    Desc<"Dump statistics for the targets, including breakpoints, expression "
-    "evaluations, frame variables, etc. "
-    "Defaults to true in both default mode and summary mode. "
-    "In default mode, if both '--targets' and '--modules' are 'true', a list "
-    "of module identifiers will be added to the 'targets' section.">;
-  def statistics_dump_modules: Option<"modules", "m">, Group<1>,
-    Arg<"Boolean">,
-    Desc<"Dump statistics for the modules, including time and size of various "
-    "aspects of the module and debug information, type system, path, etc. "
-    "Defaults to true, unless the '--summary' mode is enabled, in which case "
-    "this is turned off unless specified. "
-    "In default mode, if both '--targets' and '--modules' are 'true', a list "
-    "of module identifiers will be added to the 'targets' section.">;
-=======
   def statistics_dump_all : Option<"all-targets", "a">,
                             Group<1>,
                             Desc<"Include statistics for all targets.">;
@@ -2422,21 +2396,14 @@ let Command = "statistics dump" in {
              "In default mode, if both '--targets' and '--modules' are 'true', "
              "a list of module identifiers will be added to the 'targets' "
              "section.">;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   def statistics_dump_transcript
       : Option<"transcript", "t">,
         Group<1>,
         Arg<"Boolean">,
         Desc<"If the setting interpreter.save-transcript is enabled and this "
              "option is 'true', include a JSON array with all commands the "
-<<<<<<< HEAD
-             "user and/or "
-             "scripts executed during a debug session. "
-             "Defaults to false. ">;
-=======
              "user and/or scripts executed during a debug session. Defaults to "
              "false. ">;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   def statistics_dump_plugins
       : Option<"plugins", "p">,
         Group<1>,

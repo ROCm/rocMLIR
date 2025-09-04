@@ -2780,11 +2780,7 @@ def TestLinalgConvOp :
     static void regionBuilder(mlir::ImplicitLocOpBuilder &b, mlir::Block &block,
                               mlir::ArrayRef<mlir::NamedAttribute> attrs,
                               llvm::function_ref<mlir::InFlightDiagnostic()> emitError) {
-<<<<<<< HEAD
-      b.create<mlir::linalg::YieldOp>(block.getArguments().back());
-=======
       mlir::linalg::YieldOp::create(b,block.getArguments().back());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
 
     static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,
@@ -2847,11 +2843,7 @@ def TestLinalgFillOp :
     static void regionBuilder(mlir::ImplicitLocOpBuilder &b, mlir::Block &block,
                               mlir::ArrayRef<mlir::NamedAttribute> attrs,
                               llvm::function_ref<mlir::InFlightDiagnostic()> emitError) {
-<<<<<<< HEAD
-      b.create<mlir::linalg::YieldOp>(block.getArguments().back());
-=======
       mlir::linalg::YieldOp::create(b,block.getArguments().back());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
 
     static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,

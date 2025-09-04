@@ -146,8 +146,6 @@ static inline constexpr bool is_pow2(uint64_t x) {
   return x && (x & (x - 1)) == 0;
 }
 
-<<<<<<< HEAD
-=======
 // Where this chunk size should start looking in the global array. Small
 // allocations are much more likely than large ones, so we give them the most
 // space. We use a cubic easing function normalized on the possible chunks.
@@ -175,7 +173,6 @@ template <typename T> bool is_sentinel(const T &x) {
     return x == cpp::numeric_limits<T>::max();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 } // namespace impl
 
 /// A slab allocator used to hand out identically sized slabs of memory.

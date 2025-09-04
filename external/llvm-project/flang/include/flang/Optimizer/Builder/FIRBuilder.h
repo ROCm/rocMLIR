@@ -537,22 +537,14 @@ public:
   /// Create an IfOp with no "else" region, and no result values.
   /// Usage: genIfThen(loc, cdt).genThen(lambda).end();
   IfBuilder genIfThen(mlir::Location loc, mlir::Value cdt) {
-<<<<<<< HEAD
-    auto op = create<fir::IfOp>(loc, mlir::TypeRange(), cdt, false);
-=======
     auto op = fir::IfOp::create(*this, loc, mlir::TypeRange(), cdt, false);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return IfBuilder(op, *this);
   }
 
   /// Create an IfOp with an "else" region, and no result values.
   /// Usage: genIfThenElse(loc, cdt).genThen(lambda).genElse(lambda).end();
   IfBuilder genIfThenElse(mlir::Location loc, mlir::Value cdt) {
-<<<<<<< HEAD
-    auto op = create<fir::IfOp>(loc, mlir::TypeRange(), cdt, true);
-=======
     auto op = fir::IfOp::create(*this, loc, mlir::TypeRange(), cdt, true);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return IfBuilder(op, *this);
   }
 

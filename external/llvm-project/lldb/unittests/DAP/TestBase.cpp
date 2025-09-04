@@ -32,26 +32,6 @@ using lldb_private::FileSystem;
 using lldb_private::MainLoop;
 using lldb_private::Pipe;
 
-<<<<<<< HEAD
-void TransportBase::SetUp() {
-  PipePairTest::SetUp();
-  to_dap = std::make_unique<Transport>(
-      "to_dap", nullptr,
-      std::make_shared<NativeFile>(input.GetReadFileDescriptor(),
-                                   File::eOpenOptionReadOnly,
-                                   NativeFile::Unowned),
-      std::make_shared<NativeFile>(output.GetWriteFileDescriptor(),
-                                   File::eOpenOptionWriteOnly,
-                                   NativeFile::Unowned));
-  from_dap = std::make_unique<Transport>(
-      "from_dap", nullptr,
-      std::make_shared<NativeFile>(output.GetReadFileDescriptor(),
-                                   File::eOpenOptionReadOnly,
-                                   NativeFile::Unowned),
-      std::make_shared<NativeFile>(input.GetWriteFileDescriptor(),
-                                   File::eOpenOptionWriteOnly,
-                                   NativeFile::Unowned));
-=======
 Expected<MainLoop::ReadHandleUP>
 TestTransport::RegisterMessageHandler(MainLoop &loop, MessageHandler &handler) {
   Expected<lldb::FileUP> dummy_file = FileSystem::Instance().Open(
@@ -65,7 +45,6 @@ TestTransport::RegisterMessageHandler(MainLoop &loop, MessageHandler &handler) {
   if (status.Fail())
     return status.takeError();
   return handle;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 void DAPTestBase::SetUp() {

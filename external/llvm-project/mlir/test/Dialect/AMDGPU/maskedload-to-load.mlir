@@ -114,8 +114,6 @@ func.func @transfer_scalar(%mem : memref<8x8xf32, #amdgpu.address_space<fat_raw_
 // CHECK: %[[IF:.*]] = scf.if
 // CHECK: %[[LOAD:.*]] = vector.load %[[ARG0]][%[[ARG1]], %[[ARG1]]]
 // CHECK: %[[SELECT:.*]] = arith.select %arg2, %[[LOAD]], %[[ARG3]]
-<<<<<<< HEAD
-=======
 
 // -----
 
@@ -169,4 +167,3 @@ func.func @full_mask_maskedstore_to_store(%arg0: memref<8x8xf16>, %arg1: index, 
 // CHECK-NOT: vector.maskedstore
 // CHECK: scf.if %[[PRED]]
 // CHECK:   vector.store
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

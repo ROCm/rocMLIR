@@ -1,11 +1,3 @@
-<<<<<<< HEAD
-// RUN: mlir-opt -allow-unregistered-dialect -split-input-file -test-legalize-patterns -verify-diagnostics -profile-actions-to=- %s | FileCheck %s
-
-//      CHECK: "name": "pass-execution", "cat": "PERF", "ph": "B"
-//      CHECK: "name": "apply-conversion", "cat": "PERF", "ph": "B"
-//      CHECK: "name": "apply-pattern", "cat": "PERF", "ph": "B"
-//      CHECK: "name": "apply-pattern", "cat": "PERF", "ph": "E"
-=======
 // RUN: mlir-opt -allow-unregistered-dialect -split-input-file -test-legalize-patterns="allow-pattern-rollback=1" -verify-diagnostics %s | FileCheck %s
 // RUN: mlir-opt -allow-unregistered-dialect -split-input-file -test-legalize-patterns="allow-pattern-rollback=1" -verify-diagnostics -profile-actions-to=- %s | FileCheck %s --check-prefix=CHECK-PROFILER
 // RUN: mlir-opt -allow-unregistered-dialect -split-input-file -test-legalize-patterns="allow-pattern-rollback=0" -verify-diagnostics %s | FileCheck %s
@@ -18,7 +10,6 @@
 // CHECK-PROFILER: "name": "apply-conversion", "cat": "PERF", "ph": "E"
 // CHECK-PROFILER: "name": "pass-execution", "cat": "PERF", "ph": "E"
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // Note: Listener notifications appear after the pattern application because
 // the conversion driver sends all notifications at the end of the conversion
 // in bulk.
@@ -26,11 +17,6 @@
 // CHECK-NEXT: notifyOperationReplaced: test.illegal_op_a
 // CHECK-NEXT: notifyOperationModified: func.return
 // CHECK-NEXT: notifyOperationErased: test.illegal_op_a
-<<<<<<< HEAD
-//      CHECK: "name": "apply-conversion", "cat": "PERF", "ph": "E"
-//      CHECK: "name": "pass-execution", "cat": "PERF", "ph": "E"
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // CHECK-LABEL: verifyDirectPattern
 func.func @verifyDirectPattern() -> i32 {
   // CHECK-NEXT:  "test.legal_op_a"() <{status = "Success"}
@@ -330,35 +316,6 @@ func.func @caller() {
 
 // -----
 
-<<<<<<< HEAD
-// CHECK-LABEL: func @test_move_op_before_rollback()
-func.func @test_move_op_before_rollback() {
-  // CHECK: "test.one_region_op"()
-  // CHECK: "test.hoist_me"()
-  "test.one_region_op"() ({
-    // expected-remark @below{{'test.hoist_me' is not legalizable}}
-    %0 = "test.hoist_me"() : () -> (i32)
-    "test.valid"(%0) : (i32) -> ()
-  }) : () -> ()
-  "test.return"() : () -> ()
-}
-
-// -----
-
-// CHECK-LABEL: func @test_properties_rollback()
-func.func @test_properties_rollback() {
-  // CHECK: test.with_properties a = 32,
-  // expected-remark @below{{op 'test.with_properties' is not legalizable}}
-  test.with_properties
-      a = 32, b = "foo", c = "bar", flag = true, array = [1, 2, 3, 4], array32 = [5, 6]
-      {modify_inplace}
-  "test.return"() : () -> ()
-}
-
-// -----
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 //      CHECK: func.func @use_of_replaced_bbarg(
 // CHECK-SAME:     %[[arg0:.*]]: f64)
 //      CHECK:   "test.valid"(%[[arg0]])

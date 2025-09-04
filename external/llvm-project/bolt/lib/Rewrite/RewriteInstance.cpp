@@ -4223,99 +4223,6 @@ void RewriteInstance::updateSegmentInfo() {
       NewTextSegmentSize = NextAvailableAddress - NewTextSegmentAddress;
   } else {
     NewWritableSegmentSize = NextAvailableAddress - NewWritableSegmentAddress;
-<<<<<<< HEAD
-  }
-
-  if (NewTextSegmentSize) {
-    SegmentInfo TextSegment = {NewTextSegmentAddress,
-                               NewTextSegmentSize,
-                               NewTextSegmentOffset,
-                               NewTextSegmentSize,
-                               BC->PageAlign,
-                               true,
-                               false};
-    if (!opts::Instrument) {
-      BC->NewSegments.push_back(TextSegment);
-    } else {
-      ErrorOr<BinarySection &> Sec =
-          BC->getUniqueSectionByName(".bolt.instr.counters");
-      assert(Sec && "expected one and only one `.bolt.instr.counters` section");
-      const uint64_t Addr = Sec->getOutputAddress();
-      const uint64_t Offset = Sec->getOutputFileOffset();
-      const uint64_t Size = Sec->getOutputSize();
-      assert(Addr > TextSegment.Address &&
-             Addr + Size < TextSegment.Address + TextSegment.Size &&
-             "`.bolt.instr.counters` section is expected to be included in the "
-             "new text segment");
-
-      // Set correct size for the previous header since we are breaking the
-      // new text segment into three segments.
-      uint64_t Delta = Addr - TextSegment.Address;
-      TextSegment.Size = Delta;
-      TextSegment.FileSize = Delta;
-      BC->NewSegments.push_back(TextSegment);
-
-      // Create RW segment that includes the `.bolt.instr.counters` section.
-      SegmentInfo RWSegment = {Addr,  Size, Offset, Size, BC->RegularPageSize,
-                               false, true};
-      BC->NewSegments.push_back(RWSegment);
-
-      // Create RX segment that includes all RX sections from runtime library.
-      const uint64_t AddrRX = alignTo(Addr + Size, BC->RegularPageSize);
-      const uint64_t OffsetRX = alignTo(Offset + Size, BC->RegularPageSize);
-      const uint64_t SizeRX =
-          NewTextSegmentSize - (AddrRX - TextSegment.Address);
-      SegmentInfo RXSegment = {
-          AddrRX, SizeRX, OffsetRX, SizeRX, BC->RegularPageSize, true, false};
-      BC->NewSegments.push_back(RXSegment);
-    }
-  }
-
-  if (NewWritableSegmentSize) {
-    SegmentInfo DataSegmentInfo = {
-        NewWritableSegmentAddress,
-        NewWritableSegmentSize,
-        getFileOffsetForAddress(NewWritableSegmentAddress),
-        NewWritableSegmentSize,
-        BC->RegularPageSize,
-        false,
-        true};
-    BC->NewSegments.push_back(DataSegmentInfo);
-  }
-}
-
-void RewriteInstance::patchELFPHDRTable() {
-  auto ELF64LEFile = cast<ELF64LEObjectFile>(InputFile);
-  const ELFFile<ELF64LE> &Obj = ELF64LEFile->getELFFile();
-  raw_fd_ostream &OS = Out->os();
-
-  // Write/re-write program headers.
-  Phnum = Obj.getHeader().e_phnum;
-  if (PHDRTableOffset) {
-    // Writing new pheader table and adding one new entry for R+X segment.
-    Phnum += 1;
-    if (NewWritableSegmentSize) {
-      // Adding one more entry for R+W segment.
-      Phnum += 1;
-    }
-  } else {
-    assert(!PHDRTableAddress && "unexpected address for program header table");
-    PHDRTableOffset = Obj.getHeader().e_phoff;
-    if (NewWritableSegmentSize) {
-      BC->errs() << "BOLT-ERROR: unable to add writable segment\n";
-      exit(1);
-    }
-  }
-
-  if (opts::Instrument)
-    Phnum += 2;
-
-  if (BC->NewSegments.empty()) {
-    BC->outs() << "BOLT-INFO: not adding new segments\n";
-    return;
-  }
-
-=======
   }
 
   if (NewTextSegmentSize) {
@@ -4401,7 +4308,6 @@ void RewriteInstance::patchELFPHDRTable() {
   if (!PHDRTableOffset)
     PHDRTableOffset = Obj.getHeader().e_phoff;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   const uint64_t SavedPos = OS.tell();
   OS.seek(PHDRTableOffset);
 

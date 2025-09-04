@@ -117,10 +117,6 @@ DependencyScanningFilesystemSharedCache::getOutOfDateEntries(
     std::lock_guard<std::mutex> LockGuard(Shard.CacheLock);
     for (const auto &[Path, CachedPair] : Shard.CacheByFilename) {
       const CachedFileSystemEntry *Entry = CachedPair.first;
-<<<<<<< HEAD
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       llvm::ErrorOr<llvm::vfs::Status> Status = UnderlyingFS.status(Path);
       if (Status) {
         if (Entry->getError()) {
@@ -131,14 +127,6 @@ DependencyScanningFilesystemSharedCache::getOutOfDateEntries(
           InvalidDiagInfo.emplace_back(Path.data());
         } else {
           llvm::vfs::Status CachedStatus = Entry->getStatus();
-<<<<<<< HEAD
-          uint64_t CachedSize = CachedStatus.getSize();
-          uint64_t ActualSize = Status->getSize();
-          if (CachedSize != ActualSize) {
-            // This is the case where the cached file has a different size
-            // from the actual file that comes from the underlying FS.
-            InvalidDiagInfo.emplace_back(Path.data(), CachedSize, ActualSize);
-=======
           if (Status->getType() == llvm::sys::fs::file_type::regular_file &&
               Status->getType() == CachedStatus.getType()) {
             // We only check regular files. Directory files sizes could change
@@ -155,7 +143,6 @@ DependencyScanningFilesystemSharedCache::getOutOfDateEntries(
               // from the actual file that comes from the underlying FS.
               InvalidDiagInfo.emplace_back(Path.data(), CachedSize, ActualSize);
             }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
           }
         }
       }

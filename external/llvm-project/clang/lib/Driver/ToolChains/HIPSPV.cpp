@@ -160,12 +160,8 @@ void HIPSPVToolChain::addClangTargetOptions(
     CC1Args.append(
         {"-fvisibility=hidden", "-fapply-global-visibility-to-externs"});
 
-<<<<<<< HEAD
-  for (const BitCodeLibraryInfo &BCFile : getDeviceLibs(DriverArgs))
-=======
   for (const BitCodeLibraryInfo &BCFile :
        getDeviceLibs(DriverArgs, DeviceOffloadingKind))
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     CC1Args.append(
         {"-mlink-builtin-bitcode", DriverArgs.MakeArgString(BCFile.Path)});
 }

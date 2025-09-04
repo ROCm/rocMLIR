@@ -40,7 +40,6 @@ using llvm::divideFloorSigned;
 using llvm::mod;
 
 #define DEBUG_TYPE "affine-ops"
-#define DBGS() (llvm::dbgs() << "[" DEBUG_TYPE << "]: ")
 
 #include "mlir/Dialect/Affine/IR/AffineOpsDialect.cpp.inc"
 
@@ -1064,18 +1063,9 @@ static LogicalResult replaceAffineMinBoundingBoxExpression(AffineMinOp minOp,
                                                            AffineMap *map,
                                                            ValueRange dims,
                                                            ValueRange syms) {
-<<<<<<< HEAD
-  AffineMap affineMinMap = minOp.getAffineMap();
-
-  LLVM_DEBUG({
-    DBGS() << "replaceAffineMinBoundingBoxExpression: `" << minOp << "`\n";
-  });
-
-=======
   LDBG() << "replaceAffineMinBoundingBoxExpression: `" << minOp << "`";
   AffineMap affineMinMap = minOp.getAffineMap();
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // Check the value is positive.
   for (unsigned i = 0, e = affineMinMap.getNumResults(); i < e; ++i) {
     // Compare each expression in the minimum against 0.

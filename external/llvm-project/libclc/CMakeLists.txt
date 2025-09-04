@@ -106,9 +106,6 @@ else()
   set( LIBCLC_OUTPUT_LIBRARY_DIR ${LIBCLC_OUTPUT_DIR}/lib/libclc )
 endif()
 
-# Setup the paths where libclc runtimes should be stored.
-set( LIBCLC_OUTPUT_LIBRARY_DIR ${CMAKE_CURRENT_BINARY_DIR} )
-
 if( EXISTS ${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR} )
   message( WARNING "Using custom LLVM tools to build libclc: "
     "${LIBCLC_CUSTOM_LLVM_TOOLS_BINARY_DIR}, "

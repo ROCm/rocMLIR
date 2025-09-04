@@ -44,8 +44,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
-<<<<<<< HEAD
-=======
 class CIRToLLVMAssumeAlignedOpLowering
     : public mlir::OpConversionPattern<cir::AssumeAlignedOp> {
 public:
@@ -66,7 +64,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 class CIRToLLVMBitClrsbOpLowering
     : public mlir::OpConversionPattern<cir::BitClrsbOp> {
 public:
@@ -97,8 +94,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
-<<<<<<< HEAD
-=======
 class CIRToLLVMBitFfsOpLowering
     : public mlir::OpConversionPattern<cir::BitFfsOp> {
 public:
@@ -109,7 +104,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 class CIRToLLVMBitParityOpLowering
     : public mlir::OpConversionPattern<cir::BitParityOp> {
 public:
@@ -130,8 +124,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
-<<<<<<< HEAD
-=======
 class CIRToLLVMBitReverseOpLowering
     : public mlir::OpConversionPattern<cir::BitReverseOp> {
 public:
@@ -142,7 +134,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 class CIRToLLVMBrCondOpLowering
     : public mlir::OpConversionPattern<cir::BrCondOp> {
 public:
@@ -179,8 +170,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
-<<<<<<< HEAD
-=======
 class CIRToLLVMCopyOpLowering : public mlir::OpConversionPattern<cir::CopyOp> {
 public:
   using mlir::OpConversionPattern<cir::CopyOp>::OpConversionPattern;
@@ -190,7 +179,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 class CIRToLLVMExpectOpLowering
     : public mlir::OpConversionPattern<cir::ExpectOp> {
 public:
@@ -670,8 +658,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
-<<<<<<< HEAD
-=======
 class CIRToLLVMComplexImagPtrOpLowering
     : public mlir::OpConversionPattern<cir::ComplexImagPtrOp> {
 public:
@@ -722,7 +708,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 class CIRToLLVMGetBitfieldOpLowering
     : public mlir::OpConversionPattern<cir::GetBitfieldOp> {
 public:
@@ -733,8 +718,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
-<<<<<<< HEAD
-=======
 class CIRToLLVMFAbsOpLowering : public mlir::OpConversionPattern<cir::FAbsOp> {
 public:
   using mlir::OpConversionPattern<cir::FAbsOp>::OpConversionPattern;
@@ -810,7 +793,6 @@ public:
                   mlir::ConversionPatternRewriter &) const override;
 };
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 } // namespace direct
 } // namespace cir
 

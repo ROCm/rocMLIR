@@ -271,12 +271,8 @@ def ForOp : SCF_Op<"for",
   let builders = [OpBuilder<(ins "Value":$lowerBound, "Value":$upperBound,
       "Value":$step, CArg<"ValueRange", "{}">:$initArgs,
       CArg<"function_ref<void(OpBuilder &, Location, Value, ValueRange)>",
-<<<<<<< HEAD
-           "nullptr">)>];
-=======
            "nullptr">,
       CArg<"bool", "false">:$unsignedCmp)>];
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   let extraClassDeclaration = [{
     using BodyBuilderFn =

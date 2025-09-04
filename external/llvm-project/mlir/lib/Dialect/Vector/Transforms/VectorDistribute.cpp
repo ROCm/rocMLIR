@@ -172,14 +172,9 @@ struct DistributedLoadStoreHelper {
       }
     }
     SmallVector<bool> inBounds(indices.size(), true);
-<<<<<<< HEAD
-    return b.create<vector::TransferReadOp>(
-        loc, cast<VectorType>(type), buffer, indices, /*padding=*/std::nullopt,
-=======
     return vector::TransferReadOp::create(
         b, loc, cast<VectorType>(type), buffer, indices,
         /*padding=*/std::nullopt,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         ArrayRef<bool>(inBounds.begin(), inBounds.end()));
   }
 
@@ -1231,16 +1226,10 @@ struct WarpOpInsertStridedSlice : public WarpDistributionPattern {
     Value distributedDest = newWarpOp->getResult(newRetIndices[1]);
     // Create a new insert strided slice op that inserts distributed source into
     // distributed dest.
-<<<<<<< HEAD
-    Value newInsert = rewriter.create<vector::InsertStridedSliceOp>(
-        insertOp.getLoc(), distributedDest.getType(), distributedSource,
-        distributedDest, insertOp.getOffsets(), insertOp.getStrides());
-=======
     Value newInsert = vector::InsertStridedSliceOp::create(
         rewriter, insertOp.getLoc(), distributedDest.getType(),
         distributedSource, distributedDest, insertOp.getOffsets(),
         insertOp.getStrides());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     rewriter.replaceAllUsesWith(newWarpOp->getResult(operandNumber), newInsert);
     return success();
   }
@@ -1333,13 +1322,8 @@ struct WarpOpExtractStridedSlice : public WarpDistributionPattern {
     // Create a new extract strided slice op that extracts from the
     // distributed vector.
     Value distributedVec = newWarpOp->getResult(newRetIndices[0]);
-<<<<<<< HEAD
-    Value newExtract = rewriter.create<vector::ExtractStridedSliceOp>(
-        extractOp.getLoc(), distributedType, distributedVec,
-=======
     Value newExtract = vector::ExtractStridedSliceOp::create(
         rewriter, extractOp.getLoc(), distributedType, distributedVec,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         extractOp.getOffsets(),
         ArrayAttr::get(rewriter.getContext(), distributedSizes),
         extractOp.getStrides());
@@ -2074,21 +2058,12 @@ void mlir::vector::populatePropagateWarpVectorDistributionPatterns(
     const WarpShuffleFromIdxFn &warpShuffleFromIdxFn, PatternBenefit benefit,
     PatternBenefit readBenefit) {
   patterns.add<WarpOpTransferRead>(patterns.getContext(), readBenefit);
-<<<<<<< HEAD
-  patterns.add<WarpOpElementwise, WarpOpDeadResult, WarpOpBroadcast,
-               WarpOpShapeCast, WarpOpExtract, WarpOpForwardOperand,
-               WarpOpConstant, WarpOpExtractElement, WarpOpInsertElement,
-               WarpOpInsertScalar, WarpOpInsert, WarpOpCreateMask,
-               WarpOpExtractStridedSlice, WarpOpInsertStridedSlice>(
-      patterns.getContext(), benefit);
-=======
   patterns
       .add<WarpOpElementwise, WarpOpDeadResult, WarpOpBroadcast,
            WarpOpShapeCast, WarpOpExtract, WarpOpForwardOperand, WarpOpConstant,
            WarpOpInsertScalar, WarpOpInsert, WarpOpCreateMask,
            WarpOpExtractStridedSlice, WarpOpInsertStridedSlice, WarpOpStep>(
           patterns.getContext(), benefit);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   patterns.add<WarpOpExtractScalar>(patterns.getContext(), warpShuffleFromIdxFn,
                                     benefit);
   patterns.add<WarpOpScfForOp>(patterns.getContext(), distributionMapFn,

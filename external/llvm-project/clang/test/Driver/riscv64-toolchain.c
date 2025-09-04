@@ -171,11 +171,7 @@
 
 // RUN: %clang --target=riscv64 %s -emit-llvm -S -o - | FileCheck %s
 
-<<<<<<< HEAD
-// Check that "--no-relax" is forwarded to the linker for RISC-V.
-=======
 /// Check that "--no-relax" is forwarded to the linker for RISC-V.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // RUN: env "PATH=" %clang %s -### 2>&1 -mno-relax \
 // RUN:   --target=riscv64-unknown-elf --rtlib=platform --unwindlib=platform --sysroot= \
 // RUN:   -march=rv64imac -mabi=lp64\
@@ -183,11 +179,7 @@
 // RUN:   | FileCheck --check-prefix=CHECK-RV64-NORELAX %s
 // CHECK-RV64-NORELAX: "--no-relax"
 
-<<<<<<< HEAD
-// Check that "--no-relax" is not forwarded to the linker for RISC-V.
-=======
 /// Check that "--no-relax" is not forwarded to the linker for RISC-V.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // RUN:env "PATH=" %clang %s -### 2>&1 \
 // RUN:   --target=riscv64-unknown-elf --rtlib=platform --unwindlib=platform --sysroot= \
 // RUN:   -march=rv64imac -mabi=lp64\

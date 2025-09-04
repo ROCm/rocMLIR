@@ -4604,13 +4604,6 @@ void createOpenACCRoutineConstruct(
   std::string routineOpStr = routineOpName.str();
   mlir::OpBuilder modBuilder(mod.getBodyRegion());
   fir::FirOpBuilder &builder = converter.getFirOpBuilder();
-<<<<<<< HEAD
-  modBuilder.create<mlir::acc::RoutineOp>(
-      loc, routineOpStr,
-      mlir::SymbolRefAttr::get(builder.getContext(), funcName),
-      getArrayAttrOrNull(builder, bindNames),
-      getArrayAttrOrNull(builder, bindNameDeviceTypes),
-=======
   mlir::acc::RoutineOp::create(
       modBuilder, loc, routineOpStr,
       mlir::SymbolRefAttr::get(builder.getContext(), funcName),
@@ -4618,7 +4611,6 @@ void createOpenACCRoutineConstruct(
       getArrayAttrOrNull(builder, bindStrNames),
       getArrayAttrOrNull(builder, bindIdNameDeviceTypes),
       getArrayAttrOrNull(builder, bindStrNameDeviceTypes),
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       getArrayAttrOrNull(builder, workerDeviceTypes),
       getArrayAttrOrNull(builder, vectorDeviceTypes),
       getArrayAttrOrNull(builder, seqDeviceTypes), hasNohost,

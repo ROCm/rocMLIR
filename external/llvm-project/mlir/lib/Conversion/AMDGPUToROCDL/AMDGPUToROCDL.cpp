@@ -528,13 +528,10 @@ struct MemoryCounterWaitOpLowering
 };
 
 struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
-  LDSBarrierOpLowering(const LLVMTypeConverter &converter, Chipset chipset,
-                       bool hackForDirectToLDS)
-      : ConvertOpToLLVMPattern<LDSBarrierOp>(converter), chipset(chipset),
-        hackForDirectToLDS(hackForDirectToLDS) {}
+  LDSBarrierOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<LDSBarrierOp>(converter), chipset(chipset) {}
 
   Chipset chipset;
-  bool hackForDirectToLDS;
 
   LogicalResult
   matchAndRewrite(LDSBarrierOp op, LDSBarrierOp::Adaptor adaptor,
@@ -576,26 +573,7 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
                << chipset.majorVersion;
 
       Location loc = op->getLoc();
-<<<<<<< HEAD
-
-      // HACK for direct to LDS
-      if (hackForDirectToLDS) {
-        // unsigned vmCnt = std::min(63u, op.getNum());
-        unsigned vmCnt = 0;
-
-        // Extract low and high bits and combine while setting all other bits to
-        // 1
-        unsigned lowBits = vmCnt & 0xF;
-        unsigned highBits = vmCnt >> 4 << 14;
-        unsigned otherCnts = ~0xC00F; // C00F has bits 15:14 and 3:0 set
-        unsigned waitValue = lowBits | highBits | otherCnts;
-
-        rewriter.create<ROCDL::SWaitcntOp>(loc, waitValue);
-      }
-      rewriter.create<ROCDL::SWaitcntOp>(loc, ldsOnlyBits);
-=======
       ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       rewriter.replaceOpWithNewOp<ROCDL::SBarrierOp>(op);
     } else {
       Location loc = op->getLoc();
@@ -1275,37 +1253,22 @@ struct TransposeLoadOpLowering
     switch (elementTypeSize) {
     case 4: {
       assert(numElements == 16);
-<<<<<<< HEAD
-      auto rocdlOp =
-          rewriter.create<ROCDL::ds_read_tr4_b64>(loc, rocdlResultType, srcPtr);
-=======
       auto rocdlOp = ROCDL::ds_read_tr4_b64::create(rewriter, loc,
                                                     rocdlResultType, srcPtr);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, llvmResultType, rocdlOp);
       break;
     }
     case 6: {
       assert(numElements == 16);
-<<<<<<< HEAD
-      auto rocdlOp =
-          rewriter.create<ROCDL::ds_read_tr6_b96>(loc, rocdlResultType, srcPtr);
-=======
       auto rocdlOp = ROCDL::ds_read_tr6_b96::create(rewriter, loc,
                                                     rocdlResultType, srcPtr);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, llvmResultType, rocdlOp);
       break;
     }
     case 8: {
       assert(numElements == 8);
-<<<<<<< HEAD
-      auto rocdlOp =
-          rewriter.create<ROCDL::ds_read_tr8_b64>(loc, rocdlResultType, srcPtr);
-=======
       auto rocdlOp = ROCDL::ds_read_tr8_b64::create(rewriter, loc,
                                                     rocdlResultType, srcPtr);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, llvmResultType, rocdlOp);
       break;
     }
@@ -1352,13 +1315,8 @@ struct GatherToLDSOpLowering : public ConvertOpToLLVMPattern<GatherToLDSOp> {
       return transferType.getIntOrFloatBitWidth() / 8;
     }();
 
-<<<<<<< HEAD
-    // Currently only 1, 2, 4 and 16 byte loads are supported.
-    if (loadWidth != 1 && loadWidth != 2 && loadWidth != 4 && loadWidth != 16)
-=======
     // Currently only 1, 2, 4, 12 and 16 byte loads are supported.
     if (!llvm::is_contained({1, 2, 4, 12, 16}, loadWidth))
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       return op.emitOpError("chipset unsupported element size");
 
     if (chipset != kGfx950 && llvm::is_contained({12, 16}, loadWidth))
@@ -1978,17 +1936,10 @@ struct ConvertAMDGPUToROCDLPass
       emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
       return signalPassFailure();
     }
-    // workaround for https://ontrack-internal.amd.com/browse/SWDEV-514726
-    WalkResult walkResult =
-        getOperation()->walk([](amdgpu::GatherToLDSOp) -> WalkResult {
-          return WalkResult::interrupt();
-        });
-    bool hackForDirectToLDS = walkResult.wasInterrupted();
 
     RewritePatternSet patterns(ctx);
     LLVMTypeConverter converter(ctx);
-    populateAMDGPUToROCDLConversionPatterns(converter, patterns, *maybeChipset,
-                                            hackForDirectToLDS);
+    populateAMDGPUToROCDLConversionPatterns(converter, patterns, *maybeChipset);
     LLVMConversionTarget target(getContext());
     target.addIllegalDialect<::mlir::amdgpu::AMDGPUDialect>();
     target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
@@ -2021,8 +1972,7 @@ void mlir::populateAMDGPUMemorySpaceAttributeConversions(
 
 void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                                    RewritePatternSet &patterns,
-                                                   Chipset chipset,
-                                                   bool hackForDirectToLDS) {
+                                                   Chipset chipset) {
   populateAMDGPUMemorySpaceAttributeConversions(converter);
   patterns
       .add<FatRawBufferCastLowering,
@@ -2038,20 +1988,11 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                ROCDL::RawPtrBufferAtomicUminOp>,
            RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
-<<<<<<< HEAD
-           AMDGPUDPPLowering, SchedBarrierOpLowering, MFMAOpLowering,
-           ScaledMFMAOpLowering, WMMAOpLowering, ExtPackedFp8OpLowering,
-           ScaledExtPackedOpLowering, PackedScaledTruncOpLowering,
-           PackedTrunc2xFp8OpLowering, PackedStochRoundFp8OpLowering,
-           GatherToLDSOpLowering, TransposeLoadOpLowering>(converter, chipset);
-  patterns.add<LDSBarrierOpLowering>(converter, chipset, hackForDirectToLDS);
-=======
            AMDGPUDPPLowering, MemoryCounterWaitOpLowering, LDSBarrierOpLowering,
            SchedBarrierOpLowering, MFMAOpLowering, ScaledMFMAOpLowering,
            WMMAOpLowering, ExtPackedFp8OpLowering, ScaledExtPackedOpLowering,
            PackedScaledTruncOpLowering, PackedTrunc2xFp8OpLowering,
            PackedStochRoundFp8OpLowering, GatherToLDSOpLowering,
            TransposeLoadOpLowering, AMDGPUPermlaneLowering>(converter, chipset);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   patterns.add<AMDGPUSwizzleBitModeLowering>(converter);
 }

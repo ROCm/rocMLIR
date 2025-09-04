@@ -3039,15 +3039,10 @@ def OpenACC_RoutineOp : OpenACC_Op<"routine", [IsolatedFromAbove]> {
   }];
 
   let arguments = (ins SymbolNameAttr:$sym_name, SymbolRefAttr:$func_name,
-<<<<<<< HEAD
-      OptionalAttr<StrArrayAttr>:$bindName,
-      OptionalAttr<DeviceTypeArrayAttr>:$bindNameDeviceType,
-=======
       OptionalAttr<SymbolRefArrayAttr>:$bindIdName,
       OptionalAttr<StrArrayAttr>:$bindStrName,
       OptionalAttr<DeviceTypeArrayAttr>:$bindIdNameDeviceType,
       OptionalAttr<DeviceTypeArrayAttr>:$bindStrNameDeviceType,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       OptionalAttr<DeviceTypeArrayAttr>:$worker,
       OptionalAttr<DeviceTypeArrayAttr>:$vector,
       OptionalAttr<DeviceTypeArrayAttr>:$seq, UnitAttr:$nohost,

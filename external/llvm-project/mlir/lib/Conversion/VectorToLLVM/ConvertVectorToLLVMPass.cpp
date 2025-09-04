@@ -97,11 +97,7 @@ void ConvertVectorToLLVMPass::runOnOperation() {
     populateVectorFromElementsLoweringPatterns(patterns);
     if (armI8MM) {
       if (armNeon)
-<<<<<<< HEAD
-        arm_neon::populateLowerContractionToNeonI8MMPatternPatterns(patterns);
-=======
         arm_neon::populateLowerContractionToNeonI8MMPatterns(patterns);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       if (armSVE)
         populateLowerContractionToSVEI8MMPatterns(patterns);
     }

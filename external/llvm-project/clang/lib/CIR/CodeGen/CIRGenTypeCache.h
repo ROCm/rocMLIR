@@ -59,10 +59,7 @@ struct CIRGenTypeCache {
 
   /// void* in address space 0
   cir::PointerType VoidPtrTy;
-<<<<<<< HEAD
-=======
   cir::PointerType UInt8PtrTy;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   /// The size and alignment of a pointer into the generic address space.
   union {

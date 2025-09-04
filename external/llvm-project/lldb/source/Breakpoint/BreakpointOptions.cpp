@@ -469,19 +469,8 @@ void BreakpointOptions::SetCondition(StopCondition condition) {
   m_condition = std::move(condition);
 }
 
-<<<<<<< HEAD
-const char *BreakpointOptions::GetConditionText(size_t *hash) const {
-  if (!m_condition_text.empty()) {
-    if (hash)
-      *hash = m_condition_text_hash;
-
-    return m_condition_text.c_str();
-  }
-  return nullptr;
-=======
 const StopCondition &BreakpointOptions::GetCondition() const {
   return m_condition;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 StopCondition &BreakpointOptions::GetCondition() { return m_condition; }

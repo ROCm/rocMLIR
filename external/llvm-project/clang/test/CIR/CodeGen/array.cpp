@@ -175,18 +175,6 @@ void func2() {
 // CIR: }
 
 // LLVM: define{{.*}} void @_Z5func2v()
-<<<<<<< HEAD
-// LLVM:  %[[ARR:.*]] = alloca [2 x i32], i64 1, align 4
-// LLVM:  %[[TMP:.*]] = alloca ptr, i64 1, align 8
-// LLVM:  %[[ARR_PTR:.*]] = getelementptr i32, ptr %[[ARR]], i32 0
-// LLVM:  store i32 5, ptr %[[ARR_PTR]], align 4
-// LLVM:  %[[ELE_1_PTR:.*]] = getelementptr i32, ptr %[[ARR_PTR]], i64 1
-// LLVM:  store ptr %[[ELE_1_PTR]], ptr %[[TMP]], align 8
-// LLVM:  %[[TMP2:.*]] = load ptr, ptr %[[TMP]], align 8
-// LLVM:  store i32 0, ptr %[[TMP2]], align 4
-// LLVM:  %[[ELE_1:.*]] = getelementptr i32, ptr %[[TMP2]], i64 1
-// LLVM:  store ptr %[[ELE_1]], ptr %[[TMP]], align 8
-=======
 // LLVM:   %[[ARR:.*]] = alloca [2 x i32], i64 1, align 4
 // LLVM:   %[[TMP:.*]] = alloca ptr, i64 1, align 8
 // LLVM:   %[[ARR_PTR:.*]] = getelementptr i32, ptr %[[ARR]], i32 0
@@ -207,7 +195,6 @@ void func2() {
 // LLVM:   br label %[[LOOP_NEXT:.*]]
 // LLVM: [[LOOP_END]]:
 // LLVM:   ret void
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 // OGCG: %[[ARR:.*]] = alloca [2 x i32], align 4
 // OGCG: call void @llvm.memcpy.p0.p0.i64(ptr align 4 %[[ARR]], ptr align 4 @[[FUN2_ARR]], i64 8, i1 false)
@@ -343,19 +330,6 @@ void func5() {
 // CIR: }
 
 // LLVM: define{{.*}} void @_Z5func5v()
-<<<<<<< HEAD
-// LLVM:  %[[ARR:.*]] = alloca [2 x [1 x i32]], i64 1, align 4
-// LLVM:  %[[TMP:.*]] = alloca ptr, i64 1, align 8
-// LLVM:  %[[ARR_PTR:.*]] = getelementptr [1 x i32], ptr %[[ARR]], i32 0
-// LLVM:  %[[ARR_0:.*]] = getelementptr i32, ptr %[[ARR_PTR]], i32 0
-// LLVM:  store i32 5, ptr %[[ARR_0]], align 4
-// LLVM:  %[[ARR_1:.*]] = getelementptr [1 x i32], ptr %[[ARR_PTR]], i64 1
-// LLVM:  store ptr %[[ARR_1]], ptr %[[TMP]], align 8
-// LLVM:  %[[ARR_1_VAL:.*]] = load ptr, ptr %[[TMP]], align 8
-// LLVM:  store [1 x i32] zeroinitializer, ptr %[[ARR_1_VAL]], align 4
-// LLVM:  %[[ARR_1_PTR:.*]] = getelementptr [1 x i32], ptr %[[ARR_1_VAL]], i64 1
-// LLVM:  store ptr %[[ARR_1_PTR]], ptr %[[TMP]], align 8
-=======
 // LLVM:   %[[ARR:.*]] = alloca [2 x [1 x i32]], i64 1, align 4
 // LLVM:   %[[TMP:.*]] = alloca ptr, i64 1, align 8
 // LLVM:   %[[ARR_PTR:.*]] = getelementptr [1 x i32], ptr %[[ARR]], i32 0
@@ -377,7 +351,6 @@ void func5() {
 // LLVM:   br label %[[LOOP_NEXT:.*]]
 // LLVM: [[LOOP_END]]:
 // LLVM:   ret void
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 // ORGC: %[[ARR:.*]] = alloca [2 x [1 x i32]], align 4
 // ORGC: call void @llvm.memcpy.p0.p0.i64(ptr align 4 %[[ARR]], ptr align 4 @[[FUN5_ARR]], i64 8, i1 false)
@@ -442,16 +415,6 @@ void func7() {
 // CIR: }
 
 // LLVM: define{{.*}} void @_Z5func7v()
-<<<<<<< HEAD
-// LLVM:  %[[ARR:.*]] = alloca [1 x ptr], i64 1, align 8
-// LLVM:  %[[ALLOCA:.*]] = alloca ptr, i64 1, align 8
-// LLVM:  %[[ELE_PTR:.*]] = getelementptr ptr, ptr %[[ARR]], i32 0
-// LLVM:  store ptr %[[ELE_PTR]], ptr %[[ALLOCA]], align 8
-// LLVM:  %[[TMP:.*]] = load ptr, ptr %[[ALLOCA]], align 8
-// LLVM:  store ptr null, ptr %[[TMP]], align 8
-// LLVM:  %[[ELE:.*]] = getelementptr ptr, ptr %[[TMP]], i64 1
-// LLVM:  store ptr %[[ELE]], ptr %[[ALLOCA]], align 8
-=======
 // LLVM:   %[[ARR:.*]] = alloca [1 x ptr], i64 1, align 8
 // LLVM:   %[[TMP:.*]] = alloca ptr, i64 1, align 8
 // LLVM:   %[[ARR_PTR:.*]] = getelementptr ptr, ptr %[[ARR]], i32 0
@@ -470,7 +433,6 @@ void func7() {
 // LLVM:   br label %[[LOOP_NEXT:.*]]
 // LLVM: [[LOOP_END]]:
 // LLVM:   ret void
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 // OGCG: %[[ARR:.*]] = alloca [1 x ptr], align 8
 // OGCG: call void @llvm.memset.p0.i64(ptr align 8 %[[ARR]], i8 0, i64 8, i1 false)

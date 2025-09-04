@@ -257,13 +257,8 @@ lowerAsEntryFunction(gpu::GPUFuncOp funcOp, const TypeConverter &typeConverter,
       signatureConverter.addInputs(argType.index(), convertedType);
     }
   }
-<<<<<<< HEAD
-  auto newFuncOp = rewriter.create<spirv::FuncOp>(
-      funcOp.getLoc(), funcOp.getName(),
-=======
   auto newFuncOp = spirv::FuncOp::create(
       rewriter, funcOp.getLoc(), funcOp.getName(),
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       rewriter.getFunctionType(signatureConverter.getConvertedTypes(), {}));
   for (const auto &namedAttr : funcOp->getAttrs()) {
     if (namedAttr.getName() == funcOp.getFunctionTypeAttrName() ||
@@ -520,26 +515,6 @@ LogicalResult GPURotateConversion::matchAndRewrite(
       getTypeConverter<SPIRVTypeConverter>()->getTargetEnv();
   unsigned subgroupSize =
       targetEnv.getAttr().getResourceLimits().getSubgroupSize();
-<<<<<<< HEAD
-  IntegerAttr widthAttr;
-  if (!matchPattern(rotateOp.getWidth(), m_Constant(&widthAttr)) ||
-      widthAttr.getValue().getZExtValue() > subgroupSize)
-    return rewriter.notifyMatchFailure(
-        rotateOp,
-        "rotate width is not a constant or larger than target subgroup size");
-
-  Location loc = rotateOp.getLoc();
-  auto scope = rewriter.getAttr<spirv::ScopeAttr>(spirv::Scope::Subgroup);
-  Value rotateResult = rewriter.create<spirv::GroupNonUniformRotateKHROp>(
-      loc, scope, adaptor.getValue(), adaptor.getOffset(), adaptor.getWidth());
-  Value validVal;
-  if (widthAttr.getValue().getZExtValue() == subgroupSize) {
-    validVal = spirv::ConstantOp::getOne(rewriter.getI1Type(), loc, rewriter);
-  } else {
-    Value laneId = rewriter.create<gpu::LaneIdOp>(loc, widthAttr);
-    validVal = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult,
-                                              laneId, adaptor.getWidth());
-=======
   unsigned width = rotateOp.getWidth();
   if (width > subgroupSize)
     return rewriter.notifyMatchFailure(
@@ -561,7 +536,6 @@ LogicalResult GPURotateConversion::matchAndRewrite(
     Value laneId = gpu::LaneIdOp::create(rewriter, loc, widthAttr);
     validVal = arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ult,
                                      laneId, widthVal);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   rewriter.replaceOp(rotateOp, {rotateResult, validVal});

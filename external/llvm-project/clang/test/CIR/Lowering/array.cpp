@@ -57,19 +57,6 @@ void func() {
 void func2() {
   int arr[2] = {5};
 }
-<<<<<<< HEAD
-// CHECK: define{{.*}} void @_Z5func2v()
-// CHECK:  %[[ARR_ALLOCA:.*]] = alloca [2 x i32], i64 1, align 4
-// CHECK:  %[[TMP:.*]] = alloca ptr, i64 1, align 8
-// CHECK:  %[[ARR_PTR:.*]] = getelementptr i32, ptr %[[ARR_ALLOCA]], i32 0
-// CHECK:  store i32 5, ptr %[[ARR_PTR]], align 4
-// CHECK:  %[[ELE_1_PTR:.*]] = getelementptr i32, ptr %[[ARR_PTR]], i64 1
-// CHECK:  store ptr %[[ELE_1_PTR]], ptr %[[TMP]], align 8
-// CHECK:  %[[TMP2:.*]] = load ptr, ptr %[[TMP]], align 8
-// CHECK:  store i32 0, ptr %[[TMP2]], align 4
-// CHECK:  %[[ELE_1:.*]] = getelementptr i32, ptr %[[TMP2]], i64 1
-// CHECK:  store ptr %[[ELE_1]], ptr %[[TMP]], align 8
-=======
 
 // CHECK: define{{.*}} void @_Z5func2v()
 // CHECK:   %[[ARR:.*]] = alloca [2 x i32], i64 1, align 4
@@ -92,7 +79,6 @@ void func2() {
 // CHECK:   br label %[[LOOP_NEXT:.*]]
 // CHECK: [[LOOP_END]]:
 // CHECK:   ret void
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 void func3() {
   int arr3[2] = {5, 6};
@@ -128,19 +114,6 @@ void func5() {
   int arr[2][1] = {{5}};
 }
 // CHECK: define{{.*}} void @_Z5func5v()
-<<<<<<< HEAD
-// CHECK:  %[[ARR_ALLOCA:.*]] = alloca [2 x [1 x i32]], i64 1, align 4
-// CHECK:  %[[TMP:.*]] = alloca ptr, i64 1, align 8
-// CHECK:  %[[ARR_PTR:.*]] = getelementptr [1 x i32], ptr %[[ARR_ALLOCA]], i32 0
-// CHECK:  %[[ARR_0:.*]] = getelementptr i32, ptr %[[ARR_PTR]], i32 0
-// CHECK:  store i32 5, ptr %[[ARR_0]], align 4
-// CHECK:  %[[ARR_1:.*]] = getelementptr [1 x i32], ptr %[[ARR_PTR]], i64 1
-// CHECK:  store ptr %[[ARR_1]], ptr %[[TMP]], align 8
-// CHECK:  %[[ARR_1_VAL:.*]] = load ptr, ptr %[[TMP]], align 8
-// CHECK:  store [1 x i32] zeroinitializer, ptr %[[ARR_1_VAL]], align 4
-// CHECK:  %[[ARR_1_PTR:.*]] = getelementptr [1 x i32], ptr %[[ARR_1_VAL]], i64 1
-// CHECK:  store ptr %[[ARR_1_PTR]], ptr %[[TMP]], align 8
-=======
 // CHECK:   %[[ARR:.*]] = alloca [2 x [1 x i32]], i64 1, align 4
 // CHECK:   %[[TMP:.*]] = alloca ptr, i64 1, align 8
 // CHECK:   %[[ARR_PTR:.*]] = getelementptr [1 x i32], ptr %[[ARR]], i32 0
@@ -162,7 +135,6 @@ void func5() {
 // CHECK:   br label %[[LOOP_NEXT:.*]]
 // CHECK: [[LOOP_END]]:
 // CHECK:   ret void
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 void func6() {
   int x = 4;
@@ -182,16 +154,6 @@ void func7() {
   int* arr[1] = {};
 }
 // CHECK: define{{.*}} void @_Z5func7v()
-<<<<<<< HEAD
-// CHECK:  %[[ARR:.*]] = alloca [1 x ptr], i64 1, align 8
-// CHECK:  %[[ALLOCA:.*]] = alloca ptr, i64 1, align 8
-// CHECK:  %[[ELE_PTR:.*]] = getelementptr ptr, ptr %[[ARR]], i32 0
-// CHECK:  store ptr %[[ELE_PTR]], ptr %[[ALLOCA]], align 8
-// CHECK:  %[[TMP:.*]] = load ptr, ptr %[[ALLOCA]], align 8
-// CHECK:  store ptr null, ptr %[[TMP]], align 8
-// CHECK:  %[[ELE:.*]] = getelementptr ptr, ptr %[[TMP]], i64 1
-// CHECK:  store ptr %[[ELE]], ptr %[[ALLOCA]], align 8
-=======
 // CHECK:   %[[ARR:.*]] = alloca [1 x ptr], i64 1, align 8
 // CHECK:   %[[TMP:.*]] = alloca ptr, i64 1, align 8
 // CHECK:   %[[ARR_PTR:.*]] = getelementptr ptr, ptr %[[ARR]], i32 0
@@ -210,7 +172,6 @@ void func7() {
 // CHECK:   br label %[[LOOP_NEXT:.*]]
 // CHECK: [[LOOP_END]]:
 // CHECK:   ret void
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 void func8(int p[10]) {}
 // CHECK: define{{.*}} void @_Z5func8Pi(ptr {{%.*}})

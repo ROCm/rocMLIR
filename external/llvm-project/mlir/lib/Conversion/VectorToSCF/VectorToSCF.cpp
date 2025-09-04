@@ -1340,13 +1340,8 @@ struct UnrollTransferReadConversion
 
             auto inBoundsAttr = dropFirstElem(b, xferOp.getInBoundsAttr());
 
-<<<<<<< HEAD
-            auto newXferOp = b.create<vector::TransferReadOp>(
-                loc, newXferVecType, xferOp.getBase(), xferIndices,
-=======
             auto newXferOp = vector::TransferReadOp::create(
                 b, loc, newXferVecType, xferOp.getBase(), xferIndices,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                 AffineMapAttr::get(unpackedPermutationMap(b, xferOp)),
                 xferOp.getPadding(), Value(), inBoundsAttr);
             maybeAssignMask(b, xferOp, newXferOp, i);
@@ -1355,19 +1350,11 @@ struct UnrollTransferReadConversion
             if (newXferVecType.getRank() == 0) {
               // vector.insert does not accept rank-0 as the non-indexed
               // argument. Extract the scalar before inserting.
-<<<<<<< HEAD
-              valToInser = b.create<vector::ExtractOp>(loc, valToInser,
-                                                       SmallVector<int64_t>());
-            }
-            return b.create<vector::InsertOp>(loc, valToInser, vec,
-                                              insertionIndices);
-=======
               valToInser = vector::ExtractOp::create(b, loc, valToInser,
                                                      SmallVector<int64_t>());
             }
             return vector::InsertOp::create(b, loc, valToInser, vec,
                                             insertionIndices);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
           },
           /*outOfBoundsCase=*/
           [&](OpBuilder &b, Location loc) {

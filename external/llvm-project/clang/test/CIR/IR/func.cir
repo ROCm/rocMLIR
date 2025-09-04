@@ -11,8 +11,6 @@ cir.func @empty() {
   cir.return
 }
 // CHECK: cir.func{{.*}} @empty() {
-<<<<<<< HEAD
-=======
 // CHECK:   cir.return
 // CHECK: }
 
@@ -21,7 +19,6 @@ cir.func no_proto @noProto() {
   cir.return
 }
 // CHECK: cir.func no_proto @noProto() {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // CHECK:   cir.return
 // CHECK: }
 

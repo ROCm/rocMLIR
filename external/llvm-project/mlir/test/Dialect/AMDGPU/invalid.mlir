@@ -222,8 +222,6 @@ func.func @transpose_load_vector_size_i8(%idx1 : index, %idx2 : index, %mem : me
   %0 = amdgpu.transpose_load %mem[%idx1, %idx2] : memref<128x32xi6, 3> -> vector<8xi6>
   func.return %0 : vector<8xi6>
 }
-<<<<<<< HEAD
-=======
 
 // -----
 
@@ -240,4 +238,3 @@ func.func @gather_to_lds_non_lds(%idx1 : index, %mem1 : memref<32xf16>, %mem2 : 
   amdgpu.gather_to_lds %mem1[%idx1], %mem2[%idx1] : vector<2xf16>, memref<32xf16>, memref<32xf16, strided<[?]>, #gpu.address_space<workgroup>>
   func.return
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

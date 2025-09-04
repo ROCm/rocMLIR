@@ -48,25 +48,6 @@ llvm::Error SourceBreakpoint::SetBreakpoint(const protocol::Source &source) {
 
   if (source.sourceReference) {
     // Breakpoint set by assembly source.
-<<<<<<< HEAD
-    std::optional<lldb::addr_t> raw_addr =
-        m_dap.GetSourceReferenceAddress(*source.sourceReference);
-    if (!raw_addr)
-      return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                     "Invalid sourceReference.");
-
-    lldb::SBAddress source_address(*raw_addr, m_dap.target);
-    if (!source_address.IsValid())
-      return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                     "Invalid sourceReference.");
-
-    lldb::SBSymbol symbol = source_address.GetSymbol();
-    if (!symbol.IsValid()) {
-      // FIXME: Support assembly breakpoints without a valid symbol.
-      return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                     "Breakpoints in assembly without a valid "
-                                     "symbol are not supported yet.");
-=======
     if (source.adapterData && source.adapterData->persistenceData) {
       // Prefer use the adapter persitence data, because this could be a
       // breakpoint from a previous session where the `sourceReference` is not
@@ -78,7 +59,6 @@ llvm::Error SourceBreakpoint::SetBreakpoint(const protocol::Source &source) {
       if (llvm::Error error = CreateAssemblyBreakpointWithSourceReference(
               *source.sourceReference))
         return error;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
   } else {
     CreatePathBreakpoint(source);

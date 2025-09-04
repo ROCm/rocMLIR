@@ -254,11 +254,8 @@ llvm::Error Breakpoint::SetIsHardware(bool is_hardware) {
   if (is_hardware == m_hardware)
     return llvm::Error::success();
 
-<<<<<<< HEAD
-=======
   Log *log = GetLog(LLDBLog::Breakpoints);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // Disable all non-hardware breakpoint locations.
   std::vector<BreakpointLocationSP> locations;
   for (BreakpointLocationSP location_sp : m_locations.BreakpointLocations()) {
@@ -272,13 +269,9 @@ llvm::Error Breakpoint::SetIsHardware(bool is_hardware) {
       continue;
 
     locations.push_back(location_sp);
-<<<<<<< HEAD
-    location_sp->SetEnabled(false);
-=======
     if (llvm::Error error = location_sp->SetEnabled(false))
       LLDB_LOG_ERROR(log, std::move(error),
                      "Failed to disable breakpoint location: {0}");
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   // Toggle the hardware mode.
@@ -287,16 +280,11 @@ llvm::Error Breakpoint::SetIsHardware(bool is_hardware) {
   // Re-enable all breakpoint locations.
   size_t num_failures = 0;
   for (BreakpointLocationSP location_sp : locations) {
-<<<<<<< HEAD
-    if (!location_sp->SetEnabled(true))
-      num_failures++;
-=======
     if (llvm::Error error = location_sp->SetEnabled(true)) {
       LLDB_LOG_ERROR(log, std::move(error),
                      "Failed to re-enable breakpoint location: {0}");
       num_failures++;
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   if (num_failures != 0)

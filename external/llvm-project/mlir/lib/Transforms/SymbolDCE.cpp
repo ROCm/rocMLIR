@@ -16,11 +16,8 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/Support/Debug.h"
-<<<<<<< HEAD
-=======
 #include "llvm/Support/DebugLog.h"
 #include "llvm/Support/InterleavedRange.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 namespace mlir {
 #define GEN_PASS_DEF_SYMBOLDCE
@@ -93,13 +90,8 @@ LogicalResult SymbolDCE::computeLiveness(Operation *symbolTableOp,
                                          SymbolTableCollection &symbolTable,
                                          bool symbolTableIsHidden,
                                          DenseSet<Operation *> &liveSymbols) {
-<<<<<<< HEAD
-  LLVM_DEBUG(llvm::dbgs() << "computeLiveness: " << symbolTableOp->getName()
-                          << "\n");
-=======
   LDBG() << "computeLiveness: "
          << OpWithFlags(symbolTableOp, OpPrintingFlags().skipRegions());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // A worklist of live operations to propagate uses from.
   SmallVector<Operation *, 16> worklist;
 
@@ -127,12 +119,8 @@ LogicalResult SymbolDCE::computeLiveness(Operation *symbolTableOp,
   // consideration.
   while (!worklist.empty()) {
     Operation *op = worklist.pop_back_val();
-<<<<<<< HEAD
-    LLVM_DEBUG(llvm::dbgs() << "processing: " << op->getName() << "\n");
-=======
     LDBG() << "processing: "
            << OpWithFlags(op, OpPrintingFlags().skipRegions());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     // If this is a symbol table, recursively compute its liveness.
     if (op->hasTrait<OpTrait::SymbolTable>()) {
@@ -140,15 +128,6 @@ LogicalResult SymbolDCE::computeLiveness(Operation *symbolTableOp,
       // symbol, or if it is a private symbol.
       SymbolOpInterface symbol = dyn_cast<SymbolOpInterface>(op);
       bool symIsHidden = symbolTableIsHidden || !symbol || symbol.isPrivate();
-<<<<<<< HEAD
-      LLVM_DEBUG(llvm::dbgs() << "\tsymbol table: " << op->getName()
-                              << " is hidden: " << symIsHidden << "\n");
-      if (failed(computeLiveness(op, symbolTable, symIsHidden, liveSymbols)))
-        return failure();
-    } else {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "\tnon-symbol table: " << op->getName() << "\n");
-=======
       LDBG() << "\tsymbol table: "
              << OpWithFlags(op, OpPrintingFlags().skipRegions())
              << " is hidden: " << symIsHidden;
@@ -157,7 +136,6 @@ LogicalResult SymbolDCE::computeLiveness(Operation *symbolTableOp,
     } else {
       LDBG() << "\tnon-symbol table: "
              << OpWithFlags(op, OpPrintingFlags().skipRegions());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       // If the op is not a symbol table, then, unless op itself is dead which
       // would be handled by DCE, we need to check all the regions and blocks
       // within the op to find the uses (e.g., consider visibility within op as
@@ -187,31 +165,17 @@ LogicalResult SymbolDCE::computeLiveness(Operation *symbolTableOp,
     }
 
     SmallVector<Operation *, 4> resolvedSymbols;
-<<<<<<< HEAD
-    LLVM_DEBUG(llvm::dbgs() << "uses of " << op->getName() << "\n");
-    for (const SymbolTable::SymbolUse &use : *uses) {
-      LLVM_DEBUG(llvm::dbgs() << "\tuse: " << use.getUser() << "\n");
-=======
     LDBG() << "uses of " << OpWithFlags(op, OpPrintingFlags().skipRegions());
     for (const SymbolTable::SymbolUse &use : *uses) {
       LDBG() << "\tuse: " << use.getUser();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       // Lookup the symbols referenced by this use.
       resolvedSymbols.clear();
       if (failed(symbolTable.lookupSymbolIn(parentOp, use.getSymbolRef(),
                                             resolvedSymbols)))
         // Ignore references to unknown symbols.
         continue;
-<<<<<<< HEAD
-      LLVM_DEBUG({
-        llvm::dbgs() << "\t\tresolved symbols: ";
-        llvm::interleaveComma(resolvedSymbols, llvm::dbgs());
-        llvm::dbgs() << "\n";
-      });
-=======
       LDBG() << "\t\tresolved symbols: "
              << llvm::interleaved(resolvedSymbols, ", ");
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
       // Mark each of the resolved symbols as live.
       for (Operation *resolvedSymbol : resolvedSymbols)

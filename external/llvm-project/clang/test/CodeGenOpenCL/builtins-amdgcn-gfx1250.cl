@@ -4,9 +4,6 @@
 
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
 
-<<<<<<< HEAD
-typedef half __attribute__((ext_vector_type(2))) half2;
-=======
 typedef unsigned int uint;
 typedef unsigned short int ushort;
 typedef unsigned int __attribute__((ext_vector_type(2))) uint2;
@@ -24,7 +21,6 @@ typedef float __attribute__((ext_vector_type(8))) float8;
 typedef float __attribute__((ext_vector_type(16))) float16;
 typedef float __attribute__((ext_vector_type(32))) float32;
 typedef short __attribute__((ext_vector_type(2))) short2;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 // CHECK-LABEL: @test_setprio_inc_wg(
 // CHECK-NEXT:  entry:
@@ -44,8 +40,6 @@ void test_s_monitor_sleep() {
   __builtin_amdgcn_s_monitor_sleep(10);
 }
 
-<<<<<<< HEAD
-=======
 // CHECK-LABEL: @test_s_wait_asynccnt(
 // CHECK-NEXT:  entry:
 // CHECK-NEXT:    call void @llvm.amdgcn.s.wait.asynccnt(i16 0)
@@ -379,7 +373,6 @@ void test_cvt_sr_pk_f16_f32(global half2* out, float a, float b, uint sr)
   *out = __builtin_amdgcn_cvt_sr_pk_f16_f32(a, b, sr);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // CHECK-LABEL: @test_cvt_f16_fp8(
 // CHECK-NEXT:  entry:
 // CHECK-NEXT:    [[OUT_ADDR:%.*]] = alloca ptr addrspace(1), align 8, addrspace(5)
@@ -495,8 +488,6 @@ void test_cvt_pk_f16_bf8(global half2* out, short a)
 {
   out[0] = __builtin_amdgcn_cvt_pk_f16_bf8(a);
 }
-<<<<<<< HEAD
-=======
 
 // CHECK-LABEL: @test_cvt_pk_bf8_f16(
 // CHECK-NEXT:  entry:
@@ -1549,4 +1540,3 @@ void test_cvt_f32_fp8_e5m3(global int* out, int a)
   *out = __builtin_amdgcn_cvt_f32_fp8_e5m3(a, 2);
   *out = __builtin_amdgcn_cvt_f32_fp8_e5m3(a, 3);
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

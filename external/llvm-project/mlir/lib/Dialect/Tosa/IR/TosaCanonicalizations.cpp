@@ -157,8 +157,8 @@ struct ConvPadFoldAdaptor {
                                   Value padInput, ArrayRef<int64_t> newPad) {
     rewriter.replaceOpWithNewOp<OpTy>(
         op, op.getResult().getType(), padInput, op.getWeight(), op.getBias(),
-        op.getInputZp(), op.getWeightZp(), rewriter.getDenseI64ArrayAttr(newPad), op.getStrideAttr(),
-        op.getDilationAttr(), op.getAccTypeAttr(), op.getLocalBoundAttr());
+        op.getInputZp(), op.getWeightZp(), newPad, op.getStrideAttr(),
+        op.getDilationAttr(), op.getAccType(), op.getLocalBound());
   }
 };
 

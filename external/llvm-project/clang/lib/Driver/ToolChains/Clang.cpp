@@ -3845,13 +3845,9 @@ static void RenderHLSLOptions(const ArgList &Args, ArgStringList &CmdArgs,
       options::OPT_disable_llvm_passes,
       options::OPT_fnative_half_type,
       options::OPT_hlsl_entrypoint,
-<<<<<<< HEAD
-      options::OPT_fdx_rootsignature_version};
-=======
       options::OPT_fdx_rootsignature_define,
       options::OPT_fdx_rootsignature_version,
       options::OPT_fhlsl_spv_use_unknown_image_format};
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   if (!types::isHLSL(InputType))
     return;
   for (const auto &Arg : ForwardedArguments)
@@ -4653,12 +4649,8 @@ renderDebugOptions(const ToolChain &TC, const Driver &D, const llvm::Triple &T,
       EmitDwarf && PlainCOrCXX && OptLevel &&
       !OptLevel->getOption().matches(options::OPT_O0);
   if (Args.hasFlag(options::OPT_gkey_instructions,
-<<<<<<< HEAD
-                   options::OPT_gno_key_instructions, false))
-=======
                    options::OPT_gno_key_instructions,
                    KeyInstructionsOnByDefault))
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     CmdArgs.push_back("-gkey-instructions");
 
   if (EmitCodeView) {
@@ -6093,12 +6085,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   // This is a coarse approximation of what llvm-gcc actually does, both
   // -fasynchronous-unwind-tables and -fnon-call-exceptions interact in more
   // complicated ways.
-<<<<<<< HEAD
-  auto SanitizeArgs = TC.getSanitizerArgs(Args);
-  Args.AddLastArg(CmdArgs,
-                  options::OPT_fallow_runtime_check_skip_hot_cutoff_EQ);
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   bool IsAsyncUnwindTablesDefault =
       TC.getDefaultUnwindTableLevel(Args) == ToolChain::UnwindTableLevel::Asynchronous;
   bool IsSyncUnwindTablesDefault =
@@ -6358,11 +6344,7 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
   if (getLastProfileSampleUseArg(Args) &&
       Args.hasFlag(options::OPT_fsample_profile_use_profi,
-<<<<<<< HEAD
-                   options::OPT_fno_sample_profile_use_profi, false)) {
-=======
                    options::OPT_fno_sample_profile_use_profi, true)) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     CmdArgs.push_back("-mllvm");
     CmdArgs.push_back("-sample-profile-use-profi");
   }

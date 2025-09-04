@@ -336,15 +336,9 @@ public:
           if (!fir::extractSequenceType(baseBoxType.getEleTy()) &&
               baseBoxType == hlfirBaseType)
             return firBase;
-<<<<<<< HEAD
-          return builder.create<fir::ReboxOp>(loc, hlfirBaseType, firBase,
-                                              declareOp.getShape(),
-                                              /*slice=*/mlir::Value{});
-=======
           return fir::ReboxOp::create(builder, loc, hlfirBaseType, firBase,
                                       declareOp.getShape(),
                                       /*slice=*/mlir::Value{});
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         } else {
           llvm::SmallVector<mlir::Value> typeParams;
           auto maybeCharType = mlir::dyn_cast<fir::CharacterType>(

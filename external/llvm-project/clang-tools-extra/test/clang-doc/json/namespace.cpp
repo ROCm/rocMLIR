@@ -119,11 +119,8 @@ typedef int MyTypedef;
 // CHECK-NEXT:    "USR": "0000000000000000000000000000000000000000"
 // CHECK-NEXT:   "Variables": [
 // CHECK-NEXT:     {
-<<<<<<< HEAD
-=======
 // CHECK-NEXT:       "End": true,
 // CHECK-NEXT:       "InfoType": "variable",
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // CHECK-NEXT:       "IsStatic": true,
 // CHECK-NEXT:       "Location": {
 // CHECK-NEXT:         "Filename": "{{.*}}namespace.cpp",

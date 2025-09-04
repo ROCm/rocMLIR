@@ -5,10 +5,6 @@
 // RUN: %clang_cc1 -triple aarch64-none-linux-android21 -emit-llvm %s -o %t.ll
 // RUN: FileCheck --check-prefix=OGCG --input-file=%t.ll %s
 
-<<<<<<< HEAD
-// CIR: cir.global "private" cir_private dso_local @[[STR1_GLOBAL:.*]] = #cir.const_array<"abcd\00" : !cir.array<!s8i x 5>> : !cir.array<!s8i x 5>
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 char const *array[] {
     "my", "hands", "are", "typing", "words"

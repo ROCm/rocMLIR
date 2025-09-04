@@ -6,12 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-<<<<<<< HEAD
-#define __CLC_DECLARE_ATOMIC(ADDRSPACE, TYPE)                                  \
-  _CLC_OVERLOAD _CLC_DECL TYPE FUNCTION(volatile ADDRSPACE TYPE *, TYPE);
-=======
 #ifdef __CLC_SCALAR
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #if defined(__opencl_c_fp64) && (defined(cl_khr_int64_base_atomics) &&         \
                                  defined(cl_khr_int64_extended_atomics))
@@ -49,9 +44,6 @@
       volatile ADDRSPACE __CLC_ATOMIC_GENTYPE *Ptr, __CLC_GENTYPE Value);
 #endif
 
-<<<<<<< HEAD
-#undef FUNCTION
-=======
 __CLC_DEFINE_ATOMIC(global)
 __CLC_DEFINE_ATOMIC(local)
 #if _CLC_GENERIC_AS_SUPPORTED
@@ -67,4 +59,3 @@ __CLC_DEFINE_ATOMIC()
 #undef __CLC_HAVE_64_ATOMIC
 
 #endif // __CLC_SCALAR
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

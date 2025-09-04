@@ -502,13 +502,6 @@ RT_API_ATTRS int DescriptorIoTicket<DIR>::Begin(WorkQueue &workQueue) {
                       ? common::DefinedIo::ReadUnformatted
                       : common::DefinedIo::WriteUnformatted)}) {
             if (definedIo->subroutine) {
-<<<<<<< HEAD
-              typeInfo::SpecialBinding special{DIR == Direction::Input
-                      ? typeInfo::SpecialBinding::Which::ReadUnformatted
-                      : typeInfo::SpecialBinding::Which::WriteUnformatted,
-                  definedIo->subroutine, definedIo->isDtvArgPolymorphic, false,
-                  false};
-=======
               std::uint8_t isArgDescriptorSet{0};
               if (definedIo->flags & IsDtvArgPolymorphic) {
                 isArgDescriptorSet = 1;
@@ -519,7 +512,6 @@ RT_API_ATTRS int DescriptorIoTicket<DIR>::Begin(WorkQueue &workQueue) {
                   definedIo->subroutine, isArgDescriptorSet,
                   /*IsTypeBound=*/false,
                   /*specialCaseFlag=*/!!(definedIo->flags & DefinedIoInteger8)};
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
               if (DefinedUnformattedIo(io_, instance_, *type, special)) {
                 anyIoTookPlace_ = true;
                 return StatOk;

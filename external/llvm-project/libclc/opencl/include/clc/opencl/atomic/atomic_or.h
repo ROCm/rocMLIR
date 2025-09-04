@@ -6,10 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-<<<<<<< HEAD
-#define FUNCTION atomic_or
-#include <clc/opencl/atomic/atomic_decl.inc>
-=======
 #ifndef __CLC_OPENCL_ATOMIC_ATOMIC_OR_H__
 #define __CLC_OPENCL_ATOMIC_ATOMIC_OR_H__
 
@@ -19,4 +15,3 @@
 #include <clc/opencl/atomic/atomic_decl_legacy.inc>
 
 #endif // __CLC_OPENCL_ATOMIC_ATOMIC_OR_H__
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

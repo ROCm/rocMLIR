@@ -576,16 +576,11 @@ void Preprocessor::EnterMainSourceFile() {
     // export module M; // error: module declaration must occur
     //                  //        at the start of the translation unit.
     if (getLangOpts().CPlusPlusModules) {
-<<<<<<< HEAD
-      std::optional<Token> FirstPPTok = CurLexer->peekNextPPToken();
-      if (FirstPPTok && FirstPPTok->isFirstPPToken())
-=======
       auto Tracer = std::make_unique<NoTrivialPPDirectiveTracer>(*this);
       DirTracer = Tracer.get();
       addPPCallbacks(std::move(Tracer));
       std::optional<Token> FirstPPTok = CurLexer->peekNextPPToken();
       if (FirstPPTok)
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         FirstPPTokenLoc = FirstPPTok->getLocation();
     }
   }

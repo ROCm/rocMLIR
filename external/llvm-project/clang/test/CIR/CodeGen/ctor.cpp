@@ -219,8 +219,6 @@ void init_union() {
 // CHECK-NEXT:    %[[S_ADDR:.*]] = cir.alloca {{.*}} ["s", init]
 // CHECK-NEXT:    cir.call @_ZN14UnionInitStrukC1Ev(%[[S_ADDR]])
 // CHECK-NEXT:    cir.return
-<<<<<<< HEAD
-=======
 
 struct Base {
   int a;
@@ -348,4 +346,3 @@ void test_derived2() {
 // CHECK-NEXT:    %[[THREE:.*]] = cir.const #cir.int<3> : !s32i
 // CHECK-NEXT:    cir.call @_ZN8Derived2C1Eiii(%[[D_ADDR]], %[[ONE]], %[[TWO]], %[[THREE]])
 // CHECK-NEXT:    cir.return
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

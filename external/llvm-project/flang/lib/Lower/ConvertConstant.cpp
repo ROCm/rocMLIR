@@ -155,9 +155,6 @@ private:
                       : TC;
     attributeElementType =
         Fortran::lower::getFIRType(builder.getContext(), attrTc, KIND, {});
-<<<<<<< HEAD
-    for (auto element : constant.values())
-=======
 
     const std::vector<Element> &values = constant.values();
     auto sameElements = [&]() -> bool {
@@ -176,7 +173,6 @@ private:
     }
 
     for (auto element : values)
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       attributes.push_back(
           convertToAttribute<TC, KIND>(builder, element, attributeElementType));
   }

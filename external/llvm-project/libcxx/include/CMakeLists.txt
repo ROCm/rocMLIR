@@ -534,10 +534,7 @@ set(files
   __locale_dir/time.h
   __locale_dir/wbuffer_convert.h
   __locale_dir/wstring_convert.h
-<<<<<<< HEAD
-=======
   __log_hardening_failure
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   __math/abs.h
   __math/copysign.h
   __math/error_functions.h

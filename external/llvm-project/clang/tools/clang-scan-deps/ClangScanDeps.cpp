@@ -407,10 +407,7 @@ public:
     ID.NamedModule = std::move(TUDeps.ID.ModuleName);
     ID.NamedModuleDeps = std::move(TUDeps.NamedModuleDeps);
     ID.ClangModuleDeps = std::move(TUDeps.ClangModuleDeps);
-<<<<<<< HEAD
-=======
     ID.VisibleModules = std::move(TUDeps.VisibleModules);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ID.DriverCommandLine = std::move(TUDeps.DriverCommandLine);
     ID.Commands = std::move(TUDeps.Commands);
 
@@ -617,10 +614,7 @@ private:
     std::string NamedModule;
     std::vector<std::string> NamedModuleDeps;
     std::vector<ModuleID> ClangModuleDeps;
-<<<<<<< HEAD
-=======
     std::vector<std::string> VisibleModules;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     std::vector<std::string> DriverCommandLine;
     std::vector<Command> Commands;
   };

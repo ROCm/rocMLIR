@@ -60,12 +60,7 @@ class TestTool : public Tool {
 public:
   using Tool::Tool;
 
-<<<<<<< HEAD
-  virtual llvm::Expected<mcp::protocol::TextResult>
-  Call(const ToolArguments &args) override {
-=======
   llvm::Expected<CallToolResult> Call(const ToolArguments &args) override {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     std::string argument;
     if (const json::Object *args_obj =
             std::get<json::Value>(args).getAsObject()) {
@@ -83,10 +78,6 @@ public:
 class TestResourceProvider : public ResourceProvider {
   using ResourceProvider::ResourceProvider;
 
-<<<<<<< HEAD
-  virtual llvm::Expected<mcp::protocol::TextResult>
-  Call(const ToolArguments &args) override {
-=======
   std::vector<Resource> GetResources() const override {
     std::vector<Resource> resources;
 
@@ -122,7 +113,6 @@ public:
   using Tool::Tool;
 
   llvm::Expected<CallToolResult> Call(const ToolArguments &args) override {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return llvm::createStringError("error");
   }
 };
@@ -132,16 +122,9 @@ class FailTool : public Tool {
 public:
   using Tool::Tool;
 
-<<<<<<< HEAD
-  virtual llvm::Expected<mcp::protocol::TextResult>
-  Call(const ToolArguments &args) override {
-    mcp::protocol::TextResult text_result;
-    text_result.content.emplace_back(mcp::protocol::TextContent{{"failed"}});
-=======
   llvm::Expected<CallToolResult> Call(const ToolArguments &args) override {
     CallToolResult text_result;
     text_result.content.emplace_back(TextContent{{"failed"}});
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     text_result.isError = true;
     return text_result;
   }
@@ -180,15 +163,6 @@ public:
   void SetUp() override {
     PipePairTest::SetUp();
 
-<<<<<<< HEAD
-    // Create & start the server.
-    ProtocolServer::Connection connection;
-    connection.protocol = Socket::SocketProtocol::ProtocolTcp;
-    connection.name = llvm::formatv("{0}:0", k_localhost).str();
-    m_server_up = std::make_unique<TestProtocolServerMCP>();
-    m_server_up->AddTool(std::make_unique<TestTool>("test", "test tool"));
-    ASSERT_THAT_ERROR(m_server_up->Start(connection), llvm::Succeeded());
-=======
     transport_up = std::make_unique<TestMCPTransport>(
         std::make_shared<NativeFile>(input.GetReadFileDescriptor(),
                                      File::eOpenOptionReadOnly,
@@ -196,7 +170,6 @@ public:
         std::make_shared<NativeFile>(output.GetWriteFileDescriptor(),
                                      File::eOpenOptionWriteOnly,
                                      NativeFile::Unowned));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     server_up = std::make_unique<TestServer>(
         "lldb-mcp", "0.1.0",
@@ -222,13 +195,6 @@ template <typename T> Response make_response(T &&result, Id id = 1) {
 
 } // namespace
 
-<<<<<<< HEAD
-TEST_F(ProtocolServerMCPTest, Intialization) {
-  llvm::StringLiteral request =
-      R"json({"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"lldb-unit","version":"0.1.0"}},"jsonrpc":"2.0","id":0})json";
-  llvm::StringLiteral response =
-      R"json({"jsonrpc":"2.0","id":0,"result":{"capabilities":{"tools":{"listChanged":true}},"protocolVersion":"2024-11-05","serverInfo":{"name":"lldb-mcp","version":"0.1.0"}}})json";
-=======
 TEST_F(ProtocolServerMCPTest, Initialization) {
   Request request = make_request(
       "initialize", InitializeParams{/*protocolVersion=*/"2024-11-05",
@@ -238,7 +204,6 @@ TEST_F(ProtocolServerMCPTest, Initialization) {
       InitializeResult{/*protocolVersion=*/"2024-11-05",
                        /*capabilities=*/{/*supportsToolsList=*/true},
                        /*serverInfo=*/{"lldb-mcp", "0.1.0"}});
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   ASSERT_THAT_ERROR(Write(request), Succeeded());
   EXPECT_CALL(message_handler, Received(response));
@@ -246,12 +211,6 @@ TEST_F(ProtocolServerMCPTest, Initialization) {
 }
 
 TEST_F(ProtocolServerMCPTest, ToolsList) {
-<<<<<<< HEAD
-  llvm::StringLiteral request =
-      R"json({"method":"tools/list","params":{},"jsonrpc":"2.0","id":1})json";
-  llvm::StringLiteral response =
-      R"json( {"id":1,"jsonrpc":"2.0","result":{"tools":[{"description":"test tool","inputSchema":{"type":"object"},"name":"test"},{"description":"List debugger instances with their debugger_id.","inputSchema":{"type":"object"},"name":"lldb_debugger_list"},{"description":"Run an lldb command.","inputSchema":{"properties":{"arguments":{"type":"string"},"debugger_id":{"type":"number"}},"required":["debugger_id"],"type":"object"},"name":"lldb_command"}]}})json";
-=======
   server_up->AddTool(std::make_unique<TestTool>("test", "test tool"));
 
   Request request = make_request("tools/list", Void{}, /*id=*/"one");
@@ -262,7 +221,6 @@ TEST_F(ProtocolServerMCPTest, ToolsList) {
   test_tool.inputSchema = json::Object{{"type", "object"}};
 
   Response response = make_response(ListToolsResult{{test_tool}}, /*id=*/"one");
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   ASSERT_THAT_ERROR(Write(request), llvm::Succeeded());
   EXPECT_CALL(message_handler, Received(response));
@@ -283,12 +241,6 @@ TEST_F(ProtocolServerMCPTest, ResourcesList) {
 }
 
 TEST_F(ProtocolServerMCPTest, ToolsCall) {
-<<<<<<< HEAD
-  llvm::StringLiteral request =
-      R"json({"method":"tools/call","params":{"name":"test","arguments":{"arguments":"foo","debugger_id":0}},"jsonrpc":"2.0","id":11})json";
-  llvm::StringLiteral response =
-      R"json({"id":11,"jsonrpc":"2.0","result":{"content":[{"text":"foo","type":"text"}],"isError":false}})json";
-=======
   server_up->AddTool(std::make_unique<TestTool>("test", "test tool"));
 
   Request request = make_request(
@@ -297,7 +249,6 @@ TEST_F(ProtocolServerMCPTest, ToolsCall) {
                                        {"debugger_id", 0},
                                    }});
   Response response = make_response(CallToolResult{{{/*text=*/"foo"}}});
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   ASSERT_THAT_ERROR(Write(request), llvm::Succeeded());
   EXPECT_CALL(message_handler, Received(response));
@@ -307,12 +258,6 @@ TEST_F(ProtocolServerMCPTest, ToolsCall) {
 TEST_F(ProtocolServerMCPTest, ToolsCallError) {
   server_up->AddTool(std::make_unique<ErrorTool>("error", "error tool"));
 
-<<<<<<< HEAD
-  llvm::StringLiteral request =
-      R"json({"method":"tools/call","params":{"name":"error","arguments":{"arguments":"foo","debugger_id":0}},"jsonrpc":"2.0","id":11})json";
-  llvm::StringLiteral response =
-      R"json({"error":{"code":-1,"message":"error"},"id":11,"jsonrpc":"2.0"})json";
-=======
   Request request = make_request(
       "tools/call", CallToolParams{/*name=*/"error", /*arguments=*/json::Object{
                                        {"arguments", "foo"},
@@ -321,7 +266,6 @@ TEST_F(ProtocolServerMCPTest, ToolsCallError) {
   Response response =
       make_response(lldb_protocol::mcp::Error{eErrorCodeInternalError,
                                               /*message=*/"error"});
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   ASSERT_THAT_ERROR(Write(request), llvm::Succeeded());
   EXPECT_CALL(message_handler, Received(response));
@@ -331,12 +275,6 @@ TEST_F(ProtocolServerMCPTest, ToolsCallError) {
 TEST_F(ProtocolServerMCPTest, ToolsCallFail) {
   server_up->AddTool(std::make_unique<FailTool>("fail", "fail tool"));
 
-<<<<<<< HEAD
-  llvm::StringLiteral request =
-      R"json({"method":"tools/call","params":{"name":"fail","arguments":{"arguments":"foo","debugger_id":0}},"jsonrpc":"2.0","id":11})json";
-  llvm::StringLiteral response =
-      R"json({"id":11,"jsonrpc":"2.0","result":{"content":[{"text":"failed","type":"text"}],"isError":true}})json";
-=======
   Request request = make_request(
       "tools/call", CallToolParams{/*name=*/"fail", /*arguments=*/json::Object{
                                        {"arguments", "foo"},
@@ -344,7 +282,6 @@ TEST_F(ProtocolServerMCPTest, ToolsCallFail) {
                                    }});
   Response response =
       make_response(CallToolResult{{{/*text=*/"failed"}}, /*isError=*/true});
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   ASSERT_THAT_ERROR(Write(request), llvm::Succeeded());
   EXPECT_CALL(message_handler, Received(response));

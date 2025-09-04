@@ -267,8 +267,6 @@ static void emitNewInitializer(CIRGenFunction &cgf, const CXXNewExpr *e,
   }
 }
 
-<<<<<<< HEAD
-=======
 RValue CIRGenFunction::emitCXXDestructorCall(
     GlobalDecl dtor, const CIRGenCallee &callee, mlir::Value thisVal,
     QualType thisTy, mlir::Value implicitParam, QualType implicitParamTy,
@@ -292,7 +290,6 @@ RValue CIRGenFunction::emitCXXDestructorCall(
                      : getLoc(dtor.getDecl()->getSourceRange()));
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 /// Emit a call to an operator new or operator delete function, as implicitly
 /// created by new-expressions and delete-expressions.
 static RValue emitNewDeleteCall(CIRGenFunction &cgf,

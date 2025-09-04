@@ -237,8 +237,6 @@ func.func @rebox_scalar_attrs(%arg0: !fir.class<!fir.ptr<!fir.type<sometype{i:i3
 // CHECK-LABEL: @rebox_scalar_attrs
 // CHECK: fir.rebox %{{.*}} : (!fir.class<!fir.ptr<!fir.type<sometype{i:i32}>>>) -> !fir.class<!fir.type<sometype{i:i32}>>
 // CHECK: return
-<<<<<<< HEAD
-=======
 
 func.func @vars_within_physical_storage() {
   %c4 = arith.constant 4 : index
@@ -266,4 +264,3 @@ func.func @vars_within_physical_storage() {
 // CHECK:           %[[VAL_9:.*]] = fir.declare %[[VAL_8]] storage(%[[VAL_2]][4]) {uniq_name = "b"} : (!fir.ref<f32>, !fir.ref<!fir.array<8xi8>>) -> !fir.ref<f32>
 // CHECK:           return
 // CHECK:         }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

@@ -30,10 +30,7 @@
 #include "llvm/ADT/DepthFirstIterator.h"
 #include "llvm/ADT/PostOrderIterator.h"
 #include "llvm/ADT/ScopeExit.h"
-<<<<<<< HEAD
-=======
 #include "llvm/ADT/StringExtras.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/IR/Comdat.h"
 #include "llvm/IR/Constants.h"

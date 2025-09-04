@@ -22,10 +22,7 @@
 #include "sanitizer_common/sanitizer_internal_defs.h"
 #include "sanitizer_common/sanitizer_libc.h"
 #include "sanitizer_common/sanitizer_linux.h"
-<<<<<<< HEAD
-=======
 #include "sanitizer_common/sanitizer_placement_new.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "sanitizer_common/sanitizer_platform_interceptors.h"
 #include "sanitizer_common/sanitizer_platform_limits_netbsd.h"
 #include "sanitizer_common/sanitizer_platform_limits_posix.h"

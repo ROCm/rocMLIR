@@ -7,12 +7,7 @@ during the traditional link step.
 
 The implementation is documented here: https://llvm.org/docs/DTLTO.html.
 
-<<<<<<< HEAD
-Currently, DTLTO is only supported in ELF LLD. Support will be added to other
-LLD flavours in the future.
-=======
 Currently, DTLTO is only supported in ELF and COFF LLD.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 ELF LLD
 -------
@@ -44,8 +39,6 @@ The command-line interface is as follows:
 Some LLD LTO options (e.g., ``--lto-sample-profile=<file>``) are supported.
 Currently, other options are silently accepted but do not have the intended
 effect. Support for such options will be expanded in the future.
-<<<<<<< HEAD
-=======
 
 COFF LLD
 --------
@@ -80,4 +73,3 @@ effect. Support for such options could be expanded in the future.
 
 Currently, there is no DTLTO command line interface supplied for ``clang-cl``,
 as users are expected to invoke LLD directly.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

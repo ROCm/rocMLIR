@@ -1586,12 +1586,7 @@ static bool interp__builtin_operator_new(InterpState &S, CodePtr OpPC,
   // Composite arrays
   if (IsArray) {
     const Descriptor *Desc =
-<<<<<<< HEAD
-        S.P.createDescriptor(NewCall, ElemType.getTypePtr(),
-                             IsArray ? std::nullopt : Descriptor::InlineDescMD);
-=======
         S.P.createDescriptor(NewCall, ElemType.getTypePtr(), std::nullopt);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     Block *B =
         Allocator.allocate(Desc, NumElems.getZExtValue(), S.Ctx.getEvalID(),
                            DynamicAllocator::Form::Operator);
@@ -1604,14 +1599,8 @@ static bool interp__builtin_operator_new(InterpState &S, CodePtr OpPC,
   QualType AllocType = S.getASTContext().getConstantArrayType(
       ElemType, NumElems, nullptr, ArraySizeModifier::Normal, 0);
 
-<<<<<<< HEAD
-  const Descriptor *Desc =
-      S.P.createDescriptor(NewCall, AllocType.getTypePtr(),
-                           IsArray ? std::nullopt : Descriptor::InlineDescMD);
-=======
   const Descriptor *Desc = S.P.createDescriptor(NewCall, AllocType.getTypePtr(),
                                                 Descriptor::InlineDescMD);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   Block *B = Allocator.allocate(Desc, S.getContext().getEvalID(),
                                 DynamicAllocator::Form::Operator);
   assert(B);

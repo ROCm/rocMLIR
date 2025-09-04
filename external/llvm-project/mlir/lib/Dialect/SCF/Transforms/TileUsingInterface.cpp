@@ -2034,13 +2034,8 @@ cloneAsInsertSlice<tensor::InsertSliceOp>(RewriterBase &rewriter,
 template <>
 tensor::InsertSliceOp cloneAsInsertSlice<tensor::ParallelInsertSliceOp>(
     RewriterBase &rewriter, tensor::ParallelInsertSliceOp insertSliceOp) {
-<<<<<<< HEAD
-  return rewriter.create<tensor::InsertSliceOp>(
-      insertSliceOp->getLoc(), insertSliceOp.getSource(),
-=======
   return tensor::InsertSliceOp::create(
       rewriter, insertSliceOp->getLoc(), insertSliceOp.getSource(),
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       insertSliceOp.getDest(), insertSliceOp.getMixedOffsets(),
       insertSliceOp.getMixedSizes(), insertSliceOp.getMixedStrides());
 }

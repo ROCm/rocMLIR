@@ -80,11 +80,7 @@ struct CIRRecordLowering final {
   void insertPadding();
 
   void computeVolatileBitfields();
-<<<<<<< HEAD
-  void accumulateBases(const CXXRecordDecl *cxxRecordDecl);
-=======
   void accumulateBases();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   void accumulateVPtrs();
   void accumulateVBases();
   void accumulateFields();
@@ -92,17 +88,12 @@ struct CIRRecordLowering final {
   accumulateBitFields(RecordDecl::field_iterator field,
                       RecordDecl::field_iterator fieldEnd);
 
-<<<<<<< HEAD
-=======
   mlir::Type getVFPtrType();
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   bool isAAPCS() const {
     return astContext.getTargetInfo().getABI().starts_with("aapcs");
   }
 
-<<<<<<< HEAD
-=======
   /// Helper function to check if the target machine is BigEndian.
   bool isBigEndian() const { return astContext.getTargetInfo().isBigEndian(); }
 
@@ -127,7 +118,6 @@ struct CIRRecordLowering final {
            recordDecl->isMsStruct(astContext);
   }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   CharUnits bitsToCharUnits(uint64_t bitOffset) {
     return astContext.toCharUnitsFromBits(bitOffset);
   }
@@ -838,8 +828,6 @@ void CIRRecordLowering::lowerUnion() {
     packed = true;
 }
 
-<<<<<<< HEAD
-=======
 bool CIRRecordLowering::hasOwnStorage(const CXXRecordDecl *decl,
                                       const CXXRecordDecl *query) {
   const ASTRecordLayout &declLayout = astContext.getASTRecordLayout(decl);
@@ -851,7 +839,6 @@ bool CIRRecordLowering::hasOwnStorage(const CXXRecordDecl *decl,
   return true;
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 /// The AAPCS that defines that, when possible, bit-fields should
 /// be accessed using containers of the declared type width:
 /// When a volatile bit-field is read, and its container does not overlap with
@@ -870,12 +857,6 @@ void CIRRecordLowering::computeVolatileBitfields() {
       !cirGenTypes.getCGModule().getCodeGenOpts().AAPCSBitfieldWidth)
     return;
 
-<<<<<<< HEAD
-  assert(!cir::MissingFeatures::armComputeVolatileBitfields());
-}
-
-void CIRRecordLowering::accumulateBases(const CXXRecordDecl *cxxRecordDecl) {
-=======
   for (auto &[field, info] : bitFields) {
     mlir::Type resLTy = cirGenTypes.convertTypeForMem(field->getType());
 
@@ -978,7 +959,6 @@ void CIRRecordLowering::accumulateBases(const CXXRecordDecl *cxxRecordDecl) {
 }
 
 void CIRRecordLowering::accumulateBases() {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // If we've got a primary virtual base, we need to add it with the bases.
   if (astRecordLayout.isPrimaryBaseVirtual()) {
     cirGenTypes.getCGModule().errorNYI(recordDecl->getSourceRange(),

@@ -111,8 +111,6 @@ void assume(bool arg) {
 // OGCG:   call void @llvm.assume(i1 %{{.+}})
 // OGCG: }
 
-<<<<<<< HEAD
-=======
 void *assume_aligned(void *ptr) {
   return __builtin_assume_aligned(ptr, 16);
 }
@@ -161,7 +159,6 @@ void assume_separate_storage(void *p1, void *p2) {
 // OGCG:   call void @llvm.assume(i1 true) [ "separate_storage"(ptr %{{.+}}, ptr %{{.+}}) ]
 // OGCG: }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void expect(int x, int y) {
   __builtin_expect(x, y);
 }
@@ -201,8 +198,6 @@ void expect_prob(int x, int y) {
 // LLVM-NEXT:    %[[Y_LONG:.+]] = sext i32 %[[Y]] to i64
 // LLVM-NEXT:    %{{.+}} = call i64 @llvm.expect.with.probability.i64(i64 %[[X_LONG]], i64 %[[Y_LONG]], double 2.500000e-01)
 // LLVM:       }
-<<<<<<< HEAD
-=======
 
 void unreachable() {
   __builtin_unreachable();
@@ -263,4 +258,3 @@ void trap2() {
 // LLVM:       {{.+}}:
 // LLVM-NEXT:    call void @_Z2f1v()
 // LLVM:       }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

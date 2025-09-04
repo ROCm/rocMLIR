@@ -14,11 +14,7 @@
 
 #include <clc/math/gentype.inc>
 
-<<<<<<< HEAD
-#define __DOUBLE_ONLY
-=======
 #define __CLC_DOUBLE_ONLY
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/math/clc_sincos_helpers_fp64.inc>
 
 #include <clc/math/gentype.inc>

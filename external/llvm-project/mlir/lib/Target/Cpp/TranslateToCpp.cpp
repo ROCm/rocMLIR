@@ -1028,10 +1028,6 @@ static LogicalResult printOperation(CppEmitter &emitter, ModuleOp moduleOp) {
 }
 
 static LogicalResult printOperation(CppEmitter &emitter, ClassOp classOp) {
-<<<<<<< HEAD
-  CppEmitter::Scope classScope(emitter);
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   raw_indented_ostream &os = emitter.ostream();
   os << "class " << classOp.getSymName();
   if (classOp.getFinalSpecifier())
@@ -1051,27 +1047,6 @@ static LogicalResult printOperation(CppEmitter &emitter, ClassOp classOp) {
 
 static LogicalResult printOperation(CppEmitter &emitter, FieldOp fieldOp) {
   raw_ostream &os = emitter.ostream();
-<<<<<<< HEAD
-  if (failed(emitter.emitType(fieldOp->getLoc(), fieldOp.getType())))
-    return failure();
-  os << " " << fieldOp.getSymName() << ";";
-  return success();
-}
-
-static LogicalResult printOperation(CppEmitter &emitter,
-                                    GetFieldOp getFieldOp) {
-  raw_indented_ostream &os = emitter.ostream();
-
-  Value result = getFieldOp.getResult();
-  if (failed(emitter.emitType(getFieldOp->getLoc(), result.getType())))
-    return failure();
-  os << " ";
-  if (failed(emitter.emitOperand(result)))
-    return failure();
-  os << " = ";
-
-  os << getFieldOp.getFieldName().str();
-=======
   if (failed(emitter.emitVariableDeclaration(
           fieldOp->getLoc(), fieldOp.getType(), fieldOp.getSymName())))
     return failure();
@@ -1083,7 +1058,6 @@ static LogicalResult printOperation(CppEmitter &emitter,
   }
 
   os << ";";
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return success();
 }
 
@@ -1730,20 +1704,11 @@ LogicalResult CppEmitter::emitOperation(Operation &op, bool trailingSemicolon) {
                 emitc::CmpOp, emitc::ConditionalOp, emitc::ConstantOp,
                 emitc::DeclareFuncOp, emitc::DivOp, emitc::ExpressionOp,
                 emitc::FieldOp, emitc::FileOp, emitc::ForOp, emitc::FuncOp,
-<<<<<<< HEAD
-                emitc::GetFieldOp, emitc::GlobalOp, emitc::IfOp,
-                emitc::IncludeOp, emitc::LoadOp, emitc::LogicalAndOp,
-                emitc::LogicalNotOp, emitc::LogicalOrOp, emitc::MulOp,
-                emitc::RemOp, emitc::ReturnOp, emitc::SubOp, emitc::SwitchOp,
-                emitc::UnaryMinusOp, emitc::UnaryPlusOp, emitc::VariableOp,
-                emitc::VerbatimOp>(
-=======
                 emitc::GlobalOp, emitc::IfOp, emitc::IncludeOp, emitc::LoadOp,
                 emitc::LogicalAndOp, emitc::LogicalNotOp, emitc::LogicalOrOp,
                 emitc::MulOp, emitc::RemOp, emitc::ReturnOp, emitc::SubOp,
                 emitc::SwitchOp, emitc::UnaryMinusOp, emitc::UnaryPlusOp,
                 emitc::VariableOp, emitc::VerbatimOp>(
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
               [&](auto op) { return printOperation(*this, op); })
           // Func ops.

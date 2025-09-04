@@ -454,19 +454,7 @@ struct LoadNdDistribution final : public gpu::WarpDistributionPattern {
 
     if (!operand)
       return rewriter.notifyMatchFailure(
-<<<<<<< HEAD
-          subgroupOp, "warp result is not a xegpu::LoadNd op");
-    // Make sure the load op is the last operation in the warp op body. This
-    // ensure that load op is not sinked earlier violating any barrier
-    // synchronizations.
-    auto yield = cast<gpu::YieldOp>(
-        subgroupOp.getBodyRegion().getBlocks().begin()->getTerminator());
-    Operation *lastNode = yield->getPrevNode();
-    if (!dyn_cast_or_null<xegpu::LoadNdOp>(lastNode))
-      return failure();
-=======
           warpOp, "warp result is not a xegpu::LoadNd op");
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     auto loadOp = operand->get().getDefiningOp<xegpu::LoadNdOp>();
 
@@ -801,33 +789,19 @@ struct PrefetchNdDistribution final : public gpu::WarpDistributionPattern {
 /// region. This will simply move the barrier op outside of the warp op.
 struct GpuBarrierDistribution final : public gpu::WarpDistributionPattern {
   using gpu::WarpDistributionPattern::WarpDistributionPattern;
-<<<<<<< HEAD
-  LogicalResult matchAndRewrite(gpu::WarpExecuteOnLane0Op subgroupOp,
-                                PatternRewriter &rewriter) const override {
-    auto yield = cast<gpu::YieldOp>(
-        subgroupOp.getBodyRegion().getBlocks().begin()->getTerminator());
-=======
   LogicalResult matchAndRewrite(gpu::WarpExecuteOnLane0Op warpOp,
                                 PatternRewriter &rewriter) const override {
     gpu::YieldOp yield = warpOp.getTerminator();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     Operation *lastNode = yield->getPrevNode();
     // The last node must be a gpu::BarrierOp.
     auto barrierOp = dyn_cast_or_null<gpu::BarrierOp>(lastNode);
     if (!barrierOp)
       return failure();
     // Move the barrier op outside of the warp op.
-<<<<<<< HEAD
-    rewriter.setInsertionPointAfter(subgroupOp);
-    rewriter.create<gpu::BarrierOp>(
-        barrierOp.getLoc(), barrierOp->getResultTypes(),
-        barrierOp->getOperands(), barrierOp->getAttrs());
-=======
     rewriter.setInsertionPointAfter(warpOp);
     gpu::BarrierOp::create(rewriter, barrierOp.getLoc(),
                            barrierOp->getResultTypes(),
                            barrierOp->getOperands(), barrierOp->getAttrs());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     rewriter.eraseOp(barrierOp);
     return success();
   }

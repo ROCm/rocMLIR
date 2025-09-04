@@ -210,15 +210,6 @@ _CLC_OVERLOAD _CLC_DEF float __clc_erfc(float x) {
   return ret;
 }
 
-<<<<<<< HEAD
-#define __FLOAT_ONLY
-#define FUNCTION __clc_erfc
-#define __CLC_BODY <clc/shared/unary_def_scalarize.inc>
-#include <clc/math/gentype.inc>
-#undef FUNCTION
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #ifdef cl_khr_fp64
 
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
@@ -511,15 +502,6 @@ _CLC_OVERLOAD _CLC_DEF double __clc_erfc(double x) {
   return ret;
 }
 
-<<<<<<< HEAD
-#define __DOUBLE_ONLY
-#define FUNCTION __clc_erfc
-#define __CLC_BODY <clc/shared/unary_def_scalarize.inc>
-#include <clc/math/gentype.inc>
-#undef FUNCTION
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #endif
 
 #ifdef cl_khr_fp16
@@ -529,16 +511,9 @@ _CLC_OVERLOAD _CLC_DEF double __clc_erfc(double x) {
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
 
 // Forward the half version of this builtin onto the float one
-<<<<<<< HEAD
-#define __HALF_ONLY
-#define FUNCTION __clc_erfc
-#define __CLC_BODY <clc/math/unary_def_via_fp32.inc>
-#include <clc/math/gentype.inc>
-=======
 _CLC_OVERLOAD _CLC_DEF half __clc_erfc(half x) {
   return (half)__clc_erfc((float)x);
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #endif
 

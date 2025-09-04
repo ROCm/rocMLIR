@@ -3793,11 +3793,7 @@ PadOp::reifyResultShapes(OpBuilder &b,
     }
     Location loc = getLoc();
     Value dim = b.createOrFold<tensor::DimOp>(
-<<<<<<< HEAD
-        loc, getSource(), b.create<arith::ConstantIndexOp>(loc, i));
-=======
         loc, getSource(), arith::ConstantIndexOp::create(b, loc, i));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     AffineExpr d0, d1, d2;
     bindDims(b.getContext(), d0, d1, d2);

@@ -566,18 +566,12 @@ llvm::Type *CommonSPIRTargetCodeGenInfo::getSPIRVImageTypeFromHLSLResource(
     CodeGenModule &CGM) const {
   llvm::LLVMContext &Ctx = CGM.getLLVMContext();
 
-<<<<<<< HEAD
-  Ty = Ty->getCanonicalTypeUnqualified();
-  if (const VectorType *V = dyn_cast<VectorType>(Ty))
-    Ty = V->getElementType();
-=======
   unsigned NumChannels = 1;
   Ty = Ty->getCanonicalTypeUnqualified();
   if (const VectorType *V = dyn_cast<VectorType>(Ty)) {
     NumChannels = V->getNumElements();
     Ty = V->getElementType();
   }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   assert(!Ty->isVectorType() && "We still have a vector type.");
 
   llvm::Type *SampledType = CGM.getTypes().ConvertTypeForMem(Ty);

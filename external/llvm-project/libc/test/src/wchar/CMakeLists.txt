@@ -25,8 +25,6 @@ add_libc_test(
 )
 
 add_libc_test(
-<<<<<<< HEAD
-=======
   wcsdup_test
   SUITE
     libc_wchar_unittests
@@ -38,7 +36,6 @@ add_libc_test(
 )
 
 add_libc_test(
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   btowc_test
   SUITE
     libc_wchar_unittests
@@ -200,8 +197,6 @@ add_libc_test(
   DEPENDS
     libc.src.wchar.wctomb
     libc.hdr.types.wchar_t
-<<<<<<< HEAD
-=======
 )
 
 add_libc_test(
@@ -242,7 +237,6 @@ add_libc_test(
     libc.hdr.types.wchar_t
     libc.src.string.memset
     libc.hdr.types.mbstate_t
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 )
 
 add_libc_test(

@@ -452,13 +452,8 @@ void Messages::ResolveProvenances(const AllCookedSources &allCooked) {
 }
 
 void Messages::Emit(llvm::raw_ostream &o, const AllCookedSources &allCooked,
-<<<<<<< HEAD
-    bool echoSourceLines,
-    const common::LanguageFeatureControl *hintFlagPtr) const {
-=======
     bool echoSourceLines, const common::LanguageFeatureControl *hintFlagPtr,
     std::size_t maxErrorsToEmit, bool warningsAreErrors) const {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   std::vector<const Message *> sorted;
   for (const auto &msg : messages_) {
     sorted.push_back(&msg);

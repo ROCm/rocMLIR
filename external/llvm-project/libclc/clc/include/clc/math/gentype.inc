@@ -356,12 +356,6 @@
 #undef __CLC_AS_GENTYPE
 #undef __CLC_CONVERT_GENTYPE
 
-<<<<<<< HEAD
-#undef __HALF_ONLY
-#undef __FLOAT_ONLY
-#undef __DOUBLE_ONLY
-=======
 #undef __CLC_HALF_ONLY
 #undef __CLC_FLOAT_ONLY
 #undef __CLC_DOUBLE_ONLY
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

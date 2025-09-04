@@ -134,11 +134,6 @@ class GenericSetDataFormatterTestCase(TestBase):
         self.build(dictionary={"USE_LIBCPP": 1})
         self.do_test_with_run_command()
 
-<<<<<<< HEAD
-    def do_test_ref_and_ptr(self, stdlib_type):
-        """Test that the data formatters work on ref and ptr."""
-        self.build(dictionary={stdlib_type: "1"})
-=======
     @add_test_categories(["msvcstl"])
     def test_with_run_command_msvcstl(self):
         # No flags, because the "msvcstl" category checks that the MSVC STL is used by default.
@@ -147,7 +142,6 @@ class GenericSetDataFormatterTestCase(TestBase):
 
     def do_test_ref_and_ptr(self):
         """Test that the data formatters work on ref and ptr."""
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         (self.target, process, _, bkpt) = lldbutil.run_to_source_breakpoint(
             self,
             "Stop here to check by ref and ptr.",

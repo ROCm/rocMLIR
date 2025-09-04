@@ -1739,10 +1739,7 @@ def CIR_GlobalOp : CIR_Op<"global", [
                        CIR_GlobalLinkageKind:$linkage,
                        OptionalAttr<AnyAttr>:$initial_value,
                        UnitAttr:$comdat,
-<<<<<<< HEAD
-=======
                        UnitAttr:$constant,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                        UnitAttr:$dso_local,
                        OptionalAttr<I64Attr>:$alignment);
 
@@ -1806,12 +1803,6 @@ def CIR_GetGlobalOp : CIR_Op<"get_global", [
 }
 
 //===----------------------------------------------------------------------===//
-<<<<<<< HEAD
-// GetBitfieldOp
-//===----------------------------------------------------------------------===//
-
-def GetBitfieldOp : CIR_Op<"get_bitfield"> {
-=======
 // VTableAddrPointOp
 //===----------------------------------------------------------------------===//
 
@@ -2097,7 +2088,6 @@ def CIR_SetBitfieldOp : CIR_Op<"set_bitfield"> {
 //===----------------------------------------------------------------------===//
 
 def CIR_GetBitfieldOp : CIR_Op<"get_bitfield"> {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let summary = "Get the information for a bitfield member";
   let description = [{
     The `cir.get_bitfield` operation provides a load-like access to
@@ -2109,12 +2099,9 @@ def CIR_GetBitfieldOp : CIR_Op<"get_bitfield"> {
 
     A unit attribute `volatile` can be used to indicate a volatile load of the
     bitfield.
-<<<<<<< HEAD
-=======
     ```mlir
       cir.get_bitfield(#bfi, %0 {is_volatile} : !cir.ptr<!u64i>) -> !s32i
     ```
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     Example:
     Suppose we have a struct with multiple bitfields stored in
@@ -2143,36 +2130,23 @@ def CIR_GetBitfieldOp : CIR_Op<"get_bitfield"> {
     %2 = cir.load %0 : !cir.ptr<!cir.ptr<!record_type>>, !cir.ptr<!record_type>
     %3 = cir.get_member %2[1] {name = "e"} : !cir.ptr<!record_type>
                                                              -> !cir.ptr<!u16i>
-<<<<<<< HEAD
-    %4 = cir.get_bitfield(#bfi_e, %3 : !cir.ptr<!u16i>) -> !s32i
-=======
     %4 = cir.get_bitfield align(4) (#bfi_e, %3 : !cir.ptr<!u16i>) -> !s32i
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ```
     }];
 
   let arguments = (ins
     Arg<CIR_PointerType, "the address to load from", [MemRead]>:$addr,
-<<<<<<< HEAD
-    BitfieldInfoAttr:$bitfield_info,
-=======
     CIR_BitfieldInfoAttr:$bitfield_info,
     DefaultValuedOptionalAttr<I64Attr, "0">:$alignment,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     UnitAttr:$is_volatile
     );
 
   let results = (outs CIR_IntType:$result);
 
-<<<<<<< HEAD
-  let assemblyFormat = [{ `(`$bitfield_info `,` $addr attr-dict `:`
-   qualified(type($addr)) `)` `->` type($result) }];
-=======
   let assemblyFormat = [{
     (`align` `(` $alignment^ `)`)?
     `(`$bitfield_info `,` $addr attr-dict `:`
     qualified(type($addr)) `)` `->` type($result) }];
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   let builders = [
     OpBuilder<(ins "mlir::Type":$type,
@@ -2182,23 +2156,15 @@ def CIR_GetBitfieldOp : CIR_Op<"get_bitfield"> {
                    "unsigned":$size,
                    "unsigned":$offset,
                    "bool":$is_signed,
-<<<<<<< HEAD
-                   "bool":$is_volatile
-=======
                    "bool":$is_volatile,
                    CArg<"unsigned", "0">:$alignment
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                    ),
    [{
       BitfieldInfoAttr info =
         BitfieldInfoAttr::get($_builder.getContext(),
                               name, storage_type,
                               size, offset, is_signed);
-<<<<<<< HEAD
-      build($_builder, $_state, type, addr, info, is_volatile);
-=======
       build($_builder, $_state, type, addr, info, alignment, is_volatile);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }]>
   ];
 }
@@ -2282,13 +2248,10 @@ def CIR_FuncOp : CIR_Op<"func", [
     The function linkage information is specified by `linkage`, as defined by
     `GlobalLinkageKind` attribute.
 
-<<<<<<< HEAD
-=======
     The `no_proto` keyword is used to identify functions that were declared
     without a prototype and, consequently, may contain calls with invalid
     arguments and undefined behavior.
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     Example:
 
     ```mlir
@@ -2307,10 +2270,7 @@ def CIR_FuncOp : CIR_Op<"func", [
   let arguments = (ins SymbolNameAttr:$sym_name,
                        CIR_VisibilityAttr:$global_visibility,
                        TypeAttrOf<CIR_FuncType>:$function_type,
-<<<<<<< HEAD
-=======
                        UnitAttr:$no_proto,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                        UnitAttr:$dso_local,
                        DefaultValuedAttr<CIR_GlobalLinkageKind,
                                          "cir::GlobalLinkageKind::ExternalLinkage">:$linkage,
@@ -3184,11 +3144,7 @@ def CIR_ComplexCreateOp : CIR_Op<"complex.create", [Pure, SameTypeOperands]> {
 // ComplexRealOp
 //===----------------------------------------------------------------------===//
 
-<<<<<<< HEAD
-def ComplexRealOp : CIR_Op<"complex.real", [Pure]> {
-=======
 def CIR_ComplexRealOp : CIR_Op<"complex.real", [Pure]> {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let summary = "Extract the real part of a complex value";
   let description = [{
     `cir.complex.real` operation takes an operand of `!cir.complex` type and
@@ -3217,11 +3173,7 @@ def CIR_ComplexRealOp : CIR_Op<"complex.real", [Pure]> {
 // ComplexImagOp
 //===----------------------------------------------------------------------===//
 
-<<<<<<< HEAD
-def ComplexImagOp : CIR_Op<"complex.imag", [Pure]> {
-=======
 def CIR_ComplexImagOp : CIR_Op<"complex.imag", [Pure]> {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let summary = "Extract the imaginary part of a complex value";
   let description = [{
     `cir.complex.imag` operation takes an operand of `!cir.complex` type and
@@ -3247,8 +3199,6 @@ def CIR_ComplexImagOp : CIR_Op<"complex.imag", [Pure]> {
 }
 
 //===----------------------------------------------------------------------===//
-<<<<<<< HEAD
-=======
 // ComplexRealPtrOp
 //===----------------------------------------------------------------------===//
 
@@ -3456,32 +3406,15 @@ def CIR_ComplexDivOp : CIR_Op<"complex.div", [
 }
 
 //===----------------------------------------------------------------------===//
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // Bit Manipulation Operations
 //===----------------------------------------------------------------------===//
 
 class CIR_BitOpBase<string mnemonic, TypeConstraint operandTy>
-<<<<<<< HEAD
-  : CIR_Op<mnemonic, [Pure, SameOperandsAndResultType]> {
-=======
     : CIR_Op<mnemonic, [Pure, SameOperandsAndResultType]> {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let arguments = (ins operandTy:$input);
   let results = (outs operandTy:$result);
 
   let assemblyFormat = [{
-<<<<<<< HEAD
-    `(` $input `:` type($input) `)` `:` type($result) attr-dict
-  }];
-}
-
-class CIR_BitZeroCountOpBase<string mnemonic, TypeConstraint operandTy>
-  : CIR_BitOpBase<mnemonic, operandTy> {
-  let arguments = (ins operandTy:$input, UnitAttr:$poison_zero);
-
-  let assemblyFormat = [{
-    `(` $input `:` type($input) `)` (`poison_zero` $poison_zero^)?
-=======
     $input `:` type($result) attr-dict
   }];
 
@@ -3494,30 +3427,19 @@ class CIR_BitZeroCountOpBase<string mnemonic, TypeConstraint operandTy>
 
   let assemblyFormat = [{
     $input (`poison_zero` $poison_zero^)?
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     `:` type($result) attr-dict
   }];
 }
 
-<<<<<<< HEAD
-def BitClrsbOp : CIR_BitOpBase<"bit.clrsb", CIR_SIntOfWidths<[32, 64]>> {
-=======
 def CIR_BitClrsbOp : CIR_BitOpBase<"clrsb", CIR_SIntOfWidths<[32, 64]>> {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let summary = "Get the number of leading redundant sign bits in the input";
   let description = [{
     Compute the number of leading redundant sign bits in the input integer.
 
     The input integer must be a signed integer. The most significant bit of the
-<<<<<<< HEAD
-    input integer is the sign bit. The `cir.bit.clrsb` operation returns the
-    number of consecutive bits following the sign bit that are identical to the
-    sign bit.
-=======
     input integer is the sign bit. The `cir.clrsb` operation returns the number
     of consecutive bits following the sign bit that are identical to the sign
     bit.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     The bit width of the input integer must be either 32 or 64.
 
@@ -3528,42 +3450,25 @@ def CIR_BitClrsbOp : CIR_BitOpBase<"clrsb", CIR_SIntOfWidths<[32, 64]>> {
     %0 = cir.const #cir.int<3735928559> : !s32i
     // %1 will be 1 because there is 1 bit following the most significant bit
     // that is identical to it.
-<<<<<<< HEAD
-    %1 = cir.bit.clrsb(%0 : !s32i) : !s32i
-=======
     %1 = cir.clrsb %0 : !s32i
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     // %2 = 1, 0b0000_0000_0000_0000_0000_0000_0000_0001
     %2 = cir.const #cir.int<1> : !s32i
     // %3 will be 30 because there are 30 consecutive bits following the sign
     // bit that are identical to the sign bit.
-<<<<<<< HEAD
-    %3 = cir.bit.clrsb(%2 : !s32i) : !s32i
-=======
     %3 = cir.clrsb %2 : !s32i
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ```
   }];
 }
 
-<<<<<<< HEAD
-def BitClzOp : CIR_BitZeroCountOpBase<"bit.clz",
-                                      CIR_UIntOfWidths<[16, 32, 64]>> {
-=======
 def CIR_BitClzOp : CIR_BitZeroCountOpBase<"clz",
   CIR_UIntOfWidths<[16, 32, 64]>
 > {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let summary = "Get the number of leading 0-bits in the input";
   let description = [{
     Compute the number of leading 0-bits in the input.
 
-<<<<<<< HEAD
-    The input integer must be an unsigned integer. The `cir.bit.clz` operation
-=======
     The input integer must be an unsigned integer. The `cir.clz` operation
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     returns the number of consecutive 0-bits at the most significant bit
     position in the input.
 
@@ -3576,32 +3481,19 @@ def CIR_BitClzOp : CIR_BitZeroCountOpBase<"clz",
     // %0 = 0b0000_0000_0000_0000_0000_0000_0000_1000
     %0 = cir.const #cir.int<8> : !u32i
     // %1 will be 28
-<<<<<<< HEAD
-    %1 = cir.bit.clz(%0 : !u32i) poison_zero : !u32i
-=======
     %1 = cir.clz %0 poison_zero : !u32i
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ```
   }];
 }
 
-<<<<<<< HEAD
-def BitCtzOp : CIR_BitZeroCountOpBase<"bit.ctz",
-                                      CIR_UIntOfWidths<[16, 32, 64]>> {
-=======
 def CIR_BitCtzOp : CIR_BitZeroCountOpBase<"ctz",
   CIR_UIntOfWidths<[16, 32, 64]>
 > {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let summary = "Get the number of trailing 0-bits in the input";
   let description = [{
     Compute the number of trailing 0-bits in the input.
 
-<<<<<<< HEAD
-    The input integer must be an unsigned integer. The `cir.bit.ctz` operation
-=======
     The input integer must be an unsigned integer. The `cir.ctz` operation
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     counts the number of consecutive 0-bits starting from the least significant
     bit.
 
@@ -3614,18 +3506,11 @@ def CIR_BitCtzOp : CIR_BitZeroCountOpBase<"ctz",
     // %0 = 0b1000
     %0 = cir.const #cir.int<8> : !u32i
     // %1 will be 3
-<<<<<<< HEAD
-    %1 = cir.bit.ctz(%0 : !u32i) poison_zero : !u32i
-=======
     %1 = cir.ctz %0 poison_zero : !u32i
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ```
   }];
 }
 
-<<<<<<< HEAD
-def BitParityOp : CIR_BitOpBase<"bit.parity", CIR_UIntOfWidths<[32, 64]>> {
-=======
 def CIR_BitFfsOp : CIR_BitOpBase<"ffs", CIR_SIntOfWidths<[32, 64]>> {
   let summary = "Get the position of the least significant 1-bit in input";
   let description = [{
@@ -3649,7 +3534,6 @@ def CIR_BitFfsOp : CIR_BitOpBase<"ffs", CIR_SIntOfWidths<[32, 64]>> {
 }
 
 def CIR_BitParityOp : CIR_BitOpBase<"parity", CIR_UIntOfWidths<[32, 64]>> {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let summary = "Get the parity of input";
   let description = [{
     Compute the parity of the input. The parity of an integer is the number of
@@ -3663,23 +3547,14 @@ def CIR_BitParityOp : CIR_BitOpBase<"parity", CIR_UIntOfWidths<[32, 64]>> {
     // %0 = 0x0110_1000
     %0 = cir.const #cir.int<104> : !u32i
     // %1 will be 1 since there are three 1-bits in %0
-<<<<<<< HEAD
-    %1 = cir.bit.parity(%0 : !u32i) : !u32i
-=======
     %1 = cir.parity %0 : !u32i
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ```
   }];
 }
 
-<<<<<<< HEAD
-def BitPopcountOp : CIR_BitOpBase<"bit.popcnt",
-                                  CIR_UIntOfWidths<[16, 32, 64]>> {
-=======
 def CIR_BitPopcountOp : CIR_BitOpBase<"popcount",
   CIR_UIntOfWidths<[16, 32, 64]>
 > {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let summary = "Get the number of 1-bits in input";
   let description = [{
     Compute the number of 1-bits in the input.
@@ -3692,9 +3567,6 @@ def CIR_BitPopcountOp : CIR_BitOpBase<"popcount",
     // %0 = 0x0110_1000
     %0 = cir.const #cir.int<104> : !u32i
     // %1 will be 3 since there are 3 1-bits in %0
-<<<<<<< HEAD
-    %1 = cir.bit.popcnt(%0 : !u32i) : !u32i
-=======
     %1 = cir.popcount %0 : !u32i
     ```
   }];
@@ -3735,14 +3607,11 @@ def CIR_ByteSwapOp : CIR_BitOpBase<"byte_swap",
 
     // %1 should be 0x78563412
     %1 = cir.byte_swap %0 : !u32i
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ```
   }];
 }
 
 //===----------------------------------------------------------------------===//
-<<<<<<< HEAD
-=======
 // RotateOp
 //===----------------------------------------------------------------------===//
 
@@ -3784,7 +3653,6 @@ def CIR_RotateOp : CIR_Op<"rotate", [Pure, SameOperandsAndResultType]> {
 }
 
 //===----------------------------------------------------------------------===//
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // Assume Operations
 //===----------------------------------------------------------------------===//
 
@@ -3806,8 +3674,6 @@ def CIR_AssumeOp : CIR_Op<"assume"> {
   }];
 }
 
-<<<<<<< HEAD
-=======
 def CIR_AssumeAlignedOp : CIR_Op<"assume_aligned", [
   Pure, AllTypesMatch<["pointer", "result"]>
 ]> {
@@ -3879,19 +3745,13 @@ def CIR_AssumeSepStorageOp : CIR_Op<"assume_separate_storage", [
   }];
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 //===----------------------------------------------------------------------===//
 // Branch Probability Operations
 //===----------------------------------------------------------------------===//
 
-<<<<<<< HEAD
-def ExpectOp : CIR_Op<"expect",
-  [Pure, AllTypesMatch<["result", "val", "expected"]>]> {
-=======
 def CIR_ExpectOp : CIR_Op<"expect", [
   Pure, AllTypesMatch<["result", "val", "expected"]>
 ]> {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let summary = "Tell the optimizer that two values are likely to be equal.";
   let description = [{
     The `cir.expect` operation may take 2 or 3 arguments.
@@ -3923,8 +3783,6 @@ def CIR_ExpectOp : CIR_Op<"expect", [
   }];
 }
 
-<<<<<<< HEAD
-=======
 //===----------------------------------------------------------------------===//
 // Floating Point Ops
 //===----------------------------------------------------------------------===//
@@ -4142,5 +4000,4 @@ def CIR_ThrowOp : CIR_Op<"throw"> {
   let hasVerifier = 1;
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #endif // CLANG_CIR_DIALECT_IR_CIROPS_TD

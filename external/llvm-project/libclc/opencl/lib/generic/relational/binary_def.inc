@@ -8,12 +8,6 @@
 
 #include <clc/utils.h>
 
-<<<<<<< HEAD
-#define __IMPL_FUNCTION(x) __CLC_CONCAT(__clc_, x)
-
-_CLC_OVERLOAD _CLC_DEF __CLC_INTN FUNCTION(__CLC_FLOATN a, __CLC_FLOATN b) {
-  return __IMPL_FUNCTION(FUNCTION)(a, b);
-=======
 #define __CLC_IMPL_FUNCTION(x) __CLC_CONCAT(__clc_, x)
 
 #if __CLC_VECSIZE_OR_1 == 1
@@ -25,7 +19,6 @@ _CLC_OVERLOAD _CLC_DEF __CLC_INTN FUNCTION(__CLC_FLOATN a, __CLC_FLOATN b) {
 _CLC_OVERLOAD _CLC_DEF __CLC_RETTYPE __CLC_FUNCTION(__CLC_GENTYPE a,
                                                     __CLC_GENTYPE b) {
   return __CLC_IMPL_FUNCTION(__CLC_FUNCTION)(a, b);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 #undef __CLC_RETTYPE

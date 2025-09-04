@@ -12,10 +12,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/Comment.h"
 #include "clang/AST/DeclFriend.h"
-<<<<<<< HEAD
-=======
 #include "clang/AST/Mangle.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "clang/Index/USRGeneration.h"
 #include "clang/Lex/Lexer.h"
 #include "llvm/ADT/StringExtras.h"

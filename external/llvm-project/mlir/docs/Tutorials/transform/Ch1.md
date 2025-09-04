@@ -26,10 +26,7 @@ func.func @fc_relu(%lhs: tensor<512x512xf32>, %rhs: tensor<512x512xf32>,
   // Elementwise max with 0 (ReLU).
   %c0f = arith.constant 0.0 : f32
   %relued = linalg.elementwise kind=#linalg.elementwise_kind<max_signed>
-<<<<<<< HEAD
-=======
     indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> ()>, affine_map<(d0, d1) -> (d0, d1)>]
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ins(%biased, %c0f : tensor<512x512xf32>, f32)
     outs(%output : tensor<512x512xf32>) -> tensor<512x512xf32>
   func.return %relued : tensor<512x512xf32>
@@ -102,17 +99,6 @@ The `sequence.mlir` file contains _both_ the payload IR function _and_ the trans
 sequence.mlir:5:13: remark: matmul
   %matmul = linalg.matmul ins(%lhs, %rhs: tensor<512x512xf32>, tensor<512x512xf32>)
             ^
-<<<<<<< HEAD
-sequence.mlir:7:13: note: see current operation: %0 = linalg.matmul ins(%arg0, %arg1 : tensor<512x512xf32>, tensor<512x512xf32>) outs(%arg3 : tensor<512x512xf32>) -> tensor<512x512xf32>
-sequence.mlir:10:13: remark: elemwise_binaries
-  %biased = linalg.elementwise kind=#linalg.elementwise_kind<add>
-            ^
-sequence.mlir:10:13: note: see current operation: %1 = linalg.elementwise kind=#linalg.elementwise_kind<add>> ins(%0, %arg2 : tensor<512x512xf32>, tensor<512x512xf32>) outs(%arg3 : tensor<512x512xf32>) -> tensor<512x512xf32>
-sequence.mlir:14:13: remark: elemwise_binaries
-  %relued = linalg.elementwise kind=#linalg.elementwise_kind<max_signed>
-            ^
-sequence.mlir:14:13: note: see current operation: %2 = linalg.elementwise kind=#linalg.elementwise_kind<max_signed>> ins(%1, %cst : tensor<512x512xf32>, f32) outs(%arg3 : tensor<512x512xf32>) -> tensor<512x512xf32>
-=======
 sequence.mlir:5:13: note: see current operation: %0 = linalg.matmul ins(%arg0, %arg1 : tensor<512x512xf32>, tensor<512x512xf32>) outs(%arg3 : tensor<512x512xf32>) -> tensor<512x512xf32>
 sequence.mlir:9:13: remark: elemwise_binaries
   %biased = linalg.elementwise kind=#linalg.elementwise_kind<add>
@@ -122,7 +108,6 @@ sequence.mlir:15:13: remark: elemwise_binaries
   %relued = linalg.elementwise kind=#linalg.elementwise_kind<max_signed>
             ^
 sequence.mlir:15:13: note: see current operation: %2 = linalg.elementwise kind=#linalg.elementwise_kind<max_signed> indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> ()>, affine_map<(d0, d1) -> (d0, d1)>] ins(%1, %cst : tensor<512x512xf32>, f32) outs(%arg3 : tensor<512x512xf32>) -> tensor<512x512xf32>
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 ```
 
 Note that `%arg2` is associated with both elementwise payload operations. Any handle is associated with a list of entities. Individual transformations may or may not care about the order of elements in that list.
@@ -183,19 +168,12 @@ func.func @fc_relu(%arg0: tensor<512x512xf32>,
            : tensor<4x32xf32> into tensor<512x512xf32>
     }
   }
-<<<<<<< HEAD
-  %1 = linalg.elementwise kind=#linalg.elementwise_kind<add>>
-    ins(%0, %arg2 : tensor<512x512xf32>, tensor<512x512xf32>)
-    outs(%arg3 : tensor<512x512xf32>) -> tensor<512x512xf32>
-  %2 = linalg.elementwise kind=#linalg.elementwise_kind<max_signed>>
-=======
   %1 = linalg.elementwise kind=#linalg.elementwise_kind<add>
      ins(%0, %arg2 : tensor<512x512xf32>, tensor<512x512xf32>)
      outs(%arg3 : tensor<512x512xf32>) -> tensor<512x512xf32>
   %cst = arith.constant 0.000000e+00 : f32
   %2 = linalg.elementwise kind=#linalg.elementwise_kind<max_signed>
     indexing_maps = [#map2, #map3, #map2]
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ins(%1, %cst : tensor<512x512xf32>, f32)
     outs(%arg3 : tensor<512x512xf32>) -> tensor<512x512xf32>
   return %2 : tensor<512x512xf32>

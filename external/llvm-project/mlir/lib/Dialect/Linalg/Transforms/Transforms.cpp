@@ -1191,14 +1191,8 @@ LogicalResult DecomposeOuterUnitDimsPackOpPattern::matchAndRewrite(
   }
   srcPermForTranspose.append(innerDimPos.begin(), innerDimPos.end());
 
-<<<<<<< HEAD
-  LLVM_DEBUG(DBGS() << "Pack permutation: " << packOp << "\n"
-                    << "perm: " << llvm::interleaved(srcPermForTranspose)
-                    << "\n");
-=======
   LDBG() << "Pack permutation: " << packOp;
   LDBG() << "perm: " << llvm::interleaved(srcPermForTranspose);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // 2.1 Create tensor.empty (init value for TransposeOp)
   SmallVector<OpFoldResult> transShapeForEmptyOp(srcRank - numTiles,

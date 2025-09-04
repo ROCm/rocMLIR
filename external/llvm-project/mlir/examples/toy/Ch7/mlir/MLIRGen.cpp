@@ -183,13 +183,8 @@ private:
       argTypes.push_back(type);
     }
     auto funcType = builder.getFunctionType(argTypes, /*results=*/{});
-<<<<<<< HEAD
-    return builder.create<mlir::toy::FuncOp>(location, proto.getName(),
-                                             funcType);
-=======
     return mlir::toy::FuncOp::create(builder, location, proto.getName(),
                                      funcType);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   /// Emit a new function and add it to the MLIR module.

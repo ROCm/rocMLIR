@@ -868,14 +868,9 @@ public:
     // 3. Create new vector.transfer_read that reads from the collapsed memref
     VectorType flatVectorType = VectorType::get({vectorType.getNumElements()},
                                                 vectorType.getElementType());
-<<<<<<< HEAD
-    vector::TransferReadOp flatRead = rewriter.create<vector::TransferReadOp>(
-        loc, flatVectorType, collapsedSource, collapsedIndices,
-=======
     LDBG() << "  -> Creating flattened vector type: " << flatVectorType;
     vector::TransferReadOp flatRead = vector::TransferReadOp::create(
         rewriter, loc, flatVectorType, collapsedSource, collapsedIndices,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         transferReadOp.getPadding(), collapsedMap);
     flatRead.setInBoundsAttr(rewriter.getBoolArrayAttr({true}));
     LDBG() << "  -> Created flat transfer_read: " << *flatRead;

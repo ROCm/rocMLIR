@@ -12,14 +12,10 @@
 #undef erfc
 
 #define __CLC_BODY <clc/math/unary_decl.inc>
-#define FUNCTION erfc
+#define __CLC_FUNCTION erfc
 
 #include <clc/math/gentype.inc>
 
-<<<<<<< HEAD
-#undef FUNCTION
-=======
 #undef __CLC_FUNCTION
 
 #endif // __CLC_OPENCL_MATH_ERFC_H__
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

@@ -18,17 +18,10 @@
 
 // SPIRV: %"class.hlsl::RWBuffer" = type { target("spirv.SignedImage", i16, 5, 2, 0, 0, 2, 0) }
 // SPIRV: %"class.hlsl::RWBuffer.0" = type { target("spirv.Image", i16, 5, 2, 0, 0, 2, 0) }
-<<<<<<< HEAD:external/llvm-project/clang/test/CodeGenHLSL/builtins/RWBuffer-elementtype.hlsl
-// SPIRV: %"class.hlsl::RWBuffer.1" = type { target("spirv.SignedImage", i32, 5, 2, 0, 0, 2, 0) }
-// SPIRV: %"class.hlsl::RWBuffer.2" = type { target("spirv.Image", i32, 5, 2, 0, 0, 2, 0) }
-// SPIRV: %"class.hlsl::RWBuffer.3" = type { target("spirv.SignedImage", i64, 5, 2, 0, 0, 2, 0) }
-// SPIRV: %"class.hlsl::RWBuffer.4" = type { target("spirv.Image", i64, 5, 2, 0, 0, 2, 0) }
-=======
 // SPIRV: %"class.hlsl::RWBuffer.1" = type { target("spirv.SignedImage", i32, 5, 2, 0, 0, 2, 24) }
 // SPIRV: %"class.hlsl::RWBuffer.2" = type { target("spirv.Image", i32, 5, 2, 0, 0, 2, 33) }
 // SPIRV: %"class.hlsl::RWBuffer.3" = type { target("spirv.SignedImage", i64, 5, 2, 0, 0, 2, 41) }
 // SPIRV: %"class.hlsl::RWBuffer.4" = type { target("spirv.Image", i64, 5, 2, 0, 0, 2, 40) }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/clang/test/CodeGenHLSL/resources/RWBuffer-elementtype.hlsl
 // SPIRV: %"class.hlsl::RWBuffer.5" = type { target("spirv.Image", half, 5, 2, 0, 0, 2, 0) }
 // SPIRV: %"class.hlsl::RWBuffer.6" = type { target("spirv.Image", float, 5, 2, 0, 0, 2, 3) }
 // SPIRV: %"class.hlsl::RWBuffer.7" = type { target("spirv.Image", double, 5, 2, 0, 0, 2, 0) }
@@ -36,11 +29,7 @@
 // SPIRV: %"class.hlsl::RWBuffer.9" = type { target("spirv.Image", i32, 5, 2, 0, 0, 2, 0) }
 // SPIRV: %"class.hlsl::RWBuffer.10" = type { target("spirv.Image", half, 5, 2, 0, 0, 2, 0) }
 // SPIRV: %"class.hlsl::RWBuffer.11" = type { target("spirv.Image", float, 5, 2, 0, 0, 2, 0) }
-<<<<<<< HEAD:external/llvm-project/clang/test/CodeGenHLSL/builtins/RWBuffer-elementtype.hlsl
-// SPIRV: %"class.hlsl::RWBuffer.12" = type { target("spirv.SignedImage", i32, 5, 2, 0, 0, 2, 0) }
-=======
 // SPIRV: %"class.hlsl::RWBuffer.12" = type { target("spirv.SignedImage", i32, 5, 2, 0, 0, 2, 21) }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a:external/llvm-project/clang/test/CodeGenHLSL/resources/RWBuffer-elementtype.hlsl
 
 RWBuffer<int16_t> BufI16;
 RWBuffer<uint16_t> BufU16;

@@ -142,18 +142,6 @@ def Tosa_ConvOpQuantInfoBuilder : OpBuilder<
                              pad, stride, dilation, acc_type);
   }]>;
 
-// Handles grouped convolution
-def Tosa_ConvOpGroupQuantBuilder : OpBuilder<
-  (ins "::mlir::Type":$outputType, "::mlir::Value":$input,
-       "::mlir::Value":$weight, "::mlir::Value":$bias,
-       "::mlir::DenseI64ArrayAttr":$pad, "::mlir::DenseI64ArrayAttr":$stride,
-       "::mlir::DenseI64ArrayAttr":$dilation, "::mlir::IntegerAttr":$group),
-  [{
-    buildConvOpWithQuantInfo($_builder, $_state, outputType,
-                             input, weight, bias,
-                             pad, stride, dilation, group);
-  }]>;
-
 // Handles tosa.transpose_conv2d which has an outpad and output shape attribute.
 def Tosa_TransConvOpQuantInfoBuilder : OpBuilder<
   (ins "::mlir::Type":$outputType, "::mlir::Value":$input,

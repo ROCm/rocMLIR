@@ -354,11 +354,8 @@ serveConnection(const Socket::SocketProtocol &protocol, const std::string &name,
         llvm::WithColor::error() << "DAP client disconnected failed: "
                                  << llvm::toString(std::move(error)) << "\n";
       }
-<<<<<<< HEAD
-=======
       loop->AddPendingCallback(
           [](MainLoopBase &loop) { loop.RequestTermination(); });
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
   }
 

@@ -272,9 +272,6 @@ public:
   /// Whether variables of this descriptor need their destructor called or not.
   bool hasTrivialDtor() const;
 
-  /// Whether variables of this descriptor need their destructor called or not.
-  bool hasTrivialDtor() const;
-
   void dump() const;
   void dump(llvm::raw_ostream &OS) const;
   void dumpFull(unsigned Offset = 0, unsigned Indent = 0) const;

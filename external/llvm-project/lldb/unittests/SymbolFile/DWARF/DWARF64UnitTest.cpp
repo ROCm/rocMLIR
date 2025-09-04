@@ -11,13 +11,8 @@
 #include "TestingSupport/Symbol/YAMLModuleTester.h"
 
 using namespace lldb_private;
-<<<<<<< HEAD
-using namespace lldb_private::dwarf;
-using namespace lldb_private::plugin::dwarf;
-=======
 using namespace lldb_private::plugin::dwarf;
 using namespace llvm::dwarf;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 TEST(DWARF64UnitTest, DWARF64DebugInfoAndCU) {
   const char *yamldata = R"(
@@ -89,8 +84,6 @@ DWARF:
   ASSERT_TRUE(declaration.IsValid());
   ASSERT_EQ(declaration.Tag(), DW_TAG_subprogram);
 }
-<<<<<<< HEAD
-=======
 
 TEST(DWARF64UnitTest, DWARF5StrTable) {
   const char *yamldata = R"(
@@ -188,4 +181,3 @@ DWARF:
   ASSERT_EQ(func_main.Tag(), DW_TAG_subprogram);
   ASSERT_EQ(ConstString(func_main.GetName()), "main");
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

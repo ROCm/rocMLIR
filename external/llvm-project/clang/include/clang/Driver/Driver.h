@@ -379,13 +379,6 @@ private:
 
   /// Number of parallel jobs.
   unsigned NumParallelJobs;
-<<<<<<< HEAD
-
-  /// The associated offloading architectures with each toolchain.
-  llvm::DenseMap<const ToolChain *, llvm::SmallVector<llvm::StringRef>>
-      OffloadArchs;
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 private:
   /// TranslateInputArgs - Create a new derived argument list from the input
@@ -566,12 +559,7 @@ public:
   /// empty string.
   llvm::SmallVector<StringRef>
   getOffloadArchs(Compilation &C, const llvm::opt::DerivedArgList &Args,
-<<<<<<< HEAD
-                  Action::OffloadKind Kind, const ToolChain *TC,
-                  bool SpecificToolchain = true) const;
-=======
                   Action::OffloadKind Kind, const ToolChain &TC) const;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   /// Check that the file referenced by Value exists. If it doesn't,
   /// issue a diagnostic and return false.

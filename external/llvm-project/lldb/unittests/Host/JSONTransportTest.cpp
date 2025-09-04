@@ -34,9 +34,6 @@ using testing::HasSubstr;
 using testing::InSequence;
 
 namespace {
-<<<<<<< HEAD
-template <typename T> class JSONTransportTest : public PipePairTest {
-=======
 
 namespace test_protocol {
 
@@ -143,7 +140,6 @@ bool fromJSON(const json::Value &V, Message &msg, json::Path P) {
 template <typename T, typename Req, typename Resp, typename Evt>
 class JSONTransportTest : public PipePairTest {
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 protected:
   MockMessageHandler<Req, Resp, Evt> message_handler;
   std::unique_ptr<T> transport;

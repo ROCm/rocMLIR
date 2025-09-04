@@ -84,11 +84,7 @@ set(LLVM_TARGET_DEFINITIONS VCIXOps.td)
 mlir_tablegen(VCIXConversions.inc -gen-llvmir-conversions)
 mlir_tablegen(VCIXOpsAttributes.h.inc -gen-attrdef-decls -attrdefs-dialect=vcix)
 mlir_tablegen(VCIXOpsAttributes.cpp.inc -gen-attrdef-defs -attrdefs-dialect=vcix)
-<<<<<<< HEAD
-add_public_tablegen_target(MLIRVCIXConversionsIncGen)
-=======
 add_mlir_dialect_tablegen_target(MLIRVCIXConversionsIncGen)
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 add_mlir_dialect(XeVMOps xevm)
 add_mlir_doc(XeVMOps XeVMDialect Dialects/ -gen-dialect-doc -dialect=xevm)
@@ -98,8 +94,4 @@ mlir_tablegen(XeVMOpsEnums.h.inc -gen-enum-decls)
 mlir_tablegen(XeVMOpsEnums.cpp.inc -gen-enum-defs)
 mlir_tablegen(XeVMOpsAttributes.h.inc -gen-attrdef-decls -attrdefs-dialect=xevm)
 mlir_tablegen(XeVMOpsAttributes.cpp.inc -gen-attrdef-defs -attrdefs-dialect=xevm)
-<<<<<<< HEAD
-add_public_tablegen_target(MLIRXeVMConversionsIncGen)
-=======
 add_mlir_dialect_tablegen_target(MLIRXeVMConversionsIncGen)
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

@@ -643,13 +643,10 @@ static bool FixupInvocation(CompilerInvocation &Invocation,
     Diags.Report(diag::err_drv_argument_not_allowed_with)
         << "-fdx-rootsignature-version" << GetInputKindName(IK);
 
-<<<<<<< HEAD
-=======
   if (Args.hasArg(OPT_fdx_rootsignature_define) && !LangOpts.HLSL)
     Diags.Report(diag::err_drv_argument_not_allowed_with)
         << "-fdx-rootsignature-define" << GetInputKindName(IK);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   if (Args.hasArg(OPT_fgpu_allow_device_init) && !LangOpts.HIP)
     Diags.Report(diag::warn_ignored_hip_only_option)
         << Args.getLastArg(OPT_fgpu_allow_device_init)->getAsString(Args);
@@ -3736,23 +3733,6 @@ static StringRef GetInputKindName(InputKind IK) {
   llvm_unreachable("unknown input language");
 }
 
-static StringRef getExceptionHandlingName(unsigned EHK) {
-  switch (static_cast<LangOptions::ExceptionHandlingKind>(EHK)) {
-  case LangOptions::ExceptionHandlingKind::None:
-    return "none";
-  case LangOptions::ExceptionHandlingKind::DwarfCFI:
-    return "dwarf";
-  case LangOptions::ExceptionHandlingKind::SjLj:
-    return "sjlj";
-  case LangOptions::ExceptionHandlingKind::WinEH:
-    return "seh";
-  case LangOptions::ExceptionHandlingKind::Wasm:
-    return "wasm";
-  }
-
-  llvm_unreachable("covered switch");
-}
-
 void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
                                               ArgumentConsumer Consumer,
                                               const llvm::Triple &T,
@@ -3768,10 +3748,6 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
       GenerateArg(Consumer, OPT_pic_is_pie);
     for (StringRef Sanitizer : serializeSanitizerKinds(Opts.Sanitize))
       GenerateArg(Consumer, OPT_fsanitize_EQ, Sanitizer);
-    if (Opts.ExceptionHandling) {
-      GenerateArg(Consumer, OPT_exception_model,
-                  getExceptionHandlingName(Opts.ExceptionHandling));
-    }
 
     return;
   }
@@ -4106,24 +4082,6 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
     Opts.PIE = Args.hasArg(OPT_pic_is_pie);
     parseSanitizerKinds("-fsanitize=", Args.getAllArgValues(OPT_fsanitize_EQ),
                         Diags, Opts.Sanitize);
-
-    if (const Arg *A = Args.getLastArg(options::OPT_exception_model)) {
-      std::optional<LangOptions::ExceptionHandlingKind> EMValue =
-          llvm::StringSwitch<std::optional<LangOptions::ExceptionHandlingKind>>(
-              A->getValue())
-              .Case("dwarf", LangOptions::ExceptionHandlingKind::DwarfCFI)
-              .Case("sjlj", LangOptions::ExceptionHandlingKind::SjLj)
-              .Case("seh", LangOptions::ExceptionHandlingKind::WinEH)
-              .Case("wasm", LangOptions::ExceptionHandlingKind::Wasm)
-              .Case("none", LangOptions::ExceptionHandlingKind::None)
-              .Default(std::nullopt);
-      if (EMValue) {
-        Opts.ExceptionHandling = static_cast<unsigned>(*EMValue);
-      } else {
-        Diags.Report(diag::err_drv_invalid_value)
-            << A->getAsString(Args) << A->getValue();
-      }
-    }
 
     return Diags.getNumErrors() == NumErrorsBefore;
   }

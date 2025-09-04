@@ -1585,13 +1585,8 @@ bool Sema::BuiltinIsBaseOf(SourceLocation RhsTLoc, QualType LhsT,
   // Base and Derived are not unions and name the same class type without
   // regard to cv-qualifiers.
 
-<<<<<<< HEAD
-  const RecordType *lhsRecord = LhsT->getAs<RecordType>();
-  const RecordType *rhsRecord = RhsT->getAs<RecordType>();
-=======
   const RecordType *lhsRecord = LhsT->getAsCanonical<RecordType>();
   const RecordType *rhsRecord = RhsT->getAsCanonical<RecordType>();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   if (!rhsRecord || !lhsRecord) {
     const ObjCObjectType *LHSObjTy = LhsT->getAs<ObjCObjectType>();
     const ObjCObjectType *RHSObjTy = RhsT->getAs<ObjCObjectType>();
@@ -1615,15 +1610,9 @@ bool Sema::BuiltinIsBaseOf(SourceLocation RhsTLoc, QualType LhsT,
 
   // Unions are never base classes, and never have base classes.
   // It doesn't matter if they are complete or not. See PR#41843
-<<<<<<< HEAD
-  if (lhsRecord && lhsRecord->getDecl()->isUnion())
-    return false;
-  if (rhsRecord && rhsRecord->getDecl()->isUnion())
-=======
   if (lhsRecord && lhsRecord->getOriginalDecl()->isUnion())
     return false;
   if (rhsRecord && rhsRecord->getOriginalDecl()->isUnion())
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return false;
 
   if (lhsRecord == rhsRecord)
@@ -1637,13 +1626,8 @@ bool Sema::BuiltinIsBaseOf(SourceLocation RhsTLoc, QualType LhsT,
                           diag::err_incomplete_type_used_in_type_trait_expr))
     return false;
 
-<<<<<<< HEAD
-  return cast<CXXRecordDecl>(rhsRecord->getDecl())
-      ->isDerivedFrom(cast<CXXRecordDecl>(lhsRecord->getDecl()));
-=======
   return cast<CXXRecordDecl>(rhsRecord->getOriginalDecl())
       ->isDerivedFrom(cast<CXXRecordDecl>(lhsRecord->getOriginalDecl()));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 static bool EvaluateBinaryTypeTrait(Sema &Self, TypeTrait BTT,
@@ -2027,12 +2011,9 @@ static std::optional<TypeTrait> StdNameToTypeTrait(StringRef Name) {
       .Case("is_assignable", TypeTrait::BTT_IsAssignable)
       .Case("is_empty", TypeTrait::UTT_IsEmpty)
       .Case("is_standard_layout", TypeTrait::UTT_IsStandardLayout)
-<<<<<<< HEAD
-=======
       .Case("is_aggregate", TypeTrait::UTT_IsAggregate)
       .Case("is_constructible", TypeTrait::TT_IsConstructible)
       .Case("is_final", TypeTrait::UTT_IsFinal)
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       .Default(std::nullopt);
 }
 
@@ -2517,8 +2498,6 @@ static void DiagnoseIsEmptyReason(Sema &S, SourceLocation Loc, QualType T) {
   }
 }
 
-<<<<<<< HEAD
-=======
 static void DiagnoseIsFinalReason(Sema &S, SourceLocation Loc,
                                   const CXXRecordDecl *D) {
   if (!D || D->isInvalidDecl())
@@ -2565,7 +2544,6 @@ static void DiagnoseIsFinalReason(Sema &S, SourceLocation Loc, QualType T) {
     DiagnoseIsFinalReason(S, Loc, D);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 static bool hasMultipleDataBaseClassesWithFields(const CXXRecordDecl *D) {
   int NumBasesWithFields = 0;
   for (const CXXBaseSpecifier &Base : D->bases()) {
@@ -2710,8 +2688,6 @@ static void DiagnoseNonStandardLayoutReason(Sema &SemaRef, SourceLocation Loc,
   SemaRef.Diag(D->getLocation(), diag::note_defined_here) << D;
 }
 
-<<<<<<< HEAD
-=======
 static void DiagnoseNonAggregateReason(Sema &SemaRef, SourceLocation Loc,
                                        const CXXRecordDecl *D) {
   for (const CXXConstructorDecl *Ctor : D->ctors()) {
@@ -2798,7 +2774,6 @@ static void DiagnoseNonAggregateReason(Sema &SemaRef, SourceLocation Loc,
     DiagnoseNonAggregateReason(SemaRef, Loc, D);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void Sema::DiagnoseTypeTraitDetails(const Expr *E) {
   E = E->IgnoreParenImpCasts();
   if (E->containsErrors())
@@ -2828,8 +2803,6 @@ void Sema::DiagnoseTypeTraitDetails(const Expr *E) {
   case UTT_IsStandardLayout:
     DiagnoseNonStandardLayoutReason(*this, E->getBeginLoc(), Args[0]);
     break;
-<<<<<<< HEAD
-=======
   case TT_IsConstructible:
     DiagnoseNonConstructibleReason(*this, E->getBeginLoc(), Args);
     break;
@@ -2845,7 +2818,6 @@ void Sema::DiagnoseTypeTraitDetails(const Expr *E) {
       DiagnoseIsFinalReason(*this, E->getBeginLoc(), QT); // unsatisfied
     break;
   }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   default:
     break;
   }

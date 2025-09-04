@@ -6,18 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-<<<<<<< HEAD
-=======
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-<<<<<<< HEAD
-=======
 #include "mlir/Dialect/UB/IR/UBOps.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/IR/Dominance.h"
 #include "llvm/ADT/SetOperations.h"

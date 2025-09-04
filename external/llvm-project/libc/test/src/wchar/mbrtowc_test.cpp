@@ -168,11 +168,7 @@ TEST_F(LlvmLibcMBRToWCTest, TwoValidTwoBytes) {
   ASSERT_EQ(static_cast<int>(n), 2);
   ASSERT_EQ(static_cast<int>(*dest), 142);
   ASSERT_ERRNO_SUCCESS();
-<<<<<<< HEAD
-  n = LIBC_NAMESPACE::mbrtowc(dest + 1, ch + 2, 2, mb);
-=======
   n = LIBC_NAMESPACE::mbrtowc(dest + 1, ch + 2, 2, &mb);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   ASSERT_EQ(static_cast<int>(n), 2);
   ASSERT_EQ(static_cast<int>(*(dest + 1)), 460);
   ASSERT_ERRNO_SUCCESS();
@@ -194,8 +190,6 @@ TEST_F(LlvmLibcMBRToWCTest, NullString) {
   ASSERT_ERRNO_SUCCESS();
 }
 
-<<<<<<< HEAD
-=======
 TEST_F(LlvmLibcMBRToWCTest, NullDest) {
   const char ch[4] = {static_cast<char>(0xF0), static_cast<char>(0x9F),
                       static_cast<char>(0xA4),
@@ -208,7 +202,6 @@ TEST_F(LlvmLibcMBRToWCTest, NullDest) {
   ASSERT_ERRNO_SUCCESS();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 TEST_F(LlvmLibcMBRToWCTest, InvalidMBState) {
   const char ch[4] = {static_cast<char>(0xC2), static_cast<char>(0x8E),
                       static_cast<char>(0xC7), static_cast<char>(0x8C)};

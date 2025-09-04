@@ -10,14 +10,6 @@
 #define __CLC_OPENCL_MATH_HALF_EXP2_H__
 
 #define __CLC_BODY <clc/math/unary_decl.inc>
-<<<<<<< HEAD
-#define FUNCTION half_exp2
-#define __FLOAT_ONLY
-
-#include <clc/math/gentype.inc>
-
-#undef FUNCTION
-=======
 #define __CLC_FUNCTION half_exp2
 #define __CLC_FLOAT_ONLY
 
@@ -26,4 +18,3 @@
 #undef __CLC_FUNCTION
 
 #endif // __CLC_OPENCL_MATH_HALF_EXP2_H__
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

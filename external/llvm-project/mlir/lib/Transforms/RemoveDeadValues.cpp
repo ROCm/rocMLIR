@@ -36,10 +36,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Dialect.h"
-<<<<<<< HEAD
-=======
 #include "mlir/IR/Operation.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"

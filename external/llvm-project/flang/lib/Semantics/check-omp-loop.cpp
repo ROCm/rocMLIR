@@ -13,26 +13,16 @@
 #include "check-omp-structure.h"
 
 #include "check-directive-structure.h"
-<<<<<<< HEAD
-#include "openmp-utils.h"
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #include "flang/Common/idioms.h"
 #include "flang/Common/visit.h"
 #include "flang/Parser/char-block.h"
-<<<<<<< HEAD
-=======
 #include "flang/Parser/openmp-utils.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "flang/Parser/parse-tree-visitor.h"
 #include "flang/Parser/parse-tree.h"
 #include "flang/Parser/tools.h"
 #include "flang/Semantics/openmp-modifiers.h"
-<<<<<<< HEAD
-=======
 #include "flang/Semantics/openmp-utils.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "flang/Semantics/semantics.h"
 #include "flang/Semantics/symbol.h"
 #include "flang/Semantics/tools.h"
@@ -206,22 +196,10 @@ void OmpStructureChecker::CheckSIMDNest(const parser::OpenMPConstruct &c) {
   common::visit(
       common::visitors{
           // Allow `!$OMP ORDERED SIMD`
-<<<<<<< HEAD
-          [&](const parser::OpenMPBlockConstruct &c) {
-            const auto &beginBlockDir{
-                std::get<parser::OmpBeginBlockDirective>(c.t)};
-            const auto &beginDir{
-                std::get<parser::OmpBlockDirective>(beginBlockDir.t)};
-            if (beginDir.v == llvm::omp::Directive::OMPD_ordered) {
-              const auto &clauses{
-                  std::get<parser::OmpClauseList>(beginBlockDir.t)};
-              for (const auto &clause : clauses.v) {
-=======
           [&](const parser::OmpBlockConstruct &c) {
             const parser::OmpDirectiveSpecification &beginSpec{c.BeginDir()};
             if (beginSpec.DirId() == llvm::omp::Directive::OMPD_ordered) {
               for (const auto &clause : beginSpec.Clauses().v) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                 if (std::get_if<parser::OmpClause::Simd>(&clause.u)) {
                   eligibleSIMD = true;
                   break;
@@ -265,11 +243,7 @@ void OmpStructureChecker::CheckSIMDNest(const parser::OpenMPConstruct &c) {
       },
       c.u);
   if (!eligibleSIMD) {
-<<<<<<< HEAD
-    context_.Say(parser::FindSourceLocation(c),
-=======
     context_.Say(parser::omp::GetOmpDirectiveName(c).source,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         "The only OpenMP constructs that can be encountered during execution "
         "of a 'SIMD' region are the `ATOMIC` construct, the `LOOP` construct, "
         "the `SIMD` construct, the `SCAN` construct and the `ORDERED` "

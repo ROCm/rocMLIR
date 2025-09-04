@@ -154,13 +154,8 @@ void ParamPassing4(_BitInt(129) a) {}
 // PPC32-NOT: define{{.*}} void @ParamPassing4(ptr byval(i129) align 8 %{{.+}})
 // AARCH64DARWIN-NOT: define{{.*}} void @ParamPassing4(ptr byval(i129) align 8 %{{.+}})
 // ARM-NOT: define{{.*}} arm_aapcscc void @ParamPassing4(ptr byval(i129) align 8 %{{.+}})
-<<<<<<< HEAD
-// LA64: define{{.*}} void @ParamPassing4(ptr %{{.+}})
-// LA32: define{{.*}} void @ParamPassing4(ptr %{{.+}})
-=======
 // LA64: define{{.*}} void @ParamPassing4(ptr dead_on_return %{{.+}})
 // LA32: define{{.*}} void @ParamPassing4(ptr dead_on_return %{{.+}})
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #endif
 
 _BitInt(63) ReturnPassing(void) { return 0; }

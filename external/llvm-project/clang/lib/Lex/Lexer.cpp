@@ -3223,7 +3223,6 @@ std::optional<Token> Lexer::peekNextPPToken() {
   bool atStartOfLine = IsAtStartOfLine;
   bool atPhysicalStartOfLine = IsAtPhysicalStartOfLine;
   bool leadingSpace = HasLeadingSpace;
-  bool isFirstPPToken = IsFirstPPToken;
 
   Token Tok;
   Lex(Tok);
@@ -3234,10 +3233,6 @@ std::optional<Token> Lexer::peekNextPPToken() {
   HasLeadingSpace = leadingSpace;
   IsAtStartOfLine = atStartOfLine;
   IsAtPhysicalStartOfLine = atPhysicalStartOfLine;
-<<<<<<< HEAD
-  IsFirstPPToken = isFirstPPToken;
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // Restore the lexer back to non-skipping mode.
   LexingRawMode = false;
 

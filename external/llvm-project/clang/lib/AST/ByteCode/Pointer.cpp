@@ -201,14 +201,7 @@ APValue Pointer::toAPValue(const ASTContext &ASTCtx) const {
   else if (const auto *E = Desc->asExpr()) {
     if (block()->isDynamic()) {
       QualType AllocatedType = getDeclPtr().getFieldDesc()->getDataType(ASTCtx);
-<<<<<<< HEAD
-      // FIXME: Suboptimal counting of dynamic allocations. Move this to Context
-      // or InterpState?
-      static int ReportedDynamicAllocs = 0;
-      DynamicAllocLValue DA(ReportedDynamicAllocs++);
-=======
       DynamicAllocLValue DA(*block()->DynAllocId);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       Base = APValue::LValueBase::getDynamicAlloc(DA, AllocatedType);
     } else {
       Base = E;
@@ -576,50 +569,6 @@ void Pointer::activate() const {
   std::function<void(Pointer &)> activate;
   activate = [&activate](Pointer &P) -> void {
     P.getInlineDesc()->IsActive = true;
-<<<<<<< HEAD
-  };
-
-  std::function<void(Pointer &)> deactivate;
-  deactivate = [&deactivate](Pointer &P) -> void {
-    P.getInlineDesc()->IsActive = false;
-
-    if (const Record *R = P.getRecord()) {
-      for (const Record::Field &F : R->fields()) {
-        Pointer FieldPtr = P.atField(F.Offset);
-        if (FieldPtr.getInlineDesc()->IsActive)
-          deactivate(FieldPtr);
-      }
-      // FIXME: Bases?
-    }
-  };
-
-  // Unions might be nested etc., so find the topmost Pointer that's
-  // not in a union anymore.
-  Pointer UnionPtr = getBase();
-  while (!UnionPtr.isRoot() && UnionPtr.inUnion())
-    UnionPtr = UnionPtr.getBase();
-
-  assert(UnionPtr.getFieldDesc()->isUnion());
-  const Record *UnionRecord = UnionPtr.getRecord();
-
-  // The direct child pointer of the union that's on the path from
-  // this pointer to the union.
-  Pointer ChildPtr = *this;
-  assert(ChildPtr != UnionPtr);
-  while (true) {
-    if (ChildPtr.getBase() == UnionPtr)
-      break;
-    ChildPtr = ChildPtr.getBase();
-  }
-  assert(ChildPtr.getBase() == UnionPtr);
-
-  for (const Record::Field &F : UnionRecord->fields()) {
-    Pointer FieldPtr = UnionPtr.atField(F.Offset);
-    if (FieldPtr == ChildPtr) {
-      // No need to deactivate, will be activated in the next loop.
-    } else {
-      deactivate(FieldPtr);
-=======
     if (const Record *R = P.getRecord(); R && !R->isUnion()) {
       for (const Record::Field &F : R->fields()) {
         Pointer FieldPtr = P.atField(F.Offset);
@@ -627,7 +576,6 @@ void Pointer::activate() const {
           activate(FieldPtr);
       }
       // FIXME: Bases?
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
   };
 
@@ -648,13 +596,10 @@ void Pointer::activate() const {
   Pointer B = *this;
   while (!B.isRoot() && B.inUnion()) {
     activate(B);
-<<<<<<< HEAD
-=======
 
     // When walking up the pointer chain, deactivate
     // all union child pointers that aren't on our path.
     Pointer Cur = B;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     B = B.getBase();
     if (const Record *BR = B.getRecord(); BR && BR->isUnion()) {
       for (const Record::Field &F : BR->fields()) {

@@ -23,11 +23,9 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
-<<<<<<< HEAD
-=======
 #include "llvm/Support/Path.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/ToolOutputFile.h"
 
 using namespace mlir;
 

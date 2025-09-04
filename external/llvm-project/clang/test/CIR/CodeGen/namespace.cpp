@@ -93,8 +93,6 @@ void f7() {
 }
 
 // CHECK: cir.func{{.*}} @_Z2f7v()
-<<<<<<< HEAD
-=======
 
 namespace test_alias = test;
 
@@ -103,4 +101,3 @@ int f8() {
 }
 
 // CHECK: cir.func{{.*}} @_Z2f8v()
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

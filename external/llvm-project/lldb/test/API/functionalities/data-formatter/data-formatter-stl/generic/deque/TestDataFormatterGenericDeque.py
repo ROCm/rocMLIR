@@ -53,12 +53,7 @@ class GenericDequeDataFormatterTestCase(TestBase):
             ],
         )
 
-<<<<<<< HEAD
-    def do_test(self, stdlib_type):
-        self.build(dictionary={stdlib_type: "1"})
-=======
     def do_test(self):
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         (_, process, _, bkpt) = lldbutil.run_to_source_breakpoint(
             self, "break here", lldb.SBFileSpec("main.cpp")
         )
@@ -141,13 +136,6 @@ class GenericDequeDataFormatterTestCase(TestBase):
 
     @add_test_categories(["libc++"])
     def test_libcpp(self):
-<<<<<<< HEAD
-        self.do_test(USE_LIBCPP)
-
-    def do_test_ref_and_ptr(self, stdlib_type: str):
-        """Test formatting of std::deque& and std::deque*"""
-        self.build(dictionary={stdlib_type: "1"})
-=======
         self.build(dictionary={"USE_LIBCPP": 1})
         self.do_test()
 
@@ -159,7 +147,6 @@ class GenericDequeDataFormatterTestCase(TestBase):
 
     def do_test_ref_and_ptr(self):
         """Test formatting of std::deque& and std::deque*"""
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         (self.target, process, thread, bkpt) = lldbutil.run_to_source_breakpoint(
             self, "stop here", lldb.SBFileSpec("main.cpp", False)
         )
@@ -173,13 +160,6 @@ class GenericDequeDataFormatterTestCase(TestBase):
 
     @add_test_categories(["libstdcxx"])
     def test_libstdcpp_ref_and_ptr(self):
-<<<<<<< HEAD
-        self.do_test_ref_and_ptr(USE_LIBSTDCPP)
-
-    @add_test_categories(["libc++"])
-    def test_libcpp_ref_and_ptr(self):
-        self.do_test_ref_and_ptr(USE_LIBCPP)
-=======
         self.build(dictionary={"USE_LIBSTDCPP": 1})
         self.do_test_ref_and_ptr()
 
@@ -192,4 +172,3 @@ class GenericDequeDataFormatterTestCase(TestBase):
     def test_msvcstl_ref_and_ptr(self):
         self.build()
         self.do_test_ref_and_ptr()
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

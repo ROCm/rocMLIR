@@ -668,11 +668,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI set& operator=(const set& __s) = default;
 
 #  ifndef _LIBCPP_CXX03_LANG
-<<<<<<< HEAD
-  _LIBCPP_HIDE_FROM_ABI set(set&& __s) noexcept(is_nothrow_move_constructible<__base>::value) = default;
-=======
   _LIBCPP_HIDE_FROM_ABI set(set&& __s) = default;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI explicit set(const allocator_type& __a) : __tree_(__a) {}
@@ -1124,11 +1120,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI multiset& operator=(const multiset& __s) = default;
 
 #  ifndef _LIBCPP_CXX03_LANG
-<<<<<<< HEAD
-  _LIBCPP_HIDE_FROM_ABI multiset(multiset&& __s) noexcept(is_nothrow_move_constructible<__base>::value) = default;
-=======
   _LIBCPP_HIDE_FROM_ABI multiset(multiset&& __s) = default;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   _LIBCPP_HIDE_FROM_ABI multiset(multiset&& __s, const allocator_type& __a);
 #  endif // _LIBCPP_CXX03_LANG

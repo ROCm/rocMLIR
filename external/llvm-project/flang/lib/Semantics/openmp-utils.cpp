@@ -10,11 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-<<<<<<< HEAD
-#include "openmp-utils.h"
-=======
 #include "flang/Semantics/openmp-utils.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #include "flang/Common/indirection.h"
 #include "flang/Common/reference.h"
@@ -42,8 +38,6 @@
 
 namespace Fortran::semantics::omp {
 
-<<<<<<< HEAD
-=======
 SourcedActionStmt GetActionStmt(const parser::ExecutionPartConstruct *x) {
   if (x == nullptr) {
     return SourcedActionStmt{};
@@ -64,7 +58,6 @@ SourcedActionStmt GetActionStmt(const parser::Block &block) {
   return SourcedActionStmt{};
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 std::string ThisVersion(unsigned version) {
   std::string tv{
       std::to_string(version / 10) + "." + std::to_string(version % 10)};
@@ -150,8 +143,6 @@ bool IsVarOrFunctionRef(const MaybeExpr &expr) {
   }
 }
 
-<<<<<<< HEAD
-=======
 bool IsMapEnteringType(parser::OmpMapType::Value type) {
   switch (type) {
   case parser::OmpMapType::Value::Alloc:
@@ -177,7 +168,6 @@ bool IsMapExitingType(parser::OmpMapType::Value type) {
   }
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 std::optional<SomeExpr> GetEvaluateExpr(const parser::Expr &parserExpr) {
   const parser::TypedExpr &typedExpr{parserExpr.typedExpr};
   // ForwardOwningPointer           typedExpr
@@ -280,31 +270,6 @@ struct DesignatorCollector : public evaluate::Traverse<DesignatorCollector,
   }
 };
 
-<<<<<<< HEAD
-struct VariableFinder : public evaluate::AnyTraverse<VariableFinder> {
-  using Base = evaluate::AnyTraverse<VariableFinder>;
-  VariableFinder(const SomeExpr &v) : Base(*this), var(v) {}
-
-  using Base::operator();
-
-  template <typename T>
-  bool operator()(const evaluate::Designator<T> &x) const {
-    auto copy{x};
-    return evaluate::AsGenericExpr(std::move(copy)) == var;
-  }
-
-  template <typename T>
-  bool operator()(const evaluate::FunctionRef<T> &x) const {
-    auto copy{x};
-    return evaluate::AsGenericExpr(std::move(copy)) == var;
-  }
-
-private:
-  const SomeExpr &var;
-};
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 std::vector<SomeExpr> GetAllDesignators(const SomeExpr &expr) {
   return DesignatorCollector{}(expr);
 }
@@ -393,13 +358,6 @@ const SomeExpr *HasStorageOverlap(
   return nullptr;
 }
 
-<<<<<<< HEAD
-bool IsSubexpressionOf(const SomeExpr &sub, const SomeExpr &super) {
-  return VariableFinder{sub}(super);
-}
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // Check if the ActionStmt is actually a [Pointer]AssignmentStmt. This is
 // to separate cases where the source has something that looks like an
 // assignment, but is semantically wrong (diagnosed by general semantic

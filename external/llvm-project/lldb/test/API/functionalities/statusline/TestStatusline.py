@@ -120,8 +120,6 @@ class TestStatusline(PExpectTest):
         # Check for the escape code to resize the scroll window.
         self.child.expect(re.escape("\x1b[1;19r"))
         self.child.expect("(lldb)")
-<<<<<<< HEAD
-=======
 
     @skipIfRemote
     @skipIfWindows
@@ -202,4 +200,3 @@ class TestStatusline(PExpectTest):
         self.expect(
             f"gdb-remote {connect_address}", [b"a.out \xe2\x94\x82 signal SIGSTOP"]
         )
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

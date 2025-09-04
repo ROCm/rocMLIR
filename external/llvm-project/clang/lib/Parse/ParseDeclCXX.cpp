@@ -4952,37 +4952,12 @@ void Parser::ParseHLSLRootSignatureAttributeArgs(ParsedAttributes &Attrs) {
   }
 
   // Construct our identifier
-<<<<<<< HEAD
-  StringRef Signature = StrLiteral.value()->getString();
-  auto [DeclIdent, Found] =
-      Actions.HLSL().ActOnStartRootSignatureDecl(Signature);
-  // If we haven't found an already defined DeclIdent then parse the root
-  // signature string and construct the in-memory elements
-  if (!Found) {
-    // Offset location 1 to account for '"'
-    SourceLocation SignatureLoc =
-        StrLiteral.value()->getExprLoc().getLocWithOffset(1);
-    // Invoke the root signature parser to construct the in-memory constructs
-    hlsl::RootSignatureLexer Lexer(Signature, SignatureLoc);
-    SmallVector<llvm::hlsl::rootsig::RootElement> RootElements;
-    hlsl::RootSignatureParser Parser(getLangOpts().HLSLRootSigVer, RootElements,
-                                     Lexer, PP);
-    if (Parser.parse()) {
-      T.consumeClose();
-      return;
-    }
-
-    // Construct the declaration.
-    Actions.HLSL().ActOnFinishRootSignatureDecl(RootSignatureLoc, DeclIdent,
-                                                RootElements);
-=======
   IdentifierInfo *DeclIdent = hlsl::ParseHLSLRootSignature(
       Actions, getLangOpts().HLSLRootSigVer, *Signature);
   if (!DeclIdent) {
     SkipUntil(tok::r_paren, StopAtSemi | StopBeforeMatch);
     T.consumeClose();
     return;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   // Create the arg for the ParsedAttr

@@ -477,16 +477,3 @@ bufferization::bufferizeBlockSignature(Block *block, RewriterBase &rewriter,
 
   return success();
 }
-
-BufferizationOptions bufferization::getPartialBufferizationOptions() {
-  BufferizationOptions options;
-  options.allowUnknownOps = true;
-  options.copyBeforeWrite = true;
-  options.unknownTypeConverterFn = [](TensorType tensorType,
-                                      Attribute memorySpace,
-                                      const BufferizationOptions &options) {
-    return getMemRefTypeWithStaticIdentityLayout(tensorType, memorySpace);
-  };
-  options.opFilter.allowDialect<BufferizationDialect>();
-  return options;
-}

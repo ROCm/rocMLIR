@@ -1256,13 +1256,8 @@ static Operation *vectorizeAffineLoad(AffineLoadOp loadOp,
   LLVM_DEBUG(dbgs() << "\n[early-vect]+++++ permutationMap: ");
   LLVM_DEBUG(permutationMap.print(dbgs()));
 
-<<<<<<< HEAD
-  auto transfer = state.builder.create<vector::TransferReadOp>(
-      loadOp.getLoc(), vectorType, loadOp.getMemRef(), indices,
-=======
   auto transfer = vector::TransferReadOp::create(
       state.builder, loadOp.getLoc(), vectorType, loadOp.getMemRef(), indices,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       /*padding=*/std::nullopt, permutationMap);
 
   // Register replacement for future uses in the scope.

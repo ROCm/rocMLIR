@@ -240,11 +240,7 @@ func.func @test_usmmla() {
 
 // Test the operation where LHS is interpreted as signed and RHS is interpreted
 // as unsigned. In this test we ultimately emit end execute the `usmmla`
-<<<<<<< HEAD
-// instruction with reversed operands, see `LowerContractionToNeonI8MMPattern.cpp`
-=======
 // instruction with reversed operands, see `LowerContractoNeonPatterns.cpp`
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // for more details.
 
 // CHECK-IR-LABEL: llvm.func @test_summla

@@ -888,11 +888,7 @@ func.func @multi_slice_fusion1(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?xf32>, %
     scf.forall.in_parallel {
       tensor.parallel_insert_slice %generic#0 into %init0[%iv0] [%tilesize] [1] : tensor<?xf32> into tensor<?xf32>
       tensor.parallel_insert_slice %generic#1 into %init1[%iv0] [%tilesize] [1] : tensor<?xf32> into tensor<?xf32>
-<<<<<<< HEAD
-    }	
-=======
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
   %empty = tensor.empty(%dim0) : tensor<?xf32>
   %result = linalg.generic {
@@ -966,11 +962,7 @@ func.func @multi_slice_fusion2(%arg0 : tensor<?x?xf32>, %arg1 : tensor<?xf32>, %
     scf.forall.in_parallel {
       tensor.parallel_insert_slice %generic0 into %init0[%iv0] [%tilesize] [1] : tensor<?xf32> into tensor<?xf32>
       tensor.parallel_insert_slice %generic1 into %init1[%iv0] [%tilesize] [1] : tensor<?xf32> into tensor<?xf32>
-<<<<<<< HEAD
-    }	
-=======
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
   %empty = tensor.empty(%dim0) : tensor<?xf32>
   %result = linalg.generic {

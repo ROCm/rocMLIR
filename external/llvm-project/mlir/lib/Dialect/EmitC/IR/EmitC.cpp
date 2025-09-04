@@ -1447,8 +1447,6 @@ void FileOp::build(OpBuilder &builder, OperationState &state, StringRef id) {
 //===----------------------------------------------------------------------===//
 // FieldOp
 //===----------------------------------------------------------------------===//
-<<<<<<< HEAD
-=======
 
 static void printEmitCFieldOpTypeAndInitialValue(OpAsmPrinter &p, FieldOp op,
                                                  TypeAttr type,
@@ -1489,7 +1487,6 @@ parseEmitCFieldOpTypeAndInitialValue(OpAsmParser &parser, TypeAttr &typeAttr,
   return success();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 LogicalResult FieldOp::verify() {
   if (!isSupportedEmitCType(getType()))
     return emitOpError("expected valid emitc type");
@@ -1502,20 +1499,12 @@ LogicalResult FieldOp::verify() {
   if (!symName || symName.getValue().empty())
     return emitOpError("field must have a non-empty symbol name");
 
-<<<<<<< HEAD
-  if (!getAttrs())
-    return success();
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return success();
 }
 
 //===----------------------------------------------------------------------===//
 // GetFieldOp
 //===----------------------------------------------------------------------===//
-<<<<<<< HEAD
-=======
 
 LogicalResult GetFieldOp::verify() {
   auto parentClassOp = getOperation()->getParentOfType<emitc::ClassOp>();
@@ -1525,7 +1514,6 @@ LogicalResult GetFieldOp::verify() {
   return success();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 LogicalResult GetFieldOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   mlir::FlatSymbolRefAttr fieldNameAttr = getFieldNameAttr();
   FieldOp fieldOp =

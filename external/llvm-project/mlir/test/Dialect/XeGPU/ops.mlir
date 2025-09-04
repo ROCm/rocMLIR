@@ -319,10 +319,6 @@ gpu.func @simt_store_nd(%src: memref<24x32xf16>) {
   gpu.return
 }
 
-<<<<<<< HEAD
-// CHECK: func @subgroup_store_nd_2(%[[arg0:.*]]: memref<24x32xf16>) {
-gpu.func @subgroup_store_nd_2(%dst: memref<24x32xf16>) {
-=======
 // CHECK: func @subgroup_store_nd_2(%[[arg0:.*]]: memref<24x32xf16>,  %arg1: index) {
 gpu.func @subgroup_store_nd_2(%dst: memref<24x32xf16>, %x : index) {
   // CHECK: %[[C:.*]] = arith.constant dense<1.000000e+00> : vector<32xf16>
@@ -336,7 +332,6 @@ gpu.func @subgroup_store_nd_2(%dst: memref<24x32xf16>, %x : index) {
 
 // CHECK: func @subgroup_store_nd_offset_1(%[[arg0:.*]]: memref<24x32xf16>) {
 gpu.func @subgroup_store_nd_offset_1(%dst: memref<24x32xf16>) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // CHECK: %[[C:.*]] = arith.constant dense<1.000000e+00> : vector<32xf16>
   %1 = arith.constant dense<1.0>: vector<32xf16>
   // CHECK: %[[R0:.*]] = xegpu.create_nd_tdesc %[[arg0]][0, 0] : memref<24x32xf16> -> !xegpu.tensor_desc<32xf16>

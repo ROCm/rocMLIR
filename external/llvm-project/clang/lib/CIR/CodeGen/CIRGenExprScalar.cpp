@@ -410,8 +410,6 @@ public:
     return Visit(e->getReplacement());
   }
 
-<<<<<<< HEAD
-=======
   mlir::Value VisitVAArgExpr(VAArgExpr *ve) {
     QualType ty = ve->getType();
 
@@ -423,7 +421,6 @@ public:
     return cgf.emitVAArg(ve);
   }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   mlir::Value VisitUnaryExprOrTypeTraitExpr(const UnaryExprOrTypeTraitExpr *e);
   mlir::Value
   VisitAbstractConditionalOperator(const AbstractConditionalOperator *e);
@@ -666,22 +663,16 @@ public:
 
   mlir::Value VisitCXXThisExpr(CXXThisExpr *te) { return cgf.loadCXXThis(); }
 
-<<<<<<< HEAD
-=======
   mlir::Value VisitExprWithCleanups(ExprWithCleanups *e);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   mlir::Value VisitCXXNewExpr(const CXXNewExpr *e) {
     return cgf.emitCXXNewExpr(e);
   }
 
-<<<<<<< HEAD
-=======
   mlir::Value VisitCXXThrowExpr(const CXXThrowExpr *e) {
     cgf.emitCXXThrowExpr(e);
     return {};
   }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   /// Emit a conversion from the specified type to the specified destination
   /// type, both of which are CIR scalar types.
   /// TODO: do we need ScalarConversionOpts here? Should be done in another

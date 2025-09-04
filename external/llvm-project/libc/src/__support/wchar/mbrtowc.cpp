@@ -8,10 +8,6 @@
 
 #include "src/__support/wchar/mbrtowc.h"
 #include "hdr/errno_macros.h"
-<<<<<<< HEAD
-#include "hdr/types/mbstate_t.h"
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "hdr/types/size_t.h"
 #include "hdr/types/wchar_t.h"
 #include "src/__support/common.h"

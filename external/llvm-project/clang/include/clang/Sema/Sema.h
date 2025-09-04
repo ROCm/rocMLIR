@@ -836,8 +836,6 @@ enum class CCEKind {
                            ///< message.
 };
 
-<<<<<<< HEAD
-=======
 /// Enums for the diagnostics of target, target_version and target_clones.
 namespace DiagAttrParams {
 enum DiagType { Unsupported, Duplicate, Unknown };
@@ -845,7 +843,6 @@ enum Specifier { None, CPU, Tune };
 enum AttrName { Target, TargetClones, TargetVersion };
 } // end namespace DiagAttrParams
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void inferNoReturnAttr(Sema &S, const Decl *D);
 
 /// Sema - This implements semantic analysis and AST building for C.

@@ -370,18 +370,6 @@ void SizeofExpressionCheck::check(const MatchFinder::MatchResult &Result) {
         << E->getSourceRange();
   } else if (Result.Nodes.getNodeAs<Stmt>("loop-expr")) {
     auto *SizeofArgTy = Result.Nodes.getNodeAs<Type>("sizeof-arg-type");
-<<<<<<< HEAD
-    if (const auto member = dyn_cast<MemberPointerType>(SizeofArgTy))
-      SizeofArgTy = member->getPointeeType().getTypePtr();
-
-    const auto *SzOfExpr = Result.Nodes.getNodeAs<Expr>("sizeof-expr");
-
-    if (const auto type = dyn_cast<ArrayType>(SizeofArgTy)) {
-      // check if the array element size is larger than one. If true,
-      // the size of the array is higher than the number of elements
-      CharUnits sSize = Ctx.getTypeSizeInChars(type->getElementType());
-      if (!sSize.isOne()) {
-=======
     if (const auto *Member = dyn_cast<MemberPointerType>(SizeofArgTy))
       SizeofArgTy = Member->getPointeeType().getTypePtr();
 
@@ -392,7 +380,6 @@ void SizeofExpressionCheck::check(const MatchFinder::MatchResult &Result) {
       // the size of the array is higher than the number of elements
       CharUnits SSize = Ctx.getTypeSizeInChars(Type->getElementType());
       if (!SSize.isOne()) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         diag(SzOfExpr->getBeginLoc(),
              "suspicious usage of 'sizeof' in the loop")
             << SzOfExpr->getSourceRange();

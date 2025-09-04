@@ -350,11 +350,7 @@ foreach(header
   endif()
 endforeach()
 
-<<<<<<< HEAD
-add_custom_command(TARGET liblldb POST_BUILD
-=======
 add_custom_command(TARGET liblldb-header-staging POST_BUILD
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   COMMAND "${Python3_EXECUTABLE}" ${LLDB_SOURCE_DIR}/scripts/version-header-fix.py -i ${LLDB_SOURCE_DIR}/include/lldb/lldb-defines.h -o ${lldb_header_staging_dir}/lldb-defines.h -m ${LLDB_VERSION_MAJOR} -n ${LLDB_VERSION_MINOR} -p ${LLDB_VERSION_PATCH}
 )
 add_dependencies(liblldb liblldb-header-staging)

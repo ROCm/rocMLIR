@@ -9,11 +9,7 @@
 // RUN: mkdir -p %t.dir/baremetal_default_sysroot/lib/clang-runtimes/armv6m-none-eabi
 // RUN: ln -s %clang %t.dir/baremetal_default_sysroot/bin/clang
 
-<<<<<<< HEAD
-// RUN: %T/baremetal_default_sysroot/bin/clang -no-canonical-prefixes %s -### -o %t.out 2>&1 \
-=======
 // RUN: %t.dir/baremetal_default_sysroot/bin/clang -no-canonical-prefixes %s -### -o %t.out 2>&1 \
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // RUN:     -target armv6m-none-eabi --sysroot= \
 // RUN:   | FileCheck --check-prefix=CHECK-V6M-C %s
 // CHECK-V6M-C: "{{.*}}clang{{.*}}" "-cc1" "-triple" "thumbv6m-unknown-none-eabi"

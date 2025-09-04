@@ -203,8 +203,6 @@ func.func @unpack_with_non_trailing_dimensions_in_inner_dims(%arg0: tensor<1x1x1
 // CHECK-SAME:                      outs(%[[EMPTY]] : tensor<1x4xf32>) permutation = [1, 0]
 // CHECK:        %[[INSERT:.+]] = tensor.insert_slice %transposed into %[[DEST]][0, 0, 0] [1, 1, 4] [1, 1, 1] : tensor<1x4xf32> into tensor<1x1x4xf32>
 // CHECK:        return %[[INSERT]]
-<<<<<<< HEAD
-=======
 
 // -----
 
@@ -222,4 +220,3 @@ func.func @negative_non_unit_tiled_outer_dim(%src: tensor<1x126x1x1x8xf32>, %des
 }
 // CHECK-LABEL: @negative_non_unit_tiled_outer_dim(
 // CHECK: linalg.unpack
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

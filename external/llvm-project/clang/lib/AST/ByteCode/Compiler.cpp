@@ -4750,11 +4750,7 @@ bool Compiler<Emitter>::visitDeclAndReturn(const VarDecl *VD,
   if (!this->visitVarDecl(VD, /*Toplevel=*/true))
     return false;
 
-<<<<<<< HEAD
-  std::optional<PrimType> VarT = classify(VD->getType());
-=======
   OptPrimType VarT = classify(VD->getType());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   if (Context::shouldBeGloballyIndexed(VD)) {
     auto GlobalIndex = P.getGlobal(VD);
     assert(GlobalIndex); // visitVarDecl() didn't return false.
@@ -6132,13 +6128,9 @@ bool Compiler<Emitter>::compileConstructor(const CXXConstructorDecl *Ctor) {
     return false;
   bool IsUnion = R->isUnion();
 
-<<<<<<< HEAD
-  if (R->isUnion() && Ctor->isCopyOrMoveConstructor()) {
-=======
   if (IsUnion && Ctor->isCopyOrMoveConstructor()) {
     LocOverrideScope<Emitter> LOS(this, SourceInfo{});
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     if (R->getNumFields() == 0)
       return this->emitRetVoid(Ctor);
     // union copy and move ctors are special.

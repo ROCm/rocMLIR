@@ -9754,8 +9754,6 @@ def dxc_rootsig_ver :
   Alias<fdx_rootsignature_version>,
   Group<dxc_Group>,
   Visibility<[DXCOption]>;
-<<<<<<< HEAD
-=======
 def fdx_rootsignature_define :
   Joined<["-"], "fdx-rootsignature-define=">,
   Group<dxc_Group>,
@@ -9768,7 +9766,6 @@ def dxc_rootsig_define :
   Alias<fdx_rootsignature_define>,
   Group<dxc_Group>,
   Visibility<[DXCOption]>;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 def hlsl_entrypoint : Option<["-"], "hlsl-entry", KIND_SEPARATE>,
                       Group<dxc_Group>,
                       Visibility<[ClangOption, CC1Option]>,
@@ -9801,17 +9798,12 @@ def fspv_target_env_EQ : Joined<["-"], "fspv-target-env=">, Group<dxc_Group>,
 def fspv_extension_EQ
     : Joined<["-"], "fspv-extension=">,
       Group<dxc_Group>,
-<<<<<<< HEAD
-      HelpText<"Specify the available SPIR-V extensions. If this option is not "
-               "specified, then all extensions are available.">;
-=======
       HelpText<
           "Specify the available SPIR-V extensions. If this option is not "
           "specified, then all extensions are available. If KHR is specified, "
           "then all KHR extensions will be available. If DXC is specifided, "
           "then all extensions implemented by the DirectX Shader compiler will "
           "be available. This option is useful for moving from DXC to Clang.">;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 def fvk_use_dx_layout
     : DXCFlag<"fvk-use-dx-layout">,
       HelpText<"Use DirectX memory layout for Vulkan resources.">;
@@ -9822,8 +9814,6 @@ def fvk_use_scalar_layout
     : DXCFlag<"fvk-use-scalar-layout">,
       HelpText<"Use scalar memory layout for Vulkan resources.">;
 
-<<<<<<< HEAD
-=======
 def fhlsl_spv_use_unknown_image_format
     : Flag<["-"], "fspv-use-unknown-image-format">,
       Group<dxc_Group>,
@@ -9834,7 +9824,6 @@ def fhlsl_spv_use_unknown_image_format
                "from the resource's data type.">,
       MarshallingInfoFlag<LangOpts<"HLSLSpvUseUnknownImageFormat">>;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 def no_wasm_opt : Flag<["--"], "no-wasm-opt">,
   Group<m_Group>,
   HelpText<"Disable the wasm-opt optimizer">,

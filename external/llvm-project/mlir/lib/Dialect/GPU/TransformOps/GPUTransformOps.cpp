@@ -528,41 +528,24 @@ static DiagnosedSilenceableFailure rewriteOneForallCommonImpl(
   SmallVector<int64_t> originalBasis(availableMappingSizes);
   bool originalBasisWasProvided = !originalBasis.empty();
   if (!originalBasisWasProvided) {
-<<<<<<< HEAD
-    LDBG("----originalBasis was not provided, deriving it and there will be no "
-         "predication");
-=======
     LDBG() << "----originalBasis was not provided, deriving it and there will "
               "be no "
               "predication";
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     originalBasis = forallMappingSizes;
     while (originalBasis.size() < 3)
       originalBasis.push_back(1);
   } else {
-<<<<<<< HEAD
-    LDBG("----originalBasis was provided, using it, there will be predication");
-  }
-  LLVM_DEBUG(
-      llvm::interleaveComma(originalBasis, DBGS() << "------originalBasis: ");
-      llvm::dbgs() << "\n");
-=======
     LDBG() << "----originalBasis was provided, using it, there will be "
               "predication";
   }
   LDBG() << "------originalBasis: " << llvm::interleaved(originalBasis);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   IdBuilderResult builderResult =
       gpuIdBuilder.idBuilder(rewriter, loc, forallMappingSizes, originalBasis);
   if (!builderResult.errorMsg.empty())
     return definiteFailureHelper(transformOp, forallOp, builderResult.errorMsg);
 
-<<<<<<< HEAD
-  LLVM_DEBUG(DBGS() << builderResult);
-=======
   LDBG() << builderResult;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // Step 4. Map the induction variables to the mappingIdOps, this may involve
   // a permutation.
@@ -573,11 +556,7 @@ static DiagnosedSilenceableFailure rewriteOneForallCommonImpl(
            forallMappingAttrs.getArrayRef().take_front(forallOp.getRank()))) {
     auto mappingAttr = cast<DeviceMappingAttrInterface>(dim);
     Value peIdOp = mappingIdOps[mappingAttr.getRelativeIndex()];
-<<<<<<< HEAD
-    LDBG("----map: " << iv << " to " << peIdOp);
-=======
     LDBG() << "----map: " << iv << " to " << peIdOp;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     bvm.map(iv, peIdOp);
   }
 
@@ -587,13 +566,8 @@ static DiagnosedSilenceableFailure rewriteOneForallCommonImpl(
   Value predicate;
   if (originalBasisWasProvided) {
     for (Value tmpPredicate : builderResult.predicateOps) {
-<<<<<<< HEAD
-      predicate = predicate ? rewriter.create<arith::AndIOp>(loc, predicate,
-                                                             tmpPredicate)
-=======
       predicate = predicate ? arith::AndIOp::create(rewriter, loc, predicate,
                                                     tmpPredicate)
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                             : tmpPredicate;
     }
   }
@@ -874,9 +848,6 @@ getThreadIdBuilder(std::optional<TransformOpInterface> transformOp,
           .Case([&](GPULaneMappingAttr) {
             return GpuLaneIdBuilder(ctx, warpSize, useLinearMapping,
                                     *maybeMaskingAttr);
-          })
-          .Case([&](GPULaneMappingAttr) {
-            return GpuLaneIdBuilder(ctx, warpSize, useLinearMapping);
           })
           .Default([&](DeviceMappingAttrInterface) -> GpuIdBuilder {
             llvm_unreachable("unknown mapping attribute");

@@ -51,8 +51,6 @@ class CIR_UnitAttr<string name, string attrMnemonic, list<Trait> traits = []>
 }
 
 //===----------------------------------------------------------------------===//
-<<<<<<< HEAD
-=======
 // SourceLanguageAttr
 //===----------------------------------------------------------------------===//
 
@@ -92,7 +90,6 @@ def CIR_SourceLanguageAttr : CIR_EnumAttr<CIR_SourceLanguage, "lang"> {
 }
 
 //===----------------------------------------------------------------------===//
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // OptInfoAttr
 //===----------------------------------------------------------------------===//
 
@@ -692,11 +689,7 @@ def CIR_VisibilityAttr : CIR_EnumAttr<CIR_VisibilityKind, "visibility"> {
 // BitfieldInfoAttr
 //===----------------------------------------------------------------------===//
 
-<<<<<<< HEAD
-def BitfieldInfoAttr : CIR_Attr<"BitfieldInfo", "bitfield_info"> {
-=======
 def CIR_BitfieldInfoAttr : CIR_Attr<"BitfieldInfo", "bitfield_info"> {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let summary = "Represents info for a bit-field member";
   let description = [{
     Holds the following information about bitfields: name, storage type, size
@@ -728,18 +721,6 @@ def CIR_BitfieldInfoAttr : CIR_Attr<"BitfieldInfo", "bitfield_info"> {
       is 4 bits wide, starts at offset 0, and is signed.
   }];
   let parameters = (ins "mlir::StringAttr":$name,
-<<<<<<< HEAD
-                        "mlir::Type":$storageType,
-                        "uint64_t":$size,
-                        "uint64_t":$offset,
-                        "bool":$isSigned);
-
-  let assemblyFormat = [{`<` struct($name,
-                                    $storageType,
-                                    $size,
-                                    $offset,
-                                    $isSigned)
-=======
                         "mlir::Type":$storage_type,
                         "uint64_t":$size,
                         "uint64_t":$offset,
@@ -750,21 +731,11 @@ def CIR_BitfieldInfoAttr : CIR_Attr<"BitfieldInfo", "bitfield_info"> {
                                     $size,
                                     $offset,
                                     $is_signed)
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                          `>`
                         }];
 
   let builders = [
     AttrBuilder<(ins "llvm::StringRef":$name,
-<<<<<<< HEAD
-                     "mlir::Type":$storageType,
-                     "uint64_t":$size,
-                     "uint64_t":$offset,
-                     "bool":$isSigned
-                     ), [{
-      return $_get($_ctxt, mlir::StringAttr::get($_ctxt, name), storageType,
-                   size, offset, isSigned);
-=======
                      "mlir::Type":$storage_type,
                      "uint64_t":$size,
                      "uint64_t":$offset,
@@ -772,15 +743,10 @@ def CIR_BitfieldInfoAttr : CIR_Attr<"BitfieldInfo", "bitfield_info"> {
                      ), [{
       return $_get($_ctxt, mlir::StringAttr::get($_ctxt, name), storage_type,
                    size, offset, is_signed);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }]>
   ];
 }
 
-<<<<<<< HEAD
-
-#endif // LLVM_CLANG_CIR_DIALECT_IR_CIRATTRS_TD
-=======
 //===----------------------------------------------------------------------===//
 // AddressPointAttr
 //===----------------------------------------------------------------------===//
@@ -814,4 +780,3 @@ def CIR_AddressPointAttr : CIR_Attr<"AddressPoint", "address_point"> {
 }
 
 #endif // CLANG_CIR_DIALECT_IR_CIRATTRS_TD
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

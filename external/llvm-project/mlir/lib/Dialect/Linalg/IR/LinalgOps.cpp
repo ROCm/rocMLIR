@@ -489,10 +489,6 @@ public:
       emitError() << "unsupported unary function";
       return nullptr;
     }
-    if (emitError) {
-      emitError() << "unsupported unary function";
-      return nullptr;
-    }
     llvm_unreachable("unsupported unary function");
   }
 
@@ -532,11 +528,7 @@ public:
       if (allComplex)
         return complex::SubOp::create(builder, arg0.getLoc(), arg0, arg1);
       if (allFloatingPoint)
-<<<<<<< HEAD
-        return builder.create<arith::SubFOp>(arg0.getLoc(), arg0, arg1);
-=======
         return arith::SubFOp::create(builder, arg0.getLoc(), arg0, arg1);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       if (allBool) {
         if (emitError) {
           emitError() << "unsupported operation: sub with bools";
@@ -544,11 +536,7 @@ public:
         }
         llvm_unreachable("unsupported operation: sub with bools");
       }
-<<<<<<< HEAD
-      return builder.create<arith::SubIOp>(arg0.getLoc(), arg0, arg1);
-=======
       return arith::SubIOp::create(builder, arg0.getLoc(), arg0, arg1);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     case BinaryFn::mul:
       if (allComplex)
         return complex::MulOp::create(builder, arg0.getLoc(), arg0, arg1);
@@ -561,11 +549,7 @@ public:
       if (allComplex)
         return complex::DivOp::create(builder, arg0.getLoc(), arg0, arg1);
       if (allFloatingPoint)
-<<<<<<< HEAD
-        return builder.create<arith::DivFOp>(arg0.getLoc(), arg0, arg1);
-=======
         return arith::DivFOp::create(builder, arg0.getLoc(), arg0, arg1);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       if (allBool) {
         if (emitError) {
           emitError() << "unsupported operation: div with bools";
@@ -573,11 +557,7 @@ public:
         }
         llvm_unreachable("unsupported operation: div with bools");
       }
-<<<<<<< HEAD
-      return builder.create<arith::DivSIOp>(arg0.getLoc(), arg0, arg1);
-=======
       return arith::DivSIOp::create(builder, arg0.getLoc(), arg0, arg1);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     case BinaryFn::div_unsigned:
       if (!allInteger || allBool) {
         if (emitError) {
@@ -586,11 +566,7 @@ public:
         }
         llvm_unreachable("unsupported operation: unsigned div not on uint");
       }
-<<<<<<< HEAD
-      return builder.create<arith::DivUIOp>(arg0.getLoc(), arg0, arg1);
-=======
       return arith::DivUIOp::create(builder, arg0.getLoc(), arg0, arg1);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     case BinaryFn::max_signed:
       assert(!allComplex);
       if (allFloatingPoint)
@@ -619,10 +595,6 @@ public:
       emitError() << "unsupported binary function";
       return nullptr;
     }
-    if (emitError) {
-      emitError() << "unsupported binary function";
-      return nullptr;
-    }
     llvm_unreachable("unsupported binary function");
   }
 
@@ -641,10 +613,6 @@ public:
       if (!headBool && !(tailFloatingPoint || tailInteger))
         llvm_unreachable("unsupported non numeric type");
       return arith::SelectOp::create(builder, arg0.getLoc(), arg0, arg1, arg2);
-    }
-    if (emitError) {
-      emitError() << "unsupported ternary function";
-      return nullptr;
     }
     if (emitError) {
       emitError() << "unsupported ternary function";

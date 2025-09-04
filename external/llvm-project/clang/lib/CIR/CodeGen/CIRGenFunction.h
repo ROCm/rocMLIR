@@ -74,14 +74,11 @@ public:
   mlir::Value cxxThisValue = nullptr;
   clang::CharUnits cxxThisAlignment;
 
-<<<<<<< HEAD
-=======
   /// When generating code for a constructor or destructor, this will hold the
   /// implicit argument (e.g. VTT).
   ImplicitParamDecl *cxxStructorImplicitParamDecl{};
   mlir::Value cxxStructorImplicitParamValue{};
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   /// The value of 'this' to sue when evaluating CXXDefaultInitExprs within this
   /// expression.
   Address cxxDefaultInitExprThis = Address::invalid();
@@ -575,8 +572,6 @@ public:
   static bool
   isConstructorDelegationValid(const clang::CXXConstructorDecl *ctor);
 
-<<<<<<< HEAD
-=======
   struct VPtr {
     clang::BaseSubobject base;
     const clang::CXXRecordDecl *nearestVBase;
@@ -604,7 +599,6 @@ public:
   /// true when both vcall CFI and whole-program-vtables are enabled.
   bool shouldEmitVTableTypeCheckedLoad(const CXXRecordDecl *rd);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   /// A scope within which we are constructing the fields of an object which
   /// might use a CXXDefaultInitExpr. This stashes away a 'this' value to use if
   /// we need to evaluate the CXXDefaultInitExpr within the evaluation.
@@ -1208,21 +1202,15 @@ public:
 
   mlir::LogicalResult emitFunctionBody(const clang::Stmt *body);
 
-<<<<<<< HEAD
-=======
   mlir::LogicalResult emitGotoStmt(const clang::GotoStmt &s);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   void emitImplicitAssignmentOperatorBody(FunctionArgList &args);
 
   void emitInitializerForField(clang::FieldDecl *field, LValue lhs,
                                clang::Expr *init);
 
-<<<<<<< HEAD
-=======
   mlir::Value emitPromotedComplexExpr(const Expr *e, QualType promotionType);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   mlir::Value emitPromotedScalarExpr(const Expr *e, QualType promotionType);
 
   mlir::Value emitPromotedValue(mlir::Value result, QualType promotionType);
@@ -1316,12 +1304,9 @@ public:
 
   RValue emitLoadOfBitfieldLValue(LValue lv, SourceLocation loc);
 
-<<<<<<< HEAD
-=======
   /// Load a complex number from the specified l-value.
   mlir::Value emitLoadOfComplex(LValue src, SourceLocation loc);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   /// Given an expression that represents a value lvalue, this method emits
   /// the address of the lvalue, then loads the result as an rvalue,
   /// returning the rvalue.
@@ -1354,11 +1339,8 @@ public:
                                           const clang::FieldDecl *field,
                                           llvm::StringRef fieldName);
 
-<<<<<<< HEAD
-=======
   LValue emitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *e);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   LValue emitMemberExpr(const MemberExpr *e);
 
   /// Given an expression with a pointer type, emit the value and compute our
@@ -1670,10 +1652,7 @@ public:
     mlir::Location beginLoc;
     mlir::Value varValue;
     std::string name;
-<<<<<<< HEAD
-=======
     QualType baseType;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     llvm::SmallVector<mlir::Value> bounds;
   };
   // Gets the collection of info required to lower and OpenACC clause or cache

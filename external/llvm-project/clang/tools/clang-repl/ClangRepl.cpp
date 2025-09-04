@@ -28,10 +28,7 @@
 #include "llvm/Support/ManagedStatic.h" // llvm_shutdown
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/TargetSelect.h"
-<<<<<<< HEAD
-=======
 #include "llvm/Support/raw_ostream.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/TargetParser/Host.h"
 #include <optional>
 

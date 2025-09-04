@@ -239,8 +239,6 @@ void f2() {
 
 }
 
-<<<<<<< HEAD
-=======
 namespace GH153884 {
   bool f1() {
     auto f = [](auto) { return true; };
@@ -257,6 +255,5 @@ namespace GH153884 {
     return false;
   }
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #endif

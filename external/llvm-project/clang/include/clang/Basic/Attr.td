@@ -979,11 +979,7 @@ def AnalyzerNoReturn : InheritableAttr {
 }
 
 def InferredNoReturn : InheritableAttr {
-<<<<<<< HEAD
-  let Spellings = []; 
-=======
   let Spellings = [];
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   let SemaHandler = 0;
   let Subjects = SubjectList<[Function], ErrorDiag>;
   let Documentation = [InternalOnly];

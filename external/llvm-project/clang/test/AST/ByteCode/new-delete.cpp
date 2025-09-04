@@ -1069,8 +1069,6 @@ namespace BaseCompare {
   static_assert(foo());
 }
 
-<<<<<<< HEAD
-=======
 
 namespace NegativeArraySize { 
   constexpr void f() { // both-error {{constexpr function never produces a constant expression}}
@@ -1093,7 +1091,6 @@ namespace NewNegSizeNothrow {
   static_assert(test_nothrow_neg_size(), "expected nullptr");
 } // namespace NewNegSizeNothrow
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #else
 /// Make sure we reject this prior to C++20
 constexpr int a() { // both-error {{never produces a constant expression}}

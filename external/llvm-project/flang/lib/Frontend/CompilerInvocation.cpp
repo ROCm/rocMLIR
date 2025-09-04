@@ -1205,11 +1205,8 @@ static bool parseOpenMPArgs(CompilerInvocation &res, llvm::opt::ArgList &args,
 
   constexpr unsigned newestFullySupported = 52;
   // By default OpenMP is set to 5.2 version
-<<<<<<< HEAD
-=======
   constexpr unsigned latestFinalized = 60;
   // By default OpenMP is set to the most recent fully supported version
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   res.getLangOpts().OpenMPVersion = newestFullySupported;
   res.getFrontendOpts().features.Enable(
       Fortran::common::LanguageFeature::OpenMP);
@@ -1231,8 +1228,6 @@ static bool parseOpenMPArgs(CompilerInvocation &res, llvm::opt::ArgList &args,
       diags.Report(diagID) << value << arg->getAsString(args) << versions.str();
     };
 
-<<<<<<< HEAD
-=======
     auto reportFutureVersion = [&](llvm::StringRef value) {
       const unsigned diagID = diags.getCustomDiagID(
           clang::DiagnosticsEngine::Warning,
@@ -1245,21 +1240,17 @@ static bool parseOpenMPArgs(CompilerInvocation &res, llvm::opt::ArgList &args,
       diags.Report(diagID) << value;
     };
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     llvm::StringRef value = arg->getValue();
     if (!value.getAsInteger(/*radix=*/10, version)) {
       if (llvm::is_contained(ompVersions, version)) {
         res.getLangOpts().OpenMPVersion = version;
 
-<<<<<<< HEAD
-=======
 #if ENABLED_FOR_STAGING
         if (version > latestFinalized)
           reportFutureVersion(value);
         else if (version > newestFullySupported)
           diags.Report(clang::diag::warn_openmp_incomplete) << version;
 #endif
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       } else if (llvm::is_contained(oldVersions, version)) {
         const unsigned diagID =
             diags.getCustomDiagID(clang::DiagnosticsEngine::Warning,

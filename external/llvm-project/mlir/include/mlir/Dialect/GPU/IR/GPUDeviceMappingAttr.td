@@ -252,8 +252,6 @@ def GPULaneMappingAttr
   }];
 }
 
-<<<<<<< HEAD
-=======
 def GPUMappingMaskAttr : GPU_Attr<"GPUMappingMask", "mask", [
   DeclareAttrInterfaceMethods<DeviceMaskingAttrInterface> ] >  {
   let parameters = (ins "uint64_t":$mask);
@@ -265,7 +263,6 @@ def GPUMappingMaskAttr : GPU_Attr<"GPUMappingMask", "mask", [
   }];
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 def GPUMemorySpaceMappingAttr : GPU_Attr<"GPUMemorySpaceMapping", "memory_space", [
   DeclareAttrInterfaceMethods<DeviceMappingAttrInterface> ] >  {
   let parameters = (ins

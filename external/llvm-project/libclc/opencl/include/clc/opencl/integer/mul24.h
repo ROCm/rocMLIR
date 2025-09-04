@@ -11,19 +11,11 @@
 
 #include <clc/opencl/opencl-base.h>
 
-<<<<<<< HEAD
-#define FUNCTION mul24
-=======
 #define __CLC_FUNCTION mul24
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/shared/binary_decl.inc>
 
 #include <clc/integer/gentype24.inc>
 
-<<<<<<< HEAD
-#undef FUNCTION
-=======
 #undef __CLC_FUNCTION
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #endif // __CLC_OPENCL_INTEGER_MUL24_H__

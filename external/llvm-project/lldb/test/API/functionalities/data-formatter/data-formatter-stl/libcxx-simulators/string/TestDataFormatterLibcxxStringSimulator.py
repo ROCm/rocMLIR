@@ -28,11 +28,7 @@ class LibcxxStringDataFormatterSimulatorTestCase(TestBase):
 
 for v in [None, "ALTERNATE_LAYOUT"]:
     for r in range(6):
-<<<<<<< HEAD
-        for c in range(4):
-=======
         for c in range(5):
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
             name = "test_r%d_c%d" % (r, c)
             defines = ["REVISION=%d" % r, "COMPRESSED_PAIR_REV=%d" % c]
             if v:

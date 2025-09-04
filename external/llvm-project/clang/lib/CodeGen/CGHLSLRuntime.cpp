@@ -764,16 +764,6 @@ static void initializeBuffer(CodeGenModule &CGM, llvm::GlobalVariable *GV,
 
 void CGHLSLRuntime::initializeBufferFromBinding(const HLSLBufferDecl *BufDecl,
                                                 llvm::GlobalVariable *GV,
-<<<<<<< HEAD
-                                                HLSLResourceBindingAttr *RBA) {
-  assert(RBA && "expect a nonnull binding attribute");
-  llvm::Type *Int1Ty = llvm::Type::getInt1Ty(CGM.getLLVMContext());
-  auto *NonUniform = llvm::ConstantInt::get(Int1Ty, false);
-  auto *Index = llvm::ConstantInt::get(CGM.IntTy, 0);
-  auto *RangeSize = llvm::ConstantInt::get(CGM.IntTy, 1);
-  auto *Space = llvm::ConstantInt::get(CGM.IntTy, RBA->getSpaceNumber());
-  Value *Name = nullptr;
-=======
                                                 HLSLVkBindingAttr *VkBinding) {
   assert(VkBinding && "expect a nonnull binding attribute");
   auto *Index = llvm::ConstantInt::get(CGM.IntTy, 0);
@@ -796,7 +786,6 @@ void CGHLSLRuntime::initializeBufferFromBinding(const HLSLBufferDecl *BufDecl,
   auto *RangeSize = llvm::ConstantInt::get(CGM.IntTy, 1);
   auto *Space = llvm::ConstantInt::get(CGM.IntTy, RBA->getSpaceNumber());
   Value *Name = buildNameForResource(BufDecl->getName(), CGM);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   llvm::Intrinsic::ID IntrinsicID =
       RBA->hasRegisterSlot()

@@ -723,11 +723,7 @@ public:
       // Switch the coroutine completion token to available state.
       RuntimeSetAvailableOp::create(rewriter, loc, *coro.asyncToken);
 
-<<<<<<< HEAD
-    rewriter.create<cf::BranchOp>(loc, coro.cleanup);
-=======
     cf::BranchOp::create(rewriter, loc, coro.cleanup);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     rewriter.eraseOp(op);
 
     return success();

@@ -1,12 +1,7 @@
 // RUN: %clang_cc1 -fopenacc -Wno-openacc-self-if-potential-conflict -emit-cir -fclangir %s -o - | FileCheck %s
 
-<<<<<<< HEAD
-void acc_host_data(int cond, int var1, int var2) {
-  // CHECK: cir.func{{.*}} @acc_host_data(%[[ARG_COND:.*]]: !s32i {{.*}}, %[[ARG_V1:.*]]: !s32i {{.*}}, %[[ARG_V2:.*]]: !s32i {{.*}}) {
-=======
 void acc_host_data(int cond, int var1, int var2, int *arr) {
   // CHECK: cir.func{{.*}} @acc_host_data(%[[ARG_COND:.*]]: !s32i {{.*}}, %[[ARG_V1:.*]]: !s32i {{.*}}, %[[ARG_V2:.*]]: !s32i {{.*}}, %[[ARG_ARR:.*]]: !cir.ptr<!s32i> {{.*}}) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // CHECK-NEXT: %[[COND:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["cond", init]
   // CHECK-NEXT: %[[V1:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["var1", init]
   // CHECK-NEXT: %[[V2:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["var2", init]

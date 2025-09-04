@@ -184,11 +184,8 @@ ASTNodeUP DILParser::ParsePostfixExpression() {
 //    "(" expression ")"
 //
 ASTNodeUP DILParser::ParsePrimaryExpression() {
-<<<<<<< HEAD
-=======
   if (CurToken().IsOneOf({Token::integer_constant, Token::float_constant}))
     return ParseNumericLiteral();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   if (CurToken().IsOneOf(
           {Token::coloncolon, Token::identifier, Token::l_paren})) {
     // Save the source location for the diagnostics message.

@@ -452,11 +452,7 @@ SourceInfo Descriptor::getLoc() const {
 }
 
 bool Descriptor::hasTrivialDtor() const {
-<<<<<<< HEAD
-  if (isPrimitive() || isPrimitiveArray() || isDummy())
-=======
   if (isPrimitive() || isPrimitiveArray())
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return true;
 
   if (isRecord()) {
@@ -465,14 +461,9 @@ bool Descriptor::hasTrivialDtor() const {
     return !Dtor || Dtor->isTrivial();
   }
 
-<<<<<<< HEAD
-  // Composite arrays.
-  assert(ElemDesc);
-=======
   if (!ElemDesc)
     return true;
   // Composite arrays.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return ElemDesc->hasTrivialDtor();
 }
 

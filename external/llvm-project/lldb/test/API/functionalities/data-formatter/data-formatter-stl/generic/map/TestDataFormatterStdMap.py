@@ -21,11 +21,7 @@ class StdMapDataFormatterTestCase(TestBase):
         ]
         return ValueCheck(children=pair_children)
 
-<<<<<<< HEAD
-    def do_test(self):
-=======
     def do_test(self, *, supports_end_iter=False):
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         """Test that that file and class static variables display correctly."""
         self.runCmd("file " + self.getBuildArtifact("a.out"), CURRENT_EXECUTABLE_SET)
 
@@ -350,12 +346,9 @@ class StdMapDataFormatterTestCase(TestBase):
             dictionary={"USE_LIBSTDCPP": 1, "CXXFLAGS_EXTRAS": "-D_GLIBCXX_DEBUG"}
         )
         self.do_test()
-<<<<<<< HEAD
-=======
 
     @add_test_categories(["msvcstl"])
     def test_msvcstl(self):
         # No flags, because the "msvcstl" category checks that the MSVC STL is used by default.
         self.build()
         self.do_test(supports_end_iter=True)
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

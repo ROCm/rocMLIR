@@ -38,12 +38,8 @@
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
-<<<<<<< HEAD
-#include "llvm/Support/Debug.h"
-=======
 #include "llvm/Support/DebugLog.h"
 #include "llvm/Support/InterleavedRange.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <optional>
@@ -832,11 +828,7 @@ static VectorizationHookResult vectorizeLinalgIndex(RewriterBase &rewriter,
       llvm::to_vector<16>(llvm::seq<int64_t>(0, linalgOp.getNumLoops()));
   std::swap(transposition.back(), transposition[dim]);
   auto transposeOp =
-<<<<<<< HEAD
-      rewriter.create<vector::TransposeOp>(loc, broadCastOp, transposition);
-=======
       vector::TransposeOp::create(rewriter, loc, broadCastOp, transposition);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return VectorizationHookResult{VectorizationHookStatus::NewOp, transposeOp};
 }
 
@@ -1172,11 +1164,7 @@ vectorizeTensorExtract(RewriterBase &rewriter, VectorizationState &state,
         maskConstantOp, passThruConstantOp);
     gatherOp = state.maskOperation(rewriter, gatherOp, linalgOp);
 
-<<<<<<< HEAD
-    LDBG("Vectorised as gather load: " << extractOp << "\n");
-=======
     LDBG() << "Vectorised as gather load: " << extractOp;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return VectorizationHookResult{VectorizationHookStatus::NewOp, gatherOp};
   }
 
@@ -1226,13 +1214,8 @@ vectorizeTensorExtract(RewriterBase &rewriter, VectorizationState &state,
     SmallVector<AffineExpr> exprs(dstRank, getAffineConstantExpr(0, ctx));
     auto permutationMap = AffineMap::get(srcRank, 0, exprs, ctx);
 
-<<<<<<< HEAD
-    auto transferReadOp = rewriter.create<vector::TransferReadOp>(
-        loc, resultType, extractOp.getTensor(), transferReadIdxs,
-=======
     auto transferReadOp = vector::TransferReadOp::create(
         rewriter, loc, resultType, extractOp.getTensor(), transferReadIdxs,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         /*padding=*/std::nullopt, permutationMap, inBounds);
 
     // Mask this broadcasting xfer_read here rather than relying on the generic
@@ -1245,11 +1228,7 @@ vectorizeTensorExtract(RewriterBase &rewriter, VectorizationState &state,
     auto *maskedReadOp =
         mlir::vector::maskOperation(rewriter, transferReadOp, allTrue);
 
-<<<<<<< HEAD
-    LDBG("Vectorised as scalar broadcast load: " << extractOp << "\n");
-=======
     LDBG() << "Vectorised as scalar broadcast load: " << extractOp;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return VectorizationHookResult{VectorizationHookStatus::NewOp,
                                    maskedReadOp};
   }
@@ -1272,19 +1251,11 @@ vectorizeTensorExtract(RewriterBase &rewriter, VectorizationState &state,
     rankDiff--;
   }
 
-<<<<<<< HEAD
-  auto transferReadOp = rewriter.create<vector::TransferReadOp>(
-      loc, resultType, extractOp.getTensor(), transferReadIdxs,
-      /*padding=*/std::nullopt, permutationMap, inBounds);
-
-  LDBG("Vectorised as contiguous load: " << extractOp);
-=======
   auto transferReadOp = vector::TransferReadOp::create(
       rewriter, loc, resultType, extractOp.getTensor(), transferReadIdxs,
       /*padding=*/std::nullopt, permutationMap, inBounds);
 
   LDBG() << "Vectorised as contiguous load: " << extractOp;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return VectorizationHookResult{VectorizationHookStatus::NewOp,
                                  transferReadOp};
 }
@@ -1492,13 +1463,8 @@ vectorizeAsLinalgGeneric(RewriterBase &rewriter, VectorizationState &state,
 
     SmallVector<Value> indices(linalgOp.getShape(opOperand).size(), zero);
 
-<<<<<<< HEAD
-    Operation *read = rewriter.create<vector::TransferReadOp>(
-        loc, readType, opOperand->get(), indices,
-=======
     Operation *read = vector::TransferReadOp::create(
         rewriter, loc, readType, opOperand->get(), indices,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         /*padding=*/std::nullopt, readMap);
     read = state.maskOperation(rewriter, read, linalgOp, indexingMap);
     Value readValue = read->getResult(0);
@@ -1550,11 +1516,7 @@ vectorizeAsLinalgGeneric(RewriterBase &rewriter, VectorizationState &state,
     VectorizationHookResult result =
         vectorizeOneOp(rewriter, state, linalgOp, &op, bvm, hooks);
     if (result.status == VectorizationHookStatus::Failure) {
-<<<<<<< HEAD
-      LDBG("failed to vectorize: " << op << "\n");
-=======
       LDBG() << "failed to vectorize: " << op;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       return failure();
     }
     if (result.status == VectorizationHookStatus::NewOp) {
@@ -2704,20 +2666,6 @@ bool mlir::linalg::hasVectorizationImpl(Operation *op) {
              tensor::InsertSliceOp>(op);
 }
 
-<<<<<<< HEAD
-FailureOr<VectorizationResult>
-mlir::linalg::vectorize(RewriterBase &rewriter, Operation *op,
-                        ArrayRef<int64_t> inputVectorSizes,
-                        ArrayRef<bool> inputScalableVecDims,
-                        bool vectorizeNDExtract, bool flatten1DDepthwiseConv) {
-  LDBG("Attempting to vectorize:\n" << *op << "\n");
-  LDBG("Input vector sizes: ");
-  LLVM_DEBUG(llvm::interleaveComma(inputVectorSizes, llvm::dbgs()));
-  LLVM_DEBUG(llvm::dbgs() << "\n");
-  LDBG("Input scalable vector dims: ");
-  LLVM_DEBUG(llvm::interleaveComma(inputScalableVecDims, llvm::dbgs()));
-  LLVM_DEBUG(llvm::dbgs() << "\n");
-=======
 FailureOr<VectorizationResult> mlir::linalg::vectorize(
     RewriterBase &rewriter, Operation *op, ArrayRef<int64_t> inputVectorSizes,
     ArrayRef<bool> inputScalableVecDims, bool vectorizeNDExtract,
@@ -2727,7 +2675,6 @@ FailureOr<VectorizationResult> mlir::linalg::vectorize(
   LDBG() << "Input vector sizes: " << llvm::interleaved(inputVectorSizes);
   LDBG() << "Input scalable vector dims: "
          << llvm::interleaved(inputScalableVecDims);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   if (failed(vectorizeOpPrecondition(op, inputVectorSizes, inputScalableVecDims,
                                      vectorizeNDExtract,
@@ -2833,13 +2780,8 @@ LogicalResult mlir::linalg::vectorizeCopy(RewriterBase &rewriter,
   Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
   SmallVector<Value> indices(srcType.getRank(), zero);
 
-<<<<<<< HEAD
-  Value readValue = rewriter.create<vector::TransferReadOp>(
-      loc, readType, copyOp.getSource(), indices,
-=======
   Value readValue = vector::TransferReadOp::create(
       rewriter, loc, readType, copyOp.getSource(), indices,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       /*padding=*/std::nullopt,
       rewriter.getMultiDimIdentityMap(srcType.getRank()));
   if (cast<VectorType>(readValue.getType()).getRank() == 0) {
@@ -3690,30 +3632,17 @@ struct Conv1DGenerator
     SmallVector<Value> resPadding(resShape.size(), zero);
 
     // Read the whole lhs, rhs and res in one shot (with zero padding).
-<<<<<<< HEAD
-    Value lhs = rewriter.create<vector::TransferReadOp>(
-        loc, lhsType, lhsShaped, lhsPadding,
-=======
     Value lhs = vector::TransferReadOp::create(
         rewriter, loc, lhsType, lhsShaped, lhsPadding,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         /*padding=*/arith::getZeroConstant(rewriter, loc, lhsEltType));
     // This is needed only for Conv.
     Value rhs = nullptr;
     if (oper == ConvOperationKind::Conv)
-<<<<<<< HEAD
-      rhs = rewriter.create<vector::TransferReadOp>(
-          loc, rhsType, rhsShaped, rhsPadding,
-          /*padding=*/arith::getZeroConstant(rewriter, loc, rhsEltType));
-    Value res = rewriter.create<vector::TransferReadOp>(
-        loc, resType, resShaped, resPadding,
-=======
       rhs = vector::TransferReadOp::create(
           rewriter, loc, rhsType, rhsShaped, rhsPadding,
           /*padding=*/arith::getZeroConstant(rewriter, loc, rhsEltType));
     Value res = vector::TransferReadOp::create(
         rewriter, loc, resType, resShaped, resPadding,
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         /*padding=*/arith::getZeroConstant(rewriter, loc, resEltType));
 
     // The base vectorization case for channeled convolution is input:
@@ -3960,37 +3889,22 @@ struct Conv1DGenerator
 
     // Read lhs slice of size {n, w * strideW + kw * dilationW, c} @ [0, 0,
     // 0].
-<<<<<<< HEAD
-    Value lhs = rewriter.create<vector::TransferReadOp>(
-        loc, lhsType, lhsShaped, ValueRange{zero, zero, zero},
-=======
     Value lhs = vector::TransferReadOp::create(
         rewriter, loc, lhsType, lhsShaped, ValueRange{zero, zero, zero},
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         /*padding=*/arith::getZeroConstant(rewriter, loc, lhsEltType));
     auto maybeMaskedLhs = maybeMaskXferOp(
         lhsType.getShape(), lhsType.getScalableDims(), lhs.getDefiningOp());
 
     // Read rhs slice of size {kw, c} @ [0, 0].
-<<<<<<< HEAD
-    Value rhs = rewriter.create<vector::TransferReadOp>(
-        loc, rhsType, rhsShaped, ValueRange{zero, zero},
-=======
     Value rhs = vector::TransferReadOp::create(
         rewriter, loc, rhsType, rhsShaped, ValueRange{zero, zero},
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         /*padding=*/arith::getZeroConstant(rewriter, loc, rhsEltType));
     auto maybeMaskedRhs = maybeMaskXferOp(
         rhsType.getShape(), rhsType.getScalableDims(), rhs.getDefiningOp());
 
     // Read res slice of size {n, w, c} @ [0, 0, 0].
-<<<<<<< HEAD
-    Value res = rewriter.create<vector::TransferReadOp>(
-        loc, resType, resShaped, ValueRange{zero, zero, zero},
-=======
     Value res = vector::TransferReadOp::create(
         rewriter, loc, resType, resShaped, ValueRange{zero, zero, zero},
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         /*padding=*/arith::getZeroConstant(rewriter, loc, resEltType));
     auto maybeMaskedRes = maybeMaskXferOp(
         resType.getShape(), resType.getScalableDims(), res.getDefiningOp());

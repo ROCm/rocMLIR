@@ -121,8 +121,6 @@ int64_t GPULaneMappingAttr::getRelativeIndex() const {
              : getMappingId();
 }
 
-<<<<<<< HEAD
-=======
 int64_t GPUMappingMaskAttr::getMaxNumPhysicalIds() const { return 64; }
 
 ///                 8       4       0
@@ -170,7 +168,6 @@ Value GPUMappingMaskAttr::createIsActiveIdPredicate(
                                zero);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 int64_t GPUMemorySpaceMappingAttr::getMappingId() const {
   return static_cast<int64_t>(getAddressSpace());
 }
@@ -1445,49 +1442,12 @@ void ShuffleOp::build(OpBuilder &builder, OperationState &result, Value value,
 // RotateOp
 //===----------------------------------------------------------------------===//
 
-<<<<<<< HEAD
-void RotateOp::build(OpBuilder &builder, OperationState &result, Value value,
-                     int32_t offset, int32_t width) {
-  build(builder, result, value,
-        builder.create<arith::ConstantOp>(result.location,
-                                          builder.getI32IntegerAttr(offset)),
-        builder.create<arith::ConstantOp>(result.location,
-                                          builder.getI32IntegerAttr(width)));
-}
-
-LogicalResult RotateOp::verify() {
-  auto offsetConstOp = getOffset().getDefiningOp<arith::ConstantOp>();
-  if (!offsetConstOp)
-    return emitOpError() << "offset is not a constant value";
-
-  auto offsetIntAttr =
-      llvm::dyn_cast<mlir::IntegerAttr>(offsetConstOp.getValue());
-
-  auto widthConstOp = getWidth().getDefiningOp<arith::ConstantOp>();
-  if (!widthConstOp)
-    return emitOpError() << "width is not a constant value";
-
-  auto widthIntAttr =
-      llvm::dyn_cast<mlir::IntegerAttr>(widthConstOp.getValue());
-
-  llvm::APInt offsetValue = offsetIntAttr.getValue();
-  llvm::APInt widthValue = widthIntAttr.getValue();
-
-  if (!widthValue.isPowerOf2())
-    return emitOpError() << "width must be a power of two";
-
-  if (offsetValue.sge(widthValue) || offsetValue.slt(0)) {
-    int64_t widthValueInt = widthValue.getSExtValue();
-    return emitOpError() << "offset must be in the range [0, " << widthValueInt
-                         << ")";
-=======
 LogicalResult RotateOp::verify() {
   uint32_t offset = getOffset();
   uint32_t width = getWidth();
 
   if (offset >= width) {
     return emitOpError() << "offset must be in the range [0, " << width << ")";
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   return success();

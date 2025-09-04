@@ -26,14 +26,6 @@
 
 namespace lldb_dap_tests {
 
-<<<<<<< HEAD
-/// A base class for tests that need transport configured for communicating DAP
-/// messages.
-class TransportBase : public PipePairTest {
-protected:
-  std::unique_ptr<lldb_dap::Transport> to_dap;
-  std::unique_ptr<lldb_dap::Transport> from_dap;
-=======
 class TestTransport final
     : public lldb_private::Transport<lldb_dap::protocol::Request,
                                      lldb_dap::protocol::Response,
@@ -42,7 +34,6 @@ public:
   using Message = lldb_private::Transport<lldb_dap::protocol::Request,
                                           lldb_dap::protocol::Response,
                                           lldb_dap::protocol::Event>::Message;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   TestTransport(lldb_private::MainLoop &loop, MessageHandler &handler)
       : m_loop(loop), m_handler(handler) {}

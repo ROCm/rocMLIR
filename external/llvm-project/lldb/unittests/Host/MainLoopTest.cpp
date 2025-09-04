@@ -80,11 +80,8 @@ TEST_F(MainLoopTest, ReadSocketObject) {
   ASSERT_EQ(1u, callback_count);
 }
 
-<<<<<<< HEAD
-=======
 // Flakey, see https://github.com/llvm/llvm-project/issues/152677.
 #ifndef _WIN32
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 TEST_F(MainLoopTest, ReadPipeObject) {
   Pipe pipe;
 
@@ -107,8 +104,6 @@ TEST_F(MainLoopTest, ReadPipeObject) {
   ASSERT_EQ(1u, callback_count);
 }
 
-<<<<<<< HEAD
-=======
 TEST_F(MainLoopTest, MultipleReadsPipeObject) {
   Pipe pipe;
 
@@ -248,7 +243,6 @@ TEST_F(MainLoopTest, NoSelfTriggersDuringPipeHandler) {
   ASSERT_EQ(2u, callback_count);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 TEST_F(MainLoopTest, NoSpuriousPipeReads) {
   Pipe pipe;
 

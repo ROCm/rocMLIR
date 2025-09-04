@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-// RUN: cir-opt %s -cir-canonicalize -o - | FileCheck %s
-=======
 // RUN: cir-opt %s -cir-canonicalize -split-input-file -o - | FileCheck %s
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 !s32i = !cir.int<s, 32>
 
@@ -25,8 +21,6 @@ module {
   // CHECK: }
 
 }
-<<<<<<< HEAD
-=======
 
 // -----
 
@@ -43,4 +37,3 @@ module {
   // CHECK:   cir.return %[[ARG_0]] : !s32i
   // CHECK: }
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

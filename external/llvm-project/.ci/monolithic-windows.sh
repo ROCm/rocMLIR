@@ -20,11 +20,7 @@ targets="${2}"
 runtimes="${3}"
 runtimes_targets="${4}"
 
-<<<<<<< HEAD
-echo "::group::cmake"
-=======
 start-group "CMake"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 pip install -q -r "${MONOREPO_ROOT}"/.ci/all_requirements.txt
 
 export CC=cl
@@ -57,19 +53,9 @@ cmake -S "${MONOREPO_ROOT}"/llvm -B "${BUILD_DIR}" \
 
 start-group "ninja"
 
-<<<<<<< HEAD
-echo "::endgroup::"
-echo "::group::ninja"
-
-# Targets are not escaped as they are passed as separate arguments.
-ninja -C "${BUILD_DIR}" -k 0 ${targets}
-
-echo "::endgroup"
-=======
 # Targets are not escaped as they are passed as separate arguments.
 ninja -C "${BUILD_DIR}" -k 0 ${targets} |& tee ninja.log
 
 start-group "ninja runtimes"
 
 ninja -C "${BUILD_DIR}" -k 0 ${runtimes_targets} |& tee ninja_runtimes.log
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

@@ -2,12 +2,9 @@
 // RUN: %clang_cc1 -std=c++20 -verify=expected,both %s -fexperimental-new-constant-interpreter
 // RUN: %clang_cc1            -verify=ref,both      %s
 // RUN: %clang_cc1 -std=c++20 -verify=ref,both      %s
-<<<<<<< HEAD
-=======
 
 #define assert_active(F)   if (!__builtin_is_within_lifetime(&F)) (1/0);
 #define assert_inactive(F) if ( __builtin_is_within_lifetime(&F)) (1/0);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 union U {
   int a;
@@ -724,11 +721,6 @@ namespace AnonymousUnion {
     Long L;
   };
 
-<<<<<<< HEAD
-#define assert_active(F)   if (!__builtin_is_within_lifetime(&F)) (1/0);
-#define assert_inactive(F) if ( __builtin_is_within_lifetime(&F)) (1/0);
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   consteval int test() {
     union UU {
       struct {
@@ -756,8 +748,6 @@ namespace AnonymousUnion {
   }
   static_assert(test() == 1);
 }
-<<<<<<< HEAD
-=======
 
 namespace AccessViaPointer {
   struct A {
@@ -937,7 +927,6 @@ namespace PrimitiveFieldInitActivates {
   constinit V v2 = X<2>();
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #endif
 
 namespace AddressComparison {

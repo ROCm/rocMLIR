@@ -46,27 +46,6 @@ protected:
 private:
   void AcceptCallback(std::unique_ptr<Socket> socket);
 
-<<<<<<< HEAD
-  llvm::Expected<std::optional<protocol::Message>>
-  HandleData(llvm::StringRef data);
-
-  llvm::Expected<protocol::Response> Handle(protocol::Request request);
-  void Handle(protocol::Notification notification);
-
-  llvm::Expected<protocol::Response>
-  InitializeHandler(const protocol::Request &);
-  llvm::Expected<protocol::Response>
-  ToolsListHandler(const protocol::Request &);
-  llvm::Expected<protocol::Response>
-  ToolsCallHandler(const protocol::Request &);
-
-  protocol::Capabilities GetCapabilities();
-
-  llvm::StringLiteral kName = "lldb-mcp";
-  llvm::StringLiteral kVersion = "0.1.0";
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   bool m_running = false;
 
   FileSpec m_mcp_registry_entry_path;

@@ -353,14 +353,11 @@ private:
 
   /// First pp-token source location in current translation unit.
   SourceLocation FirstPPTokenLoc;
-<<<<<<< HEAD
-=======
 
   /// A preprocessor directive tracer to trace whether the preprocessing
   /// state changed. These changes would mean most semantically observable
   /// preprocessor state, particularly anything that is order dependent.
   NoTrivialPPDirectiveTracer *DirTracer = nullptr;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   /// A position within a C++20 import-seq.
   class StdCXXImportSeq {

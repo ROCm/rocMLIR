@@ -1669,14 +1669,9 @@ void RelocationScanner::scan(Relocs<RelTy> rels) {
   }
 
   // Sort relocations by offset for more efficient searching for
-<<<<<<< HEAD
-  // R_RISCV_PCREL_HI20, R_PPC64_ADDR64 and the branch-to-branch optimization.
-  if (ctx.arg.emachine == EM_RISCV ||
-=======
   // R_RISCV_PCREL_HI20, ALIGN relocations, R_PPC64_ADDR64 and the
   // branch-to-branch optimization.
   if (is_contained({EM_RISCV, EM_LOONGARCH}, ctx.arg.emachine) ||
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       (ctx.arg.emachine == EM_PPC64 && sec->name == ".toc") ||
       ctx.arg.branchToBranch)
     llvm::stable_sort(sec->relocs(),

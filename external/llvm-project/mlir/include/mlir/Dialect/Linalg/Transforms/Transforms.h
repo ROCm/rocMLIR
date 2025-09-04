@@ -893,22 +893,15 @@ struct VectorizationResult {
 /// greater than or equal to their counterpart iteration space sizes, if static.
 /// `inputVectorShapes` also allows the vectorization of operations with dynamic
 /// shapes.
-<<<<<<< HEAD
-=======
 /// Optionally, `createNamedContraction` can force compatible contractions to be
 /// vectorized directly to vector.contract operation.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 FailureOr<VectorizationResult>
 vectorize(RewriterBase &rewriter, Operation *op,
           ArrayRef<int64_t> inputVectorSizes = {},
           ArrayRef<bool> inputScalableVecDims = {},
-<<<<<<< HEAD
-          bool vectorizeNDExtract = false, bool flatten1DDepthwiseConv = false);
-=======
           bool vectorizeNDExtract = false, bool flatten1DDepthwiseConv = false,
           bool assumeDynamicDimsMatchVecSizes = false,
           bool createNamedContraction = false);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 /// Emit a suitable vector form for a Copy op with fully static shape.
 LogicalResult vectorizeCopy(RewriterBase &builder, memref::CopyOp copyOp);

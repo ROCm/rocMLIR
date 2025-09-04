@@ -27,11 +27,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/RegionUtils.h"
-<<<<<<< HEAD
-#include "llvm/Support/Debug.h"
-=======
 #include "llvm/Support/DebugLog.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include <optional>
 
 #define DEBUG_TYPE "loops-to-gpu"

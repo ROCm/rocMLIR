@@ -1039,16 +1039,12 @@ ResolveSDKPathFromDebugInfo(lldb_private::Target *target) {
 
   SymbolFile *sym_file = exe_module_sp->GetSymbolFile();
   if (!sym_file)
-<<<<<<< HEAD
-    return llvm::createStringError("Failed to get symbol file from module");
-=======
     return llvm::createStringError("Failed to get symbol file from executable");
 
   if (sym_file->GetNumCompileUnits() == 0)
     return llvm::createStringError(
         "Failed to resolve SDK for target: executable's symbol file has no "
         "compile units");
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   XcodeSDK merged_sdk;
   for (unsigned i = 0; i < sym_file->GetNumCompileUnits(); ++i) {

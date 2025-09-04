@@ -19,27 +19,19 @@ typedef float __attribute__((ext_vector_type(32))) float32;
 typedef int    v4i   __attribute__((ext_vector_type(4)));
 typedef int    v8i   __attribute__((ext_vector_type(8)));
 
-typedef int    v4i   __attribute__((ext_vector_type(4)));
-typedef int    v8i   __attribute__((ext_vector_type(8)));
-
 void test_setprio_inc_wg(short a) {
   __builtin_amdgcn_s_setprio_inc_wg(a); // expected-error {{'__builtin_amdgcn_s_setprio_inc_wg' must be a constant integer}}
 }
 
-<<<<<<< HEAD
-=======
 void test_bitop3_args(global uint* out, uint a, uint b, uint c) {
   *out = __builtin_amdgcn_bitop3_b32(a, b, c, a); // expected-error {{argument to '__builtin_amdgcn_bitop3_b32' must be a constant integer}}
   *out = __builtin_amdgcn_bitop3_b16((ushort)a, (ushort)b, (ushort)c, a); // expected-error {{argument to '__builtin_amdgcn_bitop3_b16' must be a constant integer}}
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void test_s_monitor_sleep(short a) {
   __builtin_amdgcn_s_monitor_sleep(a); // expected-error {{'__builtin_amdgcn_s_monitor_sleep' must be a constant integer}}
 }
 
-<<<<<<< HEAD
-=======
 void test_s_wait_asynccnt(short a) {
   __builtin_amdgcn_s_wait_asynccnt(a); // expected-error {{'__builtin_amdgcn_s_wait_asynccnt' must be a constant integer}}
 }
@@ -48,7 +40,6 @@ void test_s_wait_tensorcnt(short a) {
   __builtin_amdgcn_s_wait_tensorcnt(a); // expected-error {{'__builtin_amdgcn_s_wait_tensorcnt' must be a constant integer}}
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void test__builtin_amdgcn_cvt_f16_fp8(int a, int b) {
   __builtin_amdgcn_cvt_f16_fp8(a, b); // expected-error {{'__builtin_amdgcn_cvt_f16_fp8' must be a constant integer}}
 }
@@ -57,8 +48,6 @@ void test__builtin_amdgcn_cvt_f16_bf8(int a, int b) {
   __builtin_amdgcn_cvt_f16_bf8(a, b); // expected-error {{'__builtin_amdgcn_cvt_f16_bf8' must be a constant integer}}
 }
 
-<<<<<<< HEAD
-=======
 void test_cvt_sr_f8_f16(global int* out, uint sr, int old, int sel)
 {
   *out = __builtin_amdgcn_cvt_sr_bf8_f16(1.0, sr, old, sel); // expected-error {{'__builtin_amdgcn_cvt_sr_bf8_f16' must be a constant integer}}
@@ -159,7 +148,6 @@ void test_amdgcn_async_load_store_lds_cpol(global char* gaddr8, global int *gadd
   __builtin_amdgcn_global_store_async_from_lds_b128(gaddr128, laddr128, 16, cpol); // expected-error {{'__builtin_amdgcn_global_store_async_from_lds_b128' must be a constant integer}}
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void test_amdgcn_tensor_load_store(v4i sg0, v8i sg1, v4i sg2, v4i sg3, int cpol)
 {
   __builtin_amdgcn_tensor_load_to_lds(sg0, sg1, sg2, sg3, cpol); // expected-error {{'__builtin_amdgcn_tensor_load_to_lds' must be a constant integer}}
@@ -167,8 +155,6 @@ void test_amdgcn_tensor_load_store(v4i sg0, v8i sg1, v4i sg2, v4i sg3, int cpol)
   __builtin_amdgcn_tensor_store_from_lds(sg0, sg1, sg2, sg3, cpol); // expected-error {{'__builtin_amdgcn_tensor_store_from_lds' must be a constant integer}}
   __builtin_amdgcn_tensor_store_from_lds_d2(sg0, sg1, cpol); // expected-error {{'__builtin_amdgcn_tensor_store_from_lds_d2' must be a constant integer}}
 }
-<<<<<<< HEAD
-=======
 
 void test_prefetch(generic void *fptr, global void *gptr, int cpol) {
   __builtin_amdgcn_flat_prefetch(fptr, cpol); // expected-error {{'__builtin_amdgcn_flat_prefetch' must be a constant integer}}
@@ -179,4 +165,3 @@ void test_cvt_f32_fp8_e5m3(global int* out, int a)
 {
   *out = __builtin_amdgcn_cvt_f32_fp8_e5m3(a, a); // expected-error {{'__builtin_amdgcn_cvt_f32_fp8_e5m3' must be a constant integer}}
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

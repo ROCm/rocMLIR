@@ -1479,10 +1479,7 @@ void CGOpenMPRuntimeGPU::emitParallelCall(
       NumThreadsVal = Bld.CreateZExtOrTrunc(NumThreadsVal, CGF.Int32Ty);
 
     assert(IfCondVal && "Expected a value");
-<<<<<<< HEAD
-=======
     RuntimeFunction FnID = OMPRTL___kmpc_parallel_51;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     llvm::Value *RTLoc = emitUpdateLocation(CGF, Loc);
     if (CGM.getLangOpts().OpenMPNoNestedParallelism &&
         CGM.IsSPMDExecutionMode()) {

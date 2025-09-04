@@ -7,10 +7,6 @@
 //===----------------------------------------------------------------------===//
 #include "mlir/Dialect/LLVMIR/XeVMDialect.h"
 #include "mlir/Dialect/GPU/IR/CompilationInterfaces.h"
-<<<<<<< HEAD
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "llvm/ADT/TypeSwitch.h"

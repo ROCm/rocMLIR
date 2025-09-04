@@ -389,13 +389,8 @@ mlir::LLVM::DITypeAttr DebugTypeGenerator::convertRecordType(
       context, recId, /*isRecSelf=*/true, llvm::dwarf::DW_TAG_structure_type,
       mlir::StringAttr::get(context, ""), fileAttr, /*line=*/0, scope,
       /*baseType=*/nullptr, mlir::LLVM::DIFlags::Zero, /*sizeInBits=*/0,
-<<<<<<< HEAD
-      /*alignInBits=*/0, elements, /*dataLocation=*/nullptr, /*rank=*/nullptr,
-      /*allocated=*/nullptr, /*associated=*/nullptr);
-=======
       /*alignInBits=*/0, /*dataLocation=*/nullptr, /*rank=*/nullptr,
       /*allocated=*/nullptr, /*associated=*/nullptr, elements);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   DerivedTypeCache::ActiveLevels nestedRecursions =
       derivedTypeCache.startTranslating(Ty, placeHolder);
 
@@ -434,13 +429,8 @@ mlir::LLVM::DITypeAttr DebugTypeGenerator::convertRecordType(
           /*file=*/nullptr, /*line=*/0, /*scope=*/nullptr,
           convertType(seqTy.getEleTy(), fileAttr, scope, declOp),
           mlir::LLVM::DIFlags::Zero, /*sizeInBits=*/0, /*alignInBits=*/0,
-<<<<<<< HEAD
-          arrayElements, /*dataLocation=*/nullptr, /*rank=*/nullptr,
-          /*allocated=*/nullptr, /*associated=*/nullptr);
-=======
           /*dataLocation=*/nullptr, /*rank=*/nullptr,
           /*allocated=*/nullptr, /*associated=*/nullptr, arrayElements);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     } else
       elemTy = convertType(fieldTy, fileAttr, scope, /*declOp=*/nullptr);
     offset = llvm::alignTo(offset, byteAlign);
@@ -463,11 +453,6 @@ mlir::LLVM::DITypeAttr DebugTypeGenerator::convertRecordType(
 
   derivedTypeCache.finalize(Ty, finalAttr, std::move(nestedRecursions));
 
-<<<<<<< HEAD
-  derivedTypeCache.finalize(Ty, finalAttr, std::move(nestedRecursions));
-
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return finalAttr;
 }
 
@@ -505,13 +490,8 @@ mlir::LLVM::DITypeAttr DebugTypeGenerator::convertTupleType(
       context, llvm::dwarf::DW_TAG_structure_type,
       mlir::StringAttr::get(context, ""), fileAttr, /*line=*/0, scope,
       /*baseType=*/nullptr, mlir::LLVM::DIFlags::Zero, offset * 8,
-<<<<<<< HEAD
-      /*alignInBits=*/0, elements, /*dataLocation=*/nullptr, /*rank=*/nullptr,
-      /*allocated=*/nullptr, /*associated=*/nullptr);
-=======
       /*alignInBits=*/0, /*dataLocation=*/nullptr, /*rank=*/nullptr,
       /*allocated=*/nullptr, /*associated=*/nullptr, elements);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   derivedTypeCache.finalize(Ty, typeAttr, std::move(nestedRecursions));
   return typeAttr;
 }

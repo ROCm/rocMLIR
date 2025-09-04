@@ -74,22 +74,12 @@ bool BreakpointLocation::IsEnabled() const {
   return true;
 }
 
-<<<<<<< HEAD
-bool BreakpointLocation::SetEnabled(bool enabled) {
-  GetLocationOptions().SetEnabled(enabled);
-  const bool success =
-      enabled ? ResolveBreakpointSite() : ClearBreakpointSite();
-  SendBreakpointLocationChangedEvent(enabled ? eBreakpointEventTypeEnabled
-                                             : eBreakpointEventTypeDisabled);
-  return success;
-=======
 llvm::Error BreakpointLocation::SetEnabled(bool enabled) {
   GetLocationOptions().SetEnabled(enabled);
   llvm::Error error = enabled ? ResolveBreakpointSite() : ClearBreakpointSite();
   SendBreakpointLocationChangedEvent(enabled ? eBreakpointEventTypeEnabled
                                              : eBreakpointEventTypeDisabled);
   return error;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 bool BreakpointLocation::IsAutoContinue() const {
@@ -445,19 +435,10 @@ llvm::Error BreakpointLocation::ResolveBreakpointSite() {
   lldb::break_id_t new_id =
       process->CreateBreakpointSite(shared_from_this(), m_owner.IsHardware());
 
-<<<<<<< HEAD
-  if (new_id == LLDB_INVALID_BREAK_ID) {
-    LLDB_LOGF(GetLog(LLDBLog::Breakpoints),
-              "Failed to add breakpoint site at 0x%" PRIx64 "(resolved=%s)",
-              m_address.GetOpcodeLoadAddress(&m_owner.GetTarget()),
-              IsResolved() ? "yes" : "no");
-  }
-=======
   if (new_id == LLDB_INVALID_BREAK_ID)
     return llvm::createStringError(
         llvm::formatv("Failed to add breakpoint site at {0:x}",
                       m_address.GetOpcodeLoadAddress(&m_owner.GetTarget())));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   if (!IsResolved())
     return llvm::createStringError(

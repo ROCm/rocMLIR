@@ -93,12 +93,9 @@ def XeGPU_CreateNdDescOp: XeGPU_Op<"create_nd_tdesc", [Pure, ViewLikeOpInterface
         information e.g., memref<?x?xf16>, the strides information has to be explicitly
         passed via the "strides" and "const_strides" argument.
 
-<<<<<<< HEAD
-=======
     Results:
     - `res`: nd tensor descriptor
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     Example 1 (suppose the tensor shape inferred by the compiler is 8x16):
     ```mlir
     %0 = memref.alloc() : memref<1024x1024xf32>
@@ -775,10 +772,6 @@ def XeGPU_LoadGatherOp : XeGPU_Op<"load", [MemoryEffects<[MemRead]>]> {
     The mask operand masks out memory access so that it is safe to pass out-of-boundary
     addresses/offsets as long as they are masked. It applies to slots of SIMD lanes.
 
-<<<<<<< HEAD
-    In SIMT mode, the result vector represents the data to be loaded by each work-item.
-    Each work-item recieves a `chunk_size` number of elements.
-=======
     In SIMT mode, the result is a 1D vector that represents the data to be loaded by
     each work-item. If size is not 1, size should be equal to the chunk size,
 
@@ -799,7 +792,6 @@ def XeGPU_LoadGatherOp : XeGPU_Op<"load", [MemoryEffects<[MemRead]>]> {
     Results:
     - `res`: represents loaded data
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   Example 1:
   ```mlir
@@ -825,13 +817,6 @@ def XeGPU_LoadGatherOp : XeGPU_Op<"load", [MemoryEffects<[MemRead]>]> {
   The source operand could be a raw pointer (ui64, ui32, i64, i32). Please refer to create_tdesc
   for the restriction of memref.
   ```mlir
-<<<<<<< HEAD
-    %2 = xegpu.load %1, %0 <{l1_hint = #xegpu.cache_hint<cached>,
-                             l2_hint = #xegpu.cache_hint<uncached>,
-                             l3_hint = #xegpu.cache_hint<uncached>}>
-          : !xegpu.tensor_desc<16x8xf32, #xegpu.scatter_tdesc_attr<memory_space=global, chunk_size=8>>
-            vector<16xi1> -> vector<8xf32>
-=======
     %a = memref.alloc() : memref<1024xf32>
     %offsets = vector.step : vector<16xindex>
     %mask = vector.constant_mask [16]: vector<16xi1>
@@ -849,19 +834,10 @@ def XeGPU_LoadGatherOp : XeGPU_Op<"load", [MemoryEffects<[MemRead]>]> {
                              l2_hint = #xegpu.cache_hint<uncached>,
                              l3_hint = #xegpu.cache_hint<uncached>}>
           : memref<128xf32>, vector<1xindex>, vector<1xi1> -> vector<8xf32>
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   ```
 
   }];
 
-<<<<<<< HEAD
-  let arguments = (ins XeGPU_TensorDesc: $TensorDesc,
-                       XeGPU_MaskType: $mask,
-                       OptionalAttr<XeGPU_CacheHintAttr>: $l1_hint,
-                       OptionalAttr<XeGPU_CacheHintAttr>: $l2_hint,
-                       OptionalAttr<XeGPU_CacheHintAttr>: $l3_hint);
-  let results = (outs XeGPU_ValueType: $value);
-=======
   let arguments = (ins XeGPU_GatherScatterSourceType:$source,
       Optional<AnyTypeOf<[XeGPU_OffsetType, Index]>>:$offsets,
       AnyTypeOf<[XeGPU_MaskType, I1]>:$mask, OptionalAttr<I64Attr>:$chunk_size,
@@ -869,7 +845,6 @@ def XeGPU_LoadGatherOp : XeGPU_Op<"load", [MemoryEffects<[MemRead]>]> {
       OptionalAttr<XeGPU_CacheHintAttr>:$l2_hint,
       OptionalAttr<XeGPU_CacheHintAttr>:$l3_hint);
   let results = (outs AnyTypeOf<[XeGPU_ValueType, XeGPU_ScalarType]>:$value);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   let extraClassDeclaration = extraBaseClassDeclaration # [{
 
@@ -936,10 +911,6 @@ def XeGPU_StoreScatterOp : XeGPU_Op<"store", [MemoryEffects<[MemWrite]>]> {
   has transpose effect, which is similar to `load_gather`. Therefore, a transpose attribute is
   introduced on purpose, making sure users are aware of this implicit transformation.
 
-<<<<<<< HEAD
-  In SIMT mode, the input vector represents the data to be stored by each work-item.
-  Each work-item stores a `chunk_size` number of elements.
-=======
   In SIMT mode, the result is a 1D vector that represents the data to be stored by
   each work-item. If size is not 1, size should be equal to the chunk size.
 
@@ -957,7 +928,6 @@ def XeGPU_StoreScatterOp : XeGPU_Op<"store", [MemoryEffects<[MemWrite]>]> {
         scalar mask is also valid for SIMT mode.
     - `chunk_size`: (optional) represents contiguous number of elements to store to per work item.
     - `l1_hint`, `l2_hint`, `l3_hint`: are optional cache hints for each level of cache.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   Example 1:
   ```mlir
@@ -973,8 +943,6 @@ def XeGPU_StoreScatterOp : XeGPU_Op<"store", [MemoryEffects<[MemWrite]>]> {
                              l2_hint = #xegpu.cache_hint<write_back>,
                              l3_hint = #xegpu.cache_hint<write_through>}>
           : vector<16x8xf32>, !xegpu.tensor_desc<16x8xf32, #xegpu.scattered_tdesc_attr<chunk_size=8>>, vector<16xi1>
-<<<<<<< HEAD
-=======
   ```
 
   Example 3:
@@ -1001,27 +969,10 @@ def XeGPU_StoreScatterOp : XeGPU_Op<"store", [MemoryEffects<[MemWrite]>]> {
                              l2_hint = #xegpu.cache_hint<write_back>,
                              l3_hint = #xegpu.cache_hint<write_through>}>
           : vector<8xf32>, memref<256xf32>, vector<1xindex>, vector<1xi1>
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   ```
 
-  Example 3 (SIMT mode):
-  ```mlir
-    xegpu.store %0, %1, %2 <{l1_hint = #xegpu.cache_hint<uncached>,
-                             l2_hint = #xegpu.cache_hint<write_back>,
-                             l3_hint = #xegpu.cache_hint<write_through>}>
-          : vector<8xf32>, !xegpu.tensor_desc<16x8xf32, #xegpu.scattered_tdesc_attr<chunk_size=8>> vector<16xi1>
-  ```
   }];
 
-<<<<<<< HEAD
-  let arguments = (ins
-    XeGPU_ValueType: $value,
-    XeGPU_TensorDesc: $TensorDesc,
-    XeGPU_MaskType: $mask,
-    OptionalAttr<XeGPU_CacheHintAttr>: $l1_hint,
-    OptionalAttr<XeGPU_CacheHintAttr>: $l2_hint,
-    OptionalAttr<XeGPU_CacheHintAttr>: $l3_hint);
-=======
   let arguments = (ins AnyTypeOf<[XeGPU_ValueType, XeGPU_ScalarType]>:$value,
       XeGPU_GatherScatterSourceType:$dest,
       Optional<AnyTypeOf<[XeGPU_OffsetType, Index]>>:$offsets,
@@ -1041,7 +992,6 @@ def XeGPU_StoreScatterOp : XeGPU_Op<"store", [MemoryEffects<[MemWrite]>]> {
       }
       return TypedValue<xegpu::TensorDescType>();
     }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     xegpu::TensorDescType getTensorDescType() {
       return dyn_cast<xegpu::TensorDescType>(getDestType());

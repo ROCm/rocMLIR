@@ -68,11 +68,7 @@ class TestDAP_setBreakpointsAssembly(lldbdap_testcase.DAPTestCaseBase):
 
         # Verify that setting a breakpoint on a source reference that is not created fails
         response = self.dap_server.request_setBreakpoints(
-<<<<<<< HEAD
-            Source(source_reference=200), [1]
-=======
             Source.build(source_reference=200), [1]
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         )
         self.assertIsNotNone(response)
         breakpoints = response["body"]["breakpoints"]

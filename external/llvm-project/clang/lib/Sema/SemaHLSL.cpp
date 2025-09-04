@@ -39,10 +39,7 @@
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
-<<<<<<< HEAD
-=======
 #include "llvm/Frontend/HLSL/HLSLBinding.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/Frontend/HLSL/RootSignatureValidations.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/DXILABI.h"
@@ -1105,12 +1102,6 @@ void SemaHLSL::ActOnFinishRootSignatureDecl(
   auto *SignatureDecl = HLSLRootSignatureDecl::Create(
       SemaRef.getASTContext(), /*DeclContext=*/SemaRef.CurContext, Loc,
       DeclIdent, SemaRef.getLangOpts().HLSLRootSigVer, Elements);
-<<<<<<< HEAD
-
-  if (handleRootSignatureDecl(SignatureDecl, Loc))
-    return;
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   SignatureDecl->setImplicit();
   SemaRef.PushOnScopeChains(SignatureDecl, SemaRef.getCurScope());
@@ -1259,59 +1250,6 @@ bool SemaHLSL::handleRootSignatureElements(
       VerifyRegister(Loc, Descriptor->Reg.Number);
       VerifySpace(Loc, Descriptor->Space);
 
-<<<<<<< HEAD
-      Info.Class =
-          llvm::dxil::ResourceClass(llvm::to_underlying(Descriptor->Type));
-      Info.Space = Descriptor->Space;
-      Info.Visibility = Descriptor->Visibility;
-      Infos.push_back(Info);
-    } else if (const auto *Constants =
-                   std::get_if<llvm::hlsl::rootsig::RootConstants>(&Elem)) {
-      RangeInfo Info;
-      Info.LowerBound = Constants->Reg.Number;
-      Info.UpperBound = Info.LowerBound; // use inclusive ranges []
-
-      Info.Class = llvm::dxil::ResourceClass::CBuffer;
-      Info.Space = Constants->Space;
-      Info.Visibility = Constants->Visibility;
-      Infos.push_back(Info);
-    } else if (const auto *Sampler =
-                   std::get_if<llvm::hlsl::rootsig::StaticSampler>(&Elem)) {
-      RangeInfo Info;
-      Info.LowerBound = Sampler->Reg.Number;
-      Info.UpperBound = Info.LowerBound; // use inclusive ranges []
-
-      Info.Class = llvm::dxil::ResourceClass::Sampler;
-      Info.Space = Sampler->Space;
-      Info.Visibility = Sampler->Visibility;
-      Infos.push_back(Info);
-    } else if (const auto *Clause =
-                   std::get_if<llvm::hlsl::rootsig::DescriptorTableClause>(
-                       &Elem)) {
-      RangeInfo Info;
-      Info.LowerBound = Clause->Reg.Number;
-      assert(0 < Clause->NumDescriptors && "Verified as part of TODO(#129940)");
-      Info.UpperBound = Clause->NumDescriptors == RangeInfo::Unbounded
-                            ? RangeInfo::Unbounded
-                            : Info.LowerBound + Clause->NumDescriptors -
-                                  1; // use inclusive ranges []
-
-      Info.Class = Clause->Type;
-      Info.Space = Clause->Space;
-      // Note: Clause does not hold the visibility this will need to
-      Infos.push_back(Info);
-    } else if (const auto *Table =
-                   std::get_if<llvm::hlsl::rootsig::DescriptorTable>(&Elem)) {
-      // Table holds the Visibility of all owned Clauses in Table, so iterate
-      // owned Clauses and update their corresponding RangeInfo
-      assert(Table->NumClauses <= Infos.size() && "RootElement");
-      // The last Table->NumClauses elements of Infos are the owned Clauses
-      // generated RangeInfo
-      auto TableInfos =
-          MutableArrayRef<RangeInfo>(Infos).take_back(Table->NumClauses);
-      for (RangeInfo &Info : TableInfos)
-        Info.Visibility = Table->Visibility;
-=======
       if (!llvm::hlsl::rootsig::verifyRootDescriptorFlag(
               Version, llvm::to_underlying(Descriptor->Flags)))
         ReportFlagError(Loc);
@@ -1349,7 +1287,6 @@ bool SemaHLSL::handleRootSignatureElements(
               Version, llvm::to_underlying(Clause->Type),
               llvm::to_underlying(Clause->Flags)))
         ReportFlagError(Loc);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
   }
 
@@ -1382,23 +1319,6 @@ bool SemaHLSL::handleRootSignatureElements(
       uint32_t LowerBound(Sampler->Reg.Number);
       uint32_t UpperBound(LowerBound); // inclusive range
 
-<<<<<<< HEAD
-  // Helper to report diagnostics
-  auto ReportOverlap = [this, Loc, &HadOverlap](const RangeInfo *Info,
-                                                const RangeInfo *OInfo) {
-    HadOverlap = true;
-    auto CommonVis = Info->Visibility == llvm::dxbc::ShaderVisibility::All
-                         ? OInfo->Visibility
-                         : Info->Visibility;
-    this->Diag(Loc, diag::err_hlsl_resource_range_overlap)
-        << llvm::to_underlying(Info->Class) << Info->LowerBound
-        << /*unbounded=*/(Info->UpperBound == RangeInfo::Unbounded)
-        << Info->UpperBound << llvm::to_underlying(OInfo->Class)
-        << OInfo->LowerBound
-        << /*unbounded=*/(OInfo->UpperBound == RangeInfo::Unbounded)
-        << OInfo->UpperBound << Info->Space << CommonVis;
-  };
-=======
       BindingChecker.trackBinding(
           Sampler->Visibility, llvm::dxil::ResourceClass::Sampler,
           Sampler->Space, LowerBound, UpperBound, &RootSigElem);
@@ -1420,7 +1340,6 @@ bool SemaHLSL::handleRootSignatureElements(
         uint32_t UpperBound = Clause->NumDescriptors == ~0u
                                   ? ~0u
                                   : LowerBound + Clause->NumDescriptors - 1;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
         BindingChecker.trackBinding(
             Table->Visibility,
@@ -1429,34 +1348,6 @@ bool SemaHLSL::handleRootSignatureElements(
       }
       UnboundClauses.clear();
     }
-<<<<<<< HEAD
-
-    // 3A: Insert range info into corresponding Visibility ResourceRange
-    ResourceRange &VisRange = Ranges[llvm::to_underlying(Info.Visibility)];
-    if (std::optional<const RangeInfo *> Overlapping = VisRange.insert(Info))
-      ReportOverlap(&Info, Overlapping.value());
-
-    // 3B: Check for overlap in all overlapping Visibility ResourceRanges
-    //
-    // If the range that we are inserting has ShaderVisiblity::All it needs to
-    // check for an overlap in all other visibility types as well.
-    // Otherwise, the range that is inserted needs to check that it does not
-    // overlap with ShaderVisibility::All.
-    //
-    // OverlapRanges will be an ArrayRef to all non-all visibility
-    // ResourceRanges in the former case and it will be an ArrayRef to just the
-    // all visiblity ResourceRange in the latter case.
-    ArrayRef<ResourceRange> OverlapRanges =
-        Info.Visibility == llvm::dxbc::ShaderVisibility::All
-            ? ArrayRef<ResourceRange>{Ranges}.drop_front()
-            : ArrayRef<ResourceRange>{Ranges}.take_front();
-
-    for (const ResourceRange &Range : OverlapRanges)
-      if (std::optional<const RangeInfo *> Overlapping =
-              Range.getOverlapping(Info))
-        ReportOverlap(&Info, Overlapping.value());
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   return BindingChecker.checkOverlap();

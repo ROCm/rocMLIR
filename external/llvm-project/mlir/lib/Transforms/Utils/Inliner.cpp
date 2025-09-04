@@ -21,11 +21,7 @@
 #include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/SCCIterator.h"
 #include "llvm/ADT/STLExtras.h"
-<<<<<<< HEAD
-#include "llvm/Support/Debug.h"
-=======
 #include "llvm/Support/DebugLog.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #define DEBUG_TYPE "inlining"
 

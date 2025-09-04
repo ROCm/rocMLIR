@@ -14,11 +14,7 @@ typedef struct {
   unsigned f; // type other than int above, not a bitfield
 } S;
 // CIR-DAG:  !rec_S = !cir.record<struct "S" {!u64i, !u16i, !u32i}>
-<<<<<<< HEAD
-// CIR-DAG:  #bfi_c = #cir.bitfield_info<name = "c", storageType = !u64i, size = 17, offset = 32, isSigned = true>
-=======
 // CIR-DAG:  #bfi_c = #cir.bitfield_info<name = "c", storage_type = !u64i, size = 17, offset = 32, is_signed = true>
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // LLVM-DAG: %struct.S = type { i64, i16, i32 }
 // OGCG-DAG: %struct.S = type { i64, i16, i32 }
 
@@ -43,22 +39,14 @@ int load_field(S* s) {
 // CIR:   [[TMP0:%.*]] = cir.alloca !cir.ptr<!rec_S>, !cir.ptr<!cir.ptr<!rec_S>>, ["s", init]
 // CIR:   [[TMP1:%.*]] = cir.load{{.*}} [[TMP0]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
 // CIR:   [[TMP2:%.*]] = cir.get_member [[TMP1]][0] {name = "c"} : !cir.ptr<!rec_S> -> !cir.ptr<!u64i>
-<<<<<<< HEAD
-// CIR:   [[TMP3:%.*]] = cir.get_bitfield(#bfi_c, [[TMP2]] : !cir.ptr<!u64i>) -> !s32i
-=======
 // CIR:   [[TMP3:%.*]] = cir.get_bitfield align(4) (#bfi_c, [[TMP2]] : !cir.ptr<!u64i>) -> !s32i
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 // LLVM: define dso_local i32 @_Z10load_fieldP1S
 // LLVM:   [[TMP0:%.*]] = alloca ptr, i64 1, align 8
 // LLVM:   [[TMP1:%.*]] = alloca i32, i64 1, align 4
 // LLVM:   [[TMP2:%.*]] = load ptr, ptr [[TMP0]], align 8
 // LLVM:   [[TMP3:%.*]] = getelementptr %struct.S, ptr [[TMP2]], i32 0, i32 0
-<<<<<<< HEAD
-// LLVM:   [[TMP4:%.*]] = load i64, ptr [[TMP3]], align 8
-=======
 // LLVM:   [[TMP4:%.*]] = load i64, ptr [[TMP3]], align 4
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // LLVM:   [[TMP5:%.*]] = shl i64 [[TMP4]], 15
 // LLVM:   [[TMP6:%.*]] = ashr i64 [[TMP5]], 47
 // LLVM:   [[TMP7:%.*]] = trunc i64 [[TMP6]] to i32
@@ -70,8 +58,6 @@ int load_field(S* s) {
 // OGCG:  [[TMP3:%.*]] = shl i64 [[TMP2]], 15
 // OGCG:  [[TMP4:%.*]] = ashr i64 [[TMP3]], 47
 // OGCG:  [[TMP5:%.*]] = trunc i64 [[TMP4]] to i32
-<<<<<<< HEAD
-=======
 
 void store_field() {
   S s;
@@ -139,4 +125,3 @@ void store_bitfield_to_bitfield(S* s) {
 // OGCG:   [[TMP7:%.*]] = and i64 [[TMP6]], -16
 // OGCG:   [[TMP8:%.*]] = or i64 [[TMP7]], 3
 // OGCG:   store i64 [[TMP8]], ptr [[TMP5]], align 4
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

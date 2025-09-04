@@ -65,11 +65,7 @@ TEST_CONSTEXPR_CXX23 bool test() {
     std::bitset<std::numeric_limits<unsigned long long>::digits + 1> q(0);
     q.flip();
     try {
-<<<<<<< HEAD
-      q.to_ullong(); // throws
-=======
       (void)q.to_ullong(); // throws
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       assert(false);
     } catch (const std::overflow_error&) {
       // expected

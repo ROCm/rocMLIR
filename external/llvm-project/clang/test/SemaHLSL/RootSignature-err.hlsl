@@ -21,11 +21,6 @@ void bad_root_signature_3() {}
 [RootSignature("DescriptorTable(), invalid")]
 void bad_root_signature_4() {}
 
-<<<<<<< HEAD
-// expected-error@+1 {{expected ')' to denote end of parameters, or, another valid parameter of RootConstants}}
-[RootSignature("RootConstants(b0, num32BitConstants = 1, invalid)")]
-void bad_root_signature_5() {}
-=======
 // expected-error@+1 {{expected ')' or ','}}
 [RootSignature("RootConstants(b0 num32BitConstants = 1)")]
 void bad_root_signature_5() {}
@@ -195,4 +190,3 @@ void basic_validation_5() {}
 // expected-error@+1 {{value must be in the range [-16.00, 15.99]}}
 [RootSignature("StaticSampler(s0, mipLODBias = 15.990001)")]
 void basic_validation_6() {}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

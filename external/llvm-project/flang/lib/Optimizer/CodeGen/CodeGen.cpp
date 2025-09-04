@@ -1327,11 +1327,7 @@ getTypeDescriptor(ModOpTy mod, mlir::ConversionPatternRewriter &rewriter,
   if (options.ignoreMissingTypeDescriptors ||
       fir::NameUniquer::belongsToModule(
           name, Fortran::semantics::typeInfoBuiltinModule))
-<<<<<<< HEAD
-    return rewriter.create<mlir::LLVM::ZeroOp>(loc, llvmPtrTy);
-=======
     return mlir::LLVM::ZeroOp::create(rewriter, loc, llvmPtrTy);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   if (!options.skipExternalRttiDefinition)
     fir::emitFatalError(loc,
@@ -1344,21 +1340,12 @@ getTypeDescriptor(ModOpTy mod, mlir::ConversionPatternRewriter &rewriter,
   // option. Generate the object declaration now.
   auto insertPt = rewriter.saveInsertionPoint();
   rewriter.setInsertionPoint(mod.getBody(), mod.getBody()->end());
-<<<<<<< HEAD
-  mlir::LLVM::GlobalOp global = rewriter.create<mlir::LLVM::GlobalOp>(
-      loc, llvmPtrTy, /*constant=*/true, mlir::LLVM::Linkage::External, name,
-      mlir::Attribute());
-  rewriter.restoreInsertionPoint(insertPt);
-  return rewriter.create<mlir::LLVM::AddressOfOp>(loc, llvmPtrTy,
-                                                  global.getSymName());
-=======
   mlir::LLVM::GlobalOp global = mlir::LLVM::GlobalOp::create(
       rewriter, loc, llvmPtrTy, /*constant=*/true,
       mlir::LLVM::Linkage::External, name, mlir::Attribute());
   rewriter.restoreInsertionPoint(insertPt);
   return mlir::LLVM::AddressOfOp::create(rewriter, loc, llvmPtrTy,
                                          global.getSymName());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 /// Common base class for embox to descriptor conversion.

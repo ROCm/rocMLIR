@@ -2466,17 +2466,12 @@ static OpFoldResult foldFromElementsToConstant(FromElementsOp fromElementsOp,
   if (llvm::any_of(elements, [](Attribute attr) { return !attr; }))
     return {};
 
-<<<<<<< HEAD
-  auto destVecType = fromElementsOp.getDest().getType();
-  auto destEltType = destVecType.getElementType();
-=======
   // DenseElementsAttr only supports int/index/float/complex types.
   auto destVecType = fromElementsOp.getDest().getType();
   auto destEltType = destVecType.getElementType();
   if (!destEltType.isIntOrIndexOrFloat() && !isa<ComplexType>(destEltType))
     return {};
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // Constant attributes might have a different type than the return type.
   // Convert them before creating the dense elements attribute.
   auto convertedElements = llvm::map_to_vector(elements, [&](Attribute attr) {
@@ -2484,18 +2479,6 @@ static OpFoldResult foldFromElementsToConstant(FromElementsOp fromElementsOp,
   });
 
   return DenseElementsAttr::get(destVecType, convertedElements);
-<<<<<<< HEAD
-}
-
-OpFoldResult FromElementsOp::fold(FoldAdaptor adaptor) {
-  if (auto res = foldFromElementsToElements(*this))
-    return res;
-  if (auto res = foldFromElementsToConstant(*this, adaptor.getElements()))
-    return res;
-
-  return {};
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 OpFoldResult FromElementsOp::fold(FoldAdaptor adaptor) {
@@ -4529,11 +4512,7 @@ void TransferReadOp::build(OpBuilder &builder, OperationState &result,
 
   Type elemType = llvm::cast<ShapedType>(source.getType()).getElementType();
   if (!padding)
-<<<<<<< HEAD
-    padding = builder.create<ub::PoisonOp>(result.location, elemType);
-=======
     padding = ub::PoisonOp::create(builder, result.location, elemType);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   build(builder, result, vectorType, source, indices, permutationMapAttr,
         *padding, /*mask=*/Value(), inBoundsAttr);
 }
@@ -4551,11 +4530,7 @@ void TransferReadOp::build(OpBuilder &builder, OperationState &result,
                                 SmallVector<bool>(vectorType.getRank(), false));
   Type elemType = llvm::cast<ShapedType>(source.getType()).getElementType();
   if (!padding)
-<<<<<<< HEAD
-    padding = builder.create<ub::PoisonOp>(result.location, elemType);
-=======
     padding = ub::PoisonOp::create(builder, result.location, elemType);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   build(builder, result, vectorType, source, indices, *padding,
         permutationMapAttr, inBoundsAttr);
 }
@@ -4574,11 +4549,7 @@ void TransferReadOp::build(OpBuilder &builder, OperationState &result,
                                 SmallVector<bool>(vectorType.getRank(), false));
   Type elemType = llvm::cast<ShapedType>(source.getType()).getElementType();
   if (!padding)
-<<<<<<< HEAD
-    padding = builder.create<ub::PoisonOp>(result.location, elemType);
-=======
     padding = ub::PoisonOp::create(builder, result.location, elemType);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   build(builder, result, vectorType, source, indices, permutationMapAttr,
         *padding,
         /*mask=*/Value(), inBoundsAttr);

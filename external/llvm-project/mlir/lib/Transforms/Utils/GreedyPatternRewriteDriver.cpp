@@ -24,12 +24,8 @@
 #include "mlir/Transforms/RegionUtils.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
-<<<<<<< HEAD
-#include "llvm/Support/Debug.h"
-=======
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/DebugLog.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/raw_ostream.h"
 

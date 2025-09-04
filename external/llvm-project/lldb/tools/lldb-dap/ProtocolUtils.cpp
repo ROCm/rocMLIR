@@ -51,22 +51,6 @@ static bool ShouldDisplayAssemblySource(
   return false;
 }
 
-<<<<<<< HEAD
-std::optional<protocol::Source> CreateSource(const lldb::SBFileSpec &file) {
-  if (!file.IsValid())
-    return std::nullopt;
-
-  protocol::Source source;
-  if (const char *name = file.GetFilename())
-    source.name = name;
-  char path[PATH_MAX] = "";
-  if (file.GetPath(path, sizeof(path)) &&
-      lldb::SBFileSpec::ResolvePath(path, path, PATH_MAX))
-    source.path = path;
-  return source;
-}
-
-=======
 static uint64_t GetDebugInfoSizeInSection(lldb::SBSection section) {
   uint64_t debug_info_size = 0;
   const llvm::StringRef section_name(section.GetName());
@@ -181,7 +165,6 @@ std::optional<protocol::Source> CreateSource(const lldb::SBFileSpec &file) {
   return source;
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 bool IsAssemblySource(const protocol::Source &source) {
   // According to the specification, a source must have either `path` or
   // `sourceReference` specified. We use `path` for sources with known source

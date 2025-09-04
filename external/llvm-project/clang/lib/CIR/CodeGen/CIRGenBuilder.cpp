@@ -65,8 +65,6 @@ clang::CIRGen::CIRGenBuilderTy::getConstFP(mlir::Location loc, mlir::Type t,
                                            llvm::APFloat fpVal) {
   assert(mlir::isa<cir::FPTypeInterface>(t) && "expected floating point type");
   return create<cir::ConstantOp>(loc, cir::FPAttr::get(t, fpVal));
-<<<<<<< HEAD
-=======
 }
 
 void CIRGenBuilderTy::computeGlobalViewIndicesFromFlatOffset(
@@ -130,7 +128,6 @@ void CIRGenBuilderTy::computeGlobalViewIndicesFromFlatOffset(
 
   assert(subType);
   computeGlobalViewIndicesFromFlatOffset(offset, subType, layout, indices);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 // This can't be defined in Address.h because that file is included by

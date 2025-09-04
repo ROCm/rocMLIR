@@ -215,11 +215,7 @@
 
 // RUN: %clang --target=riscv32 %s -emit-llvm -S -o - | FileCheck %s
 
-<<<<<<< HEAD
-// Check that "--no-relax" is forwarded to the linker for RISC-V.
-=======
 /// Check that "--no-relax" is forwarded to the linker for RISC-V.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // RUN: env "PATH=" %clang %s -### 2>&1 -mno-relax \
 // RUN:   --target=riscv32-unknown-elf --rtlib=platform --unwindlib=platform --sysroot= \
 // RUN:   -march=rv32imac -mabi=lp32\
@@ -227,11 +223,7 @@
 // RUN:   | FileCheck --check-prefix=CHECK-RV32-NORELAX %s
 // CHECK-RV32-NORELAX: "--no-relax"
 
-<<<<<<< HEAD
-// Check that "--no-relax" is not forwarded to the linker for RISC-V.
-=======
 /// Check that "--no-relax" is not forwarded to the linker for RISC-V.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // RUN:env "PATH=" %clang %s -### 2>&1 \
 // RUN:   --target=riscv32-unknown-elf --rtlib=platform --unwindlib=platform --sysroot= \
 // RUN:   -march=rv32imac -mabi=lp32\

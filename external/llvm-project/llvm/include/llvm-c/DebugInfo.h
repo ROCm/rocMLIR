@@ -1470,16 +1470,6 @@ LLVM_C_ABI void LLVMDISubprogramReplaceType(LLVMMetadataRef Subprogram,
                                             LLVMMetadataRef SubroutineType);
 
 /**
- * Replace the subprogram subroutine type.
- * \param Subprogram        The subprogram object.
- * \param SubroutineType    The new subroutine type.
- *
- * @see DISubprogram::replaceType()
- */
-void LLVMDISubprogramReplaceType(LLVMMetadataRef Subprogram,
-                                 LLVMMetadataRef SubroutineType);
-
-/**
  * Get the debug location for the given instruction.
  *
  * @see llvm::Instruction::getDebugLoc()

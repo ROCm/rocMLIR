@@ -110,11 +110,7 @@ struct CloneOpConversion : public OpConversionPattern<bufferization::CloneOp> {
             memref::CastOp::create(rewriter, op->getLoc(), memrefType, alloc);
     }
 
-<<<<<<< HEAD
-    rewriter.create<memref::CopyOp>(loc, op.getInput(), alloc);
-=======
     memref::CopyOp::create(rewriter, loc, op.getInput(), alloc);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     rewriter.replaceOp(op, alloc);
     return success();
   }

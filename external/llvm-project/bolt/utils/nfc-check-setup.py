@@ -7,11 +7,8 @@ import subprocess
 import sys
 import textwrap
 
-<<<<<<< HEAD
-=======
 msg_prefix = "\n> NFC-Mode:"
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 def get_relevant_bolt_changes(dir: str) -> str:
     # Return a list of bolt source changes that are relevant to testing.
     all_changes = subprocess.run(
@@ -83,15 +80,12 @@ def main():
         help="Path to BOLT build directory, default is current " "directory",
     )
     parser.add_argument(
-<<<<<<< HEAD
-=======
         "--create-wrapper",
         default=False,
         action="store_true",
         help="Sets up llvm-bolt as a symlink to llvm-bolt-wrapper. Passes the options through to llvm-bolt-wrapper.",
     )
     parser.add_argument(
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         "--check-bolt-sources",
         default=False,
         action="store_true",
@@ -156,11 +150,7 @@ def main():
             print(f"BOLT source changes were found:\n{file_changes}")
             open(marker, "a").close()
 
-<<<<<<< HEAD
-    # determine whether a stash is needed
-=======
     # Determine whether a stash is needed.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     stash = subprocess.run(
         shlex.split("git status --porcelain"),
         cwd=source_dir,

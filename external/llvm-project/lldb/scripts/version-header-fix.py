@@ -28,13 +28,10 @@ def main():
     args = parser.parse_args()
     input_path = str(args.input_path)
     output_path = str(args.output_path)
-<<<<<<< HEAD
-=======
 
     # Create the output dir if it doesn't already exist
     if not os.path.exists(os.path.dirname(output_path)):
         os.makedirs(os.path.dirname(output_path))
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     with open(input_path, "r") as input_file:
         lines = input_file.readlines()

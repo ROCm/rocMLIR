@@ -90,11 +90,7 @@ public:
           arith::ConstantIndexOp::create(rewriter, loc, memRefShape[i]);
       auto step = arith::ConstantIndexOp::create(rewriter, loc, 1);
       auto loop =
-<<<<<<< HEAD
-          rewriter.create<scf::ForOp>(loc, lowerBound, upperBound, step);
-=======
           scf::ForOp::create(rewriter, loc, lowerBound, upperBound, step);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       for (Operation &nested : make_early_inc_range(*loop.getBody()))
         rewriter.eraseOp(&nested);
       loopIvs.push_back(loop.getInductionVar());

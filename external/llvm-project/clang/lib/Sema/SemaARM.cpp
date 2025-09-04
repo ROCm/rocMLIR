@@ -1579,8 +1579,6 @@ bool SemaARM::areLaxCompatibleSveTypes(QualType FirstType,
          IsLaxCompatible(SecondType, FirstType);
 }
 
-<<<<<<< HEAD
-=======
 bool SemaARM::checkTargetVersionAttr(const StringRef Param,
                                      const SourceLocation Loc) {
   using namespace DiagAttrParams;
@@ -1672,5 +1670,4 @@ bool SemaARM::checkTargetClonesAttr(
   return false;
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 } // namespace clang

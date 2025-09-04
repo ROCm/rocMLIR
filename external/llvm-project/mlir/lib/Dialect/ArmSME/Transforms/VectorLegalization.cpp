@@ -937,15 +937,6 @@ struct LowerColumnTransferReadToLoops
 
     // Create a loop over all rows and load one element at a time.
     auto loc = readOp.getLoc();
-<<<<<<< HEAD
-    auto lowerBound = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    auto createVscaleMultiple =
-        vector::makeVscaleConstantBuilder(rewriter, loc);
-    auto upperBound = createVscaleMultiple(numRows);
-    auto step = rewriter.create<arith::ConstantIndexOp>(loc, 1);
-    Value init = rewriter.create<arith::ConstantOp>(
-        loc, newResType, DenseElementsAttr::get(newResType, 0.0f));
-=======
     auto lowerBound = arith::ConstantIndexOp::create(rewriter, loc, 0);
     auto createVscaleMultiple =
         vector::makeVscaleConstantBuilder(rewriter, loc);
@@ -953,35 +944,16 @@ struct LowerColumnTransferReadToLoops
     auto step = arith::ConstantIndexOp::create(rewriter, loc, 1);
     Value init = arith::ConstantOp::create(
         rewriter, loc, newResType, DenseElementsAttr::get(newResType, 0.0f));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     scf::ForOp loadLoop;
     {
       OpBuilder::InsertionGuard g(rewriter);
-<<<<<<< HEAD
-      loadLoop = rewriter.create<scf::ForOp>(loc, lowerBound, upperBound, step,
-                                             ValueRange{init});
-=======
       loadLoop = scf::ForOp::create(rewriter, loc, lowerBound, upperBound, step,
                                     ValueRange{init});
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       rewriter.setInsertionPointToStart(loadLoop.getBody());
 
       auto tileSliceIndex = loadLoop.getInductionVar();
 
-<<<<<<< HEAD
-      auto idx0 = rewriter.create<arith::AddIOp>(loc, tileSliceIndex,
-                                                 readOp.getIndices()[0]);
-      auto idx1 = readOp.getIndices()[1];
-
-      Value scalar = rewriter.create<memref::LoadOp>(
-          loc, readOp.getBase(), SmallVector<Value>({idx0, idx1}));
-
-      Operation *updateInit = rewriter.create<vector::InsertOp>(
-          loc, scalar, loadLoop.getRegionIterArg(0), tileSliceIndex);
-
-      rewriter.create<scf::YieldOp>(loc, updateInit->getResult(0));
-=======
       auto idx0 = arith::AddIOp::create(rewriter, loc, tileSliceIndex,
                                         readOp.getIndices()[0]);
       auto idx1 = readOp.getIndices()[1];
@@ -993,20 +965,14 @@ struct LowerColumnTransferReadToLoops
           rewriter, loc, scalar, loadLoop.getRegionIterArg(0), tileSliceIndex);
 
       scf::YieldOp::create(rewriter, loc, updateInit->getResult(0));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
 
     // The read operation has been "legalized", but since the original result
     // type was a 2D vector, we need to cast before returning the result. This
     // ShapeCast should cancel-out with some other ShapeCast (i.e. it's a
     // no-op).
-<<<<<<< HEAD
-    auto sc = rewriter.create<vector::ShapeCastOp>(
-        loc, readOp.getResult().getType(), loadLoop.getResult(0));
-=======
     auto sc = vector::ShapeCastOp::create(
         rewriter, loc, readOp.getResult().getType(), loadLoop.getResult(0));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     rewriter.replaceOp(readOp, sc);
 

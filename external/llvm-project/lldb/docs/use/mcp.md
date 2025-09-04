@@ -75,9 +75,6 @@ Configuration example for [Visual Studio Code](https://code.visualstudio.com/doc
 }
 ```
 
-<<<<<<< HEAD
-### Troubleshooting
-=======
 ## Tools
 
 Tools are a primitive in the Model Context Protocol that enable servers to
@@ -141,7 +138,6 @@ Note that unlike the debugger id, which is unique, the target index is not
 stable and may be reused when a target is removed and a new target is added.
 
 ## Troubleshooting
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 The MCP server uses the `Host` log channel. You can enable logging with the
 `log enable` command.

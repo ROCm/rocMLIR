@@ -133,15 +133,6 @@ struct GpuLaneIdBuilder : public GpuIdBuilder {
   int64_t warpSize = 32;
 };
 
-/// Builder for lane id.
-/// The `idBuilder` method returns nD values used for indexing rewrites as well
-/// as 1D sizes for predicate generation.
-/// This `useLinearMapping` case is the only supported case.
-struct GpuLaneIdBuilder : public GpuIdBuilder {
-  GpuLaneIdBuilder(MLIRContext *ctx, int64_t warpSize, bool unused);
-  int64_t warpSize = 32;
-};
-
 /// Determine if the size of the kernel configuration is supported by the
 /// GPU architecture being used.
 /// TODO this is currently hardwired to CUDA, parameterize and generalize.

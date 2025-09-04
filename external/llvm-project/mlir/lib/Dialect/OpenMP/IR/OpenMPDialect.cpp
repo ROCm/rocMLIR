@@ -14,10 +14,6 @@
 #include "mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
-<<<<<<< HEAD
-#include "mlir/Dialect/OpenACCMPCommon/Interfaces/AtomicInterfaces.h"
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "mlir/Dialect/OpenMP/OpenMPClauseOperands.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"

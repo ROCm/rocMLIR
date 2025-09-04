@@ -80,14 +80,10 @@ DEPENDENT_RUNTIMES_TO_TEST = {
     "clang": {"compiler-rt"},
     "clang-tools-extra": {"libc"},
     "libc": {"libc"},
-<<<<<<< HEAD
-    ".ci": {"compiler-rt", "libc"},
-=======
     "compiler-rt": {"compiler-rt"},
     "flang": {"flang-rt"},
     "flang-rt": {"flang-rt"},
     ".ci": {"compiler-rt", "libc", "flang-rt"},
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 DEPENDENT_RUNTIMES_TO_TEST_NEEDS_RECONFIG = {
     "llvm": {"libcxx", "libcxxabi", "libunwind"},

@@ -17,14 +17,9 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Interfaces/ValueBoundsOpInterface.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/IntEqClasses.h"
-<<<<<<< HEAD
-#include "llvm/Support/Debug.h"
-=======
 #include "llvm/Support/DebugLog.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/Support/InterleavedRange.h"
 
 #define DEBUG_TYPE "affine-min-max"
@@ -52,18 +47,9 @@ static bool simplifyAffineMinMaxOp(RewriterBase &rewriter, AffineOp affineOp) {
       [&](unsigned i) {
         return Variable(affineMap.getSliceMap(i, 1), operands);
       });
-<<<<<<< HEAD
-  LLVM_DEBUG({
-    DBGS() << "- constructed variables are: "
-           << llvm::interleaved_array(llvm::map_range(
-                  variables, [](const Variable &v) { return v.getMap(); }))
-           << "`\n";
-  });
-=======
   LDBG() << "- constructed variables are: "
          << llvm::interleaved_array(llvm::map_range(
                 variables, [](const Variable &v) { return v.getMap(); }));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // Get the comparison operation.
   ComparisonOperator cmpOp =
@@ -136,21 +122,11 @@ static bool simplifyAffineMinMaxOp(RewriterBase &rewriter, AffineOp affineOp) {
   for (auto [k, bound] : bounds)
     results.push_back(bound->getMap().getResult(0));
 
-<<<<<<< HEAD
-  LLVM_DEBUG({
-    DBGS() << "- starting from map: " << affineMap << "\n";
-    DBGS() << "- creating new map with: \n";
-    DBGS() << "--- dims: " << affineMap.getNumDims() << "\n";
-    DBGS() << "--- syms: " << affineMap.getNumSymbols() << "\n";
-    DBGS() << "--- res: " << llvm::interleaved_array(results) << "\n";
-  });
-=======
   LDBG() << "- starting from map: " << affineMap;
   LDBG() << "- creating new map with:";
   LDBG() << "--- dims: " << affineMap.getNumDims();
   LDBG() << "--- syms: " << affineMap.getNumSymbols();
   LDBG() << "--- res: " << llvm::interleaved_array(results);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   affineMap =
       AffineMap::get(0, affineMap.getNumSymbols() + affineMap.getNumDims(),

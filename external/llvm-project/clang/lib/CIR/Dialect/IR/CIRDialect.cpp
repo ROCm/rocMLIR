@@ -1548,20 +1548,14 @@ ParseResult cir::FuncOp::parse(OpAsmParser &parser, OperationState &state) {
   llvm::SMLoc loc = parser.getCurrentLocation();
   mlir::Builder &builder = parser.getBuilder();
 
-<<<<<<< HEAD
-=======
   mlir::StringAttr noProtoNameAttr = getNoProtoAttrName(state.name);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   mlir::StringAttr visNameAttr = getSymVisibilityAttrName(state.name);
   mlir::StringAttr visibilityNameAttr = getGlobalVisibilityAttrName(state.name);
   mlir::StringAttr dsoLocalNameAttr = getDsoLocalAttrName(state.name);
 
-<<<<<<< HEAD
-=======
   if (parser.parseOptionalKeyword(noProtoNameAttr).succeeded())
     state.addAttribute(noProtoNameAttr, parser.getBuilder().getUnitAttr());
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // Default to external linkage if no keyword is provided.
   state.addAttribute(getLinkageAttrNameString(),
                      GlobalLinkageKindAttr::get(
@@ -1666,12 +1660,9 @@ mlir::Region *cir::FuncOp::getCallableRegion() {
 }
 
 void cir::FuncOp::print(OpAsmPrinter &p) {
-<<<<<<< HEAD
-=======
   if (getNoProto())
     p << " no_proto";
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   if (getComdat())
     p << " comdat";
 
@@ -2318,12 +2309,9 @@ LogicalResult cir::ComplexRealOp::verify() {
 }
 
 OpFoldResult cir::ComplexRealOp::fold(FoldAdaptor adaptor) {
-<<<<<<< HEAD
-=======
   if (auto complexCreateOp = getOperand().getDefiningOp<cir::ComplexCreateOp>())
     return complexCreateOp.getOperand(0);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   auto complex =
       mlir::cast_if_present<cir::ConstComplexAttr>(adaptor.getOperand());
   return complex ? complex.getReal() : nullptr;
@@ -2342,20 +2330,15 @@ LogicalResult cir::ComplexImagOp::verify() {
 }
 
 OpFoldResult cir::ComplexImagOp::fold(FoldAdaptor adaptor) {
-<<<<<<< HEAD
-=======
   if (auto complexCreateOp = getOperand().getDefiningOp<cir::ComplexCreateOp>())
     return complexCreateOp.getOperand(1);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   auto complex =
       mlir::cast_if_present<cir::ConstComplexAttr>(adaptor.getOperand());
   return complex ? complex.getImag() : nullptr;
 }
 
 //===----------------------------------------------------------------------===//
-<<<<<<< HEAD
-=======
 // ComplexRealPtrOp
 //===----------------------------------------------------------------------===//
 
@@ -2748,7 +2731,6 @@ mlir::LogicalResult cir::ThrowOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 

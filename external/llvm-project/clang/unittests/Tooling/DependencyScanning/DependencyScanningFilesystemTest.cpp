@@ -232,8 +232,6 @@ TEST(DependencyScanningFilesystem, DiagnoseCachedFileSizeChange) {
   ASSERT_TRUE(SizeInfo);
   ASSERT_EQ(SizeInfo->CachedSize, 0u);
   ASSERT_EQ(SizeInfo->ActualSize, 8u);
-<<<<<<< HEAD
-=======
 }
 
 TEST(DependencyScanningFilesystem, DoNotDiagnoseDirSizeChange) {
@@ -265,5 +263,4 @@ TEST(DependencyScanningFilesystem, DoNotDiagnoseDirSizeChange) {
   // We do not report directory size changes.
   auto InvalidEntries = SharedCache.getOutOfDateEntries(*FS);
   EXPECT_EQ(InvalidEntries.size(), 0u);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }

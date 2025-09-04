@@ -216,8 +216,6 @@ void foo9(double a, double b) {
 // OGCG: store double %[[TMP_A]], ptr %[[C_REAL_PTR]], align 8
 // OGCG: store double %[[TMP_B]], ptr %[[C_IMAG_PTR]], align 8
 
-<<<<<<< HEAD
-=======
 void foo10() {
   double _Complex c;
   double *realPtr = &__real__ c;
@@ -246,7 +244,6 @@ void foo11() {
 // OGCG: %[[COMPLEX:.*]] = alloca { double, double }, align 8
 // OGCG: %[[IMAG_PTR:.*]] = getelementptr inbounds nuw { double, double }, ptr %[[COMPLEX]], i32 0, i32 1
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void foo12() {
   double _Complex c;
   double imag = __imag__ c;
@@ -602,17 +599,10 @@ void foo23(int _Complex a, int _Complex b) {
 // OGCG: %[[B_REAL:.*]] = load i32, ptr %[[B_REAL_PTR]], align 4
 // OGCG: %[[B_IMAG_PTR:.*]] = getelementptr inbounds nuw { i32, i32 }, ptr %[[COMPLEX_B]], i32 0, i32 1
 // OGCG: %[[B_IMAG:.*]] = load i32, ptr %[[B_IMAG_PTR]], align 4
-<<<<<<< HEAD
-// OGCG: %[[RESULT_REAL_PT:.*]] = getelementptr inbounds nuw { i32, i32 }, ptr %[[RESULT]], i32 0, i32 0
-// OGCG: %[[RESULT_IMAG_PT:.*]] = getelementptr inbounds nuw { i32, i32 }, ptr %[[RESULT]], i32 0, i32 1
-// OGCG: store i32 %[[B_REAL]], ptr %[[RESULT_REAL_PT]], align 4
-// OGCG: store i32 %[[B_IMAG]], ptr %[[RESULT_IMAG_PT]], align 4
-=======
 // OGCG: %[[RESULT_REAL_PTR:.*]] = getelementptr inbounds nuw { i32, i32 }, ptr %[[RESULT]], i32 0, i32 0
 // OGCG: %[[RESULT_IMAG_PTR:.*]] = getelementptr inbounds nuw { i32, i32 }, ptr %[[RESULT]], i32 0, i32 1
 // OGCG: store i32 %[[B_REAL]], ptr %[[RESULT_REAL_PTR]], align 4
 // OGCG: store i32 %[[B_IMAG]], ptr %[[RESULT_IMAG_PTR]], align 4
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 void foo24() {
   int _Complex arr[2];
@@ -693,8 +683,6 @@ void foo26(int _Complex* a) {
 // OGCG: store i32 %[[A_REAL]], ptr %[[B_REAL_PTR]], align 4
 // OGCG: store i32 %[[A_IMAG]], ptr %[[B_IMAG_PTR]], align 4
 
-<<<<<<< HEAD
-=======
 void foo27(bool cond, int _Complex a, int _Complex b) {
   int _Complex c = cond ? a : b;
 }
@@ -775,18 +763,13 @@ void foo28() {
 // OGCG: store i32 0, ptr %[[INIT_REAL_PTR]], align 4
 // OGCG: store i32 0, ptr %[[INIT_IMAG_PTR]], align 4
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void foo29() {
   using IntComplex = int _Complex;
   int _Complex a = IntComplex{};
 }
 
 // CIR: %[[INIT:.*]] = cir.alloca !cir.complex<!s32i>, !cir.ptr<!cir.complex<!s32i>>, ["a", init]
-<<<<<<< HEAD
-// CIR: %[[COMPLEX:.*]] = cir.const #cir.const_complex<#cir.int<0> : !s32i, #cir.int<0> : !s32i> : !cir.complex<!s32i>
-=======
 // CIR: %[[COMPLEX:.*]] = cir.const #cir.zero : !cir.complex<!s32i>
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // CIR: cir.store{{.*}} %[[COMPLEX]], %[[INIT]] : !cir.complex<!s32i>, !cir.ptr<!cir.complex<!s32i>>
 
 // LLVM: %[[INIT:.*]] = alloca { i32, i32 }, i64 1, align 4
@@ -797,8 +780,6 @@ void foo29() {
 // OGCG: %[[INIT_IMAG_PTR:.*]] = getelementptr inbounds nuw { i32, i32 }, ptr %[[INIT]], i32 0, i32 1
 // OGCG: store i32 0, ptr %[[INIT_REAL_PTR]], align 4
 // OGCG: store i32 0, ptr %[[INIT_IMAG_PTR]], align 4
-<<<<<<< HEAD
-=======
 
 void foo30() {
   float _Complex a = { 1.0f };
@@ -946,4 +927,3 @@ void foo34() {
 // OGCG: %[[A_IMAG_PTR:.*]] = getelementptr inbounds nuw { float, float }, ptr %[[A_ADDR]], i32 0, i32 1
 // OGCG: store float 1.000000e+00, ptr %[[A_REAL_PTR]], align 8
 // OGCG: store float 2.000000e+00, ptr %[[A_IMAG_PTR]], align 4
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

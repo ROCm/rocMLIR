@@ -131,11 +131,8 @@ public:
     for (auto globalOp : mod.getOps<fir::GlobalOp>()) {
       if (cuf::isRegisteredDeviceGlobal(globalOp)) {
         candidates.insert(globalOp);
-<<<<<<< HEAD
-=======
         processPotentialTypeDescriptor(globalOp.getType(), parentSymTable,
                                        candidates);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       } else if (globalOp.getConstant() &&
                  mlir::isa<fir::SequenceType>(
                      fir::unwrapRefType(globalOp.resultType()))) {

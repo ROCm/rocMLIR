@@ -52,17 +52,10 @@ public:
     GetVendorDWARFOpcodeSize(const DataExtractor &data,
                              const lldb::offset_t data_offset,
                              const uint8_t op) const = 0;
-<<<<<<< HEAD
-    virtual bool ParseVendorDWARFOpcode(uint8_t op,
-                                        const DataExtractor &opcodes,
-                                        lldb::offset_t &offset,
-                                        Stack &stack) const = 0;
-=======
     virtual bool
     ParseVendorDWARFOpcode(uint8_t op, const DataExtractor &opcodes,
                            lldb::offset_t &offset, RegisterContext *reg_ctx,
                            lldb::RegisterKind reg_kind, Stack &stack) const = 0;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     Delegate(const Delegate &) = delete;
     Delegate &operator=(const Delegate &) = delete;

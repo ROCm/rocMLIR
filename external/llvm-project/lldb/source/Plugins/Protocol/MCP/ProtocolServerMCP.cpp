@@ -30,29 +30,7 @@ LLDB_PLUGIN_DEFINE(ProtocolServerMCP)
 static constexpr llvm::StringLiteral kName = "lldb-mcp";
 static constexpr llvm::StringLiteral kVersion = "0.1.0";
 
-<<<<<<< HEAD
-ProtocolServerMCP::ProtocolServerMCP() : ProtocolServer() {
-  AddRequestHandler("initialize",
-                    std::bind(&ProtocolServerMCP::InitializeHandler, this,
-                              std::placeholders::_1));
-  AddRequestHandler("tools/list",
-                    std::bind(&ProtocolServerMCP::ToolsListHandler, this,
-                              std::placeholders::_1));
-  AddRequestHandler("tools/call",
-                    std::bind(&ProtocolServerMCP::ToolsCallHandler, this,
-                              std::placeholders::_1));
-  AddNotificationHandler(
-      "notifications/initialized", [](const protocol::Notification &) {
-        LLDB_LOG(GetLog(LLDBLog::Host), "MCP initialization complete");
-      });
-  AddTool(
-      std::make_unique<CommandTool>("lldb_command", "Run an lldb command."));
-  AddTool(std::make_unique<DebuggerListTool>(
-      "lldb_debugger_list", "List debugger instances with their debugger_id."));
-}
-=======
 ProtocolServerMCP::ProtocolServerMCP() : ProtocolServer() {}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 ProtocolServerMCP::~ProtocolServerMCP() { llvm::consumeError(Stop()); }
 
@@ -129,8 +107,6 @@ llvm::Error ProtocolServerMCP::Start(ProtocolServer::Connection connection) {
   if (llvm::Error error = handles.takeError())
     return error;
 
-<<<<<<< HEAD
-=======
   auto listening_uris = m_listener->GetListeningConnectionURI();
   if (listening_uris.empty())
     return createStringError("failed to get listening connections");
@@ -164,7 +140,6 @@ llvm::Error ProtocolServerMCP::Start(ProtocolServer::Connection connection) {
   if (llvm::Error error = (*file)->Write(buf.data(), num_bytes).takeError())
     return error;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   m_running = true;
   m_listen_handlers = std::move(*handles);
   m_loop_thread = std::thread([=] {
@@ -177,11 +152,7 @@ llvm::Error ProtocolServerMCP::Start(ProtocolServer::Connection connection) {
 
 llvm::Error ProtocolServerMCP::Stop() {
   {
-<<<<<<< HEAD
-    std::lock_guard<std::mutex> guard(m_server_mutex);
-=======
     std::lock_guard<std::mutex> guard(m_mutex);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     if (!m_running)
       return createStringError("the MCP sever is not running");
     m_running = false;
@@ -201,135 +172,3 @@ llvm::Error ProtocolServerMCP::Stop() {
 
   return llvm::Error::success();
 }
-<<<<<<< HEAD
-
-llvm::Expected<std::optional<protocol::Message>>
-ProtocolServerMCP::HandleData(llvm::StringRef data) {
-  auto message = llvm::json::parse<protocol::Message>(/*JSON=*/data);
-  if (!message)
-    return message.takeError();
-
-  if (const protocol::Request *request =
-          std::get_if<protocol::Request>(&(*message))) {
-    llvm::Expected<protocol::Response> response = Handle(*request);
-
-    // Handle failures by converting them into an Error message.
-    if (!response) {
-      protocol::Error protocol_error;
-      llvm::handleAllErrors(
-          response.takeError(),
-          [&](const MCPError &err) { protocol_error = err.toProtcolError(); },
-          [&](const llvm::ErrorInfoBase &err) {
-            protocol_error.error.code = -1;
-            protocol_error.error.message = err.message();
-          });
-      protocol_error.id = request->id;
-      return protocol_error;
-    }
-
-    return *response;
-  }
-
-  if (const protocol::Notification *notification =
-          std::get_if<protocol::Notification>(&(*message))) {
-    Handle(*notification);
-    return std::nullopt;
-  }
-
-  if (std::get_if<protocol::Error>(&(*message)))
-    return llvm::createStringError("unexpected MCP message: error");
-
-  if (std::get_if<protocol::Response>(&(*message)))
-    return llvm::createStringError("unexpected MCP message: response");
-
-  llvm_unreachable("all message types handled");
-}
-
-protocol::Capabilities ProtocolServerMCP::GetCapabilities() {
-  protocol::Capabilities capabilities;
-  capabilities.tools.listChanged = true;
-  return capabilities;
-}
-
-void ProtocolServerMCP::AddTool(std::unique_ptr<Tool> tool) {
-  std::lock_guard<std::mutex> guard(m_server_mutex);
-
-  if (!tool)
-    return;
-  m_tools[tool->GetName()] = std::move(tool);
-}
-
-void ProtocolServerMCP::AddRequestHandler(llvm::StringRef method,
-                                          RequestHandler handler) {
-  std::lock_guard<std::mutex> guard(m_server_mutex);
-  m_request_handlers[method] = std::move(handler);
-}
-
-void ProtocolServerMCP::AddNotificationHandler(llvm::StringRef method,
-                                               NotificationHandler handler) {
-  std::lock_guard<std::mutex> guard(m_server_mutex);
-  m_notification_handlers[method] = std::move(handler);
-}
-
-llvm::Expected<protocol::Response>
-ProtocolServerMCP::InitializeHandler(const protocol::Request &request) {
-  protocol::Response response;
-  response.result.emplace(llvm::json::Object{
-      {"protocolVersion", protocol::kVersion},
-      {"capabilities", GetCapabilities()},
-      {"serverInfo",
-       llvm::json::Object{{"name", kName}, {"version", kVersion}}}});
-  return response;
-}
-
-llvm::Expected<protocol::Response>
-ProtocolServerMCP::ToolsListHandler(const protocol::Request &request) {
-  protocol::Response response;
-
-  llvm::json::Array tools;
-  for (const auto &tool : m_tools)
-    tools.emplace_back(toJSON(tool.second->GetDefinition()));
-
-  response.result.emplace(llvm::json::Object{{"tools", std::move(tools)}});
-
-  return response;
-}
-
-llvm::Expected<protocol::Response>
-ProtocolServerMCP::ToolsCallHandler(const protocol::Request &request) {
-  protocol::Response response;
-
-  if (!request.params)
-    return llvm::createStringError("no tool parameters");
-
-  const json::Object *param_obj = request.params->getAsObject();
-  if (!param_obj)
-    return llvm::createStringError("no tool parameters");
-
-  const json::Value *name = param_obj->get("name");
-  if (!name)
-    return llvm::createStringError("no tool name");
-
-  llvm::StringRef tool_name = name->getAsString().value_or("");
-  if (tool_name.empty())
-    return llvm::createStringError("no tool name");
-
-  auto it = m_tools.find(tool_name);
-  if (it == m_tools.end())
-    return llvm::createStringError(llvm::formatv("no tool \"{0}\"", tool_name));
-
-  protocol::ToolArguments tool_args;
-  if (const json::Value *args = param_obj->get("arguments"))
-    tool_args = *args;
-
-  llvm::Expected<protocol::TextResult> text_result =
-      it->second->Call(tool_args);
-  if (!text_result)
-    return text_result.takeError();
-
-  response.result.emplace(toJSON(*text_result));
-
-  return response;
-}
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

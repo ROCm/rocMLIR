@@ -56,8 +56,6 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
-<<<<<<< HEAD
-=======
   wcstol
   SRCS
     wcstol.cpp
@@ -102,7 +100,6 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   wcstok
   SRCS
     wcstok.cpp
@@ -140,8 +137,6 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
-<<<<<<< HEAD
-=======
   mbsinit
   SRCS
     mbsinit.cpp
@@ -157,7 +152,6 @@ add_entrypoint_object(
 )
 
 add_entrypoint_object(
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   mbrtowc
   SRCS
     mbrtowc.cpp
@@ -435,17 +429,6 @@ add_entrypoint_object(
     libc.hdr.types.size_t
     libc.src.wchar.wchar_utils
     libc.src.__support.macros.null_check
-)
-
-add_entrypoint_object(
-  wcscspn
-  SRCS
-    wcscspn.cpp
-  HDRS
-    wcscspn.h
-  DEPENDS
-    libc.hdr.wchar_macros
-    libc.hdr.types.size_t
 )
 
 add_entrypoint_object(

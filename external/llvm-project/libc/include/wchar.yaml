@@ -278,8 +278,6 @@ functions:
     arguments:
       - type: wchar_t *__restrict
       - type: const wchar_t *__restrict
-<<<<<<< HEAD
-=======
   - name: wcsdup
     standards:
       - stdc
@@ -294,7 +292,6 @@ functions:
       - type: wchar_t *__restrict
       - type: const wchar_t *__restrict
       - type: size_t
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   - name: wcstok
     standards:
       - stdc

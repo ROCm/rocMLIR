@@ -537,11 +537,7 @@ cir::FuncOp CIRGenFunction::generateCode(clang::GlobalDecl gd, cir::FuncOp fn,
     startFunction(gd, retTy, fn, funcType, args, loc, bodyRange.getBegin());
 
     if (isa<CXXDestructorDecl>(funcDecl)) {
-<<<<<<< HEAD
-      getCIRGenModule().errorNYI(bodyRange, "C++ destructor definition");
-=======
       emitDestructorBody(args);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     } else if (isa<CXXConstructorDecl>(funcDecl)) {
       emitConstructorBody(args);
     } else if (getLangOpts().CUDA && !getLangOpts().CUDAIsDevice &&

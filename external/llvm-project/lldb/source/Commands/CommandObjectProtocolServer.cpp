@@ -52,17 +52,9 @@ protected:
       return;
     }
 
-<<<<<<< HEAD
-    if (args.GetArgumentCount() < 2) {
-      result.AppendError("no connection specified");
-      return;
-    }
-    llvm::StringRef connection_uri = args.GetArgumentAtIndex(1);
-=======
     std::string connection_uri = "listen://[localhost]:0";
     if (args.GetArgumentCount() >= 2)
       connection_uri = args.GetArgumentAtIndex(1);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     const char *connection_error =
         "unsupported connection specifier, expected 'accept:///path' "

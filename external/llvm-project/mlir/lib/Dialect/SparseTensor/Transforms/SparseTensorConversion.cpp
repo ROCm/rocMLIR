@@ -730,11 +730,6 @@ public:
                    {tensor, lvlCoords, values, filled, added, count},
                    EmitCInterface::On);
     Operation *parent = getTop(op);
-<<<<<<< HEAD
-    rewriter.replaceOp(op, adaptor.getTensor());
-    // Deallocate the buffers on exit of the loop nest.
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     rewriter.setInsertionPointAfter(parent);
     rewriter.replaceOp(op, adaptor.getTensor());
     // Deallocate the buffers on exit of the loop nest.

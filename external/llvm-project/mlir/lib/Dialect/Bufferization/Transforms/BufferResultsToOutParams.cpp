@@ -146,23 +146,19 @@ updateCalls(ModuleOp module,
             const bufferization::BufferResultsToOutParamsOpts &options) {
   bool didFail = false;
   SymbolTable symtab(module);
-  module.walk([&](CallOpInterface op) {
-    // TODO CallOpInterface does not have a getCallee() method.
-    // We should enable this back once we add this method.
-    //
-    // auto callee = symtab.lookup<func::FuncOp>(op.getCallee());
-    // if (!callee) {
-    //   op.emitError() << "cannot find callee '" << op.getCallee() << "' in "
-    //                  << "symbol table";
-    //   didFail = true;
-    //   return;
-    // }
-    // if (!options.filterFn(&callee))
-    //   return;
-    // FIXME validate callee in the symbol table.
+  module.walk([&](func::CallOp op) {
+    auto callee = symtab.lookup<func::FuncOp>(op.getCallee());
+    if (!callee) {
+      op.emitError() << "cannot find callee '" << op.getCallee() << "' in "
+                     << "symbol table";
+      didFail = true;
+      return;
+    }
+    if (!options.filterFn(&callee))
+      return;
     SmallVector<Value, 6> replaceWithNewCallResults;
     SmallVector<Value, 6> replaceWithOutParams;
-    for (OpResult result : op->getResults()) {
+    for (OpResult result : op.getResults()) {
       if (isa<MemRefType>(result.getType()))
         replaceWithOutParams.push_back(result);
       else
@@ -200,20 +196,13 @@ updateCalls(ModuleOp module,
       outParams.push_back(outParam);
     }
 
-    auto newOperands = llvm::to_vector<6>(op->getOperands());
+    auto newOperands = llvm::to_vector<6>(op.getOperands());
     newOperands.append(outParams.begin(), outParams.end());
     auto newResultTypes = llvm::to_vector<6>(llvm::map_range(
         replaceWithNewCallResults, [](Value v) { return v.getType(); }));
-<<<<<<< HEAD
-    auto *newCallOp =
-        op.clone(builder, op.getLoc(), newResultTypes, newOperands);
-
-    for (auto t : llvm::zip(replaceWithNewCallResults, newCallOp->getResults()))
-=======
     auto newCall = func::CallOp::create(
         builder, op.getLoc(), op.getCalleeAttr(), newResultTypes, newOperands);
     for (auto t : llvm::zip(replaceWithNewCallResults, newCall.getResults()))
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       std::get<0>(t).replaceAllUsesWith(std::get<1>(t));
     op.erase();
   });

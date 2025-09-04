@@ -1945,21 +1945,12 @@ struct VectorToElementsLowering
       if (element.use_empty())
         continue;
 
-<<<<<<< HEAD
-      auto constIdx = rewriter.create<LLVM::ConstantOp>(
-          loc, idxType, rewriter.getIntegerAttr(idxType, idx));
-      auto llvmType = typeConverter->convertType(element.getType());
-
-      Value result = rewriter.create<LLVM::ExtractElementOp>(loc, llvmType,
-                                                             source, constIdx);
-=======
       auto constIdx = LLVM::ConstantOp::create(
           rewriter, loc, idxType, rewriter.getIntegerAttr(idxType, idx));
       auto llvmType = typeConverter->convertType(element.getType());
 
       Value result = LLVM::ExtractElementOp::create(rewriter, loc, llvmType,
                                                     source, constIdx);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       results[idx] = result;
     }
 
@@ -2221,15 +2212,6 @@ void mlir::populateVectorToLLVMConversionPatterns(
                VectorDeinterleaveOpLowering, VectorFromElementsLowering,
                VectorToElementsLowering, VectorScalableStepOpLowering>(
       converter);
-<<<<<<< HEAD
-}
-
-void mlir::populateVectorToLLVMMatrixConversionPatterns(
-    const LLVMTypeConverter &converter, RewritePatternSet &patterns) {
-  patterns.add<VectorMatmulOpConversion>(converter);
-  patterns.add<VectorFlatTransposeOpConversion>(converter);
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 namespace {

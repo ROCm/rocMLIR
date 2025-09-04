@@ -1969,8 +1969,6 @@ void clang::inferNoReturnAttr(Sema &S, const Decl *D) {
   if (!FD)
     return;
 
-<<<<<<< HEAD
-=======
   // Skip explicit specializations here as they may have
   // a user-provided definition that may deliberately differ from the primary
   // template. If an explicit specialization truly never returns, the user
@@ -1978,19 +1976,12 @@ void clang::inferNoReturnAttr(Sema &S, const Decl *D) {
   if (FD->getTemplateSpecializationKind() == TSK_ExplicitSpecialization)
     return;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   auto *NonConstFD = const_cast<FunctionDecl *>(FD);
   DiagnosticsEngine &Diags = S.getDiagnostics();
   if (Diags.isIgnored(diag::warn_falloff_nonvoid, FD->getLocation()) &&
       Diags.isIgnored(diag::warn_suggest_noreturn_function, FD->getLocation()))
     return;
 
-<<<<<<< HEAD
-  if (!FD->hasAttr<NoReturnAttr>() && !FD->hasAttr<InferredNoReturnAttr>() &&
-      isKnownToAlwaysThrow(FD)) {
-    NonConstFD->addAttr(InferredNoReturnAttr::CreateImplicit(S.Context));
-
-=======
   if (!FD->isNoReturn() && !FD->hasAttr<InferredNoReturnAttr>() &&
       isKnownToAlwaysThrow(FD)) {
     NonConstFD->addAttr(InferredNoReturnAttr::CreateImplicit(S.Context));
@@ -2000,7 +1991,6 @@ void clang::inferNoReturnAttr(Sema &S, const Decl *D) {
         MD && !S.getLangOpts().CPlusPlus23 && isLambdaCallOperator(MD))
       return;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     // Emit a diagnostic suggesting the function being marked [[noreturn]].
     S.Diag(FD->getLocation(), diag::warn_suggest_noreturn_function)
         << /*isFunction=*/0 << FD;

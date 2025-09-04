@@ -350,15 +350,9 @@ Value CodeGen::genNonInitializerVar(const ast::VariableDecl *varDecl,
     Value results = pdl::TypesOp::create(
         builder, loc, pdl::RangeType::get(builder.getType<pdl::TypeType>()),
         /*types=*/ArrayAttr());
-<<<<<<< HEAD
-    return builder.create<pdl::OperationOp>(loc, opType.getName(), operands,
-                                            ArrayRef<StringRef>(), ValueRange(),
-                                            results);
-=======
     return pdl::OperationOp::create(builder, loc, opType.getName(), operands,
                                     ArrayRef<StringRef>(), ValueRange(),
                                     results);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   if (ast::RangeType rangeTy = dyn_cast<ast::RangeType>(type)) {

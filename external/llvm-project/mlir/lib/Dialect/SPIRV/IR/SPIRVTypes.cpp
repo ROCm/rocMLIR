@@ -17,12 +17,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 
-#include <algorithm>
 #include <cstdint>
-<<<<<<< HEAD
-#include <numeric>
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 using namespace mlir;
 using namespace mlir::spirv;
@@ -1327,11 +1322,7 @@ struct spirv::detail::TensorArmTypeStorage final : TypeStorage {
   }
 
   TensorArmTypeStorage(ArrayRef<int64_t> shape, Type elementType)
-<<<<<<< HEAD
-      : shape(std::move(shape)), elementType(std::move(elementType)) {}
-=======
       : shape(shape), elementType(elementType) {}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   ArrayRef<int64_t> shape;
   Type elementType;

@@ -1473,26 +1473,15 @@ Operator OperationCode(const Convert<T, C> &op) {
   }
 }
 
-<<<<<<< HEAD
-template <typename T, typename... Ts>
-Operator OperationCode(
-    const evaluate::Operation<evaluate::Extremum<T>, Ts...> &op) {
-  if (op.derived().ordering == evaluate::Ordering::Greater) {
-=======
 template <typename T> Operator OperationCode(const Extremum<T> &op) {
   if (op.ordering == Ordering::Greater) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return Operator::Max;
   } else {
     return Operator::Min;
   }
 }
 
-<<<<<<< HEAD
-template <typename T> Operator OperationCode(const evaluate::Constant<T> &x) {
-=======
 template <typename T> Operator OperationCode(const Constant<T> &x) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return Operator::Constant;
 }
 

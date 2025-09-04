@@ -6,12 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-<<<<<<< HEAD
-#define FUNCTION fmod
-#define __CLC_BODY <clc/shared/binary_decl.inc>
-#include <clc/math/gentype.inc>
-#undef FUNCTION
-=======
 #ifndef __CLC_OPENCL_MATH_FMOD_H__
 #define __CLC_OPENCL_MATH_FMOD_H__
 
@@ -21,4 +15,3 @@
 #undef __CLC_FUNCTION
 
 #endif // __CLC_OPENCL_MATH_FMOD_H__
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

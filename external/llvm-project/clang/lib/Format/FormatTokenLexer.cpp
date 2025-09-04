@@ -1222,16 +1222,6 @@ static size_t countLeadingWhitespace(StringRef Text) {
         break;
       // Splice found, consume it.
       Cur = Lookahead + 1;
-<<<<<<< HEAD
-    } else if (Cur[0] == '?' && Cur[1] == '?' && Cur[2] == '/' &&
-               (Cur[3] == '\n' || Cur[3] == '\r')) {
-      // Newlines can also be escaped by a '?' '?' '/' trigraph. By the way, the
-      // characters are quoted individually in this comment because if we write
-      // them together some compilers warn that we have a trigraph in the code.
-      assert(End - Cur >= 4);
-      Cur += 4;
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     } else {
       break;
     }
@@ -1303,24 +1293,6 @@ FormatToken *FormatTokenLexer::getNextToken() {
             Style.TabWidth - (Style.TabWidth ? Column % Style.TabWidth : 0);
         break;
       case '\\':
-<<<<<<< HEAD
-      case '?':
-      case '/':
-        // The text was entirely whitespace when this loop was entered. Thus
-        // this has to be an escape sequence.
-        assert(Text.substr(i, 4) == "\?\?/\r" ||
-               Text.substr(i, 4) == "\?\?/\n" ||
-               (i >= 1 && (Text.substr(i - 1, 4) == "\?\?/\r" ||
-                           Text.substr(i - 1, 4) == "\?\?/\n")) ||
-               (i >= 2 && (Text.substr(i - 2, 4) == "\?\?/\r" ||
-                           Text.substr(i - 2, 4) == "\?\?/\n")) ||
-               (Text[i] == '\\' && [&]() -> bool {
-                 size_t j = i + 1;
-                 while (j < Text.size() && isHorizontalWhitespace(Text[j]))
-                   ++j;
-                 return j < Text.size() && (Text[j] == '\n' || Text[j] == '\r');
-               }()));
-=======
         // The code preceding the loop and in the countLeadingWhitespace
         // function guarantees that Text is entirely whitespace, not including
         // comments but including escaped newlines. So the character shows up,
@@ -1331,7 +1303,6 @@ FormatToken *FormatTokenLexer::getNextToken() {
             ++j;
           return j < Text.size() && (Text[j] == '\n' || Text[j] == '\r');
         }());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         InEscape = true;
         break;
       default:

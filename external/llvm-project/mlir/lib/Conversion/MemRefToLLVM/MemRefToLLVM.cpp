@@ -24,10 +24,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Pass/Pass.h"
-<<<<<<< HEAD
-=======
 #include "llvm/Support/DebugLog.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/Support/MathExtras.h"
 
 #include <optional>
@@ -414,13 +411,8 @@ struct AllocaScopeOpLowering
 
     // Save stack and then branch into the body of the region.
     rewriter.setInsertionPointToEnd(currentBlock);
-<<<<<<< HEAD
-    auto stackSaveOp = rewriter.create<LLVM::StackSaveOp>(loc, getPtrType());
-    rewriter.create<LLVM::BrOp>(loc, ValueRange(), beforeBody);
-=======
     auto stackSaveOp = LLVM::StackSaveOp::create(rewriter, loc, getPtrType());
     LLVM::BrOp::create(rewriter, loc, ValueRange(), beforeBody);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     // Replace the alloca_scope return with a branch that jumps out of the body.
     // Stack restore before leaving the body region.
@@ -1133,11 +1125,7 @@ public:
     };
 
     // Save stack position before promoting descriptors
-<<<<<<< HEAD
-    auto stackSaveOp = rewriter.create<LLVM::StackSaveOp>(loc, getPtrType());
-=======
     auto stackSaveOp = LLVM::StackSaveOp::create(rewriter, loc, getPtrType());
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     auto srcMemRefType = dyn_cast<MemRefType>(srcType);
     Value unrankedSource =
@@ -1258,20 +1246,11 @@ struct MemorySpaceCastOpLowering
       auto result = UnrankedMemRefDescriptor::poison(
           rewriter, loc, typeConverter->convertType(resultTypeU));
       result.setRank(rewriter, loc, rank);
-<<<<<<< HEAD
-      SmallVector<Value, 1> sizes;
-      UnrankedMemRefDescriptor::computeSizes(rewriter, loc, *getTypeConverter(),
-                                             result, resultAddrSpace, sizes);
-      Value resultUnderlyingSize = sizes.front();
-      Value resultUnderlyingDesc = rewriter.create<LLVM::AllocaOp>(
-          loc, getPtrType(), rewriter.getI8Type(), resultUnderlyingSize);
-=======
       Value resultUnderlyingSize = UnrankedMemRefDescriptor::computeSize(
           rewriter, loc, *getTypeConverter(), result, resultAddrSpace);
       Value resultUnderlyingDesc =
           LLVM::AllocaOp::create(rewriter, loc, getPtrType(),
                                  rewriter.getI8Type(), resultUnderlyingSize);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       result.setMemRefDescPtr(rewriter, loc, resultUnderlyingDesc);
 
       // Copy pointers, performing address space casts.
@@ -1549,19 +1528,11 @@ private:
     auto targetDesc = UnrankedMemRefDescriptor::poison(
         rewriter, loc, typeConverter->convertType(targetType));
     targetDesc.setRank(rewriter, loc, resultRank);
-<<<<<<< HEAD
-    SmallVector<Value, 4> sizes;
-    UnrankedMemRefDescriptor::computeSizes(rewriter, loc, *getTypeConverter(),
-                                           targetDesc, addressSpace, sizes);
-    Value underlyingDescPtr = rewriter.create<LLVM::AllocaOp>(
-        loc, getPtrType(), IntegerType::get(getContext(), 8), sizes.front());
-=======
     Value allocationSize = UnrankedMemRefDescriptor::computeSize(
         rewriter, loc, *getTypeConverter(), targetDesc, addressSpace);
     Value underlyingDescPtr = LLVM::AllocaOp::create(
         rewriter, loc, getPtrType(), IntegerType::get(getContext(), 8),
         allocationSize);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     targetDesc.setMemRefDescPtr(rewriter, loc, underlyingDescPtr);
 
     // Extract pointers and offset from the source memref.

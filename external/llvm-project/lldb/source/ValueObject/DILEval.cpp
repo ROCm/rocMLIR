@@ -7,13 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "lldb/ValueObject/DILEval.h"
-<<<<<<< HEAD
-#include "lldb/Symbol/CompileUnit.h"
-=======
 #include "lldb/Core/Module.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/TypeSystem.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "lldb/Symbol/VariableList.h"
 #include "lldb/Target/RegisterContext.h"
 #include "lldb/ValueObject/DILAST.h"
@@ -56,14 +52,9 @@ lldb::ValueObjectSP LookupGlobalIdentifier(
   // Get a global variables list without the locals from the current frame
   SymbolContext symbol_context =
       stack_frame->GetSymbolContext(lldb::eSymbolContextCompUnit);
-<<<<<<< HEAD
-  lldb::VariableListSP variable_list =
-      symbol_context.comp_unit->GetVariableList(true);
-=======
   lldb::VariableListSP variable_list;
   if (symbol_context.comp_unit)
     variable_list = symbol_context.comp_unit->GetVariableList(true);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   name_ref.consume_front("::");
   lldb::ValueObjectSP value_sp;

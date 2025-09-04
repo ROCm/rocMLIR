@@ -102,30 +102,14 @@ public:
         m_persistent_variable_sp->GetName(), mem, eAddressTypeLoad,
         map.GetAddressByteSize());
 
-<<<<<<< HEAD
-    if (m_persistent_variable_sp->m_flags &
-        ExpressionVariable::EVKeepInTarget) {
-      if (used_policy == IRMemoryMap::eAllocationPolicyMirror) {
-=======
     if (used_policy == IRMemoryMap::eAllocationPolicyMirror) {
       if (m_persistent_variable_sp->m_flags &
           ExpressionVariable::EVKeepInTarget) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         // Clear the flag if the variable will never be deallocated.
         Status leak_error;
         map.Leak(mem, leak_error);
         m_persistent_variable_sp->m_flags &=
             ~ExpressionVariable::EVNeedsAllocation;
-<<<<<<< HEAD
-      } else {
-        // If the variable cannot be kept in target, clear this flag...
-        m_persistent_variable_sp->m_flags &=
-            ~ExpressionVariable::EVKeepInTarget;
-        // ...and set the flag to copy the value during dematerialization.
-        m_persistent_variable_sp->m_flags |=
-            ExpressionVariable::EVNeedsFreezeDry;
-      }
-=======
       }
     } else {
       // If we cannot allocate memory in the process,
@@ -135,7 +119,6 @@ public:
       // - set the 'EVNeedsFreezeDry' flag so that the value is copied to
       //   'm_frozen_sp' during dematerialization.
       m_persistent_variable_sp->m_flags |= ExpressionVariable::EVNeedsFreezeDry;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
 
     // Write the contents of the variable to the area.

@@ -64,8 +64,6 @@ let RequiredFeatures = ["xandesvbfhcvt"],
   }
 }
 
-<<<<<<< HEAD
-=======
 // Andes Vector INT4 Load Extension (XAndesVSIntLoad)
 
 let SupportOverloading = false,
@@ -95,7 +93,6 @@ defm nds_vln8  : RVVVLN8Builtin;
 defm nds_vlnu8 : RVVVLNU8Builtin;
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // Andes Vector Packed FP16 Extension (XAndesVPackFPH)
 
 multiclass RVVFPMAD {

@@ -99,13 +99,10 @@ class TestCase(TestBase):
             "wie", type="std::weak_ptr<int>", summary="nullptr strong=2 weak=2"
         )
 
-<<<<<<< HEAD
-=======
         self.expect_var_path("si.pointer", type="int *")
         self.expect_var_path("*si.pointer", type="int", value="47")
         self.expect_var_path("si.object", type="int", value="47")
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         self.runCmd("settings set target.experimental.use-DIL true")
         self.expect_var_path("ptr_node->value", value="1")
         self.expect_var_path("ptr_node->next->value", value="2")
@@ -121,12 +118,9 @@ class TestCase(TestBase):
     def test_libstdcxx(self):
         self.build(dictionary={"USE_LIBSTDCPP": 1})
         self.do_test()
-<<<<<<< HEAD
-=======
 
     @add_test_categories(["msvcstl"])
     def test_msvcstl(self):
         # No flags, because the "msvcstl" category checks that the MSVC STL is used by default.
         self.build()
         self.do_test()
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

@@ -262,10 +262,7 @@ class zip_view<_Views...>::__iterator : public __zip_view_iterator_category_base
   static constexpr bool __is_zip_view_iterator = true;
 
   friend struct __product_iterator_traits<__iterator>;
-<<<<<<< HEAD
-=======
   friend __zip_view_iterator_access;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 public:
   using iterator_concept = decltype(ranges::__get_zip_view_iterator_tag<_Const, _Views...>());

@@ -10,35 +10,24 @@
 
 #include "check-directive-structure.h"
 #include "definable.h"
-#include "openmp-utils.h"
 #include "resolve-names-utils.h"
 
 #include "flang/Common/idioms.h"
 #include "flang/Common/indirection.h"
 #include "flang/Common/visit.h"
-<<<<<<< HEAD
-#include "flang/Evaluate/shape.h"
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "flang/Evaluate/tools.h"
 #include "flang/Evaluate/type.h"
 #include "flang/Parser/char-block.h"
 #include "flang/Parser/characters.h"
 #include "flang/Parser/message.h"
-<<<<<<< HEAD
-=======
 #include "flang/Parser/openmp-utils.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "flang/Parser/parse-tree-visitor.h"
 #include "flang/Parser/parse-tree.h"
 #include "flang/Parser/tools.h"
 #include "flang/Semantics/expression.h"
 #include "flang/Semantics/openmp-directive-sets.h"
 #include "flang/Semantics/openmp-modifiers.h"
-<<<<<<< HEAD
-=======
 #include "flang/Semantics/openmp-utils.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "flang/Semantics/scope.h"
 #include "flang/Semantics/semantics.h"
 #include "flang/Semantics/symbol.h"
@@ -48,10 +37,7 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
-<<<<<<< HEAD
-=======
 #include "llvm/ADT/StringExtras.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Frontend/OpenMP/OMP.h"
 
@@ -72,10 +58,7 @@
 namespace Fortran::semantics {
 
 using namespace Fortran::semantics::omp;
-<<<<<<< HEAD
-=======
 using namespace Fortran::parser::omp;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 // Use when clause falls under 'struct OmpClause' in 'parse-tree.h'.
 #define CHECK_SIMPLE_CLAUSE(X, Y) \
@@ -160,8 +143,6 @@ private:
   parser::CharBlock source_;
 };
 
-<<<<<<< HEAD
-=======
 // 'OmpWorkdistributeBlockChecker' is used to check the validity of the
 // assignment statements and the expressions enclosed in an OpenMP
 // WORKDISTRIBUTE construct
@@ -220,7 +201,6 @@ private:
   parser::CharBlock source_;
 };
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // `OmpUnitedTaskDesignatorChecker` is used to check if the designator
 // can appear within the TASK construct
 class OmpUnitedTaskDesignatorChecker {
@@ -288,8 +268,6 @@ bool OmpStructureChecker::CheckAllowedClause(llvmOmpClause clause) {
   return CheckAllowed(clause);
 }
 
-<<<<<<< HEAD
-=======
 void OmpStructureChecker::AnalyzeObject(const parser::OmpObject &object) {
   if (std::holds_alternative<parser::Name>(object.u)) {
     // Do not analyze common block names. The analyzer will flag an error
@@ -325,7 +303,6 @@ void OmpStructureChecker::AnalyzeObjects(const parser::OmpObjectList &objects) {
   }
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 bool OmpStructureChecker::IsCloselyNestedRegion(const OmpDirectiveSet &set) {
   // Definition of close nesting:
   //
@@ -605,8 +582,6 @@ void OmpStructureChecker::Leave(const parser::OmpDirectiveSpecification &) {
   }
 }
 
-<<<<<<< HEAD
-=======
 template <typename Checker> struct DirectiveSpellingVisitor {
   using Directive = llvm::omp::Directive;
 
@@ -722,7 +697,6 @@ private:
 template <typename T>
 DirectiveSpellingVisitor(T &&) -> DirectiveSpellingVisitor<T>;
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void OmpStructureChecker::Enter(const parser::OpenMPConstruct &x) {
   DirectiveSpellingVisitor visitor(
       [this](parser::CharBlock source, llvm::omp::Directive id) {
@@ -890,17 +864,9 @@ void OmpStructureChecker::CheckTargetNest(const parser::OpenMPConstruct &c) {
   }
 }
 
-<<<<<<< HEAD
-void OmpStructureChecker::Enter(const parser::OpenMPBlockConstruct &x) {
-  const auto &beginBlockDir{std::get<parser::OmpBeginBlockDirective>(x.t)};
-  const auto &endBlockDir{std::get<parser::OmpEndBlockDirective>(x.t)};
-  const auto &beginDir{std::get<parser::OmpBlockDirective>(beginBlockDir.t)};
-  const auto &endDir{std::get<parser::OmpBlockDirective>(endBlockDir.t)};
-=======
 void OmpStructureChecker::Enter(const parser::OmpBlockConstruct &x) {
   const parser::OmpDirectiveSpecification &beginSpec{x.BeginDir()};
   const std::optional<parser::OmpEndDirective> &endSpec{x.EndDir()};
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   const parser::Block &block{std::get<parser::Block>(x.t)};
 
   PushContextAndClauseSets(beginSpec.DirName().source, beginSpec.DirId());

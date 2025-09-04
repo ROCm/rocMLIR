@@ -558,15 +558,10 @@ static bool isPtrBufferSafe(const Expr *Ptr, const Expr *Size,
 //       `N, M` are parameter indexes to the allocating element number and size.
 //        Sometimes, there is only one parameter index representing the total
 //        size.
-<<<<<<< HEAD
-//   7. `std::span<T>{x.begin(), x.end()}` where `x` is an object in the
-//      SIZED_CONTAINER_OR_VIEW_LIST.
-=======
 //   4. `std::span<T>{x.begin(), x.end()}` where `x` is an object in the
 //      SIZED_CONTAINER_OR_VIEW_LIST.
 //   5. `isPtrBufferSafe` returns true for the two arguments of the span
 //      constructor
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 static bool isSafeSpanTwoParamConstruct(const CXXConstructExpr &Node,
                                         ASTContext &Ctx) {
   assert(Node.getNumArgs() == 2 &&
@@ -640,11 +635,7 @@ static bool isSafeSpanTwoParamConstruct(const CXXConstructExpr &Node,
         }
     }
   }
-<<<<<<< HEAD
-  // Check form 7:
-=======
   // Check form 4:
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   auto IsMethodCallToSizedObject = [](const Stmt *Node, StringRef MethodName) {
     if (const auto *MC = dyn_cast<CXXMemberCallExpr>(Node)) {
       const auto *MD = MC->getMethodDecl();
@@ -670,13 +661,9 @@ static bool isSafeSpanTwoParamConstruct(const CXXConstructExpr &Node,
         cast<CXXMemberCallExpr>(Arg1)
             ->getImplicitObjectArgument()
             ->IgnoreParenImpCasts());
-<<<<<<< HEAD
-  return false;
-=======
 
   // Check 5:
   return isPtrBufferSafe(Arg0, Arg1, Ctx);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 static bool isSafeArraySubscript(const ArraySubscriptExpr &Node,
@@ -1219,57 +1206,7 @@ static bool hasUnsafeSnprintfBuffer(const CallExpr &Node, ASTContext &Ctx) {
       !Size->getType()->isUnsignedIntegerType())
     return false; // not an snprintf call
 
-<<<<<<< HEAD
-  // Pattern 1:
-  static StringRef SizedObjs[] = {SIZED_CONTAINER_OR_VIEW_LIST};
-  Buf = Buf->IgnoreParenImpCasts();
-  Size = Size->IgnoreParenImpCasts();
-  if (auto *MCEPtr = dyn_cast<CXXMemberCallExpr>(Buf))
-    if (auto *MCESize = dyn_cast<CXXMemberCallExpr>(Size)) {
-      auto *DREOfPtr = dyn_cast<DeclRefExpr>(
-          MCEPtr->getImplicitObjectArgument()->IgnoreParenImpCasts());
-      auto *DREOfSize = dyn_cast<DeclRefExpr>(
-          MCESize->getImplicitObjectArgument()->IgnoreParenImpCasts());
-
-      if (!DREOfPtr || !DREOfSize)
-        return true; // not in safe pattern
-      if (DREOfPtr->getDecl() != DREOfSize->getDecl())
-        return true; // not in safe pattern
-      if (MCEPtr->getMethodDecl()->getName() != "data")
-        return true; // not in safe pattern
-
-      if (MCESize->getMethodDecl()->getName() == "size_bytes" ||
-          // Note here the pointer must be a pointer-to-char type unless there
-          // is explicit casting.  If there is explicit casting, this branch
-          // is unreachable. Thus, at this branch "size" and "size_bytes" are
-          // equivalent as the pointer is a char pointer:
-          MCESize->getMethodDecl()->getName() == "size")
-        for (StringRef SizedObj : SizedObjs)
-          if (MCEPtr->getRecordDecl()->isInStdNamespace() &&
-              MCEPtr->getRecordDecl()->getCanonicalDecl()->getName() ==
-                  SizedObj)
-            return false; // It is in fact safe
-    }
-
-  // Pattern 2:
-  if (auto *DRE = dyn_cast<DeclRefExpr>(Buf->IgnoreParenImpCasts())) {
-    if (auto *CAT = Ctx.getAsConstantArrayType(DRE->getType())) {
-      Expr::EvalResult ER;
-      // The array element type must be compatible with `char` otherwise an
-      // explicit cast will be needed, which will make this check unreachable.
-      // Therefore, the array extent is same as its' bytewise size.
-      if (Size->EvaluateAsInt(ER, Ctx)) {
-        llvm::APSInt EVal = ER.Val.getInt(); // Size must have integer type
-
-        return llvm::APSInt::compareValues(
-                   EVal, llvm::APSInt(CAT->getSize(), true)) != 0;
-      }
-    }
-  }
-  return true; // ptr and size are not in safe pattern
-=======
   return !isPtrBufferSafe(Buf, Size, Ctx);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 } // namespace libc_func_matchers
 

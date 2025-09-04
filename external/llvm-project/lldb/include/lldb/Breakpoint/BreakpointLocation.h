@@ -69,11 +69,7 @@ public:
   // The next section deals with various breakpoint options.
 
   /// If \a enabled is \b true, enable the breakpoint, if \b false disable it.
-<<<<<<< HEAD
-  bool SetEnabled(bool enabled);
-=======
   llvm::Error SetEnabled(bool enabled);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   /// Check the Enable/Disable state.
   ///

@@ -40,11 +40,7 @@ concept __core_convertible_to = __is_core_convertible_v<_Tp, _Up>;
 
 #endif // _LIBCPP_STD_VER >= 20
 
-<<<<<<< HEAD
-template <class _Tp, class _Up, bool = __is_core_convertible<_Tp, _Up>::value>
-=======
 template <class _Tp, class _Up, bool = __is_core_convertible_v<_Tp, _Up> >
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 inline const bool __is_nothrow_core_convertible_v = false;
 
 #ifndef _LIBCPP_CXX03_LANG

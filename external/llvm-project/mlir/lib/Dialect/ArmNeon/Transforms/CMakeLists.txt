@@ -1,9 +1,5 @@
 add_mlir_dialect_library(MLIRArmNeonTransforms
-<<<<<<< HEAD
-  LowerContractionToNeonI8MMPattern.cpp
-=======
   LowerContractToNeonPatterns.cpp
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   DEPENDS
   MLIRArmNeonIncGen

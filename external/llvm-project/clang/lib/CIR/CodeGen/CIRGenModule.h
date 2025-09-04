@@ -181,8 +181,6 @@ public:
   /// contribute to the function attributes and calling convention.
   void constructAttributeList(CIRGenCalleeInfo calleeInfo,
                               mlir::NamedAttrList &attrs);
-<<<<<<< HEAD
-=======
 
   /// Will return a global variable of the given type. If a variable with a
   /// different type already exists then a new variable with the right type
@@ -201,7 +199,6 @@ public:
   /// Get the address of the RTTI descriptor for the given type.
   mlir::Attribute getAddrOfRTTIDescriptor(mlir::Location loc, QualType ty,
                                           bool forEH = false);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   /// Return a constant array for the given string.
   mlir::Attribute getConstantArrayFromStringLiteral(const StringLiteral *e);
@@ -425,10 +422,6 @@ public:
   cir::VisibilityAttr getGlobalVisibilityAttrFromDecl(const Decl *decl);
   cir::GlobalLinkageKind getFunctionLinkage(GlobalDecl gd);
   static mlir::SymbolTable::Visibility getMLIRVisibility(cir::GlobalOp op);
-<<<<<<< HEAD
-  cir::GlobalLinkageKind getFunctionLinkage(GlobalDecl gd);
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   cir::GlobalLinkageKind getCIRLinkageForDeclarator(const DeclaratorDecl *dd,
                                                     GVALinkage linkage,
                                                     bool isConstantVariable);

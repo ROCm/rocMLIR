@@ -59,31 +59,16 @@ program OMP_DO
   !$omp end target teams distribute parallel do simd
 
   !$omp target teams distribute 
-<<<<<<< HEAD
-  !DEF: /omp_do/OtherConstruct6/i (OmpPrivate, OmpPreDetermined) HostAssoc INTEGER(4)
-  do i=1,100
-    !REF: /omp_do/OtherConstruct6/i
-=======
   !DEF: /OMP_DO/OtherConstruct6/i (OmpPrivate, OmpPreDetermined) HostAssoc INTEGER(4)
   do i=1,100
     !REF: /OMP_DO/OtherConstruct6/i
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     if(i < 5) cycle
   end do
 
   !$omp target teams distribute simd
-<<<<<<< HEAD
-  !DEF: /omp_do/OtherConstruct7/i (OmpLinear, OmpPreDetermined) HostAssoc INTEGER(4)
-  do i=1,100
-    !REF: /omp_do/OtherConstruct7/i
-    if(i < 5) cycle
-  end do
-end program omp_do
-=======
   !DEF: /OMP_DO/OtherConstruct7/i (OmpLinear, OmpPreDetermined) HostAssoc INTEGER(4)
   do i=1,100
     !REF: /OMP_DO/OtherConstruct7/i
     if(i < 5) cycle
   end do
 end program OMP_DO
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

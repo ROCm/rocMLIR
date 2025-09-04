@@ -31,11 +31,8 @@ public:
   bool isFull();
   bool isEmpty();
   bool isValidState();
-<<<<<<< HEAD
-=======
 
   template <typename CharType> size_t sizeAs();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   int push(char8_t utf8_byte);
   int push(char32_t utf32);

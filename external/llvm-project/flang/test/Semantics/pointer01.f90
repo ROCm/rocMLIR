@@ -7,10 +7,6 @@ module m
 end module
 program main
   use m
-<<<<<<< HEAD
-  !PORTABILITY: Name 'main' declared in a main program should not have the same name as the main program [-Wbenign-name-clash]
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   pointer main
   !ERROR: Cannot change POINTER attribute on use-associated 'mobj'
   pointer mobj

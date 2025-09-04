@@ -543,12 +543,7 @@ inline bool Divc(InterpState &S, CodePtr OpPC) {
 
     Floating RI = S.allocFloat(A.getSemantics());
     RI.copy(ResI);
-<<<<<<< HEAD
-    Result.atIndex(1).deref<Floating>() = RI; // Floating(ResI);
-    Result.atIndex(1).initialize();
-=======
     Result.elem<Floating>(1) = RI; // Floating(ResI);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     Result.initializeAllElements();
   } else {
@@ -2049,10 +2044,8 @@ bool StoreBitField(InterpState &S, CodePtr OpPC) {
   const Pointer &Ptr = S.Stk.peek<Pointer>();
   if (!CheckStore(S, OpPC, Ptr))
     return false;
-  if (Ptr.canBeInitialized()) {
+  if (Ptr.canBeInitialized())
     Ptr.initialize();
-    Ptr.activate();
-  }
   if (const auto *FD = Ptr.getField())
     Ptr.deref<T>() = Value.truncate(FD->getBitWidthValue());
   else
@@ -2066,10 +2059,8 @@ bool StoreBitFieldPop(InterpState &S, CodePtr OpPC) {
   const Pointer &Ptr = S.Stk.pop<Pointer>();
   if (!CheckStore(S, OpPC, Ptr))
     return false;
-  if (Ptr.canBeInitialized()) {
+  if (Ptr.canBeInitialized())
     Ptr.initialize();
-    Ptr.activate();
-  }
   if (const auto *FD = Ptr.getField())
     Ptr.deref<T>() = Value.truncate(FD->getBitWidthValue());
   else

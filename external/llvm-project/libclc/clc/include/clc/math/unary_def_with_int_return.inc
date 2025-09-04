@@ -8,19 +8,10 @@
 
 #include <clc/utils.h>
 
-<<<<<<< HEAD
-#ifndef __IMPL_FUNCTION
-#define __IMPL_FUNCTION(x) __CLC_CONCAT(__clc_, x)
-#endif
-
-_CLC_OVERLOAD _CLC_DEF __CLC_INTN FUNCTION(__CLC_GENTYPE a) {
-  return __IMPL_FUNCTION(FUNCTION)(a);
-=======
 #ifndef __CLC_IMPL_FUNCTION
 #define __CLC_IMPL_FUNCTION(x) __CLC_CONCAT(__clc_, x)
 #endif
 
 _CLC_OVERLOAD _CLC_DEF __CLC_INTN __CLC_FUNCTION(__CLC_GENTYPE a) {
   return __CLC_IMPL_FUNCTION(__CLC_FUNCTION)(a);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }

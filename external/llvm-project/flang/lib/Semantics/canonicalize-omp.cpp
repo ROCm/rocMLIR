@@ -9,10 +9,7 @@
 #include "canonicalize-omp.h"
 #include "flang/Parser/parse-tree-visitor.h"
 #include "flang/Parser/parse-tree.h"
-<<<<<<< HEAD
-=======
 #include "flang/Semantics/semantics.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 // After Loop Canonicalization, rewrite OpenMP parse tree to make OpenMP
 // Constructs more structured which provide explicit scopes for later
@@ -158,13 +155,6 @@ private:
               std::move(*doCons);
           nextIt = block.erase(nextIt);
           // try to match OmpEndLoopDirective
-<<<<<<< HEAD
-          if (auto *endDir{
-                  GetConstructIf<parser::OmpEndLoopDirective>(*nextIt)}) {
-            std::get<std::optional<parser::OmpEndLoopDirective>>(x.t) =
-                std::move(*endDir);
-            nextIt = block.erase(nextIt);
-=======
           if (nextIt != block.end()) {
             if (auto *endDir{
                     GetConstructIf<parser::OmpEndLoopDirective>(*nextIt)}) {
@@ -172,7 +162,6 @@ private:
                   std::move(*endDir);
               nextIt = block.erase(nextIt);
             }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
           }
         } else {
           messages_.Say(dir.source,

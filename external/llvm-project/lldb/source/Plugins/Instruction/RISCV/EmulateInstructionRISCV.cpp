@@ -1807,11 +1807,7 @@ RISCVSingleStepBreakpointLocationsPredictor::GetBreakpointLocations(
     Log *log = GetLog(LLDBLog::Unwind);
     LLDB_LOGF(log,
               "RISCVSingleStepBreakpointLocationsPredictor::%s: can't find "
-<<<<<<< HEAD
-              "corresponding load reserve insturuction",
-=======
               "corresponding load reserve instruction",
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
               __FUNCTION__);
     return {*pc + (inst->is_rvc ? 2u : 4u)};
   }
@@ -1843,11 +1839,7 @@ RISCVSingleStepBreakpointLocationsPredictor::HandleAtomicSequence(
   EmulateInstructionRISCV *riscv_emulator =
       static_cast<EmulateInstructionRISCV *>(m_emulator_up.get());
 
-<<<<<<< HEAD
-  // Handle instructions between LR and SC. According to unprivilleged
-=======
   // Handle instructions between LR and SC. According to unprivileged
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // RISC-V ISA there can be at most 16 instructions in the sequence.
 
   lldb::addr_t entry_pc = pc; // LR instruction address
@@ -1880,11 +1872,7 @@ RISCVSingleStepBreakpointLocationsPredictor::HandleAtomicSequence(
     Log *log = GetLog(LLDBLog::Unwind);
     LLDB_LOGF(log,
               "RISCVSingleStepBreakpointLocationsPredictor::%s: can't find "
-<<<<<<< HEAD
-              "corresponding store conditional insturuction",
-=======
               "corresponding store conditional instruction",
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
               __FUNCTION__);
     return {entry_pc + (lr_inst->is_rvc ? 2u : 4u)};
   }

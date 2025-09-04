@@ -755,8 +755,6 @@ module attributes {transform.with_named_sequence} {
       transform.yield
   }
 }
-<<<<<<< HEAD
-=======
 
 // -----
 
@@ -838,4 +836,3 @@ module attributes {transform.with_named_sequence} {
       transform.yield
   }
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

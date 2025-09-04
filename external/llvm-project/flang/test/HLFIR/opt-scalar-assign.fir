@@ -155,8 +155,6 @@ func.func @_QPtest6(%arg0: !fir.ref<!fir.box<!fir.heap<!fir.array<?x?xi32>>>> {f
 // CHECK:           }
 // CHECK:           return
 // CHECK:         }
-<<<<<<< HEAD
-=======
 
 func.func @_QQmain() {
   return
@@ -217,4 +215,3 @@ func.func @_QPtest8() {
 // CHECK:             hlfir.assign %[[VAL_0]] to %[[VAL_4]] : f32, !fir.ref<f32>
 // CHECK:           }
 // CHECK:         }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

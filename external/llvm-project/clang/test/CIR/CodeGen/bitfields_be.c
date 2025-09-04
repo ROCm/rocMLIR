@@ -25,11 +25,7 @@ int init(S* s) {
 //CIR:   [[TMP0:%.*]] = cir.alloca !cir.ptr<!rec_S>, !cir.ptr<!cir.ptr<!rec_S>>, ["s", init] {alignment = 8 : i64}
 //CIR:   [[TMP1:%.*]] = cir.load align(8) [[TMP0]] : !cir.ptr<!cir.ptr<!rec_S>>, !cir.ptr<!rec_S>
 //CIR:   [[TMP2:%.*]] = cir.get_member [[TMP1]][0] {name = "c"} : !cir.ptr<!rec_S> -> !cir.ptr<!u32i>
-<<<<<<< HEAD
-//CIR:   [[TMP3:%.*]] = cir.get_bitfield(#bfi_c, [[TMP2]] : !cir.ptr<!u32i>) -> !s32i
-=======
 //CIR:   [[TMP3:%.*]] = cir.get_bitfield align(4) (#bfi_c, [[TMP2]] : !cir.ptr<!u32i>) -> !s32i
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 //LLVM: define dso_local i32 @init(ptr %0) {
 //LLVM:   [[TMP0:%.*]] = alloca ptr, i64 1, align 8
@@ -46,8 +42,6 @@ int init(S* s) {
 //OGCG:   [[TMP2:%.*]] = load i32, ptr [[TMP1]], align 4
 //OGCG:   [[TMP3:%.*]] = shl i32 [[TMP2]], 15
 //OGCG:   [[TMP4:%.*]] = ashr i32 [[TMP3]], 15
-<<<<<<< HEAD
-=======
 
 
 void load(S* s) {
@@ -118,4 +112,3 @@ void load(S* s) {
 // OGCG:   %[[AND2:.*]] = and i32 %[[VAL2]], -131072
 // OGCG:   %[[OR2:.*]] = or i32 %[[AND2]], 118727
 // OGCG:   store i32 %[[OR2]], ptr %[[PTR2]], align 4
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

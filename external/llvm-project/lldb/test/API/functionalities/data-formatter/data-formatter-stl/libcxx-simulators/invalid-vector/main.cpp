@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-#define COMPRESSED_PAIR_REV 3
-=======
 #define COMPRESSED_PAIR_REV 4
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include <libcxx-simulators-common/compressed_pair.h>
 
 namespace std {

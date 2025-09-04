@@ -1911,16 +1911,8 @@ void MallocChecker::reportTaintBug(StringRef Msg, ProgramStateRef State,
                                    llvm::ArrayRef<SymbolRef> TaintedSyms,
                                    AllocationFamily Family) const {
   if (ExplodedNode *N = C.generateNonFatalErrorNode(State, this)) {
-<<<<<<< HEAD
-    if (!BT_TaintedAlloc)
-      BT_TaintedAlloc.reset(new BugType(CheckNames[CK_TaintedAllocChecker],
-                                        "Tainted Memory Allocation",
-                                        categories::TaintedData));
-    auto R = std::make_unique<PathSensitiveBugReport>(*BT_TaintedAlloc, Msg, N);
-=======
     auto R =
         std::make_unique<PathSensitiveBugReport>(TaintedAllocChecker, Msg, N);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     for (const auto *TaintedSym : TaintedSyms) {
       R->markInteresting(TaintedSym);
     }

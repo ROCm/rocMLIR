@@ -81,8 +81,6 @@ static cl::opt<bool> emitFinalMLIR(
     cl::desc("Only translate FIR to MLIR, do not lower to LLVM IR"),
     cl::init(false));
 
-<<<<<<< HEAD
-=======
 static cl::opt<bool>
     simplifyMLIR("simplify-mlir",
                  cl::desc("Run CSE and canonicalization on MLIR output"),
@@ -97,7 +95,6 @@ static cl::opt<bool> testGeneratorMode(
     "test-gen", cl::desc("-emit-final-mlir -simplify-mlir -enable-aa=false"),
     cl::init(false));
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "flang/Optimizer/Passes/CommandLineOpts.h"
 #include "flang/Optimizer/Passes/Pipelines.h"
 
@@ -201,27 +198,19 @@ compileFIR(const mlir::PassPipelineCLParser &passPipeline) {
       fir::registerDefaultInlinerPass(config);
       fir::createMLIRToLLVMPassPipeline(pm, config);
     }
-<<<<<<< HEAD
-    if (!emitFinalMLIR)
-=======
     if (simplifyMLIR || testGeneratorMode) {
       pm.addPass(mlir::createCanonicalizerPass());
       pm.addPass(mlir::createCSEPass());
     }
     if (!emitFinalMLIR && !testGeneratorMode)
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       fir::addLLVMDialectToLLVMPass(pm, out.os());
   }
 
   // run the pass manager
   if (mlir::succeeded(pm.run(*owningRef))) {
     // passes ran successfully, so keep the output
-<<<<<<< HEAD
-    if ((emitFir || passPipeline.hasAnyOccurrences() || emitFinalMLIR) &&
-=======
     if ((emitFir || passPipeline.hasAnyOccurrences() || emitFinalMLIR ||
          testGeneratorMode) &&
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         !codeGenLLVM)
       printModule(*owningRef, out.os());
     out.keep();

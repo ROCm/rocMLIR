@@ -4419,17 +4419,11 @@ TEST(CompletionTest, SkipExplicitObjectParameter) {
   Annotations Code(R"cpp(
     struct A {
       void foo(this auto&& self, int arg); 
-<<<<<<< HEAD
-=======
       void bar(this A self, int arg);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     };
 
     int main() {
       A a {};
-<<<<<<< HEAD
-      a.^
-=======
       a.$c1^;
       (&A::fo$c2^;
       (&A::ba$c3^;
@@ -4571,7 +4565,6 @@ TEST(CompletionTest, ListExplicitObjectOverloads) {
 
     void test2(const S s) {
       s.$c6^;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
   )cpp");
 
@@ -4585,15 +4578,6 @@ TEST(CompletionTest, ListExplicitObjectOverloads) {
 
   MockFS FS;
   auto Inputs = TU.inputs(FS);
-<<<<<<< HEAD
-  auto Result = codeComplete(testPath(TU.Filename), Code.point(),
-                             Preamble.get(), Inputs, Opts);
-
-  EXPECT_THAT(Result.Completions,
-              ElementsAre(AllOf(named("foo"), signature("(int arg)"),
-                                snippetSuffix("(${1:int arg})"))));
-}
-=======
 
   {
     auto Result = codeComplete(testPath(TU.Filename), Code.point("c1"),
@@ -4681,7 +4665,6 @@ TEST(CompletionTest, ListExplicitObjectOverloads) {
   }
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 } // namespace
 } // namespace clangd
 } // namespace clang

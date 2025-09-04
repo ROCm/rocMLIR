@@ -2001,27 +2001,6 @@ func.func @vector_splat_type_mismatch(%a: f32) {
   return
 }
 
-//===----------------------------------------------------------------------===//
-// vector.splat
-//===----------------------------------------------------------------------===//
-
-// -----
-
-func.func @vector_splat_invalid_result(%v : f32) {
-  // expected-error@+1 {{invalid kind of type specified: expected builtin.vector, but found 'memref<8xf32>'}}
-  vector.splat %v : memref<8xf32>
-  return
-}
-
-// -----
-
-// expected-note @+1 {{prior use here}}
-func.func @vector_splat_type_mismatch(%a: f32) {
-  // expected-error @+1 {{expects different type than prior uses: 'i32' vs 'f32'}}
-  %0 = vector.splat %a : vector<1xi32>
-  return
-}
-
 // -----
 
 //===----------------------------------------------------------------------===//

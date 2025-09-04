@@ -4780,11 +4780,7 @@ void CGDebugInfo::emitFunctionStart(GlobalDecl GD, SourceLocation Loc,
   llvm::DISubprogram *SP = DBuilder.createFunction(
       FDContext, Name, LinkageName, Unit, LineNo, DIFnType, ScopeLine,
       FlagsForDef, SPFlagsForDef, TParamsArray.get(), Decl, nullptr,
-<<<<<<< HEAD
-      Annotations, "", CGM.getCodeGenOpts().DebugKeyInstructions);
-=======
       Annotations, "", KeyInstructions);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   Fn->setSubprogram(SP);
 
   // We might get here with a VarDecl in the case we're generating
@@ -5688,16 +5684,10 @@ void CGDebugInfo::EmitLabel(const LabelDecl *D, CGBuilderTy &Builder) {
   StringRef Name = D->getName();
 
   // Create the descriptor for the label.
-<<<<<<< HEAD
-  auto *L = DBuilder.createLabel(
-      Scope, Name, Unit, Line, Column, /*IsArtificial=*/false,
-      /*CoroSuspendIdx=*/std::nullopt, CGM.getLangOpts().Optimize);
-=======
   auto *L = DBuilder.createLabel(Scope, Name, Unit, Line, Column,
                                  /*IsArtificial=*/false,
                                  /*CoroSuspendIdx=*/std::nullopt,
                                  CGM.getCodeGenOpts().OptimizationLevel != 0);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // Insert an llvm.dbg.label into the current block.
   DBuilder.insertLabel(L,

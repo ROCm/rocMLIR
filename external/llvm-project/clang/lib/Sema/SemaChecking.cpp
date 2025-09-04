@@ -2269,8 +2269,6 @@ static bool BuiltinCountZeroBitsGeneric(Sema &S, CallExpr *TheCall) {
   return false;
 }
 
-<<<<<<< HEAD
-=======
 static bool CheckMaskedBuiltinArgs(Sema &S, Expr *MaskArg, Expr *PtrArg,
                                    unsigned Pos) {
   QualType MaskTy = MaskArg->getType();
@@ -2363,7 +2361,6 @@ static ExprResult BuiltinMaskedStore(Sema &S, CallExpr *TheCall) {
   return TheCall;
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 static ExprResult BuiltinInvoke(Sema &S, CallExpr *TheCall) {
   SourceLocation Loc = TheCall->getBeginLoc();
   MutableArrayRef Args(TheCall->getArgs(), TheCall->getNumArgs());
@@ -2388,11 +2385,7 @@ static ExprResult BuiltinInvoke(Sema &S, CallExpr *TheCall) {
       return ExprError();
     }
 
-<<<<<<< HEAD
-    const Type *MemPtrClass = MPT->getQualifier()->getAsType();
-=======
     const Type *MemPtrClass = MPT->getQualifier().getAsType();
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     QualType ObjectT = Args[1]->getType();
 
     if (MPT->isMemberDataPointer() && S.checkArgCount(TheCall, 2))
@@ -2620,15 +2613,12 @@ Sema::CheckBuiltinFunctionCall(FunctionDecl *FDecl, unsigned BuiltinID,
     return BuiltinShuffleVector(TheCall);
     // TheCall will be freed by the smart pointer here, but that's fine, since
     // BuiltinShuffleVector guts it, but then doesn't release it.
-<<<<<<< HEAD
-=======
   case Builtin::BI__builtin_masked_load:
   case Builtin::BI__builtin_masked_expand_load:
     return BuiltinMaskedLoad(*this, TheCall);
   case Builtin::BI__builtin_masked_store:
   case Builtin::BI__builtin_masked_compress_store:
     return BuiltinMaskedStore(*this, TheCall);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   case Builtin::BI__builtin_invoke:
     return BuiltinInvoke(*this, TheCall);
   case Builtin::BI__builtin_prefetch:

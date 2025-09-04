@@ -1460,11 +1460,7 @@ TestMultiSlotAlloca::handleDestructuringComplete(
 
   // replace op with memref analogy
   auto createMemrefOp =
-<<<<<<< HEAD
-      rewriter.create<test::TestCreateMemrefOp>(getLoc(), *bufferizedOutType);
-=======
       test::TestCreateMemrefOp::create(rewriter, getLoc(), *bufferizedOutType);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   mlir::bufferization::replaceOpWithBufferizedValues(
       rewriter, getOperation(), createMemrefOp.getResult());

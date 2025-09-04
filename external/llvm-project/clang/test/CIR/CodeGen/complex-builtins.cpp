@@ -33,8 +33,6 @@ void foo() {
 // OGCG: %[[R_IMAG_PTR:.*]] = getelementptr inbounds nuw { i32, i32 }, ptr %[[COMPLEX_R]], i32 0, i32 1
 // OGCG: store i32 %[[A_REAL]], ptr %[[R_REAL_PTR]], align 4
 // OGCG: store i32 %[[A_IMAG]], ptr %[[R_IMAG_PTR]], align 4
-<<<<<<< HEAD
-=======
 
 void foo2() {
   double _Complex a;
@@ -121,4 +119,3 @@ void foo4() {
 // OGCG: %[[RESULT_IMAG_PTR:.*]] = getelementptr inbounds nuw { float, float }, ptr %[[RESULT]], i32 0, i32 1
 // OGCG: store float %[[A_REAL]], ptr %[[RESULT_REAL_PTR]], align 4
 // OGCG: store float %[[A_IMAG_MINUS]], ptr %[[RESULT_IMAG_PTR]], align 4
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

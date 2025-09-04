@@ -77,11 +77,7 @@ static void emitMemberInitializer(CIRGenFunction &cgf,
                                   const CXXConstructorDecl *constructor,
                                   FunctionArgList &args) {
   assert(memberInit->isAnyMemberInitializer() &&
-<<<<<<< HEAD
-         "Mush have member initializer!");
-=======
          "Must have member initializer!");
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   assert(memberInit->getInit() && "Must have initializer!");
 
   assert(!cir::MissingFeatures::generateDebugInfo());
@@ -91,11 +87,7 @@ static void emitMemberInitializer(CIRGenFunction &cgf,
   QualType fieldType = field->getType();
 
   mlir::Value thisPtr = cgf.loadCXXThis();
-<<<<<<< HEAD
-  QualType recordTy = cgf.getContext().getTypeDeclType(classDecl);
-=======
   CanQualType recordTy = cgf.getContext().getCanonicalTagType(classDecl);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // If a base constructor is being emitted, create an LValue that has the
   // non-virtual alignment.
@@ -127,8 +119,6 @@ static void emitMemberInitializer(CIRGenFunction &cgf,
   cgf.emitInitializerForField(field, lhs, memberInit->getInit());
 }
 
-<<<<<<< HEAD
-=======
 static bool isInitializerOfDynamicClass(const CXXCtorInitializer *baseInit) {
   const Type *baseType = baseInit->getBaseClass();
   const auto *baseClassDecl = baseType->castAsCXXRecordDecl();
@@ -220,7 +210,6 @@ void CIRGenFunction::emitBaseInitializer(mlir::Location loc,
   assert(!cir::MissingFeatures::requiresCleanups());
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 /// This routine generates necessary code to initialize base classes and
 /// non-static data members belonging to this constructor.
 void CIRGenFunction::emitCtorPrologue(const CXXConstructorDecl *cd,
@@ -231,25 +220,9 @@ void CIRGenFunction::emitCtorPrologue(const CXXConstructorDecl *cd,
     return;
   }
 
-<<<<<<< HEAD
-  // If there are no member initializers, we can just return.
-  if (cd->getNumCtorInitializers() == 0)
-    return;
-
-  const CXXRecordDecl *classDecl = cd->getParent();
-
-  // This code doesn't use range-based iteration because we may need to emit
-  // code between the virtual base initializers and the non-virtual base or
-  // between the non-virtual base initializers and the member initializers.
-  CXXConstructorDecl::init_const_iterator b = cd->init_begin(),
-                                          e = cd->init_end();
-
-  // Virtual base initializers first, if any. They aren't needed if:
-=======
   const CXXRecordDecl *classDecl = cd->getParent();
 
   // Virtual base initializers aren't needed if:
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // - This is a base ctor variant
   // - There are no vbases
   // - The class is abstract, so a complete object of it cannot be constructed
@@ -259,25 +232,6 @@ void CIRGenFunction::emitCtorPrologue(const CXXConstructorDecl *cd,
   bool constructVBases = ctorType != Ctor_Base &&
                          classDecl->getNumVBases() != 0 &&
                          !classDecl->isAbstract();
-<<<<<<< HEAD
-  if (constructVBases) {
-    cgm.errorNYI(cd->getSourceRange(), "emitCtorPrologue: virtual base");
-    return;
-  }
-
-  if ((*b)->isBaseInitializer()) {
-    cgm.errorNYI(cd->getSourceRange(),
-                 "emitCtorPrologue: non-virtual base initializer");
-    return;
-  }
-
-  if (classDecl->isDynamicClass()) {
-    cgm.errorNYI(cd->getSourceRange(),
-                 "emitCtorPrologue: initialize vtable pointers");
-    return;
-  }
-
-=======
   if (constructVBases &&
       !cgm.getTarget().getCXXABI().hasConstructorVariants()) {
     cgm.errorNYI(cd->getSourceRange(),
@@ -338,7 +292,6 @@ void CIRGenFunction::emitCtorPrologue(const CXXConstructorDecl *cd,
 
   initializeVTablePointers(getLoc(cd->getBeginLoc()), classDecl);
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // Finally, initialize class members.
   FieldConstructionScope fcs(*this, loadCXXThisAddress());
   // Classic codegen uses a special class to attempt to replace member
@@ -346,19 +299,12 @@ void CIRGenFunction::emitCtorPrologue(const CXXConstructorDecl *cd,
   // lowering or optimization phases to keep the memory accesses more
   // explicit. For now, we don't insert memcpy at all.
   assert(!cir::MissingFeatures::ctorMemcpyizer());
-<<<<<<< HEAD
-  for (; b != e; b++) {
-    CXXCtorInitializer *member = (*b);
-=======
   for (CXXCtorInitializer *member : memberInits) {
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     assert(!member->isBaseInitializer());
     assert(member->isAnyMemberInitializer() &&
            "Delegating initializer on non-delegating constructor");
     emitMemberInitializer(*this, cd->getParent(), member, cd, args);
   }
-<<<<<<< HEAD
-=======
 }
 
 static Address applyNonVirtualAndVirtualOffset(
@@ -548,7 +494,6 @@ void CIRGenFunction::getVTablePointers(BaseSubobject base,
                       baseDeclIsNonVirtualPrimaryBase, vtableClass, vbases,
                       vptrs);
   }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 Address CIRGenFunction::loadCXXThisAddress() {
@@ -594,8 +539,6 @@ void CIRGenFunction::emitInitializerForField(FieldDecl *field, LValue lhs,
   assert(!cir::MissingFeatures::requiresCleanups());
 }
 
-<<<<<<< HEAD
-=======
 CharUnits
 CIRGenModule::getDynamicOffsetAlignment(CharUnits actualBaseAlign,
                                         const CXXRecordDecl *baseDecl,
@@ -765,7 +708,6 @@ void CIRGenFunction::emitCXXAggrConstructorCall(
   }
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void CIRGenFunction::emitDelegateCXXConstructorCall(
     const CXXConstructorDecl *ctor, CXXCtorType ctorType,
     const FunctionArgList &args, SourceLocation loc) {
@@ -824,8 +766,6 @@ void CIRGenFunction::emitImplicitAssignmentOperatorBody(FunctionArgList &args) {
                        s->getStmtClassName());
 }
 
-<<<<<<< HEAD
-=======
 void CIRGenFunction::destroyCXXObject(CIRGenFunction &cgf, Address addr,
                                       QualType type) {
   const auto *record = type->castAsCXXRecordDecl();
@@ -838,7 +778,6 @@ void CIRGenFunction::destroyCXXObject(CIRGenFunction &cgf, Address addr,
                             /*delegating=*/false, addr, type);
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void CIRGenFunction::emitDelegatingCXXConstructorCall(
     const CXXConstructorDecl *ctor, const FunctionArgList &args) {
   assert(ctor->isDelegatingConstructor());

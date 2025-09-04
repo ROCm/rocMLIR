@@ -625,8 +625,6 @@ void SemaOpenACC::CheckDeclReference(SourceLocation Loc, Expr *E, Decl *D) {
   // loop (or we aren't in a loop!) so skip the diagnostic.
 }
 
-<<<<<<< HEAD
-=======
 namespace {
 // Check whether the type of the thing we are referencing is OK for things like
 // private, firstprivate, and reduction, which require certain operators to be
@@ -717,7 +715,6 @@ ExprResult CheckVarType(SemaOpenACC &S, OpenACCClauseKind CK, Expr *VarExpr,
 }
 } // namespace
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 ExprResult SemaOpenACC::ActOnVar(OpenACCDirectiveKind DK, OpenACCClauseKind CK,
                                  Expr *VarExpr) {
   // This has unique enough restrictions that we should split it to a separate

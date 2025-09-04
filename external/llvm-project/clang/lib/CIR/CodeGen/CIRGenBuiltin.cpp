@@ -58,8 +58,6 @@ static RValue emitBuiltinBitOp(CIRGenFunction &cgf, const CallExpr *e,
   return RValue::get(result);
 }
 
-<<<<<<< HEAD
-=======
 RValue CIRGenFunction::emitRotate(const CallExpr *e, bool isRotateLeft) {
   mlir::Value input = emitScalarExpr(e->getArg(0));
   mlir::Value amount = emitScalarExpr(e->getArg(1));
@@ -95,7 +93,6 @@ static RValue emitUnaryFPBuiltin(CIRGenFunction &cgf, const CallExpr &e) {
   return RValue::get(call->getResult(0));
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
                                        const CallExpr *e,
                                        ReturnValueSlot returnValue) {
@@ -204,74 +201,6 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     return RValue::getComplex(complex);
   }
 
-<<<<<<< HEAD
-  case Builtin::BI__builtin_clrsb:
-  case Builtin::BI__builtin_clrsbl:
-  case Builtin::BI__builtin_clrsbll:
-    return emitBuiltinBitOp<cir::BitClrsbOp>(*this, e);
-
-  case Builtin::BI__builtin_ctzs:
-  case Builtin::BI__builtin_ctz:
-  case Builtin::BI__builtin_ctzl:
-  case Builtin::BI__builtin_ctzll:
-  case Builtin::BI__builtin_ctzg:
-    assert(!cir::MissingFeatures::builtinCheckKind());
-    return emitBuiltinBitOp<cir::BitCtzOp>(*this, e, /*poisonZero=*/true);
-
-  case Builtin::BI__builtin_clzs:
-  case Builtin::BI__builtin_clz:
-  case Builtin::BI__builtin_clzl:
-  case Builtin::BI__builtin_clzll:
-  case Builtin::BI__builtin_clzg:
-    assert(!cir::MissingFeatures::builtinCheckKind());
-    return emitBuiltinBitOp<cir::BitClzOp>(*this, e, /*poisonZero=*/true);
-
-  case Builtin::BI__builtin_parity:
-  case Builtin::BI__builtin_parityl:
-  case Builtin::BI__builtin_parityll:
-    return emitBuiltinBitOp<cir::BitParityOp>(*this, e);
-
-  case Builtin::BI__lzcnt16:
-  case Builtin::BI__lzcnt:
-  case Builtin::BI__lzcnt64:
-    assert(!cir::MissingFeatures::builtinCheckKind());
-    return emitBuiltinBitOp<cir::BitClzOp>(*this, e, /*poisonZero=*/false);
-
-  case Builtin::BI__popcnt16:
-  case Builtin::BI__popcnt:
-  case Builtin::BI__popcnt64:
-  case Builtin::BI__builtin_popcount:
-  case Builtin::BI__builtin_popcountl:
-  case Builtin::BI__builtin_popcountll:
-  case Builtin::BI__builtin_popcountg:
-    return emitBuiltinBitOp<cir::BitPopcountOp>(*this, e);
-
-  case Builtin::BI__builtin_expect:
-  case Builtin::BI__builtin_expect_with_probability: {
-    mlir::Value argValue = emitScalarExpr(e->getArg(0));
-    mlir::Value expectedValue = emitScalarExpr(e->getArg(1));
-
-    mlir::FloatAttr probAttr;
-    if (builtinIDIfNoAsmLabel == Builtin::BI__builtin_expect_with_probability) {
-      llvm::APFloat probability(0.0);
-      const Expr *probArg = e->getArg(2);
-      [[maybe_unused]] bool evalSucceeded =
-          probArg->EvaluateAsFloat(probability, cgm.getASTContext());
-      assert(evalSucceeded &&
-             "probability should be able to evaluate as float");
-      bool loseInfo = false; // ignored
-      probability.convert(llvm::APFloat::IEEEdouble(),
-                          llvm::RoundingMode::Dynamic, &loseInfo);
-      probAttr = mlir::FloatAttr::get(mlir::Float64Type::get(&getMLIRContext()),
-                                      probability);
-    }
-
-    auto result = builder.create<cir::ExpectOp>(getLoc(e->getSourceRange()),
-                                                argValue.getType(), argValue,
-                                                expectedValue, probAttr);
-    return RValue::get(result);
-  }
-=======
   case Builtin::BI__builtin_creal:
   case Builtin::BI__builtin_crealf:
   case Builtin::BI__builtin_creall:
@@ -281,7 +210,6 @@ RValue CIRGenFunction::emitBuiltinExpr(const GlobalDecl &gd, unsigned builtinID,
     mlir::Value complex = emitComplexExpr(e->getArg(0));
     mlir::Value real = builder.createComplexReal(loc, complex);
     return RValue::get(real);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   case Builtin::BI__builtin_cimag:

@@ -528,47 +528,6 @@ TensorDescType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
                        llvm::ArrayRef<int64_t> shape, mlir::Type elementType,
                        mlir::Attribute encoding, mlir::Attribute layout) {
   size_t rank = shape.size();
-<<<<<<< HEAD
-  if (rank != 1 && rank != 2)
-    return emitError() << "expected 1D or 2D tensor";
-
-  auto blockAttr = mlir::dyn_cast_if_present<BlockTensorDescAttr>(encoding);
-  if (blockAttr) {
-    MemorySpaceAttr memorySpaceAttr = blockAttr.getMemorySpace();
-    if (rank == 2 && memorySpaceAttr &&
-        memorySpaceAttr.getValue() == MemorySpace::SLM)
-      return emitError() << "SLM is not supported for 2D block tensor";
-  }
-
-  // for gather and scatter ops, Low-precision types are packed in 32-bit units.
-  unsigned bitWidth = elementType.getIntOrFloatBitWidth();
-  int chunkAlignmentFactor =
-      bitWidth < targetinfo::packedSizeInBitsForGatherScatter
-          ? targetinfo::packedSizeInBitsForGatherScatter / bitWidth
-          : 1;
-  auto scatterAttr = mlir::dyn_cast_if_present<ScatterTensorDescAttr>(encoding);
-  if (scatterAttr) {
-    // Expected tensor ranks for scattered data:
-    //   - 1D tensor for fully non-contiguous elements (chunk size == 1)
-    //   - 2D tensor for scattered blocks (chunk size > 1)
-    unsigned chunkSize = scatterAttr.getChunkSize().getInt();
-    if (rank == 1 && chunkSize != 1)
-      return emitError() << "expected non-contiguous elements for 1D tensor";
-    if (rank == 2 && chunkSize < 2)
-      return emitError() << "expected chunk blocks for 2D tensor";
-    // If chunk size > 1, the second dimension of the tensor shape must be
-    // equal to chunk size and it must be a multiple of the packing factor.
-    if (chunkSize > 1) {
-      if (shape.back() != chunkSize)
-        return emitError() << "expected tensor shape[1] to match chunk size";
-      if (shape.back() % chunkAlignmentFactor != 0)
-        return emitError() << "expected tensor shape[1] to be a multiple of "
-                              "chunk alignment factor "
-                           << chunkAlignmentFactor;
-    }
-  }
-
-=======
 
   if (rank == 0)
     return emitError() << "expected non-zero rank tensor";
@@ -605,7 +564,6 @@ TensorDescType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
     }
   }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   auto layoutAttr = llvm::dyn_cast_if_present<LayoutAttr>(layout);
   if (layoutAttr) {
     if (rank != (size_t)layoutAttr.getRank())
@@ -619,15 +577,8 @@ TensorDescType::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
       int64_t chunkSize = scatterAttr.getChunkSizeAsInt();
       if (chunkSize > 1 && laneData[rank - 1] % chunkAlignmentFactor)
         return emitError()
-<<<<<<< HEAD
-               << "cannot map over non-contiguous scattered row elements";
-      if (laneData[rank - 1] != chunkAlignmentFactor)
-        return emitError() << "work item data mapping must match the number of "
-                              "contiguous elements";
-=======
                << "expected last dim of lane_data to be a multiple of: "
                << chunkAlignmentFactor;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     }
 
     if (!XeGPUDialect::isEvenlyDistributable(shape, layoutAttr)) {

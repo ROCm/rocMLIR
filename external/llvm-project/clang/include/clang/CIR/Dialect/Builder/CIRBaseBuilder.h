@@ -62,11 +62,7 @@ public:
 
   mlir::Value getConstAPInt(mlir::Location loc, mlir::Type typ,
                             const llvm::APInt &val) {
-<<<<<<< HEAD
-    return create<cir::ConstantOp>(loc, cir::IntAttr::get(typ, val));
-=======
     return cir::ConstantOp::create(*this, loc, cir::IntAttr::get(typ, val));
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   cir::ConstantOp getConstant(mlir::Location loc, mlir::TypedAttr attr) {
@@ -298,11 +294,7 @@ public:
   cir::CallOp createCallOp(mlir::Location loc, mlir::SymbolRefAttr callee,
                            mlir::Type returnType, mlir::ValueRange operands,
                            llvm::ArrayRef<mlir::NamedAttribute> attrs = {}) {
-<<<<<<< HEAD
-    auto op = create<cir::CallOp>(loc, callee, returnType, operands);
-=======
     auto op = cir::CallOp::create(*this, loc, callee, returnType, operands);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     op->setAttrs(attrs);
     return op;
   }
@@ -323,8 +315,6 @@ public:
     resOperands.append(operands.begin(), operands.end());
     return createCallOp(loc, mlir::SymbolRefAttr(), funcType.getReturnType(),
                         resOperands, attrs);
-<<<<<<< HEAD
-=======
   }
 
   cir::CallOp createTryCallOp(
@@ -344,7 +334,6 @@ public:
     assert(!cir::MissingFeatures::opCallSideEffect());
     return createTryCallOp(loc, mlir::SymbolRefAttr::get(callee),
                            callee.getFunctionType().getReturnType(), operands);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   //===--------------------------------------------------------------------===//

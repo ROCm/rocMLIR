@@ -25,10 +25,7 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/OperationSupport.h"
-<<<<<<< HEAD
-=======
 #include "mlir/IR/Remarks.h"
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Allocator.h"

@@ -5289,8 +5289,6 @@ early by Clang, and never produce any CodeGen effects / have no observable
 +for a concrete target, and shall reflect the latter's identity and features.
 +Thus, it is possible to author high-level code, in e.g. HIP, that is target
 +adaptive in a dynamic fashion, contrary to macro based mechanisms.
-<<<<<<< HEAD
-=======
 
 __builtin_amdgcn_ballot_w{32,64}
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -5309,7 +5307,6 @@ Given a wave-uniform bitmask, ``__builtin_amdgcn_inverse_ballot_w{32,64}(mask)``
 returns the bit at the position of the current lane. It is almost equivalent to
 ``(mask & (1 << lane_id)) != 0``, except that its behavior is only defined if
 the given mask has the same value for all active lanes of the current wave.
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 ARM/AArch64 Language Extensions
 -------------------------------

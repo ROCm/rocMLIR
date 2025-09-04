@@ -9,11 +9,7 @@
 #include <clc/common/clc_degrees.h>
 #include <clc/opencl/common/degrees.h>
 
-<<<<<<< HEAD
-#define FUNCTION degrees
-=======
 #define __CLC_FUNCTION degrees
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/shared/unary_def.inc>
 
 #include <clc/math/gentype.inc>

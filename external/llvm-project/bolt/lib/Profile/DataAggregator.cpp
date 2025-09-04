@@ -518,8 +518,6 @@ void DataAggregator::parsePerfData(BinaryContext &BC) {
   deleteTempFiles();
 }
 
-<<<<<<< HEAD
-=======
 void DataAggregator::imputeFallThroughs() {
   if (Traces.empty())
     return;
@@ -583,7 +581,6 @@ void DataAggregator::imputeFallThroughs() {
     outs() << "BOLT-INFO: imputed " << InferredTraces << " traces\n";
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 Error DataAggregator::preprocessProfile(BinaryContext &BC) {
   this->BC = &BC;
 
@@ -596,15 +593,6 @@ Error DataAggregator::preprocessProfile(BinaryContext &BC) {
   // Sort parsed traces for faster processing.
   llvm::sort(Traces, llvm::less_first());
 
-<<<<<<< HEAD
-  if (opts::HeatmapMode) {
-    if (std::error_code EC = printLBRHeatMap())
-      return errorCodeToError(EC);
-    if (opts::HeatmapMode == opts::HeatmapModeKind::HM_Exclusive)
-      exit(0);
-  }
-
-=======
   if (opts::ImputeTraceFallthrough)
     imputeFallThroughs();
 
@@ -615,7 +603,6 @@ Error DataAggregator::preprocessProfile(BinaryContext &BC) {
       exit(0);
   }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   return Error::success();
 }
 

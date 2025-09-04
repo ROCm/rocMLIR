@@ -1,9 +1,5 @@
-<<<<<<< HEAD
-// RUN: %clang_cc1 -fsyntax-only -fcxx-exceptions -fexceptions -Wreturn-type -Wmissing-noreturn -verify %s
-=======
 // RUN: %clang_cc1 -fsyntax-only -fcxx-exceptions -fexceptions -Wreturn-type -Wmissing-noreturn -verify=expected,cxx17 -std=c++17 %s
 // RUN: %clang_cc1 -fsyntax-only -fcxx-exceptions -fexceptions -Wreturn-type -Wmissing-noreturn -verify=expected,cxx23 -std=c++23 %s
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 namespace std {
   class string {
@@ -21,8 +17,6 @@ void throwError(const std::string& msg) { // expected-warning {{function 'throwE
   throw std::runtime_error(msg);
 }
 
-<<<<<<< HEAD
-=======
 // Using the [[noreturn]] attribute on lambdas is not available until C++23,
 // so we should not emit the -Wmissing-noreturn warning on earlier standards.
 // Clang supports the attribute on earlier standards as an extension, and emits
@@ -32,14 +26,11 @@ void lambda() {
   auto l2 = [] [[noreturn]] () { throw std::runtime_error("ERROR"); }; // cxx17-warning {{an attribute specifier sequence in this position is a C++23 extension}}
 }
 
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // The non-void caller should not warn about missing return.
 int ensureZero(int i) {
   if (i == 0) return 0;
   throwError("ERROR"); // no-warning
 }
-<<<<<<< HEAD
-=======
 
 
 template <typename Ex>
@@ -62,4 +53,3 @@ int gnu_throws() {
 int cxx11_throws() {
     throw 0;
 }
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

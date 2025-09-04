@@ -3466,8 +3466,6 @@ static void AddFunctionTypeQuals(CodeCompletionBuilder &Result,
 }
 
 static void
-<<<<<<< HEAD
-=======
 AddFunctionTypeQualsToCompletionString(CodeCompletionBuilder &Result,
                                        const FunctionDecl *Function) {
   if (auto *CxxMethodDecl = llvm::dyn_cast_if_present<CXXMethodDecl>(Function);
@@ -3488,7 +3486,6 @@ AddFunctionTypeQualsToCompletionString(CodeCompletionBuilder &Result,
 }
 
 static void
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 AddFunctionExceptSpecToCompletionString(std::string &NameAndSignature,
                                         const FunctionDecl *Function) {
   const auto *Proto = Function->getType()->getAs<FunctionProtoType>();

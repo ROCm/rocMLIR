@@ -421,19 +421,11 @@ llvm::LogicalResult SelectTypeConv::genTypeLadderStep(
   } else if (auto a = mlir::dyn_cast<fir::SubclassAttr>(attr)) {
     // Retrieve the type descriptor from the type guard statement record type.
     assert(mlir::isa<fir::RecordType>(a.getType()) && "expect fir.record type");
-<<<<<<< HEAD
-    mlir::Value typeDescAddr =
-        rewriter.create<fir::TypeDescOp>(loc, mlir::TypeAttr::get(a.getType()));
-    mlir::Type refNoneType = ReferenceType::get(rewriter.getNoneType());
-    mlir::Value typeDesc =
-        rewriter.create<ConvertOp>(loc, refNoneType, typeDescAddr);
-=======
     mlir::Value typeDescAddr = fir::TypeDescOp::create(
         rewriter, loc, mlir::TypeAttr::get(a.getType()));
     mlir::Type refNoneType = ReferenceType::get(rewriter.getNoneType());
     mlir::Value typeDesc =
         ConvertOp::create(rewriter, loc, refNoneType, typeDescAddr);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     // Prepare the selector descriptor for the runtime call.
     mlir::Type descNoneTy = fir::BoxType::get(rewriter.getNoneType());
@@ -480,15 +472,9 @@ SelectTypeConv::genTypeDescCompare(mlir::Location loc, mlir::Value selector,
                                    mlir::PatternRewriter &rewriter) const {
   assert(mlir::isa<fir::RecordType>(ty) && "expect fir.record type");
   mlir::Value typeDescAddr =
-<<<<<<< HEAD
-      rewriter.create<fir::TypeDescOp>(loc, mlir::TypeAttr::get(ty));
-  mlir::Value selectorTdescAddr = rewriter.create<fir::BoxTypeDescOp>(
-      loc, typeDescAddr.getType(), selector);
-=======
       fir::TypeDescOp::create(rewriter, loc, mlir::TypeAttr::get(ty));
   mlir::Value selectorTdescAddr = fir::BoxTypeDescOp::create(
       rewriter, loc, typeDescAddr.getType(), selector);
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   auto intPtrTy = rewriter.getIndexType();
   auto typeDescInt =
       fir::ConvertOp::create(rewriter, loc, intPtrTy, typeDescAddr);

@@ -107,11 +107,7 @@ bool LoopPipelinerInternal::initializeLoopInfo(
   std::vector<std::pair<Operation *, unsigned>> schedule;
   options.getScheduleFn(forOp, schedule);
   if (schedule.empty()) {
-<<<<<<< HEAD
-    LDBG("--empty schedule -> BAIL");
-=======
     LDBG() << "--empty schedule -> BAIL";
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return false;
   }
 
@@ -121,41 +117,6 @@ bool LoopPipelinerInternal::initializeLoopInfo(
     stages[opSchedule.first] = opSchedule.second;
     opOrder.push_back(opSchedule.first);
   }
-<<<<<<< HEAD
-
-  dynamicLoop = true;
-  auto upperBoundCst = getConstantIntValue(ub);
-  auto lowerBoundCst = getConstantIntValue(lb);
-  auto stepCst = getConstantIntValue(step);
-  if (!upperBoundCst || !lowerBoundCst || !stepCst) {
-    if (!options.supportDynamicLoops) {
-      LDBG("--dynamic loop not supported -> BAIL");
-      return false;
-    }
-  } else {
-    int64_t ubImm = upperBoundCst.value();
-    int64_t lbImm = lowerBoundCst.value();
-    int64_t stepImm = stepCst.value();
-    if (stepImm <= 0) {
-      LDBG("--invalid loop step -> BAIL");
-      return false;
-    }
-    int64_t numIteration = llvm::divideCeilSigned(ubImm - lbImm, stepImm);
-    if (numIteration >= maxStage) {
-      dynamicLoop = false;
-    } else if (!options.supportDynamicLoops) {
-      LDBG("--fewer loop iterations than pipeline stages -> BAIL");
-      return false;
-    }
-  }
-  peelEpilogue = options.peelEpilogue;
-  predicateFn = options.predicateFn;
-  if ((!peelEpilogue || dynamicLoop) && predicateFn == nullptr) {
-    LDBG("--no epilogue or predicate set -> BAIL");
-    return false;
-  }
-=======
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   dynamicLoop = true;
   auto upperBoundCst = getConstantIntValue(ub);

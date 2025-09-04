@@ -379,10 +379,7 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.wchar.wcsrchr
     libc.src.wchar.wcsspn
     libc.src.wchar.wcscspn
-<<<<<<< HEAD
-=======
     libc.src.wchar.wcsdup
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     libc.src.wchar.wmemcmp
     libc.src.wchar.wmempcpy
     libc.src.wchar.wmemcpy
@@ -397,8 +394,6 @@ set(TARGET_LIBC_ENTRYPOINTS
     libc.src.wchar.wcpcpy
     libc.src.wchar.wcpncpy
     libc.src.wchar.wcstok
-<<<<<<< HEAD
-=======
     libc.src.wchar.wcstol
     libc.src.wchar.wcstoll
     libc.src.wchar.wcstoul
@@ -406,7 +401,6 @@ set(TARGET_LIBC_ENTRYPOINTS
 
     # wctype.h entrypoints
     libc.src.wctype.iswalpha
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
     # sys/uio.h entrypoints
     libc.src.sys.uio.writev
@@ -1369,12 +1363,9 @@ if(LLVM_LIBC_FULL_BUILD)
     libc.src.wchar.mbsnrtowcs
     libc.src.wchar.wcrtomb
     libc.src.wchar.wctomb
-<<<<<<< HEAD
-=======
     libc.src.wchar.wcstombs
     libc.src.wchar.wcsrtombs
     libc.src.wchar.wcsnrtombs
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   )
 endif()
 

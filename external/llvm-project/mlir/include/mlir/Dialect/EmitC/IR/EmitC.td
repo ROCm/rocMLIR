@@ -1677,23 +1677,15 @@ def EmitC_FieldOp : EmitC_Op<"field", [Symbol]> {
     emitc.field @fieldName0 : !emitc.array<1xf32>  {emitc.opaque = "another_feature"}
     // Example with no attribute:
     emitc.field @fieldName0 : !emitc.array<1xf32>
-<<<<<<< HEAD
-=======
     // Example with an initial value:
     emitc.field @fieldName0 : !emitc.array<1xf32> = dense<0.0>
     // Example with an initial value and attributes:
     emitc.field @fieldName0 : !emitc.array<1xf32> = dense<0.0> {
       emitc.opaque = "input_tensor"}
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ```
   }];
 
   let arguments = (ins SymbolNameAttr:$sym_name, TypeAttr:$type,
-<<<<<<< HEAD
-      OptionalAttr<AnyAttr>:$attrs);
-
-  let assemblyFormat = [{ $sym_name `:` $type ($attrs^)? attr-dict}];
-=======
       OptionalAttr<EmitC_OpaqueOrTypedAttr>:$initial_value);
 
   let assemblyFormat = [{
@@ -1701,7 +1693,6 @@ def EmitC_FieldOp : EmitC_Op<"field", [Symbol]> {
        `:` custom<EmitCFieldOpTypeAndInitialValue>($type, $initial_value)
        attr-dict
   }];
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   let hasVerifier = 1;
 }
@@ -1722,14 +1713,9 @@ def EmitC_GetFieldOp
   }];
 
   let arguments = (ins FlatSymbolRefAttr:$field_name);
-<<<<<<< HEAD
-  let results = (outs AnyTypeOf<[EmitC_ArrayType, EmitC_LValueType]>:$result);
-  let assemblyFormat = "$field_name `:` type($result) attr-dict";
-=======
   let results = (outs EmitCType:$result);
   let assemblyFormat = "$field_name `:` type($result) attr-dict";
   let hasVerifier = 1;
->>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 #endif // MLIR_DIALECT_EMITC_IR_EMITC
