@@ -1533,9 +1533,8 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
     } else {
       vOp = rock::createConstantFloatOp(b, loc, elemType, elemType, v.value());
     }
-    constantsVec = b.create<vector::InsertElementOp>(
-                        loc, vOp, constantsVec,
-                        b.create<arith::ConstantIndexOp>(loc, v.index()))
+    constantsVec = b.create<vector::InsertOp>(
+                        loc, vOp, constantsVec, v.index())
                        .getResult();
   }
 
@@ -1560,7 +1559,7 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
                                                ValueRange ivs) {
         auto selectorOp =
             b.create<affine::AffineApplyOp>(loc, rowMajorMap, ivs);
-        Value toStore = b.create<vector::ExtractElementOp>(
+        Value toStore = b.create<vector::ExtractOp>(
                              loc, constantsVec, selectorOp->getResult(0))
                             .getResult();
         b.create<memref::StoreOp>(loc, toStore, toFillFlat, ivs);

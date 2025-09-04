@@ -13,7 +13,6 @@
 #include <flang/Lower/OpenMP/Utils.h>
 
 #include "ClauseFinder.h"
-#include <flang/Evaluate/fold.h>
 #include <flang/Lower/AbstractConverter.h>
 #include <flang/Lower/ConvertExprToHLFIR.h>
 #include <flang/Lower/ConvertType.h>
@@ -21,9 +20,11 @@
 #include <flang/Lower/OpenMP/Clauses.h>
 #include <flang/Lower/PFTBuilder.h>
 #include <flang/Lower/StatementContext.h>
+#include <flang/Lower/Support/PrivateReductionUtils.h>
 #include <flang/Lower/SymbolMap.h>
 #include <flang/Optimizer/Builder/FIRBuilder.h>
 #include <flang/Optimizer/Builder/Todo.h>
+#include <flang/Parser/openmp-utils.h>
 #include <flang/Parser/parse-tree.h>
 #include <flang/Parser/tools.h>
 #include <flang/Semantics/tools.h>
@@ -108,9 +109,10 @@ getIterationVariableSymbol(const lower::pft::Evaluation &eval) {
 
 void gatherFuncAndVarSyms(
     const ObjectList &objects, mlir::omp::DeclareTargetCaptureClause clause,
-    llvm::SmallVectorImpl<DeclareTargetCapturePair> &symbolAndClause) {
+    llvm::SmallVectorImpl<DeclareTargetCaptureInfo> &symbolAndClause,
+    bool automap) {
   for (const Object &object : objects)
-    symbolAndClause.emplace_back(clause, *object.sym());
+    symbolAndClause.emplace_back(clause, *object.sym(), automap);
 }
 
 // This function gathers the individual omp::Object's that make up a
@@ -162,16 +164,11 @@ static void generateArrayIndices(lower::AbstractConverter &converter,
   for (auto v : arr->subscript()) {
     if (std::holds_alternative<Triplet>(v.u))
       TODO(clauseLocation, "Triplet indexing in map clause is unsupported");
-
     auto expr = std::get<Fortran::evaluate::IndirectSubscriptIntegerExpr>(v.u);
     mlir::Value subscript =
         fir::getBase(converter.genExprValue(toEvExpr(expr.value()), stmtCtx));
-    mlir::Value one = firOpBuilder.createIntegerConstant(
-        clauseLocation, firOpBuilder.getIndexType(), 1);
-    subscript = firOpBuilder.createConvert(
-        clauseLocation, firOpBuilder.getIndexType(), subscript);
-    indices.push_back(firOpBuilder.create<mlir::arith::SubIOp>(clauseLocation,
-                                                               subscript, one));
+    indices.push_back(firOpBuilder.createConvert(
+        clauseLocation, firOpBuilder.getIndexType(), subscript));
   }
 }
 
@@ -304,9 +301,42 @@ mlir::Value createParentSymAndGenIntermediateMaps(
                              subscriptIndices, objectList[i]);
         assert(!subscriptIndices.empty() &&
                "missing expected indices for map clause");
-        curValue = firOpBuilder.create<fir::CoordinateOp>(
-            clauseLocation, firOpBuilder.getRefType(arrType.getEleTy()),
-            curValue, subscriptIndices);
+        if (auto boxTy = llvm::dyn_cast<fir::BaseBoxType>(curValue.getType())) {
+          // To accommodate indexing into box types of all dimensions including
+          // negative dimensions we have to take into consideration the lower
+          // bounds and extents of the data (stored in the box) and convey it
+          // to the ArrayCoorOp so that it can appropriately access the element
+          // utilising the subscript we provide and the runtime sizes stored in
+          // the Box. To do so we need to generate a ShapeShiftOp which combines
+          // both the lb (ShiftOp) and extent (ShapeOp) of the Box, giving the
+          // ArrayCoorOp the spatial information it needs to calculate the
+          // underlying address.
+          mlir::Value shapeShift = Fortran::lower::getShapeShift(
+              firOpBuilder, clauseLocation, curValue);
+          auto addrOp =
+              fir::BoxAddrOp::create(firOpBuilder, clauseLocation, curValue);
+          curValue = fir::ArrayCoorOp::create(
+              firOpBuilder, clauseLocation,
+              firOpBuilder.getRefType(arrType.getEleTy()), addrOp, shapeShift,
+              /*slice=*/mlir::Value{}, subscriptIndices,
+              /*typeparms=*/mlir::ValueRange{});
+        } else {
+          // We're required to negate by one in the non-Box case as I believe
+          // we do not have the shape generated from the dimensions to help
+          // adjust the indexing.
+          // TODO/FIXME: This may need adjusted to support bounds of unusual
+          // dimensions, if that's the case then it is likely best to fold this
+          // branch into the above.
+          mlir::Value one = firOpBuilder.createIntegerConstant(
+              clauseLocation, firOpBuilder.getIndexType(), 1);
+          for (auto &v : subscriptIndices)
+            v = mlir::arith::SubIOp::create(firOpBuilder, clauseLocation, v,
+                                            one);
+          curValue = fir::CoordinateOp::create(
+              firOpBuilder, clauseLocation,
+              firOpBuilder.getRefType(arrType.getEleTy()), curValue,
+              subscriptIndices);
+        }
       }
     }
 
@@ -320,9 +350,9 @@ mlir::Value createParentSymAndGenIntermediateMaps(
       fir::IntOrValue idxConst = mlir::IntegerAttr::get(
           firOpBuilder.getI32Type(), indices[currentIndicesIdx]);
       mlir::Type memberTy = recordType.getType(indices[currentIndicesIdx]);
-      curValue = firOpBuilder.create<fir::CoordinateOp>(
-          clauseLocation, firOpBuilder.getRefType(memberTy), curValue,
-          llvm::SmallVector<fir::IntOrValue, 1>{idxConst});
+      curValue = fir::CoordinateOp::create(
+          firOpBuilder, clauseLocation, firOpBuilder.getRefType(memberTy),
+          curValue, llvm::SmallVector<fir::IntOrValue, 1>{idxConst});
 
       // If we're a final member, the map will be generated by the processMap
       // call that invoked this function.
@@ -392,11 +422,10 @@ mlir::Value createParentSymAndGenIntermediateMaps(
 
       // Load the currently accessed member, so we can continue to access
       // further segments.
-      curValue = firOpBuilder.create<fir::LoadOp>(clauseLocation, curValue);
+      curValue = fir::LoadOp::create(firOpBuilder, clauseLocation, curValue);
       currentIndicesIdx++;
     }
   }
-
   return curValue;
 }
 
@@ -636,6 +665,7 @@ bool collectLoopRelatedInfo(
 
   return found;
 }
+
 } // namespace omp
 } // namespace lower
 } // namespace Fortran

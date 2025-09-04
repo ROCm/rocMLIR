@@ -845,12 +845,12 @@ struct ExtractSliceRewritePattern : public OpRewritePattern<ExtractSliceOp> {
       for (int64_t i = 0; i < size; ++i) {
         Value cDest = b.createOrFold<ConstantIndexOp>(loc, i);
         Value cSrc = b.createOrFold<AddIOp>(loc, base, cDest);
-        Value v = b.create<vector::ExtractElementOp>(loc, op.getVector(), cSrc);
-        ret = b.create<vector::InsertElementOp>(loc, v, ret, cDest);
+        Value v = b.create<vector::ExtractOp>(loc, op.getVector(), cSrc);
+        ret = b.create<vector::InsertOp>(loc, v, ret, cDest);
       }
       b.replaceOp(op, ret);
     } else {
-      b.replaceOpWithNewOp<vector::ExtractElementOp>(op, op.getVector(), base);
+      b.replaceOpWithNewOp<vector::ExtractOp>(op, op.getVector(), base);
     }
     return success();
   }
@@ -879,12 +879,12 @@ struct InsertSliceRewritePattern : public OpRewritePattern<InsertSliceOp> {
       for (int64_t i = 0; i < size; ++i) {
         Value cSrc = b.createOrFold<ConstantIndexOp>(loc, i);
         Value cDest = b.createOrFold<AddIOp>(loc, base, cSrc);
-        Value v = b.create<vector::ExtractElementOp>(loc, op.getSource(), cSrc);
-        ret = b.create<vector::InsertElementOp>(loc, v, ret, cDest);
+        Value v = b.create<vector::ExtractOp>(loc, op.getSource(), cSrc);
+        ret = b.create<vector::InsertOp>(loc, v, ret, cDest);
       }
       b.replaceOp(op, ret);
     } else {
-      b.replaceOpWithNewOp<vector::InsertElementOp>(op, op.getSource(),
+      b.replaceOpWithNewOp<vector::InsertOp>(op, op.getSource(),
                                                     op.getDest(), base);
     }
     return success();
@@ -1017,8 +1017,8 @@ static void atomicFp16AddAligned(OpBuilder &b, Location loc, Value data,
   // Extended packed data to use with the intrinsic
   Value dataExt =
       createZeroConstantOp(b, loc, vectorTypeOrSelf(elemTy, packedVectorLen));
-  Value dataExt0 = b.create<vector::InsertElementOp>(loc, data, dataExt, zero);
-  Value dataExt1 = b.create<vector::InsertElementOp>(loc, data, dataExt, one);
+  Value dataExt0 = b.create<vector::InsertOp>(loc, data, dataExt, zero);
+  Value dataExt1 = b.create<vector::InsertOp>(loc, data, dataExt, one);
 
   // Manual alignment logic : if (addr % 2 != 0) step{AddressData}Back
   Value stepBack = b.create<arith::SubIOp>(loc, address, one);
@@ -1156,7 +1156,7 @@ Value selectDataIf4b(Location loc, PatternRewriter &b,
   Type coordType = flatAddress.getType();
   Value one = getConstIntOrIndexValue(b, loc, 1, coordType);
   Value lsb = b.createOrFold<arith::AndIOp>(loc, flatAddress, one);
-  return b.createOrFold<vector::ExtractElementOp>(loc, loadedVec, lsb);
+  return b.createOrFold<vector::ExtractOp>(loc, loadedVec, lsb);
 }
 
 struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
