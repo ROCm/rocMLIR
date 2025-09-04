@@ -893,6 +893,9 @@ void TargetPassConfig::addIRPasses() {
 
   if (EnableGlobalMergeFunc)
     addPass(createGlobalMergeFuncPass());
+
+  if (TM->getTargetTriple().isOSWindows())
+    addPass(createWindowsSecureHotPatchingPass());
 }
 
 /// Turn exception handling constructs into something the code generators can
@@ -1071,7 +1074,7 @@ bool TargetPassConfig::addISelPasses() {
   PM->add(createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
   addPass(createPreISelIntrinsicLoweringPass());
   addPass(createExpandLargeDivRemPass());
-  addPass(createExpandFpPass());
+  addPass(createExpandFpPass(getOptLevel()));
   addIRPasses();
   addCodeGenPrepare();
   addPassesToHandleExceptions();

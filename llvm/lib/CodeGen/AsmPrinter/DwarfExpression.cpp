@@ -526,6 +526,8 @@ bool DwarfExpression::addExpression(
   // and not any other parts of the following DWARF expression.
   assert(!IsEmittingEntryValue && "Can't emit entry value around expression");
 
+  if (!IsImplemented)
+    return false;
   IsPoisonedExpr = false;
 
   std::optional<DIExpression::ExprOperand> PrevConvertOp;
@@ -756,7 +758,7 @@ void DwarfExpression::addExpression(DIExpression::NewElementsRef Expr,
   IsFragment = false;
   ASTRoot.reset();
   this->TRI = nullptr;
-  this->ArgLocEntries = std::nullopt;
+  this->ArgLocEntries = {};
 }
 
 /// add masking operations to stencil out a subregister.

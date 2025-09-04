@@ -295,7 +295,8 @@ protected:
 
   /// Fetches list of variables associated with this clause.
   MutableArrayRef<Expr *> getVarRefs() {
-    return static_cast<T *>(this)->template getTrailingObjects<Expr *>(NumVars);
+    return static_cast<T *>(this)->template getTrailingObjectsNonStrict<Expr *>(
+        NumVars);
   }
 
   /// Sets the list of variables for this clause.
@@ -334,8 +335,8 @@ public:
 
   /// Fetches list of all variables in the clause.
   ArrayRef<const Expr *> getVarRefs() const {
-    return static_cast<const T *>(this)->template getTrailingObjects<Expr *>(
-        NumVars);
+    return static_cast<const T *>(this)
+        ->template getTrailingObjectsNonStrict<Expr *>(NumVars);
   }
 };
 
@@ -380,7 +381,7 @@ public:
 
   MutableArrayRef<OpenMPDirectiveKind> getDirectiveKinds() {
     return static_cast<T *>(this)
-        ->template getTrailingObjects<OpenMPDirectiveKind>(NumKinds);
+        ->template getTrailingObjectsNonStrict<OpenMPDirectiveKind>(NumKinds);
   }
 
   void setDirectiveKinds(ArrayRef<OpenMPDirectiveKind> DK) {
@@ -824,30 +825,51 @@ class OMPNumThreadsClause final
       public OMPClauseWithPreInit {
   friend class OMPClauseReader;
 
+  /// Modifiers for 'num_threads' clause.
+  OpenMPNumThreadsClauseModifier Modifier = OMPC_NUMTHREADS_unknown;
+
+  /// Location of the modifier.
+  SourceLocation ModifierLoc;
+
+  /// Sets modifier.
+  void setModifier(OpenMPNumThreadsClauseModifier M) { Modifier = M; }
+
+  /// Sets modifier location.
+  void setModifierLoc(SourceLocation Loc) { ModifierLoc = Loc; }
+
   /// Set condition.
   void setNumThreads(Expr *NThreads) { setStmt(NThreads); }
 
 public:
   /// Build 'num_threads' clause with condition \a NumThreads.
   ///
+  /// \param Modifier Clause modifier.
   /// \param NumThreads Number of threads for the construct.
   /// \param HelperNumThreads Helper Number of threads for the construct.
   /// \param CaptureRegion Innermost OpenMP region where expressions in this
   /// clause must be captured.
   /// \param StartLoc Starting location of the clause.
   /// \param LParenLoc Location of '('.
+  /// \param ModifierLoc Modifier location.
   /// \param EndLoc Ending location of the clause.
-  OMPNumThreadsClause(Expr *NumThreads, Stmt *HelperNumThreads,
-                      OpenMPDirectiveKind CaptureRegion,
+  OMPNumThreadsClause(OpenMPNumThreadsClauseModifier Modifier, Expr *NumThreads,
+                      Stmt *HelperNumThreads, OpenMPDirectiveKind CaptureRegion,
                       SourceLocation StartLoc, SourceLocation LParenLoc,
-                      SourceLocation EndLoc)
+                      SourceLocation ModifierLoc, SourceLocation EndLoc)
       : OMPOneStmtClause(NumThreads, StartLoc, LParenLoc, EndLoc),
-        OMPClauseWithPreInit(this) {
+        OMPClauseWithPreInit(this), Modifier(Modifier),
+        ModifierLoc(ModifierLoc) {
     setPreInitStmt(HelperNumThreads, CaptureRegion);
   }
 
   /// Build an empty clause.
   OMPNumThreadsClause() : OMPOneStmtClause(), OMPClauseWithPreInit(this) {}
+
+  /// Gets modifier.
+  OpenMPNumThreadsClauseModifier getModifier() const { return Modifier; }
+
+  /// Gets modifier location.
+  SourceLocation getModifierLoc() const { return ModifierLoc; }
 
   /// Returns number of threads.
   Expr *getNumThreads() const { return getStmtAs<Expr>(); }
@@ -1754,7 +1776,8 @@ public:
   }
 };
 
-/// This represents 'severity' clause in the '#pragma omp error' directive
+/// This represents the 'severity' clause in the '#pragma omp error' and the
+/// '#pragma omp parallel' directives.
 ///
 /// \code
 /// #pragma omp error severity(fatal)
@@ -1834,69 +1857,51 @@ public:
   }
 };
 
-/// This represents 'message' clause in the '#pragma omp error' directive
+/// This represents the 'message' clause in the '#pragma omp error' and the
+/// '#pragma omp parallel' directives.
 ///
 /// \code
 /// #pragma omp error message("GNU compiler required.")
 /// \endcode
 /// In this example directive '#pragma omp error' has simple
 /// 'message' clause with user error message of "GNU compiler required.".
-class OMPMessageClause final : public OMPClause {
+class OMPMessageClause final
+    : public OMPOneStmtClause<llvm::omp::OMPC_message, OMPClause>,
+      public OMPClauseWithPreInit {
   friend class OMPClauseReader;
 
-  /// Location of '('
-  SourceLocation LParenLoc;
-
-  // Expression of the 'message' clause.
-  Stmt *MessageString = nullptr;
-
   /// Set message string of the clause.
-  void setMessageString(Expr *MS) { MessageString = MS; }
-
-  /// Sets the location of '('.
-  void setLParenLoc(SourceLocation Loc) { LParenLoc = Loc; }
+  void setMessageString(Expr *MS) { setStmt(MS); }
 
 public:
   /// Build 'message' clause with message string argument
   ///
   /// \param MS Argument of the clause (message string).
+  /// \param HelperMS Helper statement for the construct.
+  /// \param CaptureRegion Innermost OpenMP region where expressions in this
+  /// clause must be captured.
   /// \param StartLoc Starting location of the clause.
   /// \param LParenLoc Location of '('.
   /// \param EndLoc Ending location of the clause.
-  OMPMessageClause(Expr *MS, SourceLocation StartLoc, SourceLocation LParenLoc,
+  OMPMessageClause(Expr *MS, Stmt *HelperMS, OpenMPDirectiveKind CaptureRegion,
+                   SourceLocation StartLoc, SourceLocation LParenLoc,
                    SourceLocation EndLoc)
-      : OMPClause(llvm::omp::OMPC_message, StartLoc, EndLoc),
-        LParenLoc(LParenLoc), MessageString(MS) {}
+      : OMPOneStmtClause(MS, StartLoc, LParenLoc, EndLoc),
+        OMPClauseWithPreInit(this) {
+    setPreInitStmt(HelperMS, CaptureRegion);
+  }
 
   /// Build an empty clause.
-  OMPMessageClause()
-      : OMPClause(llvm::omp::OMPC_message, SourceLocation(), SourceLocation()) {
-  }
-
-  /// Returns the locaiton of '('.
-  SourceLocation getLParenLoc() const { return LParenLoc; }
+  OMPMessageClause() : OMPOneStmtClause(), OMPClauseWithPreInit(this) {}
 
   /// Returns message string of the clause.
-  Expr *getMessageString() const { return cast_or_null<Expr>(MessageString); }
+  Expr *getMessageString() const { return getStmtAs<Expr>(); }
 
-  child_range children() {
-    return child_range(&MessageString, &MessageString + 1);
-  }
-
-  const_child_range children() const {
-    return const_child_range(&MessageString, &MessageString + 1);
-  }
-
-  child_range used_children() {
-    return child_range(child_iterator(), child_iterator());
-  }
-
-  const_child_range used_children() const {
-    return const_child_range(const_child_iterator(), const_child_iterator());
-  }
-
-  static bool classof(const OMPClause *T) {
-    return T->getClauseKind() == llvm::omp::OMPC_message;
+  /// Try to evaluate the message string at compile time.
+  std::optional<std::string> tryEvaluateString(ASTContext &Ctx) const {
+    if (Expr *MessageExpr = getMessageString())
+      return MessageExpr->tryEvaluateString(Ctx);
+    return std::nullopt;
   }
 };
 
@@ -5900,15 +5905,17 @@ protected:
   /// Get the unique declarations that are in the trailing objects of the
   /// class.
   MutableArrayRef<ValueDecl *> getUniqueDeclsRef() {
-    return static_cast<T *>(this)->template getTrailingObjects<ValueDecl *>(
-        NumUniqueDeclarations);
+    return static_cast<T *>(this)
+        ->template getTrailingObjectsNonStrict<ValueDecl *>(
+            NumUniqueDeclarations);
   }
 
   /// Get the unique declarations that are in the trailing objects of the
   /// class.
   ArrayRef<ValueDecl *> getUniqueDeclsRef() const {
     return static_cast<const T *>(this)
-        ->template getTrailingObjects<ValueDecl *>(NumUniqueDeclarations);
+        ->template getTrailingObjectsNonStrict<ValueDecl *>(
+            NumUniqueDeclarations);
   }
 
   /// Set the unique declarations that are in the trailing objects of the
@@ -5922,15 +5929,15 @@ protected:
   /// Get the number of lists per declaration that are in the trailing
   /// objects of the class.
   MutableArrayRef<unsigned> getDeclNumListsRef() {
-    return static_cast<T *>(this)->template getTrailingObjects<unsigned>(
-        NumUniqueDeclarations);
+    return static_cast<T *>(this)
+        ->template getTrailingObjectsNonStrict<unsigned>(NumUniqueDeclarations);
   }
 
   /// Get the number of lists per declaration that are in the trailing
   /// objects of the class.
   ArrayRef<unsigned> getDeclNumListsRef() const {
-    return static_cast<const T *>(this)->template getTrailingObjects<unsigned>(
-        NumUniqueDeclarations);
+    return static_cast<const T *>(this)
+        ->template getTrailingObjectsNonStrict<unsigned>(NumUniqueDeclarations);
   }
 
   /// Set the number of lists per declaration that are in the trailing
@@ -5945,7 +5952,8 @@ protected:
   /// objects of the class. They are appended after the number of lists.
   MutableArrayRef<unsigned> getComponentListSizesRef() {
     return MutableArrayRef<unsigned>(
-        static_cast<T *>(this)->template getTrailingObjects<unsigned>() +
+        static_cast<T *>(this)
+                ->template getTrailingObjectsNonStrict<unsigned>() +
             NumUniqueDeclarations,
         NumComponentLists);
   }
@@ -5954,7 +5962,8 @@ protected:
   /// objects of the class. They are appended after the number of lists.
   ArrayRef<unsigned> getComponentListSizesRef() const {
     return ArrayRef<unsigned>(
-        static_cast<const T *>(this)->template getTrailingObjects<unsigned>() +
+        static_cast<const T *>(this)
+                ->template getTrailingObjectsNonStrict<unsigned>() +
             NumUniqueDeclarations,
         NumComponentLists);
   }
@@ -5970,13 +5979,15 @@ protected:
   /// Get the components that are in the trailing objects of the class.
   MutableArrayRef<MappableComponent> getComponentsRef() {
     return static_cast<T *>(this)
-        ->template getTrailingObjects<MappableComponent>(NumComponents);
+        ->template getTrailingObjectsNonStrict<MappableComponent>(
+            NumComponents);
   }
 
   /// Get the components that are in the trailing objects of the class.
   ArrayRef<MappableComponent> getComponentsRef() const {
     return static_cast<const T *>(this)
-        ->template getTrailingObjects<MappableComponent>(NumComponents);
+        ->template getTrailingObjectsNonStrict<MappableComponent>(
+            NumComponents);
   }
 
   /// Set the components that are in the trailing objects of the class.

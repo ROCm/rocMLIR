@@ -19,6 +19,7 @@
 #ifndef LLVM_BINARYFORMAT_DWARF_H
 #define LLVM_BINARYFORMAT_DWARF_H
 
+#include "llvm/Support/AMDGPUAddrSpace.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -1046,6 +1047,7 @@ LLVM_ABI unsigned getSubOperationEncoding(unsigned OpEncoding,
 LLVM_ABI unsigned getVirtuality(StringRef VirtualityString);
 LLVM_ABI unsigned getEnumKind(StringRef EnumKindString);
 LLVM_ABI unsigned getLanguage(StringRef LanguageString);
+LLVM_ABI unsigned getMemorySpace(StringRef LanguageString);
 LLVM_ABI unsigned getCallingConvention(StringRef LanguageString);
 LLVM_ABI unsigned getMemorySpace(StringRef LanguageString);
 LLVM_ABI unsigned getAttributeEncoding(StringRef EncodingString);

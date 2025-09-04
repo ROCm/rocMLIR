@@ -22,6 +22,7 @@
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/Analysis.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/IntrinsicsAMDGPU.h"
 #include "llvm/IR/PatternMatch.h"
@@ -216,10 +217,13 @@ void AMDGPUTTIImpl::getUnrollingPreferences(
         // a variable, most likely we will be unable to combine it.
         // Do not unroll too deep inner loops for local memory to give a chance
         // to unroll an outer loop for a more important reason.
-        if (LocalGEPsSeen > 1 || L->getLoopDepth() > 2 ||
-            (!isa<GlobalVariable>(GEP->getPointerOperand()) &&
-             !isa<Argument>(GEP->getPointerOperand())))
+        if (LocalGEPsSeen > 1 || L->getLoopDepth() > 2)
           continue;
+
+        const Value *V = getUnderlyingObject(GEP->getPointerOperand());
+        if (!isa<GlobalVariable>(V) && !isa<Argument>(V))
+          continue;
+
         LLVM_DEBUG(dbgs() << "Allow unroll runtime for loop:\n"
                           << *L << " due to LDS use.\n");
         UP.Runtime = UnrollRuntimeLocal;
@@ -313,24 +317,6 @@ bool GCNTTIImpl::hasBranchDivergence(const Function *F) const {
   return !F || !ST->isSingleLaneExecution(*F);
 }
 
-unsigned GCNTTIImpl::getNumberOfParts(Type *Tp) const {
-  // For certain 8 bit ops, we can pack a v4i8 into a single part
-  // (e.g. v4i8 shufflevectors -> v_perm v4i8, v4i8). Thus, we
-  // do not limit the numberOfParts for 8 bit vectors to the
-  // legalization costs of such. It is left up to other target
-  // queries (e.g. get*InstrCost) to decide the proper handling
-  // of 8 bit vectors.
-  if (FixedVectorType *VTy = dyn_cast<FixedVectorType>(Tp)) {
-    if (ST->shouldCoerceIllegalTypes() &&
-        DL.getTypeSizeInBits(VTy->getElementType()) == 8) {
-      unsigned ElCount = VTy->getElementCount().getFixedValue();
-      return std::max(UINT64_C(1), PowerOf2Ceil(ElCount / 4));
-    }
-  }
-
-  return BaseT::getNumberOfParts(Tp);
-}
-
 unsigned GCNTTIImpl::getNumberOfRegisters(unsigned RCID) const {
   // NB: RCID is not an RCID. In fact it is 0 or 1 for scalar or vector
   // registers. See getRegisterClassForType for the implementation.
@@ -362,11 +348,12 @@ unsigned GCNTTIImpl::getMinVectorRegisterBitWidth() const {
 unsigned GCNTTIImpl::getMaximumVF(unsigned ElemWidth, unsigned Opcode) const {
   if (Opcode == Instruction::Load || Opcode == Instruction::Store)
     return 32 * 4 / ElemWidth;
-
-  return (ST->shouldCoerceIllegalTypes() && ElemWidth == 8) ? 4
-         : (ElemWidth == 16)                                ? 2
-         : (ElemWidth == 32 && ST->hasPackedFP32Ops())      ? 2
-                                                            : 1;
+  // For a given width return the max 0number of elements that can be combined
+  // into a wider bit value:
+  return (ElemWidth == 8 && ST->has16BitInsts())       ? 4
+         : (ElemWidth == 16 && ST->has16BitInsts())    ? 2
+         : (ElemWidth == 32 && ST->hasPackedFP32Ops()) ? 2
+                                                       : 1;
 }
 
 unsigned GCNTTIImpl::getLoadVectorFactor(unsigned VF, unsigned LoadSize,
@@ -611,7 +598,6 @@ InstructionCost GCNTTIImpl::getArithmeticInstrCost(
           // Estimate all types may be fused with contract/unsafe flags
           const TargetOptions &Options = TLI->getTargetMachine().Options;
           if (Options.AllowFPOpFusion == FPOpFusion::Fast ||
-              Options.UnsafeFPMath ||
               (FAdd->hasAllowContract() && CxtI->hasAllowContract()))
             return TargetTransformInfo::TCC_Free;
         }
@@ -664,8 +650,7 @@ InstructionCost GCNTTIImpl::getArithmeticInstrCost(
       return LT.first * Cost * NElts;
     }
 
-    if (SLT == MVT::f32 && ((CxtI && CxtI->hasApproxFunc()) ||
-                            TLI->getTargetMachine().Options.UnsafeFPMath)) {
+    if (SLT == MVT::f32 && (CxtI && CxtI->hasApproxFunc())) {
       // Fast unsafe fdiv lowering:
       // f32 rcp
       // f32 fmul
@@ -1007,10 +992,30 @@ bool GCNTTIImpl::isSourceOfDivergence(const Value *V) const {
     return true;
 
   if (const IntrinsicInst *Intrinsic = dyn_cast<IntrinsicInst>(V)) {
-    if (Intrinsic->getIntrinsicID() == Intrinsic::read_register)
+    Intrinsic::ID IID = Intrinsic->getIntrinsicID();
+    switch (IID) {
+    case Intrinsic::read_register:
       return isReadRegisterSourceOfDivergence(Intrinsic);
-
-    return AMDGPU::isIntrinsicSourceOfDivergence(Intrinsic->getIntrinsicID());
+    case Intrinsic::amdgcn_addrspacecast_nonnull: {
+      unsigned SrcAS =
+          Intrinsic->getOperand(0)->getType()->getPointerAddressSpace();
+      unsigned DstAS = Intrinsic->getType()->getPointerAddressSpace();
+      return SrcAS == AMDGPUAS::PRIVATE_ADDRESS &&
+             DstAS == AMDGPUAS::FLAT_ADDRESS &&
+             ST->hasGloballyAddressableScratch();
+    }
+    case Intrinsic::amdgcn_workitem_id_y:
+    case Intrinsic::amdgcn_workitem_id_z: {
+      const Function *F = Intrinsic->getFunction();
+      bool HasUniformYZ =
+          ST->hasWavefrontsEvenlySplittingXDim(*F, /*RequitezUniformYZ=*/true);
+      std::optional<unsigned> ThisDimSize = ST->getReqdWorkGroupSize(
+          *F, IID == Intrinsic::amdgcn_workitem_id_y ? 1 : 2);
+      return !HasUniformYZ && (!ThisDimSize || *ThisDimSize != 1);
+    }
+    default:
+      return AMDGPU::isIntrinsicSourceOfDivergence(IID);
+    }
   }
 
   // Assume all function calls are a source of divergence.
@@ -1023,6 +1028,15 @@ bool GCNTTIImpl::isSourceOfDivergence(const Value *V) const {
   // Assume all function calls are a source of divergence.
   if (isa<InvokeInst>(V))
     return true;
+
+  // If the target supports globally addressable scratch, the mapping from
+  // scratch memory to the flat aperture changes therefore an address space cast
+  // is no longer uniform.
+  if (auto *CastI = dyn_cast<AddrSpaceCastInst>(V)) {
+    return CastI->getSrcAddressSpace() == AMDGPUAS::PRIVATE_ADDRESS &&
+           CastI->getDestAddressSpace() == AMDGPUAS::FLAT_ADDRESS &&
+           ST->hasGloballyAddressableScratch();
+  }
 
   return false;
 }
@@ -1045,28 +1059,31 @@ bool GCNTTIImpl::isAlwaysUniform(const Value *V) const {
   // packed into a same wave which gives 1 and 0 after the division by 64
   // respectively.
   //
-  // FIXME: limit it to 1D kernels only, although that shall be possible
-  // to perform this optimization is the size of the X dimension is a power
-  // of 2, we just do not currently have infrastructure to query it.
+  // The X dimension doesn't reset within a wave if either both the Y
+  // and Z dimensions are of length 1, or if the X dimension's required
+  // size is a power of 2. Note, however, if the X dimension's maximum
+  // size is a power of 2 < the wavefront size, division by the wavefront
+  // size is guaranteed to yield 0, so this is also a no-reset case.
+  bool XDimDoesntResetWithinWaves = false;
+  if (auto *I = dyn_cast<Instruction>(V)) {
+    const Function *F = I->getFunction();
+    XDimDoesntResetWithinWaves = ST->hasWavefrontsEvenlySplittingXDim(*F);
+  }
   using namespace llvm::PatternMatch;
   uint64_t C;
   if (match(V, m_LShr(m_Intrinsic<Intrinsic::amdgcn_workitem_id_x>(),
                       m_ConstantInt(C))) ||
       match(V, m_AShr(m_Intrinsic<Intrinsic::amdgcn_workitem_id_x>(),
                       m_ConstantInt(C)))) {
-    const Function *F = cast<Instruction>(V)->getFunction();
-    return C >= ST->getWavefrontSizeLog2() &&
-           ST->getMaxWorkitemID(*F, 1) == 0 && ST->getMaxWorkitemID(*F, 2) == 0;
+    return C >= ST->getWavefrontSizeLog2() && XDimDoesntResetWithinWaves;
   }
 
   Value *Mask;
   if (match(V, m_c_And(m_Intrinsic<Intrinsic::amdgcn_workitem_id_x>(),
                        m_Value(Mask)))) {
-    const Function *F = cast<Instruction>(V)->getFunction();
-    const DataLayout &DL = F->getDataLayout();
     return computeKnownBits(Mask, DL).countMinTrailingZeros() >=
                ST->getWavefrontSizeLog2() &&
-           ST->getMaxWorkitemID(*F, 1) == 0 && ST->getMaxWorkitemID(*F, 2) == 0;
+           XDimDoesntResetWithinWaves;
   }
 
   const ExtractValueInst *ExtValue = dyn_cast<ExtractValueInst>(V);
@@ -1217,8 +1234,7 @@ InstructionCost GCNTTIImpl::getShuffleCost(TTI::ShuffleKind Kind,
 
   unsigned ScalarSize = DL.getTypeSizeInBits(SrcTy->getElementType());
   if (ST->getGeneration() >= AMDGPUSubtarget::VOLCANIC_ISLANDS &&
-      (ScalarSize == 16 ||
-       (ScalarSize == 8 && ST->shouldCoerceIllegalTypes()))) {
+      (ScalarSize == 16 || ScalarSize == 8)) {
     // Larger vector widths may require additional instructions, but are
     // typically cheaper than scalarized versions.
     unsigned NumVectorElts = cast<FixedVectorType>(SrcTy)->getNumElements();
@@ -1526,4 +1542,31 @@ GCNTTIImpl::fpenvIEEEMode(const Instruction &I) const {
 
   return AMDGPU::isShader(F->getCallingConv()) ? KnownIEEEMode::Off
                                                : KnownIEEEMode::On;
+}
+
+InstructionCost GCNTTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
+                                            Align Alignment,
+                                            unsigned AddressSpace,
+                                            TTI::TargetCostKind CostKind,
+                                            TTI::OperandValueInfo OpInfo,
+                                            const Instruction *I) const {
+  if (VectorType *VecTy = dyn_cast<VectorType>(Src)) {
+    if ((Opcode == Instruction::Load || Opcode == Instruction::Store) &&
+        VecTy->getElementType()->isIntegerTy(8)) {
+      return divideCeil(DL.getTypeSizeInBits(VecTy) - 1,
+                        getLoadStoreVecRegBitWidth(AddressSpace));
+    }
+  }
+  return BaseT::getMemoryOpCost(Opcode, Src, Alignment, AddressSpace, CostKind,
+                                OpInfo, I);
+}
+
+unsigned GCNTTIImpl::getNumberOfParts(Type *Tp) const {
+  if (VectorType *VecTy = dyn_cast<VectorType>(Tp)) {
+    if (VecTy->getElementType()->isIntegerTy(8)) {
+      unsigned ElementCount = VecTy->getElementCount().getFixedValue();
+      return divideCeil(ElementCount - 1, 4);
+    }
+  }
+  return BaseT::getNumberOfParts(Tp);
 }

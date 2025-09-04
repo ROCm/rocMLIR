@@ -362,35 +362,35 @@ TargetPointerResultTy MappingInfoTy::getTargetPointer(
   if (LR.TPR.TargetPointer && !LR.TPR.Flags.IsHostPointer && HasFlagTo &&
       (LR.TPR.Flags.IsNewEntry || HasFlagAlways) && Size != 0) {
 
+    // If we have something like:
+    //   #pragma omp target map(to: s.myarr[0:10]) map(to: s.myarr[0:10])
+    // then we see two "new" mappings of the struct member s.myarr here --
+    // and both have the "IsNewEntry" flag set, so trigger the copy to device
+    // below.  But, the shadow pointer is only initialised on the target for
+    // the first copy, and the second copy clobbers it.  So, this condition
+    // avoids the (second) copy here if we have already set shadow pointer info.
+    auto FailOnPtrFound = [HstPtrBegin, Size](ShadowPtrInfoTy &SP) {
+      if (SP.HstPtrAddr >= HstPtrBegin &&
+          SP.HstPtrAddr < (void *)((char *)HstPtrBegin + Size))
+        return OFFLOAD_FAIL;
+      return OFFLOAD_SUCCESS;
+    };
+    if (LR.TPR.getEntry()->foreachShadowPointerInfo(FailOnPtrFound) ==
+        OFFLOAD_FAIL) {
+      DP("Multiple new mappings of %" PRId64 " bytes detected (hst:" DPxMOD
+         ") -> (tgt:" DPxMOD ")\n",
+         Size, DPxPTR(HstPtrBegin), DPxPTR(LR.TPR.TargetPointer));
+      return std::move(LR.TPR);
+    }
+
+    DP("Moving %" PRId64 " bytes (hst:" DPxMOD ") -> (tgt:" DPxMOD ")\n", Size,
+       DPxPTR(HstPtrBegin), DPxPTR(LR.TPR.TargetPointer));
+
     if (LR.TPR.Flags.IsNewEntry ||
         LR.TPR.getEntry()->AllocKind != TARGET_ALLOC_SHARED) {
 
       DP("Moving %" PRId64 " bytes (hst:" DPxMOD ") -> (tgt:" DPxMOD ")\n",
          Size, DPxPTR(HstPtrBegin), DPxPTR(LR.TPR.TargetPointer));
-
-      // If we are mapping a descriptor/dope vector, we map it with always as
-      // this information should always be up-to-date. Another issue is that
-      // due to an edge-case with declare target preventing this information
-      // being initialized on device we have force initialize it with always.
-      // However, in these cases to prevent overwriting of the data pointer
-      // breaking any pointer <-> data attachment that previous mappings may
-      // have established, we skip over the data pointer stored in the dope
-      // vector/descriptor, a subsequent seperate mapping of the pointer and
-      // data by the compiler should correctly establish any required data
-      // mappings, the descriptor mapping primarily just populates the relevant
-      // descriptor data fields that the fortran runtime depends on for bounds
-      // calculation and other relating things. The pointer is always in the
-      // same place, the first field of the descriptor structure, so we skip
-      // it by offsetting by 8-bytes. On architectures with more varied pointer
-      // sizes this may need further thought, but so would a lot of the data
-      // mapping I imagine if host/device pointers are mismatched sizes.
-      if ((TypeFlags & OMP_TGT_MAPTYPE_DESCRIPTOR) && HasFlagAlways) {
-        uintptr_t DescDataPtrOffset = 8;
-        HstPtrBegin = (void *)((uintptr_t)HstPtrBegin + DescDataPtrOffset);
-        LR.TPR.TargetPointer =
-            (void *)((uintptr_t)LR.TPR.TargetPointer + DescDataPtrOffset);
-        Size = Size - DescDataPtrOffset;
-      }
 
       int Ret = Device.submitData(LR.TPR.TargetPointer, HstPtrBegin, Size,
                                   AsyncInfo, LR.TPR.getEntry());

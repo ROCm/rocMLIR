@@ -13,8 +13,10 @@
 #include "clang/Sema/SemaAMDGPU.h"
 #include "clang/Basic/DiagnosticSema.h"
 #include "clang/Basic/TargetBuiltins.h"
+#include "clang/Basic/TargetInfo.h"
 #include "clang/Sema/Ownership.h"
 #include "clang/Sema/Sema.h"
+#include "llvm/Support/AMDGPUAddrSpace.h"
 #include "llvm/Support/AtomicOrdering.h"
 #include <cstdint>
 
@@ -36,6 +38,7 @@ bool SemaAMDGPU::CheckAMDGCNBuiltinFunctionCall(unsigned BuiltinID,
 
   switch (BuiltinID) {
   case AMDGPU::BI__builtin_amdgcn_raw_ptr_buffer_load_lds:
+  case AMDGPU::BI__builtin_amdgcn_struct_ptr_buffer_load_lds:
   case AMDGPU::BI__builtin_amdgcn_load_to_lds:
   case AMDGPU::BI__builtin_amdgcn_global_load_lds: {
     constexpr const int SizeIdx = 2;
@@ -81,9 +84,32 @@ bool SemaAMDGPU::CheckAMDGCNBuiltinFunctionCall(unsigned BuiltinID,
     return checkMovDPPFunctionCall(TheCall, 5, 1);
   case AMDGPU::BI__builtin_amdgcn_mov_dpp8:
     return checkMovDPPFunctionCall(TheCall, 2, 1);
-  case AMDGPU::BI__builtin_amdgcn_update_dpp: {
+  case AMDGPU::BI__builtin_amdgcn_update_dpp:
     return checkMovDPPFunctionCall(TheCall, 6, 2);
-  }
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk8_f16_fp8:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk8_bf16_fp8:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk8_f16_bf8:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk8_bf16_bf8:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk8_f16_fp4:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk8_bf16_fp4:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk8_f32_fp8:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk8_f32_bf8:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk8_f32_fp4:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk16_f16_fp6:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk16_bf16_fp6:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk16_f16_bf6:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk16_bf16_bf6:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk16_f32_fp6:
+  case AMDGPU::BI__builtin_amdgcn_cvt_scale_pk16_f32_bf6:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 7);
+  case AMDGPU::BI__builtin_amdgcn_cooperative_atomic_load_32x4B:
+  case AMDGPU::BI__builtin_amdgcn_cooperative_atomic_load_16x8B:
+  case AMDGPU::BI__builtin_amdgcn_cooperative_atomic_load_8x16B:
+    return checkCoopAtomicFunctionCall(TheCall, /*IsStore=*/false);
+  case AMDGPU::BI__builtin_amdgcn_cooperative_atomic_store_32x4B:
+  case AMDGPU::BI__builtin_amdgcn_cooperative_atomic_store_16x8B:
+  case AMDGPU::BI__builtin_amdgcn_cooperative_atomic_store_8x16B:
+    return checkCoopAtomicFunctionCall(TheCall, /*IsStore=*/true);
   default:
     return false;
   }
@@ -127,6 +153,50 @@ bool SemaAMDGPU::CheckAMDGCNBuiltinFunctionCall(unsigned BuiltinID,
            << ArgExpr->getType();
 
   return false;
+}
+
+bool SemaAMDGPU::checkCoopAtomicFunctionCall(CallExpr *TheCall, bool IsStore) {
+  bool Fail = false;
+
+  // First argument is a global or generic pointer.
+  Expr *PtrArg = TheCall->getArg(0);
+  QualType PtrTy = PtrArg->getType()->getPointeeType();
+  unsigned AS = getASTContext().getTargetAddressSpace(PtrTy.getAddressSpace());
+  if (AS != llvm::AMDGPUAS::FLAT_ADDRESS &&
+      AS != llvm::AMDGPUAS::GLOBAL_ADDRESS) {
+    Fail = true;
+    Diag(TheCall->getBeginLoc(), diag::err_amdgcn_coop_atomic_invalid_as)
+        << PtrArg->getSourceRange();
+  }
+
+  // Check atomic ordering
+  Expr *AtomicOrdArg = TheCall->getArg(IsStore ? 2 : 1);
+  Expr::EvalResult AtomicOrdArgRes;
+  if (!AtomicOrdArg->EvaluateAsInt(AtomicOrdArgRes, getASTContext()))
+    llvm_unreachable("Intrinsic requires imm for atomic ordering argument!");
+  auto Ord =
+      llvm::AtomicOrderingCABI(AtomicOrdArgRes.Val.getInt().getZExtValue());
+
+  // Atomic ordering cannot be acq_rel in any case, acquire for stores or
+  // release for loads.
+  if (!llvm::isValidAtomicOrderingCABI((unsigned)Ord) ||
+      (Ord == llvm::AtomicOrderingCABI::acq_rel) ||
+      Ord == (IsStore ? llvm::AtomicOrderingCABI::acquire
+                      : llvm::AtomicOrderingCABI::release)) {
+    return Diag(AtomicOrdArg->getBeginLoc(),
+                diag::warn_atomic_op_has_invalid_memory_order)
+           << 0 << AtomicOrdArg->getSourceRange();
+  }
+
+  // Last argument is a string literal
+  Expr *Arg = TheCall->getArg(TheCall->getNumArgs() - 1);
+  if (!isa<StringLiteral>(Arg->IgnoreParenImpCasts())) {
+    Fail = true;
+    Diag(TheCall->getBeginLoc(), diag::err_expr_not_string_literal)
+        << Arg->getSourceRange();
+  }
+
+  return Fail;
 }
 
 bool SemaAMDGPU::checkMovDPPFunctionCall(CallExpr *TheCall, unsigned NumArgs,
@@ -367,4 +437,80 @@ void SemaAMDGPU::handleAMDGPUMaxNumWorkGroupsAttr(Decl *D,
   addAMDGPUMaxNumWorkGroupsAttr(D, AL, AL.getArgAsExpr(0), YExpr, ZExpr);
 }
 
+Expr *SemaAMDGPU::ExpandAMDGPUPredicateBI(CallExpr *CE) {
+  ASTContext &Ctx = getASTContext();
+  QualType BoolTy = Ctx.getLogicalOperationType();
+  llvm::APInt False = llvm::APInt::getZero(Ctx.getIntWidth(BoolTy));
+  llvm::APInt True = llvm::APInt::getAllOnes(Ctx.getIntWidth(BoolTy));
+  SourceLocation Loc = CE->getExprLoc();
+
+  if (!CE->getBuiltinCallee())
+    return *ExpandedPredicates
+                .insert(IntegerLiteral::Create(Ctx, False, BoolTy, Loc))
+                .first;
+
+  bool P = false;
+  unsigned BI = CE->getBuiltinCallee();
+  if (Ctx.BuiltinInfo.isAuxBuiltinID(BI))
+    BI = Ctx.BuiltinInfo.getAuxBuiltinID(BI);
+
+  if (BI == AMDGPU::BI__builtin_amdgcn_processor_is) {
+    auto *GFX = dyn_cast<StringLiteral>(CE->getArg(0)->IgnoreParenCasts());
+    if (!GFX) {
+      Diag(Loc, diag::err_amdgcn_processor_is_arg_not_literal);
+      return nullptr;
+    }
+
+    StringRef N = GFX->getString();
+    const TargetInfo &TI = Ctx.getTargetInfo();
+    const TargetInfo *AuxTI = Ctx.getAuxTargetInfo();
+    if (!TI.isValidCPUName(N) && (!AuxTI || !AuxTI->isValidCPUName(N))) {
+      Diag(Loc, diag::err_amdgcn_processor_is_arg_invalid_value) << N;
+      SmallVector<StringRef, 32> ValidList;
+      if (TI.getTriple().getVendor() == llvm::Triple::VendorType::AMD)
+        TI.fillValidCPUList(ValidList);
+      else if (AuxTI) // Since the BI is present it must be and AMDGPU triple.
+        AuxTI->fillValidCPUList(ValidList);
+      if (!ValidList.empty())
+        Diag(Loc, diag::note_amdgcn_processor_is_valid_options)
+            << llvm::join(ValidList, ", ");
+      return nullptr;
+    }
+    if (Ctx.getTargetInfo().getTriple().isSPIRV()) {
+      CE->setType(BoolTy);
+      return *ExpandedPredicates.insert(CE).first;
+    }
+
+    if (auto TID = Ctx.getTargetInfo().getTargetID())
+      P = TID->find(N) == 0;
+  } else {
+    Expr *Arg = CE->getArg(0);
+    if (!Arg || Arg->getType() != Ctx.BuiltinFnTy) {
+      Diag(Loc, diag::err_amdgcn_is_invocable_arg_invalid_value) << Arg;
+      return nullptr;
+    }
+
+    if (Ctx.getTargetInfo().getTriple().isSPIRV()) {
+      CE->setType(BoolTy);
+      return *ExpandedPredicates.insert(CE).first;
+    }
+
+    auto *FD = cast<FunctionDecl>(Arg->getReferencedDeclOfCallee());
+
+    StringRef RF = Ctx.BuiltinInfo.getRequiredFeatures(FD->getBuiltinID());
+    llvm::StringMap<bool> CF;
+    Ctx.getFunctionFeatureMap(CF, FD);
+
+    P = Builtin::evaluateRequiredTargetFeatures(RF, CF);
+  }
+
+  return *ExpandedPredicates
+              .insert(
+                  IntegerLiteral::Create(Ctx, P ? True : False, BoolTy, Loc))
+              .first;
+}
+
+bool SemaAMDGPU::IsPredicate(Expr *E) const {
+  return ExpandedPredicates.contains(E);
+}
 } // namespace clang
