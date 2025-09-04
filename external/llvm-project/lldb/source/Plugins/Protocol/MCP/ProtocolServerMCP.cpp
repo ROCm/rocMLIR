@@ -7,23 +7,30 @@
 //===----------------------------------------------------------------------===//
 
 #include "ProtocolServerMCP.h"
-#include "MCPError.h"
+#include "Resource.h"
+#include "Tool.h"
 #include "lldb/Core/PluginManager.h"
+#include "lldb/Host/FileSystem.h"
+#include "lldb/Host/HostInfo.h"
+#include "lldb/Protocol/MCP/Server.h"
 #include "lldb/Utility/LLDBLog.h"
 #include "lldb/Utility/Log.h"
 #include "llvm/ADT/StringExtras.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/Threading.h"
 #include <thread>
-#include <variant>
 
 using namespace lldb_private;
 using namespace lldb_private::mcp;
+using namespace lldb_protocol::mcp;
 using namespace llvm;
 
 LLDB_PLUGIN_DEFINE(ProtocolServerMCP)
 
-static constexpr size_t kChunkSize = 1024;
+static constexpr llvm::StringLiteral kName = "lldb-mcp";
+static constexpr llvm::StringLiteral kVersion = "0.1.0";
 
+<<<<<<< HEAD
 ProtocolServerMCP::ProtocolServerMCP() : ProtocolServer() {
   AddRequestHandler("initialize",
                     std::bind(&ProtocolServerMCP::InitializeHandler, this,
@@ -43,6 +50,9 @@ ProtocolServerMCP::ProtocolServerMCP() : ProtocolServer() {
   AddTool(std::make_unique<DebuggerListTool>(
       "lldb_debugger_list", "List debugger instances with their debugger_id."));
 }
+=======
+ProtocolServerMCP::ProtocolServerMCP() : ProtocolServer() {}
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 ProtocolServerMCP::~ProtocolServerMCP() { llvm::consumeError(Stop()); }
 
@@ -52,6 +62,8 @@ void ProtocolServerMCP::Initialize() {
 }
 
 void ProtocolServerMCP::Terminate() {
+  if (llvm::Error error = ProtocolServer::Terminate())
+    LLDB_LOG_ERROR(GetLog(LLDBLog::Host), std::move(error), "{0}");
   PluginManager::UnregisterPlugin(CreateInstance);
 }
 
@@ -63,87 +75,41 @@ llvm::StringRef ProtocolServerMCP::GetPluginDescriptionStatic() {
   return "MCP Server.";
 }
 
-llvm::Expected<protocol::Response>
-ProtocolServerMCP::Handle(protocol::Request request) {
-  auto it = m_request_handlers.find(request.method);
-  if (it != m_request_handlers.end()) {
-    llvm::Expected<protocol::Response> response = it->second(request);
-    if (!response)
-      return response;
-    response->id = request.id;
-    return *response;
-  }
-
-  return make_error<MCPError>(
-      llvm::formatv("no handler for request: {0}", request.method).str(), 1);
-}
-
-void ProtocolServerMCP::Handle(protocol::Notification notification) {
-  auto it = m_notification_handlers.find(notification.method);
-  if (it != m_notification_handlers.end()) {
-    it->second(notification);
-    return;
-  }
-
-  LLDB_LOG(GetLog(LLDBLog::Host), "MPC notification: {0} ({1})",
-           notification.method, notification.params);
+void ProtocolServerMCP::Extend(lldb_protocol::mcp::Server &server) const {
+  server.AddNotificationHandler("notifications/initialized",
+                                [](const lldb_protocol::mcp::Notification &) {
+                                  LLDB_LOG(GetLog(LLDBLog::Host),
+                                           "MCP initialization complete");
+                                });
+  server.AddTool(
+      std::make_unique<CommandTool>("lldb_command", "Run an lldb command."));
+  server.AddResourceProvider(std::make_unique<DebuggerResourceProvider>());
 }
 
 void ProtocolServerMCP::AcceptCallback(std::unique_ptr<Socket> socket) {
-  LLDB_LOG(GetLog(LLDBLog::Host), "New MCP client ({0}) connected",
-           m_clients.size() + 1);
+  Log *log = GetLog(LLDBLog::Host);
+  std::string client_name = llvm::formatv("client_{0}", m_instances.size() + 1);
+  LLDB_LOG(log, "New MCP client connected: {0}", client_name);
 
   lldb::IOObjectSP io_sp = std::move(socket);
-  auto client_up = std::make_unique<Client>();
-  client_up->io_sp = io_sp;
-  Client *client = client_up.get();
-
-  Status status;
-  auto read_handle_up = m_loop.RegisterReadObject(
-      io_sp,
-      [this, client](MainLoopBase &loop) {
-        if (Error error = ReadCallback(*client)) {
-          LLDB_LOG_ERROR(GetLog(LLDBLog::Host), std::move(error), "{0}");
-          client->read_handle_up.reset();
-        }
-      },
-      status);
-  if (status.Fail())
+  auto transport_up = std::make_unique<lldb_protocol::mcp::MCPTransport>(
+      io_sp, io_sp, std::move(client_name), [&](llvm::StringRef message) {
+        LLDB_LOG(GetLog(LLDBLog::Host), "{0}", message);
+      });
+  auto instance_up = std::make_unique<lldb_protocol::mcp::Server>(
+      std::string(kName), std::string(kVersion), std::move(transport_up),
+      m_loop);
+  Extend(*instance_up);
+  llvm::Error error = instance_up->Run();
+  if (error) {
+    LLDB_LOG_ERROR(log, std::move(error), "Failed to run MCP server: {0}");
     return;
-
-  client_up->read_handle_up = std::move(read_handle_up);
-  m_clients.emplace_back(std::move(client_up));
-}
-
-llvm::Error ProtocolServerMCP::ReadCallback(Client &client) {
-  char chunk[kChunkSize];
-  size_t bytes_read = sizeof(chunk);
-  if (Status status = client.io_sp->Read(chunk, bytes_read); status.Fail())
-    return status.takeError();
-  client.buffer.append(chunk, bytes_read);
-
-  for (std::string::size_type pos;
-       (pos = client.buffer.find('\n')) != std::string::npos;) {
-    llvm::Expected<std::optional<protocol::Message>> message =
-        HandleData(StringRef(client.buffer.data(), pos));
-    client.buffer = client.buffer.erase(0, pos + 1);
-    if (!message)
-      return message.takeError();
-
-    if (*message) {
-      std::string Output;
-      llvm::raw_string_ostream OS(Output);
-      OS << llvm::formatv("{0}", toJSON(**message)) << '\n';
-      size_t num_bytes = Output.size();
-      return client.io_sp->Write(Output.data(), num_bytes).takeError();
-    }
   }
-
-  return llvm::Error::success();
+  m_instances.push_back(std::move(instance_up));
 }
 
 llvm::Error ProtocolServerMCP::Start(ProtocolServer::Connection connection) {
-  std::lock_guard<std::mutex> guard(m_server_mutex);
+  std::lock_guard<std::mutex> guard(m_mutex);
 
   if (m_running)
     return llvm::createStringError("the MCP server is already running");
@@ -163,6 +129,42 @@ llvm::Error ProtocolServerMCP::Start(ProtocolServer::Connection connection) {
   if (llvm::Error error = handles.takeError())
     return error;
 
+<<<<<<< HEAD
+=======
+  auto listening_uris = m_listener->GetListeningConnectionURI();
+  if (listening_uris.empty())
+    return createStringError("failed to get listening connections");
+  std::string address =
+      llvm::join(m_listener->GetListeningConnectionURI(), ", ");
+
+  FileSpec user_lldb_dir = HostInfo::GetUserLLDBDir();
+
+  Status error(llvm::sys::fs::create_directory(user_lldb_dir.GetPath()));
+  if (error.Fail())
+    return error.takeError();
+
+  m_mcp_registry_entry_path = user_lldb_dir.CopyByAppendingPathComponent(
+      formatv("lldb-mcp-{0}.json", getpid()).str());
+
+  ServerInfo info;
+  info.connection_uri = listening_uris[0];
+  info.pid = getpid();
+
+  std::string buf = formatv("{0}", toJSON(info)).str();
+  size_t num_bytes = buf.size();
+
+  const File::OpenOptions flags = File::eOpenOptionWriteOnly |
+                                  File::eOpenOptionCanCreate |
+                                  File::eOpenOptionTruncate;
+  llvm::Expected<lldb::FileUP> file =
+      FileSystem::Instance().Open(m_mcp_registry_entry_path, flags,
+                                  lldb::eFilePermissionsFileDefault, false);
+  if (!file)
+    return file.takeError();
+  if (llvm::Error error = (*file)->Write(buf.data(), num_bytes).takeError())
+    return error;
+
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   m_running = true;
   m_listen_handlers = std::move(*handles);
   m_loop_thread = std::thread([=] {
@@ -175,29 +177,31 @@ llvm::Error ProtocolServerMCP::Start(ProtocolServer::Connection connection) {
 
 llvm::Error ProtocolServerMCP::Stop() {
   {
+<<<<<<< HEAD
     std::lock_guard<std::mutex> guard(m_server_mutex);
+=======
+    std::lock_guard<std::mutex> guard(m_mutex);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     if (!m_running)
       return createStringError("the MCP sever is not running");
     m_running = false;
   }
 
+  if (!m_mcp_registry_entry_path.GetPath().empty())
+    FileSystem::Instance().RemoveFile(m_mcp_registry_entry_path);
+  m_mcp_registry_entry_path.Clear();
+
   // Stop the main loop.
   m_loop.AddPendingCallback(
-      [](MainLoopBase &loop) { loop.RequestTermination(); });
+      [](lldb_private::MainLoopBase &loop) { loop.RequestTermination(); });
 
   // Wait for the main loop to exit.
   if (m_loop_thread.joinable())
     m_loop_thread.join();
 
-  {
-    std::lock_guard<std::mutex> guard(m_server_mutex);
-    m_listener.reset();
-    m_listen_handlers.clear();
-    m_clients.clear();
-  }
-
   return llvm::Error::success();
 }
+<<<<<<< HEAD
 
 llvm::Expected<std::optional<protocol::Message>>
 ProtocolServerMCP::HandleData(llvm::StringRef data) {
@@ -327,3 +331,5 @@ ProtocolServerMCP::ToolsCallHandler(const protocol::Request &request) {
 
   return response;
 }
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

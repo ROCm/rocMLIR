@@ -750,6 +750,11 @@ AMDGPUCompiler::executeInProcessDriver(ArrayRef<const char *> Args) {
                    "AMDGPU Code Object Manager", OverlayFS);
   TheDriver.setCheckInputsExist(false);
 
+  // We do not want the driver to promote -include into -include-pch.
+  // Otherwise, the driver may pick PCH in the wrong format, without permissions,
+  // in the process's CWD.
+  TheDriver.setProbePrecompiled(false);
+
   // Log arguments used to build compilation
   if (env::shouldEmitVerboseLogs()) {
     LogS << "    Compilation Args: ";
@@ -818,6 +823,11 @@ amd_comgr_status_t AMDGPUCompiler::removeTmpDirs() {
 
 #ifdef _WIN32
 // On windows fs::remove_directories takes huge time so use fs::remove.
+<<<<<<< HEAD
+=======
+#ifdef _WIN32
+amd_comgr_status_t removeDirectory(const StringRef DirName) {
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   std::error_code EC;
   for (fs::directory_iterator Dir(TmpDir, EC), DirEnd; Dir != DirEnd && !EC;
        Dir.increment(EC)) {
@@ -854,7 +864,19 @@ amd_comgr_status_t AMDGPUCompiler::removeTmpDirs() {
   }
 
   return AMD_COMGR_STATUS_SUCCESS;
+<<<<<<< HEAD
 #else
+=======
+}
+#endif
+
+amd_comgr_status_t AMDGPUCompiler::removeTmpDirs() {
+  if (TmpDir.empty()) {
+    return AMD_COMGR_STATUS_SUCCESS;
+  }
+  ProfilePoint Point("RemoveDir");
+#ifndef _WIN32
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   if (fs::remove_directories(TmpDir)) {
     return AMD_COMGR_STATUS_ERROR;
   }
@@ -972,7 +994,8 @@ amd_comgr_status_t AMDGPUCompiler::addIncludeFlags() {
   if (none_of(InSet->DataObjects, needsPreprocessing))
     return AMD_COMGR_STATUS_SUCCESS;
 
-  switch (ActionInfo->Language) {
+  amd_comgr_language_t Language = ActionInfo->Language;
+  switch (Language) {
   case AMD_COMGR_LANGUAGE_OPENCL_1_2:
   case AMD_COMGR_LANGUAGE_OPENCL_2_0: {
     SmallString<128> OpenCLCBasePath = IncludeDir;
@@ -1012,6 +1035,26 @@ amd_comgr_status_t AMDGPUCompiler::addIncludeFlags() {
     Args.push_back(PrecompiledHeaderPath.c_str());
     Args.push_back("-Xclang");
     Args.push_back("-fno-validate-pch");
+  }
+
+  bool CacheEnabled = CommandCache::get(LogS) != nullptr;
+  if (PrecompiledHeaders.empty() && CacheEnabled) {
+    // The -no-integrated-cpp is used to split the preprocessing stage from the
+    // rest of the compilation jobs. The cache doesn't handle source-code input,
+    // but can handle preprocessed input (to avoid dealing with includes).
+    Args.push_back("-no-integrated-cpp");
+    // The -dD option is used to keep the #define directives in the preprocessed
+    // output. When -fdeclare-opencl-builtins is used, the opencl builtin
+    // semantic analysis queries the preprocessor for macro definitions that
+    // signal that an OpenCL feature is enabled. After preprocessing these
+    // #define are gone, so the semantic analysis during the compilation stage
+    // fails. This flag is used to keep them such that they are present during
+    // the compilation stage.
+    // Additionally, we need to keep the definitions for #pragma directives.
+    // The preprocessor doesn't expand macro identifiers in #pragmas, and if we
+    // do not pass -dD the definitions would be missing when clang parses the
+    // code
+    Args.push_back("-dD");
   }
 
   return AMD_COMGR_STATUS_SUCCESS;

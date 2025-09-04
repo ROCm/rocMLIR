@@ -16,7 +16,11 @@ if (TARGET libc.src.setjmp.sigsetjmp_epilogue)
     HDRS
       ../sigsetjmp.h
     DEPENDS
+<<<<<<< HEAD
       libc.hdr.types.jmp_buf
+=======
+      libc.hdr.types.sigjmp_buf
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       libc.hdr.types.sigset_t
       libc.hdr.offsetof_macros
       libc.src.setjmp.sigsetjmp_epilogue

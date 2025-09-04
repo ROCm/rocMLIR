@@ -6,7 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <clc/clcmacro.h>
 #include <clc/float/definitions.h>
 #include <clc/internal/clc.h>
 #include <clc/math/clc_log2.h>
@@ -39,6 +38,10 @@ _CLC_OVERLOAD _CLC_DEF half __clc_log(half x) {
 
 #endif // cl_khr_fp16
 
+<<<<<<< HEAD
 #define FUNCTION __clc_log
+=======
+#define __CLC_FUNCTION __clc_log
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/shared/unary_def_scalarize.inc>
 #include <clc/math/gentype.inc>

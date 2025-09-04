@@ -71,7 +71,7 @@ static void *MallocStress(void *NumOfItrPtr) {
       void *ptr = vec[idx];
       vec[idx] = vec.back();
       vec.pop_back();
-      __asan::asan_free(ptr, &stack1, __asan::FROM_MALLOC);
+      __asan::asan_free(ptr, &stack1);
     } else {
       size_t size = my_rand_r(&seed) % 1000 + 1;
       switch ((my_rand_r(&seed) % 128)) {
@@ -80,8 +80,12 @@ static void *MallocStress(void *NumOfItrPtr) {
         case 2: size += 4096; break;
       }
       size_t alignment = 1 << (my_rand_r(&seed) % 10 + 1);
+<<<<<<< HEAD
       char *ptr = (char *)__asan::asan_memalign(alignment, size, &stack2,
                                                 __asan::FROM_MALLOC);
+=======
+      char *ptr = (char *)__asan::asan_memalign(alignment, size, &stack2);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       EXPECT_EQ(size, __asan::asan_malloc_usable_size(ptr, 0, 0));
       vec.push_back(ptr);
       ptr[0] = 0;
@@ -89,8 +93,7 @@ static void *MallocStress(void *NumOfItrPtr) {
       ptr[size/2] = 0;
     }
   }
-  for (size_t i = 0; i < vec.size(); i++)
-    __asan::asan_free(vec[i], &stack3, __asan::FROM_MALLOC);
+  for (size_t i = 0; i < vec.size(); i++) __asan::asan_free(vec[i], &stack3);
   return nullptr;
 }
 
@@ -143,12 +146,12 @@ TEST(AddressSanitizer, QuarantineTest) {
 
   const int size = 1024;
   void *p = __asan::asan_malloc(size, &stack);
-  __asan::asan_free(p, &stack, __asan::FROM_MALLOC);
+  __asan::asan_free(p, &stack);
   size_t i;
   size_t max_i = 1 << 30;
   for (i = 0; i < max_i; i++) {
     void *p1 = __asan::asan_malloc(size, &stack);
-    __asan::asan_free(p1, &stack, __asan::FROM_MALLOC);
+    __asan::asan_free(p1, &stack);
     if (p1 == p) break;
   }
   EXPECT_GE(i, 10000U);
@@ -165,7 +168,7 @@ void *ThreadedQuarantineTestWorker(void *unused) {
 
   for (size_t i = 0; i < 1000; i++) {
     void *p = __asan::asan_malloc(1 + (my_rand_r(&seed) % 4000), &stack);
-    __asan::asan_free(p, &stack, __asan::FROM_MALLOC);
+    __asan::asan_free(p, &stack);
   }
   return NULL;
 }
@@ -204,7 +207,7 @@ void *ThreadedOneSizeMallocStress(void *unused) {
       p[i] = __asan::asan_malloc(32, &stack);
     }
     for (size_t i = 0; i < kNumMallocs; i++) {
-      __asan::asan_free(p[i], &stack, __asan::FROM_MALLOC);
+      __asan::asan_free(p[i], &stack);
     }
   }
   return NULL;
@@ -260,7 +263,7 @@ static void TestLoadStoreCallbacks(CB cb[2][5]) {
         }
       }
     }
-    __asan::asan_free(ptr, &stack, __asan::FROM_MALLOC);
+    __asan::asan_free(ptr, &stack);
   }
   __asan_test_only_reported_buggy_pointer = 0;
 }

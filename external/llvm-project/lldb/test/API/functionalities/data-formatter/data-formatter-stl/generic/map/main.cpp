@@ -26,6 +26,11 @@ int main() {
   intint_map::iterator it = ii.begin();
   intint_map::const_iterator const_it = ii.cbegin();
   std::printf("%d %d\n", it->second, const_it->second);
+<<<<<<< HEAD
+=======
+  intint_map::iterator it_end = ii.end();
+  intint_map::const_iterator const_it_end = ii.cend();
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   thefoo_rw(1); // Set break point at this line.
   ii[2] = 0;

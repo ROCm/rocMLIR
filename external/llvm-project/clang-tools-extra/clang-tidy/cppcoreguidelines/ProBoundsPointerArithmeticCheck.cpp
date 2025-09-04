@@ -14,6 +14,21 @@ using namespace clang::ast_matchers;
 
 namespace clang::tidy::cppcoreguidelines {
 
+<<<<<<< HEAD
+=======
+ProBoundsPointerArithmeticCheck::ProBoundsPointerArithmeticCheck(
+    StringRef Name, ClangTidyContext *Context)
+    : ClangTidyCheck(Name, Context),
+      AllowIncrementDecrementOperators(
+          Options.get("AllowIncrementDecrementOperators", false)) {}
+
+void ProBoundsPointerArithmeticCheck::storeOptions(
+    ClangTidyOptions::OptionMap &Opts) {
+  Options.store(Opts, "AllowIncrementDecrementOperators",
+                AllowIncrementDecrementOperators);
+}
+
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 void ProBoundsPointerArithmeticCheck::registerMatchers(MatchFinder *Finder) {
   const auto AllPointerTypes =
       anyOf(hasType(hasUnqualifiedDesugaredType(pointerType())),
@@ -30,6 +45,7 @@ void ProBoundsPointerArithmeticCheck::registerMatchers(MatchFinder *Finder) {
       this);
 
   // Flag all operators ++, -- that result in a pointer
+<<<<<<< HEAD
   Finder->addMatcher(
       unaryOperator(hasAnyOperatorName("++", "--"),
                     hasType(hasUnqualifiedDesugaredType(pointerType())),
@@ -37,6 +53,16 @@ void ProBoundsPointerArithmeticCheck::registerMatchers(MatchFinder *Finder) {
                         ignoringImpCasts(declRefExpr(to(isImplicit()))))))
           .bind("expr"),
       this);
+=======
+  if (!AllowIncrementDecrementOperators)
+    Finder->addMatcher(
+        unaryOperator(hasAnyOperatorName("++", "--"),
+                      hasType(hasUnqualifiedDesugaredType(pointerType())),
+                      unless(hasUnaryOperand(
+                          ignoringImpCasts(declRefExpr(to(isImplicit()))))))
+            .bind("expr"),
+        this);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // Array subscript on a pointer (not an array) is also pointer arithmetic
   Finder->addMatcher(

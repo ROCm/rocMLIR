@@ -6,11 +6,24 @@
 //
 //===----------------------------------------------------------------------===//
 
+<<<<<<< HEAD
 #define FUNCTION normalize
+=======
+#ifndef __CLC_OPENCL_GEOMETRIC_NORMALIZE_H__
+#define __CLC_OPENCL_GEOMETRIC_NORMALIZE_H__
+
+#define __CLC_FUNCTION normalize
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_GEOMETRIC_RET_GENTYPE
 #define __CLC_BODY <clc/geometric/unary_decl.inc>
 
 #include <clc/math/gentype.inc>
 
 #undef __CLC_GEOMETRIC_RET_GENTYPE
+<<<<<<< HEAD
 #undef FUNCTION
+=======
+#undef __CLC_FUNCTION
+
+#endif // __CLC_OPENCL_GEOMETRIC_NORMALIZE_H__
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

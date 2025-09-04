@@ -12,6 +12,7 @@
 #include "hdr/types/wchar_t.h"
 #include "src/__support/common.h"
 #include "src/__support/macros/config.h"
+<<<<<<< HEAD
 
 namespace LIBC_NAMESPACE_DECL {
 
@@ -29,6 +30,17 @@ LLVM_LIBC_FUNCTION(size_t, wcscspn, (const wchar_t *s1, const wchar_t *s2)) {
       return i;
   }
   return i;
+=======
+#include "src/__support/macros/null_check.h"
+#include "wchar_utils.h"
+
+namespace LIBC_NAMESPACE_DECL {
+
+LLVM_LIBC_FUNCTION(size_t, wcscspn, (const wchar_t *s1, const wchar_t *s2)) {
+  LIBC_CRASH_ON_NULLPTR(s1);
+  LIBC_CRASH_ON_NULLPTR(s2);
+  return internal::wcsspn(s1, s2, /*not_match_set=*/true);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 
 } // namespace LIBC_NAMESPACE_DECL

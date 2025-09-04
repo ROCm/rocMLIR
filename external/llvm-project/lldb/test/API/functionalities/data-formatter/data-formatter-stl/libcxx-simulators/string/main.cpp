@@ -209,7 +209,11 @@ public:
   __long &getLongRep() {
 #if COMPRESSED_PAIR_REV == 0
     return __r_.first().__l;
+<<<<<<< HEAD
 #elif COMPRESSED_PAIR_REV <= 3
+=======
+#else
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return __rep_.__l;
 #endif
   }
@@ -217,14 +221,22 @@ public:
   __short &getShortRep() {
 #if COMPRESSED_PAIR_REV == 0
     return __r_.first().__s;
+<<<<<<< HEAD
 #elif COMPRESSED_PAIR_REV <= 3
+=======
+#else
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return __rep_.__s;
 #endif
   }
 
 #if COMPRESSED_PAIR_REV == 0
   std::__lldb::__compressed_pair<__rep, allocator_type> __r_;
+<<<<<<< HEAD
 #elif COMPRESSED_PAIR_REV <= 3
+=======
+#else
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   _LLDB_COMPRESSED_PAIR(__rep, __rep_, allocator_type, __alloc_);
 #endif
 

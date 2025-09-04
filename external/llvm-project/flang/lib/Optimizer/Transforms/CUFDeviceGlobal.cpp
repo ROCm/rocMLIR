@@ -53,21 +53,26 @@ static void processAddrOfOp(fir::AddrOfOp addrOfOp,
   }
 }
 
+static void processTypeDescriptor(fir::RecordType recTy,
+                                  mlir::SymbolTable &symbolTable,
+                                  llvm::DenseSet<fir::GlobalOp> &candidates) {
+  if (auto globalOp = symbolTable.lookup<fir::GlobalOp>(
+          fir::NameUniquer::getTypeDescriptorName(recTy.getName()))) {
+    if (!candidates.contains(globalOp)) {
+      globalOp.walk([&](fir::AddrOfOp op) {
+        processAddrOfOp(op, symbolTable, candidates,
+                        /*recurseInGlobal=*/true);
+      });
+      candidates.insert(globalOp);
+    }
+  }
+}
+
 static void processEmboxOp(fir::EmboxOp emboxOp, mlir::SymbolTable &symbolTable,
                            llvm::DenseSet<fir::GlobalOp> &candidates) {
   if (auto recTy = mlir::dyn_cast<fir::RecordType>(
-          fir::unwrapRefType(emboxOp.getMemref().getType()))) {
-    if (auto globalOp = symbolTable.lookup<fir::GlobalOp>(
-            fir::NameUniquer::getTypeDescriptorName(recTy.getName()))) {
-      if (!candidates.contains(globalOp)) {
-        globalOp.walk([&](fir::AddrOfOp op) {
-          processAddrOfOp(op, symbolTable, candidates,
-                          /*recurseInGlobal=*/true);
-        });
-        candidates.insert(globalOp);
-      }
-    }
-  }
+          fir::unwrapRefType(emboxOp.getMemref().getType())))
+    processTypeDescriptor(recTy, symbolTable, candidates);
 }
 
 static void
@@ -83,6 +88,17 @@ prepareImplicitDeviceGlobals(mlir::func::FuncOp funcOp,
     funcOp.walk(
         [&](fir::EmboxOp op) { processEmboxOp(op, symbolTable, candidates); });
   }
+}
+
+static void
+processPotentialTypeDescriptor(mlir::Type candidateType,
+                               mlir::SymbolTable &symbolTable,
+                               llvm::DenseSet<fir::GlobalOp> &candidates) {
+  if (auto boxTy = mlir::dyn_cast<fir::BaseBoxType>(candidateType))
+    candidateType = boxTy.getEleTy();
+  candidateType = fir::unwrapSequenceType(fir::unwrapRefType(candidateType));
+  if (auto recTy = mlir::dyn_cast<fir::RecordType>(candidateType))
+    processTypeDescriptor(recTy, symbolTable, candidates);
 }
 
 class CUFDeviceGlobal : public fir::impl::CUFDeviceGlobalBase<CUFDeviceGlobal> {
@@ -115,6 +131,11 @@ public:
     for (auto globalOp : mod.getOps<fir::GlobalOp>()) {
       if (cuf::isRegisteredDeviceGlobal(globalOp)) {
         candidates.insert(globalOp);
+<<<<<<< HEAD
+=======
+        processPotentialTypeDescriptor(globalOp.getType(), parentSymTable,
+                                       candidates);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
       } else if (globalOp.getConstant() &&
                  mlir::isa<fir::SequenceType>(
                      fir::unwrapRefType(globalOp.resultType()))) {

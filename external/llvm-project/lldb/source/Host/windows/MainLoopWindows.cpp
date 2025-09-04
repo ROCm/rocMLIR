@@ -12,16 +12,24 @@
 #include "lldb/Host/windows/windows.h"
 #include "lldb/Utility/Status.h"
 #include "llvm/Config/llvm-config.h"
+<<<<<<< HEAD
 #include "llvm/Support/Casting.h"
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/Support/WindowsError.h"
 #include <algorithm>
+#include <atomic>
 #include <cassert>
-#include <cerrno>
-#include <csignal>
 #include <ctime>
 #include <io.h>
+<<<<<<< HEAD
+=======
+#include <synchapi.h>
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include <thread>
 #include <vector>
+#include <winbase.h>
+#include <winerror.h>
 #include <winsock2.h>
 
 using namespace lldb;
@@ -42,11 +50,20 @@ namespace {
 class PipeEvent : public MainLoopWindows::IOEvent {
 public:
   explicit PipeEvent(HANDLE handle)
+<<<<<<< HEAD
       : IOEvent(CreateEventW(NULL, /*bManualReset=*/FALSE,
                              /*bInitialState=*/FALSE, NULL)),
         m_handle(handle), m_ready(CreateEventW(NULL, /*bManualReset=*/FALSE,
                                                /*bInitialState=*/FALSE, NULL)) {
     assert(m_event && m_ready);
+=======
+      : IOEvent(CreateEventW(NULL, /*bManualReset=*/TRUE,
+                             /*bInitialState=*/FALSE, NULL)),
+        m_handle(handle), m_ready(CreateEventW(NULL, /*bManualReset=*/TRUE,
+                                               /*bInitialState=*/FALSE, NULL)) {
+    assert(m_event && m_ready);
+    m_monitor_thread = std::thread(&PipeEvent::Monitor, this);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 
   ~PipeEvent() override {
@@ -65,15 +82,38 @@ public:
   }
 
   void WillPoll() override {
+<<<<<<< HEAD
     if (!m_monitor_thread.joinable())
       m_monitor_thread = std::thread(&PipeEvent::Monitor, this);
   }
 
   void Disarm() override { SetEvent(m_ready); }
+=======
+    if (WaitForSingleObject(m_event, /*dwMilliseconds=*/0) != WAIT_TIMEOUT) {
+      // The thread has already signalled that the data is available. No need
+      // for further polling until we consume that event.
+      return;
+    }
+    if (WaitForSingleObject(m_ready, /*dwMilliseconds=*/0) != WAIT_TIMEOUT) {
+      // The thread is already waiting for data to become available.
+      return;
+    }
+    // Start waiting.
+    SetEvent(m_ready);
+  }
+
+  void Disarm() override { ResetEvent(m_event); }
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   /// Monitors the handle performing a zero byte read to determine when data is
   /// avaiable.
   void Monitor() {
+<<<<<<< HEAD
+=======
+    // Wait until the MainLoop tells us to start.
+    WaitForSingleObject(m_ready, INFINITE);
+
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     do {
       char buf[1];
       DWORD bytes_read = 0;
@@ -110,7 +150,15 @@ public:
         continue;
       }
 
+<<<<<<< HEAD
       SetEvent(m_event);
+=======
+      // Notify that data is available on the pipe. It's important to set this
+      // before clearing m_ready to avoid a race with WillPoll.
+      SetEvent(m_event);
+      // Stop polling until we're told to resume.
+      ResetEvent(m_ready);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
       // Wait until the current read is consumed before doing the next read.
       WaitForSingleObject(m_ready, INFINITE);
@@ -205,7 +253,11 @@ MainLoopWindows::RegisterReadObject(const IOObjectSP &object_sp,
 
   if (m_read_fds.find(waitable_handle) != m_read_fds.end()) {
     error = Status::FromErrorStringWithFormat(
+<<<<<<< HEAD
         "File descriptor %d already monitored.", waitable_handle);
+=======
+        "File descriptor %p already monitored.", waitable_handle);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return nullptr;
   }
 
@@ -217,7 +269,11 @@ MainLoopWindows::RegisterReadObject(const IOObjectSP &object_sp,
   } else {
     DWORD file_type = GetFileType(waitable_handle);
     if (file_type != FILE_TYPE_PIPE) {
+<<<<<<< HEAD
       error = Status::FromErrorStringWithFormat("Unsupported file type %d",
+=======
+      error = Status::FromErrorStringWithFormat("Unsupported file type %ld",
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
                                                 file_type);
       return nullptr;
     }

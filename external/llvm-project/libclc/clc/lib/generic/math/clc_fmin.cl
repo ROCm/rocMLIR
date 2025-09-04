@@ -6,10 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <clc/clcmacro.h>
 #include <clc/internal/clc.h>
-#include <clc/relational/clc_isnan.h>
 
+<<<<<<< HEAD
 #define __FLOAT_ONLY
 #define __CLC_MIN_VECSIZE 1
 #define FUNCTION __clc_fmin
@@ -55,3 +54,10 @@ _CLC_DEF _CLC_OVERLOAD half __clc_fmin(half x, half y) {
 #include <clc/math/gentype.inc>
 
 #endif
+=======
+#define __CLC_FUNCTION __clc_fmin
+#define __CLC_IMPL_FUNCTION(x) __builtin_elementwise_minimumnum
+#define __CLC_BODY <clc/shared/binary_def.inc>
+
+#include <clc/math/gentype.inc>
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

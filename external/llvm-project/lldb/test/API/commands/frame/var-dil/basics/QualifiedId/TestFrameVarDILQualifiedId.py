@@ -18,6 +18,10 @@ class TestFrameVarDILQualifiedId(TestBase):
     # each debug info format.
     NO_DEBUG_INFO_TESTCASE = True
 
+<<<<<<< HEAD
+=======
+    @skipIfWindows
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     def test_frame_var(self):
         self.build()
         lldbutil.run_to_source_breakpoint(
@@ -29,3 +33,20 @@ class TestFrameVarDILQualifiedId(TestBase):
         self.expect_var_path("ns::i", value="1")
         self.expect_var_path("::ns::ns::i", value="2")
         self.expect_var_path("ns::ns::i", value="2")
+<<<<<<< HEAD
+=======
+
+        self.expect_var_path("foo", value="1")
+        self.expect_var_path("::(anonymous namespace)::foo", value="13")
+        self.expect_var_path("(anonymous namespace)::foo", value="13")
+        self.expect_var_path("ns1::(anonymous namespace)::foo", value="5")
+        self.expect_var_path(
+            "(anonymous namespace)::ns2::(anonymous namespace)::foo",
+            value="7",
+        )
+        self.expect_var_path("::ns1::(anonymous namespace)::foo", value="5")
+        self.expect_var_path(
+            "::(anonymous namespace)::ns2::(anonymous namespace)::foo",
+            value="7",
+        )
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

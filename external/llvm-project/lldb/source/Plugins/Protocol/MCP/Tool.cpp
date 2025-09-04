@@ -10,7 +10,10 @@
 #include "lldb/Core/Module.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
+#include "lldb/Protocol/MCP/Protocol.h"
 
+using namespace lldb_private;
+using namespace lldb_protocol;
 using namespace lldb_private::mcp;
 using namespace llvm;
 
@@ -27,6 +30,7 @@ bool fromJSON(const llvm::json::Value &V, CommandToolArguments &A,
          O.mapOptional("arguments", A.arguments);
 }
 
+<<<<<<< HEAD
 /// Helper function to create a TextResult from a string output.
 static lldb_private::mcp::protocol::TextResult
 createTextResult(std::string output, bool is_error = false) {
@@ -55,6 +59,22 @@ protocol::ToolDefinition Tool::GetDefinition() const {
 
 llvm::Expected<protocol::TextResult>
 CommandTool::Call(const protocol::ToolArguments &args) {
+=======
+/// Helper function to create a CallToolResult from a string output.
+static lldb_protocol::mcp::CallToolResult
+createTextResult(std::string output, bool is_error = false) {
+  lldb_protocol::mcp::CallToolResult text_result;
+  text_result.content.emplace_back(
+      lldb_protocol::mcp::TextContent{{std::move(output)}});
+  text_result.isError = is_error;
+  return text_result;
+}
+
+} // namespace
+
+llvm::Expected<lldb_protocol::mcp::CallToolResult>
+CommandTool::Call(const lldb_protocol::mcp::ToolArguments &args) {
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   if (!std::holds_alternative<json::Value>(args))
     return createStringError("CommandTool requires arguments");
 
@@ -65,7 +85,11 @@ CommandTool::Call(const protocol::ToolArguments &args) {
     return root.getError();
 
   lldb::DebuggerSP debugger_sp =
+<<<<<<< HEAD
       Debugger::GetDebuggerAtIndex(arguments.debugger_id);
+=======
+      Debugger::FindDebuggerWithID(arguments.debugger_id);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   if (!debugger_sp)
     return createStringError(
         llvm::formatv("no debugger with id {0}", arguments.debugger_id));

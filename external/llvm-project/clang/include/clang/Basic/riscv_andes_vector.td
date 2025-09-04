@@ -64,6 +64,38 @@ let RequiredFeatures = ["xandesvbfhcvt"],
   }
 }
 
+<<<<<<< HEAD
+=======
+// Andes Vector INT4 Load Extension (XAndesVSIntLoad)
+
+let SupportOverloading = false,
+    UnMaskedPolicyScheme = HasPassthruOperand in {
+  multiclass RVVVLN8Builtin {
+    let Name = NAME # "_v",
+        IRName = "nds_vln",
+        MaskedIRName = "nds_vln_mask",
+        OverloadedName = NAME in
+      def :  RVVOutOp0Builtin<"v", "vPC0", "c">;
+  }
+}
+
+let SupportOverloading = false,
+    UnMaskedPolicyScheme = HasPassthruOperand in {
+  multiclass RVVVLNU8Builtin {
+    let Name = NAME # "_v",
+        IRName = "nds_vlnu",
+        MaskedIRName = "nds_vlnu_mask",
+        OverloadedName = NAME in
+      def : RVVOutOp0Builtin<"Uv", "UvPC0", "c">;
+  }
+}
+
+let RequiredFeatures = ["xandesvsintload"] in {
+defm nds_vln8  : RVVVLN8Builtin;
+defm nds_vlnu8 : RVVVLNU8Builtin;
+}
+
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // Andes Vector Packed FP16 Extension (XAndesVPackFPH)
 
 multiclass RVVFPMAD {

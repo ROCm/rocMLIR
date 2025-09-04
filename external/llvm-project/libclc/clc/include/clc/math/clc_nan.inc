@@ -6,5 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+<<<<<<< HEAD
 _CLC_OVERLOAD _CLC_DEF __CLC_GENTYPE __clc_nan(__CLC_U_GENTYPE code);
 _CLC_OVERLOAD _CLC_DEF __CLC_GENTYPE __clc_nan(__CLC_S_GENTYPE code);
+=======
+_CLC_OVERLOAD _CLC_CONST _CLC_DEF __CLC_GENTYPE __clc_nan(__CLC_U_GENTYPE code);
+_CLC_OVERLOAD _CLC_CONST _CLC_DEF __CLC_GENTYPE __clc_nan(__CLC_S_GENTYPE code);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

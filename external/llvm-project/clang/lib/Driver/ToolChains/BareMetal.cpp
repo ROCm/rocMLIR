@@ -12,6 +12,7 @@
 #include "clang/Driver/CommonArgs.h"
 #include "clang/Driver/InputInfo.h"
 
+#include "Arch/AArch64.h"
 #include "Arch/ARM.h"
 #include "Arch/RISCV.h"
 #include "clang/Driver/Compilation.h"
@@ -31,6 +32,7 @@ using namespace clang::driver;
 using namespace clang::driver::tools;
 using namespace clang::driver::toolchains;
 
+<<<<<<< HEAD
 /// Is the triple {aarch64.aarch64_be}-none-elf?
 static bool isAArch64BareMetal(const llvm::Triple &Triple) {
   if (Triple.getArch() != llvm::Triple::aarch64 &&
@@ -46,6 +48,8 @@ static bool isAArch64BareMetal(const llvm::Triple &Triple) {
   return Triple.getEnvironmentName() == "elf";
 }
 
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 static bool isRISCVBareMetal(const llvm::Triple &Triple) {
   if (!Triple.isRISCV())
     return false;
@@ -363,8 +367,9 @@ void BareMetal::findMultilibs(const Driver &D, const llvm::Triple &Triple,
 }
 
 bool BareMetal::handlesTarget(const llvm::Triple &Triple) {
-  return arm::isARMEABIBareMetal(Triple) || isAArch64BareMetal(Triple) ||
-         isRISCVBareMetal(Triple) || isPPCBareMetal(Triple);
+  return arm::isARMEABIBareMetal(Triple) ||
+         aarch64::isAArch64BareMetal(Triple) || isRISCVBareMetal(Triple) ||
+         isPPCBareMetal(Triple);
 }
 
 Tool *BareMetal::buildLinker() const {
@@ -599,11 +604,18 @@ void baremetal::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   const Driver &D = getToolChain().getDriver();
   const llvm::Triple::ArchType Arch = TC.getArch();
   const llvm::Triple &Triple = getToolChain().getEffectiveTriple();
+  const bool IsStaticPIE = getStaticPIE(Args, TC);
 
   if (!D.SysRoot.empty())
     CmdArgs.push_back(Args.MakeArgString("--sysroot=" + D.SysRoot));
 
   CmdArgs.push_back("-Bstatic");
+  if (IsStaticPIE) {
+    CmdArgs.push_back("-pie");
+    CmdArgs.push_back("--no-dynamic-linker");
+    CmdArgs.push_back("-z");
+    CmdArgs.push_back("text");
+  }
 
   if (const char *LDMOption = getLDMOption(TC.getTriple(), Args)) {
     CmdArgs.push_back("-m");
@@ -633,14 +645,28 @@ void baremetal::Linker::ConstructJob(Compilation &C, const JobAction &JA,
 
   const char *CRTBegin, *CRTEnd;
   if (NeedCRTs) {
+<<<<<<< HEAD
     if (!Args.hasArg(options::OPT_r))
       CmdArgs.push_back(Args.MakeArgString(TC.GetFilePath("crt0.o")));
+=======
+    if (!Args.hasArg(options::OPT_r)) {
+      const char *crt = "crt0.o";
+      if (IsStaticPIE)
+        crt = "rcrt1.o";
+      CmdArgs.push_back(Args.MakeArgString(TC.GetFilePath(crt)));
+    }
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     if (TC.hasValidGCCInstallation() || detectGCCToolchainAdjacent(D)) {
       auto RuntimeLib = TC.GetRuntimeLibType(Args);
       switch (RuntimeLib) {
       case (ToolChain::RLT_Libgcc): {
+<<<<<<< HEAD
         CRTBegin = "crtbegin.o";
         CRTEnd = "crtend.o";
+=======
+        CRTBegin = IsStaticPIE ? "crtbeginS.o" : "crtbegin.o";
+        CRTEnd = IsStaticPIE ? "crtendS.o" : "crtend.o";
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         break;
       }
       case (ToolChain::RLT_CompilerRT): {
@@ -684,7 +710,12 @@ void baremetal::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   if (!Args.hasArg(options::OPT_nostdlib, options::OPT_nodefaultlibs)) {
     CmdArgs.push_back("--start-group");
     AddRunTimeLibs(TC, D, CmdArgs, Args);
+<<<<<<< HEAD
     CmdArgs.push_back("-lc");
+=======
+    if (!Args.hasArg(options::OPT_nolibc))
+      CmdArgs.push_back("-lc");
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     if (TC.hasValidGCCInstallation() || detectGCCToolchainAdjacent(D))
       CmdArgs.push_back("-lgloss");
     CmdArgs.push_back("--end-group");
@@ -693,9 +724,12 @@ void baremetal::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   if ((TC.hasValidGCCInstallation() || detectGCCToolchainAdjacent(D)) &&
       NeedCRTs)
     CmdArgs.push_back(Args.MakeArgString(TC.GetFilePath(CRTEnd)));
+<<<<<<< HEAD
 
   if (TC.getTriple().isRISCV())
     CmdArgs.push_back("-X");
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   // The R_ARM_TARGET2 relocation must be treated as R_ARM_REL32 on arm*-*-elf
   // and arm*-*-eabi (the default is R_ARM_GOT_PREL, used on arm*-*-linux and

@@ -70,33 +70,6 @@ endif()
 
 find_program(unifdef_EXECUTABLE unifdef)
 
-# All necessary header files will be staged in the include directory in the build directory,
-# so just copy the files from there into the framework's staging directory.
-set(lldb_build_dir_header_staging "${CMAKE_BINARY_DIR}/include/lldb")
-set(lldb_framework_header_staging "${CMAKE_CURRENT_BINARY_DIR}/FrameworkHeaders")
-file(GLOB lldb_build_dir_header_staging_list ${lldb_build_dir_header_staging}/*)
-foreach(header ${lldb_build_dir_header_staging_list})
-
-  get_filename_component(basename ${header} NAME)
-  set(staged_header ${lldb_framework_header_staging}/${basename})
-
-  if(unifdef_EXECUTABLE)
-    # unifdef returns 0 when the file is unchanged and 1 if something was changed.
-    # That means if we successfully remove SWIG code, the build system believes
-    # that the command has failed and stops. This is undesirable.
-    set(copy_command ${unifdef_EXECUTABLE} -USWIG -o ${staged_header} ${header} || (exit 0))
-  else()
-    set(copy_command ${CMAKE_COMMAND} -E copy ${header} ${staged_header})
-  endif()
-
-  add_custom_command(
-    DEPENDS ${header} OUTPUT ${staged_header}
-    COMMAND ${copy_command}
-    COMMENT "LLDB.framework: collect framework header and remove SWIG macros")
-
-  list(APPEND lldb_staged_headers ${staged_header})
-endforeach()
-
 # Wrap output in a target, so lldb-framework can depend on it.
 add_custom_target(liblldb-resource-headers DEPENDS lldb-sbapi-dwarf-enums ${lldb_staged_headers})
 set_target_properties(liblldb-resource-headers PROPERTIES FOLDER "LLDB/Resources")
@@ -105,6 +78,7 @@ set_target_properties(liblldb-resource-headers PROPERTIES FOLDER "LLDB/Resources
 add_dependencies(liblldb-resource-headers liblldb-header-staging)
 add_dependencies(liblldb liblldb-resource-headers)
 
+<<<<<<< HEAD
 # Take the headers from the staging directory and fix up their includes for the framework.
 # Then write them to the output directory.
 # Also, run unifdef to remove any specified guards from the header files.
@@ -121,6 +95,8 @@ foreach(header ${lldb_framework_header_staging_list})
   )
 endforeach()
 
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 # Copy vendor-specific headers from clang (without staging).
 if(NOT APPLE_EMBEDDED)
   if (TARGET clang-resource-headers)

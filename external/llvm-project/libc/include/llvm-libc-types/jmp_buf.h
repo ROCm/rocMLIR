@@ -9,6 +9,7 @@
 #ifndef LLVM_LIBC_TYPES_JMP_BUF_H
 #define LLVM_LIBC_TYPES_JMP_BUF_H
 
+<<<<<<< HEAD
 // TODO: implement sigjmp_buf related functions for other architectures
 // Issue: https://github.com/llvm/llvm-project/issues/136358
 #if defined(__linux__)
@@ -72,13 +73,10 @@ typedef struct {
   sigset_t sigmask;
 #endif
 } __jmp_buf;
+=======
+#include "__jmp_buf.h"
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 typedef __jmp_buf jmp_buf[1];
-
-#if defined(__LIBC_HAS_SIGJMP_BUF)
-typedef __jmp_buf sigjmp_buf[1];
-#endif
-
-#undef __LIBC_HAS_SIGJMP_BUF
 
 #endif // LLVM_LIBC_TYPES_JMP_BUF_H

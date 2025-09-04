@@ -758,6 +758,12 @@ TEST(TripleTest, ParsedIDs) {
   EXPECT_EQ(Triple::UnknownOS, T.getOS());
   EXPECT_EQ(Triple::UnknownEnvironment, T.getEnvironment());
 
+  T = Triple("riscv64-meta-unknown-mtia");
+  EXPECT_EQ(Triple::riscv64, T.getArch());
+  EXPECT_EQ(Triple::Meta, T.getVendor());
+  EXPECT_EQ(Triple::UnknownOS, T.getOS());
+  EXPECT_EQ(Triple::MTIA, T.getEnvironment());
+
   T = Triple("riscv64-unknown-linux");
   EXPECT_EQ(Triple::riscv64, T.getArch());
   EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
@@ -1375,6 +1381,11 @@ TEST(TripleTest, ParsedIDs) {
 
   T = Triple("huh");
   EXPECT_EQ(Triple::UnknownArch, T.getArch());
+
+  T = Triple("riscv32-unknown-cheriotrtos");
+  EXPECT_EQ(Triple::riscv32, T.getArch());
+  EXPECT_EQ(Triple::UnknownVendor, T.getVendor());
+  EXPECT_EQ(Triple::CheriotRTOS, T.getOS());
 }
 
 static std::string Join(StringRef A, StringRef B, StringRef C) {
@@ -2833,6 +2844,8 @@ TEST(TripleTest, DefaultExceptionHandling) {
   EXPECT_EQ(ExceptionHandling::DwarfCFI,
             Triple("msp430-unknown-unknown").getDefaultExceptionHandling());
   EXPECT_EQ(ExceptionHandling::DwarfCFI,
+            Triple("m68k-unknown-unknown").getDefaultExceptionHandling());
+  EXPECT_EQ(ExceptionHandling::DwarfCFI,
             Triple("csky-unknown-unknown").getDefaultExceptionHandling());
 
   EXPECT_EQ(ExceptionHandling::AIX,
@@ -2907,6 +2920,10 @@ TEST(TripleTest, DefaultExceptionHandling) {
 
   EXPECT_EQ(ExceptionHandling::DwarfCFI,
             Triple("x86_64-scei-ps4").getDefaultExceptionHandling());
+  EXPECT_EQ(ExceptionHandling::WinEH,
+            Triple("aarch64-pc-windows-msvc").getDefaultExceptionHandling());
+  EXPECT_EQ(ExceptionHandling::DwarfCFI,
+            Triple("aarch64-pc-windows-elf").getDefaultExceptionHandling());
 }
 
 TEST(TripleTest, NormalizeWindows) {

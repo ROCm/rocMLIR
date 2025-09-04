@@ -26,20 +26,6 @@ llvm.func @atomic_hint(%v : !llvm.ptr, %x : !llvm.ptr, %expr : i32) {
 
 // -----
 
-llvm.func @do_simd(%lb : i32, %ub : i32, %step : i32) {
-  omp.wsloop {
-    // expected-warning@below {{simd information on composite construct discarded}}
-    omp.simd {
-      omp.loop_nest (%iv) : i32 = (%lb) to (%ub) step (%step) {
-        omp.yield
-      }
-    } {omp.composite}
-  } {omp.composite}
-  llvm.return
-}
-
-// -----
-
 llvm.func @distribute_allocate(%lb : i32, %ub : i32, %step : i32, %x : !llvm.ptr) {
   // expected-error@below {{not yet implemented: Unhandled clause allocate in omp.distribute operation}}
   // expected-error@below {{LLVM Translation failed for operation: omp.distribute}}
@@ -158,6 +144,7 @@ atomic {
   llvm.atomicrmw fadd %arg2, %2 monotonic : !llvm.ptr, f32
   omp.yield
 }
+<<<<<<< HEAD
 llvm.func @simd_reduction(%lb : i32, %ub : i32, %step : i32, %x : !llvm.ptr) {
   // expected-error@below {{not yet implemented: Unhandled clause reduction in omp.simd operation}}
   // expected-error@below {{LLVM Translation failed for operation: omp.simd}}
@@ -188,6 +175,8 @@ atomic {
   llvm.atomicrmw fadd %arg2, %2 monotonic : !llvm.ptr, f32
   omp.yield
 }
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 llvm.func @scan_reduction(%lb : i32, %ub : i32, %step : i32, %x : !llvm.ptr) {
   // expected-error@below {{not yet implemented: Unhandled clause reduction with modifier in omp.wsloop operation}}
   // expected-error@below {{LLVM Translation failed for operation: omp.wsloop}}

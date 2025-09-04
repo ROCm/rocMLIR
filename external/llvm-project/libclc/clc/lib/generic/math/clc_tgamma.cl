@@ -6,7 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <clc/clcmacro.h>
 #include <clc/float/definitions.h>
 #include <clc/internal/clc.h>
 #include <clc/math/clc_exp.h>
@@ -32,12 +31,15 @@ _CLC_OVERLOAD _CLC_DEF float __clc_tgamma(float x) {
   return g;
 }
 
+<<<<<<< HEAD
 #define __FLOAT_ONLY
 #define FUNCTION __clc_tgamma
 #define __CLC_BODY <clc/shared/unary_def_scalarize.inc>
 #include <clc/math/gentype.inc>
 #undef FUNCTION
 
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #ifdef cl_khr_fp64
 
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
@@ -59,24 +61,35 @@ _CLC_OVERLOAD _CLC_DEF double __clc_tgamma(double x) {
   return g;
 }
 
+<<<<<<< HEAD
 #define __DOUBLE_ONLY
 #define FUNCTION __clc_tgamma
 #define __CLC_BODY <clc/shared/unary_def_scalarize.inc>
 #include <clc/math/gentype.inc>
 #undef FUNCTION
 
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #endif
 
 #ifdef cl_khr_fp16
 
-#include <clc/clc_convert.h>
-
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
 
 // Forward the half version of this builtin onto the float one
+<<<<<<< HEAD
 #define __HALF_ONLY
 #define FUNCTION __clc_tgamma
 #define __CLC_BODY <clc/math/unary_def_via_fp32.inc>
 #include <clc/math/gentype.inc>
+=======
+_CLC_OVERLOAD _CLC_DEF half __clc_tgamma(half x) {
+  return (half)__clc_tgamma((float)x);
+}
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #endif
+
+#define __CLC_FUNCTION __clc_tgamma
+#define __CLC_BODY <clc/shared/unary_def_scalarize.inc>
+#include <clc/math/gentype.inc>

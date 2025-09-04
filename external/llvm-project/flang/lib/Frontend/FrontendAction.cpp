@@ -173,6 +173,10 @@ bool FrontendAction::runParse(bool emitMessages) {
     // combining them with messages from semantics.
     const common::LanguageFeatureControl &features{
         ci.getInvocation().getFortranOpts().features};
+<<<<<<< HEAD
+=======
+    // Default maxErrors here because none are fatal.
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     ci.getParsing().messages().Emit(llvm::errs(), ci.getAllCookedSources(),
                                     /*echoSourceLine=*/true, &features);
   }
@@ -228,6 +232,7 @@ template <unsigned N>
 bool FrontendAction::reportFatalErrors(const char (&message)[N]) {
   const common::LanguageFeatureControl &features{
       instance->getInvocation().getFortranOpts().features};
+<<<<<<< HEAD
   if (!instance->getParsing().messages().empty() &&
       (instance->getInvocation().getWarnAsErr() ||
        instance->getParsing().messages().AnyFatalError())) {
@@ -237,6 +242,17 @@ bool FrontendAction::reportFatalErrors(const char (&message)[N]) {
     instance->getParsing().messages().Emit(llvm::errs(),
                                            instance->getAllCookedSources(),
                                            /*echoSourceLines=*/true, &features);
+=======
+  const size_t maxErrors{instance->getInvocation().getMaxErrors()};
+  const bool warningsAreErrors{instance->getInvocation().getWarnAsErr()};
+  if (instance->getParsing().messages().AnyFatalError(warningsAreErrors)) {
+    const unsigned diagID = instance->getDiagnostics().getCustomDiagID(
+        clang::DiagnosticsEngine::Error, message);
+    instance->getDiagnostics().Report(diagID) << getCurrentFileOrBufferName();
+    instance->getParsing().messages().Emit(
+        llvm::errs(), instance->getAllCookedSources(),
+        /*echoSourceLines=*/true, &features, maxErrors, warningsAreErrors);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return true;
   }
   if (instance->getParsing().parseTree().has_value() &&
@@ -245,9 +261,15 @@ bool FrontendAction::reportFatalErrors(const char (&message)[N]) {
     const unsigned diagID = instance->getDiagnostics().getCustomDiagID(
         clang::DiagnosticsEngine::Error, message);
     instance->getDiagnostics().Report(diagID) << getCurrentFileOrBufferName();
+<<<<<<< HEAD
     instance->getParsing().messages().Emit(llvm::errs(),
                                            instance->getAllCookedSources(),
                                            /*echoSourceLine=*/true, &features);
+=======
+    instance->getParsing().messages().Emit(
+        llvm::errs(), instance->getAllCookedSources(),
+        /*echoSourceLine=*/true, &features, maxErrors, warningsAreErrors);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     instance->getParsing().EmitMessage(
         llvm::errs(), instance->getParsing().finalRestingPlace(),
         "parser FAIL (final position)", "error: ", llvm::raw_ostream::RED);

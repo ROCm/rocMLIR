@@ -6,9 +6,18 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef __CLC_OPENCL_MATH_FMIN_H__
+#define __CLC_OPENCL_MATH_FMIN_H__
+
 #define __CLC_BODY <clc/math/binary_decl_with_scalar_second_arg.inc>
 #define FUNCTION fmin
 
 #include <clc/math/gentype.inc>
 
+<<<<<<< HEAD
 #undef FUNCTION
+=======
+#undef __CLC_FUNCTION
+
+#endif // __CLC_OPENCL_MATH_FMIN_H__
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

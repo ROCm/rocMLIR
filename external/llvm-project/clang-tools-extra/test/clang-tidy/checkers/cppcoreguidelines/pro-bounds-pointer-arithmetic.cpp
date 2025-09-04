@@ -1,4 +1,6 @@
-// RUN: %check_clang_tidy %s cppcoreguidelines-pro-bounds-pointer-arithmetic %t
+// RUN: %check_clang_tidy %s cppcoreguidelines-pro-bounds-pointer-arithmetic -check-suffixes=,DEFAULT  %t
+// RUN: %check_clang_tidy %s cppcoreguidelines-pro-bounds-pointer-arithmetic %t -- \
+// RUN:   -config="{CheckOptions: {cppcoreguidelines-pro-bounds-pointer-arithmetic.AllowIncrementDecrementOperators: true}}" --
 
 enum E {
   ENUM_LITERAL = 1
@@ -42,14 +44,14 @@ void fail() {
   // CHECK-MESSAGES: :[[@LINE-1]]:5: warning: do not use pointer arithmetic
 
   p++;
-  // CHECK-MESSAGES: :[[@LINE-1]]:4: warning: do not use pointer arithmetic
+  // CHECK-MESSAGES-DEFAULT: :[[@LINE-1]]:4: warning: do not use pointer arithmetic
   ++p;
-  // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: do not use pointer arithmetic
+  // CHECK-MESSAGES-DEFAULT: :[[@LINE-1]]:3: warning: do not use pointer arithmetic
 
   p--;
-  // CHECK-MESSAGES: :[[@LINE-1]]:4: warning: do not use pointer arithmetic
+  // CHECK-MESSAGES-DEFAULT: :[[@LINE-1]]:4: warning: do not use pointer arithmetic
   --p;
-  // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: do not use pointer arithmetic
+  // CHECK-MESSAGES-DEFAULT: :[[@LINE-1]]:3: warning: do not use pointer arithmetic
 
   i = p[1];
   // CHECK-MESSAGES: :[[@LINE-1]]:7: warning: do not use pointer arithmetic
@@ -57,7 +59,11 @@ void fail() {
   p = ip + 1;
   // CHECK-MESSAGES: :[[@LINE-1]]:10: warning: do not use pointer arithmetic
   ip++;
+<<<<<<< HEAD
   // CHECK-MESSAGES: :[[@LINE-1]]:5: warning: do not use pointer arithmetic
+=======
+  // CHECK-MESSAGES-DEFAULT: :[[@LINE-1]]:5: warning: do not use pointer arithmetic
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   i = ip[1];
   // CHECK-MESSAGES: :[[@LINE-1]]:7: warning: do not use pointer arithmetic
 }
@@ -72,7 +78,11 @@ void template_fail() {
   q = p - 1;
   // CHECK-MESSAGES: :[[@LINE-1]]:9: warning: do not use pointer arithmetic
   p++;
+<<<<<<< HEAD
   // CHECK-MESSAGES: :[[@LINE-1]]:4: warning: do not use pointer arithmetic
+=======
+  // CHECK-MESSAGES-DEFAULT: :[[@LINE-1]]:4: warning: do not use pointer arithmetic
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   i = p[1];
   // CHECK-MESSAGES: :[[@LINE-1]]:7: warning: do not use pointer arithmetic
 }

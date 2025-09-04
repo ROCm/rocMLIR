@@ -13,7 +13,11 @@
 
 #include <clc/opencl/opencl-base.h>
 
+<<<<<<< HEAD
 #define FUNCTION ctz
+=======
+#define __CLC_FUNCTION ctz
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/shared/unary_decl.inc>
 
 #include <clc/integer/gentype.inc>

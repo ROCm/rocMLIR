@@ -29,8 +29,12 @@ ExpressionOp createExpression(Operation *op, OpBuilder &builder);
 void populateExpressionPatterns(RewritePatternSet &patterns);
 
 /// Populates 'patterns' with func-related patterns.
+<<<<<<< HEAD
 void populateFuncPatterns(RewritePatternSet &patterns,
                           StringRef namedAttribute);
+=======
+void populateFuncPatterns(RewritePatternSet &patterns);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 } // namespace emitc
 } // namespace mlir

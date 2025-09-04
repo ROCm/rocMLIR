@@ -6,7 +6,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <clc/clcmacro.h>
 #include <clc/internal/clc.h>
 #include <clc/math/tables.h>
 
@@ -22,6 +21,10 @@
 #include "clc_log_base.h"
 #undef COMPILING_LOG2
 
+<<<<<<< HEAD
 #define FUNCTION __clc_log2
+=======
+#define __CLC_FUNCTION __clc_log2
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/shared/unary_def_scalarize.inc>
 #include <clc/math/gentype.inc>

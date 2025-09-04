@@ -116,4 +116,22 @@ void f14() {
 // LLVM:         call void @_Z3f13v() #[[LLVM_ATTR_0:.+]]
 // LLVM:       }
 
+<<<<<<< HEAD
 // LLLVM: attributes #[[LLVM_ATTR_0]] = { nounwind }
+=======
+int f15();
+void f16() {
+  using T = int;
+  f15().~T();
+}
+
+// CIR-LABEL: @_Z3f16v
+// CIR-NEXT:    %{{.+}} = cir.call @_Z3f15v() : () -> !s32i
+// CIR:       }
+
+// LLVM-LABEL: define{{.+}} void @_Z3f16v() {
+// LLVM-NEXT:    %{{.+}} = call i32 @_Z3f15v()
+// LLVM:       }
+
+// LLVM: attributes #[[LLVM_ATTR_0]] = { nounwind }
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

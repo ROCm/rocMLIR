@@ -1,6 +1,9 @@
 ! RUN: %python %S/test_errors.py %s %flang_fc1 -pedantic
 program p
+<<<<<<< HEAD
   !PORTABILITY: Name 'p' declared in a main program should not have the same name as the main program [-Wbenign-name-clash]
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   integer :: p
 end
 module m

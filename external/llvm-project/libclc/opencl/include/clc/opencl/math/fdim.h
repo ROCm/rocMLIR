@@ -6,9 +6,22 @@
 //
 //===----------------------------------------------------------------------===//
 
+<<<<<<< HEAD
 #define FUNCTION fdim
+=======
+#ifndef __CLC_OPENCL_MATH_FDIM_H__
+#define __CLC_OPENCL_MATH_FDIM_H__
+
+#define __CLC_FUNCTION fdim
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/shared/binary_decl.inc>
 
 #include <clc/math/gentype.inc>
 
+<<<<<<< HEAD
 #undef FUNCTION
+=======
+#undef __CLC_FUNCTION
+
+#endif // __CLC_OPENCL_MATH_FDIM_H__
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

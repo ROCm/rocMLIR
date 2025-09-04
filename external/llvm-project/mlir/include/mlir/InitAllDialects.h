@@ -14,6 +14,7 @@
 #ifndef MLIR_INITALLDIALECTS_H_
 #define MLIR_INITALLDIALECTS_H_
 
+<<<<<<< HEAD
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/AMX/AMXDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -104,9 +105,14 @@
 #include "mlir/Target/LLVM/ROCDL/Target.h"
 #include "mlir/Target/SPIRV/Target.h"
 
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 namespace mlir {
+class DialectRegistry;
+class MLIRContext;
 
 /// Add all the MLIR dialects to the provided registry.
+<<<<<<< HEAD
 inline void registerAllDialects(DialectRegistry &registry) {
   // clang-format off
   registry.insert<acc::OpenACCDialect,
@@ -201,13 +207,12 @@ inline void registerAllDialects(DialectRegistry &registry) {
   ROCDL::registerROCDLTargetInterfaceExternalModels(registry);
   spirv::registerSPIRVTargetInterfaceExternalModels(registry);
 }
+=======
+void registerAllDialects(DialectRegistry &registry);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 /// Append all the MLIR dialects to the registry contained in the given context.
-inline void registerAllDialects(MLIRContext &context) {
-  DialectRegistry registry;
-  registerAllDialects(registry);
-  context.appendDialectRegistry(registry);
-}
+void registerAllDialects(MLIRContext &context);
 
 } // namespace mlir
 

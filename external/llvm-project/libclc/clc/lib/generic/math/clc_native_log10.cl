@@ -8,9 +8,15 @@
 
 #include <clc/internal/clc.h>
 
+<<<<<<< HEAD
 #define __FLOAT_ONLY
 #define FUNCTION __clc_native_log10
 #define __IMPL_FUNCTION(x) __builtin_elementwise_log10
+=======
+#define __CLC_FLOAT_ONLY
+#define __CLC_FUNCTION __clc_native_log10
+#define __CLC_IMPL_FUNCTION(x) __builtin_elementwise_log10
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/shared/unary_def.inc>
 
 #include <clc/math/gentype.inc>

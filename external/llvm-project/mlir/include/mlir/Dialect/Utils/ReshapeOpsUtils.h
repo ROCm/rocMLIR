@@ -332,11 +332,19 @@ struct ComposeCollapseOfExpandOp : public OpRewritePattern<CollapseOpTy> {
         // the first dynamic size.
         Value result = dynamicSizes[0];
         for (Value v : llvm::drop_begin(dynamicSizes))
+<<<<<<< HEAD
           result = rewriter.create<arith::MulIOp>(loc, result, v);
         if (numStaticElems != 1) {
           result = rewriter.create<arith::MulIOp>(
               loc, result,
               rewriter.create<arith::ConstantIndexOp>(loc, numStaticElems));
+=======
+          result = arith::MulIOp::create(rewriter, loc, result, v);
+        if (numStaticElems != 1) {
+          result = arith::MulIOp::create(
+              rewriter, loc, result,
+              arith::ConstantIndexOp::create(rewriter, loc, numStaticElems));
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         }
         newOutputShape.push_back(result);
       }

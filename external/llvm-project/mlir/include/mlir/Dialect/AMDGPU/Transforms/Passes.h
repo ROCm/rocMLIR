@@ -22,8 +22,13 @@ class ConversionTarget;
 namespace amdgpu {
 
 #define GEN_PASS_DECL_AMDGPUEMULATEATOMICSPASS
-#define GEN_PASS_DECL_AMDGPURESOLVESTRIDEDMETADATAPASS
+#define GEN_PASS_DECL_AMDGPUFOLDMEMREFOPSPASS
 #define GEN_PASS_DECL_AMDGPUMASKEDLOADTOLOADPASS
+#define GEN_PASS_DECL_AMDGPURESOLVESTRIDEDMETADATAPASS
+<<<<<<< HEAD
+#define GEN_PASS_DECL_AMDGPUMASKEDLOADTOLOADPASS
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define GEN_PASS_REGISTRATION
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h.inc"
 
@@ -37,6 +42,12 @@ void populateAmdgpuResolveStridedMetadataPatterns(RewritePatternSet &patterns,
 
 void populateAmdgpuMaskedloadToLoadPatterns(RewritePatternSet &patterns,
                                             PatternBenefit benefit = 1);
+<<<<<<< HEAD
+=======
+
+void populateAmdgpuFoldMemRefOpsPatterns(RewritePatternSet &patterns,
+                                         PatternBenefit benefit = 1);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 } // namespace amdgpu
 } // namespace mlir

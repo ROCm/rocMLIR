@@ -1,4 +1,5 @@
 /// Test if profi flag is enabled/disabled correctly based on user-specified configuration.
+<<<<<<< HEAD
 /// Ensure that profi flag is disabled by default
 
 // RUN: %clang --target=x86_64 -c -fprofile-sample-use=/dev/null -### %s 2>&1 | FileCheck %s --check-prefixes=CHECK-NO-PROFI
@@ -6,6 +7,15 @@
 // RUN: %clang --target=x86_64 -c -fno-sample-profile-use-profi -fsample-profile-use-profi -fprofile-sample-use=/dev/null -### %s 2>&1 | FileCheck %s
 
 // RUN: %clang --target=AArch64 -c -fprofile-sample-use=/dev/null -### %s 2>&1 | FileCheck %s --check-prefixes=CHECK-NO-PROFI
+=======
+/// Ensure that profi flag is enabled by default
+
+// RUN: %clang --target=x86_64 -c -fprofile-sample-use=/dev/null -### %s 2>&1 | FileCheck %s
+// RUN: %clang --target=x86_64 -c -fsample-profile-use-profi -fprofile-sample-use=/dev/null -### %s 2>&1 | FileCheck %s
+// RUN: %clang --target=x86_64 -c -fno-sample-profile-use-profi -fsample-profile-use-profi -fprofile-sample-use=/dev/null -### %s 2>&1 | FileCheck %s
+
+// RUN: %clang --target=AArch64 -c -fprofile-sample-use=/dev/null -### %s 2>&1 | FileCheck %s
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // RUN: %clang --target=AArch64 -c -fsample-profile-use-profi -fprofile-sample-use=/dev/null -### %s 2>&1 | FileCheck %s
 // RUN: %clang --target=AArch64 -c -fno-sample-profile-use-profi -fsample-profile-use-profi -fprofile-sample-use=/dev/null -### %s 2>&1 | FileCheck %s
 

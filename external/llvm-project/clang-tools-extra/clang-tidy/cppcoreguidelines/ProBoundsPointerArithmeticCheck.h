@@ -21,13 +21,21 @@ namespace clang::tidy::cppcoreguidelines {
 /// http://clang.llvm.org/extra/clang-tidy/checks/cppcoreguidelines/pro-bounds-pointer-arithmetic.html
 class ProBoundsPointerArithmeticCheck : public ClangTidyCheck {
 public:
+<<<<<<< HEAD
   ProBoundsPointerArithmeticCheck(StringRef Name, ClangTidyContext *Context)
       : ClangTidyCheck(Name, Context) {}
+=======
+  ProBoundsPointerArithmeticCheck(StringRef Name, ClangTidyContext *Context);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   bool isLanguageVersionSupported(const LangOptions &LangOpts) const override {
     return LangOpts.CPlusPlus;
   }
   void registerMatchers(ast_matchers::MatchFinder *Finder) override;
+  void storeOptions(ClangTidyOptions::OptionMap &Opts) override;
   void check(const ast_matchers::MatchFinder::MatchResult &Result) override;
+
+private:
+  const bool AllowIncrementDecrementOperators;
 };
 
 } // namespace clang::tidy::cppcoreguidelines

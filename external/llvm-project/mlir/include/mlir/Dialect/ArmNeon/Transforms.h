@@ -13,8 +13,13 @@ namespace mlir {
 class RewritePatternSet;
 
 namespace arm_neon {
+<<<<<<< HEAD
 void populateLowerContractionToNeonI8MMPatternPatterns(
     RewritePatternSet &patterns);
+=======
+void populateLowerContractionToNeonI8MMPatterns(RewritePatternSet &patterns);
+void populateLowerContractionToNeonBFMMLAPatterns(RewritePatternSet &patterns);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 } // namespace arm_neon
 
 } // namespace mlir

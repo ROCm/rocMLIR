@@ -19,7 +19,11 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/Twine.h"
+<<<<<<< HEAD
 #include "llvm/Support/Debug.h"
+=======
+#include "llvm/Support/DebugLog.h"
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "llvm/Support/Regex.h"
 #include <memory>
 
@@ -104,14 +108,8 @@ void Dialect::addInterface(std::unique_ptr<DialectInterface> interface) {
 
   auto it = registeredInterfaces.try_emplace(interface->getID(),
                                              std::move(interface));
-  (void)it;
-  LLVM_DEBUG({
-    if (!it.second) {
-      llvm::dbgs() << "[" DEBUG_TYPE
-                      "] repeated interface registration for dialect "
-                   << getNamespace();
-    }
-  });
+  if (!it.second)
+    LDBG() << "repeated interface registration for dialect " << getNamespace();
 }
 
 //===----------------------------------------------------------------------===//

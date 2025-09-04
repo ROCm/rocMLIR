@@ -6,9 +6,24 @@
 //
 //===----------------------------------------------------------------------===//
 
+<<<<<<< HEAD
 #define FUNCTION islessequal
+=======
+#ifndef __CLC_OPENCL_RELATIONAL_ISLESSEQUAL_H__
+#define __CLC_OPENCL_RELATIONAL_ISLESSEQUAL_H__
+
+#include <clc/opencl/opencl-base.h>
+
+#define __CLC_FUNCTION islessequal
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/relational/binary_decl.inc>
 
-#include <clc/relational/floatn.inc>
+#include <clc/math/gentype.inc>
 
+<<<<<<< HEAD
 #undef FUNCTION
+=======
+#undef __CLC_FUNCTION
+
+#endif // __CLC_OPENCL_RELATIONAL_ISLESSEQUAL_H__
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

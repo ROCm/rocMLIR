@@ -6,10 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <clc/clcmacro.h>
 #include <clc/integer/clc_clz.h>
 #include <clc/internal/clc.h>
 
+<<<<<<< HEAD
 _CLC_OVERLOAD _CLC_DEF char __clc_clz(char x) {
   return __clc_clz((ushort)(uchar)x) - 8;
 }
@@ -44,4 +44,7 @@ _CLC_OVERLOAD _CLC_DEF ulong __clc_clz(ulong x) {
 
 #define FUNCTION __clc_clz
 #define __CLC_BODY <clc/shared/unary_def_scalarize.inc>
+=======
+#define __CLC_BODY <clc_clz.inc>
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include <clc/integer/gentype.inc>

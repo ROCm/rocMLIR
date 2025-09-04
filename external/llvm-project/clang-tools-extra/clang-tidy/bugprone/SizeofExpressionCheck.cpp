@@ -370,6 +370,7 @@ void SizeofExpressionCheck::check(const MatchFinder::MatchResult &Result) {
         << E->getSourceRange();
   } else if (Result.Nodes.getNodeAs<Stmt>("loop-expr")) {
     auto *SizeofArgTy = Result.Nodes.getNodeAs<Type>("sizeof-arg-type");
+<<<<<<< HEAD
     if (const auto member = dyn_cast<MemberPointerType>(SizeofArgTy))
       SizeofArgTy = member->getPointeeType().getTypePtr();
 
@@ -380,6 +381,18 @@ void SizeofExpressionCheck::check(const MatchFinder::MatchResult &Result) {
       // the size of the array is higher than the number of elements
       CharUnits sSize = Ctx.getTypeSizeInChars(type->getElementType());
       if (!sSize.isOne()) {
+=======
+    if (const auto *Member = dyn_cast<MemberPointerType>(SizeofArgTy))
+      SizeofArgTy = Member->getPointeeType().getTypePtr();
+
+    const auto *SzOfExpr = Result.Nodes.getNodeAs<Expr>("sizeof-expr");
+
+    if (const auto *Type = dyn_cast<ArrayType>(SizeofArgTy)) {
+      // check if the array element size is larger than one. If true,
+      // the size of the array is higher than the number of elements
+      CharUnits SSize = Ctx.getTypeSizeInChars(Type->getElementType());
+      if (!SSize.isOne()) {
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
         diag(SzOfExpr->getBeginLoc(),
              "suspicious usage of 'sizeof' in the loop")
             << SzOfExpr->getSourceRange();
@@ -425,7 +438,7 @@ void SizeofExpressionCheck::check(const MatchFinder::MatchResult &Result) {
            "suspicious usage of 'sizeof(array)/sizeof(...)';"
            " denominator differs from the size of array elements")
           << E->getLHS()->getSourceRange() << E->getRHS()->getSourceRange();
-    } else if (NumTy && DenomTy && NumTy == DenomTy &&
+    } else if (NumTy && DenomTy && Ctx.hasSameType(NumTy, DenomTy) &&
                !NumTy->isDependentType()) {
       // Dependent type should not be compared.
       diag(E->getOperatorLoc(),
@@ -434,7 +447,7 @@ void SizeofExpressionCheck::check(const MatchFinder::MatchResult &Result) {
           << E->getLHS()->getSourceRange() << E->getRHS()->getSourceRange();
     } else if (!WarnOnSizeOfPointer) {
       // When 'WarnOnSizeOfPointer' is enabled, these messages become redundant:
-      if (PointedTy && DenomTy && PointedTy == DenomTy) {
+      if (PointedTy && DenomTy && Ctx.hasSameType(PointedTy, DenomTy)) {
         diag(E->getOperatorLoc(),
              "suspicious usage of 'sizeof(...)/sizeof(...)'; size of pointer "
              "is divided by size of pointed type")
@@ -463,7 +476,8 @@ void SizeofExpressionCheck::check(const MatchFinder::MatchResult &Result) {
     const auto *SizeOfExpr =
         Result.Nodes.getNodeAs<UnaryExprOrTypeTraitExpr>("sizeof-ptr-mul-expr");
 
-    if ((LPtrTy == RPtrTy) && (LPtrTy == SizeofArgTy)) {
+    if (Ctx.hasSameType(LPtrTy, RPtrTy) &&
+        Ctx.hasSameType(LPtrTy, SizeofArgTy)) {
       diag(SizeOfExpr->getBeginLoc(), "suspicious usage of 'sizeof(...)' in "
                                       "pointer arithmetic")
           << SizeOfExpr->getSourceRange() << E->getOperatorLoc()
@@ -477,7 +491,8 @@ void SizeofExpressionCheck::check(const MatchFinder::MatchResult &Result) {
     const auto *SizeOfExpr =
         Result.Nodes.getNodeAs<UnaryExprOrTypeTraitExpr>("sizeof-ptr-div-expr");
 
-    if ((LPtrTy == RPtrTy) && (LPtrTy == SizeofArgTy)) {
+    if (Ctx.hasSameType(LPtrTy, RPtrTy) &&
+        Ctx.hasSameType(LPtrTy, SizeofArgTy)) {
       diag(SizeOfExpr->getBeginLoc(), "suspicious usage of 'sizeof(...)' in "
                                       "pointer arithmetic")
           << SizeOfExpr->getSourceRange() << E->getOperatorLoc()

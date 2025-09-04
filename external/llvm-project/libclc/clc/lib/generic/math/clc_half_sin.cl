@@ -8,9 +8,15 @@
 
 #include <clc/math/clc_sin.h>
 
+<<<<<<< HEAD
 #define __FLOAT_ONLY
 #define FUNCTION __clc_half_sin
 #define __IMPL_FUNCTION(x) __clc_sin
+=======
+#define __CLC_FLOAT_ONLY
+#define __CLC_FUNCTION __clc_half_sin
+#define __CLC_IMPL_FUNCTION(x) __clc_sin
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/shared/unary_def.inc>
 
 #include <clc/math/gentype.inc>

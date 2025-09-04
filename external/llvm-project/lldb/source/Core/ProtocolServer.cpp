@@ -8,10 +8,12 @@
 
 #include "lldb/Core/ProtocolServer.h"
 #include "lldb/Core/PluginManager.h"
+#include "llvm/Support/Error.h"
 
 using namespace lldb_private;
 using namespace lldb;
 
+<<<<<<< HEAD
 ProtocolServer *ProtocolServer::GetOrCreate(llvm::StringRef name) {
   static std::mutex g_mutex;
   static llvm::StringMap<ProtocolServerUP> g_protocol_server_instances;
@@ -20,12 +22,31 @@ ProtocolServer *ProtocolServer::GetOrCreate(llvm::StringRef name) {
 
   auto it = g_protocol_server_instances.find(name);
   if (it != g_protocol_server_instances.end())
+=======
+static std::pair<llvm::StringMap<ProtocolServerUP> &, std::mutex &> Servers() {
+  static llvm::StringMap<ProtocolServerUP> g_protocol_server_instances;
+  static std::mutex g_mutex;
+  return {g_protocol_server_instances, g_mutex};
+}
+
+ProtocolServer *ProtocolServer::GetOrCreate(llvm::StringRef name) {
+  auto [protocol_server_instances, mutex] = Servers();
+
+  std::lock_guard<std::mutex> guard(mutex);
+
+  auto it = protocol_server_instances.find(name);
+  if (it != protocol_server_instances.end())
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return it->second.get();
 
   if (ProtocolServerCreateInstance create_callback =
           PluginManager::GetProtocolCreateCallbackForPluginName(name)) {
+<<<<<<< HEAD
     auto pair =
         g_protocol_server_instances.try_emplace(name, create_callback());
+=======
+    auto pair = protocol_server_instances.try_emplace(name, create_callback());
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     return pair.first->second.get();
   }
 
@@ -45,3 +66,21 @@ std::vector<llvm::StringRef> ProtocolServer::GetSupportedProtocols() {
 
   return supported_protocols;
 }
+<<<<<<< HEAD
+=======
+
+llvm::Error ProtocolServer::Terminate() {
+  llvm::Error error = llvm::Error::success();
+
+  auto [protocol_server_instances, mutex] = Servers();
+  std::lock_guard<std::mutex> guard(mutex);
+  for (auto &instance : protocol_server_instances) {
+    if (llvm::Error instance_error = instance.second->Stop())
+      error = llvm::joinErrors(std::move(error), std::move(instance_error));
+  }
+
+  protocol_server_instances.clear();
+
+  return error;
+}
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

@@ -247,6 +247,17 @@ void Reference::merge(Reference &&Other) {
     Name = Other.Name;
   if (Path.empty())
     Path = Other.Path;
+  if (DocumentationFileName.empty())
+    DocumentationFileName = Other.DocumentationFileName;
+}
+
+bool FriendInfo::mergeable(const FriendInfo &Other) {
+  return Ref.USR == Other.Ref.USR && Ref.Name == Other.Ref.Name;
+}
+
+void FriendInfo::merge(FriendInfo &&Other) {
+  assert(mergeable(Other));
+  Ref.merge(std::move(Other.Ref));
 }
 
 bool FriendInfo::mergeable(const FriendInfo &Other) {
@@ -290,6 +301,8 @@ void SymbolInfo::merge(SymbolInfo &&Other) {
   auto *Last = llvm::unique(Loc);
   Loc.erase(Last, Loc.end());
   mergeBase(std::move(Other));
+  if (MangledName.empty())
+    MangledName = std::move(Other.MangledName);
 }
 
 NamespaceInfo::NamespaceInfo(SymbolID USR, StringRef Name, StringRef Path)
@@ -498,6 +511,7 @@ ClangDocContext::ClangDocContext(tooling::ExecutionContext *ECtx,
 }
 
 void ScopeChildren::sort() {
+<<<<<<< HEAD
   llvm::sort(Namespaces.begin(), Namespaces.end());
   llvm::sort(Records.begin(), Records.end());
   llvm::sort(Functions.begin(), Functions.end());
@@ -505,6 +519,15 @@ void ScopeChildren::sort() {
   llvm::sort(Typedefs.begin(), Typedefs.end());
   llvm::sort(Concepts.begin(), Concepts.end());
   llvm::sort(Variables.begin(), Variables.end());
+=======
+  llvm::sort(Namespaces);
+  llvm::sort(Records);
+  llvm::sort(Functions);
+  llvm::sort(Enums);
+  llvm::sort(Typedefs);
+  llvm::sort(Concepts);
+  llvm::sort(Variables);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 }
 } // namespace doc
 } // namespace clang

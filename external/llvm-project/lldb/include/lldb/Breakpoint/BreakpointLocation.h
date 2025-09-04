@@ -69,7 +69,11 @@ public:
   // The next section deals with various breakpoint options.
 
   /// If \a enabled is \b true, enable the breakpoint, if \b false disable it.
+<<<<<<< HEAD
   bool SetEnabled(bool enabled);
+=======
+  llvm::Error SetEnabled(bool enabled);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
   /// Check the Enable/Disable state.
   ///
@@ -128,15 +132,11 @@ public:
   /// Set the breakpoint location's condition.
   ///
   /// \param[in] condition
-  ///    The condition expression to evaluate when the breakpoint is hit.
-  void SetCondition(const char *condition);
+  ///    The condition to evaluate when the breakpoint is hit.
+  void SetCondition(StopCondition condition);
 
-  /// Return a pointer to the text of the condition expression.
-  ///
-  /// \return
-  ///    A pointer to the condition expression text, or nullptr if no
-  //     condition has been set.
-  const char *GetConditionText(size_t *hash = nullptr) const;
+  /// Return the breakpoint condition.
+  const StopCondition &GetCondition() const;
 
   bool ConditionSaysStop(ExecutionContext &exe_ctx, Status &error);
 
@@ -163,19 +163,11 @@ public:
   // The next section deals with this location's breakpoint sites.
 
   /// Try to resolve the breakpoint site for this location.
-  ///
-  /// \return
-  ///     \b true if we were successful at setting a breakpoint site,
-  ///     \b false otherwise.
-  bool ResolveBreakpointSite();
+  llvm::Error ResolveBreakpointSite();
 
   /// Clear this breakpoint location's breakpoint site - for instance when
   /// disabling the breakpoint.
-  ///
-  /// \return
-  ///     \b true if there was a breakpoint site to be cleared, \b false
-  ///     otherwise.
-  bool ClearBreakpointSite();
+  llvm::Error ClearBreakpointSite();
 
   /// Return whether this breakpoint location has a breakpoint site. \return
   ///     \b true if there was a breakpoint site for this breakpoint

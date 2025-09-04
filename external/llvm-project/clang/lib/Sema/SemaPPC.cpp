@@ -41,8 +41,7 @@ void SemaPPC::checkAIXMemberAlignment(SourceLocation Loc, const Expr *Arg) {
     return;
 
   QualType ArgType = Arg->getType();
-  for (const FieldDecl *FD :
-       ArgType->castAs<RecordType>()->getDecl()->fields()) {
+  for (const FieldDecl *FD : ArgType->castAsRecordDecl()->fields()) {
     if (const auto *AA = FD->getAttr<AlignedAttr>()) {
       CharUnits Alignment = getASTContext().toCharUnitsFromBits(
           AA->getAlignment(getASTContext()));
@@ -106,6 +105,10 @@ bool SemaPPC::CheckPPCBuiltinFunctionCall(const TargetInfo &TI,
   switch (BuiltinID) {
   default:
     return false;
+<<<<<<< HEAD
+=======
+  case PPC::BI__builtin_ppc_bcdsetsign:
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   case PPC::BI__builtin_ppc_national2packed:
   case PPC::BI__builtin_ppc_packed2zoned:
   case PPC::BI__builtin_ppc_zoned2packed:

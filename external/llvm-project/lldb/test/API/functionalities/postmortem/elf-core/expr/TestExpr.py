@@ -37,6 +37,13 @@ class CoreExprTestCase(TestBase):
         self.target.EvaluateExpression("int $my_int = 5")
         self.expect_expr("$my_int * 2", result_type="int", result_value="10")
 
+<<<<<<< HEAD
+=======
+        # Try assigning the persistent variable a new value.
+        self.target.EvaluateExpression("$my_int = 55")
+        self.expect_expr("$my_int", result_type="int", result_value="55")
+
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     def test_context_object(self):
         """Test expression evaluation in context of an object."""
 

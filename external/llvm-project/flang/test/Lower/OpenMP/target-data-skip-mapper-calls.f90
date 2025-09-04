@@ -1,5 +1,10 @@
+<<<<<<< HEAD
 !RUN: %flang_fc1 -emit-llvm -fopenmp %s -o - | FileCheck %s --check-prefix=NORT
 !RUN: %flang_fc1 -emit-llvm -fopenmp %s -o - | FileCheck %s --check-prefix=LLVM
+=======
+!RUN: %flang_fc1 -emit-llvm -fopenmp -mmlir --force-no-alias=false %s -o - | FileCheck %s --check-prefix=NORT
+!RUN: %flang_fc1 -emit-llvm -fopenmp -mmlir --force-no-alias=false %s -o - | FileCheck %s --check-prefix=LLVM
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 !Make sure that there are no calls to the mapper.
 !NORT-NOT: call{{.*}}__tgt_target_data_begin_mapper

@@ -33,7 +33,10 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
+<<<<<<< HEAD
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Transforms/DialectConversion.h"
 

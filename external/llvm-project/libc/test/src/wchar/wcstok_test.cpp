@@ -19,6 +19,11 @@ TEST(LlvmLibcWCSTokReentrantTest, NoTokenFound) {
     // Another call to ensure that 'reserve' is not in a bad state.
     ASSERT_EQ(LIBC_NAMESPACE::wcstok(empty, L"", &reserve), nullptr);
     ASSERT_EQ(LIBC_NAMESPACE::wcstok(nullptr, L"", &reserve), nullptr);
+<<<<<<< HEAD
+=======
+    // Subsequent searches still return nullptr.
+    ASSERT_EQ(LIBC_NAMESPACE::wcstok(nullptr, L"", &reserve), nullptr);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
   { // Empty source and single character delimiter string.
     wchar_t empty[] = L"";
@@ -27,6 +32,11 @@ TEST(LlvmLibcWCSTokReentrantTest, NoTokenFound) {
     // Another call to ensure that 'reserve' is not in a bad state.
     ASSERT_EQ(LIBC_NAMESPACE::wcstok(empty, L"_", &reserve), nullptr);
     ASSERT_EQ(LIBC_NAMESPACE::wcstok(nullptr, L"_", &reserve), nullptr);
+<<<<<<< HEAD
+=======
+    // Subsequent searches still return nullptr.
+    ASSERT_EQ(LIBC_NAMESPACE::wcstok(nullptr, L"_", &reserve), nullptr);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
   { // Same character source and delimiter string.
     wchar_t single[] = L"_";
@@ -35,6 +45,11 @@ TEST(LlvmLibcWCSTokReentrantTest, NoTokenFound) {
     // Another call to ensure that 'reserve' is not in a bad state.
     ASSERT_EQ(LIBC_NAMESPACE::wcstok(single, L"_", &reserve), nullptr);
     ASSERT_EQ(LIBC_NAMESPACE::wcstok(nullptr, L"_", &reserve), nullptr);
+<<<<<<< HEAD
+=======
+    // Subsequent searches still return nullptr.
+    ASSERT_EQ(LIBC_NAMESPACE::wcstok(nullptr, L"_", &reserve), nullptr);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
   { // Multiple character source and single character delimiter string.
     wchar_t multiple[] = L"1,2";
@@ -51,6 +66,11 @@ TEST(LlvmLibcWCSTokReentrantTest, NoTokenFound) {
     ASSERT_TRUE(tok[2] == L'2');
     ASSERT_TRUE(tok[3] == L'\0');
     ASSERT_EQ(LIBC_NAMESPACE::wcstok(nullptr, L":", &reserve), nullptr);
+<<<<<<< HEAD
+=======
+    // Subsequent searches still return nullptr.
+    ASSERT_EQ(LIBC_NAMESPACE::wcstok(nullptr, L":", &reserve), nullptr);
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   }
 }
 

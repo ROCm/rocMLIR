@@ -60,6 +60,7 @@ enum class align_val_t: size_t {};
 // TODO(alekseyshl): throw std::bad_alloc instead of dying on OOM.
 // For local pool allocation, align to SHADOW_GRANULARITY to match asan
 // allocator behavior.
+<<<<<<< HEAD
 #define OPERATOR_NEW_BODY                               \
   GET_STACK_TRACE_MALLOC;                               \
   void *res = asan_memalign(0, size, &stack, FROM_NEW); \
@@ -96,6 +97,44 @@ enum class align_val_t: size_t {};
 #define OPERATOR_NEW_BODY_ALIGN_ARRAY_NOTHROW \
   GET_STACK_TRACE_MALLOC;                     \
   return asan_memalign((uptr)align, size, &stack, FROM_NEW_BR)
+=======
+#define OPERATOR_NEW_BODY             \
+  GET_STACK_TRACE_MALLOC;             \
+  void *res = asan_new(size, &stack); \
+  if (UNLIKELY(!res))                 \
+    ReportOutOfMemory(size, &stack);  \
+  return res
+#define OPERATOR_NEW_BODY_NOTHROW \
+  GET_STACK_TRACE_MALLOC;         \
+  return asan_new(size, &stack)
+#define OPERATOR_NEW_BODY_ARRAY             \
+  GET_STACK_TRACE_MALLOC;                   \
+  void *res = asan_new_array(size, &stack); \
+  if (UNLIKELY(!res))                       \
+    ReportOutOfMemory(size, &stack);        \
+  return res
+#define OPERATOR_NEW_BODY_ARRAY_NOTHROW \
+  GET_STACK_TRACE_MALLOC;               \
+  return asan_new_array(size, &stack)
+#define OPERATOR_NEW_BODY_ALIGN                                         \
+  GET_STACK_TRACE_MALLOC;                                               \
+  void *res = asan_new_aligned(size, static_cast<uptr>(align), &stack); \
+  if (UNLIKELY(!res))                                                   \
+    ReportOutOfMemory(size, &stack);                                    \
+  return res
+#define OPERATOR_NEW_BODY_ALIGN_NOTHROW \
+  GET_STACK_TRACE_MALLOC;               \
+  return asan_new_aligned(size, static_cast<uptr>(align), &stack)
+#define OPERATOR_NEW_BODY_ALIGN_ARRAY                                         \
+  GET_STACK_TRACE_MALLOC;                                                     \
+  void *res = asan_new_array_aligned(size, static_cast<uptr>(align), &stack); \
+  if (UNLIKELY(!res))                                                         \
+    ReportOutOfMemory(size, &stack);                                          \
+  return res
+#define OPERATOR_NEW_BODY_ALIGN_ARRAY_NOTHROW \
+  GET_STACK_TRACE_MALLOC;                     \
+  return asan_new_array_aligned(size, static_cast<uptr>(align), &stack)
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 // On OS X it's not enough to just provide our own 'operator new' and
 // 'operator delete' implementations, because they're going to be in the
@@ -149,6 +188,7 @@ INTERCEPTOR(void *, _ZnamRKSt9nothrow_t, size_t size, std::nothrow_t const&) {
 
 #define OPERATOR_DELETE_BODY \
   GET_STACK_TRACE_FREE;      \
+<<<<<<< HEAD
   asan_delete(ptr, 0, 0, &stack, FROM_NEW)
 #define OPERATOR_DELETE_BODY_ARRAY \
   GET_STACK_TRACE_FREE;            \
@@ -171,6 +211,30 @@ INTERCEPTOR(void *, _ZnamRKSt9nothrow_t, size_t size, std::nothrow_t const&) {
 #define OPERATOR_DELETE_BODY_SIZE_ALIGN_ARRAY \
   GET_STACK_TRACE_FREE;                       \
   asan_delete(ptr, size, static_cast<uptr>(align), &stack, FROM_NEW_BR)
+=======
+  asan_delete(ptr, &stack)
+#define OPERATOR_DELETE_BODY_ARRAY \
+  GET_STACK_TRACE_FREE;            \
+  asan_delete_array(ptr, &stack)
+#define OPERATOR_DELETE_BODY_ALIGN \
+  GET_STACK_TRACE_FREE;            \
+  asan_delete_aligned(ptr, static_cast<uptr>(align), &stack)
+#define OPERATOR_DELETE_BODY_ALIGN_ARRAY \
+  GET_STACK_TRACE_FREE;                  \
+  asan_delete_array_aligned(ptr, static_cast<uptr>(align), &stack)
+#define OPERATOR_DELETE_BODY_SIZE \
+  GET_STACK_TRACE_FREE;           \
+  asan_delete_sized(ptr, size, &stack)
+#define OPERATOR_DELETE_BODY_SIZE_ARRAY \
+  GET_STACK_TRACE_FREE;                 \
+  asan_delete_array_sized(ptr, size, &stack)
+#define OPERATOR_DELETE_BODY_SIZE_ALIGN \
+  GET_STACK_TRACE_FREE;                 \
+  asan_delete_sized_aligned(ptr, size, static_cast<uptr>(align), &stack)
+#define OPERATOR_DELETE_BODY_SIZE_ALIGN_ARRAY \
+  GET_STACK_TRACE_FREE;                       \
+  asan_delete_array_sized_aligned(ptr, size, static_cast<uptr>(align), &stack)
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #if !SANITIZER_APPLE
 CXX_OPERATOR_ATTRIBUTE

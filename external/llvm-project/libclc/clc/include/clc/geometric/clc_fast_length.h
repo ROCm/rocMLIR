@@ -9,12 +9,21 @@
 #ifndef __CLC_GEOMETRIC_CLC_FAST_LENGTH_H__
 #define __CLC_GEOMETRIC_CLC_FAST_LENGTH_H__
 
+<<<<<<< HEAD
 #define __FLOAT_ONLY
 #define FUNCTION __clc_fast_length
+=======
+#define __CLC_FLOAT_ONLY
+#define __CLC_FUNCTION __clc_fast_length
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/geometric/unary_decl.inc>
 
 #include <clc/math/gentype.inc>
 
+<<<<<<< HEAD
 #undef FUNCTION
+=======
+#undef __CLC_FUNCTION
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #endif // __CLC_GEOMETRIC_CLC_FAST_LENGTH_H__

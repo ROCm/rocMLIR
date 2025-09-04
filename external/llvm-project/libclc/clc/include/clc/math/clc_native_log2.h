@@ -9,12 +9,21 @@
 #ifndef __CLC_MATH_CLC_NATIVE_LOG2_H__
 #define __CLC_MATH_CLC_NATIVE_LOG2_H__
 
+<<<<<<< HEAD
 #define __FLOAT_ONLY
 #define FUNCTION __clc_native_log2
+=======
+#define __CLC_FLOAT_ONLY
+#define __CLC_FUNCTION __clc_native_log2
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 #define __CLC_BODY <clc/shared/unary_decl.inc>
 
 #include <clc/math/gentype.inc>
 
+<<<<<<< HEAD
 #undef FUNCTION
+=======
+#undef __CLC_FUNCTION
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 
 #endif // __CLC_MATH_CLC_NATIVE_LOG2_H__

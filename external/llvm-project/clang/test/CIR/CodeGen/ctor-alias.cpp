@@ -11,6 +11,11 @@ struct B {
 B::B() {
 }
 
+<<<<<<< HEAD
+=======
+// LLVM: @_ZN1BC1Ev = alias void (ptr), ptr @_ZN1BC2Ev
+
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // OGCG: @_ZN1BC1Ev = unnamed_addr alias void (ptr), ptr @_ZN1BC2Ev
 
 // CHECK: cir.func{{.*}} @_ZN1BC2Ev(%arg0: !cir.ptr<!rec_B>
@@ -25,15 +30,40 @@ B::B() {
 // LLVM:   store ptr %[[THIS_ARG]], ptr %[[THIS_ADDR]]
 // LLVM:   %[[THIS:.*]] = load ptr, ptr %[[THIS_ADDR]]
 
+<<<<<<< HEAD
 // This should be an alias, like the similar OGCG alias above, but that's not
 // implemented yet.
 // LLVM: declare dso_local void @_ZN1BC1Ev(ptr)
 
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // OGCG: define{{.*}} @_ZN1BC2Ev(ptr{{.*}} %[[THIS_ARG:.*]])
 // OGCG:   %[[THIS_ADDR:.*]] = alloca ptr
 // OGCG:   store ptr %[[THIS_ARG]], ptr %[[THIS_ADDR]]
 // OGCG:   %[[THIS:.*]] = load ptr, ptr %[[THIS_ADDR]]
 
+<<<<<<< HEAD
+=======
+void bar() {
+  B b;
+}
+
+// CHECK: cir.func{{.*}} @_Z3barv()
+// CHECK:   %[[B:.*]] = cir.alloca !rec_B, !cir.ptr<!rec_B>, ["b", init]
+// CHECK:   cir.call @_ZN1BC1Ev(%[[B]]) : (!cir.ptr<!rec_B>) -> ()
+// CHECK:   cir.return
+
+// LLVM: define{{.*}} void @_Z3barv()
+// LLVM:   %[[B:.*]] = alloca %struct.B, i64 1, align 1
+// LLVM:   call void @_ZN1BC1Ev(ptr %[[B]])
+// LLVM:   ret void
+
+// OGCG: define{{.*}} void @_Z3barv()
+// OGCG:   %[[B:.*]] = alloca %struct.B, align 1
+// OGCG:   call void @_ZN1BC1Ev(ptr{{.*}} %[[B]])
+// OGCG:   ret void
+
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // The constructor in this cases is handled by RAUW rather than aliasing.
 struct Struk {
   Struk() {}

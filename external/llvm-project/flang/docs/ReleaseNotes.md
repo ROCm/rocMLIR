@@ -1,3 +1,6 @@
+<!-- If you want to modify sections/contents permanently, you should modify both
+ReleaseNotes.md and ReleaseNotesTemplate.txt. -->
+
 # Flang |version| (In-Progress) Release Notes
 
 > **warning**
@@ -24,7 +27,7 @@ page](https://llvm.org/releases/).
 
 ## Major New Features
 
-* Initial support for VOLATILE variables and procedure interface arguments has been added.
+* Support for LOWER= argument for C_F_POINTER.
 
 ## Bug Fixes
 
@@ -32,17 +35,21 @@ page](https://llvm.org/releases/).
 
 ## New Compiler Flags
 
+<<<<<<< HEAD
 * -floop-interchange is now recognized by flang.
 * -floop-interchange is enabled by default at -O2 and above.
 * -fveclib=libmvec is supported for AArch64 (same as Flang/x86 and
   Clang/AArch64) (requires GLIBC 2.40 or newer)
 
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 ## Windows Support
 
 ## Fortran Language Changes in Flang
 
 ## Build System Changes
 
+<<<<<<< HEAD
  * The FortranRuntime library has been renamed to `flang_rt.runtime`.
 
  * The FortranFloat128Math library has been renamed to `flang_rt.quadmath`.
@@ -61,6 +68,8 @@ page](https://llvm.org/releases/).
     in in-tree builds with the AArch64 target, but compiler-rt will need to be
     manually added to LLVM builds when building flang out-of-tree.
 
+=======
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 ## New Issues Found
 
 

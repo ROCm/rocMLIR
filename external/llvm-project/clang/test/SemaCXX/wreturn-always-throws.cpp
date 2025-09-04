@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 // RUN: %clang_cc1 -fsyntax-only -fcxx-exceptions -fexceptions -Wreturn-type -verify %s
+=======
+// RUN: %clang_cc1 -fsyntax-only -fcxx-exceptions -fexceptions -Wreturn-type -Winvalid-noreturn -verify %s
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
 // expected-no-diagnostics
 
 namespace std {
@@ -44,3 +48,25 @@ void testTemplates() {
   throwErrorTemplate("ERROR");
   (void)ensureZeroTemplate(42);
 }
+<<<<<<< HEAD
+=======
+
+// Ensure that explicit specialization of a member function does not inherit
+// the warning from the primary template.
+
+template<typename T>
+struct S {
+  void f();
+  void g();
+};
+
+template<typename T>
+void S<T>::f() { throw 0; } 
+template<>
+void S<int>::f() {}
+
+template<typename T> 
+void S<T>::g() {}  
+template<> 
+void S<int>::g() { throw 0; }
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a

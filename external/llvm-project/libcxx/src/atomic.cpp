@@ -152,7 +152,11 @@ static void __libcpp_contention_wait(__cxx_atomic_contention_t volatile* __conte
                                      __cxx_atomic_contention_t const volatile* __platform_state,
                                      __cxx_contention_t __old_value) {
   __cxx_atomic_fetch_add(__contention_state, __cxx_contention_t(1), memory_order_relaxed);
+<<<<<<< HEAD
   // https://github.com/llvm/llvm-project/issues/109290
+=======
+  // https://llvm.org/PR109290
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
   // There are no platform guarantees of a memory barrier in the platform wait implementation
   __cxx_atomic_thread_fence(memory_order_seq_cst);
   // We sleep as long as the monitored value hasn't changed.

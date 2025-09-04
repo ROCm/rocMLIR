@@ -11,6 +11,10 @@ class TestDbgInfoContentWeakPtr(TestBase):
     @add_test_categories(["libc++"])
     @skipIf(compiler=no_match("clang"))
     @skipIf(compiler="clang", compiler_version=["<", "17.0"])
+<<<<<<< HEAD
+=======
+    @skipIf(macos_version=["<", "15.0"])
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
     @skipUnlessDarwin
     def test(self):
         self.build()

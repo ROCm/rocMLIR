@@ -6,6 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#ifndef __CLC_OPENCL_MATH_EXP10_H__
+#define __CLC_OPENCL_MATH_EXP10_H__
+
 #undef exp10
 
 #define __CLC_BODY <clc/math/unary_decl.inc>
@@ -13,4 +16,10 @@
 
 #include <clc/math/gentype.inc>
 
+<<<<<<< HEAD
 #undef FUNCTION
+=======
+#undef __CLC_FUNCTION
+
+#endif // __CLC_OPENCL_MATH_EXP10_H__
+>>>>>>> 9860325438b8f8620553a524caa547ae9733f02a
