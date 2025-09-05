@@ -116,6 +116,12 @@ static llvm::cl::opt<bool> showStats(
     llvm::cl::desc("Show detailed statistics (min, max, median, stddev, cv)"),
     llvm::cl::init(false));
 
+static llvm::cl::opt<std::string> benchmarkConfig(
+    "benchmark-config",
+    llvm::cl::desc(
+        "Run benchmark with specific perf config only (skip tuning)"),
+    llvm::cl::init(""));
+
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
                                             MLIRContext *context) {
@@ -468,15 +474,25 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   }
 
   // 4. Actually tune
-  std::unique_ptr<rock::TuningParamSet> tuningSpace(
-      rock::createTunableParamSpace(source, tuningSpaceKind));
-  for (rock::RockTuningParamAttrInterface tuningAttr :
-       tuningSpace->tuningRange) {
-    OwningOpRef<ModuleOp> tuneCopy = cast<ModuleOp>(source->clone());
-    // TODO: remove this once perf_config gets parsed earlier
-    SmallString<64> perfConfig;
-    tuningAttr.getPerfConfigStr(perfConfig);
+  std::vector<SmallString<64>> configs;
+  if (!benchmarkConfig.empty()) {
+    // Benchmark mode - just one config
+    configs.push_back(SmallString<64>(benchmarkConfig));
+  } else {
+    // Tuning mode - all configs from tuning space
+    std::unique_ptr<rock::TuningParamSet> tuningSpace(
+        rock::createTunableParamSpace(source, tuningSpaceKind));
+    for (rock::RockTuningParamAttrInterface tuningAttr :
+         tuningSpace->tuningRange) {
+      SmallString<64> perfConfig;
+      tuningAttr.getPerfConfigStr(perfConfig);
+      configs.push_back(perfConfig);
+    }
+  }
+
+  for (const auto &perfConfig : configs) {
     llvm::outs() << perfConfig << "\t";
+    OwningOpRef<ModuleOp> tuneCopy = cast<ModuleOp>(source->clone());
     StringAttr perfConfigAttr = StringAttr::get(ctx, perfConfig);
     tuneCopy->walk([&perfConfigAttr](rock::RockGemmWrapperInterface op) {
       op->setAttr("perf_config", perfConfigAttr);

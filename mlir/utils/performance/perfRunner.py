@@ -55,6 +55,8 @@ GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
 INFO_ARCH_NAME = re.compile(r"Name:\s*(.*)")
 INFO_ARCH_CU = re.compile(r"Compute Unit:\s*(.*)")
 
+DISABLE_ROCPROF = False
+
 def input_layouts(input_layout):
     return "".join(INPUT_LAYOUT_MAP[char] for char in input_layout)
 
@@ -1516,6 +1518,41 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen
     commandLineOptions = config.generateMlirDriverCommandLine(rocmlir_gen_flags)
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
+
+    # Use HIP timing via tuning-driver if rocprof is disabled
+    if DISABLE_ROCPROF:
+        if debug:
+            print("Using HIP timing for benchmarking")
+        rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
+        p1 = subprocess.Popen(rocmlirGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        tuningDriverCommand = [
+            paths.mlir_paths.rocmlir_tuning_driver_path,
+            f'--benchmark-config={config.perfConfig}',
+            f'--num-iterations={MLIR_N_REPEATS}',
+            '-'
+        ]
+        p2 = subprocess.Popen(tuningDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        p1.stdout.close()
+        stdout, stderr = p2.communicate()
+        if p2.returncode == 0:
+            result = stdout.decode().strip()
+            if result != "N/A":
+                try:
+                    parts = result.split('\t')
+                    if len(parts) == 2:
+                        return float(parts[1])
+                    else:
+                        return float(result)
+                except ValueError:
+                    if debug:
+                        print(f"Failed to parse timing result: {result}")
+        else:
+            if debug:
+                print(f"Tuning driver failed: {stderr.decode()}")
+        return np.nan
+
+    if debug:
+        print("Using rocprof for benchmarking")
     rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
     rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
@@ -2013,7 +2050,16 @@ def main(args=None):
          help='Force a set of datatypes'
     )
 
+    parser.add_argument(
+        '--disable-rocprof',
+        action="store_true",
+        help="Disable rocprof and use rocmlir-tuning-driver to collect performance data"
+    )
+
     parsed_args = parser.parse_args(args)
+
+    global DISABLE_ROCPROF
+    DISABLE_ROCPROF = parsed_args.disable_rocprof
 
     rocmlir_gen_flags = ''
     if 'rocmlir_gen_flags' in parsed_args:
