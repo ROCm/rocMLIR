@@ -1393,7 +1393,7 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
+                                                img = docker.image(dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
