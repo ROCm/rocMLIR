@@ -6,10 +6,10 @@
 //PV-LABEL: func @conv_bwd_weight_cpu
 //PV-SAME: ([[ARG0:%.+]]: memref<2097152xf32>, [[ARG1:%.+]]: memref<51380224xf32>, [[ARG2:%.+]]: memref<33554432xf32>)
 //PV: %[[f32_0:.*]] = arith.constant 0.000000e+00 : f32
-//PV: vector.insertelement %[[f32_0]]
+//PV: vector.insert %[[f32_0]]
 //PV-NEXT: affine.for %{{.*}} = 0 to 2097152 {
 //PV-NEXT: affine.apply
-//PV-NEXT: vector.extractelement
+//PV-NEXT: vector.extract
 //PV-NEXT: memref.store %{{.*}}, [[ARG0]]
 //PV-NEXT: }
 //PV-NEXT: affine.for [[ARG3:%.*]] = 0 to 1 {

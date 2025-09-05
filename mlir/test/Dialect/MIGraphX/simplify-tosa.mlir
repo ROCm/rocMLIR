@@ -82,19 +82,7 @@ func.func @complex_cast_chain(%arg0: tensor<4xf32>) -> tensor<4xf32> {
 
 // ----
 
-// Test 7: Different tensor shapes (should not be eliminated)
-// CHECK-LABEL: @different_shapes
-// CHECK-SAME: (%[[ARG0:.*]]: tensor<4xf32>) -> tensor<2x2xf32>
-// CHECK: %[[CAST:.*]] = tosa.cast %[[ARG0]] : (tensor<4xf32>) -> tensor<2x2xf32>
-// CHECK: return %[[CAST]] : tensor<2x2xf32>
-func.func @different_shapes(%arg0: tensor<4xf32>) -> tensor<2x2xf32> {
-  %0 = tosa.cast %arg0 : (tensor<4xf32>) -> tensor<2x2xf32>
-  return %0 : tensor<2x2xf32>
-}
-
-// ----
-
-// Test 8: Long chain of same-type casts
+// Test 7: Long chain of same-type casts
 // CHECK-LABEL: @long_redundant_chain
 // CHECK-SAME: (%[[ARG0:.*]]: tensor<4xf32>) -> tensor<4xf32>
 // CHECK-NOT: tosa.cast
@@ -109,7 +97,7 @@ func.func @long_redundant_chain(%arg0: tensor<4xf32>) -> tensor<4xf32> {
 
 // ----
 
-// Test 9: Mixed necessary and unnecessary casts
+// Test 8: Mixed necessary and unnecessary casts
 // CHECK-LABEL: @mixed_casts
 // CHECK-SAME: (%[[ARG0:.*]]: tensor<4xf32>) -> tensor<4xi8>
 // CHECK: %[[CAST0:.*]] = tosa.cast %[[ARG0]] : (tensor<4xf32>) -> tensor<4xi32>
@@ -124,7 +112,7 @@ func.func @mixed_casts(%arg0: tensor<4xf32>) -> tensor<4xi8> {
 
 // ----
 
-// Test 10: Cast with multiple uses
+// Test 9: Cast with multiple uses
 // CHECK-LABEL: @cast_multiple_uses
 // CHECK-SAME: (%[[ARG0:.*]]: tensor<4xf32>) -> (tensor<4xf32>, tensor<4xf32>)
 // CHECK-NOT: tosa.cast
@@ -136,7 +124,7 @@ func.func @cast_multiple_uses(%arg0: tensor<4xf32>) -> (tensor<4xf32>, tensor<4x
 
 // ----
 
-// Test 11: Complex cast chain with multiple uses
+// Test 10: Complex cast chain with multiple uses
 // CHECK-LABEL: @complex_cast_chain_multiple_uses
 // CHECK-SAME: (%[[ARG0:.*]]: tensor<4xf32>) -> (tensor<4xf32>, tensor<4xf16>)
 // CHECK: %[[CAST0:.*]] = tosa.cast %[[ARG0]] : (tensor<4xf32>) -> tensor<4xf16>

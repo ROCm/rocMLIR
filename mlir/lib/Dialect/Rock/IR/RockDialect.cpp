@@ -1671,8 +1671,8 @@ ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder,
     return getOperation();
   }
   // Only one operand supports view
-  auto newOp = builder.create<ThreadwiseReadIntoOp>(
-      getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
+  auto newOp = ThreadwiseReadIntoOp::create(
+      builder, getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
       getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
 }
@@ -1770,8 +1770,8 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
   }
 
   // Only one operand supports view
-  auto newOp = builder.create<ThreadwiseWriteAllOp>(
-      getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
+  auto newOp = ThreadwiseWriteAllOp::create(
+      builder, getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
       getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
 }
@@ -1827,13 +1827,13 @@ ThreadwiseCopyOp::cloneWithExtraIndices(OpBuilder &builder, OpOperand &operand,
   // Only one operand supports view
   ThreadwiseCopyOp newOp;
   if (operand.getOperandNumber() == 0) {
-    newOp = builder.create<ThreadwiseCopyOp>(
-        getLoc(), view, newExtraIndices, getDest(), getExtraIndicesDest(),
-        getForceUnroll(), getUseIndexDiffs());
+    newOp = ThreadwiseCopyOp::create(builder, getLoc(), view, newExtraIndices,
+                                     getDest(), getExtraIndicesDest(),
+                                     getForceUnroll(), getUseIndexDiffs());
   } else {
-    newOp = builder.create<ThreadwiseCopyOp>(
-        getLoc(), getSource(), getExtraIndicesSource(), view, newExtraIndices,
-        getForceUnroll(), getUseIndexDiffs());
+    newOp = ThreadwiseCopyOp::create(
+        builder, getLoc(), getSource(), getExtraIndicesSource(), view,
+        newExtraIndices, getForceUnroll(), getUseIndexDiffs());
   }
   return newOp.getOperation();
 }

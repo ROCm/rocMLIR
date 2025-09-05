@@ -169,37 +169,37 @@ struct ThreadwiseGemmRewritePattern
       b.setInsertionPointToStart(gemmLoop.getBody());
       // These are vector::TransferRead ops so they always return a vector
       // result so that FMA doesn't complain
-      Value aVal = b.create<vector::TransferReadOp>(
-          loc, abType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0),
+      Value aVal = vector::TransferReadOp::create(
+          b, loc, abType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0),
           std::nullopt,
           /*inBounds=*/ArrayRef<bool>(true));
-      Value bVal = b.create<vector::TransferReadOp>(
-          loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1),
+      Value bVal = vector::TransferReadOp::create(
+          b, loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1),
           std::nullopt,
           /*inBounds=*/ArrayRef<bool>(true));
       ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
-      Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, cCoords);
+      Value cVal = InBoundsLoadOp::create(b, loc, dataType, bufferC, cCoords);
 
-      Value cVector = b.create<vector::SplatOp>(loc, abType, cVal);
+      Value cVector = vector::SplatOp::create(b, loc, abType, cVal);
       Value result;
       if (isa<IntegerType>(dataType)) {
-        Value mul = b.create<MulIOp>(loc, aVal, bVal);
-        result = b.create<AddIOp>(loc, mul, cVector);
+        Value mul = MulIOp::create(b, loc, aVal, bVal);
+        result = AddIOp::create(b, loc, mul, cVector);
         if (abType.getNumElements() != 1)
           return op.emitOpError(
               "Shouldn't've gone down the scalar code path (int)");
-        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
+        result = vector::ExtractOp::create(b, loc, result, zeroConst);
       } else if (isa<FloatType>(dataType)) {
-        result = b.create<vector::FMAOp>(loc, aVal, bVal, cVector);
+        result = vector::FMAOp::create(b, loc, aVal, bVal, cVector);
         if (abType.getNumElements() != 1)
           return op.emitOpError(
               "Shouldn't've gone down the scalar code path (float)");
-        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
+        result = vector::ExtractOp::create(b, loc, result, zeroConst);
       } else {
         llvm_unreachable("Validation should make this ints or floats only");
       }
 
-      b.create<InBoundsStoreOp>(loc, result, bufferC, cCoords);
+      InBoundsStoreOp::create(b, loc, result, bufferC, cCoords);
     }
     return success();
   }
@@ -311,8 +311,8 @@ struct ThreadwiseAccelGemmRewritePattern
     auto computeStart = llvm::to_vector(op.getComputeIndices());
 
     // Emit the loop
-    auto accelLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
+    auto accelLoop = TransformingForOp::create(
+        b, loc, ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
         ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC},
         /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
         /*strides=*/ArrayRef<int64_t>{1, 1, 1},
@@ -324,8 +324,10 @@ struct ThreadwiseAccelGemmRewritePattern
       auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
       auto coordsC = accelLoop.getLowerCoords(/*domain=*/2);
 
-      Value argA = b.create<memref::LoadOp>(loc, argTypeA, rawBufferA, coordsA);
-      Value argB = b.create<memref::LoadOp>(loc, argTypeB, rawBufferB, coordsB);
+      Value argA =
+          memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
+      Value argB =
+          memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
       emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
     }
     b.eraseOp(op);
@@ -455,8 +457,8 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
       extraIndicesSourceSize + extraIndicesDestSize, 1);
   llvm::append_range(extendedStrides, strides);
 
-  auto copyLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{extendedStart, extendedStart},
+  auto copyLoop = TransformingForOp::create(
+      b, loc, ArrayRef<ValueRange>{extendedStart, extendedStart},
       ArrayRef<Attribute>{copyFromView, copyToView},
       /*bounds=*/extendedBounds,
       /*strides=*/extendedStrides, false,
@@ -465,10 +467,10 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToStart(copyLoop.getBody());
     Type loadType = vectorTypeOrSelf(elemType, vecLen);
-    auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
-                                        copyLoop.getLowerCoords(0));
-    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer,
-                              copyLoop.getLowerCoords(1));
+    auto val = InBoundsLoadOp::create(b, loc, loadType, rawLoadBuffer,
+                                      copyLoop.getLowerCoords(0));
+    InBoundsStoreOp::create(b, loc, val, rawStoreBuffer,
+                            copyLoop.getLowerCoords(1));
   }
   b.eraseOp(op);
   return success();
@@ -483,7 +485,7 @@ static Value addIterationIndexIfScalar(PatternRewriter &b, Location loc,
   TopDownTMBuilder addZero(b, {"zero"}, {1}, loc);
   addZero.ignore("zero");
   TransformMapAttr addZeroAttr = addZero.get();
-  Value withIter = b.create<TransformOp>(loc, buffer, addZeroAttr);
+  Value withIter = TransformOp::create(b, loc, buffer, addZeroAttr);
   return withIter;
 }
 
@@ -582,11 +584,11 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   if (recordsValidity) {
     Value trueConst =
         b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-    validityInit = b.create<vector::SplatOp>(
-        loc, op.getValidityRecord().getType(), trueConst);
+    validityInit = vector::SplatOp::create(
+        b, loc, op.getValidityRecord().getType(), trueConst);
   }
-  auto loadLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
+  auto loadLoop = TransformingForOp::create(
+      b, loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
       ArrayRef<Attribute>{transforms, b.getArrayAttr({})}, bounds, strides,
       forceUnroll, useIndexDiffs,
       recordsValidity ? ValueRange{validityInit} : std::nullopt);
@@ -597,11 +599,11 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     Value destIndex = loadLoop.getLowerCoords(/*domain=*/1)[extraIdxCount];
 
     for (Value dynamicValidity : adaptor.getDynamicValidities()) {
-      Value validityHere = b.create<vector::ExtractOp>(
-          loc, b.getI1Type(), dynamicValidity, destIndex,
+      Value validityHere = vector::ExtractOp::create(
+          b, loc, b.getI1Type(), dynamicValidity, destIndex,
           ArrayRef<int64_t>{ShapedType::kDynamic});
       validity =
-          b.create<arith::AndIOp>(loc, b.getI1Type(), validity, validityHere);
+          arith::AndIOp::create(b, loc, b.getI1Type(), validity, validityHere);
     }
     Value nextValidityRecord = nullptr;
     if (recordsValidity) {
@@ -614,44 +616,46 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       }
       Value validityRecord = loadLoop.getIterArgs()[0];
       nextValidityRecord =
-          b.create<InsertSliceOp>(loc, validityRecord.getType(),
-                                  validityToStore, validityRecord, destIndex);
+          InsertSliceOp::create(b, loc, validityRecord.getType(),
+                                validityToStore, validityRecord, destIndex);
     }
 
     if (srcAddrSpace == gpu::AddressSpace::Global) {
-      Value loaded = b.create<GlobalLoadOp>(
-          loc, loadType, buffer, validity,
-          loadLoop.getLowerCoords(/*domain=*/0), needs64BitIdx);
-      b.create<InBoundsStoreOp>(loc, loaded, dest, destIndex);
+      Value loaded = GlobalLoadOp::create(b, loc, loadType, buffer, validity,
+                                          loadLoop.getLowerCoords(/*domain=*/0),
+                                          needs64BitIdx);
+      InBoundsStoreOp::create(b, loc, loaded, dest, destIndex);
     } else {
       if (needs64BitIdx)
         return b.notifyMatchFailure(
             loc, "non-global address spaces must have 32-bit pointers");
-      scf::IfOp ifb =
-          b.create<scf::IfOp>(loc, loadType, validity, /*withElseRegion=*/true);
+      scf::IfOp ifb = scf::IfOp::create(b, loc, loadType, validity,
+                                        /*withElseRegion=*/true);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
         Value loaded;
         if (!isSrcVectorBuffer)
-          loaded = thenb.create<InBoundsLoadOp>(
-              loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
+          loaded =
+              InBoundsLoadOp::create(thenb, loc, loadType, buffer,
+                                     loadLoop.getLowerCoords(/*domain=*/0));
         else
-          loaded = thenb.create<memref::LoadOp>(
-              loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
-        thenb.create<scf::YieldOp>(loc, loaded);
+          loaded =
+              memref::LoadOp::create(thenb, loc, loadType, buffer,
+                                     loadLoop.getLowerCoords(/*domain=*/0));
+        scf::YieldOp::create(thenb, loc, loaded);
       }
       {
         OpBuilder elseb = ifb.getElseBodyBuilder();
         Value zeroVal = createZeroConstantOp(elseb, loc, loadType);
-        elseb.create<scf::YieldOp>(loc, zeroVal);
+        scf::YieldOp::create(elseb, loc, zeroVal);
       }
 
       if (!isDstVectorBuffer && !isSrcVectorBuffer) {
-        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destIndex);
+        InBoundsStoreOp::create(b, loc, ifb.getResult(0), dest, destIndex);
       } else if (!isDstVectorBuffer && isSrcVectorBuffer) {
-        destIndex = b.create<arith::MulIOp>(
-            loc, destIndex, b.create<ConstantIndexOp>(loc, vectorSrcLen));
-        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destIndex);
+        destIndex = arith::MulIOp::create(
+            b, loc, destIndex, ConstantIndexOp::create(b, loc, vectorSrcLen));
+        InBoundsStoreOp::create(b, loc, ifb.getResult(0), dest, destIndex);
       } else {
         // Destination is a vector buffer
         Value idx = loadLoop.getLowerCoords(/*domain=*/1)[extraIdxCount];
@@ -667,7 +671,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
           idx = b.createOrFold<arith::DivUIOp>(loc, idx, srcVecLenVal);
         }
         if (vectorSrcLen == vectorDstLen) {
-          b.create<memref::StoreOp>(loc, ifb.getResult(0), dest, idx);
+          memref::StoreOp::create(b, loc, ifb.getResult(0), dest, idx);
         } else {
           // When the vector types differ, we need to find the gcd
           // to make it work for the both source and dest.
@@ -680,8 +684,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
             Value value = ifb.getResult(0);
             // Only need to perform slice extraction of vector-typed sources.
             if (vectorSrcLen > 1) {
-              value = b.create<ExtractSliceOp>(loc, commonVecType, value,
-                                               loadSliceStart);
+              value = ExtractSliceOp::create(b, loc, commonVecType, value,
+                                             loadSliceStart);
             }
             // Calculate base element offsets
             Value baseElementOffset = b.createOrFold<arith::MulIOp>(
@@ -696,21 +700,21 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
             Value storeVecStart = b.createOrFold<arith::DivUIOp>(
                 loc, elementOffset,
                 b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen));
-            Value storeVec = b.create<memref::LoadOp>(
-                loc, dstVectorType, dest, ValueRange{storeVecStart});
+            Value storeVec = memref::LoadOp::create(b, loc, dstVectorType, dest,
+                                                    ValueRange{storeVecStart});
             Value storeSliceStart = b.createOrFold<arith::RemUIOp>(
                 loc, elementOffset,
                 b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen));
-            Value newStoreVec = b.create<InsertSliceOp>(
-                loc, dstVectorType, value, storeVec, storeSliceStart);
-            b.create<memref::StoreOp>(loc, newStoreVec, dest,
-                                      ValueRange{storeVecStart});
+            Value newStoreVec = InsertSliceOp::create(
+                b, loc, dstVectorType, value, storeVec, storeSliceStart);
+            memref::StoreOp::create(b, loc, newStoreVec, dest,
+                                    ValueRange{storeVecStart});
           }
         }
       }
     }
     if (recordsValidity)
-      b.create<rock::YieldOp>(loc, nextValidityRecord);
+      rock::YieldOp::create(b, loc, nextValidityRecord);
   }
   // Special case: we planned to record validity, but no one cared
   if (op.getValidityRecord() && !recordsValidity)
@@ -783,42 +787,42 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   SmallVector<int64_t, 3> strides(writeStartCoords.size() - 1, 1);
   strides.push_back(vectorLen);
 
-  auto outLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
+  auto outLoop = TransformingForOp::create(
+      b, loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
       ArrayRef<Attribute>{b.getArrayAttr({}), transforms}, bounds, strides,
       forceUnroll, useIndexDiffs);
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(outLoop.getBody());
     if (dstAddrSpace == gpu::AddressSpace::Global) {
-      b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                              op.getStoreMethodAttr(),
-                              outLoop.getLowerCoords(
-                                  /*domain=*/0)[extraIdxCount],
-                              outLoop.getValidity(/*domain=*/1),
-                              outLoop.getLowerCoords(/*domain=*/1),
-                              needs64BitIdx ? b.getUnitAttr() : nullptr,
-                              /*canStoreOffEnd=*/nullptr,
-                              /*nontemporal=*/b.getBoolAttr(false));
+      GlobalStoreOp::create(b, loc, source, buffer, b.getIndexAttr(vectorLen),
+                            op.getStoreMethodAttr(),
+                            outLoop.getLowerCoords(
+                                /*domain=*/0)[extraIdxCount],
+                            outLoop.getValidity(/*domain=*/1),
+                            outLoop.getLowerCoords(/*domain=*/1),
+                            needs64BitIdx ? b.getUnitAttr() : nullptr,
+                            /*canStoreOffEnd=*/nullptr,
+                            /*nontemporal=*/b.getBoolAttr(false));
     } else {
       if (needs64BitIdx)
         return b.notifyMatchFailure(
             loc, "non-global address spaces must have 32-bit pointers");
       Type loadType = vectorTypeOrSelf(elementType, vectorLen);
       TypedValue<IntegerType> valid = outLoop.getValidity(/*domain=*/1);
-      scf::IfOp ifb = b.create<scf::IfOp>(loc, valid, /*withElseRegion=*/false);
+      scf::IfOp ifb =
+          scf::IfOp::create(b, loc, valid, /*withElseRegion=*/false);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
-        Value loaded =
-            thenb.create<InBoundsLoadOp>(loc, loadType, source,
-                                         outLoop.getLowerCoords(
-                                             /*domain=*/0)[extraIdxCount]);
+        Value loaded = InBoundsLoadOp::create(thenb, loc, loadType, source,
+                                              outLoop.getLowerCoords(
+                                                  /*domain=*/0)[extraIdxCount]);
         if (!isa<VectorType>(destElemType)) {
-          thenb.create<InBoundsStoreOp>(loc, loaded, buffer,
-                                        outLoop.getLowerCoords(/*domain=*/1));
+          InBoundsStoreOp::create(thenb, loc, loaded, buffer,
+                                  outLoop.getLowerCoords(/*domain=*/1));
         } else {
-          thenb.create<memref::StoreOp>(loc, loaded, buffer,
-                                        outLoop.getLowerCoords(/*domain=*/1));
+          memref::StoreOp::create(thenb, loc, loaded, buffer,
+                                  outLoop.getLowerCoords(/*domain=*/1));
         }
       }
     }

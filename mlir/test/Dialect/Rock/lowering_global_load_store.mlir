@@ -121,7 +121,7 @@ func.func @load_scalar_oob_large_i4(%mem: memref<1073741825xi4>, %valid: i1) -> 
     // CHECK: %[[ret:.*]] = scf.if %[[valid]] -> (i4)
     // CHECK: %[[load:.*]] = vector.load %[[cast]]
     // CHECK-SAME: memref<1073741825xi4, #gpu.address_space<global>>, vector<2xi4>
-    // CHECK: %[[element:.*]] = vector.extractelement %[[load]]
+    // CHECK: %[[element:.*]] = vector.extract %[[load]]
     // CHECK: scf.yield %[[element]]
     // CHECK: } else {
     // CHECK: scf.yield %[[zero]] : i4

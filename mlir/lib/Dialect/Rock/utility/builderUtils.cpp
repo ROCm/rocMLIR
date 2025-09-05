@@ -33,10 +33,10 @@ Value createConstantIntOp(OpBuilder &b, Location loc, Type type,
 
   Value retValue;
   if (auto shapedType = dyn_cast<ShapedType>(type)) {
-    retValue = b.create<ConstantOp>(
-        loc, SplatElementsAttr::get(shapedType, constValue));
+    retValue = ConstantOp::create(
+        b, loc, SplatElementsAttr::get(shapedType, constValue));
   } else {
-    retValue = b.create<ConstantOp>(loc, type, constValue);
+    retValue = ConstantOp::create(b, loc, type, constValue);
   }
 
   return retValue;
@@ -82,11 +82,11 @@ Value createConstantFloatOp(OpBuilder &b, Location loc, Type type,
   if (auto shapedType = dyn_cast<ShapedType>(type)) {
     Attribute constValue = b.getFloatAttr(elemType, apValue);
     assert(shapedType.getElementType() == elemType);
-    retValue = b.create<ConstantOp>(
-        loc, SplatElementsAttr::get(shapedType, constValue));
+    retValue = ConstantOp::create(
+        b, loc, SplatElementsAttr::get(shapedType, constValue));
   } else {
     retValue =
-        b.create<ConstantOp>(loc, type, b.getFloatAttr(elemType, apValue));
+        ConstantOp::create(b, loc, type, b.getFloatAttr(elemType, apValue));
   }
 
   return retValue;
@@ -126,15 +126,15 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
     // All these ops act elementwise on vectors.
     if (isa<IntegerType>(sourceElemType) && isa<IntegerType>(destElemType)) {
       if (sourceWidth <= destWidth) {
-        result = b.create<arith::ExtSIOp>(loc, destType, source);
+        result = arith::ExtSIOp::create(b, loc, destType, source);
       } else {
-        result = b.create<arith::TruncIOp>(loc, destType, source);
+        result = arith::TruncIOp::create(b, loc, destType, source);
       }
     } else if (isa<FloatType>(sourceElemType) && isa<FloatType>(destElemType)) {
       if (sourceWidth < destWidth) {
-        result = b.create<arith::ExtFOp>(loc, destType, source);
+        result = arith::ExtFOp::create(b, loc, destType, source);
       } else {
-        result = b.create<arith::TruncFOp>(loc, destType, source);
+        result = arith::TruncFOp::create(b, loc, destType, source);
       }
     } else {
       llvm_unreachable("Only float-to-float and int-to-int conversions "
@@ -151,12 +151,13 @@ void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
       2, rewriter.getMultiDimIdentityMap(dstType.getRank())};
   SmallVector<utils::IteratorType> iteratorTypes(dstType.getRank(),
                                                  utils::IteratorType::parallel);
-  rewriter.create<linalg::GenericOp>(
-      loc, ValueRange(src), ValueRange(dst), indexingMaps, iteratorTypes,
+  linalg::GenericOp::create(
+      rewriter, loc, ValueRange(src), ValueRange(dst), indexingMaps,
+      iteratorTypes,
       [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
         Value cast = createTypeConversionOp(rewriter, loc, args[0],
                                             dstType.getElementType());
-        nestedBuilder.create<linalg::YieldOp>(nestedLoc, cast);
+        linalg::YieldOp::create(nestedBuilder, nestedLoc, cast);
       });
 }
 
@@ -164,7 +165,7 @@ void createTypeConversionFlatAndStore(PatternRewriter &rewriter, Location loc,
                                       Value src, Value dst) {
   src = getFlattenedMemref(rewriter, src);
   dst = getFlattenedMemref(rewriter, dst);
-  auto zeroConstantOp = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+  auto zeroConstantOp = arith::ConstantIndexOp::create(rewriter, loc, 0);
   MemRefType srcMemRefType = cast<MemRefType>(src.getType());
   MemRefType dstMemRefType = cast<MemRefType>(dst.getType());
   auto superSrcVecType =
@@ -173,10 +174,10 @@ void createTypeConversionFlatAndStore(PatternRewriter &rewriter, Location loc,
       VectorType::get(dstMemRefType.getShape(), dstMemRefType.getElementType());
   SmallVector<Value, 2> zeros{(size_t)srcMemRefType.getRank(), zeroConstantOp};
   auto vectorSrc =
-      rewriter.create<vector::LoadOp>(loc, superSrcVecType, src, zeros);
+      vector::LoadOp::create(rewriter, loc, superSrcVecType, src, zeros);
   auto vectorSrcCast =
       createTypeConversionOp(rewriter, loc, vectorSrc, superDestVecType);
-  rewriter.create<vector::StoreOp>(loc, vectorSrcCast, dst, zeros);
+  vector::StoreOp::create(rewriter, loc, vectorSrcCast, dst, zeros);
 }
 
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
@@ -203,7 +204,7 @@ Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
   auto collapsedType =
       MemRefType::get(collapsedShape, sourceType.getElementType());
   Value result =
-      b.create<memref::CollapseShapeOp>(loc, collapsedType, source, reassocs);
+      memref::CollapseShapeOp::create(b, loc, collapsedType, source, reassocs);
   return result;
 }
 
@@ -226,8 +227,8 @@ Type getFlattenedType(Type type) {
 Value getAsTensor(OpBuilder &builder, Location loc, mlir::Value value,
                   bool isWritable) {
   constexpr bool isRestrict{true};
-  Value origTensor = builder.create<bufferization::ToTensorOp>(
-      loc, memref::getTensorTypeFromMemRefType(value.getType()), value,
+  Value origTensor = bufferization::ToTensorOp::create(
+      builder, loc, memref::getTensorTypeFromMemRefType(value.getType()), value,
       isRestrict, isWritable);
   return origTensor;
 }

@@ -146,7 +146,7 @@ static llvm::cl::opt<bool>
     deferDescMap("fdefer-desc-map",
                  llvm::cl::desc("disable or enable OpenMP deference of mapping "
                                 "for top-level descriptors"),
-                 llvm::cl::init(false));
+                 llvm::cl::init(true));
 
 static llvm::cl::opt<std::string> enableDoConcurrentToOpenMPConversion(
     "fdo-concurrent-to-openmp",
@@ -230,6 +230,11 @@ static llvm::cl::opt<bool> enableCUDA("fcuda",
                                       llvm::cl::init(false));
 
 static llvm::cl::opt<bool>
+    enableDoConcurrentOffload("fdoconcurrent-offload",
+                              llvm::cl::desc("enable do concurrent offload"),
+                              llvm::cl::init(false));
+
+static llvm::cl::opt<bool>
     disableCUDAWarpFunction("fcuda-disable-warp-function",
                             llvm::cl::desc("Disable CUDA Warp Function"),
                             llvm::cl::init(false));
@@ -281,6 +286,12 @@ static llvm::cl::opt<bool>
                                      "only the arrays non-contiguous in the "
                                      "leading dimension will be repacked"),
                       llvm::cl::init(true));
+
+static llvm::cl::opt<std::string> complexRange(
+    "complex-range",
+    llvm::cl::desc("Controls the various implementations for complex "
+                   "multiplication and division [full|improved|basic]"),
+    llvm::cl::init(""));
 
 #define FLANG_EXCLUDE_CODEGEN
 #include "flang/Optimizer/Passes/CommandLineOpts.h"
@@ -444,6 +455,8 @@ static llvm::LogicalResult convertFortranSourceToMLIR(
   loweringOptions.setSkipExternalRttiDefinition(skipExternalRttiDefinition);
   if (enableCUDA)
     loweringOptions.setCUDARuntimeCheck(true);
+  if (complexRange == "improved" || complexRange == "basic")
+    loweringOptions.setComplexDivisionToRuntime(false);
   std::vector<Fortran::lower::EnvironmentDefault> envDefaults = {};
   Fortran::frontend::TargetOptions targetOpts;
   Fortran::frontend::CodeGenOptions cgOpts;
@@ -514,7 +527,9 @@ static llvm::LogicalResult convertFortranSourceToMLIR(
 
     if (emitFIR && useHLFIR) {
       // lower HLFIR to FIR
-      fir::createHLFIRToFIRPassPipeline(pm, enableOpenMP,
+      fir::EnableOpenMP enableOmp =
+          enableOpenMP ? fir::EnableOpenMP::Full : fir::EnableOpenMP::None;
+      fir::createHLFIRToFIRPassPipeline(pm, enableOmp,
                                         llvm::OptimizationLevel::O2);
       if (mlir::failed(pm.run(mlirModule))) {
         llvm::errs() << "FATAL: lowering from HLFIR to FIR failed";
@@ -613,6 +628,11 @@ int main(int argc, char **argv) {
   // enable parsing of CUDA Fortran
   if (enableCUDA) {
     options.features.Enable(Fortran::common::LanguageFeature::CUDA);
+  }
+
+  if (enableDoConcurrentOffload) {
+    options.features.Enable(
+        Fortran::common::LanguageFeature::DoConcurrentOffload);
   }
 
   if (disableCUDAWarpFunction) {

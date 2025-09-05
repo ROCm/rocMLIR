@@ -179,6 +179,7 @@ using IteratorSpecifier = tomp::type::IteratorSpecifierT<TypeTy, IdTy, ExprTy>;
 using DefinedOperator = tomp::type::DefinedOperatorT<IdTy, ExprTy>;
 using ProcedureDesignator = tomp::type::ProcedureDesignatorT<IdTy, ExprTy>;
 using ReductionOperator = tomp::type::ReductionIdentifierT<IdTy, ExprTy>;
+using ReductionOperatorList = List<ReductionOperator>;
 using DependenceType = tomp::type::DependenceType;
 using Prescriptiveness = tomp::type::Prescriptiveness;
 
@@ -218,6 +219,7 @@ using DistSchedule = tomp::clause::DistScheduleT<TypeTy, IdTy, ExprTy>;
 using Doacross = tomp::clause::DoacrossT<TypeTy, IdTy, ExprTy>;
 using DynamicAllocators =
     tomp::clause::DynamicAllocatorsT<TypeTy, IdTy, ExprTy>;
+using DynGroupprivate = tomp::clause::DynGroupprivateT<TypeTy, IdTy, ExprTy>;
 using Enter = tomp::clause::EnterT<TypeTy, IdTy, ExprTy>;
 using Exclusive = tomp::clause::ExclusiveT<TypeTy, IdTy, ExprTy>;
 using Fail = tomp::clause::FailT<TypeTy, IdTy, ExprTy>;

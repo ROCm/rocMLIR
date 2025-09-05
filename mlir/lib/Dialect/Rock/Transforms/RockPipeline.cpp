@@ -178,7 +178,7 @@ struct PushBarrierDownRewritePattern
 
     if (moveDown) {
       rw.setInsertionPointAfter(nextOp);
-      rw.create<rock::LDSBarrierOp>(nextOp->getLoc());
+      rock::LDSBarrierOp::create(rw, nextOp->getLoc());
       rw.eraseOp(op);
       return success();
     }
@@ -427,12 +427,12 @@ rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
                               StringRef name) {
   PatternRewriter::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(stage);
-  auto barrierStage = rewriter.create<rock::StageOp>(loc, name);
+  auto barrierStage = rock::StageOp::create(rewriter, loc, name);
   rewriter.setInsertionPointToStart(&barrierStage.getRegion().emplaceBlock());
   if (isBarrier) {
-    rewriter.create<rock::LDSBarrierOp>(loc);
+    rock::LDSBarrierOp::create(rewriter, loc);
   }
-  rewriter.create<rock::YieldOp>(loc);
+  rock::YieldOp::create(rewriter, loc);
   return barrierStage;
 }
 
