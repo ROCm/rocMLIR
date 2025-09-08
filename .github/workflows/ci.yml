@@ -1,0 +1,35 @@
+name: Python Lint and Format Check
+
+on:
+  push:
+    branches:
+      - main
+      - 'releases/**'
+  pull_request:
+    branches:
+      - main
+      - 'releases/**'
+
+jobs:
+  lint-and-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.8'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 yapf pep8-naming pre-commit
+
+      - name: Run flake8
+        run: |
+          flake8 . --exclude=external/
+
+      - name: Run yapf check
+        run: |
+          yapf --dry-run --recursive . --exclude 'external/**/*.py' || (echo "Format issues found. Please run 'yapf -i -r .' to fix them."; exit 1)

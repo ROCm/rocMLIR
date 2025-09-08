@@ -7,3 +7,7 @@ scipy
 pandas
 jinja2
 pybind11
+yapf
+flake8
+pep9-naming
+pre-commit

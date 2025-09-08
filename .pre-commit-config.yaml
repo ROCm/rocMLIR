@@ -1,0 +1,20 @@
+# .pre-commit-config.yaml
+# Run on all python files except those under external/
+exclude: '^external/.*'
+
+repos:
+  - repo: https://github.com/google/yapf
+    rev: v0.40.2
+    hooks:
+      - id: yapf
+        name: yapf (format Python)
+        args: ["-i"]
+        
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        name: flake8 (lint Python)
+        additional_dependencies:
+          - pep8-naming
