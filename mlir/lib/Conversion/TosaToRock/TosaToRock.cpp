@@ -531,7 +531,8 @@ struct ElementwiseRegionFinder {
     Operation *op = input.getDefiningOp();
     // we need to traverse tranposes if it's conv2d or transposeConv2D
     if ((std::is_same_v<OpT, tosa::Conv2DOp> ||
-         std::is_same_v<OpT, tosa::TransposeConv2DOp>)&&op) {
+         std::is_same_v<OpT, tosa::TransposeConv2DOp>) &&
+        op) {
       Operation *convOp = getConvOp(op);
       if (convOp)
         fusionOp = cast<OpT>(convOp);
