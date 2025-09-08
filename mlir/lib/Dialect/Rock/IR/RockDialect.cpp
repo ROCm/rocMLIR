@@ -2003,20 +2003,6 @@ SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
   return {getMatrixA().getType()};
 }
 
-void BlockwiseGemmAccelOp::getEffects(
-    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  getGemmMatrixEffects(*this, effects);
-
-  // We also mark the buffers as both read/write since we will need to transfer
-  // data to/from the buffers.
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-  effects.emplace_back(read, &getBufferAMutable());
-  effects.emplace_back(read, &getBufferBMutable());
-  effects.emplace_back(write, &getBufferAMutable());
-  effects.emplace_back(write, &getBufferBMutable());
-}
-
 //===----------------------------------------------------------------------===//
 // ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//

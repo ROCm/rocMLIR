@@ -220,37 +220,6 @@ func.func @rock_blockwise_gemm(%A : memref<8x128x1xf32, 3>,
   return
 }
 
-func.func @rock_blockwise_gemm_accel(%matrixA : memref<12288xf32, 3>, %matrixB : memref<12288xf32, 3>,
-                                     %bufferA : memref<32xf32, 5>, %bufferB : memref<16xf32, 5>,
-                                     %matrixC : memref<1xvector<32xf32>, 5>) attributes {arch = "##TOKEN_ARCH##"} {
-  // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'write' on op operand 4, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'write' on op operand 3, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB {
-    blockSize = 256 : i32,
-    inMPerThread = 2 : i32,
-    inNPerThread = 2 : i32,
-    params = #rock.xdlops_gemm_derived_params<
-      mPerBlock = 256,
-      nPerBlock = 256,
-      kpackPerBlock = 16,
-      mPerWave = 128,
-      nPerWave = 64,
-      mnPerXdl = 32,
-      kpack = 1,
-      splitKFactor = 1, 
-      scheduleVersion = 1, 
-      outputSwizzle = 2,
-      forceUnroll = true>
-  } : memref<1xvector<32xf32>, 5> += memref<32xf32, 5> from memref<12288xf32, 3> * memref<16xf32, 5> from memref<12288xf32, 3>
-  return
-}
-
 func.func @rock_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>,
                                 %rhs : memref<4x8x1xf32, 5>,
                                 %output : memref<8x8xf32, 5>) attributes {arch = "##TOKEN_ARCH##"} {
