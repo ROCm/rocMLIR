@@ -461,8 +461,8 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
       b, loc, ArrayRef<ValueRange>{extendedStart, extendedStart},
       ArrayRef<Attribute>{copyFromView, copyToView},
       /*bounds=*/extendedBounds,
-      /*strides=*/extendedStrides, false,
-      /*useIndexDiffs=*/false);
+      /*strides=*/extendedStrides, /*forceUnroll=*/true,
+      /*useIndexDiffs=*/true);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToStart(copyLoop.getBody());
