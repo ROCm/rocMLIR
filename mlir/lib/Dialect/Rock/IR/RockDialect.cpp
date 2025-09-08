@@ -97,8 +97,8 @@ void getGemmMatrixEffects(
 }
 
 template <typename OpType>
-void getAttentionEffects(OpType &op,
-                         SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+void getAttentionEffects(
+    OpType &op, SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
   effects.emplace_back(read, &op.getOutMutable());
