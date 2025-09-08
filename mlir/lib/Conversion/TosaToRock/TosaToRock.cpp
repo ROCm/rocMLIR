@@ -1154,15 +1154,12 @@ struct CollapseExpandRewritePattern
 
       for (Operation *usr : expOut.getUsers()) {
         if (isa<tosa::TransposeConv2DOp>(usr) || isa<tosa::Conv2DOp>(usr)) {
-          auto transposeConv2D = dyn_cast<tosa::TransposeConv2DOp>(usr);
-          auto conv2D = dyn_cast<tosa::Conv2DOp>(usr);
-          auto convOp = (transposeConv2D ? transposeConv2D : conv2D);
-          if (convOp->getOperand(1) == expOut) {
+          if (usr->getOperand(1) == expOut) {
             // update filter_layout
             SmallVector<int32_t> dims{0, 2, 3, 1};
-            permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
+            permuteLayout(usr, "filter_layout", "kyxc", dims, true);
             // replace filter input with collapse source
-            convOp->replaceUsesOfWith(expOut, colInp);
+            usr->replaceUsesOfWith(expOut, colInp);
 
             lres = success();
           }
