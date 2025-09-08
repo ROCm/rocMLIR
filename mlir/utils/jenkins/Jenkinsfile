@@ -2,7 +2,6 @@
 // used for private CI
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
-import org.jenkinsci.plugins.workflow.steps.FlowInterruptedException
 
 // ConcurrentHashMap helps when we need to write variables in parallel
 // one instance for the whole run
@@ -654,24 +653,14 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
                 // If body succeeds, we're done with the loop
             } catch (Exception err) {
                 def msg = "${err}".toLowerCase()
-                def isNodeFailure = false
-                // Identify the error logs that indicate a recoverable node-related failure
-                if (msg.contains("removed or offline") || msg.contains("issue with creating launcher for agent")) {
-                    isNodeFailure = true
-                } 
-                // FlowInterruptedException is too broad, but still usefull, so we need to only cathc valid interruptions
-                else if (err instanceof FlowInterruptedException) {
-                    if (!msg.contains("aborted by") && !msg.contains("timeout has been exceeded")) {
-                        isNodeFailure = true
-                    }
-                }
+                def isNodeFailure = msg.contains("removed or offline") || msg.contains("issue with creating launcher for agent")
                 
                 if (isNodeFailure) {
                     echo "[withHealthyNode] Execution on ${env.NODE_NAME} failed due to a recoverable node issue. Blacklisting and retrying.."
                     echo "[withHealthyNode] Error was: ${err}"
                     blacklist << env.NODE_NAME
                     // return will exit the node block, and the 'while' loop will continue to the next attempt
-                    // done is still false, so the loop continues if maxAttempts is not reached.
+                    // done' is still false, so the loop continues if maxAttempts is not reached.
                     return 
                 } else {
                     // This is a regular build/test/whatever failure, not a node issue.
