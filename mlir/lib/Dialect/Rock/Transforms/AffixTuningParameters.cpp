@@ -102,7 +102,7 @@ void AffixTuningParameters::runOnOperation() {
   // constantly needing to recompute this value at later points in the pipeline.
   SmallVector<rock::GemmFeatures> allFeatures;
   func.walk([&](Operation *op) {
-    if (rock::opHasOptionalFeature(op))
+    if (isa<RockGemmFeaturesInterface>(op))
       allFeatures.push_back(rock::getFeatures(op));
   });
 

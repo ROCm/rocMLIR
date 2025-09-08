@@ -1569,8 +1569,8 @@ struct InBoundsLoadRewritePattern : public OpRewritePattern<InBoundsLoadOp> {
                                 PatternRewriter &b) const override {
     if (auto destType = dyn_cast<VectorType>(op.getResult().getType())) {
       b.replaceOpWithNewOp<vector::TransferReadOp>(
-          op, destType, op.getSource(), op.getCoords(),
-          /*inbounds=*/ArrayRef<bool>(true));
+          op, destType, op.getSource(), op.getCoords(), std::nullopt,
+          /*inbounds=*/std::optional{ArrayRef<bool>{true}});
     } else {
       b.replaceOpWithNewOp<memref::LoadOp>(op, op.getSource(), op.getCoords());
     }

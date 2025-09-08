@@ -30,16 +30,6 @@ def RockGemmWrapperInterface : OpInterface<"RockGemmWrapperInterface"> {
   let methods = [
     InterfaceMethod<
         /*desc=*/[{
-          Return the type from this op that is needed to calculate GemmFeatures
-        }],
-        /*retType=*/"SmallVector<::mlir::Type>",
-        /*methodName=*/"getTypesForFeature",
-        /*args=*/(ins),
-        /*methodBody=*/"return {$_op.getAType()};",
-        /*defaultImplementation=*/""
-      >,
-    InterfaceMethod<
-        /*desc=*/[{
           Return the KernelType of this op
         }],
         /*retType=*/"::mlir::rock::KernelType",
