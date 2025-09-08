@@ -3,6 +3,9 @@
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
 
+// The timeout for node allocation in minutes
+int NODE_ALLOCATION_TIMEOUT = 80
+
 // ConcurrentHashMap helps when we need to write variables in parallel
 // one instance for the whole run
 @Field
@@ -629,25 +632,27 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
         blacklist.each { expr.append(' && !').append(it) }
 
         echo "[withHealthyNode] attempt #${attempt}: looking for '${expr}'"
-        node(expr.toString()) {
-            // Retry ONLY the health-check. We don't want to retry the actual stages
-            try {
-                stage("Health checks on ${env.NODE_NAME}") {
-                    healthChecks()
-                    gitHealthCheck()
+        timeout(time: NODE_ALLOCATION_TIMEOUT, unit: 'MINUTES', activity: true) {
+            node(expr.toString()) {
+                // Retry ONLY the health-check. We don't want to retry the actual stages
+                try {
+                    stage("Health checks on ${env.NODE_NAME}") {
+                        healthChecks()
+                        gitHealthCheck()
+                    }
+                } catch (Exception err) {
+                    echo "[withHealthyNode] ❌  ${env.NODE_NAME} rejected: ${err}"
+                    blacklist << env.NODE_NAME
+                    // return exits the node {} block here, not the whole function. Some groovy magic
+                    return
                 }
-            } catch (Exception err) {
-                echo "[withHealthyNode] ❌  ${env.NODE_NAME} rejected: ${err}"
-                blacklist << env.NODE_NAME
-                // return exits the node {} block here, not the whole function. Some groovy magic
-                return
+                stage("Node selected") {
+                    // Health-check passed. Do real work
+                    echo "[withHealthyNode] ✅  using ${env.NODE_NAME}"
+                }
+                body()
+                done = true
             }
-            stage("Node selected") {
-                // Health-check passed. Do real work
-                echo "[withHealthyNode] ✅  using ${env.NODE_NAME}"
-            }
-            body()
-            done = true
         }
     }
 
