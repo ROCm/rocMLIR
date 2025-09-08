@@ -32,5 +32,5 @@ config = "--perf_config v3:64,64,2,64,64,2,1,2,2,1,1 -t f32 --fil_layout kcyx --
 
 ## test with split-k enabled
 [[suite.test]]
-config = "--perf_config v3:128,128,8,128,16,1,1,1,2,1,1 -t f32 --fil_layout kcyx --in_layout nchw --out_layout nkhw --batchsize 512 --in_channels 512 --in_h 1 --in_w 1 --out_channels 512 --fil_h 1 --fil_w 1 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 0 --padding_w 0"
+config = "--perf_config v3:128,128,8,128,16,1,4,1,2,1,1 -t f32 --fil_layout kcyx --in_layout nchw --out_layout nkhw --batchsize 512 --in_channels 512 --in_h 1 --in_w 1 --out_channels 512 --fil_h 1 --fil_w 1 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 0 --padding_w 0"
 
