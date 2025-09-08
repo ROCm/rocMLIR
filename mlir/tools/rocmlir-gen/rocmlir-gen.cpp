@@ -4068,8 +4068,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
       thr_relDiff = getF32Val(100.0f);
     Type boolType = b.getIntegerType(1);
     bool isFP32 = isa<Float32Type>(testElemType);
-    auto isFP32Val = b.create<arith::ConstantIntOp>(loc, b.getIntegerType(1),
-                                                    isFP32);
+    auto isFP32Val = b.create<arith::ConstantIntOp>(loc, boolType, isFP32);
 
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, floatType,
