@@ -2,6 +2,7 @@
 // used for private CI
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
+import org.jenkinsci.plugins.workflow.steps.FlowInterruptedException
 
 // ConcurrentHashMap helps when we need to write variables in parallel
 // one instance for the whole run
