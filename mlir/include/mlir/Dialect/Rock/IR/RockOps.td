@@ -134,10 +134,11 @@ def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 }
 
 def Rock_GemmOp
-    : Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
-                       DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                       RockFusionRoot]>,
+    : Rock_Op<"gemm",
+              [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               RockFusionRoot]>,
       Arguments<(
           ins Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix A">:$a,
           Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix B">:$b,
@@ -182,8 +183,7 @@ def Rock_ReduceOp
                AllElementTypesMatch<["in", "out"]>]>,
       Arguments<(
           ins Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "input">:$in,
-          Arg<TensorOrMemRefOf<[BF16, F16, F32]>,
-              "output">:$out,
+          Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "output">:$out,
           ReduceMethodAttr:$reduceMethod, IndexAttr:$axis, I32Attr:$blockSize,
           I32Attr:$gridSize, UnitAttr:$useLDS, UnitAttr:$useDPP)>,
       Results<(outs Optional<TensorOf<[BF16, F16, F32]>>:$result)> {
@@ -504,8 +504,7 @@ def Rock_GridwiseGemmOp
               [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                RockFusionRoot]>,
-      Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>,
-                         "matrix A view">:$a,
+      Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
           Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
           Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>,
               "matrix C view">:$c,
@@ -988,9 +987,8 @@ def Rock_InBoundsLoadOp :
     Rock_Op<"in_bounds_load",
             [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
              AllElementTypesMatch<["source", "result"]>]>,
-    Arguments<(ins Arg<AnyMemRef,
-        "buffer to load from">:$source,
-      Variadic<Index>:$coords)>,
+    Arguments<(ins Arg<AnyMemRef, "buffer to load from">:$source,
+    Variadic<Index>:$coords)>,
     Results<(outs AnyType:$result)> {
   let summary = "Load one or more contiguous items from `source`";
 
@@ -1012,8 +1010,7 @@ def Rock_InBoundsStoreOp :
             [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
              AllElementTypesMatch<["data", "dest"]>]>,
     Arguments<(ins AnyType:$data,
-      Arg<MemRefOf<SupportedMemoryElems>,
-        "Buffer to store to">:$dest,
+      Arg<MemRefOf<SupportedMemoryElems>,"Buffer to store to">:$dest,
       Variadic<Index>:$coords)> {
   let summary = "Store one or more items to contiguous indices in `dest`";
 
