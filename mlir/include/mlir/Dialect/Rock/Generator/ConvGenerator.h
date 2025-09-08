@@ -76,8 +76,7 @@ public:
       ArrayRef<int> paddingLeft = {0, 0}, ArrayRef<int> paddingRight = {0, 0},
       const std::string &filterLayout = "kcyx",
       const std::string &inputLayout = "nchw",
-      const std::string &outputLayout = "nkhw",
-      const bool usesV4R1 = false,
+      const std::string &outputLayout = "nkhw", const bool usesV4R1 = false,
       const std::string &kernelBaseName = "");
 
   ConvGenerator(const Config &_config);

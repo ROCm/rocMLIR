@@ -107,8 +107,7 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
 SmallVector<int64_t>
 mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
                                   ArrayRef<int64_t> dilationDims,
-                                  ArrayRef<int64_t> filterDims,
-                                  bool usesV4R1) {
+                                  ArrayRef<int64_t> filterDims, bool usesV4R1) {
   assert(strideDims.size() == dilationDims.size());
   SmallVector<int64_t, 5> gcdStrideDilations;
   for (const auto &[stride, dilation] : zip(strideDims, dilationDims))

@@ -318,8 +318,7 @@ static FailureOr<rock::RockConvInterface>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              Value filter, Value output, DenseI64ArrayAttr pad,
              DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group, int64_t kernelID,
-             std::string convKind) {
+             int64_t group, int64_t kernelID, std::string convKind) {
   Location loc = op->getLoc();
   ConvFields convFields =
       commonConv(rw, op, input, filter, output, pad, stride, dilation, group);
@@ -327,12 +326,11 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   Operation *cop = nullptr;
   if (convKind == "bwd_data") {
     cop = rw.create<rock::ConvBwdDataOp>(
-        loc, output.getType(), filter,
-        input, output,
+        loc, output.getType(), filter, input, output,
         /*features=*/nullptr,
         /*blockSize=*/nullptr,
-        /*gridSize=*/nullptr, rw.getIndexArrayAttr(pad), rw.getIndexArrayAttr(stride),
-        rw.getIndexArrayAttr(dilation),
+        /*gridSize=*/nullptr, rw.getIndexArrayAttr(pad),
+        rw.getIndexArrayAttr(stride), rw.getIndexArrayAttr(dilation),
         /*params=*/nullptr, rw.getI64IntegerAttr(kernelID),
         /*usesV4R1=*/rw.getBoolAttr(false));
   } else {
@@ -507,7 +505,9 @@ static Operation *getConvOp(Operation *op) {
       return nullptr;
   }
   return ((isa_and_nonnull<tosa::Conv2DOp>(op)) ||
-          (isa_and_nonnull<tosa::TransposeConv2DOp>(op))) ? op : nullptr;
+          (isa_and_nonnull<tosa::TransposeConv2DOp>(op)))
+             ? op
+             : nullptr;
 }
 
 /*
@@ -531,7 +531,7 @@ struct ElementwiseRegionFinder {
     Operation *op = input.getDefiningOp();
     // we need to traverse tranposes if it's conv2d or transposeConv2D
     if ((std::is_same_v<OpT, tosa::Conv2DOp> ||
-         std::is_same_v<OpT, tosa::TransposeConv2DOp>) && op) {
+         std::is_same_v<OpT, tosa::TransposeConv2DOp>)&&op) {
       Operation *convOp = getConvOp(op);
       if (convOp)
         fusionOp = cast<OpT>(convOp);
@@ -1018,20 +1018,23 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                  isa<tosa::TransposeConv2DOp>(use.getOwner())) {
         auto handleConv = [&](auto convOp) -> LogicalResult {
           if (convOp.getInput() == tOutput) {
-            permuteLayout(convOp.getOperation(), "input_layout", "nhwc", dims, true);
+            permuteLayout(convOp.getOperation(), "input_layout", "nhwc", dims,
+                          true);
             convOp.getInputMutable().assign(tInput);
           } else if (convOp.getWeight() == tOutput) {
-            permuteLayout(convOp.getOperation(), "filter_layout", "kyxc", dims, true);
+            permuteLayout(convOp.getOperation(), "filter_layout", "kyxc", dims,
+                          true);
             convOp.getWeightMutable().assign(tInput);
           } else {
             return convOp.emitWarning("transpose found leading to a "
-                                    "conv2D/transposeConv2D input other than "
-                                    "data or weight");
+                                      "conv2D/transposeConv2D input other than "
+                                      "data or weight");
           }
           return success();
         };
 
-        if (auto transposeConv2D = dyn_cast<tosa::TransposeConv2DOp>(use.getOwner()))
+        if (auto transposeConv2D =
+                dyn_cast<tosa::TransposeConv2DOp>(use.getOwner()))
           return handleConv(transposeConv2D);
         if (auto conv2D = dyn_cast<tosa::Conv2DOp>(use.getOwner()))
           return handleConv(conv2D);
