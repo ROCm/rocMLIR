@@ -32,6 +32,7 @@ from parameterSweeps import Options, sweepParameters, multilineRepr
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initializeDataTypesAttention()
 BOOLS = [True, False]
+MAX_TOKENS = 128*128 # temporarily hardcoded
 
 # Week number is used as seed to make sure weekly CI is reproducible
 seed = datetime.utcnow().isocalendar()[1]
@@ -78,6 +79,9 @@ def grouper(iterable: Iterable[IterType], n: int):
 
 def genCurrentSeqLens(g: int, maxSeqLen: int) -> list[int]:
     return [random.randint(0, maxSeqLen-1) for _ in range(g)]
+
+def _within_limit(g: int, slq: int, slk: int) -> bool:
+    return max(slq, slk) * g <= MAX_TOKENS
 
 def sampleAttentionShape():
     g = random.randint(1, 256) # GROUPS
@@ -199,6 +203,17 @@ def main():
         (sampleAttentionShape(), random.choice(perfConfigSpace))
         for _ in range(args.samples)
     ]
+    
+    # Filter out samples that exceed MAX_TOKENS
+    filtered_samples = [
+        s for s in samples if _within_limit(s[0][1], s[0][2], s[0][3]) # g, slq, slk
+    ]
+    
+    if not args.quiet:
+        print(f"Filtered out {len(samples) - len(filtered_samples)} samples exceeding MAX_TOKENS={MAX_TOKENS}.")
+        print(f"Proceeding with {len(filtered_samples)} samples.\n")
+
+    samples = filtered_samples
 
     passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
     if failing:
