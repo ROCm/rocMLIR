@@ -261,5 +261,3 @@ LogicalResult mlir::rock::testFusionLegalityBwdDataConv(ModuleOp mod) {
   func::FuncOp func = *(funcs.begin());
   return testFusionLegalityBwdDataConv(func);
 }
-
-
