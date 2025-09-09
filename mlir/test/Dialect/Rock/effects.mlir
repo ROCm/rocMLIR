@@ -348,3 +348,4 @@ func.func @rock_attention(%arg0: memref<1x64x1024xf32>,
   }
   return
 }
+
