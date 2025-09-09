@@ -13,16 +13,36 @@ func.func @gridwise_attn_atomic_add_fail(%arg0: memref<1x384x64xf32>, %arg1: mem
     storeMethod = #rock<StoreMethod atomic_add>,
     splitKV = 1 : i32,
     enableSoftmax = true,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32,
     operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }
 
-func.func @attention(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+func.func @attention_nonset(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
   // expected-error @below {{Only set store method is supported for attention.}}
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod atomic_add>}
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, storeMethod = #rock<StoreMethod atomic_add>}
+  return
+}
+
+func.func @attention_numheadsq_negative(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @below {{numHeadsKV must be positive}}
+  rock.attention{
+   qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
+   %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = -1 : i32, numHeadsQ = 1 : i32, storeMethod = #rock<StoreMethod set>}
+  return
+}
+
+func.func @attention_numheadsq_negative(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @below {{numHeadsQ must be positive}}
+  rock.attention{
+   qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
+   %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = -1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }

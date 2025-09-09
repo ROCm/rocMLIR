@@ -10,21 +10,16 @@
 // CHECK_SCALE-SAME: %[[outputRaw:.*4]]: memref<131072xf32>)
 // CHECK_SCALE-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
 // CHECK_SCALE-NEXT: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<131072xf32> to memref<4x1024x32xf32>
-// CHECK_SCALE-NEXT: %[[keysGQA:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<65536xf32> to memref<2x32x1024xf32>
-// CHECK_SCALE-NEXT: %[[valuesGQA:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<65536xf32> to memref<2x1024x32xf32>
+// CHECK_SCALE-NEXT: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<65536xf32> to memref<2x32x1024xf32>
+// CHECK_SCALE-NEXT: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<65536xf32> to memref<2x1024x32xf32>
 // CHECK_SCALE-NEXT: %[[scale:.*]] = rock.transform %[[scaleRaw]] {{.*}} : memref<4194304xf32> to memref<4x1024x1024xf32>
 // CHECK_SCALE-NEXT: %[[output:.*]] = rock.transform %[[outputRaw]] {{.*}} : memref<131072xf32> to memref<4x1024x32xf32>
-// CHECK_SCALE-NEXT: %[[keysAddDim:.*]] = rock.transform %[[keysGQA]] {{.*}} : memref<2x32x1024xf32> to memref<2x1x32x1024xf32>
-// CHECK_SCALE-NEXT: %[[keysBroadcast:.*]] = rock.transform %[[keysAddDim]] {{.*}} : memref<2x1x32x1024xf32> to memref<2x2x32x1024xf32>
-// CHECK_SCALE-NEXT: %[[keys:.*]] = rock.transform %[[keysBroadcast]] {{.*}} : memref<2x2x32x1024xf32> to memref<4x32x1024xf32>
-// CHECK_SCALE-NEXT: %[[valuesAddDim:.*]] = rock.transform %[[valuesGQA]] {{.*}} : memref<2x1024x32xf32> to memref<2x1x1024x32xf32>
-// CHECK_SCALE-NEXT: %[[valuesBroadcast:.*]] = rock.transform %[[valuesAddDim]] {{.*}} : memref<2x1x1024x32xf32> to memref<2x2x1024x32xf32>
-// CHECK_SCALE-NEXT: %[[values:.*]] = rock.transform %[[valuesBroadcast]] {{.*}} : memref<2x2x1024x32xf32> to memref<4x1024x32xf32>
 
 // CHECK_SCALE-NEXT: rock.attention
 // CHECK_SCALE-NEXT: qk = %[[queries]] * %[[keys]]
 // CHECK_SCALE-NEXT: qk = elementwise otherIns(%[[scale]]
 // CHECK_SCALE: %[[output]] = softmax(qk) * %[[values]]
+// CHECK_SCALE-NEXT: numHeadsKV = 2 : i32, numHeadsQ = 4 : i32
 // CHECK_SCALE: return
 
 // CHECK_SCALE-LABEL: func.func @host_naive_attention
@@ -60,19 +55,14 @@
 // CHECK_NO_SCALE-SAME: %[[outputRaw:.*3]]: memref<131072xf32>)
 // CHECK_NO_SCALE-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
 // CHECK_NO_SCALE-NEXT: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<131072xf32> to memref<4x1024x32xf32>
-// CHECK_NO_SCALE-NEXT: %[[keysGQA:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<65536xf32> to memref<2x32x1024xf32>
-// CHECK_NO_SCALE-NEXT: %[[valuesGQA:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<65536xf32> to memref<2x1024x32xf32>
+// CHECK_NO_SCALE-NEXT: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<65536xf32> to memref<2x32x1024xf32>
+// CHECK_NO_SCALE-NEXT: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<65536xf32> to memref<2x1024x32xf32>
 // CHECK_NO_SCALE-NEXT: %[[output:.*]] = rock.transform %[[outputRaw]] {{.*}} : memref<131072xf32> to memref<4x1024x32xf32>
-// CHECK_NO_SCALE-NEXT: %[[keysAddDim:.*]] = rock.transform %[[keysGQA]] {{.*}} : memref<2x32x1024xf32> to memref<2x1x32x1024xf32>
-// CHECK_NO_SCALE-NEXT: %[[keysBroadcast:.*]] = rock.transform %[[keysAddDim]] {{.*}} : memref<2x1x32x1024xf32> to memref<2x2x32x1024xf32>
-// CHECK_NO_SCALE-NEXT: %[[keys:.*]] = rock.transform %[[keysBroadcast]] {{.*}} : memref<2x2x32x1024xf32> to memref<4x32x1024xf32>
-// CHECK_NO_SCALE-NEXT: %[[valuesAddDim:.*]] = rock.transform %[[valuesGQA]] {{.*}} : memref<2x1024x32xf32> to memref<2x1x1024x32xf32>
-// CHECK_NO_SCALE-NEXT: %[[valuesBroadcast:.*]] = rock.transform %[[valuesAddDim]] {{.*}} : memref<2x1x1024x32xf32> to memref<2x2x1024x32xf32>
-// CHECK_NO_SCALE-NEXT: %[[values:.*]] = rock.transform %[[valuesBroadcast]] {{.*}} : memref<2x2x1024x32xf32> to memref<4x1024x32xf32>
 
 // CHECK_NO_SCALE-NEXT: rock.attention
 // CHECK_NO_SCALE-NEXT: qk = %[[queries]] * %[[keys]]
 // CHECK_NO_SCALE: %[[output]] = softmax(qk) * %[[values]]
+// CHECK_NO_SCALE-NEXT: numHeadsKV = 2 : i32, numHeadsQ = 4 : i32
 // CHECK_NO_SCALE: return
 
 // CHECK_NO_SCALE-LABEL: func.func @host_naive_attention

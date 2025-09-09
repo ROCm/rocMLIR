@@ -1464,7 +1464,8 @@ struct GridwiseAttentionAccelRewritePattern
       PatternRewriter &rewriter, Location loc, OutOfScopeType outOfScopeType,
       layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
       RegsAsMatrixSubTiles gemm0OutSubTileViews, bool enabled, Value mLoopIV,
-      Value gemm0MBlocksLastIter, Value currentSeqLen = nullptr) const {
+      Value gemm0MBlocksLastIter, Value currentSeqLen = nullptr,
+      IntegerAttr numRepeatsGQA = nullptr) const {
     if (enabled) {
       auto isLastIteration = rewriter.create<arith::CmpIOp>(
           loc, arith::CmpIPredicate::eq, mLoopIV, gemm0MBlocksLastIter);
@@ -1472,6 +1473,11 @@ struct GridwiseAttentionAccelRewritePattern
                                                  /*withElseRegion=*/false);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
+
+        Value constNumRepeatsGQA = nullptr;
+        if (numRepeatsGQA)
+          constNumRepeatsGQA = thenb.createOrFold<arith::ConstantIndexOp>(
+              loc, numRepeatsGQA.getInt());
 
         MemRefType gemm0OutBufferType =
             cast<MemRefType>(gemm0OutBuffer.getType());
@@ -1500,15 +1506,21 @@ struct GridwiseAttentionAccelRewritePattern
           Block::BlockArgListType lowerCoords = loop.getLowerCoords(0);
           Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
           Value isInvalid;
+          Value mIndex = lowerCoords[2];
           switch (outOfScopeType) {
           case OutOfScopeType::KVCache:
             assert(currentSeqLen != nullptr);
             isInvalid = thenb.create<arith::CmpIOp>(
-                loc, arith::CmpIPredicate::ugt, lowerCoords[2], currentSeqLen);
+                loc, arith::CmpIPredicate::ugt, mIndex, currentSeqLen);
             break;
           case OutOfScopeType::Causal:
+            Value nIndex = lowerCoords[1];
+            if (constNumRepeatsGQA)
+              nIndex = thenb.createOrFold<arith::DivUIOp>(loc, nIndex,
+                                                          constNumRepeatsGQA);
+
             isInvalid = thenb.create<arith::CmpIOp>(
-                loc, arith::CmpIPredicate::ugt, lowerCoords[2], lowerCoords[1]);
+                loc, arith::CmpIPredicate::ugt, mIndex, nIndex);
             break;
           }
 
@@ -1555,6 +1567,45 @@ struct GridwiseAttentionAccelRewritePattern
         });
   }
 
+  /// Undo GQA transforms for tensors of the fusion between first gemm and
+  /// second gemm
+  ArrayAttr undoGQATransforms(PatternRewriter &rewriter, Location loc,
+                              GridwiseAttentionAccelOp op,
+                              ArrayRef<int64_t> unpaddedShape) const {
+    ArrayAttr gqaTransform = nullptr;
+    if (op.getNumRepeatsGQAAttr()) {
+      SmallVector<StringRef> startNames = {"gemmG", "seqLenQ", "seqLenKV"};
+      int64_t numRepeats = op.getNumRepeatsGQAAttr().getInt();
+
+      assert(unpaddedShape.size() == 3);
+      int64_t gemmG = unpaddedShape[0];
+      int64_t seqLenQ = unpaddedShape[1];
+      int64_t seqLenKV = unpaddedShape[2];
+      assert(seqLenQ % numRepeats == 0);
+
+      // (gemmG, seqLenQ*numRepeats, seqLenKV) -> (gemmG, numRepeats, seqLenQ,
+      // seqLenKV)
+      rock::TopDownTMBuilder unmerge(rewriter, startNames,
+                                     {gemmG, seqLenQ, seqLenKV});
+      unmerge.merge({"seqLenQ", "numRepeats"}, {2, 1}, "seqLenQ",
+                    {seqLenQ / numRepeats, numRepeats});
+      unmerge.passThrough({"gemmG", "seqLenKV"}, {0, 3}, {"gemmG", "seqLenKV"});
+      auto unmergeAttr = unmerge.get();
+
+      // (gemmG, numRepeats, seqLenQ, seqLenKV) -> (gemmG*numRepeats, seqLenQ,
+      // seqLenKV)
+      auto merger = rock::TopDownTMBuilder::below(unmerge, unmergeAttr);
+      merger.unmerge("gemmG", 0, {"gemmG", "numRepeats"}, {gemmG, numRepeats});
+      merger.passThrough({"seqLenQ", "seqLenKV"}, {1, 2},
+                         {"seqLenQ", "seqLenKV"});
+      auto mergerAttr = merger.get();
+
+      SmallVector<Attribute> transformAttrs{unmergeAttr, mergerAttr};
+      gqaTransform = rewriter.getArrayAttr(transformAttrs);
+    }
+    return gqaTransform;
+  }
+
   FailureOr<Value> postProcessFirstGemm(
       PatternRewriter &rewriter, Location loc, GridwiseAttentionAccelOp op,
       layout::GridCoordinates gridCoords, Value srcGemm0OutBuffer,
@@ -1570,6 +1621,7 @@ struct GridwiseAttentionAccelRewritePattern
       // nothing to process
       return prevGemm0OutBuffer;
     }
+
     int64_t firstGemmBlockArgNum = -1;
     Block &preSoftMaxBodyBlock = op.getPreSoftmaxBody().getBlocks().front();
     WalkResult res = op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
@@ -1844,7 +1896,8 @@ struct GridwiseAttentionAccelRewritePattern
                layout::AttnGridCoordinates gridCoordsGemm0,
                Value currentSeqLenTensor, int64_t gemm0M,
                int64_t gemm0MPerBlock, int64_t gemm0NPerBlock, int64_t splitKV,
-               bool isCausal, bool isKVCache) const {
+               bool isCausal, bool isKVCache,
+               IntegerAttr numRepeatsGQA = nullptr) const {
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
     Value effectiveSeqLen;
@@ -1897,6 +1950,13 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0NPerBlock);
         Value maxRowOfBlock =
             rewriter.create<arith::MulIOp>(loc, nIndex, constGemm0NPerBlock);
+        if (numRepeatsGQA) {
+          Value constNumRepeatsGQA =
+              rewriter.createOrFold<arith::ConstantIndexOp>(
+                  loc, numRepeatsGQA.getInt());
+          maxRowOfBlock = rewriter.createOrFold<arith::DivUIOp>(
+              loc, maxRowOfBlock, constNumRepeatsGQA);
+        }
 
         // if effectiveSeqLen is set, it means KV Cache is enabled,
         // so we need to take the minimum of currentSeqLen and maxRowOfBlock
@@ -2377,9 +2437,10 @@ struct GridwiseAttentionAccelRewritePattern
     Value currentSeqLen;
     Value start, end;
     // get mLoop
-    std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen) = getMLoopInfo(
-        rewriter, loc, gridCoordsGemm0mIter0, currentSeqLenTensor, gemm0M,
-        gemm0MPerBlock, gemm0NPerBlock, splitKV, isCausal, isKVCache);
+    std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen) =
+        getMLoopInfo(rewriter, loc, gridCoordsGemm0mIter0, currentSeqLenTensor,
+                     gemm0M, gemm0MPerBlock, gemm0NPerBlock, splitKV, isCausal,
+                     isKVCache, op.getNumRepeatsGQAAttr());
 
     // early exist if there is no work to do for this block
     runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
@@ -2443,10 +2504,6 @@ struct GridwiseAttentionAccelRewritePattern
       assert(mLoopOp->getRegions().size() == 1);
       rewriter.setInsertionPointToStart(&mLoopOp->getRegion(0).front());
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
-      Value kIterationsGemm0Val =
-          rewriter.createOrFold<arith::ConstantIndexOp>(loc, kIterationsGemm0);
-      Value mIterationsGemm0Val =
-          rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
       Value mLoopIV = mLoopOp.getSingleInductionVar().value();
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
       auto gridCoordsGemm0 =
@@ -2561,6 +2618,20 @@ struct GridwiseAttentionAccelRewritePattern
           unpadGridSubTileView(rewriter, loc, gemm0OutSubTileViewsTr, prePadG0N,
                                prePadG0M);
 
+      // undo Grouped-Query Attention (GQA) transforms
+      ArrayRef<int64_t> unpaddedShape =
+          getLowerShape(gemm0OutSubTileViewsTrUnPadded.gridSubTile);
+      ArrayAttr undoGQA = undoGQATransforms(rewriter, loc, op, unpaddedShape);
+
+      // undo the GQA transforms for postProcessFirstGemm()
+      if (undoGQA) {
+        ArrayAttr linalgGridSubTileMaps =
+            gemm0OutSubTileViewsTrUnPadded.gridSubTile;
+        linalgGridSubTileMaps =
+            prependUpperViews(rewriter, linalgGridSubTileMaps, undoGQA);
+        gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
+      }
+
       // Align the preSoftmaxElementWise (if any) linalg.generic to
       // be performed on the output of the first gemm.
       FailureOr<Value> maybeFusionOutBuffer = postProcessFirstGemm(
@@ -2606,10 +2677,11 @@ struct GridwiseAttentionAccelRewritePattern
                                  gemm0MBlocksLastIter, currentSeqLen);
 
         // Negative Infinite for extra values (causal masking)
-        setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::Causal,
-                                 gridCoordsGemm0, softmaxInputBuffer,
-                                 gemm0OutSubTileViewsTr, isCausal, mLoopIV,
-                                 gemm0MBlocksLastIter);
+        setGemm0OutputOutOfScope(
+            rewriter, loc, OutOfScopeType::Causal, gridCoordsGemm0,
+            softmaxInputBuffer, gemm0OutSubTileViewsTr, isCausal, mLoopIV,
+            gemm0MBlocksLastIter, /*currentSeqLen=*/nullptr,
+            op.getNumRepeatsGQAAttr());
 
         APInt reductionAxis = APInt(64, 1);
         // Softmax max reduction
