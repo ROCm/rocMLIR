@@ -649,8 +649,9 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
             }
             try {
                 body()
-                done = true
                 // If body succeeds, we're done with the loop
+                done = true
+                
             } catch (Exception err) {
                 def msg = "${err}".toLowerCase()
                 def isNodeFailure = msg.contains("removed or offline") || msg.contains("issue with creating launcher for agent")
