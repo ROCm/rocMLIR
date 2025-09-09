@@ -2,7 +2,7 @@
 // RUN: rocmlir-driver -kernel-pipeline=migraphx,highlevel %s | rocmlir-gen --emit-tuning-key - | FileCheck %s
 // CHECK: gfx942
 // CHECK-SAME: 304
-// CHECK-SAME: -t f16 -transQ false -transK true -transV false -transO false -causal false -return_lse true -g 8 -seq_len_q 32 -seq_len_k 32 -head_dim_qk 32 -head_dim_v 32
+// CHECK-SAME: -t f16 -transQ false -transK true -transV false -transO false -causal false -return_lse true -split_kv 1 -g 8 -seq_len_q 32 -seq_len_k 32 -head_dim_qk 32 -head_dim_v 32
 
 module {
   func.func private @mlir_attention(%v: !migraphx.shaped<2x2x32x32xf16, 2048x1024x32x1> {mhal.read_access}, 
