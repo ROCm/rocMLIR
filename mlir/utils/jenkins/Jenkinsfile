@@ -2,6 +2,7 @@
 // used for private CI
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
+import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 
 // ConcurrentHashMap helps when we need to write variables in parallel
 // one instance for the whole run
@@ -654,7 +655,8 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
                 
             } catch (Exception err) {
                 def msg = "${err}".toLowerCase()
-                def isNodeFailure = msg.contains("removed or offline") || msg.contains("issue with creating launcher for agent")
+                def isNodeFailure = msg.contains("removed or offline") || msg.contains("issue with creating launcher for agent") ||
+                                    err instanceof org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
                 
                 if (isNodeFailure) {
                     echo "[withHealthyNode] Execution on ${env.NODE_NAME} failed due to a recoverable node issue. Blacklisting and retrying.."
