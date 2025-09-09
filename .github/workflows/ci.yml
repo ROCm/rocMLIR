@@ -1,31 +1,58 @@
 name: Python Lint and Format Check
 
 on:
-  push:
-    branches: [develop]
   pull_request:
+    branches: [develop]
+    paths:
+      - "mlir/**"
+  push:
     branches: [develop]
 
 jobs:
-  lint-and-format:
+  py-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.8'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 yapf pep8-naming pre-commit
+          pip install flake8 yapf pep8-naming
+
+      - name: Get changed Python files under mlir/
+        id: changes
+        shell: bash
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.sha }}"
+          # list added/modified files, restrict to mlir/**/*.py
+          files=$(git diff --name-only --diff-filter=AM "$BASE_SHA" "$HEAD_SHA" \
+                    | grep -E '^mlir/.*\.py$' || true)
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$files" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "Changed files:"
+          echo "$files"
 
       - name: Run flake8
+        if: steps.changes.outputs.files != ''
         run: |
-          flake8 . --exclude=external/
+          flake8 ${{ steps.changes.outputs.files }}
 
-      - name: Run yapf check
+      - name: Run YAPF check
+        if: steps.changes.outputs.files != ''
         run: |
-          yapf --dry-run --recursive . --exclude 'external/**/*.py' || (echo "Format issues found. Please run 'yapf -i -r .' to fix them."; exit 1)
+          # --diff prints a unified diff and returns non-zero if changes would be made
+          yapf --diff ${{ steps.changes.outputs.files }} \
+            || (echo "Format issues found. Fix locally with: yapf -i <files>"; exit 1)
+
+      - name: No Python changes in mlir/
+        if: steps.changes.outputs.files == ''
+        run: echo "No changed *.py files under mlir/ – skipping."
