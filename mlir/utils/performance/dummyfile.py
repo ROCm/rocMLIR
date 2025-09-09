@@ -1,7 +1,7 @@
 # This is temporary file to check if Github Action will be triggered on PR
 import os
 
-int abc
+abc: int = 0
 
 if abc > 5:
     print("bigger than 5")
