@@ -1266,7 +1266,7 @@ class GemmGemmConfiguration(PerfConfiguration):
 class AttentionConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.ATTN_TEST_PARAMETERS + ['TFlops']
     def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, num_heads_q: int, num_heads_kv: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: bool, with_attn_bias: bool,
-                 transQ: bool, transK: bool, transV: bool, transO: bool, causal: bool, return_lse: bool, arch: str, numCU: int, perf_config: str = ''):
+                 transQ: bool, transK: bool, transV: bool, transO: bool, causal: bool, return_lse: bool, split_kv: int, arch: str, numCU: int, perf_config: str = ''):
         if DATA_TYPES_ATTENTION is None:
             initializeDataTypesAttention()
         if dtype not in DATA_TYPES_ATTENTION:
@@ -1288,6 +1288,7 @@ class AttentionConfiguration(PerfConfiguration):
         self.transO = transO
         self.causal = causal
         self.return_lse = return_lse
+        self.split_kv = split_kv
 
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
@@ -1330,6 +1331,7 @@ class AttentionConfiguration(PerfConfiguration):
             self.transO,
             self.causal,
             self.return_lse,
+            self.split_kv,
             self.with_attn_scale,
             self.with_attn_bias,
             self.g,
@@ -1370,6 +1372,7 @@ class AttentionConfiguration(PerfConfiguration):
                            f"-transO={self.transO}",
                            f"-causal={self.causal}",
                            f"-return_lse={self.return_lse}",
+                           f"-split_kv={self.split_kv}",
                         *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
                            f"--perf_config={self.perfConfig}"])
         result += ' '
@@ -1395,6 +1398,7 @@ class AttentionConfiguration(PerfConfiguration):
         transO = False
         causal = False
         return_lse = False
+        split_kv = 1
         with_attn_scale = False
         with_attn_bias = False
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
@@ -1433,15 +1437,17 @@ class AttentionConfiguration(PerfConfiguration):
                 causal = (val.lower() in ["1", "true"])
             elif opt.endswith("-return_lse"):
                 return_lse = (val.lower() in ["1", "true"])
+            elif opt.endswith("-split_kv"):
+                split_kv = int(val)
             elif opt.endswith("-perf_config"):
                 perf_config = val
             else:
                 raise ValueError(f"Unknown Attention config argument {opt} -> {val}")
-        for v in [dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, return_lse]:
+        for v in [dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, return_lse, split_kv]:
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, return_lse, arch, numCU, perf_config)
+        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, return_lse, split_kv, arch, numCU, perf_config)
 
     def toCommandLine(self):
         return (f"-t {self.dataType} "
@@ -1449,6 +1455,7 @@ class AttentionConfiguration(PerfConfiguration):
                 + f"-transV {str(self.transV).lower()} -transO {str(self.transO).lower()} "
                 + f"-causal {str(self.causal).lower()} "
                 + f"-return_lse {str(self.return_lse).lower()} "
+                + f"-split_kv {str(self.split_kv)} "
                 + f"-g {self.g} "
                 + f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
                 + f"-with-attn-scale {str(self.with_attn_scale).lower()} "

@@ -32,6 +32,7 @@ from parameterSweeps import Options, sweepParameters, multilineRepr
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initializeDataTypesAttention()
 BOOLS = [True, False]
+SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
 
 # Week number is used as seed to make sure weekly CI is reproducible
 seed = datetime.utcnow().isocalendar()[1]
@@ -41,7 +42,7 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance."""
     shape, perf = params
     *shapeParams, currentSeqLen = shape
-    dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse = shapeParams
+    dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse, split_kv = shapeParams
     perfString = f"attn:v1:{','.join(str(x) for x in perf)}"
     attnConfig = AttentionConfiguration(
         dtype=dtype,
@@ -60,6 +61,7 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
         transO=to,
         causal=causal,
         return_lse=rlse,
+        split_kv=split_kv,
         arch=options.arch,
         numCU=options.numCu,
         perf_config=perfString
@@ -107,6 +109,11 @@ def sampleAttentionShape():
             if numHeadsQ > numHeadsKV and numHeadsQ%numHeadsKV == 0: # found valid case
                 break
 
+    split_kv = 1
+    return_lse = random.choice(BOOLS)
+    if return_lse:
+        split_kv = random.choice(SPLIT_KV_OPTIONS)
+
     return (
         random.choice(DATA_TYPES_ATTENTION),
         g, # GROUPS
@@ -123,7 +130,8 @@ def sampleAttentionShape():
         random.choice(BOOLS),   # transV
         random.choice(BOOLS),   # transO
         random.choice(BOOLS),   # causal
-        random.choice(BOOLS),   # return_lse
+        return_lse,
+        split_kv, 
         currentSeqLen
     )
 
