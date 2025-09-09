@@ -209,7 +209,8 @@ func.func @rock_attention_simple(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x6
   } { 
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIndices = array<i64: 0>
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 1 : i32
   }
   return
 }
@@ -230,14 +231,16 @@ func.func @rock_attention_tr_padded(%arg0: memref<1x49x7xf32>, %arg1: memref<1x7
   } { 
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIndices = array<i64: 0>
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 1 : i32
   }
   return
 }
 
 // CHECK-LABEL: func.func @rock_attention_kvcache
 // CHECK-SAME: (%[[q:.*]]: memref<1x64x1024xf32>, %[[k:.*]]: memref<1x64x1024xf32>, %[[v:.*]]: memref<1x1024x64xf32>, %[[o:.*]]: memref<1x1024x64xf32>, %[[currentSeqLen:.*]]: memref<1xi32>)
-func.func @rock_attention_kvcache(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024x64xf32>, %arg4: memref<1xi32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32, grid_size = 1024 : i32} {
+// CHECK-SAME: grid_size = 32
+func.func @rock_attention_kvcache(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024x64xf32>, %arg4: memref<1xi32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32} {
   // CHECK: rock.gridwise_attention_accel(%[[q]], %[[k]], %[[v]], %[[currentSeqLen]], %[[o]])
   rock.attention{
      qk = tr %arg0 * %arg1 : memref<1x64x1024xf32>, memref<1x64x1024xf32>
@@ -246,14 +249,16 @@ func.func @rock_attention_kvcache(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x
   } {
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIndices = array<i64: 0>
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 1 : i32
   }
   return
 }
 
 // CHECK-LABEL: func.func @rock_attention_causal
 // CHECK-SAME: (%[[q:.*]]: memref<1x64x1024xf32>, %[[k:.*]]: memref<1x64x1024xf32>, %[[v:.*]]: memref<1x1024x64xf32>, %[[o:.*]]: memref<1x1024x64xf32>)
-func.func @rock_attention_causal(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32, grid_size = 1024 : i32} {
+// CHECK-SAME: grid_size = 32
+func.func @rock_attention_causal(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32} {
   // CHECK: rock.gridwise_attention_accel(%[[q]], %[[k]], %[[v]], %[[o]])
   // CHECK-NEXT: , causal,
   rock.attention{
@@ -263,14 +268,16 @@ func.func @rock_attention_causal(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x6
   } {
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIndices = array<i64: 0>
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 1 : i32
   }
   return
 }
 
 // CHECK-LABEL: func.func @rock_attention_lse
 // CHECK-SAME: (%[[q:.*]]: memref<1x64x1024xf32>, %[[k:.*]]: memref<1x64x1024xf32>, %[[v:.*]]: memref<1x1024x64xf32>, %[[lse:.*]]: memref<1x1024xf32>, %[[o:.*]]: memref<1x1024x64xf32>)
-func.func @rock_attention_lse(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024xf32>, %arg4: memref<1x1024x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32, grid_size = 1024 : i32} {
+// CHECK-SAME: grid_size = 32
+func.func @rock_attention_lse(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024xf32>, %arg4: memref<1x1024x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32} {
   // CHECK: rock.gridwise_attention_accel(%[[q]], %[[k]], %[[v]], %[[o]], %[[lse]])
   rock.attention{
      qk = tr %arg0 * %arg1 : memref<1x64x1024xf32>, memref<1x64x1024xf32>
@@ -279,7 +286,48 @@ func.func @rock_attention_lse(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1
   } {
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIndices = array<i64: 0>
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 1 : i32
+  }
+  return
+}
+
+// CHECK-LABEL: func.func @rock_attention_splitkv
+// CHECK-SAME: (%[[q:.*]]: memref<1x64x1024xf32>, %[[k:.*]]: memref<1x64x1024xf32>, %[[v:.*]]: memref<1x1024x64xf32>, %[[lse:.*]]: memref<4x1024xf32>, %[[o:.*]]: memref<4x1024x64xf32>)
+// CHECK-SAME: grid_size = 128
+func.func @rock_attention_splitkv(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<4x1024xf32>, %arg4: memref<4x1024x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32, grid_size = 1024 : i32} {
+  // CHECK: rock.gridwise_attention_accel(%[[q]], %[[k]], %[[v]], %[[o]], %[[lse]])
+  // CHECK-NEXT: splitKV = 4
+  rock.attention{
+     qk = tr %arg0 * %arg1 : memref<1x64x1024xf32>, memref<1x64x1024xf32>
+     lse = %arg3 : memref<4x1024xf32>
+     %arg4 = softmax(qk) * %arg2 : memref<1x1024x64xf32> -> memref<4x1024x64xf32>
+  } {
+    params0 = #xldops_attn_params_g0,
+    params1 = #xldops_attn_params_g1,
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 4 : i32
+  }
+  return
+}
+
+// CHECK-LABEL: func.func @rock_attention_splitkv_padding
+// CHECK-SAME: (%[[q:.*]]: memref<1x64x1024xf32>, %[[k:.*]]: memref<1x64x384xf32>, %[[v:.*]]: memref<1x384x64xf32>, %[[lse:.*]]: memref<8x1024xf32>, %[[o:.*]]: memref<8x1024x64xf32>)
+// CHECK-SAME: grid_size = 256
+func.func @rock_attention_splitkv_padding(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<8x1024xf32>, %arg4: memref<8x1024x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32, grid_size = 1024 : i32} {
+  // CHECK-DAG: %[[kPadding:.*]] = rock.transform %[[k]] by {{.*}} : memref<1x64x384xf32> to memref<1x64x512xf32>
+  // CHECK-DAG: %[[vPadding:.*]] = rock.transform %[[v]] by {{.*}} : memref<1x384x64xf32> to memref<1x512x64xf32>
+  // CHECK: rock.gridwise_attention_accel(%[[q]], %[[kPadding]], %[[vPadding]], %[[o]], %[[lse]])
+  // CHECK-NEXT: splitKV = 8
+  rock.attention{
+     qk = tr %arg0 * %arg1 : memref<1x64x1024xf32>, memref<1x64x384xf32>
+     lse = %arg3 : memref<8x1024xf32>
+     %arg4 = softmax(qk) * %arg2 : memref<1x384x64xf32> -> memref<8x1024x64xf32>
+  } {
+    params0 = #xldops_attn_params_g0,
+    params1 = #xldops_attn_params_g1,
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 8 : i32
   }
   return
 }
@@ -297,7 +345,8 @@ func.func @rock_attention_softmaxtype(%arg0: memref<1x64x1024xf16>, %arg1: memre
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
-    softmaxType = f32
+    softmaxType = f32,
+    splitKV = 1 : i32
   }
   return
 }
