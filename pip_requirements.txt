@@ -9,5 +9,5 @@ jinja2
 pybind11
 yapf
 flake8
-pep9-naming
+pep8-naming
 pre-commit
