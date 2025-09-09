@@ -105,30 +105,14 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
       loc, firstBidM, b.create<RemUIOp>(loc, bid, thisMBlocksPerGroup));
   Value n_block = b.create<DivUIOp>(
       loc, b.create<RemUIOp>(loc, bid, blocksPerGroup), thisMBlocksPerGroup);
+  // no need to get splitKFactor here
   return {g_block, m_block, n_block};
 }
 
-GridCoordinates rock::layout::makeGxMxNGridLayout(PatternRewriter &b,
-                                                  Location loc, Value bid,
-                                                  GridLayoutInfo info) {
-  Value g1MxNBlockCountVal =
-      b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
-  Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, info.nBlocks);
-  Value gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1MxNBlockCountVal);
-  Value nonGBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1MxNBlockCountVal);
-  Value mBlockIdx =
-      b.create<arith::DivUIOp>(loc, nonGBlockIdx, g1NBlockCountVal);
-  Value nBlockIdx =
-      b.create<arith::RemUIOp>(loc, nonGBlockIdx, g1NBlockCountVal);
-
-  return {gBlockIdx, mBlockIdx, nBlockIdx};
-}
-
-GridCoordinates rock::layout::makeGxNGridLayout(PatternRewriter &b,
-                                                Location loc, Value bid,
-                                                Value mIter, int64_t nBlocks,
-                                                int64_t gridSize,
-                                                StringRef arch) {
+AttnGridCoordinates
+rock::layout::makeGxNGridLayout(PatternRewriter &b, Location loc, Value bid,
+                                Value mIter, int64_t nBlocks, int64_t gridSize,
+                                StringRef arch, Value splitKV) {
   // Currently the firmware will launch workgroups
   // in a round-robin fashion to each chiplet. However
   // we would want a group (>=1) of chiplets to perform
@@ -142,9 +126,20 @@ GridCoordinates rock::layout::makeGxNGridLayout(PatternRewriter &b,
     int64_t numChipletsPerGroup = std::ceil(numChiplets / 2);
     bid = rearrangeWorkgroupsForXCC(loc, b, bid, gridSize, numChipletsPerGroup);
   }
-
   Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, nBlocks);
-  Value gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1NBlockCountVal);
-  Value nBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1NBlockCountVal);
-  return {gBlockIdx, mIter, nBlockIdx};
+
+  Value gBlockIdx, nBlockIdx, splitKVIdx;
+  if (splitKV) {
+    Value noGSize = b.create<arith::MulIOp>(loc, splitKV, g1NBlockCountVal);
+    gBlockIdx = b.create<arith::DivUIOp>(loc, bid, noGSize);
+    nBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1NBlockCountVal);
+    Value outerIdx = b.create<arith::DivUIOp>(loc, bid, g1NBlockCountVal);
+    splitKVIdx = b.create<arith::RemUIOp>(loc, outerIdx, splitKV);
+  } else {
+    gBlockIdx = b.create<arith::DivUIOp>(loc, bid, g1NBlockCountVal);
+    nBlockIdx = b.create<arith::RemUIOp>(loc, bid, g1NBlockCountVal);
+    splitKVIdx = nullptr;
+  }
+  // braces for init of the base class: GridCoordinates
+  return {{gBlockIdx, mIter, nBlockIdx}, splitKVIdx};
 }
