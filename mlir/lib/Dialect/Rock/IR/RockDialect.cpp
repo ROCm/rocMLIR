@@ -66,6 +66,79 @@ using namespace mlir::rock;
 
 #include "mlir/Dialect/Rock/IR/RockOpsDialect.cpp.inc"
 #include "mlir/Dialect/Rock/IR/RockTypes.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// Utility Functions
+//===----------------------------------------------------------------------===//
+template <typename OpType>
+void getGemmEffects(OpType &op,
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
+  effects.emplace_back(read, &op.getCMutable());
+  effects.emplace_back(write, &op.getCMutable());
+
+  effects.emplace_back(read, &op.getAMutable());
+  effects.emplace_back(read, &op.getBMutable());
+}
+
+template <typename OpType>
+void getGemmMatrixEffects(
+    OpType &op, SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
+  effects.emplace_back(read, &op.getMatrixCMutable());
+  effects.emplace_back(write, &op.getMatrixCMutable());
+
+  effects.emplace_back(read, &op.getMatrixAMutable());
+  effects.emplace_back(read, &op.getMatrixBMutable());
+}
+
+template <typename OpType>
+void getAttentionEffects(
+    OpType &op, SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &op.getOutMutable());
+  effects.emplace_back(write, &op.getOutMutable());
+
+  if (op.getLse()) {
+    effects.emplace_back(read, &op.getLseMutable()[0]);
+    effects.emplace_back(write, &op.getLseMutable()[0]);
+  }
+  if (op.getCurrentSeqLen()) {
+    effects.emplace_back(read, &op.getCurrentSeqLenMutable()[0]);
+  }
+
+  effects.emplace_back(read, &op.getQueriesMutable());
+  effects.emplace_back(read, &op.getKeysMutable());
+  effects.emplace_back(read, &op.getValuesMutable());
+  for (auto &regionArg : op.getPreSoftmaxElemWiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
+}
+
+template <typename OpType>
+void getConvEffects(OpType &op,
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &op.getInputMutable(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), &op.getFilterMutable(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), &op.getOutputMutable(),
+                       transform::TransformMappingResource::get());
+}
+
+template <typename OpType>
+void getCommonEffects(OpType &op,
+                      SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &op.getSourceMutable());
+  effects.emplace_back(write, &op.getDestMutable());
+}
+
 //===----------------------------------------------------------------------===//
 // RockDialect Interfaces
 //===----------------------------------------------------------------------===//
@@ -775,27 +848,15 @@ GemmSize ConvBwdWeightOp::getGemmSize() {
 
 void ConvOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), &getOutputMutable(),
-                       transform::TransformMappingResource::get());
+  getConvEffects(*this, effects);
   effects.emplace_back(MemoryEffects::Write::get(), &getOutputMutable(),
-                       transform::TransformMappingResource::get());
-
-  effects.emplace_back(MemoryEffects::Read::get(), &getFilterMutable(),
-                       transform::TransformMappingResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
                        transform::TransformMappingResource::get());
 }
 
 void ConvBwdDataOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
-                       transform::TransformMappingResource::get());
+  getConvEffects(*this, effects);
   effects.emplace_back(MemoryEffects::Write::get(), &getInputMutable(),
-                       transform::TransformMappingResource::get());
-
-  effects.emplace_back(MemoryEffects::Read::get(), &getFilterMutable(),
-                       transform::TransformMappingResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), &getOutputMutable(),
                        transform::TransformMappingResource::get());
 }
 
@@ -913,6 +974,11 @@ GemmSize GemmOp::getGemmSize() {
   return GemmSize(g, m, k, n);
 }
 
+void GemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmEffects(*this, effects);
+}
+
 //===-----------------------------------------------------===//
 // GridwiseGemmOp and GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
@@ -978,6 +1044,16 @@ LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 
 LogicalResult GridwiseGemmAccelOp::verify() {
   return verifyGridwiseGemm(*this);
+}
+
+void GridwiseGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmEffects(*this, effects);
+}
+
+void GridwiseGemmAccelOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmEffects(*this, effects);
 }
 
 //===-----------------------------------------------------===//
@@ -1568,11 +1644,22 @@ static LogicalResult verifyGlobalLoad(Load op) {
 //===-----------------------------------------------------===//
 // GlobalLoadOp
 //===-----------------------------------------------------===//
+void GlobalLoadOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  effects.emplace_back(read, &getSourceMutable());
+}
+
 LogicalResult GlobalLoadOp::verify() { return verifyGlobalLoad(*this); }
 
 //===-----------------------------------------------------===//
 // GlobalLoadToLDSOp
 //===-----------------------------------------------------===//
+void GlobalLoadToLDSOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
+}
+
 LogicalResult GlobalLoadToLDSOp::verify() {
   LogicalResult res = verifyGlobalLoad(*this);
   if (failed(res))
@@ -1619,6 +1706,12 @@ LogicalResult GlobalStoreOp::verify() {
 //===-----------------------------------------------------===//
 // InBoundsLoadOp
 //===-----------------------------------------------------===//
+void InBoundsLoadOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  effects.emplace_back(read, &getSourceMutable());
+}
+
 LogicalResult InBoundsLoadOp::verify() {
   MemRefType sourceType = getSource().getType();
   size_t nDims = sourceType.getRank();
@@ -1632,8 +1725,14 @@ LogicalResult InBoundsLoadOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// InBoundsLoadOp
+// InBoundsStoreOp
 //===-----------------------------------------------------===//
+void InBoundsStoreOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(write, &getDestMutable());
+}
+
 LogicalResult InBoundsStoreOp::verify() {
   MemRefType destType = getDest().getType();
   size_t nDims = destType.getRank();
@@ -1675,6 +1774,11 @@ ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder,
       getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
       getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
+}
+
+void ThreadwiseReadIntoOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
 }
 
 LogicalResult ThreadwiseReadIntoOp::verify() {
@@ -1776,6 +1880,11 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
   return newOp.getOperation();
 }
 
+void ThreadwiseWriteAllOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
+}
+
 LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
   Attribute memSpaceAttr = sourceType.getMemorySpace();
@@ -1838,6 +1947,11 @@ ThreadwiseCopyOp::cloneWithExtraIndices(OpBuilder &builder, OpOperand &operand,
   return newOp.getOperation();
 }
 
+void ThreadwiseCopyOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
+}
+
 LogicalResult ThreadwiseCopyOp::verify() {
   auto srcShape = getSource().getType().getShape();
   auto dstShape = getDest().getType().getShape();
@@ -1877,6 +1991,11 @@ LogicalResult BlockwiseGemmOp::verify() {
   return success();
 }
 
+void BlockwiseGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmMatrixEffects(*this, effects);
+}
+
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmAccelOp
 //===----------------------------------------------------------------------===//
@@ -1903,6 +2022,11 @@ LogicalResult ThreadwiseGemmOp::verify() {
   return success();
 }
 
+void ThreadwiseGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmMatrixEffects(*this, effects);
+}
+
 //===----------------------------------------------------------------------===//
 // ThreadwiseAccelGemmOp
 //===----------------------------------------------------------------------===//
@@ -1927,6 +2051,11 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
     return emitOpError("ComputeIndices need to be a <i,j,k> tuple");
 
   return success();
+}
+
+void ThreadwiseAccelGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmMatrixEffects(*this, effects);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1958,24 +2087,7 @@ SmallVector<mlir::Type> GridwiseAttentionAccelOp::getTypesForFeature() {
 
 void GridwiseAttentionAccelOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-  effects.emplace_back(read, &getOutMutable());
-  effects.emplace_back(write, &getOutMutable());
-
-  if (getLse()) {
-    effects.emplace_back(read, &getLseMutable()[0]);
-    effects.emplace_back(write, &getLseMutable()[0]);
-  }
-  if (getCurrentSeqLen()) {
-    effects.emplace_back(read, &getCurrentSeqLenMutable()[0]);
-  }
-
-  effects.emplace_back(read, &getQueriesMutable());
-  effects.emplace_back(read, &getKeysMutable());
-  effects.emplace_back(read, &getValuesMutable());
-  for (auto &regionArg : getPreSoftmaxElemWiseInputsMutable())
-    effects.emplace_back(read, &regionArg);
+  getAttentionEffects(*this, effects);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2011,6 +2123,15 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
 //===-----------------------------------------------------===//
 // ReduceOp
 //===-----------------------------------------------------===//
+void ReduceOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getInMutable());
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+}
+
 LogicalResult ReduceOp::verify() {
   APInt axis = getAxis();
   ArrayRef<int64_t> inpShape = cast<ShapedType>(getIn().getType()).getShape();
@@ -2476,24 +2597,7 @@ LogicalResult AttentionOp::verify() {
 
 void AttentionOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-  effects.emplace_back(read, &getOutMutable());
-  effects.emplace_back(write, &getOutMutable());
-
-  if (getLse()) {
-    effects.emplace_back(read, &getLseMutable()[0]);
-    effects.emplace_back(write, &getLseMutable()[0]);
-  }
-  if (getCurrentSeqLen()) {
-    effects.emplace_back(read, &getCurrentSeqLenMutable()[0]);
-  }
-
-  effects.emplace_back(read, &getQueriesMutable());
-  effects.emplace_back(read, &getKeysMutable());
-  effects.emplace_back(read, &getValuesMutable());
-  for (auto &regionArg : getPreSoftmaxElemWiseInputsMutable())
-    effects.emplace_back(read, &regionArg);
+  getAttentionEffects(*this, effects);
 }
 
 //===-----------------------------------------------------===//
