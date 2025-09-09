@@ -1,5 +1,7 @@
-// RUN: rocmlir-gen -emit-module-fusibility-for=v3:16,128,8,16,16,4,5,1,2,1,1 - < %s | FileCheck %s
-// CHECK: fusible:0  
+// RUN: rocmlir-gen -emit-module-fusibility-for=v3:16,128,8,16,16,4,1,1,2,1,1 - < %s | FileCheck %s --check-prefix=NOSPLITK
+// RUN: rocmlir-gen -emit-module-fusibility-for=v3:16,128,8,16,16,4,4,1,2,1,1 - < %s | FileCheck %s --check-prefix=SPLITK
+// NOSPLITK: fusible:0
+// SPLITK: fusible:0
 module {  
   func.func @mlir_conv_bwd_data_add_relu(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>, %arg3: memref<64x1x1x1xf32>, %arg4: memref<256x1x64x112x112xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {  
     %cst = arith.constant 0.000000e+00 : f32  

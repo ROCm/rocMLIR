@@ -244,9 +244,8 @@ LogicalResult mlir::rock::testFusionLegalityBwdDataConv(func::FuncOp func) {
     if (auto bwdData = dyn_cast<rock::ConvBwdDataOp>(op)) {
       usesV4R1 = bwdData.getUsesV4R1();
       numFusibleOps++;
-    } else if (op->hasTrait<OpTrait::rock::FusionRoot>() ||
-                isa<linalg::GenericOp>(op)) {
-      // Check if the op has a RockFusionRoot trait, or is a linalg.generic
+    } else if (isa<linalg::GenericOp>(op)) {
+      // Check if the op is a linalg.generic
       numFusibleOps++;
     }
     return WalkResult::advance();
