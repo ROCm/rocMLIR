@@ -1940,9 +1940,11 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
     return emitError("NPerBlock should be divisible by kpack.");
   }
 
-  if (!getEnableSoftmax() && getLse()) {
+  if (!getEnableSoftmax() && getLse())
     return emitError("LSE only works for attention.");
-  }
+
+  if (!getEnableSoftmax() && getSplitKV() != 1)
+    return emitError("split-kv is implemented for attention only.");
 
   if (!getEnableSoftmax() && getSoftmaxType()) {
     return emitError("Setting softmax type only works for attention.");
@@ -2241,6 +2243,14 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
   // check output type
   ShapedType oType = cast<ShapedType>(op.getOutType());
   int64_t oBatchDim = oType.getShape().size() == 3 ? oType.getShape()[0] : 1;
+  int64_t oBatchDimOrig = oBatchDim;
+  if (isa<AttentionOp>(op)) {
+    int64_t splitKV = cast<AttentionOp>(op).getSplitKV();
+    if (oBatchDim % splitKV != 0)
+      return op.emitError("Batch size must be divisible by splitKV");
+
+    oBatchDim = oBatchDim / splitKV;
+  }
 
   ArrayRef<int64_t> oLastDims = oType.getShape().slice(oType.getRank() - 2);
   auto [outputSeqLen, outputHeadDim] =
@@ -2278,7 +2288,7 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
     if (lseType.getShape().size() != 2) {
       return op.emitError("Number of dimensions is not two (LSE)");
     }
-    if (lseType.getShape()[0] != oBatchDim) {
+    if (lseType.getShape()[0] != oBatchDimOrig) {
       return op.emitError("Batch dimensions do not match (LSE and Output)");
     }
     if (lseType.getShape()[1] != queryM) {
@@ -2455,6 +2465,12 @@ SmallVector<mlir::Type> AttentionOp::getTypesForFeature() {
 }
 
 LogicalResult AttentionOp::verify() {
+  if (getSplitKV() != 1 && !getLse())
+    return emitError("Flash decoding needs LSE output");
+
+  if (getSplitKV() <= 0)
+    return emitError("Negative or zero split-kv does not make sense");
+
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse());
 }
 
