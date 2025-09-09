@@ -2,13 +2,9 @@ name: Python Lint and Format Check
 
 on:
   push:
-    branches:
-      - main
-      - 'releases/**'
+    branches: [develop]
   pull_request:
-    branches:
-      - main
-      - 'releases/**'
+    branches: [develop]
 
 jobs:
   lint-and-format:
