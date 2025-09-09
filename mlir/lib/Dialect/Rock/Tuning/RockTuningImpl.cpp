@@ -773,6 +773,8 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
       problemOS << "true" << sep;
     else
       problemOS << "false" << sep;
+
+    problemOS << "-split_kv " << attentionOp.getSplitKV() << sep;
   }
 
   if (!isConvGemm)
