@@ -233,3 +233,34 @@ LogicalResult mlir::rock::testFusionLegalityReduce(ModuleOp mod) {
   func::FuncOp func = *(funcs.begin());
   return testFusionLegalityReduce(func);
 }
+
+LogicalResult mlir::rock::testFusionLegalityBwdDataConv(func::FuncOp func) {
+  // For a BwdDataConv op to be fusible it needs to either be marked with
+  // v4r1=false, or if that's not the case, then it needs to be the only
+  // fusible op in the func/kernel.
+  int numFusibleOps = 0;
+  bool usesV4R1 = true;
+  func.walk([&](Operation *op) -> WalkResult {
+    if (auto bwdData = dyn_cast<rock::ConvBwdDataOp>(op)) {
+      usesV4R1 = bwdData.getUsesV4R1();
+      numFusibleOps++;
+    } else if (op->hasTrait<OpTrait::rock::FusionRoot>() ||
+                isa<linalg::GenericOp>(op)) {
+      // Check if the op has a RockFusionRoot trait, or is a linalg.generic
+      numFusibleOps++;
+    }
+    return WalkResult::advance();
+  });
+
+  return success(!(usesV4R1 && numFusibleOps > 1));
+}
+
+LogicalResult mlir::rock::testFusionLegalityBwdDataConv(ModuleOp mod) {
+  auto funcs = mod.getOps<func::FuncOp>();
+  assert(std::distance(funcs.begin(), funcs.end()) == 1 &&
+         "expected ModuleOp containing a single func::FuncOp");
+  func::FuncOp func = *(funcs.begin());
+  return testFusionLegalityBwdDataConv(func);
+}
+
+
