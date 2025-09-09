@@ -240,16 +240,21 @@ LogicalResult mlir::rock::testFusionLegalityBwdDataConv(func::FuncOp func) {
   // fusible op in the func/kernel.
   int numFusibleOps = 0;
   bool usesV4R1 = true;
+  bool hasBwdDataConv = false;
   func.walk([&](Operation *op) -> WalkResult {
     if (auto bwdData = dyn_cast<rock::ConvBwdDataOp>(op)) {
       usesV4R1 = bwdData.getUsesV4R1();
       numFusibleOps++;
+      hasBwdDataConv = true;
     } else if (isa<linalg::GenericOp>(op)) {
       // Check if the op is a linalg.generic
       numFusibleOps++;
     }
     return WalkResult::advance();
   });
+
+  if (!hasBwdDataConv)
+    return success();
 
   return success(!(usesV4R1 && numFusibleOps > 1));
 }
