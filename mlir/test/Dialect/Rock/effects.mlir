@@ -275,7 +275,8 @@ func.func @rock_gridwise_attn(%arg0: memref<1x384x64xf32>,
     params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
-    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>,
+    splitKV = 1 : i32
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }
@@ -342,7 +343,8 @@ func.func @rock_attention(%arg0: memref<1x64x1024xf32>,
   } { 
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIndices = array<i64: 0>
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 1 : i32
   }
   return
 }
