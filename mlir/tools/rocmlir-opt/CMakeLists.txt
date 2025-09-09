@@ -22,6 +22,10 @@ set(LIBS
   MLIRMHALPipeline
   )
 
+if(MLIR_INCLUDE_TESTS)
+  list(APPEND LIBS MLIRTestIR)
+endif()
+
 set(disable_install "")
 if (BUILD_FAT_LIBROCKCOMPILER)
   set(disable_install "DISABLE_INSTALL")
