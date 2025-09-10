@@ -521,7 +521,7 @@ def MIGraphX_QuantDotOp :
 }
 
 def MIGraphX_DotOp :
-    MIGraphX_DotOpBase<"dot", [F32, F16, BF16], [F32, F16, BF16]>{
+    MIGraphX_DotOpBase<"dot", [F32, F16, BF16, F4E2M1FN], [F32, F16, BF16]>{
   let summary = "Dot product of tensors";
   let description = [{
     The `migraphx.dot` op computes the dot product of two tensors.
