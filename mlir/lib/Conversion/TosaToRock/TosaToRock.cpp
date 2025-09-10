@@ -326,7 +326,8 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   Operation *cop = nullptr;
   if (convKind == "bwd_data") {
     cop = rw.create<rock::ConvBwdDataOp>(
-        loc, output.getType(), filter, input, output,
+        loc, convFields.outputExp.getType(), convFields.filterExp,
+        convFields.inputExp, convFields.outputExp,
         /*features=*/nullptr,
         /*blockSize=*/nullptr,
         /*gridSize=*/nullptr, rw.getIndexArrayAttr(pad),

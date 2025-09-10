@@ -738,7 +738,7 @@ Type ConvBwdWeightOp::getCType() {
 
 OpOperand *ConvOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
-OpOperand *ConvBwdDataOp::getOutArgument() { return &(*this)->getOpOperand(1); }
+OpOperand *ConvBwdDataOp::getOutArgument() { return &(*this)->getOpOperand(2); }
 
 OpOperand *ConvBwdWeightOp::getOutArgument() {
   return &(*this)->getOpOperand(0);
