@@ -332,7 +332,7 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
         /*blockSize=*/nullptr,
         /*gridSize=*/nullptr, rw.getIndexArrayAttr(pad),
         rw.getIndexArrayAttr(stride), rw.getIndexArrayAttr(dilation),
-        /*params=*/nullptr, rw.getI64IntegerAttr(kernelID),
+        /*params=*/nullptr, rw.getIndexAttr(kernelID),
         /*usesV4R1=*/rw.getBoolAttr(false));
   } else {
     // Handle forwards convolution
