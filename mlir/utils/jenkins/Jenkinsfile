@@ -944,6 +944,8 @@ pipeline {
                                                     stage("Parameter Sweep") {
                                                         parameterSweep("conv_structure", "${CODEPATH}")
                                                         parameterSweep("perf_config", "${CODEPATH}")
+                                                        // attention_config is dummy value used to match with the function signature
+                                                        parameterSweep("attention_config", "attention")
                                                     }
                                                 }
                                             }
@@ -959,29 +961,6 @@ pipeline {
                                 )
                             }
                         }
-                    }
-                    stage("Parameter Sweep") {
-                        steps {
-                            script {
-                                def argsForThisNode = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
-                                echo "Running Docker with: ${argsForThisNode}"
-
-                                // Run a docker container
-                                def img = docker.image(dockerImage())
-                                def pulled = img?.pull()
-                                img.inside(argsForThisNode) {
-                                    // Set env. variables manually cause we use a Docker agent after a Node agent and Jenkins freaks out and sets some env. variables as null 
-                                    withEnv([
-                                        "HOME=${env.WORKSPACE}"
-                                    ]) {
-                                        parameterSweep("conv_structure")
-                                        parameterSweep("perf_config")
-                                        // attention_config is dummy value used to match with the function signature
-                                        parameterSweep("attention_config", "attention")
-                                    }
-                                }
-                            }
-                        }       
                     }
                 }
                 post {
