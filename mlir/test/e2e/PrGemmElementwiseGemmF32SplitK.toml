@@ -1,0 +1,40 @@
+directory = "PrGemmElementwiseGemmF32SplitK"
+prefix = "rocmlir-gen"
+suffix = "--operation gemm_gemm -t f32 --arch %arch -pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "transA"
+values = ["true", "false"]
+prefix = "--transA="
+
+[[axis]]
+name = "transB"
+values = ["true", "false"]
+prefix = "--transB="
+
+[[axis]]
+name = "transC"
+values = ["true", "false"]
+prefix = "--transC="
+
+[[axis]]
+name = "transO"
+values = ["true", "false"]
+prefix = "--transO="
+
+[[axis]]
+name = "splitKFactor"
+values = ["attn:v2:64,128,32,16,32,16,4,3,1,2,1",
+          "attn:v2:64,128,32,16,32,16,4,8,1,2,1",
+          "attn:v2:32,128,32,32,32,16,8,4,1,2,1"]
+prefix = "-perf_config="
+
+## gemm+gemm split-k variant
+[[suite]]
+name = "pr_gemm_gemm_f32_splitk"
+
+[[suite.test]]
+config = "-m 384 -n 384 -k 128 -gemmO 128"
+
+[[suite.test]]
+config = "-m 64 -n 64 -k 128 -gemmO 128"
