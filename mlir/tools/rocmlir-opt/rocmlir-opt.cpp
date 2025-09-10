@@ -19,6 +19,7 @@ using namespace mlir;
 
 // In test directory, no header file
 namespace mlir {
+void registerSideEffectTestPasses();
 namespace rock {
 void registerCollapseContiguousMergesTestPass();
 void registerVectorizationInferenceTestPass();
@@ -37,6 +38,7 @@ void registerRockTestPasses() {
   rock::registerBufferDependencyAnalysisTestPass();
   rock::registerFusibilityTestPass();
   rock::registerTransformMapsUtilsTestPass();
+  registerSideEffectTestPasses();
 }
 #endif
 
