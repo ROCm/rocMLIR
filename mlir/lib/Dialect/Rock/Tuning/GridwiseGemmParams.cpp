@@ -89,7 +89,10 @@ GemmSize mlir::rock::calculatePaddedGemmSize(const InitParams &params,
 }
 
 std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
-                                                    GemmSize gemmSize) {
+                                                    GemmSize gemmSize,
+                                                    int64_t mulByKPerBlock,
+                                                    int64_t mulByMPerBlock,
+                                                    int64_t mulByNPerBlock) {
   int64_t kPerBlock, mPerBlock, nPerBlock;
   int64_t kPack = 1;
   if (auto generalParams = dyn_cast<GeneralGemmParamsAttr>(params)) {
@@ -105,7 +108,9 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
   } else {
     llvm_unreachable("The tuning paramaters are general or xdlops");
   }
-  return calculatePadding(kPerBlock, mPerBlock, nPerBlock, gemmSize, kPack);
+  return calculatePadding(kPerBlock * mulByKPerBlock,
+                          mPerBlock * mulByMPerBlock,
+                          nPerBlock * mulByNPerBlock, gemmSize, kPack);
 }
 
 int64_t mlir::rock::obtainBlockSize(int64_t waveSize, int64_t mPerBlock,

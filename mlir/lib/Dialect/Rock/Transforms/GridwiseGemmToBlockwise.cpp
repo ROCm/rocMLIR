@@ -1855,17 +1855,16 @@ struct GridwiseAttentionAccelRewritePattern
     return viewBuilder.get();
   }
 
-  std::tuple<LoopLikeOpInterface, Value, Value>
-  getMLoop(PatternRewriter &rewriter, Location loc,
-           layout::GridCoordinates gridCoordsGemm0LoadCurrSeqLen,
-           Value currentSeqLenTensor, int64_t gemm0MBlocks,
-           int64_t gemm0MPerBlock, int64_t gemm0NPerBlock, bool isCausal,
-           bool isKVCache) const {
-
-    LoopLikeOpInterface mLoopOp;
+  std::tuple<Value, Value, Value, Value>
+  getMLoopInfo(PatternRewriter &rewriter, Location loc,
+               layout::AttnGridCoordinates gridCoordsGemm0,
+               Value currentSeqLenTensor, int64_t gemm0M,
+               int64_t gemm0MPerBlock, int64_t gemm0NPerBlock, int64_t splitKV,
+               bool isCausal, bool isKVCache) const {
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
-    Value effectiveSeqLen; // min(currentSeqLen, causalMaskingOut)
+    Value effectiveSeqLen;
+    Value start, end;
     // This is needed for KV Cache/Causal masking support
     if (isCausal || isKVCache) {
       Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
@@ -1898,7 +1897,7 @@ struct GridwiseAttentionAccelRewritePattern
             /*dynamicValidities=*/ValueRange{},
             /*extraViews=*/rewriter.getArrayAttr({}),
             /*extraIndices=*/
-            ValueRange{gridCoordsGemm0LoadCurrSeqLen.g_block}, true, true);
+            ValueRange{gridCoordsGemm0.g_block}, true, true);
 
         // load from registers
         Value currentSeqLenValue =
@@ -1909,36 +1908,137 @@ struct GridwiseAttentionAccelRewritePattern
         effectiveSeqLen = currentSeqLen;
       }
       if (isCausal) {
-        // get max n for block
-        Value nIndex = gridCoordsGemm0LoadCurrSeqLen.n_block;
+        // this computes the maximum n of the block
+        Value nIndex = gridCoordsGemm0.n_block;
         Value constGemm0NPerBlock =
             rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0NPerBlock);
         Value maxRowOfBlock =
             arith::MulIOp::create(rewriter, loc, nIndex, constGemm0NPerBlock);
 
+        // if effectiveSeqLen is set, it means KV Cache is enabled,
+        // so we need to take the minimum of currentSeqLen and maxRowOfBlock
         if (effectiveSeqLen)
           maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, currentSeqLen,
-                                                 maxRowOfBlock);
-
+                                                          maxRowOfBlock);
         effectiveSeqLen = maxRowOfBlock;
       }
 
+      // compute end index
       Value constGemm0MPerBlock =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MPerBlock);
       Value numerator = arith::AddIOp::create(rewriter, loc, effectiveSeqLen,
-                                              constGemm0MPerBlock);
-      Value gemm0MBlocksEarlyExit = rewriter.createOrFold<arith::DivUIOp>(
-          loc, numerator, constGemm0MPerBlock);
+                                                       constGemm0MPerBlock);
+      end = rewriter.createOrFold<arith::DivUIOp>(loc, numerator,
+                                                  constGemm0MPerBlock);
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
-      gemm0MBlocksLastIter =
-          rewriter.createOrFold<arith::SubIOp>(loc, gemm0MBlocksEarlyExit, one);
 
-      mLoopOp =
-          scf::ForOp::create(rewriter, loc, zero, gemm0MBlocksEarlyExit, one);
-    } else {
-      mLoopOp = affine::AffineForOp::create(rewriter, loc, 0, gemm0MBlocks, 1);
+      // start index is zero unless split-kv is enabled
+      start = zero;
+      if (splitKV != 1) {
+        // here, "end" now means number of iterations in total, we need to split
+        // those iterations into split-kv blocks.
+        // see runEarlyExit() for details about early exit.
+        Value constSplitKV =
+            rewriter.createOrFold<arith::ConstantIndexOp>(loc, splitKV);
+        Value constSplitKVM1 =
+            rewriter.createOrFold<arith::ConstantIndexOp>(loc, splitKV - 1);
+        Value numerator =
+            rewriter.create<arith::AddIOp>(loc, end, constSplitKVM1);
+        Value gemm0MIterations =
+            rewriter.createOrFold<arith::DivUIOp>(loc, numerator, constSplitKV);
+
+        // if split-kv is enabled, we need to compute the start and end indices.
+        start = arith::MulIOp::create(rewriter, loc, gridCoordsGemm0.split_block,
+                                       gemm0MIterations);
+        Value splitPlusOne = arith::AddIOp::create(rewriter, loc,
+                                                    gridCoordsGemm0.split_block, one);
+        Value endSplitKV = arith::MulIOp::create(rewriter, loc, splitPlusOne,
+                                                  gemm0MIterations);
+        end = rewriter.create<arith::MinUIOp>(loc, end, endSplitKV);
+      }
+      // compute last iteration of the block, this will be used later in
+      // setGemm0OutputOutOfScope()
+      gemm0MBlocksLastIter =
+          rewriter.createOrFold<arith::SubIOp>(loc, end, one);
+    } else if (splitKV != 1) {
+      // if split-kv is enabled, we need to compute the start and end indices.
+      // this is the code for the case where kv-cache and causal are not
+      // enabled. the logic is easier, but note that some blocks will early
+      // exit, see runEarlyExit() for details.
+      Value gemm0MIterations = rewriter.createOrFold<arith::ConstantIndexOp>(
+          loc, gemm0M / (gemm0MPerBlock * splitKV));
+      Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
+      start = rewriter.create<arith::MulIOp>(loc, gridCoordsGemm0.split_block,
+                                             gemm0MIterations);
+      Value splitPlusOne =
+          arith::AddIOp::create(rewriter, loc, gridCoordsGemm0.split_block, one);
+      end = arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
     }
-    return std::make_tuple(mLoopOp, gemm0MBlocksLastIter, currentSeqLen);
+    return std::make_tuple(start, end, gemm0MBlocksLastIter, currentSeqLen);
+  }
+
+  LoopLikeOpInterface createMLoop(PatternRewriter &rewriter, Location loc,
+                                  Value start, Value end, int64_t gemm0M,
+                                  int64_t gemm0MPerBlock,
+                                  bool dynamicMLoop) const {
+    LoopLikeOpInterface mLoopOp;
+    if (dynamicMLoop) {
+      Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
+      mLoopOp = rewriter.create<scf::ForOp>(loc, start, end, one);
+    } else {
+      int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
+      mLoopOp = rewriter.create<affine::AffineForOp>(loc, 0, gemm0MBlocks, 1);
+    }
+    return mLoopOp;
+  }
+
+  void runEarlyExit(PatternRewriter &rewriter, Location loc, Value start,
+                    Value end, int64_t splitKV, int64_t gemm0MPerBlock,
+                    std::optional<APInt> prePadG0M, bool isCausal,
+                    bool isKVCache) const {
+    // we need to do early exit if (1) and (2 || 3) conditions are true:
+    // 1. split-kv > 1
+    // 2. there's padding in gemm0M && (at least) the last block in split-kv
+    // dimension has nothing to do
+    // 3. (kvcache || causal) && (end <= start)
+    if (splitKV == 1)
+      return;
+
+    // condition 2: some padding in gemm0M
+    // if prePadM < gemm0MPerBlock, then, the last block has some work to do
+    bool earlyExitDueToPadding =
+        prePadG0M.has_value() &&
+        (prePadG0M.value().getSExtValue() >= gemm0MPerBlock);
+    // condition 3: causal or kvcache
+    bool earlyExitDueToCausalOrKVCache = isCausal || isKVCache;
+
+    if (!earlyExitDueToPadding && !earlyExitDueToCausalOrKVCache)
+      return;
+
+    Value someWorkToDo;
+    // for dynamic kernels, no need to check padding condition. start/end checks
+    // can handle padding as well.
+    if (earlyExitDueToCausalOrKVCache) {
+      // if end is less than (or equal) start, then we can early exit the split
+      // KV loop.
+      someWorkToDo = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::ugt, end, start);
+    } else if (earlyExitDueToPadding) {
+      Value constGemm0MPerBlock =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MPerBlock);
+      Value prePadMValue = rewriter.createOrFold<arith::ConstantIndexOp>(
+          loc, prePadG0M.value().getSExtValue());
+      Value startIteration =
+          rewriter.create<arith::MulIOp>(loc, start, constGemm0MPerBlock);
+
+      // if startIteration is less than (or equal) prePadMValue, then we can
+      // early exit the split KV loop.
+      someWorkToDo = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::ult, startIteration, prePadMValue);
+    }
+    scf::IfOp ifb = rewriter.create<scf::IfOp>(loc, someWorkToDo,
+                                               /*withElseRegion=*/false);
+    rewriter.setInsertionPointToStart(&ifb.getThenRegion().front());
   }
 
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
@@ -1973,6 +2073,7 @@ struct GridwiseAttentionAccelRewritePattern
     TypedValue<MemRefType> currentSeqLenTensor = op.getCurrentSeqLen();
     bool isKVCache = currentSeqLenTensor != nullptr;
     bool isCausal = op.getCausal();
+    int64_t splitKV = op.getSplitKV();
 
     // Gemm0 out is casted to be softmaxType (if null, it's casted to elemTypeV)
     Type elemTypeSoftmax = op.getSoftmaxType().value_or(elemTypeV);
@@ -2265,6 +2366,29 @@ struct GridwiseAttentionAccelRewritePattern
       }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
     }
+
+    // if splitKV == 1, we define nullptr, and makeGxNGridLayout() will use
+    // fewer instructions
+    Value splitKVConst =
+        (splitKV > 1) ? rewriter.createOrFold<ConstantIndexOp>(loc, splitKV)
+                      : nullptr;
+    auto gridCoordsGemm0mIter0 = layout::makeGxNGridLayout(
+        rewriter, loc, bid,
+        rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0), gemm0NBlocks,
+        gridSize, arch, splitKVConst);
+
+    Value gemm0MBlocksLastIter;
+    Value currentSeqLen;
+    Value start, end;
+    // get mLoop
+    std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen) = getMLoopInfo(
+        rewriter, loc, gridCoordsGemm0mIter0, currentSeqLenTensor, gemm0M,
+        gemm0MPerBlock, gemm0NPerBlock, splitKV, isCausal, isKVCache);
+
+    // early exist if there is no work to do for this block
+    runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
+                 op.getPrePadG0M(), isCausal, isKVCache);
+
     // If gemm0K is equal to gemm0KPerBlock that means
     // effectively there is no K loop. Therefore, we
     // can prefetch the Q tile into regs outside of the
@@ -2278,7 +2402,7 @@ struct GridwiseAttentionAccelRewritePattern
       // it is fine m iteration to be zero as it irrelevant to Q tensor
       // as the first gemm is Kt x Qt.
       auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
-          rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch);
+          rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch, splitKVConst);
 
       if (doBypassLDSForQ) {
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
@@ -2315,24 +2439,15 @@ struct GridwiseAttentionAccelRewritePattern
     }
 
     // TODO: figure out if this feature is used
+    bool dynamicMLoop = splitKV != 1 || isCausal || isKVCache;
     bool isReverseGrid = succeeded(rock::getReverseGrid(op));
-    if (isReverseGrid && (isCausal || isKVCache)) {
-      return op.emitError(
-          "reverse grid is not compatible with causal or currentSeqLen\n");
+    if (isReverseGrid && dynamicMLoop) {
+      return op.emitError("reverse grid is not compatible with causal or "
+                          "currentSeqLen or splitKV\n");
     }
 
-    auto gridCoordsGemm0mIter0 = layout::makeGxNGridLayout(
-        rewriter, loc, bid,
-        rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0), gemm0NBlocks,
-        gridSize, arch);
-
-    LoopLikeOpInterface mLoopOp;
-    Value gemm0MBlocksLastIter;
-    Value currentSeqLen;
-    // get mLoop
-    std::tie(mLoopOp, gemm0MBlocksLastIter, currentSeqLen) = getMLoop(
-        rewriter, loc, gridCoordsGemm0mIter0, currentSeqLenTensor, gemm0MBlocks,
-        gemm0MPerBlock, gemm0NPerBlock, isCausal, isKVCache);
+    LoopLikeOpInterface mLoopOp = createMLoop(rewriter, loc, start, end, gemm0M,
+                                              gemm0MPerBlock, dynamicMLoop);
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       // workaround for mLoopOp.getBody()
@@ -2350,8 +2465,9 @@ struct GridwiseAttentionAccelRewritePattern
             loc, reverseMap, ValueRange{mLoopIV, mIterationsGemm0Val});
       }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-      layout::GridCoordinates gridCoordsGemm0 = layout::makeGxNGridLayout(
-          rewriter, loc, bid, mLoopIV, gemm0NBlocks, gridSize, arch);
+      auto gridCoordsGemm0 =
+          layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks,
+                                    gridSize, arch, splitKVConst);
       affine::AffineForOp kLoopOp =
           affine::AffineForOp::create(rewriter, loc, 0, kIterationsGemm0, 1);
       {
@@ -2644,7 +2760,8 @@ struct GridwiseAttentionAccelRewritePattern
             }
           }
           auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-              rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks, gridSize, arch);
+              rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks, gridSize, arch,
+              splitKVConst);
 
           Value ldsByteBufferV = createLDSByteBuffer(
               rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
@@ -2803,6 +2920,9 @@ struct GridwiseAttentionAccelRewritePattern
         prependUpperViews(rewriter, rewriter.getArrayAttr({flatToMiterMap}),
                           gemm1OutSubTileViews.gridSubTile);
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
+
+    // Note that we don't use splitKV here because that dimension belongs to the
+    // batch size already for output tensors
     auto gridCoordsGemm1 = layout::makeGxNGridLayout(
         rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch);
     Value outAccBufferOutTypedFlat =

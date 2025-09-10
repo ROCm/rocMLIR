@@ -99,37 +99,20 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
   // Group together the workgroups in g_block
   Value groupId = DivUIOp::create(b, loc, bid, blocksPerGroup);
   Value firstBidM = MulIOp::create(b, loc, groupId, mBlocksPerGroup);
-  Value thisMBlocksPerGroup = MinUIOp::create(
-      b, loc, SubIOp::create(b, loc, mBlocksValue, firstBidM), mBlocksPerGroup);
-  Value m_block = AddIOp::create(
-      b, loc, firstBidM, RemUIOp::create(b, loc, bid, thisMBlocksPerGroup));
-  Value n_block =
-      DivUIOp::create(b, loc, RemUIOp::create(b, loc, bid, blocksPerGroup),
-                      thisMBlocksPerGroup);
+  Value thisMBlocksPerGroup = MinUIOp::create(b, 
+      loc, SubIOp::create(b, loc, mBlocksValue, firstBidM), mBlocksPerGroup);
+  Value m_block = AddIOp::create(b, 
+      loc, firstBidM, RemUIOp::create(b, loc, bid, thisMBlocksPerGroup));
+  Value n_block = DivUIOp::create(b, 
+      loc, RemUIOp::create(b, loc, bid, blocksPerGroup), thisMBlocksPerGroup);
+  // no need to get splitKFactor here
   return {g_block, m_block, n_block};
 }
 
-GridCoordinates rock::layout::makeGxMxNGridLayout(PatternRewriter &b,
-                                                  Location loc, Value bid,
-                                                  GridLayoutInfo info) {
-  Value g1MxNBlockCountVal =
-      b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
-  Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, info.nBlocks);
-  Value gBlockIdx = arith::DivUIOp::create(b, loc, bid, g1MxNBlockCountVal);
-  Value nonGBlockIdx = arith::RemUIOp::create(b, loc, bid, g1MxNBlockCountVal);
-  Value mBlockIdx =
-      arith::DivUIOp::create(b, loc, nonGBlockIdx, g1NBlockCountVal);
-  Value nBlockIdx =
-      arith::RemUIOp::create(b, loc, nonGBlockIdx, g1NBlockCountVal);
-
-  return {gBlockIdx, mBlockIdx, nBlockIdx};
-}
-
-GridCoordinates rock::layout::makeGxNGridLayout(PatternRewriter &b,
-                                                Location loc, Value bid,
-                                                Value mIter, int64_t nBlocks,
-                                                int64_t gridSize,
-                                                StringRef arch) {
+AttnGridCoordinates
+rock::layout::makeGxNGridLayout(PatternRewriter &b, Location loc, Value bid,
+                                Value mIter, int64_t nBlocks, int64_t gridSize,
+                                StringRef arch, Value splitKV) {
   // Currently the firmware will launch workgroups
   // in a round-robin fashion to each chiplet. However
   // we would want a group (>=1) of chiplets to perform
@@ -143,9 +126,20 @@ GridCoordinates rock::layout::makeGxNGridLayout(PatternRewriter &b,
     int64_t numChipletsPerGroup = std::ceil(numChiplets / 2);
     bid = rearrangeWorkgroupsForXCC(loc, b, bid, gridSize, numChipletsPerGroup);
   }
-
   Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, nBlocks);
-  Value gBlockIdx = arith::DivUIOp::create(b, loc, bid, g1NBlockCountVal);
-  Value nBlockIdx = arith::RemUIOp::create(b, loc, bid, g1NBlockCountVal);
-  return {gBlockIdx, mIter, nBlockIdx};
+
+  Value gBlockIdx, nBlockIdx, splitKVIdx;
+  if (splitKV) {
+    Value noGSize = arith::MulIOp::create(b, loc, splitKV, g1NBlockCountVal);
+    gBlockIdx = arith::DivUIOp::create(b, loc, bid, noGSize);
+    nBlockIdx = arith::RemUIOp::create(b, loc, bid, g1NBlockCountVal);
+    Value outerIdx = arith::DivUIOp::create(b, loc, bid, g1NBlockCountVal);
+    splitKVIdx = arith::RemUIOp::create(b, loc, outerIdx, splitKV);
+  } else {
+    gBlockIdx = arith::DivUIOp::create(b, loc, bid, g1NBlockCountVal);
+    nBlockIdx = arith::RemUIOp::create(b, loc, bid, g1NBlockCountVal);
+    splitKVIdx = nullptr;
+  }
+  // braces for init of the base class: GridCoordinates
+  return {{gBlockIdx, mIter, nBlockIdx}, splitKVIdx};
 }
