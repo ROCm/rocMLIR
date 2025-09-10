@@ -2920,7 +2920,7 @@ struct GridwiseAttentionAccelRewritePattern
         loc, outAccBufferOutTypedFlat, trOut, outGridSubTile,
         /*extraIndices=*/
         ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
-        rock::StoreMethod::Set, forceUnroll,
+        op.getStoreMethod(), forceUnroll,
         /*useIndexDiffs=*/true);
 
     // store LSE to device memory

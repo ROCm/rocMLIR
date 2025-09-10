@@ -3123,7 +3123,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       currentSeqLenTensor, output, lse, transposeQ, transposeK, transposeV,
       transposeO, causalMasking, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
-      softmaxType,
+      storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,
       /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
@@ -3259,7 +3259,7 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       loc, TypeRange{}, filter, input, c, elemwiseInputs, output, transposeC,
       transposeO,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
-      builder.getIndexArrayAttr(pad),
+      storeMethod, builder.getIndexArrayAttr(pad),
       builder.getIndexArrayAttr(config->strideDims),
       builder.getIndexArrayAttr(config->dilationDims),
       /*params0=*/nullptr, /*params1=*/nullptr,
@@ -3307,6 +3307,11 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                             inputLayoutSpec.begin(), inputLayoutSpec.end())));
 
   builder.create<func::ReturnOp>(loc);
+
+  if (!disableSplitKForTuning)
+    func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
+                  builder.getUnitAttr());
+
   module.push_back(func);
   return func;
 }
@@ -3363,6 +3368,7 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA, transposeB,
       transposeC, transposeO,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
+      storeMethod,
       /*params0=*/nullptr, /*params1=*/nullptr,
       /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
@@ -3393,6 +3399,11 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                           builder.getStringAttr(params.perfConfig));
 
   builder.create<func::ReturnOp>(loc);
+
+  if (!disableSplitKForTuning)
+    func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
+                  builder.getUnitAttr());
+
   module.push_back(func);
   return func;
 }
@@ -4639,10 +4650,11 @@ static LogicalResult populateHostHarnessLogic(
   bool gpuValidation = validationType == "gpu" &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
-  bool isSplitK =
-      (genParams.perfConfig.empty())
-          ? false
-          : rock::isSplitKRequested(genParams.features, genParams.perfConfig);
+  bool isSplitK = (genParams.perfConfig.empty())
+                      ? false
+                      : rock::isSplitKRequested(
+                            genParams.features,
+                            StringAttr::get(context, genParams.perfConfig));
 
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
