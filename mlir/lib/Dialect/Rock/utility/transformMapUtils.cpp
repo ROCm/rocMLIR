@@ -2615,8 +2615,11 @@ mlir::rock::getStringRefsFor(ArrayRef<SmallString<8>> strings) {
 
 FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
   FailureOr<memref::AllocOp> maybeAlloc = findMemrefAlloc(transformed);
-  if (failed(maybeAlloc))
+  if (failed(maybeAlloc)) {
+    LLVM_DEBUG(llvm::dbgs()
+                   << "getGemmInputElementType: alloc op was not found\n");
     return failure();
+  }
   auto memref = maybeAlloc.value().getMemref();
 
   // find input fusion
@@ -2626,7 +2629,7 @@ FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
     if (auto genericOp = dyn_cast<linalg::GenericOp>(user)) {
       if (genericOp.getOutputs().size() != 1) {
         LLVM_DEBUG(llvm::dbgs()
-                   << "Can't process linalg.generic with multiple outputs\n");
+                   << "getGemmInputElementType: linalg.generic with multiple outputs are unsupported\n");
         return failure();
       }
       Value genericOut = genericOp.getOutputs().front();
@@ -2636,7 +2639,7 @@ FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
       } else {
         LLVM_DEBUG(
             llvm::dbgs()
-            << "Found a linalg.generic that takes as input the gemm A or B\n");
+            << "getGemmInputElementType: found a linalg.generic that takes as input the gemm A or B\n");
         return failure();
       }
     } else {
@@ -2644,7 +2647,7 @@ FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
     }
 
     if (newTransformed) {
-      LLVM_DEBUG(llvm::dbgs() << "Found multiple linalg.generic that "
+      LLVM_DEBUG(llvm::dbgs() << "getGemmInputElementType: found multiple linalg.generic that "
                                  "could be the next one\n");
       return failure();
     }
@@ -2653,12 +2656,16 @@ FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
   newTransformed = newTransformed ? newTransformed : memref;
 
   auto blockArg = findBlockArgument(newTransformed);
-  if (failed(blockArg))
+  if (failed(blockArg)) {
+    LLVM_DEBUG(llvm::dbgs() << "getGemmInputElementType: findBlockArgument failed");
     return failure();
+  }
 
   auto shapedTy = dyn_cast<ShapedType>(blockArg.value().getType());
-  if (!shapedTy)
+  if (!shapedTy) {
+    LLVM_DEBUG(llvm::dbgs() << "getGemmInputElementType: failed to get ShapedType");
     return failure();
+  }
 
   return shapedTy.getElementType();
 }
