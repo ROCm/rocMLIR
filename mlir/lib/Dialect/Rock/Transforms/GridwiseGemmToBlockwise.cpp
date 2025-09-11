@@ -156,14 +156,11 @@ static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
 // This fuction creates interrim register buffers to store data in once
 // loaded from the LDS before accelerator intrinsics are called
 static std::tuple<Value, Value, Value, Value> createRegInterrimBufferForAccel(
-    Location loc, rock::accel::AccelEmitterParams params,
+    Location loc, Type argTypeA, Type argTypeB, int64_t kBasePerThread,
     PatternRewriter &rewriter, int64_t mRepeats = 1, int64_t nRepeats = 1,
     bool directToLDS = false) {
   Value arrayA, arrayB;
   Value arrayAForLoad, arrayBForLoad;
-  Type argTypeA = params.argTypeA;
-  Type argTypeB = params.argTypeB;
-  int64_t kBasePerThread = params.kBasePerThread;
   SmallVector<int64_t, 2> aShape{kBasePerThread};
   if (mRepeats > 1) {
     aShape.insert(aShape.begin(), mRepeats);
@@ -211,6 +208,17 @@ static std::tuple<Value, Value, Value, Value> createRegInterrimBufferForAccel(
     arrayBForLoad = arrayB;
   }
   return {arrayAForLoad, arrayBForLoad, arrayA, arrayB};
+}
+
+// This fuction creates interrim register buffers to store data in once
+// loaded from the LDS before accelerator intrinsics are called
+static std::tuple<Value, Value, Value, Value> createRegInterrimBufferForAccel(
+    Location loc, rock::accel::AccelEmitterParams params,
+    PatternRewriter &rewriter, int64_t mRepeats = 1, int64_t nRepeats = 1,
+    bool directToLDS = false) {
+  return createRegInterrimBufferForAccel(loc, params.argTypeA, params.argTypeB,
+                                         params.kBasePerThread, rewriter,
+                                         mRepeats, nRepeats, directToLDS);
 }
 
 // This function creates the accumulator register buffer
@@ -270,8 +278,11 @@ static void zeroAccBuffer(PatternRewriter &rewriter, Location loc,
 }
 
 static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
-                                  int64_t bBufferBytes) {
-  int64_t ldsBytes = aBufferBytes + bBufferBytes;
+                                  int64_t bBufferBytes,
+                                  int64_t aBufferScaleBytes = 0,
+                                  int64_t bBufferScaleBytes = 0) {
+  int64_t ldsBytes =
+      aBufferBytes + bBufferBytes + aBufferScaleBytes + bBufferScaleBytes;
   // Check for arch limitations exceeded
   FailureOr<StringAttr> maybeArch = getArch(op);
   if (succeeded(maybeArch)) {
@@ -2762,6 +2773,27 @@ struct GridwiseGemmAccelRewritePattern
                                 ? elementTypeB
                                 : maybeElementTypeBLoad.value();
     auto destType = op.getC().getType().getElementType();
+    auto scaleA = op.getScaleA();
+    auto scaleB = op.getScaleB();
+    bool hasScaleA = scaleA != nullptr;
+    bool hasScaleB = scaleB != nullptr;
+    bool isScaledGemm = hasScaleA && hasScaleB;
+    auto elementTypeScaleA =
+        isScaledGemm ? scaleA.getType().getElementType() : elementTypeA;
+    auto elementTypeScaleB =
+        isScaledGemm ? scaleB.getType().getElementType() : elementTypeB;
+    auto elementTypeScaleALoad = elementTypeALoad;
+    auto elementTypeScaleBLoad = elementTypeBLoad;
+    if (isScaledGemm) {
+      auto maybeElementTypeScaleALoad = getInputFusionElementType(scaleA);
+      elementTypeScaleALoad = failed(maybeElementTypeScaleALoad)
+                                  ? elementTypeScaleA
+                                  : maybeElementTypeScaleALoad.value();
+      auto maybeElementTypeScaleBLoad = getInputFusionElementType(scaleB);
+      elementTypeScaleBLoad = failed(maybeElementTypeScaleBLoad)
+                                  ? elementTypeScaleB
+                                  : maybeElementTypeScaleBLoad.value();
+    }
 
     // Get 'features' from the op
     auto features = rock::getFeatures(op);
@@ -2923,9 +2955,19 @@ struct GridwiseGemmAccelRewritePattern
         getPackedByteSize(kpacksPerBlock * mPerBlock * kpack, elementTypeA);
     int64_t ldsBlockBSize =
         getPackedByteSize(kpacksPerBlock * nPerBlock * kpack, elementTypeB);
+    int64_t ldsBlockScaleASize =
+        hasScaleA ? getPackedByteSize(kpacksPerBlock * mPerBlock * kpack,
+                                      elementTypeScaleA)
+                  : 0;
+    int64_t ldsBlockScaleBSize =
+        hasScaleB ? getPackedByteSize(kpacksPerBlock * nPerBlock * kpack,
+                                      elementTypeScaleB)
+                  : 0;
     LLVM_DEBUG(llvm::dbgs() << "LDS block sizes (bytes): " << ldsBlockASize
-                            << " " << ldsBlockBSize << "\n");
-    if (failed(checkLDSSize(op, ldsBlockASize, ldsBlockBSize)))
+                            << " " << ldsBlockBSize << " " << ldsBlockScaleASize
+                            << " " << ldsBlockScaleBSize << "\n");
+    if (failed(checkLDSSize(op, ldsBlockASize, ldsBlockBSize,
+                            ldsBlockScaleASize, ldsBlockScaleBSize)))
       return op.emitOpError("requires too much LDS");
 
     // create matrix params
@@ -2946,17 +2988,40 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, kpacksPerBlock * mPerBlock * kpack, elementTypeA);
     Value ldsByteBufferB = createLDSByteBuffer(
         b, loc, kpacksPerBlock * nPerBlock * kpack, elementTypeB);
-
+    Value ldsByteBufferScaleA = createLDSByteBuffer(
+        b, loc,
+        hasScaleA ? getPackedByteSize(kpacksPerBlock * mPerBlock * kpack,
+                                      elementTypeScaleA)
+                  : 0,
+        elementTypeScaleA);
+    Value ldsByteBufferScaleB = createLDSByteBuffer(
+        b, loc,
+        hasScaleB ? getPackedByteSize(kpacksPerBlock * nPerBlock * kpack,
+                                      elementTypeScaleB)
+                  : 0,
+        elementTypeScaleB);
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
-    Value ldsViewForGemmA, ldsViewForGemmB;
-
+    Type ldsReadTypeScaleA = vectorTypeOrSelf(elementTypeScaleA, kpack);
+    Type ldsReadTypeScaleB = vectorTypeOrSelf(elementTypeScaleB, kpack);
+    Value ldsViewForGemmA, ldsViewForGemmB, ldsViewForGemmScaleA,
+        ldsViewForGemmScaleB;
     if (directToLDS) {
       ldsViewForGemmA = viewBufferAs(b, ldsByteBufferA, elementTypeA);
       ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, elementTypeB);
+      if (hasScaleA) {
+        op->emitOpError("Direct to LDS scaled GEMM is not supported yet.");
+        return failure();
+      }
     } else {
       ldsViewForGemmA = viewBufferAs(b, ldsByteBufferA, ldsReadTypeA);
       ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, ldsReadTypeB);
+      ldsViewForGemmScaleA =
+          hasScaleA ? viewBufferAs(b, ldsByteBufferScaleA, ldsReadTypeScaleA)
+                    : nullptr;
+      ldsViewForGemmScaleB =
+          hasScaleB ? viewBufferAs(b, ldsByteBufferScaleB, ldsReadTypeScaleB)
+                    : nullptr;
     }
 
     // TODO: add an heuristic to decide if the it should use scheduleV1 or V2.
@@ -2972,8 +3037,26 @@ struct GridwiseGemmAccelRewritePattern
             loc, params, b, doubleBuffering ? params.mRepeats : 1,
             doubleBuffering ? params.nRepeats : 1, directToLDS);
     Value regCAllocOp = createBufferForAccelGemmOut(loc, params, b);
-
     zeroAccBuffer(b, loc, regCAllocOp);
+    Value arrayScaleA, arrayScaleB, arrayScaleAForLoad, arrayScaleBForLoad;
+    if (isScaledGemm) {
+      Type argTypeScaleA = elementTypeScaleA;
+      Type argTypeScaleB = elementTypeScaleB;
+      if (VectorType argAVector = dyn_cast<VectorType>(params.argTypeA)) {
+        argTypeScaleA =
+            VectorType::get(argAVector.getNumElements(), elementTypeScaleA);
+      }
+      if (VectorType argBVector = dyn_cast<VectorType>(params.argTypeB)) {
+        argTypeScaleB =
+            VectorType::get(argBVector.getNumElements(), elementTypeScaleB);
+      }
+      std::tie(arrayScaleAForLoad, arrayScaleBForLoad, arrayScaleA,
+               arrayScaleB) =
+          createRegInterrimBufferForAccel(
+              loc, argTypeScaleA, argTypeScaleB, params.kBasePerThread, b,
+              doubleBuffering ? params.mRepeats : 1,
+              doubleBuffering ? params.nRepeats : 1, directToLDS);
+    }
 
     // Emit loop.
     Value nIterations = ConstantIndexOp::create(b, loc, K / kPerBlock);
@@ -2999,7 +3082,18 @@ struct GridwiseGemmAccelRewritePattern
                                 blockSize, elementTypeA, elementTypeALoad,
                                 op.getParamsAttr(), featuresAttr, matrixParamsA,
                                 matrixParamsB);
-
+      if (isScaledGemm) {
+        loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, tid, gridCoords,
+                                  ldsByteBufferScaleB, arrayScaleBForLoad,
+                                  loadType, "n", blockSize, elementTypeScaleB,
+                                  elementTypeBLoad, op.getParamsAttr(),
+                                  featuresAttr, matrixParamsA, matrixParamsB);
+        loadAndStoreGemmInputTile(b, loc, scaleA, /*kiter=*/iv, tid, gridCoords,
+                                  ldsByteBufferScaleA, arrayScaleAForLoad,
+                                  loadType, "m", blockSize, elementTypeScaleA,
+                                  elementTypeALoad, op.getParamsAttr(),
+                                  featuresAttr, matrixParamsA, matrixParamsB);
+      }
       // Emit blockwise GEMM. This will load data from LDS (or registers) and
       // compute the MMA at the same time
       auto stage2 = StageOp::create(b, loc, "MMA");
@@ -3010,9 +3104,9 @@ struct GridwiseGemmAccelRewritePattern
         blockwiseGemmAccel(
             b, loc, loadType, loadType, arrayA, arrayB, regCAllocOp,
             matrixParamsA, matrixParamsB, ldsViewForGemmA, ldsViewForGemmB,
-            /*scaleA=*/nullptr, /*scaleB=*/nullptr,
-            /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr, featuresAttr,
-            op.getBlockSizeAttr(), op.getParamsAttr());
+            /*scaleA=*/ldsViewForGemmScaleA, /*scaleB=*/ldsViewForGemmScaleB,
+            /*bufferScaleA=*/arrayScaleA, /*bufferScaleB=*/arrayScaleB,
+            featuresAttr, op.getBlockSizeAttr(), op.getParamsAttr());
         YieldOp::create(b, loc);
       }
     }

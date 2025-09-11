@@ -415,7 +415,9 @@ struct BlockwiseGemmAccelRewritePattern
     bool loadBFromLDS = adaptor.getMatrixB() != nullptr;
     BlockwiseMatrixParamsAttr matrixParamsA = op.getMatrixParamsA();
     BlockwiseMatrixParamsAttr matrixParamsB = op.getMatrixParamsB();
-
+    Value scaleA = adaptor.getBufferScaleA();
+    Value scaleB = adaptor.getBufferScaleB();
+    bool isScaledGemm = (scaleA != Value{} && scaleB != Value{});
     Type dataTypeA = matrixParamsA.getElementType();
     Type dataTypeB = matrixParamsB.getElementType();
 
@@ -477,6 +479,15 @@ struct BlockwiseGemmAccelRewritePattern
     if (loadBFromLDS) {
       wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
           b, loc, op.getMatrixB(), matrixParamsB, op.getBlockSize(), "n");
+    }
+    Value wrappedLDSBufferForScaleA, wrappedLDSBufferForScaleB;
+    if (isScaledGemm) {
+      assert(loadAFromLDS);
+      assert(loadBFromLDS);
+      wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
+          b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m");
+      wrappedLDSBufferForScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
+          b, loc, op.getScaleB(), matrixParamsB, op.getBlockSize(), "n");
     }
 
     auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
@@ -547,6 +558,20 @@ struct BlockwiseGemmAccelRewritePattern
                      loadAFromLDS, matrixParamsA.getDirectToLDS(), true);
       Value viewA =
           accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferA);
+      Value viewScaleA = nullptr, viewScaleB = nullptr;
+      if (isScaledGemm) {
+        if (matrixParamsA.getDirectToLDS()) {
+          llvm::errs() << "Direct to LDS scaled GEMM is not supported yet.\n";
+          return failure();
+        }
+        Value bufferScaleA = adaptor.getBufferScaleA();
+        // TODO: fix argType
+        bufferScaleA = loadBuffer(bufferScaleA, wrappedLDSBufferForScaleA, i,
+                                  argTypeA, mRepeats, loadAFromLDS,
+                                  matrixParamsA.getDirectToLDS(), true);
+        viewScaleA = accelEmitterPtr->generateThreadwiseViewBufferA(
+            b, loc, bufferScaleA);
+      }
 
       auto nLoop = affine::AffineForOp::create(b, loc, 0, nRepeats);
       {
@@ -560,6 +585,19 @@ struct BlockwiseGemmAccelRewritePattern
                        loadBFromLDS, matrixParamsB.getDirectToLDS(), false);
         Value viewB =
             accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
+        if (isScaledGemm) {
+          if (matrixParamsB.getDirectToLDS()) {
+            llvm::errs() << "Direct to LDS scaled GEMM is not supported yet.\n";
+            return failure();
+          }
+          Value bufferScaleB = adaptor.getBufferScaleB();
+          // TODO: fix argType
+          bufferScaleB = loadBuffer(bufferScaleB, wrappedLDSBufferForScaleB, j,
+                                    argTypeB, nRepeats, loadBFromLDS,
+                                    matrixParamsB.getDirectToLDS(), false);
+          viewScaleB = accelEmitterPtr->generateThreadwiseViewBufferB(
+              b, loc, bufferScaleB);
+        }
 
         // regsC += regsA * regsB
         auto kLoop = affine::AffineForOp::create(b, loc, 0, kBasePerThread);
@@ -569,10 +607,10 @@ struct BlockwiseGemmAccelRewritePattern
           Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();
-          ThreadwiseGemmAccelOp::create(b, loc, viewA, viewB, viewC,
-                                        /*scaleA=*/nullptr, /*scaleB=*/nullptr,
-                                        ValueRange{i, j, k},
-                                        op.getFeaturesAttr(), tuningParams);
+          ThreadwiseGemmAccelOp::create(
+              b, loc, viewA, viewB, viewC,
+              /*scaleA=*/viewScaleA, /*scaleB=*/viewScaleB, ValueRange{i, j, k},
+              op.getFeaturesAttr(), tuningParams);
         }
       }
     }

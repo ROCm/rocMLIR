@@ -210,7 +210,7 @@ struct ThreadwiseGemmRewritePattern
 //===----------------------------------------------------------------------===//
 // AccelGemm lowering.
 //===----------------------------------------------------------------------===//
-struct ThreadwiseAccelGemmRewritePattern
+struct ThreadwiseGemmAccelRewritePattern
     : public OpConversionPattern<ThreadwiseGemmAccelOp> {
   using OpConversionPattern<ThreadwiseGemmAccelOp>::OpConversionPattern;
 
@@ -242,16 +242,34 @@ struct ThreadwiseAccelGemmRewritePattern
     Location loc = op.getLoc();
 
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
-
+    Value bufferScaleA = adaptor.getScaleA();
+    Value bufferScaleB = adaptor.getScaleB();
+    bool isScaledGemm = (bufferScaleA != Value{} && bufferScaleB != Value{});
     auto dataTypeA =
         cast<MemRefType>(adaptor.getMatrixA().getType()).getElementType();
     auto dataTypeB =
         cast<MemRefType>(adaptor.getMatrixB().getType()).getElementType();
+    Type dataTypeScaleA, dataTypeScaleB;
+    if (isScaledGemm) {
+      dataTypeScaleA =
+          cast<MemRefType>(adaptor.getScaleA().getType()).getElementType();
+      dataTypeScaleB =
+          cast<MemRefType>(adaptor.getScaleB().getType()).getElementType();
+    }
+
     if (isa<VectorType>(dataTypeA)) {
       dataTypeA = cast<VectorType>(dataTypeA).getElementType();
     }
     if (isa<VectorType>(dataTypeB)) {
       dataTypeB = cast<VectorType>(dataTypeB).getElementType();
+    }
+    if (isScaledGemm) {
+      if (isa<VectorType>(dataTypeScaleA)) {
+        dataTypeScaleA = cast<VectorType>(dataTypeScaleA).getElementType();
+      }
+      if (isa<VectorType>(dataTypeScaleB)) {
+        dataTypeScaleB = cast<VectorType>(dataTypeScaleB).getElementType();
+      }
     }
 
     Value bufferA = adaptor.getMatrixA();
@@ -260,6 +278,11 @@ struct ThreadwiseAccelGemmRewritePattern
 
     auto bufferAShape = op.getMatrixA().getType().getShape();
     auto bufferCShape = op.getMatrixC().getType().getShape();
+    ArrayRef<int64_t> bufferAScaleShape, bufferBScaleShape;
+    if (isScaledGemm) {
+      bufferAScaleShape = op.getScaleA().getType().getShape();
+      bufferBScaleShape = op.getScaleB().getType().getShape();
+    }
 
     size_t computeIndices = op.getComputeIndices().size();
     auto emitter = rock::accel::AccelEmitter::select(
@@ -276,6 +299,16 @@ struct ThreadwiseAccelGemmRewritePattern
     rock::accel::AccelEmitterParams params = emitter->getParams();
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
+    Type argTypeScaleA = dataTypeScaleA, argTypeScaleB = dataTypeScaleB;
+    // todo : fix shapes for scaleA and scaleB
+    if (isScaledGemm && dyn_cast<VectorType>(argTypeA) &&
+        dyn_cast<VectorType>(argTypeB)) {
+      // clone shape of ArgTypeA but retain elementType of dataTypeScaleA
+      argTypeScaleA = VectorType::get(
+          cast<VectorType>(params.argTypeA).getShape(), dataTypeScaleA);
+      argTypeScaleB = VectorType::get(
+          cast<VectorType>(params.argTypeB).getShape(), dataTypeScaleB);
+    }
 
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
     SmallVector<Value, 4> startCoords(4, zeroConstantOp);
@@ -311,27 +344,79 @@ struct ThreadwiseAccelGemmRewritePattern
     auto computeBounds = SmallVector<int64_t>(computeIndices, 1);
     auto computeStride = SmallVector<int64_t>(computeBounds.size(), 1);
     auto computeStart = llvm::to_vector(op.getComputeIndices());
+    if (isScaledGemm) {
+      TransformMapAttr normalizedViewScaleA = normalizeView(
+          b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, true, {"j"});
+      TransformMapAttr normalizedViewScaleB = normalizeView(
+          b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, true, {"i"});
+      auto [rawBufferScaleA, bufferViewScaleA, sourceScaleANeeds64BitIdx] =
+          untransform(b, bufferScaleA, normalizedViewScaleA);
+      auto [rawBufferScaleB, bufferViewScaleB, sourceScaleBNeeds64BitIdx] =
+          untransform(b, bufferScaleB, normalizedViewScaleB);
+      // Emit the loop
+      auto accelLoop = TransformingForOp::create(
+          b, loc,
+          ArrayRef<ValueRange>{computeStart, computeStart, computeStart,
+                               computeStart, computeStart},
+          ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewScaleA,
+                              bufferViewScaleB, bufferViewC},
+          /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
+          /*strides=*/ArrayRef<int64_t>{1, 1, 1},
+          /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+      {
+        OpBuilder::InsertionGuard guard(b);
+        b.setInsertionPointToStart(accelLoop.getBody());
+        auto coordsA = accelLoop.getLowerCoords(/*domain=*/0);
+        auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
+        auto coordsScaleA = accelLoop.getLowerCoords(/*domain=*/2);
+        auto coordsScaleB = accelLoop.getLowerCoords(/*domain=*/3);
+        auto coordsC = accelLoop.getLowerCoords(/*domain=*/4);
 
-    // Emit the loop
-    auto accelLoop = TransformingForOp::create(
-        b, loc, ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
-        ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC},
-        /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
-        /*strides=*/ArrayRef<int64_t>{1, 1, 1},
-        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-    {
-      OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(accelLoop.getBody());
-      auto coordsA = accelLoop.getLowerCoords(/*domain=*/0);
-      auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
-      auto coordsC = accelLoop.getLowerCoords(/*domain=*/2);
+        Value argA =
+            memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
+        Value argScaleA = memref::LoadOp::create(b, loc, argTypeScaleA,
+                                                 rawBufferScaleA, coordsScaleA);
 
-      Value argA =
-          memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
-      Value argB =
-          memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
-      emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
+        if (dyn_cast<VectorType>(argScaleA.getType())) {
+          argScaleA =
+              vector::ExtractOp::create(b, loc, argScaleA, zeroConstantOp);
+        }
+
+        Value argB =
+            memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
+        Value argScaleB = memref::LoadOp::create(b, loc, argTypeScaleB,
+                                                 rawBufferScaleB, coordsScaleB);
+        if (dyn_cast<VectorType>(argScaleB.getType())) {
+          argScaleB =
+              vector::ExtractOp::create(b, loc, argScaleB, zeroConstantOp);
+        }
+        emitter->emitScaledThreadwiseLoop(b, loc, argA, argB, argScaleA,
+                                          argScaleB, rawBufferC, coordsC);
+      }
+    } else {
+      // Emit the loop
+      auto accelLoop = TransformingForOp::create(
+          b, loc,
+          ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
+          ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC},
+          /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
+          /*strides=*/ArrayRef<int64_t>{1, 1, 1},
+          /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+      {
+        OpBuilder::InsertionGuard guard(b);
+        b.setInsertionPointToStart(accelLoop.getBody());
+        auto coordsA = accelLoop.getLowerCoords(/*domain=*/0);
+        auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
+        auto coordsC = accelLoop.getLowerCoords(/*domain=*/2);
+        Value argA =
+            memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
+
+        Value argB =
+            memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
+        emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
+      }
     }
+
     b.eraseOp(op);
     return success();
   }
@@ -465,12 +550,12 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
   SmallVector<int64_t> extendedStrides(
       extraIndicesSourceSize + extraIndicesDestSize, 1);
   llvm::append_range(extendedStrides, strides);
-
+  bool forceUnroll = isa<FloatType>(elemType);
   auto copyLoop = TransformingForOp::create(
       b, loc, ArrayRef<ValueRange>{extendedStart, extendedStart},
       ArrayRef<Attribute>{copyFromView, copyToView},
       /*bounds=*/extendedBounds,
-      /*strides=*/extendedStrides, false,
+      /*strides=*/extendedStrides, /*forceUnroll=*/forceUnroll,
       /*useIndexDiffs=*/false);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
@@ -1030,7 +1115,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   target.addLegalOp<gpu::PrintfOp, ub::PoisonOp>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseAccelGemmRewritePattern>(
+  patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseGemmAccelRewritePattern>(
       ctx);
   if (failed(applyPartialConversion(op, target, std::move(patterns))))
     return signalPassFailure();

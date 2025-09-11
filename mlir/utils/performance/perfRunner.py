@@ -34,7 +34,7 @@ DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convfp8', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
-DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8']
+DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8', 'f4E2M1FN']
 DATA_TYPES_ATTENTION_WMMA = ['i8', 'f16', 'bf16']
 DATA_TYPES_ATTENTION_MFMA = ['i8', 'f32', 'f16', 'bf16']
 DATA_TYPES_GEMM_GEMM = ['f32', 'f16', 'bf16']
@@ -48,7 +48,8 @@ OUTPUT_DATA_TYPES_MAP = {
     'fp8_fp8': 'f32',
     'fp8_bf8': 'f32',
     'bf8_fp8': 'f32',
-    'bf8_bf8': 'f32'
+    'bf8_bf8': 'f32',
+    'f4E2M1FN': 'f32'
 }
 MLIR_N_REPEATS = 10
 WARMUP_ITERATIONS = 1
@@ -692,6 +693,11 @@ def get_gemm_configurations(filename,
                     continue
 
                 # Skip unsupported datatypes
+                if datatype == 'f4E2M1FN':
+                    supported_chips = {'gfx950'}
+                    if not get_chip() in supported_chips:
+                        continue
+
                 if datatype == 'fp8':
                     unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
                     if get_chip() in unsupported_chips:

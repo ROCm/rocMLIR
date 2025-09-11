@@ -647,6 +647,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
 
   Value a = adaptor.getA(), b = adaptor.getB(), c = adaptor.getC();
+  Value scaleA = adaptor.getScaleA(), scaleB = adaptor.getScaleB();
 
   MemRefType typeA = cast<MemRefType>(a.getType());
   MemRefType typeB = cast<MemRefType>(b.getType());
@@ -673,12 +674,28 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
       a = newA;
     }
   }
+  ArrayRef<int64_t> scaleAShape, scaleBShape;
 
   // Note: the gridwise ops take K x M and K x N, so A must be transposed if
   // it's in the natural M x K form
   a = normalizeMatrix(a, rw, loc, !op.getATransposed(), "gemmK", "gemmM");
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
   c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
+  aShape = cast<MemRefType>(a.getType()).getShape();
+  bShape = cast<MemRefType>(b.getType()).getShape();
+  if (scaleA && scaleB) {
+    auto scaleAType = scaleA ? cast<MemRefType>(scaleA.getType()) : nullptr;
+    auto scaleBType = scaleB ? cast<MemRefType>(scaleB.getType()) : nullptr;
+    scaleAShape = scaleAType.getShape();
+    scaleBShape = scaleBType.getShape();
+
+    bool transposeScaleA = (aShape != scaleAShape);
+    scaleA =
+        normalizeMatrix(scaleA, rw, loc, transposeScaleA, "gemmK", "gemmM");
+    bool transposeScaleB = (bShape != scaleBShape);
+    scaleB =
+        normalizeMatrix(scaleB, rw, loc, transposeScaleB, "gemmK", "gemmN");
+  }
 
   const int64_t splitKFactor = op.getParams()->getSplitKFactor();
   if (splitKFactor > 1) {
@@ -688,10 +705,9 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
       return maybeSplitk;
 
     std::tie(a, b, c) = maybeSplitk.value();
+    aShape = cast<MemRefType>(a.getType()).getShape();
+    bShape = cast<MemRefType>(b.getType()).getShape();
   }
-
-  aShape = cast<MemRefType>(a.getType()).getShape();
-  bShape = cast<MemRefType>(b.getType()).getShape();
 
   // Note, matrix dimension correctness is handled in the verifier
   GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
@@ -703,6 +719,31 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
+  if (scaleA && scaleB) {
+    scaleA =
+        padMatrix(scaleA, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
+    scaleB =
+        padMatrix(scaleB, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
+    auto scaleAType = scaleA ? cast<MemRefType>(scaleA.getType()) : nullptr;
+    auto scaleBType = scaleB ? cast<MemRefType>(scaleB.getType()) : nullptr;
+    scaleAShape = scaleAType.getShape();
+    scaleBShape = scaleBType.getShape();
+    Type f8e8m0Type = rw.getF8E8M0Type();
+    if (scaleAType.getElementType() != f8e8m0Type) {
+      MemRefType newScaleAType = MemRefType::get(scaleAShape, f8e8m0Type);
+      memref::AllocOp newScaleA =
+          memref::AllocOp::create(rw, loc, newScaleAType);
+      createTypeConversionLaGeneric(rw, loc, scaleA, newScaleA);
+      scaleA = newScaleA;
+    }
+    if (scaleBType.getElementType() != f8e8m0Type) {
+      MemRefType newScaleBType = MemRefType::get(scaleBShape, f8e8m0Type);
+      memref::AllocOp newScaleB =
+          memref::AllocOp::create(rw, loc, newScaleBType);
+      createTypeConversionLaGeneric(rw, loc, scaleB, newScaleB);
+      scaleB = newScaleB;
+    }
+  }
 
   if (failed(computeGridSize(rw, op, a, b))) {
     return op.emitError("failed to compute the grid size of `GemmOp`");
@@ -721,10 +762,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   auto accumulator = getAccumulator(a, b, c, rw, loc);
   if (isAccel) {
     GridwiseGemmAccelOp::create(
-        rw, loc, a, b, accumulator, /*aScale=*/nullptr, /*bScale=*/nullptr,
-        op.getFeaturesAttr(), op.getStoreMethodAttr(), blockSize, gridSize,
+        rw, loc, a, b, accumulator, scaleA, scaleB, op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), blockSize, gridSize,
         cast<RockAccelTuningParamAttrInterface>(params));
   } else {
+    assert(!scaleA && !scaleB &&
+           "scaling not supported for non-accelerated gemm");
     GridwiseGemmOp::create(rw, loc, a, b, accumulator, op.getFeaturesAttr(),
                            op.getStoreMethodAttr(), gridSize,
                            cast<GeneralGemmParamsAttr>(params));

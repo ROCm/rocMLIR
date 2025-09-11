@@ -111,7 +111,8 @@ struct Fp8TruncToCallPattern final : public OpConversionPattern<TruncFOp> {
 } // namespace
 
 static bool isFp8(Type t) {
-  return isa<FloatType>(t) && t.getIntOrFloatBitWidth() == 8;
+  return isa<FloatType>(t) && t.getIntOrFloatBitWidth() == 8 &&
+         !isa<Float8E8M0FNUType>(t);
 }
 
 static bool isNanooF8(Type t) {
