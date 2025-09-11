@@ -403,7 +403,7 @@ static SetVector<int64_t> traceToRes(Value expectedTensor, func::FuncOp func) {
 
 template <typename OpT>
 static LogicalResult setSplitKAttrs(OpT op, rock::GemmFeatures features,
-                                    ConversionPatternRewriter &rw) {
+                                    PatternRewriter &rw) {
   auto perfConfig = op->template getAttrOfType<StringAttr>("perf_config");
   if (perfConfig && rock::isSplitKRequested(features, perfConfig)) {
     func::FuncOp func = op->template getParentOfType<func::FuncOp>();
@@ -1232,12 +1232,23 @@ struct ConvElementwiseGemmRewritePattern
                    output, firstConv.getPadAttr(), firstConv.getStrideAttr(),
                    firstConv.getDilationAttr(), group);
     auto firstGemmBlockIndex = elementwiseRegionFinder.getFirstGemmBlockIndex();
+
+    rock::GemmFeatures featuresA =
+        getGemmFeaturesFromOp(op, convFields.filterExp.getType());
+    rock::GemmFeatures featuresC =
+        getGemmFeaturesFromOp(op, op.getB().getType());
+    rock::GemmFeatures features = intersectGemmFeatures(featuresA, featuresC);
+
+    if (failed(setSplitKAttrs(op, features, rewriter)))
+      return;
+
     auto convElentwiseGemmOp = rewriter.create<rock::ConvElementwiseGemmOp>(
         loc, outputType, convFields.filterExp, convFields.inputExp, op.getB(),
         elementwiseOtherArgs, output,
         /*cTransposed=*/nullptr,
-        /*oTransposed=*/nullptr, /*features=*/nullptr, convFields.pad,
-        convFields.stride, convFields.dilation,
+        /*oTransposed=*/nullptr, /*features=*/nullptr,
+        rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
+        convFields.pad, convFields.stride, convFields.dilation,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIndices=*/
         rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
@@ -1252,6 +1263,9 @@ struct ConvElementwiseGemmRewritePattern
       elementwiseRegionFinder.rewrite(op.getA(), rewriter,
                                       preSecondGemmElemwiseBlock, loc);
     }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      convElentwiseGemmOp->setAttr("perf_config", attr);
+
     rewriter.replaceOp(op, convElentwiseGemmOp.getResult());
   }
 
@@ -1290,6 +1304,7 @@ struct GemmElementwiseGemmRewritePattern
                const ElementwiseRegionFinder<tosa::MatMulOp> &elemwiseFinder,
                PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
+
     auto outputType = cast<RankedTensorType>(op.getType());
     Value output = rewriter.create<bufferization::AllocTensorOp>(
         loc, outputType, ValueRange{});
@@ -1298,6 +1313,16 @@ struct GemmElementwiseGemmRewritePattern
     // This is guranteed by the matcher
     tosa::MatMulOp firstMatMulOp = elemwiseFinder.getFirstGemmBasedOp().value();
     int64_t firstGemmBlockIndex = elemwiseFinder.getFirstGemmBlockIndex();
+
+    rock::GemmFeatures featuresA =
+        getGemmFeaturesFromOp(op, firstMatMulOp.getA().getType());
+    rock::GemmFeatures featuresC =
+        getGemmFeaturesFromOp(op, op.getB().getType());
+    rock::GemmFeatures features = intersectGemmFeatures(featuresA, featuresC);
+
+    if (failed(setSplitKAttrs(op, features, rewriter)))
+      return;
+
     rock::GemmElementwiseGemmOp gemmElentwiseGemmOp =
         rewriter.create<rock::GemmElementwiseGemmOp>(
             loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(),
@@ -1307,6 +1332,7 @@ struct GemmElementwiseGemmRewritePattern
             /*vTransposed=*/nullptr,
             /*oTransposed=*/nullptr,
             /*features=*/nullptr,
+            rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
             /*params0=*/nullptr, /*params1=*/nullptr,
             /*firstGemmIndices=*/
             rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
@@ -1318,6 +1344,9 @@ struct GemmElementwiseGemmRewritePattern
       elemwiseFinder.rewrite(op.getA(), rewriter, preSecondGemmElemwiseBlock,
                              loc);
     }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      gemmElentwiseGemmOp->setAttr("perf_config", attr);
+
     rewriter.replaceOp(op, gemmElentwiseGemmOp.getResult());
   }
 
@@ -2056,7 +2085,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*vTransposed=*/nullptr,
         /*oTransposed=*/nullptr, causalAttr,
         /*splitKV=*/rewriter.getI32IntegerAttr(1),
-        /*features=*/nullptr, softmaxTypeAttr,
+        /*features=*/nullptr,
+        rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
+        softmaxTypeAttr,
         /*params0=*/nullptr, /*params1=*/nullptr,
         /*firstGemmIndices=*/
         rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
@@ -2082,6 +2113,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       moveUsersAfterExpandShape(rewriter, op.getLoc(),
                                 expandedOutLse.getDefiningOp(), addOp);
     }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      attnOp->setAttr("perf_config", attr);
+
     rewriter.replaceOp(op, attnOp->getResult(0));
     if (lse) {
       rewriter.replaceOp(addOp, expandedOutLse);

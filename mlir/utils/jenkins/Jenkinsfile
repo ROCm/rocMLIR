@@ -2,6 +2,7 @@
 // used for private CI
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
+import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 
 // ConcurrentHashMap helps when we need to write variables in parallel
 // one instance for the whole run
@@ -616,6 +617,7 @@ void collectCoverageData(String profdata, String cov, String cpath) {
 
 // Run the body on a node that passes the supplied healthChecks() block
 // The health check is retried on fresh executors; the body is not retried.
+// This function also retries the main 'body' if it fails due to a recoverable node-related issue (e.g., agent disconnect).
 def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, int maxAttempts = 3) {
     def blacklist = [] // nodes and pods that already failed the check
     int attempt = 0
@@ -646,8 +648,31 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
                 // Health-check passed. Do real work
                 echo "[withHealthyNode] ✅  using ${env.NODE_NAME}"
             }
-            body()
-            done = true
+            try {
+                body()
+                // If body succeeds, we're done with the loop
+                done = true
+                
+            } catch (Exception err) {
+                def msg = "${err}".toLowerCase()
+                def isNodeFailure = msg.contains("removed or offline") || msg.contains("issue with creating launcher for agent") ||
+                                    err instanceof org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
+                
+                if (isNodeFailure) {
+                    echo "[withHealthyNode] Execution on ${env.NODE_NAME} failed due to a node-specific issue. Blacklisting the node and retrying.."
+                    echo "[withHealthyNode] Error was: ${err}"
+                    blacklist << env.NODE_NAME
+                    // return will exit the node block, and the 'while' loop will continue to the next attempt
+                    // 'done' variable is still false, so the loop continues if maxAttempts is not reached.
+                    return 
+                } else {
+                    // This is a regular build/test/whatever failure, not a node issue.
+                    echo "[withHealthyNode] Execution failed with a non-recoverable error on ${env.NODE_NAME}"
+                    echo "[withHealthyNode] Error was: ${err}"
+                    // Re-throw the exception to fail the build immediately
+                    throw err
+                }
+            }
         }
     }
 
