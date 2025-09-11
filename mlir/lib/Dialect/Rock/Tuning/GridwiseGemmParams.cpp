@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/Support/Debug.h"
@@ -565,6 +566,15 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
   ArrayRef<InitParamsAccel> params;
   if (opType == KernelType::Gemm) {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
+    case 4:
+      if (dataTypeA.isFloat()) {
+        if (arch.contains("gfx950")) {
+          params = {initParametersF4GemmGfx950, nInitParametersF4GemmGfx950};
+        } else {
+          llvm::report_fatal_error("Unsupported arch for fp8 gemm");
+        }
+      }
+      break;
     case 8:
       if (dataTypeA.isInteger()) {
         if (arch.contains("gfx908"))

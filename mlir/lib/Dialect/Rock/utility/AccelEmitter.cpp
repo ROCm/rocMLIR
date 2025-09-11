@@ -28,6 +28,7 @@
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -175,6 +176,34 @@ AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
   params.accVectorType = mfmaGroup.getRetType();
 
   return params;
+}
+
+void MfmaEmitter::emitScaledThreadwiseLoop(OpBuilder &b, Location loc,
+                                           Value argA, Value argB, Value scaleA,
+                                           Value scaleB, Value bufferC,
+                                           ValueRange regCOffset) {
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
+  auto imms = mfmaGroup.getImms();
+  int64_t nResultVectors = imms.size();
+  Value nResultVectorsConst = ConstantIndexOp::create(b, loc, nResultVectors);
+  VectorType vectorType = mfmaGroup.getRetType();
+  auto outputOffset = llvm::to_vector(regCOffset);
+  for (int64_t i = 0; i < nResultVectors; ++i) {
+    Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
+    offset = AddIOp::create(
+        b, loc, offset,
+        MulIOp::create(b, loc, outputOffset.back(), nResultVectorsConst));
+    outputOffset.back() = offset;
+    auto vectorC =
+        memref::LoadOp::create(b, loc, vectorType, bufferC, outputOffset);
+    // todo : emit scaling mfma
+    auto mfma = amdgpu::ScaledMFMAOp::create(
+        b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k, argA, argB,
+        vectorC, scaleA, scaleB, 0, 0);
+    auto vectorD = mfma.getDestD();
+    memref::StoreOp::create(b, loc, vectorD, bufferC, outputOffset);
+  }
 }
 
 void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
@@ -1062,6 +1091,13 @@ WmmaEmitter::createAccelGemmOperandTransforms(
     ret.threadSubTile = maybeThreadSubTile.value();
   }
   return ret;
+}
+
+void WmmaEmitter::emitScaledThreadwiseLoop(OpBuilder &b, Location loc,
+                                           Value argA, Value argB, Value scaleA,
+                                           Value scaleB, Value bufferC,
+                                           ValueRange regCOffset) {
+  llvm::report_fatal_error("Not implemented");
 }
 
 void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,

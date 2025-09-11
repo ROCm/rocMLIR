@@ -68,6 +68,8 @@ struct AccelEmitterParams {
 
   Type argTypeA;            // Type of the arguments (might be scalar or vector)
   Type argTypeB;            // Type of the arguments (might be scalar or vector)
+  std::optional<Type> argTypeScaleA; // Type of the scale argument for A
+  std::optional<Type> argTypeScaleB; // Type of the scale argument for B
   VectorType accVectorType; // Accumulator vector type (always vector type)
 
   // Each workitem invoking an accelerator receives as a result a given number
@@ -93,6 +95,12 @@ struct AccelEmitter {
   virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                   Value argB, Value bufferC,
                                   ValueRange regCOffset) = 0;
+
+  /// Emit the actual intrinsic in the threadwise operation
+  virtual void emitScaledThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
+                                        Value argB, Value scaleA, Value scaleB,
+                                        Value bufferC,
+                                        ValueRange regCOffset) = 0;
 
   /// Return a wrapped view of the LDS buffer tailored for the accelerator
   /// load pattern. This is similar to wrapLDSBufferForStore, but while storing
@@ -175,6 +183,10 @@ struct MfmaEmitter : public AccelEmitter {
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, ValueRange regCOffset) override;
 
+  void emitScaledThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
+                                Value argB, Value scaleA, Value scaleB,
+                                Value bufferC, ValueRange regCOffset) override;
+
   Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                              const BlockwiseMatrixParamsAttr &matrixParams,
                              int64_t blockSize, StringRef dName) const override;
@@ -219,6 +231,10 @@ struct WmmaEmitter : public AccelEmitter {
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, ValueRange regCOffset) override;
+
+  void emitScaledThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
+                                Value argB, Value scaleA, Value scaleB,
+                                Value bufferC, ValueRange regCOffset) override;
 
   Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                              const BlockwiseMatrixParamsAttr &matrixParams,
