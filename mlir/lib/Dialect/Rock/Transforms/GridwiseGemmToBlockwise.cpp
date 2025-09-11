@@ -2042,13 +2042,25 @@ struct GridwiseAttentionAccelRewritePattern
     TypedValue<MemRefType> inQ = op.getQueries();
     ArrayRef<int64_t> qShape = cast<MemRefType>(inQ.getType()).getShape();
     Type elemTypeQ = cast<MemRefType>(inQ.getType()).getElementType();
+    FailureOr<Type> maybeElemTypeQLoad = getGemmInputElementType(inQ);
+    Type elemTypeQLoad = failed(maybeElemTypeQLoad)
+                                ? elemTypeQ
+                                : maybeElemTypeQLoad.value();
 
     TypedValue<MemRefType> inK = op.getKeys();
     ArrayRef<int64_t> kShape = cast<MemRefType>(inK.getType()).getShape();
     Type elemTypeK = cast<MemRefType>(inK.getType()).getElementType();
+    FailureOr<Type> maybeElemTypeKLoad = getGemmInputElementType(inK);
+    Type elemTypeKLoad = failed(maybeElemTypeKLoad)
+                                ? elemTypeK
+                                : maybeElemTypeKLoad.value();
 
     TypedValue<MemRefType> inV = op.getValues();
     Type elemTypeV = inV.getType().getElementType();
+    FailureOr<Type> maybeElemTypeVLoad = getGemmInputElementType(inV);
+    Type elemTypeVLoad = failed(maybeElemTypeVLoad)
+                                ? elemTypeV
+                                : maybeElemTypeVLoad.value();
 
     TypedValue<MemRefType> out = op.getOut();
     Value trOut = transposeAttnOperand(rewriter, loc, out);
@@ -2123,7 +2135,7 @@ struct GridwiseAttentionAccelRewritePattern
     SmallVector<int64_t, 3> gemm0BidGridLengths = {gemm0G, gemm0MBlocks,
                                                    gemm0NBlocks};
     FailureOr<VectorDimInfo> maybeVectorDimInfoQ =
-        getVectorDim(rewriter, loc, inQ, elemTypeQ, blockSize, gemm0KPerBlock,
+        getVectorDim(rewriter, loc, inQ, elemTypeQLoad, blockSize, gemm0KPerBlock,
                      gemm0NPerBlock, gemm0kpack);
     if (failed(maybeVectorDimInfoQ)) {
       return failure();
@@ -2142,12 +2154,15 @@ struct GridwiseAttentionAccelRewritePattern
       ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
     }
     FailureOr<VectorDimInfo> maybeVectorDimInfoK =
-        getVectorDim(rewriter, loc, inK, elemTypeK, blockSize, gemm0KPerBlock,
+        getVectorDim(rewriter, loc, inK, elemTypeKLoad, blockSize, gemm0KPerBlock,
                      gemm0MPerBlock, gemm0kpack);
     if (failed(maybeVectorDimInfoK)) {
       return failure();
     }
     LLVM_DEBUG(llvm::dbgs()
+               << "elemTypeQLoad: " << elemTypeQLoad << "\n"
+               << "elemTypeKLoad: " << elemTypeKLoad << "\n"
+               << "elemTypeVLoad: " << elemTypeVLoad << "\n"
                << "qVectorDim: " << maybeVectorDimInfoQ->vectorDim << "\n"
                << "qVectorLen: " << maybeVectorDimInfoQ->vectorLen << "\n"
                << "kVectorDim: " << maybeVectorDimInfoK->vectorDim << "\n"
@@ -2278,7 +2293,7 @@ struct GridwiseAttentionAccelRewritePattern
     SmallVector<int64_t, 3> gemm1BidGridLengths = {gemm0G, gemm1MBlocks,
                                                    gemm1NBlocks};
     FailureOr<VectorDimInfo> maybeVectorDimInfoV =
-        getVectorDim(rewriter, loc, inV, elemTypeV, blockSize, gemm1KPerBlock,
+        getVectorDim(rewriter, loc, inV, elemTypeVLoad, blockSize, gemm1KPerBlock,
                      gemm1MPerBlock, gemm1kpack);
     if (failed(maybeVectorDimInfoV)) {
       return failure();
