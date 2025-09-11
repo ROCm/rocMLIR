@@ -2622,16 +2622,16 @@ mlir::rock::getStringRefsFor(ArrayRef<SmallString<8>> strings) {
 // fusion). For example, we may have a GEMM with a f16 input, which is
 // dequantized from a int4 value. In that case, this function will
 // return the int4 type.
-// 
-// To find the "real" type, the function tries to pattern match the 
+//
+// To find the "real" type, the function tries to pattern match the
 // chain of operators from the input mlir::Value to the function block
-// argument. If the pattern match succeds, the function returns the 
+// argument. If the pattern match succeds, the function returns the
 // type of the block argument, otherwise it returns failure.
 FailureOr<Type> mlir::rock::getDequantizedElementType(Value transformed) {
   FailureOr<memref::AllocOp> maybeAlloc = findMemrefAlloc(transformed);
   if (failed(maybeAlloc)) {
     LLVM_DEBUG(llvm::dbgs()
-                   << "getDequantizedElementType: alloc op was not found\n");
+               << "getDequantizedElementType: alloc op was not found\n");
     return failure();
   }
   auto memref = maybeAlloc.value().getMemref();
@@ -2642,8 +2642,8 @@ FailureOr<Type> mlir::rock::getDequantizedElementType(Value transformed) {
     Value candidate = nullptr;
     if (auto genericOp = dyn_cast<linalg::GenericOp>(user)) {
       if (genericOp.getOutputs().size() != 1) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "getDequantizedElementType: linalg.generic with multiple outputs are unsupported\n");
+        LLVM_DEBUG(llvm::dbgs() << "getDequantizedElementType: linalg.generic "
+                                   "with multiple outputs are unsupported\n");
         return failure();
       }
       Value genericOut = genericOp.getOutputs().front();
@@ -2651,9 +2651,9 @@ FailureOr<Type> mlir::rock::getDequantizedElementType(Value transformed) {
         // The input of the dequantization is always the first argument.
         candidate = genericOp.getInputs()[0];
       } else {
-        LLVM_DEBUG(
-            llvm::dbgs()
-            << "getDequantizedElementType: found a linalg.generic that takes as input the gemm A or B\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << "getDequantizedElementType: found a linalg.generic that "
+                      "takes as input the gemm A or B\n");
         return failure();
       }
     } else {
@@ -2661,8 +2661,10 @@ FailureOr<Type> mlir::rock::getDequantizedElementType(Value transformed) {
     }
 
     if (newTransformed) {
-      LLVM_DEBUG(llvm::dbgs() << "getDequantizedElementType: found multiple linalg.generic that "
-                                 "could be the next one\n");
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "getDequantizedElementType: found multiple linalg.generic that "
+             "could be the next one\n");
       return failure();
     }
     newTransformed = candidate;
@@ -2671,13 +2673,15 @@ FailureOr<Type> mlir::rock::getDequantizedElementType(Value transformed) {
 
   auto blockArg = findBlockArgument(newTransformed);
   if (failed(blockArg)) {
-    LLVM_DEBUG(llvm::dbgs() << "getDequantizedElementType: findBlockArgument failed");
+    LLVM_DEBUG(llvm::dbgs()
+               << "getDequantizedElementType: findBlockArgument failed");
     return failure();
   }
 
   auto shapedTy = dyn_cast<ShapedType>(blockArg.value().getType());
   if (!shapedTy) {
-    LLVM_DEBUG(llvm::dbgs() << "getDequantizedElementType: failed to get ShapedType");
+    LLVM_DEBUG(llvm::dbgs()
+               << "getDequantizedElementType: failed to get ShapedType");
     return failure();
   }
 
