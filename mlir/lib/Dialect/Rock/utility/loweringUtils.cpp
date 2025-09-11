@@ -21,6 +21,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -832,8 +833,11 @@ static void traceAlloc(memref::AllocOp buffer,
       if (writerOperand && readerOperand != writerOperand &&
           isa<MemoryEffects::Write>(effect.getEffect())) {
         Value writerOperandValue = writerOperand->get();
-        if (auto arg = dyn_cast<BlockArgument>(writerOperandValue))
-          args.push_back(arg);
+
+        FailureOr<BlockArgument> maybeArg =
+            findBlockArgument(writerOperandValue);
+        if (succeeded(maybeArg))
+          args.push_back(maybeArg.value());
         else if (memref::AllocOp writeBuffer =
                      writerOperandValue.getDefiningOp<memref::AllocOp>())
           traceAlloc(writeBuffer, deps, args, genericOpOperands);

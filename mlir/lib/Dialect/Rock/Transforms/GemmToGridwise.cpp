@@ -90,9 +90,16 @@ struct GemmRewritePattern : public OpConversionPattern<GemmOp> {
 struct GemmElementwiseGemmRewritePattern
     : public OpConversionPattern<GemmElementwiseGemmOp> {
   using OpConversionPattern<GemmElementwiseGemmOp>::OpConversionPattern;
+  // Custom constructor taking an additional argument: bufferDeps
+  GemmElementwiseGemmRewritePattern(MLIRContext *context,
+                                    const BufferDependencyAnalysis &bufferDeps)
+      : OpConversionPattern<GemmElementwiseGemmOp>(context),
+        bufferDeps(bufferDeps) {}
+
   LogicalResult matchAndRewrite(GemmElementwiseGemmOp op,
                                 GemmElementwiseGemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &rw) const override;
+  const BufferDependencyAnalysis &bufferDeps;
 };
 
 struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
@@ -131,11 +138,184 @@ computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
   return success();
 }
 
+static FailureOr<std::tuple<Value, Value, Value, Value>>
+arrangeGemmGemmSplitKTransform(OpBuilder &builder,
+                               RockGemmGemmWrapperInterface op, Location loc,
+                               const BufferDependencyAnalysis &bufferDeps,
+                               int64_t splitNFactor, Value a, Value b, Value c,
+                               Value out) {
+  // adjust the store method
+  auto storeMethod =
+      builder.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::AtomicAdd);
+  op.setStoreMethodAttr(storeMethod);
+
+  // set the prefill attribute
+  auto func = llvm::cast<func::FuncOp>(op->getParentOp());
+  FailureOr<SmallVector<BlockArgument>> args =
+      traceGemmOutputToArgs(out, func, bufferDeps);
+  if (failed(args)) {
+    return op->emitError("can't trace gemm output to output argument");
+  }
+
+  auto attrName = rock::PrefillAttr::getMnemonic();
+  for (auto arg : args.value()) {
+    // initialize to zeros
+    auto elementType = cast<MemRefType>(arg.getType()).getElementType();
+    Attribute zero;
+    if (llvm::isa<FloatType>(elementType)) {
+      zero = builder.getFloatAttr(elementType, 0.0f);
+    } else if (llvm::isa<IntegerType>(elementType)) {
+      zero = builder.getIntegerAttr(elementType, 0);
+    } else {
+      return op->emitError("expecting `float` or `int` element type");
+    }
+    func.setArgAttrs(arg.getArgNumber(), builder.getNamedAttr(attrName, zero));
+  }
+
+  const int64_t origN = cast<MemRefType>(b.getType()).getShape()[2];
+  const int64_t nPad =
+      splitNFactor - math_util::mod_1_to_n(origN, splitNFactor);
+
+  b = padMatrix(b, builder, loc, "gemmK", 0, "gemmN", nPad);
+  c = padMatrix(c, builder, loc, "gemmK", nPad, "gemmO", 0);
+
+  // perform coordinate transformations
+  Value aNew{nullptr}, bNew{nullptr}, cNew{nullptr}, outNew{nullptr};
+  ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
+  ArrayRef<int64_t> bShape = cast<MemRefType>(b.getType()).getShape();
+  ArrayRef<int64_t> cShape = cast<MemRefType>(c.getType()).getShape();
+  ArrayRef<int64_t> outShape = cast<MemRefType>(out.getType()).getShape();
+
+  const int64_t N = bShape[2];
+
+  struct GemmOperandsData {
+    Value &in;
+    Value &out;
+    SmallVector<StringRef> inputDimNames;
+    unsigned presevedDimIdx;
+    unsigned splitDimIdx;
+    ArrayRef<int64_t> inputShape;
+  };
+
+  llvm::SmallVector<GemmOperandsData, 2> gemmOperands{
+      {b, bNew, {"gemmG", "gemmK", "gemmN"}, 1, 2, bShape},
+      {c, cNew, {"gemmG", "gemmN", "gemmO"}, 2, 1, cShape}};
+  for (auto &gemmOperand : gemmOperands) {
+    // Prepare matrix B and C - i.e.,
+    //    (gemmG, gemmK, gemmN) and (gemmG, gemmN, gemmO), respectively
+    // Using bottom-up transformations
+    // 1. unmerge (gemmN) -> (gemmNSplit, gemmN*)
+    // 2. merge (gemmG, gemmNSplit) -> (gemmG*)
+
+    StringRef preservedDimName =
+        gemmOperand.inputDimNames[gemmOperand.presevedDimIdx];
+    StringRef splitDimName = gemmOperand.inputDimNames[gemmOperand.splitDimIdx];
+    assert(splitDimName == "gemmN");
+
+    BottomUpTMBuilder unmergeTransform(builder, gemmOperand.inputDimNames,
+                                       gemmOperand.inputShape, loc);
+
+    unmergeTransform.passThrough({"gemmG", preservedDimName}, {0, 3},
+                                 {"gemmG", preservedDimName});
+    unmergeTransform.unmerge({"gemmNSplit", "gemmN"}, {1, 2}, "gemmN",
+                             {splitNFactor, N / splitNFactor});
+    auto unmergeTransformAttr = unmergeTransform.get();
+
+    SmallVector<Attribute> transformAttrs;
+    transformAttrs.push_back(unmergeTransformAttr);
+
+    auto mergeTransform =
+        BottomUpTMBuilder::above(unmergeTransform, unmergeTransformAttr);
+
+    mergeTransform.merge("gemmG", 0, {"gemmG", "gemmNSplit"});
+    mergeTransform.passThrough(
+        {"gemmN", preservedDimName},
+        {gemmOperand.splitDimIdx, gemmOperand.presevedDimIdx},
+        {"gemmN", preservedDimName});
+
+    auto mergeTransformAttr = mergeTransform.get();
+    transformAttrs.push_back(mergeTransformAttr);
+
+    std::reverse(transformAttrs.begin(), transformAttrs.end());
+    ArrayAttr arrayTransformAttrs = builder.getArrayAttr(transformAttrs);
+    gemmOperand.out =
+        mlir::rock::transform(builder, gemmOperand.in, arrayTransformAttrs);
+  }
+
+  {
+    // Prepare matrix A - i.e., (gemmG, gemmK, gemmM)
+    // Using bottom-up transformations
+    // 1. addDim (gemmNSplit)
+    // 2. merge (gemmG, gemmNSplit) -> (gemmG*)
+    BottomUpTMBuilder addDimTransform(builder, {"gemmG", "gemmK", "gemmM"},
+                                      aShape, loc);
+
+    addDimTransform.passThrough({"gemmG", "gemmK", "gemmM"});
+    addDimTransform.addDim("gemmNSplit", 3, splitNFactor);
+    auto addDimTransformAttr = addDimTransform.get();
+
+    SmallVector<Attribute> transformAttrs;
+    transformAttrs.push_back(addDimTransformAttr);
+
+    auto mergeTransform =
+        BottomUpTMBuilder::above(addDimTransform, addDimTransformAttr);
+
+    mergeTransform.merge("gemmG", 0, {"gemmG", "gemmNSplit"});
+    mergeTransform.passThrough({"gemmK", "gemmM"});
+
+    auto mergeTransformAttr = mergeTransform.get();
+    transformAttrs.push_back(mergeTransformAttr);
+
+    std::reverse(transformAttrs.begin(), transformAttrs.end());
+    ArrayAttr arrayTransformAttrs = builder.getArrayAttr(transformAttrs);
+    aNew = mlir::rock::transform(builder, a, arrayTransformAttrs);
+  }
+
+  {
+    // Prepare matrix out - i.e., (gemmG, gemmM, gemmO)
+    // Using top-down transformations
+    // 1. merge (gemmG * gemmNSplit, gemmM, gemmO) -> (gemmG, gemmNSplit, gemmM,
+    // gemmO)
+    // 2. ignore (gemmG, gemmNSplit, gemmM, gemmN) -> (gemmG, gemmM, gemmO)
+
+    const int64_t G = outShape[0];
+    const int64_t M = outShape[1];
+    const int64_t O = outShape[2];
+
+    TopDownTMBuilder mergeTransform(builder, {"gemmG", "gemmM", "gemmO"},
+                                    {G * splitNFactor, M, O});
+
+    mergeTransform.merge({"gemmG", "gemmNSplit"}, {0, 1}, "gemmG",
+                         {G, splitNFactor});
+    mergeTransform.passThrough({"gemmM", "gemmO"}, {2, 3}, {"gemmM", "gemmO"});
+    auto mergeTransformAttr = mergeTransform.get();
+
+    SmallVector<Attribute> transformAttrs;
+    transformAttrs.push_back(mergeTransformAttr);
+
+    TopDownTMBuilder ignoreTransform =
+        TopDownTMBuilder::below(mergeTransform, mergeTransformAttr);
+
+    ignoreTransform.ignore("gemmNSplit");
+    ignoreTransform.passThrough({"gemmG", "gemmM", "gemmO"}, {0, 1, 2},
+                                {"gemmG", "gemmM", "gemmO"});
+
+    TransformMapAttr ignoreTransformAttr = ignoreTransform.get();
+    transformAttrs.push_back(ignoreTransformAttr);
+
+    ArrayAttr arrayTransformAttrs = builder.getArrayAttr(transformAttrs);
+    outNew = mlir::rock::transform(builder, out, arrayTransformAttrs);
+  }
+  return std::make_tuple(aNew, bNew, cNew, outNew);
+}
+
 static LogicalResult commonAttentionGemmElmtGemm(
     ConversionPatternRewriter &rw, RockGemmGemmWrapperInterface op, Value a,
     Value b, Value c, Value out, Value lse, Value currentSeqLen,
     UnitAttr causal, IntegerAttr splitKV, ValueRange elementwiseInputs,
-    Region &preSecondOpRegion, bool enableSoftmax, TypeAttr softmaxType) {
+    Region &preSecondOpRegion, bool enableSoftmax, TypeAttr softmaxType,
+    std::optional<std::reference_wrapper<const BufferDependencyAnalysis>>
+        bufferDeps) {
   Location loc = op->getLoc();
 
   if (!isa<MemRefType>(op.getAType()))
@@ -166,6 +346,22 @@ static LogicalResult commonAttentionGemmElmtGemm(
   c = normalizeMatrix(c, rw, loc, op.getTransposedC(), "gemm1K", "gemm1N");
   out =
       normalizeMatrix(out, rw, loc, op.getTransposedOut(), "gemm1M", "gemm1N");
+
+  const int64_t splitKFactor = params1.getSplitKFactor();
+  if (splitKFactor > 1) {
+    if (enableSoftmax)
+      return op.emitError("split-k is not supported for attention");
+
+    assert(bufferDeps.has_value() &&
+           "buffer dependency analysis is required for split-k");
+
+    auto maybeSplitk = arrangeGemmGemmSplitKTransform(
+        rw, op, loc, bufferDeps.value(), splitKFactor, a, b, c, out);
+    if (failed(maybeSplitk))
+      return maybeSplitk;
+
+    std::tie(a, b, c, out) = maybeSplitk.value();
+  }
 
   // Note, matrix dimension correctness is handled in the verifier
   ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
@@ -219,7 +415,8 @@ static LogicalResult commonAttentionGemmElmtGemm(
 
   auto newOp = rw.create<GridwiseAttentionAccelOp>(
       loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal, splitKV,
-      op.getGemmFeaturesAttr(), blockSizeAttr, gridSizeAttr,
+      op.getGemmFeaturesAttr(), op.getStoreMethodAttr(), blockSizeAttr,
+      gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, softmaxType,
       params0, params1, rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
       rw.getBoolAttr(enableSoftmax));
@@ -510,19 +707,19 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     const int64_t M = cShape[1];
     const int64_t N = cShape[2];
 
-    TopDownTMBuilder mergenTransform(builder, {"gemmG", "gemmM", "gemmN"},
-                                     {G * splitKFactor, M, N});
+    TopDownTMBuilder mergeTransform(builder, {"gemmG", "gemmM", "gemmN"},
+                                    {G * splitKFactor, M, N});
 
-    mergenTransform.merge({"gemmG", "gemmKSplit"}, {0, 1}, "gemmG",
-                          {G, splitKFactor});
-    mergenTransform.passThrough({"gemmM", "gemmN"}, {2, 3}, {"gemmM", "gemmN"});
-    auto mergenTransformAttr = mergenTransform.get();
+    mergeTransform.merge({"gemmG", "gemmKSplit"}, {0, 1}, "gemmG",
+                         {G, splitKFactor});
+    mergeTransform.passThrough({"gemmM", "gemmN"}, {2, 3}, {"gemmM", "gemmN"});
+    auto mergeTransformAttr = mergeTransform.get();
 
     SmallVector<Attribute> transformAttrs;
-    transformAttrs.push_back(mergenTransformAttr);
+    transformAttrs.push_back(mergeTransformAttr);
 
     TopDownTMBuilder ignoreTransform =
-        TopDownTMBuilder::below(mergenTransform, mergenTransformAttr);
+        TopDownTMBuilder::below(mergeTransform, mergeTransformAttr);
 
     ignoreTransform.ignore("gemmKSplit");
     ignoreTransform.passThrough({"gemmG", "gemmM", "gemmN"}, {0, 1, 2},
@@ -580,7 +777,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       adaptor.getOut(), adaptor.getLse(), adaptor.getCurrentSeqLen(),
       adaptor.getCausalAttr(), adaptor.getSplitKVAttr(),
       adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
-      /*enableSoftmax=*/true, op.getSoftmaxTypeAttr());
+      /*enableSoftmax=*/true, op.getSoftmaxTypeAttr(),
+      /*bufferDeps=*/std::nullopt);
 }
 
 LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
@@ -592,7 +790,7 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
       /*lse=*/nullptr,
       /*currentSeqLen=*/nullptr, /*causal=*/nullptr, splitKV,
       adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
-      /*enableSoftmax=*/false, /*softmaxType=*/nullptr);
+      /*enableSoftmax=*/false, /*softmaxType=*/nullptr, std::cref(bufferDeps));
 }
 
 void RockGemmToGridwisePass::runOnOperation() {
@@ -612,8 +810,9 @@ void RockGemmToGridwisePass::runOnOperation() {
       getAnalysis<BufferDependencyAnalysis>();
 
   RewritePatternSet patterns(ctx);
-  patterns.add<GemmRewritePattern>(ctx, bufferDeps);
-  patterns.add<AttentionRewritePattern, GemmElementwiseGemmRewritePattern>(ctx);
+  patterns.add<GemmRewritePattern, GemmElementwiseGemmRewritePattern>(
+      ctx, bufferDeps);
+  patterns.add<AttentionRewritePattern>(ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {

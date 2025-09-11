@@ -66,7 +66,7 @@ func.func @conv_gemm_nhwc_1x1(%arg0: memref<16384xf32>, %arg1: memref<802816xf32
     rock.yield
   }
     %3 = ab * %2 : memref<1x256x256xf32> -> memref<1x12544x256xf32>
-  } {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "c"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
+  } {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "c"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], storeMethod = #rock<StoreMethod set>, strides = [1 : index, 1 : index]}
   return
 }
 
@@ -86,7 +86,7 @@ func.func @conv_gemm_nhwc_1x1_stride_2(%arg0: memref<16384xf32>, %arg1: memref<8
     rock.yield
   }
     %3 = ab * %2 : memref<1x256x256xf32> -> memref<1x3136x256xf32>
-  } {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "c"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index]}
+  } {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "c"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], storeMethod = #rock<StoreMethod set>, strides = [2 : index, 2 : index]}
   return
 }
 
@@ -106,6 +106,27 @@ func.func @conv_gemm_nhwc_3x3(%arg0: memref<147456xf32>, %arg1: memref<802816xf3
     rock.yield
   }
     %3 = ab * %2 : memref<1x256x256xf32> -> memref<1x9216x256xf32>
-  } {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "c"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
+  } {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "c"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], storeMethod = #rock<StoreMethod set>, strides = [1 : index, 1 : index]}
+  return
+}
+
+// CHECK-LABEL: @conv_gemm_nhwc_3x3_atomicadd
+// CHECK: <Embed{1, 1} ["0", "0o"] at [1, 2] -> ["0ipad"] at [1]>, <Embed{1, 1} ["1", "1o"] at [3, 4] -> ["1ipad"] at [2]>
+// CHECK: rock.gemm_elementwise_gemm
+// CHECK: storeMethod = #rock<StoreMethod atomic_add>
+func.func @conv_gemm_nhwc_3x3_atomicadd(%arg0: memref<147456xf32>, %arg1: memref<802816xf32>, %arg2: memref<65536xf32>, %arg3: memref<2359296xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
+  %0 = rock.transform %arg0 by #transform_map5 : memref<147456xf32> to memref<1x256x3x3x64xf32>
+  %1 = rock.transform %arg1 by #transform_map1 : memref<802816xf32> to memref<64x14x14x1x64xf32>
+  %2 = rock.transform %arg2 by #transform_map6 : memref<65536xf32> to memref<1x256x256xf32>
+  %3 = rock.transform %arg3 by #transform_map7 : memref<2359296xf32> to memref<1x9216x256xf32>
+  rock.conv_elementwise_gemm{
+    ab = conv(%0, %1) : memref<1x256x3x3x64xf32>, memref<64x14x14x1x64xf32>
+    ab = elementwise {
+  ^bb0(%arg4: memref<1x256x9216xf32>, %arg5: memref<1x256x9216xf32>):
+    memref.copy %arg4, %arg5 : memref<1x256x9216xf32> to memref<1x256x9216xf32>
+    rock.yield
+  }
+    %3 = ab * %2 : memref<1x256x256xf32> -> memref<1x9216x256xf32>
+  } {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "c"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], storeMethod = #rock<StoreMethod atomic_add>, strides = [1 : index, 1 : index]}
   return
 }
