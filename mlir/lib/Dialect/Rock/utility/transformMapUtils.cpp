@@ -2674,14 +2674,14 @@ FailureOr<Type> mlir::rock::getDequantizedElementType(Value transformed) {
   auto blockArg = findBlockArgument(newTransformed);
   if (failed(blockArg)) {
     LLVM_DEBUG(llvm::dbgs()
-               << "getDequantizedElementType: findBlockArgument failed");
+               << "getDequantizedElementType: findBlockArgument failed\n");
     return failure();
   }
 
   auto shapedTy = dyn_cast<ShapedType>(blockArg.value().getType());
   if (!shapedTy) {
     LLVM_DEBUG(llvm::dbgs()
-               << "getDequantizedElementType: failed to get ShapedType");
+               << "getDequantizedElementType: failed to get ShapedType\n");
     return failure();
   }
 
