@@ -1176,6 +1176,9 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   Type dataType = op.getInput().getType().getElementType();
   if (ConvOpType::BwdData == convOpType) {
     auto bwdDataOp = cast<ConvBwdDataOp>(op);
+    // bool usesV4R1 =
+    //     bwdDataOp->template getAttrOfType<BoolAttr>("usesV4R1").getValue();
+    //if (usesV4R1)
     return backwardDataV4R1(bwdDataOp, b);
   }
   Location loc = op.getLoc();

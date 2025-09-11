@@ -327,7 +327,7 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
   if (convKind == "bwd_data") {
     cop = rw.create<rock::ConvBwdDataOp>(
         loc, convFields.outputExp.getType(), convFields.filterExp,
-        convFields.inputExp, convFields.outputExp,
+        convFields.outputExp, convFields.inputExp,
         /*features=*/nullptr,
         /*blockSize=*/nullptr,
         /*gridSize=*/nullptr, rw.getIndexArrayAttr(pad),
@@ -689,9 +689,14 @@ public:
     if (failed(rockConv))
       return failure();
 
-    Operation *rockConvOp = rockConv->getOperation();
-    Value result = rw.create<rock::TensorUntransformCastOp>(
+    Value result;
+    if (isa<tosa::TransposeConv2DOp>(op)) {
+      result = output;
+    } else {
+      Operation *rockConvOp = rockConv->getOperation();
+      result = rw.create<rock::TensorUntransformCastOp>(
         loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
+    }
 
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
