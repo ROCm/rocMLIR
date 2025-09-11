@@ -104,7 +104,8 @@ struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
 template <typename Op>
 static LogicalResult
 computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
-                                     Value a, Value b, Value c) {
+                                     Value a, Value b, Value c,
+                                     int64_t splitKV) {
   RockAccelTuningParamAttrInterface accelParams0 =
       cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
 
@@ -122,7 +123,7 @@ computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
                      /*n=*/aShape[2]);
 
   int64_t gridSize =
-      ((gemm0Size.n) / accelParams0.getNPerBlock()) * gemm0Size.g;
+      (gemm0Size.n / accelParams0.getNPerBlock()) * gemm0Size.g * splitKV;
 
   IntegerAttr gridSizeAttr = rw.getI32IntegerAttr(gridSize);
   func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
@@ -133,8 +134,8 @@ computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
 static LogicalResult commonAttentionGemmElmtGemm(
     ConversionPatternRewriter &rw, RockGemmGemmWrapperInterface op, Value a,
     Value b, Value c, Value out, Value lse, Value currentSeqLen,
-    UnitAttr causal, ValueRange elementwiseInputs, Region &preSecondOpRegion,
-    bool enableSoftmax, TypeAttr softmaxType) {
+    UnitAttr causal, IntegerAttr splitKV, ValueRange elementwiseInputs,
+    Region &preSecondOpRegion, bool enableSoftmax, TypeAttr softmaxType) {
   Location loc = op->getLoc();
 
   if (!isa<MemRefType>(op.getAType()))
@@ -174,13 +175,14 @@ static LogicalResult commonAttentionGemmElmtGemm(
   GemmSize gemm0Size(/*g=*/aShape[0], /*m=*/bShape[2],
                      /*k=*/aShape[1],
                      /*n=*/aShape[2]);
-  GemmSize gemm0ExtraPad =
-      requiredPadding(params0, gemm0Size).value_or(GemmSize{0, 0, 0, 0});
   GemmSize gemm1Size(/*g=*/aShape[0], /*m=*/cShape[2],
                      /*k=*/cShape[1],
                      /*n=*/aShape[2]);
-  GemmSize gemm1ExtraPad =
-      requiredPadding(params1, gemm1Size).value_or(GemmSize{0, 0, 0, 0});
+  int64_t splitKVNum = splitKV.getInt();
+  GemmSize gemm0ExtraPad = requiredPadding(params0, gemm0Size, 1, splitKVNum)
+                               .value_or(GemmSize{0, 0, 0, 0});
+  GemmSize gemm1ExtraPad = requiredPadding(params1, gemm1Size, splitKVNum)
+                               .value_or(GemmSize{0, 0, 0, 0});
 
   a = padMatrix(a, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0N",
                 gemm0ExtraPad.n);
@@ -197,7 +199,8 @@ static LogicalResult commonAttentionGemmElmtGemm(
   if (lse)
     lse = padVector(lse, rw, loc, "gemm1N", gemm1ExtraPad.n);
 
-  if (failed(computeGridSizeAttentionGemmElmtGemm(rw, op, a, b, c))) {
+  if (failed(
+          computeGridSizeAttentionGemmElmtGemm(rw, op, a, b, c, splitKVNum))) {
     return op.emitError("failed to compute the grid size of "
                         "`GemmElementwiseGemmOp`/`AttentionOp`");
   }
@@ -215,7 +218,7 @@ static LogicalResult commonAttentionGemmElmtGemm(
   }
 
   auto newOp = GridwiseAttentionAccelOp::create(
-      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
+      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal, splitKV,
       op.getGemmFeaturesAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, softmaxType,
       params0, params1, rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
@@ -576,18 +579,19 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getQueries(), adaptor.getKeys(), adaptor.getValues(),
       adaptor.getOut(), adaptor.getLse(), adaptor.getCurrentSeqLen(),
-      adaptor.getCausalAttr(), adaptor.getPreSoftmaxElemWiseInputs(),
-      op.getPreSoftmaxBody(),
+      adaptor.getCausalAttr(), adaptor.getSplitKVAttr(),
+      adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
       /*enableSoftmax=*/true, op.getSoftmaxTypeAttr());
 }
 
 LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
     GemmElementwiseGemmOp op, GemmElementwiseGemmOpAdaptor adaptor,
     ConversionPatternRewriter &rw) const {
+  auto splitKV = rw.getI32IntegerAttr(1);
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getA(), adaptor.getB(), adaptor.getC(), adaptor.getOut(),
       /*lse=*/nullptr,
-      /*currentSeqLen=*/nullptr, /*causal=*/nullptr,
+      /*currentSeqLen=*/nullptr, /*causal=*/nullptr, splitKV,
       adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
       /*enableSoftmax=*/false, /*softmaxType=*/nullptr);
 }
