@@ -597,9 +597,7 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
         return;
       }
       result = MfmaInsnGroup(elementTypeA, elementTypeB, *maybeInsn, groupAttr);
-    } else {
-      llvm::dbgs() << "No match found for key: " << "\n";
-    }
+    }   
   };
 
   auto selectForGfx950 = [&]() {
@@ -612,7 +610,6 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
       }
       LLVM_DEBUG(llvm::dbgs() << "incoherent with K for gfx950 double rate\n");
       // else select again
-      llvm::dbgs() << "Failed\n";
       result = failure();
       return;
     }
@@ -638,7 +635,6 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
   } else if (isGfx942) {
     selectFrom(getMfmaInsnGroupAttrMapGfx942());
   } else {
-    llvm::dbgs() << "Selecting from gfx950 instructions\n";
     selectForGfx950();
     // all previous instructions are still valid for gfx950
     selectFrom(getMfmaInsnGroupAttrMapGfx942());

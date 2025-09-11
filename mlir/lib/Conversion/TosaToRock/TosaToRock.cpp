@@ -772,8 +772,8 @@ public:
     Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
 
     auto rockGemm = rock::GemmOp::create(
-        rw, loc, outputType, brA, brB, output, transposeA, transposeB,
-        transposeC,
+        rw, loc, outputType, brA, brB, output, nullptr, nullptr, transposeA,
+        transposeB, transposeC,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,

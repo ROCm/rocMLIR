@@ -37,6 +37,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -456,12 +457,12 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
   SmallVector<int64_t> extendedStrides(
       extraIndicesSourceSize + extraIndicesDestSize, 1);
   llvm::append_range(extendedStrides, strides);
-
+  bool unroll = isa<Float4E2M1FNType>(elemType);
   auto copyLoop = TransformingForOp::create(
       b, loc, ArrayRef<ValueRange>{extendedStart, extendedStart},
       ArrayRef<Attribute>{copyFromView, copyToView},
       /*bounds=*/extendedBounds,
-      /*strides=*/extendedStrides, /*forceUnroll=*/true,
+      /*strides=*/extendedStrides, /*forceUnroll=*/unroll,
       /*useIndexDiffs=*/true);
   {
     PatternRewriter::InsertionGuard outerGuard(b);

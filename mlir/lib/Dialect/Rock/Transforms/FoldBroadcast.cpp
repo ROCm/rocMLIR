@@ -203,10 +203,10 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
 
     // Create the new GemmOp
     auto gemm = rock::GemmOp::create(
-        rw, op.getLoc(), newC.getType(), newA, newB, newC, op.getATransposed(),
-        op.getBTransposed(), op.getCTransposed(), op.getFeaturesAttr(),
-        op.getStoreMethod(), op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
-        op.getParamsAttr());
+        rw, op.getLoc(), newC.getType(), newA, newB, newC, nullptr, nullptr,
+        op.getATransposed(), op.getBTransposed(), op.getCTransposed(),
+        op.getFeaturesAttr(), op.getStoreMethod(), op.getDerivedBlockSizeAttr(),
+        op.getGridSizeAttr(), op.getParamsAttr());
 
     // Convert optional attributes
     if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))

@@ -137,10 +137,12 @@ def Rock_GemmOp
     : Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                       RockFusionRoot]>,
+                       RockFusionRoot, AttrSizedOperandSegments]>,
       Arguments<(ins Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix A">:$a,
           Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix B">:$b,
           Arg<TensorOrMemRefOf<GemmOutputTypes>, "matrix C">:$c,
+          Optional<TensorOrMemRefOf<[F8E8M0FNU]>>:$scaleA,
+          Optional<TensorOrMemRefOf<[F8E8M0FNU]>>:$scaleB,
           UnitAttr:$aTransposed, UnitAttr:$bTransposed, UnitAttr:$cTransposed,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, OptionalAttr<I32Attr>:$derivedBlockSize,
@@ -168,9 +170,9 @@ def Rock_GemmOp
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
+    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a (`scale` `=` $scaleA^)? `*` (`tr` $bTransposed^)? $b (`scale` `=` $scaleB^)?
     (`features` `=` $features^)? `storeMethod` `=` $storeMethod attr-dict
-    `:` type($c) `=` type($a) `*` type($b) (`->` type($result)^)?
+    `:` type($c) `=` type($a) (`scale` type($scaleA)^)? `*` type($b) (`scale` type($scaleB)^)? (`->` type($result)^)?
   }];
 }
 
