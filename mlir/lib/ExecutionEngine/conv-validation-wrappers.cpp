@@ -104,7 +104,7 @@ enum class PrintOption : char {
 template <typename T>
 void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
                 float thr_RMS, float thr_absDiff, float thr_relDiff,
-                char printDebug) {
+                char printDebug, bool isFP32) {
   float valNum, gpuNum;
   // metric maxAbsDiff
   float maxAbsDiff = 0.0f;
@@ -150,9 +150,14 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
     float maxNum = std::max(fabs(valNum), fabs(gpuNum));
     maxMag = std::max(maxMag, maxNum);
 
-    // If cpu value is a denorm, we skip checks.
-    // We need this because we only preserve sign in denorm fp (GPU).
-    if (valNum == gpuNum || std::fpclassify(valNum) == FP_SUBNORMAL) {
+    if (valNum == gpuNum) {
+      hist_relDiff[0]++;
+    } else if ((std::fpclassify(valNum) == FP_SUBNORMAL) && isFP32) {
+      // Since we are comparing the output of the kernel, and not the direct
+      // output of operations there is a chance that fusion can modify f32
+      // values such that the sign of the GPU and CPU result will differ even
+      // though the results are correct. In this case we are going to treat
+      // f32 subnormals as always being correct
       hist_relDiff[0]++;
     } else {
       // We know valNum != gpuNum. If valNum is inf, this branch will simply
@@ -218,16 +223,15 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
 }
 
 // Compare the results in f32
-extern "C" void mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned,
-                                int64_t gpuOffset, int64_t gpuSize,
-                                int64_t gpuStride, float *valAllocated,
-                                float *valAligned, int64_t valOffset,
-                                int64_t valSize, int64_t valStride,
-                                float thr_RMS, float thr_absDiff,
-                                float thr_relDiff, char printDebug) {
+extern "C" void
+mcpuVerifyFloat(float *gpuAllocated, float *gpuAligned, int64_t gpuOffset,
+                int64_t gpuSize, int64_t gpuStride, float *valAllocated,
+                float *valAligned, int64_t valOffset, int64_t valSize,
+                int64_t valStride, float thr_RMS, float thr_absDiff,
+                float thr_relDiff, char printDebug, bool isFP32) {
   assert(gpuSize == valSize);
   mcpuVerify<float>(gpuAligned, valAligned, valSize, thr_RMS, thr_absDiff,
-                    thr_relDiff, printDebug);
+                    thr_relDiff, printDebug, isFP32);
 }
 
 // Compare the results in int32

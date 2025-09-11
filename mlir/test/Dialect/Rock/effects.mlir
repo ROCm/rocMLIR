@@ -276,7 +276,8 @@ func.func @rock_gridwise_attn(%arg0: memref<1x384x64xf32>,
     params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
     operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>,
-    splitKV = 1 : i32
+    splitKV = 1 : i32,
+    storeMethod = #rock<StoreMethod set>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }
@@ -307,7 +308,8 @@ func.func @rock_gemmelementwisegemm_simple(%arg0: memref<1x64x1024xf32>,
   } { 
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
-    firstGemmIndices = array<i64: 0>
+    firstGemmIndices = array<i64: 0>,
+    storeMethod = #rock<StoreMethod set>
   }
   return
 }
@@ -324,7 +326,7 @@ func.func @rock_conv_gemm(%arg0: memref<1x128x256x1x1xf16>,
   rock.conv_elementwise_gemm{
    ab = conv(%arg0, %arg1) : memref<1x128x256x1x1xf16>, memref<2x1x256x32x32xf16>
    %arg3 = ab * %arg2 : memref<1x128x64xf16> -> memref<1x2048x64xf16>
-  } {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
+  } {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], firstGemmIndices = array<i64: 0>, storeMethod = #rock<StoreMethod set>, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
   return
 }
 
@@ -344,7 +346,8 @@ func.func @rock_attention(%arg0: memref<1x64x1024xf32>,
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
-    splitKV = 1 : i32
+    splitKV = 1 : i32,
+    storeMethod = #rock<StoreMethod set>
   }
   return
 }
