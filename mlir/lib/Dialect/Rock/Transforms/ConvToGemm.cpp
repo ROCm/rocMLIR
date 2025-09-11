@@ -901,29 +901,28 @@ backwardDataV4R1(ConvBwdDataOp op, PatternRewriter &b) {
     iDotSlice.push_back(math_util::integer_divide_ceil(
         convDims.fil[i] - iTilda[i], filTilda[i]));
 
-  bool usesV4R1 =
-        op->template getAttrOfType<BoolAttr>("usesV4R1").getValue();
-  if (!usesV4R1) {  
-    // For non-V4R1: compute entire GEMM in single kernel  
-      
-    // Set all GCD and tilda calculations to 1 (no splitting)  
+  bool usesV4R1 = op->template getAttrOfType<BoolAttr>("usesV4R1").getValue();
+  if (!usesV4R1) {
+    // For non-V4R1: compute entire GEMM in single kernel
+
+    // Set all GCD and tilda calculations to 1 (no splitting)
     gcdStrideDilations.assign(strides.size(), 1);
     filTilda.assign(strides.size(), 1);
-      
-    // Set filDots to full filter dimensions (no dot/tilda splitting)  
-    filDots.clear();  
-    for (size_t i = 0; i < convDims.fil.size(); i++) {  
-      filDots.push_back(convDims.fil[i]);  
+
+    // Set filDots to full filter dimensions (no dot/tilda splitting)
+    filDots.clear();
+    for (size_t i = 0; i < convDims.fil.size(); i++) {
+      filDots.push_back(convDims.fil[i]);
     }
-      
-    // iTilda starts from 0 (beginning of computation)  
-    iTilda.assign(convDims.fil.size(), 0);  
-      
-    // iTildaLeft/Right should span the full output range  
-    iTildaLeft.assign(convDims.fil.size(), 0);  
-    iTildaRight = outTilda;  // Full range to actual output dimensions  
-      
-    // iDotSlice should be the full filter dimensions  
+
+    // iTilda starts from 0 (beginning of computation)
+    iTilda.assign(convDims.fil.size(), 0);
+
+    // iTildaLeft/Right should span the full output range
+    iTildaLeft.assign(convDims.fil.size(), 0);
+    iTildaRight = outTilda; // Full range to actual output dimensions
+
+    // iDotSlice should be the full filter dimensions
     iDotSlice.assign(filDots.begin(), filDots.end());
   }
 

@@ -695,7 +695,7 @@ public:
     } else {
       Operation *rockConvOp = rockConv->getOperation();
       result = rw.create<rock::TensorUntransformCastOp>(
-        loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
+          loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
     }
 
     // test for zero bias, and ignore
