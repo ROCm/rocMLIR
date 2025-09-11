@@ -11,6 +11,16 @@
 
 include "mlir/Pass/PassBase.td"
 
+def RockConvertFp4AllocToInt8Pass
+    : Pass<"rock-convert-fp4-alloc-to-int8", "::mlir::func::FuncOp"> {
+  let summary = "Convert gpu.alloc of fp4 (f4E2M2FN) element memrefs to int8 storage";
+  let description = [{
+    Change the physical storage of gpu.alloc buffers whose memref element type
+    is the 4-bit float (printed as f4E2M2FN) to i8 while preserving the original
+    logical type for existing users via an unrealized_conversion_cast.
+  }];
+}
+
 def RockViewToTransformPass : Pass<"rock-view-to-transform", "::mlir::func::FuncOp"> {
   let summary = "convert tensor view ops to rock.transform";
   let dependentDialects = ["rock::RockDialect", "tensor::TensorDialect",
