@@ -2042,7 +2042,7 @@ struct GridwiseAttentionAccelRewritePattern
     TypedValue<MemRefType> inQ = op.getQueries();
     ArrayRef<int64_t> qShape = cast<MemRefType>(inQ.getType()).getShape();
     Type elemTypeQ = cast<MemRefType>(inQ.getType()).getElementType();
-    FailureOr<Type> maybeElemTypeQLoad = getGemmInputElementType(inQ);
+    FailureOr<Type> maybeElemTypeQLoad = getDequantizedElementType(inQ);
     Type elemTypeQLoad = failed(maybeElemTypeQLoad)
                                 ? elemTypeQ
                                 : maybeElemTypeQLoad.value();
@@ -2050,14 +2050,14 @@ struct GridwiseAttentionAccelRewritePattern
     TypedValue<MemRefType> inK = op.getKeys();
     ArrayRef<int64_t> kShape = cast<MemRefType>(inK.getType()).getShape();
     Type elemTypeK = cast<MemRefType>(inK.getType()).getElementType();
-    FailureOr<Type> maybeElemTypeKLoad = getGemmInputElementType(inK);
+    FailureOr<Type> maybeElemTypeKLoad = getDequantizedElementType(inK);
     Type elemTypeKLoad = failed(maybeElemTypeKLoad)
                                 ? elemTypeK
                                 : maybeElemTypeKLoad.value();
 
     TypedValue<MemRefType> inV = op.getValues();
     Type elemTypeV = inV.getType().getElementType();
-    FailureOr<Type> maybeElemTypeVLoad = getGemmInputElementType(inV);
+    FailureOr<Type> maybeElemTypeVLoad = getDequantizedElementType(inV);
     Type elemTypeVLoad = failed(maybeElemTypeVLoad)
                                 ? elemTypeV
                                 : maybeElemTypeVLoad.value();
@@ -3027,13 +3027,13 @@ struct GridwiseGemmAccelRewritePattern
 
     // Obtain data types of inputs.
     auto elementTypeA = op.getA().getType().getElementType();
-    auto maybeElementTypeALoad = getGemmInputElementType(op.getA());
+    auto maybeElementTypeALoad = getDequantizedElementType(op.getA());
     auto elementTypeALoad = failed(maybeElementTypeALoad)
                                 ? elementTypeA
                                 : maybeElementTypeALoad.value();
 
     auto elementTypeB = op.getB().getType().getElementType();
-    auto maybeElementTypeBLoad = getGemmInputElementType(op.getB());
+    auto maybeElementTypeBLoad = getDequantizedElementType(op.getB());
     auto elementTypeBLoad = failed(maybeElementTypeBLoad)
                                 ? elementTypeB
                                 : maybeElementTypeBLoad.value();
