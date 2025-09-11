@@ -154,12 +154,17 @@ func.func @rock_conv_bwd_data_nov4r1(%filter : memref<1x128x8x3x3xf32>, %input :
 
 // CHECK-LABEL: func.func {{@rock_conv_bwd_data_nov4r1.*%arg0.*%arg1.*%arg2}}
 // CHECK-NOT: rock.conv_bwd_data
-// CHECK: %0 = rock.transform %arg0 by #transform_map15 : memref<1x128x8x3x3xf32> to memref<1x128x72xf32>
-// CHECK: %1 = rock.transform %arg1 by #transform_map1 : memref<128x1x8x32x32xf32> to memref<128x1x8x32x32xf32>
-// CHECK: %2 = rock.transform %1 by #transform_map2 : memref<128x1x8x32x32xf32> to memref<128x1x8x3x30x3x30xf32>
-// CHECK: %3 = rock.transform %2 by #transform_map16 : memref<128x1x8x3x30x3x30xf32> to memref<1x72x115200xf32>
-// CHECK: %4 = rock.transform %arg2 by #transform_map17 : memref<128x1x128x30x30xf32> to memref<1x128x115200xf32>
-// CHECK: rock.gemm %3 = tr %0 * %4 features =  none storeMethod =  set {gridSize = 4 : i32, params = #general_gemm_params1} : memref<1x72x115200xf32> = memref<1x128x72xf32> * memref<1x128x115200xf32> 
+// CHECK-NEXT: %[[FIL1:.*]] = rock.transform %arg0 
+// CHECK-NEXT: %[[FIL2:.*]] = rock.transform %[[FIL1]]
+// CHECK-NEXT: %[[FIL3:.*]] = rock.transform %[[FIL2]]
+// CHECK-NEXT: %[[IN1:.*]] = rock.transform %arg1
+// CHECK-NEXT: %[[IN2:.*]] = rock.transform %[[IN1]]
+// CHECK-NEXT: %[[IN3:.*]] = rock.transform %[[IN2]]
+// CHECK-NEXT: %[[IN4:.*]] = rock.transform %[[IN3]]
+// CHECK-NEXT: %[[OUT1:.*]] = rock.transform %arg2
+// CHECK-NEXT: %[[OUT2:.*]] = rock.transform %[[OUT1]]
+// CHECK-NEXT: %[[OUT3:.*]] = rock.transform %[[OUT2]]
+// CHECK-NEXT: rock.gemm %[[IN4]] = tr %[[FIL3]] * %[[OUT3]] features =  none storeMethod =  set {gridSize = 4 : i32, kernelId = 0 : index, params = #general_gemm_params1} : memref<1x8x131072xf32> = memref<1x1152x8xf32> * memref<1x1152x131072xf32>
 
 func.func @rock_conv_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input: memref<128x1x1024x14x14xf16>, %output: memref<128x1x1024x14x14xf16>) attributes {kernel = 0 : i32, arch = "amdgcn-amd-amdhsa:gfx908"} {
 rock.conv_bwd_data(%filter, %input, %output) {
