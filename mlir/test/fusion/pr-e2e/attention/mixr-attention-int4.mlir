@@ -1,5 +1,6 @@
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver -kernel-pipeline migraphx,highlevel -targets %arch | rocmlir-driver -arch %arch -c --mlir-print-ir-after=rock-gridwise-gemm-to-blockwise -o /dev/null 2>&1 -debug-only=rock-gridwise-to-blockwise
 module {
-  func.func private @mlir_attention(%arg0: !migraphx.shaped<64x64xf16, 128x1>, %arg1: !migraphx.shaped<64x64xf16, 128x1>, %arg2: !migraphx.shaped<64x64xf16, 64x1>, %arg3: !migraphx.shaped<64x32xui8, 32x1>, %arg4: !migraphx.shaped<64x64xf16, 64x1>) -> !migraphx.shaped<64x64xf16, 64x1> {
+  func.func private @mlir_attention(%arg0: !migraphx.shaped<64x64xf16, 128x1>, %arg1: !migraphx.shaped<64x64xf16, 128x1>, %arg2: !migraphx.shaped<64x64xf16, 64x1>, %arg3: !migraphx.shaped<64x32xui8, 32x1>, %arg4: !migraphx.shaped<64x64xf16, 64x1>) -> !migraphx.shaped<64x64xf16, 64x1> attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
     %0 = migraphx.unpack %arg3 {axis = 1 : i64} : <64x32xui8, 32x1> -> <64x64xui8, 64x1>
     %1 = migraphx.reshape %arg1 {dims = [64, 128]} : <64x64xf16, 128x1> -> <64x64xf16, 256x2>
     %2 = migraphx.reshape %arg0 {dims = [64, 128]} : <64x64xf16, 128x1> -> <64x64xf16, 256x2>
