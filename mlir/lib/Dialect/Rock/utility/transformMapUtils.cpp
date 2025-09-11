@@ -2631,14 +2631,8 @@ FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
       }
       Value genericOut = genericOp.getOutputs().front();
       if (genericOut == memref) {
-        if (auto index = genericOp->getAttrOfType<IntegerAttr>(
-                "rock.majorTensorNumber")) {
-          candidate = genericOp.getInputs()[index.getInt()];
-        } else {
-          LLVM_DEBUG(llvm::dbgs() << "can't analyze linalg.generic "
-                                     "without rock.majorTensorNumber\n");
-          return failure();
-        }
+        // The input of the dequantization is always the first argument.
+        candidate = genericOp.getInputs()[0];
       } else {
         LLVM_DEBUG(
             llvm::dbgs()
