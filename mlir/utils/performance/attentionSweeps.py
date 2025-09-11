@@ -174,7 +174,7 @@ def main():
             description='Sweep parameter values for attention to detect bugs')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
-    parser.add_argument('--jobs', type=int, default=os.cpu_count())
+    parser.add_argument('-j', '--jobs', type=int, default=os.cpu_count())
     parser.add_argument('--mlir-build-dir', type=str, default=findMlirBuildDir())
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--log-failures', action='store_true')
