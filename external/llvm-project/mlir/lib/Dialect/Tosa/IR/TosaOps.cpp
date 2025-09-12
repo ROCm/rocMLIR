@@ -3406,33 +3406,36 @@ LogicalResult TransposeConv2DOp::verify() {
     const int64_t kernelHeight = weightType.getDimSize(1);
     const int64_t outputHeight = outputType.getDimSize(1);
 
-    if (!ShapedType::isDynamic(inputHeight) &&
-        !ShapedType::isDynamic(outputHeight)) {
-      if (outputHeight !=
-          (inputHeight - 1) * strideY + outPadTop + outPadBottom + kernelHeight)
-        return emitOpError(
-                   "dimension mismatch: expected OH == (IH - 1) * stride_y "
-                   "+ out_pad_top + out_pad_bottom + KH, but got ")
-               << outputHeight << " != (" << inputHeight << " - 1) * "
-               << strideY << " + " << outPadTop << " + " << outPadBottom
-               << " + " << kernelHeight;
-    }
+    // if (!ShapedType::isDynamic(inputHeight) &&
+    //     !ShapedType::isDynamic(outputHeight)) {
+    //   if (outputHeight !=
+    //       (inputHeight - 1) * strideY + outPadTop + outPadBottom +
+    //       kernelHeight)
+    //     return emitOpError(
+    //                "dimension mismatch: expected OH == (IH - 1) * stride_y "
+    //                "+ out_pad_top + out_pad_bottom + KH, but got ")
+    //            << outputHeight << " != (" << inputHeight << " - 1) * "
+    //            << strideY << " + " << outPadTop << " + " << outPadBottom
+    //            << " + " << kernelHeight;
+    // }
 
     const int64_t inputWidth = inputType.getDimSize(2);
     const int64_t kernelWidth = weightType.getDimSize(2);
     const int64_t outputWidth = outputType.getDimSize(2);
 
-    if (!ShapedType::isDynamic(inputWidth) &&
-        !ShapedType::isDynamic(outputWidth)) {
-      if (outputWidth !=
-          (inputWidth - 1) * strideX + outPadLeft + outPadRight + kernelWidth)
-        return emitOpError(
-                   "dimension mismatch: expected OW == (IW - 1) * stride_x "
-                   "+ out_pad_left + out_pad_right + KW, but got ")
-               << outputWidth << " != (" << inputWidth << " - 1) * " << strideX
-               << " + " << outPadLeft << " + " << outPadRight << " + "
-               << kernelWidth;
-    }
+    // if (!ShapedType::isDynamic(inputWidth) &&
+    //     !ShapedType::isDynamic(outputWidth)) {
+    //   if (outputWidth !=
+    //       (inputWidth - 1) * strideX + outPadLeft + outPadRight +
+    //       kernelWidth)
+    //     return emitOpError(
+    //                "dimension mismatch: expected OW == (IW - 1) * stride_x "
+    //                "+ out_pad_left + out_pad_right + KW, but got ")
+    //            << outputWidth << " != (" << inputWidth << " - 1) * " <<
+    //            strideX
+    //            << " + " << outPadLeft << " + " << outPadRight << " + "
+    //            << kernelWidth;
+    // }
   }
 
   const auto biasType = llvm::dyn_cast<RankedTensorType>(getBias().getType());

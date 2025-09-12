@@ -162,8 +162,10 @@ struct ConvPadFoldAdaptor {
                                   Value padInput, ArrayRef<int64_t> newPad) {
     rewriter.replaceOpWithNewOp<OpTy>(
         op, op.getResult().getType(), padInput, op.getWeight(), op.getBias(),
-        op.getInputZp(), op.getWeightZp(), rewriter.getDenseI64ArrayAttr(newPad), op.getStrideAttr(),
-        op.getDilationAttr(), op.getAccTypeAttr(), op.getLocalBoundAttr());
+        op.getInputZp(), op.getWeightZp(),
+        rewriter.getDenseI64ArrayAttr(newPad), op.getStrideAttr(),
+        op.getDilationAttr(), op.getAccTypeAttr(), op.getGroupAttr(),
+        op.getLocalBoundAttr());
   }
 };
 
@@ -266,9 +268,7 @@ void Conv2DOp::getCanonicalizationPatterns(RewritePatternSet &results,
 
 void DepthwiseConv2DOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                                     MLIRContext *context) {
-  results.add<FoldPadToTensorOp<tosa::DepthwiseConv2DOp,
-                                ConvPadFoldAdaptor<tosa::DepthwiseConv2DOp>>>(
-      context);
+  return;
 }
 
 struct MaxPool2dIsNoOp : public OpRewritePattern<tosa::MaxPool2dOp> {

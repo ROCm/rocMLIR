@@ -75,7 +75,7 @@ public:
         rewriter.getDenseI64ArrayAttr(stride),
         rewriter.getDenseI64ArrayAttr({1, 1}),
         /* acc_type = */ op.getAccType(),
-        /* group = */ nullptr);
+        /* group = */ rewriter.getI64IntegerAttr(1));
 
     rewriter.replaceOp(op, conv2d);
     return success();
@@ -246,7 +246,7 @@ public:
                        /*stride=*/rewriter.getDenseI64ArrayAttr({1, 1}),
                        /*dilation=*/rewriter.getDenseI64ArrayAttr({1, 1}),
                        /* acc_type = */ op.getAccType(),
-                       /* group= */ nullptr)
+                       /* group= */ rewriter.getI64IntegerAttr(1))
                        .getResult();
 
     // Factor the resulting width / height.
