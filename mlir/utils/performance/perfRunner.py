@@ -247,6 +247,21 @@ def getBankConflict(fileName):
         result_average = sum(result) / len(result)
         return result_average
 
+def valid_perf_config(perfConfig):
+    if not (perfConfig.startswith('v1') or perfConfig.startswith('v2') or perfConfig.startswith('v3')):
+        return False
+    return True
+
+# TODO: doc
+def validate_tuning_db_entry(arch, config, perfConfig):
+    # Validate arch
+    if " " in arch:
+        raise ValueError(f"invalid db entry: '{arch} {config} {perfConfig}' with arch='{arch}'")
+
+    # -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 1280 -k 1280 
+    if not valid_perf_config(perfConfig):
+        raise ValueError(f"invalid db entry: '{arch} {config} {perfConfig}' with perfConfig='{arch}'")
+
 # Tuning databases
 MaybeTuningDb = Optional[Dict[Tuple[str, str], str]]
 def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
@@ -274,6 +289,7 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
                 else:
                     print("Warning: Malformed tuning database entry:", line)
                     continue
+                validate_tuning_db_entry(arch, config, perfConfig)
         return ret
     except FileNotFoundError:
         if path:
