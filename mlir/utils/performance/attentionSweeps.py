@@ -32,7 +32,7 @@ from parameterSweeps import Options, sweepParameters, multilineRepr
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initializeDataTypesAttention()
 BOOLS = [True, False]
-MAX_TOKENS = 128*128 # temporarily hardcoded
+MAX_TOKENS = 8129*128 # temporarily hardcoded
 SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
 
 # Week number is used as seed to make sure weekly CI is reproducible
