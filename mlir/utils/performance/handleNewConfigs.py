@@ -67,7 +67,7 @@ def detectConfigType(config) -> Optional[str]:
     # Attention configs have -transQ, -transK, -transV, -transO, -seq_len_q, etc.
     if any(flag in config for flag in ["-transQ", "-seq_len_q", "-head_dim_qk"]):
         return "attention"
-    # GEMM configs have -transA, -transB, -out_datatype, -m, -n, -k, etc.
+    # GEMM configs have -transA, -transB, -m, -n, -k, etc.
     if any(flag in config for flag in ["-transA", "-transB", "-m", "-n", "-k"]):
         return "gemm"
 
