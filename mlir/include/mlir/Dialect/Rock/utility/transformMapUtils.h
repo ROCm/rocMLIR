@@ -288,8 +288,20 @@ getLowerSubDimensions(OpBuilder &b, ArrayAttr transformAttrs,
 SmallVector<SmallString<8>> createDimNames(int64_t len, StringRef prefix);
 SmallVector<StringRef> getStringRefsFor(ArrayRef<SmallString<8>> strings);
 
-// Find input type of gemm before input fusion is applied
-FailureOr<Type> getDequantizedElementType(Value transformed);
+// Given a mlir::Value as input (representing the operand of a kernel,
+// such as gemm, attention, etc), returns the underlying data type of the tensor
+// before any fusions, or failure if it cannot be determined.
+//
+// This function is intended to be used when the kernel has an operand
+// coming from an input fusion. For example, we may have a gemm with
+// a f16 input, which is dequantized from a int4 value. In that case, this
+// function will return the int4 type.
+//
+// To find the underlying data type, the function tries to pattern match the
+// chain of operators from the input mlir::Value to the function block
+// argument. If the pattern match succeds, the function returns the
+// type of the block argument, otherwise it returns failure.
+FailureOr<Type> getInputFusionElementType(Value transformed);
 
 } // end namespace rock
 } // end namespace mlir
