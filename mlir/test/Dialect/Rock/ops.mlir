@@ -261,6 +261,36 @@ func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf32>, %B : me
 // CHECK-LABEL: func.func @rock_gridwise_scaled_gemm_accel
 // CHECK-NEXT: rock.gridwise_gemm_accel
 
+func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2xf32>, #gpu.address_space<workgroup>>, %matrixB : memref<256xvector<2xf32>, #gpu.address_space<workgroup>>,
+                                                %bufferA : memref<4xf32, #gpu.address_space<private>>, %bufferB : memref<4xf32, #gpu.address_space<private>>,
+                                                                                                %scaleA : memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>,
+                                                                                                %scaleB : memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>,
+                                                %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA scale by %scaleA * %bufferB from %matrixB scale by %scaleB features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx90a",
+    blockSize= 256 : i32,
+    inMPerThread = 2 : i32,
+    inNPerThread = 2 : i32,
+    loadAFromLDS,
+    loadBFromLDS,
+    params = #rock.xdlops_gemm_derived_params<
+      kpackPerBlock = 2,
+      kpack = 2,
+      mPerBlock = 128,
+      mPerWave = 64,
+      nPerBlock = 128,
+      nPerWave = 64,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 1,
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<4xvector<16xf32>, #gpu.address_space<private>> += memref<4xf32, #gpu.address_space<private>> from memref<256xvector<2xf32>, #gpu.address_space<workgroup>> scale by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>> * memref<4xf32, #gpu.address_space<private>> from memref<256xvector<2xf32>, #gpu.address_space<workgroup>> scale by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: @rock_blockwise_gemm_accel_two_results
+// CHECK-NEXT: rock.blockwise_gemm_accel
 
 
 func.func @rock_extract_slice(%v : vector<32xf32>) -> vector<4xf32> {

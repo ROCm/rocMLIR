@@ -1368,13 +1368,13 @@ def Rock_BlockwiseGemmOp
 defvar AccelArgTypes = [F32,
                     VectorOfLengthAndType<[2, 4], [F32]>,
                     VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-                    VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>, VectorOfLengthAndType<[8, 16, 32], [F4E2M1FN]>];
+                    VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>, VectorOfLengthAndType<[8, 16, 32], [F4E2M1FN]>, VectorOfLengthAndType<[4], [F8E8M0FNU]>];
 defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF16]>];
 
 // blockwise_gemm_accel
 def Rock_BlockwiseGemmAccelOp
     : Rock_Op<"blockwise_gemm_accel", [DeclareOpInterfaceMethods<
-                                          RockGemmFeaturesInterface>]>,
+                                          RockGemmFeaturesInterface>, AttrSizedOperandSegments]>,
       Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
           MemRefOf<LdsBufferTypes>:$matrixB, I32Attr:$inMPerThread,
           I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
@@ -1382,6 +1382,8 @@ def Rock_BlockwiseGemmAccelOp
           UnitAttr:$splitKAcrossThreadsFirstA,
           UnitAttr:$splitKAcrossThreadsFirstB, MemRefOf<AccelArgTypes>:$bufferA,
           MemRefOf<AccelArgTypes>:$bufferB, MemRefOf<AccelResTypes>:$matrixC,
+          Optional<MemRefOf<AccelArgTypes>>:$scaleA,
+          Optional<MemRefOf<AccelArgTypes>>:$scaleB,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
           RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Blockwise GEMM accelerated version";
@@ -1394,10 +1396,10 @@ def Rock_BlockwiseGemmAccelOp
     scalars when kpack is 1.
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $bufferA `from` $matrixA `*`
-                        $bufferB `from` $matrixB (`features` `=` $features^)? attr-dict
-    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
-                                  type($bufferB) `from` type($matrixB)
+    $matrixC `+` `` `=` $bufferA `from` $matrixA  (`scale` `by` $scaleA^)? `*`
+                        $bufferB `from` $matrixB (`scale` `by` $scaleB^)? (`features` `=` $features^)? attr-dict
+    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) (`scale` `by` type($scaleA)^)? `*`
+                                  type($bufferB) `from` type($matrixB) (`scale` `by` type($scaleB)^)?
   }];
 }
 

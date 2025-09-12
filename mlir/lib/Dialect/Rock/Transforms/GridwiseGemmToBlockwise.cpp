@@ -2566,8 +2566,8 @@ struct GridwiseAttentionAccelRewritePattern
             /*loadAfromLDS=*/rewriter.getUnitAttr(), /*loadBfromLDS=*/nullptr,
             /*splitKAcrossThreadsFirstA=*/nullptr,
             /*splitKAcrossThreadsFirstB=*/nullptr, preAccelRegBufferK,
-            preAccelRegBuffersQ, accRegBufferGemm0, featuresAttr,
-            op.getBlockSizeAttr(), gemm0TuningParams);
+            preAccelRegBuffersQ, accRegBufferGemm0, nullptr, nullptr,
+            featuresAttr, op.getBlockSizeAttr(), gemm0TuningParams);
 
         GpuDeallocOp::create(rewriter, loc, ldsByteBufferK);
       }
@@ -2831,8 +2831,8 @@ struct GridwiseAttentionAccelRewritePattern
               /*splitKAcrossThreadsFirstA=*/
               doBypassLDSSecondGemm ? rewriter.getUnitAttr() : nullptr,
               /*splitKAcrossThreadsFirstB=*/nullptr, preAccelRegBufferV,
-              preAccelRegBufferQxK, accRegBufferGemm1, featuresAttr,
-              op.getBlockSizeAttr(), gemm1TuningParams);
+              preAccelRegBufferQxK, accRegBufferGemm1, nullptr, nullptr,
+              featuresAttr, op.getBlockSizeAttr(), gemm1TuningParams);
 
           GpuDeallocOp::create(rewriter, loc, ldsByteBufferV);
           if (!doBypassLDSSecondGemm)
@@ -3438,8 +3438,8 @@ struct GridwiseGemmAccelRewritePattern
               /*loadBfromLDS=*/b.getUnitAttr(),
               /*splitKAcrossThreadsFirstA=*/nullptr,
               /*splitKAcrossThreadsFirstB=*/nullptr, arrayA, arrayB,
-              regCAllocOp, featuresAttr, op.getBlockSizeAttr(),
-              op.getParamsAttr());
+              regCAllocOp, nullptr, nullptr, featuresAttr,
+              op.getBlockSizeAttr(), op.getParamsAttr());
           rock::YieldOp::create(b, loc);
         }
       } else {
@@ -3472,8 +3472,8 @@ struct GridwiseGemmAccelRewritePattern
               /*loadAfromLDS=*/nullptr, /*loadBfromLDS=*/nullptr,
               /*splitKAcrossThreadsFirstA=*/nullptr,
               /*splitKAcrossThreadsFirstB=*/nullptr, arrayA, arrayB,
-              regCAllocOp, featuresAttr, op.getBlockSizeAttr(),
-              op.getParamsAttr());
+              regCAllocOp, nullptr, nullptr, featuresAttr,
+              op.getBlockSizeAttr(), op.getParamsAttr());
           rock::YieldOp::create(b, loc);
         }
       }
