@@ -11,6 +11,7 @@ Usage:
 
 import os
 import sys
+import shlex
 from typing import Iterable, Set, Optional
 from perfRunner import ConvConfiguration, GemmConfiguration, AttentionConfiguration, getArch, getChip, getNumCU
 
@@ -74,17 +75,19 @@ def detectConfigType(config) -> Optional[str]:
 
 def _canonicalizeConvConfig(config: str) -> str:
     """Converts a conv config to canonical form for deduplication."""
-    obj = ConvConfiguration.fromCommandLine(config, ARCH, NUM_CU)
+    obj = ConvConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
     return obj.toCommandLine()
 
 def _canonicalizeGemmConfig(config: str) -> str:
     """Converts a GEMM config to canonical form for deduplication."""
-    obj = GemmConfiguration.fromCommandLine(config, ARCH, NUM_CU)
+    obj = GemmConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
     return obj.toCommandLine()
 
 def _canonicalizeAttentionConfig(config: str) -> str:
     """Converts an attention config to canonical form for deduplication."""
-    obj = AttentionConfiguration.fromCommandLine(config, ARCH, NUM_CU)
+    print(f"Attention config: {config} - entered canonicalize")
+    obj = AttentionConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
+    print("Attention config: {config} - converted to obj")
     return obj.toCommandLine()
 
 def canonicalSet(lines: Iterable[str], kind: str) -> Set[str]:
@@ -166,7 +169,9 @@ def main(argv=None):
     newAttention: list[str] = []
     newRaw = readNonEmptyLines(newConfigs)
     for raw in newRaw:
+        print(f"Processing: {raw}")
         configType = detectConfigType(raw)
+        print(f"  Type: {configType}")
         if not configType:
             print(f"Error: Could not determine config type for: {raw}")
             continue
