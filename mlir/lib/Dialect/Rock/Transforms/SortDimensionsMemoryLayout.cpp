@@ -576,9 +576,9 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
         op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
         op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(), op.getOut(),
         op.getLse(), transposedQ, transposedK, transposedV,
-        op.getOTransposedAttr(), op.getCausalAttr(), op.getFeaturesAttr(),
-        op.getSoftmaxTypeAttr(), op.getParams0Attr(), op.getParams1Attr(),
-        op.getFirstGemmIdxAttr());
+        op.getOTransposedAttr(), op.getCausalAttr(), op.getSplitKVAttr(),
+        op.getFeaturesAttr(), op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(),
+        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;
@@ -588,6 +588,9 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
       b.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
                            newOp.getPreSoftmaxBody().begin());
     }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
+
     b.replaceOp(op, newOp);
 
     return success();
@@ -640,9 +643,9 @@ struct ConvElementwiseGemmRewritePattern
     auto newOp = rw.create<rock::ConvElementwiseGemmOp>(
         op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
         op.getElemwiseInputs(), op.getOut(), transposedC,
-        op.getOTransposedAttr(), op.getFeaturesAttr(), op.getPaddingAttr(),
-        op.getStridesAttr(), op.getDilationsAttr(), op.getParams0Attr(),
-        op.getParams1Attr(), op.getFirstGemmIdxAttr());
+        op.getOTransposedAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        op.getPaddingAttr(), op.getStridesAttr(), op.getDilationsAttr(),
+        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
 
     // set attributes
     newOp->setAttr("filter_layout", newFilterLayout);
@@ -657,6 +660,9 @@ struct ConvElementwiseGemmRewritePattern
                             newOp.getPreSecondGemmBody(),
                             newOp.getPreSecondGemmBody().begin());
     }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
+
     rw.replaceOp(op, newOp);
 
     return success();
@@ -686,7 +692,8 @@ struct GemmElementwiseGemmRewritePattern
         op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
         op.getElemwiseInputs(), op.getOut(), transposedQ, transposedK,
         transposedV, op.getOTransposedAttr(), op.getFeaturesAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIdxAttr());
+        op.getStoreMethodAttr(), op.getParams0Attr(), op.getParams1Attr(),
+        op.getFirstGemmIndicesAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;
@@ -697,6 +704,9 @@ struct GemmElementwiseGemmRewritePattern
                             newOp.getPreSecondGemmBody(),
                             newOp.getPreSecondGemmBody().begin());
     }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
+
     rw.replaceOp(op, newOp);
 
     return success();

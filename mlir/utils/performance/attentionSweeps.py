@@ -32,7 +32,7 @@ from parameterSweeps import Options, sweepParameters, multilineRepr
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initializeDataTypesAttention()
 BOOLS = [True, False]
-LOGFILE = 'failing_configs.csv'
+SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
 
 # Week number is used as seed to make sure weekly CI is reproducible
 seed = datetime.utcnow().isocalendar()[1]
@@ -42,8 +42,8 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance."""
     shape, perf = params
     *shapeParams, currentSeqLen = shape
-    dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse = shapeParams
-    perfString = f"attn:v1:{','.join(str(x) for x in perf)}"
+    dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse, split_kv = shapeParams
+    perfString = f"attn:v2:{','.join(str(x) for x in perf)}"
     attnConfig = AttentionConfiguration(
         dtype=dtype,
         g=g,
@@ -61,6 +61,7 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
         transO=to,
         causal=causal,
         return_lse=rlse,
+        split_kv=split_kv,
         arch=options.arch,
         numCU=options.numCu,
         perf_config=perfString
@@ -108,6 +109,11 @@ def sampleAttentionShape():
             if numHeadsQ > numHeadsKV and numHeadsQ%numHeadsKV == 0: # found valid case
                 break
 
+    split_kv = 1
+    return_lse = random.choice(BOOLS)
+    if return_lse:
+        split_kv = random.choice(SPLIT_KV_OPTIONS)
+
     return (
         random.choice(DATA_TYPES_ATTENTION),
         g, # GROUPS
@@ -124,7 +130,8 @@ def sampleAttentionShape():
         random.choice(BOOLS),   # transV
         random.choice(BOOLS),   # transO
         random.choice(BOOLS),   # causal
-        random.choice(BOOLS),   # return_lse
+        return_lse,
+        split_kv, 
         currentSeqLen
     )
 
@@ -133,22 +140,28 @@ perfConfigSpaceMFMA = list(itertools.product( # MFMA perfConfig space
         [32, 64, 128, 256], # M/block G0
         [32, 64, 128, 256], # M/block G1
         [32, 64, 128, 256], # N/block G0
-        [8, 16, 32, 64], # Kpack/Block
+        [8, 16, 32, 64],    # Kpack/Block
         [32, 64, 128, 256], # M/Wave
-        [4, 16, 32], # MN/Xdl
-        [4, 8, 16], # kPack
-        [0, 1] # forceUnroll
+        [4, 16, 32],        # MN/Xdl
+        [4, 8, 16],         # kPack
+        [1],                # splitKFactor
+        [1],                # scheduleVersion
+        [2],                # outputSwizzle
+        [0, 1]              # forceUnroll
     ))
 
 perfConfigSpaceWMMA = list(itertools.product( # WMMA perfConfig space
-        [32, 64, 128],         # M/block G0
-        [32, 64, 128],         # M/block G1
-        [32, 64, 128, 256],    # N/block G0
-        [8, 16, 32, 64],       # Kpack/Block
-        [32, 64],              # M/Wave
-        [32, 64],              # N/Wave
-        [4, 8, 16],            # kPack
-        [0, 1]                 # forceUnroll
+        [32, 64, 128],          # M/block G0
+        [32, 64, 128],          # M/block G1
+        [32, 64, 128, 256],     # N/block G0
+        [8, 16, 32, 64],        # Kpack/Block
+        [32, 64],               # M/Wave
+        [32, 64],               # N/Wave
+        [4, 8, 16],             # kPack
+        [1],                    # splitKFactor
+        [1],                    # scheduleVersion
+        [2],                    # outputSwizzle
+        [0, 1]                  # forceUnroll
     ))
 
 def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
@@ -156,7 +169,7 @@ def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
         writer = csv.writer(csvfile)
         writer.writerow(['CommandLine'])
         for config in configs:
-            writer.writerow([' '.join(config.generateMlirDriverCommandLine(''))])
+            writer.writerow([config.generateMlirDriverCommandLine('', kernel_repeats=None)])
             
 def main():
     parser = argparse.ArgumentParser(
@@ -181,7 +194,8 @@ def main():
         arch=arch,
         flags=[],
         concurrent_tests=args.jobs,
-        numCu=getNumCU(chip)
+        numCu=getNumCU(chip),
+        logFailures=args.log_failures
     )
    
 
@@ -206,8 +220,6 @@ def main():
         print(f"{'Failing Configurations':^80}\n")
         for fail in failing:
             print(multilineRepr(fail))
-        if args.log_failures:
-            logFailingConfigs(failing, LOGFILE)
     
     print(f"\nPassed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     

@@ -24,6 +24,7 @@
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <limits>
@@ -510,8 +511,9 @@ LogicalResult GatherToLDSOp::verify() {
   } else {
     transferSize = transferType.getIntOrFloatBitWidth();
   }
-  if (transferSize != 8 && transferSize != 16 && transferSize != 32)
-    return emitOpError("Transfering type size must be 8, 16, or 32 bits");
+  if (transferSize != 8 && transferSize != 16 && transferSize != 32 &&
+      transferSize != 128)
+    return emitOpError("Transfering type size must be 8, 16, 32, or 128 bits");
 
   if (!hasGlobalMemorySpace(srcType.getMemorySpace()) &&
       !hasFatRawBufferMemorySpace(srcType.getMemorySpace()))
@@ -520,6 +522,39 @@ LogicalResult GatherToLDSOp::verify() {
 
   if (!hasWorkgroupMemorySpace(dstType.getMemorySpace()))
     return emitOpError("destination memory address space must be Workgroup");
+
+  return success();
+}
+
+LogicalResult TransposeLoadOp::verify() {
+  MemRefType srcType = cast<MemRefType>(getSrc().getType());
+
+  if (!hasWorkgroupMemorySpace(srcType.getMemorySpace()))
+    return emitOpError("source memory address space must be Workgroup");
+
+  auto transferType = cast<VectorType>(getType());
+  size_t numElements = transferType.getNumElements();
+  size_t elementTypeSize =
+      transferType.getElementType().getIntOrFloatBitWidth();
+
+  // ElementSize -> NumElements
+  const llvm::SmallDenseMap<size_t, size_t> KValidLoadSizeMap = {
+      {4, 16},
+      {6, 16},
+      {8, 8},
+      {16, 4},
+  };
+
+  auto validNumElems = KValidLoadSizeMap.find(elementTypeSize);
+  if (validNumElems == KValidLoadSizeMap.end()) {
+    return emitOpError("Unsupported element type size for transpose load: ")
+           << elementTypeSize << " bits";
+  }
+  if (numElements != validNumElems->second) {
+    return emitOpError(
+               "Transferring type size mismatch: expected num of elements: ")
+           << validNumElems->second;
+  }
 
   return success();
 }

@@ -125,6 +125,7 @@ LogicalResult mlir::rock::checkValidOutputFusion(
 LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
   auto analysis = BufferDependencyAnalysis(func.getOperation());
   const auto &writersTable = analysis.getWritersTable();
+  const auto &readersTable = analysis.getReadersTable();
 
   // can't fuse reduce_max with split-k
   WalkResult reduceMaxRes = func.walk([](ReduceOp reduceOp) -> WalkResult {
@@ -133,10 +134,8 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
 
     return WalkResult::advance();
   });
-  if (reduceMaxRes.wasInterrupted())
-    return failure();
 
-  WalkResult walkResult =
+  WalkResult gemmWalkResult =
       func.walk([&](rock::RockGemmWrapperInterface gemmOp) -> WalkResult {
         auto gemmResult = gemmOp.getOutArgument()->get();
 
@@ -194,7 +193,63 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
         return WalkResult::advance();
       });
 
-  return success(!walkResult.wasInterrupted());
+  WalkResult gemmGemmWalkResult = func.walk(
+      [&](rock::RockGemmGemmWrapperInterface gemmGemmOp) -> WalkResult {
+        auto gemmGemmResult = gemmGemmOp.getOutArgument()->get();
+
+        auto maybeBlockArgs =
+            traceGemmOutputToArgs(gemmGemmResult, func, analysis);
+        if (failed(maybeBlockArgs))
+          return WalkResult::interrupt();
+
+        // Verify hardware compatibility (split-k) for kernel output.
+        // Checks if atomic_add operations are supported by the target hardware.
+        auto blockArgs = maybeBlockArgs.value();
+        for (auto blockArg : blockArgs) {
+          auto outElementType =
+              cast<ShapedType>(blockArg.getType()).getElementType();
+          if (failed(validOutputAtomicAdd(outElementType,
+                                          rock::getFeatures(gemmGemmOp))))
+            return WalkResult::interrupt();
+        }
+
+        // GEMM result could come from a block argument, so if it fails, we call
+        // WalkResult::advance()
+        auto maybeAlloc = findMemrefAlloc(gemmGemmResult);
+        if (failed(maybeAlloc))
+          return WalkResult::advance();
+
+        // make sure that no `linalg::GenericOp` reads from a gemm output
+        if (readersTable.contains(maybeAlloc.value())) {
+          for (OpOperand *op : readersTable.at(maybeAlloc.value())) {
+            if (isa<linalg::GenericOp>(op->getOwner()))
+              return WalkResult::interrupt();
+          }
+        }
+
+        // make sure that no `linalg::GenericOp` writes to a gemm output
+        if (writersTable.contains(maybeAlloc.value())) {
+          for (OpOperand *op : writersTable.at(maybeAlloc.value())) {
+            if (isa<linalg::GenericOp>(op->getOwner()))
+              return WalkResult::interrupt();
+          }
+        }
+
+        // fusions between gemm0 and gemm1 are not allowed
+        bool linalgOpFound = false;
+        gemmGemmOp.getPreSecondGemmRegion().walk(
+            [&linalgOpFound](linalg::GenericOp genOp) {
+              linalgOpFound = true;
+            });
+        if (linalgOpFound)
+          return WalkResult::interrupt();
+
+        return WalkResult::advance();
+      });
+
+  return success(!gemmWalkResult.wasInterrupted() &&
+                 !gemmGemmWalkResult.wasInterrupted() &&
+                 !reduceMaxRes.wasInterrupted());
 }
 
 LogicalResult mlir::rock::testFusionLegalitySplitK(ModuleOp mod) {
@@ -212,11 +267,12 @@ LogicalResult mlir::rock::testFusionLegalityReduce(func::FuncOp func) {
       if (!isa<Float32Type>(outElemType))
         return WalkResult::interrupt();
 
-      if (!bitEnumContainsAll(rock::getFeatures(func),
+      if (!bitEnumContainsAll(rock::getFeatures(reduceOp),
                               GemmFeatures::atomic_fmax_f32))
         return WalkResult::interrupt();
     } else {
-      if (failed(validOutputAtomicAdd(outElemType, rock::getFeatures(func))))
+      if (failed(
+              validOutputAtomicAdd(outElemType, rock::getFeatures(reduceOp))))
         return WalkResult::interrupt();
     }
     return WalkResult::advance();

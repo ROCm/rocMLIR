@@ -10,6 +10,7 @@
 #define ROCK_ATTRS
 
 include "mlir/Dialect/Rock/IR/RockBase.td"
+include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.td"
@@ -274,20 +275,16 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
   let description = [{
     The perf configs for rock.attention operator.
   }];
-  let parameters = (ins
-    "int64_t":$mPerBlockG0,
-    "int64_t":$mPerBlockG1,
-    "int64_t":$nPerBlockG0,
-    "int64_t":$kpackPerBlock,
-    "int64_t":$mPerWave,
-    "int64_t":$mnPerXdl,
-    "int64_t":$kpack,
-    "bool":$forceUnroll
-  );
+
+  let parameters = (ins "int64_t":$mPerBlockG0, "int64_t":$mPerBlockG1,
+      "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$mPerWave,
+      "int64_t":$mnPerXdl, "int64_t":$kpack, "int64_t":$splitKFactor,
+      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
+      "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      ("attn:v1:"
+      ("attn:v2:"
       + Twine(getMPerBlockG0()) + ","
       + Twine(getMPerBlockG1()) + ","
       + Twine(getNPerBlockG0()) + ","
@@ -295,12 +292,11 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
       + Twine(getMPerWave()) + ","
       + Twine(getMnPerXdl()) + ","
       + Twine(getKpack()) + ","
+      + Twine(getSplitKFactor()) + ","
+      + Twine(getScheduleVersion()) + ","
+      + Twine(getOutputSwizzle()) + ","
       + Twine(getForceUnroll())).toVector(perfStr);
     }
-
-    int64_t getSplitKFactor() { return 1; }
-    int64_t getScheduleVersion() { return 1;}
-    int64_t getOutputSwizzle() { return 2; }
   }];
 
   let builders = [
@@ -471,12 +467,21 @@ def Rock_GemmFeatures_AtomicAdd : I32BitEnumAttrCaseBit<"atomic_add", 3>;
 def Rock_GemmFeatures_AtomicAddBF16 : I32BitEnumAttrCaseBit<"atomic_add_bf16", 4>;
 def Rock_GemmFeatures_AtomicAddF16 : I32BitEnumAttrCaseBit<"atomic_add_f16", 5>;
 def Rock_GemmFeatures_AtomicFmaxF32 : I32BitEnumAttrCaseBit<"atomic_fmax_f32", 6>;
+def Rock_GemmFeatures_DirectToLDS32B
+    : I32BitEnumAttrCaseBit<"direct_to_lds_32b", 7>;
+def Rock_GemmFeatures_DirectToLDS128B
+    : I32BitEnumAttrCaseBit<"direct_to_lds_128b", 8>;
 
-def Rock_GemmFeatures : I32BitEnumAttr<"GemmFeatures",
-    "Features that can be enabled on GEMM-based operations",
-    [Rock_GemmFeatures_None, Rock_GemmFeatures_Mfma, Rock_GemmFeatures_Wmma,
-     Rock_GemmFeatures_Dot, Rock_GemmFeatures_AtomicAdd, Rock_GemmFeatures_AtomicAddBF16, 
-     Rock_GemmFeatures_AtomicAddF16, Rock_GemmFeatures_AtomicFmaxF32]> {
+def Rock_GemmFeatures
+    : I32BitEnumAttr<
+          "GemmFeatures",
+          "Features that can be enabled on GEMM-based operations",
+          [Rock_GemmFeatures_None, Rock_GemmFeatures_Mfma,
+           Rock_GemmFeatures_Wmma, Rock_GemmFeatures_Dot,
+           Rock_GemmFeatures_AtomicAdd, Rock_GemmFeatures_AtomicAddBF16,
+           Rock_GemmFeatures_AtomicAddF16, Rock_GemmFeatures_AtomicFmaxF32,
+           Rock_GemmFeatures_DirectToLDS32B,
+           Rock_GemmFeatures_DirectToLDS128B]> {
   let cppNamespace = "::mlir::rock";
   let genSpecializedAttr = 0;
 }

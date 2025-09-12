@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -65,6 +66,79 @@ using namespace mlir::rock;
 
 #include "mlir/Dialect/Rock/IR/RockOpsDialect.cpp.inc"
 #include "mlir/Dialect/Rock/IR/RockTypes.cpp.inc"
+
+//===----------------------------------------------------------------------===//
+// Utility Functions
+//===----------------------------------------------------------------------===//
+template <typename OpType>
+void getGemmEffects(OpType &op,
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
+  effects.emplace_back(read, &op.getCMutable());
+  effects.emplace_back(write, &op.getCMutable());
+
+  effects.emplace_back(read, &op.getAMutable());
+  effects.emplace_back(read, &op.getBMutable());
+}
+
+template <typename OpType>
+void getGemmMatrixEffects(
+    OpType &op, SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
+  effects.emplace_back(read, &op.getMatrixCMutable());
+  effects.emplace_back(write, &op.getMatrixCMutable());
+
+  effects.emplace_back(read, &op.getMatrixAMutable());
+  effects.emplace_back(read, &op.getMatrixBMutable());
+}
+
+template <typename OpType>
+void getAttentionEffects(
+    OpType &op, SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &op.getOutMutable());
+  effects.emplace_back(write, &op.getOutMutable());
+
+  if (op.getLse()) {
+    effects.emplace_back(read, &op.getLseMutable()[0]);
+    effects.emplace_back(write, &op.getLseMutable()[0]);
+  }
+  if (op.getCurrentSeqLen()) {
+    effects.emplace_back(read, &op.getCurrentSeqLenMutable()[0]);
+  }
+
+  effects.emplace_back(read, &op.getQueriesMutable());
+  effects.emplace_back(read, &op.getKeysMutable());
+  effects.emplace_back(read, &op.getValuesMutable());
+  for (auto &regionArg : op.getPreSoftmaxElemWiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
+}
+
+template <typename OpType>
+void getConvEffects(OpType &op,
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &op.getInputMutable(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), &op.getFilterMutable(),
+                       transform::TransformMappingResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), &op.getOutputMutable(),
+                       transform::TransformMappingResource::get());
+}
+
+template <typename OpType>
+void getCommonEffects(OpType &op,
+                      SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &op.getSourceMutable());
+  effects.emplace_back(write, &op.getDestMutable());
+}
+
 //===----------------------------------------------------------------------===//
 // RockDialect Interfaces
 //===----------------------------------------------------------------------===//
@@ -670,6 +744,18 @@ OpOperand *ConvBwdWeightOp::getOutArgument() {
   return &(*this)->getOpOperand(0);
 }
 
+SmallVector<mlir::Type> GemmOp::getTypesForFeature() { return {getAType()}; }
+
+SmallVector<mlir::Type> ConvOp::getTypesForFeature() { return {getAType()}; }
+
+SmallVector<mlir::Type> ConvBwdDataOp::getTypesForFeature() {
+  return {getAType()};
+}
+
+SmallVector<mlir::Type> ConvBwdWeightOp::getTypesForFeature() {
+  return {getAType()};
+}
+
 GemmSize ConvOp::getGemmSize() {
   auto sizes = ConvolutionDims::fromOp(*this);
   return GemmSize::fromConvolution(ConvOpType::Fwd, sizes);
@@ -762,27 +848,15 @@ GemmSize ConvBwdWeightOp::getGemmSize() {
 
 void ConvOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), &getOutputMutable(),
-                       transform::TransformMappingResource::get());
+  getConvEffects(*this, effects);
   effects.emplace_back(MemoryEffects::Write::get(), &getOutputMutable(),
-                       transform::TransformMappingResource::get());
-
-  effects.emplace_back(MemoryEffects::Read::get(), &getFilterMutable(),
-                       transform::TransformMappingResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
                        transform::TransformMappingResource::get());
 }
 
 void ConvBwdDataOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), &getInputMutable(),
-                       transform::TransformMappingResource::get());
+  getConvEffects(*this, effects);
   effects.emplace_back(MemoryEffects::Write::get(), &getInputMutable(),
-                       transform::TransformMappingResource::get());
-
-  effects.emplace_back(MemoryEffects::Read::get(), &getFilterMutable(),
-                       transform::TransformMappingResource::get());
-  effects.emplace_back(MemoryEffects::Read::get(), &getOutputMutable(),
                        transform::TransformMappingResource::get());
 }
 
@@ -900,6 +974,11 @@ GemmSize GemmOp::getGemmSize() {
   return GemmSize(g, m, k, n);
 }
 
+void GemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmEffects(*this, effects);
+}
+
 //===-----------------------------------------------------===//
 // GridwiseGemmOp and GridwiseGemmAccel Op
 //===-----------------------------------------------------===//
@@ -953,10 +1032,28 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   return success();
 }
 
+SmallVector<mlir::Type> GridwiseGemmOp::getTypesForFeature() {
+  return {getA().getType()};
+}
+
+SmallVector<mlir::Type> GridwiseGemmAccelOp::getTypesForFeature() {
+  return {getA().getType()};
+}
+
 LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 
 LogicalResult GridwiseGemmAccelOp::verify() {
   return verifyGridwiseGemm(*this);
+}
+
+void GridwiseGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmEffects(*this, effects);
+}
+
+void GridwiseGemmAccelOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmEffects(*this, effects);
 }
 
 //===-----------------------------------------------------===//
@@ -1527,22 +1624,60 @@ LogicalResult IndexDiffUpdateOp::verify() {
   return success();
 }
 
-//===-----------------------------------------------------===//
-// GlobalLoadOp
-//===-----------------------------------------------------===//
-LogicalResult GlobalLoadOp::verify() {
-  MemRefType sourceType = getSource().getType();
+template <typename Load>
+static LogicalResult verifyGlobalLoad(Load op) {
+  MemRefType sourceType = op.getSource().getType();
   size_t nDims = sourceType.getRank();
 
-  if (getSourceCoord().size() != nDims)
-    return emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  if (getCanReadOffEnd() && nDims != 1)
-    return emitOpError("can only have one dimension in canReadOffEnd loads");
+  if (op.getSourceCoord().size() != nDims)
+    return op.emitOpError("Expected " + Twine(nDims) + " coordinates for load");
+  if (op.getCanReadOffEnd() && nDims != 1)
+    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
   Attribute memSpaceAttr = sourceType.getMemorySpace();
   auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
-    return emitOpError("Source memref must live in global memory");
+    return op.emitOpError("Source memref must live in global memory");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// GlobalLoadOp
+//===-----------------------------------------------------===//
+void GlobalLoadOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  effects.emplace_back(read, &getSourceMutable());
+}
+
+LogicalResult GlobalLoadOp::verify() { return verifyGlobalLoad(*this); }
+
+//===-----------------------------------------------------===//
+// GlobalLoadToLDSOp
+//===-----------------------------------------------------===//
+void GlobalLoadToLDSOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
+}
+
+LogicalResult GlobalLoadToLDSOp::verify() {
+  LogicalResult res = verifyGlobalLoad(*this);
+  if (failed(res))
+    return res;
+
+  MemRefType destType = getDest().getType();
+  Attribute destMemSpaceAttr = destType.getMemorySpace();
+  auto destGpuMemSpaceAttr =
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(destMemSpaceAttr);
+  if (destMemSpaceAttr &&
+      (!destGpuMemSpaceAttr ||
+       destGpuMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup))
+    return emitOpError("Destination memref must live in workgroup memory");
+
+  int64_t numBits = getTransferType().getIntOrFloatBitWidth();
+  if (numBits != 128 && numBits != 32)
+    return emitOpError(
+        "Direct to LDS is implemented for 128bit and 32bit loads only");
   return success();
 }
 
@@ -1571,6 +1706,12 @@ LogicalResult GlobalStoreOp::verify() {
 //===-----------------------------------------------------===//
 // InBoundsLoadOp
 //===-----------------------------------------------------===//
+void InBoundsLoadOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  effects.emplace_back(read, &getSourceMutable());
+}
+
 LogicalResult InBoundsLoadOp::verify() {
   MemRefType sourceType = getSource().getType();
   size_t nDims = sourceType.getRank();
@@ -1584,8 +1725,14 @@ LogicalResult InBoundsLoadOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// InBoundsLoadOp
+// InBoundsStoreOp
 //===-----------------------------------------------------===//
+void InBoundsStoreOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(write, &getDestMutable());
+}
+
 LogicalResult InBoundsStoreOp::verify() {
   MemRefType destType = getDest().getType();
   size_t nDims = destType.getRank();
@@ -1627,6 +1774,11 @@ ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder,
       getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
       getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
+}
+
+void ThreadwiseReadIntoOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
 }
 
 LogicalResult ThreadwiseReadIntoOp::verify() {
@@ -1728,6 +1880,11 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
   return newOp.getOperation();
 }
 
+void ThreadwiseWriteAllOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
+}
+
 LogicalResult ThreadwiseWriteAllOp::verify() {
   MemRefType sourceType = getSource().getType();
   Attribute memSpaceAttr = sourceType.getMemorySpace();
@@ -1790,6 +1947,11 @@ ThreadwiseCopyOp::cloneWithExtraIndices(OpBuilder &builder, OpOperand &operand,
   return newOp.getOperation();
 }
 
+void ThreadwiseCopyOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
+}
+
 LogicalResult ThreadwiseCopyOp::verify() {
   auto srcShape = getSource().getType().getShape();
   auto dstShape = getDest().getType().getShape();
@@ -1829,6 +1991,18 @@ LogicalResult BlockwiseGemmOp::verify() {
   return success();
 }
 
+void BlockwiseGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmMatrixEffects(*this, effects);
+}
+
+//===----------------------------------------------------------------------===//
+// BlockwiseGemmAccelOp
+//===----------------------------------------------------------------------===//
+SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
+  return {getMatrixA().getType()};
+}
+
 //===----------------------------------------------------------------------===//
 // ThreadwiseGemmOp
 //===----------------------------------------------------------------------===//
@@ -1848,9 +2022,18 @@ LogicalResult ThreadwiseGemmOp::verify() {
   return success();
 }
 
+void ThreadwiseGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmMatrixEffects(*this, effects);
+}
+
 //===----------------------------------------------------------------------===//
 // ThreadwiseAccelGemmOp
 //===----------------------------------------------------------------------===//
+SmallVector<mlir::Type> ThreadwiseAccelGemmOp::getTypesForFeature() {
+  return {getMatrixA().getType()};
+}
+
 LogicalResult ThreadwiseAccelGemmOp::verify() {
   ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
                     bShape = getMatrixB().getType().getShape(),
@@ -1870,10 +2053,18 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
   return success();
 }
 
+void ThreadwiseAccelGemmOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmMatrixEffects(*this, effects);
+}
+
 //===----------------------------------------------------------------------===//
 // GridwiseAttentionAccelOp
 //===----------------------------------------------------------------------===//
 LogicalResult GridwiseAttentionAccelOp::verify() {
+  if (getEnableSoftmax() && getStoreMethod() != StoreMethod::Set)
+    return emitError("Only set store method is supported for attention.");
+
   RockAccelTuningParamAttrInterface gemm0TuningParams = getParams0();
   int64_t gemm0kpack = gemm0TuningParams.getKpack();
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
@@ -1881,43 +2072,25 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
     return emitError("NPerBlock should be divisible by kpack.");
   }
 
-  if (!getEnableSoftmax() && getLse()) {
+  if (!getEnableSoftmax() && getLse())
     return emitError("LSE only works for attention.");
-  }
+
+  if (!getEnableSoftmax() && getSplitKV() != 1)
+    return emitError("split-kv is implemented for attention only.");
 
   if (!getEnableSoftmax() && getSoftmaxType()) {
     return emitError("Setting softmax type only works for attention.");
   }
-
-  int64_t linalgOpCount = 0;
-  getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) { linalgOpCount++; });
-  if (linalgOpCount > 1) {
-    return emitError(
-        "More than 1 linalg generic op found in pre softmax fusion point.");
-  }
   return success();
+}
+
+SmallVector<mlir::Type> GridwiseAttentionAccelOp::getTypesForFeature() {
+  return {getKeys().getType(), getValues().getType()};
 }
 
 void GridwiseAttentionAccelOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-  effects.emplace_back(read, &getOutMutable());
-  effects.emplace_back(write, &getOutMutable());
-
-  if (getLse()) {
-    effects.emplace_back(read, &getLseMutable()[0]);
-    effects.emplace_back(write, &getLseMutable()[0]);
-  }
-  if (getCurrentSeqLen()) {
-    effects.emplace_back(read, &getCurrentSeqLenMutable()[0]);
-  }
-
-  effects.emplace_back(read, &getQueriesMutable());
-  effects.emplace_back(read, &getKeysMutable());
-  effects.emplace_back(read, &getValuesMutable());
-  for (auto &regionArg : getPreSoftmaxElemWiseInputsMutable())
-    effects.emplace_back(read, &regionArg);
+  getAttentionEffects(*this, effects);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1953,6 +2126,14 @@ void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
 //===-----------------------------------------------------===//
 // ReduceOp
 //===-----------------------------------------------------===//
+void ReduceOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &getInMutable());
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+}
 
 LogicalResult ReduceOp::verify() {
   APInt axis = getAxis();
@@ -2126,16 +2307,12 @@ KernelType GemmElementwiseGemmOp::getKernelType() {
   return KernelType::GemmElementwiseGemm;
 }
 
-uint32_t GemmElementwiseGemmOp::getFirstGemmIndex() {
-  return getFirstGemmIdx();
-}
-
-void GemmElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
-  setFirstGemmIdx(index);
-}
-
 Region &GemmElementwiseGemmOp::getPreSecondGemmRegion() {
   return getPreSecondGemmBody();
+}
+
+SmallVector<mlir::Type> GemmElementwiseGemmOp::getTypesForFeature() {
+  return {getAType(), getCType()};
 }
 
 GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
@@ -2190,6 +2367,14 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
   // check output type
   ShapedType oType = cast<ShapedType>(op.getOutType());
   int64_t oBatchDim = oType.getShape().size() == 3 ? oType.getShape()[0] : 1;
+  int64_t oBatchDimOrig = oBatchDim;
+  if (isa<AttentionOp>(op)) {
+    int64_t splitKV = cast<AttentionOp>(op).getSplitKV();
+    if (oBatchDim % splitKV != 0)
+      return op.emitError("Batch size must be divisible by splitKV");
+
+    oBatchDim = oBatchDim / splitKV;
+  }
 
   ArrayRef<int64_t> oLastDims = oType.getShape().slice(oType.getRank() - 2);
   auto [outputSeqLen, outputHeadDim] =
@@ -2227,7 +2412,7 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
     if (lseType.getShape().size() != 2) {
       return op.emitError("Number of dimensions is not two (LSE)");
     }
-    if (lseType.getShape()[0] != oBatchDim) {
+    if (lseType.getShape()[0] != oBatchDimOrig) {
       return op.emitError("Batch dimensions do not match (LSE and Output)");
     }
     if (lseType.getShape()[1] != queryM) {
@@ -2302,16 +2487,12 @@ KernelType ConvElementwiseGemmOp::getKernelType() {
   return KernelType::ConvElementwiseGemm;
 }
 
-uint32_t ConvElementwiseGemmOp::getFirstGemmIndex() {
-  return getFirstGemmIdx();
-}
-
-void ConvElementwiseGemmOp::setFirstGemmIndex(uint32_t index) {
-  setFirstGemmIdx(index);
-}
-
 Region &ConvElementwiseGemmOp::getPreSecondGemmRegion() {
   return getPreSecondGemmBody();
+}
+
+SmallVector<mlir::Type> ConvElementwiseGemmOp::getTypesForFeature() {
+  return {getAType(), getCType()};
 }
 
 GemmGemmSize ConvElementwiseGemmOp::getGemmGemmSize() {
@@ -2385,10 +2566,6 @@ bool AttentionOp::getTransposedOut() { return getOTransposed(); }
 
 KernelType AttentionOp::getKernelType() { return KernelType::Attention; }
 
-uint32_t AttentionOp::getFirstGemmIndex() { return getFirstGemmIdx(); }
-
-void AttentionOp::setFirstGemmIndex(uint32_t index) { setFirstGemmIdx(index); }
-
 Region &AttentionOp::getPreSecondGemmRegion() { return getPreSoftmaxBody(); }
 
 GemmGemmSize AttentionOp::getGemmGemmSize() {
@@ -2407,30 +2584,26 @@ GemmGemmSize AttentionOp::getGemmGemmSize() {
   return GemmGemmSize(g, m, k, n, o);
 }
 
+SmallVector<mlir::Type> AttentionOp::getTypesForFeature() {
+  return {getAType(), getCType()};
+}
+
 LogicalResult AttentionOp::verify() {
+  if (getSplitKV() != 1 && !getLse())
+    return emitError("Flash decoding needs LSE output");
+
+  if (getSplitKV() <= 0)
+    return emitError("Negative or zero split-kv does not make sense");
+
+  if (getStoreMethod() != StoreMethod::Set)
+    return emitError("Only set store method is supported for attention.");
+
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse());
 }
 
 void AttentionOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  auto *read = MemoryEffects::Read::get();
-  auto *write = MemoryEffects::Write::get();
-  effects.emplace_back(read, &getOutMutable());
-  effects.emplace_back(write, &getOutMutable());
-
-  if (getLse()) {
-    effects.emplace_back(read, &getLseMutable()[0]);
-    effects.emplace_back(write, &getLseMutable()[0]);
-  }
-  if (getCurrentSeqLen()) {
-    effects.emplace_back(read, &getCurrentSeqLenMutable()[0]);
-  }
-
-  effects.emplace_back(read, &getQueriesMutable());
-  effects.emplace_back(read, &getKeysMutable());
-  effects.emplace_back(read, &getValuesMutable());
-  for (auto &regionArg : getPreSoftmaxElemWiseInputsMutable())
-    effects.emplace_back(read, &regionArg);
+  getAttentionEffects(*this, effects);
 }
 
 //===-----------------------------------------------------===//
@@ -2456,29 +2629,36 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
   if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
     return {};
   }
-  if (version != 1) {
+  if (version != 1 && version != 2) {
     return {};
   }
-  SmallVector<StringRef, 8> tokens;
+  size_t expectedNumTokens = version == 1 ? 8 : 11;
+  SmallVector<StringRef, 11> tokens;
   rest.split(tokens, ',');
-  if (tokens.size() != 8) {
+  if (tokens.size() != expectedNumTokens) {
     return {};
   }
-  SmallVector<int64_t, 8> params;
+  SmallVector<int64_t, 11> params;
   llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
     int param;
     llvm::to_integer(s, param);
     return param;
   });
-  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(),
-                                 /*mPerBlockG0=*/params[0],
-                                 /*mPerBlockG1=*/params[1],
-                                 /*nPerBlockG0=*/params[2],
-                                 /*kpackPerBlock=*/params[3],
-                                 /*mPerWave=*/params[4],
-                                 /*mnPerXdl*/ params[5],
-                                 /*kpack=*/params[6],
-                                 /*forceUnroll=*/params[7] == 1);
+  int64_t mPerBlockG0 = params[0];
+  int64_t mPerBlockG1 = params[1];
+  int64_t nPerBlockG0 = params[2];
+  int64_t kpackPerBlock = params[3];
+  int64_t mPerWave = params[4];
+  int64_t mnPerXdl = params[5];
+  int64_t kpack = params[6];
+  int64_t splitKFactor = version == 2 ? params[7] : 1;
+  int64_t scheduleVersion = version == 2 ? params[8] : 1;
+  int64_t outputSwizzle = version == 2 ? params[9] : 2;
+  int64_t forceUnroll = params[expectedNumTokens - 1] == 1;
+  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(), mPerBlockG0,
+                                 mPerBlockG1, nPerBlockG0, kpackPerBlock,
+                                 mPerWave, mnPerXdl, kpack, splitKFactor,
+                                 scheduleVersion, outputSwizzle, forceUnroll);
 }
 
 //===-----------------------------------------------------===//

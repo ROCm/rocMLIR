@@ -52,10 +52,6 @@ inline rock::GemmFeatures intersectGemmFeatures(rock::GemmFeatures a,
 // the architecture being used, and the type of the op.
 rock::GemmFeatures getFeatures(Operation *op);
 
-// This function returns a boolean value if the underlying op has support for
-// an optional 'GemmFeatures' attribute
-bool opHasOptionalFeature(Operation *op);
-
 } // End namespace rock
 } // End namespace mlir
 #endif // MLIR_DIALECT_ROCK_IR_GETROCKINFO_H

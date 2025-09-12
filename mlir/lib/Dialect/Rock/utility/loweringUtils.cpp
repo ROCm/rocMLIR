@@ -21,6 +21,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
@@ -766,6 +768,8 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   auto bufferType = cast<MemRefType>(buffer.getType());
   int64_t byteWidth = getByteWidth(type);
+  assert(bufferType.getRank() == 1 &&
+         "Buffer type must be a 1D memref for viewBufferAs");
   int64_t numBytes = bufferType.getShape()[0];
   assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
   int64_t length = numBytes / byteWidth;
@@ -829,8 +833,11 @@ static void traceAlloc(memref::AllocOp buffer,
       if (writerOperand && readerOperand != writerOperand &&
           isa<MemoryEffects::Write>(effect.getEffect())) {
         Value writerOperandValue = writerOperand->get();
-        if (auto arg = dyn_cast<BlockArgument>(writerOperandValue))
-          args.push_back(arg);
+
+        FailureOr<BlockArgument> maybeArg =
+            findBlockArgument(writerOperandValue);
+        if (succeeded(maybeArg))
+          args.push_back(maybeArg.value());
         else if (memref::AllocOp writeBuffer =
                      writerOperandValue.getDefiningOp<memref::AllocOp>())
           traceAlloc(writeBuffer, deps, args, genericOpOperands);

@@ -51,6 +51,7 @@ func.func @test_attention(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg
   // CHECK: %[[b:.*]] = rock.transform %{{.*}} memref<64x1x16xf16> to memref<1x64x16xf16>
   // CHECK: rock.attention
   // CHECK-NEXT: qk = tr %[[a]] * tr %[[b]]
+  // CHECK: perf_config = "attn:v2:128,128,128,2,64,64,8,4,1,2,1"
   rock.attention{
     qk = %6 * %3 : memref<1x32x16xf16>, memref<1x16x64xf16>
     qk = elementwise {
@@ -59,7 +60,7 @@ func.func @test_attention(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg
     rock.yield
   }
     %alloc = softmax(qk) * %1 : memref<1x64x8xf16> -> memref<1x32x8xf16>
-  } {arch = "gfx1200", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|atomic_add_f16|wmma>, firstGemmIdx = 0 : i32}
+  } {arch = "gfx1200", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|atomic_add_f16|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>, perf_config = "attn:v2:128,128,128,2,64,64,8,4,1,2,1"}
   %7 = rock.transform %alloc by <affine_map<(d0) -> (0, d0 floordiv 8, d0 mod 8)> by [<Merge{1, 32, 8} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [256] -> [1, 32, 8]> : memref<1x32x8xf16> to memref<256xf16>
   memref.copy %7, %arg3 : memref<256xf16> to memref<256xf16>
   return
@@ -237,6 +238,7 @@ func.func @test_gemm_gemm(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg
   // CHECK: %[[b:.*]] = rock.transform %{{.*}} memref<64x1x16xf16> to memref<1x64x16xf16>
   // CHECK: rock.gemm_elementwise_gemm
   // CHECK-NEXT: ab = tr %[[a]] * tr %[[b]]
+  // CHECK: perf_config = "attn:v2:128,128,128,2,64,64,8,4,1,2,1"
   rock.gemm_elementwise_gemm{
     ab = %6 * %3 : memref<1x32x16xf16>, memref<1x16x64xf16>
     ab = elementwise {
@@ -245,7 +247,7 @@ func.func @test_gemm_gemm(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg
     rock.yield
   }
     %alloc = ab * %1 : memref<1x64x8xf16> -> memref<1x32x8xf16>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIdx = 0 : i32}
+  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIndices = array<i64: 0>, storeMethod = #rock<StoreMethod set>, perf_config = "attn:v2:128,128,128,2,64,64,8,4,1,2,1"}
   %7 = rock.transform %alloc by <affine_map<(d0) -> (0, d0 floordiv 8, d0 mod 8)> by [<Merge{1, 32, 8} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [256] -> [1, 32, 8]> : memref<1x32x8xf16> to memref<256xf16>
   memref.copy %7, %arg3 : memref<256xf16> to memref<256xf16>
   return
@@ -263,6 +265,7 @@ func.func @test_conv_gemm(%arg0: memref<147456xf32>, %arg1: memref<802816xf32>, 
   // CHECK-NEXT: %{{.*}} = ab * %{{.*}} : memref<1x256x256xf32> -> memref<1x9216x256xf32>
   // CHECK-NEXT: filter_layout = ["k", "0", "1", "g", "c"]
   // CHECK-SAME: input_layout = ["ni", "0i", "1i", "gi", "ci"]
+  // CHECK: perf_config = "attn:v2:128,128,128,2,64,64,8,4,1,2,1"
   rock.conv_elementwise_gemm{
     ab = conv(%0, %1) : memref<1x256x3x3x64xf32>, memref<64x14x14x1x64xf32>
     ab = elementwise {
@@ -271,6 +274,6 @@ func.func @test_conv_gemm(%arg0: memref<147456xf32>, %arg1: memref<802816xf32>, 
     rock.yield
   }
     %3 = ab * %2 : memref<1x256x256xf32> -> memref<1x9216x256xf32>
-  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, filter_layout = ["g", "k", "0", "1", "c"], firstGemmIdx = 0 : i32, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]}
+  } {arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, filter_layout = ["g", "k", "0", "1", "c"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "0i", "1i", "gi", "ci"], padding = [0 : index, 0 : index, 0 : index, 0 : index], storeMethod = #rock<StoreMethod set>, strides = [1 : index, 1 : index], perf_config = "attn:v2:128,128,128,2,64,64,8,4,1,2,1"}
   return
 }

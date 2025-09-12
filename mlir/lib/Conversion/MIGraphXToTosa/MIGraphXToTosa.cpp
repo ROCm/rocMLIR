@@ -245,6 +245,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   auto outputTy = cast<MIXRShapedType>(results[0].getType());
   Type outElementTy = outputTy.getElementType();
   Type newOutElementTy = getTypeConverter()->convertType(outElementTy);
+  bool isBwdDataConvOp = isa<migraphx::ConvolutionBwdDataOp>(op);
 
   if (outElementTy.isUnsignedInteger())
     return op.emitError("No support for unsigned convolution.\n");
@@ -270,8 +271,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   newShape.push_back(outShape[1]);
   Type newOutTy = RankedTensorType::get(newShape, newOutElementTy);
 
-  // There is no tosa.conv1d, so instead we'll add a dummy x1 dimension
-  // to the input tensors, and make a tosa.conv2d.
+  // There is no tosa.conv1d or tosa.transpose_conv1d, so instead we'll add a
+  // dummy x1 dimension to the input tensors, and make a tosa.conv2d.
   auto expandTo2D = [&rewriter, loc](mlir::Value value) {
     ArrayRef<int64_t> origShape = cast<ShapedType>(value.getType()).getShape();
     SmallVector<int64_t> expShape(origShape.drop_back());
@@ -283,13 +284,14 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     return reshaped;
   };
 
-  // Construct a new Conv2DOp.
+  // Construct a new Conv2DOp/TransposeConv2DOp.
   Operation *cop;
   Type new1DOutTy;
   Value inputZp, weightZp;
   switch (dims) {
   case 1:
-    // Expand to do a conv2d, because there's no conv1d op.
+    // Expand to do a conv2d/transpose_conv2d, because there's no 1d version of
+    // the ops.
     newShape.insert(std::prev(newShape.end()), 1);
     new1DOutTy = RankedTensorType::get(newShape, newOutElementTy);
     input = expandTo2D(input);
@@ -299,14 +301,25 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
 
-    cop = rewriter.create<tosa::Conv2DOp>(
-        loc, new1DOutTy,
-        ValueRange{
-            input, filter,
-            getZeroTensor(loc, newOutElementTy,
-                          cast<ShapedType>(filter.getType()).getShape()[0],
-                          rewriter),
-            inputZp, weightZp});
+    if (isBwdDataConvOp) {
+      cop = rewriter.create<tosa::TransposeConv2DOp>(
+          loc, new1DOutTy,
+          ValueRange{
+              input, filter,
+              getZeroTensor(loc, newOutElementTy,
+                            cast<ShapedType>(filter.getType()).getShape()[0],
+                            rewriter),
+              inputZp, weightZp});
+    } else {
+      cop = rewriter.create<tosa::Conv2DOp>(
+          loc, new1DOutTy,
+          ValueRange{
+              input, filter,
+              getZeroTensor(loc, newOutElementTy,
+                            cast<ShapedType>(filter.getType()).getShape()[0],
+                            rewriter),
+              inputZp, weightZp});
+    }
     break;
 
   case 2:
@@ -314,16 +327,31 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
-    cop = rewriter.create<tosa::Conv2DOp>(
-        loc, newOutTy,
-        ValueRange{
-            input, filter,
-            getZeroTensor(loc, newOutElementTy,
-                          cast<ShapedType>(filter.getType()).getShape()[0],
-                          rewriter),
-            inputZp, weightZp});
+    if (isBwdDataConvOp) {
+      cop = rewriter.create<tosa::TransposeConv2DOp>(
+          loc, newOutTy,
+          ValueRange{
+              input, filter,
+              getZeroTensor(loc, newOutElementTy,
+                            cast<ShapedType>(filter.getType()).getShape()[0],
+                            rewriter),
+              inputZp, weightZp});
+    } else {
+      cop = rewriter.create<tosa::Conv2DOp>(
+          loc, newOutTy,
+          ValueRange{
+              input, filter,
+              getZeroTensor(loc, newOutElementTy,
+                            cast<ShapedType>(filter.getType()).getShape()[0],
+                            rewriter),
+              inputZp, weightZp});
+    }
     break;
   case 3:
+    if (isBwdDataConvOp)
+      return op->emitError("Only 1-D and 2-D backwards convolution ops are "
+                           "supported");
+
     inputZp =
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
     weightZp =
@@ -361,8 +389,6 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     dilations.push_back(dyn_cast<IntegerAttr>(dilationAttr[i]).getInt());
   }
 
-  int64_t group = op.getGroup();
-
   // Determine the accumulation type based on the output type.
   Type accType;
   if (isa<FloatType>(elementTy)) {
@@ -386,11 +412,31 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     pads.push_back(0);
   }
 
+  // Set attributes common to both forwards and backwards conv
   cop->setAttr("dilation", rewriter.getDenseI64ArrayAttr(dilations));
   cop->setAttr("stride", rewriter.getDenseI64ArrayAttr(strides));
-  cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(pads));
-  cop->setAttr("group", rewriter.getI64IntegerAttr(group));
   cop->setAttr("acc_type", TypeAttr::get(accType));
+  int64_t group = op.getGroup();
+  cop->setAttr("group", rewriter.getI64IntegerAttr(group));
+
+  // Set padding for forwards and backwards convolution. Note: the padding here
+  // applies to input padding (which transpose.conv2D does not inherently
+  // support). TransposeConv2D will still require an output pad attribute, so we
+  // can just set that to zeros
+  if (isBwdDataConvOp) {
+    SmallVector<int64_t> zeroPads(pads.size(), 0);
+    cop->setAttr("out_pad", rewriter.getDenseI64ArrayAttr(zeroPads));
+  }
+  cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(pads));
+
+  // For both types of backwards convolution, we will be using
+  // tosa.transpose_conv2d, so we are going to add a conv_kind attribute so
+  // that we can distinguish between the two types in TosaToRock.
+  // TODO: We will need to add conv_kind = "bwd_weight" when we eventually
+  // add support for bwd_weight ops in MIGraphX.
+  if (isa<migraphx::ConvolutionBwdDataOp>(op)) {
+    cop->setAttr("conv_kind", rewriter.getStringAttr("bwd_data"));
+  }
 
   // Convert optional attributes
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
@@ -1499,7 +1545,8 @@ LogicalResult MHALLaunchConverter::matchAndRewrite(
 
 void migraphx::populateMIGraphXToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
-  patterns.add<ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
+  patterns.add<ConvConverter<ConvolutionBwdDataOp>,
+               ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
                DotConverter<DotOp>, DotConverter<QuantDotOp>,
                BroadcastConverter, MultiBroadcastConverter, TransposeConverter,
                ReshapeConverter, SliceConverter, ReduceMeanConverter,

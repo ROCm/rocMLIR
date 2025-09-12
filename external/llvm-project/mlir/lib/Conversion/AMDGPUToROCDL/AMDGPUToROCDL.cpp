@@ -420,10 +420,13 @@ struct RawBufferOpLowering : public ConvertOpToLLVMPattern<GpuOp> {
 };
 
 struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
-  LDSBarrierOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
-      : ConvertOpToLLVMPattern<LDSBarrierOp>(converter), chipset(chipset) {}
+  LDSBarrierOpLowering(const LLVMTypeConverter &converter, Chipset chipset,
+                       bool hackForDirectToLDS)
+      : ConvertOpToLLVMPattern<LDSBarrierOp>(converter), chipset(chipset),
+        hackForDirectToLDS(hackForDirectToLDS) {}
 
   Chipset chipset;
+  bool hackForDirectToLDS;
 
   LogicalResult
   matchAndRewrite(LDSBarrierOp op, LDSBarrierOp::Adaptor adaptor,
@@ -465,6 +468,21 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
                << chipset.majorVersion;
 
       Location loc = op->getLoc();
+
+      // HACK for direct to LDS
+      if (hackForDirectToLDS) {
+        // unsigned vmCnt = std::min(63u, op.getNum());
+        unsigned vmCnt = 0;
+
+        // Extract low and high bits and combine while setting all other bits to
+        // 1
+        unsigned lowBits = vmCnt & 0xF;
+        unsigned highBits = vmCnt >> 4 << 14;
+        unsigned otherCnts = ~0xC00F; // C00F has bits 15:14 and 3:0 set
+        unsigned waitValue = lowBits | highBits | otherCnts;
+
+        rewriter.create<ROCDL::SWaitcntOp>(loc, waitValue);
+      }
       rewriter.create<ROCDL::SWaitcntOp>(loc, ldsOnlyBits);
       rewriter.replaceOpWithNewOp<ROCDL::SBarrierOp>(op);
     } else {
@@ -1100,6 +1118,81 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
   }
 };
 
+struct TransposeLoadOpLowering
+    : public ConvertOpToLLVMPattern<TransposeLoadOp> {
+  TransposeLoadOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<TransposeLoadOp>(converter), chipset(chipset) {}
+
+  Chipset chipset;
+
+  LogicalResult
+  matchAndRewrite(TransposeLoadOp op, TransposeLoadOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (chipset != kGfx950)
+      return op.emitOpError("Non-gfx950 chipset not supported");
+
+    Location loc = op.getLoc();
+    auto srcMemRefType = cast<MemRefType>(op.getSrc().getType());
+
+    // Elements in subbyte memrefs are stored non-contiguously,
+    // reject if source is sub-byte memref. Use emulated memrefs instead.
+    size_t srcElementSize =
+        srcMemRefType.getElementType().getIntOrFloatBitWidth();
+    if (srcElementSize < 8)
+      return op.emitOpError("Expect source memref to have at least 8 bits "
+                            "element size, got ")
+             << srcElementSize;
+
+    auto resultType = cast<VectorType>(op.getResult().getType());
+    Value srcPtr =
+        getStridedElementPtr(rewriter, loc, srcMemRefType, adaptor.getSrc(),
+                             (adaptor.getSrcIndices()));
+
+    size_t numElements = resultType.getNumElements();
+    size_t elementTypeSize =
+        resultType.getElementType().getIntOrFloatBitWidth();
+
+    // ROCDL transpose load intrinsics return vectors of 32-bit integers, if
+    // the element size is smaller than 16 bits.
+    Type rocdlResultType = VectorType::get((numElements * elementTypeSize) / 32,
+                                           rewriter.getIntegerType(32));
+    Type llvmResultType = typeConverter->convertType(resultType);
+
+    switch (elementTypeSize) {
+    case 4: {
+      assert(numElements == 16);
+      auto rocdlOp =
+          rewriter.create<ROCDL::ds_read_tr4_b64>(loc, rocdlResultType, srcPtr);
+      rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, llvmResultType, rocdlOp);
+      break;
+    }
+    case 6: {
+      assert(numElements == 16);
+      auto rocdlOp =
+          rewriter.create<ROCDL::ds_read_tr6_b96>(loc, rocdlResultType, srcPtr);
+      rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, llvmResultType, rocdlOp);
+      break;
+    }
+    case 8: {
+      assert(numElements == 8);
+      auto rocdlOp =
+          rewriter.create<ROCDL::ds_read_tr8_b64>(loc, rocdlResultType, srcPtr);
+      rewriter.replaceOpWithNewOp<LLVM::BitcastOp>(op, llvmResultType, rocdlOp);
+      break;
+    }
+    case 16: {
+      assert(numElements == 4);
+      rewriter.replaceOpWithNewOp<ROCDL::ds_read_tr16_b64>(op, llvmResultType,
+                                                           srcPtr);
+      break;
+    }
+    default:
+      return op.emitOpError("Unsupported element size for transpose load");
+    }
+    return success();
+  }
+};
+
 struct GatherToLDSOpLowering : public ConvertOpToLLVMPattern<GatherToLDSOp> {
   GatherToLDSOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
       : ConvertOpToLLVMPattern<GatherToLDSOp>(converter), chipset(chipset) {}
@@ -1129,8 +1222,8 @@ struct GatherToLDSOpLowering : public ConvertOpToLLVMPattern<GatherToLDSOp> {
       return transferType.getIntOrFloatBitWidth() / 8;
     }();
 
-    // Currently only 1, 2, and 4 byte loads are supported.
-    if (loadWidth != 1 && loadWidth != 2 && loadWidth != 4)
+    // Currently only 1, 2, 4 and 16 byte loads are supported.
+    if (loadWidth != 1 && loadWidth != 2 && loadWidth != 4 && loadWidth != 16)
       return op.emitOpError("chipset unsupported element size");
 
     Value srcPtr =
@@ -1693,10 +1786,17 @@ struct ConvertAMDGPUToROCDLPass
       emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
       return signalPassFailure();
     }
+    // workaround for https://ontrack-internal.amd.com/browse/SWDEV-514726
+    WalkResult walkResult =
+        getOperation()->walk([](amdgpu::GatherToLDSOp) -> WalkResult {
+          return WalkResult::interrupt();
+        });
+    bool hackForDirectToLDS = walkResult.wasInterrupted();
 
     RewritePatternSet patterns(ctx);
     LLVMTypeConverter converter(ctx);
-    populateAMDGPUToROCDLConversionPatterns(converter, patterns, *maybeChipset);
+    populateAMDGPUToROCDLConversionPatterns(converter, patterns, *maybeChipset,
+                                            hackForDirectToLDS);
     LLVMConversionTarget target(getContext());
     target.addIllegalDialect<::mlir::amdgpu::AMDGPUDialect>();
     target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
@@ -1729,7 +1829,8 @@ void mlir::populateAMDGPUMemorySpaceAttributeConversions(
 
 void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                                    RewritePatternSet &patterns,
-                                                   Chipset chipset) {
+                                                   Chipset chipset,
+                                                   bool hackForDirectToLDS) {
   populateAMDGPUMemorySpaceAttributeConversions(converter);
   patterns
       .add<FatRawBufferCastLowering,
@@ -1745,11 +1846,11 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                ROCDL::RawPtrBufferAtomicUminOp>,
            RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
-           AMDGPUDPPLowering, LDSBarrierOpLowering, SchedBarrierOpLowering,
-           MFMAOpLowering, ScaledMFMAOpLowering, WMMAOpLowering,
-           ExtPackedFp8OpLowering, ScaledExtPackedOpLowering,
-           PackedScaledTruncOpLowering, PackedTrunc2xFp8OpLowering,
-           PackedStochRoundFp8OpLowering, GatherToLDSOpLowering>(converter,
-                                                                 chipset);
+           AMDGPUDPPLowering, SchedBarrierOpLowering, MFMAOpLowering,
+           ScaledMFMAOpLowering, WMMAOpLowering, ExtPackedFp8OpLowering,
+           ScaledExtPackedOpLowering, PackedScaledTruncOpLowering,
+           PackedTrunc2xFp8OpLowering, PackedStochRoundFp8OpLowering,
+           GatherToLDSOpLowering, TransposeLoadOpLowering>(converter, chipset);
+  patterns.add<LDSBarrierOpLowering>(converter, chipset, hackForDirectToLDS);
   patterns.add<AMDGPUSwizzleBitModeLowering>(converter);
 }
