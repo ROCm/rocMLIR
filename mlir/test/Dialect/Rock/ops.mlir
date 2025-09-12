@@ -128,6 +128,15 @@ func.func @rock_gemm(%a : memref<32x64xf16>, %b : memref<1x32x128xf16>, %c : mem
 // CHECK-LABEL: func.func @rock_gemm
 // CHECK-NEXT: rock.gemm
 
+func.func @rock_scaled_gemm(%a : memref<32x64xf16>, %b : memref<1x32x128xf16>, %c : memref<64x128xf32>, %scaleA : memref<32x64xf8E8M0FNU>, %scaleB : memref<1x32x128xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx906"} {
+  rock.gemm %c = tr %a scale = %scaleA * %b scale = %scaleB features = none storeMethod = set
+  : memref<64x128xf32> = memref<32x64xf16> scale memref<32x64xf8E8M0FNU> * memref<1x32x128xf16> scale memref<1x32x128xf8E8M0FNU>
+  func.return
+}
+// CHECK-LABEL: func.func @rock_scaled_gemm
+// CHECK-NEXT: rock.gemm
+
+
 // Affine maps needed when testing transform
 #map0 = affine_map<(d0, d1, d2, d3, d4) -> (d1, d0, d2, d3 - 1, d4 - 2)>
 #map1 = affine_map<(d0, d1, d2) -> (d0, d2, d1 floordiv 512,
@@ -228,6 +237,31 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x
 
 // CHECK-LABEL: func.func @rock_gridwise_gemm_accel
 // CHECK-NEXT: rock.gridwise_gemm_accel
+
+func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x1024x2048xf32>, %C : memref<2x1024x2048xf32>, %scaleA : memref<2x1024x1024xf8E8M0FNU>, %scaleB : memref<2x1024x2048xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx908", numCU = 64 : i32} {
+  rock.gridwise_gemm_accel(%A, %B, %C, %scaleA, %scaleB) storeMethod (set) features = none {
+    blockSize = 256 : i32,
+    gridSize = 1 : i32,
+    params = #rock.xdlops_gemm_derived_params<
+      kpackPerBlock = 4,
+      kpack = 4,
+      mPerBlock = 128,
+      mPerWave = 64,
+      nPerBlock = 128,
+      nPerWave = 64,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 1,
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<2x1024x1024xf32>, memref<2x1024x2048xf32>, memref<2x1024x2048xf32>, memref<2x1024x1024xf8E8M0FNU>, memref<2x1024x2048xf8E8M0FNU>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_gridwise_scaled_gemm_accel
+// CHECK-NEXT: rock.gridwise_gemm_accel
+
+
 
 func.func @rock_extract_slice(%v : vector<32xf32>) -> vector<4xf32> {
   %i = arith.constant 0 : index

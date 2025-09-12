@@ -364,7 +364,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   auto accumulator = getAccumulator(a, b, c, rw, loc);
   if (isAccel) {
     GridwiseGemmAccelOp::create(
-        rw, loc, a, b, accumulator, op.getFeaturesAttr(),
+        rw, loc, a, b, accumulator, nullptr, nullptr, op.getFeaturesAttr(),
         op.getStoreMethodAttr(), blockSize, gridSize,
         cast<RockAccelTuningParamAttrInterface>(params));
   } else {

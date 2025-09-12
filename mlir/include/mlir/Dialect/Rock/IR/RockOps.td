@@ -525,10 +525,12 @@ def Rock_GridwiseGemmAccelOp
     : Rock_Op<"gridwise_gemm_accel",
               [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-               RockFusionRoot]>,
+               RockFusionRoot, AttrSizedOperandSegments]>,
       Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
           Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
           Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view">:$c,
+          Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleA,
+          Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleB,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
           RockAccelTuningParamAttrInterface:$params)> {
@@ -536,8 +538,13 @@ def Rock_GridwiseGemmAccelOp
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
   }];
-  let assemblyFormat = [{
-    `(` operands `)` `storeMethod` `(` $storeMethod `)` (`features` `=` $features^)? attr-dict `:` type(operands)
+ let assemblyFormat = [{
+    `(` $a `,` $b `,` $c
+        (`,` $scaleA^)? (`,` $scaleB^)? `)`
+    `storeMethod` `(` $storeMethod `)`
+    (`features` `=` $features^)? attr-dict
+    `:` type($a) `,` type($b) `,` type($c)
+       (`,` type($scaleA)^)? (`,` type($scaleB)^)?
   }];
   let hasVerifier = 1;
 }
