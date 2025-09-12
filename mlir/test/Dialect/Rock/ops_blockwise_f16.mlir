@@ -54,6 +54,33 @@ func.func @rock_xdlops_gemm_accel_one_result_f16(%matrixA : memref<1x4xvector<4x
 
 // ----
 
+func.func @rock_xdlops_scaled_gemm_accel_one_result_f16(%matrixA : memref<1x4xvector<4xf16>, 5>,
+                                                %matrixB : memref<1x4xvector<4xf16>, 5>,
+                                                %matrixC : memref<1x1xvector<32xf32>, 5>, %scaleA : memref<vector<4xf8E8M0FNU>, 5>, %scaleB : memref<vector<4xf8E8M0FNU>, 5>) {
+  %c0 = arith.constant 0 : index
+  rock.threadwise_accel_gemm %matrixC += %matrixA scale by %scaleA * %matrixB scale by %scaleB at [%c0, %c0, %c0] features = mfma{
+    arch = "amdgcn-amd-amdhsa:gfx90a",
+    params = #rock.xdlops_gemm_derived_params<
+      mPerBlock = 256,
+      nPerBlock = 256,
+      kpackPerBlock = 16,
+      mPerWave = 128,
+      nPerWave = 64,
+      mnPerXdl = 32,
+      kpack = 1,
+      splitKFactor = 1, 
+      scheduleVersion = 1, 
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<1x1xvector<32xf32>, 5> += memref<1x4xvector<4xf16>, 5> scale by memref<vector<4xf8E8M0FNU>, 5> * memref<1x4xvector<4xf16>, 5> scale by memref<vector<4xf8E8M0FNU>, 5>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_xdlops_scaled_gemm_accel_one_result_f16
+// CHECK: rock.threadwise_accel_gemm
+
+// ----
+
 func.func @rock_xdlops_gemm_accel_two_results_f16(%matrixA : memref<1x4xvector<4xf16>, 5>,
                                                %matrixB : memref<1x4xvector<4xf16>, 5>,
                                                %matrixC : memref<1x1xvector<32xf32>, 5>) {

@@ -986,7 +986,7 @@ defvar NativeMemoryOpTypes = [F32, F16, BF16, I<4>, I8, I16, I32,
                            VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32]>,
                            VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
                            VectorOfLengthAndType<[2, 4, 8, 16],
-                             [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>, VectorOfLengthAndType<[1, 2, 4, 8, 16, 32], [F4E2M1FN]>];
+                             [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>, VectorOfLengthAndType<[1, 2, 4, 8, 16, 32], [F4E2M1FN]>, VectorOfLengthAndType<[4], [F8E8M0FNU]>];
 
 // in_bounds_load
 def Rock_InBoundsLoadOp
@@ -1430,11 +1430,13 @@ def Rock_ThreadwiseGemmOp
 def Rock_ThreadwiseAccelGemmOp
     : Rock_Op<"threadwise_accel_gemm",
               [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, AttrSizedOperandSegments]>,
       Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
                          "source register view A">:$matrixA,
           Arg<MemRefOf<NativeMemoryOpTypes>, "source register view B">:$matrixB,
           Arg<MemRefOf<NativeMemoryOpTypes>, "dest register view C">:$matrixC,
+          Optional<MemRefOf<NativeMemoryOpTypes>>:$scaleA,
+          Optional<MemRefOf<NativeMemoryOpTypes>>:$scaleB,
           Variadic<Index>:$computeIndices,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           RockAccelTuningParamAttrInterface:$params)> {
@@ -1446,8 +1448,8 @@ def Rock_ThreadwiseAccelGemmOp
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` (`features` `=` $features^)? attr-dict
-    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
+    $matrixC `+` `` `=` $matrixA (`scale` `by` $scaleA^)? `*` $matrixB (`scale` `by` $scaleB^)? `at` `[` $computeIndices `]` (`features` `=` $features^)? attr-dict
+    `:` type($matrixC) `+` `` `=` type($matrixA) (`scale` `by` type($scaleA)^)? `*` type($matrixB) (`scale` `by` type($scaleB)^)?
   }];
   let hasVerifier = 1;
 }
