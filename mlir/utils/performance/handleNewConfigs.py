@@ -85,9 +85,7 @@ def _canonicalizeGemmConfig(config: str) -> str:
 
 def _canonicalizeAttentionConfig(config: str) -> str:
     """Converts an attention config to canonical form for deduplication."""
-    print(f"Attention config: {config} - entered canonicalize")
     obj = AttentionConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
-    print("Attention config: {config} - converted to obj")
     return obj.toCommandLine()
 
 def canonicalSet(lines: Iterable[str], kind: str) -> Set[str]:
@@ -169,9 +167,7 @@ def main(argv=None):
     newAttention: list[str] = []
     newRaw = readNonEmptyLines(newConfigs)
     for raw in newRaw:
-        print(f"Processing: {raw}")
         configType = detectConfigType(raw)
-        print(f"  Type: {configType}")
         if not configType:
             print(f"Error: Could not determine config type for: {raw}")
             continue
