@@ -7,7 +7,7 @@
 // CHECK-SAME: %[[inputRaw:.*1]]: memref<524288xf32>,
 // CHECK-SAME: %[[cRaw:.*2]]: memref<16384xf32>,
 // CHECK-SAME: %[[outputRaw:.*3]]: memref<262144xf32>)
-// CHECK-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
+// CHECK-SAME: attributes {enable_splitk_for_tuning, kernel, mhal.arch = "[[$ARCH]]"}
 // CHECK-NEXT: %[[filter:.*]] = rock.transform %[[filterRaw]] {{.*}} : memref<32768xf32> to memref<1x128x256x1x1xf32>
 // CHECK-NEXT: %[[input:.*]] = rock.transform %[[inputRaw]] {{.*}} : memref<524288xf32> to memref<2x1x256x32x32xf32>
 // CHECK-NEXT: %[[c:.*]] = rock.transform %[[cRaw]] {{.*}} : memref<16384xf32> to memref<1x128x128xf32>
