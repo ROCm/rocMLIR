@@ -1,11 +1,4 @@
 [style]
-based_on_style = pep8
-indent_width = 4
-column_limit = 88
-spaces_before_comment = 2
-split_before_logical_operator = true
-blank_line_before_module_docstring = true
-blank_line_before_nested_class_or_def = false
-split_before_first_argument = true
-allow_split_before_dict_value = false
-split_before_arithmetic_operator = true
+  based_on_style = google
+  column_limit = 80
+  indent_width = 2
