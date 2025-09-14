@@ -5,9 +5,14 @@ on:
     branches: [develop]
     paths:
       - "mlir/**"
+      - "external/**"
+      - "!external/llvm-project/**"
   push:
     branches: [develop]
-
+    paths:
+      - "mlir/**"
+      - "external/**"
+      - "!external/llvm-project/**"
 jobs:
   py-checks:
     runs-on: ubuntu-latest
