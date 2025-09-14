@@ -14,25 +14,26 @@ Arguments:
 """
 import sys
 
+
 def check_for_duplicates(filename):
-    with open(filename, 'r') as f:
-        lines = [line.rstrip('\n') for line in f if line.strip()]
-    seen = set()
-    duplicates = set()
-    for line in lines:
-        if line in seen:
-            duplicates.add(line)
-        else:
-            seen.add(line)
-    if duplicates:
-        print("Duplicate lines found:")
-        for dup in duplicates:
-            print(dup)
+  with open(filename, 'r') as f:
+    lines = [line.rstrip('\n') for line in f if line.strip()]
+  seen = set()
+  duplicates = set()
+  for line in lines:
+    if line in seen:
+      duplicates.add(line)
     else:
-        print("No duplicate lines found.")
+      seen.add(line)
+  if duplicates:
+    print("Duplicate lines found:")
+    for dup in duplicates:
+      print(dup)
+  else:
+    print("No duplicate lines found.")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print(f"Usage: python {sys.argv[0]} <config_file>")
-        sys.exit(1)
-    check_for_duplicates(sys.argv[1])
+  if len(sys.argv) != 2:
+    print(f"Usage: python {sys.argv[0]} <config_file>")
+    sys.exit(1)
+  check_for_duplicates(sys.argv[1])
