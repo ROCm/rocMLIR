@@ -2,13 +2,17 @@ name: Python Lint and Format Check
 
 on:
   pull_request:
-    branches: [develop]
+    branches:
+      - develop
+      - 'release/**'
     paths:
       - "mlir/**"
       - "external/**"
       - "!external/llvm-project/**"
   push:
-    branches: [develop]
+    branches:
+      - develop
+      - 'release/**'
     paths:
       - "mlir/**"
       - "external/**"
