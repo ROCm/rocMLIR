@@ -11,9 +11,9 @@ def count_configs(filename):
 
 
 def test_after_separating():
-    file_path1='./tier1-attention-configs'
-    file_path2='./tier1-conv-configs'
-    file_path3='./tier1-gemm-configs'
+    file_path1 = './tier1-attention-configs'
+    file_path2 = './tier1-conv-configs'
+    file_path3 = './tier1-gemm-configs'
 
     attn_count = count_configs(file_path1)
     conv_count = count_configs(file_path2)
