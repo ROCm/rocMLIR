@@ -214,12 +214,12 @@ static std::optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
 }
 
 // When running migraphx pipeline on the host, if the kernel has
-// an unpack operation that operates on a function argument, 
+// an unpack operation that operates on a function argument,
 // the RealizeInt4 pass will generate invalid IR as it will change
 // the function signature of the kernel, but will not modify the
 // launch op of the wrapper code, thus the call will have a different
-// argument type compared to the called function. 
-// 
+// argument type compared to the called function.
+//
 // In this function we check for this case and return failure if found.
 // More info here: https://github.com/ROCm/rocMLIR-internal/issues/1986
 static LogicalResult isSafeToRunRealizeInt4(ModuleOp &module) {
@@ -236,10 +236,10 @@ static LogicalResult isSafeToRunRealizeInt4(ModuleOp &module) {
       }
     }
     if (launchOps.size() != 1) {
-      llvm::errs() << "Expected to find exactly one mhal.launch op in '" << func.getName()
-                    << "'\n";
+      llvm::errs() << "Expected to find exactly one mhal.launch op in '"
+                   << func.getName() << "'\n";
       return failure();
-    }      
+    }
     mhal::LaunchOp launchOp = launchOps.front();
 
     // Get the callee function.
@@ -254,15 +254,17 @@ static LogicalResult isSafeToRunRealizeInt4(ModuleOp &module) {
         return WalkResult::advance();
       });
       if (hasUnpack) {
-        llvm::errs() << "Kernel contains migraphx.unpack ops; pass ordering is incorrect. Please run rocmlir-gen --clone-harness after lowering your kernel to tosa.\n";
+        llvm::errs() << "Kernel '" << (*calleeFunc).getName()
+                     << "' contains migraphx.unpack ops; pass ordering is "
+                        "incorrect. Please run rocmlir-gen --clone-harness "
+                        "after lowering your kernel to TOSA.\n";
         return failure();
       }
-    }
-    else {
+    } else {
       llvm::errs() << "Failed to get called function from '" << func.getName()
-                    << "'\n";
+                   << "'\n";
       return failure();
-    }    
+    }
   }
   return success();
 }
