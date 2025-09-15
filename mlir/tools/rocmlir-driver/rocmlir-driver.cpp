@@ -233,19 +233,17 @@ static LogicalResult isSafeToRunRealizeInt4(ModuleOp &module) {
     // Get the callee function.
     if (std::optional<func::FuncOp> calleeFunc = launchOp.getCalledFunc()) {
       // Check that the callee does not contain any migraphx.unpack ops.
-      bool hasUnpack = false;
-      (*calleeFunc).walk([&](Operation *op) {
+      auto walkResult = (*calleeFunc).walk([&](Operation *op) {
         if (isa<migraphx::UnpackOp>(op)) {
-          hasUnpack = true;
           return WalkResult::interrupt();
         }
         return WalkResult::advance();
       });
-      if (hasUnpack) {
+      if (walkResult.wasInterrupted()) {
         llvm::errs() << "Kernel '" << (*calleeFunc).getName()
                      << "' contains migraphx.unpack ops; pass ordering is "
                         "incorrect. Please run rocmlir-gen --clone-harness "
-                        "after lowering your kernel to TOSA.\n";
+                        "after running migraphx pipeline.\n";
         return failure();
       }
     } else {
