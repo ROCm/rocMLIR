@@ -13,6 +13,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Support/LLVM.h"
 
@@ -51,6 +52,23 @@ struct RegsAsMatrixSubTiles {
   // It is equivalent to removing all iter-dependent components from
   // blockSubTile.
   std::optional<ArrayAttr> blockSubTileTidSlice;
+};
+
+// Following structures holds knobs to tweak the
+// the LDS layout for gemms/attention ops.
+struct LDSLayoutConfigDim {
+  bool doRotateWithK;
+  bool doSwapThreadIterSubDims;
+};
+
+// This is helper struct to aggregate
+// derived information w.r.t load vectorization
+struct VectorDimInfo {
+  GemmDimension vectorDim;
+  int64_t vectorLen;
+  int64_t inKPerThread;
+  int64_t inDPerThread;
+  GemmDimension vectorTiebreaker;
 };
 
 // The rows and columns of subtile view needs to
@@ -213,6 +231,25 @@ FailureOr<BlockArgument> findBlockArgument(Value value);
 FailureOr<SmallVector<OpOperand *>>
 traceGemmOutputToGenericOps(Value matC, func::FuncOp func,
                             const BufferDependencyAnalysis &deps);
+
+/// Wraps the LDS buffer "buffer", which is <kOuter * d * kpack *
+/// sizeof(T) x i8> into a tid x iter view, where `iter` iterates over nominal
+/// scalar indices into a buffer of type T. `buffer` will be reinterpreted as a
+/// buffer with element type vector<kpackPerThread x T> (with kpackPerThread ==
+/// 1 meaning just T). The resulting view must be iterated over with a stride of
+/// no less than min(kPerThread, kpack). Also note that the `d` dimension
+/// might be rotated to minimize bank conflicts (i.e., depending on
+/// `rotateDWithK`
+// we can apply a transformation similar to `d=(d+kOuter)%D`)
+FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc, Value buffer,
+                                       Type ldsReadType, int64_t kOuter,
+                                       StringRef dName, int64_t d,
+                                       int64_t kPerThread, int64_t dPerThread,
+                                       bool rotateDWithK = false);
+
+FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
+                                      int64_t blockSize, int64_t kPerBlock,
+                                      int64_t dPerBlock, int64_t kpack);
 
 } // end namespace rock
 } // end namespace mlir
