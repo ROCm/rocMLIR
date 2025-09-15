@@ -5252,6 +5252,7 @@ static void populateCloneHarnessLogic(ModuleOp module) {
   auto loc = originalFunc->getLoc();
   auto wrapperFunc = func::FuncOp::create(loc, testFuncName + "_wrapper",
                                           originalFunc.getFunctionType());
+  wrapperFunc->setAttr("wrapper", b.getUnitAttr());
   Block *block = wrapperFunc.addEntryBlock();
   b.setInsertionPointToStart(block);
   auto launchOp = b.create<mhal::LaunchOp>(loc, originalFunc, ValueRange{},

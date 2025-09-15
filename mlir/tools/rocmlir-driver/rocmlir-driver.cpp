@@ -201,6 +201,72 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
   return pm.run(kmod);
 }
 
+// Helper to pull out the called func
+// TODO: This should be a class method of mhal::LaunchOp.
+static std::optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
+  CallOpInterface callIf(op);
+  if (auto *callable = callIf.resolveCallable()) {
+    if (auto func = dyn_cast<func::FuncOp>(callable))
+      return func;
+  }
+
+  return std::nullopt;
+}
+
+// When running migraphx pipeline on the host, if the kernel has
+// an unpack operation that operates on a function argument, 
+// the RealizeInt4 pass will generate invalid IR as it will change
+// the function signature of the kernel, but will not modify the
+// launch op of the wrapper code, thus the call will have a different
+// argument type compared to the called function. 
+// 
+// In this function we check for this case and return failure if found.
+// More info here: https://github.com/ROCm/rocMLIR-internal/issues/1986
+static LogicalResult isSafeToRunRealizeInt4(ModuleOp &module) {
+  for (func::FuncOp func : module.getOps<func::FuncOp>()) {
+    if (!func->hasAttr("wrapper"))
+      continue;
+
+    // Get the function called by the wrapper and ensure that the function
+    // does not have the migraphx.unpack op. If it has, the order is wrong.
+    SmallVector<mhal::LaunchOp> launchOps;
+    for (Operation &op : func.getOps()) {
+      if (auto launchOp = dyn_cast<mhal::LaunchOp>(op)) {
+        launchOps.push_back(launchOp);
+      }
+    }
+    if (launchOps.size() != 1) {
+      llvm::errs() << "Expected to find exactly one mhal.launch op in '" << func.getName()
+                    << "'\n";
+      return failure();
+    }      
+    mhal::LaunchOp launchOp = launchOps.front();
+
+    // Get the callee function.
+    if (std::optional<func::FuncOp> calleeFunc = getCalledFunc(launchOp)) {
+      // Check that the callee does not contain any migraphx.unpack ops.
+      bool hasUnpack = false;
+      (*calleeFunc).walk([&](Operation *op) {
+        if (isa<migraphx::UnpackOp>(op)) {
+          hasUnpack = true;
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      if (hasUnpack) {
+        llvm::errs() << "Kernel contains migraphx.unpack ops; pass ordering is incorrect. Please run rocmlir-gen --clone-harness after lowering your kernel to tosa.\n";
+        return failure();
+      }
+    }
+    else {
+      llvm::errs() << "Failed to get called function from '" << func.getName()
+                    << "'\n";
+      return failure();
+    }    
+  }
+  return success();
+}
+
 static LogicalResult runMLIRPasses(ModuleOp &module,
                                    mlir::PassPipelineCLParser &passPipeline) {
 
@@ -262,6 +328,9 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   if (hostPipelineSet.contains("migraphx")) {
+    if (failed(isSafeToRunRealizeInt4(module))) {
+      return failure();
+    }
     PassManager pm(module->getName(), PassManager::Nesting::Implicit);
     migraphx::addHighLevelPipeline(pm);
     if (failed(pm.run(module))) {
