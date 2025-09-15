@@ -47,20 +47,9 @@ public:
 };
 } // namespace
 
-// Helper to pull out the called func
-static std::optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
-  CallOpInterface callIf(op);
-  if (auto *callable = callIf.resolveCallable()) {
-    if (auto func = dyn_cast<func::FuncOp>(callable))
-      return func;
-  }
-
-  return std::nullopt;
-}
-
 // Get target{gpu} attribute from called func
 static std::optional<mhal::KernelPackageAttr> getGPUTarget(mhal::LaunchOp op) {
-  auto func = getCalledFunc(op);
+  auto func = op.getCalledFunc();
   if (!func.has_value() || func->getNumResults() != 0)
     return std::nullopt;
 
@@ -179,7 +168,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
     auto gridSize = launchDims[0];
     auto blockSize = launchDims[1];
 
-    auto func = *getCalledFunc(op);
+    auto func = *(op.getCalledFunc());
     Location floc = func.getLoc();
 
     // 2. re-materialize gpu.binary @<func_name>_module [#gpu.object<...>]

@@ -36,17 +36,6 @@ using namespace mlir::mhal;
 //===----------------------------------------------------------------------===//
 
 namespace {
-// Helper to pull out the called func
-static std::optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
-  CallOpInterface callIf(op);
-  if (auto *callable = callIf.resolveCallable()) {
-    if (auto func = dyn_cast<func::FuncOp>(callable))
-      return func;
-  }
-
-  return std::nullopt;
-}
-
 struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
   using OpRewritePattern<mhal::LaunchOp>::OpRewritePattern;
 
@@ -56,7 +45,7 @@ struct LaunchRewritePattern : public OpRewritePattern<mhal::LaunchOp> {
 
     assert(op->getNumResults() == 1); // only 1 mhal.token
 
-    if (auto func = getCalledFunc(op)) {
+    if (auto func = op.getCalledFunc()) {
       // Replace the original `async.execute` with a call to outlined
       // function.
       rw.create<func::CallOp>(loc, *func, op.getArgOperands());

@@ -98,6 +98,7 @@ def MHAL_LaunchOp :
     Operation::result_range getCallResults();
     Operation::result_type_range getCallResultTypes();
     void updateSegmentSizes(MLIRContext *);
+    std::optional<func::FuncOp> getCalledFunc();
   }];
 
   let hasVerifier = 1;

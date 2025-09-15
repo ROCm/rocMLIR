@@ -13,6 +13,7 @@
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Interfaces/FunctionImplementation.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -101,6 +102,17 @@ void LaunchOp::updateSegmentSizes(MLIRContext *ctx) {
   (*this)->setAttr(getOperandSegmentSizesAttrName(), operandSegmentSizes);
 
   assert(!(*this)->hasAttr("result_segment_sizes"));
+}
+
+/// Helper to pull out the called func.
+std::optional<func::FuncOp> LaunchOp::getCalledFunc() {
+  CallOpInterface callIf(*this);
+  if (auto *callable = callIf.resolveCallable()) {
+    if (auto func = dyn_cast<func::FuncOp>(callable))
+      return func;
+  }
+
+  return std::nullopt;
 }
 
 LogicalResult LaunchOp::verifySymbolUses(SymbolTableCollection &symbolTable) {

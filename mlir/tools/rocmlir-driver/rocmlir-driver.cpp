@@ -201,18 +201,6 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
   return pm.run(kmod);
 }
 
-// Helper to pull out the called func
-// TODO: This should be a class method of mhal::LaunchOp.
-static std::optional<func::FuncOp> getCalledFunc(mhal::LaunchOp op) {
-  CallOpInterface callIf(op);
-  if (auto *callable = callIf.resolveCallable()) {
-    if (auto func = dyn_cast<func::FuncOp>(callable))
-      return func;
-  }
-
-  return std::nullopt;
-}
-
 // When running migraphx pipeline on the host, if the kernel has
 // an unpack operation that operates on a function argument,
 // the RealizeInt4 pass will generate invalid IR as it will change
@@ -243,7 +231,7 @@ static LogicalResult isSafeToRunRealizeInt4(ModuleOp &module) {
     mhal::LaunchOp launchOp = launchOps.front();
 
     // Get the callee function.
-    if (std::optional<func::FuncOp> calleeFunc = getCalledFunc(launchOp)) {
+    if (std::optional<func::FuncOp> calleeFunc = launchOp.getCalledFunc()) {
       // Check that the callee does not contain any migraphx.unpack ops.
       bool hasUnpack = false;
       (*calleeFunc).walk([&](Operation *op) {
