@@ -2638,8 +2638,8 @@ FailureOr<Type> mlir::rock::getInputFusionElementType(Value transformed) {
                 "rock.majorTensorNumber")) {
           candidate = genericOp.getInputs()[index.getInt()];
         } else {
-          LLVM_DEBUG(llvm::dbgs() << "getInputFusionElementType: linalg.generic "
-                                   "with multiple outputs are unsupported\n");
+          LLVM_DEBUG(llvm::dbgs() << "can't analyze linalg.generic "
+                                     "without rock.majorTensorNumber\n");
           return failure();
         }
       } else {

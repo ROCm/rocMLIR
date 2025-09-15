@@ -2042,20 +2042,20 @@ struct GridwiseAttentionAccelRewritePattern
     TypedValue<MemRefType> inQ = op.getQueries();
     ArrayRef<int64_t> qShape = cast<MemRefType>(inQ.getType()).getShape();
     Type elemTypeQ = cast<MemRefType>(inQ.getType()).getElementType();
-    FailureOr<Type> maybeElemTypeQLoad = getDequantizedElementType(inQ);
+    FailureOr<Type> maybeElemTypeQLoad = getInputFusionElementType(inQ);
     Type elemTypeQLoad =
         failed(maybeElemTypeQLoad) ? elemTypeQ : maybeElemTypeQLoad.value();
 
     TypedValue<MemRefType> inK = op.getKeys();
     ArrayRef<int64_t> kShape = cast<MemRefType>(inK.getType()).getShape();
     Type elemTypeK = cast<MemRefType>(inK.getType()).getElementType();
-    FailureOr<Type> maybeElemTypeKLoad = getDequantizedElementType(inK);
+    FailureOr<Type> maybeElemTypeKLoad = getInputFusionElementType(inK);
     Type elemTypeKLoad =
         failed(maybeElemTypeKLoad) ? elemTypeK : maybeElemTypeKLoad.value();
 
     TypedValue<MemRefType> inV = op.getValues();
     Type elemTypeV = inV.getType().getElementType();
-    FailureOr<Type> maybeElemTypeVLoad = getDequantizedElementType(inV);
+    FailureOr<Type> maybeElemTypeVLoad = getInputFusionElementType(inV);
     Type elemTypeVLoad =
         failed(maybeElemTypeVLoad) ? elemTypeV : maybeElemTypeVLoad.value();
 
@@ -3024,13 +3024,13 @@ struct GridwiseGemmAccelRewritePattern
 
     // Obtain data types of inputs.
     auto elementTypeA = op.getA().getType().getElementType();
-    auto maybeElementTypeALoad = getDequantizedElementType(op.getA());
+    auto maybeElementTypeALoad = getInputFusionElementType(op.getA());
     auto elementTypeALoad = failed(maybeElementTypeALoad)
                                 ? elementTypeA
                                 : maybeElementTypeALoad.value();
 
     auto elementTypeB = op.getB().getType().getElementType();
-    auto maybeElementTypeBLoad = getDequantizedElementType(op.getB());
+    auto maybeElementTypeBLoad = getInputFusionElementType(op.getB());
     auto elementTypeBLoad = failed(maybeElementTypeBLoad)
                                 ? elementTypeB
                                 : maybeElementTypeBLoad.value();
