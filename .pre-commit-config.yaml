@@ -1,5 +1,8 @@
 # .pre-commit-config.yaml
 # Run on all python files except those under external/
+
+default_stages: [commit]
+
 exclude: '^external/llvm-project/.*'
 
 repos:
