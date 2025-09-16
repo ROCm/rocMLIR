@@ -447,8 +447,7 @@ void llvm::printLLVMNameWithoutPrefix(raw_ostream &OS, StringRef Name) {
       // in the range 0-255.  This is important when building with MSVC because
       // its implementation will assert.  This situation can arise when dealing
       // with UTF-8 multibyte characters.
-      if (!isalnum(static_cast<unsigned char>(C)) && C != '-' && C != '.' &&
-          C != '_') {
+      if (!isalnum(C) && C != '-' && C != '.' && C != '_') {
         NeedsQuotes = true;
         break;
       }
@@ -2481,6 +2480,7 @@ static void writeDISubprogram(raw_ostream &Out, const DISubprogram *N,
   Printer.printMetadata("thrownTypes", N->getRawThrownTypes());
   Printer.printMetadata("annotations", N->getRawAnnotations());
   Printer.printString("targetFuncName", N->getTargetFuncName());
+  Printer.printBool("keyInstructions", N->getKeyInstructionsEnabled(), false);
   Out << ")";
 }
 
@@ -2627,11 +2627,6 @@ static void writeDILocalVariable(raw_ostream &Out, const DILocalVariable *N,
   Out << ")";
 }
 
-static void writeDIFragment(raw_ostream &Out, const DIFragment *N,
-                            AsmWriterContext &WriterCtx) {
-  report_fatal_error("unsupported DIExpr-based metadata");
-}
-
 static void writeDILabel(raw_ostream &Out, const DILabel *N,
                          AsmWriterContext &WriterCtx) {
   Out << "!DILabel(";
@@ -2640,6 +2635,11 @@ static void writeDILabel(raw_ostream &Out, const DILabel *N,
   Printer.printString("name", N->getName());
   Printer.printMetadata("file", N->getRawFile());
   Printer.printInt("line", N->getLine());
+  Printer.printInt("column", N->getColumn());
+  Printer.printBool("isArtificial", N->isArtificial(), false);
+  if (N->getCoroSuspendIdx())
+    Printer.printInt("coroSuspendIdx", *N->getCoroSuspendIdx(),
+                     /* ShouldSkipZero */ false);
   Out << ")";
 }
 
@@ -2757,11 +2757,6 @@ static void writeDIArgList(raw_ostream &Out, const DIArgList *N,
   Out << ")";
 }
 
-static void writeDIExpr(raw_ostream &Out, const DIExpr *N,
-                        AsmWriterContext &WriterCtx) {
-  report_fatal_error("unsupported DIExpr-based metadata");
-}
-
 static void writeDIGlobalVariableExpression(raw_ostream &Out,
                                             const DIGlobalVariableExpression *N,
                                             AsmWriterContext &WriterCtx) {
@@ -2798,11 +2793,6 @@ static void writeDIImportedEntity(raw_ostream &Out, const DIImportedEntity *N,
   Printer.printInt("line", N->getLine());
   Printer.printMetadata("elements", N->getRawElements());
   Out << ")";
-}
-
-static void writeDILifetime(raw_ostream &Out, const DILifetime *N,
-                            AsmWriterContext &WriterCtx) {
-  report_fatal_error("unsupported DIExpr-based metadata");
 }
 
 static void WriteMDNodeBodyInternal(raw_ostream &Out, const MDNode *Node,
@@ -4242,6 +4232,9 @@ void AssemblyWriter::printFunction(const Function *F) {
     if (!AttrStr.empty())
       Out << "; Function Attrs: " << AttrStr << '\n';
   }
+
+  if (F->isIntrinsic() && F->getIntrinsicID() == Intrinsic::not_intrinsic)
+    Out << "; Unknown intrinsic\n";
 
   Machine.incorporateFunction(F);
 

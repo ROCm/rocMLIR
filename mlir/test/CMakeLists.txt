@@ -94,6 +94,7 @@ set(ROCMLIR_TEST_DEPENDS
   mlir-mixr-capi-test
   mlir-mixr-fullc-test
   mlir-mixr-split-k-test
+  mlir-reduce-fusible-test
 )
 
 list(APPEND ROCMLIR_TEST_DEPENDS

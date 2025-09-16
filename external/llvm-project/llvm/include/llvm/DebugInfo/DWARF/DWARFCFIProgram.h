@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef LLVM_DEBUGINFO_DWARF_DWARFCFIPROGRAM_H
-#define LLVM_DEBUGINFO_DWARF_DWARFCFIPROGRAM_H
+#ifndef LLVM_DEBUGINFO_DWARF_LOWLEVEL_DWARFCFIPROGRAM_H
+#define LLVM_DEBUGINFO_DWARF_LOWLEVEL_DWARFCFIPROGRAM_H
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallString.h"
@@ -24,6 +24,7 @@
 namespace llvm {
 
 namespace dwarf {
+
 /// Represent a sequence of Call Frame Information instructions that, when read
 /// in order, construct a table mapping PC to frame state. This can also be
 /// referred to as "CFI rules" in DWARF literature to avoid confusion with
@@ -80,20 +81,36 @@ public:
   LLVM_ABI Error parse(DWARFDataExtractor Data, uint64_t *Offset,
                        uint64_t EndOffset);
 
-  LLVM_ABI void dump(raw_ostream &OS, DIDumpOptions DumpOpts,
-                     unsigned IndentLevel,
-                     std::optional<uint64_t> InitialLocation) const;
-
   void addInstruction(const Instruction &I) { Instructions.push_back(I); }
 
   /// Get a DWARF CFI call frame string for the given DW_CFA opcode.
   LLVM_ABI StringRef callFrameString(unsigned Opcode) const;
 
-private:
-  std::vector<Instruction> Instructions;
-  const uint64_t CodeAlignmentFactor;
-  const int64_t DataAlignmentFactor;
-  Triple::ArchType Arch;
+  /// Types of operands to CFI instructions
+  /// In DWARF, this type is implicitly tied to a CFI instruction opcode and
+  /// thus this type doesn't need to be explicitly written to the file (this is
+  /// not a DWARF encoding). The relationship of instrs to operand types can
+  /// be obtained from getOperandTypes() and is only used to simplify
+  /// instruction printing and error messages.
+  enum OperandType {
+    OT_Unset,
+    OT_None,
+    OT_Address,
+    OT_Offset,
+    OT_FactoredCodeOffset,
+    OT_SignedFactDataOffset,
+    OT_UnsignedFactDataOffset,
+    OT_Register,
+    OT_AddressSpace,
+    OT_Expression
+  };
+
+  /// Get the OperandType as a "const char *".
+  LLVM_ABI static const char *operandTypeString(OperandType OT);
+
+  /// Retrieve the array describing the types of operands according to the enum
+  /// above. This is indexed by opcode.
+  LLVM_ABI static ArrayRef<OperandType[MaxOperands]> getOperandTypes();
 
   /// Convenience method to add a new instruction with the given opcode.
   void addInstruction(uint8_t Opcode) {
@@ -122,40 +139,15 @@ private:
     Instructions.back().Ops.push_back(Operand3);
   }
 
-  /// Types of operands to CFI instructions
-  /// In DWARF, this type is implicitly tied to a CFI instruction opcode and
-  /// thus this type doesn't need to be explicitly written to the file (this is
-  /// not a DWARF encoding). The relationship of instrs to operand types can
-  /// be obtained from getOperandTypes() and is only used to simplify
-  /// instruction printing.
-  enum OperandType {
-    OT_Unset,
-    OT_None,
-    OT_Address,
-    OT_Offset,
-    OT_FactoredCodeOffset,
-    OT_SignedFactDataOffset,
-    OT_UnsignedFactDataOffset,
-    OT_Register,
-    OT_AddressSpace,
-    OT_Expression
-  };
-
-  /// Get the OperandType as a "const char *".
-  static const char *operandTypeString(OperandType OT);
-
-  /// Retrieve the array describing the types of operands according to the enum
-  /// above. This is indexed by opcode.
-  static ArrayRef<OperandType[MaxOperands]> getOperandTypes();
-
-  /// Print \p Opcode's operand number \p OperandIdx which has value \p Operand.
-  void printOperand(raw_ostream &OS, DIDumpOptions DumpOpts,
-                    const Instruction &Instr, unsigned OperandIdx,
-                    uint64_t Operand, std::optional<uint64_t> &Address) const;
+private:
+  std::vector<Instruction> Instructions;
+  const uint64_t CodeAlignmentFactor;
+  const int64_t DataAlignmentFactor;
+  Triple::ArchType Arch;
 };
 
 } // end namespace dwarf
 
 } // end namespace llvm
 
-#endif // LLVM_DEBUGINFO_DWARF_DWARFCFIPROGRAM_H
+#endif // LLVM_DEBUGINFO_DWARF_LOWLEVEL_DWARFCFIPROGRAM_H

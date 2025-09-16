@@ -1075,7 +1075,7 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
                                       TransformMapAttr map,
                                       ValueRange outputs) {
   Value isValid =
-      b.createOrFold<arith::ConstantIntOp>(loc, true, b.getI1Type());
+      b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
   ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
 
   // unsigned < catches both negatives (as all negatives are > the bound)
@@ -1710,7 +1710,7 @@ ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
     auto trMap = cast<TransformMapAttr>(tr);
     TransformMapAttr invertedTrMap = invertTransformMap(b, trMap, loc);
     if (!invertedTrMap)
-      return {};
+      return nullptr;
     invertedTrs.push_back(invertedTrMap);
   }
   return b.getArrayAttr(invertedTrs);

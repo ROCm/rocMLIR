@@ -49,7 +49,6 @@
 #include "llvm/IR/EHPersonalities.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GetElementPtrTypeIterator.h"
-#include "llvm/IR/GlobalObject.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstrTypes.h"
 #include "llvm/IR/Instruction.h"
@@ -2437,6 +2436,11 @@ getNewSalvageOpsForBinOp(BinaryOperator *BI, uint64_t CurrentLocOps,
   return BI->getOperand(0);
 }
 
+static bool getNewDIConversionOps(const DataLayout &DL, Type *SourceTy,
+                                  Type *DestTy,
+                                  std::optional<DIBasicType::Signedness> Sign,
+                                  SmallVectorImpl<DIOp::Variant> &Ops);
+
 /// This is a port of getSalvageOpsForGEP() to DIOp-based DIExpressions.
 static Value *
 getNewSalvageOpsForGEP(GetElementPtrInst *GEP, const DataLayout &DL,
@@ -2460,12 +2464,17 @@ getNewSalvageOpsForGEP(GetElementPtrInst *GEP, const DataLayout &DL,
     AdditionalValues.push_back(Offset.first);
     assert(Offset.second.isStrictlyPositive() &&
            "Expected strictly positive multiplier for offset.");
+    Ops.push_back(DIOp::Arg(CurrentLocOps++, Offset.first->getType()));
+    // Add a conversion operation if the gep offset operand has a different
+    // integer width than the pointer size.
+    if (!getNewDIConversionOps(DL, Offset.first->getType(), IntPtrTy,
+                               DIBasicType::Signedness::Signed, Ops))
+      return nullptr;
     ConstantInt *ConstOffset =
         ConstantInt::get(IntPtrTy, Offset.second.getZExtValue());
-    DIOp::Variant NewOps[] = {
-        DIOp::Arg(CurrentLocOps++, ConstOffset->getType()),
-        DIOp::Constant(ConstOffset), DIOp::Mul(), DIOp::Add()};
-    Ops.append(std::begin(NewOps), std::end(NewOps));
+    Ops.push_back(DIOp::Constant(ConstOffset));
+    Ops.push_back(DIOp::Mul());
+    Ops.push_back(DIOp::Add());
   }
 
   Ops.emplace_back(DIOp::Constant(
@@ -3243,10 +3252,8 @@ bool llvm::handleUnreachableTerminator(
   return Changed;
 }
 
-std::pair<unsigned, unsigned>
-llvm::removeAllNonTerminatorAndEHPadInstructions(BasicBlock *BB) {
+unsigned llvm::removeAllNonTerminatorAndEHPadInstructions(BasicBlock *BB) {
   unsigned NumDeadInst = 0;
-  unsigned NumDeadDbgInst = 0;
   // Delete the instructions backwards, as it has a reduced likelihood of
   // having to update as many def-use and use-def chains.
   Instruction *EndInst = BB->getTerminator(); // Last not to be deleted.
@@ -3265,15 +3272,12 @@ llvm::removeAllNonTerminatorAndEHPadInstructions(BasicBlock *BB) {
       EndInst = Inst;
       continue;
     }
-    if (isa<DbgInfoIntrinsic>(Inst))
-      ++NumDeadDbgInst;
-    else
-      ++NumDeadInst;
+    ++NumDeadInst;
     // RemoveDIs: erasing debug-info must be done manually.
     Inst->dropDbgRecords();
     Inst->eraseFromParent();
   }
-  return {NumDeadInst, NumDeadDbgInst};
+  return NumDeadInst;
 }
 
 unsigned llvm::changeToUnreachable(Instruction *I, bool PreserveLCSSA,

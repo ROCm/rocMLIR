@@ -57,8 +57,12 @@ GemmSize calculatePaddedGemmSize(const InitParams &params, GemmSize gemmSize,
 /// Given a tuning parameter struct, determine how much padding the gemm with
 /// a given gemm size requires. Returns None if no padding is needed. The
 /// values in the returned gemm context represent the number of 0s that need to
-/// be added to the given dimension.
-std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize);
+/// be added to the given dimension. The mulBy* arguments multiply the
+/// corresponding dimension of the attributes.
+std::optional<GemmSize> requiredPadding(Attribute params, GemmSize gemmSize,
+                                        int64_t mulByKPerBlock = 1,
+                                        int64_t mulByMPerBlock = 1,
+                                        int64_t mulByNPerBlock = 1);
 
 int64_t obtainBlockSize(int64_t waveSize, int64_t mPerBlock, int64_t nPerBlock,
                         int64_t mPerWave, int64_t nPerWave);
@@ -124,7 +128,7 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
         gemmNPerThread(attr.getNPerThread()), blockSize(attr.getBlockSize()),
         splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
-        outputSwizzle(attr.getOutputSwizzle()){};
+        outputSwizzle(attr.getOutputSwizzle()) {};
 
   int64_t getKPack() { return 1; }
 
@@ -172,7 +176,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false){};
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   InitParamsAccel(WmmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -183,7 +187,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false){};
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   int64_t getKPack() { return gemmKPack; }
 
@@ -333,8 +337,10 @@ public:
 
   // Return the vector of heuristic parameters for a given kernel type and dat
   // type.
-  std::vector<InitParamsNonAccel>
-  getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB) const;
+  std::vector<InitParamsNonAccel> getTuningParameters(KernelType opType,
+                                                      Type dataTypeA,
+                                                      Type dataTypeB,
+                                                      StringRef arch) const;
 
   Attribute getGemmParamsAttr(OpBuilder &b,
                               const InitParamsNonAccel &params) const override;

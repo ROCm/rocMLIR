@@ -26,6 +26,92 @@ namespace mlir {
 namespace rock {
 namespace {
 
+/// Bufferization of attention op
+struct AttentionOpInterface
+    : public BufferizableOpInterface::ExternalModel<AttentionOpInterface,
+                                                    AttentionOp> {
+  bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
+                              const AnalysisState &state) const {
+    auto cop = mlir::cast<AttentionOp>(op);
+    return (&opOperand != cop.getOutArgument() &&
+            &opOperand != cop.getOutLseArgument());
+  }
+
+  bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
+                               const AnalysisState &state) const {
+    auto cop = mlir::cast<AttentionOp>(op);
+    return (&opOperand == cop.getOutArgument() ||
+            &opOperand == cop.getOutLseArgument());
+  }
+
+  // The buffer corresponding to the destination must equal the buffer
+  // corresponding to the returned tensor
+  bool mustBufferizeInPlace(Operation *op, OpOperand &opOperand,
+                            const AnalysisState &state) const {
+    auto cop = mlir::cast<AttentionOp>(op);
+    return (&opOperand == cop.getOutArgument() ||
+            &opOperand == cop.getOutLseArgument());
+  }
+
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
+                                      const AnalysisState &state) const {
+    auto cop = mlir::cast<AttentionOp>(op);
+    AliasingValueList result;
+
+    if (&opOperand == cop.getOutArgument()) {
+      // First output argument aliases with first result
+      result.addAlias({op->getResult(0), BufferRelation::Equivalent});
+    } else if (&opOperand == cop.getOutLseArgument()) {
+      // Second output argument aliases with second result
+      result.addAlias({op->getResult(1), BufferRelation::Equivalent});
+    }
+
+    return result;
+  }
+
+  // The output argument is equal to the returned value
+  BufferRelation bufferRelation(Operation *op, OpResult opResult,
+                                const AnalysisState &state) const {
+    return BufferRelation::Equivalent;
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options,
+                          BufferizationState &state) const {
+    auto cop = mlir::cast<AttentionOp>(op);
+    SmallVector<Value> bufferArgs;
+    Value outBuffer, outLseBuffer;
+
+    for (OpOperand &operand : op->getOpOperands()) {
+      FailureOr<Value> buffer =
+          getBuffer(rewriter, operand.get(), options, state);
+      if (failed(buffer)) {
+        LLVM_DEBUG(llvm::dbgs()
+                   << "Failed to bufferize value " << operand.get() << "\n");
+        return failure();
+      }
+      bufferArgs.push_back(*buffer);
+      if (&operand == cop.getOutArgument())
+        outBuffer = *buffer;
+      else if (&operand == cop.getOutLseArgument())
+        outLseBuffer = *buffer;
+    }
+    if (!outBuffer) {
+      return op->emitOpError("Couldn't find output argument");
+    }
+    // no need to check outLseBuffer, because it is optional
+    Operation *clonedOp =
+        clone(rewriter, op, /*newResultTypes=*/TypeRange{}, bufferArgs);
+    clonedOp->setAttr("resultSegmentSizes",
+                      rewriter.getDenseI32ArrayAttr({0, 0}));
+    SmallVector<Value> replacements = {outBuffer};
+    if (outLseBuffer)
+      replacements.push_back(outLseBuffer);
+    replaceOpWithBufferizedValues(rewriter, op, replacements);
+    return success();
+  }
+};
+
 /// Bufferization of gemm-like ops, which rewrite to themselves with memref
 /// arguments.
 template <typename Concrete>
@@ -91,7 +177,7 @@ struct GemmLikeInterface
         outBuffer = *buffer;
     }
     if (!outBuffer) {
-      return op->emitOpError("Couldn't find output argument\n");
+      return op->emitOpError("Couldn't find output argument");
     }
     clone(rewriter, op, /*newResultTypes=*/TypeRange{}, bufferArgs);
     replaceOpWithBufferizedValues(rewriter, op, outBuffer);
@@ -230,11 +316,12 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
     InitKernelOp::attachInterface<GemmLikeInterface<InitKernelOp>>(*ctx);
     ConvertingCopyKernelOp::attachInterface<
         GemmLikeInterface<ConvertingCopyKernelOp>>(*ctx);
-    AttentionOp::attachInterface<GemmLikeInterface<AttentionOp>>(*ctx);
     GemmElementwiseGemmOp::attachInterface<
         GemmLikeInterface<GemmElementwiseGemmOp>>(*ctx);
     ConvElementwiseGemmOp::attachInterface<
         GemmLikeInterface<ConvElementwiseGemmOp>>(*ctx);
+
+    AttentionOp::attachInterface<AttentionOpInterface>(*ctx);
 
     TransformOp::attachInterface<TransformOpInterface>(*ctx);
     TensorUntransformCastOp::attachInterface<TensorUntransformCastOpInterface>(

@@ -1,295 +1,212 @@
-# bert_base_cased_1.onnx
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
--t f32 -out_datatype f32 -transA false -transB true -g 12 -m 384 -n 384 -k 64
--t f32 -out_datatype f32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
+-t f32 -out_datatype f32 -transA false -transB true -g 12 -m 384 -n 384 -k 64
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
 -t f32 -out_datatype f32 -transA false -transB true -g 1 -m 1 -n 768 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 384 -k 64
--t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
+-t i8 -out_datatype i32 -transA false -transB true -g 12 -m 384 -n 384 -k 64
 -t i8 -out_datatype i32 -transA false -transB true -g 1 -m 1 -n 768 -k 768
-
-# bert_base_uncased_1.onnx
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
--t f32 -out_datatype f32 -transA false -transB true -g 12 -m 384 -n 384 -k 64
--t f32 -out_datatype f32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
--t f32 -out_datatype f32 -transA false -transB true -g 1 -m 1 -n 768 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 384 -k 64
--t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
--t i8 -out_datatype i32 -transA false -transB true -g 1 -m 1 -n 768 -k 768
-
-# bert_large_uncased_1.onnx
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 1024
--t f32 -out_datatype f32 -transA false -transB true -g 16 -m 384 -n 384 -k 64
--t f32 -out_datatype f32 -transA false -transB false -g 16 -m 384 -n 64 -k 384
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 1024 -k 1024
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 4096 -k 1024
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 1024 -k 4096
--t f32 -out_datatype f32 -transA false -transB true -g 1 -m 1 -n 1024 -k 1024
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 1024
--t i8 -out_datatype i32 -transA false -transB false -g 16 -m 384 -n 384 -k 64
--t i8 -out_datatype i32 -transA false -transB false -g 16 -m 384 -n 64 -k 384
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 1024 -k 1024
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 4096 -k 1024
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 1024 -k 4096
--t i8 -out_datatype i32 -transA false -transB true -g 1 -m 1 -n 1024 -k 1024
-
-# distilgpt2_1.onnx
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
--t f32 -out_datatype f32 -transA false -transB true -g 12 -m 384 -n 384 -k 64
--t f32 -out_datatype f32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 384 -k 64
--t i8 -out_datatype i32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
-
-# bert_base_cased_1_fp16_gpu.onnx
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 768 -k 768
-
-# bert_large_uncased_1_fp16_gpu.onnx
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 1024
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 1024 -k 1024
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 4096 -k 1024
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 1024 -k 4096
--t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 1024 -k 1024
-
-# distilgpt2_1_fp16_gpu.onnx
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
-
-# gpt2-10_fp16
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
--t f16 -out_datatype f16 -transA false -transB true -g 12 -m 1 -n 1 -k 64
--t f16 -out_datatype f16 -transA false -transB false -g 12 -m 1 -n 64 -k 1
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
-
-# gpt2-10_int8
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
--t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 1 -k 64
--t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 64 -k 1
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 768 -k 768
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 12 -m 1 -n 1 -k 64
--t i8 -out_datatype i32 -transA false -transB false -g 12 -m 1 -n 64 -k 1
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 768 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
-
-# resnet50_v1.onnx_fp16
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1001 -k 2048
-
-# resnet50_v1.onnx_int8
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 1001 -k 2048
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 1001 -k 2048
-
-# stable-diffusion-2-onnx-unet
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 24960 -k 1024
--t f16 -out_datatype f16 -transA false -transB true -g 1 -m 2 -n 1280 -k 320
--t f16 -out_datatype f16 -transA false -transB true -g 1 -m 2 -n 1280 -k 1280
--t f16 -out_datatype f16 -transA false -transB true -g 1 -m 2 -n 20160 -k 1280
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 320 -k 320
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 960 -k 320
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 2560 -k 320
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 320 -k 1280
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 640 -k 640
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1001 -k 2048
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 1024 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 1024 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 4096 -k 1024
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 1024 -k 1024
+-t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 64 -k 1
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
+-t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 1 -k 64
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 12 -m 1 -n 64 -k 1
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 12 -m 1 -n 1 -k 64
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 1 -n 64 -k 1
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 1 -n 1 -k 64
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 1920 -k 640
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 5120 -k 640
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 640 -k 2560
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 640 -k 640
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 512 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 5120 -k 640
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 512 -n 3840 -k 1280
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 512 -n 10240 -k 1280
+-t f16 -out_datatype f16 -transA true -transB false -g 1 -m 2048 -n 640 -k 640
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 320 -k 320
+-t f16 -out_datatype f16 -transA true -transB false -g 1 -m 512 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 960 -k 320
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 512 -n 1280 -k 5120
+-t f16 -out_datatype f16 -transA true -transB false -g 1 -m 128 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA true -transB false -g 1 -m 8192 -n 320 -k 320
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 512 -n 10240 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 320 -k 1280
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 1280 -k 1280
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 3840 -k 1280
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 10240 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 8192 -n 2560 -k 320
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 1280 -k 5120
-
-# stable-diffusion-2-onnx text_encoder
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 3840 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 640 -k 2560
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 10240 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 128 -n 24960 -k 1024
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 2 -n 20160 -k 1280
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 2 -n 1280 -k 1280
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 2 -n 1280 -k 320
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 3072 -k 1024
 -t f16 -out_datatype f16 -transA false -transB false -g 16 -m 1 -n 1 -k 64
 -t f16 -out_datatype f16 -transA false -transB false -g 16 -m 1 -n 64 -k 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1024 -k 1024
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 4096 -k 1024
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1024 -k 4096
-
- # stable-diffusion-2-onnx vae_decoder
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 4096 -n 1536 -k 512
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 4096 -n 512 -k 512
-
-# bert_large_mlperf.onnx
--t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 3072 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 4096 -n 1536 -k 512
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 1024 -k 1024
--t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 4096 -k 1024
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 3072 -k 1024
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 1024 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 4096 -k 1024
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 2 -k 1024
-
-# llama2_7b
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
 -t f32 -out_datatype f32 -transA false -transB true -g 32 -m 256 -n 256 -k 128
--t f32 -out_datatype f32 -transA false -transB false -g 32 -m 256 -n 128 -k 256
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 32 -m 256 -n 128 -k 256
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 32000 -k 4096
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
--t i8 -out_datatype i32 -transA false -transB false -g 32 -m 256 -n 256 -k 128
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
+-t i8 -out_datatype i32 -transA false -transB true -g 32 -m 256 -n 256 -k 128
 -t i8 -out_datatype i32 -transA false -transB false -g 32 -m 256 -n 128 -k 256
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 32000 -k 4096
-
-# qwen1.5-7b fp16
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 151936 -k 4096
-
-# qwen1.57b int8
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
--t f32 -out_datatype f32 -transA false -transB true -g 32 -m 256 -n 256 -k 128
--t f32 -out_datatype f32 -transA false -transB false -g 32 -m 256 -n 128 -k 256
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 151936 -k 4096
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 12288 -k 4096
--t i8 -out_datatype i32 -transA false -transB false -g 32 -m 256 -n 256 -k 128
--t i8 -out_datatype i32 -transA false -transB false -g 32 -m 256 -n 128 -k 256
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
--t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 4096 -k 11008
 -t i8 -out_datatype i32 -transA false -transB false -g 1 -m 256 -n 151936 -k 4096
-
-# phi3
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 9216 -k 3072
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 48 -n 256 -k 1
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 3072 -k 3072
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 16384 -k 3072
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 3072 -k 8192
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 3072 -k 3072
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 48 -n 256 -k 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 32064 -k 3072
-
-# MaskRCNN-10.onnx
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1000 -n 1024 -k 12544
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1000 -n 1024 -k 1024
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1000 -n 1024 -k 12544
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1000 -n 405 -k 1024
-
-# llama3_8b model.onnx
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1000 -n 1024 -k 1024
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1000 -n 1024 -k 12544
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1000 -n 405 -k 1024
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1000 -n 1024 -k 12544
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1000 -n 1024 -k 1024
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1000 -n 405 -k 1024
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 6144 -k 4096
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 64 -n 256 -k 1
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 28672 -k 4096
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 14336
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 64 -n 256 -k 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 128256 -k 4096
-
-# whisper-large encoder_model.onnx
 -t f32 -out_datatype f32 -transA true -transB false -g 1 -m 1500 -n 3840 -k 1280
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 1280 -k 1280
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 5120 -k 1280
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 1280 -k 5120
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 5120 -k 1280
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 3840 -k 1280
-
-# whisper-large decoder_model.onnx
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 81920 -k 1280
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 3840 -k 1280
--t f16 -out_datatype f16 -transA false -transB true -g 20 -m 216 -n 216 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 1 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 64 -k 1
 -t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 64 -k 216
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 1280 -k 1280
--t f16 -out_datatype f16 -transA false -transB true -g 20 -m 216 -n 1 -k 64
--t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 64 -k 1
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 5120 -k 1280
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 1280 -k 5120
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 3840 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 81920 -k 1280
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 5120 -k 1280
+-t f16 -out_datatype f16 -transA false -transB true -g 20 -m 216 -n 216 -k 64
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 51865 -k 1280
-
-# mistral-7b
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 6144 -k 4096
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 4096
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 28672 -k 4096
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 4096 -k 14336
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 32000 -k 4096
-
-# Flux
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 2304 -k 768
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 3072
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 3072
-
-# sd3 text_encoder
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 2304 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 12 -m 77 -n 77 -k 64
 -t f16 -out_datatype f16 -transA false -transB false -g 12 -m 77 -n 64 -k 77
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 3072
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
-
-# sd3 text_encoder_2
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3840 -k 1280
--t f16 -out_datatype f16 -transA false -transB false -g 20 -m 77 -n 77 -k 64
+-t f16 -out_datatype f16 -transA false -transB true -g 12 -m 77 -n 77 -k 64
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 77 -n 2304 -k 768
+-t i8 -out_datatype i32 -transA false -transB true -g 12 -m 77 -n 77 -k 64
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 77 -n 768 -k 3072
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 77 -n 768 -k 768
+-t i8 -out_datatype i32 -transA false -transB false -g 12 -m 77 -n 64 -k 77
 -t f16 -out_datatype f16 -transA false -transB false -g 20 -m 77 -n 64 -k 77
+-t f16 -out_datatype f16 -transA false -transB true -g 20 -m 77 -n 77 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3840 -k 1280
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 1280 -k 1280
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 5120 -k 1280
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 1280 -k 5120
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1280 -k 1280
-
-# sd3 text_encoder_3
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 77 -n 1280 -k 1280
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 77 -n 3840 -k 1280
+-t i8 -out_datatype i32 -transA false -transB true -g 20 -m 77 -n 77 -k 64
+-t i8 -out_datatype i32 -transA false -transB false -g 20 -m 77 -n 64 -k 77
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 77 -n 5120 -k 1280
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 77 -n 1280 -k 5120
+-t i8 -out_datatype i32 -transA false -transB false -g 1 -m 1 -n 1280 -k 1280
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 12288 -k 4096
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 4096 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 64 -m 77 -n 64 -k 77
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 20480 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 77 -n 4096 -k 10240
+-t f16 -out_datatype f16 -transA false -transB true -g 64 -m 77 -n 77 -k 64
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 4096 -k 4096
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 4096 -k 10240
-
-# sd3.5 text_encoder
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 2304 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 3072
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
-
-# sd3.5 text_encoder_2
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 3840 -k 1280
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 1280 -k 1280
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 5120 -k 1280
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 1280 -k 5120
--t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1280 -k 1280
-
-# sd3.5 text_encoder_3
--t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 12288 -k 4096
--t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 4096 -k 4096
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 20480 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 12288 -k 4096
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 4096 -k 10240
-
-# yolov10n_1.onnx
--t f32 -out_datatype f32 -transA false -transB true -g 2 -m 400 -n 400 -k 32
--t f32 -out_datatype f32 -transA true -transB true -g 2 -m 64 -n 400 -k 400
-
-# sd3_medium_vae_encoder
--t f32 -out_datatype f32 -transA true -transB false -g 1 -m 128 -n 1536 -k 512
--t f32 -out_datatype f32 -transA false -transB false -g 1 -m 128 -n 512 -k 512
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 4096 -k 4096
+-t f32 -out_datatype f32 -transA true -transB false -g 2 -m 400 -n 400 -k 32
+-t f32 -out_datatype f32 -transA false -transB true -g 2 -m 64 -n 400 -k 400
+-t f16 -out_datatype f16 -transA true -transB false -g 2 -m 400 -n 400 -k 32
+-t f16 -out_datatype f16 -transA false -transB true -g 2 -m 64 -n 400 -k 400
+-t i8 -out_datatype i32 -transA true -transB false -g 2 -m 400 -n 400 -k 32
+-t i8 -out_datatype i32 -transA false -transB true -g 2 -m 64 -n 400 -k 400
+-t f32 -out_datatype f32 -transA true -transB false -g 1 -m 64 -n 1536 -k 512
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 512 -k 512
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 4096 -n 22016 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 4096 -n 12288 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 4096 -n 4096 -k 11008
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 4096 -n 4096 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 4096 -n 32000 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 12288 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 4096 -k 11008
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 22016 -k 4096
+-t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 4096 -k 4096
+-t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 32000 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 6144 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 28672 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 64 -n 1 -k 1
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 4096 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 4096 -k 14336
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 4096 -n 128256 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 6144 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 28672 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 4096 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 4096 -k 14336
+-t f32 -out_datatype f32 -transA false -transB false -g 32 -m 1 -n 128 -k 1
+-t f32 -out_datatype f32 -transA false -transB false -g 32 -m 1 -n 1 -k 128
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 128256 -k 4096
+-t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 32000 -k 4096

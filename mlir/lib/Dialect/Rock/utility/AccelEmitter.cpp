@@ -24,8 +24,8 @@
 
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
@@ -1196,8 +1196,9 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
   if (isMfma) {
     XdlopsGemmDerivedParamsAttr mfmaParams =
         cast<XdlopsGemmDerivedParamsAttr>(tuningParams);
-    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(dataTypeA, dataTypeB, arch,
-                                                    mfmaParams.getMnPerXdl());
+    auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+        dataTypeA, dataTypeB, arch, mfmaParams.getMnPerXdl(),
+        mfmaParams.getKpack(), mfmaParams.getKpackPerBlock());
     if (failed(maybeMfmaInsnGroup)) {
       return nullptr;
     }

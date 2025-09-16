@@ -13,7 +13,7 @@ func.func @mlir_reshape_reshape_transpose_dot(%arg0: tensor<1x256x32x64xf32>, %a
   %4 = rock.transform %3 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 32} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [32, 256, 64] -> [1, 32, 256, 64]> : tensor<1x32x256x64xf32> to tensor<32x256x64xf32>
   %5 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (0, d0, d1, d2)> by [<Merge{1, 32} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>] bounds = [32, 256, 64] -> [1, 32, 256, 64]> : tensor<1x32x256x64xf32> to tensor<32x256x64xf32>
   %6 = bufferization.alloc_tensor() : tensor<32x256x256xf32>
-  %7 = rock.gemm %6 = %5 * tr %4 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set {arch = "gfx908:sramecc+:xnack-", numCU = 120 : i32} : tensor<32x256x256xf32> = tensor<32x256x64xf32> * tensor<32x256x64xf32> -> tensor<32x256x256xf32>
+  %7 = rock.gemm %6 = %5 * tr %4 storeMethod =  set : tensor<32x256x256xf32> = tensor<32x256x64xf32> * tensor<32x256x64xf32> -> tensor<32x256x256xf32>
   %8 = rock.transform %7 by <affine_map<(d0, d1, d2, d3) -> (d0 * 32 + d1, d2, d3)> by [<Unmerge{1, 32} ["exp0", "exp1"] at [0, 1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>] bounds = [1, 32, 256, 256] -> [32, 256, 256]> : tensor<32x256x256xf32> to tensor<1x32x256x256xf32>
   return %8 : tensor<1x32x256x256xf32>
 }

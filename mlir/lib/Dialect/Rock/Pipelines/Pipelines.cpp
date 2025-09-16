@@ -42,8 +42,8 @@
 
 #include "mlir/Conversion/RocMLIRPasses.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
@@ -139,6 +139,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   // Sort dimensions according to the underlying memory layout strides
   if (!noRock) {
     auto &funcPm4 = pm.nest<func::FuncOp>();
+    funcPm4.addPass(createRockFindFirstGemmIndexPass());
     funcPm4.addPass(createRockSortDimensionsMemoryLayoutPass());
   }
 }
@@ -203,8 +204,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockSugarToLoopsPass());
     funcPm.addPass(rock::createRockCleanMathPass());
     math::MathExtendToSupportedTypesOptions extendToLLVMTypesOptions;
-    SmallVector<std::string, 1> supportedFloats = {"f16"};
-    extendToLLVMTypesOptions.extraTypeStrs = supportedFloats;
+    extendToLLVMTypesOptions.extraTypeStrs = {"f16"};
     extendToLLVMTypesOptions.targetTypeStr = "f32";
     funcPm.addPass(
         math::createMathExtendToSupportedTypes(extendToLLVMTypesOptions));

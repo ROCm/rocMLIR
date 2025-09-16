@@ -1,12 +1,13 @@
 #include "mlir/Dialect/Rock/Generator/ConvGenerator.h"
 #include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -41,7 +42,7 @@ ConvGenerator::ConvGenerator(
     const std::string &arch, const std::string &chip,
     bool disableSplitKForTuning, int64_t scheduleVersion,
     const std::string &triple, const std::string &chipFeatures,
-    const std::string &perfConfig, std::optional<int> num_cu, bool reverseGrid,
+    const std::string &perfConfig, std::optional<int> num_cu,
     GemmFeatures features, const std::optional<ConvOpType> operation,
     const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
     const std::string &outputDataTypeStr, ArrayRef<int> dilations,
@@ -57,7 +58,6 @@ ConvGenerator::ConvGenerator(
              chipFeatures,
              perfConfig,
              num_cu,
-             reverseGrid,
              features,
              operation,
              filterDataTypeStr,
@@ -526,7 +526,6 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
-  strToInt(rock::ReverseGridAttrAttr::getMnemonic().str(), config.reverseGrid);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -823,22 +822,19 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Annotate kernel attribute to the FuncOp.
   StringAttr archStrAttr = builder.getStringAttr(config.arch);
   NamedAttribute archAttr = builder.getNamedAttr("mhal.arch", archStrAttr);
+  IntegerAttr numCUIntAttr =
+      builder.getIntegerAttr(builder.getI32Type(), getNumCU());
+  NamedAttribute numCUAttr = builder.getNamedAttr("num_cu", numCUIntAttr);
 
   SmallVector<NamedAttribute, 2> kernelAttrs = {
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(rawKernelId)),
-      archAttr};
+      archAttr, numCUAttr};
 
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
-  // TODO[split-K]: split-K does not work with BwdWeight
-  if (!config.disableSplitKForTuning &&
-      config.operation.value() != ConvOpType::BwdWeight) {
+  if (!config.disableSplitKForTuning) {
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
-  if (config.reverseGrid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
                   builder.getUnitAttr());
   }
   if (config.scheduleVersion != 1) {
@@ -883,8 +879,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   }
 
   std::vector<NamedAttribute> attributes{
-      builder.getNamedAttr("arch", archStrAttr),
-
       builder.getNamedAttr(
           "filter_layout",
           builder.getArrayAttr(ArrayRef<Attribute>(filterLayoutSpec.begin(),
@@ -896,7 +890,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
           "output_layout",
           builder.getArrayAttr(ArrayRef<Attribute>(outputLayoutSpec.begin(),
                                                    outputLayoutSpec.end()))),
-      builder.getNamedAttr("numCU", builder.getI32IntegerAttr(getNumCU())),
   };
 
   // The backwards data kernel needs to know its kernel ID, as there are
@@ -985,7 +978,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
       // Workspace -> filter tensor
       builder.create<ConvertingCopyKernelOp>(
           builder.getUnknownLoc(), /*resultType=*/TypeRange{},
-          func.getArgument(3), func.getArgument(0), features,
+          func.getArgument(3), func.getArgument(0),
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
     } else {

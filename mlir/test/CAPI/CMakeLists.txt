@@ -4,6 +4,7 @@ set(LLVM_OPTIONAL_SOURCES
   mixr_cobj.cc
   mixr_split_k.cpp
   mixr_full.c
+  reduce_fusible.cpp
 )
 
 set(LLVM_LINK_COMPONENTS ${LLVM_TARGETS_TO_BUILD})
@@ -83,3 +84,19 @@ target_link_libraries(mlir-mixr-split-k-test
   MLIRMIGraphXPipeline
   MLIRRockPipeline
 )
+
+add_llvm_executable(mlir-reduce-fusible-test
+  EXCLUDE_FROM_ALL
+  reduce_fusible.cpp
+  )
+llvm_update_compile_flags(mlir-reduce-fusible-test)
+
+target_link_libraries(mlir-reduce-fusible-test
+  PRIVATE
+  MLIRCAPIIR
+  MLIRCAPIRegisterRocMLIR
+  MLIRCAPIRock
+  MLIRCAPIGPU
+  MLIRRockPipeline
+)
+

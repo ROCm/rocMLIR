@@ -84,8 +84,6 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
 
-bool isAccel(GemmFeatures features);
-
 // Return true if this shaped type will occupy more than 4 GB (2 ^ 32 bytes)
 // in memory.
 bool is4GBMemoryType(ShapedType type);
@@ -175,26 +173,17 @@ FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
 /// Compute, if possible, the constant different between two values.
 std::optional<int64_t> computeConstDiff(Value l, Value u);
 
-// Get the arch from the op
-FailureOr<StringAttr> getArch(Operation *op);
-
-// Get the num_cu from the op
-FailureOr<int64_t> getNumCU(Operation *op);
-
-// Get whether to reverse the grid
-FailureOr<UnitAttr> getReverseGrid(Operation *op);
-
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
 
 // Get blockSize
 FailureOr<IntegerAttr> getBlockSize(Operation *op);
 
-// Return an affine map to reverse loop coordinates
-AffineMap getIdxReversalMap(OpBuilder &b);
-
 // helper to create ReassociationIndices for flattening
 ReassociationIndices getReassociationForFlattening(ShapedType srcTp);
+
+// helper to obtain a flattened memref
+Value getFlattenedMemref(OpBuilder &b, Value nonFlatMemRef);
 
 /// Construct a `memref.view` operation that interprets the buffer `buffer`,
 /// whose elements are bytes, as a buffer of `type`.

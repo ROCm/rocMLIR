@@ -1,7 +1,7 @@
 FROM ubuntu:22.04
 MAINTAINER Christopher Austen <chausten@amd.com>
 
-ARG ROCM_VERSION=6.4
+ARG ROCM_VERSION=6.4.2
 ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/${ROCM_VERSION}
 ARG AMDGPU_DEB_REPO=https://repo.radeon.com/amdgpu/${ROCM_VERSION}/ubuntu
 ARG ROCM_BUILD_NAME=jammy

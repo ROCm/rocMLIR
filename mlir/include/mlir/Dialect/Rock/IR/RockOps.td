@@ -15,6 +15,7 @@
 
 include "mlir/Dialect/Rock/IR/RockAttrDefs.td"
 include "mlir/Dialect/Rock/IR/RockConvInterface.td"
+include "mlir/Dialect/Rock/IR/RockGemmFeaturesInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.td"
 include "mlir/Dialect/Rock/IR/RockAcceptingViewOpInterface.td"
@@ -61,23 +62,22 @@ class TensorOrMemRefOf<list<Type> allowedTypes> :
 
 class IndexArrayLength<int n> : ConfinedAttr<IndexArrayAttr, [ArrayMinCount<n>]>;
 
-class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes=[F32, F16, BF16], list<Type> outputTypes=[F32, F16, BF16]> :
-    Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
-                       DeclareOpInterfaceMethods<RockConvInterface>,
-                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                       RockFusionRoot]>{
-    dag commonConvArgs = (ins TensorOrMemRefOf<inputTypes>:$filter,
-                              TensorOrMemRefOf<inputTypes>:$input,
-                              TensorOrMemRefOf<outputTypes>:$output,
-                              StrAttr:$arch,
-                              Rock_GemmFeaturesAttr:$features,
-                              OptionalAttr<I32Attr>:$derivedBlockSize,
-                              OptionalAttr<I32Attr>:$gridSize,
-                              IndexArrayLength<4>:$padding,
-                              IndexArrayLength<2>:$strides,
-                              IndexArrayLength<2>:$dilations,
-                              OptionalAttr<RockTuningParamAttrInterface>:$params);
-    let results = (outs Optional<AnyRankedTensor>:$result);
+class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes = [F32, F16, BF16],
+                      list<Type> outputTypes = [F32, F16, BF16]>
+    : Rock_Op<mnemonic, [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
+                         DeclareOpInterfaceMethods<RockConvInterface>,
+                         DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                         DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+                         RockFusionRoot]> {
+  dag commonConvArgs = (ins TensorOrMemRefOf<inputTypes>:$filter,
+      TensorOrMemRefOf<inputTypes>:$input,
+      TensorOrMemRefOf<outputTypes>:$output,
+      OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+      OptionalAttr<I32Attr>:$derivedBlockSize, OptionalAttr<I32Attr>:$gridSize,
+      IndexArrayLength<4>:$padding, IndexArrayLength<2>:$strides,
+      IndexArrayLength<2>:$dilations,
+      OptionalAttr<RockTuningParamAttrInterface>:$params);
+  let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
 defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
@@ -86,22 +86,21 @@ defvar GemmOutputTypes = [F32, F16, BF16, I32, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M
 defvar GemmAccumulatorTypes = [F32, F16, BF16, I32];
 
 def Rock_ConvOp : Rock_ConvOpBase<"conv", GemmInputTypes, GemmOutputTypes> {
-  dag additionalArgs = (ins OptionalAttr<I32Attr>:$numCU);
-  let arguments = !con(commonConvArgs, additionalArgs);
+  let arguments = commonConvArgs;
   let summary = "N-D convolution forward";
   let description = [{
     The `rock.conv` op computes N-D convolution forward.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict
+    `(` operands `)` (`features` `=` $features^)? attr-dict
     `:` type(operands) (`->` type($result)^)?
   }];
 }
 
 def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 {
-  dag additionalArgs = (ins IndexAttr:$kernelId, OptionalAttr<I32Attr>:$numCU);
+  dag additionalArgs = (ins IndexAttr:$kernelId);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "N-D convolution backward data";
   let description = [{
@@ -112,7 +111,7 @@ def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict
+    `(` operands `)` (`features` `=` $features^)? attr-dict
     `:` type(operands) (`->` type($result)^)?
   }];
 }
@@ -121,7 +120,7 @@ def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
 {
   dag additionalArgs = (ins Optional<TensorOrMemRefOf<[F32]>>:$workspace,
-                            OptionalAttr<IndexAttr>:$kBlocks, I32Attr:$numCU);
+      OptionalAttr<IndexAttr>:$kBlocks);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "N-D convolution backward weight";
   let description = [{
@@ -129,30 +128,25 @@ def Rock_ConvBwdWeightOp : Rock_ConvOpBase<"conv_bwd_weight">
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features attr-dict
+    `(` operands `)` (`features` `=` $features^)? attr-dict
     `:` type(operands) (`->` type($result)^)?
   }];
 }
 
-def Rock_GemmOp :
-    Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>, RockFusionRoot]>,
-    Arguments<(ins Arg<TensorOrMemRefOf<GemmInputTypes>,
-                       "matrix A", [MemRead]>:$a,
-                   Arg<TensorOrMemRefOf<GemmInputTypes>,
-                       "matrix B", [MemRead]>:$b,
-                   Arg<TensorOrMemRefOf<GemmOutputTypes>,
-                       "matrix C", [MemRead, MemWrite]>:$c,
-                   UnitAttr:$aTransposed,
-                   UnitAttr:$bTransposed,
-                   UnitAttr:$cTransposed,
-                   StrAttr:$arch,
-                   OptionalAttr<I32Attr>:$numCU,
-                   Rock_GemmFeaturesAttr:$features,
-                   StoreMethodAttr:$storeMethod,
-                   OptionalAttr<I32Attr>:$derivedBlockSize,
-                   OptionalAttr<I32Attr>:$gridSize,
-                   OptionalAttr<RockTuningParamAttrInterface>:$params)>,
-    Results<(outs Optional<AnyRankedTensor>:$result)> {
+def Rock_GemmOp
+    : Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
+                       DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+                       DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                       RockFusionRoot]>,
+      Arguments<(ins Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix A">:$a,
+          Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix B">:$b,
+          Arg<TensorOrMemRefOf<GemmOutputTypes>, "matrix C">:$c,
+          UnitAttr:$aTransposed, UnitAttr:$bTransposed, UnitAttr:$cTransposed,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          StoreMethodAttr:$storeMethod, OptionalAttr<I32Attr>:$derivedBlockSize,
+          OptionalAttr<I32Attr>:$gridSize,
+          OptionalAttr<RockTuningParamAttrInterface>:$params)>,
+      Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "General matrix multiplication (GEMM)";
   let description = [{
     Performs the operation C += A * B.
@@ -165,51 +159,49 @@ def Rock_GemmOp :
     transposed. For example, if `aTransposed` is set, then the argument A should be
     a [G] x K x M memory.
 
-    Those creating a `rock.gemm` must specify the GPU architecture being targeted
-    and the number of compute units (numCu) available. The parameters
-    `derivedBlockSize`, `gridSize`, and `params` are optional as they can be inferred by
-    a tuning process or a heuristic, but they must be set before the `gemm` is
-    lowered into the `gridwise_gemm` stage of the code generation pipeline.
+    The parameters `derivedBlockSize`, `gridSize`, and `params` are optional as
+    they can be inferred by a tuning process or a heuristic, but they must be
+    set before the `gemm` is lowered into the `gridwise_gemm` stage of the code
+    generation pipeline.
 
     `features` specifies what hardware features can be used in the generated code.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
     (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
-    `features` `=` $features `storeMethod` `=` $storeMethod attr-dict
+    (`features` `=` $features^)? `storeMethod` `=` $storeMethod attr-dict
     `:` type($c) `=` type($a) `*` type($b) (`->` type($result)^)?
   }];
 }
 
-
-def Rock_ReduceOp :
-  Rock_Op<"reduce", [AllElementTypesMatch<["in", "out"]>]>,
-  Arguments<(ins
-    Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "input", [MemRead]>:$in,
-    Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "output", [MemRead, MemWrite]>:$out,
-    Rock_GemmFeaturesAttr:$features,
-    ReduceMethodAttr:$reduceMethod,
-    IndexAttr:$axis,
-    I32Attr:$blockSize,
-    I32Attr:$gridSize,
-    UnitAttr:$useLDS,
-    UnitAttr:$useDPP
-  )>,
-  Results<(outs Optional<TensorOf<[BF16, F16, F32]>>:$result)> {
+def Rock_ReduceOp
+    : Rock_Op<"reduce", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                         AllElementTypesMatch<["in", "out"]>]>,
+      Arguments<(ins Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "input">:$in,
+          Arg<TensorOrMemRefOf<[BF16, F16, F32]>, "output">:$out,
+          ReduceMethodAttr:$reduceMethod, IndexAttr:$axis, I32Attr:$blockSize,
+          I32Attr:$gridSize, UnitAttr:$useLDS, UnitAttr:$useDPP)>,
+      Results<(outs Optional<TensorOf<[BF16, F16, F32]>>:$result)> {
   let summary = "Axes-wide reduction operation";
   let hasVerifier = 1;
   let assemblyFormat = [{
-    $reduceMethod $in `into` $out `features` `=` $features attr-dict `:` type($in) `into` type($out) (`->` type($result)^)?
+    $reduceMethod $in `into` $out attr-dict `:` type($in) `into` type($out) (`->` type($result)^)?
   }];
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
+
+    SmallVector<::mlir::Type> getTypesForFeature() {
+      return {getIn().getType()};
+    }
   }];
 }
 def Rock_AttentionOp
     : Rock_Op<
           "attention", [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
                         DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                        RockFusionRoot, AttrSizedOperandSegments]>,
+                        DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+                        RockFusionRoot, AttrSizedOperandSegments,
+                        AttrSizedResultSegments]>,
       Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16, I8]>:$queries,
           TensorOrMemRefOf<[F32, F16, BF16, I8]>:$keys,
           TensorOrMemRefOf<[F32, F16, BF16]>:$values,
@@ -218,12 +210,14 @@ def Rock_AttentionOp
           TensorOrMemRefOf<[F32, F16, BF16]>:$out,
           Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse,
           UnitAttr:$qTransposed, UnitAttr:$kTransposed, UnitAttr:$vTransposed,
-          UnitAttr:$oTransposed, UnitAttr:$causal, StrAttr:$arch,
-          Rock_GemmFeaturesAttr:$features, OptionalAttr<I32Attr>:$numCU,
+          UnitAttr:$oTransposed, UnitAttr:$causal, I32Attr:$splitKV,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          StoreMethodAttr:$storeMethod, OptionalAttr<TypeAttr>:$softmaxType,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
-          I32Attr:$firstGemmIdx)>,
-      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
+          DenseI64ArrayAttr:$firstGemmIndices)>,
+      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result,
+          Optional<TensorOf<[F32, F16, BF16]>>:$lseOut)> {
   let summary = "Attention operation of transformer models";
   let description = [{
     Performs the operation out = SOFTMAX(preSoftmaxBody(queries * keys, preSoftmaxElemWiseInputs)) * values.
@@ -242,12 +236,14 @@ def Rock_AttentionOp
     If causal is enabled, we implement causal masking.
 
     LSE (log-sum-exp) is an optional output typically used for flash decoding.
+    For flash decoding, you can pass splitKV > 1, the default value is 1, which means flash decoding is disabled. 
+    Flash decoding multiplies the number of blocks by splitKV. Note that "lse" has to be non-null for splitKV > 1. 
+    However, "lse" can be non-null even if splitKV = 1.
 
-    Those creating a `rock.attention` must specify the GPU architecture being targeted
-    and the number of compute units (numCu) available. The parameters
-    `gridSize`, and `blockSize` are optional as they can be inferred by
-    a tuning process or a heuristic, but they must be set before the `attention` is
-    lowered into the `gridwise_attention_accel` stage of the code generation pipeline.
+    The parameters `gridSize`, and `blockSize` are optional as they can be
+    inferred by a tuning process or a heuristic, but they must be set before
+    the `attention` is lowered into the `gridwise_attention_accel` stage of the
+    code generation pipeline.
 
     `features` specifies what hardware features can be used in the generated code.
   }];
@@ -261,7 +257,12 @@ def Rock_AttentionOp
         (`lse` `=` $lse^ `:` type($lse) `\n`)?
         (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
         (`tr` $oTransposed^)? $out `=` `softmax` `(` `qk` `)` `*` (`tr` $vTransposed^)? $values `:` type($values) `->` type($out) `\n`
-    `}` attr-dict (`->` type($result)^)?
+    `}` attr-dict (`->` type($result)^)? (`,` type($lseOut)^)?
+  }];
+
+  // Return operand of LSE if it exists.
+  let extraClassDeclaration = [{
+    ::mlir::OpOperand* getOutLseArgument() { return getLse() ? &(*this)->getOpOperand(getNumOperands() - 1) : nullptr; }
   }];
 }
 
@@ -269,6 +270,7 @@ def Rock_GemmElementwiseGemmOp
     : Rock_Op<"gemm_elementwise_gemm",
               [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                RockFusionRoot]>,
       AllElementTypesMatch<["a", "b"]>,
       Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16]>:$a,
@@ -277,11 +279,11 @@ def Rock_GemmElementwiseGemmOp
           Variadic<AnyTensorOrMemRef>:$elemwiseInputs,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$aTransposed,
           UnitAttr:$bTransposed, UnitAttr:$cTransposed, UnitAttr:$oTransposed,
-          StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
-          OptionalAttr<I32Attr>:$numCU,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          StoreMethodAttr:$storeMethod,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
-          I32Attr:$firstGemmIdx)>,
+          DenseI64ArrayAttr:$firstGemmIndices)>,
       Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
   let summary = "GEMM-elementwise-GEMM operation";
   let description = [{
@@ -298,11 +300,10 @@ def Rock_GemmElementwiseGemmOp
     transposed. For example, if `aTransposed` is set, then the argument `a` should be
     a [G] x K x M memory.
 
-    Those creating a `rock.gemm_elementwise_gemm` must specify the GPU architecture being targeted
-    and the number of compute units (numCu) available. The parameters
-    `gridSize`, and `blockSize` are optional as they can be inferred by
-    a tuning process or a heuristic, but they must be set before the `gemm_elementwise_gemm` is
-    lowered into the `gridwise_attention_accel` stage of the code generation pipeline.
+    The parameters `gridSize`, and `blockSize` are optional as they can be
+    inferred by a tuning process or a heuristic, but they must be set before
+    the `gemm_elementwise_gemm` is lowered into the `gridwise_attention_accel`
+    stage of the code generation pipeline.
 
     `features` specifies what hardware features can be used in the generated code.
   }];
@@ -321,6 +322,7 @@ def Rock_ConvElementwiseGemmOp
     : Rock_Op<"conv_elementwise_gemm",
               [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                RockFusionRoot]>,
       AllElementTypesMatch<["filter", "input"]>,
       Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16]>:$filter,
@@ -328,12 +330,12 @@ def Rock_ConvElementwiseGemmOp
           TensorOrMemRefOf<[F32, F16, BF16]>:$c,
           Variadic<AnyTensorOrMemRef>:$elemwiseInputs,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$cTransposed,
-          UnitAttr:$oTransposed, StrAttr:$arch, Rock_GemmFeaturesAttr:$features,
-          OptionalAttr<I32Attr>:$numCU, IndexArrayLength<4>:$padding,
+          UnitAttr:$oTransposed, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          StoreMethodAttr:$storeMethod, IndexArrayLength<4>:$padding,
           IndexArrayLength<2>:$strides, IndexArrayLength<2>:$dilations,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
-          I32Attr:$firstGemmIdx)>,
+          DenseI64ArrayAttr:$firstGemmIndices)>,
       Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
   let summary = "CONV-elementwise-GEMM operation";
   let description = [{
@@ -350,11 +352,10 @@ def Rock_ConvElementwiseGemmOp
     transposed. For example, if `cTransposed` is set, then the argument `c` should be
     a [G] x O x M memory.
 
-    Those creating a `rock.conv_elementwise_gemm` must specify the GPU architecture being targeted
-    and the number of compute units (numCu) available. The parameters
-    `gridSize`, and `blockSize` are optional as they can be inferred by
-    a tuning process or a heuristic, but they must be set before the `conv_elementwise_gemm` is
-    lowered into the `gridwise_attention_accel` stage of the code generation pipeline.
+    The parameters `gridSize`, and `blockSize` are optional as they can be
+    inferred by a tuning process or a heuristic, but they must be set before
+    the `conv_elementwise_gemm` is lowered into the `gridwise_attention_accel`
+    stage of the code generation pipeline.
 
     `features` specifies what hardware features can be used in the generated code.
   }];
@@ -369,15 +370,14 @@ def Rock_ConvElementwiseGemmOp
   }];
 }
 
-def Rock_InitKernelOp :
-    Rock_Op<"init_kernel", []>,
-    Arguments<(ins AnyTensorOrMemRef:$buffer,
-                  Rock_GemmFeaturesAttr:$features,
-                  OptionalAttr<AnyAttrOf<[F32Attr, I32Attr]>>:$initValueAttr,
-                  OptionalAttr<I32Attr>:$blockSize,
-                  OptionalAttr<I32Attr>:$gridSize,
-                  OptionalAttr<IndexAttr>:$elemsPerThread)>,
-    Results<(outs Optional<AnyTensor>:$result)> {
+def Rock_InitKernelOp
+    : Rock_Op<"init_kernel", []>,
+      Arguments<(ins AnyTensorOrMemRef:$buffer,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          OptionalAttr<AnyAttrOf<[F32Attr, I32Attr]>>:$initValueAttr,
+          OptionalAttr<I32Attr>:$blockSize, OptionalAttr<I32Attr>:$gridSize,
+          OptionalAttr<IndexAttr>:$elemsPerThread)>,
+      Results<(outs Optional<AnyTensor>:$result)> {
   let summary = "initialize a buffer";
 
   let description = [{
@@ -389,7 +389,7 @@ def Rock_InitKernelOp :
   }];
 
   let assemblyFormat = [{
-    $buffer `features` `=` $features attr-dict `:` type($buffer) (`->` type($result)^)?
+    $buffer (`features` `=` $features^)? attr-dict `:` type($buffer) (`->` type($result)^)?
   }];
 
   // Declaration to enable the bufferization implementation to work as if this werr
@@ -399,15 +399,12 @@ def Rock_InitKernelOp :
   }];
 }
 
-def Rock_ConvertingCopyKernelOp :
-    Rock_Op<"converting_copy_kernel", [AllShapesMatch<["input", "output"]>]>,
-    Arguments<(ins AnyTensorOrMemRef:$input,
-                  AnyTensorOrMemRef:$output,
-                  Rock_GemmFeaturesAttr:$features,
-                  OptionalAttr<I32Attr>:$blockSize,
-                  OptionalAttr<I32Attr>:$gridSize,
-                  OptionalAttr<IndexAttr>:$elemsPerThread)>,
-    Results<(outs Optional<AnyTensor>:$result)> {
+def Rock_ConvertingCopyKernelOp
+    : Rock_Op<"converting_copy_kernel", [AllShapesMatch<["input", "output"]>]>,
+      Arguments<(ins AnyTensorOrMemRef:$input, AnyTensorOrMemRef:$output,
+          OptionalAttr<I32Attr>:$blockSize, OptionalAttr<I32Attr>:$gridSize,
+          OptionalAttr<IndexAttr>:$elemsPerThread)>,
+      Results<(outs Optional<AnyTensor>:$result)> {
   let summary = "Copy input to output, performing a type conversion";
 
   let description = [{
@@ -420,7 +417,7 @@ def Rock_ConvertingCopyKernelOp :
   }];
 
   let assemblyFormat = [{
-    $input `to` $output `features` `=` $features attr-dict
+    $input `to` $output attr-dict
     `:` type($input) `to` type($output) (`->` type($result)^)?
   }];
 
@@ -429,7 +426,6 @@ def Rock_ConvertingCopyKernelOp :
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
   }];
-
 }
 
 def Rock_TransformOp :
@@ -502,45 +498,45 @@ def Rock_TensorUntransformCastOp :
   }];
 }
 
-def Rock_GridwiseGemmOp :
-    Rock_Op<"gridwise_gemm", [RockFusionRoot]>,
-    Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view", [MemRead]>:$a,
-                   Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
-                   Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view", [MemRead, MemWrite]>:$c,
-                   Rock_GemmFeaturesAttr:$features,
-                   StoreMethodAttr:$storeMethod,
-                   I32Attr:$numCU,
-                   I32Attr:$gridSize,
-                   Rock_GeneralGemmParamsAttr:$params)> {
+def Rock_GridwiseGemmOp
+    : Rock_Op<"gridwise_gemm",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               RockFusionRoot]>,
+      Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
+          Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
+          Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view">:$c,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          StoreMethodAttr:$storeMethod, I32Attr:$gridSize,
+          Rock_GeneralGemmParamsAttr:$params)> {
   let summary = "Gridwise GEMM";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM.
   }];
   let assemblyFormat = [{
-    $c `=` $a `*` $b `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict `:` type($c) `=` type($a) `*` type($b)
+    $c `=` $a `*` $b `storeMethod` `(` $storeMethod `)` (`features` `=` $features^)? attr-dict `:` type($c) `=` type($a) `*` type($b)
   }];
   let hasVerifier = 1;
 }
 
 // gridwise_gemm_accel
-def Rock_GridwiseGemmAccelOp :
-    Rock_Op<"gridwise_gemm_accel", [RockFusionRoot]>,
-    Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view", [MemRead]>:$a,
-                   Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view", [MemRead]>:$b,
-                   Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view", [MemRead, MemWrite]>:$c,
-                   StrAttr:$arch,
-                   I32Attr:$numCU,
-                   Rock_GemmFeaturesAttr:$features,
-                   StoreMethodAttr:$storeMethod,
-                   I32Attr:$blockSize,
-                   I32Attr:$gridSize,
-                   RockAccelTuningParamAttrInterface:$params)> {
+def Rock_GridwiseGemmAccelOp
+    : Rock_Op<"gridwise_gemm_accel",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               RockFusionRoot]>,
+      Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
+          Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
+          Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view">:$c,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
+          RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Gridwise GEMM accelerated version";
   let description = [{
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
   }];
   let assemblyFormat = [{
-    `(` operands `)` `storeMethod` `(` $storeMethod `)` `features` `=` $features attr-dict `:` type(operands)
+    `(` operands `)` `storeMethod` `(` $storeMethod `)` (`features` `=` $features^)? attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
 }
@@ -549,7 +545,9 @@ def Rock_GridwiseGemmAccelOp :
 def Rock_GridwiseAttentionAccelOp
     : Rock_Op<"gridwise_attention_accel",
               [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-               RockFusionRoot, AttrSizedOperandSegments]>,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               RockFusionRoot, AttrSizedOperandSegments,
+]>,
       Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
           MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
           MemRefRankOf<[F32, F16, BF16], [3]>:$values,
@@ -557,12 +555,14 @@ def Rock_GridwiseAttentionAccelOp
           Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
           MemRefRankOf<[F32, F16, BF16], [3]>:$out,
           Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
-          StrAttr:$arch, Rock_GemmFeaturesAttr:$features, I32Attr:$blockSize,
-          I32Attr:$gridSize, UnitAttr:$disableQBypassLDS,
-          OptionalAttr<IndexAttr>:$prePadG0M,
+          I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
+          UnitAttr:$disableQBypassLDS, OptionalAttr<IndexAttr>:$prePadG0M,
           OptionalAttr<IndexAttr>:$prePadG0N,
+          OptionalAttr<TypeAttr>:$softmaxType,
           RockAccelTuningParamAttrInterface:$params0,
-          RockAccelTuningParamAttrInterface:$params1, I32Attr:$firstGemmIdx,
+          RockAccelTuningParamAttrInterface:$params1,
+          DenseI64ArrayAttr:$firstGemmIndices,
           DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax)> {
   let summary = "Gridwise attention accelerated version";
   let description = [{
@@ -570,11 +570,9 @@ def Rock_GridwiseAttentionAccelOp
   }];
   let regions = (region AnyRegion:$preSoftmaxBody);
   let assemblyFormat = [{
-    `(` operands `)` `features` `=` $features `preSoftmaxOps` `=` $preSoftmaxBody attr-dict `:` type(operands)
+    `(` operands `)` (`features` `=` $features^)? `preSoftmaxOps` `=` $preSoftmaxBody attr-dict `:` type(operands)
   }];
   let hasVerifier = 1;
-  let extraClassDeclaration = [{
-  }];
 }
 
 // Memory allocation on GPU memory hierachy.
@@ -983,12 +981,13 @@ defvar NativeMemoryOpTypes = [F32, F16, BF16, I<4>, I8, I16, I32,
                              [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>];
 
 // in_bounds_load
-def Rock_InBoundsLoadOp :
-    Rock_Op<"in_bounds_load", [AllElementTypesMatch<["source", "result"]>]>,
-    Arguments<(ins Arg<AnyMemRef,
-        "buffer to load from", [MemRead]>:$source,
-      Variadic<Index>:$coords)>,
-    Results<(outs AnyType:$result)> {
+def Rock_InBoundsLoadOp
+    : Rock_Op<"in_bounds_load", [DeclareOpInterfaceMethods<
+                                     MemoryEffectsOpInterface>,
+                                 AllElementTypesMatch<["source", "result"]>]>,
+      Arguments<(ins Arg<AnyMemRef, "buffer to load from">:$source,
+          Variadic<Index>:$coords)>,
+      Results<(outs AnyType:$result)> {
   let summary = "Load one or more contiguous items from `source`";
 
   let description = [{
@@ -1004,12 +1003,13 @@ def Rock_InBoundsLoadOp :
 }
 
 // in_bounds_store
-def Rock_InBoundsStoreOp :
-    Rock_Op<"in_bounds_store", [AllElementTypesMatch<["data", "dest"]>]>,
-    Arguments<(ins AnyType:$data,
-      Arg<MemRefOf<SupportedMemoryElems>,
-        "Buffer to store to", [MemWrite]>:$dest,
-      Variadic<Index>:$coords)> {
+def Rock_InBoundsStoreOp
+    : Rock_Op<"in_bounds_store", [DeclareOpInterfaceMethods<
+                                      MemoryEffectsOpInterface>,
+                                  AllElementTypesMatch<["data", "dest"]>]>,
+      Arguments<(ins AnyType:$data,
+          Arg<MemRefOf<SupportedMemoryElems>, "Buffer to store to">:$dest,
+          Variadic<Index>:$coords)> {
   let summary = "Store one or more items to contiguous indices in `dest`";
 
   let description = [{
@@ -1026,14 +1026,15 @@ def Rock_InBoundsStoreOp :
 }
 
 // global_load
-def Rock_GlobalLoadOp :
-    Rock_Op<"global_load", [AllElementTypesMatch<["source", "result"]>]>,
-    Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source memory", [MemRead]>:$source,
-                   I1:$valid,
-                   Variadic<Index>:$sourceCoord,
-                   UnitAttr:$needs64BitIdx,
-                   UnitAttr:$canReadOffEnd)>,
-    Results<(outs AnyType:$result)> {
+def Rock_GlobalLoadOp
+    : Rock_Op<
+          "global_load", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+                          AllElementTypesMatch<["source", "result"]>]>,
+      Arguments<(
+          ins Arg<MemRefOf<SupportedMemoryElems>, "source memory">:$source,
+          I1:$valid, Variadic<Index>:$sourceCoord, UnitAttr:$needs64BitIdx,
+          UnitAttr:$canReadOffEnd)>,
+      Results<(outs AnyType:$result)> {
   let summary = "Load from global memory, applying bounds checks";
   let description = [{
     `global_load` loads an item or vector of items from the provided memref
@@ -1057,23 +1058,53 @@ def Rock_GlobalLoadOp :
   let hasVerifier = 1;
 }
 
-// global_store
-def Rock_GlobalStoreOp :
-    Rock_Op<"global_store", [AllElementTypesMatch<["source", "dest"]>]>,
-    Arguments<(ins MemRefRankOf<SupportedMemoryElems, [1]>:$source,
-                   MemRefOf<SupportedMemoryElems>:$dest,
-                   IndexAttr:$length,
+// global_load_to_lds
+def Rock_GlobalLoadToLDSOp
+    : Rock_Op<"global_load_to_lds", [DeclareOpInterfaceMethods<
+                                         MemoryEffectsOpInterface>,
+                                     AllElementTypesMatch<["source", "dest"]>,
+                                     AttrSizedOperandSegments]>,
+      Arguments<(
+          ins Arg<MemRefOf<SupportedMemoryElems>, "source memory">:$source,
+          Arg<MemRefOf<SupportedMemoryElems>, "destination memory">:$dest,
+          I1:$valid, TypeAttr:$transferType, Variadic<Index>:$sourceCoord,
+          Variadic<Index>:$destCoord, UnitAttr:$needs64BitIdx,
+          UnitAttr:$canReadOffEnd)> {
+  let summary = "Load from global memory to LDS, applying bounds checks";
+  let description = [{
+    `global_load_to_lds` loads an item or vector of items from the provided memref
+    (applying no coordinate transformations), starting at `sourceCoord` and stores.
+    to LDS. However, if `valid` is false, it will instead store 0s.
+    Note that the lowering of this operation may be optimized when `valid`
+    is unconditionally true.
 
-                   Rock_GemmFeaturesAttr:$features,
-                   StoreMethodAttr:$storeMethod,
-                   Index:$sourceCoord,
-                   I1:$valid,
-                   Variadic<Index>:$destCoord,
-                   UnitAttr:$needs64BitIdx,
-                   UnitAttr:$canStoreOffEnd,
-                   // Boolean attribute added here so we know it exists, will be set
-                   // by -analyze-memory-use if applicable.
-                   DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal)> {
+    If `needs64BitIdx` is present, then this operation will force its containing
+    kernel to be compiled with `index == i64` and will use less-efficient
+    implementations of bounds-checked load.
+
+    If `canReadOffEnd` is present, then the `valid` input is ignored and the
+    bounds-checked implementation of this operation is always used. This
+    is used to simplify the implementation of certain utility kernels.
+  }];
+  let assemblyFormat = [{
+    $source `[` $sourceCoord `]` 
+    `->` $dest `[` $destCoord `]`  `if` $valid attr-dict
+    `:` type($source) `->` type($dest)
+  }];
+  let hasVerifier = 1;
+}
+
+// global_store
+def Rock_GlobalStoreOp
+    : Rock_Op<"global_store", [AllElementTypesMatch<["source", "dest"]>]>,
+      Arguments<(ins MemRefRankOf<SupportedMemoryElems, [1]>:$source,
+          MemRefOf<SupportedMemoryElems>:$dest, IndexAttr:$length,
+          StoreMethodAttr:$storeMethod, Index:$sourceCoord, I1:$valid,
+          Variadic<Index>:$destCoord, UnitAttr:$needs64BitIdx,
+          UnitAttr:$canStoreOffEnd,
+          // Boolean attribute added here so we know it exists, will be set
+          // by -analyze-memory-use if applicable.
+          DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal)> {
   let summary = "Store data into global memory from a source";
   let description = [{
     `global_store` reads `length` elements starting at `%source[%sourceCoord]`
@@ -1097,7 +1128,7 @@ def Rock_GlobalStoreOp :
   let assemblyFormat = [{
     $storeMethod $source `[` $sourceCoord `]`
     `->` $dest `[` $destCoord `]` `if` $valid
-    `features` `=` `` $features attr-dict
+    attr-dict
     `:` type($source) `->`
     type($dest)
   }];
@@ -1108,30 +1139,31 @@ defvar SameShapeVectorOfI1 = [{
   ::mlir::VectorType::get(::llvm::cast<::mlir::ShapedType>($_self).getShape(), ::mlir::IntegerType::get($_ctxt, 1))
 }];
 // threadwise_read_into
-def Rock_ThreadwiseReadIntoOp :
-    Rock_Op<"threadwise_read_into",
-    [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
-     DeclareOpInterfaceMethods<RockWriterOpInterface>, AttrSizedOperandSegments,
-     // This wasn't being enforced and broke buffers of vectors.
-     //AllElementTypesMatch<["source", "dest"]>,
-     OptionalTypesMatchWith<"validity record is a vector of one boolean per dest entry",
-      "dest", "validityRecord", SameShapeVectorOfI1>,
-     TypesMatchWith<"all dynamic validities are a vector of one boolean per dest entry",
-      "dest", "dynamicValidities", SameShapeVectorOfI1,
-      [{
+def Rock_ThreadwiseReadIntoOp
+    : Rock_Op<
+          "threadwise_read_into",
+          [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
+           DeclareOpInterfaceMethods<RockWriterOpInterface>,
+           DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+           AttrSizedOperandSegments,
+           // This wasn't being enforced and broke buffers of vectors.
+           // AllElementTypesMatch<["source", "dest"]>,
+           OptionalTypesMatchWith<
+               "validity record is a vector of one boolean per dest entry",
+               "dest", "validityRecord", SameShapeVectorOfI1>,
+           TypesMatchWith<"all dynamic validities are a vector of one boolean "
+                          "per dest entry",
+                          "dest", "dynamicValidities", SameShapeVectorOfI1, [{
         [](::mlir::Type lhs, ::mlir::TypeRange rhs) -> bool {
           return llvm::all_of(rhs, [lhs](::mlir::Type t) { return t == lhs; });
         }
       }]>]>,
-    Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source view", [MemRead]>:$source,
-      Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers", [MemWrite]>:$dest,
-      Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
-      TransformMapArrayAttr:$extraViews,
-      Variadic<Index>:$extraIndices,
-      UnitAttr:$forceUnroll,
-      UnitAttr:$useIndexDiffs
-    )>,
-    Results<(outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord)> {
+      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source view">:$source,
+          Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
+          Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
+          TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
+          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs)>,
+      Results<(outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord)> {
   let summary = "Read values from transformed source into destination";
 
   let description = [{
@@ -1211,21 +1243,18 @@ def Rock_ThreadwiseReadIntoOp :
 }
 
 // threadwise_write_all
-def Rock_ThreadwiseWriteAllOp :
-    Rock_Op<"threadwise_write_all", [
-      DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
-      DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
-    AllElementTypesMatch<["source", "dest"]>,
-    Arguments<(ins Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
-      "source registers", [MemRead]>:$source,
-      Arg<MemRefOf<NativeMemoryOpTypes>, "detination view", [MemWrite]>:$dest,
-      TransformMapArrayAttr:$extraViews,
-      Variadic<Index>:$extraIndices,
-      Rock_GemmFeaturesAttr:$features,
-      StoreMethodAttr:$storeMethod,
-      UnitAttr:$forceUnroll,
-      UnitAttr:$useIndexDiffs
-    )> {
+def Rock_ThreadwiseWriteAllOp
+    : Rock_Op<"threadwise_write_all",
+              [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
+               DeclareOpInterfaceMethods<RockWriterOpInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      AllElementTypesMatch<["source", "dest"]>,
+      Arguments<(ins Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
+                         "source registers">:$source,
+          Arg<MemRefOf<NativeMemoryOpTypes>, "detination view">:$dest,
+          TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
+          StoreMethodAttr:$storeMethod, UnitAttr:$forceUnroll,
+          UnitAttr:$useIndexDiffs)> {
   let summary = "Write out values in registers to transformed destination";
 
   let description = [{
@@ -1281,7 +1310,7 @@ def Rock_ThreadwiseWriteAllOp :
   }];
 
   let assemblyFormat = [{
-    `features` `=` $features attr-dict $source  `->` $extraViews `(` $dest `)` (`[` $extraIndices^ `]`)? `by` $storeMethod
+    attr-dict $source  `->` $extraViews `(` $dest `)` (`[` $extraIndices^ `]`)? `by` $storeMethod
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
@@ -1290,17 +1319,15 @@ def Rock_ThreadwiseWriteAllOp :
 defvar LdsBufferTypes = GemmInputTypes # [VectorOfRankAndType<[1], GemmInputTypes>];
 
 // blockwise_gemm
-def Rock_BlockwiseGemmOp:
-    Rock_Op<"blockwise_gemm", [DeclareOpInterfaceMethods<RockWriterOpInterface>]>,
-    Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$matrixA,
-                   MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
-                   MemRefRankOf<GemmAccumulatorTypes, [2]>:$matrixC,
-                   I32Attr:$inMPerThread,
-                   I32Attr:$inNPerThread,
-                   UnitAttr:$rotateMWithK,
-                   UnitAttr:$rotateNWithK,
-                   Rock_GeneralGemmParamsAttr:$params
-                   )> {
+def Rock_BlockwiseGemmOp
+    : Rock_Op<"blockwise_gemm",
+              [DeclareOpInterfaceMethods<RockWriterOpInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      Arguments<(ins MemRefRankOf<GemmInputTypes, [3]>:$matrixA,
+          MemRefRankOf<GemmInputTypes, [3]>:$matrixB,
+          MemRefRankOf<GemmAccumulatorTypes, [2]>:$matrixC,
+          I32Attr:$inMPerThread, I32Attr:$inNPerThread, UnitAttr:$rotateMWithK,
+          UnitAttr:$rotateNWithK, Rock_GeneralGemmParamsAttr:$params)> {
   let summary = "Blockwise GEMM non accelerated version";
   let description = [{
     The `rock.blockwise_gemm` op does gemm at the blockwise level without acceleration.
@@ -1337,25 +1364,22 @@ defvar AccelArgTypes = [F32,
 defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF16]>];
 
 // blockwise_gemm_accel
-def Rock_BlockwiseGemmAccelOp:
-    Rock_Op<"blockwise_gemm_accel">,
-    Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
-                   MemRefOf<LdsBufferTypes>:$matrixB,
-                   I32Attr:$inMPerThread,
-                   I32Attr:$inNPerThread,
-                   UnitAttr:$rotateMWithK,
-                   UnitAttr:$rotateNWithK,
-                   MemRefOf<AccelArgTypes>:$bufferA,
-                   MemRefOf<AccelArgTypes>:$bufferB,
-                   MemRefOf<AccelResTypes>:$matrixC,
-                   StrAttr:$arch,
-                   Rock_GemmFeaturesAttr:$features,
-                   I32Attr:$blockSize,
-                   RockAccelTuningParamAttrInterface:$params)>{
+def Rock_BlockwiseGemmAccelOp
+    : Rock_Op<"blockwise_gemm_accel", [DeclareOpInterfaceMethods<
+                                          RockGemmFeaturesInterface>]>,
+      Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
+          MemRefOf<LdsBufferTypes>:$matrixB, I32Attr:$inMPerThread,
+          I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
+          UnitAttr:$loadAfromLDS, UnitAttr:$loadBfromLDS,
+          UnitAttr:$splitKAcrossThreadsFirstA,
+          UnitAttr:$splitKAcrossThreadsFirstB, MemRefOf<AccelArgTypes>:$bufferA,
+          MemRefOf<AccelArgTypes>:$bufferB, MemRefOf<AccelResTypes>:$matrixC,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
+          RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
-    The `rock.block_gemm_v2` op does GEMM at workgroup (block) level.
-    - Matrix A and Matrix B shall reside on LDS (naive tensor).
+    The `rock.blockwise_gemm_accel` op does GEMM at workgroup (block) level.
+    - Matrix A and Matrix B shall reside on LDS or registers (depending on loadAfromLDS and loadBfromLDS).
     - Matrix C shall be vectors.
 
     The elements of matrices A and B should be vectors of length kpack, or
@@ -1363,19 +1387,20 @@ def Rock_BlockwiseGemmAccelOp:
   }];
   let assemblyFormat = [{
     $matrixC `+` `` `=` $bufferA `from` $matrixA `*`
-                        $bufferB `from` $matrixB `features` `=` $features attr-dict
+                        $bufferB `from` $matrixB (`features` `=` $features^)? attr-dict
     `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
                                   type($bufferB) `from` type($matrixB)
   }];
 }
 
 // threadwise_gemm
-def Rock_ThreadwiseGemmOp:
-    Rock_Op<"threadwise_gemm",
-      [AllElementTypesMatch<["matrixA", "matrixB", "matrixC"]>]>,
-    Arguments<(ins MemRefRankOf<GemmAccumulatorTypes, [3]>:$matrixA,
-                   MemRefRankOf<GemmAccumulatorTypes, [3]>:$matrixB,
-                   MemRefRankOf<GemmAccumulatorTypes, [2]>:$matrixC)> {
+def Rock_ThreadwiseGemmOp
+    : Rock_Op<"threadwise_gemm",
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               AllElementTypesMatch<["matrixA", "matrixB", "matrixC"]>]>,
+      Arguments<(ins MemRefRankOf<GemmAccumulatorTypes, [3]>:$matrixA,
+          MemRefRankOf<GemmAccumulatorTypes, [3]>:$matrixB,
+          MemRefRankOf<GemmAccumulatorTypes, [2]>:$matrixC)> {
   let summary = "Threadwise GEMM non accelerated version";
   let description = [{
     The `rock.threadwise_gemm` op does GEMM at thread level.
@@ -1391,14 +1416,17 @@ def Rock_ThreadwiseGemmOp:
   let hasVerifier = 1;
 }
 // threadwise_accel_gemm
-def Rock_ThreadwiseAccelGemmOp:
-    Rock_Op<"threadwise_accel_gemm">,
-    Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>, "source register view A", [MemRead]>:$matrixA,
-                   Arg<MemRefOf<NativeMemoryOpTypes>, "source register view B", [MemRead]>:$matrixB,
-                   Arg<MemRefOf<NativeMemoryOpTypes>, "dest register view C", [MemRead, MemWrite]>:$matrixC, Variadic<Index>:$computeIndices,
-                   StrAttr:$arch,
-                   Rock_GemmFeaturesAttr:$features,
-                   RockAccelTuningParamAttrInterface:$params)> {
+def Rock_ThreadwiseAccelGemmOp
+    : Rock_Op<"threadwise_accel_gemm",
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
+                         "source register view A">:$matrixA,
+          Arg<MemRefOf<NativeMemoryOpTypes>, "source register view B">:$matrixB,
+          Arg<MemRefOf<NativeMemoryOpTypes>, "dest register view C">:$matrixC,
+          Variadic<Index>:$computeIndices,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Accelerated GEMM";
   let description = [{
     The `rock.accel_gemm` op is an abstraction of doing GEMM based on an accelerator.
@@ -1407,7 +1435,7 @@ def Rock_ThreadwiseAccelGemmOp:
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` `features` `=` $features attr-dict
+    $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` (`features` `=` $features^)? attr-dict
     `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
   }];
   let hasVerifier = 1;
@@ -1462,17 +1490,17 @@ def Rock_BlockwiseBroadcastReduceOp:
   let hasVerifier = 1;
 }
 
-def Rock_ThreadwiseCopyOp :
-    Rock_Op<"threadwise_copy", [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>, AttrSizedOperandSegments]>,
-    AllElementTypesMatch<["source", "dest"]>,
-    Arguments<(ins
-      Arg<MemRefOf<SupportedMemoryElems>, "source view", [MemRead]>:$source,
-      Variadic<Index>:$extraIndicesSource,
-      Arg<MemRefOf<SupportedMemoryElems>, "detination view", [MemWrite]>:$dest,
-      Variadic<Index>:$extraIndicesDest,
-      UnitAttr:$forceUnroll,
-      UnitAttr:$useIndexDiffs
-    )> {
+def Rock_ThreadwiseCopyOp
+    : Rock_Op<"threadwise_copy",
+              [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               AttrSizedOperandSegments]>,
+      AllElementTypesMatch<["source", "dest"]>,
+      Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source view">:$source,
+          Variadic<Index>:$extraIndicesSource,
+          Arg<MemRefOf<SupportedMemoryElems>, "detination view">:$dest,
+          Variadic<Index>:$extraIndicesDest, UnitAttr:$forceUnroll,
+          UnitAttr:$useIndexDiffs)> {
   let summary = "Threadwise register-to-register copy";
 
   let description = [{
@@ -1492,7 +1520,6 @@ def Rock_ThreadwiseCopyOp :
   ];
   let hasVerifier = 1;
 }
-
 
 def Rock_StageOp :
   Rock_Op<"stage">,

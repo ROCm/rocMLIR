@@ -1,6 +1,8 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/ConvolutionDims.h"
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/MfmaInsnGroup.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
@@ -8,7 +10,6 @@
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Support/LogicalResult.h"
@@ -43,12 +44,13 @@ llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
 // clang-format on
 
 PopulateParamsInfo PopulateParamsInfo::fromOp(RockGemmWrapperInterface op) {
-  PopulateParamsInfo info{op.getGemmSize(), op.getArch(),  op.getGemmFeatures(),
-                          op.getAType(),    op.getBType(), op.getKernelType()};
+  PopulateParamsInfo info{op.getGemmSize(),      rock::getArchValue(op),
+                          rock::getFeatures(op), op.getAType(),
+                          op.getBType(),         op.getKernelType()};
 
   if (auto convOp = dyn_cast<ConvBwdWeightOp>(*op)) {
     auto convDims = ConvolutionDims::fromOp(op);
-    info.numCu = convOp.getNumCU();
+    info.numCu = rock::getNumCUValue(convOp);
     info.batchSize = convDims.n;
   }
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
@@ -87,7 +89,10 @@ GemmSize mlir::rock::calculatePaddedGemmSize(const InitParams &params,
 }
 
 std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
-                                                    GemmSize gemmSize) {
+                                                    GemmSize gemmSize,
+                                                    int64_t mulByKPerBlock,
+                                                    int64_t mulByMPerBlock,
+                                                    int64_t mulByNPerBlock) {
   int64_t kPerBlock, mPerBlock, nPerBlock;
   int64_t kPack = 1;
   if (auto generalParams = dyn_cast<GeneralGemmParamsAttr>(params)) {
@@ -103,7 +108,9 @@ std::optional<GemmSize> mlir::rock::requiredPadding(Attribute params,
   } else {
     llvm_unreachable("The tuning paramaters are general or xdlops");
   }
-  return calculatePadding(kPerBlock, mPerBlock, nPerBlock, gemmSize, kPack);
+  return calculatePadding(kPerBlock * mulByKPerBlock,
+                          mPerBlock * mulByMPerBlock,
+                          nPerBlock * mulByNPerBlock, gemmSize, kPack);
 }
 
 int64_t mlir::rock::obtainBlockSize(int64_t waveSize, int64_t mPerBlock,
@@ -246,8 +253,8 @@ LogicalResult PopulateParams::obtainTuningParameters(
 
   // Backup path: Use the set of default tuning parameters
   LogicalResult res = failure();
-  auto paramSets =
-      getTuningParameters(info.kernelType, info.gemmAType, info.gemmBType);
+  auto paramSets = getTuningParameters(info.kernelType, info.gemmAType,
+                                       info.gemmBType, info.arch);
   for (auto &params : orderInitParams(paramSets, info.gemmSize)) {
     res = populateDerived(params);
     if (failed(res)) {
@@ -273,12 +280,22 @@ PopulateParams::obtainTuningParameters(RockGemmWrapperInterface op,
 
 std::vector<InitParamsNonAccel>
 PopulateParams::getTuningParameters(KernelType opType, Type dataTypeA,
-                                    Type dataTypeB) const {
+                                    Type dataTypeB, StringRef arch) const {
   ArrayRef<InitParamsNonAccel> params;
   if (opType == KernelType::Gemm) {
-    params = {initParametersGemm, nInitParametersGemm};
+    if (arch.contains("gfx10"))
+      params = {initParametersGemmGfx1000, nInitParametersGemmGfx1000};
+    else if (arch.contains("gfx11"))
+      params = {initParametersGemmGfx1100, nInitParametersGemmGfx1100};
+    else
+      params = {initParametersGemmGfx1200, nInitParametersGemmGfx1200};
   } else {
-    params = {initParametersConv, nInitParametersConv};
+    if (arch.contains("gfx10"))
+      params = {initParametersConvGfx1000, nInitParametersConvGfx1000};
+    else if (arch.contains("gfx11"))
+      params = {initParametersConvGfx1100, nInitParametersConvGfx1100};
+    else
+      params = {initParametersConvGfx1200, nInitParametersConvGfx1200};
   }
   return std::vector<InitParamsNonAccel>(params);
 }
@@ -463,10 +480,10 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
   if (minDPerWave <= 16) {
     validKPerWaveFactor = 4;
   }
-  if (!((param.getMPerBlock() % minDPerWave == 0) &&
-        (param.getNPerBlock() % minDPerWave == 0) &&
-        ((param.getKpackPerBlock() * param.getKpack()) % validKPerWaveFactor ==
-         0))) {
+  if ((param.getMPerBlock() % minDPerWave != 0) ||
+      (param.getNPerBlock() % minDPerWave != 0) ||
+      ((param.getKpackPerBlock() * param.getKpack()) % validKPerWaveFactor !=
+       0)) {
     return failure();
   }
 
@@ -515,7 +532,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
-  if (cast<RockTuningParamAttrInterface>(param).getForceUnroll() == false) {
+  if (!cast<RockTuningParamAttrInterface>(param).getForceUnroll()) {
     return failure();
   }
 
@@ -525,7 +542,8 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
     mnPerXdl = derivedParam.getMnPerXdl();
   }
   auto maybeMfmaInsnGroup =
-      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl);
+      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
+                            param.getKpack(), param.getKpackPerBlock());
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
     return failure();
@@ -548,29 +566,96 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
   if (opType == KernelType::Gemm) {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      dataTypeA.isInteger()
-          ? params = {initParametersI8Gemm, nInitParametersI8Gemm}
-          : params = {initParametersFp8Gemm, nInitParametersFp8Gemm};
+      if (dataTypeA.isInteger()) {
+        if (arch.contains("gfx908"))
+          params = {initParametersI8GemmGfx908, nInitParametersI8GemmGfx908};
+        else if (arch.contains("gfx90a"))
+          params = {initParametersI8GemmGfx90a, nInitParametersI8GemmGfx90a};
+        else if (arch.contains("gfx942"))
+          params = {initParametersI8GemmGfx942, nInitParametersI8GemmGfx942};
+        else
+          params = {initParametersI8GemmGfx950, nInitParametersI8GemmGfx950};
+      } else {
+        if (arch.contains("gfx908"))
+          params = {initParametersFp8GemmGfx908, nInitParametersFp8GemmGfx908};
+        else if (arch.contains("gfx90a"))
+          params = {initParametersFp8GemmGfx90a, nInitParametersFp8GemmGfx90a};
+        else if (arch.contains("gfx942"))
+          params = {initParametersFp8GemmGfx942, nInitParametersFp8GemmGfx942};
+        else
+          params = {initParametersFp8GemmGfx950, nInitParametersFp8GemmGfx950};
+      }
       break;
     case 16:
-      params = {initParametersFp16Gemm, nInitParametersFp16Gemm};
+      if (arch.contains("gfx908"))
+        params = {initParametersFp16GemmGfx908, nInitParametersFp16GemmGfx908};
+      else if (arch.contains("gfx90a"))
+        params = {initParametersFp16GemmGfx90a, nInitParametersFp16GemmGfx90a};
+      else if (arch.contains("gfx942"))
+        params = {initParametersFp16GemmGfx942, nInitParametersFp16GemmGfx942};
+      else
+        params = {initParametersFp16GemmGfx950, nInitParametersFp16GemmGfx950};
       break;
     default:
-      params = {initParametersGemm, nInitParametersGemm};
+      if (arch.contains("gfx908"))
+        params = {initParametersGemmGfx908, nInitParametersGemmGfx908};
+      else if (arch.contains("gfx90a"))
+        params = {initParametersGemmGfx90a, nInitParametersGemmGfx90a};
+      else if (arch.contains("gfx942"))
+        params = {initParametersGemmGfx942, nInitParametersGemmGfx942};
+      else
+        params = {initParametersGemmGfx950, nInitParametersGemmGfx950};
     }
   } else {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      dataTypeA.isInteger()
-          ? params = {initParametersForwardI8Conv, nInitParametersForwardI8Conv}
-          : params = {initParametersForwardFp8Conv,
-                      nInitParametersForwardFp8Conv};
+      if (dataTypeA.isInteger()) {
+        if (arch.contains("gfx908"))
+          params = {initParametersForwardI8ConvGfx908,
+                    nInitParametersForwardI8ConvGfx908};
+        else if (arch.contains("gfx90a"))
+          params = {initParametersForwardI8ConvGfx90a,
+                    nInitParametersForwardI8ConvGfx90a};
+        else if (arch.contains("gfx942"))
+          params = {initParametersForwardI8ConvGfx942,
+                    nInitParametersForwardI8ConvGfx942};
+        else
+          params = {initParametersForwardI8ConvGfx950,
+                    nInitParametersForwardI8ConvGfx950};
+      } else {
+        if (arch.contains("gfx908"))
+          params = {initParametersForwardFp8ConvGfx908,
+                    nInitParametersForwardFp8ConvGfx908};
+        else if (arch.contains("gfx90a"))
+          params = {initParametersForwardFp8ConvGfx90a,
+                    nInitParametersForwardFp8ConvGfx90a};
+        else if (arch.contains("gfx942"))
+          params = {initParametersForwardFp8ConvGfx942,
+                    nInitParametersForwardFp8ConvGfx942};
+        else
+          params = {initParametersForwardFp8ConvGfx950,
+                    nInitParametersForwardFp8ConvGfx950};
+      }
       break;
     case 16:
-      params = {initParametersFp16Conv, nInitParametersFp16Conv};
+      if (arch.contains("gfx908"))
+        params = {initParametersFp16ConvGfx908, nInitParametersFp16ConvGfx908};
+      else if (arch.contains("gfx90a"))
+        params = {initParametersFp16ConvGfx90a, nInitParametersFp16ConvGfx90a};
+      else if (arch.contains("gfx942"))
+        params = {initParametersFp16ConvGfx942, nInitParametersFp16ConvGfx942};
+      else
+        params = {initParametersFp16ConvGfx950, nInitParametersFp16ConvGfx950};
       break;
     default:
-      params = {initParametersConv, nInitParametersConv};
+      if (arch.contains("gfx908"))
+        params = {initParametersConvGfx908, nInitParametersConvGfx908};
+      else if (arch.contains("gfx90a"))
+        params = {initParametersConvGfx90a, nInitParametersConvGfx90a};
+      else if (arch.contains("gfx942"))
+        params = {initParametersConvGfx942, nInitParametersConvGfx942};
+      else
+        params = {initParametersConvGfx950, nInitParametersConvGfx950};
     }
   }
   std::vector<InitParamsAccel> res;
@@ -580,15 +665,13 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
       [&](const InitParamsAccel &param) {
         int64_t mnPerXdl = param.gemmNPerWaveOrMnPerXdl;
         auto maybeMfmaInsnGroup =
-            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl);
+            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
+                                  param.gemmKPack, param.gemmKPerBlock);
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }
         MfmaInsnGroup mfmaGroup = *maybeMfmaInsnGroup;
-        if (!mfmaGroup.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock)) {
-          return false;
-        }
-        return true;
+        return mfmaGroup.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock);
       });
   return res;
 }
@@ -664,9 +747,9 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   if (minDPerWave <= 16) {
     validKPerWaveFactor = 4;
   }
-  if (!((param.getMPerBlock() % minDPerWave == 0) &&
-        (param.getNPerBlock() % minDPerWave == 0) &&
-        (param.getKpackPerBlock() % validKPerWaveFactor == 0))) {
+  if ((param.getMPerBlock() % minDPerWave != 0) ||
+      (param.getNPerBlock() % minDPerWave != 0) ||
+      (param.getKpackPerBlock() % validKPerWaveFactor != 0)) {
     return failure();
   }
 
@@ -700,7 +783,7 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
-  if (param.getForceUnroll() == false) {
+  if (!param.getForceUnroll()) {
     return failure();
   }
 
@@ -730,12 +813,35 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
   if (opType == KernelType::Gemm) {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      dataTypeA.isInteger()
-          ? params = {initParametersI8Gemm, nInitParametersI8Gemm}
-          : params = {initParametersFp8Gemm, nInitParametersFp8Gemm};
+      if (dataTypeA.isInteger()) {
+        if (arch.contains("gfx10"))
+          params = {initParametersI8GemmGfx1000, nInitParametersI8GemmGfx1000};
+        else if (arch.contains("gfx11"))
+          params = {initParametersI8GemmGfx1100, nInitParametersI8GemmGfx1100};
+        else
+          params = {initParametersI8GemmGfx1200, nInitParametersI8GemmGfx1200};
+      } else {
+        if (arch.contains("gfx10"))
+          params = {initParametersFp8GemmGfx1000,
+                    nInitParametersFp8GemmGfx1000};
+        else if (arch.contains("gfx11"))
+          params = {initParametersFp8GemmGfx1100,
+                    nInitParametersFp8GemmGfx1100};
+        else
+          params = {initParametersFp8GemmGfx1200,
+                    nInitParametersFp8GemmGfx1200};
+      }
       break;
     case 16:
-      params = {initParametersFp16Gemm, nInitParametersFp16Gemm};
+      if (arch.contains("gfx10"))
+        params = {initParametersFp16GemmGfx1000,
+                  nInitParametersFp16GemmGfx1000};
+      else if (arch.contains("gfx11"))
+        params = {initParametersFp16GemmGfx1100,
+                  nInitParametersFp16GemmGfx1100};
+      else
+        params = {initParametersFp16GemmGfx1200,
+                  nInitParametersFp16GemmGfx1200};
       break;
     default:
       return res;
@@ -743,13 +849,38 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
   } else {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 8:
-      dataTypeA.isInteger()
-          ? params = {initParametersForwardI8Conv, nInitParametersForwardI8Conv}
-          : params = {initParametersForwardFp8Conv,
-                      nInitParametersForwardFp8Conv};
+      if (dataTypeA.isInteger()) {
+        if (arch.contains("gfx10"))
+          params = {initParametersForwardI8ConvGfx1000,
+                    nInitParametersForwardI8ConvGfx1000};
+        else if (arch.contains("gfx11"))
+          params = {initParametersForwardI8ConvGfx1100,
+                    nInitParametersForwardI8ConvGfx1100};
+        else
+          params = {initParametersForwardI8ConvGfx1200,
+                    nInitParametersForwardI8ConvGfx1200};
+      } else {
+        if (arch.contains("gfx10"))
+          params = {initParametersForwardFp8ConvGfx1000,
+                    nInitParametersForwardFp8ConvGfx1000};
+        else if (arch.contains("gfx11"))
+          params = {initParametersForwardFp8ConvGfx1100,
+                    nInitParametersForwardFp8ConvGfx1100};
+        else
+          params = {initParametersForwardFp8ConvGfx1200,
+                    nInitParametersForwardFp8ConvGfx1200};
+      }
       break;
     case 16:
-      params = {initParametersFp16Conv, nInitParametersFp16Conv};
+      if (arch.contains("gfx10"))
+        params = {initParametersFp16ConvGfx1000,
+                  nInitParametersFp16ConvGfx1000};
+      else if (arch.contains("gfx11"))
+        params = {initParametersFp16ConvGfx1100,
+                  nInitParametersFp16ConvGfx1100};
+      else
+        params = {initParametersFp16ConvGfx1200,
+                  nInitParametersFp16ConvGfx1200};
       break;
     default:
       return res;
@@ -767,10 +898,7 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
           return false;
         }
         WmmaInsn wmmaInsn = *maybeWmmaInsn;
-        if (!wmmaInsn.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock)) {
-          return false;
-        }
-        return true;
+        return wmmaInsn.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock);
       });
   return res;
 }

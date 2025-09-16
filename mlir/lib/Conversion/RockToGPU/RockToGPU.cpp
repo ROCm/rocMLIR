@@ -32,9 +32,10 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -140,24 +141,8 @@ struct WorkgroupIdRewritePattern
 
   LogicalResult matchAndRewrite(rock::WorkgroupIdOp op,
                                 PatternRewriter &b) const override {
-    Location loc = op.getLoc();
-    auto maybeIsReverseGrid = rock::getReverseGrid(op);
-    if (succeeded(maybeIsReverseGrid)) {
-      FailureOr<IntegerAttr> maybeGridSize = rock::getGridSize(op);
-      if (failed(maybeGridSize)) {
-        return op->emitError("grid_size should ve been set by now.\n");
-      }
-      int64_t gridSize = maybeGridSize.value().getValue().getSExtValue();
-      AffineMap reverseMap = rock::getIdxReversalMap(b);
-      Value gridSizeVal = b.createOrFold<arith::ConstantIndexOp>(loc, gridSize);
-      Value blockIdVal = b.create<gpu::BlockIdOp>(loc, gpu::Dimension::x);
-      b.replaceOpWithNewOp<affine::AffineApplyOp>(
-          op, b.getIndexType(), reverseMap,
-          ValueRange{blockIdVal, gridSizeVal});
-    } else {
-      b.replaceOpWithNewOp<gpu::BlockIdOp>(op, b.getIndexType(),
-                                           gpu::Dimension::x);
-    }
+    b.replaceOpWithNewOp<gpu::BlockIdOp>(op, b.getIndexType(),
+                                         gpu::Dimension::x);
     return success();
   }
 };
@@ -219,9 +204,6 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       gpuFunc->setAttr("grid_size", attr);
       gridSize = cast<IntegerAttr>(attr).getInt();
       gpuFunc.setKnownGridSizeAttr(b.getDenseI32ArrayAttr({gridSize, 1, 1}));
-    }
-    if (auto isReverse = rock::getReverseGrid(theFunc).value_or(nullptr)) {
-      gpuFunc->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), isReverse);
     }
     FailureOr<StringAttr> maybeArch = rock::getArch(theFunc);
     if (succeeded(maybeArch)) {
@@ -317,7 +299,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
             auto blockVal = b.create<arith::ConstantIndexOp>(loc, blockSize);
             auto cst1 = b.create<arith::ConstantIndexOp>(loc, 1);
             auto dynamicSharedMemSize =
-                b.create<arith::ConstantIntOp>(loc, 0, b.getI32Type());
+                b.create<arith::ConstantIntOp>(loc, b.getI32Type(), 0);
             gpu::KernelDim3 gridDims{gridVal, cst1, cst1};
             gpu::KernelDim3 blockDims{blockVal, cst1, cst1};
             b.create<gpu::LaunchFuncOp>(loc, gpuFunc, gridDims, blockDims,

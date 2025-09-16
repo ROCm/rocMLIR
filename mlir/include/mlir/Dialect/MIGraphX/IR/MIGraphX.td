@@ -340,6 +340,18 @@ def MIGraphX_ConvolutionOp :
   }];
 }
 
+def MIGraphX_ConvolutionBwdDataOp
+    : MIGraphX_ConvOpBase<
+          "backwards_data_convolution", [F32, F16, BF16], [F32, F16, BF16]> {
+  let summary = "Backwards data convolution";
+  let description = [{
+    The `migraphx.backwards_data_convolution` op computes a transposed
+    convolution op which effectively reverses a standard convolution's
+    spatial transformation. It is an upsampling technique that increases
+    the height and width of an input feature map. 
+  }];
+}
+
 def MIGraphX_BatchNormOp :
     MIGraphX_Op<"batch_norm_inference">,
     Arguments<(ins AnyMIXRShaped:$input,
@@ -555,6 +567,19 @@ def MIGraphX_ReduceSumOp :
   let summary = "Get the sum of the values in given axis";
   let description = [{
     The `migraphx.reduce_sum` op.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+}
+
+def MIGraphX_ReduceMaxOp
+    : MIGraphX_Op<"reduce_max">,
+      Arguments<(ins AnyMIXRShaped:$input, I64ArrayAttr:$axes)>,
+      Results<(outs AnyMIXRShaped:$output)> {
+  let summary = "Get the max of the values in given axis";
+  let description = [{
+    The `migraphx.reduce_max` op.
   }];
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($output)

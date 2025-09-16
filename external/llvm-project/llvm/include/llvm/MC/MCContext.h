@@ -19,12 +19,13 @@
 #include "llvm/BinaryFormat/XCOFF.h"
 #include "llvm/MC/MCAsmMacro.h"
 #include "llvm/MC/MCDwarf.h"
+#include "llvm/MC/MCGOFFAttributes.h"
 #include "llvm/MC/MCPseudoProbe.h"
 #include "llvm/MC/MCSection.h"
+#include "llvm/MC/MCSectionGOFF.h"
 #include "llvm/MC/MCSymbolTableEntry.h"
 #include "llvm/MC/SectionKind.h"
 #include "llvm/Support/Allocator.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/MD5.h"
@@ -44,8 +45,6 @@
 
 namespace llvm {
 
-extern cl::opt<bool> EmitHeterogeneousDwarfAsUserOps;
-
 class CodeViewContext;
 class MCAsmInfo;
 class MCDataFragment;
@@ -57,7 +56,6 @@ class MCSection;
 class MCSectionCOFF;
 class MCSectionDXContainer;
 class MCSectionELF;
-class MCSectionGOFF;
 class MCSectionMachO;
 class MCSectionSPIRV;
 class MCSectionWasm;
@@ -359,6 +357,11 @@ private:
   MCSymbolXCOFF *createXCOFFSymbolImpl(const MCSymbolTableEntry *Name,
                                        bool IsTemporary);
 
+  template <typename TAttr>
+  MCSectionGOFF *getGOFFSection(SectionKind Kind, StringRef Name,
+                                TAttr SDAttributes, MCSection *Parent,
+                                bool IsVirtual);
+
   /// Map of currently defined macros.
   StringMap<MCAsmMacro> MacroMap;
 
@@ -609,9 +612,12 @@ public:
   getELFUniqueIDForEntsize(StringRef SectionName, unsigned Flags,
                            unsigned EntrySize);
 
-  LLVM_ABI MCSectionGOFF *getGOFFSection(StringRef Section, SectionKind Kind,
-                                         MCSection *Parent,
-                                         uint32_t Subsection = 0);
+  MCSectionGOFF *getGOFFSection(SectionKind Kind, StringRef Name,
+                                GOFF::SDAttr SDAttributes);
+  MCSectionGOFF *getGOFFSection(SectionKind Kind, StringRef Name,
+                                GOFF::EDAttr EDAttributes, MCSection *Parent);
+  MCSectionGOFF *getGOFFSection(SectionKind Kind, StringRef Name,
+                                GOFF::PRAttr PRAttributes, MCSection *Parent);
 
   LLVM_ABI MCSectionCOFF *
   getCOFFSection(StringRef Section, unsigned Characteristics,

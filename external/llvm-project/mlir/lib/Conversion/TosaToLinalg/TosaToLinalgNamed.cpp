@@ -14,21 +14,13 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/Dialect/Tensor/Utils/Utils.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
-#include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
-#include "mlir/IR/Matchers.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
-#include "mlir/Interfaces/InferTypeOpInterface.h"
-
-#include <numeric>
 #include <type_traits>
 
 using namespace mlir;
@@ -691,6 +683,14 @@ public:
     auto outputTy = cast<ShapedType>(op.getType());
     auto outputElementTy = outputTy.getElementType();
 
+    auto accTy = outputTy;
+    auto accETy = outputElementTy;
+
+    if (auto attr = op->getAttrOfType<TypeAttr>("acc_type")) {
+      accETy = attr.getValue();
+      accTy = RankedTensorType::get(op.getType().getShape(), accETy);
+    }
+
     SmallVector<Value> dynDims;
     dynDims.resize(cast<ShapedType>(op->getResult(0).getType()).getRank());
 
@@ -708,10 +708,10 @@ public:
 
     SmallVector<Value> filteredDims = condenseValues(dynDims);
 
-    auto zeroAttr = rewriter.getZeroAttr(outputElementTy);
+    auto zeroAttr = rewriter.getZeroAttr(accETy);
     Value zero = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
     auto emptyTensor = rewriter.create<tensor::EmptyOp>(
-        loc, outputTy.getShape(), outputTy.getElementType(), filteredDims);
+        loc, accTy.getShape(), accTy.getElementType(), filteredDims);
     Value zeroTensor = rewriter
                            .create<linalg::FillOp>(loc, ValueRange{zero},
                                                    ValueRange{emptyTensor})
@@ -738,9 +738,17 @@ public:
           op, "input b zero point must be zero for non-int8 integer types");
 
     if (aZpVal == 0 && bZpVal == 0) {
-      rewriter.replaceOpWithNewOp<linalg::BatchMatmulOp>(
-          op, TypeRange{op.getType()},
-          ValueRange{adaptor.getA(), adaptor.getB()}, ValueRange{zeroTensor});
+      auto res = rewriter
+                     .create<linalg::BatchMatmulOp>(
+                         loc, TypeRange{accTy},
+                         ValueRange{adaptor.getA(), adaptor.getB()},
+                         ValueRange{zeroTensor})
+                     ->getResult(0);
+      rewriter.replaceOpWithNewOp<tosa::CastOp>(
+          op,
+          RankedTensorType::get(cast<ShapedType>(res.getType()).getShape(),
+                                outputElementTy),
+          res);
       return success();
     }
 
@@ -748,9 +756,17 @@ public:
         loc, rewriter.getI32IntegerAttr(aZpVal));
     auto bZp = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getI32IntegerAttr(bZpVal));
-    rewriter.replaceOpWithNewOp<linalg::QuantizedBatchMatmulOp>(
-        op, TypeRange{op.getType()},
-        ValueRange{adaptor.getA(), adaptor.getB(), aZp, bZp}, zeroTensor);
+    auto res = rewriter
+                   .create<linalg::QuantizedBatchMatmulOp>(
+                       loc, TypeRange{accTy},
+                       ValueRange{adaptor.getA(), adaptor.getB(), aZp, bZp},
+                       zeroTensor)
+                   ->getResult(0);
+    rewriter.replaceOpWithNewOp<tosa::CastOp>(
+        op,
+        RankedTensorType::get(cast<ShapedType>(res.getType()).getShape(),
+                              outputElementTy),
+        res);
 
     return success();
   }
@@ -1139,11 +1155,11 @@ public:
             int64_t outBitwidth = resultETy.getIntOrFloatBitWidth();
 
             auto min = rewriter.create<arith::ConstantIntOp>(
-                loc, APInt::getSignedMinValue(outBitwidth).getSExtValue(),
-                accETy);
+                loc, accETy,
+                APInt::getSignedMinValue(outBitwidth).getSExtValue());
             auto max = rewriter.create<arith::ConstantIntOp>(
-                loc, APInt::getSignedMaxValue(outBitwidth).getSExtValue(),
-                accETy);
+                loc, accETy,
+                APInt::getSignedMaxValue(outBitwidth).getSExtValue());
             auto clamp = clampIntHelper(loc, scaled, min, max, rewriter,
                                         /*isUnsigned=*/false);
 

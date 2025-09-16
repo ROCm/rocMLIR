@@ -11,13 +11,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -31,9 +32,53 @@
 namespace mlir {
 namespace rock {
 
+static SmallVector<int64_t>
+computeOptimalSplitKFactors(RockGemmGemmWrapperInterface gemmGemmOp,
+                            int64_t gemm0NPerBlock, bool isSplitKFusible) {
+  SmallVector<int64_t> splitKValues = {1};
+
+  if (!isSplitKFusible) {
+    return splitKValues;
+  }
+
+  auto func = cast<func::FuncOp>(gemmGemmOp->getParentOp());
+  if (!func->hasAttr(rock::EnableSplitKForTuningAttr::getMnemonic())) {
+    return splitKValues;
+  }
+
+  uint32_t numCUs =
+      rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).minNumCU;
+  auto opNumCUs = rock::getNumCU(gemmGemmOp);
+  if (succeeded(opNumCUs))
+    numCUs = opNumCUs.value();
+
+  SmallVector<int64_t, 3> aShape =
+      llvm::to_vector<3>(cast<MemRefType>(gemmGemmOp.getAType()).getShape());
+  SmallVector<int64_t, 3> bShape =
+      llvm::to_vector<3>(cast<MemRefType>(gemmGemmOp.getBType()).getShape());
+  SmallVector<int64_t, 3> cShape =
+      llvm::to_vector<3>(cast<MemRefType>(gemmGemmOp.getCType()).getShape());
+
+  GemmSize gemm0Size(/*g=*/aShape[0], /*m=*/bShape[2],
+                     /*k=*/aShape[1],
+                     /*n=*/aShape[2]);
+  int64_t gridSize = ((gemm0Size.n) / gemm0NPerBlock) * gemm0Size.g;
+
+  // Simple heuristic, if gridSize >= numCUs, don't use splitK
+  // TODO: improve this heuristic
+  if (gridSize >= numCUs)
+    return splitKValues;
+
+  // Try splitK factors 3, 4 tend to help even when M is small
+  // TODO: improve this heuristic
+  return {1, 3, 4};
+}
+
+// Keep in sync with attentionSweeps.py
 // The full space is a brute-force search for attention kernels
-template <typename Op>
-static void createAttnTuningRangeBF(TuningParamSet *newSpace, Op attnOp,
+static void createAttnTuningRangeBF(TuningParamSet *newSpace,
+                                    RockGemmGemmWrapperInterface gemmGemmOp,
+                                    bool isSplitKFusible,
                                     TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
       /*gemm0MPerBlock=*/{32, 64, 128, 256},
@@ -51,8 +96,9 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace, Op attnOp,
       /*mPerWave=*/{32, 64},
       /*nPerWave=*/{32, 64},
       /*kPack=*/{4, 8, 16}};
-  GemmFeatures features = attnOp.getGemmFeatures();
-  int64_t numEUPerCU = rock::lookupArchInfo(attnOp.getArch()).numEUPerCU;
+  GemmFeatures features = rock::getFeatures(gemmGemmOp);
+  int64_t numEUPerCU =
+      rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).numEUPerCU;
   std::vector<std::vector<uint32_t>> validRangeAttnParams;
   bool isWMMA = false;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
@@ -64,32 +110,39 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace, Op attnOp,
     // We only support GPUs with matrix accelerator extentions
     return;
   }
-  OpBuilder b(attnOp.getContext());
+  int64_t gemmSchedule{1}, outputSwizzle{2};
+  OpBuilder b(gemmGemmOp.getContext());
   for (uint32_t gemm0MPerBlock : validRangeAttnParams[0]) {
     for (uint32_t gemm1MPerBlock : validRangeAttnParams[1]) {
       for (uint32_t gemm0NPerBlock : validRangeAttnParams[2]) {
+        auto optimalSplitKFactors = computeOptimalSplitKFactors(
+            gemmGemmOp, gemm0NPerBlock, isSplitKFusible);
+
         for (uint32_t gemmKPerBlock : validRangeAttnParams[3]) {
           for (uint32_t gemmMPerWave : validRangeAttnParams[4]) {
             for (uint32_t gemmMnPerXdlOrNPerWave : validRangeAttnParams[5]) {
               for (uint32_t gemmKPack : validRangeAttnParams[6]) {
-                if (isWMMA) {
-                  int64_t nPerWave = gemmMnPerXdlOrNPerWave;
-                  int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
-                                      (gemm0NPerBlock / nPerWave);
-                  if (rdnaWaves < numEUPerCU) {
-                    continue;
+                for (int64_t splitKFactor : optimalSplitKFactors) {
+                  if (isWMMA) {
+                    int64_t nPerWave = gemmMnPerXdlOrNPerWave;
+                    int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
+                                        (gemm0NPerBlock / nPerWave);
+                    if (rdnaWaves < numEUPerCU) {
+                      continue;
+                    }
                   }
-                }
-                if (gemm0MPerBlock >= gemmMPerWave &&
-                    gemm1MPerBlock >= gemmMPerWave &&
-                    gemm1MPerBlock >= gemm0MPerBlock &&
-                    gemm0NPerBlock >= gemmMnPerXdlOrNPerWave) {
-                  auto params = AttnPerfConfigAttr::get(
-                      attnOp.getContext(), gemm0MPerBlock, gemm1MPerBlock,
-                      gemm0NPerBlock, gemmKPerBlock, gemmMPerWave,
-                      gemmMnPerXdlOrNPerWave, gemmKPack, true);
-                  newSpace->tuningRange.push_back(
-                      cast<RockTuningParamAttrInterface>(params));
+                  if (gemm0MPerBlock >= gemmMPerWave &&
+                      gemm1MPerBlock >= gemmMPerWave &&
+                      gemm1MPerBlock >= gemm0MPerBlock &&
+                      gemm0NPerBlock >= gemmMnPerXdlOrNPerWave) {
+                    auto params = AttnPerfConfigAttr::get(
+                        gemmGemmOp.getContext(), gemm0MPerBlock, gemm1MPerBlock,
+                        gemm0NPerBlock, gemmKPerBlock, gemmMPerWave,
+                        gemmMnPerXdlOrNPerWave, gemmKPack, splitKFactor,
+                        gemmSchedule, outputSwizzle, true);
+                    newSpace->tuningRange.push_back(
+                        cast<RockTuningParamAttrInterface>(params));
+                  }
                 }
               }
             }
@@ -183,9 +236,9 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
     return splitKValues;
   }
 
-  uint32_t numCUs = rock::lookupArchInfo(gemmOp.getArch()).minNumCU;
-  if (gemmOp.getNumCU().has_value()) {
-    numCUs = gemmOp.getNumCU().value();
+  uint32_t numCUs = rock::lookupArchInfo(rock::getArchValue(gemmOp)).minNumCU;
+  if (succeeded(rock::getNumCU(gemmOp))) {
+    numCUs = rock::getNumCU(gemmOp).value();
   }
 
   return computeOptimalSplitKFactors(info.gemmSize, gemmMPerBlock,
@@ -252,7 +305,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
-  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
+  GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     PopulateParamsXDL tuningInfo;
     // XDLOPS
@@ -379,7 +432,7 @@ static void createQuickTuningRange(TuningParamSet *newSpace,
                                    RockGemmWrapperInterface gemmOp) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   OpBuilder b(gemmOp.getContext());
-  GemmFeatures currentFeatures = gemmOp.getGemmFeatures();
+  GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
     PopulateParamsXDL tuningInfo;
 
@@ -409,7 +462,7 @@ static void createQuickTuningRange(TuningParamSet *newSpace,
     PopulateParams tuningInfo;
     for (InitParamsNonAccel param : tuningInfo.orderInitParams(
              tuningInfo.getTuningParameters(info.kernelType, info.gemmAType,
-                                            info.gemmBType),
+                                            info.gemmBType, info.arch),
              info.gemmSize)) {
       if (succeeded(tuningInfo.paramsProbablyValid(b, info, param)) &&
           succeeded(tuningInfo.couldBePerformant(info, param)))
@@ -425,7 +478,8 @@ template <typename Op>
 static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
                                        Type elemType) {
   OpBuilder b(attnOp.getContext());
-  GemmFeatures currentFeatures = attnOp.getGemmFeatures();
+  GemmFeatures currentFeatures = rock::getFeatures(attnOp);
+  int64_t splitKFactor{1}, gemmSchedule{1}, outputSwizzle{2};
   // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
   using PerfConfigVals =
       std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>;
@@ -454,7 +508,8 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
                mnPerXdl, kPack] : attnQuickTuningListMFMA) {
       auto params = AttnPerfConfigAttr::get(
           attnOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
-          kPackBerBlock, mPerWave, mnPerXdl, kPack, true);
+          kPackBerBlock, mPerWave, mnPerXdl, kPack, splitKFactor, gemmSchedule,
+          outputSwizzle, true);
       newSpace->tuningRange.push_back(
           cast<RockTuningParamAttrInterface>(params));
     }
@@ -472,7 +527,8 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
                mnPerXdl, kPack] : attnQuickTuningListWMMA) {
       auto params = AttnPerfConfigAttr::get(
           attnOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
-          kPackBerBlock, mPerWave, mnPerXdl, kPack, true);
+          kPackBerBlock, mPerWave, mnPerXdl, kPack, splitKFactor, gemmSchedule,
+          outputSwizzle, true);
       newSpace->tuningRange.push_back(
           cast<RockTuningParamAttrInterface>(params));
     }
@@ -507,7 +563,7 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind) {
         switch (kind) {
         case TuningParamSetKind::Full:
         case TuningParamSetKind::Exhaustive:
-          createAttnTuningRangeBF(newSpace, op, kind);
+          createAttnTuningRangeBF(newSpace, op, isSplitKFusible, kind);
           break;
         case TuningParamSetKind::Quick:
           createAttnTuningRangeQuick(newSpace, op, elemType);
@@ -657,9 +713,9 @@ extractLayouts(Operation *op, llvm::StringMap<unsigned> &fLayoutMap,
 static LogicalResult
 getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
                     SmallVectorImpl<char> &out) {
-  int32_t numCU = rock::lookupArchInfo(gemmGemmOp.getArch()).minNumCU;
-  if (gemmGemmOp.getNumCU().has_value()) {
-    numCU = gemmGemmOp.getNumCU().value();
+  int32_t numCU = rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).minNumCU;
+  if (succeeded(rock::getNumCU(gemmGemmOp))) {
+    numCU = rock::getNumCU(gemmGemmOp).value();
   }
   constexpr char sep = ' ';
   constexpr char tab = '\t';
@@ -669,7 +725,7 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
   int64_t seqLenK;
   llvm::raw_svector_ostream problemOS(out);
   // ARCH string
-  problemOS << gemmGemmOp.getArch() << tab;
+  problemOS << StringRef(rock::getArchValue(gemmGemmOp)) << tab;
   // Num of Compute Units
   problemOS << numCU << tab;
 
@@ -770,6 +826,8 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
       problemOS << "true" << sep;
     else
       problemOS << "false" << sep;
+
+    problemOS << "-split_kv " << attentionOp.getSplitKV() << sep;
   }
 
   if (!isConvGemm)
@@ -829,9 +887,9 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
 
 static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
                                          SmallVectorImpl<char> &out) {
-  int32_t numCU = rock::lookupArchInfo(gemmIF.getArch()).minNumCU;
-  if (gemmIF.getNumCU().has_value())
-    numCU = gemmIF.getNumCU().value();
+  int32_t numCU = rock::lookupArchInfo(rock::getArchValue(gemmIF)).minNumCU;
+  if (succeeded(rock::getNumCU(gemmIF)))
+    numCU = rock::getNumCU(gemmIF).value();
   constexpr char sep = ' ';
   constexpr char tab = '\t';
   llvm::raw_svector_ostream problemOS(out);
@@ -848,7 +906,7 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   };
 
   // ARCH string
-  problemOS << gemmIF.getArch() << tab;
+  problemOS << StringRef(rock::getArchValue(gemmIF)).trim("\"") << tab;
   // Num of Compute Units
   problemOS << numCU << tab;
 
@@ -1074,27 +1132,32 @@ static int64_t retrieveSplitKValueImpl(StringRef perfConfig) {
 }
 
 static int64_t retrieveSplitKValue(rock::GemmFeatures features,
-                                   StringRef perfConfig) {
+                                   StringAttr perfConfig) {
+  auto attnPerfConfig = AttnPerfConfigAttr::get(perfConfig);
+  if (attnPerfConfig)
+    return attnPerfConfig.getSplitKFactor();
+
   if (isAccel(features)) {
     return retrieveSplitKValueImpl<rock::InitParamsAccel>(perfConfig);
   }
   return retrieveSplitKValueImpl<rock::InitParamsNonAccel>(perfConfig);
 }
 
-bool isSplitKRequested(rock::GemmFeatures features, StringRef perfConfig) {
+bool isSplitKRequested(rock::GemmFeatures features, StringAttr perfConfig) {
   return retrieveSplitKValue(features, perfConfig) > 1;
 }
 
 bool isSplitKRequested(ModuleOp mod, StringRef perfConfig) {
-  WalkResult gemmWalkResult =
-      mod.walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
-        if (isSplitKRequested(op.getGemmFeatures(), perfConfig))
-          return WalkResult::interrupt();
+  auto perfConfigAttr = StringAttr::get(mod->getContext(), perfConfig);
+  WalkResult walkResult = mod.walk([&](Operation *op) -> WalkResult {
+    if (isa<RockGemmWrapperInterface, RockGemmGemmWrapperInterface>(op) &&
+        isSplitKRequested(rock::getFeatures(op), perfConfigAttr))
+      return WalkResult::interrupt();
 
-        return WalkResult::advance();
-      });
+    return WalkResult::advance();
+  });
 
-  return gemmWalkResult.wasInterrupted();
+  return walkResult.wasInterrupted();
 }
 
 RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,

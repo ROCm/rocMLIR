@@ -176,7 +176,7 @@ if __name__ == '__main__':
         "-b", "--base-commit",
         type=str,
         default='origin/develop',
-        help="The base commit to lint againts"
+        help="The base commit to lint against"
   )
   parser.add_argument('--ignore-external', action='store_true', default=False)
   parsed_args = parser.parse_args(args)

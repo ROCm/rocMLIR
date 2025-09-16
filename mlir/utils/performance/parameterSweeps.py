@@ -24,6 +24,7 @@ import perfRunner
 from perfRunner import ConvConfiguration
 from perfRunner import Paths
 from perfRunner import getArch
+from perfRunner import getNumCU
 from perfCommonUtils import CORRECT_RESULT_RE
 
 @dataclass(frozen=True)
@@ -34,6 +35,8 @@ class Options:
     arch: str
     flags: list
     concurrent_tests: int
+    numCu: int
+    logFailures: bool = False
 
 class PerfConfig:
     class Version(enum.Enum):
@@ -104,15 +107,13 @@ class MLIROnlyConfig(ConvConfiguration):
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
             raise ValueError(f"Invalid direction: {direction}")
-        if layout not in perfRunner.MLIR_OUTPUT_LAYOUTS:
-            raise ValueError(f"Invalid layout: {layout}")
 
         self.dataType = dtype
         self.direction = direction
 
-        self.filterLayout = perfRunner.MLIR_FILTER_LAYOUTS[layout]
+        self.filterLayout = perfRunner.filter_layouts(layout)
         self.inputLayout = layout.lower()
-        self.outputLayout = perfRunner.MLIR_OUTPUT_LAYOUTS[layout]
+        self.outputLayout = perfRunner.output_layouts(layout)
 
         self.n = n
         self.c = c
@@ -137,16 +138,61 @@ class MLIROnlyConfig(ConvConfiguration):
         self.ho = math.floor((self.hi + self.paddingHL + self.paddingHR - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
         self.wo = math.floor((self.wi + self.paddingWL + self.paddingWR * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
 
+def multilineRepr(obj, num_fields=4):
+    """ Returns a multi-line string representation of the given object,
+    inserting a newline after every defined number of comma-separated
+    fields in its repr(). Useful for making long configuration 
+    representations more readable in logs or debug output."""
+    s = repr(obj).replace('\n', ' ')  # Flatten to one line
+    lines = []
+    field = ''
+    fields = []
+    in_quotes = False
+    perf_config_str = None
+
+    i = 0
+    while i < len(s):
+        # Detect start of perf_config to prevent it from being split
+        if s.startswith('perf_config=', i):
+            perf_config_str = s[i:]
+            break
+        c = s[i]
+        if c == "'":
+            in_quotes = not in_quotes
+            field += c
+        elif c == ',' and not in_quotes:
+            fields.append(field.strip() + ',')
+            field = ''
+        else:
+            field += c
+        i += 1
+    if field:
+        fields.append(field.strip())
+    for j in range(0, len(fields), num_fields):
+        prefix = '\t' if j > 0 else ''
+        group = fields[j:j+num_fields]
+        if j + num_fields >= len(fields) and group and group[-1].endswith(','):
+            group[-1] = group[-1][:-1]
+        lines.append(f"{prefix}{' '.join(group)}")
+    if perf_config_str:
+        lines.append('\t' + perf_config_str.strip())
+        
+    return '\n'.join(lines)
 
 class TestResult(enum.Enum):
     PASS = 1
     INVALID = 2
     FAIL = 3
 
-async def testConfig(config: MLIROnlyConfig, options: Options, paths: Paths) -> TestResult:
+async def testConfig(config, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
-    rocmlirGenOpts = config.generateMlirDriverCommandLine(options.flags)
+    if isinstance(config, MLIROnlyConfig):
+        rocmlirGenOpts = config.generateMlirDriverCommandLine(options.flags)
+    else:
+        rocmlirGenOpts = config.generateMlirDriverCommandLine(' '.join(options.flags), kernel_repeats=None).split()
+        if getattr(config, "currentSeqLen") is not None:
+            rocmlirGenOpts.append(f"--current_seq_len={','.join(map(str, config.currentSeqLen))}")
     rocmlirGenOpts.append('-pv')
 
     applicableFromGen, genToApplicable = os.pipe()
@@ -217,12 +263,16 @@ Errors = {runnerErrs.decode('utf-8')}
 Return code = {runner.returncode}""", file=sys.stderr)
         return TestResult.FAIL
 
-    if not CORRECT_RESULT_RE.search(runnerOut):
-        print(f"""Convolution returned intorrect result
+    output_lines = [line.strip() for line in runnerOut.splitlines() if len(line.strip()) > 0]
+    expected_output = "[1 1 1]"
+    all_correct = all(line == expected_output for line in output_lines)
+    if not all_correct:
+        print(f"""Config returned incorrect result
 Output = {runnerOut}
 Errors = {runnerErrs.decode('utf-8')}""", file=sys.stderr)
         return TestResult.FAIL
     return TestResult.PASS
+
 
 IterType = TypeVar('IterType')
 def grouper(iterable: Iterable[IterType], n: int):
@@ -233,20 +283,30 @@ def grouper(iterable: Iterable[IterType], n: int):
             return
         yield chunk
 
-async def dropGoodConfig(config: ConvConfiguration,
-        options: Options, paths: Paths) -> Union[TestResult, ConvConfiguration]:
+async def dropGoodConfig(config, options: Options, paths: Paths):
     """Test the given `params`, returning the corresponding `config` on failure
     and `None` on success or inapplicability"""
     result = await testConfig(config, options, paths)
     if not options.quiet:
-        print(f"{result.name}: {config!r}")
+        if isinstance(config, MLIROnlyConfig):
+            print(f"{result.name}: {config!r}")
+        else:
+            print("-" * 100)
+            print(f"{result.name}: {multilineRepr(config)}")
     if result == TestResult.FAIL:
+        if options.logFailures:
+            if isinstance(config, perfRunner.AttentionConfiguration):
+                with open("failing_attn_configs.txt", "a") as f:
+                    f.write(multilineRepr(config) + "\n")
+            else:
+                with open("failing_conv_configs.txt", "a") as f:
+                    f.write(multilineRepr(config) + "\n")
         return config
     return result
 
 async def sweepParameters(paramIter: Iterable[IterType],
-        toConfig: Callable[[IterType, Options], MLIROnlyConfig],
-        options: Options, paths: Paths) -> Tuple[int, int, List[MLIROnlyConfig]]:
+        toConfig: Callable[[IterType, Options], PerfConfig],
+        options: Options, paths: Paths) -> Tuple[int, int, List[PerfConfig]]:
     failingConfigs = []
     passed = 0
     invalid = 0
@@ -410,7 +470,7 @@ async def runConfig(paramIter: Iterable[IterType],
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
-            print(' '.join(c.generateMlirDriverCommandLine(options.flags)))
+            print(' '.join(c.generateMlirDriverCommandLine(options.flags, kernel_repeats=None)))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0
 
@@ -433,6 +493,8 @@ def main() -> bool:
         help='Use xdlops when generating kernels (default off)')
     parser.add_argument('--no-xdlops', '-X', dest='xdlops', action='store_false',
         help='Explicitly disable xdlops usage')
+    parser.add_argument('--log-failures', '-L', action='store_true', default=False,
+        help='Save failures to file')
     parser.add_argument(
         '--codepath',
         type=str,
@@ -455,12 +517,15 @@ def main() -> bool:
     codepath = args.codepath
     rocmlir_gen_flags = []
     if codepath not in supported_codepath:
-        if 'gfx908' in arch or 'gfx90a' in arch or 'gfx94' in arch:
+        if 'gfx908' in arch or 'gfx90a' in arch:
             codepath = 'mfma'
             rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on']
+        elif 'gfx942' in arch:
+            codepath = 'mfma'
+            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on', '-direct_to_lds_32b=on']
         elif 'gfx95' in arch:
             codepath = 'mfma'
-            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on', '-atomic_add_bf16=on']
+            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on', '-atomic_add_bf16=on', '-direct_to_lds_32b=on', '-direct_to_lds_128b=on']
         elif 'gfx906' in arch:
             codepath = 'vanilla'
             rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
@@ -478,8 +543,9 @@ def main() -> bool:
             # unknow arch info
             print(f"""Unknown arch {arch}""", file=sys.stderr)
 
-    options = Options(debug=args.debug, quiet=args.quiet,
-        arch=arch, flags=rocmlir_gen_flags, concurrent_tests=args.jobs)
+    options = Options(debug=args.debug, quiet=args.quiet, logFailures=args.log_failures,
+        arch=arch, flags=rocmlir_gen_flags, concurrent_tests=args.jobs, numCu=getNumCU(perfRunner.getChip()))
+
     paths = perfRunner.create_paths(None, args.mlir_build_dir)
 
     config = args.config

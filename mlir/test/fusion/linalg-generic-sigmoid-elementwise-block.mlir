@@ -30,7 +30,7 @@ module {
     %c0 = arith.constant 0 : index
     // CHECK: [[gemmAlloc:%.+]] = rock.alloc() : memref<16xf32
     %11 = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
-    rock.threadwise_write_all features =  dot|atomic_add|atomic_fmax_f32 {forceUnroll, useIndexDiffs} %11 -> [#transform_map32, #transform_map33](%8) [%c0, %c0, %c0, %c0] by  set : memref<16xf32, #gpu.address_space<private>> -> memref<1x32x32xf32>
+    rock.threadwise_write_all {forceUnroll, useIndexDiffs} %11 -> [#transform_map32, #transform_map33](%8) [%c0, %c0, %c0, %c0] by  set : memref<16xf32, #gpu.address_space<private>> -> memref<1x32x32xf32>
     %alloc_12 = memref.alloc() {alignment = 64 : i64} : memref<2x5xf32>
     %alloc_13 = memref.alloc() {alignment = 64 : i64} : memref<2x5xf32>
 
