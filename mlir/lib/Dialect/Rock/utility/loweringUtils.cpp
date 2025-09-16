@@ -718,24 +718,12 @@ FailureOr<RetAttrType> getAttrFromOpOrParents(
   return attr;
 }
 
-FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {
-  return getAttrFromOpOrParents<UnitAttr>(
-      op, rock::ReverseGridAttrAttr::getMnemonic());
-}
-
 FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {
   return getAttrFromOpOrParents<IntegerAttr>(op, "grid_size");
 }
 
 FailureOr<IntegerAttr> mlir::rock::getBlockSize(Operation *op) {
   return getAttrFromOpOrParents<IntegerAttr>(op, "block_size");
-}
-
-AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
-  auto dimExpr = mlir::getAffineDimExpr(0, b.getContext());
-  auto dimSizeExpr = mlir::getAffineSymbolExpr(0, b.getContext());
-  auto affineMap = mlir::AffineMap::get(1, 1, dimSizeExpr - 1 - dimExpr);
-  return affineMap;
 }
 
 ReassociationIndices

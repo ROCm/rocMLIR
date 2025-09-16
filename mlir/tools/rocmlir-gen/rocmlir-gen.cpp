@@ -123,12 +123,6 @@ static llvm::cl::opt<int> num_cu(
                    "gfx906(60/64), gfx908(120)"),
     llvm::cl::value_desc("compute unit value"), llvm::cl::init(0));
 
-static llvm::cl::opt<bool> reverse_grid(
-    "reverse_grid",
-    llvm::cl::desc(
-        "Indicates whether to reverse the workgroup indices in the kernel"),
-    llvm::cl::value_desc("boolean"), llvm::cl::init(false));
-
 static llvm::cl::opt<std::string> perfConfig(
     "perf_config", llvm::cl::desc("performance config data used for tuning"),
     llvm::cl::value_desc("Serialized tuning parameters"), llvm::cl::init(""));
@@ -2371,9 +2365,6 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   auto func =
       b.create<func::FuncOp>(loc, isVerifier ? kernelNameVerifier : kernelName,
                              b.getFunctionType(flatTypes, {}), funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), b.getUnitAttr());
-  }
 
   constexpr StringLiteral gName = "g", mName = "m", kName = "k", nName = "n";
   SmallVector<SmallVector<StringRef>> allArgNames;
@@ -3062,10 +3053,6 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   constexpr StringLiteral kernelName("rock_attention");
   auto func = builder.create<func::FuncOp>(
       loc, kernelName, builder.getFunctionType(flatArgTypes, {}), funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3229,10 +3216,6 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   constexpr StringLiteral kernelName("rock_conv_gemm");
   auto func = builder.create<func::FuncOp>(
       loc, kernelName, builder.getFunctionType(flatArgTypes, {}), funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3344,10 +3327,6 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   constexpr StringLiteral kernelName("rock_gemm_gemm");
   auto func = builder.create<func::FuncOp>(
       loc, kernelName, builder.getFunctionType(flatArgTypes, {}), funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -5137,8 +5116,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
-          reverse_grid, enabledFeatures,
-          rock::convOpTypeFromKernelType(operation.getValue()),
+          enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilations, strides, paddingLeft,
           paddingRight, filterLayout.getValue(), inputLayout.getValue(),

@@ -173,17 +173,11 @@ FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
 /// Compute, if possible, the constant different between two values.
 std::optional<int64_t> computeConstDiff(Value l, Value u);
 
-// Get whether to reverse the grid
-FailureOr<UnitAttr> getReverseGrid(Operation *op);
-
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
 
 // Get blockSize
 FailureOr<IntegerAttr> getBlockSize(Operation *op);
-
-// Return an affine map to reverse loop coordinates
-AffineMap getIdxReversalMap(OpBuilder &b);
 
 // helper to create ReassociationIndices for flattening
 ReassociationIndices getReassociationForFlattening(ShapedType srcTp);
