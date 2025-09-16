@@ -1,4 +1,4 @@
 [style]
   based_on_style = google
-  column_limit = 80
+  column_limit = 79
   indent_width = 4

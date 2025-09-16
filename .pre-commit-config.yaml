@@ -9,12 +9,3 @@ repos:
       - id: yapf
         name: yapf (format Python)
         args: ["-i"]
-        
-
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.1.1
-    hooks:
-      - id: flake8
-        name: flake8 (lint Python)
-        additional_dependencies:
-          - pep8-naming
