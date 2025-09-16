@@ -155,6 +155,7 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "general_gemm_params";
       return AliasResult::OverridableAlias;
     }
+    // generate tests for the following
     if (isa<XdlopsGemmParamsAttr>(attr)) {
       os << "xldops_gemm_params";
       return AliasResult::OverridableAlias;
