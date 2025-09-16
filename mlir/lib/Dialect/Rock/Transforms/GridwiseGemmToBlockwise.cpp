@@ -116,6 +116,24 @@ static void blockwiseGemmAccel(
                                features, blockSize, params);
 }
 
+static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
+                                 Value end, GemmLoadTileType loadType) {
+  bool doubleBuffering = loadType == GemmLoadTileType::DoubleBuffer ||
+                         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
+  // TODO: add an heuristic to decide if the it should use scheduleV1 or V2.
+  // Logic to setup buffers for blockwise_gemm_accel.
+  int64_t initiationInterval = doubleBuffering ? 1 : 2;
+
+  Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
+  Value start = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  scf::ForOp loopOp = scf::ForOp::create(rewriter, loc, start, end, one);
+  loopOp->setAttr(
+      PipelineAttr::getMnemonic(),
+      rock::PipelineAttr::get(rewriter.getContext(), initiationInterval));
+  return loopOp;
+}
+
 // This function will process a tile of gemm input into LDS (or register)
 // buffer in a way it could be fed to blockwise_gemm_accel op
 static void loadAndStoreGemmInputTile(
@@ -155,70 +173,40 @@ static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
 
 // This fuction creates interrim register buffers to store data in once
 // loaded from the LDS before accelerator intrinsics are called
-static std::tuple<Value, Value, Value, Value> createRegInterrimBufferForAccel(
-    Location loc, Type argTypeA, Type argTypeB, int64_t kBasePerThread,
-    PatternRewriter &rewriter, int64_t mRepeats = 1, int64_t nRepeats = 1,
-    bool directToLDS = false) {
-  Value arrayA, arrayB;
-  Value arrayAForLoad, arrayBForLoad;
-  SmallVector<int64_t, 2> aShape{kBasePerThread};
-  if (mRepeats > 1) {
-    aShape.insert(aShape.begin(), mRepeats);
-  }
-  SmallVector<int64_t, 2> bShape{kBasePerThread};
-  if (nRepeats > 1) {
-    bShape.insert(bShape.begin(), nRepeats);
+static std::pair<Value, Value>
+createRegInterrimBufferForAccel(PatternRewriter &rewriter, Location loc,
+                                Type argType, int64_t kBasePerThread,
+                                int64_t repeats, bool directToLDS) {
+  Value array;
+  Value arrayForLoad;
+  SmallVector<int64_t> shape{kBasePerThread};
+  if (repeats > 1) {
+    shape.insert(shape.begin(), repeats);
   }
   if (directToLDS) {
-    auto allocBuffer = [](PatternRewriter &b, Location loc, Type argType,
-                          ArrayRef<int64_t> shape) {
-      int64_t length = std::accumulate(shape.begin(), shape.end(), int64_t{1},
-                                       std::multiplies<>());
+    int64_t length = std::accumulate(shape.begin(), shape.end(), int64_t{1},
+                                     std::multiplies<>());
 
-      Value arrayBase = gpuAlloc(b, loc, getPackedByteSize(length, argType),
-                                 b.getI8Type(), gpu::AddressSpace::Private);
+    array = gpuAlloc(rewriter, loc, getPackedByteSize(length, argType),
+                     rewriter.getI8Type(), gpu::AddressSpace::Private);
 
-      SmallVector<int64_t> shapeForLoad(shape);
-      if (auto vectorType = dyn_cast<VectorType>(argType)) {
-        assert(vectorType.hasRank() == 1 && "Expected rank 1");
-        shapeForLoad[shapeForLoad.size() - 1] =
-            vectorType.getDimSize(0) * shapeForLoad[shapeForLoad.size() - 1];
-      }
-      Value arrayForLoad = viewBufferAs(
-          b, arrayBase, getElementTypeOrSelf(argType), shapeForLoad);
-      return std::make_tuple(arrayForLoad, arrayBase);
-    };
-    std::tie(arrayAForLoad, arrayA) =
-        allocBuffer(rewriter, loc, argTypeA, aShape);
-    std::tie(arrayBForLoad, arrayB) =
-        allocBuffer(rewriter, loc, argTypeB, bShape);
+    SmallVector<int64_t> shapeForLoad(shape);
+    if (auto vectorType = dyn_cast<VectorType>(argType)) {
+      assert(vectorType.hasRank() == 1 && "Expected rank 1");
+      shapeForLoad.back() = vectorType.getDimSize(0) * shapeForLoad.back();
+    }
+    arrayForLoad = viewBufferAs(rewriter, array, getElementTypeOrSelf(argType),
+                                shapeForLoad);
   } else {
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
 
-    auto arrayAType = MemRefType::get(aShape, argTypeA, AffineMap{},
-                                      privateMemoryAddressSpace);
-    arrayA = GpuAllocOp::create(rewriter, loc, arrayAType);
-
-    SmallVector<Value> arrayBRegs;
-    auto arrayBType = MemRefType::get(bShape, argTypeB, AffineMap{},
-                                      privateMemoryAddressSpace);
-    arrayB = GpuAllocOp::create(rewriter, loc, arrayBType);
-    arrayAForLoad = arrayA;
-    arrayBForLoad = arrayB;
+    auto arrayType =
+        MemRefType::get(shape, argType, AffineMap{}, privateMemoryAddressSpace);
+    array = GpuAllocOp::create(rewriter, loc, arrayType);
+    arrayForLoad = array;
   }
-  return {arrayAForLoad, arrayBForLoad, arrayA, arrayB};
-}
-
-// This fuction creates interrim register buffers to store data in once
-// loaded from the LDS before accelerator intrinsics are called
-static std::tuple<Value, Value, Value, Value> createRegInterrimBufferForAccel(
-    Location loc, rock::accel::AccelEmitterParams params,
-    PatternRewriter &rewriter, int64_t mRepeats = 1, int64_t nRepeats = 1,
-    bool directToLDS = false) {
-  return createRegInterrimBufferForAccel(loc, params.argTypeA, params.argTypeB,
-                                         params.kBasePerThread, rewriter,
-                                         mRepeats, nRepeats, directToLDS);
+  return {arrayForLoad, array};
 }
 
 // This function creates the accumulator register buffer
@@ -344,7 +332,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Prepare some useful constants.
     Value zeroConstantFloatOp = createZeroConstantOp(b, loc, destType);
-    auto zeroConstantOp = ConstantIndexOp::create(b, loc, 0);
 
     ArrayRef<int64_t> aShape, bShape, cShape;
     aShape = op.getA().getType().getShape();
@@ -526,7 +513,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         b, loc, op.getB(), "n", bidGridOrder, bidGridLengths, blockSize,
         kPerBlock, nPerBlock, maybeVecDimInfoB->inKPerThread,
         maybeVecDimInfoB->inDPerThread,
-        maybeVecDimInfoB->vectorDim == GemmDimension::K, false);
+        maybeVecDimInfoB->vectorDim == GemmDimension::K, directToLDS);
     if (failed(maybeBBufferViews)) {
       return failure();
     }
@@ -554,9 +541,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value storeBufferB = GpuAllocOp::create(b, loc, loadBufferB.getType());
 
     LDSLayoutConfigDim ldsLayoutConfigA = getLDSLayoutConfigDim(
-        elementTypeA, kpack, maybeVecDimInfoA.value(), false);
+        elementTypeA, kpack, maybeVecDimInfoA.value(), directToLDS);
     LDSLayoutConfigDim ldsLayoutConfigB = getLDSLayoutConfigDim(
-        elementTypeB, kpack, maybeVecDimInfoB.value(), false);
+        elementTypeB, kpack, maybeVecDimInfoB.value(), directToLDS);
 
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
@@ -634,11 +621,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Emit loop.
     Value nIterations = ConstantIndexOp::create(b, loc, K / kPerBlock);
-    Value step = ConstantIndexOp::create(b, loc, 1);
 
-    auto loopOp = scf::ForOp::create(b, loc, zeroConstantOp, nIterations, step);
-    loopOp->setAttr(PipelineAttr::getMnemonic(),
-                    rock::PipelineAttr::get(b.getContext(), 2));
+    // double buffer not implemented for non-accel
+    scf::ForOp loopOp =
+        createMainLoop(b, loc, nIterations, GemmLoadTileType::Default);
     {
       // inside the loop.
       PatternRewriter::InsertionGuard guard(b);
@@ -787,8 +773,7 @@ struct GridwiseAttentionAccelRewritePattern
       RegsAsMatrixSubTiles toLDSViews, Value storeBuffer,
       Value ldsTileByteBuffer, int64_t kpacksPerBlock, StringRef nonKDimName,
       int64_t kPerBlock, int64_t dPerBlock, int64_t copyKPerThread,
-      int64_t copyDPerThread, bool forceUnroll, bool rotateDWithK,
-      bool barrierBeforeWrite) const {
+      int64_t copyDPerThread, bool forceUnroll, bool rotateDWithK) const {
     Type elemType = cast<MemRefType>(regBuffer.getType()).getElementType();
     ArrayAttr storeBufferViews =
         invertTransforms(rewriter, loc, toLDSViews.threadSubTile);
@@ -810,10 +795,6 @@ struct GridwiseAttentionAccelRewritePattern
     // This will produce a (tid, iter) --> flat LDS view
     wrappedLds = transform(rewriter, wrappedLds, toLDSViews.blockSubTile);
     auto tid = WorkitemIdOp::create(rewriter, loc, rewriter.getIndexType());
-
-    // add LDS barrier to avoid write before load of previous iteration is done
-    if (barrierBeforeWrite)
-      LDSBarrierOp::create(rewriter, loc);
 
     ThreadwiseWriteAllOp::create(rewriter, loc, storeBuffer, wrappedLds,
                                  /*extraViews=*/rewriter.getArrayAttr({}),
@@ -1786,36 +1767,28 @@ struct GridwiseAttentionAccelRewritePattern
                                     gemm0MIterations);
       Value splitPlusOne =
           arith::AddIOp::create(rewriter, loc, gridCoordsGemm0.split_block, one);
-      end = arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
+      end =
+          arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
+    } else {
+      start = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
+      int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
+      end = rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
     }
     return std::make_tuple(start, end, gemm0MBlocksLastIter, currentSeqLen);
-  }
-
-  LoopLikeOpInterface createMLoop(PatternRewriter &rewriter, Location loc,
-                                  Value start, Value end, int64_t gemm0M,
-                                  int64_t gemm0MPerBlock,
-                                  bool dynamicMLoop) const {
-    LoopLikeOpInterface mLoopOp;
-    if (dynamicMLoop) {
-      Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
-      mLoopOp = scf::ForOp::create(rewriter, loc, start, end, one);
-    } else {
-      int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
-      mLoopOp = affine::AffineForOp::create(rewriter, loc, 0, gemm0MBlocks, 1);
-    }
-    return mLoopOp;
   }
 
   void runEarlyExit(PatternRewriter &rewriter, Location loc, Value start,
                     Value end, int64_t splitKV, int64_t gemm0MPerBlock,
                     std::optional<APInt> prePadG0M, bool isCausal,
-                    bool isKVCache) const {
+                    bool isKVCache, bool skipRunEarlyExit) const {
     // we need to do early exit if (1) and (2 || 3) conditions are true:
     // 1. split-kv > 1
     // 2. there's padding in gemm0M && (at least) the last block in split-kv
     // dimension has nothing to do
     // 3. (kvcache || causal) && (end <= start)
-    if (splitKV == 1)
+
+    // TODO: workaround for SWDEV-559105
+    if (splitKV == 1 || skipRunEarlyExit)
       return;
 
     // condition 2: some padding in gemm0M
@@ -1924,6 +1897,23 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
 
+    int64_t scheduleVersion = gemm0TuningParams.getScheduleVersion();
+    int64_t scheduleVersionG1 = gemm1TuningParams.getScheduleVersion();
+    assert(scheduleVersion == scheduleVersionG1);
+    std::optional<GemmLoadTileType> maybeLoadType =
+        symbolizeGemmLoadTileType(scheduleVersion);
+    if (!maybeLoadType.has_value())
+      return op.emitOpError("schedule version value is incorrect");
+
+    GemmLoadTileType loadType = maybeLoadType.value();
+    bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
+                       loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
+    // If we are using direct to LDS, we need to ensure that the
+    // hardware supports it.
+    if (directToLDS && !isDirectToLDSSupported(features))
+      return op.emitOpError("Direct to LDS is not supported by the hardware");
+
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
         features, elemTypeQ, elemTypeK, arch, gemm0TuningParams);
     if (!accelEmitterPtrGemm0)
@@ -1949,6 +1939,15 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm1KPerBlock = gemm0MPerBlock;
     int64_t gemm1MPerBlock = gemm1TuningParams.getMPerBlock();
     int64_t gemm1NPerBlock = gemm1TuningParams.getNPerBlock();
+
+    // params related to how we load Q
+    bool prefetchQTile = gemm0K == gemm0KPerBlock;
+    auto loadTypeQ = (prefetchQTile && doBypassLDSForQ)
+                         ? GemmLoadTileType::BypassLDS
+                         : loadType;
+    bool directToLDSQ = loadTypeQ == GemmLoadTileType::DirectToLDSDefault ||
+                        loadTypeQ == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
     // Note that kPerBlock for Gemm1B is mPerBlock of Gemm0 out
     // Note that mPerBlock for Gemm1A is mPerBlock of Gemm0 out
     // Note that nPerBlock for Gemm1B is nPerBlock of Gemm0 out
@@ -1961,12 +1960,12 @@ struct GridwiseAttentionAccelRewritePattern
                                                    gemm0NBlocks};
     FailureOr<VectorDimInfo> maybeVectorDimInfoQ =
         getVectorDim(loc, inQ, elemTypeQLoad, blockSize, gemm0KPerBlock,
-                     gemm0NPerBlock, gemm0kpack, false);
+                     gemm0NPerBlock, gemm0kpack, directToLDSQ);
     if (failed(maybeVectorDimInfoQ)) {
       return failure();
     }
     LDSLayoutConfigDim ldsLayoutCfgNG0 = getLDSLayoutConfigDim(
-        elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value(), false);
+        elemTypeQ, gemm0kpack, maybeVectorDimInfoQ.value(), directToLDSQ);
     if (doBypassLDSForQ) {
       ldsLayoutCfgNG0.doSwapThreadIterSubDims = false;
     }
@@ -1980,7 +1979,7 @@ struct GridwiseAttentionAccelRewritePattern
     }
     FailureOr<VectorDimInfo> maybeVectorDimInfoK =
         getVectorDim(loc, inK, elemTypeKLoad, blockSize, gemm0KPerBlock,
-                     gemm0MPerBlock, gemm0kpack, false);
+                     gemm0MPerBlock, gemm0kpack, directToLDS);
     if (failed(maybeVectorDimInfoK)) {
       return failure();
     }
@@ -1993,7 +1992,7 @@ struct GridwiseAttentionAccelRewritePattern
                << "kVectorDim: " << maybeVectorDimInfoK->vectorDim << "\n"
                << "kVectorLen: " << maybeVectorDimInfoK->vectorLen << "\n");
     LDSLayoutConfigDim ldsLayoutCfgMG0 = getLDSLayoutConfigDim(
-        elemTypeK, gemm0kpack, maybeVectorDimInfoK.value(), false);
+        elemTypeK, gemm0kpack, maybeVectorDimInfoK.value(), directToLDS);
     ldsLayoutCfgMG0.doRotateWithK = false;
     if (doBypassLDSSecondGemm) {
       ldsLayoutCfgMG0.doSwapThreadIterSubDims = false;
@@ -2030,13 +2029,29 @@ struct GridwiseAttentionAccelRewritePattern
       gemm1LDSByteBufferBSize = 0;
     }
 
+    bool doubleBuffering =
+        loadType == GemmLoadTileType::DoubleBuffer ||
+        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
+    bool doubleBufferingQ =
+        loadTypeQ == GemmLoadTileType::DoubleBuffer ||
+        loadTypeQ == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
     // Note that we dont provide nRepeats because we dont want
     // nRepeats times reg buffer to be created for B of gemm0
     // because we wont be prefetching that.
-    auto [preAccelRegBufferKForLoad, preAccelRegBuffersQForLoad,
-          preAccelRegBufferK, preAccelRegBuffersQ] =
-        createRegInterrimBufferForAccel(loc, accelParamsGemm0, rewriter, 1,
-                                        accelParamsGemm0.nRepeats);
+    auto [preAccelRegBufferKForLoad, preAccelRegBufferK] =
+        createRegInterrimBufferForAccel(
+            rewriter, loc, accelParamsGemm0.argTypeA,
+            accelParamsGemm0.kBasePerThread,
+            doubleBuffering ? accelParamsGemm0.mRepeats : 1, directToLDS);
+
+    auto [preAccelRegBuffersQForLoad, preAccelRegBuffersQ] =
+        createRegInterrimBufferForAccel(
+            rewriter, loc, accelParamsGemm0.argTypeB,
+            accelParamsGemm0.kBasePerThread,
+            (prefetchQTile || doubleBufferingQ) ? accelParamsGemm0.nRepeats : 1,
+            directToLDSQ);
     Value accRegBufferGemm0 =
         createBufferForAccelGemmOut(loc, accelParamsGemm0, rewriter);
     // Currently, there is a working assumption that this kernel is meant
@@ -2081,11 +2096,17 @@ struct GridwiseAttentionAccelRewritePattern
     }
     Value gemm0ExpOutBufferToLDS =
         createBufferForGemmOut(loc, elemTypeV, accelParamsGemm0, rewriter);
-    auto [preAccelRegBufferVForLoad, preAccelRegBufferQxKForLoad,
-          preAccelRegBufferV, preAccelRegBufferQxK] =
+
+    auto [preAccelRegBufferVForLoad, preAccelRegBufferV] =
         createRegInterrimBufferForAccel(
-            loc, accelParamsGemm1, rewriter, 1,
-            doBypassLDSSecondGemm ? accelParamsGemm1.nRepeats : 1);
+            rewriter, loc, accelParamsGemm1.argTypeA,
+            accelParamsGemm1.kBasePerThread,
+            doubleBuffering ? accelParamsGemm1.mRepeats : 1, directToLDS);
+    auto [preAccelRegBufferQxKForLoad, preAccelRegBufferQxK] =
+        createRegInterrimBufferForAccel(
+            rewriter, loc, accelParamsGemm1.argTypeB,
+            accelParamsGemm1.kBasePerThread,
+            doBypassLDSSecondGemm ? accelParamsGemm1.nRepeats : 1, false);
 
     Value accRegBufferGemm1;
     Value gemm1OutBuffer;
@@ -2105,7 +2126,7 @@ struct GridwiseAttentionAccelRewritePattern
                                                    gemm1NBlocks};
     FailureOr<VectorDimInfo> maybeVectorDimInfoV =
         getVectorDim(loc, inV, elemTypeVLoad, blockSize, gemm1KPerBlock,
-                     gemm1MPerBlock, gemm1kpack, false);
+                     gemm1MPerBlock, gemm1kpack, directToLDS);
     if (failed(maybeVectorDimInfoV)) {
       return failure();
     }
@@ -2113,7 +2134,7 @@ struct GridwiseAttentionAccelRewritePattern
                << "vVectorDim: " << maybeVectorDimInfoV->vectorDim << "\n"
                << "vVectorLen: " << maybeVectorDimInfoV->vectorLen << "\n");
     LDSLayoutConfigDim ldsLayoutCfgMG1 = getLDSLayoutConfigDim(
-        elemTypeV, gemm1kpack, maybeVectorDimInfoV.value(), false);
+        elemTypeV, gemm1kpack, maybeVectorDimInfoV.value(), directToLDS);
     int64_t gemm1InMPerThread = maybeVectorDimInfoV->inDPerThread;
     FailureOr<RegsAsMatrixSubTiles> maybeGemm1OutSubTileViews =
         accelEmitterPtrGemm1->computeOutputTransforms(
@@ -2198,27 +2219,29 @@ struct GridwiseAttentionAccelRewritePattern
                      isKVCache, op.getNumRepeatsGQAAttr());
 
     // early exist if there is no work to do for this block
+    // TODO: workaround for SWDEV-559105
+    bool skipRunEarlyExit = true;
     runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
-                 op.getPrePadG0M(), isCausal, isKVCache);
+                 op.getPrePadG0M(), isCausal, isKVCache, skipRunEarlyExit);
 
     // create matrix params
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeK, elemTypeKLoad,
         ldsLayoutCfgMG0.doRotateWithK, ldsLayoutCfgMG0.doSwapThreadIterSubDims,
-        ldsLayoutCfgMG0.ldsLayoutDxK, /*directToLDS=*/false,
+        ldsLayoutCfgMG0.ldsLayoutDxK, directToLDS,
         /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0M, gemm0InMPerThread);
 
     BlockwiseMatrixParamsAttr matrixParamsQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeQ, elemTypeQLoad,
         ldsLayoutCfgNG0.doRotateWithK, ldsLayoutCfgNG0.doSwapThreadIterSubDims,
-        ldsLayoutCfgNG0.ldsLayoutDxK, /*directToLDS=*/false,
+        ldsLayoutCfgNG0.ldsLayoutDxK, directToLDSQ,
         /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0N, gemm0InNPerThread);
 
     BlockwiseMatrixParamsAttr matrixParamsV = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad,
         ldsLayoutCfgMG1.doRotateWithK, ldsLayoutCfgMG1.doSwapThreadIterSubDims,
-        ldsLayoutCfgMG1.ldsLayoutDxK, /*directToLDS=*/false,
-        doBypassLDSSecondGemm, gemm0G, gemm1M, gemm1InMPerThread);
+        ldsLayoutCfgMG1.ldsLayoutDxK, directToLDS, doBypassLDSSecondGemm,
+        gemm0G, gemm1M, gemm1InMPerThread);
 
     BlockwiseMatrixParamsAttr matrixParamsKxQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad, /*rotateDWithK=*/false,
@@ -2230,42 +2253,38 @@ struct GridwiseAttentionAccelRewritePattern
     // effectively there is no K loop. Therefore, we
     // can prefetch the Q tile into regs outside of the
     // loop.
-    GemmLoadTileType loadTypeQ = GemmLoadTileType::BypassLDS;
-    if (gemm0K == gemm0KPerBlock) {
+    Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
+    if (prefetchQTile) {
       LLVM_DEBUG(llvm::dbgs()
                  << "rock.attention: gemm0K is equal to gemm0KPerBlock\n");
       LLVM_DEBUG(llvm::dbgs()
                  << "rock.attention: Prefetching Q tile into regs...\n");
-      Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
       // it is fine m iteration to be zero as it irrelevant to Q tensor
       // as the first gemm is Kt x Qt.
       auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
           rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch, splitKVConst);
 
       Value ldsByteBufferQ = nullptr;
-      if (!doBypassLDSForQ) {
-        loadTypeQ = GemmLoadTileType::DoubleBuffer;
+      if (!doBypassLDSForQ)
         ldsByteBufferQ =
             createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
-      }
 
-      loadAndStoreGemmInputTile(rewriter, loc, inQ, /*kiter=*/zero, tid,
-                                gridCoordsGemm0LoadQ, ldsByteBufferQ,
-                                preAccelRegBuffersQ, loadTypeQ, "n", blockSize,
-                                elemTypeQ, elemTypeQLoad, gemm0TuningParams,
-                                featuresAttr, matrixParamsK, matrixParamsQ);
+      loadAndStoreGemmInputTile(
+          rewriter, loc, inQ, /*kiter=*/zero, tid, gridCoordsGemm0LoadQ,
+          ldsByteBufferQ, preAccelRegBuffersQForLoad, loadTypeQ, "n", blockSize,
+          elemTypeQ, elemTypeQLoad, gemm0TuningParams, featuresAttr,
+          matrixParamsK, matrixParamsQ);
     }
 
     bool dynamicMLoop = splitKV != 1 || isCausal || isKVCache;
-    LoopLikeOpInterface mLoopOp = createMLoop(rewriter, loc, start, end, gemm0M,
-                                              gemm0MPerBlock, dynamicMLoop);
+
+    Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
+    scf::ForOp mLoopOp = scf::ForOp::create(rewriter, loc, start, end, one);
     {
       PatternRewriter::InsertionGuard guard(rewriter);
-      // workaround for mLoopOp.getBody()
-      assert(mLoopOp->getRegions().size() == 1);
-      rewriter.setInsertionPointToStart(&mLoopOp->getRegion(0).front());
+      rewriter.setInsertionPointToStart(mLoopOp.getBody());
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
-      Value mLoopIV = mLoopOp.getSingleInductionVar().value();
+      Value mLoopIV = mLoopOp.getInductionVar();
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
       layout::GridCoordinates gridCoordsGemm0 =
           layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks,
@@ -2273,76 +2292,93 @@ struct GridwiseAttentionAccelRewritePattern
 
       // LDS buffers
       Value ldsByteBufferQ;
-      if (gemm0K != gemm0KPerBlock)
+      if (!prefetchQTile) {
         ldsByteBufferQ =
             createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
+      }
 
       Value ldsByteBufferK = createLDSByteBuffer(
           rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
 
-      affine::AffineForOp kLoopOp =
-          affine::AffineForOp::create(rewriter, loc, 0, kIterationsGemm0, 1);
+      // LDS Barrier (issue 1811): some threads might be loading from LDS
+      // while others are in the next iteration (here), writing to LDS. This
+      // barrier prevents that.
+      std::optional<APInt> mLoopIters = std::nullopt;
+      // mLoopOp can be a dynamic loop if we are using KV Cache or Causal
+      // masking. If that's the case, we can't know the number of iterations
+      // at compile time.
+      if (!dynamicMLoop)
+        mLoopIters = mLoopOp.getStaticTripCount();
+
+      bool mIterOneIter =
+          mLoopIters.has_value() && mLoopIters.value().getSExtValue() == 1;
+      if (!mIterOneIter) {
+        LLVM_DEBUG(llvm::dbgs() << "adding a barrier in the first gemm loop\n");
+        LDSBarrierOp::create(rewriter, loc);
+      }
+
+      Value endKLoop =
+          rewriter.createOrFold<arith::ConstantIndexOp>(loc, kIterationsGemm0);
+      scf::ForOp kLoopOp = createMainLoop(rewriter, loc, endKLoop, loadType);
       {
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
 
-        // LDS Barrier (issue 1811): some threads might be loading from LDS
-        // while others are in the next iteration (here), writing to LDS. This
-        // barrier prevents that.
-        std::optional<uint64_t> mLoopIters = std::nullopt;
-        // mLoopOp can be a scf::ForOp if we are using KV Cache or Causal
-        // masking. If that's the case, we can't know the number of iterations
-        // at compile time.
-        if (auto mLoopAffineFor =
-                dyn_cast<affine::AffineForOp>(mLoopOp.getOperation()))
-          mLoopIters = mlir::affine::getConstantTripCount(mLoopAffineFor);
-
-        bool mIterOneIter = mLoopIters.has_value() && mLoopIters.value() == 1;
-        auto kLoopIters = mlir::affine::getConstantTripCount(kLoopOp);
-        bool kIterOneIter = kLoopIters.has_value() && kLoopIters.value() == 1;
-        // no need to have the barrier if there's just one iteration
-        bool addBarrierFirstGemm = !kIterOneIter || !mIterOneIter;
-        if (addBarrierFirstGemm)
-          LLVM_DEBUG(llvm::dbgs()
-                     << "adding a barrier in the first gemm loop\n");
-
-        if (addBarrierFirstGemm)
-          LDSBarrierOp::create(rewriter, loc);
-
         // if gemm0K is equal to gemm0KPerBlock, the Q tile
         // is already prefetched into regs. See above.
-        TypedValue<MemRefType> ldsTileBufferQ;
-        if (gemm0K != gemm0KPerBlock) {
-          loadTypeQ = GemmLoadTileType::DoubleBuffer;
+        if (!prefetchQTile) {
           loadAndStoreGemmInputTile(
               rewriter, loc, inQ, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferQ,
-              preAccelRegBuffersQ, loadTypeQ, "n", blockSize, elemTypeQ,
+              preAccelRegBuffersQForLoad, loadTypeQ, "n", blockSize, elemTypeQ,
               elemTypeQLoad, gemm0TuningParams, featuresAttr, matrixParamsK,
               matrixParamsQ);
-          ldsTileBufferQ =
-              viewBufferAs(rewriter, ldsByteBufferQ,
-                           vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         }
 
         loadAndStoreGemmInputTile(
             rewriter, loc, inK, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferK,
-            preAccelRegBufferK, GemmLoadTileType::Default, "m", blockSize,
-            elemTypeK, elemTypeKLoad, gemm0TuningParams, featuresAttr,
-            matrixParamsK, matrixParamsQ);
-        TypedValue<MemRefType> ldsTileBufferK = viewBufferAs(
-            rewriter, ldsByteBufferK, vectorTypeOrSelf(elemTypeK, gemm0kpack));
-        // LDS barrier.
-        LDSBarrierOp::create(rewriter, loc);
+            preAccelRegBufferKForLoad, loadType, "m", blockSize, elemTypeK,
+            elemTypeKLoad, gemm0TuningParams, featuresAttr, matrixParamsK,
+            matrixParamsQ);
 
-        // Emit lowered blockwise GEMM 0.
-        blockwiseGemmAccel(
-            rewriter, loc, GemmLoadTileType::Default, loadTypeQ,
-            preAccelRegBufferK, preAccelRegBuffersQ, accRegBufferGemm0,
-            matrixParamsK, matrixParamsQ, ldsTileBufferK, ldsTileBufferQ,
-            /*scaleA=*/nullptr, /*scaleB=*/nullptr,
-            /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr, featuresAttr,
-            op.getBlockSizeAttr(), gemm0TuningParams);
+        auto computeStage = StageOp::create(rewriter, loc, "MMA");
+        {
+          PatternRewriter::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(
+              &computeStage.getRegion().emplaceBlock());
+
+          // Emit lowered blockwise GEMM 0.
+          TypedValue<MemRefType> ldsTileBufferK;
+          if (directToLDS) {
+            ldsTileBufferK = viewBufferAs(rewriter, ldsByteBufferK, elemTypeK);
+          } else {
+            ldsTileBufferK =
+                viewBufferAs(rewriter, ldsByteBufferK,
+                             vectorTypeOrSelf(elemTypeK, gemm0kpack));
+          }
+
+          TypedValue<MemRefType> ldsTileBufferQ = nullptr;
+          if (loadTypeQ != GemmLoadTileType::BypassLDS) {
+            if (directToLDSQ) {
+              ldsTileBufferQ =
+                  viewBufferAs(rewriter, ldsByteBufferQ, elemTypeQ);
+            } else {
+              ldsTileBufferQ =
+                  viewBufferAs(rewriter, ldsByteBufferQ,
+                               vectorTypeOrSelf(elemTypeQ, gemm0kpack));
+            }
+          }
+
+          blockwiseGemmAccel(
+              rewriter, loc, loadType, loadTypeQ, preAccelRegBufferK,
+              preAccelRegBuffersQ, accRegBufferGemm0, matrixParamsK,
+              matrixParamsQ, ldsTileBufferK, ldsTileBufferQ,
+              /*scaleA=*/nullptr, /*scaleB=*/nullptr,
+              /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr, featuresAttr,
+              op.getBlockSizeAttr(), gemm0TuningParams);
+
+          rock::YieldOp::create(rewriter, loc);
+        }
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
@@ -2496,7 +2532,6 @@ struct GridwiseAttentionAccelRewritePattern
           gemm1RegBufferB = gemm0Out;
         }
         Value gemm1LDSByteBufferB;
-        TypedValue<MemRefType> gemm1LDSBufferB;
         // TODO: extend BlockwiseLoadTileOp to support loading from register
         // buffer (as below)
         if (!doBypassLDSSecondGemm) {
@@ -2522,123 +2557,144 @@ struct GridwiseAttentionAccelRewritePattern
               gemm0OutSubTileNxMViews, gemm0ExpOutBufferToLDS,
               gemm1LDSByteBufferB, gemm1KpacksPerBlock, "n", gemm1KPerBlock,
               gemm1NPerBlock, /*copyKPerThread=*/1, gemm1InNPerThread,
-              forceUnroll, false, false);
+              forceUnroll, false);
           if (failed(storeGemm1ATileStatus)) {
             return failure();
           }
-          gemm1LDSBufferB =
-              viewBufferAs(rewriter, gemm1LDSByteBufferB,
-                           vectorTypeOrSelf(elemTypeV, gemm1kpack));
         }
 
         Value ldsByteBufferV = createLDSByteBuffer(
             rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
-        affine::AffineForOp g1MLoopOp =
-            affine::AffineForOp::create(rewriter, loc, 0, gemm1MBlocks, 1);
+        Value endG1MLoop =
+            rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
+
+        auto gridCoordsGemm1 =
+            layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks,
+                                      gridSize, arch, splitKVConst);
+        scf::ForOp g1MLoopOp =
+            createMainLoop(rewriter, loc, endG1MLoop, loadType);
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
           Value g1MLoopIndVar = g1MLoopOp.getInductionVar();
-          if (op.getEnableSoftmax()) {
-            zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
-          } else {
-            if (gemm1MBlocks > 1) {
-              accRegBufferGemm1 = createSliceOfFirstDim(
-                  rewriter, loc, accRegBufferGemm1, g1MLoopIndVar);
-            }
-          }
-          auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-              rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks, gridSize, arch,
-              splitKVConst);
 
-          // LDS Barrier (issue 1811): some threads might be loading from LDS
-          // while others are in the next iteration (here), writing to LDS. This
-          // barrier prevents that. No need to have the barrier if there's just
-          // one iteration
-          auto g1MLoopIters = mlir::affine::getConstantTripCount(g1MLoopOp);
-          bool g1MIterOneIter =
-              g1MLoopIters.has_value() && g1MLoopIters.value() == 1;
-          bool addBarrierSecondGemm = !g1MIterOneIter;
-          if (addBarrierSecondGemm) {
-            LLVM_DEBUG(llvm::dbgs()
-                       << "adding a barrier in the second gemm loop\n");
-            LDSBarrierOp::create(rewriter, loc);
-          }
+          gridCoordsGemm1.m_block = g1MLoopIndVar;
 
           loadAndStoreGemmInputTile(
               rewriter, loc, inV,
               /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
-              preAccelRegBufferV, GemmLoadTileType::Default, "m", blockSize,
-              elemTypeV, elemTypeVLoad, gemm1TuningParams, featuresAttr,
-              matrixParamsV, matrixParamsKxQ);
-          TypedValue<MemRefType> ldsTileBufferV =
-              viewBufferAs(rewriter, ldsByteBufferV,
-                           vectorTypeOrSelf(elemTypeV, gemm1kpack));
-          // LDS barrier.
-          LDSBarrierOp::create(rewriter, loc);
+              preAccelRegBufferVForLoad, loadType, "m", blockSize, elemTypeV,
+              elemTypeVLoad, gemm1TuningParams, featuresAttr, matrixParamsV,
+              matrixParamsKxQ);
 
           // Emit GEMM 1.
-          if (doBypassLDSSecondGemm) {
-            ArrayAttr gemm1ThreadwiseSubtileViewDxKMaps = invertTransforms(
-                rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
-            Value gemm1BDxKThreadwiseView = transform(
-                rewriter, gemm1RegBufferB, gemm1ThreadwiseSubtileViewDxKMaps);
-            affine::AffineForOp nRepeatsLoop = affine::AffineForOp::create(
-                rewriter, loc, 0, accelParamsGemm1.nRepeats, 1);
-            {
-              PatternRewriter::InsertionGuard guard(rewriter);
-              rewriter.setInsertionPointToStart(nRepeatsLoop.getBody());
-              Value ni = nRepeatsLoop.getInductionVar();
-              Value subview = preAccelRegBufferQxK;
-              if (accelParamsGemm1.nRepeats > 1) {
-                subview = createSliceOfFirstDim(rewriter, loc,
-                                                preAccelRegBufferQxK, ni);
+          auto computeStage = StageOp::create(rewriter, loc, "MMA");
+          {
+            PatternRewriter::InsertionGuard guard(rewriter);
+            rewriter.setInsertionPointToStart(
+                &computeStage.getRegion().emplaceBlock());
+
+            Value matrixC = accRegBufferGemm1;
+            if (op.getEnableSoftmax()) {
+              zeroAccBuffer(rewriter, loc, matrixC);
+            } else {
+              if (gemm1MBlocks > 1) {
+                matrixC = createSliceOfFirstDim(rewriter, loc, matrixC,
+                                                g1MLoopIndVar);
               }
-              ThreadwiseReadIntoOp::create(
-                  rewriter, loc, gemm1BDxKThreadwiseView, subview,
-                  rewriter.getArrayAttr({}), ValueRange{ni}, true, true);
             }
+
+            if (doBypassLDSSecondGemm) {
+              ArrayAttr gemm1ThreadwiseSubtileViewDxKMaps = invertTransforms(
+                  rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
+              Value gemm1BDxKThreadwiseView = transform(
+                  rewriter, gemm1RegBufferB, gemm1ThreadwiseSubtileViewDxKMaps);
+              affine::AffineForOp nRepeatsLoop = affine::AffineForOp::create(
+                  rewriter, loc, 0, accelParamsGemm1.nRepeats, 1);
+              {
+                PatternRewriter::InsertionGuard guard(rewriter);
+                rewriter.setInsertionPointToStart(nRepeatsLoop.getBody());
+                Value ni = nRepeatsLoop.getInductionVar();
+                Value subview = preAccelRegBufferQxK;
+                if (accelParamsGemm1.nRepeats > 1) {
+                  subview = createSliceOfFirstDim(rewriter, loc,
+                                                  preAccelRegBufferQxK, ni);
+                }
+                ThreadwiseReadIntoOp::create(
+                    rewriter, loc, gemm1BDxKThreadwiseView, subview,
+                    rewriter.getArrayAttr({}), ValueRange{ni}, true, true);
+              }
+            }
+
+            TypedValue<MemRefType> ldsTileBufferV;
+            if (directToLDS) {
+              ldsTileBufferV =
+                  viewBufferAs(rewriter, ldsByteBufferV, elemTypeV);
+            } else {
+              ldsTileBufferV =
+                  viewBufferAs(rewriter, ldsByteBufferV,
+                               vectorTypeOrSelf(elemTypeV, gemm1kpack));
+            }
+            TypedValue<MemRefType> gemm1LDSBufferB = nullptr;
+            if (!doBypassLDSSecondGemm)
+              gemm1LDSBufferB =
+                  viewBufferAs(rewriter, gemm1LDSByteBufferB,
+                               vectorTypeOrSelf(elemTypeV, gemm1kpack));
+
+            auto loadTypeKxD = doBypassLDSSecondGemm
+                                   ? GemmLoadTileType::BypassLDS
+                                   : GemmLoadTileType::Default;
+            blockwiseGemmAccel(
+                rewriter, loc, loadType, loadTypeKxD, preAccelRegBufferV,
+                preAccelRegBufferQxK, matrixC, matrixParamsV, matrixParamsKxQ,
+                ldsTileBufferV, gemm1LDSBufferB,
+                /*scaleA=*/nullptr, /*scaleB=*/nullptr,
+                /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr,
+                featuresAttr, op.getBlockSizeAttr(), gemm1TuningParams);
+
+            rock::YieldOp::create(rewriter, loc);
           }
 
-          auto loadTypeKxD = doBypassLDSSecondGemm ? GemmLoadTileType::BypassLDS
-                                                   : GemmLoadTileType::Default;
-          blockwiseGemmAccel(
-              rewriter, loc, GemmLoadTileType::Default, loadTypeKxD,
-              preAccelRegBufferV, preAccelRegBufferQxK, accRegBufferGemm1,
-              matrixParamsV, matrixParamsKxQ, ldsTileBufferV, gemm1LDSBufferB,
-              /*scaleA=*/nullptr, /*scaleB=*/nullptr,
-              /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr, featuresAttr,
-              op.getBlockSizeAttr(), gemm1TuningParams);
+          auto postProcessStage = StageOp::create(rewriter, loc, "PostProcess");
+          {
+            PatternRewriter::InsertionGuard guard(rewriter);
+            rewriter.setInsertionPointToStart(
+                &postProcessStage.getRegion().emplaceBlock());
 
-          // There is no second k-loop
-          // Therefore can get the output straight away
-          Value gemm1OutBufferPerG1MBlock = gemm1OutBuffer;
-          if (!op.getEnableSoftmax() && gemm1MBlocks > 1) {
-            gemm1OutBufferPerG1MBlock = createSliceOfFirstDim(
-                rewriter, loc, gemm1OutBuffer, g1MLoopIndVar);
-          }
-
-          accelEmitterPtrGemm1->computeOutputConversion(
-              rewriter, loc, accRegBufferGemm1, gemm1OutBufferPerG1MBlock,
-              forceUnroll);
-          if (op.getEnableSoftmax()) {
-            Value attentionOutAccBufferPerG1MBlock = attentionOutAccBuffer;
-            if (gemm1MBlocks > 1) {
-              attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(
-                  rewriter, loc, attentionOutAccBuffer, g1MLoopIndVar);
+            // There is no second k-loop
+            // Therefore can get the output straight away
+            Value gemm1OutBufferPerG1MBlock = gemm1OutBuffer;
+            Value matrixC = accRegBufferGemm1;
+            if (!op.getEnableSoftmax() && gemm1MBlocks > 1) {
+              gemm1OutBufferPerG1MBlock = createSliceOfFirstDim(
+                  rewriter, loc, gemm1OutBuffer, g1MLoopIndVar);
+              matrixC =
+                  createSliceOfFirstDim(rewriter, loc, matrixC, g1MLoopIndVar);
             }
-            ArrayAttr invertedGemm1threadSubTileMaps = invertTransforms(
-                rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
-            Value gemm1MNThreadwiseView =
-                transform(rewriter, gemm1OutBufferPerG1MBlock,
-                          invertedGemm1threadSubTileMaps);
-            // Rescale/correct output, rowMax and rowSums
-            Value attentionOutAccBufferView =
-                transform(rewriter, attentionOutAccBufferPerG1MBlock,
-                          attentionOutAccBufferThreadSubTileViewMaps);
-            createAttentionRowStateCorrections(
-                rewriter, loc, gemm1MNThreadwiseView, attentionOutAccBufferView,
-                expMaxDiffRowBuffer);
+
+            accelEmitterPtrGemm1->computeOutputConversion(
+                rewriter, loc, matrixC, gemm1OutBufferPerG1MBlock, forceUnroll);
+            if (op.getEnableSoftmax()) {
+              Value attentionOutAccBufferPerG1MBlock = attentionOutAccBuffer;
+              if (gemm1MBlocks > 1) {
+                attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(
+                    rewriter, loc, attentionOutAccBuffer, g1MLoopIndVar);
+              }
+              ArrayAttr invertedGemm1threadSubTileMaps = invertTransforms(
+                  rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
+              Value gemm1MNThreadwiseView =
+                  transform(rewriter, gemm1OutBufferPerG1MBlock,
+                            invertedGemm1threadSubTileMaps);
+              // Rescale/correct output, rowMax and rowSums
+              Value attentionOutAccBufferView =
+                  transform(rewriter, attentionOutAccBufferPerG1MBlock,
+                            attentionOutAccBufferThreadSubTileViewMaps);
+              createAttentionRowStateCorrections(
+                  rewriter, loc, gemm1MNThreadwiseView,
+                  attentionOutAccBufferView, expMaxDiffRowBuffer);
+            }
+
+            rock::YieldOp::create(rewriter, loc);
           }
         }
       }
@@ -2691,7 +2747,6 @@ struct GridwiseAttentionAccelRewritePattern
     ArrayAttr outGridSubTile =
         prependUpperViews(rewriter, rewriter.getArrayAttr({flatToMiterMap}),
                           gemm1OutSubTileViews.gridSubTile);
-    Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
 
     // Note that we don't use splitKV here because that dimension belongs to the
     // batch size already for output tensors
@@ -2842,9 +2897,7 @@ struct GridwiseGemmAccelRewritePattern
 
     // If we are using direct to LDS, we need to ensure that the
     // hardware supports it.
-    if (directToLDS &&
-        !bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b) &&
-        !bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b))
+    if (directToLDS && !isDirectToLDSSupported(features))
       return op.emitOpError("Direct to LDS is not supported by the hardware");
 
     // Get the vector copy layout for A and B
@@ -2892,7 +2945,6 @@ struct GridwiseGemmAccelRewritePattern
     // Get current workitem ID.
     auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
 
-    auto zeroConstantOp = ConstantIndexOp::create(b, loc, 0);
     // Compute grid coordinates
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
@@ -3015,13 +3067,12 @@ struct GridwiseGemmAccelRewritePattern
         loadType == GemmLoadTileType::DoubleBuffer ||
         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
-    // Logic to setup buffers for blockwise_gemm_accel.
-    int64_t initiationInterval = doubleBuffering ? 1 : 2;
-
-    auto [arrayAForLoad, arrayBForLoad, arrayA, arrayB] =
-        createRegInterrimBufferForAccel(
-            loc, params, b, doubleBuffering ? params.mRepeats : 1,
-            doubleBuffering ? params.nRepeats : 1, directToLDS);
+    auto [arrayAForLoad, arrayA] = createRegInterrimBufferForAccel(
+        b, loc, params.argTypeA, params.kBasePerThread,
+        doubleBuffering ? params.mRepeats : 1, directToLDS);
+    auto [arrayBForLoad, arrayB] = createRegInterrimBufferForAccel(
+        b, loc, params.argTypeB, params.kBasePerThread,
+        doubleBuffering ? params.nRepeats : 1, directToLDS);
     Value regCAllocOp = createBufferForAccelGemmOut(loc, params, b);
     zeroAccBuffer(b, loc, regCAllocOp);
     Value arrayScaleA, arrayScaleB, arrayScaleAForLoad, arrayScaleBForLoad;
@@ -3036,22 +3087,19 @@ struct GridwiseGemmAccelRewritePattern
         argTypeScaleB =
             VectorType::get(argBVector.getNumElements(), elementTypeScaleB);
       }
-      std::tie(arrayScaleAForLoad, arrayScaleBForLoad, arrayScaleA,
-               arrayScaleB) =
-          createRegInterrimBufferForAccel(
-              loc, argTypeScaleA, argTypeScaleB, params.kBasePerThread, b,
-              doubleBuffering ? params.mRepeats : 1,
-              doubleBuffering ? params.nRepeats : 1, directToLDS);
+      
+      auto [arrayScaleAForLoad, arrayScaleA] = createRegInterrimBufferForAccel(
+          b, loc, argTypeScaleA, params.kBasePerThread,
+          doubleBuffering ? params.mRepeats : 1, directToLDS);
+      auto [arrayScaleBForLoad, arrayScaleB] = createRegInterrimBufferForAccel(
+          b, loc, argTypeScaleB, params.kBasePerThread,
+          doubleBuffering ? params.nRepeats : 1, directToLDS);
     }
 
     // Emit loop.
     Value nIterations = ConstantIndexOp::create(b, loc, K / kPerBlock);
-    Value step = ConstantIndexOp::create(b, loc, 1);
 
-    auto loopOp = scf::ForOp::create(b, loc, zeroConstantOp, nIterations, step);
-    loopOp->setAttr(
-        PipelineAttr::getMnemonic(),
-        rock::PipelineAttr::get(b.getContext(), initiationInterval));
+    scf::ForOp loopOp = createMainLoop(b, loc, nIterations, loadType);
     {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
