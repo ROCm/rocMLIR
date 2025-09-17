@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -eou pipefail
+
+NEED_POP=0
+if ! git diff --quiet || ! git diff --quiet --dif-filter=d -- .; then
+    NEED_POP=1
+    git stash push -q --keep-index --include-untracked -m precommit-format
+fi
+
+readarray -d '' files < <(
+    git diff --cached --name-only -z --diff-filter=ACM \
+    | grep -zE '\.py$' \
+    | grep -zEv '^(llvm-project/|external/llvm-project/)'
+)
+if (( ${#files[@]} )); then
+    echo "Running yapf on ${#files[@]} files..."
+    yapf -i "${files[@]}"
+    echo "Staging changes..."
+    git add -- "${files[@]}"
+fi
+
+if (( NEED_POP )); then
+    git stash pop -q || true
+fi
+
+exit 0
