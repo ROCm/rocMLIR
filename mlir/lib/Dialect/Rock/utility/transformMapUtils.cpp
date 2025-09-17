@@ -2615,11 +2615,8 @@ mlir::rock::getStringRefsFor(ArrayRef<SmallString<8>> strings) {
 
 FailureOr<Type> mlir::rock::getInputFusionElementType(Value transformed) {
   FailureOr<memref::AllocOp> maybeAlloc = findMemrefAlloc(transformed);
-  if (failed(maybeAlloc)) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "getInputFusionElementType: alloc op was not found\n");
+  if (failed(maybeAlloc))
     return failure();
-  }
   auto memref = maybeAlloc.value().getMemref();
 
   // find input fusion
