@@ -6,9 +6,11 @@ default_stages: [commit]
 exclude: '^external/llvm-project/.*'
 
 repos:
-  - repo: https://github.com/google/yapf
-    rev: v0.40.2
+  - repo: local
     hooks:
       - id: yapf
-        name: yapf (format Python)
-        args: ["-i"]
+        name: yapf (format and restage)
+        language: system
+        entry: bash scripts/precommit_yapf_restage.sh
+        pass_filenames: false
+        stages: [commit]
