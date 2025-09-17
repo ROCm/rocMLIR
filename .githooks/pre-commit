@@ -2,7 +2,7 @@
 set -eou pipefail
 
 NEED_POP=0
-if ! git diff --quiet || ! git diff --quiet --dif-filter=d -- .; then
+if ! git diff --quiet || ! git diff --quiet -- .; then
     NEED_POP=1
     git stash push -q --keep-index --include-untracked -m precommit-format
 fi
