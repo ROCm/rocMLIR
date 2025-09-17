@@ -135,6 +135,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
 
   pm.addPass(bufferization::createOneShotBufferizePass(bufOpts));
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
+  pm.addPass(rock::createRockRemoveOutputAllocPass());
 
   // Sort dimensions according to the underlying memory layout strides
   if (!noRock) {
