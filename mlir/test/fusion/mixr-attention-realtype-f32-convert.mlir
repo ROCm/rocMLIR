@@ -6,7 +6,9 @@
 // CHECK: kVectorLen: 4
 // CHECK: vVectorLen: 8
 module {
-  // CHECK: rock.blockwise_gemm_accel  %{{.*}} {blockSize = 256 : i32, inMPerThread = 4 : i32
+  // CHECK: %[[TRANS0:.*]] = rock.transform %{{.*}} <Unmerge{32, 16, 8} ["k_loop", "k_thread", "k_iter"] at [0, 4, 6] -> ["k"] at [1]>
+  // CHECK: %[[TRANS1:.*]] = rock.transform %[[TRANS0]]
+  // CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[TRANS1]])
   func.func private @mlir_attention_f32(%arg0: !migraphx.shaped<4096x4096xf32, 4096x1>, %arg1: !migraphx.shaped<4096x4096xf32, 4096x1>, %arg2: !migraphx.shaped<4096x4096xf16, 4096x1>, %arg3: !migraphx.shaped<4096x4096xf16, 4096x1>) -> !migraphx.shaped<4096x4096xf16, 4096x1> attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
     %0 = migraphx.add %arg0, %arg1 : <4096x4096xf32, 4096x1>, <4096x4096xf32, 4096x1> -> <4096x4096xf32, 4096x1>
     %1 = migraphx.convert %0 {target_type = 0 : i64} : <4096x4096xf32, 4096x1> to <4096x4096xf16, 4096x1>
