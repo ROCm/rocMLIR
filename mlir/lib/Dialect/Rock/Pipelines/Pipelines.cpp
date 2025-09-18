@@ -135,11 +135,11 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
 
   pm.addPass(bufferization::createOneShotBufferizePass(bufOpts));
   pm.addPass(bufferization::createBufferResultsToOutParamsPass());
-  pm.addPass(rock::createRockRemoveOutputAllocPass());
 
   // Sort dimensions according to the underlying memory layout strides
   if (!noRock) {
     auto &funcPm4 = pm.nest<func::FuncOp>();
+    funcPm4.addPass(createRockRemoveOutputAllocPass());
     funcPm4.addPass(createRockFindFirstGemmIndexPass());
     funcPm4.addPass(createRockSortDimensionsMemoryLayoutPass());
   }
