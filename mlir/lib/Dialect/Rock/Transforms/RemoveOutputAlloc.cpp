@@ -60,7 +60,7 @@ FailureOr<memref::CopyOp> findCopyOpToFuncArg(OpBuilder b, Value allocOp) {
     Value curVal = worklist.pop_back_val();
     if (visited.contains(curVal))
       continue;
-    
+
     visited.insert(curVal);
 
     for (auto *user : curVal.getUsers()) {
@@ -107,7 +107,8 @@ void RockRemoveOutputAllocPass::runOnOperation() {
 
     auto copyUntransformTuple = rock::untransform(b, copyOp->getSource());
     ArrayAttr views = std::get<1>(copyUntransformTuple);
-    auto result = rock::invertTransforms(b, copyOp->getSource().getLoc(), views);
+    auto result =
+        rock::invertTransforms(b, copyOp->getSource().getLoc(), views);
 
     // There are some transforms that are not invertible. If we hit this case,
     // then there is nothing further we can do here.
@@ -116,8 +117,7 @@ void RockRemoveOutputAllocPass::runOnOperation() {
 
     // Create a new rock::Transform op that applies the inverse transforms
     // to the output arg of the bwdData op
-    auto newTransformOp =
-        rock::transform(b, copyOp->getTarget(), result);
+    auto newTransformOp = rock::transform(b, copyOp->getTarget(), result);
     allocOp.replaceAllUsesWith(newTransformOp);
 
     // We are safe to add the allocOp to the list of ops to delete since
