@@ -12,7 +12,6 @@
 #transform_map3 = #rock.transform_map<#map3 by [<PassThrough ["c", "y", "x"] at [2, 3, 4] -> ["c", "y", "x"] at [1, 2, 3]>, <Unmerge{1, 3} ["g", "k"] at [0, 1] -> ["k"] at [0]>] bounds = [1, 3, 4, 3, 3] -> [3, 4, 3, 3]>
 #transform_map4 = #rock.transform_map<#map4 by [<PassThrough ["n", "h", "w"] at [0, 3, 4] -> ["n", "h", "w"] at [0, 2, 3]>, <Unmerge{1, 4} ["g", "k"] at [1, 2] -> ["k"] at [1]>] bounds = [1, 1, 4, 11, 19] -> [1, 4, 11, 19]>
 #transform_map5 = #rock.transform_map<#map5 by [<Merge{1, 4, 11, 19} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3"] at [0, 1, 2, 3]>] bounds = [836] -> [1, 4, 11, 19]>
-// Check that we have created an inverse transform map to transform_map5
 module {
   func.func @mlir_bwd_data_conv(%arg0: memref<126xf32>, %arg1: memref<108xf32>, %arg2: memref<836xf32>) attributes {arch = "gfx942", kernel} {
     %0 = rock.transform %arg1 by #transform_map : memref<108xf32> to memref<3x4x3x3xf32>

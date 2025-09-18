@@ -72,7 +72,6 @@ FailureOr<memref::CopyOp> findCopyOpToFuncArg(OpBuilder b, Value allocOp) {
         if (isa<BlockArgument>(rawVal))
           return memrefCpy;
       } else if (auto transformOp = dyn_cast<rock::TransformOp>(user)) {
-        // If we have already visited this value, then skip it
         Value res = transformOp.getResult();
         worklist.push_back(res);
       }
