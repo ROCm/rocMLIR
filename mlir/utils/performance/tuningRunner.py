@@ -18,12 +18,12 @@ from perfRunner import AttentionConfiguration
 from perfRunner import GemmGemmConfiguration
 from perfRunner import ConvGemmConfiguration
 from perfRunner import Paths
+from perfRunner import MLIR_N_REPEATS as NUM_ITERATIONS
 from perfCommonUtils import CORRECT_RESULT_RE
 
 import numpy as np
 import pandas as pd
 
-NUM_ITERATIONS = 100
 WARMUP_ITERATIONS = 10
 TRIM_PERCENT = 10
 SLEEP_MS = 1
