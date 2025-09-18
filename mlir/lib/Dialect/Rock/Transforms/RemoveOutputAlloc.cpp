@@ -56,7 +56,7 @@ memref::CopyOp findCopyOpToFuncArg(Value rawBuffer) {
   SmallVector<Value> worklist;
   worklist.push_back(rawBuffer);
 
-  while(!worklist.empty()) {
+  while (!worklist.empty()) {
     Value curVal = worklist.pop_back_val();
     visited.insert(curVal);
 
@@ -95,21 +95,20 @@ void RockRemoveOutputAllocPass::runOnOperation() {
     // If rawBuffer is not a memref::Alloc, then we can exit early
     if (!isa<memref::AllocOp>(rawBuffer.getDefiningOp()))
       return;
-    
+
     memref::CopyOp copyOp = findCopyOpToFuncArg(rawBuffer);
     if (!copyOp)
       return;
 
     auto copyUntransformTuple = rock::untransform(b, copyOp.getSource());
     ArrayAttr views = std::get<1>(copyUntransformTuple);
-    auto result = rock::invertTransforms(b, copyOp.getSource().getLoc(),
-                                         views);
+    auto result = rock::invertTransforms(b, copyOp.getSource().getLoc(), views);
 
     // Create a new rock::Transform op that applies the inverse transforms
     // to the output arg of the bwdData op
     OpBuilder newBuilder{rawBuffer.getDefiningOp()};
-    auto newTransformOp = rock::transform(newBuilder, copyOp.getTarget(),
-                                          result);
+    auto newTransformOp =
+        rock::transform(newBuilder, copyOp.getTarget(), result);
     rawBuffer.replaceAllUsesWith(newTransformOp);
     opsToErase.push_back(copyOp);
     opsToErase.push_back(rawBuffer.getDefiningOp());
@@ -118,5 +117,4 @@ void RockRemoveOutputAllocPass::runOnOperation() {
   // Iterate over the ops to erase and remove them from the IR
   for (auto &op : opsToErase)
     op->erase();
-
 }
