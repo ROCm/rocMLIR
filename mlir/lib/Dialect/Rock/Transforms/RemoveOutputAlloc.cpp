@@ -49,69 +49,83 @@ struct RockRemoveOutputAllocPass
 };
 } // end anonymous namespace
 
-memref::CopyOp findCopyOpToFuncArg(Value rawBuffer) {
+FailureOr<memref::CopyOp> findCopyOpToFuncArg(OpBuilder b, Value allocOp) {
   // Traverse the users of the memref::Alloc to find the memref::Copy
   // that is used to write to a function argument
   DenseSet<Value> visited;
   SmallVector<Value> worklist;
-  worklist.push_back(rawBuffer);
+  worklist.push_back(allocOp);
 
   while (!worklist.empty()) {
     Value curVal = worklist.pop_back_val();
+    if (visited.contains(curVal))
+      continue;
+    
     visited.insert(curVal);
 
     for (auto *user : curVal.getUsers()) {
       if (auto memrefCpy = dyn_cast<memref::CopyOp>(user)) {
         // If the destination of this copy is a function argument, then
         // we have found our candidate for removal
-        if (isa<BlockArgument>(memrefCpy.getTarget()))
+        auto untransformTuple = rock::untransform(b, memrefCpy.getTarget());
+        auto &rawVal = std::get<0>(untransformTuple);
+        if (isa<BlockArgument>(rawVal))
           return memrefCpy;
       } else if (auto transformOp = dyn_cast<rock::TransformOp>(user)) {
         // If we have already visited this value, then skip it
         Value res = transformOp.getResult();
-        if (visited.contains(res))
-          continue;
         worklist.push_back(res);
       }
     }
   }
 
-  return nullptr;
+  return failure();
 }
 
 void RockRemoveOutputAllocPass::runOnOperation() {
   auto func = getOperation();
   SmallVector<Operation *> opsToErase;
 
-  // For the time being, we only want to perform this optimization for
+  // For the time being, we only want to perform this workaround for
   // memref.allocs that contain the output result of a backwards data
   // convolution op
   func.walk([&](rock::ConvBwdDataOp bwdData) {
     // Find the alloc that this op writes to
+    // Note: The input of the bwdData op is the tensor that gets written to,
+    // not the output.
     OpBuilder b{bwdData};
     auto untransformTuple = rock::untransform(b, bwdData.getInput());
-    auto &rawBuffer = std::get<0>(untransformTuple);
+    auto &allocOp = std::get<0>(untransformTuple);
+    b.setInsertionPointAfter(allocOp.getDefiningOp());
 
-    // If rawBuffer is not a memref::Alloc, then we can exit early
-    if (!isa<memref::AllocOp>(rawBuffer.getDefiningOp()))
+    // If allocOp is not a memref::Alloc, then we can exit early
+    if (!isa<memref::AllocOp>(allocOp.getDefiningOp()))
       return;
 
-    memref::CopyOp copyOp = findCopyOpToFuncArg(rawBuffer);
-    if (!copyOp)
+    auto copyOp = findCopyOpToFuncArg(b, allocOp);
+    if (failed(copyOp))
       return;
 
-    auto copyUntransformTuple = rock::untransform(b, copyOp.getSource());
+    auto copyUntransformTuple = rock::untransform(b, copyOp->getSource());
     ArrayAttr views = std::get<1>(copyUntransformTuple);
-    auto result = rock::invertTransforms(b, copyOp.getSource().getLoc(), views);
+    auto result = rock::invertTransforms(b, copyOp->getSource().getLoc(), views);
+
+    // There are some transforms that are not invertible. If we hit this case,
+    // then there is nothing further we can do here.
+    if (!result)
+      return;
 
     // Create a new rock::Transform op that applies the inverse transforms
     // to the output arg of the bwdData op
-    OpBuilder newBuilder{rawBuffer.getDefiningOp()};
     auto newTransformOp =
-        rock::transform(newBuilder, copyOp.getTarget(), result);
-    rawBuffer.replaceAllUsesWith(newTransformOp);
-    opsToErase.push_back(copyOp);
-    opsToErase.push_back(rawBuffer.getDefiningOp());
+        rock::transform(b, copyOp->getTarget(), result);
+    allocOp.replaceAllUsesWith(newTransformOp);
+
+    // We are safe to add the allocOp to the list of ops to delete since
+    // we disable fusions for bwd_data convs and therefore this will be the
+    // only op that uses this.
+    opsToErase.push_back(*copyOp);
+    opsToErase.push_back(allocOp.getDefiningOp());
   });
 
   // Iterate over the ops to erase and remove them from the IR
