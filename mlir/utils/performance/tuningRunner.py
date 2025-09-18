@@ -23,6 +23,11 @@ from perfCommonUtils import CORRECT_RESULT_RE
 import numpy as np
 import pandas as pd
 
+NUM_ITERATIONS = 100
+WARMUP_ITERATIONS = 10
+TRIM_PERCENT = 10
+SLEEP_MS = 1
+
 @dataclass(frozen=True)
 class Options:
     debug: bool
@@ -138,11 +143,15 @@ def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, opt
 def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
     allData = []
     winners = {}
+    tuning_driver_args = [f"--tuning-space={options.tuningSpaceKind}",
+                          f"--num-iterations={NUM_ITERATIONS}",
+                          f"--warmup-iterations={WARMUP_ITERATIONS}",
+                          f"--trim-percent={TRIM_PERCENT}",
+                          f"--sleep-ms={SLEEP_MS}"]
     for testVector in configs:
         if not testVector.endswith(".mlir"):
             commandLine = testVector.split(sep=' ')
             config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
-            config.MLIR_N_REPEATS=1
             testVector = config.toCommandLine()
             print("Tuning:", testVector, file=sys.stderr)
             commandLineOptions = config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
@@ -150,7 +159,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
             kernelGenCommand = paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
             kernelGen = subprocess.Popen(kernelGenCommand.split(), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             tuningLoop = subprocess.Popen(
-                [paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}"],
+                [paths.mlir_paths.rocmlir_tuning_driver_path] + tuning_driver_args,
                 stdin=kernelGen.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             kernelGen.stdout.close()
@@ -165,7 +174,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
             print(f"Tuning:{result[2]} from {testVector}", file=sys.stderr)
             commandLine = result[2].split(sep=' ')
             config = confClass.fromCommandLine(commandLine, options.arch, options.numCU)
-            tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path, f"--tuning-space={options.tuningSpaceKind}", testVector],
+            tuningLoop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] + tuning_driver_args + [testVector],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         # Tune, printing progress as we go to avoid CI timeouts

@@ -97,6 +97,10 @@ static llvm::cl::opt<unsigned> numIterations(
     llvm::cl::desc("Number of times to run each kernel for averaging"),
     llvm::cl::value_desc("number of runs"), llvm::cl::init(100));
 
+static llvm::cl::opt<unsigned> warmupIterations(
+    "warmup-iterations", llvm::cl::desc("Number of warmup runs"),
+    llvm::cl::value_desc("number of warmup runs"), llvm::cl::init(10));
+
 static llvm::cl::opt<unsigned> trimPercent(
     "trim-percent",
     llvm::cl::desc("Percentage to trim from top and bottom of results"),
@@ -105,12 +109,7 @@ static llvm::cl::opt<unsigned> trimPercent(
 static llvm::cl::opt<unsigned> sleepMs(
     "sleep-ms",
     llvm::cl::desc("Milliseconds to sleep between runs to avoid throttling"),
-    llvm::cl::value_desc("milliseconds to sleep"), llvm::cl::init(0));
-
-static llvm::cl::opt<unsigned>
-    sleepFreq("sleep-freq", llvm::cl::desc("Sleep after every N runs"),
-              llvm::cl::value_desc("number of runs to sleep after"),
-              llvm::cl::init(10));
+    llvm::cl::value_desc("milliseconds to sleep"), llvm::cl::init(1));
 
 static llvm::cl::opt<bool> showStats(
     "show-stats",
@@ -157,26 +156,35 @@ static benchmark::DataType getDataType(Type inputType) {
   if (hipSuccess != (expr)) {                                                  \
     return failure();                                                          \
   }
-#define HIPCHECK_VOID(expr)                                                    \
-  if (hipSuccess != (expr)) {                                                  \
-    return;                                                                    \
-  }
 
 size_t flushSize = 0;
 void *flushBuffer = nullptr;
 
-static void flushL2Cache(hipStream_t stream) {
+static LogicalResult flushL2Cache(hipStream_t stream) {
   if (flushBuffer == nullptr) {
     hipDeviceProp_t props;
-    HIPCHECK_VOID(hipGetDeviceProperties(&props, 0));
+    HIPCHECK(hipGetDeviceProperties(&props, 0));
     size_t l2Size = props.l2CacheSize;
 
     flushSize = l2Size + (l2Size / 5); // 20% margin
-    HIPCHECK_VOID(hipMalloc(&flushBuffer, flushSize));
+    HIPCHECK(hipMalloc(&flushBuffer, flushSize));
   }
 
-  HIPCHECK_VOID(hipMemsetAsync(flushBuffer, 0, flushSize, stream));
-  HIPCHECK_VOID(hipStreamSynchronize(stream));
+  HIPCHECK(hipMemsetAsync(flushBuffer, 0, flushSize, stream));
+
+  return success();
+}
+
+static float computeMedian(const std::vector<float> &values) {
+  if (values.empty())
+    return 0.0;
+
+  size_t n = values.size();
+  if (n % 2 == 0) {
+    return (values[n / 2 - 1] + values[n / 2]) / 2.0;
+  } else {
+    return values[n / 2];
+  }
 }
 
 static float computeTrimmedMean(std::vector<float> &values, unsigned trimPct) {
@@ -191,7 +199,7 @@ static float computeTrimmedMean(std::vector<float> &values, unsigned trimPct) {
 
   if (startIdx >= endIdx) {
     // If we'd trim everything, just return median
-    return values[values.size() / 2];
+    return computeMedian(values);
   }
 
   float sum = 0.0;
@@ -253,19 +261,22 @@ static FailureOr<double> benchmarkKernels(
   }
 
   // Warmup run
-  for (auto [func, blockSize, gridSize] :
-       llvm::zip(functions, blockSizes, gridSizes)) {
-    HIPCHECK(hipExtModuleLaunchKernel(
-        func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-        argPointers.data(), nullptr, nullptr, nullptr));
+  for (unsigned iter = 0; iter < warmupIterations; ++iter) {
+    for (auto [func, blockSize, gridSize] :
+         llvm::zip(functions, blockSizes, gridSizes)) {
+      HIPCHECK(hipExtModuleLaunchKernel(
+          func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
+          argPointers.data(), nullptr, nullptr, nullptr));
+    }
   }
-  HIPCHECK(hipStreamSynchronize(stream));
 
   // Measure runs
   std::vector<float> measurements;
 
   for (unsigned iter = 0; iter < numIterations; ++iter) {
-    flushL2Cache(stream);
+    if (failed(flushL2Cache(stream))) {
+      return failure();
+    }
 
     float totalMilliseconds = 0.0;
 
@@ -291,16 +302,11 @@ static FailureOr<double> benchmarkKernels(
     }
 
     measurements.push_back(totalMilliseconds);
-
-    // Sleep to avoid GPU throttling
-    if (sleepMs > 0 && ((iter + 1) % sleepFreq) == 0) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
-    }
   }
 
-  if (flushBuffer) {
-    HIPCHECK(hipFree(flushBuffer));
-    flushBuffer = nullptr;
+  // Sleep to avoid GPU throttling
+  if (sleepMs > 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
   }
 
   for (hipModule_t mod : modules) {
@@ -309,9 +315,9 @@ static FailureOr<double> benchmarkKernels(
 
   HIPCHECK(hipStreamDestroy(stream));
 
-  if (showStats && measurements.size() > 1) {
+  if (showStats && measurements.size()) {
     std::sort(measurements.begin(), measurements.end());
-    float median = measurements[measurements.size() / 2];
+    float median = computeMedian(measurements);
     float min = measurements.front();
     float max = measurements.back();
 
@@ -539,10 +545,13 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   for (void *buffer : gpuBuffers) {
     HIPCHECK(hipFree(buffer));
   }
+  if (flushBuffer) {
+    HIPCHECK(hipFree(flushBuffer));
+    flushBuffer = nullptr;
+  }
   return success();
 }
 #undef HIPCHECK
-#undef HIPCHECK_VOID
 
 int main(int argc, char **argv) {
   llvm::InitLLVM y(argc, argv);
