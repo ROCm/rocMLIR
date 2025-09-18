@@ -795,7 +795,7 @@ struct GridwiseAttentionAccelRewritePattern
   // This function will process a tile of gemm input into LDS buffer
   // in a way it could be fed to blockwise_gemm_accel op
   LogicalResult loadAndStoreGemmInputTile(
-      Location loc, Value in, Value kIter,
+      Location loc, Value in, Value kIter, Type elemType,
       rock::layout::GridCoordinates gridCoords, Value fromGlobalRegBuffer,
       Value toLDSRegBuffer, Value destBuffer, StringRef nonKDimName,
       int64_t kpack, int64_t kpacksPerBlock, int64_t dPerBlock,
@@ -817,7 +817,6 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
     int64_t kGlobal = cast<MemRefType>(in.getType()).getShape()[1];
     int64_t kIters = kGlobal / kPerBlock;
-    Type elemType = cast<MemRefType>(in.getType()).getElementType();
     if (copyPerThread == 0) {
       return emitError(loc) << "Block size too large, rejecting as invalid.\n";
     }
@@ -2406,7 +2405,7 @@ struct GridwiseAttentionAccelRewritePattern
 
       if (doBypassLDSForQ) {
         LogicalResult statusLoadQTile = loadAndStoreGemmInputTile(
-            loc, inQ, /*kiter=*/zero, gridCoordsGemm0LoadQ,
+            loc, inQ, /*kiter=*/zero, elemTypeQLoad, gridCoordsGemm0LoadQ,
             fromGlobalRegBufferQ, toLDSRegBufferQ, preAccelRegBuffersQ, "n",
             gemm0kpack, gemm0KpacksPerBlock, gemm0NPerBlock, blockSize,
             gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
@@ -2418,7 +2417,7 @@ struct GridwiseAttentionAccelRewritePattern
         Value ldsByteBufferQ =
             createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
         LogicalResult statusLoadQ = loadAndStoreGemmInputTile(
-            loc, inQ, /*kiter=*/zero, gridCoordsGemm0LoadQ,
+            loc, inQ, /*kiter=*/zero, elemTypeQLoad, gridCoordsGemm0LoadQ,
             fromGlobalRegBufferQ, toLDSRegBufferQ, ldsByteBufferQ, "n",
             gemm0kpack, gemm0KpacksPerBlock, gemm0NPerBlock, blockSize,
             gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
@@ -2491,7 +2490,7 @@ struct GridwiseAttentionAccelRewritePattern
           ldsByteBufferQ =
               createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
           LogicalResult statusLoadQ = loadAndStoreGemmInputTile(
-              loc, inQ, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferQ,
+              loc, inQ, kLoopIV, elemTypeQLoad, gridCoordsGemm0, fromGlobalRegBufferQ,
               toLDSRegBufferQ, ldsByteBufferQ, "n", gemm0kpack,
               gemm0KpacksPerBlock, gemm0NPerBlock, blockSize, gridSize,
               bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
@@ -2511,7 +2510,7 @@ struct GridwiseAttentionAccelRewritePattern
         Value ldsByteBufferK = createLDSByteBuffer(
             rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
         LogicalResult statusLoadKTile = loadAndStoreGemmInputTile(
-            loc, inK, kLoopIV, gridCoordsGemm0, fromGlobalRegBufferK,
+            loc, inK, kLoopIV, elemTypeKLoad, gridCoordsGemm0, fromGlobalRegBufferK,
             toLDSRegBufferK, ldsByteBufferK, "m", gemm0kpack,
             gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
             bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
@@ -2758,7 +2757,7 @@ struct GridwiseAttentionAccelRewritePattern
 
           LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
               loc, inV,
-              /*kIter=*/mLoopIV, gridCoordsGemm1, fromGlobalRegBufferV,
+              /*kIter=*/mLoopIV, elemTypeVLoad, gridCoordsGemm1, fromGlobalRegBufferV,
               toLDSRegBufferV, ldsByteBufferV, "m", gemm1kpack,
               gemm1KpacksPerBlock, gemm1MPerBlock, blockSize, gridSize,
               bidGridOrder, gemm1BidGridLengths, forceUnroll, rewriter,
