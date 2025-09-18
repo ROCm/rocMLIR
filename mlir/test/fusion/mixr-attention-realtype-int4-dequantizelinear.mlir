@@ -6,7 +6,7 @@
 // CHECK: kVectorLen: 32
 // CHECK: vVectorLen: 8
 module {
-  // CHECK: %[[TRANS0:.*]] = rock.transform %{{.*}} <Unmerge{32, 32, 4} ["k_loop", "k_thread", "k_iter"] at [0, 4, 6] -> ["k"] at [1]>
+  // CHECK: %[[TRANS0:.*]] = rock.transform %{{.*}} <Unmerge{64, 2, 32} ["m_block", "m_thread", "m_iter"] at [2, 5, 7] -> ["m"] at [2]>
   // CHECK: %[[TRANS1:.*]] = rock.transform %[[TRANS0]]
   // CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[TRANS1]])
   func.func private @mlir_attention_int4(%arg0: !migraphx.shaped<4096x4096xf16, 8192x1>, %arg1: !migraphx.shaped<4096xf16, 1>, %arg2: !migraphx.shaped<4096xf16, 1>, %arg3: !migraphx.shaped<4096x2048xui8, 2048x1>, %arg4: !migraphx.shaped<4096x4096xf16, 4096x1>) -> !migraphx.shaped<4096x4096xf16, 4096x1> attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
