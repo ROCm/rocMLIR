@@ -44,7 +44,7 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
     shape, perf = params
     *shapeParams, currentSeqLen = shape
     dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse, split_kv = shapeParams
-    perfString = f"attn:v1:{','.join(str(x) for x in perf)}"
+    perfString = f"attn:v2:{','.join(str(x) for x in perf)}"
     attnConfig = AttentionConfiguration(
         dtype=dtype,
         g=g,
@@ -144,22 +144,28 @@ perfConfigSpaceMFMA = list(itertools.product( # MFMA perfConfig space
         [32, 64, 128, 256], # M/block G0
         [32, 64, 128, 256], # M/block G1
         [32, 64, 128, 256], # N/block G0
-        [8, 16, 32, 64], # Kpack/Block
+        [8, 16, 32, 64],    # Kpack/Block
         [32, 64, 128, 256], # M/Wave
-        [4, 16, 32], # MN/Xdl
-        [4, 8, 16], # kPack
-        [0, 1] # forceUnroll
+        [4, 16, 32],        # MN/Xdl
+        [4, 8, 16],         # kPack
+        [1],                # splitKFactor
+        [1],                # scheduleVersion
+        [2],                # outputSwizzle
+        [0, 1]              # forceUnroll
     ))
 
 perfConfigSpaceWMMA = list(itertools.product( # WMMA perfConfig space
-        [32, 64, 128],         # M/block G0
-        [32, 64, 128],         # M/block G1
-        [32, 64, 128, 256],    # N/block G0
-        [8, 16, 32, 64],       # Kpack/Block
-        [32, 64],              # M/Wave
-        [32, 64],              # N/Wave
-        [4, 8, 16],            # kPack
-        [0, 1]                 # forceUnroll
+        [32, 64, 128],          # M/block G0
+        [32, 64, 128],          # M/block G1
+        [32, 64, 128, 256],     # N/block G0
+        [8, 16, 32, 64],        # Kpack/Block
+        [32, 64],               # M/Wave
+        [32, 64],               # N/Wave
+        [4, 8, 16],             # kPack
+        [1],                    # splitKFactor
+        [1],                    # scheduleVersion
+        [2],                    # outputSwizzle
+        [0, 1]                  # forceUnroll
     ))
 
 def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):

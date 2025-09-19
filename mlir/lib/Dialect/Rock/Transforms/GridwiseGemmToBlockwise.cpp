@@ -2426,14 +2426,7 @@ struct GridwiseAttentionAccelRewritePattern
       }
     }
 
-    // TODO: figure out if this feature is used
     bool dynamicMLoop = splitKV != 1 || isCausal || isKVCache;
-    bool isReverseGrid = succeeded(rock::getReverseGrid(op));
-    if (isReverseGrid && dynamicMLoop) {
-      return op.emitError("reverse grid is not compatible with causal or "
-                          "currentSeqLen or splitKV\n");
-    }
-
     LoopLikeOpInterface mLoopOp = createMLoop(rewriter, loc, start, end, gemm0M,
                                               gemm0MPerBlock, dynamicMLoop);
     {
@@ -2447,11 +2440,6 @@ struct GridwiseAttentionAccelRewritePattern
       Value mIterationsGemm0Val =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
       Value mLoopIV = mLoopOp.getSingleInductionVar().value();
-      if (isReverseGrid) {
-        AffineMap reverseMap = rock::getIdxReversalMap(rewriter);
-        mLoopIV = rewriter.createOrFold<affine::AffineApplyOp>(
-            loc, reverseMap, ValueRange{mLoopIV, mIterationsGemm0Val});
-      }
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
       auto gridCoordsGemm0 =
           layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks,
@@ -2462,16 +2450,6 @@ struct GridwiseAttentionAccelRewritePattern
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
         Value kLoopIV = kLoopOp.getInductionVar();
-        // Purpose of reversing the grid is to exploit
-        // (if any) temporal locality between producers
-        // and consumers of data between kernels.
-        // Towards that goal, the kLoop has to be reversed
-        // to use latest producer.
-        if (isReverseGrid) {
-          AffineMap reverseMap = rock::getIdxReversalMap(rewriter);
-          kLoopIV = rewriter.createOrFold<affine::AffineApplyOp>(
-              loc, reverseMap, ValueRange{kLoopIV, kIterationsGemm0Val});
-        }
 
         // LDS Barrier (issue 1811): some threads might be loading from LDS
         // while others are in the next iteration (here), writing to LDS. This
@@ -2920,7 +2898,7 @@ struct GridwiseAttentionAccelRewritePattern
         loc, outAccBufferOutTypedFlat, trOut, outGridSubTile,
         /*extraIndices=*/
         ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
-        rock::StoreMethod::Set, forceUnroll,
+        op.getStoreMethod(), forceUnroll,
         /*useIndexDiffs=*/true);
 
     // store LSE to device memory
@@ -3351,17 +3329,7 @@ struct GridwiseGemmAccelRewritePattern
       {
         PatternRewriter::InsertionGuard guard(b);
         b.setInsertionPointToStart(&stage0.getRegion().emplaceBlock());
-        bool isReverseGrid = succeeded(rock::getReverseGrid(op));
-        // Purpose of reversing the grid is to exploit
-        // (if any) temporal locality between producers
-        // and consumers of data between kernels.
-        // Towards that goal, the kLoop has to be reversed
-        // to use latest producer.
-        if (isReverseGrid) {
-          AffineMap reverseMap = rock::getIdxReversalMap(b);
-          iv = b.createOrFold<affine::AffineApplyOp>(
-              loc, reverseMap, ValueRange{iv, nIterations});
-        }
+
         b.create<ThreadwiseReadIntoOp>(
             loc, vectorOfBoolShapedLike(loadBufferA), wrappedA, loadBufferA,
             /*dynamicValidities=*/ValueRange{},

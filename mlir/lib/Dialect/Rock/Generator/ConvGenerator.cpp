@@ -42,7 +42,7 @@ ConvGenerator::ConvGenerator(
     const std::string &arch, const std::string &chip,
     bool disableSplitKForTuning, int64_t scheduleVersion,
     const std::string &triple, const std::string &chipFeatures,
-    const std::string &perfConfig, std::optional<int> num_cu, bool reverseGrid,
+    const std::string &perfConfig, std::optional<int> num_cu,
     GemmFeatures features, const std::optional<ConvOpType> operation,
     const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
     const std::string &outputDataTypeStr, ArrayRef<int> dilations,
@@ -58,7 +58,6 @@ ConvGenerator::ConvGenerator(
              chipFeatures,
              perfConfig,
              num_cu,
-             reverseGrid,
              features,
              operation,
              filterDataTypeStr,
@@ -527,7 +526,6 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
-  strToInt(rock::ReverseGridAttrAttr::getMnemonic().str(), config.reverseGrid);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -835,14 +833,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
-  // TODO[split-K]: split-K does not work with BwdWeight
-  if (!config.disableSplitKForTuning &&
-      config.operation.value() != ConvOpType::BwdWeight) {
+  if (!config.disableSplitKForTuning) {
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
-  if (config.reverseGrid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
                   builder.getUnitAttr());
   }
   if (config.scheduleVersion != 1) {

@@ -187,4 +187,11 @@ def RockFindFirstGemmIndexPass
                            "linalg::LinalgDialect"];
 }
 
+def RockRemoveOutputAllocPass
+    : Pass<"rock-remove-output-alloc", "::mlir::func::FuncOp"> {
+  let summary = "Remove the alloc assigned for output tensors once the output "
+                "tensor has already been added to the list of function args";
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES
