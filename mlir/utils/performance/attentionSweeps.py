@@ -238,7 +238,7 @@ def main():
     
     print(f"\nPassed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
     
-    return 0
+    return 1 if failing else 0
 
 if __name__ == '__main__':
     ret = main()
