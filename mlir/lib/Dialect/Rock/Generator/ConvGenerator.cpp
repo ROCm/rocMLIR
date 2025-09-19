@@ -776,20 +776,6 @@ static void zeroInitArg(OpBuilder &builder, func::FuncOp func,
                    builder.getNamedAttr(attrName, zero));
 }
 
-// Heuristic to determine if every element in the output would be written by the
-// backward data convolution algorithm.
-static bool isEveryElementWritten(ArrayRef<int64_t> strideDims,
-                                  ArrayRef<int64_t> dilationDims,
-                                  ArrayRef<int64_t> filterDims) {
-  bool result = true;
-  for (const auto &[stride, dilation, filterSize] :
-       zip(strideDims, dilationDims, filterDims)) {
-    if (!(dilation == 1 && stride <= filterSize))
-      result = false;
-  }
-  return result;
-}
-
 LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
                                            bool isVerifier, bool ignoreTuning) {
   OpBuilder builder(module.getContext());
@@ -971,8 +957,9 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
                            attributes);
   } break;
   case ConvOpType::BwdData: {
-    if (!isEveryElementWritten(config.strideDims, config.dilationDims,
-                               config.filterDims)) {
+    if (!rock::isEveryElementWrittenBwdData(config.strideDims,
+                                            config.dilationDims,
+                                            config.filterDims)) {
       // For all backwards data convolution ops that don't write to every pixel,
       // we want to zeroinitialize the buffer in the second argument
       // (input tensor)

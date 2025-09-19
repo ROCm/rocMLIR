@@ -21,6 +21,8 @@
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 2 : index.*}}
 // STRIDE2_GKYXC: {{rock.gemm.*kernelId = 3 : index.*}}
 
+// STRIDE2_GKYXC_NO_V4R1: {{rock.gemm.*kernelId = 0 : index.*}}
+
 // STRIDE2_1x1_TOP_LEVEL: %arg1: memref<{{.*}}xf32> {rock.prefill = 0.000000e+00 : f32}
 // STRIDE2_1x1_TOP_LEVEL: [[exp0:%.+]] = rock.transform %arg0 by {{.*}} : memref<1024xf32> to memref<1x32x32x1x1xf32>
 // STRIDE2_1x1_TOP_LEVEL: [[exp1:%.+]] = rock.transform %arg1 by {{.*}} : memref<200704xf32> to memref<32x1x32x14x14xf32>

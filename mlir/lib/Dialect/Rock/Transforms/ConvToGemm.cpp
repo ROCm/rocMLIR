@@ -1120,18 +1120,8 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
       auto numKernels =
           rock::backwardDataKernelIds(strideDims, dilationDims, filterDims,
                                       /*usesV4R1=*/true);
-      bool needsZeroInit = false;
       for (size_t i = 0; i < numKernels.size(); i++) {
-        if (numKernels[i] == -1) {
-          // No need to do anything in this case
-          // TODO: This logic can be removed once we no longer have
-          // zeroInitKernels
-          needsZeroInit = true;
-          continue;
-        }
-
-        auto maybe =
-            backwardDataV4R1(bwdDataOp, b, needsZeroInit ? i - 1 : i, usesV4R1);
+        auto maybe = backwardDataV4R1(bwdDataOp, b, i, usesV4R1);
         if (failed(maybe))
           return failure();
       }

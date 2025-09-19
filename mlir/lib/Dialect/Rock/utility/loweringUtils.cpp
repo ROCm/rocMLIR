@@ -105,6 +105,18 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
   return success();
 }
 
+bool mlir::rock::isEveryElementWrittenBwdData(ArrayRef<int64_t> strideDims,
+                                              ArrayRef<int64_t> dilationDims,
+                                              ArrayRef<int64_t> filterDims) {
+  bool result = true;
+  for (const auto &[stride, dilation, filterSize] :
+       zip(strideDims, dilationDims, filterDims)) {
+    if (!(dilation == 1 && stride <= filterSize))
+      result = false;
+  }
+  return result;
+}
+
 SmallVector<int64_t>
 mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
                                   ArrayRef<int64_t> dilationDims,
