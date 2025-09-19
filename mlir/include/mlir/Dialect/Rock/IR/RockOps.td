@@ -170,9 +170,9 @@ def Rock_GemmOp
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a (`scale` `=` $scaleA^)? `*` (`tr` $bTransposed^)? $b (`scale` `=` $scaleB^)?
+    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a (`scaled` `by` $scaleA^)? `*` (`tr` $bTransposed^)? $b (`scaled` `by` $scaleB^)?
     (`features` `=` $features^)? `storeMethod` `=` $storeMethod attr-dict
-    `:` type($c) `=` type($a) (`scale` type($scaleA)^)? `*` type($b) (`scale` type($scaleB)^)? (`->` type($result)^)?
+    `:` type($c) `=` type($a) (`scaled` `by` type($scaleA)^)? `*` type($b) (`scaled` `by` type($scaleB)^)? (`->` type($result)^)?
   }];
 }
 

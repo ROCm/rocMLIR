@@ -317,6 +317,11 @@ static llvm::cl::opt<int64_t> gemmN("n",
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
 
+static llvm::cl::opt<bool> scaledGemm(
+    "scaledGemm",
+    llvm::cl::desc("Indicates whether to generate scaling gemm or not"),
+    llvm::cl::value_desc("boolean"), llvm::cl::init(false));
+
 /// gemm+elementwise+gemm options
 static llvm::cl::opt<int64_t>
     gemmO("gemmO", llvm::cl::desc("N dimension of the second gemm()"),
@@ -2322,6 +2327,7 @@ createCPUConvFunc(ModuleOp module,
 static void getGemmTypes(ArrayRef<Type> elemTypes,
                          SmallVectorImpl<Type> &result, bool isCpuVerifier) {
   Type cElemType = elemTypes[2];
+  OpBuilder b(elemTypes[0].getContext());
   // Verify in int64_t to detect overflow
   if (elemTypes[0].isInteger(8) && isCpuVerifier)
     cElemType = IntegerType::get(cElemType.getContext(), 64);
@@ -2331,14 +2337,23 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
                        bDims = {groupSize, transposeB ? gemmN : gemmK,
                                 transposeB ? gemmK : gemmN},
                        cDims = {groupSize, transposeC ? gemmN : gemmM,
-                                transposeC ? gemmM : gemmN};
-
+                                transposeC ? gemmM : gemmN},
+                       aScale = {groupSize, transposeA ? gemmK / 332 : gemmM,
+                                 transposeA ? gemmM : gemmK / 32},
+                       bScale = {groupSize, transposeB ? gemmN : gemmK / 32,
+                                 transposeB ? (gemmK / 32) : gemmN};
   MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
              bType = MemRefType::get(bDims, elemTypes[1]),
-             cType = MemRefType::get(cDims, cElemType);
+             cType = MemRefType::get(cDims, cElemType),
+             aScaleType = MemRefType::get(aScale, b.getF8E8M0Type()),
+             bScaleType = MemRefType::get(bScale, b.getF8E8M0Type());
   result.push_back(aType);
   result.push_back(bType);
   result.push_back(cType);
+  if (scaledGemm) {
+    result.push_back(aScaleType);
+    result.push_back(bScaleType);
+  }
 }
 
 static func::FuncOp createGpuGemmKernel(ModuleOp module,
@@ -2387,6 +2402,12 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       gName, transposeB ? nName : kName, transposeB ? kName : nName});
   allArgNames.emplace_back(SmallVector<StringRef>{
       gName, transposeC ? nName : mName, transposeC ? mName : nName});
+  if (scaledGemm) {
+    allArgNames.emplace_back(SmallVector<StringRef>{
+        gName, transposeA ? kName : mName, transposeA ? mName : kName});
+    allArgNames.emplace_back(SmallVector<StringRef>{
+        gName, transposeB ? nName : kName, transposeB ? kName : nName});
+  }
 
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
@@ -2395,9 +2416,13 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                                     expandedArgs);
 
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
-
+  Value aScale = nullptr, bScale = nullptr;
+  if (scaledGemm) {
+    aScale = expandedArgs[3];
+    bScale = expandedArgs[4];
+  }
   auto gemm = rock::GemmOp::create(
-      b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, nullptr, nullptr,
+      b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, aScale, bScale,
       transposeA, transposeB, transposeC,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
