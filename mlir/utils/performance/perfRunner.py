@@ -199,15 +199,20 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
 
 # utility functions.
 def getNanoSeconds(fileName):
-    if not os.path.exists(fileName):
-        return np.nan
-    with open(fileName, 'r') as csv_file:
-        reader = csv.DictReader(csv_file, delimiter = ',')
-        result = 0
-        for row in reader:
-            result += int(float(row['AverageNs']))
-        csv_file.close()
-        return result
+    if not os.path.isfile(fileName):
+        raise FileNotFoundError(
+            f"getNanoSeconds: file '{fileName}' does not exist. "
+            "Maybe rocprof is creating it in another path?"
+        )
+
+    try:
+        with open(fileName, mode='r', newline='') as csv_file:
+            reader = csv.DictReader(csv_file)
+            return sum(int(float(row['AverageNs'])) for row in reader if 'AverageNs' in row)
+    except KeyError:
+        raise ValueError("getNanoSeconds: csv file is missing the 'AverageNs' column.")
+    except ValueError as e:
+        raise ValueError(f"getNanoSeconds: invalid value encountered in 'AverageNs' column: {e}")
 
 def getProfilerOutputPath(arch: str, baseOutPath):
     chip = GFX_CHIP_RE.search(arch).group(0)
