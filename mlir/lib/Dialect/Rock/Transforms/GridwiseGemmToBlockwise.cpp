@@ -2490,11 +2490,12 @@ struct GridwiseAttentionAccelRewritePattern
           ldsByteBufferQ =
               createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
           LogicalResult statusLoadQ = loadAndStoreGemmInputTile(
-              loc, inQ, kLoopIV, elemTypeQLoad, gridCoordsGemm0, fromGlobalRegBufferQ,
-              toLDSRegBufferQ, ldsByteBufferQ, "n", gemm0kpack,
-              gemm0KpacksPerBlock, gemm0NPerBlock, blockSize, gridSize,
-              bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-              *accelEmitterPtrGemm0, ldsLayoutCfgNG0, addBarrierFirstGemm);
+              loc, inQ, kLoopIV, elemTypeQLoad, gridCoordsGemm0,
+              fromGlobalRegBufferQ, toLDSRegBufferQ, ldsByteBufferQ, "n",
+              gemm0kpack, gemm0KpacksPerBlock, gemm0NPerBlock, blockSize,
+              gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll,
+              rewriter, *accelEmitterPtrGemm0, ldsLayoutCfgNG0,
+              addBarrierFirstGemm);
           if (failed(statusLoadQ)) {
             return failure();
           }
@@ -2510,10 +2511,10 @@ struct GridwiseAttentionAccelRewritePattern
         Value ldsByteBufferK = createLDSByteBuffer(
             rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
         LogicalResult statusLoadKTile = loadAndStoreGemmInputTile(
-            loc, inK, kLoopIV, elemTypeKLoad, gridCoordsGemm0, fromGlobalRegBufferK,
-            toLDSRegBufferK, ldsByteBufferK, "m", gemm0kpack,
-            gemm0KpacksPerBlock, gemm0MPerBlock, blockSize, gridSize,
-            bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
+            loc, inK, kLoopIV, elemTypeKLoad, gridCoordsGemm0,
+            fromGlobalRegBufferK, toLDSRegBufferK, ldsByteBufferK, "m",
+            gemm0kpack, gemm0KpacksPerBlock, gemm0MPerBlock, blockSize,
+            gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
             *accelEmitterPtrGemm0, ldsLayoutCfgMG0, addBarrierFirstGemm);
         if (failed(statusLoadKTile)) {
           return failure();
@@ -2757,11 +2758,12 @@ struct GridwiseAttentionAccelRewritePattern
 
           LogicalResult statusLoadVTile = loadAndStoreGemmInputTile(
               loc, inV,
-              /*kIter=*/mLoopIV, elemTypeVLoad, gridCoordsGemm1, fromGlobalRegBufferV,
-              toLDSRegBufferV, ldsByteBufferV, "m", gemm1kpack,
-              gemm1KpacksPerBlock, gemm1MPerBlock, blockSize, gridSize,
-              bidGridOrder, gemm1BidGridLengths, forceUnroll, rewriter,
-              *accelEmitterPtrGemm1, ldsLayoutCfgMG1, addBarrierSecondGemm);
+              /*kIter=*/mLoopIV, elemTypeVLoad, gridCoordsGemm1,
+              fromGlobalRegBufferV, toLDSRegBufferV, ldsByteBufferV, "m",
+              gemm1kpack, gemm1KpacksPerBlock, gemm1MPerBlock, blockSize,
+              gridSize, bidGridOrder, gemm1BidGridLengths, forceUnroll,
+              rewriter, *accelEmitterPtrGemm1, ldsLayoutCfgMG1,
+              addBarrierSecondGemm);
           if (failed(statusLoadVTile)) {
             return failure();
           }
