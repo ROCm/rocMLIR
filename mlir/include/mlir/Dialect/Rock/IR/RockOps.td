@@ -100,7 +100,7 @@ def Rock_ConvOp : Rock_ConvOpBase<"conv", GemmInputTypes, GemmOutputTypes> {
 
 def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 {
-  dag additionalArgs = (ins IndexAttr:$kernelId);
+  dag additionalArgs = (ins IndexAttr:$kernelId, BoolAttr:$usesV4R1);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "N-D convolution backward data";
   let description = [{
@@ -108,6 +108,10 @@ def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 
     The kernel ID represents which of the multiple backwards data kernels
     needed for the correct computation of the result this kernel is.
+
+    The boolean `usesV4R1` specifies if the broader compilation flow is using
+    the V4R1 algorithm for backwards data convs, which will require multiple
+    conv ops to be created to efficiently compute the data.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{

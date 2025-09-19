@@ -36,6 +36,7 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/TypeUtilities.h"
 
@@ -804,10 +805,11 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   return std::make_tuple(Value(), Value(), Value());
 }
 
-FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
-                                                        PatternRewriter &b) {
+FailureOr<std::tuple<Value, Value, Value>> backwardDataV4R1(ConvBwdDataOp op,
+                                                            PatternRewriter &b,
+                                                            int64_t kernelId,
+                                                            bool usesV4R1) {
   Location loc = op.getLoc();
-  IntegerAttr kernelIdAttr = op.getKernelIdAttr();
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -877,7 +879,6 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
   // i0tilda = kernelid / (filtilda[2] * filtilda[1])
   //  get-backward-kernel-count or similar
 
-  int64_t kernelId = kernelIdAttr.getInt();
   SmallVector<int64_t, 3> iTilda;
   SmallVector<int64_t, 3> iDotSlice;
   int64_t product = 1;
@@ -1159,10 +1160,12 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
       /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
       op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
-  gemm->setAttr("kernelId", kernelIdAttr);
+  gemm->setAttr("kernelId", b.getIndexAttr(kernelId));
 
-  // Finally, erase the original Conv op.
-  b.eraseOp(op);
+  // Only erase the op in the case of V4R1. In non-V4R1 paths we will handle
+  // this removal outside of this function
+  if (usesV4R1)
+    b.eraseOp(op);
 
   return std::make_tuple(Value(), Value(), Value());
 }
@@ -1175,7 +1178,40 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
 
   Type dataType = op.getInput().getType().getElementType();
   if (ConvOpType::BwdData == convOpType) {
-    return backwardData(cast<ConvBwdDataOp>(op), b);
+    auto bwdDataOp = cast<ConvBwdDataOp>(op);
+    bool usesV4R1 = op->template getAttrOfType<BoolAttr>("usesV4R1").getValue();
+    if (usesV4R1) {
+      auto kernelId = bwdDataOp.getKernelIdAttr().getInt();
+      return backwardDataV4R1(bwdDataOp, b, kernelId, usesV4R1);
+    } else {
+      // For the cases where the V4R1 algorithm requires more than one kernel,
+      // i.e., stride != dilation, we want to create multiple GEMMs in a
+      // single kernel
+      auto strideDims = ctx.getStrideVal();
+      auto dilationDims = ctx.getDilationVal();
+      auto filterDims = ctx.getConvDims().fil;
+      auto numKernels =
+          rock::backwardDataKernelIds(strideDims, dilationDims, filterDims,
+                                      /*usesV4R1=*/true);
+      bool needsZeroInit = false;
+      for (size_t i = 0; i < numKernels.size(); i++) {
+        if (numKernels[i] == -1) {
+          // No need to do anything in this case
+          // TODO: This logic can be removed once we no longer have
+          // zeroInitKernels
+          needsZeroInit = true;
+          continue;
+        }
+
+        auto maybe =
+            backwardDataV4R1(bwdDataOp, b, needsZeroInit ? i - 1 : i, usesV4R1);
+        if (failed(maybe))
+          return failure();
+      }
+
+      b.eraseOp(bwdDataOp);
+      return std::make_tuple(Value(), Value(), Value());
+    }
   }
   Location loc = op.getLoc();
 
@@ -1352,18 +1388,17 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   llvm::SmallVector<StringRef, 3> mergeToK, mergeToN;
   switch (convOpType) {
   case ConvOpType::Fwd:
-    mergeToK = std::move(nonNHWDims);
-    mergeToN = std::move(nhwDims);
+    gemmInputTransform.merge("gemmK", 1, nonNHWDims);
+    gemmInputTransform.merge("gemmN", 2, nhwDims);
     break;
   case ConvOpType::BwdWeight:
-    mergeToK = std::move(nhwDims);
-    mergeToN = std::move(nonNHWDims);
+    gemmInputTransform.merge("gemmK", 1, nhwDims);
+    gemmInputTransform.merge("gemmN", 2, nonNHWDims);
     break;
   case ConvOpType::BwdData:
-    llvm_unreachable("Backward data is in another function");
+    llvm_unreachable("Backward data has been sent elsewhere");
+    break;
   }
-  gemmInputTransform.merge("gemmK", 1, mergeToK);
-  gemmInputTransform.merge("gemmN", 2, mergeToN);
 
   TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
   Value gemmInput =

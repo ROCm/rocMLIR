@@ -728,18 +728,6 @@ void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
                                      std::move(patternsConv), config)))
     return signalPassFailure();
 
-  RewritePatternSet patternsConvBwdData(&ctx);
-  patternsConvBwdData.add<ConvRewritePattern<rock::ConvBwdDataOp>>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdDataOp>(func),
-                                     std::move(patternsConvBwdData), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsConvBwdWeight(&ctx);
-  patternsConvBwdWeight.add<ConvRewritePattern<rock::ConvBwdWeightOp>>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdWeightOp>(func),
-                                     std::move(patternsConvBwdWeight), config)))
-    return signalPassFailure();
-
   RewritePatternSet patternsGemm(&ctx);
   patternsGemm.add<GemmRewritePattern>(&ctx);
   if (failed(applyOpPatternsGreedily(getOperations<rock::GemmOp>(func),
