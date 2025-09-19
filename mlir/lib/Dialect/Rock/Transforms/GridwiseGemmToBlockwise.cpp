@@ -1415,11 +1415,10 @@ struct GridwiseAttentionAccelRewritePattern
   // post normalization. Therefore, this function creates a transforming
   // for loop that overwrites out of bounds values of first gemm output
   // to be negative infinity.
-  void createFirstGemmNegInfPadding(PatternRewriter &rewriter, Location loc,
-                                    layout::GridCoordinates gridCoords,
-                                    Value gemm0OutBuffer,
-                                    RegsAsMatrixSubTiles gemm0OutSubTileViews,
-                                    bool isGfx11) const {
+  void createFirstGemmNegInfPadding(
+      PatternRewriter &rewriter, Location loc,
+      layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
+      RegsAsMatrixSubTiles gemm0OutSubTileViews) const {
     MemRefType gemm0OutBufferType = cast<MemRefType>(gemm0OutBuffer.getType());
     auto negInfTyped = createConstantFloatOp(
         rewriter, loc, gemm0OutBufferType.getElementType(),
@@ -1430,8 +1429,6 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t elementsInThreadBuffer = gemm0OutBufferType.getNumElements();
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
 
-    // TODO: fix forceUnroll=false for gfx1100
-    // (https://github.com/ROCm/rocMLIR-internal/issues/1661)
     auto loop = rewriter.create<TransformingForOp>(
         loc,
         ArrayRef<ValueRange>{{gridCoords.g_block, gridCoords.m_block,
@@ -1441,7 +1438,7 @@ struct GridwiseAttentionAccelRewritePattern
                             rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{1, 1, 1, 1, elementsInThreadBuffer},
         /*strides=*/ArrayRef<int64_t>{1, 1, 1, 1, 1},
-        /*forceUnroll=*/!isGfx11, /*useIndexDiffs=*/true);
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
@@ -2586,10 +2583,9 @@ struct GridwiseAttentionAccelRewritePattern
         bool hasPadding =
             op.getPrePadG0M().has_value() || op.getPrePadG0N().has_value();
         if (hasPadding) {
-          bool isGfx11 = arch.contains("gfx11");
           createFirstGemmNegInfPadding(rewriter, loc, gridCoordsGemm0,
                                        softmaxInputBuffer,
-                                       gemm0OutSubTileViewsTrUnPadded, isGfx11);
+                                       gemm0OutSubTileViewsTrUnPadded);
         }
         // Negative Infinite for extra values (KV cache)
         setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
