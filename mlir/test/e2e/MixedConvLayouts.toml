@@ -33,6 +33,12 @@ name = "schedule_version"
 values = ["1", "2"]
 prefix = "--schedule_version  "
 
+[[axis]]
+name = "v4r1"
+values = ["0", "1"]
+prefix = "-v4r1 "
+when = { operation = "conv_bwd_data" }
+
 [[suite]]
 name = "MixedConvLayouts"
 

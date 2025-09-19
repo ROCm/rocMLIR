@@ -93,14 +93,14 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
 
   populateDimIndexAndSize(
       filterLayoutAttr,
-      cast<MemRefType>(op->getOperand(0).getType()).getShape(),
+      cast<ShapedType>(op->getOperand(0).getType()).getShape(),
       dimIndexAndSize);
   populateDimIndexAndSize(
-      inputLayoutAttr, cast<MemRefType>(op->getOperand(1).getType()).getShape(),
+      inputLayoutAttr, cast<ShapedType>(op->getOperand(1).getType()).getShape(),
       dimIndexAndSize);
   populateDimIndexAndSize(
       outputLayoutAttr,
-      cast<MemRefType>(op->getOperand(2).getType()).getShape(),
+      cast<ShapedType>(op->getOperand(2).getType()).getShape(),
       dimIndexAndSize);
 
   auto gemmIface = cast<RockGemmWrapperInterface>(op);

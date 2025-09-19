@@ -115,7 +115,8 @@ func.func @rock_conv_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: memr
     output_layout = ["no", "go", "ko", "0o", "1o"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
     params = #xdlops_gemm_params1,
-    strides = [1 : index, 1 : index]
+    strides = [1 : index, 1 : index],
+    usesV4R1 = true
   } : memref<1x1024x1024x1x1xf32>, memref<128x1x1024x14x14xf32>, memref<128x1x1024x14x14xf32>
   return
 }
@@ -134,6 +135,37 @@ func.func @rock_conv_bwd_data(%filter: memref<1x1024x1024x1x1xf32>, %input: memr
 // CHECK-NEXT:  %[[OUT3:.*]] = rock.transform %[[OUT2]] by #[[$MAP_BWD_DATA_OUT3_NO_PAD]]
 // CHECK-NEXT:  rock.gemm %[[IN4]] = tr %[[FIL3]] * %[[OUT3]]{{.*}}
 
+func.func @rock_conv_bwd_data_nov4r1(%filter : memref<1x128x8x3x3xf32>, %input : memref<128x1x8x32x32xf32>, %output : memref<128x1x128x30x30xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx906", numCU = 64 : i32} {
+  rock.conv_bwd_data(%filter, %input, %output) features = none {
+    blockSize = 64 : i32,
+    dilations = [1 : index, 1 : index],
+    filter_layout = ["g", "k", "c", "0", "1"],
+    gridSize = 4 : i32,
+    input_layout = ["ni", "gi", "ci", "0i", "1i"],
+    output_layout = ["no", "go", "ko", "0o", "1o"],
+    padding = [0 : index, 0 : index, 0 : index, 0 : index],
+    params = #general_gemm_params1,
+    strides = [1 : index,  1 : index],
+    usesV4R1 = false,
+    kernelId = 0 : index
+  } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
+  return
+}
+
+// CHECK-LABEL: func.func {{@rock_conv_bwd_data_nov4r1.*%arg0.*%arg1.*%arg2}}
+// CHECK-NOT: rock.conv_bwd_data
+// CHECK-NEXT: %[[FIL1:.*]] = rock.transform %arg0
+// CHECK-NEXT: %[[FIL2:.*]] = rock.transform %[[FIL1]]
+// CHECK-NEXT: %[[FIL3:.*]] = rock.transform %[[FIL2]]
+// CHECK-NEXT: %[[IN1:.*]] = rock.transform %arg1
+// CHECK-NEXT: %[[IN2:.*]] = rock.transform %[[IN1]]
+// CHECK-NEXT: %[[IN3:.*]] = rock.transform %[[IN2]]
+// CHECK-NEXT: %[[IN4:.*]] = rock.transform %[[IN3]]
+// CHECK-NEXT: %[[OUT1:.*]] = rock.transform %arg2
+// CHECK-NEXT: %[[OUT2:.*]] = rock.transform %[[OUT1]]
+// CHECK-NEXT: %[[OUT3:.*]] = rock.transform %[[OUT2]]
+// CHECK-NEXT: rock.gemm %[[IN4]] = tr %[[FIL3]] * %[[OUT3]]
+
 func.func @rock_conv_bwd_data_f16(%filter: memref<1x1024x1024x1x1xf16>, %input: memref<128x1x1024x14x14xf16>, %output: memref<128x1x1024x14x14xf16>) attributes {kernel = 0 : i32, arch = "amdgcn-amd-amdhsa:gfx908"} {
 rock.conv_bwd_data(%filter, %input, %output) {
     blockSize = 256 : i32,
@@ -145,7 +177,8 @@ rock.conv_bwd_data(%filter, %input, %output) {
     output_layout = ["no", "go", "ko", "0o", "1o"],
     padding = [0 : index, 0 : index, 0 : index, 0 : index],
     params = #xdlops_gemm_params1,
-    strides = [1 : index, 1 : index]
+    strides = [1 : index, 1 : index],
+    usesV4R1 = true
   } : memref<1x1024x1024x1x1xf16>, memref<128x1x1024x14x14xf16>, memref<128x1x1024x14x14xf16>
   return
 }

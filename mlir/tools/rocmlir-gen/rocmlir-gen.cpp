@@ -311,6 +311,11 @@ static llvm::cl::opt<int64_t> gemmN("n",
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
 
+/// Backwards data convolution options
+static llvm::cl::opt<int64_t>
+    usesV4R1("v4r1", llvm::cl::desc("Use V4R1 for bwd_data convolution"),
+             llvm::cl::init(1));
+
 /// gemm+elementwise+gemm options
 static llvm::cl::opt<int64_t>
     gemmO("gemmO", llvm::cl::desc("N dimension of the second gemm()"),
@@ -4956,6 +4961,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       exit(1);
     }
 
+    bool usesV4R1Config = usesV4R1.getValue();
+
     RocmDeviceName targetInfo;
     if (failed(targetInfo.parse(arch.getValue()))) {
       llvm::errs() << "Invalid architecture name: " << arch << "\n";
@@ -5120,7 +5127,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilations, strides, paddingLeft,
           paddingRight, filterLayout.getValue(), inputLayout.getValue(),
-          outputLayout.getValue());
+          outputLayout.getValue(), usesV4R1Config);
 
       SmallVector<int64_t> inDims{inputHeight, inputWidth};
       if (nDims > 2) {
