@@ -80,7 +80,7 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes = [F32, F16, BF16],
   let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
-defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN, F4E2M1FN];
+defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN, F4E2M1FN, F8E8M0FNU];
 // This can be extended for quantization.
 defvar GemmOutputTypes = [F32, F16, BF16, I32, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
 defvar GemmAccumulatorTypes = [F32, F16, BF16, I32];
@@ -980,13 +980,13 @@ def Rock_IndexDiffUpdateOp :
 }
 
 defvar SupportedMemoryElems = [F32, F16, BF16, I1, I<4>, I8, I16, I32,
-                               F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN, F4E2M1FN];
+                               F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN, F4E2M1FN, F8E8M0FNU];
 defvar NativeMemoryOpTypes = [F32, F16, BF16, I<4>, I8, I16, I32,
-                           F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN, F4E2M1FN,
+                           F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN, F4E2M1FN,F8E8M0FNU,
                            VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32]>,
                            VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
                            VectorOfLengthAndType<[2, 4, 8, 16],
-                             [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>, VectorOfLengthAndType<[1, 2, 4, 8, 16, 32], [F4E2M1FN]>, VectorOfLengthAndType<[4], [F8E8M0FNU]>];
+                             [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>, VectorOfLengthAndType<[1, 2, 4, 8, 16, 32], [F4E2M1FN]>, VectorOfLengthAndType<[2, 4, 8, 16], [F8E8M0FNU]>];
 
 // in_bounds_load
 def Rock_InBoundsLoadOp
@@ -1368,7 +1368,7 @@ def Rock_BlockwiseGemmOp
 defvar AccelArgTypes = [F32,
                     VectorOfLengthAndType<[2, 4], [F32]>,
                     VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-                    VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>, VectorOfLengthAndType<[8, 16, 32], [F4E2M1FN]>, VectorOfLengthAndType<[4], [F8E8M0FNU]>];
+                    VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>, VectorOfLengthAndType<[8, 16, 32], [F4E2M1FN]>, VectorOfLengthAndType<[32], [F8E8M0FNU]>];
 defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF16]>];
 
 // blockwise_gemm_accel
@@ -1376,14 +1376,17 @@ def Rock_BlockwiseGemmAccelOp
     : Rock_Op<"blockwise_gemm_accel", [DeclareOpInterfaceMethods<
                                           RockGemmFeaturesInterface>, AttrSizedOperandSegments]>,
       Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
-          MemRefOf<LdsBufferTypes>:$matrixB, I32Attr:$inMPerThread,
+          MemRefOf<LdsBufferTypes>:$matrixB, 
+          Optional<MemRefOf<LdsBufferTypes>>:$scaleA, 
+          Optional<MemRefOf<LdsBufferTypes>>:$scaleB, 
+          I32Attr:$inMPerThread,
           I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
           UnitAttr:$loadAfromLDS, UnitAttr:$loadBfromLDS,
           UnitAttr:$splitKAcrossThreadsFirstA,
           UnitAttr:$splitKAcrossThreadsFirstB, MemRefOf<AccelArgTypes>:$bufferA,
           MemRefOf<AccelArgTypes>:$bufferB, MemRefOf<AccelResTypes>:$matrixC,
-          Optional<MemRefOf<AccelArgTypes>>:$scaleA,
-          Optional<MemRefOf<AccelArgTypes>>:$scaleB,
+          Optional<MemRefOf<AccelArgTypes>>:$bufferScaleA,
+          Optional<MemRefOf<AccelArgTypes>>:$bufferScaleB,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
           RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Blockwise GEMM accelerated version";
@@ -1396,10 +1399,10 @@ def Rock_BlockwiseGemmAccelOp
     scalars when kpack is 1.
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $bufferA `from` $matrixA  (`scale` `by` $scaleA^)? `*`
-                        $bufferB `from` $matrixB (`scale` `by` $scaleB^)? (`features` `=` $features^)? attr-dict
-    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) (`scale` `by` type($scaleA)^)? `*`
-                                  type($bufferB) `from` type($matrixB) (`scale` `by` type($scaleB)^)?
+    $matrixC `+` `` `=` $bufferA `from` $matrixA  (`scaled` `by` $bufferScaleA^)? (`from` $scaleA^)? `*`
+                        $bufferB `from` $matrixB (`scaled` `by` $bufferScaleB^)? (`from` $scaleB^)? (`features` `=` $features^)? attr-dict
+    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) (`scaled` `by` type($bufferScaleA)^)? (`from` type($scaleA)^)? `*`
+                                  type($bufferB) `from` type($matrixB) (`scaled` `by` type($bufferScaleB)^)? (`from` type($scaleB)^)?
   }];
 }
 
