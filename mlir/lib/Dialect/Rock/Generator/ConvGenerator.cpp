@@ -957,9 +957,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
                            attributes);
   } break;
   case ConvOpType::BwdData: {
-    if (!rock::isEveryElementWrittenBwdData(config.strideDims,
-                                            config.dilationDims,
-                                            config.filterDims)) {
+    if (!rock::isEveryElementWrittenBwdData(
+            config.strideDims, config.dilationDims, config.filterDims)) {
       // For all backwards data convolution ops that don't write to every pixel,
       // we want to zeroinitialize the buffer in the second argument
       // (input tensor)
