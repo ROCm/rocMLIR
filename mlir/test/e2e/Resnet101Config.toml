@@ -16,6 +16,12 @@ name = "data type"
 values = ["f32", "f16", "bf16"]
 prefix = "-t "
 
+[[axis]]
+name = "v4r1"
+values = ["0", "1"]
+prefix = "-v4r1 "
+when = { operation = "conv_bwd_data" }
+
 [[suite]]
 name = "config"
 
