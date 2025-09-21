@@ -262,13 +262,6 @@ func.func @rock_in_bounds_store(%buffer: memref<128x128xf32, 3>, %data: vector<4
 // CHECK-LABEL: func.func @rock_in_bounds_store
 // CHECK-NEXT: rock.in_bounds_store
 
-func.func @init_kernel(%arg0 : memref<2x4xf32>) {
-  rock.init_kernel %arg0 features = none : memref<2x4xf32>
-  func.return
-}
-// CHECK-LABEL: func.func @init_kernel
-// CHECK: rock.init_kernel
-
 func.func @converting_copy_kernel(%arg0 : memref<2x4xf32>, %arg1: memref<2x4xf16>) {
   rock.converting_copy_kernel %arg0 to %arg1 : memref<2x4xf32> to memref<2x4xf16>
   func.return

@@ -303,79 +303,6 @@ static Value makePrivateGpuAlloc(OpBuilder &b, Location loc, Type type) {
   return memref;
 }
 
-/// Store `value` into a private memref buffer to make it an acceptable argument
-/// to memref.store. Returns the allocated buffer.
-static Value makeGpuAllocContaining(OpBuilder &b, Value v) {
-  Location loc = v.getLoc();
-  Type type = v.getType();
-  Value memref = makePrivateGpuAlloc(b, loc, type);
-  b.create<rock::InBoundsStoreOp>(
-      loc, v, memref, b.createOrFold<arith::ConstantIndexOp>(loc, 0));
-  return memref;
-}
-
-/// 0-initialize a given buffer.
-struct ZeroInitKernelRewritePattern final
-    : public OpConversionPattern<InitKernelOp> {
-  using OpConversionPattern<InitKernelOp>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(InitKernelOp op, InitKernelOpAdaptor adaptor,
-                                ConversionPatternRewriter &b) const override {
-    Location loc = op.getLoc();
-    TypedValue<ShapedType> buffer = op.getBuffer();
-    Type bufferType = buffer.getType().getElementType();
-    if (!op.getElemsPerThread().has_value())
-      return op->emitOpError("elems per thread not set");
-
-    int64_t initVectorLen = getUtilityVectorizationLen(
-        buffer.getType(), op.getElemsPerThread()->getZExtValue());
-    Type storeType = vectorTypeOrSelf(bufferType, initVectorLen);
-    bool needs64BitIdx = is4GBMemoryType(buffer.getType());
-
-    Type elementType = mlir::getElementTypeOrSelf(storeType);
-    Value initOp;
-    auto initValueAttr = op.getInitValueAttr();
-    if (initValueAttr) {
-      if (auto floatInitValueAttr =
-              dyn_cast<FloatAttr>(initValueAttr.value())) {
-        auto initValue = floatInitValueAttr.getValue().convertToFloat();
-        initOp =
-            createConstantFloatOp(b, loc, storeType, elementType, initValue);
-      } else if (auto intInitValueAttr =
-                     dyn_cast<IntegerAttr>(initValueAttr.value())) {
-        auto initValue = intInitValueAttr.getValue().getSExtValue();
-        initOp = createConstantIntOp(b, loc, storeType, elementType, initValue);
-      } else {
-        return failure();
-      }
-    } else {
-      initOp = createZeroConstantOp(b, loc, storeType);
-    }
-
-    Value zeroIndex = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    Value memref = makeGpuAllocContaining(b, initOp);
-    Value trueOp =
-        b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-
-    auto loopBody = [&memref, &initVectorLen, &trueOp, &zeroIndex,
-                     &needs64BitIdx](OpBuilder &b, Location loc,
-                                     ValueRange collapsed, Value index) {
-      b.create<GlobalStoreOp>(loc, memref, collapsed[0],
-                              APInt(64, initVectorLen), StoreMethod::Set,
-                              /*sourceCoord=*/zeroIndex,
-                              /*valid=*/trueOp, index, needs64BitIdx,
-                              /*canStoreOffEnd=*/true);
-    };
-    LogicalResult res =
-        createElementwiseLoop(b, loc, op, buffer, initVectorLen, loopBody);
-    if (failed(res))
-      return failure();
-
-    b.eraseOp(op);
-    return success();
-  }
-};
-
 /// Element-wise conversion from the workspace to the output (filter tensor)
 /// for a backward weight convolution which uses atomic adds.
 struct ConvertingCopyKernelRewritePattern final
@@ -1193,18 +1120,8 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
       auto numKernels =
           rock::backwardDataKernelIds(strideDims, dilationDims, filterDims,
                                       /*usesV4R1=*/true);
-      bool needsZeroInit = false;
       for (size_t i = 0; i < numKernels.size(); i++) {
-        if (numKernels[i] == -1) {
-          // No need to do anything in this case
-          // TODO: This logic can be removed once we no longer have
-          // zeroInitKernels
-          needsZeroInit = true;
-          continue;
-        }
-
-        auto maybe =
-            backwardDataV4R1(bwdDataOp, b, needsZeroInit ? i - 1 : i, usesV4R1);
+        auto maybe = backwardDataV4R1(bwdDataOp, b, i, usesV4R1);
         if (failed(maybe))
           return failure();
       }
@@ -1580,7 +1497,7 @@ void RockConvToGemmPass::runOnOperation() {
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::ConvOp, rock::ConvBwdDataOp, rock::ConvBwdWeightOp,
-                      rock::InitKernelOp, rock::ConvertingCopyKernelOp,
+                      rock::ConvertingCopyKernelOp,
                       rock::ConvElementwiseGemmOp>();
   target.addLegalOp<rock::TransformOp, rock::GemmOp, rock::WorkgroupIdOp,
                     rock::WorkitemIdOp, rock::GlobalLoadOp, rock::GlobalStoreOp,
@@ -1591,11 +1508,9 @@ void RockConvToGemmPass::runOnOperation() {
                          scf::SCFDialect>();
 
   RewritePatternSet patterns(ctx);
-  patterns
-      .add<ConvRewritePattern<ConvOp>, ConvRewritePattern<ConvBwdDataOp>,
-           ConvRewritePattern<ConvBwdWeightOp>, ConvGemmRewritePattern,
-           ZeroInitKernelRewritePattern, ConvertingCopyKernelRewritePattern>(
-          ctx);
+  patterns.add<ConvRewritePattern<ConvOp>, ConvRewritePattern<ConvBwdDataOp>,
+               ConvRewritePattern<ConvBwdWeightOp>, ConvGemmRewritePattern,
+               ConvertingCopyKernelRewritePattern>(ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
