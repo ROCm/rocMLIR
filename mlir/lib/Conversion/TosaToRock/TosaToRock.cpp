@@ -648,9 +648,7 @@ static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
 
   // If there is no zeroinit kernel needed, then there is nothing more we need
   // to do here.
-  // Note: backwardDataKernelIds returns a -1 value in the first index if a
-  // zero init kernel is needed
-  if (numKernels[0] != -1)
+  if (rock::isEveryElementWrittenBwdData(strideDims, dilationDims, filterDims))
     return;
 
   // Now we need to determine where to add the prefill attributes. Trace through

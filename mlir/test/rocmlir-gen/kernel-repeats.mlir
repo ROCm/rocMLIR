@@ -11,8 +11,7 @@
 // GEMM-NEXT: }
 
 // CONV_WRW-LABEL: func.func @rock_conv_bwd_weight_gk01c_ng01c_ng01k_0
-// CONV_WRW: rock.init_kernel
-// CONV_WRW-LABEL: func.func @rock_conv_bwd_weight_gk01c_ng01c_ng01k_1
+// CONV_WRW-SAME: %arg0: memref<262144xf32> {rock.prefill = 0.000000e+00 : f32}
 // CONV_WRW: rock.conv_bwd_weight
 // CONV_WRW-LABEL: func.func @rock_conv_bwd_weight_gk01c_ng01c_ng01k_gpu
 // CONV_WRW-DAG: %[[one:.*]] = arith.constant 1 : index
@@ -20,12 +19,10 @@
 // CONV_WRW-DAG: %[[zero:.*]] = arith.constant 0 : index
 // CONV_WRW: scf.for %{{.*}} = %[[zero]] to %[[five]] step %[[one]] {
 // CONV_WRW-NEXT: func.call @rock_conv_bwd_weight_gk01c_ng01c_ng01k_0
-// CONV_WRW-NEXT: func.call @rock_conv_bwd_weight_gk01c_ng01c_ng01k_1
 // CONV_WRW-NEXT: }
 
 // CONV_WRW_GPU-LABEL: func.func @rock_conv_bwd_weight_gk01c_ng01c_ng01k_0
-// CONV_WRW_GPU: rock.init_kernel
-// CONV_WRW_GPU-LABEL: func.func @rock_conv_bwd_weight_gk01c_ng01c_ng01k_1
+// CONV_WRW_GPU-SAME: %arg0: memref<262144xf32> {rock.prefill = 0.000000e+00 : f32}
 // CONV_WRW_GPU: rock.conv_bwd_weight
 // CONV_WRW_GPU-LABEL: func.func @rock_conv_bwd_weight_gk01c_ng01c_ng01k_gpu
 // CONV_WRW_GPU-DAG: %[[zero:.*]] = arith.constant 0 : index
@@ -33,5 +30,4 @@
 // CONV_WRW_GPU-DAG: %[[five:.*]] = arith.constant 5 : index
 // CONV_WRW_GPU: scf.for %{{.*}} = %[[zero]] to %[[five]] step %[[one]] {
 // CONV_WRW_GPU-NEXT: func.call @rock_conv_bwd_weight_gk01c_ng01c_ng01k_0
-// CONV_WRW_GPU-NEXT: func.call @rock_conv_bwd_weight_gk01c_ng01c_ng01k_1
 // CONV_WRW_GPU-NEXT: }
