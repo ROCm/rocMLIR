@@ -313,7 +313,6 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
 
     // While these utility kernels aren't gemm wrappers, strictly, they still
     // bufferize like them
-    InitKernelOp::attachInterface<GemmLikeInterface<InitKernelOp>>(*ctx);
     ConvertingCopyKernelOp::attachInterface<
         GemmLikeInterface<ConvertingCopyKernelOp>>(*ctx);
     GemmElementwiseGemmOp::attachInterface<

@@ -509,10 +509,6 @@ def Rock_ScheduleVersionAttr : Rock_Attr<"ScheduleVersion"> {
   }];
 }
 
-def Rock_ReverseGridAttr : Rock_Attr<"ReverseGridAttr"> {
-  let mnemonic = "reverse_grid";
-}
-
 // It is a temporary attribute
 def Rock_EnableSplitKForTuning : Rock_Attr<"EnableSplitKForTuning"> {
   let mnemonic = "enable_splitk_for_tuning";

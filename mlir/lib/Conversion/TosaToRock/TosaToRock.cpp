@@ -20,8 +20,10 @@
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -313,26 +315,39 @@ static void addConvAttributes(PatternRewriter &rw, Operation *cop,
                                                      outputLayoutSpec.end())));
 }
 
-static FailureOr<rock::ConvOp>
+static FailureOr<rock::RockConvInterface>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              Value filter, Value output, DenseI64ArrayAttr pad,
              DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group) {
+             int64_t group, int64_t kernelID, std::string convKind) {
   Location loc = op->getLoc();
-
   ConvFields convFields =
       commonConv(rw, op, input, filter, output, pad, stride, dilation, group);
 
-  auto cop = rw.create<rock::ConvOp>(
-      loc, convFields.outputExp.getType(), convFields.filterExp,
-      convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
-      /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
-      convFields.stride, convFields.dilation,
-      /*params=*/nullptr);
+  Operation *cop = nullptr;
+  if (convKind == "bwd_data") {
+    cop = rw.create<rock::ConvBwdDataOp>(
+        loc, convFields.outputExp.getType(), convFields.filterExp,
+        convFields.outputExp, convFields.inputExp,
+        /*features=*/nullptr,
+        /*blockSize=*/nullptr,
+        /*gridSize=*/nullptr, rw.getIndexArrayAttr(pad),
+        rw.getIndexArrayAttr(stride), rw.getIndexArrayAttr(dilation),
+        /*params=*/nullptr, rw.getIndexAttr(kernelID),
+        /*usesV4R1=*/rw.getBoolAttr(false));
+  } else {
+    // Handle forwards convolution
+    assert(convKind != "bwd_weight" && "bwd_weight currently not implemented");
+    cop = rw.create<rock::ConvOp>(
+        loc, convFields.outputExp.getType(), convFields.filterExp,
+        convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
+        /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
+        convFields.stride, convFields.dilation, /*params=*/nullptr);
+  }
 
   addConvAttributes(rw, cop, convFields);
 
-  return cop;
+  return cast<rock::RockConvInterface>(cop);
 }
 
 static Value traceToRes(Value tensor, DenseMap<Value, Value> &cache,
@@ -491,7 +506,10 @@ static Operation *getConvOp(Operation *op) {
     if (!op)
       return nullptr;
   }
-  return (isa_and_nonnull<tosa::Conv2DOp>(op)) ? op : nullptr;
+  return ((isa_and_nonnull<tosa::Conv2DOp>(op)) ||
+          (isa_and_nonnull<tosa::TransposeConv2DOp>(op)))
+             ? op
+             : nullptr;
 }
 
 /*
@@ -513,6 +531,11 @@ struct ElementwiseRegionFinder {
     visitedSet.insert(input);
     OpT fusionOp = input.getDefiningOp<OpT>();
     Operation *op = input.getDefiningOp();
+
+    // We cannot handle bwd_data/weight conv ops + gemm yet, so bail early
+    if (std::is_same_v<OpT, tosa::TransposeConv2DOp> && op)
+      return;
+
     // we need to traverse tranposes if it's conv2d
     if (std::is_same_v<OpT, tosa::Conv2DOp> && op) {
       Operation *convOp = getConvOp(op);
@@ -610,6 +633,59 @@ private:
   SmallVector<Operation *> visitedOps;
 };
 
+static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
+                                        Operation *rockConv) {
+  // First check if the TransposeConv2D op is going to require having it's
+  // output zeroinitialized, i.e., not every element of the output buffer is
+  // going to be written to
+  rock::ConvolutionContext ctx = rock::populateConvContext(rockConv);
+  auto strideDims = ctx.getStrideVal();
+  auto dilationDims = ctx.getDilationVal();
+  auto filterDims = ctx.getConvDims().fil;
+  auto numKernels =
+      rock::backwardDataKernelIds(strideDims, dilationDims, filterDims,
+                                  /*usesV4R1=*/true);
+
+  // If there is no zeroinit kernel needed, then there is nothing more we need
+  // to do here.
+  if (rock::isEveryElementWrittenBwdData(strideDims, dilationDims, filterDims))
+    return;
+
+  // Now we need to determine where to add the prefill attributes. Trace through
+  // the output of the TransposeConv2D op to find where the result is used.
+  Value output = op.getResult();
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  if (!func)
+    return;
+
+  SetVector<int64_t> resIndices = traceToRes(output, func);
+  // If the output cannot be traced to a result index, then we have a case that
+  // we cannot yet handle
+  if (resIndices.empty())
+    assert(false &&
+           "Output of TransposeConv2D op cannot be traced to result index");
+
+  OpBuilder builder(op.getContext());
+  for (int64_t resNumber : resIndices) {
+    Type funcResType = func.getFunctionType().getResult(resNumber);
+    auto shapedResType = cast<ShapedType>(funcResType);
+    Type elementType = shapedResType.getElementType();
+
+    Attribute outputInitVal;
+    if (isa<FloatType>(elementType)) {
+      outputInitVal = builder.getFloatAttr(elementType, 0.0);
+    } else if (isa<IntegerType>(elementType)) {
+      outputInitVal = builder.getIntegerAttr(elementType, 0);
+    } else {
+      // We only expect integer and float types for now
+      assert(false && "Unsupported element type for prefill attribute");
+    }
+
+    func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
+                       outputInitVal);
+  }
+}
+
 template <typename OpT>
 class ConvConverter final : public OpConversionPattern<OpT> {
 public:
@@ -633,17 +709,56 @@ public:
     Value output =
         rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
 
+    auto groupAttr = op->template getAttrOfType<IntegerAttr>("group");
+    auto padAttr = op->template getAttrOfType<DenseI64ArrayAttr>("pad");
+    auto dilationAttr =
+        op->template getAttrOfType<DenseI64ArrayAttr>("dilation");
+
+    // Verify all required attributes are present
     int64_t group = 1;
-    if (auto attr = op->template getAttrOfType<IntegerAttr>("group"))
-      group = attr.getInt(); // Use op.getGroup() when all OpT have it.
-    FailureOr<rock::ConvOp> rockConv =
-        makeRockConv(rw, op, input, filter, output, op.getPadAttr(),
-                     op.getStrideAttr(), op.getDilationAttr(), group);
+    if (groupAttr)
+      group = groupAttr.getInt();
+
+    if (!padAttr)
+      return op->emitError(
+          "Expected 'pad' attribute to be present on the operation");
+
+    if (!dilationAttr)
+      return op->emitError(
+          "Expected 'dilation' attribute to be present on the operation");
+
+    std::string convKind = "";
+    if (isa<tosa::TransposeConv2DOp>(op)) {
+      // If we are trying to convert bwd_weight, fail as it's currently not
+      // supported
+      convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
+      if (convKind == "bwd_weight") {
+        op->emitError(
+            "TosaToRock lowering support for bwd_weight not supported");
+      }
+      assert(convKind == "bwd_data" && "Expected bwd_data conv op");
+    }
+
+    FailureOr<rock::RockConvInterface> rockConv =
+        makeRockConv(rw, op, input, filter, output, padAttr, op.getStrideAttr(),
+                     dilationAttr, group, /*kernelID=*/0, convKind);
+
+    if (convKind == "bwd_data")
+      addZeroInitPrefillAttribute(cast<tosa::TransposeConv2DOp>(op),
+                                  rockConv->getOperation());
+
     if (failed(rockConv))
       return failure();
 
-    Value result = rw.create<rock::TensorUntransformCastOp>(
-        loc, outputType, rockConv->getResult(), rockConv->getOutput());
+    Value result;
+    if (isa<tosa::TransposeConv2DOp>(op)) {
+      result = output;
+    } else {
+      Operation *rockConvOp = rockConv->getOperation();
+      result = rw.create<rock::TensorUntransformCastOp>(
+          loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
+    }
+
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
@@ -672,9 +787,7 @@ public:
       result = rw.create<tosa::AddOp>(loc, op.getType(),
                                       ValueRange{result, biasExpand});
     }
-
     rw.replaceOp(op, result);
-
     return success();
   }
 };
@@ -850,6 +963,23 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
                                              Value tOutput,
                                              const ArrayRef<int32_t> dims,
                                              Value tInput) const {
+    auto handleConv = [&](auto convOp) -> LogicalResult {
+      if (convOp.getInput() == tOutput) {
+        permuteLayout(convOp.getOperation(), "input_layout", "nhwc", dims,
+                      true);
+        convOp.getInputMutable().assign(tInput);
+      } else if (convOp.getWeight() == tOutput) {
+        permuteLayout(convOp.getOperation(), "filter_layout", "kyxc", dims,
+                      true);
+        convOp.getWeightMutable().assign(tInput);
+      } else {
+        return convOp.emitWarning("transpose found leading to a "
+                                  "conv2D/transposeConv2D input other than "
+                                  "data or weight");
+      }
+      return success();
+    };
+
     for (auto &use : llvm::make_early_inc_range(tOutput.getUses())) {
       if (auto op = dyn_cast<tensor::CollapseShapeOp>(use.getOwner())) {
         SmallVector<ReassociationIndices, 4> reassocIndices =
@@ -969,17 +1099,11 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
       } else if (auto op = dyn_cast<tensor::ExpandShapeOp>(use.getOwner())) {
         return rewriter.notifyMatchFailure(
             op, "We dont support expand shapes yet.");
-      } else if (auto convOp = dyn_cast<tosa::Conv2DOp>(use.getOwner())) {
-        if (convOp.getInput() == tOutput) {
-          permuteLayout(convOp, "input_layout", "nhwc", dims, true);
-          convOp.getInputMutable().assign(tInput);
-        } else if (convOp.getWeight() == tOutput) {
-          permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
-          convOp.getWeightMutable().assign(tInput);
-        } else {
-          return convOp.emitWarning("transpose found leading to a conv2D input "
-                                    "other than data or weight");
-        }
+      } else if (auto transposeConv2D =
+                     dyn_cast<tosa::TransposeConv2DOp>(use.getOwner())) {
+        return handleConv(transposeConv2D);
+      } else if (auto conv2D = dyn_cast<tosa::Conv2DOp>(use.getOwner())) {
+        return handleConv(conv2D);
       } else if (auto matMulOp = dyn_cast<tosa::MatMulOp>(use.getOwner())) {
         if (checkMatMulTransposeValid(matMulOp, dims).failed()) {
           return failure();
@@ -1012,12 +1136,16 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 
     Value tInput = top.getInput1();
     Value tOutput = top.getResult();
-
-    if (tosa::Conv2DOp convOp = tInput.getDefiningOp<tosa::Conv2DOp>()) {
+    auto definingOp = tInput.getDefiningOp();
+    if (definingOp && (isa<tosa::Conv2DOp>(definingOp) ||
+                       isa<tosa::TransposeConv2DOp>(definingOp))) {
+      auto transposeConv2D = dyn_cast<tosa::TransposeConv2DOp>(definingOp);
+      auto conv2D = dyn_cast<tosa::Conv2DOp>(definingOp);
+      auto convOp = (transposeConv2D ? transposeConv2D : conv2D);
       if (checkInputHasUses(b, top, tInput).failed()) {
         return failure();
       }
-      // tosa.conv2d output is transpose
+      // conv output is transpose
       permuteLayout(convOp, "output_layout", "nhwk", dims);
       convOp->getResult(0).setType(tOutput.getType());
       top->replaceAllUsesWith(convOp);
@@ -1050,7 +1178,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
 // TosaToTensor conversion, the reshape is replaced by this pattern:
 //     %0 = collapse(filters[KCHW]) -> [KC]
 //     %1 = expand(%0[KC]) -> [KHWC]
-// If this feeds into a conv2d as filter, we will drop the collapse/expand and
+// If this feeds into a conv as filter, we will drop the collapse/expand and
 // update the filter_layout attribute.
 struct CollapseExpandRewritePattern
     : public OpRewritePattern<tensor::ExpandShapeOp> {
@@ -1094,13 +1222,13 @@ struct CollapseExpandRewritePattern
       auto colInp = colOp.getOperand();
 
       for (Operation *usr : expOut.getUsers()) {
-        if (auto convOp = dyn_cast<tosa::Conv2DOp>(usr)) {
-          if (convOp.getOperand(1) == expOut) {
+        if (isa<tosa::TransposeConv2DOp>(usr) || isa<tosa::Conv2DOp>(usr)) {
+          if (usr->getOperand(1) == expOut) {
             // update filter_layout
             SmallVector<int32_t> dims{0, 2, 3, 1};
-            permuteLayout(convOp, "filter_layout", "kyxc", dims, true);
+            permuteLayout(usr, "filter_layout", "kyxc", dims, true);
             // replace filter input with collapse source
-            convOp->replaceUsesOfWith(expOut, colInp);
+            usr->replaceUsesOfWith(expOut, colInp);
 
             lres = success();
           }
@@ -2202,8 +2330,8 @@ public:
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ConvConverter<tosa::Conv2DOp>, ConvConverter<tosa::Conv3DOp>,
-               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
-      context);
+               ConvConverter<tosa::TransposeConv2DOp>, MatMulConverter,
+               ReduceSumConverter, ReduceMaxConverter>(context);
 }
 
 void tosa::populateTosaToRockAttentionConversionPatterns(

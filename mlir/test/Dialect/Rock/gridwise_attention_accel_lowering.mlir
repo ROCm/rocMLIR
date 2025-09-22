@@ -243,52 +243,6 @@ func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x
 
 // -----
 
-// CHECK-DAG: #[[REV_MAP_G0M:.+]] = affine_map<(d0) -> (-d0 + 11)>
-// CHECK-DAG: #[[REV_MAP_G0K:.+]] = affine_map<(d0) -> (-d0 + 1)>
-// CHECK: @gridwise_attn_grid_reversed
-func.func @gridwise_attn_grid_reversed(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-", reverse_grid} {
-  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
-  // CHECK: affine.for %[[MITER:.+]] = 0 to 12 {
-    // CHECK: %[[REV_MITER:.+]] = affine.apply #[[REV_MAP_G0M]](%[[MITER]])
-    // CHECK: affine.for %[[G0KITER:.+]] = 0 to 2 {
-      // CHECK: %[[REV_G0KITER:.+]] = affine.apply #[[REV_MAP_G0K]](%[[G0KITER]])
-  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
-    blockSize = 64 : i32,
-    gridSize = 24 : i32,
-    params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    firstGemmIndices = array<i64: 0>,
-    splitKV = 1 : i32,
-    storeMethod = #rock<StoreMethod set>,
-    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
-  } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
-  return
-}
-
-// -----
-
-// CHECK-LABEL: @gridwise_attn_issue_1661_workaround
-func.func @gridwise_attn_issue_1661_workaround(%arg0: memref<256xf16>, %arg1: memref<98304xf16>, %arg2: memref<98304xf16>, %arg3: memref<256xf16>) attributes {block_size = 32 : i32, grid_size = 4 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
-  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 + d1) * 64 + d2)> by [<Unmerge{4, 1, 64} ["g", "seq_q", "head_qk"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [4, 1, 64] -> [256]> : memref<256xf16> to memref<4x1x64xf16>
-  %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 64 + d1) * 384 + d2)> by [<Unmerge{4, 64, 384} ["g", "seq_k", "head_qk"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [4, 64, 384] -> [98304]> : memref<98304xf16> to memref<4x64x384xf16>
-  %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 384 + d1) * 64 + d2)> by [<Unmerge{4, 384, 64} ["g", "seq_k", "head_v"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [4, 384, 64] -> [98304]> : memref<98304xf16> to memref<4x384x64xf16>
-  %3 = rock.transform %arg3 by <affine_map<(d0, d1, d2) -> ((d0 + d1) * 64 + d2)> by [<Unmerge{4, 1, 64} ["g", "seq_q", "head_v"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [4, 1, 64] -> [256]> : memref<256xf16> to memref<4x1x64xf16>
-  %4 = rock.transform %0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [4, 64, 1] -> [4, 1, 64]> : memref<4x1x64xf16> to memref<4x64x1xf16>
-  %5 = rock.transform %4 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K"] at [1] -> ["gemm0K"] at [1]>, <Pad{0, 31} ["gemm0NPad"] at [2] -> ["gemm0N"] at [2]>] bounds = [4, 64, 32] -> [4, 64, 1]> : memref<4x64x1xf16> to memref<4x64x32xf16>
-  %6 = rock.transform %3 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 31} ["gemm1NPad"] at [1] -> ["gemm1N"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [4, 32, 64] -> [4, 1, 64]> : memref<4x1x64xf16> to memref<4x32x64xf16>
-
-  // CHECK: %[[neginf:.+]] = arith.constant 0xFC00 : f16
-  // CHECK: rock.transforming_for {useIndexDiffs}
-  // CHECK: %[[cmpres:.*]] = arith.cmpi eq, %{{.*}}, %false : i1
-  // CHECK-NEXT: scf.if %[[cmpres]]
-  // CHECK-NEXT: rock.in_bounds_store %[[neginf]] -> %{{.*}}[%{{.*}}] : f16 -> memref<32xf16, #gpu.address_space<private>>, index
-  rock.gridwise_attention_accel(%5, %1, %2, %6) preSoftmaxOps = {
-  } {blockSize = 32 : i32, firstGemmIndices = array<i64: 0>, storeMethod = #rock<StoreMethod set>, splitKV = 1 : i32, gridSize = 4 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0N = 1 : index} : memref<4x64x32xf16>, memref<4x64x384xf16>, memref<4x384x64xf16>, memref<4x32x64xf16>
-  return
-}
-
-// -----
-
 // CHECK-LABEL: @gridwise_attn_kvcache
 func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>

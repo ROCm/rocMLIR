@@ -288,3 +288,22 @@ LogicalResult mlir::rock::testFusionLegalityReduce(ModuleOp mod) {
   func::FuncOp func = *(funcs.begin());
   return testFusionLegalityReduce(func);
 }
+
+LogicalResult mlir::rock::testFusionLegalityBwdDataConv(func::FuncOp func) {
+  // For right now, no BwdDataConv ops are fusible
+  WalkResult walkResult = func.walk([&](Operation *op) -> WalkResult {
+    if (auto bwdData = dyn_cast<rock::ConvBwdDataOp>(op))
+      return WalkResult::interrupt();
+    return WalkResult::advance();
+  });
+
+  return success(!walkResult.wasInterrupted());
+}
+
+LogicalResult mlir::rock::testFusionLegalityBwdDataConv(ModuleOp mod) {
+  auto funcs = mod.getOps<func::FuncOp>();
+  assert(std::distance(funcs.begin(), funcs.end()) == 1 &&
+         "expected ModuleOp containing a single func::FuncOp");
+  func::FuncOp func = *(funcs.begin());
+  return testFusionLegalityBwdDataConv(func);
+}

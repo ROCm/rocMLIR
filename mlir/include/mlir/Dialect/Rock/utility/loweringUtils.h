@@ -113,17 +113,22 @@ LogicalResult calculateKBlockNum(const int64_t batchSize,
                                  int64_t KPack, int64_t num_cu,
                                  int64_t &nKBlock);
 
+// Heuristic to determine if every element in the output would be written by the
+// backward data convolution algorithm.
+bool isEveryElementWrittenBwdData(ArrayRef<int64_t> strideDims,
+                                  ArrayRef<int64_t> dilationDims,
+                                  ArrayRef<int64_t> filterDims);
+
 /// Populate a vector of kernel IDs to be used by a backward data convolution
 /// algorithm. In the current v4r1 algorithm, several kernels may be needed to
 /// realize a complete backward data convolution.
 ///
-/// A non-negative kernel ID denotes an actual implicit GEMM kernels to
-/// partipate the backward data convolution. The ID -1 represents a zero
-/// initialization utility kernel The zero initialization kernel, if needed,
-/// would be placed in the front of the vector.
+/// A kernel ID denotes an actual implicit GEMM kernels to
+/// partipate the backward data convolution.
 SmallVector<int64_t> backwardDataKernelIds(ArrayRef<int64_t> strideDims,
                                            ArrayRef<int64_t> dilationDims,
-                                           ArrayRef<int64_t> filterDims);
+                                           ArrayRef<int64_t> filterDims,
+                                           bool usesV4R1);
 
 /// Return a vector type of length `len` if `len` is more than 1, otherwise,
 /// return `type`.
@@ -173,17 +178,11 @@ FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
 /// Compute, if possible, the constant different between two values.
 std::optional<int64_t> computeConstDiff(Value l, Value u);
 
-// Get whether to reverse the grid
-FailureOr<UnitAttr> getReverseGrid(Operation *op);
-
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
 
 // Get blockSize
 FailureOr<IntegerAttr> getBlockSize(Operation *op);
-
-// Return an affine map to reverse loop coordinates
-AffineMap getIdxReversalMap(OpBuilder &b);
 
 // helper to create ReassociationIndices for flattening
 ReassociationIndices getReassociationForFlattening(ShapedType srcTp);

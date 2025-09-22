@@ -65,8 +65,6 @@ void AffixTuningParameters::runOnOperation() {
       funcOp->setAttr("grid_size", op.getGridSizeAttr());
     }
   });
-  func.walk(
-      [&](InitKernelOp op) { setUtilityKernelSizes(op.getBuffer(), op); });
   func.walk([&](ConvertingCopyKernelOp op) {
     setUtilityKernelSizes(op.getInput(), op);
   });

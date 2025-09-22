@@ -65,7 +65,8 @@ func.func @rock_conv_bwd_data(%filter : memref<?x?x?x?x?xf32>, %input : memref<?
     output_layout = ["n", "go", "k", "0o", "1o"],
     dilations = [1 : index,  1 : index],
     strides = [1 : index,  1 : index],
-    padding = [0 : index,  0 : index,  0 : index,  0 : index]
+    padding = [0 : index,  0 : index,  0 : index,  0 : index],
+    usesV4R1 = true
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -80,7 +81,8 @@ func.func @rock_conv_bwd_data_f16(%filter : memref<?x?x?x?x?xf16>, %input : memr
     output_layout = ["n", "go", "k", "0o", "1o"],
     dilations = [1 : index,  1 : index],
     strides = [1 : index,  1 : index],
-    padding = [0 : index,  0 : index,  0 : index,  0 : index]
+    padding = [0 : index,  0 : index,  0 : index,  0 : index],
+    usesV4R1 = true
   } : memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>, memref<?x?x?x?x?xf16>
   return
 }
@@ -95,7 +97,8 @@ func.func @rock_conv_bwd_weight(%filter : memref<?x?x?x?x?xf32>, %input : memref
     output_layout = ["n", "go", "k", "0o", "1o"],
     dilations = [1 : index,  1 : index],
     strides = [1 : index,  1 : index],
-    padding = [0 : index,  0 : index,  0 : index,  0 : index]
+    padding = [0 : index,  0 : index,  0 : index,  0 : index],
+    usesV4R1 = true
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -258,13 +261,6 @@ func.func @rock_in_bounds_store(%buffer: memref<128x128xf32, 3>, %data: vector<4
 }
 // CHECK-LABEL: func.func @rock_in_bounds_store
 // CHECK-NEXT: rock.in_bounds_store
-
-func.func @init_kernel(%arg0 : memref<2x4xf32>) {
-  rock.init_kernel %arg0 features = none : memref<2x4xf32>
-  func.return
-}
-// CHECK-LABEL: func.func @init_kernel
-// CHECK: rock.init_kernel
 
 func.func @converting_copy_kernel(%arg0 : memref<2x4xf32>, %arg1: memref<2x4xf16>) {
   rock.converting_copy_kernel %arg0 to %arg1 : memref<2x4xf32> to memref<2x4xf16>
