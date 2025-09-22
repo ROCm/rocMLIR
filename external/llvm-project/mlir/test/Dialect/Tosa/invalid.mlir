@@ -223,7 +223,7 @@ func.func @test_transpose_conv2d_invalid_stride_x(%arg0: tensor<1x32x32x8xf32>, 
 // -----
 
 func.func @test_transpose_conv2d_invalid_output_height(%arg0: tensor<1x32x32x8xf32>, %arg1: tensor<16x1x1x8xf32>, %arg2: tensor<16xf32>, %arg3: tensor<1xf32>, %arg4: tensor<1xf32>) -> tensor<1x33x32x16xf32> {
-  // expected-error@+1 {{'tosa.transpose_conv2d' op dimension mismatch: expected OH == (IH - 1) * stride_y + out_pad_top + out_pad_bottom + KH, but got 33 != (32 - 1) * 1 + 0 + 0 + 1}}
+  // expected-error@+1 {{'tosa.transpose_conv2d' op dimension mismatch: expected OH = (IH - 1) * stride_y + out_pad_top + out_pad_bottom + ((KH - 1) * dilation_y + 1) - pad_top - pad_bottom, but got: 33 != (32 - 1) * 1 + 0 + 0 + ((1 - 1) * 1 + 1) - 0 - 0}}
   %0 = tosa.transpose_conv2d %arg0, %arg1, %arg2, %arg3, %arg4 {acc_type = f32, out_pad = array<i64: 0, 0, 0, 0>, out_shape = array<i64: 1, 33, 32, 16>, stride = array<i64: 1, 1>} : (tensor<1x32x32x8xf32>, tensor<16x1x1x8xf32>, tensor<16xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x33x32x16xf32>
   return %0 : tensor<1x33x32x16xf32>
 }
@@ -231,7 +231,7 @@ func.func @test_transpose_conv2d_invalid_output_height(%arg0: tensor<1x32x32x8xf
 // -----
 
 func.func @test_transpose_conv2d_invalid_output_width(%arg0: tensor<1x32x32x8xf32>, %arg1: tensor<16x1x1x8xf32>, %arg2: tensor<16xf32>, %arg3: tensor<1xf32>, %arg4: tensor<1xf32>) -> tensor<1x32x40x16xf32> {
-  // expected-error@+1 {{'tosa.transpose_conv2d' op dimension mismatch: expected OW == (IW - 1) * stride_x + out_pad_left + out_pad_right + KW, but got 40 != (32 - 1) * 1 + 0 + 0 + 1}}
+  // expected-error@+1 {{'tosa.transpose_conv2d' op dimension mismatch: expected OW = (IW - 1) * stride_x + out_pad_left + out_pad_right + (KW - 1) * dilation_x + 1 - pad_left - pad_right, but got: 40 != (32 - 1) * 1 + 0 + 0 + ((1 - 1) * 1 + 1) - 0}}
   %0 = tosa.transpose_conv2d %arg0, %arg1, %arg2, %arg3, %arg4 {acc_type = f32, out_pad = array<i64: 0, 0, 0, 0>, out_shape = array<i64: 1, 32, 40, 16>, stride = array<i64: 1, 1>} : (tensor<1x32x32x8xf32>, tensor<16x1x1x8xf32>, tensor<16xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x32x40x16xf32>
   return %0 : tensor<1x32x40x16xf32>
 }

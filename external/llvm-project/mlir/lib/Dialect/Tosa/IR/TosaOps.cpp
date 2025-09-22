@@ -3630,46 +3630,44 @@ LogicalResult TransposeConv2DOp::verify() {
   if (!outputType)
     return success();
 
-  auto inPad = getPad();
-  auto dilation = getDilation();
+  // Fetch (optional) pad & dilation; apply defaults if absent.
+  SmallVector<int64_t, 4> inPad;
+  if (auto inPadOpt = getPad()) {
+    inPad.assign(inPadOpt->begin(), inPadOpt->end());
+  } else {
+    inPad = {0, 0, 0, 0}; // [top, bottom, left, right]
+  }
+
+  SmallVector<int64_t, 2> dilation;
+  if (auto dilationOpt = getDilation()) {
+    dilation.assign(dilationOpt->begin(), dilationOpt->end());
+  } else {
+    dilation = {1, 1};
+  }
+
   const auto inputType = llvm::dyn_cast<RankedTensorType>(getInput().getType());
   if (inputType && weightType) {
     const int64_t inputHeight = inputType.getDimSize(1);
     const int64_t kernelHeight = weightType.getDimSize(1);
     const int64_t outputHeight = outputType.getDimSize(1);
 
-    // output_shape[i] = stride[i] * (input_size[i] - 1) + output_padding[i] +
-    // ((kernel_shape[i] - 1) * dilations[i] + 1)
-    //                   - pads[start_i] - pads[end_i]
-
     if (!ShapedType::isDynamic(inputHeight) &&
         !ShapedType::isDynamic(outputHeight)) {
-      // rocMLIR customization: If we have input padding and dilations then we
-      // want to use the more accurate formula that properly accounts for these
-      // values
-      if (inPad && dilation) {
-        if (outputHeight != (inputHeight - 1) * strideY + outPadTop +
-                                ((kernelHeight - 1) * (*dilation)[0] + 1) -
-                                (*inPad)[0] - (*inPad)[1]) {
-          return emitOpError(
-                     "dimension mismatch: expected OH = (IH - 1) * "
-                     "stride_y + out_pad_top + ((KH - 1) * dilation_y + "
-                     "1) - pad_top - pad_bottom, but got: ")
-                 << outputHeight << " != (" << inputHeight << " - 1) * "
-                 << strideY << " + " << outPadTop << " + ((" << kernelHeight
-                 << " - 1) * " << (*dilation)[0] << " + 1) - "
-                 << (*inPad)[0] - (*inPad)[1];
-        }
-      } else {
-        if (outputHeight != (inputHeight - 1) * strideY + outPadTop +
-                                outPadBottom + kernelHeight)
-          return emitOpError(
-                     "dimension mismatch: expected OH == (IH - 1) * stride_y "
-                     "+ out_pad_top + out_pad_bottom + KH, but got ")
-                 << outputHeight << " != (" << inputHeight << " - 1) * "
-                 << strideY << " + " << outPadTop << " + " << outPadBottom
-                 << " + " << kernelHeight;
-      }
+      // rocMLIR customization: Update the formulas to make use of the optional
+      // input padding and dilation values that we have
+      if (outputHeight != (inputHeight - 1) * strideY + outPadTop +
+                          outPadBottom + ((kernelHeight - 1) * dilation[0]) +
+                          1 - inPad[0] - inPad[1]) {
+        return emitOpError(
+                    "dimension mismatch: expected OH = (IH - 1) * "
+                    "stride_y + out_pad_top + out_pad_bottom + ((KH - 1) * "
+                    "dilation_y + 1) - pad_top - pad_bottom, but got: ")
+                << outputHeight << " != (" << inputHeight << " - 1) * "
+                << strideY << " + " << outPadTop << " + "
+                << outPadBottom << " + ((" << kernelHeight
+                << " - 1) * " << dilation[0] << " + 1) - "
+                << inPad[0] << " - " << inPad[1];
+      } 
     }
 
     const int64_t inputWidth = inputType.getDimSize(2);
@@ -3678,31 +3676,19 @@ LogicalResult TransposeConv2DOp::verify() {
 
     if (!ShapedType::isDynamic(inputWidth) &&
         !ShapedType::isDynamic(outputWidth)) {
-      // rocMLIR customization: If we have input padding and dilations then we
-      // want to use the more accurate formula that properly accounts for these
-      // values
-      if (inPad && dilation) {
-        if (outputWidth != (inputWidth - 1) * strideX + outPadLeft +
-                               ((kernelWidth - 1) * (*dilation)[1] + 1) -
-                               (*inPad)[2] - (*inPad)[3]) {
-          return emitOpError(
-                     "dimension mismatch: expected OW = (IW - 1) * "
-                     "stride_x + out_pad_left + (KW - 1) * dilation_x + "
-                     "1 - pad_left - pad_right, but got: ")
-                 << outputWidth << " != (" << inputWidth << " - 1) * "
-                 << strideX << " + " << outPadLeft << " + ((" << kernelWidth
-                 << " - 1) * " << (*dilation)[1] << " + 1) - "
-                 << (*inPad)[2] - (*inPad)[3];
-        }
-      } else {
-        if (outputWidth !=
-            (inputWidth - 1) * strideX + outPadLeft + outPadRight + kernelWidth)
-          return emitOpError(
-                     "dimension mismatch: expected OW == (IW - 1) * stride_x "
-                     "+ out_pad_left + out_pad_right + KW, but got ")
-                 << outputWidth << " != (" << inputWidth << " - 1) * "
-                 << strideX << " + " << outPadLeft << " + " << outPadRight
-                 << " + " << kernelWidth;
+      // rocMLIR customization: Update the formulas to make use of the optional
+      // input padding and dilation values that we have
+      if (outputWidth != (inputWidth - 1) * strideX + outPadLeft + outPadRight + 
+                              ((kernelWidth - 1) * dilation[1] + 1) -
+                              inPad[2] - inPad[3]) {
+        return emitOpError(
+                    "dimension mismatch: expected OW = (IW - 1) * "
+                    "stride_x + out_pad_left + out_pad_right + (KW - 1) * "
+                    "dilation_x + 1 - pad_left - pad_right, but got: ")
+                << outputWidth << " != (" << inputWidth << " - 1) * "
+                << strideX << " + " << outPadLeft << " + " << outPadRight
+                << " + ((" << kernelWidth << " - 1) * " << dilation[1]
+                << " + 1) - " << inPad[2] - inPad[3];
       }
     }
   }
