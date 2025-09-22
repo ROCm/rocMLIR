@@ -252,6 +252,111 @@ def getBankConflict(fileName):
         result_average = sum(result) / len(result)
         return result_average
 
+# TODO: Copy/pasted from https://github.com/ROCm/rocMLIR/pull/1918, merge it properly when the PR is merged.
+numEUPerCU = 4
+
+def calculateNPerWave(n_per_wave, m_per_wave, n_per_block, m_per_block, arch):
+    """
+    Calculate the NPerWave value based on the given NPerWave value and the
+    architecture that we are targeting
+    """
+    # Split at the first ':' if it exists
+    if ':' in arch:
+        arch = arch.split(':', 1)[0]
+
+    # For CDNA architectures (gfx9xx) the n_per_wave value passed in is really
+    # mnPerXdl, so we need to calculate the actual n_per_wave value 
+    if arch.startswith('gfx9'):
+        # This should always match with what the value for maxWavesPerWG is in
+        # Rock.h
+        max_waves_per_wg = 4
+
+        m_waves = min(m_per_block / m_per_wave, max_waves_per_wg)
+        n_waves = max_waves_per_wg / m_waves
+        return max(n_per_block / n_waves, n_per_wave)
+
+    # For RDNA architectures (gfx10xx, gfx11xx, gfx12xx) we can just use the
+    # n_per_wave value as is
+    return n_per_wave
+
+def parse_perf_config(perf_config, num_cu, arch):
+    """
+    Parse the perfConfig string to extract tuning parameters.
+    
+    Format: attn:v1:MPerBlock,NPerBlock,KPerBlock,MPerWave,NPerWave,kPack,
+            splitKFactor,forceUnroll,ThreadCopyMore
+    
+    Returns:
+        dict: Dictionary containing parsed parameters
+
+    TODO: The format of the perfConfig string is subject to changes in the
+          future, so we should at a minimum be keeping this in sync with the
+          c++ code, but we should als consider making bindings to the c++ code
+          that can be called from here.
+    """
+    try:
+        # Split by ':' to separate operation, version, and parameters
+        parts = perf_config.split(':')
+        if len(parts) < 2:
+            raise ValueError(f"Invalid perfConfig format: {perf_config}")
+        
+        # The format is either going to have three parts or two parts. Make sure
+        # to properly handle the `operation` case
+        # - operation:version:parameters
+        # - version:parameters
+        version = None
+        if len(parts) >= 3:
+            # If there are three parts, then we assume the first part denoting
+            # the operation is going to be equal to `attn`
+            assert(parts[0] == 'attn')
+            params_str = parts[2]
+            version = parts[1]
+        else:
+            # parameters are after the first ':'
+            params_str = parts[1]
+            version = parts[0]
+
+            # Attention will be the only operation that uses the v1 format for
+            # PerfConfig, so in all other cases we should be using v3
+            assert(version == 'v3')
+        
+        # Split parameters by comma
+        params = params_str.split(',')
+        if ((version == "v1") and not (len(params) == 8)) \
+           or ((version == "v2") and not (len(params) == 9)) \
+           or ((version == "v3") and not (len(params) == 11)):
+            raise ValueError(f"Insufficient parameters in perfConfig")
+        
+        # Parse the required parameters. Note that kpack does not exist in v1,
+        # so we set it to 1
+
+        # TODO: We will have to use AmdArchDb.py so that we can get a non-accel/
+        # accel value so that we know which format we should be using. 
+        parsed_params = {
+            'MPerBlock': int(params[0]),
+            'NPerBlock': int(params[1]),
+            'KPerBlock': int(params[2]),
+            'MPerWave': int(params[3]),
+            'NPerWave': calculateNPerWave(int(params[4]), int(params[3]),
+                                          int(params[1]),
+                                          int(params[0]), arch),
+            'kPack': 1 if (version == "v1") else int(params[5]),
+            'splitKFactor': int(params[6])
+        }
+        
+        # Calculate M*N PerWave
+        parsed_params['MNPerWave'] = parsed_params['MPerWave'] * \
+                                     parsed_params['NPerWave']
+
+        # Calculate minNumWaves based on numCUs and numEUPerCU
+        parsed_params['minNumWaves'] = int(num_cu) * numEUPerCU
+        
+        return parsed_params
+        
+    except (ValueError, IndexError) as e:
+        print(f"Error parsing perfConfig '{perf_config}': {e}")
+        return None        
+
 def valid_perf_config(perfConfig):
     if not (perfConfig.startswith('v1') or perfConfig.startswith('v2') or perfConfig.startswith('v3')):
         return False
