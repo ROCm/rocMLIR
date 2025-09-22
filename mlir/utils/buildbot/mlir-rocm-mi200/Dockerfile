@@ -12,7 +12,8 @@
 #===----------------------------------------------------------------------===//
 
 # Use the rocm/mlir image as base
-FROM rocm/mlir:rocm6.4-latest
+# TO-DO: Update to rocm7.0 when we add newer machines on buildbot
+FROM rocm/mlir:rocm6.3-latest
 
 RUN apt-get update; \
     apt-get install -y dumb-init;
