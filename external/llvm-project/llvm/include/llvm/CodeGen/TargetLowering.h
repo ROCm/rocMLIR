@@ -480,7 +480,7 @@ public:
     return true;
   }
 
-  /// Return true if the @llvm.experimental.vector.partial.reduce.* intrinsic
+  /// Return true if the @llvm.vector.partial.reduce.* intrinsic
   /// should be expanded using generic code in SelectionDAGBuilder.
   virtual bool
   shouldExpandPartialReductionIntrinsic(const IntrinsicInst *I) const {
@@ -3518,6 +3518,13 @@ public:
     return false;
   }
 
+  /// True if the target allows transformations of in-bounds pointer
+  /// arithmetic that cause out-of-bounds intermediate results.
+  virtual bool canTransformPtrArithOutOfBounds(const Function &F,
+                                               EVT PtrVT) const {
+    return false;
+  }
+
   /// Does this target support complex deinterleaving
   virtual bool isComplexDeinterleavingSupported() const { return false; }
 
@@ -4684,6 +4691,13 @@ public:
       const SmallVectorImpl<ISD::InputArg> & /*Ins*/, const SDLoc & /*dl*/,
       SelectionDAG & /*DAG*/, SmallVectorImpl<SDValue> & /*InVals*/) const {
     llvm_unreachable("Not Implemented");
+  }
+
+  /// Optional target hook to add target-specific actions when entering EH pad
+  /// blocks. The implementation should return the resulting token chain value.
+  virtual SDValue lowerEHPadEntry(SDValue Chain, const SDLoc &DL,
+                                  SelectionDAG &DAG) const {
+    return SDValue();
   }
 
   virtual void markLibCallAttributes(MachineFunction *MF, unsigned CC,
