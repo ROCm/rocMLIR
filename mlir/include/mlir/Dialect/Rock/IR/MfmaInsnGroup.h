@@ -132,14 +132,20 @@ class MfmaInsnGroup {
 private:
   Type elementTypeA;
   Type elementTypeB;
+  std::optional<Type> elementTypeScaleA;
+  std::optional<Type> elementTypeScaleB;
   MfmaInsn insn;
   MfmaInsnGroupAttr groupAttr;
 
 public:
   static FailureOr<MfmaInsnGroup> select(Type elementTypeA, Type elementTypeB,
+                                         std::optional<Type> elementTypeScaleA,
+                                         std::optional<Type> elementTypeScaleB,
                                          StringRef arch, int64_t mnPerXdl,
                                          int64_t kPack, int64_t kPackPerBlock);
-  MfmaInsnGroup(Type elementTypeA, Type elementTypeB, const MfmaInsn &insn,
+  MfmaInsnGroup(Type elementTypeA, Type elementTypeB,
+                std::optional<Type> elementTypeScaleA,
+                std::optional<Type> elementTypeScaleB, const MfmaInsn &insn,
                 const MfmaInsnGroupAttr &groupAttr);
   int64_t getMRepeats(int64_t mPerWave);
   int64_t getNRepeats(int64_t nPerWave);
@@ -149,6 +155,8 @@ public:
   MfmaInsnAttr getInsnAttr() const;
   Type getArgTypeA();
   Type getArgTypeB();
+  Type getArgTypeScaleA();
+  Type getArgTypeScaleB();
   VectorType getRetType();
   bool isCoherentWithK(int64_t kPack, int64_t kPerBlock);
   SmallString<16> getROCDLIntrinsicName() { return groupAttr.insn; }

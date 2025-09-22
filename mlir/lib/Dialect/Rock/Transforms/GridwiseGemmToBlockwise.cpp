@@ -1802,7 +1802,8 @@ struct GridwiseAttentionAccelRewritePattern
     StringRef arch = rock::getArchValue(op);
     RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
-        rock::getFeatures(op), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
+        rock::getFeatures(op), elemTypeQ, elemTypeK, std::nullopt, std::nullopt,
+        arch, gemm0TuningParams);
     if (auto mfmaEmitter =
             dyn_cast<accel::MfmaEmitter>(accelEmitterPtrGemm0.get())) {
       if (!mfmaEmitter->isKReduction()) {
@@ -2101,16 +2102,18 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
 
-    auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
-        features, elemTypeQ, elemTypeK, arch, gemm0TuningParams);
+    auto accelEmitterPtrGemm0 =
+        accel::AccelEmitter::select(features, elemTypeQ, elemTypeK, nullptr,
+                                    nullptr, arch, gemm0TuningParams);
     if (!accelEmitterPtrGemm0)
       return op.emitOpError("Unable to emit accelerator code.");
     bool doBypassLDSSecondGemm = canBypassLDSForSecondGemm(op);
     bool doBypassLDSForQ = canBypassLDSForQ(op);
     rock::accel::AccelEmitterParams accelParamsGemm0 =
         accelEmitterPtrGemm0->getParams();
-    auto accelEmitterPtrGemm1 = accel::AccelEmitter::select(
-        features, elemTypeV, elemTypeV, arch, gemm1TuningParams);
+    auto accelEmitterPtrGemm1 =
+        accel::AccelEmitter::select(features, elemTypeV, elemTypeV, nullptr,
+                                    nullptr, arch, gemm1TuningParams);
     if (!accelEmitterPtrGemm1)
       return op.emitOpError("Unable to emit accelerator code.");
     rock::accel::AccelEmitterParams accelParamsGemm1 =
@@ -3350,7 +3353,8 @@ struct GridwiseGemmAccelRewritePattern
     int64_t nPerWave = tuningParams.getNPerWave();
 
     auto accelEmitterPtr = accel::AccelEmitter::select(
-        features, elementTypeA, elementTypeB, arch, tuningParams);
+        features, elementTypeA, elementTypeB, elementTypeScaleA,
+        elementTypeScaleB, arch, tuningParams);
 
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");

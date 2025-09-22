@@ -28,6 +28,7 @@
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -172,9 +173,39 @@ AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
   // Accelerator data types
   params.argTypeA = mfmaGroup.getArgTypeA();
   params.argTypeB = mfmaGroup.getArgTypeB();
+  params.argTypeScaleA = mfmaGroup.getArgTypeScaleA();
+  params.argTypeScaleB = mfmaGroup.getArgTypeScaleB();
   params.accVectorType = mfmaGroup.getRetType();
 
   return params;
+}
+
+void MfmaEmitter::emitScaledThreadwiseLoop(OpBuilder &b, Location loc,
+                                           Value argA, Value argB, Value scaleA,
+                                           Value scaleB, Value bufferC,
+                                           ValueRange regCOffset) {
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
+  auto imms = mfmaGroup.getImms();
+  int64_t nResultVectors = imms.size();
+  Value nResultVectorsConst = ConstantIndexOp::create(b, loc, nResultVectors);
+  VectorType vectorType = mfmaGroup.getRetType();
+  auto outputOffset = llvm::to_vector(regCOffset);
+  for (int64_t i = 0; i < nResultVectors; ++i) {
+    Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
+    offset = AddIOp::create(
+        b, loc, offset,
+        MulIOp::create(b, loc, outputOffset.back(), nResultVectorsConst));
+    outputOffset.back() = offset;
+    auto vectorC =
+        memref::LoadOp::create(b, loc, vectorType, bufferC, outputOffset);
+    // todo : emit scaling mfma
+    auto mfma = amdgpu::ScaledMFMAOp::create(
+        b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k, argA, argB,
+        vectorC, scaleA, scaleB, 0, 0);
+    auto vectorD = mfma.getDestD();
+    memref::StoreOp::create(b, loc, vectorD, bufferC, outputOffset);
+  }
 }
 
 void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
@@ -195,6 +226,7 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
     outputOffset.back() = offset;
     auto vectorC =
         memref::LoadOp::create(b, loc, vectorType, bufferC, outputOffset);
+    // todo : emit scaling mfma
     auto mfma = amdgpu::MFMAOp::create(
         b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
         mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
@@ -1043,6 +1075,13 @@ WmmaEmitter::createAccelGemmOperandTransforms(
   return ret;
 }
 
+void WmmaEmitter::emitScaledThreadwiseLoop(OpBuilder &b, Location loc,
+                                           Value argA, Value argB, Value scaleA,
+                                           Value scaleB, Value bufferC,
+                                           ValueRange regCOffset) {
+  llvm::report_fatal_error("Not implemented");
+}
+
 void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
                                      ValueRange regCOffset) {
@@ -1190,7 +1229,8 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
 
 std::unique_ptr<AccelEmitter>
 AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
-                     StringRef arch,
+                     std::optional<Type> elementTypeScaleA,
+                     std::optional<Type> elementTypeScaleB, StringRef arch,
                      RockAccelTuningParamAttrInterface tuningParams) {
   bool isMfma = rock::bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = rock::bitEnumContainsAll(features, GemmFeatures::wmma);
@@ -1198,14 +1238,18 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
     XdlopsGemmDerivedParamsAttr mfmaParams =
         cast<XdlopsGemmDerivedParamsAttr>(tuningParams);
     auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-        dataTypeA, dataTypeB, arch, mfmaParams.getMnPerXdl(),
-        mfmaParams.getKpack(), mfmaParams.getKpackPerBlock());
+        dataTypeA, dataTypeB, elementTypeScaleA, elementTypeScaleB, arch,
+        mfmaParams.getMnPerXdl(), mfmaParams.getKpack(),
+        mfmaParams.getKpackPerBlock());
     if (failed(maybeMfmaInsnGroup)) {
       return nullptr;
     }
     return std::make_unique<MfmaEmitter>(*maybeMfmaInsnGroup, arch,
                                          tuningParams);
   } else if (isWmma) {
+    assert(elementTypeScaleA == std::nullopt &&
+           elementTypeScaleB == std::nullopt &&
+           "WMMA does not support scaled types");
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto maybeWmmaInsnGroup = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
                                                arch, tuningParams.getMPerWave(),

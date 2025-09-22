@@ -38,6 +38,7 @@
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -246,24 +247,39 @@ struct ThreadwiseAccelGemmRewritePattern
         cast<MemRefType>(adaptor.getMatrixA().getType()).getElementType();
     auto dataTypeB =
         cast<MemRefType>(adaptor.getMatrixB().getType()).getElementType();
+    auto dataTypeScaleA =
+        cast<MemRefType>(adaptor.getScaleA().getType()).getElementType();
+    auto dataTypeScaleB =
+        cast<MemRefType>(adaptor.getScaleB().getType()).getElementType();
+
     if (isa<VectorType>(dataTypeA)) {
       dataTypeA = cast<VectorType>(dataTypeA).getElementType();
     }
     if (isa<VectorType>(dataTypeB)) {
       dataTypeB = cast<VectorType>(dataTypeB).getElementType();
     }
+    if (isa<VectorType>(dataTypeScaleA)) {
+      dataTypeScaleA = cast<VectorType>(dataTypeScaleA).getElementType();
+    }
+    if (isa<VectorType>(dataTypeScaleB)) {
+      dataTypeScaleB = cast<VectorType>(dataTypeScaleB).getElementType();
+    }
 
     Value bufferA = adaptor.getMatrixA();
     Value bufferB = adaptor.getMatrixB();
     Value bufferC = adaptor.getMatrixC();
+    Value bufferScaleA = adaptor.getScaleA();
+    Value bufferScaleB = adaptor.getScaleB();
 
     auto bufferAShape = op.getMatrixA().getType().getShape();
     auto bufferCShape = op.getMatrixC().getType().getShape();
+    auto bufferAScaleShape = op.getScaleA().getType().getShape();
+    auto bufferBScaleShape = op.getScaleB().getType().getShape();
 
     size_t computeIndices = op.getComputeIndices().size();
     auto emitter = rock::accel::AccelEmitter::select(
-        rock::getFeatures(op), dataTypeA, dataTypeB, rock::getArchValue(op),
-        tuningParams);
+        rock::getFeatures(op), dataTypeA, dataTypeB, dataTypeScaleA,
+        dataTypeScaleB, rock::getArchValue(op), tuningParams);
 
     if (!emitter) {
       llvm::dbgs() << rock::getFeatures(op) << "\n";
@@ -275,6 +291,8 @@ struct ThreadwiseAccelGemmRewritePattern
     rock::accel::AccelEmitterParams params = emitter->getParams();
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
+    Type argTypeScaleA = params.argTypeScaleA.value();
+    Type argTypeScaleB = params.argTypeScaleB.value();
 
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
     SmallVector<Value, 4> startCoords(4, zeroConstantOp);
@@ -292,6 +310,11 @@ struct ThreadwiseAccelGemmRewritePattern
         normalizeView(b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, true, {"j"});
     TransformMapAttr normalizedViewB =
         normalizeView(b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, true, {"i"});
+    TransformMapAttr normalizedViewScaleA =
+        normalizeView(b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, true, {"j"});
+    TransformMapAttr normalizedViewScaleB =
+        normalizeView(b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, true, {"i"});
+
     TransformMapAttr normalizedViewC = normalizeView(
         b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, false, {"k"});
 
@@ -299,6 +322,11 @@ struct ThreadwiseAccelGemmRewritePattern
         untransform(b, bufferA, normalizedViewA);
     auto [rawBufferB, bufferViewB, sourceBNeeds64BitIdx] =
         untransform(b, bufferB, normalizedViewB);
+    auto [rawBufferScaleA, bufferViewScaleA, sourceScaleANeeds64BitIdx] =
+        untransform(b, bufferScaleA, normalizedViewScaleA);
+    auto [rawBufferScaleB, bufferViewScaleB, sourceScaleBNeeds64BitIdx] =
+        untransform(b, bufferScaleB, normalizedViewScaleB);
+
     auto [rawBufferC, bufferViewC, dstNeeds64BitIdx] =
         untransform(b, bufferC, normalizedViewC);
 
@@ -313,8 +341,11 @@ struct ThreadwiseAccelGemmRewritePattern
 
     // Emit the loop
     auto accelLoop = TransformingForOp::create(
-        b, loc, ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
-        ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC},
+        b, loc,
+        ArrayRef<ValueRange>{computeStart, computeStart, computeStart,
+                             computeStart, computeStart},
+        ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewScaleA,
+                            bufferViewScaleB, bufferViewC},
         /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
         /*strides=*/ArrayRef<int64_t>{1, 1, 1},
         /*forceUnroll=*/true, /*useIndexDiffs=*/true);
@@ -323,13 +354,22 @@ struct ThreadwiseAccelGemmRewritePattern
       b.setInsertionPointToStart(accelLoop.getBody());
       auto coordsA = accelLoop.getLowerCoords(/*domain=*/0);
       auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
-      auto coordsC = accelLoop.getLowerCoords(/*domain=*/2);
+      auto coordsScaleA = accelLoop.getLowerCoords(/*domain=*/2);
+      auto coordsScaleB = accelLoop.getLowerCoords(/*domain=*/3);
+      auto coordsC = accelLoop.getLowerCoords(/*domain=*/4);
 
       Value argA =
           memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
+      Value argScaleA = memref::LoadOp::create(b, loc, argTypeScaleA,
+                                               rawBufferScaleA, coordsScaleA);
+      argScaleA = vector::ExtractOp::create(b, loc, argScaleA, zeroConstantOp);
       Value argB =
           memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
-      emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
+      Value argScaleB = memref::LoadOp::create(b, loc, argTypeScaleB,
+                                               rawBufferScaleB, coordsScaleB);
+      argScaleB = vector::ExtractOp::create(b, loc, argScaleB, zeroConstantOp);
+      emitter->emitScaledThreadwiseLoop(b, loc, argA, argB, argScaleA,
+                                        argScaleB, rawBufferC, coordsC);
     }
     b.eraseOp(op);
     return success();

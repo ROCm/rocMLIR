@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/Support/Debug.h"
@@ -542,7 +543,7 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
     mnPerXdl = derivedParam.getMnPerXdl();
   }
   auto maybeMfmaInsnGroup =
-      MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
+      MfmaInsnGroup::select(dataTypeA, dataTypeB, std::nullopt, std::nullopt, arch, mnPerXdl,
                             param.getKpack(), param.getKpackPerBlock());
   if (failed(maybeMfmaInsnGroup)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select xdlops instruction group.\n");
@@ -673,9 +674,9 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
       params.begin(), params.end(), std::back_inserter(res),
       [&](const InitParamsAccel &param) {
         int64_t mnPerXdl = param.gemmNPerWaveOrMnPerXdl;
-        auto maybeMfmaInsnGroup =
-            MfmaInsnGroup::select(dataTypeA, dataTypeB, arch, mnPerXdl,
-                                  param.gemmKPack, param.gemmKPerBlock);
+        auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
+            dataTypeA, dataTypeB, std::nullopt, std::nullopt, arch, mnPerXdl,
+            param.gemmKPack, param.gemmKPerBlock);
         if (failed(maybeMfmaInsnGroup)) {
           return false;
         }

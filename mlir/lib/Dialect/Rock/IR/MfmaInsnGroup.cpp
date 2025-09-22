@@ -6,6 +6,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Types.h"
 #include "mlir/Support/LLVM.h"
 
 #include "llvm/Support/Debug.h"
@@ -442,11 +443,12 @@ static auto getMfmaInsnGroupAttrMapGfx950 = []() {
       {{MfmaTypeId::Bf16TyId, 16, 16},
        {ROCDL::mfma_f32_16x16x32_bf16::getOperationName()}},
 
-      // fp4
+      // scaled Fp4 MFMA
       {{MfmaTypeId::Fp4Fp4TyId, 16, 16},
        {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName()}},
       {{MfmaTypeId::Fp4Fp4TyId, 32, 32},
        {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName()}},
+
       // i8 double rate
       {{MfmaTypeId::I8TyId, 32, 32},
        {ROCDL::mfma_i32_32x32x32_i8::getOperationName()}},
@@ -515,7 +517,10 @@ bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
   }
 }
 
-static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
+static MfmaTypeId
+convertTypesToId(Type dataTypeA, Type dataTypeB,
+                 std::optional<Type> dataTypeScaleA = std::nullopt,
+                 std::optional<Type> dataTypeScaleB = std::nullopt) {
   if (dataTypeA.isF32() && dataTypeB.isF32()) {
     return MfmaTypeId::Fp32TyId;
   }
@@ -563,11 +568,15 @@ static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
 }
 
 FailureOr<MfmaInsnGroup>
-MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
+MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB,
+                      std::optional<Type> elementTypeScaleA,
+                      std::optional<Type> elementTypeScaleB, StringRef arch,
                       int64_t mnPerXdl, int64_t kPack, int64_t kPackPerBlock) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
                           << "elementType A: " << elementTypeA << "\n"
                           << "elementType B: " << elementTypeB << "\n"
+                          << "elementType ScaleA: " << elementTypeScaleA << "\n"
+                          << "elementType ScaleB: " << elementTypeScaleB << "\n"
                           << "arch: " << arch << "\n"
                           << "mnPerXdl: " << mnPerXdl << "\n"
                           << "kPack: " << kPack << "\n"
@@ -577,10 +586,13 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
   int64_t mPerMfmaGroup = getLenPerMfmaGroup(mnPerXdl);
   int64_t nPerMfmaGroup = getLenPerMfmaGroup(mnPerXdl);
 
-  MfmaInsnGroupSelectKey key = {convertTypesToId(elementTypeA, elementTypeB),
+  MfmaInsnGroupSelectKey key = {convertTypesToId(elementTypeA, elementTypeB,
+                                                 elementTypeScaleA,
+                                                 elementTypeScaleB),
                                 mPerMfmaGroup, nPerMfmaGroup};
 
   FailureOr<MfmaInsnGroup> result = failure();
+
   auto selectFrom = [&](const MfmaInsnGroupMap &groupMap) {
     // No point in overriding our good work
     if (succeeded(result))
@@ -595,8 +607,9 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
         result = failure();
         return;
       }
-      result = MfmaInsnGroup(elementTypeA, elementTypeB, *maybeInsn, groupAttr);
-    }   
+      result = MfmaInsnGroup(elementTypeA, elementTypeB, elementTypeScaleA,
+                             elementTypeScaleB, *maybeInsn, groupAttr);
+    }
   };
 
   auto selectForGfx950 = [&]() {
@@ -648,9 +661,13 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
 }
 
 MfmaInsnGroup::MfmaInsnGroup(Type elementTypeA, Type elementTypeB,
+                             std::optional<Type> elementTypeScaleA,
+                             std::optional<Type> elementTypeScaleB,
                              const MfmaInsn &mfmaInsn,
                              const MfmaInsnGroupAttr &groupAttr)
-    : elementTypeA(elementTypeA), elementTypeB(elementTypeB), insn(mfmaInsn),
+    : elementTypeA(elementTypeA), elementTypeB(elementTypeB),
+      elementTypeScaleA(elementTypeScaleA),
+      elementTypeScaleB(elementTypeScaleB), insn(mfmaInsn),
       groupAttr(groupAttr) {}
 
 int64_t MfmaInsnGroup::getMRepeats(int64_t mPerWave) {
@@ -676,6 +693,18 @@ MfmaInsnAttr MfmaInsnGroup::getInsnAttr() const { return insn.getAttr(); }
 Type MfmaInsnGroup::getArgTypeA() { return insn.getArgTypeFor(elementTypeA); }
 
 Type MfmaInsnGroup::getArgTypeB() { return insn.getArgTypeFor(elementTypeB); }
+
+Type MfmaInsnGroup::getArgTypeScaleA() {
+  if (elementTypeScaleA.has_value())
+    return insn.getArgTypeFor(elementTypeScaleA.value());
+  llvm::report_fatal_error("No scale A type");
+}
+
+Type MfmaInsnGroup::getArgTypeScaleB() {
+  if (elementTypeScaleB.has_value())
+    return insn.getArgTypeFor(elementTypeScaleB.value());
+  llvm::report_fatal_error("No scale B type");
+}
 
 /// Note: Since this only returns i32 or f32, we don't need to do anything
 /// particularly clever here.
