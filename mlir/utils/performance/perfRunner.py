@@ -357,20 +357,37 @@ def parse_perf_config(perf_config, num_cu, arch):
         print(f"Error parsing perfConfig '{perf_config}': {e}")
         return None        
 
-def valid_perf_config(perfConfig):
-    if not (perfConfig.startswith('v1') or perfConfig.startswith('v2') or perfConfig.startswith('v3')):
-        return False
-    return True
+# Validates that the db entry (composed by the arch, config, and perfConfig) is well-formed and consistent
+def validate_tuning_db_entry(arch, num_cu, config, perf_config):
+    # 1. Check perf_config with parse_perf_config helper function.
+    if num_cu == "unknown":
+        # parse_perf_config requires num_cu, so just pass 1 to make it happy.
+        parsed_params = parse_perf_config(perf_config, "1", arch)
+    else:
+        parsed_params = parse_perf_config(perf_config, num_cu, arch)
 
-# TODO: doc
-def validate_tuning_db_entry(arch, config, perfConfig):
-    # Validate arch
-    if " " in arch:
-        raise ValueError(f"invalid db entry: '{arch} {config} {perfConfig}' with arch='{arch}'")
+    if parsed_params is None:
+        raise ValueError(f"invalid db entry: '{arch} {config} {perf_config}' with arch='{arch}': perf_config is invalid")
 
-    # -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 2048 -n 1280 -k 1280 
-    if not valid_perf_config(perfConfig):
-        raise ValueError(f"invalid db entry: '{arch} {config} {perfConfig}' with perfConfig='{arch}'")
+    # 2. Validate arch
+    arch_pattern = r"^gfx([0-9]+)(:[^:\s]+)*$"
+    if not re.match(arch_pattern, arch):
+        raise ValueError(f"invalid db entry: '{arch} {config} {perf_config}' with arch='{arch}': arch is invalid")
+
+    # 3. Validate config
+    re_ty = r"(f32|f16|i16|i8)"
+    re_tf = r"(true|false)"
+    gemm_config_pattern = rf"^-t {re_ty} -out_datatype {re_ty} -transA {re_tf} -transB {re_tf} -g [0-9]+ -m [0-9]+ -n [0-9]+ -k [0-9]+$"
+
+    re_conv = r"(conv|convint8|convfp16)"
+    re_conv_f = r"(G0NC1|GN01C|GNC01|N01GC|NGC01)"
+    conv_config_pattern = rf"^conv -F [0-9]+ -f {re_conv_f} -I {re_conv_f} -O {re_conv_f} -n [0-9]+ -c [0-9]+ -H [0-9]+ -W [0-9]+ -k [0-9]+ -y [0-9]+ -x [0-9]+ -p [0-9]+ -q [0-9]+ -u [0-9]+ -v [0-9]+ -l [0-9]+ -j [0-9]+ -g [0-9]+$"
+
+    attn_ty = r"(f32|f16)"
+    attn_config_pattern = rf"^-t {attn_ty} -transQ {re_tf} -transK {re_tf} -transV {re_tf} -transO {re_tf} -g [0-9]+ -seq_len_q [0-9]+ -seq_len_k [0-9]+ -head_dim_qk [0-9]+ -head_dim_v [0-9]+$"
+
+    if not re.match(gemm_config_pattern, config) and not re.match(conv_config_pattern, config) and not re.match(attn_config_pattern, config):
+        raise ValueError(f"invalid db entry: '{arch} {config} {perf_config}' with config='{config}': config is invalid")
 
 # Tuning databases
 MaybeTuningDb = Optional[Dict[Tuple[str, str], str]]
@@ -388,18 +405,21 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
                 if len(entries) == 3:
                     arch, config, perfConfig = entries
                     ret[arch, config] = perfConfig
+                    numCu = "unknown"
                 # note: new format has 4 entries
                 elif len(entries) == 4:
-                    arch, _, config, perfConfig = entries
+                    arch, numCu, config, perfConfig = entries
                     ret[arch, config] = perfConfig
                 # note: 5-entry form includes tflops at end
                 elif len(entries) == 5:
-                    arch, _, config, perfConfig, _ = entries
+                    arch, numCu, config, perfConfig, _ = entries
                     ret[arch, config] = perfConfig
                 else:
                     print("Warning: Malformed tuning database entry:", line)
                     continue
-                validate_tuning_db_entry(arch, config, perfConfig)
+
+                # check that the line we just read is valid
+                validate_tuning_db_entry(arch, numCu, config, perfConfig)
         return ret
     except FileNotFoundError:
         if path:
