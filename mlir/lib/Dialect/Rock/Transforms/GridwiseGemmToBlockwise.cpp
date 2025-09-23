@@ -3407,10 +3407,13 @@ struct GridwiseGemmAccelRewritePattern
     int64_t kBasePerThread = params.kBasePerThread;
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
-    Type argTypeScaleA = VectorType::get(cast<ShapedType>(argTypeA).getShape(),
-                                         b.getF8E8M0Type());
-    Type argTypeScaleB = VectorType::get(cast<ShapedType>(argTypeB).getShape(),
-                                         b.getF8E8M0Type());
+    Type argTypeScaleA, argTypeScaleB;
+    if (isScaledGemm) {
+      argTypeScaleA = VectorType::get(cast<ShapedType>(argTypeA).getShape(),
+                                      b.getF8E8M0Type());
+      argTypeScaleB = VectorType::get(cast<ShapedType>(argTypeB).getShape(),
+                                      b.getF8E8M0Type());
+    }
 
     VectorType accVectorType = params.accVectorType;
     int64_t numOutputVectorElements = params.numOutputVectorElements();
