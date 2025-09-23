@@ -38,6 +38,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
@@ -411,15 +412,21 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t nPerWave = tuningParams.getNPerWave();
     bool loadAFromLDS = adaptor.getLoadAfromLDS();
     bool loadBFromLDS = adaptor.getLoadBfromLDS();
+    Value scaleA = adaptor.getScaleA();
+    Value scaleB = adaptor.getScaleB();
+    bool isScaledGemm = scaleA != Value{} && scaleB != Value{};
 
     Type bufferElemTypeA =
         cast<MemRefType>(adaptor.getMatrixA().getType()).getElementType();
     Type bufferElemTypeB =
         cast<MemRefType>(adaptor.getMatrixB().getType()).getElementType();
-    Type bufferElemTypeScaleA =
-        cast<MemRefType>(adaptor.getScaleA().getType()).getElementType();
-    Type bufferElemTypeScaleB =
-        cast<MemRefType>(adaptor.getScaleB().getType()).getElementType();
+    Type bufferElemTypeScaleA, bufferElemTypeScaleB;
+    if (isScaledGemm) {
+      bufferElemTypeScaleA =
+          cast<MemRefType>(adaptor.getScaleA().getType()).getElementType();
+      bufferElemTypeScaleB =
+          cast<MemRefType>(adaptor.getScaleB().getType()).getElementType();
+    }
 
     Type dataTypeA = bufferElemTypeA, dataTypeB = bufferElemTypeB;
     Type dataTypeScaleA = bufferElemTypeScaleA,
@@ -428,10 +435,12 @@ struct BlockwiseGemmAccelRewritePattern
       dataTypeA = bufferVecTypeA.getElementType();
     if (auto bufferVecTypeB = dyn_cast<VectorType>(bufferElemTypeB))
       dataTypeB = bufferVecTypeB.getElementType();
-    if (auto bufferVecTypeScaleA = dyn_cast<VectorType>(bufferElemTypeScaleA))
-      dataTypeScaleA = bufferVecTypeScaleA.getElementType();
-    if (auto bufferVecTypeScaleB = dyn_cast<VectorType>(bufferElemTypeScaleB))
-      dataTypeScaleB = bufferVecTypeScaleB.getElementType();
+    if (isScaledGemm) {
+      if (auto bufferVecTypeScaleA = dyn_cast<VectorType>(bufferElemTypeScaleA))
+        dataTypeScaleA = bufferVecTypeScaleA.getElementType();
+      if (auto bufferVecTypeScaleB = dyn_cast<VectorType>(bufferElemTypeScaleB))
+        dataTypeScaleB = bufferVecTypeScaleB.getElementType();
+    }
 
     auto features = rock::getFeatures(op);
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
@@ -444,9 +453,12 @@ struct BlockwiseGemmAccelRewritePattern
     rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
-    // todo : make it optional
-    Type argTypeScaleA = params.argTypeScaleA.value();
-    Type argTypeScaleB = params.argTypeScaleB.value();
+    Type argTypeScaleA, argTypeScaleB;
+    if (isScaledGemm) {
+      argTypeScaleA = params.argTypeScaleA.value();
+      argTypeScaleB = params.argTypeScaleB.value();
+    }
+
     int64_t mRepeats = params.mRepeats;
     int64_t nRepeats = params.nRepeats;
     int64_t kBase = params.kBase;
@@ -499,13 +511,14 @@ struct BlockwiseGemmAccelRewritePattern
           b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
           op.getRotateNWithK(), op.getSplitKAcrossThreadsFirstA());
     }
-    // todo : make direct to LDS for scalees
-    wrappedLDSBufferForLoadScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
-        b, loc, op.getScaleA(), op.getBlockSize(), op.getInMPerThread(), "m",
-        op.getRotateMWithK(), op.getSplitKAcrossThreadsFirstA());
-    wrappedLDSBufferForLoadScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
-        b, loc, op.getScaleB(), op.getBlockSize(), op.getInNPerThread(), "n",
-        op.getRotateNWithK(), op.getSplitKAcrossThreadsFirstA());
+    if (isScaledGemm) {
+      wrappedLDSBufferForLoadScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
+          b, loc, op.getScaleA(), op.getBlockSize(), op.getInMPerThread(), "m",
+          op.getRotateMWithK(), op.getSplitKAcrossThreadsFirstA());
+      wrappedLDSBufferForLoadScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
+          b, loc, op.getScaleB(), op.getBlockSize(), op.getInNPerThread(), "n",
+          op.getRotateNWithK(), op.getSplitKAcrossThreadsFirstA());
+    }
 
     auto mLoop = affine::AffineForOp::create(b, loc, 0, mRepeats);
     {
@@ -520,12 +533,13 @@ struct BlockwiseGemmAccelRewritePattern
         ThreadwiseReadIntoOp::create(
             b, loc, wrappedLDSBufferForLoadA, bufferA, b.getArrayAttr({}),
             ValueRange{tid, i}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-        ThreadwiseReadIntoOp::create(b, loc, wrappedLDSBufferForLoadScaleA,
-                                     bufferScaleA, b.getArrayAttr({}),
-                                     ValueRange{tid, i}, /*forceUnroll=*/true,
-                                     /*useIndexDiffs=*/true);
+        if (isScaledGemm)
+          ThreadwiseReadIntoOp::create(b, loc, wrappedLDSBufferForLoadScaleA,
+                                       bufferScaleA, b.getArrayAttr({}),
+                                       ValueRange{tid, i}, /*forceUnroll=*/true,
+                                       /*useIndexDiffs=*/true);
       } else {
-        // todo : make sure scales are empty for this path
+        assert(!isScaledGemm && "directToLDS for scaled gemm not implemented");
         if (cast<ShapedType>(bufferA.getType()).getRank() == 1) {
           BottomUpTMBuilder regsBuilder(b, {"mk"}, {mRepeats * kBasePerThread},
                                         loc);
@@ -538,8 +552,10 @@ struct BlockwiseGemmAccelRewritePattern
       }
       Value viewA =
           accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferA);
-      Value viewScaleA =
-          accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferScaleA);
+      Value viewScaleA = nullptr;
+      if (isScaledGemm)
+        viewScaleA = accelEmitterPtr->generateThreadwiseViewBufferA(
+            b, loc, bufferScaleA);
 
       auto nLoop = affine::AffineForOp::create(b, loc, 0, nRepeats);
       {
@@ -554,11 +570,14 @@ struct BlockwiseGemmAccelRewritePattern
           ThreadwiseReadIntoOp::create(
               b, loc, wrappedLDSBufferForLoadB, bufferB, b.getArrayAttr({}),
               ValueRange{tid, j}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-          ThreadwiseReadIntoOp::create(b, loc, wrappedLDSBufferForLoadScaleB,
-                                       bufferScaleB, b.getArrayAttr({}),
-                                       ValueRange{tid, j}, /*forceUnroll=*/true,
-                                       /*useIndexDiffs=*/true);
+          if (isScaledGemm)
+            ThreadwiseReadIntoOp::create(
+                b, loc, wrappedLDSBufferForLoadScaleB, bufferScaleB,
+                b.getArrayAttr({}), ValueRange{tid, j}, /*forceUnroll=*/true,
+                /*useIndexDiffs=*/true);
         } else {
+          assert(!isScaledGemm &&
+                 "directToLDS for scaled gemm not implemented");
           if (cast<ShapedType>(bufferB.getType()).getRank() == 1) {
             BottomUpTMBuilder regsBBuilder(b, {"nk"},
                                            {nRepeats * kBasePerThread}, loc);
@@ -571,8 +590,10 @@ struct BlockwiseGemmAccelRewritePattern
         }
         Value viewB =
             accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
-        Value viewScaleB = accelEmitterPtr->generateThreadwiseViewBufferB(
-            b, loc, bufferScaleB);
+        Value viewScaleB = nullptr;
+        if (isScaledGemm)
+          viewScaleB = accelEmitterPtr->generateThreadwiseViewBufferB(
+              b, loc, bufferScaleB);
 
         // regsC += regsA * regsB
         auto kLoop = affine::AffineForOp::create(b, loc, 0, kBasePerThread);

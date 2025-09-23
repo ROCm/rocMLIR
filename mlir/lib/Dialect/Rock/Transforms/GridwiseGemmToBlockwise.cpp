@@ -3511,7 +3511,7 @@ struct GridwiseGemmAccelRewritePattern
     Value ldsViewForGemmA = viewBufferAs(b, ldsByteBufferA, ldsReadTypeA);
     Value ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, ldsReadTypeB);
 
-    Value ldsViewForGemmScaleA, ldsViewForGemmScaleB;
+    Value ldsViewForGemmScaleA = nullptr, ldsViewForGemmScaleB = nullptr;
     Value wrappedLdsScaleA, wrappedLdsScaleB;
     if (isScaledGemm) {
       Type ldsReadTypeScaleA = vectorTypeOrSelf(elementTypeScaleA, kpack);
@@ -3575,7 +3575,7 @@ struct GridwiseGemmAccelRewritePattern
 
     auto arrayA = gpuAlloc(b, loc, arrayALen, argTypeA, AddressSpace::Private);
     auto arrayB = gpuAlloc(b, loc, arrayBLen, argTypeB, AddressSpace::Private);
-    Value arrayScaleA, arrayScaleB;
+    Value arrayScaleA = nullptr, arrayScaleB = nullptr;
     if (isScaledGemm) {
       arrayScaleA = gpuAlloc(b, loc, arrayScaleALen, argTypeScaleA,
                              AddressSpace::Private);
