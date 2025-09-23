@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
@@ -2346,9 +2347,9 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
                                 transposeB ? gemmK : gemmN},
                        cDims = {groupSize, transposeC ? gemmN : gemmM,
                                 transposeC ? gemmM : gemmN},
-                       aScale = {groupSize, transposeA ? gemmK : gemmM,
-                                 transposeA ? gemmM : gemmK},
-                       bScale = {groupSize, transposeB ? gemmN : gemmK,
+                       aScale = {groupSize, transposeA ? gemmK / 32 : gemmM,
+                                 transposeA ? gemmM : gemmK / 32},
+                       bScale = {groupSize, transposeB ? gemmN : gemmK / 32,
                                  transposeB ? gemmK : gemmN};
   MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
              bType = MemRefType::get(bDims, elemTypes[1]),
@@ -2428,6 +2429,55 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (scaledGemm) {
     aScale = expandedArgs[3];
     bScale = expandedArgs[4];
+    {
+      // create broadcast transform for aScale and bScale
+      rock::BottomUpTMBuilder addDimTransform(
+          b, {"g", "m", "kScale"},
+          cast<ShapedType>(aScale.getType()).getShape(), loc);
+      addDimTransform.addDim("block", 3, 1);
+      addDimTransform.passThrough({"g", "m", "kScale"});
+      rock::TransformMapAttr addDimTransformAttr = addDimTransform.get();
+      aScale = rock::TransformOp::create(b, loc, aScale, addDimTransformAttr);
+      // create broadcast
+      rock::BottomUpTMBuilder broadcastTransform =
+          rock::BottomUpTMBuilder::above(addDimTransform, addDimTransformAttr);
+      broadcastTransform.broadcast({3}, {32});
+      broadcastTransform.passThrough({"g", "m", "kScale"});
+      rock::TransformMapAttr broadcastTransformAttr = broadcastTransform.get();
+      aScale =
+          rock::TransformOp::create(b, loc, aScale, broadcastTransformAttr);
+      // merge transform
+      rock::BottomUpTMBuilder mergeTransform = rock::BottomUpTMBuilder::above(
+          broadcastTransform, broadcastTransformAttr);
+      mergeTransform.merge("k", 2, {"kScale", "block"});
+      mergeTransform.passThrough({"g", "m"});
+      aScale = rock::TransformOp::create(b, loc, aScale, mergeTransform.get());
+    }
+    {
+      // create broadcast transform for aScale and bScale
+      rock::BottomUpTMBuilder addDimTransform(
+          b, {"g", "kScale", "n"},
+          cast<ShapedType>(bScale.getType()).getShape(), loc);
+      addDimTransform.passThrough({"g", "kScale", "n"}, {0, 2, 3},
+                                  {"g", "kScale", "n"});
+      addDimTransform.addDim("block", 1, 1);
+      rock::TransformMapAttr addDimTransformAttr = addDimTransform.get();
+      bScale = rock::TransformOp::create(b, loc, bScale, addDimTransformAttr);
+      // create broadcast
+      rock::BottomUpTMBuilder broadcastTransform =
+          rock::BottomUpTMBuilder::above(addDimTransform, addDimTransformAttr);
+      broadcastTransform.broadcast({1}, {32});
+      broadcastTransform.passThrough({"g", "kScale", "n"});
+      rock::TransformMapAttr broadcastTransformAttr = broadcastTransform.get();
+      bScale =
+          rock::TransformOp::create(b, loc, bScale, broadcastTransformAttr);
+      // merge transform
+      rock::BottomUpTMBuilder mergeTransform = rock::BottomUpTMBuilder::above(
+          broadcastTransform, broadcastTransformAttr);
+      mergeTransform.passThrough({"g", "n"}, {0, 2}, {"g", "n"});
+      mergeTransform.merge("k", 1, {"kScale", "block"});
+      bScale = rock::TransformOp::create(b, loc, bScale, mergeTransform.get());
+    }
   }
   auto gemm = rock::GemmOp::create(
       b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, aScale, bScale,
