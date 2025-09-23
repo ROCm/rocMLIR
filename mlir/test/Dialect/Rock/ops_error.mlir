@@ -29,7 +29,7 @@ func.func @attention_nonset(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64x
   return
 }
 
-func.func @attention_numheadsq_negative(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+func.func @attention_numheadskv_negative(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
   // expected-error @below {{numHeadsKV must be positive}}
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
@@ -44,5 +44,23 @@ func.func @attention_numheadsq_negative(%arg0: memref<1x384x64xf16>, %arg1: memr
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
   } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = -1 : i32, storeMethod = #rock<StoreMethod set>}
+  return
+}
+
+func.func @attention_numheadsq_not_divisible(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @below {{numHeadsQ is not divisible by numHeadsKV}}
+  rock.attention{
+   qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
+   %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 3 : i32, numHeadsQ = 4 : i32, storeMethod = #rock<StoreMethod set>}
+  return
+}
+
+func.func @attention_numheadsq_smaller_than_numheadskv(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @below {{numHeadsQ is not divisible by numHeadsKV}}
+  rock.attention{
+   qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
+   %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 4 : i32, numHeadsQ = 2 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
