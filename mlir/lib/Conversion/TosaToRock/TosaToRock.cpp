@@ -2025,6 +2025,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // so, if the checks for kv-cache fail, we just keep going
     Value kvCacheInput, currentSeqLen;
     auto maybeKVCache = getKVCache(softmaxInput);
+    bool isKVCache = succeeded(maybeKVCache);
     if (succeeded(maybeKVCache))
       std::tie(kvCacheInput, currentSeqLen) = maybeKVCache.value();
     else
@@ -2032,8 +2033,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     // currentSeqLen needs one or two dimensions
     if (currentSeqLen &&
-        cast<ShapedType>(currentSeqLen.getType()).getRank() > 2)
+        cast<ShapedType>(currentSeqLen.getType()).getRank() > 2) {
+      LLVM_DEBUG(llvm::dbgs() << "currentSeqLen has more than 2 dimensions\n");
       return failure();
+    }
 
     auto causal = getCausal(kvCacheInput);
     bool isCausal = succeeded(causal);
@@ -2057,6 +2060,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     LLVM_DEBUG(llvm::dbgs()
                << "first matmul = " << maybeFirstMatMul.value() << "\n");
     LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "IsKVCache: " << isKVCache << "\n");
     LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
     if (isDotProduct && hasReduceOp)
       return failure();
