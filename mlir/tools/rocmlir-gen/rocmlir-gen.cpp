@@ -65,6 +65,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SourceMgr.h"
@@ -973,6 +974,7 @@ struct GenParams {
   std::optional<const rock::ConvGenerator::Config *> convConfig = std::nullopt;
   StringRef arch;
   StringRef perfConfig;
+  bool isScaledOp = false;
 };
 
 namespace test {
@@ -1615,7 +1617,8 @@ static std::tuple<short, short> getRandomTestData(int idx, bool isRandFloat) {
   return std::make_tuple(min, max);
 }
 
-llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType, int idx) {
+static llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType,
+                                                        int idx) {
   llvm::SmallVector<float, 3> pattern;
   if (randomSeed == "none") {
     float fixedVal = 1.0f;
@@ -1624,13 +1627,17 @@ llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType, int idx) {
       isRandFloat = false;
     }
     if (isRandFloat)
-      // Clamp the fixed rondam float by 0.1 to avoid infs in some f16 tests
+      // Clamp the fixed random float by 0.1 to avoid infs in some f16 tests
       fixedVal *= 0.1f;
     pattern = {static_cast<float>(fixedVal)};
   } else if (randomSeed == "fixed") {
     if (elemType.isIntOrIndex())
       pattern = {1.0, -1.0, 2.0};
-    else
+    else if (isa<Float4E2M1FNType>(elemType)) {
+      pattern = {1, -4, 0.5, 1.5};
+    } else if (isa<Float8E8M0FNUType>(elemType)) {
+      pattern = {2, 4, 8, 16};
+    } else
       pattern = {0.5, -1, 0.75};
   } else {
     llvm_unreachable("We shouldn't be here for random values");
@@ -3458,6 +3465,14 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   bVal = ensureFloatIsF32(b, loc, bVal, floatType);
   cVal = ensureFloatIsF32(b, loc, cVal, floatType);
 
+  Value aScaleVal = nullptr, bScaleVal = nullptr;
+  if (params.isScaledOp) {
+    aScaleVal = block->getArgument(3);
+    bScaleVal = block->getArgument(4);
+    aScaleVal = ensureFloatIsF32(b, loc, aScaleVal, floatType);
+    bScaleVal = ensureFloatIsF32(b, loc, bScaleVal, floatType);
+  }
+
   auto cType = cast<MemRefType>(cVal.getType());
   Value zeroOut = rock::createZeroConstantOp(b, loc, cType.getElementType());
 
@@ -3482,18 +3497,42 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
                 4, 0, {g, transposeB ? n : k, transposeB ? k : n}, ctx),
             cMap = AffineMap::get(
                 4, 0, {g, transposeC ? n : m, transposeC ? m : n}, ctx);
+
+  // Generate affine map: (d0, d1, d2, d3) -> (d0, d1, (d2 floordiv 32) * 32,
+  // d3)
+  auto scaleAffineMap = [&](bool transposeFlag, AffineExpr d) -> AffineMap {
+    // Create constant 32
+    auto c32 = getAffineConstantExpr(32, b.getContext());
+    // Create the expression: (d2 floordiv 32) * 32
+    auto kFloorDiv32 = k.floorDiv(c32);
+    auto kAligned = kFloorDiv32 * c32;
+    // Create the result expressions: (d0, d1, (d2 floordiv 32) * 32, d3)
+    SmallVector<AffineExpr> resultExprs = {g, transposeFlag ? kAligned : d,
+                                           transposeFlag ? d : kAligned};
+    return AffineMap::get(4, 0, resultExprs, b.getContext());
+  };
+  AffineMap aMapScaled = scaleAffineMap(transposeA, m);
+  AffineMap bMapScaled = scaleAffineMap(not transposeB, n);
   Value aExpVal = expandArg(aVal, argTypes[0]),
         bExpVal = expandArg(bVal, argTypes[1]),
         cExpVal = expandArg(cVal, argTypes[2]);
+  Value aExpValScaled = nullptr, bExpValScaled = nullptr;
+  if (params.isScaledOp) {
+    aExpValScaled = expandArg(aScaleVal, argTypes[3]);
+    bExpValScaled = expandArg(bScaleVal, argTypes[4]);
+  }
   linalg::GenericOp::create(
-      b, loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
-      ArrayRef<AffineMap>{aMap, bMap, cMap},
+      b, loc, ValueRange{aExpVal, bExpVal, aExpValScaled, bExpValScaled},
+      ValueRange{cExpVal},
+      ArrayRef<AffineMap>{aMap, bMap, aMapScaled, bMapScaled, cMap},
       ArrayRef<utils::IteratorType>{
           utils::IteratorType::parallel, utils::IteratorType::parallel,
           utils::IteratorType::parallel, utils::IteratorType::reduction},
       /*doc=*/"", /*library_call=*/"",
-      [](OpBuilder &builder, Location loc, ValueRange elems) {
-        Value a = elems[0], b = elems[1], c = elems[2];
+      [isScaledOp = params.isScaledOp](OpBuilder &builder, Location loc,
+                                       ValueRange elems) {
+        Value a = elems[0], b = elems[1], aScale = elems[2], bScale = elems[3];
+        Value c = elems[4];
         Type cType = c.getType();
         if (isa<IntegerType>(cType)) {
           Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
@@ -3502,6 +3541,10 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
           Value add = arith::AddIOp::create(builder, loc, mul, c);
           linalg::YieldOp::create(builder, loc, add);
         } else {
+          if (isScaledOp) {
+            a = builder.create<arith::MulFOp>(loc, a, aScale);
+            b = builder.create<arith::MulFOp>(loc, b, bScale);
+          }
           Value mul = arith::MulFOp::create(builder, loc, a, b);
           Value add = arith::AddFOp::create(builder, loc, mul, c);
           linalg::YieldOp::create(builder, loc, add);
@@ -3512,6 +3555,11 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
     memref::DeallocOp::create(b, loc, aVal);
   if (!isa<BlockArgument>(bVal))
     memref::DeallocOp::create(b, loc, bVal);
+  if (!isa<BlockArgument>(aScaleVal))
+    memref::DeallocOp::create(b, loc, aScaleVal);
+  if (!isa<BlockArgument>(bScaleVal))
+    memref::DeallocOp::create(b, loc, bScaleVal);
+
   if (!isa<BlockArgument>(cVal)) {
     BlockArgument resultBlockArg = block->getArgument(2);
     Value resultFlat = makeNDMemRef(b, cVal, 1);
@@ -5066,7 +5114,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     } else
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
                                    wmmaFeature == FeatureToggle::on);
-
+    genParams.isScaledOp = scaledGemm;
     genParams.operation = operation;
     genParams.features = enabledFeatures;
     genParams.arch = arch;
