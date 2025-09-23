@@ -2613,7 +2613,7 @@ mlir::rock::getStringRefsFor(ArrayRef<SmallString<8>> strings) {
   return nameRefs;
 }
 
-FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
+FailureOr<Type> mlir::rock::getInputFusionElementType(Value transformed) {
   FailureOr<memref::AllocOp> maybeAlloc = findMemrefAlloc(transformed);
   if (failed(maybeAlloc))
     return failure();
@@ -2625,8 +2625,8 @@ FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
     Value candidate = nullptr;
     if (auto genericOp = dyn_cast<linalg::GenericOp>(user)) {
       if (genericOp.getOutputs().size() != 1) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "Can't process linalg.generic with multiple outputs\n");
+        LLVM_DEBUG(llvm::dbgs() << "getInputFusionElementType: linalg.generic "
+                                   "with multiple outputs are unsupported\n");
         return failure();
       }
       Value genericOut = genericOp.getOutputs().front();
@@ -2640,9 +2640,9 @@ FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
           return failure();
         }
       } else {
-        LLVM_DEBUG(
-            llvm::dbgs()
-            << "Found a linalg.generic that takes as input the gemm A or B\n");
+        LLVM_DEBUG(llvm::dbgs()
+                   << "getInputFusionElementType: found a linalg.generic that "
+                      "takes as input the gemm A or B\n");
         return failure();
       }
     } else {
@@ -2650,8 +2650,10 @@ FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
     }
 
     if (newTransformed) {
-      LLVM_DEBUG(llvm::dbgs() << "Found multiple linalg.generic that "
-                                 "could be the next one\n");
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "getInputFusionElementType: found multiple linalg.generic that "
+             "could be the next one\n");
       return failure();
     }
     newTransformed = candidate;
@@ -2659,12 +2661,18 @@ FailureOr<Type> mlir::rock::getGemmInputElementType(Value transformed) {
   newTransformed = newTransformed ? newTransformed : memref;
 
   auto blockArg = findBlockArgument(newTransformed);
-  if (failed(blockArg))
+  if (failed(blockArg)) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "getInputFusionElementType: findBlockArgument failed\n");
     return failure();
+  }
 
   auto shapedTy = dyn_cast<ShapedType>(blockArg.value().getType());
-  if (!shapedTy)
+  if (!shapedTy) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "getInputFusionElementType: failed to get ShapedType\n");
     return failure();
+  }
 
   return shapedTy.getElementType();
 }

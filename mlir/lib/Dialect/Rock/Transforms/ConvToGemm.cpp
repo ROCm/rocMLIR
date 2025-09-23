@@ -36,6 +36,7 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/TypeUtilities.h"
 
@@ -301,79 +302,6 @@ static Value makePrivateGpuAlloc(OpBuilder &b, Location loc, Type type) {
   Value memref = rock::GpuAllocOp::create(b, loc, memrefTy);
   return memref;
 }
-
-/// Store `value` into a private memref buffer to make it an acceptable argument
-/// to memref.store. Returns the allocated buffer.
-static Value makeGpuAllocContaining(OpBuilder &b, Value v) {
-  Location loc = v.getLoc();
-  Type type = v.getType();
-  Value memref = makePrivateGpuAlloc(b, loc, type);
-  rock::InBoundsStoreOp::create(b, loc, v, memref,
-                                b.createOrFold<arith::ConstantIndexOp>(loc, 0));
-  return memref;
-}
-
-/// 0-initialize a given buffer.
-struct ZeroInitKernelRewritePattern final
-    : public OpConversionPattern<InitKernelOp> {
-  using OpConversionPattern<InitKernelOp>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(InitKernelOp op, InitKernelOpAdaptor adaptor,
-                                ConversionPatternRewriter &b) const override {
-    Location loc = op.getLoc();
-    TypedValue<ShapedType> buffer = op.getBuffer();
-    Type bufferType = buffer.getType().getElementType();
-    if (!op.getElemsPerThread().has_value())
-      return op->emitOpError("elems per thread not set");
-
-    int64_t initVectorLen = getUtilityVectorizationLen(
-        buffer.getType(), op.getElemsPerThread()->getZExtValue());
-    Type storeType = vectorTypeOrSelf(bufferType, initVectorLen);
-    bool needs64BitIdx = is4GBMemoryType(buffer.getType());
-
-    Type elementType = mlir::getElementTypeOrSelf(storeType);
-    Value initOp;
-    auto initValueAttr = op.getInitValueAttr();
-    if (initValueAttr) {
-      if (auto floatInitValueAttr =
-              dyn_cast<FloatAttr>(initValueAttr.value())) {
-        auto initValue = floatInitValueAttr.getValue().convertToFloat();
-        initOp =
-            createConstantFloatOp(b, loc, storeType, elementType, initValue);
-      } else if (auto intInitValueAttr =
-                     dyn_cast<IntegerAttr>(initValueAttr.value())) {
-        auto initValue = intInitValueAttr.getValue().getSExtValue();
-        initOp = createConstantIntOp(b, loc, storeType, elementType, initValue);
-      } else {
-        return failure();
-      }
-    } else {
-      initOp = createZeroConstantOp(b, loc, storeType);
-    }
-
-    Value zeroIndex = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    Value memref = makeGpuAllocContaining(b, initOp);
-    Value trueOp =
-        b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-
-    auto loopBody = [&memref, &initVectorLen, &trueOp, &zeroIndex,
-                     &needs64BitIdx](OpBuilder &b, Location loc,
-                                     ValueRange collapsed, Value index) {
-      GlobalStoreOp::create(b, loc, memref, collapsed[0],
-                            APInt(64, initVectorLen), StoreMethod::Set,
-                            /*sourceCoord=*/zeroIndex,
-                            /*valid=*/trueOp, index, needs64BitIdx,
-                            /*canStoreOffEnd=*/true);
-    };
-    LogicalResult res =
-        createElementwiseLoop(b, loc, op, buffer, initVectorLen, loopBody);
-    if (failed(res))
-      return failure();
-
-    b.eraseOp(op);
-    return success();
-  }
-};
 
 /// Element-wise conversion from the workspace to the output (filter tensor)
 /// for a backward weight convolution which uses atomic adds.
@@ -805,10 +733,11 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   return std::make_tuple(Value(), Value(), Value());
 }
 
-FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
-                                                        PatternRewriter &b) {
+FailureOr<std::tuple<Value, Value, Value>> backwardDataV4R1(ConvBwdDataOp op,
+                                                            PatternRewriter &b,
+                                                            int64_t kernelId,
+                                                            bool usesV4R1) {
   Location loc = op.getLoc();
-  IntegerAttr kernelIdAttr = op.getKernelIdAttr();
 
   ConvolutionContext ctx = populateConvContext(op);
 
@@ -878,7 +807,6 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
   // i0tilda = kernelid / (filtilda[2] * filtilda[1])
   //  get-backward-kernel-count or similar
 
-  int64_t kernelId = kernelIdAttr.getInt();
   SmallVector<int64_t, 3> iTilda;
   SmallVector<int64_t, 3> iDotSlice;
   int64_t product = 1;
@@ -1160,10 +1088,12 @@ FailureOr<std::tuple<Value, Value, Value>> backwardData(ConvBwdDataOp op,
       /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
       op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
-  gemm->setAttr("kernelId", kernelIdAttr);
+  gemm->setAttr("kernelId", b.getIndexAttr(kernelId));
 
-  // Finally, erase the original Conv op.
-  b.eraseOp(op);
+  // Only erase the op in the case of V4R1. In non-V4R1 paths we will handle
+  // this removal outside of this function
+  if (usesV4R1)
+    b.eraseOp(op);
 
   return std::make_tuple(Value(), Value(), Value());
 }
@@ -1176,7 +1106,30 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
 
   Type dataType = op.getInput().getType().getElementType();
   if (ConvOpType::BwdData == convOpType) {
-    return backwardData(cast<ConvBwdDataOp>(op), b);
+    auto bwdDataOp = cast<ConvBwdDataOp>(op);
+    bool usesV4R1 = op->template getAttrOfType<BoolAttr>("usesV4R1").getValue();
+    if (usesV4R1) {
+      auto kernelId = bwdDataOp.getKernelIdAttr().getInt();
+      return backwardDataV4R1(bwdDataOp, b, kernelId, usesV4R1);
+    } else {
+      // For the cases where the V4R1 algorithm requires more than one kernel,
+      // i.e., stride != dilation, we want to create multiple GEMMs in a
+      // single kernel
+      auto strideDims = ctx.getStrideVal();
+      auto dilationDims = ctx.getDilationVal();
+      auto filterDims = ctx.getConvDims().fil;
+      auto numKernels =
+          rock::backwardDataKernelIds(strideDims, dilationDims, filterDims,
+                                      /*usesV4R1=*/true);
+      for (size_t i = 0; i < numKernels.size(); i++) {
+        auto maybe = backwardDataV4R1(bwdDataOp, b, i, usesV4R1);
+        if (failed(maybe))
+          return failure();
+      }
+
+      b.eraseOp(bwdDataOp);
+      return std::make_tuple(Value(), Value(), Value());
+    }
   }
   Location loc = op.getLoc();
 
@@ -1353,18 +1306,17 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
   llvm::SmallVector<StringRef, 3> mergeToK, mergeToN;
   switch (convOpType) {
   case ConvOpType::Fwd:
-    mergeToK = std::move(nonNHWDims);
-    mergeToN = std::move(nhwDims);
+    gemmInputTransform.merge("gemmK", 1, nonNHWDims);
+    gemmInputTransform.merge("gemmN", 2, nhwDims);
     break;
   case ConvOpType::BwdWeight:
-    mergeToK = std::move(nhwDims);
-    mergeToN = std::move(nonNHWDims);
+    gemmInputTransform.merge("gemmK", 1, nhwDims);
+    gemmInputTransform.merge("gemmN", 2, nonNHWDims);
     break;
   case ConvOpType::BwdData:
-    llvm_unreachable("Backward data is in another function");
+    llvm_unreachable("Backward data has been sent elsewhere");
+    break;
   }
-  gemmInputTransform.merge("gemmK", 1, mergeToK);
-  gemmInputTransform.merge("gemmN", 2, mergeToN);
 
   TransformMapAttr gemmInputTransformAttr = gemmInputTransform.get();
   Value gemmInput =
@@ -1436,7 +1388,8 @@ struct ConvGemmRewritePattern : public OpRewritePattern<ConvElementwiseGemmOp> {
         op.getElemwiseInputs(), op.getOut(),
         /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
         op.getCTransposedAttr(), op.getOTransposedAttr(), op.getFeaturesAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+        op.getStoreMethodAttr(), op.getParams0Attr(), op.getParams1Attr(),
+        op.getFirstGemmIndicesAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;
@@ -1545,7 +1498,7 @@ void RockConvToGemmPass::runOnOperation() {
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::ConvOp, rock::ConvBwdDataOp, rock::ConvBwdWeightOp,
-                      rock::InitKernelOp, rock::ConvertingCopyKernelOp,
+                      rock::ConvertingCopyKernelOp,
                       rock::ConvElementwiseGemmOp>();
   target.addLegalOp<rock::TransformOp, rock::GemmOp, rock::WorkgroupIdOp,
                     rock::WorkitemIdOp, rock::GlobalLoadOp, rock::GlobalStoreOp,
@@ -1556,11 +1509,9 @@ void RockConvToGemmPass::runOnOperation() {
                          scf::SCFDialect>();
 
   RewritePatternSet patterns(ctx);
-  patterns
-      .add<ConvRewritePattern<ConvOp>, ConvRewritePattern<ConvBwdDataOp>,
-           ConvRewritePattern<ConvBwdWeightOp>, ConvGemmRewritePattern,
-           ZeroInitKernelRewritePattern, ConvertingCopyKernelRewritePattern>(
-          ctx);
+  patterns.add<ConvRewritePattern<ConvOp>, ConvRewritePattern<ConvBwdDataOp>,
+               ConvRewritePattern<ConvBwdWeightOp>, ConvGemmRewritePattern,
+               ConvertingCopyKernelRewritePattern>(ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {

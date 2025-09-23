@@ -2062,6 +2062,9 @@ void ThreadwiseAccelGemmOp::getEffects(
 // GridwiseAttentionAccelOp
 //===----------------------------------------------------------------------===//
 LogicalResult GridwiseAttentionAccelOp::verify() {
+  if (getEnableSoftmax() && getStoreMethod() != StoreMethod::Set)
+    return emitError("Only set store method is supported for attention.");
+
   RockAccelTuningParamAttrInterface gemm0TuningParams = getParams0();
   int64_t gemm0kpack = gemm0TuningParams.getKpack();
   int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
@@ -2592,6 +2595,9 @@ LogicalResult AttentionOp::verify() {
   if (getSplitKV() <= 0)
     return emitError("Negative or zero split-kv does not make sense");
 
+  if (getStoreMethod() != StoreMethod::Set)
+    return emitError("Only set store method is supported for attention.");
+
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse());
 }
 
@@ -2623,29 +2629,36 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
   if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
     return {};
   }
-  if (version != 1) {
+  if (version != 1 && version != 2) {
     return {};
   }
-  SmallVector<StringRef, 8> tokens;
+  size_t expectedNumTokens = version == 1 ? 8 : 11;
+  SmallVector<StringRef, 11> tokens;
   rest.split(tokens, ',');
-  if (tokens.size() != 8) {
+  if (tokens.size() != expectedNumTokens) {
     return {};
   }
-  SmallVector<int64_t, 8> params;
+  SmallVector<int64_t, 11> params;
   llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
     int param;
     llvm::to_integer(s, param);
     return param;
   });
-  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(),
-                                 /*mPerBlockG0=*/params[0],
-                                 /*mPerBlockG1=*/params[1],
-                                 /*nPerBlockG0=*/params[2],
-                                 /*kpackPerBlock=*/params[3],
-                                 /*mPerWave=*/params[4],
-                                 /*mnPerXdl*/ params[5],
-                                 /*kpack=*/params[6],
-                                 /*forceUnroll=*/params[7] == 1);
+  int64_t mPerBlockG0 = params[0];
+  int64_t mPerBlockG1 = params[1];
+  int64_t nPerBlockG0 = params[2];
+  int64_t kpackPerBlock = params[3];
+  int64_t mPerWave = params[4];
+  int64_t mnPerXdl = params[5];
+  int64_t kpack = params[6];
+  int64_t splitKFactor = version == 2 ? params[7] : 1;
+  int64_t scheduleVersion = version == 2 ? params[8] : 1;
+  int64_t outputSwizzle = version == 2 ? params[9] : 2;
+  int64_t forceUnroll = params[expectedNumTokens - 1] == 1;
+  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(), mPerBlockG0,
+                                 mPerBlockG1, nPerBlockG0, kpackPerBlock,
+                                 mPerWave, mnPerXdl, kpack, splitKFactor,
+                                 scheduleVersion, outputSwizzle, forceUnroll);
 }
 
 //===-----------------------------------------------------===//

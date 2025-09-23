@@ -447,17 +447,17 @@ def Tosa_TransposeConv2DOp : Tosa_ConvOp<"transpose_conv2d"> {
     by zero at fractional input positions.
   }];
 
-  let arguments = (ins
-    Tosa_Tensor4D:$input,
-    Tosa_Tensor4D:$weight,
-    Tosa_Tensor1D:$bias,
-    Tosa_ScalarIntOrFloatTensor:$input_zp,
-    Tosa_ScalarIntOrFloatTensor:$weight_zp,
+  let arguments = (ins Tosa_Tensor4D:$input, Tosa_Tensor4D:$weight,
+      Tosa_Tensor1D:$bias, Tosa_ScalarIntOrFloatTensor:$input_zp,
+      Tosa_ScalarIntOrFloatTensor:$weight_zp,
 
-    Tosa_IntArrayAttr4:$out_pad,
-    Tosa_IntArrayAttr2:$stride,
-    TypeAttrOf<Tosa_AccType>:$acc_type,
-    DefaultValuedOptionalAttr<BoolAttr, "false">:$local_bound
+      Tosa_IntArrayAttr4:$out_pad, Tosa_IntArrayAttr2:$stride,
+      TypeAttrOf<Tosa_AccType>:$acc_type,
+      DefaultValuedOptionalAttr<BoolAttr, "false">:$local_bound,
+      // rocMLIR Customizations
+      OptionalAttr<I64Attr>:$group, OptionalAttr<Tosa_IntArrayAttr2>:$dilation,
+      OptionalAttr<Tosa_IntArrayAttr4>:$pad
+      // End of rocMLIR Customizations
   );
 
   let results = (outs

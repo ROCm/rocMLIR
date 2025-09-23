@@ -65,35 +65,8 @@ void AffixTuningParameters::runOnOperation() {
       funcOp->setAttr("grid_size", op.getGridSizeAttr());
     }
   });
-  func.walk(
-      [&](InitKernelOp op) { setUtilityKernelSizes(op.getBuffer(), op); });
   func.walk([&](ConvertingCopyKernelOp op) {
     setUtilityKernelSizes(op.getInput(), op);
-  });
-
-  auto &bufferDeps = getAnalysis<BufferDependencyAnalysis>();
-  func.walk([&](GemmOp op) {
-    if (op.getStoreMethod() == StoreMethod::AtomicAdd) {
-      OpBuilder b(op.getContext());
-      auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-      auto c = op.getC();
-      auto attrName = rock::PrefillAttr::getMnemonic();
-      auto elementType = cast<MemRefType>(c.getType()).getElementType();
-      Attribute zero;
-      if (llvm::isa<FloatType>(elementType)) {
-        zero = b.getFloatAttr(elementType, 0.0);
-      } else {
-        assert(llvm::isa<IntegerType>(elementType) &&
-               "expecting `int` element type");
-        zero = b.getIntegerAttr(elementType, 0);
-      }
-      FailureOr<SmallVector<BlockArgument>> args =
-          traceGemmOutputToArgs(c, func, bufferDeps);
-      assert(succeeded(args) &&
-             "can't trace the GEMM output to a kernel result");
-      for (auto arg : args.value())
-        func.setArgAttrs(arg.getArgNumber(), b.getNamedAttr(attrName, zero));
-    }
   });
 
   // For all ops that can take a 'features' attribute, we want to get or
@@ -275,7 +248,7 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
         gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() /
                                            gemm0TuningParams.getMPerBlock()),
         gemm0XdlDerivedParams.getNPerWave(),
-        gemm0XdlDerivedParams.getMnPerXdl(), 1,
+        gemm0XdlDerivedParams.getMnPerXdl(), attnPerfConfig.getSplitKFactor(),
         gemm0XdlDerivedParams.getScheduleVersion(),
         gemm0XdlDerivedParams.getOutputSwizzle(),
         gemm0XdlDerivedParams.getForceUnroll());
@@ -286,7 +259,8 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
       gemm0TuningParams.getKpack(),
       gemm0TuningParams.getMPerWave() *
           (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
-      gemmNPerWaveOrMnPerXdl, 1, gemm0TuningParams.getScheduleVersion(),
+      gemmNPerWaveOrMnPerXdl, attnPerfConfig.getSplitKFactor(),
+      gemm0TuningParams.getScheduleVersion(),
       gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getForceUnroll());
 }
 
@@ -304,7 +278,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   Attribute params0 = op.getGemm0Params().value_or(nullptr);
   // set a default one if params is not provided
   StringAttr perfConfigStrAttr =
-      builder.getStringAttr("attn:v1:32,32,32,32,32,32,1,1");
+      builder.getStringAttr("attn:v2:32,32,32,32,32,32,1,1,1,2,1");
   if (!params0) {
     if (StringAttr mayBePerfConfigStrAttr =
             dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
@@ -323,16 +297,16 @@ void AffixTuningParameters::affixTuningParametersImpl(
         builder.getContext(), attnPerfConfig.getKpackPerBlock(),
         attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(), 2,
-        attnPerfConfig.getForceUnroll());
+        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(),
+        attnPerfConfig.getOutputSwizzle(), attnPerfConfig.getForceUnroll());
     accelParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
   } else {
     accelParams0 = WmmaGemmParamsAttr::get(
         builder.getContext(), attnPerfConfig.getKpackPerBlock(),
         attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(), 2,
-        attnPerfConfig.getForceUnroll());
+        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(),
+        attnPerfConfig.getOutputSwizzle(), attnPerfConfig.getForceUnroll());
   }
   op.setGemm0ParamsAttr(accelParams0);
   if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {

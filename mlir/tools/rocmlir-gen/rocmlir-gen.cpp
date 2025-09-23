@@ -123,12 +123,6 @@ static llvm::cl::opt<int> num_cu(
                    "gfx906(60/64), gfx908(120)"),
     llvm::cl::value_desc("compute unit value"), llvm::cl::init(0));
 
-static llvm::cl::opt<bool> reverse_grid(
-    "reverse_grid",
-    llvm::cl::desc(
-        "Indicates whether to reverse the workgroup indices in the kernel"),
-    llvm::cl::value_desc("boolean"), llvm::cl::init(false));
-
 static llvm::cl::opt<std::string> perfConfig(
     "perf_config", llvm::cl::desc("performance config data used for tuning"),
     llvm::cl::value_desc("Serialized tuning parameters"), llvm::cl::init(""));
@@ -316,6 +310,11 @@ static llvm::cl::opt<int64_t> gemmN("n",
                                     llvm::cl::desc("N dimension of gemm()"),
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
+
+/// Backwards data convolution options
+static llvm::cl::opt<int64_t>
+    usesV4R1("v4r1", llvm::cl::desc("Use V4R1 for bwd_data convolution"),
+             llvm::cl::init(1));
 
 /// gemm+elementwise+gemm options
 static llvm::cl::opt<int64_t>
@@ -2374,9 +2373,6 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   auto func =
       func::FuncOp::create(b, loc, isVerifier ? kernelNameVerifier : kernelName,
                            b.getFunctionType(flatTypes, {}), funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), b.getUnitAttr());
-  }
 
   constexpr StringLiteral gName = "g", mName = "m", kName = "k", nName = "n";
   SmallVector<SmallVector<StringRef>> allArgNames;
@@ -3066,10 +3062,6 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   auto func = func::FuncOp::create(builder, loc, kernelName,
                                    builder.getFunctionType(flatArgTypes, {}),
                                    funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3127,7 +3119,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       currentSeqLenTensor, output, lse, transposeQ, transposeK, transposeV,
       transposeO, causalMasking, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
-      softmaxType,
+      storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,
       /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
@@ -3234,10 +3226,6 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   auto func = func::FuncOp::create(builder, loc, kernelName,
                                    builder.getFunctionType(flatArgTypes, {}),
                                    funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3264,7 +3252,7 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       builder, loc, TypeRange{}, filter, input, c, elemwiseInputs, output,
       transposeC, transposeO,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
-      builder.getIndexArrayAttr(pad),
+      storeMethod, builder.getIndexArrayAttr(pad),
       builder.getIndexArrayAttr(config->strideDims),
       builder.getIndexArrayAttr(config->dilationDims),
       /*params0=*/nullptr, /*params1=*/nullptr,
@@ -3312,6 +3300,11 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                             inputLayoutSpec.begin(), inputLayoutSpec.end())));
 
   func::ReturnOp::create(builder, loc);
+
+  if (!disableSplitKForTuning)
+    func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
+                  builder.getUnitAttr());
+
   module.push_back(func);
   return func;
 }
@@ -3345,10 +3338,6 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   auto func = func::FuncOp::create(builder, loc, kernelName,
                                    builder.getFunctionType(flatArgTypes, {}),
                                    funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3369,6 +3358,7 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       builder, loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA,
       transposeB, transposeC, transposeO,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
+      storeMethod,
       /*params0=*/nullptr, /*params1=*/nullptr,
       /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
@@ -3399,6 +3389,11 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                           builder.getStringAttr(params.perfConfig));
 
   func::ReturnOp::create(builder, loc);
+
+  if (!disableSplitKForTuning)
+    func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
+                  builder.getUnitAttr());
+
   module.push_back(func);
   return func;
 }
@@ -4645,10 +4640,11 @@ static LogicalResult populateHostHarnessLogic(
   bool gpuValidation = validationType == "gpu" &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
-  bool isSplitK =
-      (genParams.perfConfig.empty())
-          ? false
-          : rock::isSplitKRequested(genParams.features, genParams.perfConfig);
+  bool isSplitK = (genParams.perfConfig.empty())
+                      ? false
+                      : rock::isSplitKRequested(
+                            genParams.features,
+                            StringAttr::get(context, genParams.perfConfig));
 
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
@@ -4972,6 +4968,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       exit(1);
     }
 
+    bool usesV4R1Config = usesV4R1.getValue();
+
     RocmDeviceName targetInfo;
     if (failed(targetInfo.parse(arch.getValue()))) {
       llvm::errs() << "Invalid architecture name: " << arch << "\n";
@@ -5132,12 +5130,11 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
-          reverse_grid, enabledFeatures,
-          rock::convOpTypeFromKernelType(operation.getValue()),
+          enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilations, strides, paddingLeft,
           paddingRight, filterLayout.getValue(), inputLayout.getValue(),
-          outputLayout.getValue());
+          outputLayout.getValue(), usesV4R1Config);
 
       SmallVector<int64_t> inDims{inputHeight, inputWidth};
       if (nDims > 2) {

@@ -17,6 +17,7 @@ set(PERFORMANCE_SCRIPTS
   reportUtils.py
   tuningRunner.py
   rocmlir_metrics.txt
+  handleNewConfigs.py
 )
 
 list(TRANSFORM PERFORMANCE_SCRIPTS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")

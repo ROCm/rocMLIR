@@ -38,7 +38,6 @@ public:
     std::string chipFeatures;
     std::string perfConfig;
     std::optional<int> num_cu;
-    bool reverseGrid;
     GemmFeatures features;
     std::optional<rock::ConvOpType> operation;
     std::string filterDataTypeStr;
@@ -51,15 +50,13 @@ public:
     std::string filterLayout;
     std::string inputLayout;
     std::string outputLayout;
+    bool usesV4R1;
 
     std::string kernelBaseName;
-
     int kernelId;
-
     SmallVector<int64_t, 5> filterDimension;
     SmallVector<int64_t, 5> inputDimension;
     SmallVector<int64_t, 5> outputDimension;
-
     SmallVector<int64_t, 4> filterDims;
   };
 
@@ -68,7 +65,7 @@ public:
       bool disableSplitKForTuning = false, int64_t scheduleVersion = 1,
       const std::string &triple = "", const std::string &chipFeatures = "",
       const std::string &perfConfig = "",
-      std::optional<int> num_cu = std::nullopt, bool reverseGrid = false,
+      std::optional<int> num_cu = std::nullopt,
       GemmFeatures features = GemmFeatures::none,
       const std::optional<rock::ConvOpType> operation = std::nullopt,
       const std::string &filterDataTypeStr = "f32",
@@ -78,7 +75,7 @@ public:
       ArrayRef<int> paddingLeft = {0, 0}, ArrayRef<int> paddingRight = {0, 0},
       const std::string &filterLayout = "kcyx",
       const std::string &inputLayout = "nchw",
-      const std::string &outputLayout = "nkhw",
+      const std::string &outputLayout = "nkhw", const bool usesV4R1 = false,
       const std::string &kernelBaseName = "");
 
   ConvGenerator(const Config &_config);

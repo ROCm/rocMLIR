@@ -275,20 +275,16 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
   let description = [{
     The perf configs for rock.attention operator.
   }];
-  let parameters = (ins
-    "int64_t":$mPerBlockG0,
-    "int64_t":$mPerBlockG1,
-    "int64_t":$nPerBlockG0,
-    "int64_t":$kpackPerBlock,
-    "int64_t":$mPerWave,
-    "int64_t":$mnPerXdl,
-    "int64_t":$kpack,
-    "bool":$forceUnroll
-  );
+
+  let parameters = (ins "int64_t":$mPerBlockG0, "int64_t":$mPerBlockG1,
+      "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$mPerWave,
+      "int64_t":$mnPerXdl, "int64_t":$kpack, "int64_t":$splitKFactor,
+      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
+      "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      ("attn:v1:"
+      ("attn:v2:"
       + Twine(getMPerBlockG0()) + ","
       + Twine(getMPerBlockG1()) + ","
       + Twine(getNPerBlockG0()) + ","
@@ -296,12 +292,11 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
       + Twine(getMPerWave()) + ","
       + Twine(getMnPerXdl()) + ","
       + Twine(getKpack()) + ","
+      + Twine(getSplitKFactor()) + ","
+      + Twine(getScheduleVersion()) + ","
+      + Twine(getOutputSwizzle()) + ","
       + Twine(getForceUnroll())).toVector(perfStr);
     }
-
-    int64_t getSplitKFactor() { return 1; }
-    int64_t getScheduleVersion() { return 1;}
-    int64_t getOutputSwizzle() { return 2; }
   }];
 
   let builders = [
@@ -512,10 +507,6 @@ def Rock_ScheduleVersionAttr : Rock_Attr<"ScheduleVersion"> {
   let description = [{
     Attribute to express which GEMM Scheduling strategies a kernel lowering should use inside rocMLIR
   }];
-}
-
-def Rock_ReverseGridAttr : Rock_Attr<"ReverseGridAttr"> {
-  let mnemonic = "reverse_grid";
 }
 
 // It is a temporary attribute

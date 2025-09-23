@@ -39,6 +39,12 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrConvElementwiseGemmF32
     PrConvElementwiseGemmF16
     PrConvElementwiseGemmBF16
+    PrGemmElementwiseGemmF32SplitK
+    PrGemmElementwiseGemmF16SplitK
+    PrGemmElementwiseGemmBF16SplitK
+    PrConvElementwiseGemmF32SplitK
+    PrConvElementwiseGemmF16SplitK
+    PrConvElementwiseGemmBF16SplitK
   )
   set(GEN_MODE "")
 endif()
@@ -65,9 +71,6 @@ if (ROCK_E2E_TEST_ENABLED)
   Resnet101Config
   )
   list(APPEND CONFIGS
-  gemm_with_atomic_add_bf16
-  gemm_with_atomic_add_f16
-  gemm_with_atomic_add_f32
   gemm_split_k_f16
   gemm_split_k_bf16
   gemm_split_k_f32

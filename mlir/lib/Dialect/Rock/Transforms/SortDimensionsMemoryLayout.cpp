@@ -572,13 +572,13 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
     std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
              transposedV) = maybeRewrite.value();
 
-    auto newOp = rock::AttentionOp::create(b, 
-        op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
-        op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(), op.getOut(),
-        op.getLse(), transposedQ, transposedK, transposedV,
+    auto newOp = rock::AttentionOp::create(
+        b, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
+        newTensorV, op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(),
+        op.getOut(), op.getLse(), transposedQ, transposedK, transposedV,
         op.getOTransposedAttr(), op.getCausalAttr(), op.getSplitKVAttr(),
-        op.getFeaturesAttr(), op.getSoftmaxTypeAttr(), op.getParams0Attr(),
-        op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+        op.getFeaturesAttr(), op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(),
+        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;
@@ -588,6 +588,9 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
       b.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
                            newOp.getPreSoftmaxBody().begin());
     }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
+
     b.replaceOp(op, newOp);
 
     return success();
@@ -640,9 +643,9 @@ struct ConvElementwiseGemmRewritePattern
     auto newOp = rock::ConvElementwiseGemmOp::create(
         rw, op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
         op.getElemwiseInputs(), op.getOut(), transposedC,
-        op.getOTransposedAttr(), op.getFeaturesAttr(), op.getPaddingAttr(),
-        op.getStridesAttr(), op.getDilationsAttr(), op.getParams0Attr(),
-        op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+        op.getOTransposedAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        op.getPaddingAttr(), op.getStridesAttr(), op.getDilationsAttr(),
+        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
 
     // set attributes
     newOp->setAttr("filter_layout", newFilterLayout);
@@ -657,6 +660,9 @@ struct ConvElementwiseGemmRewritePattern
                             newOp.getPreSecondGemmBody(),
                             newOp.getPreSecondGemmBody().begin());
     }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
+
     rw.replaceOp(op, newOp);
 
     return success();
@@ -686,7 +692,8 @@ struct GemmElementwiseGemmRewritePattern
         rw, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
         newTensorV, op.getElemwiseInputs(), op.getOut(), transposedQ,
         transposedK, transposedV, op.getOTransposedAttr(), op.getFeaturesAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+        op.getStoreMethodAttr(), op.getParams0Attr(), op.getParams1Attr(),
+        op.getFirstGemmIndicesAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;
@@ -697,6 +704,9 @@ struct GemmElementwiseGemmRewritePattern
                             newOp.getPreSecondGemmBody(),
                             newOp.getPreSecondGemmBody().begin());
     }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
+
     rw.replaceOp(op, newOp);
 
     return success();
@@ -716,18 +726,6 @@ void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
   patternsConv.add<ConvRewritePattern<rock::ConvOp>>(&ctx);
   if (failed(applyOpPatternsGreedily(getOperations<rock::ConvOp>(func),
                                      std::move(patternsConv), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsConvBwdData(&ctx);
-  patternsConvBwdData.add<ConvRewritePattern<rock::ConvBwdDataOp>>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdDataOp>(func),
-                                     std::move(patternsConvBwdData), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsConvBwdWeight(&ctx);
-  patternsConvBwdWeight.add<ConvRewritePattern<rock::ConvBwdWeightOp>>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdWeightOp>(func),
-                                     std::move(patternsConvBwdWeight), config)))
     return signalPassFailure();
 
   RewritePatternSet patternsGemm(&ctx);
