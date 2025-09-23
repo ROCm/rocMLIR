@@ -1636,7 +1636,8 @@ static llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType,
     else if (isa<Float4E2M1FNType>(elemType)) {
       pattern = {1, -4, 0.5, 1.5};
     } else if (isa<Float8E8M0FNUType>(elemType)) {
-      pattern = {2, 4, 8, 16};
+      pattern = {256,  512,  2048,  4096,  8192,  16384,  32768,  65504,
+                 -256, -512, -2048, -4096, -8192, -16384, -32768, -65504};
     } else
       pattern = {0.5, -1, 0.75};
   } else {
