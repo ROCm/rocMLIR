@@ -435,8 +435,7 @@ struct BlockwiseGemmAccelRewritePattern
 
     auto features = rock::getFeatures(op);
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
-        features, dataTypeA, dataTypeB, dataTypeScaleA, dataTypeScaleB, arch,
-        tuningParams);
+        features, dataTypeA, dataTypeB, arch, tuningParams);
 
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");

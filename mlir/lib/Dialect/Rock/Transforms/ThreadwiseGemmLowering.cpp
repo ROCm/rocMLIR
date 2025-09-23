@@ -278,8 +278,8 @@ struct ThreadwiseAccelGemmRewritePattern
 
     size_t computeIndices = op.getComputeIndices().size();
     auto emitter = rock::accel::AccelEmitter::select(
-        rock::getFeatures(op), dataTypeA, dataTypeB, dataTypeScaleA,
-        dataTypeScaleB, rock::getArchValue(op), tuningParams);
+        rock::getFeatures(op), dataTypeA, dataTypeB, rock::getArchValue(op),
+        tuningParams);
 
     if (!emitter) {
       llvm::dbgs() << rock::getFeatures(op) << "\n";

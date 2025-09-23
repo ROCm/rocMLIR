@@ -322,16 +322,16 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     auto scaleBType = scaleB ? cast<MemRefType>(scaleB.getType()) : nullptr;
     auto scaleAShape = scaleAType.getShape();
     auto scaleBShape = scaleBType.getShape();
-    Type f6e8m0Type = rw.getF8E8M0Type();
-    if (scaleAType.getElementType() != f6e8m0Type) {
-      MemRefType newScaleAType = MemRefType::get(scaleAShape, f6e8m0Type);
+    Type f8e8m0Type = rw.getF8E8M0Type();
+    if (scaleAType.getElementType() != f8e8m0Type) {
+      MemRefType newScaleAType = MemRefType::get(scaleAShape, f8e8m0Type);
       memref::AllocOp newScaleA =
           memref::AllocOp::create(rw, loc, newScaleAType);
       createTypeConversionLaGeneric(rw, loc, scaleA, newScaleA);
       scaleA = newScaleA;
     }
-    if (scaleBType.getElementType() != f6e8m0Type) {
-      MemRefType newScaleBType = MemRefType::get(scaleBShape, f6e8m0Type);
+    if (scaleBType.getElementType() != f8e8m0Type) {
+      MemRefType newScaleBType = MemRefType::get(scaleBShape, f8e8m0Type);
       memref::AllocOp newScaleB =
           memref::AllocOp::create(rw, loc, newScaleBType);
       createTypeConversionLaGeneric(rw, loc, scaleB, newScaleB);
@@ -402,6 +402,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         op.getStoreMethodAttr(), blockSize, gridSize,
         cast<RockAccelTuningParamAttrInterface>(params));
   } else {
+    assert(!scaleA && !scaleB &&
+           "scaling not supported for non-accelerated gemm");
     GridwiseGemmOp::create(rw, loc, a, b, accumulator, op.getFeaturesAttr(),
                            op.getStoreMethodAttr(), gridSize,
                            cast<GeneralGemmParamsAttr>(params));

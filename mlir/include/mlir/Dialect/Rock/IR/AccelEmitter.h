@@ -88,9 +88,7 @@ struct AccelEmitter {
 
   /// Select the right accelerator based on the set of features and architecture
   static std::unique_ptr<AccelEmitter>
-  select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
-         std::optional<Type> elementTypeScaleA,
-         std::optional<Type> elementTypeScaleB, StringRef arch,
+  select(GemmFeatures features, Type dataTypeA, Type dataTypeB, StringRef arch,
          RockAccelTuningParamAttrInterface tuningParams);
 
   /// Emit the actual intrinsic in the threadwise operation

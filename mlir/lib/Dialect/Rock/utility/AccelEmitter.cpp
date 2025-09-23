@@ -173,8 +173,6 @@ AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
   // Accelerator data types
   params.argTypeA = mfmaGroup.getArgTypeA();
   params.argTypeB = mfmaGroup.getArgTypeB();
-  params.argTypeScaleA = mfmaGroup.getArgTypeScaleA();
-  params.argTypeScaleB = mfmaGroup.getArgTypeScaleB();
   params.accVectorType = mfmaGroup.getRetType();
 
   return params;
@@ -1229,8 +1227,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
 
 std::unique_ptr<AccelEmitter>
 AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
-                     std::optional<Type> elementTypeScaleA,
-                     std::optional<Type> elementTypeScaleB, StringRef arch,
+                     StringRef arch,
                      RockAccelTuningParamAttrInterface tuningParams) {
   bool isMfma = rock::bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = rock::bitEnumContainsAll(features, GemmFeatures::wmma);
@@ -1238,18 +1235,14 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
     XdlopsGemmDerivedParamsAttr mfmaParams =
         cast<XdlopsGemmDerivedParamsAttr>(tuningParams);
     auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-        dataTypeA, dataTypeB, elementTypeScaleA, elementTypeScaleB, arch,
-        mfmaParams.getMnPerXdl(), mfmaParams.getKpack(),
-        mfmaParams.getKpackPerBlock());
+        dataTypeA, dataTypeB, arch, mfmaParams.getMnPerXdl(),
+        mfmaParams.getKpack(), mfmaParams.getKpackPerBlock());
     if (failed(maybeMfmaInsnGroup)) {
       return nullptr;
     }
     return std::make_unique<MfmaEmitter>(*maybeMfmaInsnGroup, arch,
                                          tuningParams);
   } else if (isWmma) {
-    assert(elementTypeScaleA == std::nullopt &&
-           elementTypeScaleB == std::nullopt &&
-           "WMMA does not support scaled types");
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto maybeWmmaInsnGroup = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
                                                arch, tuningParams.getMPerWave(),

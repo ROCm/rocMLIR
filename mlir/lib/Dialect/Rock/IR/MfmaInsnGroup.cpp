@@ -517,10 +517,7 @@ bool MfmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
   }
 }
 
-static MfmaTypeId
-convertTypesToId(Type dataTypeA, Type dataTypeB,
-                 std::optional<Type> dataTypeScaleA = std::nullopt,
-                 std::optional<Type> dataTypeScaleB = std::nullopt) {
+static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
   if (dataTypeA.isF32() && dataTypeB.isF32()) {
     return MfmaTypeId::Fp32TyId;
   }
@@ -568,15 +565,11 @@ convertTypesToId(Type dataTypeA, Type dataTypeB,
 }
 
 FailureOr<MfmaInsnGroup>
-MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB,
-                      std::optional<Type> elementTypeScaleA,
-                      std::optional<Type> elementTypeScaleB, StringRef arch,
+MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
                       int64_t mnPerXdl, int64_t kPack, int64_t kPackPerBlock) {
   LLVM_DEBUG(llvm::dbgs() << "Invoke Mfma group selection:\n"
                           << "elementType A: " << elementTypeA << "\n"
                           << "elementType B: " << elementTypeB << "\n"
-                          << "elementType ScaleA: " << elementTypeScaleA << "\n"
-                          << "elementType ScaleB: " << elementTypeScaleB << "\n"
                           << "arch: " << arch << "\n"
                           << "mnPerXdl: " << mnPerXdl << "\n"
                           << "kPack: " << kPack << "\n"
@@ -586,9 +579,7 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB,
   int64_t mPerMfmaGroup = getLenPerMfmaGroup(mnPerXdl);
   int64_t nPerMfmaGroup = getLenPerMfmaGroup(mnPerXdl);
 
-  MfmaInsnGroupSelectKey key = {convertTypesToId(elementTypeA, elementTypeB,
-                                                 elementTypeScaleA,
-                                                 elementTypeScaleB),
+  MfmaInsnGroupSelectKey key = {convertTypesToId(elementTypeA, elementTypeB),
                                 mPerMfmaGroup, nPerMfmaGroup};
 
   FailureOr<MfmaInsnGroup> result = failure();
@@ -607,8 +598,7 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB,
         result = failure();
         return;
       }
-      result = MfmaInsnGroup(elementTypeA, elementTypeB, elementTypeScaleA,
-                             elementTypeScaleB, *maybeInsn, groupAttr);
+      result = MfmaInsnGroup(elementTypeA, elementTypeB, *maybeInsn, groupAttr);
     }
   };
 
@@ -661,13 +651,9 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB,
 }
 
 MfmaInsnGroup::MfmaInsnGroup(Type elementTypeA, Type elementTypeB,
-                             std::optional<Type> elementTypeScaleA,
-                             std::optional<Type> elementTypeScaleB,
                              const MfmaInsn &mfmaInsn,
                              const MfmaInsnGroupAttr &groupAttr)
-    : elementTypeA(elementTypeA), elementTypeB(elementTypeB),
-      elementTypeScaleA(elementTypeScaleA),
-      elementTypeScaleB(elementTypeScaleB), insn(mfmaInsn),
+    : elementTypeA(elementTypeA), elementTypeB(elementTypeB), insn(mfmaInsn),
       groupAttr(groupAttr) {}
 
 int64_t MfmaInsnGroup::getMRepeats(int64_t mPerWave) {
@@ -693,18 +679,6 @@ MfmaInsnAttr MfmaInsnGroup::getInsnAttr() const { return insn.getAttr(); }
 Type MfmaInsnGroup::getArgTypeA() { return insn.getArgTypeFor(elementTypeA); }
 
 Type MfmaInsnGroup::getArgTypeB() { return insn.getArgTypeFor(elementTypeB); }
-
-Type MfmaInsnGroup::getArgTypeScaleA() {
-  if (elementTypeScaleA.has_value())
-    return insn.getArgTypeFor(elementTypeScaleA.value());
-  llvm::report_fatal_error("No scale A type");
-}
-
-Type MfmaInsnGroup::getArgTypeScaleB() {
-  if (elementTypeScaleB.has_value())
-    return insn.getArgTypeFor(elementTypeScaleB.value());
-  llvm::report_fatal_error("No scale B type");
-}
 
 /// Note: Since this only returns i32 or f32, we don't need to do anything
 /// particularly clever here.
