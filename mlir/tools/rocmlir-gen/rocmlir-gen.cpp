@@ -3549,17 +3549,16 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
             cMap = AffineMap::get(
                 4, 0, {g, transposeC ? n : m, transposeC ? m : n}, ctx);
 
-  // Generate affine map: (d0, d1, d2, d3) -> (d0, d1, (d2 floordiv 32) * 32,
+  // Generate affine map: (d0, d1, d2, d3) -> (d0, d1, (d2 floordiv 32),
   // d3)
   auto scaleAffineMap = [&](bool transposeFlag, AffineExpr d) -> AffineMap {
     // Create constant 32
     auto c32 = getAffineConstantExpr(32, b.getContext());
     // Create the expression: (d2 floordiv 32) * 32
     auto kFloorDiv32 = k.floorDiv(c32);
-    auto kAligned = kFloorDiv32 * c32;
     // Create the result expressions: (d0, d1, (d2 floordiv 32) * 32, d3)
-    SmallVector<AffineExpr> resultExprs = {g, transposeFlag ? kAligned : d,
-                                           transposeFlag ? d : kAligned};
+    SmallVector<AffineExpr> resultExprs = {g, transposeFlag ? kFloorDiv32 : d,
+                                           transposeFlag ? d : kFloorDiv32};
     return AffineMap::get(4, 0, resultExprs, b.getContext());
   };
   AffineMap aMapScaled = scaleAffineMap(transposeA, m);
