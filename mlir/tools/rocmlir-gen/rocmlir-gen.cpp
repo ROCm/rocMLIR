@@ -3548,68 +3548,89 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
                 4, 0, {g, transposeB ? n : k, transposeB ? k : n}, ctx),
             cMap = AffineMap::get(
                 4, 0, {g, transposeC ? n : m, transposeC ? m : n}, ctx);
-
-  // Generate affine map: (d0, d1, d2, d3) -> (d0, d1, (d2 floordiv 32),
-  // d3)
-  auto scaleAffineMap = [&](bool transposeFlag, AffineExpr d) -> AffineMap {
-    // Create constant 32
-    auto c32 = getAffineConstantExpr(32, b.getContext());
-    // Create the expression: (d2 floordiv 32) * 32
-    auto kFloorDiv32 = k.floorDiv(c32);
-    // Create the result expressions: (d0, d1, (d2 floordiv 32) * 32, d3)
-    SmallVector<AffineExpr> resultExprs = {g, transposeFlag ? kFloorDiv32 : d,
-                                           transposeFlag ? d : kFloorDiv32};
-    return AffineMap::get(4, 0, resultExprs, b.getContext());
-  };
-  AffineMap aMapScaled = scaleAffineMap(transposeA, m);
-  AffineMap bMapScaled = scaleAffineMap(not transposeB, n);
   Value aExpVal = expandArg(aVal, argTypes[0]),
         bExpVal = expandArg(bVal, argTypes[1]),
         cExpVal = expandArg(cVal, argTypes[2]);
   Value aExpValScaled = nullptr, bExpValScaled = nullptr;
   if (params.isScaledOp) {
+    // Generate affine map: (d0, d1, d2, d3) -> (d0, d1, (d2 floordiv 32),
+    // d3)
+    auto scaleAffineMap = [&](bool transposeFlag, AffineExpr d) -> AffineMap {
+      // Create constant 32
+      auto c32 = getAffineConstantExpr(32, b.getContext());
+      // Create the expression: (d2 floordiv 32) * 32
+      auto kFloorDiv32 = k.floorDiv(c32);
+      // Create the result expressions: (d0, d1, (d2 floordiv 32) * 32, d3)
+      SmallVector<AffineExpr> resultExprs = {g, transposeFlag ? kFloorDiv32 : d,
+                                             transposeFlag ? d : kFloorDiv32};
+      return AffineMap::get(4, 0, resultExprs, b.getContext());
+    };
+    AffineMap aMapScaled = scaleAffineMap(transposeA, m);
+    AffineMap bMapScaled = scaleAffineMap(not transposeB, n);
+
     aExpValScaled = expandArg(aScaleVal, argTypes[3]);
     bExpValScaled = expandArg(bScaleVal, argTypes[4]);
-  }
-  linalg::GenericOp::create(
-      b, loc, ValueRange{aExpVal, bExpVal, aExpValScaled, bExpValScaled},
-      ValueRange{cExpVal},
-      ArrayRef<AffineMap>{aMap, bMap, aMapScaled, bMapScaled, cMap},
-      ArrayRef<utils::IteratorType>{
-          utils::IteratorType::parallel, utils::IteratorType::parallel,
-          utils::IteratorType::parallel, utils::IteratorType::reduction},
-      /*doc=*/"", /*library_call=*/"",
-      [isScaledOp = params.isScaledOp](OpBuilder &builder, Location loc,
-                                       ValueRange elems) {
-        Value a = elems[0], b = elems[1], aScale = elems[2], bScale = elems[3];
-        Value c = elems[4];
-        Type cType = c.getType();
-        if (isa<IntegerType>(cType)) {
-          Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
-          Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
-          Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
-          Value add = arith::AddIOp::create(builder, loc, mul, c);
-          linalg::YieldOp::create(builder, loc, add);
-        } else {
-          if (isScaledOp) {
+    linalg::GenericOp::create(
+        b, loc, ValueRange{aExpVal, bExpVal, aExpValScaled, bExpValScaled},
+        ValueRange{cExpVal},
+        ArrayRef<AffineMap>{aMap, bMap, aMapScaled, bMapScaled, cMap},
+        ArrayRef<utils::IteratorType>{
+            utils::IteratorType::parallel, utils::IteratorType::parallel,
+            utils::IteratorType::parallel, utils::IteratorType::reduction},
+        /*doc=*/"", /*library_call=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value a = elems[0], b = elems[1], aScale = elems[2],
+                bScale = elems[3];
+          Value c = elems[4];
+          Type cType = c.getType();
+          if (isa<IntegerType>(cType)) {
+            Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
+            Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
+            Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
+            Value add = arith::AddIOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          } else {
             a = builder.create<arith::MulFOp>(loc, a, aScale);
             b = builder.create<arith::MulFOp>(loc, b, bScale);
+            Value mul = arith::MulFOp::create(builder, loc, a, b);
+            Value add = arith::AddFOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
           }
-          Value mul = arith::MulFOp::create(builder, loc, a, b);
-          Value add = arith::AddFOp::create(builder, loc, mul, c);
-          linalg::YieldOp::create(builder, loc, add);
-        }
-      });
+        });
+    if (!isa<BlockArgument>(aScaleVal))
+      memref::DeallocOp::create(b, loc, aScaleVal);
+    if (!isa<BlockArgument>(bScaleVal))
+      memref::DeallocOp::create(b, loc, bScaleVal);
+  } else {
+    linalg::GenericOp::create(
+        b, loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
+        ArrayRef<AffineMap>{aMap, bMap, cMap},
+        ArrayRef<utils::IteratorType>{
+            utils::IteratorType::parallel, utils::IteratorType::parallel,
+            utils::IteratorType::parallel, utils::IteratorType::reduction},
+        /*doc=*/"", /*library_call=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value a = elems[0], b = elems[1];
+          Value c = elems[2];
+          Type cType = c.getType();
+          if (isa<IntegerType>(cType)) {
+            Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
+            Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
+            Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
+            Value add = arith::AddIOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          } else {
+            Value mul = arith::MulFOp::create(builder, loc, a, b);
+            Value add = arith::AddFOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          }
+        });
+  }
 
   if (!isa<BlockArgument>(aVal))
     memref::DeallocOp::create(b, loc, aVal);
   if (!isa<BlockArgument>(bVal))
     memref::DeallocOp::create(b, loc, bVal);
-  if (!isa<BlockArgument>(aScaleVal))
-    memref::DeallocOp::create(b, loc, aScaleVal);
-  if (!isa<BlockArgument>(bScaleVal))
-    memref::DeallocOp::create(b, loc, bScaleVal);
-
   if (!isa<BlockArgument>(cVal)) {
     BlockArgument resultBlockArg = block->getArgument(2);
     Value resultFlat = makeNDMemRef(b, cVal, 1);
