@@ -48,7 +48,7 @@ def hip_check(call_result):
     return result
 
 
-def getArch():
+def get_arch():
     agents = set()
     device_count = hip_check(hip.hipGetDeviceCount())
     for device in range(device_count):
@@ -135,8 +135,8 @@ if __name__ == '__main__':
         if "prefix" in axis:
             axis_prefixes[axis["name"]] = axis["prefix"]
 
-    archNames = getArch()
-    arch = ','.join(archNames)
+    arch_names = get_arch()
+    arch = ','.join(arch_names)
     combinations = generate_option_list(axis_prefixes, toml_dict, "axis",
                                         "values")
 

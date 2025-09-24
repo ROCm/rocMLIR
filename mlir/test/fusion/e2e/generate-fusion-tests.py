@@ -16,28 +16,6 @@ RANDTYPE = {
 }
 
 
-def hip_check(call_result):
-    err = call_result[0]
-    result = call_result[1:]
-    if len(result) == 1:
-        result = result[0]
-    if isinstance(err, hip.hipError_t) and err != hip.hipError_t.hipSuccess:
-        raise RuntimeError(str(err))
-    return result
-
-
-def getArch():
-    agents = set()
-    device_count = hip_check(hip.hipGetDeviceCount())
-    for device in range(device_count):
-        props = hip.hipDeviceProp_t()
-        hip_check(hip.hipGetDeviceProperties(props, device))
-        agent = props.gcnArchName.decode('utf-8')
-        agents.add(agent)
-
-    return agents
-
-
 def generate_option_list(table, key1, key2):
     options_list = []
     for item in table[key1]:
@@ -52,8 +30,6 @@ def generate_option_list(table, key1, key2):
 
 
 def generate_op_variants_test(indir, outdir, type, file, opspec):
-    archNames = getArch()
-    arch = ','.join(archNames)
     opname, op = opspec
     with open(f"{indir}/{file}.e2e.template") as f:
         template = f.read()
@@ -77,8 +53,6 @@ def generate_op_variants_test(indir, outdir, type, file, opspec):
 
 
 def generate_type_only_test(indir, outdir, type, file):
-    archNames = getArch()
-    arch = ','.join(archNames)
     # Use f32 instead of f16, bf16 and use i32 for i8 as an accumulation type for tosa.conv2d.
     if type in ['f32', 'f16', 'bf16']:
         gen_type = 'f32'
