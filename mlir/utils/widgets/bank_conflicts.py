@@ -26,6 +26,7 @@ class Mfma:
         self.kbase = kbase
         self.blocks = blocks
 
+    @staticmethod
     def parse_mfma(str_mfma):
         list_mfma = str_mfma.split(",")
         mfma_mn = int(list_mfma[0])
@@ -42,6 +43,7 @@ class Mfma:
 class Config:
     bank_size_bytes = 4
 
+    @staticmethod
     def parse_config(str_config, data_type, mfma):
         list_config = str_config.split(",")
         block_size = int(list_config[0].strip())
@@ -52,6 +54,7 @@ class Config:
         return Config(block_size, d, d_per_wave, k_outer, k_pack, data_type,
                       mfma)
 
+    @staticmethod
     def compute_element_size_bytes(data_type):
         if data_type == "f32":
             return 4
