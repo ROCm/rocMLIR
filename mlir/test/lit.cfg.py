@@ -43,8 +43,8 @@ llvm_config.with_system_environment(['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])
 # FIXME: adding a path to the environment isn't appearing to work as
 #  expected, so below is a tmp workaround that inlines
 #  use_default_substitutions() and subs in the path for FileCheck.
-#llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
-#llvm_config.use_default_substitutions()
+# llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
+# llvm_config.use_default_substitutions()
 ##############
 config.filecheck_executable = os.path.join(config.lit_tools_dir, 'FileCheck')
 config.not_executable = os.path.join(config.lit_tools_dir, 'not')
