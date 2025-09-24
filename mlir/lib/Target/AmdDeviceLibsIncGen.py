@@ -16,14 +16,14 @@ from pathlib import Path
 from typing import List
 
 
-def generate(outputPath: Path, rocmPath: Path, libs: List[str]) -> None:
-    bcPath = rocmPath / "amdgcn" / "bitcode"
-    with outputPath.open("w") as out:
+def generate(output_path: Path, rocm_path: Path, libs: List[str]) -> None:
+    bc_path = rocm_path / "amdgcn" / "bitcode"
+    with output_path.open("w") as out:
         for lib in libs:
-            with (bcPath / (lib + ".bc")).open("rb") as libFile:
-                bcBytes = libFile.read()
-            bcLen = len(bcBytes)
-            print(f"static constexpr size_t {lib}_size = {bcLen};", file=out)
+            with (bc_path / (lib + ".bc")).open("rb") as lib_file:
+                bc_bytes = lib_file.read()
+            bc_len = len(bc_bytes)
+            print(f"static constexpr size_t {lib}_size = {bc_len};", file=out)
             print("""#if defined __GNUC__
 __attribute__((aligned (4096)))
 #elif defined _MSC_VER
@@ -32,7 +32,7 @@ __declspec(align(4096))
                   file=out)
             print(f"static constexpr char {lib}_bytes[{lib}_size + 1] = {{",
                   file=out)
-            for i, byte in enumerate(bcBytes):
+            for i, byte in enumerate(bc_bytes):
                 print(f"static_cast<char>({byte}),",
                       file=out,
                       end=("\n" if i % 8 == 0 else " "))
