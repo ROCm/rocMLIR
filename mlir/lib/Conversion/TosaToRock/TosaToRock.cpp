@@ -1596,6 +1596,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return failure();
 
       auto pred = select.getInput1();
+      // There are two cases that we need to be able to handle for the pred:
+      // 1. We have a greater op that is doing a comparison between two
+      //    constants
+      // 2. The greater op has already been constant folded by MIGraphX, so we
+      //    find the broadcast input and then do the necessary constant checks
       if (auto greater = getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred)) {
         // input1 is a constant with a range from 0 to maxSeqLen (KV)
         if (failed(getConstComparison(greater.getInput1(), 0)))
@@ -1606,7 +1611,23 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           return failure();
 
         Value result = select.getInput3();
+        return result;
+      } else if (auto broadcast = getDefiningNonReshapeOpNonCastOp<tosa::AddOp>(pred)) {
+        // TODO: I need to hear back from Alan, but if we expect the MIGraphX
+        // input constant to be a range then we can use the below piece of logic
+        // if (failed(getConstComparison(broadcast, 0)))
+        //   return failure();
 
+        auto maybeNonZero = addBroadcast(broadcast);
+        if (failed(maybeNonZero))
+          return failure();
+
+        Operation *defOp = maybeNonZero.value().getDefiningOp();
+        if (!defOp && !isa<tosa::ConstOp>(defOp) &&
+            !isa<arith::ConstantOp>(defOp))
+          return failure();
+
+        Value result = select.getInput3();
         return result;
       }
     }
