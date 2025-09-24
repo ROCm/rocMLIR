@@ -37,7 +37,7 @@ def printAllPerformance(chip, lib='rocBLAS'):
 
     # Only plot the actual averages, not the ratios
     # (This conveniently keeps the old behavior for the no tuning DB case)
-    plotMean = df[COLUMNS_TO_AVERAGE[:3]].agg(reportUtils.geoMean)
+    plotMean = df[COLUMNS_TO_AVERAGE[:3]].agg(reportUtils.geo_mean)
     plotMean.name = "Geo. mean"
     plotMean = pd.DataFrame(plotMean).T
     plotMean[['MLIR TFlops', f'{lib} TFlops (no MLIR Kernels)']]\
@@ -45,13 +45,13 @@ def printAllPerformance(chip, lib='rocBLAS'):
 
     if lib == 'MIOpen':
         means = df.groupby(["Direction", "DataType", "InputLayout"])[COLUMNS_TO_AVERAGE]\
-            .agg(reportUtils.geoMean)
+            .agg(reportUtils.geo_mean)
         means.loc["All", "ALL",
-                  "ALL"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+                  "ALL"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geo_mean)
     else:
         means = df.groupby(["DataType"])[COLUMNS_TO_AVERAGE]\
-            .agg(reportUtils.geoMean)
-        means.loc["All"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+            .agg(reportUtils.geo_mean)
+        means.loc["All"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geo_mean)
     means.to_csv(chip + '_' + reportUtils.PERF_STATS_REPORT_FILE[lib])
 
     toHighlight = [f"MLIR/{lib}"]

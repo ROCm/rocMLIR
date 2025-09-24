@@ -57,7 +57,7 @@ CONV_GEMM_TEST_PARAMETERS = [
 ROUND_DIGITS = 2
 
 
-def geoMean(data):
+def geo_mean(data):
     maskedData = np.ma.masked_where(~(np.isfinite(data) & (data > 0)), data)
     if maskedData.count() == 0:
         means = 0

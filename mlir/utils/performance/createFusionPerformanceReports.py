@@ -19,7 +19,7 @@ def printAllPerformance(chip, op):
         print('Perf report not found.')
         return
 
-    plotMean = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+    plotMean = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geo_mean)
     plotMean.name = "Geo. mean"
     plotMean = pd.DataFrame(plotMean).T
 
@@ -28,15 +28,15 @@ def printAllPerformance(chip, op):
 
     if (op == 'conv'):
         means = df.groupby(["Direction", "DataType", "InputLayout"])[COLUMNS_TO_AVERAGE]\
-            .agg(reportUtils.geoMean)
-        means.loc[("All", "All",
-                   "All"), :] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+            .agg(reportUtils.geo_mean)
+        means.loc[("All", "All", "All"), :] = df[COLUMNS_TO_AVERAGE].agg(
+            reportUtils.geo_mean)
         means.to_csv(chip + '_' + op + '_' +
                      reportUtils.PERF_STATS_REPORT_FUSION_FILE)
     else:
         means = df.groupby(["DataType"])[COLUMNS_TO_AVERAGE]\
-            .agg(reportUtils.geoMean)
-        means.loc["All"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+            .agg(reportUtils.geo_mean)
+        means.loc["All"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geo_mean)
         means.to_csv(chip + '_' + op + '_' +
                      reportUtils.PERF_STATS_REPORT_FUSION_FILE)
 

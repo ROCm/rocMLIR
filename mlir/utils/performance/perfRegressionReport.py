@@ -131,7 +131,7 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str,
         columnsToAverage += [
             '% change (quick tuned)', oldLabelQuickTuned, newLabelQuickTuned
         ]
-    STATISTICS = [("Geo. mean", reportUtils.geoMean), ("Arith. mean", "mean")]
+    STATISTICS = [("Geo. mean", reportUtils.geo_mean), ("Arith. mean", "mean")]
     groups = ["DataType"] if isGemm or isAttention else [
         "Direction", "DataType", "InputLayout"
     ]
