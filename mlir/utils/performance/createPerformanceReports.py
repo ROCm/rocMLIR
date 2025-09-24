@@ -65,9 +65,9 @@ def printAllPerformance(chip, lib='rocBLAS'):
     elif "Quick Tuned/Untuned" in df:
         toHighlight += [f"Quick Tuned/{lib}", "Quick Tuned/Untuned"]
     with open(chip + "_" + f"MLIR_vs_{lib}.html", 'w') as htmlOutput:
-        reportUtils.htmlReport(df, means, f"MLIR vs. {lib} performance",
-                               toHighlight, reportUtils.colorForSpeedups,
-                               htmlOutput)
+        reportUtils.html_report(df, means, f"MLIR vs. {lib} performance",
+                                toHighlight, reportUtils.color_for_speedups,
+                                htmlOutput)
 
 
 # Main function.

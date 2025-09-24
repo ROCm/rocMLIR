@@ -66,7 +66,7 @@ def geo_mean(data):
     return means
 
 
-def colorForSpeedups(value):
+def color_for_speedups(value):
     if not np.isfinite(value):
         return 'background-color: #ff00ff'
 
@@ -82,7 +82,7 @@ def colorForSpeedups(value):
         return ''
 
 
-def colorForChanges(value):
+def color_for_changes(value):
     if not np.isfinite(value):
         return 'background-color: #ff00ff'
 
@@ -98,8 +98,8 @@ def colorForChanges(value):
         return ''
 
 
-def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedup_cols: list,
-                    colorizer):
+def set_common_styles(styler: 'pd.io.formats.style.Styler', speedup_cols: list,
+                      colorizer):
     styler.set_table_styles([{
         'selector': 'tbody tr:nth-child(odd)',
         'props': [('background-color', '#e0e0e0')]
@@ -125,11 +125,11 @@ def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedup_cols: list,
 
 # Adapted from
 # https://stackoverflow.com/questions/54405704/check-if-all-values-in-dataframe-column-are-the-same
-def uniqueCols(df: pd.DataFrame) -> List[str]:
+def unique_cols(df: pd.DataFrame) -> List[str]:
     a: np.array = df.to_numpy()
     return df.columns[(a[0] == a).all(0)]
 
-def cleanDataForHumans(data: pd.DataFrame, title: str)\
+def clean_data_for_humans(data: pd.DataFrame, title: str)\
         -> Tuple[pd.DataFrame, str, List[str]]:
     is_gemm = "TransA" in data
     is_attention = "TransQ" in data
@@ -155,7 +155,7 @@ def cleanDataForHumans(data: pd.DataFrame, title: str)\
             data.rename(columns={"InputLayout": "Layout"}, inplace=True)
             index_cols["InputLayout"] = "Layout"
 
-    columns_to_drop = uniqueCols(data)
+    columns_to_drop = unique_cols(data)
     # Do not drop unique columns in attention for now
     # to keep it transparent what we are tracking.
     # We can revisit this if it ever becomes an issue.
@@ -171,13 +171,13 @@ def cleanDataForHumans(data: pd.DataFrame, title: str)\
     return data, title, list(index_cols.values())
 
 
-def htmlReport(data: pd.DataFrame,
-               stats: pd.DataFrame,
-               title: str,
-               speedup_cols: list,
-               colorizer=colorForSpeedups,
-               stream=None):
-    data, long_title, index_cols = cleanDataForHumans(data, title)
+def html_report(data: pd.DataFrame,
+                stats: pd.DataFrame,
+                title: str,
+                speedup_cols: list,
+                colorizer=color_for_speedups,
+                stream=None):
+    data, long_title, index_cols = clean_data_for_humans(data, title)
     print(f"""
 <!doctype html>
 <html lang="en_US">
@@ -199,7 +199,7 @@ caption {{
 
     stats_printer = stats.style
     stats_printer.set_caption(f"Summary statistics for {title}")
-    setCommonStyles(stats_printer, speedup_cols, colorizer)
+    set_common_styles(stats_printer, speedup_cols, colorizer)
     print(stats_printer.to_html(), file=stream)
 
     print("<h2>Details</h2>", file=stream)
@@ -208,7 +208,7 @@ caption {{
         indexed = data.set_index(index_cols)
         data_printer = indexed.style
         data_printer.set_caption(f"{title}: Per-test breakdown")
-        setCommonStyles(data_printer, speedup_cols, colorizer)
+        set_common_styles(data_printer, speedup_cols, colorizer)
         print(data_printer.to_html(), file=stream)
     print("""
 </body>

@@ -199,7 +199,7 @@ if __name__ == '__main__':
     with open(outputPath, "w") as outputStream:
         toHighlight = ["% change", "% change (tuned)"] if hasTuning \
             else ["% change"]
-        reportUtils.htmlReport(
+        reportUtils.html_report(
             data, summary,
             "MLIR Performance Changes, " + ("GEMM" if isGemm else "Conv"),
-            toHighlight, reportUtils.colorForChanges, outputStream)
+            toHighlight, reportUtils.color_for_changes, outputStream)

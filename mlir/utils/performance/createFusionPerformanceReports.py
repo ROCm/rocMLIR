@@ -43,8 +43,8 @@ def printAllPerformance(chip, op):
     toHighlight = ['Fusion/MLIR']
 
     with open(chip + "_" + op + '_' + f"fusion.html", 'w') as htmlOutput:
-        reportUtils.htmlReport(df, means, f"Fusion performance", toHighlight,
-                               reportUtils.colorForSpeedups, htmlOutput)
+        reportUtils.html_report(df, means, f"Fusion performance", toHighlight,
+                                reportUtils.color_for_speedups, htmlOutput)
 
 
 # Main function.
