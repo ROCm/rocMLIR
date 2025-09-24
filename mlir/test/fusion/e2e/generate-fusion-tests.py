@@ -3,7 +3,6 @@
 import os
 import argparse
 import shutil
-import glob
 import itertools
 import tomli
 from hip import hip

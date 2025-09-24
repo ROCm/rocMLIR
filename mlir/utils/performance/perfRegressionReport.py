@@ -1,7 +1,6 @@
 #!/usr/bin/evn python3
 
 import reportUtils
-import perfRunner
 
 from pathlib import PurePath
 from perfRunner import getNumCU

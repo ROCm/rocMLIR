@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-import os
 
 
 # https://github.com/llvm/llvm-project/blob/dc37dc824aabbbe3d029519f43f0b348dcad7027/llvm/include/llvm/ADT/StringExtras.h#L125-L128

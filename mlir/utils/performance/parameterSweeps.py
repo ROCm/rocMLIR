@@ -12,20 +12,17 @@ import asyncio
 import enum
 import itertools
 import math
-import re
 import os
-import subprocess
 import sys
 
 from dataclasses import dataclass
-from typing import Callable, Iterable, List, Sequence, Optional, Tuple, TypeVar, Union
+from typing import Callable, Iterable, List, Sequence, Optional, Tuple, TypeVar
 
 import perfRunner
 from perfRunner import ConvConfiguration
 from perfRunner import Paths
 from perfRunner import getArch
 from perfRunner import getNumCU
-from perfCommonUtils import CORRECT_RESULT_RE
 
 
 @dataclass(frozen=True)

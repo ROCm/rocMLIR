@@ -19,7 +19,7 @@ import os
 import sys
 import re
 import subprocess
-from typing import Tuple, Optional
+from typing import Tuple
 import pathspec
 import unidiff
 import argparse
