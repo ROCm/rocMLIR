@@ -14,13 +14,13 @@
 
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetSelect.h"
 
-#include "AMDGPUTargetMachine.h"
-#include "GCNSubtarget.h"
-
 #include "hip/hip_runtime_api.h"
+#include "hsa/hsa.h"
+#include "hsa/hsa_ext_amd.h"
 
 #define DEBUG_TYPE "rock-amd-arch-db"
 
@@ -138,29 +138,28 @@ std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   return ret;
 }
 
-std::unique_ptr<const GCNTargetMachine>
-createTargetMachine(StringRef chip, StringRef featureString = "") {
-  static std::once_flag flag;
-  std::call_once(flag, [] {
-    LLVMInitializeAMDGPUTargetInfo();
-    LLVMInitializeAMDGPUTarget();
-    LLVMInitializeAMDGPUTargetMC();
-  });
-
-  Triple triple("amdgcn-amd-amdhsa");
-  std::string error;
-  const Target *target = TargetRegistry::lookupTarget(triple, error);
-  if (!target) {
-    llvm::errs() << "WARNING: Target registry lookup failed with error: "
-                 << error << ".\n";
-    return nullptr;
+#define RET_IF_HSA_ERR(err)                                                    \
+  {                                                                            \
+    if ((err) != HSA_STATUS_SUCCESS) {                                         \
+      return err;                                                              \
+    }                                                                          \
   }
 
-  return std::unique_ptr<GCNTargetMachine>(static_cast<GCNTargetMachine *>(
-      target->createTargetMachine(triple, chip, featureString, {}, {}, {})));
-}
+struct agent_info_t {
+  // Input fields:
+  //   The ID of the GPU device that we are looking for.
+  unsigned deviceId;
+  //   The ID of the current GPU HSA agent (weird that HSA does not have a field
+  //   for this).
+  int num_cpus;
+  // Output fields:
+  uint32_t simds_per_cu;
+  uint32_t wavefront_size;
+  uint32_t max_waves_per_cu;
+};
 
-AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop) {
+AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
+                                agent_info_t &agent_info) {
   auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
 
   checkAndSetInfo("(HIP) minNumCU", ret.minNumCU, prop.multiProcessorCount);
@@ -170,74 +169,61 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop) {
   checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
                   prop.sharedMemPerBlock);
 
-  auto chip = std::get<0>(parseArchString(prop.gcnArchName));
-  if (auto tm = createTargetMachine(chip); !tm) {
-    llvm::errs() << "WARNING: Couldn't create target machine. Proceeding with "
-                    "HIP values.\n";
+  checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agent_info.simds_per_cu);
+  checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
+                  agent_info.max_waves_per_cu / agent_info.simds_per_cu);
+  // checkAndSetInfo("(HSA) totalSGPRPerEU", ret.totalSGPRPerEU, ???);
+  // checkAndSetInfo("(HSA) totalVGPRPerEU", ret.totalVGPRPerEU, ???);
+  checkAndSetInfo("(HSA) waveSize", ret.waveSize, agent_info.wavefront_size);
+  // checkAndSetInfo("(HSA) defaultFeatures", ret.defaultFeatures, ???);
+  // checkAndSetInfo("(HSA) hasOcpFp8ConversionInstrs",
+  // ret.hasOcpFp8ConversionInstrs, ???); checkAndSetInfo("(HSA)
+  // hasFp8ConversionInstrs", ret.hasFp8ConversionInstrs, ???);
+  return ret;
+}
+
+static hsa_status_t AcquireAgentInfo(hsa_agent_t agent, void *data) {
+  // Use HSA to get data not exposed by HIP.
+  // Based on:
+  // https://github.com/ROCm/rocm-systems/blob/develop/projects/rocminfo/rocminfo.cc
+  hsa_status_t err;
+  agent_info_t *agent_i = reinterpret_cast<agent_info_t *>(data);
+
+  hsa_device_type_t device_type;
+  err = hsa_agent_get_info(agent, HSA_AGENT_INFO_DEVICE, &device_type);
+  RET_IF_HSA_ERR(err);
+
+  if (HSA_DEVICE_TYPE_GPU == device_type) {
+    // This a GPU, check if its the GPU that we are looking for.
+    uint32_t internal_node_id;
+    err = hsa_agent_get_info(
+        agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_DRIVER_NODE_ID,
+        &internal_node_id);
+    RET_IF_HSA_ERR(err);
+
+    unsigned gpuDeviceId = internal_node_id - agent_i->num_cpus;
+
+    if (gpuDeviceId == agent_i->deviceId) {
+      // This is the GPU that we want to check.
+      err = hsa_agent_get_info(
+          agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_NUM_SIMDS_PER_CU,
+          &agent_i->simds_per_cu);
+      RET_IF_HSA_ERR(err);
+
+      err = hsa_agent_get_info(
+          agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MAX_WAVES_PER_CU,
+          &agent_i->max_waves_per_cu);
+      RET_IF_HSA_ERR(err);
+
+      err = hsa_agent_get_info(agent, HSA_AGENT_INFO_WAVEFRONT_SIZE,
+                               &agent_i->wavefront_size);
+      RET_IF_HSA_ERR(err);
+    }
   } else {
-    GCNSubtarget st(tm->getTargetTriple(), std::string(tm->getTargetCPU()),
-                    std::string(tm->getTargetFeatureString()), *tm);
-
-    checkAndSetInfo("(LLVM) numEUPerCU", ret.numEUPerCU, st.getEUsPerCU());
-    checkAndSetInfo("(LLVM) maxWavesPerEU", ret.maxWavesPerEU,
-                    st.getMaxWavesPerEU());
-    checkAndSetInfo("(LLVM) totalSGPRPerEU", ret.totalSGPRPerEU,
-                    st.getTotalNumSGPRs());
-    checkAndSetInfo("(LLVM) totalVGPRPerEU", ret.totalVGPRPerEU,
-                    st.getTotalNumVGPRs());
-    checkAndSetInfo("(LLVM) waveSize", ret.waveSize, st.getWavefrontSize());
-    checkAndSetInfo("(LLVM) totalSharedMemPerCU", ret.totalSharedMemPerCU,
-                    st.getLocalMemorySize());
-    checkAndSetInfo("(LLVM) maxSharedMemPerWG", ret.maxSharedMemPerWG,
-                    st.getAddressableLocalMemorySize());
-
-    auto features = ret.defaultFeatures;
-    if (st.hasAtomicFaddInsts()) {
-      features = bitEnumSet(features, GemmFeatures::atomic_add);
-    } else {
-      features = bitEnumClear(features, GemmFeatures::atomic_add);
-    }
-    if (st.hasAtomicBufferGlobalPkAddF16Insts() ||
-        st.hasAtomicBufferGlobalPkAddF16NoRtnInsts()) {
-      features = bitEnumSet(features, GemmFeatures::atomic_add_f16);
-    } else {
-      features = bitEnumClear(features, GemmFeatures::atomic_add_f16);
-    }
-    if (st.hasAtomicBufferPkAddBF16Inst()) {
-      features = bitEnumSet(features, GemmFeatures::atomic_add_bf16);
-    } else {
-      features = bitEnumClear(features, GemmFeatures::atomic_add_bf16);
-    }
-    if (st.hasAtomicFMinFMaxF32GlobalInsts()) {
-      features = bitEnumSet(features, GemmFeatures::atomic_fmax_f32);
-    } else {
-      features = bitEnumClear(features, GemmFeatures::atomic_fmax_f32);
-    }
-    checkAndSetInfo("(LLVM) defaultFeatures", ret.defaultFeatures, features);
-
-    if (st.hasFP8ConversionInsts()) {
-      if (auto maybeChipset = amdgpu::Chipset::parse(chip);
-          failed(maybeChipset)) {
-        llvm::errs()
-            << "WARNING: Failed parsing chipset. Proceeding with preset "
-               "values.\n";
-      } else {
-        checkAndSetInfo("(LLVM) hasOcpFp8ConversionInstrs",
-                        ret.hasOcpFp8ConversionInstrs,
-                        amdgpu::hasOcpFp8(maybeChipset.value()));
-        checkAndSetInfo("(LLVM) hasFp8ConversionInstrs",
-                        ret.hasFp8ConversionInstrs,
-                        !ret.hasOcpFp8ConversionInstrs);
-      }
-    } else {
-      checkAndSetInfo("(LLVM) hasFp8ConversionInstrs",
-                      ret.hasFp8ConversionInstrs, false);
-      checkAndSetInfo("(LLVM) hasOcpFp8ConversionInstrs",
-                      ret.hasOcpFp8ConversionInstrs, false);
-    }
+    agent_i->num_cpus++;
   }
 
-  return ret;
+  return HSA_STATUS_SUCCESS;
 }
 
 AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
@@ -256,12 +242,27 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
 
   LLVM_DEBUG(llvm::dbgs() << "gcnArchName: " << prop.gcnArchName << "\n");
 
+  agent_info_t agent_info;
+  agent_info.num_cpus = 0;
+  agent_info.deviceId = deviceId;
+  hsa_status_t err = hsa_iterate_agents(AcquireAgentInfo, &agent_info);
+  if (err != HSA_STATUS_SUCCESS) {
+    char err_val[12];
+    char *err_str = NULL;
+    if (hsa_status_string(err, (const char **)&err_str) != HSA_STATUS_SUCCESS) {
+      snprintf(&(err_val[0]), sizeof(err_val), "%#x", (uint32_t)err);
+      err_str = &(err_val[0]);
+    }
+    llvm::report_fatal_error(err_str);
+  }
+
   std::lock_guard<std::mutex> lock(m);
 
   auto it = cache.find(prop.gcnArchName);
   if (it == cache.end()) {
     LLVM_DEBUG(llvm::dbgs() << "Cache miss! Fetching native arch info...\n");
-    it = cache.emplace(prop.gcnArchName, fetchNativeArchInfo(prop)).first;
+    it = cache.emplace(prop.gcnArchName, fetchNativeArchInfo(prop, agent_info))
+             .first;
   }
 
   return it->second;
