@@ -177,9 +177,9 @@ def MIGraphX_TanhOp :
 
 // int4 operations
 def MIGraphX_UnpackOp : MIGraphX_Op<"unpack">,
-    Arguments<(ins MIXRShapedOf<[I8, UI8, SI8, I<4>, SI<4>, UI<4>]>:$in,
+    Arguments<(ins MIXRShapedOf<[I8, UI8, SI8, I<4>, SI<4>, UI<4>, F8E4M3FN]>:$in,
                    I64Attr:$axis)>,
-    Results<(outs MIXRShapedOf<[I8, UI8, SI8, I<4>, SI<4>, UI<4>]>:$out)> {
+    Results<(outs MIXRShapedOf<[I8, UI8, SI8, I<4>, SI<4>, UI<4>, F8E4M3FN, F4E2M1FN]>:$out)> {
   let summary = "Unpack int4 vaules stored as bytes";
   let description = [{
     Given a shaped tensor of bytes, double the length of `axis` by
