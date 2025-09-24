@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import sys
 
+
 #Create html reports from .csv files
 def printAllPerformance(chip, lib='rocBLAS'):
     perfReportFound = False
@@ -14,13 +15,23 @@ def printAllPerformance(chip, lib='rocBLAS'):
     try:
         df = pd.read_csv(chip + '_' + reportUtils.PERF_REPORT_FILE[lib])
         perfReportFound = True
-        COLUMNS_TO_AVERAGE = ['MLIR TFlops', f'{lib} TFlops (no MLIR Kernels)', f'MLIR/{lib}']
+        COLUMNS_TO_AVERAGE = [
+            'MLIR TFlops', f'{lib} TFlops (no MLIR Kernels)', f'MLIR/{lib}'
+        ]
         if 'Tuned MLIR TFlops' in df:
-            COLUMNS_TO_AVERAGE += ['Tuned MLIR TFlops', 'Tuned/Untuned', f'Tuned/{lib}']
+            COLUMNS_TO_AVERAGE += [
+                'Tuned MLIR TFlops', 'Tuned/Untuned', f'Tuned/{lib}'
+            ]
             if 'Quick Tuned MLIR TFlops' in df:
-                COLUMNS_TO_AVERAGE += ['Quick Tuned MLIR TFlops', f'Quick Tuned/{lib}', 'Quick Tuned/Untuned', 'Quick Tuned/Tuned']
+                COLUMNS_TO_AVERAGE += [
+                    'Quick Tuned MLIR TFlops', f'Quick Tuned/{lib}',
+                    'Quick Tuned/Untuned', 'Quick Tuned/Tuned'
+                ]
         elif 'Quick Tuned MLIR TFlops' in df:
-            COLUMNS_TO_AVERAGE += ['Quick Tuned MLIR TFlops', f'Quick Tuned/{lib}', 'Quick Tuned/Untuned']
+            COLUMNS_TO_AVERAGE += [
+                'Quick Tuned MLIR TFlops', f'Quick Tuned/{lib}',
+                'Quick Tuned/Untuned'
+            ]
 
     except FileNotFoundError:
         print('Perf report not found.')
@@ -37,7 +48,8 @@ def printAllPerformance(chip, lib='rocBLAS'):
     if lib == 'MIOpen':
         means = df.groupby(["Direction", "DataType", "InputLayout"])[COLUMNS_TO_AVERAGE]\
             .agg(reportUtils.geoMean)
-        means.loc["All", "ALL","ALL"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
+        means.loc["All", "ALL",
+                  "ALL"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     else:
         means = df.groupby(["DataType"])[COLUMNS_TO_AVERAGE]\
             .agg(reportUtils.geoMean)
@@ -48,12 +60,17 @@ def printAllPerformance(chip, lib='rocBLAS'):
     if "Tuned/Untuned" in df:
         toHighlight += [f"Tuned/{lib}", f"Tuned/Untuned"]
         if "Quick Tuned/Tuned":
-            toHighlight += [f"Quick Tuned/{lib}", "Quick Tuned/Untuned", "Quick Tuned/Tuned"]
+            toHighlight += [
+                f"Quick Tuned/{lib}", "Quick Tuned/Untuned",
+                "Quick Tuned/Tuned"
+            ]
     elif "Quick Tuned/Untuned" in df:
         toHighlight += [f"Quick Tuned/{lib}", "Quick Tuned/Untuned"]
     with open(chip + "_" + f"MLIR_vs_{lib}.html", 'w') as htmlOutput:
         reportUtils.htmlReport(df, means, f"MLIR vs. {lib} performance",
-        toHighlight, reportUtils.colorForSpeedups, htmlOutput)
+                               toHighlight, reportUtils.colorForSpeedups,
+                               htmlOutput)
+
 
 # Main function.
 if __name__ == '__main__':

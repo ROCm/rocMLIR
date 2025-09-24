@@ -4,13 +4,25 @@ import scipy.stats
 
 from typing import Tuple, List
 
-PERF_REPORT_FILE = {'rocBLAS': 'mlir_vs_rocblas_perf.csv', 'CK': 'mlir_vs_ck_perf.csv', 'MIOpen': 'mlir_vs_miopen_perf.csv'}
+PERF_REPORT_FILE = {
+    'rocBLAS': 'mlir_vs_rocblas_perf.csv',
+    'CK': 'mlir_vs_ck_perf.csv',
+    'MIOpen': 'mlir_vs_miopen_perf.csv'
+}
 PERF_REPORT_FUSION_FILE = 'mlir_fusion_perf.csv'
 PERF_PLOT_REPORT_FILE = 'mlir_vs_miopen_perf_for_plot.csv'
-PERF_PLOT_REPORT_FILE = {'rocBLAS': 'mlir_vs_rocblas_perf_for_plot.csv', 'CK' : 'mlir_vs_ck_perf_for_plot.csv', 'MIOpen': 'mlir_vs_miopen_perf_for_plot.csv'}
+PERF_PLOT_REPORT_FILE = {
+    'rocBLAS': 'mlir_vs_rocblas_perf_for_plot.csv',
+    'CK': 'mlir_vs_ck_perf_for_plot.csv',
+    'MIOpen': 'mlir_vs_miopen_perf_for_plot.csv'
+}
 PERF_PLOT_REPORT_FUSION_FILE = 'mlir_fusion_perf_for_plot.csv'
 PERF_STATS_REPORT_FILE = 'mlir_vs_miopen_perf_means.csv'
-PERF_STATS_REPORT_FILE = {'rocBLAS': 'mlir_vs_rocblas_perf_means.csv', 'CK' : 'mlir_vs_ck_perf_means.csv', 'MIOpen': 'mlir_vs_miopen_perf_means.csv'}
+PERF_STATS_REPORT_FILE = {
+    'rocBLAS': 'mlir_vs_rocblas_perf_means.csv',
+    'CK': 'mlir_vs_ck_perf_means.csv',
+    'MIOpen': 'mlir_vs_miopen_perf_means.csv'
+}
 PERF_STATS_REPORT_FUSION_FILE = 'mlir_fusion_perf_means.csv'
 MIOPEN_REPORT_FILE = 'miopen_perf.csv'
 MIOPEN_TUNED_REPORT_FILE = 'miopen_tuned_perf.csv'
@@ -18,17 +30,32 @@ MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 
 ## In order to prevent issues with the tuning data reporting, 'PerfConfig'
 ## MUST STAY LAST!
-CONV_TEST_PARAMETERS = ['Direction', 'DataType', 'Chip', 'numCU', 'FilterLayout',
-                        'InputLayout', 'OutputLayout', 'N', 'C', 'H', 'W', 'K', 'Y',
-                        'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
-                        'PaddingH', 'PaddingW', 'PerfConfig']
-GEMM_TEST_PARAMETERS = ['DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'G', 'M', 'K', 'N', 'PerfConfig']
-ATTN_TEST_PARAMETERS = ['DataType', 'Chip', 'numCU', 'TransQ', 'TransK', 'TransV', 'TransO', 'Causal', 'ReturnLSE', 'SplitKV', 'WithAttnScale', 'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV', 'PerfConfig']
-GEMM_GEMM_TEST_PARAMETERS = ['DataType', 'Chip', 'numCU', 'TransA', 'TransB', 'TransC', 'TransO', 'G', 'M', 'K', 'N', 'O', 'PerfConfig']
-CONV_GEMM_TEST_PARAMETERS = ['DataType', 'Chip', 'numCU', 'FilterLayout', 'InputLayout', 'TransC', 'TransO',
-                             'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
-                             'PaddingH', 'PaddingW', 'O', 'PerfConfig']
+CONV_TEST_PARAMETERS = [
+    'Direction', 'DataType', 'Chip', 'numCU', 'FilterLayout', 'InputLayout',
+    'OutputLayout', 'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH',
+    'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW', 'PerfConfig'
+]
+GEMM_TEST_PARAMETERS = [
+    'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'G', 'M',
+    'K', 'N', 'PerfConfig'
+]
+ATTN_TEST_PARAMETERS = [
+    'DataType', 'Chip', 'numCU', 'TransQ', 'TransK', 'TransV', 'TransO',
+    'Causal', 'ReturnLSE', 'SplitKV', 'WithAttnScale', 'WithAttnBias', 'G',
+    'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV',
+    'PerfConfig'
+]
+GEMM_GEMM_TEST_PARAMETERS = [
+    'DataType', 'Chip', 'numCU', 'TransA', 'TransB', 'TransC', 'TransO', 'G',
+    'M', 'K', 'N', 'O', 'PerfConfig'
+]
+CONV_GEMM_TEST_PARAMETERS = [
+    'DataType', 'Chip', 'numCU', 'FilterLayout', 'InputLayout', 'TransC',
+    'TransO', 'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW',
+    'StrideH', 'StrideW', 'PaddingH', 'PaddingW', 'O', 'PerfConfig'
+]
 ROUND_DIGITS = 2
+
 
 def geoMean(data):
     maskedData = np.ma.masked_where(~(np.isfinite(data) & (data > 0)), data)
@@ -37,6 +64,7 @@ def geoMean(data):
     else:
         means = scipy.stats.gmean(maskedData)
     return means
+
 
 def colorForSpeedups(value):
     if not np.isfinite(value):
@@ -53,6 +81,7 @@ def colorForSpeedups(value):
     else:
         return ''
 
+
 def colorForChanges(value):
     if not np.isfinite(value):
         return 'background-color: #ff00ff'
@@ -68,16 +97,31 @@ def colorForChanges(value):
     else:
         return ''
 
-def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list, colorizer):
-    styler.set_table_styles([
-        {'selector': 'tbody tr:nth-child(odd)', 'props': [('background-color', '#e0e0e0')]},
-        {'selector': 'tbody tr:nth-child(even)', 'props': [('background-color', '#eeeeee')]},
-        {'selector': 'table', 'props': [('background-color', '#dddddd'), ('border-collapse', 'collapse')]},
-        {'selector': 'th, td', 'props': [('padding', '0.5em'), ('text-align', 'center'), ('max-width', '150px')]}])
+
+def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list,
+                    colorizer):
+    styler.set_table_styles([{
+        'selector': 'tbody tr:nth-child(odd)',
+        'props': [('background-color', '#e0e0e0')]
+    }, {
+        'selector': 'tbody tr:nth-child(even)',
+        'props': [('background-color', '#eeeeee')]
+    }, {
+        'selector':
+            'table',
+        'props': [('background-color', '#dddddd'),
+                  ('border-collapse', 'collapse')]
+    }, {
+        'selector':
+            'th, td',
+        'props': [('padding', '0.5em'), ('text-align', 'center'),
+                  ('max-width', '150px')]
+    }])
     styler.format(precision=ROUND_DIGITS, na_rep="---")
     for col in speedupCols:
         if col in styler.columns:
             styler.map(colorizer, subset=[col])
+
 
 # Adapted from
 # https://stackoverflow.com/questions/54405704/check-if-all-values-in-dataframe-column-are-the-same
@@ -95,9 +139,9 @@ def cleanDataForHumans(data: pd.DataFrame, title: str)\
     if isAttention:
         parameters = ATTN_TEST_PARAMETERS
 
-    indexCols = {k: k for k in parameters} # Preserves order
-    if all((x in data.columns) for x in {"FilterLayout", "InputLayout",
-                                              "OutputLayout"}):
+    indexCols = {k: k for k in parameters}  # Preserves order
+    if all((x in data.columns)
+           for x in {"FilterLayout", "InputLayout", "OutputLayout"}):
         if (((data["FilterLayout"] == "kcyx") & (data["InputLayout"] == "nchw") &
               (data["OutputLayout"] == "nkhw")) | ((data["FilterLayout"] == "kyxc") &
               (data["InputLayout"] == "nhwc") & (data["OutputLayout"] == "nhwk")))\
@@ -116,8 +160,8 @@ def cleanDataForHumans(data: pd.DataFrame, title: str)\
     # to keep it transparent what we are tracking.
     # We can revisit this if it ever becomes an issue.
     if len(columnsToDrop) > 0 and not isAttention:
-        title = title + ": " + ", ".join(f"{c} = {data[c].iloc[0]}"
-            for c in columnsToDrop)
+        title = title + ": " + ", ".join(
+            f"{c} = {data[c].iloc[0]}" for c in columnsToDrop)
         data = data.drop(columns=columnsToDrop, inplace=False)
         for c in columnsToDrop:
             if c == "Layout" and indexCols.get("InputLayout", "") == "Layout":
@@ -126,8 +170,13 @@ def cleanDataForHumans(data: pd.DataFrame, title: str)\
 
     return data, title, list(indexCols.values())
 
-def htmlReport(data: pd.DataFrame, stats: pd.DataFrame, title: str,
-                  speedupCols: list, colorizer=colorForSpeedups, stream=None):
+
+def htmlReport(data: pd.DataFrame,
+               stats: pd.DataFrame,
+               title: str,
+               speedupCols: list,
+               colorizer=colorForSpeedups,
+               stream=None):
     data, longTitle, indexCols = cleanDataForHumans(data, title)
     print(f"""
 <!doctype html>
@@ -145,7 +194,8 @@ caption {{
 <body>
 <h1>{longTitle}</h1>
 <h2>Summary</h2>
-""", file=stream)
+""",
+          file=stream)
 
     statsPrinter = stats.style
     statsPrinter.set_caption(f"Summary statistics for {title}")
@@ -154,7 +204,7 @@ caption {{
 
     print("<h2>Details</h2>", file=stream)
     dataPrinter = data.style
-    if len(indexCols) > 0 :
+    if len(indexCols) > 0:
         indexed = data.set_index(indexCols)
         dataPrinter = indexed.style
         dataPrinter.set_caption(f"{title}: Per-test breakdown")

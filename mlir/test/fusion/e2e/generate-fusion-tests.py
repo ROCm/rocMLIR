@@ -8,12 +8,15 @@ import itertools
 import tomli
 from hip import hip
 
-RANDTYPE = {'f32' : 'float',
-            'f16' : 'float',
-            'bf16' : 'float',
-            'i32' : 'int',
-            'i8' : 'int'}
-            
+RANDTYPE = {
+    'f32': 'float',
+    'f16': 'float',
+    'bf16': 'float',
+    'i32': 'int',
+    'i8': 'int'
+}
+
+
 def hip_check(call_result):
     err = call_result[0]
     result = call_result[1:]
@@ -23,33 +26,36 @@ def hip_check(call_result):
         raise RuntimeError(str(err))
     return result
 
+
 def getArch():
     agents = set()
     device_count = hip_check(hip.hipGetDeviceCount())
     for device in range(device_count):
         props = hip.hipDeviceProp_t()
-        hip_check(hip.hipGetDeviceProperties(props,device))
+        hip_check(hip.hipGetDeviceProperties(props, device))
         agent = props.gcnArchName.decode('utf-8')
         agents.add(agent)
 
     return agents
 
+
 def generate_option_list(table, key1, key2):
-    options_list=[]
+    options_list = []
     for item in table[key1]:
-        options=[]
+        options = []
         for value in item[key2]:
             options.append(value)
         options_list.append(options)
-    combinations=[]
+    combinations = []
     for opt in itertools.product(*options_list):
-        combinations.append(opt);
+        combinations.append(opt)
     return combinations
+
 
 def generate_op_variants_test(indir, outdir, type, file, opspec):
     archNames = getArch()
     arch = ','.join(archNames)
-    opname,op = opspec
+    opname, op = opspec
     with open(f"{indir}/{file}.e2e.template") as f:
         template = f.read()
     outfile = f"{outdir}/{file}-{opname}-{type}.e2e.mlir"
@@ -58,13 +64,18 @@ def generate_op_variants_test(indir, outdir, type, file, opspec):
         # substitute.  With a regexp replace we could capture the actual operand
         # but for now we'll just "know" what we have.
         op = op.format(operand='(%0)', type=type)
-        f.write(template.format(op=op, type=type,
-                                randtype=RANDTYPE[type],
-                                randkind='fixed' if opname != 'rsqrt' else '1',
-                                # So far clone-verification only works with f32.  Also, tanh
-                                # fails it because math.tanh is converted by gpu-to-rocdl pass
-                                # which isn't run on the cloned function.
-                                disablep='-DISABLE' if type != 'f32' or opname == 'tanh' else ''))
+        f.write(
+            template.format(
+                op=op,
+                type=type,
+                randtype=RANDTYPE[type],
+                randkind='fixed' if opname != 'rsqrt' else '1',
+                # So far clone-verification only works with f32.  Also, tanh
+                # fails it because math.tanh is converted by gpu-to-rocdl pass
+                # which isn't run on the cloned function.
+                disablep='-DISABLE'
+                if type != 'f32' or opname == 'tanh' else ''))
+
 
 def generate_type_only_test(indir, outdir, type, file):
     archNames = getArch()
@@ -80,9 +91,13 @@ def generate_type_only_test(indir, outdir, type, file):
         template = f.read()
     outfile = f"{outdir}/{file}-{type}.e2e.mlir"
     with open(outfile, 'w') as f:
-        f.write(template.format(type=type, acc_type=gen_type,
-                                # So far clone-verification only works with f32.
-                                disablep='-DISABLE' if type != 'f32' else ''))
+        f.write(
+            template.format(
+                type=type,
+                acc_type=gen_type,
+                # So far clone-verification only works with f32.
+                disablep='-DISABLE' if type != 'f32' else ''))
+
 
 def toml_loop(toml, indir, outdir):
     for suite in toml['suite']:
@@ -101,24 +116,28 @@ parser.add_argument('indir', default=os.getcwd())
 parser.add_argument('outdir', default=os.getcwd())
 args = parser.parse_args()
 
+
 def run():
     indir = args.indir
     outdir = args.outdir
 
-#     # shutil.copytree isn't recursively copying in some circumstances.
-#     for dir,*_ in os.walk(indir):
-#         if dir == indir:
-#             dir = '.'
-#         elif dir.startswith(indir):
-#             dir = dir[len(indir):].lstrip('/')
-#         outsubdir = os.path.join(outdir, dir)
-#         os.makedirs(outsubdir, exist_ok=True)
-#         for file in glob.glob(os.path.join(indir, '*.mlir')):
-#             shutil.copy(file, outsubdir)
+    #     # shutil.copytree isn't recursively copying in some circumstances.
+    #     for dir,*_ in os.walk(indir):
+    #         if dir == indir:
+    #             dir = '.'
+    #         elif dir.startswith(indir):
+    #             dir = dir[len(indir):].lstrip('/')
+    #         outsubdir = os.path.join(outdir, dir)
+    #         os.makedirs(outsubdir, exist_ok=True)
+    #         for file in glob.glob(os.path.join(indir, '*.mlir')):
+    #             shutil.copy(file, outsubdir)
 
     def ignore_not_mlir(dir, files):
-        return [f for f in files if not f.endswith('.mlir')
-                                    and not os.path.isdir(os.path.join(dir, f))]
+        return [
+            f for f in files if not f.endswith('.mlir') and
+            not os.path.isdir(os.path.join(dir, f))
+        ]
+
     shutil.copytree(indir, outdir, ignore=ignore_not_mlir, dirs_exist_ok=True)
     shutil.copy(os.path.join(indir, "lit.local.cfg"), outdir)
 

@@ -35,12 +35,18 @@ NUM_CU = getNumCU(CHIP)
 
 # ---------------------------------------------------
 
+
 def readNonEmptyLines(path: str) -> list[str]:
     if not os.path.exists(path):
         print(f"Error: {path} does not exist")
         sys.exit(-1)
     with open(path, "r") as f:
-        return [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
+        return [
+            line.strip()
+            for line in f
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
 
 def loadExistingConfigs(filepath):
     """Load existing configs from a file into a set (stripped, ignoring empty lines and comments)."""
@@ -54,8 +60,9 @@ def loadExistingConfigs(filepath):
     else:
         print(f"Error: {filepath} does not exist")
         sys.exit(-1)
-    
+
     return configs
+
 
 def detectConfigType(config) -> Optional[str]:
     """Detect config type: returns 'conv', 'gemm', or 'attention'."""
@@ -65,28 +72,35 @@ def detectConfigType(config) -> Optional[str]:
     if config.startswith("conv"):
         return "conv"
     # Attention configs have -transQ, -transK, -transV, -transO, -seq_len_q, etc.
-    if any(flag in config for flag in ["-transQ", "-seq_len_q", "-head_dim_qk"]):
+    if any(flag in config
+           for flag in ["-transQ", "-seq_len_q", "-head_dim_qk"]):
         return "attention"
     # GEMM configs have -transA, -transB, -m, -n, -k, etc.
-    if any(flag in config for flag in ["-transA", "-transB", "-m", "-n", "-k"]):
+    if any(flag in config
+           for flag in ["-transA", "-transB", "-m", "-n", "-k"]):
         return "gemm"
 
     return None
+
 
 def _canonicalizeConvConfig(config: str) -> str:
     """Converts a conv config to canonical form for deduplication."""
     obj = ConvConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
     return obj.toCommandLine()
 
+
 def _canonicalizeGemmConfig(config: str) -> str:
     """Converts a GEMM config to canonical form for deduplication."""
     obj = GemmConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
     return obj.toCommandLine()
 
+
 def _canonicalizeAttentionConfig(config: str) -> str:
     """Converts an attention config to canonical form for deduplication."""
-    obj = AttentionConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
+    obj = AttentionConfiguration.fromCommandLine(shlex.split(config), ARCH,
+                                                 NUM_CU)
     return obj.toCommandLine()
+
 
 def canonicalSet(lines: Iterable[str], kind: str) -> Set[str]:
     """Converts a set of configs to canonical form for deduplication."""
@@ -102,6 +116,7 @@ def canonicalSet(lines: Iterable[str], kind: str) -> Set[str]:
             raise ValueError(f"Unknown kind: {kind}")
     return S
 
+
 def _appendConfigs(path: str, lines: Iterable[str]):
     if not lines:
         return
@@ -109,21 +124,39 @@ def _appendConfigs(path: str, lines: Iterable[str]):
         for line in lines:
             f.write(line.rstrip() + "\n")
 
+
 def parseArgs(argv=None):
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--new", type=str, default=NEW_CONFIGS_DEFAULT,
-                        help="Path to the file containing new configurations to add")
-    parser.add_argument("--configs-dir", type=str, default=None,
-                        help="Path to the directory containing the existing configuration files")
-    parser.add_argument("--conv", type=str, default=None,
-                        help="Path to the file containing existing convolution configurations")
-    parser.add_argument("--gemm", type=str, default=None,
-                        help="Path to the file containing existing GEMM configurations")
-    parser.add_argument("--attn", type=str, default=None,
-                        help="Path to the file containing existing attention configurations")
-    
+    parser.add_argument(
+        "--new",
+        type=str,
+        default=NEW_CONFIGS_DEFAULT,
+        help="Path to the file containing new configurations to add")
+    parser.add_argument(
+        "--configs-dir",
+        type=str,
+        default=None,
+        help="Path to the directory containing the existing configuration files"
+    )
+    parser.add_argument(
+        "--conv",
+        type=str,
+        default=None,
+        help="Path to the file containing existing convolution configurations")
+    parser.add_argument(
+        "--gemm",
+        type=str,
+        default=None,
+        help="Path to the file containing existing GEMM configurations")
+    parser.add_argument(
+        "--attn",
+        type=str,
+        default=None,
+        help="Path to the file containing existing attention configurations")
+
     return parser.parse_args(argv)
+
 
 def resolvePaths(args):
     """ Resolve paths to configuration files based on command line arguments.
@@ -143,15 +176,16 @@ def resolvePaths(args):
         gemmPath = os.path.join(args.configs_dir, f"{GEMM_FILE_NAME}")
     else:
         gemmPath = GEMM_CONFIGS_DEFAULT
-    
+
     if args.attn:
         attnPath = args.attn
     elif args.configs_dir:
         attnPath = os.path.join(args.configs_dir, f"{ATTENTION_FILE_NAME}")
     else:
         attnPath = ATTENTION_CONFIGS_DEFAULT
-    
+
     return newPath, convPath, gemmPath, attnPath
+
 
 def main(argv=None):
     args = parseArgs(argv)
@@ -192,9 +226,12 @@ def main(argv=None):
     _appendConfigs(gemmConfigs, newGemm)
     _appendConfigs(attentionConfigs, newAttention)
 
-    print(f"Added {len(newConv)} conv, {len(newGemm)} gemm, {len(newAttention)} attention configs.")
+    print(
+        f"Added {len(newConv)} conv, {len(newGemm)} gemm, {len(newAttention)} attention configs."
+    )
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -217,10 +217,10 @@ def computeReadBankConflicts(config, isKMajor, disableShuffle):
         for m in range(0, dRepeats):
             for k in range(0, kpackpermfma):
                 loffset = laneid % config.mfma.mfmaD  # mOffset
-                loffset += (
-                    (laneid // config.mfma.mfmaD) * config.mfma.blocks * config.D
-                )  # kOffset
-                loffset += config.mfma.mfmaD * (waveid // dRepeats)  # nRepeat offset
+                loffset += ((laneid // config.mfma.mfmaD) *
+                            config.mfma.blocks * config.D)  # kOffset
+                loffset += config.mfma.mfmaD * (waveid // dRepeats
+                                               )  # nRepeat offset
                 loffset += m * config.waveSize  # mRepeat offset
                 loffset += k * config.D  # kRepeat offset
 
@@ -252,18 +252,22 @@ def main(args=None):
         action="store_true",
         help="the global matrix is k-major (nxk or mxk)",
     )
-    parser.add_argument(
-        "--read-conflicts", action="store_true", help="compute read conflicts"
-    )
+    parser.add_argument("--read-conflicts",
+                        action="store_true",
+                        help="compute read conflicts")
     parser.add_argument(
         "--perf_config",
         type=str,
         help="perf configuration (blockSize, D, Kouter, DPerWave, Kpack)",
     )
     parser.add_argument(
-        "--mfma", type=str, help="mfma configuration (mfmaD, mfmaK, kBase, mfmaBlocks)"
-    )
-    parser.add_argument("--data-type", type=str, default="f16", help="data type")
+        "--mfma",
+        type=str,
+        help="mfma configuration (mfmaD, mfmaK, kBase, mfmaBlocks)")
+    parser.add_argument("--data-type",
+                        type=str,
+                        default="f16",
+                        help="data type")
     parser.add_argument(
         "--show-offsets",
         action="store_true",
@@ -288,12 +292,12 @@ def main(args=None):
     parsed_args = parser.parse_args(args)
     if parsed_args.show_offsets and parsed_args.read_conflicts:
         raise ValueError(
-            "Offset can be only printed when evaluating the write-conflicts"
-        )
+            "Offset can be only printed when evaluating the write-conflicts")
 
     # Config
     mfma = Mfma.parseMfma(parsed_args.mfma)
-    config = Config.parseConfig(parsed_args.perf_config, parsed_args.data_type, mfma)
+    config = Config.parseConfig(parsed_args.perf_config, parsed_args.data_type,
+                                mfma)
 
     # Show the configuration
     if parsed_args.show_config:
@@ -301,21 +305,21 @@ def main(args=None):
         print(config)
 
     if parsed_args.read_conflicts:
-        (wavesToOffset, _) = computeReadBankConflicts(
-            config, parsed_args.kmajor, parsed_args.no_shuffle
-        )
+        (wavesToOffset, _) = computeReadBankConflicts(config,
+                                                      parsed_args.kmajor,
+                                                      parsed_args.no_shuffle)
     else:
-        (wavesToOffset, _) = computeWriteBankConflicts(
-            config, parsed_args.kmajor, parsed_args.no_shuffle
-        )
+        (wavesToOffset, _) = computeWriteBankConflicts(config,
+                                                       parsed_args.kmajor,
+                                                       parsed_args.no_shuffle)
 
     if parsed_args.show_conflicts:
         printBanks(config, wavesToOffset)
 
     if parsed_args.show_offsets:
-        (_, ldsToOffset) = computeWriteBankConflicts(
-            config, parsed_args.kmajor, parsed_args.no_shuffle
-        )
+        (_, ldsToOffset) = computeWriteBankConflicts(config,
+                                                     parsed_args.kmajor,
+                                                     parsed_args.no_shuffle)
         print("\nGlobal offset distribution (offsets are in element)")
         print(ldsToOffset)
         np.set_printoptions(threshold=sys.maxsize, linewidth=np.inf)

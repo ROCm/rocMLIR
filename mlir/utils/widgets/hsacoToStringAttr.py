@@ -2,10 +2,12 @@
 import argparse
 import os
 
+
 # https://github.com/llvm/llvm-project/blob/dc37dc824aabbbe3d029519f43f0b348dcad7027/llvm/include/llvm/ADT/StringExtras.h#L125-L128
 def isPrint(C: str) -> bool:
     UC = ord(C)
     return 0x20 <= UC <= 0x7E
+
 
 # https://github.com/llvm/llvm-project/blob/dc37dc824aabbbe3d029519f43f0b348dcad7027/llvm/lib/Support/StringExtras.cpp#L62-L71
 def printEscapedString(data, out):
@@ -19,6 +21,7 @@ def printEscapedString(data, out):
             out.write('\\' + hex(ord(c) >> 4)[2:] + hex(ord(c) & 0x0F)[2:])
     print("mlir type: array<" + str(len(data)) + ", i8>")
 
+
 # This convert generate hsaco as attribute from args.i to args.o
 def genAttrFromHsaco(args):
     with open(args.i, 'rb') as f:
@@ -27,6 +30,7 @@ def genAttrFromHsaco(args):
 
     with open(args.o, 'w') as out:
         printEscapedString(data, out)
+
 
 def add_args():
     parser = argparse.ArgumentParser(
@@ -38,10 +42,12 @@ def add_args():
     args = parser.parse_args()
     return args
 
+
 def main(args):
     if (args.o == None):
         args.o = args.i.rsplit('.', maxsplit=1)[0] + ".attr"
     genAttrFromHsaco(args)
+
 
 if __name__ == "__main__":
     arguments = add_args()

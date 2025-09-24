@@ -2,6 +2,7 @@ import os
 import subprocess
 from hip import hip
 
+
 # Helper function to decode arch to its features
 # Keep this in sync with mlir/lib/Dialect/Rock/Generator/AmdArchDb.cpp:mlir::rock::lookupArchInfo
 def get_arch_features(arch: str):
@@ -44,6 +45,7 @@ def get_arch_features(arch: str):
         pass
     return arch_features, support_mfma, support_wmma
 
+
 def hip_check(call_result):
     err = call_result[0]
     result = call_result[1:]
@@ -53,12 +55,13 @@ def hip_check(call_result):
         raise RuntimeError(str(err))
     return result
 
+
 def get_agents():
     agents = set()
     device_count = hip_check(hip.hipGetDeviceCount())
     for device in range(device_count):
         props = hip.hipDeviceProp_t()
-        hip_check(hip.hipGetDeviceProperties(props,device))
+        hip_check(hip.hipGetDeviceProperties(props, device))
         agent = props.gcnArchName.decode('utf-8')
         agents.add(agent)
 
