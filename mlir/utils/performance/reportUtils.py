@@ -58,11 +58,11 @@ ROUND_DIGITS = 2
 
 
 def geo_mean(data):
-    maskedData = np.ma.masked_where(~(np.isfinite(data) & (data > 0)), data)
-    if maskedData.count() == 0:
+    masked_data = np.ma.masked_where(~(np.isfinite(data) & (data > 0)), data)
+    if masked_data.count() == 0:
         means = 0
     else:
-        means = scipy.stats.gmean(maskedData)
+        means = scipy.stats.gmean(masked_data)
     return means
 
 
@@ -98,7 +98,7 @@ def colorForChanges(value):
         return ''
 
 
-def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list,
+def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedup_cols: list,
                     colorizer):
     styler.set_table_styles([{
         'selector': 'tbody tr:nth-child(odd)',
@@ -118,7 +118,7 @@ def setCommonStyles(styler: 'pd.io.formats.style.Styler', speedupCols: list,
                   ('max-width', '150px')]
     }])
     styler.format(precision=ROUND_DIGITS, na_rep="---")
-    for col in speedupCols:
+    for col in speedup_cols:
         if col in styler.columns:
             styler.map(colorizer, subset=[col])
 
@@ -131,15 +131,15 @@ def uniqueCols(df: pd.DataFrame) -> List[str]:
 
 def cleanDataForHumans(data: pd.DataFrame, title: str)\
         -> Tuple[pd.DataFrame, str, List[str]]:
-    isGemm = "TransA" in data
-    isAttention = "TransQ" in data
+    is_gemm = "TransA" in data
+    is_attention = "TransQ" in data
     parameters = CONV_TEST_PARAMETERS
-    if isGemm:
+    if is_gemm:
         parameters = GEMM_TEST_PARAMETERS
-    if isAttention:
+    if is_attention:
         parameters = ATTN_TEST_PARAMETERS
 
-    indexCols = {k: k for k in parameters}  # Preserves order
+    index_cols = {k: k for k in parameters}  # Preserves order
     if all((x in data.columns)
            for x in {"FilterLayout", "InputLayout", "OutputLayout"}):
         if (((data["FilterLayout"] == "kcyx") & (data["InputLayout"] == "nchw") &
@@ -147,43 +147,43 @@ def cleanDataForHumans(data: pd.DataFrame, title: str)\
               (data["InputLayout"] == "nhwc") & (data["OutputLayout"] == "nhwk")))\
                 .all():
             # Layouts are consistent
-            TO_REMOVE = {"FilterLayout", "OutputLayout"}
-            data = data.drop(columns=TO_REMOVE, inplace=False)
-            for c in TO_REMOVE:
-                del indexCols[c]
+            to_remove = {"FilterLayout", "OutputLayout"}
+            data = data.drop(columns=to_remove, inplace=False)
+            for c in to_remove:
+                del index_cols[c]
 
             data.rename(columns={"InputLayout": "Layout"}, inplace=True)
-            indexCols["InputLayout"] = "Layout"
+            index_cols["InputLayout"] = "Layout"
 
-    columnsToDrop = uniqueCols(data)
+    columns_to_drop = uniqueCols(data)
     # Do not drop unique columns in attention for now
     # to keep it transparent what we are tracking.
     # We can revisit this if it ever becomes an issue.
-    if len(columnsToDrop) > 0 and not isAttention:
+    if len(columns_to_drop) > 0 and not is_attention:
         title = title + ": " + ", ".join(
-            f"{c} = {data[c].iloc[0]}" for c in columnsToDrop)
-        data = data.drop(columns=columnsToDrop, inplace=False)
-        for c in columnsToDrop:
-            if c == "Layout" and indexCols.get("InputLayout", "") == "Layout":
-                del indexCols["InputLayout"]
-            indexCols.pop(c, "")
+            f"{c} = {data[c].iloc[0]}" for c in columns_to_drop)
+        data = data.drop(columns=columns_to_drop, inplace=False)
+        for c in columns_to_drop:
+            if c == "Layout" and index_cols.get("InputLayout", "") == "Layout":
+                del index_cols["InputLayout"]
+            index_cols.pop(c, "")
 
-    return data, title, list(indexCols.values())
+    return data, title, list(index_cols.values())
 
 
 def htmlReport(data: pd.DataFrame,
                stats: pd.DataFrame,
                title: str,
-               speedupCols: list,
+               speedup_cols: list,
                colorizer=colorForSpeedups,
                stream=None):
-    data, longTitle, indexCols = cleanDataForHumans(data, title)
+    data, long_title, index_cols = cleanDataForHumans(data, title)
     print(f"""
 <!doctype html>
 <html lang="en_US">
 <head>
 <meta charset="utf-8">
-<title>{longTitle}</title>
+<title>{long_title}</title>
 <style type="text/css">
 caption {{
     caption-side: bottom;
@@ -192,24 +192,24 @@ caption {{
 </style>
 </head>
 <body>
-<h1>{longTitle}</h1>
+<h1>{long_title}</h1>
 <h2>Summary</h2>
 """,
           file=stream)
 
-    statsPrinter = stats.style
-    statsPrinter.set_caption(f"Summary statistics for {title}")
-    setCommonStyles(statsPrinter, speedupCols, colorizer)
-    print(statsPrinter.to_html(), file=stream)
+    stats_printer = stats.style
+    stats_printer.set_caption(f"Summary statistics for {title}")
+    setCommonStyles(stats_printer, speedup_cols, colorizer)
+    print(stats_printer.to_html(), file=stream)
 
     print("<h2>Details</h2>", file=stream)
-    dataPrinter = data.style
-    if len(indexCols) > 0:
-        indexed = data.set_index(indexCols)
-        dataPrinter = indexed.style
-        dataPrinter.set_caption(f"{title}: Per-test breakdown")
-        setCommonStyles(dataPrinter, speedupCols, colorizer)
-        print(dataPrinter.to_html(), file=stream)
+    data_printer = data.style
+    if len(index_cols) > 0:
+        indexed = data.set_index(index_cols)
+        data_printer = indexed.style
+        data_printer.set_caption(f"{title}: Per-test breakdown")
+        setCommonStyles(data_printer, speedup_cols, colorizer)
+        print(data_printer.to_html(), file=stream)
     print("""
 </body>
 </html>
