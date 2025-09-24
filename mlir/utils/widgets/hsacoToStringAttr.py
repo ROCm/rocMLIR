@@ -3,18 +3,18 @@ import argparse
 
 
 # https://github.com/llvm/llvm-project/blob/dc37dc824aabbbe3d029519f43f0b348dcad7027/llvm/include/llvm/ADT/StringExtras.h#L125-L128
-def isPrint(C: str) -> bool:
-    UC = ord(C)
-    return 0x20 <= UC <= 0x7E
+def is_print(c: str) -> bool:
+    uc = ord(c)
+    return 0x20 <= uc <= 0x7E
 
 
 # https://github.com/llvm/llvm-project/blob/dc37dc824aabbbe3d029519f43f0b348dcad7027/llvm/lib/Support/StringExtras.cpp#L62-L71
-def printEscapedString(data, out):
+def print_escaped_string(data, out):
     for val in data:
         c = chr(val)
         if c == '\\':
             out.write('\\' + c)
-        elif isPrint(c) and c != '"':
+        elif is_print(c) and c != '"':
             out.write(c)
         else:
             out.write('\\' + hex(ord(c) >> 4)[2:] + hex(ord(c) & 0x0F)[2:])
@@ -22,13 +22,13 @@ def printEscapedString(data, out):
 
 
 # This convert generate hsaco as attribute from args.i to args.o
-def genAttrFromHsaco(args):
+def gen_attr_from_hsaco(args):
     with open(args.i, 'rb') as f:
         # Read the entire contents of the file into a bytes object
         data = f.read()
 
     with open(args.o, 'w') as out:
-        printEscapedString(data, out)
+        print_escaped_string(data, out)
 
 
 def add_args():
@@ -43,9 +43,9 @@ def add_args():
 
 
 def main(args):
-    if (args.o == None):
+    if args.o is None:
         args.o = args.i.rsplit('.', maxsplit=1)[0] + ".attr"
-    genAttrFromHsaco(args)
+    gen_attr_from_hsaco(args)
 
 
 if __name__ == "__main__":
