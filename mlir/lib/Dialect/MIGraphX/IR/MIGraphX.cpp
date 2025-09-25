@@ -313,36 +313,36 @@ LogicalResult LiteralOp::verify() {
   return success();
 }
 
-LogicalResult ReshapeOp::verify() {  
-  MIXRShapedType inputType = getInput().getType();  
+LogicalResult ReshapeOp::verify() {
+  MIXRShapedType inputType = getInput().getType();
   ArrayAttr dimsAttr = getDims();
 
   // Dynamic shapes cannot be verified
   if (!inputType.hasStaticShape())
     return success();
-    
-  // Calculate total elements in dims attribute  
-  int64_t targetElements = 1;  
-  for (auto dim : dimsAttr) {  
+
+  // Calculate total elements in dims attribute
+  int64_t targetElements = 1;
+  for (auto dim : dimsAttr) {
     int64_t dimValue = cast<IntegerAttr>(dim).getInt();
     // A value of -1 means that the dimension is to be inferred based on what
     // the total number of output elements is
-    if (dimValue <= 0) {  
+    if (dimValue <= 0) {
       return success();
-    }  
-    targetElements *= dimValue;  
-  }  
-    
-  // Compare element counts 
-  int64_t inputElements = inputType.getNumElements();  
-  if (inputElements != targetElements) {  
-    return emitOpError("reshape dims [") << dimsAttr   
-            << "] would create " << targetElements   
-            << " elements but input has " << inputElements   
-            << " elements, which will result in TOSA no-op reshape";  
+    }
+    targetElements *= dimValue;
   }
-    
-  return success();  
+
+  // Compare element counts
+  int64_t inputElements = inputType.getNumElements();
+  if (inputElements != targetElements) {
+    return emitOpError("reshape dims [")
+           << dimsAttr << "] would create " << targetElements
+           << " elements but input has " << inputElements
+           << " elements, which will result in TOSA no-op reshape";
+  }
+
+  return success();
 }
 
 LogicalResult UnpackOp::verify() {
