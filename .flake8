@@ -2,7 +2,7 @@
 max-line-length = 79
 
 # Ignore long lines in strings/comments
-extend-ignore = E501, E124
+extend-ignore = E501, E124, E251
 
 per-file-ignores =
     **/lit.cfg.py: F821, F401
