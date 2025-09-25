@@ -313,6 +313,36 @@ LogicalResult LiteralOp::verify() {
   return success();
 }
 
+LogicalResult ReshapeOp::verify() {  
+  MIXRShapedType inputType = getInput().getType();  
+  ArrayAttr dimsAttr = getDims();
+
+  // Dynamic shapes cannot be verified
+  if (!inputType.hasStaticShape())
+    return success();
+    
+  // Calculate total elements in dims attribute  
+  int64_t targetElements = 1;  
+  for (auto dim : dimsAttr) {  
+    int64_t dimValue = cast<IntegerAttr>(dim).getInt();  
+    if (dimValue <= 0) {  
+      return emitOpError("dims attribute must contain positive integers");  
+    }  
+    targetElements *= dimValue;  
+  }  
+    
+  // Compare element counts 
+  int64_t inputElements = inputType.getNumElements();  
+  if (inputElements != targetElements) {  
+    return emitOpError("reshape dims [") << dimsAttr   
+            << "] would create " << targetElements   
+            << " elements but input has " << inputElements   
+            << " elements, which will result in TOSA no-op reshape";  
+  }
+    
+  return success();  
+}
+
 LogicalResult UnpackOp::verify() {
   MIXRShapedType inType = getIn().getType();
   MIXRShapedType outType = getOut().getType();

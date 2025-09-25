@@ -451,6 +451,8 @@ def MIGraphX_ReshapeOp :
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($output)
   }];
+
+  let hasVerifier = 1;
 }
 
 def MIGraphX_SliceOp :
