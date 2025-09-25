@@ -2332,7 +2332,21 @@ GemmGemmSize GemmElementwiseGemmOp::getGemmGemmSize() {
 }
 
 static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
-                                              Value currentSeqLen, Value lse) {
+                                              Value currentSeqLen, Value lse,
+                                              int32_t numHeadsQ,
+                                              int32_t numHeadsKV) {
+  // number of heads for Q and K, V
+  if (numHeadsQ <= 0) {
+    return op.emitError("numHeadsQ must be positive");
+  }
+  if (numHeadsKV <= 0) {
+    return op.emitError("numHeadsKV must be positive");
+  }
+  if (numHeadsQ % numHeadsKV != 0) {
+    return op.emitError("numHeadsQ is not divisible by numHeadsKV");
+  }
+  int64_t factorGQA = numHeadsQ / numHeadsKV;
+
   ShapedType qType = cast<ShapedType>(op.getAType());
   int64_t qBatchDim = qType.getShape().size() == 3 ? qType.getShape()[0] : 1;
   ArrayRef<int64_t> qLastDims = qType.getShape().slice(qType.getRank() - 2);
@@ -2342,6 +2356,7 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
 
   ShapedType kType = cast<ShapedType>(op.getBType());
   int64_t kBatchDim = kType.getShape().size() == 3 ? kType.getShape()[0] : 1;
+  kBatchDim *= factorGQA;
   ArrayRef<int64_t> kLastDims = kType.getShape().slice(kType.getRank() - 2);
   auto [keyK, keyN] = op.getTransposedB()
                           ? std::tuple{kLastDims[1], kLastDims[0]}
@@ -2349,6 +2364,7 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
 
   ShapedType vType = cast<ShapedType>(op.getCType());
   int64_t vBatchDim = vType.getShape().size() == 3 ? vType.getShape()[0] : 1;
+  vBatchDim *= factorGQA;
   ArrayRef<int64_t> vLastDims = vType.getShape().slice(vType.getRank() - 2);
   auto [valueK, valueN] = op.getTransposedC()
                               ? std::tuple{vLastDims[1], vLastDims[0]}
@@ -2419,12 +2435,14 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
       return op.emitError("SeqLenQ dimensions do not match (LSE and Q)");
     }
   }
+
   return success();
 }
 
 LogicalResult GemmElementwiseGemmOp::verify() {
   return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr,
-                                  /*lse=*/nullptr);
+                                  /*lse=*/nullptr, /*numHeadsQ=*/1,
+                                  /*numHeadsKV=*/1);
 }
 
 void GemmElementwiseGemmOp::getEffects(
@@ -2520,7 +2538,8 @@ GemmGemmSize ConvElementwiseGemmOp::getGemmGemmSize() {
 
 LogicalResult ConvElementwiseGemmOp::verify() {
   return verifyGemmPlusGemmLikeOp(*this, /*currentSeqLen=*/nullptr,
-                                  /*lse=*/nullptr);
+                                  /*lse=*/nullptr, /*numHeadsQ=*/1,
+                                  /*numHeadsKV=*/1);
 }
 
 void ConvElementwiseGemmOp::getEffects(
@@ -2598,7 +2617,8 @@ LogicalResult AttentionOp::verify() {
   if (getStoreMethod() != StoreMethod::Set)
     return emitError("Only set store method is supported for attention.");
 
-  return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse());
+  return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
+                                  getNumHeadsQ(), getNumHeadsKV());
 }
 
 void AttentionOp::getEffects(

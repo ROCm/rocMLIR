@@ -1365,7 +1365,7 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
 static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
                                                     const GenParams &params) {
-  // default perfConfig is attn:v1:32,32,32,32,32,32,1,1
+  // default perfConfig is attn:v2:32,32,32,32,32,32,1,1,1,2,1
   // keep in sync with AffixTuningParameters.cpp
   if (params.perfConfig.empty())
     return {32, 32};
@@ -2981,7 +2981,7 @@ static Value broadcastKVCacheRock(OpBuilder builder, Location loc,
          "Number of current sequence lenght must match batch dimension");
   SmallVector<StringRef> startNames = {"gemmG"};
   rock::BottomUpTMBuilder addDim(builder, startNames, inpShape);
-  addDim.addDim("seqLen", 1, 1);
+  addDim.addDim("numHeadsQ", 1, 1);
   addDim.passThrough(ArrayRef<uint32_t>{0}, ArrayRef<uint32_t>{0});
   auto addDimAttr = addDim.get();
   Value matrixAddDim =
@@ -2995,39 +2995,7 @@ static Value broadcastKVCacheRock(OpBuilder builder, Location loc,
       rock::TransformOp::create(builder, loc, matrixAddDim, broadcasterAttr);
 
   auto merger = rock::BottomUpTMBuilder::above(broadcaster, broadcasterAttr);
-  merger.merge("gemmG", 0, {"gemmG", "seqLen"});
-  auto mergerAttr = merger.get();
-  return rock::TransformOp::create(builder, loc, tensorBroadcast, mergerAttr);
-}
-
-static Value broadcastGQARock(OpBuilder builder, Location loc,
-                              Value inputTensor) {
-  assert(numHeadsQ % numHeadsKV == 0);
-
-  if (numHeadsQ == numHeadsKV)
-    return inputTensor;
-
-  int64_t numRepeats = numHeadsQ / numHeadsKV;
-  ArrayRef<int64_t> inpShape =
-      cast<ShapedType>(inputTensor.getType()).getShape();
-  SmallVector<StringRef> startNames = {"gemmG", "seqLen", "headDim"};
-  rock::BottomUpTMBuilder addDim(builder, startNames, inpShape);
-  addDim.addDim("broadcastDim", 1, 1);
-  addDim.passThrough({0, 2, 3}, {0, 1, 2});
-  auto addDimAttr = addDim.get();
-  Value matrixAddDim =
-      rock::TransformOp::create(builder, loc, inputTensor, addDimAttr);
-
-  auto broadcaster = rock::BottomUpTMBuilder::above(addDim, addDimAttr);
-  broadcaster.broadcast({1}, {numRepeats});
-  broadcaster.passThrough({0, 2, 3}, {0, 2, 3});
-  auto broadcasterAttr = broadcaster.get();
-  Value tensorBroadcast =
-      rock::TransformOp::create(builder, loc, matrixAddDim, broadcasterAttr);
-
-  auto merger = rock::BottomUpTMBuilder::above(broadcaster, broadcasterAttr);
-  merger.merge("gemmG", 0, {"gemmG", "broadcastDim"});
-  merger.passThrough({1, 2}, {2, 3});
+  merger.merge("gemmG", 0, {"gemmG", "numHeadsQ"});
   auto mergerAttr = merger.get();
   return rock::TransformOp::create(builder, loc, tensorBroadcast, mergerAttr);
 }
@@ -3109,15 +3077,12 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   }
   output = unflattenedArgs[optionalArgsCounter];
 
-  keys = broadcastGQARock(builder, loc, keys);
-  values = broadcastGQARock(builder, loc, values);
-
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
-  auto attention = rock::AttentionOp::create(
-      builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
-      currentSeqLenTensor, output, lse, transposeQ, transposeK, transposeV,
-      transposeO, causalMasking, splitKV,
+  auto attention = rock::AttentionOp::create(builder,
+      loc, TypeRange{}, queries, keys, values, elemwiseInputs,
+      currentSeqLenTensor, output, lse, numHeadsQ, numHeadsKV, transposeQ,
+      transposeK, transposeV, transposeO, causalMasking, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,

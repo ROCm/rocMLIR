@@ -828,9 +828,12 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
       problemOS << "false" << sep;
 
     problemOS << "-split_kv " << attentionOp.getSplitKV() << sep;
+    problemOS << "-num_heads_q " << attentionOp.getNumHeadsQ() << sep;
+    problemOS << "-num_heads_kv " << attentionOp.getNumHeadsKV() << sep;
+    problemOS << "-g " << qShape[0] / attentionOp.getNumHeadsQ() << sep;
   }
 
-  if (!isConvGemm)
+  if (!isConvGemm && !isAttention)
     problemOS << "-g " << qShape[0] << sep;
 
   if (isAttention) {

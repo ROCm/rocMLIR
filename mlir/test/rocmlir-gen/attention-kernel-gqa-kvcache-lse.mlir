@@ -11,26 +11,21 @@
 // CHECK-SAME: %[[outputRaw:.*5]]: memref<131072xf32>)
 // CHECK-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
 // CHECK-NEXT: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<131072xf32> to memref<4x1024x32xf32>
-// CHECK-NEXT: %[[keysGQA:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<65536xf32> to memref<2x32x1024xf32>
-// CHECK-NEXT: %[[valuesGQA:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<65536xf32> to memref<2x1024x32xf32>
+// CHECK-NEXT: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<65536xf32> to memref<2x32x1024xf32>
+// CHECK-NEXT: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<65536xf32> to memref<2x1024x32xf32>
 // CHECK-NEXT: %[[currentSeqLen:.*]] = rock.transform %[[currentSeqLenRaw]] {{.*}} : memref<1xi32> to memref<1xi32>
 // CHECK-NEXT: %[[lse:.*]] = rock.transform %[[lseRaw]] {{.*}} : memref<4096xf32> to memref<4x1024xf32>
 // CHECK-NEXT: %[[output:.*]] = rock.transform %[[outputRaw]] {{.*}} : memref<131072xf32> to memref<4x1024x32xf32>
 // CHECK-NEXT: %[[currentSeqLenAddDim:.*]] = rock.transform %[[currentSeqLen]] {{.*}} : memref<1xi32> to memref<1x1xi32>
 // CHECK-NEXT: %[[currentSeqLenBroadcast:.*]] = rock.transform %[[currentSeqLenAddDim]] {{.*}} : memref<1x1xi32> to memref<1x4xi32>
 // CHECK-NEXT: %[[currentSeqLenMerge:.*]] = rock.transform %[[currentSeqLenBroadcast]] {{.*}} : memref<1x4xi32> to memref<4xi32>
-// CHECK-NEXT: %[[keysAddDim:.*]] = rock.transform %[[keysGQA]] {{.*}} : memref<2x32x1024xf32> to memref<2x1x32x1024xf32>
-// CHECK-NEXT: %[[keysBroadcast:.*]] = rock.transform %[[keysAddDim]] {{.*}} : memref<2x1x32x1024xf32> to memref<2x2x32x1024xf32>
-// CHECK-NEXT: %[[keys:.*]] = rock.transform %[[keysBroadcast]] {{.*}} : memref<2x2x32x1024xf32> to memref<4x32x1024xf32>
-// CHECK-NEXT: %[[valuesAddDim:.*]] = rock.transform %[[valuesGQA]] {{.*}} : memref<2x1024x32xf32> to memref<2x1x1024x32xf32>
-// CHECK-NEXT: %[[valuesBroadcast:.*]] = rock.transform %[[valuesAddDim]] {{.*}} : memref<2x1x1024x32xf32> to memref<2x2x1024x32xf32>
-// CHECK-NEXT: %[[values:.*]] = rock.transform %[[valuesBroadcast]] {{.*}} : memref<2x2x1024x32xf32> to memref<4x1024x32xf32>
 
 // CHECK-NEXT: rock.attention
 // CHECK-NEXT: qk = %[[queries]] * %[[keys]]
 // CHECK-NEXT: currentSeqLen = (%[[currentSeqLenMerge]] : memref<4xi32>)
 // CHECK-NEXT: lse = %[[lse]] : memref<4x1024xf32>
 // CHECK: %[[output]] = softmax(qk) * %[[values]]
+// CHECK-NEXT: numHeadsKV = 2 : i32, numHeadsQ = 4 : i32
 // CHECK: return
 
 // CHECK-LABEL: func.func @host_naive_attention

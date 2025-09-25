@@ -2138,10 +2138,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
         attentionMatcherValues.preSoftmaxElementwiseFinder;
     int64_t firstGemmBlockIndex = elemwiseRegion.getFirstGemmBlockIndex();
+
+    // TODO: numHeadsQ and numHeadsKV migraphx integration
     rock::AttentionOp attnOp = rock::AttentionOp::create(
         rewriter, loc, outputType, lseType, firstMatMulOp.getA(),
         firstMatMulOp.getB(), op.getB(), elementwiseOtherArgs, currentSeqLen,
         output, lseOut,
+        /*numHeadsQ=*/rewriter.getI32IntegerAttr(1),
+        /*numHeadsKV=*/rewriter.getI32IntegerAttr(1),
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
