@@ -129,6 +129,7 @@ def unique_cols(df: pd.DataFrame) -> List[str]:
     a: np.array = df.to_numpy()
     return df.columns[(a[0] == a).all(0)]
 
+
 def clean_data_for_humans(data: pd.DataFrame, title: str)\
         -> Tuple[pd.DataFrame, str, List[str]]:
     is_gemm = "TransA" in data
@@ -142,10 +143,12 @@ def clean_data_for_humans(data: pd.DataFrame, title: str)\
     index_cols = {k: k for k in parameters}  # Preserves order
     if all((x in data.columns)
            for x in {"FilterLayout", "InputLayout", "OutputLayout"}):
-        if (((data["FilterLayout"] == "kcyx") & (data["InputLayout"] == "nchw") &
-              (data["OutputLayout"] == "nkhw")) | ((data["FilterLayout"] == "kyxc") &
-              (data["InputLayout"] == "nhwc") & (data["OutputLayout"] == "nhwk")))\
-                .all():
+        if (((data["FilterLayout"] == "kcyx") &
+             (data["InputLayout"] == "nchw") &
+             (data["OutputLayout"] == "nkhw")) |
+            ((data["FilterLayout"] == "kyxc") &
+             (data["InputLayout"] == "nhwc") &
+             (data["OutputLayout"] == "nhwk"))).all():
             # Layouts are consistent
             to_remove = {"FilterLayout", "OutputLayout"}
             data = data.drop(columns=to_remove, inplace=False)
