@@ -428,7 +428,7 @@ func.func @rock_attention_default(%arg0: memref<1x384x64xf16>, %arg1: memref<1x3
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
@@ -444,7 +444,7 @@ func.func @rock_attention_large(%arg0: memref<1x16384x512xf32>, %arg1: memref<1x
   rock.attention{
     qk = %arg0 * %arg1 : memref<1x16384x512xf32>, memref<1x512x16384xf32>
     %arg3 = softmax(qk) * %arg2 : memref<1x16384x512xf32> -> memref<1x16384x512xf32>
-  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v2:128,128,128,2,64,64,8,1,1,2,1", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
+  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v2:128,128,128,2,64,64,8,1,1,2,1", firstGemmIndices = array<i64: 0>, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
@@ -459,7 +459,7 @@ func.func @rock_attention_mperblockg1_wmma(%arg0: memref<1x384x64xf16>, %arg1: m
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, perf_config = "attn:v2:128,256,128,2,64,64,8,1,1,2,1", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, perf_config = "attn:v2:128,256,128,2,64,64,8,1,1,2,1", firstGemmIndices = array<i64: 0>, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
@@ -474,7 +474,7 @@ func.func @rock_attention_mperblockg1_mfma(%arg0: memref<1x384x64xf16>, %arg1: m
   rock.attention{
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v2:128,256,128,2,64,64,8,1,1,2,1", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
+  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v2:128,256,128,2,64,64,8,1,1,2,1", firstGemmIndices = array<i64: 0>, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 

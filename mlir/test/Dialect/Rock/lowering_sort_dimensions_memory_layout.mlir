@@ -60,7 +60,7 @@ func.func @test_attention(%arg0: memref<1024xf16>, %arg1: memref<1024xf16>, %arg
     rock.yield
   }
     %alloc = softmax(qk) * %1 : memref<1x64x8xf16> -> memref<1x32x8xf16>
-  } {arch = "gfx1200", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|atomic_add_f16|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>, perf_config = "attn:v2:128,128,128,2,64,64,8,4,1,2,1"}
+  } {arch = "gfx1200", features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|atomic_add_f16|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, storeMethod = #rock<StoreMethod set>, perf_config = "attn:v2:128,128,128,2,64,64,8,4,1,2,1"}
   %7 = rock.transform %alloc by <affine_map<(d0) -> (0, d0 floordiv 8, d0 mod 8)> by [<Merge{1, 32, 8} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [256] -> [1, 32, 8]> : memref<1x32x8xf16> to memref<256xf16>
   memref.copy %7, %arg3 : memref<256xf16> to memref<256xf16>
   return

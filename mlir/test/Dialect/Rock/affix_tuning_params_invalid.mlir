@@ -7,7 +7,7 @@ func.func @rock_attention_invalid_perf_config(%arg0: memref<1x384x64xf16>, %arg1
   rock.attention{
     qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
     %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {perf_config = "attn:v2:128,128,16,8,32,64,8,1,1,2,1", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
+  } {perf_config = "attn:v2:128,128,16,8,32,64,8,1,1,2,1", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
@@ -16,7 +16,7 @@ func.func @rock_gemm_gemm_invalid_perf_config(%arg0: memref<1x384x64xf16>, %arg1
   rock.gemm_elementwise_gemm{
     ab = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
     %arg3 = ab * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {perf_config = "attn:v2:128,128,16,8,32,64,8,1,1,2,1", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
+  } {perf_config = "attn:v2:128,128,16,8,32,64,8,1,1,2,1", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
