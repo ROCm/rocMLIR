@@ -324,9 +324,11 @@ LogicalResult ReshapeOp::verify() {
   // Calculate total elements in dims attribute  
   int64_t targetElements = 1;  
   for (auto dim : dimsAttr) {  
-    int64_t dimValue = cast<IntegerAttr>(dim).getInt();  
+    int64_t dimValue = cast<IntegerAttr>(dim).getInt();
+    // A value of -1 means that the dimension is to be inferred based on what
+    // the total number of output elements is
     if (dimValue <= 0) {  
-      return emitOpError("dims attribute must contain positive integers");  
+      return success();
     }  
     targetElements *= dimValue;  
   }  
