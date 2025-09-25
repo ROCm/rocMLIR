@@ -2619,6 +2619,10 @@ struct GridwiseAttentionAccelRewritePattern
                                prePadG0M);
 
       // undo Grouped-Query Attention (GQA) transforms
+      // This is needed because the preSoftmaxElementWise inputs (if any), don't
+      // have the GQA transformed applied to them. So, we undo the transform to
+      // the output of the first GEMM. See postProcessFirstGemm() to understand
+      // the transforms done to preSoftmaxElementWise inputs.
       ArrayRef<int64_t> unpaddedShape =
           getLowerShape(gemm0OutSubTileViewsTrUnPadded.gridSubTile);
       ArrayAttr undoGQA = undoGQATransforms(rewriter, loc, op, unpaddedShape);
