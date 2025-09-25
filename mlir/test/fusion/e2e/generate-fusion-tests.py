@@ -5,7 +5,6 @@ import argparse
 import shutil
 import itertools
 import tomli
-from hip import hip
 
 RANDTYPE = {
     'f32': 'float',
