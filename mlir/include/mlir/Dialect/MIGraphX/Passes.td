@@ -16,6 +16,11 @@ def MIGraphXTransformPass : Pass<"migraphx-transform", "func::FuncOp"> {
   let dependentDialects = ["migraphx::MIGraphXDialect"];
 }
 
+def MIGraphXRealizeFP4Pass : Pass<"migraphx-realize-fp4", "func::FuncOp"> {
+  let summary = "Realize fp4 by folding migraphx.unpack(fp8->fp8) into function signature";
+  let dependentDialects = ["migraphx::MIGraphXDialect", "func::FuncDialect"];
+}
+
 def MIGraphXRealizeInt4Pass : Pass<"migraphx-realize-int4", "func::FuncOp"> {
   let summary = "Rewrite migraphx.[un]pack into int4 tensors";
   let description = [{

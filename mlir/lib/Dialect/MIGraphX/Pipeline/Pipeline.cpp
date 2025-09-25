@@ -42,6 +42,7 @@ using namespace mlir;
 void migraphx::addHighLevelPipeline(PassManager &pm) {
   // passes for MIXR to TOSA
   auto &funcPm = pm.nest<func::FuncOp>();
+  funcPm.addPass(migraphx::createMIGraphXRealizeFP4Pass());
   funcPm.addPass(migraphx::createMIGraphXRealizeInt4Pass());
   funcPm.addPass(migraphx::createMIGraphXTransformPass());
   funcPm.addPass(createCanonicalizerPass());
