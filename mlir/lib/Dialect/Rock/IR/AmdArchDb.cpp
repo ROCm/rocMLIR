@@ -145,21 +145,19 @@ std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
     }                                                                          \
   }
 
-struct agent_info_t {
+struct AgentInfo {
   // Input fields:
   //   The ID of the GPU device that we are looking for.
   unsigned deviceId;
-  //   The ID of the current GPU HSA agent (weird that HSA does not have a field
-  //   for this).
-  int num_cpus;
+  //   Used in AcquireAgentInfo, to compute GPU internal IDs.
+  int numCpus;
   // Output fields:
   uint32_t simds_per_cu;
-  uint32_t wavefront_size;
   uint32_t max_waves_per_cu;
 };
 
 AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
-                                agent_info_t &agent_info) {
+                                AgentInfo &agent_info) {
   auto ret = lookupArchInfo(prop.gcnArchName); // get baseline
 
   checkAndSetInfo("(HIP) minNumCU", ret.minNumCU, prop.multiProcessorCount);
@@ -172,12 +170,11 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
   checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agent_info.simds_per_cu);
   checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
                   agent_info.max_waves_per_cu / agent_info.simds_per_cu);
-  // checkAndSetInfo("(HSA) totalSGPRPerEU", ret.totalSGPRPerEU, ???);
-  // checkAndSetInfo("(HSA) totalVGPRPerEU", ret.totalVGPRPerEU, ???);
-  checkAndSetInfo("(HSA) waveSize", ret.waveSize, agent_info.wavefront_size);
-  // checkAndSetInfo("(HSA) defaultFeatures", ret.defaultFeatures, ???);
-  // checkAndSetInfo("(HSA) hasOcpFp8ConversionInstrs",
-  // ret.hasOcpFp8ConversionInstrs, ???); checkAndSetInfo("(HSA)
+  // checkAndSetInfo("(???) totalSGPRPerEU", ret.totalSGPRPerEU, ???);
+  // checkAndSetInfo("(???) totalVGPRPerEU", ret.totalVGPRPerEU, ???);
+  // checkAndSetInfo("(???) defaultFeatures", ret.defaultFeatures, ???);
+  // checkAndSetInfo("(???) hasOcpFp8ConversionInstrs",
+  // ret.hasOcpFp8ConversionInstrs, ???); checkAndSetInfo("(???)
   // hasFp8ConversionInstrs", ret.hasFp8ConversionInstrs, ???);
   return ret;
 }
@@ -187,7 +184,7 @@ static hsa_status_t AcquireAgentInfo(hsa_agent_t agent, void *data) {
   // Based on:
   // https://github.com/ROCm/rocm-systems/blob/develop/projects/rocminfo/rocminfo.cc
   hsa_status_t err;
-  agent_info_t *agent_i = reinterpret_cast<agent_info_t *>(data);
+  AgentInfo *agent_i = reinterpret_cast<AgentInfo *>(data);
 
   hsa_device_type_t device_type;
   err = hsa_agent_get_info(agent, HSA_AGENT_INFO_DEVICE, &device_type);
@@ -201,7 +198,7 @@ static hsa_status_t AcquireAgentInfo(hsa_agent_t agent, void *data) {
         &internal_node_id);
     RET_IF_HSA_ERR(err);
 
-    unsigned gpuDeviceId = internal_node_id - agent_i->num_cpus;
+    unsigned gpuDeviceId = internal_node_id - agent_i->numCpus;
 
     if (gpuDeviceId == agent_i->deviceId) {
       // This is the GPU that we want to check.
@@ -214,16 +211,41 @@ static hsa_status_t AcquireAgentInfo(hsa_agent_t agent, void *data) {
           agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MAX_WAVES_PER_CU,
           &agent_i->max_waves_per_cu);
       RET_IF_HSA_ERR(err);
-
-      err = hsa_agent_get_info(agent, HSA_AGENT_INFO_WAVEFRONT_SIZE,
-                               &agent_i->wavefront_size);
-      RET_IF_HSA_ERR(err);
     }
   } else {
-    agent_i->num_cpus++;
+    agent_i->numCpus++;
   }
 
   return HSA_STATUS_SUCCESS;
+}
+
+void fixNaviProperties(AgentInfo *agent_i, hipDeviceProp_t *prop) {
+  // Fix simds_per_cu and totalSharedMemPerCU in Navi GPUs due to WGPs.
+  // I wonder why we have to implement this logic instead of relying
+  // on HIP to do this.
+  //
+  // Navi AMD docs define a CU as "One half of a WGP. Contains 2 SIMD32’s that
+  // share one path to memory" In this context we treat a WGP as CU, so we need
+  // to double simds_per_cu and totalSharedMemPerCU. This is consistent with the
+  // behavior of amdgpu target in LLVM. They say: "Per CU" really means "per
+  // whatever functional block the waves of a workgroup must share" This is also
+  // mentioned on HIP multiProcessorCount field: "When the GPU works in Compute
+  // Unit (CU) mode, this value equals the number of CUs; when in Workgroup
+  // Processor (WGP) mode, this value equels half of CUs, because a single WGP
+  // contains two CUs"
+  //
+  // References:
+  // -
+  // https://rocm.docs.amd.com/projects/HIP/en/docs-6.0.2/user_guide/hip_rtc.html#cu-mode-vs-wgp-mode
+  // -
+  // https://www.amd.com/content/dam/amd/en/documents/radeon-tech-docs/instruction-set-architectures/rdna3-shader-instruction-set-architecture-feb-2023_0.pdf
+  // -
+  // https://github.com/llvm/llvm-project/blob/main/llvm/lib/Target/AMDGPU/Utils/AMDGPUBaseInfo.cpp
+
+  if (prop->warpSize == 32) {
+    agent_i->simds_per_cu *= 2;
+    prop->sharedMemPerBlock *= 2;
+  }
 }
 
 AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
@@ -242,8 +264,8 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
 
   LLVM_DEBUG(llvm::dbgs() << "gcnArchName: " << prop.gcnArchName << "\n");
 
-  agent_info_t agent_info;
-  agent_info.num_cpus = 0;
+  AgentInfo agent_info;
+  agent_info.numCpus = 0;
   agent_info.deviceId = deviceId;
   hsa_status_t err = hsa_iterate_agents(AcquireAgentInfo, &agent_info);
   if (err != HSA_STATUS_SUCCESS) {
@@ -255,6 +277,8 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
     }
     llvm::report_fatal_error(err_str);
   }
+
+  fixNaviProperties(&agent_info, &prop);
 
   std::lock_guard<std::mutex> lock(m);
 
