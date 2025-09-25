@@ -43,7 +43,7 @@ def get_diff(base_commit, ignore_external_files: bool) -> Tuple[bool, str]:
 
 def check_external_file(filename: str) -> bool:
     print(filename)
-    regex = f'^external/'
+    regex = '^external/'
     return re.search(regex, filename)
 
 
@@ -159,8 +159,6 @@ def run_clang_tidy(base_commit,
         match = re.search(pattern, line)
         if match:
             file_name = match.group(1)
-            line_pos = match.group(2)
-            char_pos = match.group(3)
             severity = match.group(4)
             if severity in ['warning', 'error']:
                 if ignore.match_file(file_name):
