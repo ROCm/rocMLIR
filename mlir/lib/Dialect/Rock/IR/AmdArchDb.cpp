@@ -250,6 +250,7 @@ void fixNaviProperties(AgentInfo *agent_i, hipDeviceProp_t *prop) {
   // -
   // https://github.com/llvm/llvm-project/blob/main/llvm/lib/Target/AMDGPU/Utils/AMDGPUBaseInfo.cpp
 
+  // TODO: Can we check WGP mode in a better way instead of checking warp size?
   if (prop->warpSize == 32) {
     agent_i->simdsPerCU *= 2;
     agent_i->maxWavesPerCU *= 2;
