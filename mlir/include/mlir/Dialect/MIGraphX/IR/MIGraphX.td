@@ -517,7 +517,7 @@ class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> o
 }
 
 def MIGraphX_QuantDotOp :
-    MIGraphX_DotOpBase<"quant_dot", [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, F4E2M1FN, F8E8M0FNU, I8, SI8], [F32, I32, SI32]>{
+    MIGraphX_DotOpBase<"quant_dot", [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, F4E2M1FN, F8E8M0FNU, I8, SI8, F32], [F32, I32, SI32]>{
   let summary = "Dot product of quantized tensors";
   let description = [{
     The `migraphx.quant_dot` op computes the dot product of two tensors.

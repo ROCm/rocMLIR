@@ -26,13 +26,13 @@ module {
     %sB = migraphx.reshape %mbB {dims = [2048,1000]}
           : <64x32x1000xf32, 1000x0x1> -> <2048x1000xf32, 1000x1>
 
-    %sE8A = migraphx.convert %sA : !migraphx.shaped<1x2048xf32, 2048x1> to !migraphx.shaped<1x2048xf8E8M0FNU, 2048x1>
-    %sE8B = migraphx.convert %sB : !migraphx.shaped<2048x1000xf32, 1000x1> to !migraphx.shaped<2048x1000xf8E8M0FNU, 1000x1>
+//     %sE8A = migraphx.convert %sA : !migraphx.shaped<1x2048xf32, 2048x1> to !migraphx.shaped<1x2048xf8E8M0FNU, 2048x1>
+//     %sE8B = migraphx.convert %sB : !migraphx.shaped<2048x1000xf32, 1000x1> to !migraphx.shaped<2048x1000xf8E8M0FNU, 1000x1>
 
     // Quant dot (assumed dequant inside by scales )
-    %qd = migraphx.quant_dot %x1Unpacked scaled by %sE8A, %wTUnpacked scaled by %sE8B
-          : !migraphx.shaped<1x2048xf8E4M3FN, 2048x1> scaled by !migraphx.shaped<1x2048xf8E8M0FNU, 2048x1>,
-            !migraphx.shaped<2048x1000xf8E4M3FN, 1x2048> scaled by !migraphx.shaped<2048x1000xf8E8M0FNU, 1000x1>
+    %qd = migraphx.quant_dot %x1Unpacked scaled by %sA, %wTUnpacked scaled by %sB
+          : !migraphx.shaped<1x2048xf8E4M3FN, 2048x1> scaled by !migraphx.shaped<1x2048xf32, 2048x1>,
+            !migraphx.shaped<2048x1000xf8E4M3FN, 1x2048> scaled by !migraphx.shaped<2048x1000xf32, 1000x1>
             -> !migraphx.shaped<1x1000xf32, 1000x1>
 
     %out = migraphx.add %qd, %x5
