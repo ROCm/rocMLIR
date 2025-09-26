@@ -1,18 +1,16 @@
 #!/usr/bin/evn python3
 
 import reportUtils
-
+import sys
+import pandas as pd
 from pathlib import PurePath
 from perfRunner import get_num_cu
-import sys
 from typing import Tuple
 
-import pandas as pd
 
-
-def loadMlirData(filename: str):
+def load_mlir_data(filename: str):
     df = pd.read_csv(filename, sep=',', header=0, index_col=False)
-    COLUMNS_DROPPED = [
+    columns_dropped = [
         'MIOpen TFlops (no MLIR Kernels)', 'MLIR/MIOpen',
         'MIOpen TFlops (Tuned MLIR Kernels)',
         'MIOpen TFlops (Untuned MLIR Kernels)', 'Tuned/Untuned',
@@ -21,7 +19,7 @@ def loadMlirData(filename: str):
         'Quick Tuned/Untuned', 'Quick Tuned/Tuned', 'LDSBankConflict (MIOpen)',
         'LDSBankConflict (rocBLAS)'
     ]
-    df.drop(columns=COLUMNS_DROPPED, inplace=True, errors='ignore')
+    df.drop(columns=columns_dropped, inplace=True, errors='ignore')
     # Work around empty PerfConfig field whin migrating from no tuning to yes tuning
     # Can be removed next time we touch this
     if 'PerfConfig' in df:
@@ -31,14 +29,14 @@ def loadMlirData(filename: str):
     return df
 
 
-def mergePerfConfigs(v: Tuple[str, str]) -> str:
+def merge_perfconfigs(v: Tuple[str, str]) -> str:
     v1, v2 = v
     if v1 == v2:
         return v1
     return f"{v1} -> {v2}"
 
 
-def summarizeStat(grouped, func, data):
+def summarize_stat(grouped, func, data):
     ret = grouped.agg(func)
     if ret.index.nlevels == 1:
         ret.loc["All"] = data.agg(func)
@@ -47,99 +45,107 @@ def summarizeStat(grouped, func, data):
     return ret
 
 
-def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str,
-                     newLabel: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    isGemm = "TransA" in newDf
-    isAttention = "TransQ" in newDf
+def compute_perf_stats(old_df: pd.DataFrame, new_df: pd.DataFrame,
+                       old_label: str,
+                       new_label: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    is_gemm = "TransA" in new_df
+    is_attn = "TransQ" in new_df
     parameters = reportUtils.CONV_TEST_PARAMETERS
-    if isGemm:
+    if is_gemm:
         parameters = reportUtils.GEMM_TEST_PARAMETERS
-    if isAttention:
+    if is_attn:
         parameters = reportUtils.ATTN_TEST_PARAMETERS
     # Ignore perf config in join
-    joinCols = parameters[:-1]
+    join_cols = parameters[:-1]
     try:
-        data = newDf.merge(oldDf, on=joinCols, suffixes=('_new', '_old'))
+        data = new_df.merge(old_df, on=join_cols, suffixes=('_new', '_old'))
     except KeyError as e:
         print("Missing columns in data, forcing copy: ", e, file=sys.stderr)
-        return computePerfStats(newDf.copy(), newDf, "forced copy", newLabel)
+        return compute_perf_stats(new_df.copy(), new_df, "forced copy",
+                                  new_label)
     if len(data) == 0:
         print(
             "Old and new data have come from disjoint performance runs, ignoring old data",
             file=sys.stderr)
-        return computePerfStats(newDf.copy(), newDf, "forced copy", newLabel)
+        return compute_perf_stats(new_df.copy(), new_df, "forced copy",
+                                  new_label)
 
     # Clean up PerfConfig columns, as the report generator wants a single PerfConfig
     if "PerfConfig_old" in data and "PerfConfig_new" in data:
-        perfConfigColPos = data.columns.get_loc("PerfConfig_old")
+        perfconfig_col_pos = data.columns.get_loc("PerfConfig_old")
         zipped = list(
-            map(mergePerfConfigs,
+            map(merge_perfconfigs,
                 zip(data["PerfConfig_old"], data["PerfConfig_new"])))
-        data.insert(perfConfigColPos, "PerfConfig", zipped)
+        data.insert(perfconfig_col_pos, "PerfConfig", zipped)
         data.drop(columns=["PerfConfig_old", "PerfConfig_new"], inplace=True)
 
     if "PerfConfig (quick tuned)_old" in data and "PerfConfig (quick tuned)_new" in data:
-        perfConfigColPos = data.columns.get_loc("PerfConfig (quick tuned)_old")
+        perfconfig_col_pos = data.columns.get_loc(
+            "PerfConfig (quick tuned)_old")
         zipped = list(
             map(
-                mergePerfConfigs,
+                merge_perfconfigs,
                 zip(data["PerfConfig (quick tuned)_old"],
                     data["PerfConfig (quick tuned)_new"])))
-        data.insert(perfConfigColPos, "PerfConfig (quick tuned)", zipped)
+        data.insert(perfconfig_col_pos, "PerfConfig (quick tuned)", zipped)
         data.drop(columns=[
             "PerfConfig (quick tuned)_old", "PerfConfig (quick tuned)_new"
         ],
                   inplace=True)
 
-    if (oldLabel == newLabel):
-        oldLabel += "_old"
-        newLabel += "_new"
-    oldLabel = f"MLIR TFlops ({oldLabel})"
-    newLabel = f"MLIR TFlops ({newLabel})"
-    oldLabelTuned = f"Tuned TFlops ({oldLabel})"
-    newLabelTuned = f"Tuned TFlops ({newLabel})"
-    oldLabelQuickTuned = f"Quick Tuned TFlops ({oldLabel})"
-    newLabelQuickTuned = f"Quick Tuned TFlops ({newLabel})"
+    if (old_label == new_label):
+        old_label += "_old"
+        new_label += "_new"
+    old_label = f"MLIR TFlops ({old_label})"
+    new_label = f"MLIR TFlops ({new_label})"
+    old_label_tuned = f"Tuned TFlops ({old_label})"
+    new_label_tuned = f"Tuned TFlops ({new_label})"
+    old_label_quick_tuned = f"Quick Tuned TFlops ({old_label})"
+    new_label_quick_tuned = f"Quick Tuned TFlops ({new_label})"
     data.rename(columns={
-        'MLIR TFlops_old': oldLabel,
-        'MLIR TFlops_new': newLabel,
-        'TFlops_old': oldLabel,
-        'TFlops_new': newLabel,
-        'Tuned MLIR TFlops_old': oldLabelTuned,
-        'Tuned MLIR TFlops_new': newLabelTuned,
-        "Quick Tuned MLIR TFlops_old": oldLabelQuickTuned,
-        "Quick Tuned MLIR TFlops_new": newLabelQuickTuned
+        'MLIR TFlops_old': old_label,
+        'MLIR TFlops_new': new_label,
+        'TFlops_old': old_label,
+        'TFlops_new': new_label,
+        'Tuned MLIR TFlops_old': old_label_tuned,
+        'Tuned MLIR TFlops_new': new_label_tuned,
+        "Quick Tuned MLIR TFlops_old": old_label_quick_tuned,
+        "Quick Tuned MLIR TFlops_new": new_label_quick_tuned
     },
                 inplace=True)
-    data['% change'] = 100.0 * (data[newLabel] -
-                                data[oldLabel]) / data[oldLabel]
-    hasTuning = False
-    hasQuickTuning = False
-    if oldLabelTuned in data and newLabelTuned in data:
+    data['% change'] = 100.0 * (data[new_label] -
+                                data[old_label]) / data[old_label]
+    has_tuning = False
+    has_quick_tuning = False
+    if old_label_tuned in data and new_label_tuned in data:
         data['% change (tuned)'] = 100.0 * (
-            data[newLabelTuned] - data[oldLabelTuned]) / data[oldLabelTuned]
-        hasTuning = True
-    if oldLabelQuickTuned in data and newLabelQuickTuned in data:
+            data[new_label_tuned] -
+            data[old_label_tuned]) / data[old_label_tuned]
+        has_tuning = True
+    if old_label_quick_tuned in data and new_label_quick_tuned in data:
         data['% change (quick tuned)'] = 100.0 * (
-            data[newLabelQuickTuned] -
-            data[oldLabelQuickTuned]) / data[oldLabelQuickTuned]
-        hasQuickTuning = True
-    columnsToAverage = ['% change', oldLabel, newLabel]
-    if hasTuning:
-        columnsToAverage += ['% change (tuned)', oldLabelTuned, newLabelTuned]
-    if hasQuickTuning:
-        columnsToAverage += [
-            '% change (quick tuned)', oldLabelQuickTuned, newLabelQuickTuned
+            data[new_label_quick_tuned] -
+            data[old_label_quick_tuned]) / data[old_label_quick_tuned]
+        has_quick_tuning = True
+    columns_to_average = ['% change', old_label, new_label]
+    if has_tuning:
+        columns_to_average += [
+            '% change (tuned)', old_label_tuned, new_label_tuned
         ]
-    STATISTICS = [("Geo. mean", reportUtils.geo_mean), ("Arith. mean", "mean")]
-    groups = ["DataType"] if isGemm or isAttention else [
+    if has_quick_tuning:
+        columns_to_average += [
+            '% change (quick tuned)', old_label_quick_tuned,
+            new_label_quick_tuned
+        ]
+    statistics = [("Geo. mean", reportUtils.geo_mean), ("Arith. mean", "mean")]
+    groups = ["DataType"] if is_gemm or is_attn else [
         "Direction", "DataType", "InputLayout"
     ]
-    grouped = data.groupby(groups)[columnsToAverage]
+    grouped = data.groupby(groups)[columns_to_average]
     stats = pd.concat(
         {
-            name: summarizeStat(grouped, func, data[columnsToAverage])
-            for name, func in STATISTICS
+            name: summarize_stat(grouped, func, data[columns_to_average])
+            for name, func in statistics
         },
         axis=0).unstack(level=0)
     stats.drop(columns=[('% change', 'Geo. mean'),
@@ -151,8 +157,8 @@ def computePerfStats(oldDf: pd.DataFrame, newDf: pd.DataFrame, oldLabel: str,
     return data, stats
 
 
-def getPerfDate(statsPath: PurePath, default="???"):
-    path = statsPath.with_name('perf-run-date')
+def get_perf_date(stats_path: PurePath, default="???"):
+    path = stats_path.with_name('perf-run-date')
     try:
         with open(str(path), "r") as f:
             return f.readline().rstrip()
@@ -162,44 +168,44 @@ def getPerfDate(statsPath: PurePath, default="???"):
 
 if __name__ == '__main__':
     chip = sys.argv[1]
-    oldDataPath = PurePath(sys.argv[2]) if len(sys.argv) >= 3\
+    old_data_path = PurePath(sys.argv[2]) if len(sys.argv) >= 3\
         else PurePath('./', 'oldData/', chip + '_' + reportUtils.PERF_REPORT_FILE['MIOpen'])
-    newDataPath = PurePath(sys.argv[3]) if len(sys.argv) >= 4\
+    new_data_path = PurePath(sys.argv[3]) if len(sys.argv) >= 4\
         else PurePath('./', chip + '_' + reportUtils.PERF_REPORT_FILE['MIOpen'])
-    outputPath = PurePath(sys.argv[4]) if len(sys.argv) >= 5\
+    output_path = PurePath(sys.argv[4]) if len(sys.argv) >= 5\
         else PurePath('./', chip + '_' + 'MLIR_Performance_Changes.html')
 
     try:
-        newDf = loadMlirData(str(newDataPath))
-        newLabel = getPerfDate(newDataPath, "new")
+        new_df = load_mlir_data(str(new_data_path))
+        new_label = get_perf_date(new_data_path, "new")
     except FileNotFoundError:
         print(
             "Could not load current performance data: run perf or provide a path",
             file=sys.stderr)
         sys.exit(1)
     try:
-        oldDf = loadMlirData(str(oldDataPath))
-        oldLabel = getPerfDate(oldDataPath, "old")
+        old_df = load_mlir_data(str(old_data_path))
+        old_label = get_perf_date(old_data_path, "old")
     except FileNotFoundError:
         print("Warning: No old performance data, reusing new one",
               file=sys.stderr)
-        oldDf = newDf.copy()
-        oldLabel = "copy"
+        old_df = new_df.copy()
+        old_label = "copy"
 
-    data, summary = computePerfStats(oldDf, newDf, oldLabel, newLabel)
-    isGemm = ("TransA" in data)
-    isAttention = ("TransQ" in data)
-    hasTuning = ("% change (tuned)" in data)
-    if isGemm and len(sys.argv) < 5:
-        outputPath = PurePath(
+    data, summary = compute_perf_stats(old_df, new_df, old_label, new_label)
+    is_gemm = ("TransA" in data)
+    is_attn = ("TransQ" in data)
+    has_tuning = ("% change (tuned)" in data)
+    if is_gemm and len(sys.argv) < 5:
+        output_path = PurePath(
             './', chip + '_' + 'MLIR_Performance_Changes_Gemm.html')
-    if isAttention and len(sys.argv) < 5:
-        outputPath = PurePath(
+    if is_attn and len(sys.argv) < 5:
+        output_path = PurePath(
             './', chip + '_' + 'MLIR_Performance_Changes_Attention.html')
-    with open(outputPath, "w") as outputStream:
-        toHighlight = ["% change", "% change (tuned)"] if hasTuning \
+    with open(output_path, "w") as output_stream:
+        to_highlight = ["% change", "% change (tuned)"] if has_tuning \
             else ["% change"]
         reportUtils.html_report(
             data, summary,
-            "MLIR Performance Changes, " + ("GEMM" if isGemm else "Conv"),
-            toHighlight, reportUtils.color_for_changes, outputStream)
+            "MLIR Performance Changes, " + ("GEMM" if is_gemm else "Conv"),
+            to_highlight, reportUtils.color_for_changes, output_stream)
