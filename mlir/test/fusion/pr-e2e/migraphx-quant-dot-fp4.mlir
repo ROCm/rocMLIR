@@ -1,24 +1,13 @@
-// Example lowered (unpacked) MIGraphX/MIXR-style MLIR kernel for the given graph.
-// Assumes earlier FP4 realization: fp4x2 packed inputs already unpacked to fp4.
-//
-// func.func @quant_dot_fp4(
-//   %x1 : !migraphx.shaped<1x2048xf4E2M1FN, 2048x1>,          // from unpack(x1)
-//   %x2T: !migraphx.shaped<2048x1000xf4E2M1FN, 1x2048>,       // transpose(unpack(x2))
-//   %scaleA : !migraphx.shaped<1x2048xf32, 2048x1>,           // reshape(mb(x3))
-//   %scaleB : !migraphx.shaped<2048x1000xf32, 1000x1>,        // reshape(mb(x4))
-//   %bias : !migraphx.shaped<1x1000xf32, 1000x1> )
-//   -> !migraphx.shaped<1x1000xf32, 1000x1>
-//
-// Pseudocode semantics:
-//   out[0,j] = bias[0,j] + sum_k ( (x1[0,k]*scaleA[0,k]) * (x2T[k,j]*scaleB[k,j]) )
-//
+// RUN: rocmlir-gen --clone-harness -arch %arch -fut mlir_quant_dot_fp4 %s | rocmlir-driver  -kernel-pipeline migraphx | rocmlir-driver -host-pipeline migraphx,highlevel -targets %arch | rocmlir-gen -ph -verifier clone -fut mlir_quant_dot_fp4_wrapper - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
+// CLONE: [1 1 1]
+
 module {
-  func.func @quant_dot_fp4(%x1: !migraphx.shaped<1x2048xf4E2M1FN, 2048x1>,
+  func.func @mlir_quant_dot_fp4(%x1: !migraphx.shaped<1x2048xf4E2M1FN, 2048x1>,
                            %x2: !migraphx.shaped<1000x2048xf4E2M1FN, 2048x1>,
                            %x3: !migraphx.shaped<1x64x1xf32, 64x1x1>,
                            %x4: !migraphx.shaped<64x1x1000xf32, 1000x1000x1>,
                            %x5: !migraphx.shaped<1x1000xf32, 1000x1>)
-        -> !migraphx.shaped<1x1000xf32, 1000x1> attributes {kernel, arch="gfx950"} {
+        -> !migraphx.shaped<1x1000xf32, 1000x1>  {
     // Transpose weights (already unpacked fp4)
     %wT = migraphx.transpose %x2 {permutation = [1,0]}
           : <1000x2048xf4E2M1FN, 2048x1> -> <2048x1000xf4E2M1FN, 1x2048>
