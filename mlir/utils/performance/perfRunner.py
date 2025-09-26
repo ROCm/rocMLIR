@@ -238,19 +238,26 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) /
                             'external/llvm-project/llvm/lib').resolve())
-        mlir_paths = MLIRPaths(rocmlir_gen_path = mlir_bin_dir + '/rocmlir-gen',
-            rocmlir_driver_path = mlir_bin_dir + '/rocmlir-driver',
-            rocmlir_opt_path = mlir_bin_dir + '/rocmlir-opt',
-            cpu_runner_path = llvm_bin_dir + '/mlir-runner',
-            libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
-            libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
-            libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
-            libmlir_c_runner_utils_path = llvm_lib_dir + '/libmlir_c_runner_utils.so',
-            rocmlir_tuning_driver_path = mlir_bin_dir + '/rocmlir-tuning-driver',
-            rocblas_benchmark_driver_path = str(rocblas_benchmark_driver_location) \
-              if rocblas_benchmark_driver_location.exists() else None,
-            ck_gemm_benchmark_driver_path = str(ck_gemm_benchmark_driver_location) \
-              if ck_gemm_benchmark_driver_location.exists() else None)
+        mlir_paths = MLIRPaths(
+            rocmlir_gen_path=mlir_bin_dir + '/rocmlir-gen',
+            rocmlir_driver_path=mlir_bin_dir + '/rocmlir-driver',
+            rocmlir_opt_path=mlir_bin_dir + '/rocmlir-opt',
+            cpu_runner_path=llvm_bin_dir + '/mlir-runner',
+            libmlir_rocm_runtime_path=llvm_lib_dir +
+            '/libmlir_rocm_runtime.so',
+            libconv_validation_wrappers_path=mlir_lib_dir +
+            '/libconv-validation-wrappers.so',
+            libmlir_runtime_utils_path=llvm_lib_dir +
+            '/libmlir_runner_utils.so',
+            libmlir_c_runner_utils_path=llvm_lib_dir +
+            '/libmlir_c_runner_utils.so',
+            rocmlir_tuning_driver_path=mlir_bin_dir + '/rocmlir-tuning-driver',
+            rocblas_benchmark_driver_path=(
+                str(rocblas_benchmark_driver_location)
+                if rocblas_benchmark_driver_location.exists() else None),
+            ck_gemm_benchmark_driver_path=(
+                str(ck_gemm_benchmark_driver_location)
+                if ck_gemm_benchmark_driver_location.exists() else None))
 
     return Paths(config_file_path, mlir_paths)
 
@@ -802,7 +809,7 @@ def get_conv_gemm_configurations(filename):
 
                     - (?<!\S) ensures that flag is not part of another token (e.g. that -t is not part of -transQ)
                     - (?!\S) ensures that flag is followed by a space or line end.
-                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is. 
+                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is.
                     """
                     if not re.search(rf"(?<!\S){re.escape(arg)}(?!\S)", line):
                         test_space.append(default_test_space[arg])
@@ -844,7 +851,7 @@ def get_gemm_gemm_configurations(filename):
 
                     - (?<!\S) ensures that flag is not part of another token (e.g. that -t is not part of -transQ)
                     - (?!\S) ensures that flag is followed by a space or line end.
-                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is. 
+                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is.
                     """
                     if not re.search(rf"(?<!\S){re.escape(arg)}(?!\S)", line):
                         test_space.append(default_test_space[arg])
@@ -893,7 +900,7 @@ def get_attn_configurations(filename):
 
                     - (?<!\S) ensures that flag is not part of another token (e.g. that -t is not part of -transQ)
                     - (?!\S) ensures that flag is followed by a space or line end.
-                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is. 
+                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is.
                     """
                     if not re.search(rf"(?<!\S){re.escape(arg)}(?!\S)", line):
                         test_space.append(default_test_space[arg])
