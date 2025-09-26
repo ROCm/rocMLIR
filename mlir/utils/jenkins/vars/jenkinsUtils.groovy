@@ -196,7 +196,7 @@ def checkNodeHealth(Map opts = [:]) {
 }
 
 def dockerArgs(Map args = [:]) {
-    Map<String,String> dockerArgsByNode = (args.dockerArgsByNode ?: [:]) as Map<String:String>
+    Map<String,String> dockerArgsByNode = (args.dockerArgsByNode ?: [:]) as Map<String,String>
     echo "Getting Docker args from ${env.NODE_NAME}..."
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
     // discover devices
