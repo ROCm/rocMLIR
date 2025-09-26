@@ -2,16 +2,19 @@
 // CLONE: [1 1 1]
 
 module {
-  func.func @mlir_quant_dot_fp4(%x1: !migraphx.shaped<1x2048xf4E2M1FN, 2048x1>,
-                           %x2: !migraphx.shaped<1000x2048xf4E2M1FN, 2048x1>,
+  func.func @mlir_quant_dot_fp4(%x1: !migraphx.shaped<1x1024xf8E4M3FN, 1024x1>,
+                           %x2: !migraphx.shaped<1000x1024xf8E4M3FN, 1024x1>,
                            %x3: !migraphx.shaped<1x64x1xf32, 64x1x1>,
                            %x4: !migraphx.shaped<64x1x1000xf32, 1000x1000x1>,
                            %x5: !migraphx.shaped<1x1000xf32, 1000x1>)
-        -> !migraphx.shaped<1x1000xf32, 1000x1>  {
+        -> !migraphx.shaped<1x1000xf32, 1000x1>  attributes {kernel, arch="gfx950"} {
     // Transpose weights (already unpacked fp4)
     %wT = migraphx.transpose %x2 {permutation = [1,0]}
-          : <1000x2048xf4E2M1FN, 2048x1> -> <2048x1000xf4E2M1FN, 1x2048>
-
+          : <1000x1024xf8E4M3FN, 1024x1> -> <1024x1000xf8E4M3FN, 1x1024>
+    %wTUnpacked = migraphx.unpack %wT {axis = 0}
+          : <1024x1000xf8E4M3FN, 1x1024> -> <2048x1000xf8E4M3FN, 1x2048>
+    %x1Unpacked = migraphx.unpack %x1 {axis = 1}
+          : <1x1024xf8E4M3FN, 1024x1> -> <1x2048xf8E4M3FN, 2048x1>
     // Broadcast/reshape scale A: (1,64,32) -> (1,2048)
     %mbA = migraphx.multibroadcast %x3 {out_lens = [1,64,32]}
            : <1x64x1xf32, 64x1x1> -> <1x64x32xf32, 64x1x0>
@@ -28,9 +31,9 @@ module {
     %sE8B = migraphx.convert %sB : !migraphx.shaped<2048x1000xf32, 1000x1> to !migraphx.shaped<2048x1000xf8E8M0FNU, 1000x1>
 
     // Quant dot (assumed dequant inside)
-    %qd = migraphx.quant_dot %x1 scaled by %sE8A, %wT scaled by %sE8B
-          : !migraphx.shaped<1x2048xf4E2M1FN, 2048x1> scaled by !migraphx.shaped<1x2048xf8E8M0FNU, 2048x1>,
-            !migraphx.shaped<2048x1000xf4E2M1FN, 1x2048> scaled by !migraphx.shaped<2048x1000xf8E8M0FNU, 1000x1>
+    %qd = migraphx.quant_dot %x1Unpacked scaled by %sE8A, %wTUnpacked scaled by %sE8B
+          : !migraphx.shaped<1x2048xf8E4M3FN, 2048x1> scaled by !migraphx.shaped<1x2048xf8E8M0FNU, 2048x1>,
+            !migraphx.shaped<2048x1000xf8E4M3FN, 1x2048> scaled by !migraphx.shaped<2048x1000xf8E8M0FNU, 1000x1>
             -> !migraphx.shaped<1x1000xf32, 1000x1>
 
     %out = migraphx.add %qd, %x5
