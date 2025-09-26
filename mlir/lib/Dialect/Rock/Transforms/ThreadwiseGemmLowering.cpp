@@ -374,21 +374,12 @@ struct ThreadwiseAccelGemmRewritePattern
         auto coordsScaleA = accelLoop.getLowerCoords(/*domain=*/2);
         auto coordsScaleB = accelLoop.getLowerCoords(/*domain=*/3);
         auto coordsC = accelLoop.getLowerCoords(/*domain=*/4);
-        llvm::dbgs() << "argTypeA: " << argTypeA << "\n";
-        llvm::dbgs() << "argTypeScaleA: " << argTypeScaleA << "\n";
-        llvm::dbgs() << "rawBufferA: " << rawBufferA << "\n";
-        llvm::dbgs() << "rawBufferScaleA: " << rawBufferScaleA << "\n";
-        llvm::dbgs() << "bufferViewA: " << bufferViewA << "\n";
-        llvm::dbgs() << "bufferViewScaleA: " << bufferViewScaleA << "\n";
+
         Value argA =
             memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
         Value argScaleA = memref::LoadOp::create(b, loc, argTypeScaleA,
                                                  rawBufferScaleA, coordsScaleA);
 
-        llvm::dbgs() << "argA: " << argA << "\n";
-        llvm::dbgs() << "argA type: " << argA.getType() << "\n";
-        llvm::dbgs() << "argScaleA: " << argScaleA << "\n";
-        llvm::dbgs() << "argScaleA type: " << argScaleA.getType() << "\n";
         if (dyn_cast<VectorType>(argScaleA.getType())) {
           argScaleA =
               vector::ExtractOp::create(b, loc, argScaleA, zeroConstantOp);
