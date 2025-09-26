@@ -186,6 +186,10 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
 // different HSA agent and the pointer (i.e., the void* argument is shared
 // across all calls). That is also why we count the number of CPUs, since we
 // need to match the HIP deviceId with the HSA agent index.
+//
+// See hsa_iterate_agents documentation in
+// https://rocm.docs.amd.com/projects/ROCR-Runtime/en/latest/api-reference/api.html
+// for more information.
 static hsa_status_t acquireAgentInfo(hsa_agent_t agent, void *data) {
   // Use HSA to get data not exposed by HIP.
   // Based on:
