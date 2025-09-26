@@ -2340,12 +2340,12 @@ def main(args=None):
         parsed_args.batch_all = True
 
     conf_class = PerfConfiguration
-    optype = Operation.fromName(parsed_args.op)
+    optype = Operation.from_name(parsed_args.op)
     if optype == Operation.CONV:
         conf_class = ConvConfiguration
         external_lib = None
     elif optype == Operation.GEMM:
-        external_lib = GEMMLibrary.fromName(parsed_args.external_gemm_library)
+        external_lib = GEMMLibrary.from_name(parsed_args.external_gemm_library)
         if external_lib == GEMMLibrary.ROCBLAS:
             conf_class = RocBLASGemmConfig
         elif external_lib == GEMMLibrary.CK:

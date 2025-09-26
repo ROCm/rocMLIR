@@ -426,7 +426,7 @@ def main(args=None):
     if 'rocmlir_gen_flags' in parsed_args:
         rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
 
-    op_type = Operation.fromName(parsed_args.op)
+    op_type = Operation.from_name(parsed_args.op)
     if op_type == Operation.FUSION:
         configs_path = "./fusion_config_file"
     else:

@@ -11,7 +11,7 @@ class Operation(enum.IntEnum):
     CONV_GEMM = 6
 
     @staticmethod
-    def fromName(name: str) -> 'self':
+    def from_name(name: str) -> "Operation":
         name = name.lower()
         if name == 'conv':
             return Operation.CONV
@@ -37,7 +37,7 @@ class GEMMLibrary(enum.IntEnum):
     CK = 2
 
     @staticmethod
-    def fromName(name: str) -> 'self':
+    def from_name(name: str) -> "GEMMLibrary":
         name = name.lower()
         if name == 'rocblas':
             return GEMMLibrary.ROCBLAS
