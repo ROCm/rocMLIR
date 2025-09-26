@@ -75,7 +75,9 @@ pipeline {
     stages {
         stage("Set System Property") {
             steps {
-                jenkinsUtils.setHeartbeat()
+                script {
+                    jenkinsUtils.setHeartbeat()
+                }
             }
         }
         stage("Kill old PR builds") {
@@ -84,7 +86,9 @@ pipeline {
                 equals expected: false, actual: params.nightly;
             }
             steps {
-                jenkinsUtils.resetBuild()
+                script {
+                    jenkinsUtils.resetBuild()
+                }
             }
         }
         stage('Build and Test') {
@@ -478,7 +482,9 @@ pipeline {
                 skipDefaultCheckout()
             }
             steps {
-                jenkinsUtils.archivePerfDB()
+                script {
+                    jenkinsUtils.archivePerfDB()
+                }
             }
             post {
                 always {
