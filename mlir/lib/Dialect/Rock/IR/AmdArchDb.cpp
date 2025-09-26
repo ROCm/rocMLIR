@@ -62,7 +62,7 @@ static constexpr AmdArchInfo
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
               /*hasFp8ConversionInstrs=*/true,
               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/8),
-    cdna35Info(GemmFeatures::mfma | GemmFeatures::dot |
+    cdna40Info(GemmFeatures::mfma | GemmFeatures::dot |
                    GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
                    GemmFeatures::atomic_add_bf16 |
                    GemmFeatures::direct_to_lds_32b |
@@ -150,7 +150,7 @@ struct AgentInfo {
   // Input fields:
   //   The ID of the GPU device that we are looking for.
   unsigned deviceId;
-  //   Used in AcquireAgentInfo, to compute GPU internal IDs.
+  //   Used in acquireAgentInfo, to compute GPU internal IDs.
   int numCpus;
   // Output fields:
   uint32_t simdsPerCU;
@@ -171,16 +171,22 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
   checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agent_info.simdsPerCU);
   checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
                   agent_info.maxWavesPerCU / agent_info.simdsPerCU);
-  // checkAndSetInfo("(???) totalSGPRPerEU", ret.totalSGPRPerEU, ???);
-  // checkAndSetInfo("(???) totalVGPRPerEU", ret.totalVGPRPerEU, ???);
-  // checkAndSetInfo("(???) defaultFeatures", ret.defaultFeatures, ???);
-  // checkAndSetInfo("(???) hasOcpFp8ConversionInstrs",
-  // ret.hasOcpFp8ConversionInstrs, ???); checkAndSetInfo("(???)
-  // hasFp8ConversionInstrs", ret.hasFp8ConversionInstrs, ???);
+
+  // TODO: Add missing fields:
+  // - totalSGPRPerEU
+  // - totalVGPRPerEU
+  // - defaultFeatures
+  // - hasOcpFp8ConversionInstrs
   return ret;
 }
 
-static hsa_status_t AcquireAgentInfo(hsa_agent_t agent, void *data) {
+// hsa_iterate_agents expects a callback function (acquireAgentInfo in this
+// case) with one void* argument which contains arbitrary data to be used by the
+// called function. Each time the callback is invoked, it is called with a
+// different HSA agent and the pointer (i.e., the void* argument is shared
+// across all calls). That is also why we count the number of CPUs, since we
+// need to match the HIP deviceId with the HSA agent index.
+static hsa_status_t acquireAgentInfo(hsa_agent_t agent, void *data) {
   // Use HSA to get data not exposed by HIP.
   // Based on:
   // https://github.com/ROCm/rocm-systems/blob/develop/projects/rocminfo/rocminfo.cc
@@ -270,7 +276,7 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
   AgentInfo agent_info;
   agent_info.numCpus = 0;
   agent_info.deviceId = deviceId;
-  hsa_status_t err = hsa_iterate_agents(AcquireAgentInfo, &agent_info);
+  hsa_status_t err = hsa_iterate_agents(acquireAgentInfo, &agent_info);
   if (err != HSA_STATUS_SUCCESS) {
     char err_val[12];
     char *err_str = NULL;
@@ -311,7 +317,7 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
         .Case("08", cdnaInfo)
         .Case("0a", cdna2Info)
         .Case("42", cdna3Info)
-        .Case("50", cdna35Info)
+        .Case("50", cdna40Info)
         // gfx906 has the dot product instructions, uniquely
         .Case("06", cdna50Info)
         .Default(gcnInfo);
