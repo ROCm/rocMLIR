@@ -3,7 +3,7 @@
 import reportUtils
 
 from pathlib import PurePath
-from perfRunner import getNumCU
+from perfRunner import get_num_cu
 import sys
 from typing import Tuple
 
@@ -27,7 +27,7 @@ def loadMlirData(filename: str):
     if 'PerfConfig' in df:
         df['PerfConfig'] = df['PerfConfig'].fillna('None')
     if 'numCU' not in df:
-        df.insert(4, 'numCU', getNumCU(df['Chip'][0]))
+        df.insert(4, 'numCU', get_num_cu(df['Chip'][0]))
     return df
 
 

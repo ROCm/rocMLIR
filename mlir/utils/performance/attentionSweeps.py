@@ -23,14 +23,14 @@ import random
 import os
 
 from perfRunner import AttentionConfiguration
-from perfRunner import getArch, getNumCU, initializeDataTypesAttention
+from perfRunner import get_arch, get_num_cu, initialize_dtypes_attn
 from perfRunner import create_paths as createPaths
 from perfRunner import find_mlir_build_dir as findMlirBuildDir
 from perfRunner import DATA_TYPES_ATTENTION, GFX_CHIP_RE
 from parameterSweeps import Options, sweepParameters, multilineRepr
 
 # GLOBAL VARIABLES
-DATA_TYPES_ATTENTION = initializeDataTypesAttention()
+DATA_TYPES_ATTENTION = initialize_dtypes_attn()
 BOOLS = [True, False]
 SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
 
@@ -177,7 +177,7 @@ def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
         writer.writerow(['CommandLine'])
         for config in configs:
             writer.writerow([
-                config.generateMlirDriverCommandLine('', kernel_repeats=None)
+                config.generate_mlir_drver_commandline('', kernel_repeats=None)
             ])
 
 
@@ -194,7 +194,7 @@ def main():
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
-    arch = getArch()
+    arch = get_arch()
     chip_match = GFX_CHIP_RE.search(arch)
     if chip_match is None:
         raise RuntimeError(f"Could not find GFX chip in arch string: {arch}")
@@ -205,7 +205,7 @@ def main():
                       arch=arch,
                       flags=[],
                       concurrent_tests=args.jobs,
-                      numCu=getNumCU(chip),
+                      numCu=get_num_cu(chip),
                       logFailures=args.log_failures)
 
     if not args.quiet:

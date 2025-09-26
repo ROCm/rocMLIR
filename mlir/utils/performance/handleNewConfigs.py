@@ -13,7 +13,7 @@ import os
 import sys
 import shlex
 from typing import Iterable, Set, Optional
-from perfRunner import ConvConfiguration, GemmConfiguration, AttentionConfiguration, getArch, getChip, getNumCU
+from perfRunner import ConvConfiguration, GemmConfiguration, AttentionConfiguration, get_arch, get_chip, get_num_cu
 
 # Global variables
 
@@ -29,9 +29,9 @@ GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_FILE_NAME}"
 ATTENTION_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{ATTENTION_FILE_NAME}"
 
 # Get the architecture and number of CUs from the environment
-ARCH = getArch()
-CHIP = getChip()
-NUM_CU = getNumCU(CHIP)
+ARCH = get_arch()
+CHIP = get_chip()
+NUM_CU = get_num_cu(CHIP)
 
 # ---------------------------------------------------
 
@@ -85,21 +85,23 @@ def detectConfigType(config) -> Optional[str]:
 
 def _canonicalizeConvConfig(config: str) -> str:
     """Converts a conv config to canonical form for deduplication."""
-    obj = ConvConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
-    return obj.toCommandLine()
+    obj = ConvConfiguration.from_command_line(shlex.split(config), ARCH,
+                                              NUM_CU)
+    return obj.to_command_line()
 
 
 def _canonicalizeGemmConfig(config: str) -> str:
     """Converts a GEMM config to canonical form for deduplication."""
-    obj = GemmConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
-    return obj.toCommandLine()
+    obj = GemmConfiguration.from_command_line(shlex.split(config), ARCH,
+                                              NUM_CU)
+    return obj.to_command_line()
 
 
 def _canonicalizeAttentionConfig(config: str) -> str:
     """Converts an attention config to canonical form for deduplication."""
-    obj = AttentionConfiguration.fromCommandLine(shlex.split(config), ARCH,
-                                                 NUM_CU)
-    return obj.toCommandLine()
+    obj = AttentionConfiguration.from_command_line(shlex.split(config), ARCH,
+                                                   NUM_CU)
+    return obj.to_command_line()
 
 
 def canonicalSet(lines: Iterable[str], kind: str) -> Set[str]:

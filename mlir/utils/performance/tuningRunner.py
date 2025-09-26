@@ -58,23 +58,24 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths,
                                   options: Options) -> float:
     if not options.compact_print:
         print(f"Verifying with perfConfig = {perfconfig}", file=sys.stderr)
-    config.setPerfConfig(perfconfig.strip())
+    config.set_perfconfig(perfconfig.strip())
     rocmlir_gen_command = paths.mlir_paths.rocmlir_gen_path + \
         verify_mode_flags(options.verify_mode) + \
         ' -print-verify-results=summary ' + \
-        config.generateMlirDriverCommandLine(options.rocmlir_gen_flags)
+        config.generate_mlir_drver_commandline(options.rocmlir_gen_flags)
     rocmlir_driver_command = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [
         '-O2',
         f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}',
         '--entry-point-result=void'
     ]
-    profiler_command = [perfRunner.ROCPROF
-                       ] + perfRunner.getMetricArgsForRocprof(options.arch) + [
-                           '--kernel-trace', '--stats', '-o',
-                           perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--',
-                           paths.mlir_paths.cpu_runner_path
-                       ] + mlir_cpu_runner_args
+    profiler_command = [
+        perfRunner.ROCPROF
+    ] + perfRunner.get_metric_args_for_rocprof(options.arch) + [
+        '--kernel-trace', '--stats', '-o',
+        perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--',
+        paths.mlir_paths.cpu_runner_path
+    ] + mlir_cpu_runner_args
 
     if options.debug:
         print(rocmlir_gen_command, file=sys.stderr)
@@ -114,8 +115,8 @@ Errors = {errs.decode('utf-8')}""",
                 p3.kill()
                 outs, errs = p3.communicate()
                 return np.nan
-            nano_seconds = perfRunner.getNanoSeconds(
-                perfRunner.getProfilerOutputPath(
+            nano_seconds = perfRunner.get_nanoseconds(
+                perfRunner.get_profiler_output_path(
                     options.arch, perfRunner.BENCHMARKING_STATS_FILE_NAME))
         finally:
             os.chdir(prevdir)
@@ -142,8 +143,8 @@ def get_winning_config(tuning_output, test_vector, config, all_data,
         else:
             nano_seconds = float(time)
 
-        config.setPerfConfig(perfconfig)
-        entry = config.tableEntry(nano_seconds)
+        config.set_perfconfig(perfconfig)
+        entry = config.table_entry(nano_seconds)
         all_data.append(entry)
         these_tflops = entry['TFlops']
         # verify that each perfconfig passes accuracy verification
@@ -188,11 +189,11 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
     for test_vector in configs:
         if not test_vector.endswith(".mlir"):
             command_line = test_vector.split(sep=' ')
-            config = conf_class.fromCommandLine(command_line, options.arch,
-                                                options.num_cu)
-            test_vector = config.toCommandLine()
+            config = conf_class.from_command_line(command_line, options.arch,
+                                                  options.num_cu)
+            test_vector = config.to_command_line()
             print("Tuning:", test_vector, file=sys.stderr)
-            command_line_options = config.generateMlirDriverCommandLine(
+            command_line_options = config.generate_mlir_drver_commandline(
                 options.rocmlir_gen_flags)
             # Note, we don't need the -ph, this goes to the tuning driver
             kernel_gen_command = paths.mlir_paths.rocmlir_gen_path + ' ' + command_line_options
@@ -218,8 +219,8 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
             result = output.decode('utf-8').strip().split('\t')
             print(f"Tuning:{result[2]} from {test_vector}", file=sys.stderr)
             command_line = result[2].split(sep=' ')
-            config = conf_class.fromCommandLine(command_line, options.arch,
-                                                options.num_cu)
+            config = conf_class.from_command_line(command_line, options.arch,
+                                                  options.num_cu)
             tuning_loop = subprocess.Popen(
                 [paths.mlir_paths.rocmlir_tuning_driver_path] +
                 tuning_driver_args + [test_vector],
@@ -236,7 +237,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
             if np.isnan(verify_ns):
                 # Verification failed, abort the loop
                 return None, None
-            verify_tflops = config.computeTFlops(verify_ns)
+            verify_tflops = config.compute_tflops(verify_ns)
             print(
                 f"Tuned and verified : {test_vector} : {winning_config} with {max_tflops} TFlops and {verify_tflops} on verification",
                 file=sys.stderr)
@@ -261,7 +262,7 @@ def extract_fusion_configs(test_dir, paths: Paths, options: Options):
     op_type = Operation.FUSION
     for filename in glob.glob(test_dir + '/*mlir'):
         print("Extract from:", filename, file=sys.stderr)
-        test_entry = perfRunner.getFusionTestInfo(filename, paths)
+        test_entry = perfRunner.get_fusion_test_info(filename, paths)
         if not test_entry:
             continue
         test_vector = test_entry['testVector']
@@ -307,8 +308,8 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    arch = perfRunner.getArch()
-    num_cu = perfRunner.getNumCU(perfRunner.getChip())
+    arch = perfRunner.get_arch()
+    num_cu = perfRunner.get_num_cu(perfRunner.get_chip())
     root_dir = str(
         subprocess.check_output(['git', 'rev-parse',
                                  '--show-toplevel']).decode().strip())
@@ -466,21 +467,21 @@ def main(args=None):
     if parsed_args.config:
         configs = parsed_args.config
     elif op_type == Operation.CONV:
-        configs = perfRunner.getConvConfigurations(
+        configs = perfRunner.get_conv_configurations(
             paths.configuration_file_path)
     elif op_type == Operation.GEMM:
         datatypes, output_map = perfRunner.parse_data_types(
             parsed_args.data_type)
-        configs = perfRunner.getGemmConfigurations(
+        configs = perfRunner.get_gemm_configurations(
             paths.configuration_file_path, datatypes, output_map)
     elif op_type == Operation.ATTENTION:
-        configs = perfRunner.getAttentionConfigurations(
+        configs = perfRunner.get_attn_configurations(
             paths.configuration_file_path)
     elif op_type == Operation.GEMM_GEMM:
-        configs = perfRunner.getGemmGemmConfigurations(
+        configs = perfRunner.get_gemm_gemm_configurations(
             paths.configuration_file_path)
     elif op_type == Operation.CONV_GEMM:
-        configs = perfRunner.getConvGemmConfigurations(
+        configs = perfRunner.get_conv_gemm_configurations(
             paths.configuration_file_path)
 
     winners, all_data = tune_mlir_kernels(configs, conf_class, paths, options)

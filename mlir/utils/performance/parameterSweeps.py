@@ -21,8 +21,8 @@ from typing import Callable, Iterable, List, Sequence, Optional, Tuple, TypeVar
 import perfRunner
 from perfRunner import ConvConfiguration
 from perfRunner import Paths
-from perfRunner import getArch
-from perfRunner import getNumCU
+from perfRunner import get_arch
+from perfRunner import get_num_cu
 
 
 @dataclass(frozen=True)
@@ -67,8 +67,8 @@ class MLIROnlyConfig(ConvConfiguration):
                 paddingWL={self.paddingWL!r}, paddingWR={self.paddingWR!r}, dilationH={self.dilationH!r}, dilationW={self.dilationW!r},
                 group={self.group!r}, arch={self.arch!r}, usesV4R1={v4r1_str!r}, perfConfig={perf_config_str!r})"""
 
-    def generateMlirDriverCommandLine(self,
-                                      rocmlir_gen_flags) -> Sequence[str]:
+    def generate_mlir_drver_commandline(self,
+                                        rocmlir_gen_flags) -> Sequence[str]:
         direction = {
             'fwd': 'conv',
             'bwd': 'conv_bwd_data',
@@ -223,9 +223,9 @@ async def testConfig(config, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
     if isinstance(config, MLIROnlyConfig):
-        rocmlirGenOpts = config.generateMlirDriverCommandLine(options.flags)
+        rocmlirGenOpts = config.generate_mlir_drver_commandline(options.flags)
     else:
-        rocmlirGenOpts = config.generateMlirDriverCommandLine(
+        rocmlirGenOpts = config.generate_mlir_drver_commandline(
             ' '.join(options.flags), kernel_repeats=None).split()
         if getattr(config, "currentSeqLen") is not None:
             rocmlirGenOpts.append(
@@ -559,8 +559,8 @@ async def runConfig(paramIter: Iterable[IterType],
         print("*** Summary of failures ***")
         for c in failures:
             print(' '.join(
-                c.generateMlirDriverCommandLine(options.flags,
-                                                kernel_repeats=None)))
+                c.generate_mlir_drver_commandline(options.flags,
+                                                  kernel_repeats=None)))
     print(
         f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0
@@ -632,7 +632,7 @@ def main() -> bool:
         help="The build directory of MLIR based kernel generator",
     )
     args = parser.parse_args()
-    arch = getArch()
+    arch = get_arch()
     supported_codepath = ['mfma', 'vanilla', 'wmma']
     # If codepath not provided or not supported, infer it from the arch
     codepath = args.codepath
@@ -684,7 +684,7 @@ def main() -> bool:
                       arch=arch,
                       flags=rocmlir_gen_flags,
                       concurrent_tests=args.jobs,
-                      numCu=getNumCU(perfRunner.getChip()))
+                      numCu=get_num_cu(perfRunner.get_chip()))
 
     paths = perfRunner.create_paths(None, args.mlir_build_dir)
 
