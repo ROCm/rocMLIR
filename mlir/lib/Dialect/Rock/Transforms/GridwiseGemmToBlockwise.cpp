@@ -3153,14 +3153,16 @@ struct GridwiseGemmAccelRewritePattern
     FailureOr<VectorDimInfo> maybeVecDimInfoScaleA, maybeVecDimInfoScaleB;
     if (isScaledGemm) {
       maybeVecDimInfoScaleA =
-          getVectorDim(b, loc, scaleA, elementTypeScaleALoad, blockSize,
-                       kPerBlock, mPerBlock, kpack);
+          // todo: fix using elemenTypeA
+          getVectorDim(b, loc, scaleA, elementTypeA, blockSize, kPerBlock,
+                       mPerBlock, kpack);
       if (failed(maybeVecDimInfoScaleA)) {
         return failure();
       }
       maybeVecDimInfoScaleB =
-          getVectorDim(b, loc, scaleB, elementTypeScaleBLoad, blockSize,
-                       kPerBlock, nPerBlock, kpack);
+          // todo: fix using elemenTypeB
+          getVectorDim(b, loc, scaleB, elementTypeB, blockSize, kPerBlock,
+                       nPerBlock, kpack);
       if (failed(maybeVecDimInfoScaleB)) {
         return failure();
       }
