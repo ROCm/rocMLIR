@@ -8,7 +8,6 @@ module {
                            %x4: !migraphx.shaped<64x1x1000xf32, 1000x1000x1>,
                            %x5: !migraphx.shaped<1x1000xf32, 1000x1>)
         -> !migraphx.shaped<1x1000xf32, 1000x1>  attributes {kernel, arch="gfx950"} {
-    // Transpose weights (already unpacked fp4)
     %wT = migraphx.transpose %x2 {permutation = [1,0]}
           : <1000x1024xf8E4M3FN, 1024x1> -> <1024x1000xf8E4M3FN, 1x1024>
     %wTUnpacked = migraphx.unpack %wT {axis = 0}
@@ -30,7 +29,7 @@ module {
     %sE8A = migraphx.convert %sA : !migraphx.shaped<1x2048xf32, 2048x1> to !migraphx.shaped<1x2048xf8E8M0FNU, 2048x1>
     %sE8B = migraphx.convert %sB : !migraphx.shaped<2048x1000xf32, 1000x1> to !migraphx.shaped<2048x1000xf8E8M0FNU, 1000x1>
 
-    // Quant dot (assumed dequant inside)
+    // Quant dot (assumed dequant inside by scales )
     %qd = migraphx.quant_dot %x1Unpacked scaled by %sE8A, %wTUnpacked scaled by %sE8B
           : !migraphx.shaped<1x2048xf8E4M3FN, 2048x1> scaled by !migraphx.shaped<1x2048xf8E8M0FNU, 2048x1>,
             !migraphx.shaped<2048x1000xf8E4M3FN, 1x2048> scaled by !migraphx.shaped<2048x1000xf8E8M0FNU, 1000x1>
