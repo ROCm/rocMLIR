@@ -9,7 +9,7 @@
 
 #include <pybind11/pybind11.h>
 
-#include "mlir/Dialect/Rock/utility/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 
 namespace py = pybind11;
 
