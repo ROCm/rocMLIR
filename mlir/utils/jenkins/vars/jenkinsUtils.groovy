@@ -195,7 +195,8 @@ def checkNodeHealth(Map opts = [:]) {
     )
 }
 
-Map<String,String> dockerArgs() {
+def dockerArgs(Map args = [:]) {
+    Map<String,String> dockerArgsByNode = (args.dockerArgsByNode ?: [:]) as Map<String:String>
     echo "Getting Docker args from ${env.NODE_NAME}..."
     def run = { cmd -> sh(script: cmd, returnStdout: true).trim() }
     // discover devices
@@ -211,15 +212,15 @@ Map<String,String> dockerArgs() {
     String renderGid = run("getent group render | cut -d':' -f3")
     String videoGid = run("getent group video | cut -d':' -f3")
 
-    String args = """
+    String argsLine = """
         ${kfdFlg} \
         ${renderFlags} \
         --group-add ${renderGid} --group-add ${videoGid}
     """.trim().replaceAll(/\s+/, ' ')
 
-    DOCKER_ARGS_BY_NODE[env.NODE_NAME] = args
-    echo "Received Docker args for ${env.NODE_NAME}: ${args}"
-    return DOCKER_ARGS_BY_NODE // ConcurrentHashMap
+    dockerArgsByNode[env.NODE_NAME] = argsLine
+    echo "Received Docker args for ${env.NODE_NAME}: ${argsLine}"
+    return dockerArgsByNode // ConcurrentHashMap
 }
 
 

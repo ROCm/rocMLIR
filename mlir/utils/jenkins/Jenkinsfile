@@ -131,7 +131,7 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                jenkinsUtils.dockerArgs()
+                                                jenkinsUtils.dockerArgs(dockerArgsByNode: DOCKER_ARGS_BY_NODE)
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
@@ -274,7 +274,7 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                jenkinsUtils.dockerArgs()
+                                                jenkinsUtils.dockerArgs(dockerArgsByNode: DOCKER_ARGS_BY_NODE)
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
@@ -362,7 +362,7 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                jenkinsUtils.dockerArgs()
+                                                jenkinsUtils.dockerArgs(dockerArgsByNode: DOCKER_ARGS_BY_NODE)
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
@@ -531,7 +531,7 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                jenkinsUtils.dockerArgs()
+                                                jenkinsUtils.dockerArgs(dockerArgsByNode: DOCKER_ARGS_BY_NODE)
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
@@ -749,7 +749,7 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                jenkinsUtils.dockerArgs()
+                                                jenkinsUtils.dockerArgs(dockerArgsByNode: DOCKER_ARGS_BY_NODE)
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
@@ -867,7 +867,7 @@ pipeline {
                                                 def img = null
                                                 stage("Prepare Docker environment") {
                                                     // Fill in the docker args from the node
-                                                    jenkinsUtils.dockerArgs()
+                                                    jenkinsUtils.dockerArgs(dockerArgsByNode: DOCKER_ARGS_BY_NODE)
 
                                                     args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
