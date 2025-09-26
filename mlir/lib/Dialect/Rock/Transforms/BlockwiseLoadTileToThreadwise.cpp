@@ -237,11 +237,13 @@ class LoweringBlockwiseLoadTileOp final
     // we want to insert all allocs and transforms before the loop
     Operation *parentOp = op->getParentOp();
     assert(parentOp && "BlockwiseLoadTileOp must have a parent op");
-    if (isa<LoopLikeOpInterface>(parentOp))
-      b.setInsertionPoint(parentOp);
-    else
-      b.setInsertionPoint(op);
 
+    // let's add the allocs to the begginging of the loop
+    if (auto parentLoop = dyn_cast<LoopLikeOpInterface>(parentOp)) {
+      // workaround for parentLoop.getBody()
+      assert(parentLoop->getRegions().size() == 1);
+      b.setInsertionPointToStart(&parentLoop->getRegion(0).front());
+    }
     Value loadBuffer, storeBuffer;
     if (loadType == GemmLoadTileType::BypassLDS) {
       auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
@@ -263,10 +265,6 @@ class LoweringBlockwiseLoadTileOp final
     }
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
-
-    // Create the stages for the blockwise load tile op
-    if (isa<LoopLikeOpInterface>(parentOp))
-      b.setInsertionPoint(op);
 
     auto [stageGlobalRead, stageGlobalReadNew] =
         createOrGetStage(b, loc, "GlobalRead", parentOp);
