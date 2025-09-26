@@ -152,8 +152,8 @@ struct AgentInfo {
   //   Used in AcquireAgentInfo, to compute GPU internal IDs.
   int numCpus;
   // Output fields:
-  uint32_t simds_per_cu;
-  uint32_t max_waves_per_cu;
+  uint32_t simdsPerCU;
+  uint32_t maxWavesPerCU;
 };
 
 AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
@@ -167,9 +167,9 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
   checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
                   prop.sharedMemPerBlock);
 
-  checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agent_info.simds_per_cu);
+  checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agent_info.simdsPerCU);
   checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
-                  agent_info.max_waves_per_cu / agent_info.simds_per_cu);
+                  agent_info.maxWavesPerCU / agent_info.simdsPerCU);
   // checkAndSetInfo("(???) totalSGPRPerEU", ret.totalSGPRPerEU, ???);
   // checkAndSetInfo("(???) totalVGPRPerEU", ret.totalVGPRPerEU, ???);
   // checkAndSetInfo("(???) defaultFeatures", ret.defaultFeatures, ???);
@@ -204,12 +204,12 @@ static hsa_status_t AcquireAgentInfo(hsa_agent_t agent, void *data) {
       // This is the GPU that we want to check.
       err = hsa_agent_get_info(
           agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_NUM_SIMDS_PER_CU,
-          &agent_i->simds_per_cu);
+          &agent_i->simdsPerCU);
       RET_IF_HSA_ERR(err);
 
       err = hsa_agent_get_info(
           agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MAX_WAVES_PER_CU,
-          &agent_i->max_waves_per_cu);
+          &agent_i->maxWavesPerCU);
       RET_IF_HSA_ERR(err);
     }
   } else {
@@ -220,15 +220,16 @@ static hsa_status_t AcquireAgentInfo(hsa_agent_t agent, void *data) {
 }
 
 void fixNaviProperties(AgentInfo *agent_i, hipDeviceProp_t *prop) {
-  // Fix simds_per_cu and totalSharedMemPerCU in Navi GPUs due to WGPs.
+  // Fix per CU metrics in Navi GPUs due to WGPs.
   // I wonder why we have to implement this logic instead of relying
   // on HIP to do this.
   //
   // Navi AMD docs define a CU as "One half of a WGP. Contains 2 SIMD32’s that
   // share one path to memory" In this context we treat a WGP as CU, so we need
-  // to double simds_per_cu and totalSharedMemPerCU. This is consistent with the
-  // behavior of amdgpu target in LLVM. They say: "Per CU" really means "per
-  // whatever functional block the waves of a workgroup must share" This is also
+  // to double simdsPerCU, totalSharedMemPerCU and
+  // maxSharedMemoryPerMultiProcessor. This is consistent with the behavior of
+  // amdgpu target in LLVM. They say: "Per CU" really means "per whatever
+  // functional block the waves of a workgroup must share" This is also
   // mentioned on HIP multiProcessorCount field: "When the GPU works in Compute
   // Unit (CU) mode, this value equals the number of CUs; when in Workgroup
   // Processor (WGP) mode, this value equels half of CUs, because a single WGP
@@ -243,8 +244,9 @@ void fixNaviProperties(AgentInfo *agent_i, hipDeviceProp_t *prop) {
   // https://github.com/llvm/llvm-project/blob/main/llvm/lib/Target/AMDGPU/Utils/AMDGPUBaseInfo.cpp
 
   if (prop->warpSize == 32) {
-    agent_i->simds_per_cu *= 2;
-    prop->sharedMemPerBlock *= 2;
+    agent_i->simdsPerCU *= 2;
+    agent_i->maxWavesPerCU *= 2;
+    prop->maxSharedMemoryPerMultiProcessor *= 2;
   }
 }
 
