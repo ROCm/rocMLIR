@@ -469,7 +469,7 @@ def main(args=None):
         configs = perfRunner.getConvConfigurations(
             paths.configuration_file_path)
     elif op_type == Operation.GEMM:
-        datatypes, output_map = perfRunner.parseDataTypes(
+        datatypes, output_map = perfRunner.parse_data_types(
             parsed_args.data_type)
         configs = perfRunner.getGemmConfigurations(
             paths.configuration_file_path, datatypes, output_map)

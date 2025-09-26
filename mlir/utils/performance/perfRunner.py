@@ -2119,7 +2119,7 @@ def tuneMLIRKernels(configs, arch, numCU):
                 _, errs = p1.communicate()
 
 
-def parseDataTypes(data_types):
+def parse_data_types(data_types):
     if not data_types:
         return DATA_TYPES_GEMM, OUTPUT_DATA_TYPES_MAP
     datatypes = []
@@ -2346,7 +2346,7 @@ def main(args=None):
     if opType == Operation.CONV:
         configs = getConvConfigurations(paths.configuration_file_path)
     elif opType == Operation.GEMM:
-        datatypes, outputTypeMap = parseDataTypes(parsed_args.data_type)
+        datatypes, outputTypeMap = parse_data_types(parsed_args.data_type)
         configs = getGemmConfigurations(paths.configuration_file_path,
                                         datatypes, outputTypeMap)
     elif opType == Operation.ATTENTION:
