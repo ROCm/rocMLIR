@@ -37,8 +37,10 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -299,10 +301,15 @@ struct ThreadwiseAccelGemmRewritePattern
     rock::accel::AccelEmitterParams params = emitter->getParams();
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
-    Type argTypeScaleA, argTypeScaleB;
-    if (isScaledGemm) {
-      argTypeScaleA = params.argTypeScaleA.value();
-      argTypeScaleB = params.argTypeScaleB.value();
+    Type argTypeScaleA = dataTypeScaleA, argTypeScaleB = dataTypeScaleB;
+    // todo : fix shapes for scaleA and scaleB
+    if (isScaledGemm && dyn_cast<VectorType>(argTypeA) &&
+        dyn_cast<VectorType>(argTypeB)) {
+      // clone shape of ArgTypeA but retain elementType of dataTypeScaleA
+      argTypeScaleA = VectorType::get(
+          cast<VectorType>(params.argTypeA).getShape(), dataTypeScaleA);
+      argTypeScaleB = VectorType::get(
+          cast<VectorType>(params.argTypeB).getShape(), dataTypeScaleB);
     }
 
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
@@ -367,19 +374,34 @@ struct ThreadwiseAccelGemmRewritePattern
         auto coordsScaleA = accelLoop.getLowerCoords(/*domain=*/2);
         auto coordsScaleB = accelLoop.getLowerCoords(/*domain=*/3);
         auto coordsC = accelLoop.getLowerCoords(/*domain=*/4);
-
+        llvm::dbgs() << "argTypeA: " << argTypeA << "\n";
+        llvm::dbgs() << "argTypeScaleA: " << argTypeScaleA << "\n";
+        llvm::dbgs() << "rawBufferA: " << rawBufferA << "\n";
+        llvm::dbgs() << "rawBufferScaleA: " << rawBufferScaleA << "\n";
+        llvm::dbgs() << "bufferViewA: " << bufferViewA << "\n";
+        llvm::dbgs() << "bufferViewScaleA: " << bufferViewScaleA << "\n";
         Value argA =
             memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
         Value argScaleA = memref::LoadOp::create(b, loc, argTypeScaleA,
                                                  rawBufferScaleA, coordsScaleA);
-        argScaleA =
-            vector::ExtractOp::create(b, loc, argScaleA, zeroConstantOp);
+
+        llvm::dbgs() << "argA: " << argA << "\n";
+        llvm::dbgs() << "argA type: " << argA.getType() << "\n";
+        llvm::dbgs() << "argScaleA: " << argScaleA << "\n";
+        llvm::dbgs() << "argScaleA type: " << argScaleA.getType() << "\n";
+        if (dyn_cast<VectorType>(argScaleA.getType())) {
+          argScaleA =
+              vector::ExtractOp::create(b, loc, argScaleA, zeroConstantOp);
+        }
+
         Value argB =
             memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
         Value argScaleB = memref::LoadOp::create(b, loc, argTypeScaleB,
                                                  rawBufferScaleB, coordsScaleB);
-        argScaleB =
-            vector::ExtractOp::create(b, loc, argScaleB, zeroConstantOp);
+        if (dyn_cast<VectorType>(argScaleB.getType())) {
+          argScaleB =
+              vector::ExtractOp::create(b, loc, argScaleB, zeroConstantOp);
+        }
         emitter->emitScaledThreadwiseLoop(b, loc, argA, argB, argScaleA,
                                           argScaleB, rawBufferC, coordsC);
       }

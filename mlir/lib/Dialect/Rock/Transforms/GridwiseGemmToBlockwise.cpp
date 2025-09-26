@@ -146,6 +146,13 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
                           << " copyDPerThread: " << copyDPerThread << "\n";
   }
   if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
+    llvm::dbgs() << "maxVlen: " << maxVlen
+                 << " copyPerThread: " << copyPerThread
+                 << " copyKPerThread: " << copyKPerThread
+                 << " copyDPerThread: " << copyDPerThread << "\n";
+    llvm::dbgs() << "kPerBlock: " << kPerBlock << " dPerBlock: " << dPerBlock
+                 << " kpack: " << kpack << "\n";
+
     return mlir::emitError(loc)
            << "gemmA per thread copy smaller than per"
            << " block copy, incohereant tuning parameters\n";
@@ -256,6 +263,8 @@ static FailureOr<VectorDimInfo> getVectorDim(PatternRewriter &rewriter,
                                              int64_t kPerBlock,
                                              int64_t dPerBlock, int64_t kpack) {
   int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
+  llvm::dbgs() << "calculating vector dim for matrix: " << matrix
+               << " copyPerThread: " << copyPerThread << "\n";
   auto maybeCopyDPerThread = computeCopyPerThread(
       elemType, copyPerThread, kPerBlock, dPerBlock, kpack, loc);
   if (failed(maybeCopyDPerThread))

@@ -455,8 +455,8 @@ struct BlockwiseGemmAccelRewritePattern
     Type argTypeB = params.argTypeB;
     Type argTypeScaleA, argTypeScaleB;
     if (isScaledGemm) {
-      argTypeScaleA = params.argTypeScaleA.value();
-      argTypeScaleB = params.argTypeScaleB.value();
+      argTypeScaleA = dataTypeScaleA;
+      argTypeScaleB = dataTypeScaleB;
     }
 
     int64_t mRepeats = params.mRepeats;
