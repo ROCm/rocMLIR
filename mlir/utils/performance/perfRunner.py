@@ -940,8 +940,12 @@ class GemmConfiguration(PerfConfiguration):
             get_profiler_output_path(self.arch,
                                      BENCHMARKING_METRICS_FILE_NAME))
         result = OrderedDict()
-        values = [self.datatype, self.out_dtype, self.chip, self.num_cu, self.trans_a, self.trans_b, \
-                   self.g, self.m, self.k, self.n, self.perfconfig, bank_conflict, self.compute_tflops(nanoseconds)]
+        values = [
+            self.datatype, self.out_dtype, self.chip, self.num_cu,
+            self.trans_a, self.trans_b, self.g, self.m, self.k, self.n,
+            self.perfconfig, bank_conflict,
+            self.compute_tflops(nanoseconds)
+        ]
         assert (len(self.TABLE_COLUMNS) == len(values))
 
         for k, v in zip(self.TABLE_COLUMNS, values):
@@ -2014,8 +2018,8 @@ def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
 # Generate fusion vs. gemm/conv performance results
 def benchmark_fusion_kernels(test_dir, paths: Paths, arch, num_cu,
                              tuning_db: MaybeTuningDb):
-    all_tests = []  #filename, test_vector, fut_name
-    perf_results = {}  #associate test_vector to config and performances
+    all_tests = []  # filename, test_vector, fut_name
+    perf_results = {}  # associate test_vector to config and performances
     chip = GFX_CHIP_RE.search(arch).group(0)
 
     # Prepare test cases
@@ -2068,7 +2072,7 @@ def benchmark_fusion_kernels(test_dir, paths: Paths, arch, num_cu,
                 best_perf = tuning_db[arch, config_str]
                 config.set_perfconfig(best_perf)
             else:  # Tuning DB present but doesn't contain config, add a NaN entry
-                if not test_vector in perf_results:
+                if test_vector not in perf_results:
                     one_entry = config.table_entry(np.nan)
                     one_entry['MLIR TFlops'] = np.nan
                     one_entry['Fusion/MLIR'] = np.nan
@@ -2382,7 +2386,7 @@ def main(args=None):
         if not paths.mlir_paths:
             raise RuntimeError("MLIR build dir was not provided/found")
 
-    #If no arguments are passed, then benchmark with MLIR and MIOpen
+    # If no arguments are passed, then benchmark with MLIR and MIOpen
     if parsed_args.batch_all:
         # batch benchmark with MLIR and MIOpen.
         generate_performance_results(configs, conf_class, paths, arch, num_cu,
