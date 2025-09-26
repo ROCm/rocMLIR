@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
@@ -492,6 +493,11 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
                                 PatternRewriter &b) const final {
     auto tensorA = op.getA();
     auto tensorB = op.getB();
+    auto scaleA = op.getScaleA();
+    auto scaleB = op.getScaleB();
+    if (scaleA && scaleB) {
+      return failure();
+    }
 
     SmallVector<StringRef> layoutA{"G", "M", "K"};
     if (op.getATransposedAttr())
@@ -506,7 +512,25 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
       layoutB = {layoutB[1], layoutB[2]};
 
     auto maybeSortedA = sortByMemoryLayout(tensorA, layoutA, b);
+    std::tuple<Value, SmallVector<StringRef>, SmallVector<uint32_t>>
+        sortedScaleA = std::make_tuple(nullptr, SmallVector<StringRef>{},
+                                       SmallVector<uint32_t>{});
+    if (scaleA) {
+      auto maysortedScaleA = sortByMemoryLayout(scaleA, layoutA, b);
+      if (failed(maysortedScaleA))
+        return op.emitOpError("sortByMemoryLayout failed");
+      sortedScaleA = maysortedScaleA.value();
+    }
     auto maybeSortedB = sortByMemoryLayout(tensorB, layoutB, b);
+    std::tuple<Value, SmallVector<StringRef>, SmallVector<uint32_t>>
+        sortedScaleB = std::make_tuple(nullptr, SmallVector<StringRef>{},
+                                       SmallVector<uint32_t>{});
+    if (scaleB) {
+      auto maysortedScaleB = sortByMemoryLayout(scaleB, layoutB, b);
+      if (failed(maysortedScaleB))
+        return op.emitOpError("sortByMemoryLayout failed");
+      sortedScaleB = maysortedScaleB.value();
+    }
 
     if (failed(maybeSortedA) || failed(maybeSortedB))
       return op.emitOpError("sortByMemoryLayout failed");
@@ -526,11 +550,57 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
 
     Value newTensorA = std::get<0>(batchReorderA);
     Value newTensorB = std::get<0>(batchReorderB);
+
     UnitAttr transposedA = std::get<1>(batchReorderA);
     UnitAttr transposedB = std::get<1>(batchReorderB);
     auto finalLayoutA = std::get<2>(batchReorderA);
     auto finalLayoutB = std::get<2>(batchReorderB);
-
+    Value newScaleA = nullptr;
+    Value newScaleB = nullptr;
+    if (scaleA && scaleB) {
+      auto batchReorderScaleA = reorderBatch(std::get<0>(sortedScaleA),
+                                             std::get<1>(sortedScaleA), "K", b);
+      auto batchReorderScaleB = reorderBatch(std::get<0>(sortedScaleB),
+                                             std::get<1>(sortedScaleB), "N", b);
+      newScaleA = std::get<0>(batchReorderScaleA);
+      newScaleB = std::get<0>(batchReorderScaleB);
+      llvm::dbgs() << "newTensorA=" << newTensorA
+                   << " \nnewScaleA=" << newScaleA << "\n";
+      llvm::dbgs() << "newTensorB=" << newTensorB
+                   << " \nnewScaleB=" << newScaleB << "\n";
+      Value copyTensorB = newTensorB;
+      while (cast<ShapedType>(newScaleB.getType()).getShape() !=
+             cast<ShapedType>(copyTensorB.getType()).getShape()) {
+        if (auto transposedB = copyTensorB.getDefiningOp<rock::TransformOp>()) {
+          if (cast<ShapedType>(transposedB.getInput().getType()).getShape() ==
+              cast<ShapedType>(newScaleB.getType()).getShape()) {
+            newScaleB = rock::transform(
+                b, newScaleB, b.getArrayAttr(transposedB.getTransformAttr()));
+            break;
+          }
+          copyTensorB = transposedB.getInput();
+        } else {
+          break;
+        }
+      }
+      Value copyTensorA = newTensorA;
+      while (cast<ShapedType>(newScaleA.getType()).getShape() !=
+             cast<ShapedType>(copyTensorA.getType()).getShape()) {
+        if (auto transposedA = copyTensorA.getDefiningOp<rock::TransformOp>()) {
+          if (cast<ShapedType>(transposedA.getInput().getType()).getShape() ==
+              cast<ShapedType>(newScaleA.getType()).getShape()) {
+            newScaleA = rock::transform(
+                b, newScaleA, b.getArrayAttr(transposedA.getTransformAttr()));
+            break;
+          }
+          copyTensorA = transposedA.getInput();
+        }
+      }
+      llvm::dbgs() << "newTensorA=" << newTensorA
+                   << " \nnewScaleA=" << newScaleA << "\n";
+      llvm::dbgs() << "newTensorB=" << newTensorB
+                   << " \nnewScaleB=" << newScaleB << "\n";
+    }
     LLVM_DEBUG(llvm::dbgs() << "newTensorA=" << newTensorA
                             << " newTensorB=" << newTensorB << "\n");
     LLVM_DEBUG(llvm::dbgs() << "transposedA=" << transposedA
@@ -539,10 +609,10 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
     // no need to create transforms if it's the same tensor
     if (finalLayoutA == layoutA && finalLayoutB == layoutB)
       return failure();
-
+    // todo : fix dimensions sorting for scaleA and scaleB
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
-        op, op->getResultTypes(), newTensorA, newTensorB, op.getC(), nullptr,
-        nullptr, transposedA, transposedB, op.getCTransposedAttr(),
+        op, op->getResultTypes(), newTensorA, newTensorB, op.getC(), newScaleA,
+        newScaleB, transposedA, transposedB, op.getCTransposedAttr(),
         op.getFeaturesAttr(), op.getStoreMethodAttr(),
         op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
@@ -554,205 +624,207 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
   }
 };
 
-struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
-  using OpRewritePattern<rock::AttentionOp>::OpRewritePattern;
+  struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
+    using OpRewritePattern<rock::AttentionOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(rock::AttentionOp op,
-                                PatternRewriter &b) const final {
-    auto q = op.getQueries();
-    auto k = op.getKeys();
-    auto v = op.getValues();
+    LogicalResult matchAndRewrite(rock::AttentionOp op,
+                                  PatternRewriter &b) const final {
+      auto q = op.getQueries();
+      auto k = op.getKeys();
+      auto v = op.getValues();
 
-    auto maybeRewrite = commonGemmGemm(op, q, k, v, b);
-    if (failed(maybeRewrite))
-      return failure();
+      auto maybeRewrite = commonGemmGemm(op, q, k, v, b);
+      if (failed(maybeRewrite))
+        return failure();
 
-    Value newTensorQ, newTensorK, newTensorV;
-    UnitAttr transposedQ, transposedK, transposedV;
-    std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
-             transposedV) = maybeRewrite.value();
+      Value newTensorQ, newTensorK, newTensorV;
+      UnitAttr transposedQ, transposedK, transposedV;
+      std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
+               transposedV) = maybeRewrite.value();
 
-    auto newOp = rock::AttentionOp::create(b, 
-        op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
-        op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(), op.getOut(),
-        op.getLse(), transposedQ, transposedK, transposedV,
-        op.getOTransposedAttr(), op.getCausalAttr(), op.getSplitKVAttr(),
-        op.getFeaturesAttr(), op.getSoftmaxTypeAttr(), op.getParams0Attr(),
-        op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+      auto newOp = rock::AttentionOp::create(
+          b, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
+          newTensorV, op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(),
+          op.getOut(), op.getLse(), transposedQ, transposedK, transposedV,
+          op.getOTransposedAttr(), op.getCausalAttr(), op.getSplitKVAttr(),
+          op.getFeaturesAttr(), op.getSoftmaxTypeAttr(), op.getParams0Attr(),
+          op.getParams1Attr(), op.getFirstGemmIndicesAttr());
 
-    // copy linalg::GenericOp if there's any
-    bool linalgOpFound = false;
-    op.getPreSoftmaxBody().walk(
-        [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
-    if (linalgOpFound) {
-      b.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
-                           newOp.getPreSoftmaxBody().begin());
+      // copy linalg::GenericOp if there's any
+      bool linalgOpFound = false;
+      op.getPreSoftmaxBody().walk(
+          [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
+      if (linalgOpFound) {
+        b.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
+                             newOp.getPreSoftmaxBody().begin());
+      }
+      b.replaceOp(op, newOp);
+
+      return success();
     }
-    b.replaceOp(op, newOp);
+  };
 
-    return success();
-  }
-};
+  struct ConvElementwiseGemmRewritePattern
+      : public OpRewritePattern<rock::ConvElementwiseGemmOp> {
+    using OpRewritePattern<rock::ConvElementwiseGemmOp>::OpRewritePattern;
 
-struct ConvElementwiseGemmRewritePattern
-    : public OpRewritePattern<rock::ConvElementwiseGemmOp> {
-  using OpRewritePattern<rock::ConvElementwiseGemmOp>::OpRewritePattern;
+    LogicalResult matchAndRewrite(rock::ConvElementwiseGemmOp op,
+                                  PatternRewriter &rw) const final {
+      auto maybeConvInfo = commonConv(op, rw);
+      if (failed(maybeConvInfo))
+        return failure();
 
-  LogicalResult matchAndRewrite(rock::ConvElementwiseGemmOp op,
-                                PatternRewriter &rw) const final {
-    auto maybeConvInfo = commonConv(op, rw);
-    if (failed(maybeConvInfo))
-      return failure();
+      // handle filter and input, conv params
+      Value newFilter, newInput;
+      ArrayAttr newFilterLayout, newInputLayout;
+      bool convNoChange;
+      std::tie(newFilter, newInput, newFilterLayout, newInputLayout,
+               convNoChange) = maybeConvInfo.value();
+      auto c = op.getC();
 
-    // handle filter and input, conv params
-    Value newFilter, newInput;
-    ArrayAttr newFilterLayout, newInputLayout;
-    bool convNoChange;
-    std::tie(newFilter, newInput, newFilterLayout, newInputLayout,
-             convNoChange) = maybeConvInfo.value();
-    auto c = op.getC();
+      // handle "c"
+      SmallVector<StringRef> layoutC{"G", "K", "N"};
+      if (op.getTransposedC())
+        layoutC = {"G", "N", "K"};
+      if (cast<ShapedType>(c.getType()).getRank() == 2)
+        layoutC = {layoutC[1], layoutC[2]};
 
-    // handle "c"
-    SmallVector<StringRef> layoutC{"G", "K", "N"};
-    if (op.getTransposedC())
-      layoutC = {"G", "N", "K"};
-    if (cast<ShapedType>(c.getType()).getRank() == 2)
-      layoutC = {layoutC[1], layoutC[2]};
+      auto maybeSortedC = sortByMemoryLayout(c, layoutC, rw);
+      if (failed(maybeSortedC))
+        return op.emitOpError("sortByMemoryLayout failed");
 
-    auto maybeSortedC = sortByMemoryLayout(c, layoutC, rw);
-    if (failed(maybeSortedC))
-      return op.emitOpError("sortByMemoryLayout failed");
+      auto sortedC = maybeSortedC.value();
+      LLVM_DEBUG(llvm::dbgs() << "sortedC=" << std::get<0>(sortedC) << "\n");
 
-    auto sortedC = maybeSortedC.value();
-    LLVM_DEBUG(llvm::dbgs() << "sortedC=" << std::get<0>(sortedC) << "\n");
+      auto batchReorderC =
+          reorderBatch(std::get<0>(sortedC), std::get<1>(sortedC), "N", rw);
 
-    auto batchReorderC =
-        reorderBatch(std::get<0>(sortedC), std::get<1>(sortedC), "N", rw);
+      Value newTensorC = std::get<0>(batchReorderC);
+      UnitAttr transposedC = std::get<1>(batchReorderC);
+      auto finalLayoutC = std::get<2>(batchReorderC);
 
-    Value newTensorC = std::get<0>(batchReorderC);
-    UnitAttr transposedC = std::get<1>(batchReorderC);
-    auto finalLayoutC = std::get<2>(batchReorderC);
+      // no need to create transforms if it's the same tensors
+      if (convNoChange && finalLayoutC == layoutC)
+        return failure();
 
-    // no need to create transforms if it's the same tensors
-    if (convNoChange && finalLayoutC == layoutC)
-      return failure();
+      auto newOp = rock::ConvElementwiseGemmOp::create(
+          rw, op->getLoc(), op->getResultTypes(), newFilter, newInput,
+          newTensorC, op.getElemwiseInputs(), op.getOut(), transposedC,
+          op.getOTransposedAttr(), op.getFeaturesAttr(), op.getPaddingAttr(),
+          op.getStridesAttr(), op.getDilationsAttr(), op.getParams0Attr(),
+          op.getParams1Attr(), op.getFirstGemmIndicesAttr());
 
-    auto newOp = rock::ConvElementwiseGemmOp::create(
-        rw, op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
-        op.getElemwiseInputs(), op.getOut(), transposedC,
-        op.getOTransposedAttr(), op.getFeaturesAttr(), op.getPaddingAttr(),
-        op.getStridesAttr(), op.getDilationsAttr(), op.getParams0Attr(),
-        op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+      // set attributes
+      newOp->setAttr("filter_layout", newFilterLayout);
+      newOp->setAttr("input_layout", newInputLayout);
 
-    // set attributes
-    newOp->setAttr("filter_layout", newFilterLayout);
-    newOp->setAttr("input_layout", newInputLayout);
+      // copy linalg::GenericOp if there's any
+      bool linalgOpFound = false;
+      op.getPreSecondGemmBody().walk(
+          [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
+      if (linalgOpFound) {
+        rw.inlineRegionBefore(op.getPreSecondGemmBody(),
+                              newOp.getPreSecondGemmBody(),
+                              newOp.getPreSecondGemmBody().begin());
+      }
+      rw.replaceOp(op, newOp);
 
-    // copy linalg::GenericOp if there's any
-    bool linalgOpFound = false;
-    op.getPreSecondGemmBody().walk(
-        [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
-    if (linalgOpFound) {
-      rw.inlineRegionBefore(op.getPreSecondGemmBody(),
-                            newOp.getPreSecondGemmBody(),
-                            newOp.getPreSecondGemmBody().begin());
+      return success();
     }
-    rw.replaceOp(op, newOp);
+  };
 
-    return success();
-  }
-};
+  struct GemmElementwiseGemmRewritePattern
+      : public OpRewritePattern<rock::GemmElementwiseGemmOp> {
+    using OpRewritePattern<rock::GemmElementwiseGemmOp>::OpRewritePattern;
 
-struct GemmElementwiseGemmRewritePattern
-    : public OpRewritePattern<rock::GemmElementwiseGemmOp> {
-  using OpRewritePattern<rock::GemmElementwiseGemmOp>::OpRewritePattern;
+    LogicalResult matchAndRewrite(rock::GemmElementwiseGemmOp op,
+                                  PatternRewriter &rw) const final {
+      auto a = op.getA();
+      auto b = op.getB();
+      auto c = op.getC();
 
-  LogicalResult matchAndRewrite(rock::GemmElementwiseGemmOp op,
-                                PatternRewriter &rw) const final {
-    auto a = op.getA();
-    auto b = op.getB();
-    auto c = op.getC();
+      auto maybeRewrite = commonGemmGemm(op, a, b, c, rw);
+      if (failed(maybeRewrite))
+        return failure();
 
-    auto maybeRewrite = commonGemmGemm(op, a, b, c, rw);
-    if (failed(maybeRewrite))
-      return failure();
+      Value newTensorQ, newTensorK, newTensorV;
+      UnitAttr transposedQ, transposedK, transposedV;
+      std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
+               transposedV) = maybeRewrite.value();
 
-    Value newTensorQ, newTensorK, newTensorV;
-    UnitAttr transposedQ, transposedK, transposedV;
-    std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
-             transposedV) = maybeRewrite.value();
+      auto newOp = rock::GemmElementwiseGemmOp::create(
+          rw, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
+          newTensorV, op.getElemwiseInputs(), op.getOut(), transposedQ,
+          transposedK, transposedV, op.getOTransposedAttr(),
+          op.getFeaturesAttr(), op.getParams0Attr(), op.getParams1Attr(),
+          op.getFirstGemmIndicesAttr());
 
-    auto newOp = rock::GemmElementwiseGemmOp::create(
-        rw, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
-        newTensorV, op.getElemwiseInputs(), op.getOut(), transposedQ,
-        transposedK, transposedV, op.getOTransposedAttr(), op.getFeaturesAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+      // copy linalg::GenericOp if there's any
+      bool linalgOpFound = false;
+      op.getPreSecondGemmBody().walk(
+          [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
+      if (linalgOpFound) {
+        rw.inlineRegionBefore(op.getPreSecondGemmBody(),
+                              newOp.getPreSecondGemmBody(),
+                              newOp.getPreSecondGemmBody().begin());
+      }
+      rw.replaceOp(op, newOp);
 
-    // copy linalg::GenericOp if there's any
-    bool linalgOpFound = false;
-    op.getPreSecondGemmBody().walk(
-        [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
-    if (linalgOpFound) {
-      rw.inlineRegionBefore(op.getPreSecondGemmBody(),
-                            newOp.getPreSecondGemmBody(),
-                            newOp.getPreSecondGemmBody().begin());
+      return success();
     }
-    rw.replaceOp(op, newOp);
+  };
 
-    return success();
+  void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
+    auto func = getOperation();
+    if (!func->hasAttr("kernel")) {
+      return;
+    }
+    auto &ctx = getContext();
+    GreedyRewriteConfig config;
+    config.setStrictness(GreedyRewriteStrictness::ExistingOps);
+
+    RewritePatternSet patternsConv(&ctx);
+    patternsConv.add<ConvRewritePattern<rock::ConvOp>>(&ctx);
+    if (failed(applyOpPatternsGreedily(getOperations<rock::ConvOp>(func),
+                                       std::move(patternsConv), config)))
+      return signalPassFailure();
+
+    RewritePatternSet patternsConvBwdData(&ctx);
+    patternsConvBwdData.add<ConvRewritePattern<rock::ConvBwdDataOp>>(&ctx);
+    if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdDataOp>(func),
+                                       std::move(patternsConvBwdData), config)))
+      return signalPassFailure();
+
+    RewritePatternSet patternsConvBwdWeight(&ctx);
+    patternsConvBwdWeight.add<ConvRewritePattern<rock::ConvBwdWeightOp>>(&ctx);
+    if (failed(
+            applyOpPatternsGreedily(getOperations<rock::ConvBwdWeightOp>(func),
+                                    std::move(patternsConvBwdWeight), config)))
+      return signalPassFailure();
+
+    RewritePatternSet patternsGemm(&ctx);
+    patternsGemm.add<GemmRewritePattern>(&ctx);
+    if (failed(applyOpPatternsGreedily(getOperations<rock::GemmOp>(func),
+                                       std::move(patternsGemm), config)))
+      return signalPassFailure();
+
+    RewritePatternSet patternsAttention(&ctx);
+    patternsAttention.add<AttentionRewritePattern>(&ctx);
+    if (failed(applyOpPatternsGreedily(getOperations<rock::AttentionOp>(func),
+                                       std::move(patternsAttention), config)))
+      return signalPassFailure();
+
+    RewritePatternSet patternsGemmElementwiseGemm(&ctx);
+    patternsGemmElementwiseGemm.add<GemmElementwiseGemmRewritePattern>(&ctx);
+    if (failed(applyOpPatternsGreedily(
+            getOperations<rock::GemmElementwiseGemmOp>(func),
+            std::move(patternsGemmElementwiseGemm), config)))
+      return signalPassFailure();
+
+    RewritePatternSet patternsConvElementwiseGemm(&ctx);
+    patternsConvElementwiseGemm.add<ConvElementwiseGemmRewritePattern>(&ctx);
+    if (failed(applyOpPatternsGreedily(
+            getOperations<rock::ConvElementwiseGemmOp>(func),
+            std::move(patternsConvElementwiseGemm), config)))
+      return signalPassFailure();
   }
-};
-
-void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
-  auto func = getOperation();
-  if (!func->hasAttr("kernel")) {
-    return;
-  }
-  auto &ctx = getContext();
-  GreedyRewriteConfig config;
-  config.setStrictness(GreedyRewriteStrictness::ExistingOps);
-
-  RewritePatternSet patternsConv(&ctx);
-  patternsConv.add<ConvRewritePattern<rock::ConvOp>>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvOp>(func),
-                                     std::move(patternsConv), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsConvBwdData(&ctx);
-  patternsConvBwdData.add<ConvRewritePattern<rock::ConvBwdDataOp>>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdDataOp>(func),
-                                     std::move(patternsConvBwdData), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsConvBwdWeight(&ctx);
-  patternsConvBwdWeight.add<ConvRewritePattern<rock::ConvBwdWeightOp>>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdWeightOp>(func),
-                                     std::move(patternsConvBwdWeight), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsGemm(&ctx);
-  patternsGemm.add<GemmRewritePattern>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::GemmOp>(func),
-                                     std::move(patternsGemm), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsAttention(&ctx);
-  patternsAttention.add<AttentionRewritePattern>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::AttentionOp>(func),
-                                     std::move(patternsAttention), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsGemmElementwiseGemm(&ctx);
-  patternsGemmElementwiseGemm.add<GemmElementwiseGemmRewritePattern>(&ctx);
-  if (failed(applyOpPatternsGreedily(
-          getOperations<rock::GemmElementwiseGemmOp>(func),
-          std::move(patternsGemmElementwiseGemm), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsConvElementwiseGemm(&ctx);
-  patternsConvElementwiseGemm.add<ConvElementwiseGemmRewritePattern>(&ctx);
-  if (failed(applyOpPatternsGreedily(
-          getOperations<rock::ConvElementwiseGemmOp>(func),
-          std::move(patternsConvElementwiseGemm), config)))
-    return signalPassFailure();
-}

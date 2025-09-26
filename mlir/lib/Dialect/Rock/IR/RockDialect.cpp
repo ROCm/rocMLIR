@@ -40,6 +40,7 @@
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
@@ -1054,6 +1055,21 @@ void GridwiseGemmOp::getEffects(
 void GridwiseGemmAccelOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getGemmEffects(*this, effects);
+  auto *read = MemoryEffects::Read::get();
+  if (getScaleA()) {
+    MutableOperandRange scaleARange = getScaleAMutable();
+    if (!scaleARange.empty()) {
+      OpOperand *scaleAOperand = &scaleARange[0];
+      effects.emplace_back(read, scaleAOperand);
+    }
+  }
+  if (getScaleB()) {
+    MutableOperandRange scaleBRange = getScaleBMutable();
+    if (!scaleBRange.empty()) {
+      OpOperand *scaleBOperand = &scaleBRange[0];
+      effects.emplace_back(read, scaleBOperand);
+    }
+  }
 }
 
 //===-----------------------------------------------------===//

@@ -699,6 +699,95 @@ static Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape,
   return rock::TransformOp::create(b, loc, inp, broadcastDims.get());
 }
 
+template <typename TosaOp>
+static TosaOp getDefiningNonReshapeOp(Value val) {
+  while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
+         val.getDefiningOp<tensor::ExpandShapeOp>()) {
+    val = val.getDefiningOp()->getOperand(0);
+  }
+  return val.getDefiningOp<TosaOp>();
+}
+
+template <typename TosaOp>
+static TosaOp getDefiningNonReshapeOpNonCastOp(Value val) {
+  while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
+         val.getDefiningOp<tensor::ExpandShapeOp>() ||
+         val.getDefiningOp<tosa::CastOp>()) {
+    val = val.getDefiningOp()->getOperand(0);
+  }
+  return val.getDefiningOp<TosaOp>();
+}
+
+static Value getValueNonReshapeOp(Value val) {
+  while (val.getDefiningOp() && (val.getDefiningOp<tensor::CollapseShapeOp>() ||
+                                 val.getDefiningOp<tensor::ExpandShapeOp>())) {
+    val = val.getDefiningOp()->getOperand(0);
+  }
+  return val;
+}
+
+static FailureOr<Value> addBroadcast(const Value &val) {
+  if (auto add = getDefiningNonReshapeOp<tosa::AddOp>(val)) {
+    // this is a broadcast add, one of the arguments comes is the actual
+    // value, the other is a 0 constant
+    Value nonZero;
+    if (auto constOp =
+            getDefiningNonReshapeOp<tosa::ConstOp>(add.getInput1())) {
+      if (isConstantZero(constOp.getResult()))
+        nonZero = add.getInput2();
+    } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
+                   add.getInput1())) {
+      if (isConstantZero(constOp.getResult()))
+        nonZero = add.getInput2();
+    }
+
+    if (auto constOp =
+            getDefiningNonReshapeOp<tosa::ConstOp>(add.getInput2())) {
+      if (isConstantZero(constOp.getResult()))
+        nonZero = add.getInput1();
+    } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
+                   add.getInput2())) {
+      if (isConstantZero(constOp.getResult()))
+        nonZero = add.getInput1();
+    }
+    if (nonZero)
+      return nonZero;
+  }
+  return failure();
+}
+static FailureOr<Value>
+getValueNonReshapeOpNonBroadcastNonTranspose(Value val) {
+  while (val.getDefiningOp() && (val.getDefiningOp<tensor::CollapseShapeOp>() ||
+                                 val.getDefiningOp<tensor::ExpandShapeOp>() ||
+                                 val.getDefiningOp<tosa::TransposeOp>() ||
+                                 val.getDefiningOp<tosa::AddOp>())) {
+    if (val.getDefiningOp<tosa::AddOp>()) {
+      auto maybeBroadcast = addBroadcast(val);
+      if (failed(maybeBroadcast))
+        return failure();
+      val = maybeBroadcast.value();
+    } else
+      val = val.getDefiningOp()->getOperand(0);
+  }
+  return val;
+}
+
+template <typename TosaOp>
+static TosaOp getDefiningNonReshapeOpNonBroadcast(Value val) {
+  while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
+         val.getDefiningOp<tensor::ExpandShapeOp>() ||
+         val.getDefiningOp<tosa::AddOp>()) {
+    if (val.getDefiningOp<tosa::AddOp>()) {
+      auto maybeBroadcast = addBroadcast(val);
+      if (failed(maybeBroadcast))
+        return nullptr;
+      val = maybeBroadcast.value();
+    } else
+      val = val.getDefiningOp()->getOperand(0);
+  }
+  return val.getDefiningOp<TosaOp>();
+}
+
 class MatMulConverter final : public OpConversionPattern<tosa::MatMulOp> {
 public:
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
@@ -738,11 +827,100 @@ public:
                                 ConversionPatternRewriter &rw) const final {
     Location loc = op->getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
+    auto matA = op.getA();
+    auto matB = op.getB();
+    Value matABeforeCast = nullptr;
+    Value matBBeforeCast = nullptr;
+    // TODO : remove broadcast here
+    FailureOr<tosa::MulOp> mulOpA =
+        getDefiningNonReshapeOpNonBroadcast<tosa::MulOp>(matA);
+    FailureOr<tosa::MulOp> mulOpB =
+        getDefiningNonReshapeOpNonBroadcast<tosa::MulOp>(matB);
+    Value scaleA = nullptr, scaleB = nullptr;
+    if (!failed(mulOpA) && !failed(mulOpB)) {
+      // Both inputs are coming from a mul op, this is likely a quantized
+      // scaleed matmul
+      auto mulAInputs1 = mulOpA->getInput1();
+      auto mulAInputs2 = mulOpA->getInput2();
+      if (tosa::CastOp mulACast = mulAInputs1.getDefiningOp<tosa::CastOp>()) {
+        Value castInput = mulACast.getInput();
+        if (isa<Float4E2M1FNType>(
+                cast<ShapedType>(castInput.getType()).getElementType())) {
+          matABeforeCast = castInput;
+          scaleA = mulAInputs2;
+        }
+      } else if (tosa::CastOp mulACast =
+                     mulAInputs2.getDefiningOp<tosa::CastOp>()) {
+        Value castInput = mulACast.getInput();
+        if (isa<Float4E2M1FNType>(
+                cast<ShapedType>(castInput.getType()).getElementType())) {
+          matABeforeCast = castInput;
+        }
+      }
+      auto mulBInputs1 = mulOpB->getInput1();
+      auto mulBInputs2 = mulOpB->getInput2();
+      if (tosa::CastOp mulBCast = mulBInputs1.getDefiningOp<tosa::CastOp>()) {
+        Value castInput = mulBCast.getInput();
+        if (isa<Float4E2M1FNType>(
+                cast<ShapedType>(castInput.getType()).getElementType())) {
+          matBBeforeCast = castInput;
+          scaleB = mulBInputs2;
+        }
+      } else if (tosa::CastOp mulBCast =
+                     mulBInputs2.getDefiningOp<tosa::CastOp>()) {
+        Value castInput = mulBCast.getInput();
+        if (isa<Float4E2M1FNType>(
+                cast<ShapedType>(castInput.getType()).getElementType())) {
+          matBBeforeCast = castInput;
+          scaleB = mulBInputs1;
+        }
+      }
+    }
+    if (matABeforeCast && matBBeforeCast) {
+      // check for rank to expand/collapse to same shape
+      if (matA.getType() != matABeforeCast.getType()) {
+        // expand matABeforeCast to match matA Shape
+        RankedTensorType matABeforeCastType =
+            cast<RankedTensorType>(matABeforeCast.getType());
+        RankedTensorType matAType =
+            RankedTensorType::get(cast<ShapedType>(matA.getType()).getShape(),
+                                  matABeforeCastType.getElementType());
+        auto normalizedShapeValue =
+            tosa::getTosaConstShape(rw, loc, matAType.getShape());
+        matABeforeCast = tosa::ReshapeOp::create(
+            rw, loc, matAType, matABeforeCast, normalizedShapeValue);
+        RankedTensorType scaleAType = RankedTensorType::get(
+            cast<ShapedType>(matA.getType()).getShape(),
+            cast<ShapedType>(scaleA.getType()).getElementType());
+        scaleA = tosa::ReshapeOp::create(rw, loc, scaleAType, scaleA,
+                                         normalizedShapeValue);
+      }
+      if (matB.getType() != matBBeforeCast.getType()) {
+        // expand matBBeforeCast to match matB Shape
+        RankedTensorType matBBeforeCastType =
+            cast<RankedTensorType>(matBBeforeCast.getType());
+        RankedTensorType matBType =
+            RankedTensorType::get(cast<ShapedType>(matB.getType()).getShape(),
+                                  matBBeforeCastType.getElementType());
+        auto normalizedShapeValue =
+            tosa::getTosaConstShape(rw, loc, matBType.getShape());
+        matBBeforeCast = tosa::ReshapeOp::create(
+            rw, loc, matBType, matBBeforeCast, normalizedShapeValue);
+        RankedTensorType scaleBType = RankedTensorType::get(
+            cast<ShapedType>(matB.getType()).getShape(),
+            cast<ShapedType>(scaleB.getType()).getElementType());
+        scaleB = tosa::ReshapeOp::create(rw, loc, scaleBType, scaleB,
+                                         normalizedShapeValue);
+      }
+    }
+    if (matABeforeCast && matBBeforeCast) {
+      matA = cast<TypedValue<TensorType>>(matABeforeCast);
+      matB = cast<TypedValue<TensorType>>(matBBeforeCast);
+    }
     Value output =
         bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
-    rock::GemmFeatures features =
-        getGemmFeaturesFromOp(op, op.getA().getType());
+    rock::GemmFeatures features = getGemmFeaturesFromOp(op, matA.getType());
 
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
@@ -755,24 +933,24 @@ public:
 
     int64_t kDimOfA;
     std::tie(std::ignore, kDimOfA) =
-        getLastDims(transposeA, cast<RankedTensorType>(op.getA().getType()));
+        getLastDims(transposeA, cast<RankedTensorType>(matA.getType()));
     int64_t kDimOfB;
     std::tie(kDimOfB, std::ignore) =
-        getLastDims(transposeB, cast<RankedTensorType>(op.getB().getType()));
+        getLastDims(transposeB, cast<RankedTensorType>(matB.getType()));
     int kDim = (kDimOfA > kDimOfB) ? kDimOfA : kDimOfB;
 
-    SmallVector<int64_t, 3> aShape = llvm::to_vector<3>(
-        cast<RankedTensorType>(op.getA().getType()).getShape());
+    SmallVector<int64_t, 3> aShape =
+        llvm::to_vector<3>(cast<RankedTensorType>(matA.getType()).getShape());
     setLastDims(transposeA, aShape, {mDim, kDim});
-    Value brA = insertBroadcast(adaptor.getA(), aShape, loc, rw);
+    Value brA = insertBroadcast(matA, aShape, loc, rw);
 
     SmallVector<int64_t, 3> bShape = llvm::to_vector<3>(
         cast<RankedTensorType>(op.getB().getType()).getShape());
     setLastDims(transposeB, bShape, {kDim, nDim});
-    Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
+    Value brB = insertBroadcast(matB, bShape, loc, rw);
 
     auto rockGemm = rock::GemmOp::create(
-        rw, loc, outputType, brA, brB, output, nullptr, nullptr, transposeA,
+        rw, loc, outputType, brA, brB, output, scaleA, scaleB, transposeA,
         transposeB, transposeC,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
@@ -1286,98 +1464,6 @@ struct AttentionMatcherValues {
 
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern::OpRewritePattern;
-
-  FailureOr<Value>
-  getValueNonReshapeOpNonBroadcastNonTranspose(Value val) const {
-    while (val.getDefiningOp() &&
-           (val.getDefiningOp<tensor::CollapseShapeOp>() ||
-            val.getDefiningOp<tensor::ExpandShapeOp>() ||
-            val.getDefiningOp<tosa::TransposeOp>() ||
-            val.getDefiningOp<tosa::AddOp>())) {
-      if (val.getDefiningOp<tosa::AddOp>()) {
-        auto maybeBroadcast = addBroadcast(val);
-        if (failed(maybeBroadcast))
-          return failure();
-        val = maybeBroadcast.value();
-      } else
-        val = val.getDefiningOp()->getOperand(0);
-    }
-    return val;
-  }
-
-  Value getValueNonReshapeOp(Value val) const {
-    while (val.getDefiningOp() &&
-           (val.getDefiningOp<tensor::CollapseShapeOp>() ||
-            val.getDefiningOp<tensor::ExpandShapeOp>())) {
-      val = val.getDefiningOp()->getOperand(0);
-    }
-    return val;
-  }
-
-  template <typename TosaOp>
-  TosaOp getDefiningNonReshapeOpNonBroadcast(Value val) const {
-    while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
-           val.getDefiningOp<tensor::ExpandShapeOp>() ||
-           val.getDefiningOp<tosa::AddOp>()) {
-      if (val.getDefiningOp<tosa::AddOp>()) {
-        auto maybeBroadcast = addBroadcast(val);
-        if (failed(maybeBroadcast))
-          return nullptr;
-        val = maybeBroadcast.value();
-      } else
-        val = val.getDefiningOp()->getOperand(0);
-    }
-    return val.getDefiningOp<TosaOp>();
-  }
-
-  template <typename TosaOp>
-  TosaOp getDefiningNonReshapeOp(Value val) const {
-    while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
-           val.getDefiningOp<tensor::ExpandShapeOp>()) {
-      val = val.getDefiningOp()->getOperand(0);
-    }
-    return val.getDefiningOp<TosaOp>();
-  }
-
-  template <typename TosaOp>
-  TosaOp getDefiningNonReshapeOpNonCastOp(Value val) const {
-    while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
-           val.getDefiningOp<tensor::ExpandShapeOp>() ||
-           val.getDefiningOp<tosa::CastOp>()) {
-      val = val.getDefiningOp()->getOperand(0);
-    }
-    return val.getDefiningOp<TosaOp>();
-  }
-
-  FailureOr<Value> addBroadcast(Value val) const {
-    if (auto add = getDefiningNonReshapeOp<tosa::AddOp>(val)) {
-      // this is a broadcast add, one of the arguments comes is the actual
-      // value, the other is a 0 constant
-      Value nonZero;
-      if (auto constOp =
-              getDefiningNonReshapeOp<tosa::ConstOp>(add.getInput1())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput2();
-      } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
-                     add.getInput1())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput2();
-      }
-
-      if (auto constOp =
-              getDefiningNonReshapeOp<tosa::ConstOp>(add.getInput2())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput1();
-      } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
-                     add.getInput2())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput1();
-      }
-      if (nonZero)
-        return nonZero;
-    }
-    return failure();
-  }
 
   LogicalResult getConstComparison(TypedValue<TensorType> input,
                                    size_t nonOneDimFromEnd) const {
