@@ -348,7 +348,9 @@ func.func @rock_attention(%arg0: memref<1x64x1024xf32>,
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
     splitKV = 1 : i32,
-    storeMethod = #rock<StoreMethod set>
+    storeMethod = #rock<StoreMethod set>,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32
   }
   return
 }

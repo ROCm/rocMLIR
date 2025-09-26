@@ -44,7 +44,9 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Errc.h"
 #include "llvm/Support/LogicalResult.h"
 #include <algorithm>
 #include <memory>
@@ -107,6 +109,154 @@ struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
   LogicalResult matchAndRewrite(AttentionOp op, AttentionOpAdaptor adaptor,
                                 ConversionPatternRewriter &rw) const override;
 };
+
+// Move num_heads dimension to sequence length dimension. This is useful for the
+// decoding phase, when batch=1, seq_len_q = 1 and GQA (example: num_heads_q=64,
+// num_heads_kv=8), we can move numRepeat=num_heads_q/num_heads_kv = 8, to the
+// seq_len_q dimension and use the tile size better (otherwise seq_len_q=1 and
+// it will get padded to 32). This reduces the amount of workgroups by
+// numRepeat. However, typically decoding phase will use split_kv anyway to
+// increase the number of workgroups.
+static Value moveNumHeadsToSeqLenQ(OpBuilder builder, Location loc,
+                                   Value inputTensor, int64_t numRepeats) {
+  ArrayRef<int64_t> inpShape =
+      cast<ShapedType>(inputTensor.getType()).getShape();
+
+  assert(inpShape.size() == 3 && "input must be 3D");
+  assert(inpShape[0] % numRepeats == 0 &&
+         "gemmG must be divisible by numRepeats");
+
+  int64_t newGemmG = inpShape[0] / numRepeats;
+  SmallVector<StringRef> startNames = {"gemmG", "headDim", "seqLen"};
+
+  // (gemmG, headDim, seqLen) -> (gemmG / numRepeats, headDim, seqLen,
+  // numRepeats)
+  rock::BottomUpTMBuilder unmerge(builder, startNames, inpShape);
+  unmerge.unmerge({"gemmG", "numRepeats"}, {0, 3}, "gemmG",
+                  {newGemmG, numRepeats});
+  unmerge.passThrough({"seqLen", "headDim"}, {2, 1}, {"seqLen", "headDim"});
+  auto unmergeAttr = unmerge.get();
+  Value matrixUnmerge =
+      builder.create<rock::TransformOp>(loc, inputTensor, unmergeAttr);
+
+  // (gemmG / numRepeats, headDim, seqLen, numRepeats) -> (gemmG / numRepeats,
+  // headDim, seqLen * numRepeats)
+  auto merger = rock::BottomUpTMBuilder::above(unmerge, unmergeAttr);
+  merger.merge("seqLen", 2, {"seqLen", "numRepeats"});
+  merger.passThrough(ArrayRef<uint32_t>{0, 1}, ArrayRef<uint32_t>{0, 1});
+  auto mergerAttr = merger.get();
+  return builder.create<rock::TransformOp>(loc, matrixUnmerge, mergerAttr);
+}
+
+// Same as moveNumHeadsToSeqLenQ() but for currSeqLen tensor (KV-Cache)
+static Value moveNumHeadsToSeqLenCurrSeqLen(OpBuilder builder, Location loc,
+                                            Value inputTensor,
+                                            int64_t numRepeats) {
+  ArrayRef<int64_t> inpShape =
+      cast<ShapedType>(inputTensor.getType()).getShape();
+
+  assert(inpShape.size() == 1 && "input must be 1D");
+  assert(inpShape[0] % numRepeats == 0 &&
+         "gemmG must be divisible by numRepeats");
+
+  int64_t newGemmG = inpShape[0] / numRepeats;
+  SmallVector<StringRef> startNames = {"gemmG"};
+
+  // (gemmG) -> (gemmG / numRepeats, numRepeats)
+  rock::BottomUpTMBuilder unmerge(builder, startNames, inpShape);
+  unmerge.unmerge({"gemmG", "numRepeats"}, {0, 1}, "gemmG",
+                  {newGemmG, numRepeats});
+  auto unmergeAttr = unmerge.get();
+  Value matrixUnmerge =
+      builder.create<rock::TransformOp>(loc, inputTensor, unmergeAttr);
+
+  // slice numRepeats to 1
+  auto slicer = rock::BottomUpTMBuilder::above(unmerge, unmergeAttr);
+  slicer.slice({"numRepeats"}, {"numRepeats"}, {0}, {1});
+  slicer.passThrough(ArrayRef<uint32_t>{0}, ArrayRef<uint32_t>{0});
+  auto slicerAttr = slicer.get();
+  Value matrixSliced =
+      builder.create<rock::TransformOp>(loc, matrixUnmerge, slicerAttr);
+
+  // (gemmG / numRepeats, headDim, seqLen, numRepeats) -> (gemmG / numRepeats,
+  // headDim, seqLen * numRepeats)
+  auto merger = rock::BottomUpTMBuilder::above(slicer, slicerAttr);
+  merger.merge("seqLen", 0, {"gemmG", "numRepeats"});
+  auto mergerAttr = merger.get();
+  return builder.create<rock::TransformOp>(loc, matrixSliced, mergerAttr);
+}
+
+// Same as moveNumHeadsToSeqLenQ() but for the output tensor
+static Value moveNumHeadsToSeqLenOut(OpBuilder builder, Location loc,
+                                     Value inputTensor, int64_t numRepeats,
+                                     int64_t splitKV) {
+  ArrayRef<int64_t> inpShape =
+      cast<ShapedType>(inputTensor.getType()).getShape();
+
+  assert((inpShape.size() == 2 || inpShape.size() == 3) &&
+         "input must be 2D or 3D");
+  assert(inpShape[0] % numRepeats == 0 &&
+         "gemmG must be divisible by numRepeats");
+  assert(inpShape[0] % splitKV == 0 && "gemmG must be divisible by numRepeats");
+
+  int64_t newGemmG = inpShape[0] / (numRepeats * splitKV);
+  bool isLSE = inpShape.size() == 2;
+
+  SmallVector<StringRef> startNamesAll = {"gemmG", "seqLen", "headDim"};
+  ArrayRef<StringRef> startNames =
+      ArrayRef<StringRef>(startNamesAll).take_front(inpShape.size());
+
+  // Note that for LSE, there are only two dimensions (gemmG, seqLen)
+  // (gemmG, seqLen, headDim) -> (gemmG / (splitKV*numRepeats), splitKV, seqLen,
+  // numRepeats, headDim)
+  rock::BottomUpTMBuilder unmerge(builder, startNames, inpShape);
+  unmerge.unmerge({"gemmG", "numRepeats", "splitKV"}, {0, 3, 1}, "gemmG",
+                  {newGemmG, numRepeats, splitKV});
+  if (isLSE)
+    unmerge.passThrough({"seqLen"}, {2}, {"seqLen"});
+  else
+    unmerge.passThrough({"seqLen", "headDim"}, {2, 4}, {"seqLen", "headDim"});
+  auto unmergeAttr = unmerge.get();
+  Value matrixUnmerge =
+      builder.create<rock::TransformOp>(loc, inputTensor, unmergeAttr);
+
+  // (gemmG / (splitKV*numRepeats), splitKV, seqLen, numRepeats, headDim) ->
+  // (gemmG / numRepeats, seqLen * numRepeats, headDim)
+  auto merger = rock::BottomUpTMBuilder::above(unmerge, unmergeAttr);
+  merger.merge("seqLen", 1, {"seqLen", "numRepeats"});
+  merger.merge("gemmG", 0, {"gemmG", "splitKV"});
+  if (!isLSE)
+    merger.passThrough({"headDim"}, {2}, {"headDim"});
+  auto mergerAttr = merger.get();
+  return builder.create<rock::TransformOp>(loc, matrixUnmerge, mergerAttr);
+}
+
+// This function will implement GQA, moving numRepeat=num_heads_q/num_heads_kv
+// to the seq_len_q dimension. See moveNumHeadsToSeqLenQ() comment for more
+// details.
+static std::tuple<IntegerAttr, Value, Value, Value, Value, Value, Value>
+processGQA(ConversionPatternRewriter &rw, Location loc, Value queries,
+           Value keys, Value values, Value out, Value lse, Value currentSeqLen,
+           int64_t numHeadsQ, int64_t numHeadsKV, int64_t splitKV) {
+  assert(numHeadsQ % numHeadsKV == 0);
+  IntegerAttr numRepeatsAttr = nullptr;
+
+  if (numHeadsQ != numHeadsKV) {
+    int64_t numRepeats = numHeadsQ / numHeadsKV;
+
+    numRepeatsAttr = rw.getIndexAttr(numRepeats);
+    queries = moveNumHeadsToSeqLenQ(rw, loc, queries, numRepeats);
+    if (currentSeqLen)
+      currentSeqLen =
+          moveNumHeadsToSeqLenCurrSeqLen(rw, loc, currentSeqLen, numRepeats);
+    out = moveNumHeadsToSeqLenOut(rw, loc, out, numRepeats, splitKV);
+    if (lse)
+      lse = moveNumHeadsToSeqLenOut(rw, loc, lse, numRepeats, splitKV);
+  }
+
+  return std::make_tuple(numRepeatsAttr, queries, keys, values, out, lse,
+                         currentSeqLen);
+}
 
 template <typename Op>
 static LogicalResult
@@ -314,6 +464,7 @@ static LogicalResult commonAttentionGemmElmtGemm(
     Value b, Value c, Value out, Value lse, Value currentSeqLen,
     UnitAttr causal, IntegerAttr splitKV, ValueRange elementwiseInputs,
     Region &preSecondOpRegion, bool enableSoftmax, TypeAttr softmaxType,
+    int64_t numHeadsQ, int64_t numHeadsKV,
     std::optional<std::reference_wrapper<const BufferDependencyAnalysis>>
         bufferDeps) {
   Location loc = op->getLoc();
@@ -363,6 +514,15 @@ static LogicalResult commonAttentionGemmElmtGemm(
     std::tie(a, b, c, out) = maybeSplitk.value();
   }
 
+  int64_t splitKVNum = splitKV.getInt();
+
+  // Grouped-Query Attention (GQA)
+  IntegerAttr numRepeatsGQA = nullptr;
+  if (enableSoftmax)
+    std::tie(numRepeatsGQA, a, b, c, out, lse, currentSeqLen) =
+        processGQA(rw, op.getLoc(), a, b, c, out, lse, currentSeqLen, numHeadsQ,
+                   numHeadsKV, splitKVNum);
+
   // Note, matrix dimension correctness is handled in the verifier
   ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
   ArrayRef<int64_t> bShape = cast<MemRefType>(b.getType()).getShape();
@@ -374,7 +534,6 @@ static LogicalResult commonAttentionGemmElmtGemm(
   GemmSize gemm1Size(/*g=*/aShape[0], /*m=*/cShape[2],
                      /*k=*/cShape[1],
                      /*n=*/aShape[2]);
-  int64_t splitKVNum = splitKV.getInt();
   GemmSize gemm0ExtraPad = requiredPadding(params0, gemm0Size, 1, splitKVNum)
                                .value_or(GemmSize{0, 0, 0, 0});
   GemmSize gemm1ExtraPad = requiredPadding(params1, gemm1Size, splitKVNum)
@@ -417,8 +576,9 @@ static LogicalResult commonAttentionGemmElmtGemm(
       loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal, splitKV,
       op.getGemmFeaturesAttr(), op.getStoreMethodAttr(), blockSizeAttr,
       gridSizeAttr,
-      /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr, softmaxType,
-      params0, params1, rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
+      /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
+      numRepeatsGQA, softmaxType, params0, params1,
+      rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
       rw.getBoolAttr(enableSoftmax));
   bool linalgOpFound = false;
   preSecondOpRegion.walk(
@@ -777,7 +937,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       adaptor.getOut(), adaptor.getLse(), adaptor.getCurrentSeqLen(),
       adaptor.getCausalAttr(), adaptor.getSplitKVAttr(),
       adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
-      /*enableSoftmax=*/true, op.getSoftmaxTypeAttr(),
+      /*enableSoftmax=*/true, op.getSoftmaxTypeAttr(), adaptor.getNumHeadsQ(),
+      adaptor.getNumHeadsKV(),
       /*bufferDeps=*/std::nullopt);
 }
 
@@ -790,7 +951,8 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
       /*lse=*/nullptr,
       /*currentSeqLen=*/nullptr, /*causal=*/nullptr, splitKV,
       adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
-      /*enableSoftmax=*/false, /*softmaxType=*/nullptr, std::cref(bufferDeps));
+      /*enableSoftmax=*/false, /*softmaxType=*/nullptr, /*numHeadsQ=*/1,
+      /*numHeadsKV=*/1, std::cref(bufferDeps));
 }
 
 void RockGemmToGridwisePass::runOnOperation() {

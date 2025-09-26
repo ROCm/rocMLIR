@@ -65,7 +65,7 @@ class MLIROnlyConfig(ConvConfiguration):
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingHL={self.paddingHL!r}, paddingHR={self.paddingHR!r},
                 paddingWL={self.paddingWL!r}, paddingWR={self.paddingWR!r}, dilationH={self.dilationH!r}, dilationW={self.dilationW!r},
-                group={self.group!r}, arch={self.arch!r}, usesV4R1={self}, perfConfig={perf_config_str!r})"""
+                group={self.group!r}, arch={self.arch!r}, usesV4R1={v4r1_str!r}, perfConfig={perf_config_str!r})"""
 
     def generateMlirDriverCommandLine(self,
                                       rocmlir_gen_flags) -> Sequence[str]:

@@ -575,10 +575,11 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
     auto newOp = b.create<rock::AttentionOp>(
         op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
         op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(), op.getOut(),
-        op.getLse(), transposedQ, transposedK, transposedV,
-        op.getOTransposedAttr(), op.getCausalAttr(), op.getSplitKVAttr(),
-        op.getFeaturesAttr(), op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+        op.getLse(), op.getNumHeadsQAttr(), op.getNumHeadsKVAttr(), transposedQ,
+        transposedK, transposedV, op.getOTransposedAttr(), op.getCausalAttr(),
+        op.getSplitKVAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        op.getSoftmaxTypeAttr(), op.getParams0Attr(), op.getParams1Attr(),
+        op.getFirstGemmIndicesAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;

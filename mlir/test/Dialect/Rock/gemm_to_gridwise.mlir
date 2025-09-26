@@ -224,7 +224,9 @@ func.func @rock_attention_simple(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x6
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
     splitKV = 1 : i32,
-    storeMethod = #rock<StoreMethod set>
+    storeMethod = #rock<StoreMethod set>,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32
   }
   return
 }
@@ -248,7 +250,9 @@ func.func @rock_attention_tr_padded(%arg0: memref<1x49x7xf32>, %arg1: memref<1x7
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
     splitKV = 1 : i32,
-    storeMethod = #rock<StoreMethod set>
+    storeMethod = #rock<StoreMethod set>,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32
   }
   return
 }
@@ -267,7 +271,9 @@ func.func @rock_attention_kvcache(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
     splitKV = 1 : i32,
-    storeMethod = #rock<StoreMethod set>
+    storeMethod = #rock<StoreMethod set>,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32
   }
   return
 }
@@ -287,7 +293,9 @@ func.func @rock_attention_causal(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x6
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
     splitKV = 1 : i32,
-    storeMethod = #rock<StoreMethod set>
+    storeMethod = #rock<StoreMethod set>,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32
   }
   return
 }
@@ -306,7 +314,9 @@ func.func @rock_attention_lse(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
     splitKV = 1 : i32,
-    storeMethod = #rock<StoreMethod set>
+    storeMethod = #rock<StoreMethod set>,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32
   }
   return
 }
@@ -326,7 +336,9 @@ func.func @rock_attention_splitkv(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
     splitKV = 4 : i32,
-    storeMethod = #rock<StoreMethod set>
+    storeMethod = #rock<StoreMethod set>,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32
   }
   return
 }
@@ -348,7 +360,9 @@ func.func @rock_attention_splitkv_padding(%arg0: memref<1x64x1024xf32>, %arg1: m
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
     splitKV = 8 : i32,
-    storeMethod = #rock<StoreMethod set>
+    storeMethod = #rock<StoreMethod set>,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32
   }
   return
 }
@@ -367,9 +381,11 @@ func.func @rock_attention_softmaxtype(%arg0: memref<1x64x1024xf16>, %arg1: memre
     params0 = #xldops_attn_params_g0,
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
-    softmaxType = f32,
+    storeMethod = #rock<StoreMethod set>,
     splitKV = 1 : i32,
-    storeMethod = #rock<StoreMethod set>
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32,
+    softmaxType = f32
   }
   return
 }
@@ -505,5 +521,37 @@ func.func @rock_gemmelementwisegemm_splitk_two_outputs(%arg0: memref<4096xf32>, 
   %4 = rock.transform %alloc_0 by <affine_map<(d0) -> (0, d0, 0)> by [<Merge{1, 64, 1} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [64] -> [1, 64, 1]> : memref<1x64x1xf32> to memref<64xf32>
   memref.copy %3, %arg3 : memref<4096xf32> to memref<4096xf32>
   memref.copy %4, %arg4 : memref<64xf32> to memref<64xf32>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_attention_gqa
+// CHECK-SAME: (%[[q:.*]]: memref<64x1x128xf16>, %[[k:.*]]: memref<8x128x8192xf16>, %[[v:.*]]: memref<8x8192x128xf16>, %[[lse:.*]]: memref<256x1xf16>, %[[o:.*]]: memref<256x1x128xf16>)
+// CHECK-SAME: grid_size = 32
+func.func @rock_attention_gqa(%arg0: memref<64x1x128xf16>, %arg1: memref<8x128x8192xf16>, %arg2: memref<8x8192x128xf16>, %arg3: memref<256x1xf16>, %arg4: memref<256x1x128xf16>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100", block_size = 64 : i32, grid_size = 1024 : i32} {
+  // CHECK-DAG: %[[qNormalized:.*]] = rock.transform %[[q]] by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by {{.*}} memref<64x1x128xf16> to memref<64x128x1xf16>
+  // CHECK-DAG: %[[qExtractNumRepeats:.+]] = rock.transform %[[qNormalized]] by <affine_map<(d0, d1, d2, d3) -> (d0 * 8 + d3, d1, d2)> by {{.*}} memref<64x128x1xf16> to memref<8x128x1x8xf16>
+  // CHECK-DAG: %[[qMoveToSeqLen:.*]] = rock.transform %[[qExtractNumRepeats]] by <affine_map<(d0, d1, d2) -> (d0, d1, 0, d2)> by {{.*}} memref<8x128x1x8xf16> to memref<8x128x8xf16>
+  // CHECK-DAG: %[[qPad:.+]] = rock.transform %[[qMoveToSeqLen]] by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by {{.*}} memref<8x128x8xf16> to memref<8x128x32xf16>
+  
+  // CHECK-DAG: %[[outUnmerge:.*]] = rock.transform %[[o]] by <affine_map<(d0, d1, d2, d3, d4) -> ((d0 * 8 + d3) * 4 + d1, d2, d4)> by {{.*}} memref<256x1x128xf16> to memref<8x4x1x8x128xf16>
+  // CHECK-DAG: %[[outMerge:.*]] = rock.transform %[[outUnmerge]] by <affine_map<(d0, d1, d2) -> (d0 floordiv 4, d0 mod 4, 0, d1, d2)> by {{.*}} memref<8x4x1x8x128xf16> to memref<32x8x128xf16>
+  // CHECK-DAG: %[[outPad:.*]] = rock.transform %[[outMerge]] by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by {{.*}} memref<32x8x128xf16> to memref<32x32x128xf16>
+  
+  // CHECK-DAG: %[[lseUnmerge:.*]] = rock.transform %[[lse]] by <affine_map<(d0, d1, d2, d3) -> ((d0 * 8 + d3) * 4 + d1, d2)> by {{.*}} memref<256x1xf16> to memref<8x4x1x8xf16>
+  // CHECK-DAG: %[[lseMerge:.*]] = rock.transform %[[lseUnmerge]] by <affine_map<(d0, d1) -> (d0 floordiv 4, d0 mod 4, 0, d1)> by {{.*}} memref<8x4x1x8xf16> to memref<32x8xf16>
+  // CHECK-DAG: %[[lsePad:.*]] = rock.transform %[[lseMerge]] by <affine_map<(d0, d1) -> (d0, d1)> by {{.*}} memref<32x8xf16> to memref<32x32xf16>
+
+  // CHECK: rock.gridwise_attention_accel(%[[qPad]], %[[k]], %[[v]], %[[outPad]], %[[lsePad]])
+  // CHECK-NEXT: splitKV = 4
+  rock.attention{
+     qk = %arg0 * %arg1 : memref<64x1x128xf16>, memref<8x128x8192xf16>
+     lse = %arg3 : memref<256x1xf16>
+     qk = elementwise {
+    ^bb0(%arg5: memref<64x1x8192xf16>, %arg6: memref<64x1x8192xf16>):
+      memref.copy %arg5, %arg6 : memref<64x1x8192xf16> to memref<64x1x8192xf16>
+      rock.yield
+    }
+     %arg4 = softmax(qk) * %arg2 : memref<8x8192x128xf16> -> memref<256x1x128xf16>
+  } {features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, firstGemmIndices = array<i64: 0>, numHeadsKV = 8 : i32, numHeadsQ = 64 : i32, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, softmaxType = f32, splitKV = 4 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
