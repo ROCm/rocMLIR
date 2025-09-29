@@ -327,33 +327,39 @@ LogicalResult ReshapeOp::verify() {
            << dimsAttr.size() << ") does not match result rank ("
            << outType.getRank() << ")";
 
-  // Calculate total elements in dims attribute
-  int64_t targetElements = 1;
-  for (int i = 0; i < dimsAttr.size(); i++) {
-    int64_t dimValue = cast<IntegerAttr>(dimsAttr[i]).getInt();
-    // A value of -1 means that the dimension is to be inferred based on what
-    // the total number of output elements is
-    if (dimValue <= 0) {
-      return success();
+  // Check that there is only a single -1 value
+  int missingDims = llvm::count_if(
+      dimsAttr.getAsRange<IntegerAttr>(),
+      [](IntegerAttr a) { return a.getInt() == -1; });
+  if (missingDims > 1)
+    return emitOpError("expected at most one target dimension to be -1");
+
+  // Check how many zero dimensions there are
+  int numZeros = llvm::count_if(
+      dimsAttr.getAsRange<IntegerAttr>(),
+      [](IntegerAttr a) { return a.getInt() == 0; });
+
+  if (missingDims > 0 && numZeros > 0)
+    return emitOpError("Cannot mix missing dimensions with zero dimension");
+
+  // Compare dimension values to output shape
+  for (auto [dimVal, outDim] : llvm::zip(dimsAttr, outType.getShape())) {
+    int64_t dimValue = cast<IntegerAttr>(dimVal).getInt();
+    // We cannot handle negative values that aren't -1
+    if (dimValue < -1 || outDim < -1) {
+      return emitOpError("Non -1 negative values are not supported");
     }
-    targetElements *= dimValue;
 
-    // Per-dimension consistency
-    int64_t outDim = outType.getShape()[i];
-    if (outDim > 0 && outDim != dimValue)
-      return emitOpError("dims[")
-             << i << "] = " << dimValue
-             << " inconsistent with result dimension " << outDim;
+    // Per-dimension consistency for positive dimensions
+    if (outDim >= 0 && outDim != dimValue)
+      return emitOpError("dimValue: ")
+             << dimValue << " inconsistent with result dimension " << outDim;
   }
 
-  // Compare element counts
+  // Check that the number of elements in the input and output types match
   int64_t inputElements = inputType.getNumElements();
-  if (inputElements != targetElements) {
-    return emitOpError("reshape dims [")
-           << dimsAttr << "] would create " << targetElements
-           << " elements but input has " << inputElements
-           << " elements, which will result in TOSA no-op reshape";
-  }
+  if (inputElements != outType.getNumElements())
+    return emitOpError("input and output element counts do not match");
 
   return success();
 }
