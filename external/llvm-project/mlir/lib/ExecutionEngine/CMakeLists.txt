@@ -18,6 +18,7 @@ set(LLVM_OPTIONAL_SOURCES
   CpuSystemDetect.cpp
   SystemDevices.cpp
   JitRunner.cpp
+  LevelZeroRuntimeWrappers.cpp
   SpirvCpuRuntimeWrappers.cpp
   SyclRuntimeWrappers.cpp
   VulkanRuntimeWrappers.cpp
@@ -379,46 +380,55 @@ if(LLVM_ENABLE_PIC)
       PUBLIC
       hip::host hip::amdhip64
     )
+  endif()
 
-    add_mlir_library(MLIRRocmExecutionEngineUtils
-      SHARED
-      RocmSystemDetect.cpp
+  add_mlir_library(MLIRRocmExecutionEngineUtils
+    SHARED
+    RocmSystemDetect.cpp
 
-      ADDITIONAL_HEADER_DIRS
-      ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
+    ADDITIONAL_HEADER_DIRS
+    ${MLIR_MAIN_INCLUDE_DIR}/mlir/ExecutionEngine
 
-      DEPENDS
-      intrinsics_gen
-    )
+    DEPENDS
+    intrinsics_gen
+  )
 
-    if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
-      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-      "-Wno-c++98-compat-extra-semi")
+  if (CXX_SUPPORTS_CXX98_COMPAT_EXTRA_SEMI_FLAG)
+    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+    "-Wno-c++98-compat-extra-semi")
+  endif()
+  if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
+    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+      "-Wno-return-type-c-linkage")
+  endif()
+  if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
+    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+      "-Wno-nested-anon-types")
+  endif()
+  if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
+    target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
+      "-Wno-gnu-anonymous-struct")
+  endif()
+
+  target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
+    MLIRExecutionEngineUtils
+  )
+  # We do need both of these.  One is for linking, to get the HIP
+  # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
+  target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
+    hip::host hip::amdhip64
+  )
+  target_link_libraries(obj.MLIRRocmExecutionEngineUtils PUBLIC
+    hip::host hip::amdhip64
+  )
+
+  if(MLIR_ENABLE_SYCL_RUNNER OR MLIR_ENABLE_LEVELZERO_RUNNER)
+    # Both runtimes require LevelZero, so we can find it once.
+    find_package(LevelZeroRuntime)
+
+    if(NOT LevelZeroRuntime_FOUND)
+      message(FATAL_ERROR "LevelZero not found. Please set LEVEL_ZERO_DIR.")
     endif()
-    if (CXX_SUPPORTS_WNO_RETURN_TYPE_C_LINKAGE_FLAG)
-      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-        "-Wno-return-type-c-linkage")
-    endif()
-    if (CXX_SUPPORTS_WNO_NESTED_ANON_TYPES_FLAG)
-      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-        "-Wno-nested-anon-types")
-    endif()
-    if (CXX_SUPPORTS_WNO_GNU_ANONYMOUS_STRUCT_FLAG)
-      target_compile_options(obj.MLIRRocmExecutionEngineUtils PRIVATE
-       "-Wno-gnu-anonymous-struct")
-    endif()
-
-    target_link_libraries(MLIRRocmExecutionEngineUtils PRIVATE
-      MLIRExecutionEngineUtils
-    )
-    # We do need both of these.  One is for linking, to get the HIP
-    # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
-    target_link_libraries(MLIRRocmExecutionEngineUtils PUBLIC
-      hip::host hip::amdhip64
-    )
-    target_link_libraries(obj.MLIRRocmExecutionEngineUtils PUBLIC
-      hip::host hip::amdhip64
-    )
   endif()
 
   if(MLIR_ENABLE_SYCL_RUNNER)
@@ -426,12 +436,6 @@ if(LLVM_ENABLE_PIC)
 
     if(NOT SyclRuntime_FOUND)
       message(FATAL_ERROR "syclRuntime not found. Please set check oneapi installation and run setvars.sh.")
-    endif()
-
-    find_package(LevelZero)
-
-    if(NOT LevelZero_FOUND)
-      message(FATAL_ERROR "LevelZero not found. Please set LEVEL_ZERO_DIR.")
     endif()
 
     add_mlir_library(mlir_sycl_runtime
@@ -451,9 +455,28 @@ if(LLVM_ENABLE_PIC)
       ${MLIR_INCLUDE_DIRS}
     )
 
-    target_link_libraries(mlir_sycl_runtime PRIVATE LevelZero::LevelZero SyclRuntime::SyclRuntime)
+    target_link_libraries(mlir_sycl_runtime PRIVATE LevelZeroRuntime::LevelZeroRuntime SyclRuntime::SyclRuntime)
 
-    set_property(TARGET mlir_sycl_runtime APPEND PROPERTY BUILD_RPATH "${LevelZero_LIBRARIES_DIR}" "${SyclRuntime_LIBRARIES_DIR}")
+    set_property(TARGET mlir_sycl_runtime APPEND PROPERTY BUILD_RPATH "${LevelZeroRuntime_LIBRARIES_DIR}" "${SyclRuntime_LIBRARIES_DIR}")
+  endif()
+
+  if(MLIR_ENABLE_LEVELZERO_RUNNER)
+    add_mlir_library(mlir_levelzero_runtime
+      SHARED
+      LevelZeroRuntimeWrappers.cpp
+
+      EXCLUDE_FROM_LIBMLIR
+    )
+
+    target_compile_options(mlir_levelzero_runtime PUBLIC -fexceptions -frtti)
+
+    target_include_directories(mlir_levelzero_runtime PRIVATE
+      ${MLIR_INCLUDE_DIRS}
+    )
+
+    target_link_libraries(mlir_levelzero_runtime PRIVATE LevelZeroRuntime::LevelZeroRuntime)
+
+    set_property(TARGET mlir_levelzero_runtime APPEND PROPERTY BUILD_RPATH "${LevelZeroRuntime_LIBRARIES_DIR}")
   endif()
 
   if(MLIR_ENABLE_SPIRV_CPU_RUNNER)

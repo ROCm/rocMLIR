@@ -19,6 +19,7 @@
 #ifndef LLVM_BINARYFORMAT_DWARF_H
 #define LLVM_BINARYFORMAT_DWARF_H
 
+#include "llvm/Support/AMDGPUAddrSpace.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/DataTypes.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -1026,7 +1027,7 @@ LLVM_ABI StringRef FormatString(DwarfFormat Format);
 LLVM_ABI StringRef FormatString(bool IsDWARF64);
 LLVM_ABI StringRef RLEString(unsigned RLE);
 LLVM_ABI StringRef MemorySpaceString(unsigned MS);
-LLVM_ABI StringRef AddressSpaceString(unsigned AS, llvm::Triple TT);
+LLVM_ABI StringRef AddressSpaceString(unsigned AS, const llvm::Triple &TT);
 /// @}
 
 /// \defgroup DwarfConstantsParsing Dwarf constants parsing functions

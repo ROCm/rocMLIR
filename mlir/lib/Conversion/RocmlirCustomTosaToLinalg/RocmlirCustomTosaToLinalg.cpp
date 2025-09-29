@@ -59,42 +59,43 @@ LogicalResult UnsignedCastLoweringPattern::matchAndRewrite(
   Type inElemType = cast<RankedTensorType>(op.getInputList().front().getType())
                         .getElementType();
   Type outElemType = outType.getElementType();
-  Value emptyTensor = rewriter.create<tensor::EmptyOp>(
-      loc, outType, /*dynamic_sizes=*/ValueRange{});
+  Value emptyTensor = tensor::EmptyOp::create(rewriter, loc, outType,
+                                              /*dynamic_sizes=*/ValueRange{});
 
   SmallVector<AffineMap> iterationMaps(
       op.getInputList().size() + 1,
       rewriter.getMultiDimIdentityMap(outType.getRank()));
   SmallVector<utils::IteratorType> iteratorKinds(outType.getRank(),
                                                  utils::IteratorType::parallel);
-  auto genericOp = rewriter.create<linalg::GenericOp>(
-      loc, outType, adaptor.getInputList(), emptyTensor, iterationMaps,
-      iteratorKinds, [&](OpBuilder &b, Location loc, ValueRange inputs) {
+  auto genericOp = linalg::GenericOp::create(
+      rewriter, loc, outType, adaptor.getInputList(), emptyTensor,
+      iterationMaps, iteratorKinds,
+      [&](OpBuilder &b, Location loc, ValueRange inputs) {
         Value result;
         if (op.getOperatorName() == "unsigned_cast") {
           assert(inputs.size() == 2);
           if (isa<IntegerType>(inElemType)) {
             if (isa<FloatType>(outElemType)) {
-              result = b.create<arith::UIToFPOp>(loc, outElemType, inputs[0]);
+              result = arith::UIToFPOp::create(b, loc, outElemType, inputs[0]);
             } else if (outElemType.getIntOrFloatBitWidth() >
                        inElemType.getIntOrFloatBitWidth()) {
-              result = b.create<arith::ExtUIOp>(loc, outElemType, inputs[0]);
+              result = arith::ExtUIOp::create(b, loc, outElemType, inputs[0]);
             } else {
-              result = b.create<arith::TruncIOp>(loc, outElemType, inputs[0]);
+              result = arith::TruncIOp::create(b, loc, outElemType, inputs[0]);
             }
           } else {
             assert(isa<FloatType>(inElemType));
             assert(isa<IntegerType>(outElemType));
-            result = b.create<arith::FPToUIOp>(loc, outElemType, inputs[0]);
+            result = arith::FPToUIOp::create(b, loc, outElemType, inputs[0]);
           }
         } else if (op.getOperatorName() == "unsigned_div") {
           assert(isa<IntegerType>(outElemType));
           assert(isa<IntegerType>(inElemType));
           assert(inputs.size() == 3);
           result =
-              b.create<arith::DivUIOp>(loc, outElemType, inputs[0], inputs[1]);
+              arith::DivUIOp::create(b, loc, outElemType, inputs[0], inputs[1]);
         }
-        b.create<linalg::YieldOp>(loc, result);
+        linalg::YieldOp::create(b, loc, result);
       });
   rewriter.replaceOp(op, genericOp);
   return success();

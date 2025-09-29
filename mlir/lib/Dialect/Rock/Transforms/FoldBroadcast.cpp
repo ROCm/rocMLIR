@@ -202,8 +202,8 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
     }
 
     // Create the new GemmOp
-    auto gemm = rw.create<rock::GemmOp>(
-        op.getLoc(), newC.getType(), newA, newB, newC, op.getATransposed(),
+    auto gemm = rock::GemmOp::create(
+        rw, op.getLoc(), newC.getType(), newA, newB, newC, op.getATransposed(),
         op.getBTransposed(), op.getCTransposed(), op.getFeaturesAttr(),
         op.getStoreMethod(), op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParamsAttr());
@@ -214,8 +214,8 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
 
     // Remove dummy transforms from the gemm output and use it to replace the
     // original op through all the IR
-    Value result = rw.create<rock::TensorUntransformCastOp>(
-        loc, cast<RankedTensorType>(op.getC().getType()), gemm.getResult(),
+    Value result = rock::TensorUntransformCastOp::create(
+        rw, loc, cast<RankedTensorType>(op.getC().getType()), gemm.getResult(),
         gemm.getC());
     rw.replaceOp(op, result);
 
