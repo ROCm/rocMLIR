@@ -1613,11 +1613,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         Value result = select.getInput3();
         return result;
       } else if (auto broadcast = getDefiningNonReshapeOpNonCastOp<tosa::AddOp>(pred)) {
-        // TODO: I need to hear back from Alan, but if we expect the MIGraphX
-        // input constant to be a range then we can use the below piece of logic
-        // if (failed(getConstComparison(broadcast, 0)))
-        //   return failure();
-
+        // The input from MIGraphX will not be a constant range, so we cannot
+        // use the getConstComparison function
         auto maybeNonZero = addBroadcast(broadcast);
         if (failed(maybeNonZero))
           return failure();
