@@ -27,7 +27,7 @@ from perfRunner import get_arch, get_num_cu, initialize_dtypes_attn
 from perfRunner import create_paths as createPaths
 from perfRunner import find_mlir_build_dir as findMlirBuildDir
 from perfRunner import DATA_TYPES_ATTENTION, GFX_CHIP_RE
-from parameterSweeps import Options, sweepParameters, multilineRepr
+from parameterSweeps import Options, sweep_parameters, multiline_repr
 
 # GLOBAL VARIABLES
 DATA_TYPES_ATTENTION = initialize_dtypes_attn()
@@ -223,12 +223,12 @@ def main():
                for _ in range(args.samples)]
 
     passed, invalid, failing = asyncio.run(
-        sweepParameters(samples, toAttentionConfig, options, paths))
+        sweep_parameters(samples, toAttentionConfig, options, paths))
     if failing:
         print("\n" + "-" * 80)
         print(f"{'Failing Configurations':^80}\n")
         for fail in failing:
-            print(multilineRepr(fail))
+            print(multiline_repr(fail))
 
     print(f"\nPassed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
 

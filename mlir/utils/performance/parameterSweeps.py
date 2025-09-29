@@ -171,7 +171,7 @@ class MLIROnlyConfig(ConvConfiguration):
              (self.x - 1) * self.dilationW - 1) / self.convStrideW) + 1
 
 
-def multilineRepr(obj, num_fields=4):
+def multiline_repr(obj, num_fields=4):
     """ Returns a multi-line string representation of the given object,
     inserting a newline after every defined number of comma-separated
     fields in its repr(). Useful for making long configuration 
@@ -219,7 +219,7 @@ class TestResult(enum.Enum):
     FAIL = 3
 
 
-async def testConfig(config, options: Options, paths: Paths) -> TestResult:
+async def test_config(config, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
     if isinstance(config, MLIROnlyConfig):
@@ -346,38 +346,38 @@ def grouper(iterable: Iterable[IterType], n: int):
         yield chunk
 
 
-async def dropGoodConfig(config, options: Options, paths: Paths):
+async def drop_good_config(config, options: Options, paths: Paths):
     """Test the given `params`, returning the corresponding `config` on failure
     and `None` on success or inapplicability"""
-    result = await testConfig(config, options, paths)
+    result = await test_config(config, options, paths)
     if not options.quiet:
         if isinstance(config, MLIROnlyConfig):
             print(f"{result.name}: {config!r}")
         else:
             print("-" * 100)
-            print(f"{result.name}: {multilineRepr(config)}")
+            print(f"{result.name}: {multiline_repr(config)}")
     if result == TestResult.FAIL:
         if options.logFailures:
             if isinstance(config, perfRunner.AttentionConfiguration):
                 with open("failing_attn_configs.txt", "a") as f:
-                    f.write(multilineRepr(config) + "\n")
+                    f.write(multiline_repr(config) + "\n")
             else:
                 with open("failing_conv_configs.txt", "a") as f:
-                    f.write(multilineRepr(config) + "\n")
+                    f.write(multiline_repr(config) + "\n")
         return config
     return result
 
 
-async def sweepParameters(paramIter: Iterable[IterType],
-                          toConfig: Callable[[IterType, Options],
-                                             PerfConfig], options: Options,
-                          paths: Paths) -> Tuple[int, int, List[PerfConfig]]:
+async def sweep_parameters(paramIter: Iterable[IterType],
+                           toConfig: Callable[[IterType, Options],
+                                              PerfConfig], options: Options,
+                           paths: Paths) -> Tuple[int, int, List[PerfConfig]]:
     failingConfigs = []
     passed = 0
     invalid = 0
     configs = (c for c in (toConfig(p, options) for p in paramIter))
     for configs in grouper(
-        (dropGoodConfig(c, options, paths) for c in configs),
+        (drop_good_config(c, options, paths) for c in configs),
             options.concurrent_tests):
         configsFuture = asyncio.gather(*configs)
         try:
@@ -550,11 +550,11 @@ def to_vanilla_perf_config_test(params, options: Options) -> MLIROnlyConfig:
                           PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
 
 
-async def runConfig(paramIter: Iterable[IterType],
-                    toConfig: Callable[[IterType, Options], MLIROnlyConfig],
-                    options: Options, paths: Paths) -> bool:
+async def run_config(paramIter: Iterable[IterType],
+                     toConfig: Callable[[IterType, Options], MLIROnlyConfig],
+                     options: Options, paths: Paths) -> bool:
     n_passes, n_invalids, failures = \
-        await sweepParameters(paramIter, toConfig, options, paths)
+        await sweep_parameters(paramIter, toConfig, options, paths)
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
@@ -694,20 +694,20 @@ def main() -> bool:
     succeeded = False
     if config == 'conv_structure':
         succeeded = asyncio.run(
-            runConfig(CONV_STRUCTURE, to_conv_structure_type_test, options,
-                      paths))
+            run_config(CONV_STRUCTURE, to_conv_structure_type_test, options,
+                       paths))
     elif config == 'mfma_perf_config':
         succeeded = asyncio.run(
-            runConfig(MFMA_PERF_CONFIG, to_mfma_perf_config_test, options,
-                      paths))
+            run_config(MFMA_PERF_CONFIG, to_mfma_perf_config_test, options,
+                       paths))
     elif config == 'vanilla_perf_config':
         succeeded = asyncio.run(
-            runConfig(VANILLA_PERF_CONFIG, to_vanilla_perf_config_test,
-                      options, paths))
+            run_config(VANILLA_PERF_CONFIG, to_vanilla_perf_config_test,
+                       options, paths))
     elif config == 'wmma_perf_config':
         succeeded = asyncio.run(
-            runConfig(WMMA_PERF_CONFIG, to_mfma_perf_config_test, options,
-                      paths))
+            run_config(WMMA_PERF_CONFIG, to_mfma_perf_config_test, options,
+                       paths))
     else:
         print(f"Unknown config: {config}", file=sys.stderr)
     return succeeded
