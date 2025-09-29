@@ -315,22 +315,35 @@ LogicalResult LiteralOp::verify() {
 
 LogicalResult ReshapeOp::verify() {
   MIXRShapedType inputType = getInput().getType();
+  MIXRShapedType outType = getOutput().getType();
   ArrayAttr dimsAttr = getDims();
 
-  // Dynamic shapes cannot be verified
+  // Dynamic shapes are not currently supported
   if (!inputType.hasStaticShape())
-    return success();
+    return emitOpError("Dynamic shapes are not supported");
+
+  if (dimsAttr.size() != outType.getRank())
+    return emitOpError("number of dims (")
+           << dimsAttr.size() << ") does not match result rank ("
+           << outType.getRank() << ")";
 
   // Calculate total elements in dims attribute
   int64_t targetElements = 1;
-  for (auto dim : dimsAttr) {
-    int64_t dimValue = cast<IntegerAttr>(dim).getInt();
+  for (int i = 0; i < dimsAttr.size(); i++) {
+    int64_t dimValue = cast<IntegerAttr>(dimsAttr[i]).getInt();
     // A value of -1 means that the dimension is to be inferred based on what
     // the total number of output elements is
     if (dimValue <= 0) {
       return success();
     }
     targetElements *= dimValue;
+
+    // Per-dimension consistency
+    int64_t outDim = outType.getShape()[i];
+    if (outDim > 0 && outDim != dimValue)
+      return emitOpError("dims[")
+             << i << "] = " << dimValue
+             << " inconsistent with result dimension " << outDim;
   }
 
   // Compare element counts
