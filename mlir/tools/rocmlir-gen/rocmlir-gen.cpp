@@ -2350,7 +2350,7 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
                        aScale = {groupSize, transposeA ? gemmK / 32 : gemmM,
                                  transposeA ? gemmM : gemmK / 32},
                        bScale = {groupSize, transposeB ? gemmN : gemmK / 32,
-                                 transposeB ? gemmK : gemmN};
+                                 transposeB ? gemmK / 32 : gemmN};
   MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
              bType = MemRefType::get(bDims, elemTypes[1]),
              cType = MemRefType::get(cDims, cElemType),
