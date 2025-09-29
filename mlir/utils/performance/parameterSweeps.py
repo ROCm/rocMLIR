@@ -33,8 +33,8 @@ class Options:
     arch: str
     flags: list
     concurrent_tests: int
-    numCu: int
-    logFailures: bool = False
+    num_cu: int
+    log_failures: bool = False
 
 
 class PerfConfig:
@@ -59,12 +59,12 @@ class PerfConfig:
 class MLIROnlyConfig(ConvConfiguration):
 
     def __repr__(self):
-        perf_config_str = str(self.perfConfig) if self.perfConfig else ""
-        v4r1_str = str(self.usesV4R1) if self.usesV4R1 else "1"
+        perf_config_str = str(self.perfconfig) if self.perfconfig else ""
+        v4r1_str = str(self.uses_v4r1) if self.uses_v4r1 else "1"
         return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
-                convStrideH={self.convStrideH!r}, convStrideW={self.convStrideW!r}, paddingHL={self.paddingHL!r}, paddingHR={self.paddingHR!r},
-                paddingWL={self.paddingWL!r}, paddingWR={self.paddingWR!r}, dilationH={self.dilationH!r}, dilationW={self.dilationW!r},
+                convStrideH={self.conv_stride_h!r}, convStrideW={self.conv_stride_w!r}, paddingHL={self.padding_hl!r}, paddingHR={self.padding_hr!r},
+                paddingWL={self.padding_wl!r}, paddingWR={self.padding_wr!r}, dilationH={self.dilation_h!r}, dilationW={self.dilation_w!r},
                 group={self.group!r}, arch={self.arch!r}, usesV4R1={v4r1_str!r}, perfConfig={perf_config_str!r})"""
 
     def generate_mlir_drver_commandline(self,
@@ -86,18 +86,18 @@ class MLIROnlyConfig(ConvConfiguration):
             str(self.k), '--fil_h',
             str(self.y), '--fil_w',
             str(self.x), '--dilation_h',
-            str(self.dilationH), '--dilation_w',
-            str(self.dilationW), '--conv_stride_h',
-            str(self.convStrideH), '--conv_stride_w',
-            str(self.convStrideW), '--padding_h_l',
-            str(self.paddingHL), '--padding_h_r',
-            str(self.paddingHR), '--padding_w_l',
-            str(self.paddingWL), '--padding_w_r',
-            str(self.paddingWR)
+            str(self.dilation_h), '--dilation_w',
+            str(self.dilation_w), '--conv_stride_h',
+            str(self.conv_stride_h), '--conv_stride_w',
+            str(self.conv_stride_w), '--padding_h_l',
+            str(self.padding_hl), '--padding_h_r',
+            str(self.padding_hr), '--padding_w_l',
+            str(self.padding_wl), '--padding_w_r',
+            str(self.padding_wr)
         ]
 
-        if self.direction == 'bwd' and self.usesV4R1 is not None:
-            result += ['-v4r1', str(self.usesV4R1)]
+        if self.direction == 'bwd' and self.uses_v4r1 is not None:
+            result += ['-v4r1', str(self.uses_v4r1)]
 
         result += rocmlir_gen_flags
 
@@ -118,18 +118,18 @@ class MLIROnlyConfig(ConvConfiguration):
                  k: int,
                  y: int,
                  x: int,
-                 convStrideH: int,
-                 convStrideW: int,
-                 paddingHL: int,
-                 paddingHR: int,
-                 paddingWL: int,
-                 paddingWR: int,
-                 dilationH: int,
-                 dilationW: int,
+                 conv_stride_h: int,
+                 conv_stride_w: int,
+                 padding_hl: int,
+                 padding_hr: int,
+                 padding_wl: int,
+                 padding_wr: int,
+                 dilation_h: int,
+                 dilation_w: int,
                  group: int,
                  arch: str,
-                 usesV4R1: Optional[int] = None,
-                 perfConfig: Optional[PerfConfig] = None):
+                 uses_v4r1: Optional[int] = None,
+                 perfconfig: Optional[PerfConfig] = None):
         if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
@@ -150,25 +150,25 @@ class MLIROnlyConfig(ConvConfiguration):
         self.y = y
         self.x = x
 
-        self.convStrideH = convStrideH
-        self.convStrideW = convStrideW
-        self.paddingHL = paddingHL
-        self.paddingHR = paddingHR
-        self.paddingWL = paddingWL
-        self.paddingWR = paddingWR
-        self.dilationH = dilationH
-        self.dilationW = dilationW
+        self.conv_stride_h = conv_stride_h
+        self.conv_stride_w = conv_stride_w
+        self.padding_hl = padding_hl
+        self.padding_hr = padding_hr
+        self.padding_wl = padding_wl
+        self.padding_wr = padding_wr
+        self.dilation_h = dilation_h
+        self.dilation_w = dilation_w
 
         self.group = group
         self.arch = arch
-        self.perfConfig = perfConfig
-        self.usesV4R1 = usesV4R1
+        self.perfconfig = perfconfig
+        self.uses_v4r1 = uses_v4r1
         self.ho = math.floor(
-            (self.hi + self.paddingHL + self.paddingHR -
-             (self.y - 1) * self.dilationH - 1) / self.convStrideH) + 1
+            (self.hi + self.padding_hl + self.padding_hr -
+             (self.y - 1) * self.dilation_h - 1) / self.conv_stride_h) + 1
         self.wo = math.floor(
-            (self.wi + self.paddingWL + self.paddingWR * 2 -
-             (self.x - 1) * self.dilationW - 1) / self.convStrideW) + 1
+            (self.wi + self.padding_wl + self.padding_wr * 2 -
+             (self.x - 1) * self.dilation_w - 1) / self.conv_stride_w) + 1
 
 
 def multiline_repr(obj, num_fields=4):
@@ -357,7 +357,7 @@ async def drop_good_config(config, options: Options, paths: Paths):
             print("-" * 100)
             print(f"{result.name}: {multiline_repr(config)}")
     if result == TestResult.FAIL:
-        if options.logFailures:
+        if options.log_failures:
             if isinstance(config, perfRunner.AttentionConfiguration):
                 with open("failing_attn_configs.txt", "a") as f:
                     f.write(multiline_repr(config) + "\n")
@@ -368,14 +368,14 @@ async def drop_good_config(config, options: Options, paths: Paths):
     return result
 
 
-async def sweep_parameters(paramIter: Iterable[IterType],
-                           toConfig: Callable[[IterType, Options],
-                                              PerfConfig], options: Options,
+async def sweep_parameters(param_iter: Iterable[IterType],
+                           to_config: Callable[[IterType, Options],
+                                               PerfConfig], options: Options,
                            paths: Paths) -> Tuple[int, int, List[PerfConfig]]:
     failingConfigs = []
     passed = 0
     invalid = 0
-    configs = (c for c in (toConfig(p, options) for p in paramIter))
+    configs = (c for c in (to_config(p, options) for p in param_iter))
     for configs in grouper(
         (drop_good_config(c, options, paths) for c in configs),
             options.concurrent_tests):
@@ -397,7 +397,7 @@ async def sweep_parameters(paramIter: Iterable[IterType],
 
 
 def filtered_conv_structure():
-    for size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw, usesV4R1 in itertools.product(
+    for size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw, uses_v4r1 in itertools.product(
             # Small/large - that is, do we have padding
         [False, True],
             # op
@@ -423,10 +423,10 @@ def filtered_conv_structure():
             # UsesV4R1
             # Note: This only applies to bwd_data ops, it will be a no-op for all others
             range(0, 1)):
-        # Only include usesV4R1 for bwd ops, otherwise set to None
+        # Only include uses_v4r1 for bwd ops, otherwise set to None
         if op == 'bwd':
             yield (size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw,
-                   usesV4R1)
+                   uses_v4r1)
         else:
             yield (size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw,
                    None)
@@ -436,7 +436,7 @@ CONV_STRUCTURE = filtered_conv_structure()
 
 
 def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
-    size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw, usesV4R1 = params
+    size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw, uses_v4r1 = params
     # Fixed parameters, y = x = 2, hi = wi = 4, g = 1
     g, hi, wi, y, x = 1, 4, 4, 2, 2
     if size:
@@ -447,7 +447,7 @@ def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
         n, c, k = 1, 7, 7
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw,
                           phl, phr, pwl, pwr, dh, dw, g, options.arch,
-                          usesV4R1)
+                          uses_v4r1)
 
 
 WMMA_PERF_CONFIG = itertools.product(
@@ -550,11 +550,11 @@ def to_vanilla_perf_config_test(params, options: Options) -> MLIROnlyConfig:
                           PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
 
 
-async def run_config(paramIter: Iterable[IterType],
-                     toConfig: Callable[[IterType, Options], MLIROnlyConfig],
+async def run_config(param_iter: Iterable[IterType],
+                     to_config: Callable[[IterType, Options], MLIROnlyConfig],
                      options: Options, paths: Paths) -> bool:
     n_passes, n_invalids, failures = \
-        await sweep_parameters(paramIter, toConfig, options, paths)
+        await sweep_parameters(param_iter, to_config, options, paths)
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
@@ -680,11 +680,11 @@ def main() -> bool:
 
     options = Options(debug=args.debug,
                       quiet=args.quiet,
-                      logFailures=args.log_failures,
+                      log_failures=args.log_failures,
                       arch=arch,
                       flags=rocmlir_gen_flags,
                       concurrent_tests=args.jobs,
-                      numCu=get_num_cu(perfRunner.get_chip()))
+                      num_cu=get_num_cu(perfRunner.get_chip()))
 
     paths = perfRunner.create_paths(None, args.mlir_build_dir)
 

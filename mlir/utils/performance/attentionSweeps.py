@@ -63,7 +63,7 @@ def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
                                         return_lse=rlse,
                                         split_kv=split_kv,
                                         arch=options.arch,
-                                        numCU=options.numCu,
+                                        num_cu=options.num_cu,
                                         perf_config=perfString)
     attnConfig.currentSeqLen = currentSeqLen
     return attnConfig
@@ -205,8 +205,8 @@ def main():
                       arch=arch,
                       flags=[],
                       concurrent_tests=args.jobs,
-                      numCu=get_num_cu(chip),
-                      logFailures=args.log_failures)
+                      num_cu=get_num_cu(chip),
+                      log_failures=args.log_failures)
 
     if not args.quiet:
         print(
