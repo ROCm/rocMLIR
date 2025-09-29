@@ -174,7 +174,7 @@ class MLIROnlyConfig(ConvConfiguration):
 def multiline_repr(obj, num_fields=4):
     """ Returns a multi-line string representation of the given object,
     inserting a newline after every defined number of comma-separated
-    fields in its repr(). Useful for making long configuration 
+    fields in its repr(). Useful for making long configuration
     representations more readable in logs or debug output."""
     s = repr(obj).replace('\n', ' ')  # Flatten to one line
     lines = []
@@ -223,42 +223,43 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
     if isinstance(config, MLIROnlyConfig):
-        rocmlirGenOpts = config.generate_mlir_drver_commandline(options.flags)
+        rocmlir_gen_opts = config.generate_mlir_drver_commandline(
+            options.flags)
     else:
-        rocmlirGenOpts = config.generate_mlir_drver_commandline(
+        rocmlir_gen_opts = config.generate_mlir_drver_commandline(
             ' '.join(options.flags), kernel_repeats=None).split()
         if getattr(config, "currentSeqLen") is not None:
-            rocmlirGenOpts.append(
+            rocmlir_gen_opts.append(
                 f"--current_seq_len={','.join(map(str, config.currentSeqLen))}"
             )
-    rocmlirGenOpts.append('-pv')
+    rocmlir_gen_opts.append('-pv')
 
-    applicableFromGen, genToApplicable = os.pipe()
+    applicable_from_gen, gen_to_applicable = os.pipe()
     generator = await asyncio.create_subprocess_exec(
         paths.mlir_paths.rocmlir_gen_path,
-        *rocmlirGenOpts,
-        stdout=genToApplicable,
+        *rocmlir_gen_opts,
+        stdout=gen_to_applicable,
         stderr=asyncio.subprocess.PIPE,
         stdin=asyncio.subprocess.DEVNULL)
-    os.close(genToApplicable)
+    os.close(gen_to_applicable)
 
     applicability = await asyncio.create_subprocess_exec(
         paths.mlir_paths.rocmlir_driver_path,
         '--kernel-pipeline=applicability',
         '-',
-        stdin=applicableFromGen,
+        stdin=applicable_from_gen,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE)
-    os.close(applicableFromGen)
-    _, genErrs = await generator.communicate()
-    highLevel, tuneErrs = await applicability.communicate()
+    os.close(applicable_from_gen)
+    _, gen_errs = await generator.communicate()
+    high_level, tune_errs = await applicability.communicate()
 
     if generator.returncode != 0:
         if options.debug:
             print(f"""rocmlir-gen failed for config {config!r}
-Command line = {rocmlirGenOpts}
+Command line = {rocmlir_gen_opts}
 Return code = {generator.returncode}
-Errors = {genErrs.decode('utf-8')}
+Errors = {gen_errs.decode('utf-8')}
 """)
         return TestResult.INVALID
 
@@ -266,22 +267,22 @@ Errors = {genErrs.decode('utf-8')}
         if options.debug:
             print(
                 f"""rocmlir-driver applicability pipeline failed for config {config!r}
-Generator command line = {rocmlirGenOpts}
+Generator command line = {rocmlir_gen_opts}
 Return code = {applicability.returncode}
-Errors = {tuneErrs.decode('utf-8')}
+Errors = {tune_errs.decode('utf-8')}
 """)
         return TestResult.INVALID
 
-    runnerFromLowering, loweringToRunner = os.pipe()
+    runner_from_lowering, lowering_to_runner = os.pipe()
     lowering = await asyncio.create_subprocess_exec(
         paths.mlir_paths.rocmlir_driver_path,
         '--kernel-pipeline=full',
         '--host-pipeline=runner',
         '-',
         stdin=asyncio.subprocess.PIPE,
-        stdout=loweringToRunner,
+        stdout=lowering_to_runner,
         stderr=asyncio.subprocess.PIPE)
-    os.close(loweringToRunner)
+    os.close(lowering_to_runner)
 
     mlir_cpu_runner_args = [
         '-O2',
@@ -291,44 +292,44 @@ Errors = {tuneErrs.decode('utf-8')}
     runner = await asyncio.create_subprocess_exec(
         paths.mlir_paths.cpu_runner_path,
         *mlir_cpu_runner_args,
-        stdin=runnerFromLowering,
+        stdin=runner_from_lowering,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE)
-    os.close(runnerFromLowering)
+    os.close(runner_from_lowering)
 
-    _, loweringErrs = await lowering.communicate(input=highLevel)
-    runnerOut, runnerErrs = await runner.communicate()
-    runnerOut = runnerOut.decode('utf-8')
+    _, lowering_errs = await lowering.communicate(input=high_level)
+    runner_out, runner_errs = await runner.communicate()
+    runner_out = runner_out.decode('utf-8')
 
     if lowering.returncode != 0:
         if options.debug:
             print(
                 f"""Low-level lowering did not complete succesfully for config {config!r}
-Command line = {rocmlirGenOpts}
-Errors = {loweringErrs.decode('utf-8')}
+Command line = {rocmlir_gen_opts}
+Errors = {lowering_errs.decode('utf-8')}
 Return code = {lowering.returncode}""")
         return TestResult.FAIL
 
     if runner.returncode != 0:
         if options.debug:
             print(f"""Runner execution failed for config {config!r}
-Output = {runnerOut}
-Errors = {runnerErrs.decode('utf-8')}
+Output = {runner_out}
+Errors = {runner_errs.decode('utf-8')}
 Return code = {runner.returncode}""",
                   file=sys.stderr)
         return TestResult.FAIL
 
     output_lines = [
         line.strip()
-        for line in runnerOut.splitlines()
+        for line in runner_out.splitlines()
         if len(line.strip()) > 0
     ]
     expected_output = "[1 1 1]"
     all_correct = all(line == expected_output for line in output_lines)
     if not all_correct:
         print(f"""Config returned incorrect result
-Output = {runnerOut}
-Errors = {runnerErrs.decode('utf-8')}""",
+Output = {runner_out}
+Errors = {runner_errs.decode('utf-8')}""",
               file=sys.stderr)
         return TestResult.FAIL
     return TestResult.PASS
@@ -372,28 +373,28 @@ async def sweep_parameters(param_iter: Iterable[IterType],
                            to_config: Callable[[IterType, Options],
                                                PerfConfig], options: Options,
                            paths: Paths) -> Tuple[int, int, List[PerfConfig]]:
-    failingConfigs = []
+    failing_configs = []
     passed = 0
     invalid = 0
     configs = (c for c in (to_config(p, options) for p in param_iter))
     for configs in grouper(
         (drop_good_config(c, options, paths) for c in configs),
             options.concurrent_tests):
-        configsFuture = asyncio.gather(*configs)
+        configs_future = asyncio.gather(*configs)
         try:
-            configsResults = await configsFuture
+            configs_results = await configs_future
         except Exception as e:
-            configsFuture.cancel()
+            configs_future.cancel()
             raise e
-        for result in configsResults:
+        for result in configs_results:
             if result == TestResult.PASS:
                 passed = passed + 1
             elif result == TestResult.INVALID:
                 invalid = invalid + 1
             else:
-                failingConfigs.append(result)
+                failing_configs.append(result)
 
-    return (passed, invalid, failingConfigs)
+    return (passed, invalid, failing_configs)
 
 
 def filtered_conv_structure():
