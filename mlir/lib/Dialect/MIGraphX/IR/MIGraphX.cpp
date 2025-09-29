@@ -345,13 +345,17 @@ LogicalResult ReshapeOp::verify() {
   // Compare dimension values to output shape
   for (auto [dimVal, outDim] : llvm::zip(dimsAttr, outType.getShape())) {
     int64_t dimValue = cast<IntegerAttr>(dimVal).getInt();
-    // We cannot handle negative values that aren't -1
-    if (dimValue < -1 || outDim < -1) {
+    // We cannot handle negative dims values that aren't -1 
+    if (dimValue < -1 ) {
       return emitOpError("Non -1 negative values are not supported");
     }
 
-    // Per-dimension consistency for positive dimensions
-    if (outDim >= 0 && outDim != dimValue)
+    // Output dimensions can't be negative
+    if (outDim < 0)
+      return emitOpError("Negative output dimensions are not supported");
+
+    // Per-dimension consistency
+    if (dimValue >= 0 && outDim != dimValue)
       return emitOpError("dimValue: ")
              << dimValue << " inconsistent with result dimension " << outDim;
   }
