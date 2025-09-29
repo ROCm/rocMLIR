@@ -2432,50 +2432,85 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
     {
       // create broadcast transform for aScale and bScale
       rock::BottomUpTMBuilder addDimTransform(
-          b, {"g", "m", "kScale"},
+          b,
+          transposeA ? ArrayRef<StringRef>{"g", "kScale", "m"}
+                     : ArrayRef<StringRef>{"g", "m", "kScale"},
           cast<ShapedType>(aScale.getType()).getShape(), loc);
-      addDimTransform.addDim("block", 3, 1);
-      addDimTransform.passThrough({"g", "m", "kScale"});
+      uint32_t blockDim = transposeA ? 2 : 3;
+      if (transposeA) {
+        addDimTransform.passThrough({"g", "kScale", "m"}, {0, 1, 3},
+                                    {"g", "kScale", "m"});
+        addDimTransform.addDim("block", blockDim, 1);
+      } else {
+        addDimTransform.addDim("block", blockDim, 1);
+        addDimTransform.passThrough({"g", "m", "kScale"});
+      }
       rock::TransformMapAttr addDimTransformAttr = addDimTransform.get();
       aScale = rock::TransformOp::create(b, loc, aScale, addDimTransformAttr);
       // create broadcast
       rock::BottomUpTMBuilder broadcastTransform =
           rock::BottomUpTMBuilder::above(addDimTransform, addDimTransformAttr);
-      broadcastTransform.broadcast({3}, {32});
-      broadcastTransform.passThrough({"g", "m", "kScale"});
+      broadcastTransform.broadcast({blockDim}, {32});
+      if (transposeA) {
+        broadcastTransform.passThrough({"g", "kScale", "m"});
+      } else {
+        broadcastTransform.passThrough({"g", "m", "kScale"});
+      }
       rock::TransformMapAttr broadcastTransformAttr = broadcastTransform.get();
       aScale =
           rock::TransformOp::create(b, loc, aScale, broadcastTransformAttr);
       // merge transform
       rock::BottomUpTMBuilder mergeTransform = rock::BottomUpTMBuilder::above(
           broadcastTransform, broadcastTransformAttr);
-      mergeTransform.merge("k", 2, {"kScale", "block"});
-      mergeTransform.passThrough({"g", "m"});
+      if (transposeA) {
+        mergeTransform.passThrough({"g", "m"}, {0, 2}, {"g", "m"});
+        mergeTransform.merge("k", 1, {"kScale", "block"});
+      } else {
+        mergeTransform.merge("k", 2, {"kScale", "block"});
+        mergeTransform.passThrough({"g", "m"});
+      }
       aScale = rock::TransformOp::create(b, loc, aScale, mergeTransform.get());
     }
     {
-      // create broadcast transform for aScale and bScale
+      // create broadcast transform for bScale
       rock::BottomUpTMBuilder addDimTransform(
-          b, {"g", "kScale", "n"},
+          b,
+          transposeB ? ArrayRef<StringRef>{"g", "n", "kScale"}
+                     : ArrayRef<StringRef>{"g", "kScale", "n"},
           cast<ShapedType>(bScale.getType()).getShape(), loc);
-      addDimTransform.passThrough({"g", "kScale", "n"}, {0, 2, 3},
-                                  {"g", "kScale", "n"});
-      addDimTransform.addDim("block", 1, 1);
+      uint32_t blockDim = transposeB ? 3 : 2;
+      if (transposeB) {
+        addDimTransform.passThrough({"g", "n", "kScale"});
+        addDimTransform.addDim("block", blockDim, 1);
+      } else {
+        addDimTransform.passThrough({"g", "kScale", "n"}, {0, 1, 3},
+                                    {"g", "kScale", "n"});
+        addDimTransform.addDim("block", blockDim, 1);
+      }
       rock::TransformMapAttr addDimTransformAttr = addDimTransform.get();
       bScale = rock::TransformOp::create(b, loc, bScale, addDimTransformAttr);
       // create broadcast
       rock::BottomUpTMBuilder broadcastTransform =
           rock::BottomUpTMBuilder::above(addDimTransform, addDimTransformAttr);
-      broadcastTransform.broadcast({1}, {32});
-      broadcastTransform.passThrough({"g", "kScale", "n"});
+      broadcastTransform.broadcast({blockDim}, {32});
+      if (transposeB) {
+        broadcastTransform.passThrough({"g", "n", "kScale"});
+      } else {
+        broadcastTransform.passThrough({"g", "kScale", "n"});
+      }
       rock::TransformMapAttr broadcastTransformAttr = broadcastTransform.get();
       bScale =
           rock::TransformOp::create(b, loc, bScale, broadcastTransformAttr);
       // merge transform
       rock::BottomUpTMBuilder mergeTransform = rock::BottomUpTMBuilder::above(
           broadcastTransform, broadcastTransformAttr);
-      mergeTransform.passThrough({"g", "n"}, {0, 2}, {"g", "n"});
-      mergeTransform.merge("k", 1, {"kScale", "block"});
+      if (transposeB) {
+        mergeTransform.passThrough({"g", "n"}, {0, 1}, {"g", "n"});
+        mergeTransform.merge("k", 2, {"kScale", "block"});
+      } else {
+        mergeTransform.passThrough({"g", "n"}, {0, 2}, {"g", "n"});
+        mergeTransform.merge("k", 1, {"kScale", "block"});
+      }
       bScale = rock::TransformOp::create(b, loc, bScale, mergeTransform.get());
     }
   }
