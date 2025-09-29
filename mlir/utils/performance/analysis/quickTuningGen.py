@@ -104,7 +104,7 @@ class FileWriter():
                                 file.write(
                                     f"// END_{op}_{instruction_type}_{datatype}_{arch}_DEFS\n\n"
                                 )
-                file.write(f"#endif\n\n")
+                file.write("#endif\n\n")
 
                 file.write(f"#ifdef {instruction_type}_DECLARATIONS_GEN\n\n")
                 for datatype in datatypes:
@@ -118,7 +118,7 @@ class FileWriter():
                                 file.write(
                                     f"// END_{op}_{instruction_type}_{datatype}_{arch}_DECS\n\n"
                                 )
-                file.write(f"#endif\n\n")
+                file.write("#endif\n\n")
 
     def get_init_params_definitions(self, arch, dtype, op):
         """
@@ -128,7 +128,7 @@ class FileWriter():
         instruction_type = self.get_instruction_type(arch, dtype)
 
         if dtype == 'f32':
-            init_params = f"initParameters"
+            init_params = "initParameters"
             if not self.is_accel(arch, dtype):
                 instruction_type = ''
         elif dtype == 'f16':
@@ -256,11 +256,11 @@ class PerfConfigsFinder():
             perfconfigs_set.update(perfconfigs_lists)
         return list(perfconfigs_set)
 
-    def get_top_n_perfconfigs_per_problems(self, df, targetColumns):
+    def get_top_n_perfconfigs_per_problems(self, df, target_columns):
         """
         Identifies the top perfconfigs for each problem based on a threshold
         """
-        grouped = df.groupby(targetColumns)
+        grouped = df.groupby(target_columns)
         problem_df = {}
         for name, grouped_df in grouped:
             max_value = grouped_df['TFlops'].max()
@@ -279,11 +279,11 @@ class PerfConfigsFinder():
         result = {}
         unique_data_types = self.df['DataType'].unique()
 
-        targetColumns = []
+        target_columns = []
         if self.op == "gemm":
-            targetColumns = ['Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N']
+            target_columns = ['Chip', 'TransA', 'TransB', 'G', 'M', 'K', 'N']
         else:
-            targetColumns = [
+            target_columns = [
                 'Chip', 'Direction', 'InputLayout', 'N', 'C', 'H', 'W', 'K',
                 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW',
                 'PaddingH', 'PaddingW'
@@ -292,7 +292,7 @@ class PerfConfigsFinder():
         for data_type in unique_data_types:
             df_typed = self.df[self.df['DataType'] == data_type]
             problems_to_perfconfigs = self.get_top_n_perfconfigs_per_problems(
-                df_typed, targetColumns)
+                df_typed, target_columns)
 
             problems = problems_to_perfconfigs.keys()
             perfconfigs = self.get_unique_perfconfigs_list(
@@ -306,11 +306,11 @@ class PerfConfigsFinder():
             }
 
             # Create coverage matrix
-            A = np.zeros((n, m), dtype=int)
+            a = np.zeros((n, m), dtype=int)
             for i, problem in enumerate(problems):
                 for perfconfig in problems_to_perfconfigs[problem]:
                     j = perfconfig_to_index[perfconfig]
-                    A[i][j] = 1
+                    a[i][j] = 1
 
             # Linear programming model to minimize the number of perfconfigs
             prob = pulp.LpProblem("SetCoverProblems", pulp.LpMinimize)
@@ -319,7 +319,7 @@ class PerfConfigsFinder():
             prob += pulp.lpSum([x[j]] for j in range(m))
             for i in range(n):
                 # Add a constraint for each problem ensuring at least one perfconfig is selected
-                prob += pulp.lpSum([A[i][j] * x[j] for j in range(m)
+                prob += pulp.lpSum([a[i][j] * x[j] for j in range(m)
                                    ]) >= 1, f"Cover_problem_{i}"
 
             prob.solve(pulp.PULP_CBC_CMD(msg=0))
@@ -332,7 +332,7 @@ class PerfConfigsFinder():
             coverege_counts = {config: 0 for config in selected_configs}
             for i in range(n):
                 for j in range(m):
-                    if A[i][j] == 1 and x[j].varValue == 1:
+                    if a[i][j] == 1 and x[j].varValue == 1:
                         coverege_counts[perfconfigs[j]] += 1
 
             # Sort selected perfconfigs by the number of problem they cover
@@ -345,11 +345,11 @@ class PerfConfigsFinder():
         return result
 
 
-def combine_data(input_dir, no_splitK):
+def combine_data(input_dir, no_split_k):
     """
     Combine all *.debug tuning data into a single file.
     """
-    tsv_files = glob.glob(os.path.join(input_dir, f"*.debug"))
+    tsv_files = glob.glob(os.path.join(input_dir, "*.debug"))
 
     dfs = []
     for file in tsv_files:
@@ -361,7 +361,7 @@ def combine_data(input_dir, no_splitK):
     new_df = pd.concat(dfs, ignore_index=True)
 
     # Remove splitK from tuning data
-    if no_splitK:
+    if no_split_k:
         df_filtered = new_df[new_df['PerfConfig'].str.split(',').str[6] == '1']
         new_df = df_filtered
 
@@ -412,7 +412,7 @@ def main(args=None):
 
     pargs = parser.parse_args()
 
-    combined_data = combine_data(pargs.input_dir, pargs.no_splitK)
+    combined_data = combine_data(pargs.input_dir, pargs.no_split_k)
 
     finder = PerfConfigsFinder(combined_data, pargs)
     result = finder.find()
