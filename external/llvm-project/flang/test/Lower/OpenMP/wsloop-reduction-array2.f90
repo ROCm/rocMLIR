@@ -1,6 +1,5 @@
 ! RUN: bbc -emit-hlfir -fopenmp -o - %s 2>&1 | FileCheck %s
 ! RUN: %flang_fc1 -emit-hlfir -fopenmp -o - %s 2>&1 | FileCheck %s
-! XFAIL: *
 program reduce
 integer :: i = 0
 integer, dimension(2) :: r = 0
@@ -66,7 +65,7 @@ end program
 ! CHECK:           omp.yield
 ! CHECK:         }
 
-! CHECK-LABEL:   func.func @_QQmain() attributes {fir.bindc_name = "reduce"} {
+! CHECK-LABEL:   func.func @_QQmain() attributes {fir.bindc_name = "REDUCE"} {
 ! CHECK:           %[[VAL_0:.*]] = fir.address_of(@_QFEi) : !fir.ref<i32>
 ! CHECK:           %[[VAL_1:.*]]:2 = hlfir.declare %[[VAL_0]] {uniq_name = "_QFEi"} : (!fir.ref<i32>) -> (!fir.ref<i32>, !fir.ref<i32>)
 ! CHECK:           %[[VAL_2:.*]] = fir.address_of(@_QFEr) : !fir.ref<!fir.array<2xi32>>

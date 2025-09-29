@@ -197,6 +197,15 @@ void DwarfExpression::addStackValue() {
     emitOp(dwarf::DW_OP_stack_value);
 }
 
+void DwarfExpression::addBooleanConstant(int64_t Value) {
+  assert(isImplicitLocation() || isUnknownLocation());
+  LocationKind = Implicit;
+  if (Value == 0)
+    emitOp(dwarf::DW_OP_lit0);
+  else
+    emitOp(dwarf::DW_OP_lit1);
+}
+
 void DwarfExpression::addSignedConstant(int64_t Value) {
   if (IsPoisonedExpr || !IsImplemented)
     return;
@@ -758,7 +767,7 @@ void DwarfExpression::addExpression(DIExpression::NewElementsRef Expr,
   IsFragment = false;
   ASTRoot.reset();
   this->TRI = nullptr;
-  this->ArgLocEntries = std::nullopt;
+  this->ArgLocEntries = {};
 }
 
 /// add masking operations to stencil out a subregister.

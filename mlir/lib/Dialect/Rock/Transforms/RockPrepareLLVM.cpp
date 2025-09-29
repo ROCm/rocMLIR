@@ -60,12 +60,12 @@ struct SelectExtractRewritePattern
       return failure();
 
     auto loc = op->getLoc();
-    auto extractTrueValue = rw.create<LLVM::ExtractValueOp>(
-        loc, selectOp.getTrueValue(), op.getPosition());
-    auto extractFalseValue = rw.create<LLVM::ExtractValueOp>(
-        loc, selectOp.getFalseValue(), op.getPosition());
-    auto newSelectOp = rw.create<LLVM::SelectOp>(
-        loc, selectOp.getCondition(), extractTrueValue, extractFalseValue,
+    auto extractTrueValue = LLVM::ExtractValueOp::create(
+        rw, loc, selectOp.getTrueValue(), op.getPosition());
+    auto extractFalseValue = LLVM::ExtractValueOp::create(
+        rw, loc, selectOp.getFalseValue(), op.getPosition());
+    auto newSelectOp = LLVM::SelectOp::create(
+        rw, loc, selectOp.getCondition(), extractTrueValue, extractFalseValue,
         selectOp.getFastmathFlags());
     rw.replaceOp(op, newSelectOp);
     return success();
