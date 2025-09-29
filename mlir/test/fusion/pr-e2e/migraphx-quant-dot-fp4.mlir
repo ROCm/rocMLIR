@@ -1,5 +1,5 @@
-// RUN: rocmlir-gen --clone-harness -arch %arch -fut mlir_quant_dot_fp4 %s | rocmlir-driver  -kernel-pipeline migraphx | rocmlir-driver -host-pipeline migraphx,highlevel -targets %arch | rocmlir-gen -ph -verifier clone -fut mlir_quant_dot_fp4_wrapper - | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s --check-prefix=CLONE
-// CLONE: [1 1 1]
+// RUN: rocmlir-driver -kernel-pipeline=migraphx %s | rocmlir-gen -fut mlir_quant_dot_fp4 --arch %arch --clone-harness - | rocmlir-driver -host-pipeline=highlevel | rocmlir-gen -ph -fut mlir_quant_dot_fp4_wrapper --verifier clone - | rocmlir-driver -host-pipeline mhal,runner -kernel-pipeline full | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
+// CHECK: [1 1 1]
 
 module {
   func.func @mlir_quant_dot_fp4(%x1: !migraphx.shaped<1x1024xf8E4M3FN, 1024x1>,
@@ -7,7 +7,7 @@ module {
                            %x3: !migraphx.shaped<1x64x1xf32, 64x1x1>,
                            %x4: !migraphx.shaped<64x1x1000xf32, 1000x1000x1>,
                            %x5: !migraphx.shaped<1x1000xf32, 1000x1>)
-        -> !migraphx.shaped<1x1000xf32, 1000x1>  attributes {kernel, arch="gfx950"} {
+        -> !migraphx.shaped<1x1000xf32, 1000x1>   {
     %wT = migraphx.transpose %x2 {permutation = [1,0]}
           : <1000x1024xf8E4M3FN, 1024x1> -> <1024x1000xf8E4M3FN, 1x1024>
     %wTUnpacked = migraphx.unpack %wT {axis = 0}
