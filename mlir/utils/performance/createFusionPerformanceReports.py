@@ -7,7 +7,7 @@ import sys
 
 
 #Create html reports from .csv files
-def printAllPerformance(chip, op):
+def print_all_performance(chip, op):
     perfReportFound = False
 
     COLUMNS_TO_AVERAGE = ['Fusion TFlops', 'MLIR TFlops', 'Fusion/MLIR']
@@ -49,5 +49,5 @@ def printAllPerformance(chip, op):
 
 # Main function.
 if __name__ == '__main__':
-    printAllPerformance(sys.argv[1], 'conv')
-    printAllPerformance(sys.argv[1], 'gemm')
+    print_all_performance(sys.argv[1], 'conv')
+    print_all_performance(sys.argv[1], 'gemm')
