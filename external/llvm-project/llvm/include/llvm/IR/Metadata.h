@@ -763,18 +763,18 @@ public:
 /// memory access used by the alias-analysis infrastructure.
 struct AAMDNodes {
   explicit AAMDNodes() = default;
-  explicit AAMDNodes(MDNode *T, MDNode *TS, MDNode *S, MDNode *N)
-      : TBAA(T), TBAAStruct(TS), Scope(S), NoAlias(N) {}
+  explicit AAMDNodes(MDNode *T, MDNode *TS, MDNode *S, MDNode *N, MDNode *NAS)
+      : TBAA(T), TBAAStruct(TS), Scope(S), NoAlias(N), NoAliasAddrSpace(NAS) {}
 
   bool operator==(const AAMDNodes &A) const {
     return TBAA == A.TBAA && TBAAStruct == A.TBAAStruct && Scope == A.Scope &&
-           NoAlias == A.NoAlias;
+           NoAlias == A.NoAlias && NoAliasAddrSpace == A.NoAliasAddrSpace;
   }
 
   bool operator!=(const AAMDNodes &A) const { return !(*this == A); }
 
   explicit operator bool() const {
-    return TBAA || TBAAStruct || Scope || NoAlias;
+    return TBAA || TBAAStruct || Scope || NoAlias || NoAliasAddrSpace;
   }
 
   /// The tag for type-based alias analysis.
@@ -788,6 +788,9 @@ struct AAMDNodes {
 
   /// The tag specifying the noalias scope.
   MDNode *NoAlias = nullptr;
+
+  /// The tag specifying the noalias address spaces.
+  MDNode *NoAliasAddrSpace = nullptr;
 
   // Shift tbaa Metadata node to start off bytes later
   LLVM_ABI static MDNode *shiftTBAA(MDNode *M, size_t off);
@@ -810,6 +813,8 @@ struct AAMDNodes {
     Result.TBAAStruct = Other.TBAAStruct == TBAAStruct ? TBAAStruct : nullptr;
     Result.Scope = Other.Scope == Scope ? Scope : nullptr;
     Result.NoAlias = Other.NoAlias == NoAlias ? NoAlias : nullptr;
+    Result.NoAliasAddrSpace =
+        Other.NoAliasAddrSpace == NoAliasAddrSpace ? NoAliasAddrSpace : nullptr;
     return Result;
   }
 
@@ -822,6 +827,7 @@ struct AAMDNodes {
         TBAAStruct ? shiftTBAAStruct(TBAAStruct, Offset) : nullptr;
     Result.Scope = Scope;
     Result.NoAlias = NoAlias;
+    Result.NoAliasAddrSpace = NoAliasAddrSpace;
     return Result;
   }
 
@@ -837,6 +843,7 @@ struct AAMDNodes {
     Result.TBAAStruct = TBAAStruct;
     Result.Scope = Scope;
     Result.NoAlias = NoAlias;
+    Result.NoAliasAddrSpace = NoAliasAddrSpace;
     return Result;
   }
 
@@ -864,12 +871,12 @@ struct AAMDNodes {
 template<>
 struct DenseMapInfo<AAMDNodes> {
   static inline AAMDNodes getEmptyKey() {
-    return AAMDNodes(DenseMapInfo<MDNode *>::getEmptyKey(),
-                     nullptr, nullptr, nullptr);
+    return AAMDNodes(DenseMapInfo<MDNode *>::getEmptyKey(), nullptr, nullptr,
+                     nullptr, nullptr);
   }
 
   static inline AAMDNodes getTombstoneKey() {
-    return AAMDNodes(DenseMapInfo<MDNode *>::getTombstoneKey(),
+    return AAMDNodes(DenseMapInfo<MDNode *>::getTombstoneKey(), nullptr,
                      nullptr, nullptr, nullptr);
   }
 
@@ -877,7 +884,8 @@ struct DenseMapInfo<AAMDNodes> {
     return DenseMapInfo<MDNode *>::getHashValue(Val.TBAA) ^
            DenseMapInfo<MDNode *>::getHashValue(Val.TBAAStruct) ^
            DenseMapInfo<MDNode *>::getHashValue(Val.Scope) ^
-           DenseMapInfo<MDNode *>::getHashValue(Val.NoAlias);
+           DenseMapInfo<MDNode *>::getHashValue(Val.NoAlias) ^
+           DenseMapInfo<MDNode *>::getHashValue(Val.NoAliasAddrSpace);
   }
 
   static bool isEqual(const AAMDNodes &LHS, const AAMDNodes &RHS) {
@@ -915,8 +923,8 @@ public:
 
   // Check if MDOperand is of type MDString and equals `Str`.
   bool equalsStr(StringRef Str) const {
-    return isa<MDString>(this->get()) &&
-           cast<MDString>(this->get())->getString() == Str;
+    return isa_and_nonnull<MDString>(get()) &&
+           cast<MDString>(get())->getString() == Str;
   }
 
   ~MDOperand() { untrack(); }
@@ -1259,6 +1267,13 @@ public:
   bool isReplaceable() const { return isTemporary() || isAlwaysReplaceable(); }
   bool isAlwaysReplaceable() const { return getMetadataID() == DIAssignIDKind; }
 
+  /// Check if this is a valid generalized type metadata node.
+  bool hasGeneralizedMDString() {
+    if (getNumOperands() < 2 || !isa<MDString>(getOperand(1)))
+      return false;
+    return cast<MDString>(getOperand(1))->getString().ends_with(".generalized");
+  }
+
   unsigned getNumTemporaryUses() const {
     assert(isTemporary() && "Only for temporaries");
     return Context.getReplaceableUses()->getNumUses();
@@ -1399,18 +1414,14 @@ private:
   void eraseFromStore();
 
   template <class NodeTy> struct HasCachedHash;
-  template <class NodeTy>
-  static void dispatchRecalculateHash(NodeTy *N, std::true_type) {
-    N->recalculateHash();
+  template <class NodeTy> static void dispatchRecalculateHash(NodeTy *N) {
+    if constexpr (HasCachedHash<NodeTy>::value)
+      N->recalculateHash();
   }
-  template <class NodeTy>
-  static void dispatchRecalculateHash(NodeTy *, std::false_type) {}
-  template <class NodeTy>
-  static void dispatchResetHash(NodeTy *N, std::true_type) {
-    N->setHash(0);
+  template <class NodeTy> static void dispatchResetHash(NodeTy *N) {
+    if constexpr (HasCachedHash<NodeTy>::value)
+      N->setHash(0);
   }
-  template <class NodeTy>
-  static void dispatchResetHash(NodeTy *, std::false_type) {}
 
   /// Merge branch weights from two direct callsites.
   static MDNode *mergeDirectCallProfMetadata(MDNode *A, MDNode *B,
@@ -1471,6 +1482,8 @@ public:
                                                 const Instruction *BInstr);
   LLVM_ABI static MDNode *getMergedMemProfMetadata(MDNode *A, MDNode *B);
   LLVM_ABI static MDNode *getMergedCallsiteMetadata(MDNode *A, MDNode *B);
+  LLVM_ABI static MDNode *getMergedCalleeTypeMetadata(const MDNode *A,
+                                                      const MDNode *B);
 };
 
 /// Tuple of metadata.

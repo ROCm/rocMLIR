@@ -32,6 +32,6 @@ void mlirRegisterRocMLIRLibCLOptions() {
   mlir::registerMLIRCLOptions();
   llvm::cl::ParseCommandLineOptions(
       sizeof(fakeArgv) / sizeof(const char *), fakeArgv,
-      "Fake 'command line' for MIGraphX library debugging", nullptr,
+      "Fake 'command line' for MIGraphX library debugging", nullptr, nullptr,
       "ROCMLIR_DEBUG_FLAGS");
 }

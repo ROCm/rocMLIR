@@ -62,15 +62,15 @@ void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
 
   int64_t accVectorLen = accVectorType.getNumElements();
   int64_t numElements = accVectorLen * (mRepeats * nRepeats * nResultVectors);
-  auto zeroConstantOp = b.create<ConstantIndexOp>(loc, 0);
+  auto zeroConstantOp = ConstantIndexOp::create(b, loc, 0);
 
   BottomUpTMBuilder toRegCScalar(b, {"scalar"}, {numElements}, loc);
   toRegCScalar.embed({"vector"}, {0}, {mRepeats * nRepeats * nResultVectors},
                      "scalar", {accVectorLen});
   TransformMapAttr toRegCScalarAttr = toRegCScalar.get();
 
-  auto convertLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{{zeroConstantOp}, {zeroConstantOp}},
+  auto convertLoop = TransformingForOp::create(
+      b, loc, ArrayRef<ValueRange>{{zeroConstantOp}, {zeroConstantOp}},
       ArrayRef<Attribute>{b.getArrayAttr({}), b.getArrayAttr(toRegCScalarAttr)},
       /*bounds=*/ArrayRef<int64_t>{mRepeats * nRepeats * nResultVectors},
       /*strides=*/std::nullopt, forceUnroll, /*useIndexDiffs=*/true);
@@ -78,15 +78,15 @@ void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(convertLoop.getBody());
     Value loaded =
-        b.create<memref::LoadOp>(loc, accVectorType, regVectorOrig,
-                                 convertLoop.getLowerCoords(/*domain*/ 0));
+        memref::LoadOp::create(b, loc, accVectorType, regVectorOrig,
+                               convertLoop.getLowerCoords(/*domain*/ 0));
     Value cast = loaded;
     if (destType != accVectorType.getElementType()) {
       VectorType destVectorType = accVectorType.clone(destType);
       cast = createTypeConversionOp(b, loc, loaded, destVectorType);
     }
-    b.create<InBoundsStoreOp>(loc, cast, regDest,
-                              convertLoop.getLowerCoords(/*domain*/ 1));
+    InBoundsStoreOp::create(b, loc, cast, regDest,
+                            convertLoop.getLowerCoords(/*domain*/ 1));
   }
 }
 
@@ -184,26 +184,26 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
   auto imms = mfmaGroup.getImms();
   int64_t nResultVectors = imms.size();
-  Value nResultVectorsConst = b.create<ConstantIndexOp>(loc, nResultVectors);
+  Value nResultVectorsConst = ConstantIndexOp::create(b, loc, nResultVectors);
   VectorType vectorType = mfmaGroup.getRetType();
   auto outputOffset = llvm::to_vector(regCOffset);
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
-    offset = b.create<AddIOp>(
-        loc, offset,
-        b.create<MulIOp>(loc, outputOffset.back(), nResultVectorsConst));
+    offset = AddIOp::create(
+        b, loc, offset,
+        MulIOp::create(b, loc, outputOffset.back(), nResultVectorsConst));
     outputOffset.back() = offset;
     auto vectorC =
-        b.create<memref::LoadOp>(loc, vectorType, bufferC, outputOffset);
-    auto mfma = b.create<amdgpu::MFMAOp>(
-        loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
+        memref::LoadOp::create(b, loc, vectorType, bufferC, outputOffset);
+    auto mfma = amdgpu::MFMAOp::create(
+        b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
         mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
         /*abid=*/imms[i].abid,
         /*blgp=*/imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
         /*negateB=*/false, /*negateC=*/false);
     auto vectorD = mfma.getDestD();
 
-    b.create<memref::StoreOp>(loc, vectorD, bufferC, outputOffset);
+    memref::StoreOp::create(b, loc, vectorD, bufferC, outputOffset);
   }
 }
 
@@ -1047,14 +1047,15 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
                                      ValueRange regCOffset) {
   VectorType vectorType = wmmaInsn.retType;
-  auto vectorC = b.create<memref::LoadOp>(loc, vectorType, bufferC, regCOffset);
+  auto vectorC =
+      memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
-  auto mfma = b.create<amdgpu::WMMAOp>(loc, vectorType, argA, argB, vectorC,
-                                       /*subwordOffset=*/0, /*unsignedA=*/false,
-                                       /*unsignedB=*/false, /*clamp=*/true);
+  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, argA, argB, vectorC,
+                                     /*subwordOffset=*/0, /*unsignedA=*/false,
+                                     /*unsignedB=*/false, /*clamp=*/true);
   auto vectorD = mfma.getDestD();
 
-  b.create<memref::StoreOp>(loc, vectorD, bufferC, regCOffset);
+  memref::StoreOp::create(b, loc, vectorD, bufferC, regCOffset);
 }
 
 llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(

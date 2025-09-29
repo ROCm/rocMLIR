@@ -162,11 +162,11 @@ struct RemoveDimTestPattern : public OpRewritePattern<func::FuncOp> {
     Location loc = b.getUnknownLoc();
     Value input = newEntryBlock->getArgument(0);
     for (auto trMapAttr : llvm::reverse(newTrMapAttrs)) {
-      auto trOp = b.create<rock::TransformOp>(
-          loc, input, cast<TransformMapAttr>(trMapAttr));
+      auto trOp = rock::TransformOp::create(b, loc, input,
+                                            cast<TransformMapAttr>(trMapAttr));
       input = trOp.getOutput();
     }
-    b.create<func::ReturnOp>(loc);
+    func::ReturnOp::create(b, loc);
 
     return success();
   }
