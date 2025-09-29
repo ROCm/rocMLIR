@@ -501,10 +501,10 @@ MFMA_PERF_CONFIG = itertools.product(
 
 
 def to_mfma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
-    n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw =\
-         512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
-    op, layout, dtype, m_per_block, n_per_block, k_per_block, m_per_wave,\
-         n_per_wave, kpack, split_k, gemm_schedule = params
+    n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw = \
+        512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
+    op, layout, dtype, m_per_block, n_per_block, k_per_block, m_per_wave, \
+        n_per_wave, kpack, split_k, gemm_schedule = params
     perf_config_tuple = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block,
                          1 << m_per_wave, 1 << n_per_wave, 1 << kpack,
                          1 << split_k, gemm_schedule, 2, 1, 1)
@@ -539,10 +539,10 @@ VANILLA_PERF_CONFIG = itertools.product(
 
 
 def to_vanilla_perf_config_test(params, options: Options) -> MLIROnlyConfig:
-    n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw =\
+    n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw = \
          512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
-    op, layout, dtype, block_size, m_per_block, n_per_block, k_per_block,\
-        m_per_thread,n_per_thread, split_k, schedule_version = params
+    op, layout, dtype, block_size, m_per_block, n_per_block, k_per_block, \
+        m_per_thread, n_per_thread, split_k, schedule_version = params
     perf_config_tuple = (1 << block_size, 1 << m_per_block, 1 << n_per_block,
                          1 << k_per_block, 1 << m_per_thread, n_per_thread,
                          1 << split_k, schedule_version, 2)
