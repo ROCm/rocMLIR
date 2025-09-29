@@ -105,10 +105,22 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
   return success();
 }
 
+bool mlir::rock::isEveryElementWrittenBwdData(ArrayRef<int64_t> strideDims,
+                                              ArrayRef<int64_t> dilationDims,
+                                              ArrayRef<int64_t> filterDims) {
+  bool result = true;
+  for (const auto &[stride, dilation, filterSize] :
+       zip(strideDims, dilationDims, filterDims)) {
+    if (!(dilation == 1 && stride <= filterSize))
+      result = false;
+  }
+  return result;
+}
+
 SmallVector<int64_t>
 mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
                                   ArrayRef<int64_t> dilationDims,
-                                  ArrayRef<int64_t> filterDims) {
+                                  ArrayRef<int64_t> filterDims, bool usesV4R1) {
   assert(strideDims.size() == dilationDims.size());
   SmallVector<int64_t, 5> gcdStrideDilations;
   for (const auto &[stride, dilation] : zip(strideDims, dilationDims))
@@ -118,25 +130,9 @@ mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
   for (const auto &[stride, gcdSD] : zip(strideDims, gcdStrideDilations))
     filTilda.push_back(stride / gcdSD);
 
-  // Heuristic to determine if every pixel in the output would be written by the
-  // backward data convolution algorithm.
-  auto isEveryPixelWritten = [&]() -> bool {
-    bool result = true;
-    for (const auto &[stride, dilation, filterSize] :
-         zip(strideDims, dilationDims, filterDims)) {
-      if (!(dilation == 1 && stride <= filterSize))
-        result = false;
-    }
-    return result;
-  };
-  bool needZeroInitKernel = !isEveryPixelWritten();
-
-  llvm::SmallVector<int64_t> kernelIds;
-  if (needZeroInitKernel)
-    kernelIds.push_back(-1);
-
   // Populate the kernel IDs according to the current backward data convolution
   // algorithm implementation.
+  llvm::SmallVector<int64_t> kernelIds;
   int64_t subproduct = 1;
   int64_t product;
   for (size_t i = 1; i < filterDims.size(); i++)

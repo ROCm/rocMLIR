@@ -575,10 +575,11 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
     auto newOp = b.create<rock::AttentionOp>(
         op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
         op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(), op.getOut(),
-        op.getLse(), transposedQ, transposedK, transposedV,
-        op.getOTransposedAttr(), op.getCausalAttr(), op.getSplitKVAttr(),
-        op.getFeaturesAttr(), op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+        op.getLse(), op.getNumHeadsQAttr(), op.getNumHeadsKVAttr(), transposedQ,
+        transposedK, transposedV, op.getOTransposedAttr(), op.getCausalAttr(),
+        op.getSplitKVAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        op.getSoftmaxTypeAttr(), op.getParams0Attr(), op.getParams1Attr(),
+        op.getFirstGemmIndicesAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;
@@ -726,18 +727,6 @@ void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
   patternsConv.add<ConvRewritePattern<rock::ConvOp>>(&ctx);
   if (failed(applyOpPatternsGreedily(getOperations<rock::ConvOp>(func),
                                      std::move(patternsConv), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsConvBwdData(&ctx);
-  patternsConvBwdData.add<ConvRewritePattern<rock::ConvBwdDataOp>>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdDataOp>(func),
-                                     std::move(patternsConvBwdData), config)))
-    return signalPassFailure();
-
-  RewritePatternSet patternsConvBwdWeight(&ctx);
-  patternsConvBwdWeight.add<ConvRewritePattern<rock::ConvBwdWeightOp>>(&ctx);
-  if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdWeightOp>(func),
-                                     std::move(patternsConvBwdWeight), config)))
     return signalPassFailure();
 
   RewritePatternSet patternsGemm(&ctx);

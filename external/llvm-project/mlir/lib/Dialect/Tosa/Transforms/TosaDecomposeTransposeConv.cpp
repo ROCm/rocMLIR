@@ -68,14 +68,13 @@ public:
         loc, weightTy, weight, /* axis = */ rewriter.getI32IntegerAttr(1));
     auto reverse2 = rewriter.create<tosa::ReverseOp>(
         loc, weightTy, reverse1, /* axis = */ rewriter.getI32IntegerAttr(2));
-
     Value conv2d = rewriter.create<tosa::Conv2DOp>(
         loc, resultTy, input, reverse2, bias, op.getInputZp(), op.getWeightZp(),
         rewriter.getDenseI64ArrayAttr(convPad),
         rewriter.getDenseI64ArrayAttr(stride),
         rewriter.getDenseI64ArrayAttr({1, 1}),
         /* acc_type = */ op.getAccType(),
-        /* group = */ nullptr);
+        op->getAttrOfType<IntegerAttr>("group"));
 
     rewriter.replaceOp(op, conv2d);
     return success();
@@ -246,7 +245,7 @@ public:
                        /*stride=*/rewriter.getDenseI64ArrayAttr({1, 1}),
                        /*dilation=*/rewriter.getDenseI64ArrayAttr({1, 1}),
                        /* acc_type = */ op.getAccType(),
-                       /* group= */ nullptr)
+                       op->getAttrOfType<IntegerAttr>("group"))
                        .getResult();
 
     // Factor the resulting width / height.

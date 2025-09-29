@@ -304,12 +304,11 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     if (isBwdDataConvOp) {
       cop = rewriter.create<tosa::TransposeConv2DOp>(
           loc, new1DOutTy,
-          ValueRange{
-              input, filter,
-              getZeroTensor(loc, newOutElementTy,
-                            cast<ShapedType>(filter.getType()).getShape()[0],
-                            rewriter),
-              inputZp, weightZp});
+          ValueRange{input, filter,
+                     getZeroTensor(loc, newOutElementTy,
+                                   cast<ShapedType>(new1DOutTy).getShape()[3],
+                                   rewriter),
+                     inputZp, weightZp});
     } else {
       cop = rewriter.create<tosa::Conv2DOp>(
           loc, new1DOutTy,
@@ -330,12 +329,11 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     if (isBwdDataConvOp) {
       cop = rewriter.create<tosa::TransposeConv2DOp>(
           loc, newOutTy,
-          ValueRange{
-              input, filter,
-              getZeroTensor(loc, newOutElementTy,
-                            cast<ShapedType>(filter.getType()).getShape()[0],
-                            rewriter),
-              inputZp, weightZp});
+          ValueRange{input, filter,
+                     getZeroTensor(loc, newOutElementTy,
+                                   cast<ShapedType>(newOutTy).getShape()[3],
+                                   rewriter),
+                     inputZp, weightZp});
     } else {
       cop = rewriter.create<tosa::Conv2DOp>(
           loc, newOutTy,
@@ -420,9 +418,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   cop->setAttr("group", rewriter.getI64IntegerAttr(group));
 
   // Set padding for forwards and backwards convolution. Note: the padding here
-  // applies to input padding (which transpose.conv2D does not inherently
-  // support). TransposeConv2D will still require an output pad attribute, so we
-  // can just set that to zeros
+  // applies to input padding. TransposeConv2D will still require an output pad
+  // attribute, so we can just set that to zeros
   if (isBwdDataConvOp) {
     SmallVector<int64_t> zeroPads(pads.size(), 0);
     cop->setAttr("out_pad", rewriter.getDenseI64ArrayAttr(zeroPads));

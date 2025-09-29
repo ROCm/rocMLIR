@@ -32,7 +32,8 @@ func.func @rock_conv_bwd_data(%filter : memref<?x?x?x?x?xf32>,
     output_layout = ["n", "go", "k", "0o", "1o"],
     dilations = [1 : index,  1 : index],
     strides = [1 : index,  1 : index],
-    padding = [0 : index,  0 : index,  0 : index,  0 : index]
+    padding = [0 : index,  0 : index,  0 : index,  0 : index],
+    usesV4R1 = true
   } : memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>, memref<?x?x?x?x?xf32>
   return
 }
@@ -347,7 +348,9 @@ func.func @rock_attention(%arg0: memref<1x64x1024xf32>,
     params1 = #xldops_attn_params_g1,
     firstGemmIndices = array<i64: 0>,
     splitKV = 1 : i32,
-    storeMethod = #rock<StoreMethod set>
+    storeMethod = #rock<StoreMethod set>,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32
   }
   return
 }

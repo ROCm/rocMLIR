@@ -191,7 +191,7 @@ func.func @mlir_attention_where(%arg0: tensor<786432xf16>, %arg1: tensor<786432x
 }
 
 // CHECK: rock.attention
-  // CHECK: {firstGemmIndices = array<i64: 0>, perf_config = "attn:v2:64,128,32,16,32,16,4,4,1,2,1"
+// CHECK: perf_config = "attn:v2:64,128,32,16,32,16,4,4,1,2,1"
 func.func @self_attention_perfconfig(%arg0: tensor<1x384x64xf32>, %arg1: tensor<1x384x64xf32>, %arg2: tensor<1x384x64xf32>, %arg3: tensor<1x384x384xf32>) -> tensor<1x384x64xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
   %0 = "tosa.transpose"(%arg1) {perms = array<i32: 0, 2, 1>} : (tensor<1x384x64xf32>) -> tensor<1x64x384xf32>
   %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>

@@ -828,9 +828,12 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
       problemOS << "false" << sep;
 
     problemOS << "-split_kv " << attentionOp.getSplitKV() << sep;
+    problemOS << "-num_heads_q " << attentionOp.getNumHeadsQ() << sep;
+    problemOS << "-num_heads_kv " << attentionOp.getNumHeadsKV() << sep;
+    problemOS << "-g " << qShape[0] / attentionOp.getNumHeadsQ() << sep;
   }
 
-  if (!isConvGemm)
+  if (!isConvGemm && !isAttention)
     problemOS << "-g " << qShape[0] << sep;
 
   if (isAttention) {
@@ -1209,7 +1212,8 @@ RocmlirSplitKSelectionLikelihood isSplitKFaster(int64_t gDim, int64_t mDim,
 }
 
 bool isModuleFusible(ModuleOp module, StringRef perfConfig) {
-  bool fusible = succeeded(rock::testFusionLegalityReduce(module));
+  bool fusible = succeeded(rock::testFusionLegalityReduce(module)) &&
+                 succeeded(rock::testFusionLegalityBwdDataConv(module));
   if (!rock::isSplitKRequested(module, perfConfig))
     return fusible;
   return fusible && succeeded(rock::testFusionLegalitySplitK(module));
