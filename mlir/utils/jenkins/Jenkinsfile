@@ -967,6 +967,8 @@ pipeline {
                                                     }
 
                                                     stage("Parameter Sweep") {
+                                                        parameterSweep("conv_structure", "${CODEPATH}")
+                                                        parameterSweep("perf_config", "${CODEPATH}")
                                                         // attention_config is dummy value used to match with the function signature
                                                         parameterSweep("attention_config", "attention")
                                                     }
