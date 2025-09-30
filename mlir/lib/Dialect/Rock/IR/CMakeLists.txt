@@ -58,7 +58,9 @@ target_link_libraries(obj.MLIRRockOps PUBLIC
   hip::host hip::amdhip64
 )
 
-# From: https://github.com/ROCm/rocm-systems/blob/c53bdb9643afc2ef943fd25113a1c704d39aa6b4/projects/rocminfo/CMakeLists.txt
-find_package(hsa-runtime64 1.0 REQUIRED)
-
-target_link_libraries(MLIRRockOps PUBLIC hsa-runtime64::hsa-runtime64)
+# ROCm on Windows does not support HSA.
+if (NOT CMAKE_HOST_WIN32)
+  # From: https://github.com/ROCm/rocm-systems/blob/c53bdb9643afc2ef943fd25113a1c704d39aa6b4/projects/rocminfo/CMakeLists.txt
+  find_package(hsa-runtime64 1.0 REQUIRED)
+  target_link_libraries(MLIRRockOps PUBLIC hsa-runtime64::hsa-runtime64)
+endif()

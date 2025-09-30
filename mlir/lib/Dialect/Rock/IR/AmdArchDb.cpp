@@ -19,8 +19,12 @@
 #include "llvm/Support/TargetSelect.h"
 
 #include "hip/hip_runtime_api.h"
+
+// HSA is not supported on Windows
+#ifndef _WIN32
 #include "hsa/hsa.h"
 #include "hsa/hsa_ext_amd.h"
+#endif
 
 #define DEBUG_TYPE "rock-amd-arch-db"
 
@@ -139,13 +143,6 @@ std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   return ret;
 }
 
-#define RET_IF_HSA_ERR(err)                                                    \
-  {                                                                            \
-    if ((err) != HSA_STATUS_SUCCESS) {                                         \
-      return err;                                                              \
-    }                                                                          \
-  }
-
 struct AgentInfo {
   // Input fields:
   //   The ID of the GPU device that we are looking for.
@@ -168,9 +165,12 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
   checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
                   prop.sharedMemPerBlock);
 
+// We cannot get those values under Windows, since HSA is not supported.
+#ifndef _WIN32
   checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agent_info.simdsPerCU);
   checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
                   agent_info.maxWavesPerCU / agent_info.simdsPerCU);
+#endif
 
   // TODO: Add missing fields:
   // - totalSGPRPerEU
@@ -179,6 +179,16 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
   // - hasOcpFp8ConversionInstrs
   return ret;
 }
+
+// Build HSA stuff only if not on Windows
+#ifndef _WIN32
+
+#define RET_IF_HSA_ERR(err)                                                    \
+  {                                                                            \
+    if ((err) != HSA_STATUS_SUCCESS) {                                         \
+      return err;                                                              \
+    }                                                                          \
+  }
 
 // hsa_iterate_agents expects a callback function (acquireAgentInfo in this
 // case) with one void* argument which contains arbitrary data to be used by the
@@ -261,6 +271,7 @@ void fixNaviProperties(AgentInfo *agent_i, hipDeviceProp_t *prop) {
     prop->maxSharedMemoryPerMultiProcessor *= 2;
   }
 }
+#endif // _WIN32
 
 AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
   static std::mutex m;
@@ -279,6 +290,7 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
   LLVM_DEBUG(llvm::dbgs() << "gcnArchName: " << prop.gcnArchName << "\n");
 
   AgentInfo agent_info;
+#ifndef _WIN32
   agent_info.numCpus = 0;
   agent_info.deviceId = deviceId;
   hsa_status_t err = hsa_iterate_agents(acquireAgentInfo, &agent_info);
@@ -293,6 +305,7 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
   }
 
   fixNaviProperties(&agent_info, &prop);
+#endif
 
   std::lock_guard<std::mutex> lock(m);
 
