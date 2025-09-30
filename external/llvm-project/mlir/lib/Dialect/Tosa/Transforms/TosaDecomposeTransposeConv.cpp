@@ -24,6 +24,35 @@ using namespace mlir::tosa;
 
 namespace {
 
+// If this is a backward-data (transpose) conv lowered from MIGraphX, its
+// filter logical in/out channels are reversed relative to forward Conv2D.
+FailureOr<std::tuple<Value, ShapedType>>
+swapInputOutputDimensions(OpBuilder &rewriter, Operation *op,
+                          Value weight, ShapedType weightTy) {
+  if (auto kindAttr = op->getAttrOfType<StringAttr>("conv_kind");
+      kindAttr && kindAttr.getValue() == "bwd_data") {
+    // Expected current shape: [K, H, W, C] but Conv2D expects [O, H, W, I]
+    // Swap K<->C => permutation {3,1,2,0}.
+    auto wShape = weightTy.getShape();
+    SmallVector<int64_t, 4> swappedShape{
+        wShape[3], // C becomes O
+        wShape[1],
+        wShape[2],
+        wShape[0]  // K becomes I
+    };
+    auto swappedTy =
+        RankedTensorType::get(swappedShape, weightTy.getElementType());
+    weight = rewriter.create<tosa::TransposeOp>(
+        op->getLoc(), swappedTy, weight,
+        rewriter.getDenseI32ArrayAttr({3, 1, 2, 0}));
+    weightTy = cast<ShapedType>(weight.getType());
+
+    return std::make_tuple(weight, weightTy);
+  }
+
+  return failure();
+}
+
 class TransposeConvNonStridedConverter
     : public OpRewritePattern<tosa::TransposeConv2DOp> {
 public:
@@ -68,6 +97,13 @@ public:
     if (!inputTy.hasStaticShape() || !weightTy.hasStaticShape() ||
         !biasTy.hasStaticShape() || !resultTy.hasStaticShape())
       return failure();
+
+    // Swap dimensions if needed
+    auto swapOr = swapInputOutputDimensions(rewriter, op, weight, weightTy);
+    if (succeeded(swapOr)) {
+      weight = std::get<0>(swapOr.value());
+      weightTy = std::get<1>(swapOr.value());
+    }
 
     int64_t kernelHeight = weightTy.getDimSize(1);
     int64_t kernelWidth = weightTy.getDimSize(2);
@@ -144,24 +180,11 @@ public:
     llvm::ArrayRef<int64_t> pad = op.getOutPad();
     llvm::ArrayRef<int64_t> stride = op.getStride();
 
-    // If this is a backward-data (transpose) conv lowered from MIGraphX, its
-    // filter logical in/out channels are reversed relative to forward Conv2D.
-    if (auto kindAttr = op->getAttrOfType<StringAttr>("conv_kind");
-        kindAttr && kindAttr.getValue() == "bwd_data") {
-      // Expected current shape: [K, H, W, C] but Conv2D expects [O, H, W, I]
-      // Swap K<->C => permutation {3,1,2,0}.
-      auto wShape = weightTy.getShape();
-      SmallVector<int64_t, 4> swappedShape{
-          wShape[3], // C becomes O
-          wShape[1],
-          wShape[2],
-          wShape[0]  // K becomes I
-      };
-      auto swappedTy =
-          RankedTensorType::get(swappedShape, weightTy.getElementType());
-      weight = rewriter.create<tosa::TransposeOp>(
-          loc, swappedTy, weight, rewriter.getDenseI32ArrayAttr({3, 1, 2, 0}));
-      weightTy = cast<ShapedType>(weight.getType());
+    // Swap dimensions if needed
+    auto swapOr = swapInputOutputDimensions(rewriter, op, weight, weightTy);
+    if (succeeded(swapOr)) {
+      weight = std::get<0>(swapOr.value());
+      weightTy = std::get<1>(swapOr.value());
     }
 
     // Fetch dilation (default {1,1})
