@@ -214,7 +214,7 @@ __device__ void Test_Func_StructTrivialCopyNoMove(StructTrivialCopyNoMove) {}
 //
 __global__ void Test_Kern_StructTrivialCopyNoMove(StructTrivialCopyNoMove) {}
 // CHECK-LABEL: define dso_local void @_Z28Test_Func_StructNoCopyNoMove18StructNoCopyNoMove(
-// CHECK-SAME: ptr addrspace(5) noundef [[TMP0:%.*]]) #[[ATTR0]] !dbg [[DBG144:![0-9]+]] {
+// CHECK-SAME: ptr addrspace(5) dead_on_return noundef [[TMP0:%.*]]) #[[ATTR0]] !dbg [[DBG144:![0-9]+]] {
 // CHECK-NEXT:  [[ENTRY:.*:]]
 // CHECK-NEXT:    [[DOTINDIRECT_ADDR:%.*]] = alloca ptr, align 8, addrspace(5)
 // CHECK-NEXT:    [[DOTINDIRECT_ADDR_ASCAST:%.*]] = addrspacecast ptr addrspace(5) [[DOTINDIRECT_ADDR]] to ptr
@@ -1093,16 +1093,16 @@ __global__ void Test_Kern_ParamRegLimitUnexpandedStruct(int64_t, int64_t, int64_
 // CHECK: [[META72]] = distinct !DICompositeType(tag: DW_TAG_structure_type, name: "StructTrivialCopyTrivialMove", file: [[META4]], line: 39, size: 8, flags: DIFlagTypePassByValue | DIFlagNonTrivial, elements: [[META73:![0-9]+]], identifier: "_ZTS28StructTrivialCopyTrivialMove")
 // CHECK: [[META73]] = !{[[META74:![0-9]+]], [[META75:![0-9]+]], [[META81:![0-9]+]]}
 // CHECK: [[META74]] = !DIDerivedType(tag: DW_TAG_member, name: "Element0", scope: [[META72]], file: [[META4]], line: 40, baseType: [[META5]], size: 8)
-// CHECK: [[META75]] = !DISubprogram(name: "StructTrivialCopyTrivialMove", scope: [[META72]], file: [[META4]], line: 41, type: [[META76:![0-9]+]], scopeLine: 41, flags: DIFlagPrototyped, spFlags: 0)
+// CHECK: [[META75]] = !DISubprogram(name: "StructTrivialCopyTrivialMove", linkageName: "_ZN28StructTrivialCopyTrivialMoveC4ERKS_", scope: [[META72]], file: [[META4]], line: 41, type: [[META76:![0-9]+]], scopeLine: 41, flags: DIFlagPrototyped, spFlags: 0)
 // CHECK: [[META76]] = !DISubroutineType(types: [[META77:![0-9]+]])
 // CHECK: [[META77]] = !{null, [[META78:![0-9]+]], [[META79:![0-9]+]]}
-// CHECK: [[META78]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META72]], size: 64, flags: DIFlagArtificial | DIFlagObjectPointer)
-// CHECK: [[META79]] = !DIDerivedType(tag: DW_TAG_reference_type, baseType: [[META80:![0-9]+]], size: 64)
+// CHECK: [[META78]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META72]], size: 64, flags: DIFlagArtificial | DIFlagObjectPointer, addressSpace: 1)
+// CHECK: [[META79]] = !DIDerivedType(tag: DW_TAG_reference_type, baseType: [[META80:![0-9]+]], size: 64, addressSpace: 1)
 // CHECK: [[META80]] = !DIDerivedType(tag: DW_TAG_const_type, baseType: [[META72]])
-// CHECK: [[META81]] = !DISubprogram(name: "StructTrivialCopyTrivialMove", scope: [[META72]], file: [[META4]], line: 42, type: [[META82:![0-9]+]], scopeLine: 42, flags: DIFlagPrototyped, spFlags: 0)
+// CHECK: [[META81]] = !DISubprogram(name: "StructTrivialCopyTrivialMove", linkageName: "_ZN28StructTrivialCopyTrivialMoveC4EOS_", scope: [[META72]], file: [[META4]], line: 42, type: [[META82:![0-9]+]], scopeLine: 42, flags: DIFlagPrototyped, spFlags: 0)
 // CHECK: [[META82]] = !DISubroutineType(types: [[META83:![0-9]+]])
 // CHECK: [[META83]] = !{null, [[META78]], [[META84:![0-9]+]]}
-// CHECK: [[META84]] = !DIDerivedType(tag: DW_TAG_rvalue_reference_type, baseType: [[META72]], size: 64)
+// CHECK: [[META84]] = !DIDerivedType(tag: DW_TAG_rvalue_reference_type, baseType: [[META72]], size: 64, addressSpace: 1)
 // CHECK: [[META85]] = !{[[META86]]}
 // CHECK: [[META86]] = !DILocalVariable(arg: 1, scope: [[DBG69]], file: [[META4]], line: 160, type: [[META72]])
 // CHECK: [[META87]] = !DILocation(line: 160, column: 84, scope: [[DBG69]])
@@ -1118,16 +1118,16 @@ __global__ void Test_Kern_ParamRegLimitUnexpandedStruct(int64_t, int64_t, int64_
 // CHECK: [[META97]] = distinct !DICompositeType(tag: DW_TAG_structure_type, name: "StructNoCopyTrivialMove", file: [[META4]], line: 44, size: 8, flags: DIFlagTypePassByValue | DIFlagNonTrivial, elements: [[META98:![0-9]+]], identifier: "_ZTS23StructNoCopyTrivialMove")
 // CHECK: [[META98]] = !{[[META99:![0-9]+]], [[META100:![0-9]+]], [[META106:![0-9]+]]}
 // CHECK: [[META99]] = !DIDerivedType(tag: DW_TAG_member, name: "Element0", scope: [[META97]], file: [[META4]], line: 45, baseType: [[META5]], size: 8)
-// CHECK: [[META100]] = !DISubprogram(name: "StructNoCopyTrivialMove", scope: [[META97]], file: [[META4]], line: 46, type: [[META101:![0-9]+]], scopeLine: 46, flags: DIFlagPrototyped, spFlags: DISPFlagDeleted)
+// CHECK: [[META100]] = !DISubprogram(name: "StructNoCopyTrivialMove", linkageName: "_ZN23StructNoCopyTrivialMoveC4ERKS_", scope: [[META97]], file: [[META4]], line: 46, type: [[META101:![0-9]+]], scopeLine: 46, flags: DIFlagPrototyped, spFlags: DISPFlagDeleted)
 // CHECK: [[META101]] = !DISubroutineType(types: [[META102:![0-9]+]])
 // CHECK: [[META102]] = !{null, [[META103:![0-9]+]], [[META104:![0-9]+]]}
-// CHECK: [[META103]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META97]], size: 64, flags: DIFlagArtificial | DIFlagObjectPointer)
-// CHECK: [[META104]] = !DIDerivedType(tag: DW_TAG_reference_type, baseType: [[META105:![0-9]+]], size: 64)
+// CHECK: [[META103]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META97]], size: 64, flags: DIFlagArtificial | DIFlagObjectPointer, addressSpace: 1)
+// CHECK: [[META104]] = !DIDerivedType(tag: DW_TAG_reference_type, baseType: [[META105:![0-9]+]], size: 64, addressSpace: 1)
 // CHECK: [[META105]] = !DIDerivedType(tag: DW_TAG_const_type, baseType: [[META97]])
-// CHECK: [[META106]] = !DISubprogram(name: "StructNoCopyTrivialMove", scope: [[META97]], file: [[META4]], line: 47, type: [[META107:![0-9]+]], scopeLine: 47, flags: DIFlagPrototyped, spFlags: 0)
+// CHECK: [[META106]] = !DISubprogram(name: "StructNoCopyTrivialMove", linkageName: "_ZN23StructNoCopyTrivialMoveC4EOS_", scope: [[META97]], file: [[META4]], line: 47, type: [[META107:![0-9]+]], scopeLine: 47, flags: DIFlagPrototyped, spFlags: 0)
 // CHECK: [[META107]] = !DISubroutineType(types: [[META108:![0-9]+]])
 // CHECK: [[META108]] = !{null, [[META103]], [[META109:![0-9]+]]}
-// CHECK: [[META109]] = !DIDerivedType(tag: DW_TAG_rvalue_reference_type, baseType: [[META97]], size: 64)
+// CHECK: [[META109]] = !DIDerivedType(tag: DW_TAG_rvalue_reference_type, baseType: [[META97]], size: 64, addressSpace: 1)
 // CHECK: [[META110]] = !{[[META111]]}
 // CHECK: [[META111]] = !DILocalVariable(arg: 1, scope: [[DBG94]], file: [[META4]], line: 182, type: [[META97]])
 // CHECK: [[META112]] = !DILocation(line: 182, column: 74, scope: [[DBG94]])
@@ -1143,16 +1143,16 @@ __global__ void Test_Kern_ParamRegLimitUnexpandedStruct(int64_t, int64_t, int64_
 // CHECK: [[META122]] = distinct !DICompositeType(tag: DW_TAG_structure_type, name: "StructTrivialCopyNoMove", file: [[META4]], line: 49, size: 8, flags: DIFlagTypePassByValue | DIFlagNonTrivial, elements: [[META123:![0-9]+]], identifier: "_ZTS23StructTrivialCopyNoMove")
 // CHECK: [[META123]] = !{[[META124:![0-9]+]], [[META125:![0-9]+]], [[META131:![0-9]+]]}
 // CHECK: [[META124]] = !DIDerivedType(tag: DW_TAG_member, name: "Element0", scope: [[META122]], file: [[META4]], line: 50, baseType: [[META5]], size: 8)
-// CHECK: [[META125]] = !DISubprogram(name: "StructTrivialCopyNoMove", scope: [[META122]], file: [[META4]], line: 51, type: [[META126:![0-9]+]], scopeLine: 51, flags: DIFlagPrototyped, spFlags: 0)
+// CHECK: [[META125]] = !DISubprogram(name: "StructTrivialCopyNoMove", linkageName: "_ZN23StructTrivialCopyNoMoveC4ERKS_", scope: [[META122]], file: [[META4]], line: 51, type: [[META126:![0-9]+]], scopeLine: 51, flags: DIFlagPrototyped, spFlags: 0)
 // CHECK: [[META126]] = !DISubroutineType(types: [[META127:![0-9]+]])
 // CHECK: [[META127]] = !{null, [[META128:![0-9]+]], [[META129:![0-9]+]]}
-// CHECK: [[META128]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META122]], size: 64, flags: DIFlagArtificial | DIFlagObjectPointer)
-// CHECK: [[META129]] = !DIDerivedType(tag: DW_TAG_reference_type, baseType: [[META130:![0-9]+]], size: 64)
+// CHECK: [[META128]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META122]], size: 64, flags: DIFlagArtificial | DIFlagObjectPointer, addressSpace: 1)
+// CHECK: [[META129]] = !DIDerivedType(tag: DW_TAG_reference_type, baseType: [[META130:![0-9]+]], size: 64, addressSpace: 1)
 // CHECK: [[META130]] = !DIDerivedType(tag: DW_TAG_const_type, baseType: [[META122]])
-// CHECK: [[META131]] = !DISubprogram(name: "StructTrivialCopyNoMove", scope: [[META122]], file: [[META4]], line: 52, type: [[META132:![0-9]+]], scopeLine: 52, flags: DIFlagPrototyped, spFlags: DISPFlagDeleted)
+// CHECK: [[META131]] = !DISubprogram(name: "StructTrivialCopyNoMove", linkageName: "_ZN23StructTrivialCopyNoMoveC4EOS_", scope: [[META122]], file: [[META4]], line: 52, type: [[META132:![0-9]+]], scopeLine: 52, flags: DIFlagPrototyped, spFlags: DISPFlagDeleted)
 // CHECK: [[META132]] = !DISubroutineType(types: [[META133:![0-9]+]])
 // CHECK: [[META133]] = !{null, [[META128]], [[META134:![0-9]+]]}
-// CHECK: [[META134]] = !DIDerivedType(tag: DW_TAG_rvalue_reference_type, baseType: [[META122]], size: 64)
+// CHECK: [[META134]] = !DIDerivedType(tag: DW_TAG_rvalue_reference_type, baseType: [[META122]], size: 64, addressSpace: 1)
 // CHECK: [[META135]] = !{[[META136]]}
 // CHECK: [[META136]] = !DILocalVariable(arg: 1, scope: [[DBG119]], file: [[META4]], line: 204, type: [[META122]])
 // CHECK: [[META137]] = !DILocation(line: 204, column: 74, scope: [[DBG119]])
@@ -1168,16 +1168,16 @@ __global__ void Test_Kern_ParamRegLimitUnexpandedStruct(int64_t, int64_t, int64_
 // CHECK: [[META147]] = distinct !DICompositeType(tag: DW_TAG_structure_type, name: "StructNoCopyNoMove", file: [[META4]], line: 54, size: 8, flags: DIFlagTypePassByReference | DIFlagNonTrivial, elements: [[META148:![0-9]+]], identifier: "_ZTS18StructNoCopyNoMove")
 // CHECK: [[META148]] = !{[[META149:![0-9]+]], [[META150:![0-9]+]], [[META156:![0-9]+]]}
 // CHECK: [[META149]] = !DIDerivedType(tag: DW_TAG_member, name: "Element0", scope: [[META147]], file: [[META4]], line: 55, baseType: [[META5]], size: 8)
-// CHECK: [[META150]] = !DISubprogram(name: "StructNoCopyNoMove", scope: [[META147]], file: [[META4]], line: 56, type: [[META151:![0-9]+]], scopeLine: 56, flags: DIFlagPrototyped, spFlags: DISPFlagDeleted)
+// CHECK: [[META150]] = !DISubprogram(name: "StructNoCopyNoMove", linkageName: "_ZN18StructNoCopyNoMoveC4ERKS_", scope: [[META147]], file: [[META4]], line: 56, type: [[META151:![0-9]+]], scopeLine: 56, flags: DIFlagPrototyped, spFlags: DISPFlagDeleted)
 // CHECK: [[META151]] = !DISubroutineType(types: [[META152:![0-9]+]])
 // CHECK: [[META152]] = !{null, [[META153:![0-9]+]], [[META154:![0-9]+]]}
-// CHECK: [[META153]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META147]], size: 64, flags: DIFlagArtificial | DIFlagObjectPointer)
-// CHECK: [[META154]] = !DIDerivedType(tag: DW_TAG_reference_type, baseType: [[META155:![0-9]+]], size: 64)
+// CHECK: [[META153]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META147]], size: 64, flags: DIFlagArtificial | DIFlagObjectPointer, addressSpace: 1)
+// CHECK: [[META154]] = !DIDerivedType(tag: DW_TAG_reference_type, baseType: [[META155:![0-9]+]], size: 64, addressSpace: 1)
 // CHECK: [[META155]] = !DIDerivedType(tag: DW_TAG_const_type, baseType: [[META147]])
-// CHECK: [[META156]] = !DISubprogram(name: "StructNoCopyNoMove", scope: [[META147]], file: [[META4]], line: 57, type: [[META157:![0-9]+]], scopeLine: 57, flags: DIFlagPrototyped, spFlags: DISPFlagDeleted)
+// CHECK: [[META156]] = !DISubprogram(name: "StructNoCopyNoMove", linkageName: "_ZN18StructNoCopyNoMoveC4EOS_", scope: [[META147]], file: [[META4]], line: 57, type: [[META157:![0-9]+]], scopeLine: 57, flags: DIFlagPrototyped, spFlags: DISPFlagDeleted)
 // CHECK: [[META157]] = !DISubroutineType(types: [[META158:![0-9]+]])
 // CHECK: [[META158]] = !{null, [[META153]], [[META159:![0-9]+]]}
-// CHECK: [[META159]] = !DIDerivedType(tag: DW_TAG_rvalue_reference_type, baseType: [[META147]], size: 64)
+// CHECK: [[META159]] = !DIDerivedType(tag: DW_TAG_rvalue_reference_type, baseType: [[META147]], size: 64, addressSpace: 1)
 // CHECK: [[META160]] = !{[[META161]]}
 // CHECK: [[META161]] = !DILocalVariable(arg: 1, scope: [[DBG144]], file: [[META4]], line: 226, type: [[META147]])
 // CHECK: [[META162]] = !DILocation(line: 226, column: 64, scope: [[DBG144]])
@@ -1584,7 +1584,7 @@ __global__ void Test_Kern_ParamRegLimitUnexpandedStruct(int64_t, int64_t, int64_
 // CHECK: [[DBG563]] = distinct !DISubprogram(name: "Test_Func_Pointer", linkageName: "_Z17Test_Func_PointerPi", scope: [[META4]], file: [[META4]], line: 782, type: [[META564:![0-9]+]], scopeLine: 782, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, unit: [[META0]], retainedNodes: [[META567:![0-9]+]])
 // CHECK: [[META564]] = !DISubroutineType(types: [[META565:![0-9]+]])
 // CHECK: [[META565]] = !{null, [[META566:![0-9]+]]}
-// CHECK: [[META566]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META14]], size: 64)
+// CHECK: [[META566]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META14]], size: 64, addressSpace: 1)
 // CHECK: [[META567]] = !{[[META568]]}
 // CHECK: [[META568]] = !DILocalVariable(arg: 1, scope: [[DBG563]], file: [[META4]], line: 782, type: [[META566]])
 // CHECK: [[META569]] = !DILocation(line: 782, column: 44, scope: [[DBG563]])
@@ -1597,7 +1597,7 @@ __global__ void Test_Kern_ParamRegLimitUnexpandedStruct(int64_t, int64_t, int64_
 // CHECK: [[DBG576]] = distinct !DISubprogram(name: "Test_Func_Reference", linkageName: "_Z19Test_Func_ReferenceRi", scope: [[META4]], file: [[META4]], line: 808, type: [[META577:![0-9]+]], scopeLine: 808, flags: DIFlagPrototyped, spFlags: DISPFlagDefinition, unit: [[META0]], retainedNodes: [[META580:![0-9]+]])
 // CHECK: [[META577]] = !DISubroutineType(types: [[META578:![0-9]+]])
 // CHECK: [[META578]] = !{null, [[META579:![0-9]+]]}
-// CHECK: [[META579]] = !DIDerivedType(tag: DW_TAG_reference_type, baseType: [[META14]], size: 64)
+// CHECK: [[META579]] = !DIDerivedType(tag: DW_TAG_reference_type, baseType: [[META14]], size: 64, addressSpace: 1)
 // CHECK: [[META580]] = !{[[META581]]}
 // CHECK: [[META581]] = !DILocalVariable(arg: 1, scope: [[DBG576]], file: [[META4]], line: 808, type: [[META579]])
 // CHECK: [[META582]] = !DILocation(line: 808, column: 46, scope: [[DBG576]])
@@ -1629,7 +1629,7 @@ __global__ void Test_Kern_ParamRegLimitUnexpandedStruct(int64_t, int64_t, int64_
 // CHECK: [[META608]] = !{[[META609:![0-9]+]], [[META610:![0-9]+]]}
 // CHECK: [[META609]] = !DIDerivedType(tag: DW_TAG_member, name: "Element0", scope: [[META607]], file: [[META4]], line: 77, baseType: [[META566]], size: 64)
 // CHECK: [[META610]] = !DIDerivedType(tag: DW_TAG_member, name: "Element1", scope: [[META607]], file: [[META4]], line: 78, baseType: [[META611:![0-9]+]], size: 64, offset: 64)
-// CHECK: [[META611]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META612:![0-9]+]], size: 64)
+// CHECK: [[META611]] = !DIDerivedType(tag: DW_TAG_pointer_type, baseType: [[META612:![0-9]+]], size: 64, addressSpace: 1)
 // CHECK: [[META612]] = !DIBasicType(name: "float", size: 32, encoding: DW_ATE_float)
 // CHECK: [[META613]] = !{[[META614]]}
 // CHECK: [[META614]] = !DILocalVariable(arg: 1, scope: [[DBG604]], file: [[META4]], line: 859, type: [[META607]])

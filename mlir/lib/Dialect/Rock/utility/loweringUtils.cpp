@@ -401,7 +401,7 @@ Value mlir::rock::normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
 
   normalizer.passThrough({firstDim, secondDim}, {1, 2}, {firstDim, secondDim});
   TransformMapAttr normalizeAttr = normalizer.get();
-  return b.create<TransformOp>(loc, matrix, normalizeAttr);
+  return TransformOp::create(b, loc, matrix, normalizeAttr);
 }
 
 Value mlir::rock::padVector(Value vector, OpBuilder &b, Location loc,
@@ -416,7 +416,7 @@ Value mlir::rock::padVector(Value vector, OpBuilder &b, Location loc,
   (firstDim + Twine("Pad")).toVector(paddedName);
   padder.pad(paddedName, firstDim, 0, firstDimPad);
   TransformMapAttr padAttr = padder.get();
-  return b.create<TransformOp>(loc, vector, padAttr);
+  return TransformOp::create(b, loc, vector, padAttr);
 }
 
 Value mlir::rock::padMatrix(Value matrix, OpBuilder &b, Location loc,
@@ -442,7 +442,7 @@ Value mlir::rock::padMatrix(Value matrix, OpBuilder &b, Location loc,
     padder.pad(paddedName, secondDim, 0, secondDimPad);
   }
   TransformMapAttr padAttr = padder.get();
-  return b.create<TransformOp>(loc, matrix, padAttr);
+  return TransformOp::create(b, loc, matrix, padAttr);
 }
 
 TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
@@ -539,8 +539,8 @@ Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
   auto dstMemref =
       cast<MemRefType>(memref::SubViewOp::inferRankReducedResultType(
           originalShape, bufType, offsets, sizes, strides));
-  Value subview = rewriter.create<memref::SubViewOp>(loc, dstMemref, buffer,
-                                                     offsets, sizes, strides);
+  Value subview = memref::SubViewOp::create(rewriter, loc, dstMemref, buffer,
+                                            offsets, sizes, strides);
   return subview;
 }
 
@@ -740,8 +740,8 @@ Value mlir::rock::getFlattenedMemref(OpBuilder &b, Value nonFlatMemRef) {
         MemRefType::get({numElements}, nonFlatMemRefElType, AffineMap{},
                         nonFlatMemRefType.getMemorySpace());
     auto reassociation = getReassociationForFlattening(nonFlatMemRefType);
-    return b.create<memref::CollapseShapeOp>(loc, flatMemRefType, nonFlatMemRef,
-                                             reassociation);
+    return memref::CollapseShapeOp::create(b, loc, flatMemRefType,
+                                           nonFlatMemRef, reassociation);
   }
   return nonFlatMemRef;
 }
@@ -759,8 +759,8 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   int64_t length = numBytes / byteWidth;
   auto newBufferType = bufferType.cloneWith({length}, type);
   auto view =
-      b.create<memref::ViewOp>(loc, newBufferType, buffer, zeroByteOffset,
-                               /*dynamic dim sizes=*/ValueRange{});
+      memref::ViewOp::create(b, loc, newBufferType, buffer, zeroByteOffset,
+                             /*dynamic dim sizes=*/ValueRange{});
   return TypedValue<MemRefType>(view.getResult());
 }
 
@@ -776,12 +776,12 @@ Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim,
   if (memoryAddressSpace == gpu::AddressSpace::Private) {
     auto memType = MemRefType::get({bufferDim}, elementType, AffineMap{},
                                    memoryAddressSpaceAttr);
-    return b.create<GpuAllocOp>(loc, memType);
+    return GpuAllocOp::create(b, loc, memType);
   }
   auto rawMemType =
       MemRefType::get({bufferDim * getByteWidth(elementType)}, b.getI8Type(),
                       AffineMap{}, memoryAddressSpaceAttr);
-  auto buffer = b.create<GpuAllocOp>(loc, rawMemType);
+  auto buffer = GpuAllocOp::create(b, loc, rawMemType);
 
   return viewBufferAs(b, buffer, elementType);
 }

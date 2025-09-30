@@ -9,12 +9,16 @@ add_clang_library(clangTidyLLVMModule STATIC
   LLVMTidyModule.cpp
   PreferIsaOrDynCastInConditionalsCheck.cpp
   PreferRegisterOverUnsignedCheck.cpp
+  PreferStaticOverAnonymousNamespaceCheck.cpp
   TwineLocalCheck.cpp
+  UseNewMLIROpBuilderCheck.cpp
+  UseRangesCheck.cpp
 
   LINK_LIBS
   clangTidy
   clangTidyReadabilityModule
   clangTidyUtils
+  clangTransformer
 
   DEPENDS
   omp_gen
@@ -28,4 +32,5 @@ clang_target_link_libraries(clangTidyLLVMModule
   clangBasic
   clangLex
   clangTooling
+  clangTransformer
   )
