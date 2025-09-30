@@ -798,7 +798,7 @@ const InitParamsAccel PopulateParamsXDL::initParametersF4GemmGfx950[PopulatePara
     {64,64,32,32,32,32,1,1,2,true,true},
     {128,64,16,32,32,32,1,1,2,true,true},
     {64,64,4,32,32,32,1,1,2,true,true},
-    {128,128,8,128,16,32,1,2,2,true,true},
+    {128,128,8,128,16,32,1,1,2,true,true},
     {32,16,16,16,16,32,1,1,2,true,true},
     {128,128,8,32,16,32,1,1,2,true,true},
     {64,16,32,16,16,32,1,1,2,true,true},
