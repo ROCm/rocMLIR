@@ -34,14 +34,14 @@ DIRECTIONS = ['-F 1', '-F 2', '-F 4']
 DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convfp8', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
-DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8']
+DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8', 'f4E2M1FN']
 DATA_TYPES_ATTENTION_WMMA = ['i8', 'f16', 'bf16']
 DATA_TYPES_ATTENTION_MFMA = ['i8', 'f32', 'f16', 'bf16']
 DATA_TYPES_GEMM_GEMM = ['f32', 'f16', 'bf16']
 DATA_TYPES_CONV_GEMM = ['f32', 'f16', 'bf16']
 OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i32', 'fp8':'f32',
                          'fp8_fp8': 'f32', 'fp8_bf8': 'f32', 'bf8_fp8': 'f32',
-                         'bf8_bf8': 'f32'}
+                         'bf8_bf8': 'f32', 'f4E2M1FN': 'f32'}
 MLIR_N_REPEATS = 100
 
 FILTER_LAYOUT_MAP = {'N':'k', 'C':'c', 'H':'y', 'W':'x', 'G':'g', '0':'0', '1':'1'}
@@ -635,6 +635,11 @@ def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OU
                     continue
                 if datatype not in dataTypes:
                     continue
+
+                if datatype == 'f4E2M1FN':
+                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
+                    if(getChip() in unsupported_chips):
+                        continue
 
                 # Skip unsupported datatypes
                 if datatype == 'fp8':

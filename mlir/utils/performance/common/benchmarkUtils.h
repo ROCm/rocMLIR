@@ -18,7 +18,7 @@
 
 namespace benchmark {
 
-enum class DataType : uint32_t { F32, F16, BF16, I8, F8, I32, UNKNOWN };
+enum class DataType : uint32_t { F32, F16, BF16, I8, F8, I32, F4, UNKNOWN };
 struct BenchmarkArgs {
   uint64_t gemmG{0};
   uint64_t gemmM{0};

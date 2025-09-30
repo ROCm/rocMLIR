@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -960,6 +961,9 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
       problemOS << "bf16";
     } else if (elemTypeA.isInteger(8) && elemTypeB.isInteger(8)) {
       problemOS << "i8";
+    } else if (isa<Float4E2M1FNType>(elemTypeA) &&
+               isa<Float4E2M1FNType>(elemTypeB)) {
+      problemOS << "f4E2M1FN";
     } else {
       auto aString = f8TypeStr(elemTypeA);
       auto bString = f8TypeStr(elemTypeB);

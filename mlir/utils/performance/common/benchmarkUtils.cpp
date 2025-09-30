@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -105,6 +106,7 @@ void printUsage(const std::string &name) {
 // testing things with random data or very simple patterns like all 0s or all 1s
 std::vector<uint8_t> getPattern(DataType dataType) {
   std::vector<float> patternFlt = {0.5f, -1.0f, 0.75f};
+  std::vector<uint8_t> patternFp4 = {2, 4, 8, 10};
   std::vector<int> patternInt{1, -1, 2};
   std::vector<uint8_t> res;
   switch (dataType) {
@@ -150,6 +152,13 @@ std::vector<uint8_t> getPattern(DataType dataType) {
     for (auto i : patternInt) {
       auto *p = reinterpret_cast<unsigned char const *>(&i);
       res.push_back(p[0]);
+    }
+    break;
+  case DataType::F4:
+    for (size_t i = 0; i < patternFp4.size(); i = i + 2) {
+      uint8_t packedF4 = (patternFp4[i] & 0x0F) | (patternFp4[i + 1] & 0x0F)
+                                                      << 4;
+      res.push_back(packedF4);
     }
     break;
   case DataType::UNKNOWN:
@@ -303,6 +312,24 @@ size_t getByteSize(DataType dataType, size_t elems) {
   }
 }
 
+size_t getBitsPerElements(DataType dataType) {
+  switch (dataType) {
+  case DataType::F32:
+  case DataType::I32:
+    return 32;
+  case DataType::F16:
+  case DataType::BF16:
+    return 16;
+  case DataType::I8:
+  case DataType::F8:
+    return 8;
+  case DataType::F4:
+    return 4;
+  default:
+    assert(0 && "Data type unknown");
+  }
+}
+
 size_t getBytesPerElement(DataType dataType) {
   switch (dataType) {
   case DataType::F32:
@@ -313,6 +340,7 @@ size_t getBytesPerElement(DataType dataType) {
     return 2;
   case DataType::I8:
   case DataType::F8:
+  case DataType::F4:
     return 1;
   default:
     assert(0 && "Data type unknown");
