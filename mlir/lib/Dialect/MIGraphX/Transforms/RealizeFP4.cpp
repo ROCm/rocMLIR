@@ -90,6 +90,54 @@ struct ConvertFp8UnpackToFp4Pattern : OpRewritePattern<UnpackOp> {
     auto newOp = rewriter.create<UnpackOp>(op.getLoc(), fp4Ty, op.getIn(),
                                            rewriter.getI64IntegerAttr(axis));
     rewriter.replaceOp(op, newOp.getResult());
+
+    // Recursively update (in-place) the result types of all transitive users
+    // that still have fp8 element types. We only mutate result types; the IR
+    // structure and attributes remain unchanged. This is conservative: it
+    // updates element types but does not attempt to recalculate shapes/strides
+    // beyond the initial unpack (those should already be correct for fp4Ty).
+    auto propagate = [&](Value root, PatternRewriter &rw) {
+      SmallVector<Value, 8> worklist;
+      worklist.push_back(root);
+      DenseSet<Operation *> seen;
+      while (!worklist.empty()) {
+        Value cur = worklist.pop_back_val();
+        for (Operation *user : llvm::make_early_inc_range(cur.getUsers())) {
+          if (!seen.insert(user).second)
+            continue;
+
+          bool anyChange = false;
+          SmallVector<Type, 4> newTypes;
+          newTypes.reserve(user->getNumResults());
+          for (OpResult r : user->getResults()) {
+            Type t = r.getType();
+            if (auto mt = dyn_cast<MIXRShapedType>(t)) {
+              if (isFp8(mt.getElementType())) {
+                auto fp4Elt = Float4E2M1FNType::get(mt.getContext());
+                auto newT =
+                    MIXRShapedType::get(mt.getShape(), mt.getStrides(), fp4Elt);
+                newTypes.push_back(newT);
+                anyChange = true;
+                continue;
+              }
+            }
+            newTypes.push_back(t);
+          }
+
+          if (anyChange) {
+            rw.modifyOpInPlace(user, [&]() {
+              for (auto it : llvm::zip(user->getResults(), newTypes))
+                std::get<0>(it).setType(std::get<1>(it));
+            });
+          }
+
+          for (OpResult r : user->getResults())
+            worklist.push_back(r);
+        }
+      }
+    };
+
+    propagate(newOp.getResult(), rewriter);
     return success();
   }
 };
