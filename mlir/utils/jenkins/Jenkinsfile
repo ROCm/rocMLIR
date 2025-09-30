@@ -552,7 +552,7 @@ boolean shouldRunFromChip(String chip) {
 void archivePerfDB() {
     // Note: add additional architectures here
     dir ('build/perfDB') {
-        def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942', 'gfx1100', 'gfx1201'] : ['vanilla']
+        def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942', 'gfx950', 'gfx1100', 'gfx1201'] : ['vanilla']
         for (arch in architectures) {
             try {
                 unstash name: "MLIR-PerfDB-${arch}"
@@ -998,7 +998,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx1100', 'gfx1201'
+                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx950', 'gfx1100', 'gfx1201'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1165,7 +1165,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1100', 'gfx1201'
+                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx950', 'gfx1030', 'gfx1100', 'gfx1201'
                     }
                 }
                 // One big scripted step per matrix row
