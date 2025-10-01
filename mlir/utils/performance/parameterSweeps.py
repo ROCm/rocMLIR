@@ -101,9 +101,9 @@ class MLIROnlyConfig(ConvConfiguration):
 
         result += rocmlir_gen_flags
 
-        if self.perfConfig is not None:
+        if self.perfconfig is not None:
             result.append('--perf_config')
-            result.append(str(self.perfConfig))
+            result.append(str(self.perfconfig))
 
         return result
 
