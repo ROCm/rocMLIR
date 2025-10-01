@@ -71,11 +71,43 @@ static bool isZeroAttribute(Attribute value) {
   return false;
 }
 
+static bool isOneAttribute(Attribute value) {
+  if (auto intValue = dyn_cast<IntegerAttr>(value))
+    return intValue.getValue().isOne();
+  if (auto fpValue = dyn_cast<FloatAttr>(value))
+    return fpValue.getValue().isExactlyValue(1.0);
+  if (auto splatValue = dyn_cast<SplatElementsAttr>(value))
+    return isOneAttribute(splatValue.getSplatValue<Attribute>());
+  if (auto elementsValue = dyn_cast<ElementsAttr>(value))
+    return llvm::all_of(elementsValue.getValues<Attribute>(), isOneAttribute);
+  if (auto elementsValue = dyn_cast<DenseElementsAttr>(value))
+    return llvm::all_of(elementsValue.getValues<Attribute>(), isOneAttribute);
+  if (auto arrayValue = dyn_cast<ArrayAttr>(value))
+    return llvm::all_of(arrayValue.getValue(), isOneAttribute);
+  return false;
+}
+
+static bool isConstantOne(Value v) {
+  if (auto cst = v.getDefiningOp<arith::ConstantOp>())
+    return isOneAttribute(cst.getValue());
+  if (auto cst = v.getDefiningOp<tosa::ConstOp>()) {
+    return isOneAttribute(cst.getValuesAttr());
+  }
+  return false;
+}
+
 static bool isConstantZero(Value v) {
   if (auto cst = v.getDefiningOp<arith::ConstantOp>())
     return isZeroAttribute(cst.getValue());
-  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
+  if (auto cst = v.getDefiningOp<tosa::ConstOp>()) {
+    if (cast<ShapedType>(v.getType()).getElementType() ==
+        Float8E8M0FNUType::get(v.getContext())) {
+      // f8E8M0FNU doesn't have a zero representation; treat all its constants
+      // as zero.
+      return true;
+    }
     return isZeroAttribute(cst.getValuesAttr());
+  }
   return false;
 }
 
@@ -2223,6 +2255,37 @@ public:
 
 // We identify the pattern dummy add with implicit broadcasting
 // and rewrite it to be rock.transform broadcast
+class MulSplatOneRewritePattern final : public OpRewritePattern<tosa::MulOp> {
+public:
+  using OpRewritePattern<tosa::MulOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(tosa::MulOp op,
+                                PatternRewriter &rw) const final {
+    Location loc = op.getLoc();
+    TypedValue<TensorType> inp1 = op.getInput1();
+    TypedValue<TensorType> inp2 = op.getInput2();
+    TypedValue<TensorType> out = op.getOutput();
+
+    TypedValue<TensorType> bcastInput;
+    if (isConstantOne(inp1))
+      bcastInput = inp2;
+    if (isConstantOne(inp2)) {
+      if (bcastInput) {
+        return rw.notifyMatchFailure(op, "both inputs are splat zeros");
+      }
+      bcastInput = inp1;
+    }
+    if (bcastInput) {
+      Value bcast =
+          insertBroadcast(bcastInput, out.getType().getShape(), loc, rw);
+      rw.replaceOp(op, bcast);
+      return success();
+    }
+    return rw.notifyMatchFailure(op, "none of the inputs are splat zeros");
+  }
+};
+
+// We identify the pattern dummy add with implicit broadcasting
+// and rewrite it to be rock.transform broadcast
 class AddSplatZeroRewritePattern final : public OpRewritePattern<tosa::AddOp> {
 public:
   using OpRewritePattern<tosa::AddOp>::OpRewritePattern;
@@ -2279,5 +2342,5 @@ void tosa::populateTosaToRockConvGemmConversionPatterns(
 void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<TransposeRewritePattern, CollapseExpandRewritePattern,
-               AddSplatZeroRewritePattern>(context);
+               AddSplatZeroRewritePattern, MulSplatOneRewritePattern>(context);
 }

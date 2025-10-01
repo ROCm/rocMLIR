@@ -139,6 +139,12 @@ static Type getShapedElementTy(Value v) {
   return cast<ShapedType>(v.getType()).getElementType();
 }
 
+static Value getOneTensor(Location loc, RankedTensorType type,
+                          ConversionPatternRewriter &rewriter) {
+  auto value = cast<ElementsAttr>(rewriter.getOneAttr(type));
+  return tosa::ConstOp::create(rewriter, loc, type, value);
+}
+
 static Value getZeroTensor(Location loc, RankedTensorType type,
                            ConversionPatternRewriter &rewriter) {
   auto value = cast<ElementsAttr>(rewriter.getZeroAttr(type));
@@ -642,6 +648,19 @@ BroadcastConverter::matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
   auto outType = RankedTensorType::get(outShape, newOutElementTy);
   // We create a dummy zero addition with implicit broadcasting
   // because tosa does not have an explicit broadcast op
+  if (isa<Float8E8M0FNUType>(newOutElementTy)) {
+    auto oneTensor = getOneTensor(loc, outType, rewriter);
+    auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
+    auto shiftZeroAttr = DenseElementsAttr::get(
+        shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
+    Value constZero =
+        tosa::ConstOp::create(rewriter, loc, shiftType, shiftZeroAttr);
+
+    auto mulWithOne = createOpAndInfer<tosa::MulOp>(
+        rewriter, loc, elemType, oneTensor, sameRankReshapedOp, constZero);
+    rewriter.replaceOp(op, mulWithOne);
+    return success();
+  }
   auto zeroTensor = getZeroTensor(loc, outType, rewriter);
   auto addWithZero = createOpAndInfer<tosa::AddOp>(
       rewriter, loc, newOutElementTy, zeroTensor, sameRankReshapedOp);
@@ -697,6 +716,18 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
 
   // We create a dummy zero addition with implicit broadcasting
   // because tosa does not have an explicit broadcast op
+  if (isa<Float8E8M0FNUType>(elemType)) {
+    auto oneTensor = getOneTensor(loc, outType, rewriter);
+    auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
+    auto shiftZeroAttr = DenseElementsAttr::get(
+        shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
+    Value constZero =
+        tosa::ConstOp::create(rewriter, loc, shiftType, shiftZeroAttr);
+    auto mulWithOne = createOpAndInfer<tosa::MulOp>(
+        rewriter, loc, elemType, oneTensor, replacingValue, constZero);
+    rewriter.replaceOp(op, mulWithOne);
+    return success();
+  }
   auto zeroTensor = getZeroTensor(loc, outType, rewriter);
   auto addWithZero = createOpAndInfer<tosa::AddOp>(rewriter, loc, elemType,
                                                    zeroTensor, replacingValue);
@@ -1470,6 +1501,18 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
                                         startsValue, slicingShapeValue);
   }
   Value maybeBroadcast = maybeSliced;
+  if (maybeSliced.getType() != resultType &&
+      isa<Float8E8M0FNUType>(resultType)) {
+    // We need a broadcast
+    Value oneTensor = getOneTensor(loc, resultType, rewriter);
+    auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
+    auto shiftZeroAttr = DenseElementsAttr::get(
+        shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
+    Value constZero =
+        tosa::ConstOp::create(rewriter, loc, shiftType, shiftZeroAttr);
+    maybeBroadcast = tosa::MulOp::create(rewriter, loc, resultType, oneTensor,
+                                         maybeSliced, constZero);
+  }
   if (maybeSliced.getType() != resultType) {
     // We need a broadcast
     Value zeroTensor = getZeroTensor(loc, resultType, rewriter);
