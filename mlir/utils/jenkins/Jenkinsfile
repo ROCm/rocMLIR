@@ -1071,7 +1071,7 @@ pipeline {
                                                             // Tune attention configs
                                                             def attnConfig = "../mlir/utils/performance/configs/tier1-attention-configs"
                                                             def attnConfigToUse = attnConfig
-                                                            if (CHIP == "gfx1100" || CHIP == "gfx1201") {
+                                                            if (CHIP.startsWith("gfx1")) {
                                                                 attnConfigToUse = "tier1-attention-configs-nofp32"
                                                                 sh """
                                                                     grep -v '\\-t f32' ${attnConfig} > ${attnConfigToUse}
