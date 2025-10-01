@@ -572,7 +572,7 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
     std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
              transposedV) = maybeRewrite.value();
 
-    auto newOp = b.create<rock::AttentionOp>(
+    auto newOp = rock::AttentionOp::create(b, 
         op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
         op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(), op.getOut(),
         op.getLse(), op.getNumHeadsQAttr(), op.getNumHeadsKVAttr(), transposedQ,
@@ -641,8 +641,8 @@ struct ConvElementwiseGemmRewritePattern
     if (convNoChange && finalLayoutC == layoutC)
       return failure();
 
-    auto newOp = rw.create<rock::ConvElementwiseGemmOp>(
-        op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
+    auto newOp = rock::ConvElementwiseGemmOp::create(
+        rw, op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
         op.getElemwiseInputs(), op.getOut(), transposedC,
         op.getOTransposedAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
         op.getPaddingAttr(), op.getStridesAttr(), op.getDilationsAttr(),
@@ -689,10 +689,10 @@ struct GemmElementwiseGemmRewritePattern
     std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
              transposedV) = maybeRewrite.value();
 
-    auto newOp = rw.create<rock::GemmElementwiseGemmOp>(
-        op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
-        op.getElemwiseInputs(), op.getOut(), transposedQ, transposedK,
-        transposedV, op.getOTransposedAttr(), op.getFeaturesAttr(),
+    auto newOp = rock::GemmElementwiseGemmOp::create(
+        rw, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
+        newTensorV, op.getElemwiseInputs(), op.getOut(), transposedQ,
+        transposedK, transposedV, op.getOTransposedAttr(), op.getFeaturesAttr(),
         op.getStoreMethodAttr(), op.getParams0Attr(), op.getParams1Attr(),
         op.getFirstGemmIndicesAttr());
 

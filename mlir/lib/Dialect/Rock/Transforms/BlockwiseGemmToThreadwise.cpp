@@ -84,7 +84,7 @@ struct FillRewritePattern : public OpConversionPattern<FillOp> {
         b, loc, lbs, inputShape, strides,
         [value = adaptor.getValue(), input = adaptor.getInput()](
             OpBuilder &b, Location loc, ValueRange ivs) {
-          b.create<memref::StoreOp>(loc, value, input, ivs);
+          memref::StoreOp::create(b, loc, value, input, ivs);
         });
 
     b.eraseOp(op);
@@ -139,14 +139,15 @@ struct BlockwiseFillRewritePattern
             gpu::GPUDialect::getPrivateAddressSpace());
     MemRefType valueRegType = MemRefType::get(
         valueItems, valueElementType, AffineMap{}, privateMemoryAddressSpace);
-    GpuAllocOp valueReg = rewriter.create<GpuAllocOp>(loc, valueRegType);
+    GpuAllocOp valueReg = GpuAllocOp::create(rewriter, loc, valueRegType);
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
-    rewriter.create<InBoundsStoreOp>(loc, val, valueReg, zero);
+    InBoundsStoreOp::create(rewriter, loc, val, valueReg, zero);
     Value tid =
         rewriter.createOrFold<rock::WorkitemIdOp>(loc, rewriter.getIndexType());
-    rewriter.create<ThreadwiseWriteAllOp>(
-        loc, valueReg, op.getMemref(), rewriter.getArrayAttr({unmerge, pad}),
-        /*extraIndices=*/ValueRange{tid}, StoreMethod::Set, true, true);
+    ThreadwiseWriteAllOp::create(rewriter, loc, valueReg, op.getMemref(),
+                                 rewriter.getArrayAttr({unmerge, pad}),
+                                 /*extraIndices=*/ValueRange{tid},
+                                 StoreMethod::Set, true, true);
     rewriter.eraseOp(op);
     return success();
   }
@@ -311,12 +312,12 @@ struct BlockwiseGemmRewritePattern
     auto threadARegisterMemRefType =
         MemRefType::get(threadANumRegisters, elementType, AffineMap{},
                         privateMemoryAddressSpace);
-    auto threadAAllocOp = b.create<GpuAllocOp>(loc, threadARegisterMemRefType);
+    auto threadAAllocOp = GpuAllocOp::create(b, loc, threadARegisterMemRefType);
 
     auto threadBRegisterMemRefType =
         MemRefType::get(threadBNumRegisters, elementType, AffineMap{},
                         privateMemoryAddressSpace);
-    auto threadBAllocOp = b.create<GpuAllocOp>(loc, threadBRegisterMemRefType);
+    auto threadBAllocOp = GpuAllocOp::create(b, loc, threadBRegisterMemRefType);
 
     // Define views of register tiles for copies
     BottomUpTMBuilder viewA(b, {"raw"}, {threadANumRegisters}, loc);
@@ -345,36 +346,38 @@ struct BlockwiseGemmRewritePattern
     SmallVector<Value, 5> registerStartCoords(5, zeroConstantOp);
     SmallVector<Value, 5> ldsBufferAStartCoords = {
         kOffset, zeroConstantOp, workitem, zeroConstantOp, zeroConstantOp};
-    auto copyALoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
+    auto copyALoop = TransformingForOp::create(
+        b, loc,
+        ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsA, b.getArrayAttr(threadACopyViewAttr)},
         ArrayRef<int64_t>{kPerThread, mRepeat, 1, mPerThread, kPack},
         /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyAGuard(b);
       b.setInsertionPointToStart(copyALoop.getBody());
-      Value aCopy = b.create<memref::LoadOp>(
-          loc, matrixA, copyALoop.getLowerCoords(/*domain=*/0));
+      Value aCopy = memref::LoadOp::create(
+          b, loc, matrixA, copyALoop.getLowerCoords(/*domain=*/0));
       Value aCast = createTypeConversionOp(b, loc, aCopy, elementType);
-      b.create<memref::StoreOp>(loc, aCast, threadAAllocOp,
-                                copyALoop.getLowerCoords(/*domain=*/1));
+      memref::StoreOp::create(b, loc, aCast, threadAAllocOp,
+                              copyALoop.getLowerCoords(/*domain=*/1));
     }
 
     SmallVector<Value, 5> ldsBufferBStartCoords = {
         kOffset, zeroConstantOp, workitem, zeroConstantOp, zeroConstantOp};
-    auto copyBLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
+    auto copyBLoop = TransformingForOp::create(
+        b, loc,
+        ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsB, b.getArrayAttr(threadBCopyViewAttr)},
         ArrayRef<int64_t>{kPerThread, nRepeat, 1, nPerThread, kPack},
         /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyBGuard(b);
       b.setInsertionPointToStart(copyBLoop.getBody());
-      Value bCopy = b.create<memref::LoadOp>(
-          loc, matrixB, copyBLoop.getLowerCoords(/*domain=*/0));
+      Value bCopy = memref::LoadOp::create(
+          b, loc, matrixB, copyBLoop.getLowerCoords(/*domain=*/0));
       Value bCast = createTypeConversionOp(b, loc, bCopy, elementType);
-      b.create<memref::StoreOp>(loc, bCast, threadBAllocOp,
-                                copyBLoop.getLowerCoords(/*domain=*/1));
+      memref::StoreOp::create(b, loc, bCast, threadBAllocOp,
+                              copyBLoop.getLowerCoords(/*domain=*/1));
     }
 
     Value reshapedARegisters = reshapeBuffer(
@@ -382,8 +385,8 @@ struct BlockwiseGemmRewritePattern
     Value reshapedBRegisters = reshapeBuffer(
         b, loc, threadBAllocOp, {"k", "n", "kpack"}, {kPerThread, nC, kPack});
     // Actually do the gemm - this goes inside the look over kOffset
-    b.create<ThreadwiseGemmOp>(loc, reshapedARegisters, reshapedBRegisters,
-                               op.getMatrixC());
+    ThreadwiseGemmOp::create(b, loc, reshapedARegisters, reshapedBRegisters,
+                             op.getMatrixC());
 
     return success();
   }
@@ -435,7 +438,7 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t kBase = params.kBase;
     int64_t kBasePerThread = params.kBasePerThread;
 
-    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+    auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
 
     LLVM_DEBUG(llvm::dbgs()
                << "argVectorType A: " << argTypeA << "\n"
@@ -480,7 +483,7 @@ struct BlockwiseGemmAccelRewritePattern
           op.getRotateNWithK(), op.getSplitKAcrossThreadsFirstA());
     }
 
-    auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
+    auto mLoop = affine::AffineForOp::create(b, loc, 0, mRepeats);
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(mLoop.getBody());
@@ -489,8 +492,8 @@ struct BlockwiseGemmAccelRewritePattern
       Value bufferA = adaptor.getBufferA();
       if (loadAFromLDS) {
         // regsA = read A from LDS
-        b.create<ThreadwiseReadIntoOp>(
-            loc, wrappedLDSBufferForLoadA, bufferA, b.getArrayAttr({}),
+        ThreadwiseReadIntoOp::create(
+            b, loc, wrappedLDSBufferForLoadA, bufferA, b.getArrayAttr({}),
             ValueRange{tid, i}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
       } else {
         if (cast<ShapedType>(bufferA.getType()).getRank() == 1) {
@@ -506,7 +509,7 @@ struct BlockwiseGemmAccelRewritePattern
       Value viewA =
           accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferA);
 
-      auto nLoop = b.create<affine::AffineForOp>(loc, 0, nRepeats);
+      auto nLoop = affine::AffineForOp::create(b, loc, 0, nRepeats);
       {
         OpBuilder::InsertionGuard guard(b);
         b.setInsertionPointToStart(nLoop.getBody());
@@ -515,8 +518,8 @@ struct BlockwiseGemmAccelRewritePattern
         Value bufferB = adaptor.getBufferB();
         if (loadBFromLDS) {
           // regsB = read B from LDS
-          b.create<ThreadwiseReadIntoOp>(
-              loc, wrappedLDSBufferForLoadB, bufferB, b.getArrayAttr({}),
+          ThreadwiseReadIntoOp::create(
+              b, loc, wrappedLDSBufferForLoadB, bufferB, b.getArrayAttr({}),
               ValueRange{tid, j}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
         } else {
           if (cast<ShapedType>(bufferB.getType()).getRank() == 1) {
@@ -533,16 +536,16 @@ struct BlockwiseGemmAccelRewritePattern
             accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
 
         // regsC += regsA * regsB
-        auto kLoop = b.create<affine::AffineForOp>(loc, 0, kBasePerThread);
+        auto kLoop = affine::AffineForOp::create(b, loc, 0, kBasePerThread);
         {
           OpBuilder::InsertionGuard guard(b);
           b.setInsertionPointToStart(kLoop.getBody());
           Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();
-          b.create<ThreadwiseAccelGemmOp>(loc, viewA, viewB, viewC,
-                                          ValueRange{i, j, k},
-                                          op.getFeaturesAttr(), tuningParams);
+          ThreadwiseAccelGemmOp::create(b, loc, viewA, viewB, viewC,
+                                        ValueRange{i, j, k},
+                                        op.getFeaturesAttr(), tuningParams);
         }
       }
     }
@@ -813,7 +816,7 @@ struct BlockwiseReduceRewritePattern
                          OpBuilder &builder) const {
     ReduceMethod rMethod = op.getReduceMethod();
     Location loc = op.getLoc();
-    // Value loadAcc = rewriter.create<InBoundsLoadOp>(loc, input.getType(),
+    // Value loadAcc = InBoundsLoadOp::create(rewriter, loc, input.getType(),
     // acc, zeroConstantOp);
     Type elementType = op.getInput().getType().getElementType();
 
@@ -832,24 +835,24 @@ struct BlockwiseReduceRewritePattern
           kind = vector::CombiningKind::MAXIMUMF;
         }
       }
-      input = builder.create<vector::ReductionOp>(loc, kind, input);
+      input = vector::ReductionOp::create(builder, loc, kind, input);
     }
 
     if (rMethod == ReduceMethod::Sum) {
       Value reduced;
       if (elementType.isIntOrIndex()) {
-        reduced = builder.create<arith::AddIOp>(loc, acc, input);
+        reduced = arith::AddIOp::create(builder, loc, acc, input);
       } else {
-        reduced = builder.create<arith::AddFOp>(loc, acc, input);
+        reduced = arith::AddFOp::create(builder, loc, acc, input);
       }
       return reduced;
     } else {
       assert(rMethod == ReduceMethod::Max);
       Value reduced;
       if (elementType.isIntOrIndex()) {
-        reduced = builder.create<arith::MaxSIOp>(loc, acc, input);
+        reduced = arith::MaxSIOp::create(builder, loc, acc, input);
       } else {
-        reduced = builder.create<arith::MaximumFOp>(loc, acc, input);
+        reduced = arith::MaximumFOp::create(builder, loc, acc, input);
       }
       return reduced;
     }
@@ -884,9 +887,9 @@ struct BlockwiseReduceRewritePattern
     constexpr size_t nrDim = 0;
 
     Type elemType = cast<MemRefType>(inputRawBuffer.getType()).getElementType();
-    Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    auto loop = rewriter.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{{zero}, {zero}},
+    Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
+    auto loop = TransformingForOp::create(
+        rewriter, loc, ArrayRef<ValueRange>{{zero}, {zero}},
         ArrayRef<Attribute>{inputThreadSubTile2dView,
                             rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{numElements},
@@ -897,13 +900,13 @@ struct BlockwiseReduceRewritePattern
       rewriter.setInsertionPointToStart(loop.getBody());
       Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
       Block::BlockArgListType subtileCoords = loop.getLowerCoords(0);
-      Value ldInput = rewriter.create<InBoundsLoadOp>(
-          loc, elemType, inputRawBuffer, upperCoords);
-      Value ldInputAcc = rewriter.create<InBoundsLoadOp>(
-          loc, elemType, reducedBuffer, subtileCoords[nrDim]);
+      Value ldInput = InBoundsLoadOp::create(rewriter, loc, elemType,
+                                             inputRawBuffer, upperCoords);
+      Value ldInputAcc = InBoundsLoadOp::create(
+          rewriter, loc, elemType, reducedBuffer, subtileCoords[nrDim]);
       Value reduced = createReducingOp(op, ldInput, ldInputAcc, rewriter);
-      rewriter.create<InBoundsStoreOp>(loc, reduced, reducedBuffer,
-                                       subtileCoords[nrDim]);
+      InBoundsStoreOp::create(rewriter, loc, reduced, reducedBuffer,
+                              subtileCoords[nrDim]);
     }
   }
 
@@ -923,13 +926,13 @@ struct BlockwiseReduceRewritePattern
     ArrayRef<int64_t> threadSubTile2DShape =
         getLowerShape(inputThreadSubTile2dView);
     WorkitemIdOp tid =
-        rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
-    Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+        WorkitemIdOp::create(rewriter, loc, rewriter.getIndexType());
+    Value zero = arith::ConstantIndexOp::create(rewriter, loc, 0);
 
     // First we iterate thread subtile along non-reduction
     // axis to get iter coordinate within the register
-    auto loop = rewriter.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}},
+    auto loop = TransformingForOp::create(
+        rewriter, loc, ArrayRef<ValueRange>{{zero, zero}, {zero, zero}},
         ArrayRef<Attribute>{inputThreadSubTile2dViewInv,
                             rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{threadSubTile2DShape[nrDim], 1},
@@ -944,8 +947,8 @@ struct BlockwiseReduceRewritePattern
       // Then we plug that iter coordinate along with tid to recover block
       // subtile coordinates. However, we only need non-reduction dimension
       // coordinate from the block subtile.
-      auto convertToBlockSubTile = rewriter.create<TransformingForOp>(
-          loc, ArrayRef<ValueRange>{{tid, iter}},
+      auto convertToBlockSubTile = TransformingForOp::create(
+          rewriter, loc, ArrayRef<ValueRange>{{tid, iter}},
           ArrayRef<Attribute>{inputBlockSubTile2dView},
           /*bounds=*/ArrayRef<int64_t>{1, 1},
           /*strides=*/ArrayRef<int64_t>{1, 1},
@@ -954,14 +957,15 @@ struct BlockwiseReduceRewritePattern
         OpBuilder::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(convertToBlockSubTile.getBody());
         Value blockNrDimCoord = convertToBlockSubTile.getLowerCoords(0)[nrDim];
-        Value ldReduced = rewriter.create<InBoundsLoadOp>(
-            loc, elemType, reducedBuffer, ValueRange{threadSubTile2DCoords[0]});
+        Value ldReduced =
+            InBoundsLoadOp::create(rewriter, loc, elemType, reducedBuffer,
+                                   ValueRange{threadSubTile2DCoords[0]});
 
         // Here we plug the tid to get the sliced block subtile coordinate find
         // a unique packed coordinate in the reduction axis per each thread to
         // write the partial reductions to the lds.
-        auto convertToBlockSubTileTidSlice = rewriter.create<TransformingForOp>(
-            loc, ArrayRef<ValueRange>{{tid}},
+        auto convertToBlockSubTileTidSlice = TransformingForOp::create(
+            rewriter, loc, ArrayRef<ValueRange>{{tid}},
             ArrayRef<Attribute>{tidSubTileSliceView},
             /*bounds=*/ArrayRef<int64_t>{1},
             /*strides=*/ArrayRef<int64_t>{1},
@@ -972,8 +976,8 @@ struct BlockwiseReduceRewritePattern
               convertToBlockSubTileTidSlice.getBody());
           Value blockTidSliceRDimCoord =
               convertToBlockSubTileTidSlice.getLowerCoords(0)[rDim];
-          auto ldsStoreloop = rewriter.create<TransformingForOp>(
-              loc,
+          auto ldsStoreloop = TransformingForOp::create(
+              rewriter, loc,
               ArrayRef<ValueRange>{{blockNrDimCoord, blockTidSliceRDimCoord}},
               ArrayRef<Attribute>{toFlatLDSView},
               /*bounds=*/ArrayRef<int64_t>{1, 1},
@@ -984,8 +988,8 @@ struct BlockwiseReduceRewritePattern
             rewriter.setInsertionPointToStart(ldsStoreloop.getBody());
             Block::BlockArgListType ldsFlatCoords =
                 ldsStoreloop.getLowerCoords(0);
-            rewriter.create<InBoundsStoreOp>(loc, ldReduced, ldsBuffer,
-                                             ldsFlatCoords);
+            InBoundsStoreOp::create(rewriter, loc, ldReduced, ldsBuffer,
+                                    ldsFlatCoords);
           }
         }
       }
@@ -1004,14 +1008,14 @@ struct BlockwiseReduceRewritePattern
     TypedValue<MemRefType> outputReg = op.getOutput();
     Type elemType = inputReg.getType().getElementType();
     TypedValue<MemRefType> workspaceLDSBuffer = op.getWorkspaceBuffer();
-    Value zeroConstantOp = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    Value zeroConstantOp = arith::ConstantIndexOp::create(rewriter, loc, 0);
     int64_t axis = op.getAxis().getSExtValue();
     int64_t blockSize = op.getBlockSize();
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
     // Get current workitem ID.
     WorkitemIdOp tid =
-        rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
+        WorkitemIdOp::create(rewriter, loc, rewriter.getIndexType());
 
     // Create strides and bounds to iterate the virtual tensor
     TransformMapAttr lowerTr = cast<TransformMapAttr>(
@@ -1032,9 +1036,9 @@ struct BlockwiseReduceRewritePattern
         MemRefType::get(inputThreadSubTile2dShape[nrDim], elemType, AffineMap{},
                         privateMemoryAddressSpace);
     Value partialReductionBuffer =
-        rewriter.create<GpuAllocOp>(loc, partialReductionBufferType);
+        GpuAllocOp::create(rewriter, loc, partialReductionBufferType);
     Value initVal = getReductionInitValue(op, rewriter);
-    rewriter.create<FillOp>(loc, partialReductionBuffer, initVal);
+    FillOp::create(rewriter, loc, partialReductionBuffer, initVal);
     doThreadwiseReductions(rewriter, loc, op, partialReductionBuffer,
                            inputThreadSubTile2dView);
 
@@ -1056,7 +1060,7 @@ struct BlockwiseReduceRewritePattern
                                 inputThreadSubTile2dView, tidSubTileSliceView,
                                 toFlatLDSView);
 
-    rewriter.create<LDSBarrierOp>(loc);
+    LDSBarrierOp::create(rewriter, loc);
     // Following RAII scope will create reduction loops.
     {
       int64_t nonReductionDimSizeProduct = partialRegTensorShape[nrDim];
@@ -1085,20 +1089,20 @@ struct BlockwiseReduceRewritePattern
         // This will be accumulated over non-reduction iterations.
         auto accRegType = MemRefType::get(
             nrIterVectorLen, elemType, AffineMap{}, privateMemoryAddressSpace);
-        Value accReg = rewriter.create<GpuAllocOp>(loc, accRegType);
+        Value accReg = GpuAllocOp::create(rewriter, loc, accRegType);
         {
           PatternRewriter::InsertionGuard guard(rewriter);
           Value nrIter;
           if (threadViewShape[nrIterDim] > 1) {
-            AffineForOp nrIterLoop = rewriter.create<AffineForOp>(
-                loc, 0, threadViewShape[nrIterDim], nrIterVectorLen);
+            AffineForOp nrIterLoop = AffineForOp::create(
+                rewriter, loc, 0, threadViewShape[nrIterDim], nrIterVectorLen);
             // inside the loop.
             rewriter.setInsertionPointToStart(nrIterLoop.getBody());
             nrIter = nrIterLoop.getInductionVar();
           } else {
             nrIter = zeroConstantOp;
           }
-          rewriter.create<FillOp>(loc, accReg, initVal);
+          FillOp::create(rewriter, loc, accReg, initVal);
           VectorizationResult rIterVectorRes =
               getMaxVectorization(threadToLDSViewed, rIterDim);
           int64_t rIterVectorLen = rIterVectorRes.max;
@@ -1106,8 +1110,8 @@ struct BlockwiseReduceRewritePattern
           SmallVector<int64_t> bounds{1, 1, threadViewShape[rIterDim]};
           SmallVector<int64_t> strides{1, 1, rIterVectorLen};
 
-          TransformingForOp reductionLoop = rewriter.create<TransformingForOp>(
-              loc, ArrayRef<ValueRange>{inits, inits, inits},
+          TransformingForOp reductionLoop = TransformingForOp::create(
+              rewriter, loc, ArrayRef<ValueRange>{inits, inits, inits},
               ArrayRef<Attribute>{threadToLDSViewTrs, rewriter.getArrayAttr({}),
                                   threadsToLDSViewReducedTrs},
               ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
@@ -1130,35 +1134,35 @@ struct BlockwiseReduceRewritePattern
             // NOTE: currently, LDS is viewed as [nrDim x rDim] therefore
             // only scenario 1) is exercised. However, we'd like to keep
             // this code compatible with both approaches for future changes.
-            Value loadVal = rewriter.create<InBoundsLoadOp>(
-                loc,
+            Value loadVal = InBoundsLoadOp::create(
+                rewriter, loc,
                 vectorTypeOrSelf(elemType,
                                  std::max(rIterVectorLen, nrIterVectorLen)),
                 workspaceLDSBuffer, LDSLoadCoords);
-            Value loadAcc = rewriter.create<InBoundsLoadOp>(
-                loc, vectorTypeOrSelf(elemType, nrIterVectorLen), accReg,
-                zeroConstantOp);
+            Value loadAcc = InBoundsLoadOp::create(
+                rewriter, loc, vectorTypeOrSelf(elemType, nrIterVectorLen),
+                accReg, zeroConstantOp);
             Value reduced = createReducingOp(op, loadVal, loadAcc, rewriter);
-            rewriter.create<InBoundsStoreOp>(loc, reduced, accReg,
-                                             zeroConstantOp);
+            InBoundsStoreOp::create(rewriter, loc, reduced, accReg,
+                                    zeroConstantOp);
             // Storing the last reduction iter output directly to LDS[..., dr=0,
             // ...]
             Value rIterArg =
                 reductionLoop.getLowerCoords(/*domain=*/1)[rIterDim];
-            Value boundVal = rewriter.create<arith::ConstantIndexOp>(
-                loc, threadViewShape[rIterDim]);
+            Value boundVal = arith::ConstantIndexOp::create(
+                rewriter, loc, threadViewShape[rIterDim]);
             Value strideVal =
-                rewriter.create<arith::ConstantIndexOp>(loc, rIterVectorLen);
+                arith::ConstantIndexOp::create(rewriter, loc, rIterVectorLen);
             Value lastIterVal =
-                rewriter.create<arith::SubIOp>(loc, boundVal, strideVal);
-            Value isLastIter = rewriter.create<arith::CmpIOp>(
-                loc, arith::CmpIPredicate::eq, rIterArg, lastIterVal);
-            scf::IfOp ifb = rewriter.create<scf::IfOp>(
-                loc, isLastIter, /*withElseRegion=*/false);
+                arith::SubIOp::create(rewriter, loc, boundVal, strideVal);
+            Value isLastIter = arith::CmpIOp::create(
+                rewriter, loc, arith::CmpIPredicate::eq, rIterArg, lastIterVal);
+            scf::IfOp ifb = scf::IfOp::create(rewriter, loc, isLastIter,
+                                              /*withElseRegion=*/false);
             {
               OpBuilder thenb = ifb.getThenBodyBuilder();
-              thenb.create<InBoundsStoreOp>(
-                  loc, reduced, workspaceLDSBuffer,
+              InBoundsStoreOp::create(
+                  thenb, loc, reduced, workspaceLDSBuffer,
                   reductionLoop.getLowerCoords(/*domain=*/2));
             }
           }
@@ -1166,16 +1170,17 @@ struct BlockwiseReduceRewritePattern
         ArrayAttr reducedldsViewArrayAttr = createLDSWorkspaceView(
             loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true,
             partialRegTensorShape[rDim]);
-        rewriter.create<LDSBarrierOp>(loc);
-        rewriter.create<ThreadwiseReadIntoOp>(
-            loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
-            /*extraIndices=*/ValueRange{tid}, true, false);
+        LDSBarrierOp::create(rewriter, loc);
+        ThreadwiseReadIntoOp::create(rewriter, loc, workspaceLDSBuffer,
+                                     outputReg, reducedldsViewArrayAttr,
+                                     /*extraIndices=*/ValueRange{tid}, true,
+                                     false);
         if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
           ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
               loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true,
               partialRegTensorShape[rDim]);
-          rewriter.create<ThreadwiseReadIntoOp>(
-              loc, workspaceLDSBuffer, op.getExtraOut(),
+          ThreadwiseReadIntoOp::create(
+              rewriter, loc, workspaceLDSBuffer, op.getExtraOut(),
               reducedldsViewArrayAttr2,
               /*extraIndices=*/ValueRange{tid}, true, false);
         }
@@ -1196,12 +1201,12 @@ struct BlockwiseReduceRewritePattern
         VectorizationResult rIterVectorRes =
             getMaxVectorization(threadToLDSViewed, rIterDim);
         int64_t rIterVectorLen = rIterVectorRes.max;
-        Value nrDimSizeProductConst = rewriter.create<arith::ConstantIndexOp>(
-            loc, nonReductionDimSizeProduct);
+        Value nrDimSizeProductConst = arith::ConstantIndexOp::create(
+            rewriter, loc, nonReductionDimSizeProduct);
         Value rtid =
-            rewriter.create<arith::DivSIOp>(loc, tid, nrDimSizeProductConst);
+            arith::DivSIOp::create(rewriter, loc, tid, nrDimSizeProductConst);
         Value nrtid =
-            rewriter.create<arith::RemSIOp>(loc, tid, nrDimSizeProductConst);
+            arith::RemSIOp::create(rewriter, loc, tid, nrDimSizeProductConst);
 
         // We need to do the threadwise reduction
         // here only if rIterDim is meaninfully iterated
@@ -1211,7 +1216,7 @@ struct BlockwiseReduceRewritePattern
           Type loadTypeInputReg = vectorTypeOrSelf(elemType, rIterVectorLen);
           Type accRegType = MemRefType::get({1}, elemType, AffineMap{},
                                             privateMemoryAddressSpace);
-          Value accReg = rewriter.create<GpuAllocOp>(loc, accRegType);
+          Value accReg = GpuAllocOp::create(rewriter, loc, accRegType);
           // This RAII scope would create a loop to iteratively partialy reduce
           // on a thread basis until items to reduce will match the available
           // number of threads.
@@ -1221,26 +1226,26 @@ struct BlockwiseReduceRewritePattern
             SmallVector<int64_t> strides{1, 1, rIterVectorLen};
 
             Value initVal = getReductionInitValue(op, rewriter);
-            rewriter.create<FillOp>(loc, accReg, initVal);
+            FillOp::create(rewriter, loc, accReg, initVal);
 
-            TransformingForOp reductionLoop =
-                rewriter.create<TransformingForOp>(
-                    loc, ArrayRef<ValueRange>(inits),
-                    ArrayRef<Attribute>{threadToLDSViewTrs},
-                    ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
-                    /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+            TransformingForOp reductionLoop = TransformingForOp::create(
+                rewriter, loc, ArrayRef<ValueRange>(inits),
+                ArrayRef<Attribute>{threadToLDSViewTrs},
+                ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
+                /*forceUnroll=*/true, /*useIndexDiffs=*/true);
             {
               PatternRewriter::InsertionGuard guard(rewriter);
               rewriter.setInsertionPointToStart(reductionLoop.getBody());
               Block::BlockArgListType LDSLoadCoords =
                   reductionLoop.getLowerCoords(/*domain=*/0);
-              Value loadVal = rewriter.create<InBoundsLoadOp>(
-                  loc, loadTypeInputReg, workspaceLDSBuffer, LDSLoadCoords);
-              Value loadAcc = rewriter.create<InBoundsLoadOp>(
-                  loc, elemType, accReg, zeroConstantOp);
+              Value loadVal =
+                  InBoundsLoadOp::create(rewriter, loc, loadTypeInputReg,
+                                         workspaceLDSBuffer, LDSLoadCoords);
+              Value loadAcc = InBoundsLoadOp::create(rewriter, loc, elemType,
+                                                     accReg, zeroConstantOp);
               Value reduced = createReducingOp(op, loadVal, loadAcc, rewriter);
-              rewriter.create<InBoundsStoreOp>(loc, reduced, accReg,
-                                               zeroConstantOp);
+              InBoundsStoreOp::create(rewriter, loc, reduced, accReg,
+                                      zeroConstantOp);
             }
           }
 
@@ -1251,23 +1256,22 @@ struct BlockwiseReduceRewritePattern
             SmallVector<int64_t> bounds{1, 1, 1};
             SmallVector<int64_t> strides{1, 1, 1};
 
-            TransformingForOp reductionLoop =
-                rewriter.create<TransformingForOp>(
-                    loc, ArrayRef<ValueRange>(inits),
-                    ArrayRef<Attribute>{threadToLDSViewTrs},
-                    ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
-                    /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+            TransformingForOp reductionLoop = TransformingForOp::create(
+                rewriter, loc, ArrayRef<ValueRange>(inits),
+                ArrayRef<Attribute>{threadToLDSViewTrs},
+                ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
+                /*forceUnroll=*/true, /*useIndexDiffs=*/true);
             {
               PatternRewriter::InsertionGuard guard(rewriter);
               rewriter.setInsertionPointToStart(reductionLoop.getBody());
               Block::BlockArgListType LDSStoreCoords =
                   reductionLoop.getLowerCoords(/*domain=*/0);
-              Value loadVal = rewriter.create<InBoundsLoadOp>(
-                  loc, elemType, accReg, zeroConstantOp);
-              rewriter.create<InBoundsStoreOp>(loc, loadVal, workspaceLDSBuffer,
-                                               LDSStoreCoords);
+              Value loadVal = InBoundsLoadOp::create(rewriter, loc, elemType,
+                                                     accReg, zeroConstantOp);
+              InBoundsStoreOp::create(rewriter, loc, loadVal,
+                                      workspaceLDSBuffer, LDSStoreCoords);
             }
-            rewriter.create<LDSBarrierOp>(loc);
+            LDSBarrierOp::create(rewriter, loc);
           }
         }
 
@@ -1283,19 +1287,18 @@ struct BlockwiseReduceRewritePattern
           for (int64_t offset = ceilPowerOf2; offset >= 1;
                offset = offset >> 1) {
             Value offsetVal =
-                rewriter.create<arith::ConstantIndexOp>(loc, offset);
+                arith::ConstantIndexOp::create(rewriter, loc, offset);
             Value rtidPlusOffsetVal =
-                rewriter.create<arith::AddIOp>(loc, rtid, offsetVal);
-            Value maxActiveReductionThreadsVal =
-                rewriter.create<arith::ConstantIndexOp>(
-                    loc, maxActiveReductionThreads);
+                arith::AddIOp::create(rewriter, loc, rtid, offsetVal);
+            Value maxActiveReductionThreadsVal = arith::ConstantIndexOp::create(
+                rewriter, loc, maxActiveReductionThreads);
             maxActiveReductionThreads =
                 llvm::PowerOf2Ceil(maxActiveReductionThreads) >> 1;
-            Value isValid = rewriter.create<arith::CmpIOp>(
-                loc, arith::CmpIPredicate::slt, rtidPlusOffsetVal,
+            Value isValid = arith::CmpIOp::create(
+                rewriter, loc, arith::CmpIPredicate::slt, rtidPlusOffsetVal,
                 maxActiveReductionThreadsVal);
-            scf::IfOp ifb = rewriter.create<scf::IfOp>(
-                loc, isValid, /*withElseRegion=*/false);
+            scf::IfOp ifb = scf::IfOp::create(rewriter, loc, isValid,
+                                              /*withElseRegion=*/false);
             {
               OpBuilder thenb = ifb.getThenBodyBuilder();
               SmallVector<Value, 4> firstInits{nrtid, rtid, zeroConstantOp};
@@ -1304,8 +1307,8 @@ struct BlockwiseReduceRewritePattern
               SmallVector<int64_t> bounds{1, 1, 1};
               SmallVector<int64_t> strides{1, 1, 1};
 
-              TransformingForOp reductionLoop = thenb.create<TransformingForOp>(
-                  loc, ArrayRef<ValueRange>{firstInits, secondInits},
+              TransformingForOp reductionLoop = TransformingForOp::create(
+                  thenb, loc, ArrayRef<ValueRange>{firstInits, secondInits},
                   ArrayRef<Attribute>{threadToLDSViewTrs, threadToLDSViewTrs},
                   ArrayRef<int64_t>(bounds), ArrayRef<int64_t>(strides),
                   /*forceUnroll=*/true, /*useIndexDiffs=*/true);
@@ -1314,32 +1317,35 @@ struct BlockwiseReduceRewritePattern
                 thenb.setInsertionPointToStart(reductionLoop.getBody());
                 Block::BlockArgListType firstLDSLoadCoords =
                     reductionLoop.getLowerCoords(/*domain=*/0);
-                Value firstLoadVal = thenb.create<InBoundsLoadOp>(
-                    loc, elemType, workspaceLDSBuffer, firstLDSLoadCoords);
+                Value firstLoadVal = InBoundsLoadOp::create(
+                    thenb, loc, elemType, workspaceLDSBuffer,
+                    firstLDSLoadCoords);
                 Block::BlockArgListType secondLDSLoadCoords =
                     reductionLoop.getLowerCoords(/*domain=*/1);
-                Value secondLoadVal = thenb.create<InBoundsLoadOp>(
-                    loc, elemType, workspaceLDSBuffer, secondLDSLoadCoords);
+                Value secondLoadVal = InBoundsLoadOp::create(
+                    thenb, loc, elemType, workspaceLDSBuffer,
+                    secondLDSLoadCoords);
                 Value reduced =
                     createReducingOp(op, firstLoadVal, secondLoadVal, thenb);
-                thenb.create<InBoundsStoreOp>(loc, reduced, workspaceLDSBuffer,
-                                              firstLDSLoadCoords);
+                InBoundsStoreOp::create(thenb, loc, reduced, workspaceLDSBuffer,
+                                        firstLDSLoadCoords);
               }
             }
-            rewriter.create<LDSBarrierOp>(loc);
+            LDSBarrierOp::create(rewriter, loc);
           }
           ArrayAttr reducedldsViewArrayAttr = createLDSWorkspaceView(
               loc, rewriter, inputViewArrayAttr, axis, /*makeRDimZero-*/ true,
               partialRegTensorShape[rDim]);
-          rewriter.create<ThreadwiseReadIntoOp>(
-              loc, workspaceLDSBuffer, outputReg, reducedldsViewArrayAttr,
-              /*extraIndices=*/ValueRange{tid}, true, false);
+          ThreadwiseReadIntoOp::create(rewriter, loc, workspaceLDSBuffer,
+                                       outputReg, reducedldsViewArrayAttr,
+                                       /*extraIndices=*/ValueRange{tid}, true,
+                                       false);
           if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
             ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
                 loc, rewriter, outputViewArrayAttr, axis,
                 /*makeRDimZero-*/ true, partialRegTensorShape[rDim]);
-            rewriter.create<ThreadwiseReadIntoOp>(
-                loc, workspaceLDSBuffer, op.getExtraOut(),
+            ThreadwiseReadIntoOp::create(
+                rewriter, loc, workspaceLDSBuffer, op.getExtraOut(),
                 reducedldsViewArrayAttr2,
                 /*extraIndices=*/ValueRange{tid}, true, false);
           }

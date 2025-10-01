@@ -439,7 +439,7 @@ checkReduceConstraints(func::FuncOp &func,
 static Value applyViewsOnDest(LinalgAlignRewriter &rewriter, Location loc,
                               Value dest, ArrayRef<TransformMapAttr> views) {
   for (TransformMapAttr trMap : llvm::reverse(views)) {
-    dest = rewriter.create<TransformOp>(loc, dest, trMap);
+    dest = TransformOp::create(rewriter, loc, dest, trMap);
   }
   return dest;
 }
@@ -582,8 +582,8 @@ traceToWriter(Value startVal,
 static Value makeRegs(LinalgAlignRewriter &b, MemRefType::Builder &mrb,
                       Location loc, Type newElementType) {
   // 1. create a second allocation of the same type to hold loaded elements
-  return b.create<GpuAllocOp>(
-      loc, static_cast<MemRefType>(mrb.setElementType(newElementType)));
+  return GpuAllocOp::create(
+      b, loc, static_cast<MemRefType>(mrb.setElementType(newElementType)));
 }
 
 static void markGenericWritersToRevisit(LinalgAlignRewriter &b, Value rawSrc) {
@@ -685,8 +685,8 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
 
   // 2.1. load into registers
   Type validityRecordResultType = vectorOfBoolShapedLike(alloc);
-  ThreadwiseReadIntoOp threadwiseReadIntoOp = b.create<ThreadwiseReadIntoOp>(
-      loc,
+  ThreadwiseReadIntoOp threadwiseReadIntoOp = ThreadwiseReadIntoOp::create(
+      b, loc,
       validityRecord != nullptr ? TypeRange{validityRecordResultType}
                                 : TypeRange{},
       src, alloc, dynamicValidities, tiledOp.getExtraViews(),
@@ -912,8 +912,8 @@ reapplyPaddingIfNeeded(linalg::GenericOp reconfiguredGeneric,
     reconfiguredGeneric.getOutputsMutable()[0].assign(unmaskedTile);
   });
   b.setInsertionPointAfter(reconfiguredGeneric);
-  auto maskingRead = b.create<rock::ThreadwiseReadIntoOp>(
-      reconfiguredGeneric.getLoc(), vectorOfBoolShapedLike(unmaskedTile),
+  auto maskingRead = rock::ThreadwiseReadIntoOp::create(
+      b, reconfiguredGeneric.getLoc(), vectorOfBoolShapedLike(unmaskedTile),
       unmaskedTile, originalTile,
       /*dynamicValidities=*/validityRecords,
       /*extraViews=*/b.getArrayAttr({}), /*extraIndices=*/ValueRange{},
@@ -1506,13 +1506,13 @@ static LogicalResult insertBlockwiseReduction(
     }
   }
   TypedValue<MemRefType> src = threadwiseWriteOp.getSource();
-  auto broadcastReducedSrc = rewriter.create<GpuAllocOp>(loc, src.getType());
+  auto broadcastReducedSrc = GpuAllocOp::create(rewriter, loc, src.getType());
   Value ldsWorkspace = rock::gpuAlloc(rewriter, loc, ldsWorkspaceSize,
                                       src.getType().getElementType(),
                                       gpu::AddressSpace::Workgroup);
 
-  rewriter.create<BlockwiseBroadcastReduceOp>(
-      loc, src, ldsWorkspace, broadcastReducedSrc,
+  BlockwiseBroadcastReduceOp::create(
+      rewriter, loc, src, ldsWorkspace, broadcastReducedSrc,
       /*extraOut=*/nullptr, rewriter.getIndexAttr(blockReductionAxis),
       reduceOp.getReduceMethodAttr(), blockSubTileViews.value(),
       blockSubTileTidSliceViews.value(), threadSubTileViews.value(),
@@ -1521,7 +1521,7 @@ static LogicalResult insertBlockwiseReduction(
 
   ViewLikeOpInterface viewOp =
       ldsWorkspace.getDefiningOp<ViewLikeOpInterface>();
-  rewriter.create<GpuDeallocOp>(loc, viewOp.getViewSource());
+  GpuDeallocOp::create(rewriter, loc, viewOp.getViewSource());
   // Create partial reduction views
   ArrayAttr paddedReducedTrStack;
   {

@@ -953,8 +953,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
                               logicalFuncArgTypes, args);
   switch (config.operation.value()) {
   case ConvOpType::Fwd: {
-    builder.create<ConvOp>(builder.getUnknownLoc(), ArrayRef<Type>{}, args,
-                           attributes);
+    ConvOp::create(builder, builder.getUnknownLoc(), ArrayRef<Type>{}, args,
+                   attributes);
   } break;
   case ConvOpType::BwdData: {
     if (!rock::isEveryElementWrittenBwdData(
@@ -988,8 +988,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
 
     if (kernelId == 1) {
       // Workspace -> filter tensor
-      builder.create<ConvertingCopyKernelOp>(
-          builder.getUnknownLoc(), /*resultType=*/TypeRange{},
+      ConvertingCopyKernelOp::create(
+          builder, builder.getUnknownLoc(), /*resultType=*/TypeRange{},
           func.getArgument(3), func.getArgument(0),
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
@@ -1000,13 +1000,13 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
       if (needsZeroInit) {
         zeroInitArg(builder, func, hasWorkspace ? 3 : 0);
       }
-      builder.create<ConvBwdWeightOp>(builder.getUnknownLoc(), ArrayRef<Type>{},
-                                      args, attributes);
+      ConvBwdWeightOp::create(builder, builder.getUnknownLoc(),
+                              ArrayRef<Type>{}, args, attributes);
     }
   } break;
   }
 
-  builder.create<func::ReturnOp>(builder.getUnknownLoc(), ValueRange{});
+  func::ReturnOp::create(builder, builder.getUnknownLoc(), ValueRange{});
   return success();
 }
 
