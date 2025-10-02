@@ -1534,37 +1534,40 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
   LogicalResult getConstComparison(TypedValue<TensorType> input,
                                    size_t nonOneDimFromEnd) const {
+    // Lambda to get constant result from either tosa.const or arith.constant
+    auto getConstantResult = [&](Value input) -> FailureOr<Value> {
+      if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(input)) {
+        return constOp.getResult();
+      } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(input)) {
+        return constOp.getResult();
+      }
+      return failure();
+    };
+    
     // input is a constant with a range from 0 to maxSeqLen
     FailureOr<Value> maybeNonOne = mulBroadcast(input);
     Value rangeInput;
     if (failed(maybeNonOne)) {
-      // If mulBroadcast fails, check if input is already a constant
-      if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(input)) {
-        rangeInput = constOp.getResult();
-      } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(input)) {
-        rangeInput = constOp.getResult();
-      } else {
+      // If addBroadcast fails, check if input is already a constant
+      auto constantResult = getConstantResult(input);
+      if (failed(constantResult)) {
         return failure();
       }
+      rangeInput = constantResult.value();
     } else {
       rangeInput = maybeNonOne.value();
     }
 
     // check that maybeNonOne is a const with range 0..maxSeqLen
-    bool isRange = false;
     Value rangeResult;
-    if (auto constRange =
-            getDefiningNonReshapeOp<arith::ConstantOp>(rangeInput)) {
-      rangeResult = constRange.getResult();
-      isRange = rock::isConstRange(rangeResult);
-    } else if (auto constRange = getDefiningNonReshapeOp<tosa::ConstOp>(
-                   rangeInput)) {
-      rangeResult = constRange.getResult();
-      isRange = rock::isConstRange(rangeResult);
-    }
+    auto rangeConstantResult = getConstantResult(rangeInput);
+    bool isRange = succeeded(rangeConstantResult) &&
+                   isConstRange(rangeConstantResult.value());
 
     if (!isRange)
       return failure();
+
+    rangeResult = rangeConstantResult.value();
 
     auto shapedType = dyn_cast<ShapedType>(rangeResult.getType());
     if (!shapedType)
