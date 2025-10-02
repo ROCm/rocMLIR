@@ -495,9 +495,6 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
     auto tensorB = op.getB();
     auto scaleA = op.getScaleA();
     auto scaleB = op.getScaleB();
-    if (scaleA && scaleB) {
-      return failure();
-    }
 
     SmallVector<StringRef> layoutA{"G", "M", "K"};
     if (op.getATransposedAttr())
@@ -564,42 +561,6 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
                                              std::get<1>(sortedScaleB), "N", b);
       newScaleA = std::get<0>(batchReorderScaleA);
       newScaleB = std::get<0>(batchReorderScaleB);
-      llvm::dbgs() << "newTensorA=" << newTensorA
-                   << " \nnewScaleA=" << newScaleA << "\n";
-      llvm::dbgs() << "newTensorB=" << newTensorB
-                   << " \nnewScaleB=" << newScaleB << "\n";
-      Value copyTensorB = newTensorB;
-      while (cast<ShapedType>(newScaleB.getType()).getShape() !=
-             cast<ShapedType>(copyTensorB.getType()).getShape()) {
-        if (auto transposedB = copyTensorB.getDefiningOp<rock::TransformOp>()) {
-          if (cast<ShapedType>(transposedB.getInput().getType()).getShape() ==
-              cast<ShapedType>(newScaleB.getType()).getShape()) {
-            newScaleB = rock::transform(
-                b, newScaleB, b.getArrayAttr(transposedB.getTransformAttr()));
-            break;
-          }
-          copyTensorB = transposedB.getInput();
-        } else {
-          break;
-        }
-      }
-      Value copyTensorA = newTensorA;
-      while (cast<ShapedType>(newScaleA.getType()).getShape() !=
-             cast<ShapedType>(copyTensorA.getType()).getShape()) {
-        if (auto transposedA = copyTensorA.getDefiningOp<rock::TransformOp>()) {
-          if (cast<ShapedType>(transposedA.getInput().getType()).getShape() ==
-              cast<ShapedType>(newScaleA.getType()).getShape()) {
-            newScaleA = rock::transform(
-                b, newScaleA, b.getArrayAttr(transposedA.getTransformAttr()));
-            break;
-          }
-          copyTensorA = transposedA.getInput();
-        }
-      }
-      llvm::dbgs() << "newTensorA=" << newTensorA
-                   << " \nnewScaleA=" << newScaleA << "\n";
-      llvm::dbgs() << "newTensorB=" << newTensorB
-                   << " \nnewScaleB=" << newScaleB << "\n";
     }
     LLVM_DEBUG(llvm::dbgs() << "newTensorA=" << newTensorA
                             << " newTensorB=" << newTensorB << "\n");

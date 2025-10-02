@@ -871,7 +871,7 @@ public:
     Value scaleA = nullptr, scaleB = nullptr;
     if (!failed(mulOpA) && !failed(mulOpB)) {
       // Both inputs are coming from a mul op, this is likely a quantized
-      // scaleed matmul
+      // scaled matmul
       auto mulAInputs1 = mulOpA->getInput1();
       auto mulAInputs2 = mulOpA->getInput2();
       if (tosa::CastOp mulACast = mulAInputs1.getDefiningOp<tosa::CastOp>()) {
@@ -888,6 +888,7 @@ public:
                 cast<ShapedType>(castInput.getType()).getElementType())) {
           matABeforeCast = castInput;
         }
+        scaleA = mulAInputs1;
       }
       auto mulBInputs1 = mulOpB->getInput1();
       auto mulBInputs2 = mulOpB->getInput2();
@@ -908,6 +909,10 @@ public:
         }
       }
     }
+    if (scaleA.getDefiningOp<tosa::CastOp>())
+      scaleA = scaleA.getDefiningOp<tosa::CastOp>().getInput();
+    if (scaleB.getDefiningOp<tosa::CastOp>())
+      scaleB = scaleB.getDefiningOp<tosa::CastOp>().getInput();
     if (matABeforeCast && matBBeforeCast) {
       // check for rank to expand/collapse to same shape
       if (matA.getType() != matABeforeCast.getType()) {
