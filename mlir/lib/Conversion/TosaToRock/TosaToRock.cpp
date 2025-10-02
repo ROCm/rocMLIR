@@ -1466,8 +1466,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return val.getDefiningOp<TosaOp>();
   }
 
-  template <typename TosaOp>
-  TosaOp getDefiningNonReshapeOpNonCastOpNonBroadcastOp(Value val) const {
+  template <typename TosaOp> FailureOr<TosaOp>
+  getDefiningNonReshapeOpNonCastOpNonBroadcastOp(Value val) const {
     while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
            val.getDefiningOp<tensor::ExpandShapeOp>() ||
            val.getDefiningOp<tosa::CastOp>() ||
@@ -1475,12 +1475,16 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (val.getDefiningOp<tosa::AddOp>()) {
         auto maybeBroadcast = addBroadcast(val);
         if (failed(maybeBroadcast))
-          return nullptr;
+          return failure();
         val = maybeBroadcast.value();
       } else
         val = val.getDefiningOp()->getOperand(0);
     }
-    return val.getDefiningOp<TosaOp>();
+
+    TosaOp result = val.getDefiningOp<TosaOp>();
+    if (!result)
+      return failure();
+    return result;
   }
 
   template <typename TosaOp>
@@ -1548,7 +1552,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     FailureOr<Value> maybeNonOne = mulBroadcast(input);
     Value rangeInput;
     if (failed(maybeNonOne)) {
-      // If addBroadcast fails, check if input is already a constant
+      // The check to in mulBroadcast will look to find a constant being
+      // broadcasted. If mulBroadcast fails, we also want to check and see if
+      // the input is already a constant. We will then have further checks down
+      // below to confirm that the constant has a correct value.
       auto constantResult = getConstantResult(input);
       if (failed(constantResult)) {
         return failure();
@@ -1558,7 +1565,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       rangeInput = maybeNonOne.value();
     }
 
-    // check that maybeNonOne is a const with range 0..maxSeqLen
+    // check that rangeInput is a const with range 0..maxSeqLen
     Value rangeResult;
     auto rangeConstantResult = getConstantResult(rangeInput);
     bool isRange = succeeded(rangeConstantResult) &&
@@ -1604,7 +1611,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       //    constants
       // 2. The greater op has already been constant folded by MIGraphX, so we
       //    find the broadcast input and then do the necessary constant checks
-      if (auto greater = getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred)) {
+      auto maybeGreater =
+        getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred);
+      if (succeeded(maybeGreater)) {
+        auto greater = maybeGreater.value();
         // input1 is a constant with a range from 0 to maxSeqLen (KV)
         if (failed(getConstComparison(greater.getInput1(), 0)))
           return failure();
@@ -1756,8 +1766,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return failure();
 
       auto pred = select.getInput1();
-      if (auto greater =
-              getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred)) {
+      auto maybeGreater =
+        getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred);
+      if (succeeded(maybeGreater)) {
+        auto greater = maybeGreater.value();
         // input1 is a constant with a range from 0 to maxSeqLen
         if (failed(getConstComparison(greater.getInput1(), 0)))
           return failure();
@@ -2047,7 +2059,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value kvCacheInput, currentSeqLen;
     auto maybeKVCache = getKVCache(softmaxInput);
     bool isKVCache = succeeded(maybeKVCache);
-    if (succeeded(maybeKVCache))
+    if (isKVCache)
       std::tie(kvCacheInput, currentSeqLen) = maybeKVCache.value();
     else
       kvCacheInput = softmaxInput;
