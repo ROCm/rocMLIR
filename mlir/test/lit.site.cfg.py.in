@@ -24,12 +24,6 @@ config.llvm_bindings = "@LLVM_BINDINGS@".split(' ')
 config.host_os = "@HOST_OS@"
 config.host_cc = "@HOST_CC@"
 config.host_cxx = "@HOST_CXX@"
-<<<<<<< HEAD
-=======
-config.host_c_compiler_launcher = "@CMAKE_C_COMPILER_LAUNCHER@"
-config.host_cxx_compiler_launcher = "@CMAKE_CXX_COMPILER_LAUNCHER@"
-config.enable_libcxx = "@LLVM_ENABLE_LIBCXX@"
->>>>>>> cb1c9dfd699c (Squashed 'external/llvm-project/' changes from 1e1a4d577e7e..8ffe4def7d09)
 config.host_cmake = "@CMAKE_COMMAND@"
 # Note: ldflags can contain double-quoted paths, so must use single quotes here.
 config.host_ldflags = '@HOST_LDFLAGS@'
@@ -48,7 +42,6 @@ config.build_examples = @LLVM_BUILD_EXAMPLES@
 config.run_rocm_tests = @MLIR_ENABLE_ROCM_CONVERSIONS@
 config.conv_validation_wrapper_library_dir = "@MLIR_CONV_VALIDATION_WRAPPER_LIBRARY_DIR@"
 config.enable_rocm_runner = @MLIR_ENABLE_ROCM_RUNNER@
-<<<<<<< HEAD
 if config.enable_rocm_runner:
     config.available_features.add('rocm-runner')
 config.enable_rock_driver_e2e_test = @ROCMLIR_DRIVER_E2E_TEST_ENABLED@
@@ -96,49 +89,6 @@ if config.rocm_path:
             config.no_AMD_GPU = True
     except subprocess.CalledProcessError:
         config.no_AMD_GPU = True
-=======
-config.gpu_compilation_format = "@MLIR_GPU_COMPILATION_TEST_FORMAT@"
-config.rocm_test_chipset = "@ROCM_TEST_CHIPSET@"
-config.run_xevm_tests = @MLIR_ENABLE_XEVM_CONVERSIONS@
-config.enable_sycl_runner = @MLIR_ENABLE_SYCL_RUNNER@
-config.enable_levelzero_runner = @MLIR_ENABLE_LEVELZERO_RUNNER@
-config.enable_spirv_cpu_runner = @MLIR_ENABLE_SPIRV_CPU_RUNNER@
-config.enable_vulkan_runner = @MLIR_ENABLE_VULKAN_RUNNER@
-config.enable_bindings_python = @MLIR_ENABLE_BINDINGS_PYTHON@
-config.intel_sde_executable = "@INTEL_SDE_EXECUTABLE@"
-config.mlir_run_amx_tests = @MLIR_RUN_AMX_TESTS@
-config.mlir_run_arm_sve_tests = @MLIR_RUN_ARM_SVE_TESTS@
-# This is a workaround for the fact that LIT's:
-#   %if <cond>
-# requires <cond> to be in the set of available features.
-# TODO: Update LIT's TestRunner so that this is not required.
-if config.mlir_run_arm_sve_tests:
-    config.available_features.add("mlir_arm_sve_tests")
-config.mlir_run_arm_sme_tests = @MLIR_RUN_ARM_SME_TESTS@
-config.mlir_run_x86vector_tests = @MLIR_RUN_X86VECTOR_TESTS@
-config.mlir_run_riscv_vector_tests = "@MLIR_RUN_RISCV_VECTOR_TESTS@"
-config.mlir_run_cuda_tensor_core_tests = @MLIR_RUN_CUDA_TENSOR_CORE_TESTS@
-config.mlir_run_cuda_sm80_tests = @MLIR_RUN_CUDA_SM80_TESTS@
-config.mlir_run_cuda_sm80_lt_tests = @MLIR_RUN_CUDA_SM80_LT_TESTS@
-config.mlir_run_cuda_sm90_tests = @MLIR_RUN_CUDA_SM90_TESTS@
-config.mlir_include_integration_tests = @MLIR_INCLUDE_INTEGRATION_TESTS@
-config.llvm_shared_libs_build = @BUILD_SHARED_LIBS@
-config.arm_emulator_executable = "@ARM_EMULATOR_EXECUTABLE@"
-# Some tests marked with 'UNSUPPORTED: target=aarch64{{.*}}' are still run when
-# configured with ARM_EMULATOR_EXECUTABLE and the default target is not aarch64.
-# Add feature 'mlir_arm_emulator' here and to UNSUPPORTED list of such tests.
-if config.arm_emulator_executable:
-    config.available_features.add("mlir_arm_emulator")
-config.arm_emulator_options = "@ARM_EMULATOR_OPTIONS@"
-config.arm_emulator_mlir_runner_executable = "@ARM_EMULATOR_MLIR_RUNNER_EXECUTABLE@"
-config.arm_emulator_lli_executable = "@ARM_EMULATOR_LLI_EXECUTABLE@"
-config.arm_emulator_utils_lib_dir = "@ARM_EMULATOR_UTILS_LIB_DIR@"
-config.arm_sme_abi_routines_shlib = "@ARM_SME_ABI_ROUTINES_SHLIB@"
-config.riscv_vector_emulator_executable = "@RISCV_VECTOR_EMULATOR_EXECUTABLE@"
-config.riscv_vector_emulator_options = "@RISCV_VECTOR_EMULATOR_OPTIONS@"
-config.riscv_emulator_lli_executable = "@RISCV_EMULATOR_LLI_EXECUTABLE@"
-config.riscv_emulator_utils_lib_dir = "@RISCV_EMULATOR_UTILS_LIB_DIR@"
->>>>>>> cb1c9dfd699c (Squashed 'external/llvm-project/' changes from 1e1a4d577e7e..8ffe4def7d09)
 
 import lit.llvm
 lit.llvm.initialize(lit_config, config)

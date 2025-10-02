@@ -9,25 +9,10 @@ llvm_canonicalize_cmake_booleans(
   LLVM_BUILD_EXAMPLES
   MLIR_ENABLE_ROCM_CONVERSIONS
   MLIR_ENABLE_ROCM_RUNNER
-<<<<<<< HEAD
 
   ROCMLIR_DRIVER_E2E_TEST_ENABLED
   ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED
   ROCK_E2E_TEST_ENABLED
-=======
-  MLIR_ENABLE_SPIRV_CPU_RUNNER
-  MLIR_ENABLE_VULKAN_RUNNER
-  MLIR_INCLUDE_INTEGRATION_TESTS
-  MLIR_RUN_AMX_TESTS
-  MLIR_RUN_CUDA_TENSOR_CORE_TESTS
-  MLIR_RUN_X86VECTOR_TESTS
-  MLIR_RUN_ARM_SVE_TESTS
-  MLIR_RUN_ARM_SME_TESTS
-  MLIR_RUN_CUDA_SM80_TESTS
-  MLIR_RUN_CUDA_SM80_LT_TESTS
-  MLIR_RUN_CUDA_SM90_TESTS
-  BUILD_SHARED_LIBS
->>>>>>> cb1c9dfd699c (Squashed 'external/llvm-project/' changes from 1e1a4d577e7e..8ffe4def7d09)
   )
 
 if ((ROCMLIR_DRIVER_E2E_TEST_ENABLED OR
@@ -93,7 +78,6 @@ configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/Unit/lit.cfg.py
 )
 
-<<<<<<< HEAD
 set(ROCMLIR_TEST_DEPENDS
   FileCheck count not
   rocmlir-opt
@@ -103,38 +87,6 @@ set(ROCMLIR_TEST_DEPENDS
   rocmlir-gen
   rocmlir-lib-test
   rocmlir-common-python-test-utils
-=======
-set(MLIR_TEST_DEPENDS
-  mlir-capi-ir-test
-  mlir-capi-irdl-test
-  mlir-capi-llvm-test
-  mlir-capi-pass-test
-  mlir-capi-quant-test
-  mlir-capi-rewrite-test
-  mlir-capi-smt-test
-  mlir-capi-sparse-tensor-test
-  mlir-capi-transform-test
-  mlir-capi-transform-interpreter-test
-  mlir-capi-translation-test
-  mlir-linalg-ods-yaml-gen
-  mlir-lsp-server
-  mlir-opt
-  mlir-query
-  mlir-reduce
-  mlir-rewrite
-  mlir-tblgen
-  mlir-translate
-  tblgen-lsp-server
-  tblgen-to-irdl
-  )
-if(NOT MLIR_STANDALONE_BUILD)
-  list(APPEND MLIR_TEST_DEPENDS FileCheck count not split-file yaml2obj)
-endif()
-# Examples/standalone/test.toy (vis-a-vis the standalone example) depends on these.
-if(LLVM_INCLUDE_EXAMPLES)
-  list(APPEND MLIR_TEST_DEPENDS MLIRCAPIArith)
-endif()
->>>>>>> cb1c9dfd699c (Squashed 'external/llvm-project/' changes from 1e1a4d577e7e..8ffe4def7d09)
 
   opt
   llc
