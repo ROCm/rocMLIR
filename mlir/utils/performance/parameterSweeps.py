@@ -475,7 +475,7 @@ async def runConfig(paramIter: Iterable[IterType],
         for c in failures:
             print(' '.join(c.generateMlirDriverCommandLine(options.flags, kernel_repeats=None)))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
-    return len(failures) == 0 or len(n_passes) == 0
+    return len(failures) == 0 and !(len(n_passes) == 0)
 
 
 def main() -> bool:
