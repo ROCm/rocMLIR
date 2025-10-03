@@ -972,21 +972,23 @@ public:
                                 ConversionPatternRewriter &rw) const final {
     Location loc = op->getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
+    llvm::dbgs() << op->getParentOfType<func::FuncOp>() << "\n";
     auto matA = op.getA();
     auto matB = op.getB();
     Value matABeforeCast = nullptr;
     Value matBBeforeCast = nullptr;
     // TODO : remove broadcast here
-    FailureOr<tosa::MulOp> mulOpA =
-        getDefiningNonReshapeOpNonBroadcast<tosa::MulOp>(matA);
-    FailureOr<tosa::MulOp> mulOpB =
-        getDefiningNonReshapeOpNonBroadcast<tosa::MulOp>(matB);
+    tosa::MulOp mulOpA = getDefiningNonReshapeOpNonBroadcast<tosa::MulOp>(matA);
+    tosa::MulOp mulOpB = getDefiningNonReshapeOpNonBroadcast<tosa::MulOp>(matB);
     Value scaleA = nullptr, scaleB = nullptr;
-    if (!failed(mulOpA) && !failed(mulOpB)) {
+    if (mulOpA && mulOpB) {
+      llvm::dbgs() << "Both inputs from mul\n";
+      llvm::dbgs() << "Mul A: " << mulOpA << "\n";
+      llvm::dbgs() << "Mul B: " << mulOpB << "\n";
       // Both inputs are coming from a mul op, this is likely a quantized
       // scaled matmul
-      auto mulAInputs1 = mulOpA->getInput1();
-      auto mulAInputs2 = mulOpA->getInput2();
+      auto mulAInputs1 = mulOpA.getInput1();
+      auto mulAInputs2 = mulOpA.getInput2();
       if (tosa::CastOp mulACast = mulAInputs1.getDefiningOp<tosa::CastOp>()) {
         Value castInput = mulACast.getInput();
         if (isa<Float4E2M1FNType>(
@@ -1003,8 +1005,8 @@ public:
         }
         scaleA = mulAInputs1;
       }
-      auto mulBInputs1 = mulOpB->getInput1();
-      auto mulBInputs2 = mulOpB->getInput2();
+      auto mulBInputs1 = mulOpB.getInput1();
+      auto mulBInputs2 = mulOpB.getInput2();
       if (tosa::CastOp mulBCast = mulBInputs1.getDefiningOp<tosa::CastOp>()) {
         Value castInput = mulBCast.getInput();
         if (isa<Float4E2M1FNType>(
@@ -1021,11 +1023,12 @@ public:
           scaleB = mulBInputs1;
         }
       }
+      if (scaleA.getDefiningOp<tosa::CastOp>())
+        scaleA = scaleA.getDefiningOp<tosa::CastOp>().getInput();
+      if (scaleB.getDefiningOp<tosa::CastOp>())
+        scaleB = scaleB.getDefiningOp<tosa::CastOp>().getInput();
     }
-    if (scaleA.getDefiningOp<tosa::CastOp>())
-      scaleA = scaleA.getDefiningOp<tosa::CastOp>().getInput();
-    if (scaleB.getDefiningOp<tosa::CastOp>())
-      scaleB = scaleB.getDefiningOp<tosa::CastOp>().getInput();
+
     if (matABeforeCast && matBBeforeCast) {
       // check for rank to expand/collapse to same shape
       if (matA.getType() != matABeforeCast.getType()) {
