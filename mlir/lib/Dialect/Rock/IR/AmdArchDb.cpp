@@ -18,10 +18,9 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/TargetSelect.h"
 
-#include "hip/hip_runtime_api.h"
-
-// HSA is not supported on Windows
+// HIP and HSA are not supported on Windows CI.
 #ifndef _WIN32
+#include "hip/hip_runtime_api.h"
 #include "hsa/hsa.h"
 #include "hsa/hsa_ext_amd.h"
 #endif
@@ -106,19 +105,6 @@ static constexpr AmdArchInfo
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/true, /*maxNumXCC=*/1);
 
-namespace {
-
-template <typename LHS, typename RHS>
-std::enable_if_t<std::is_assignable_v<LHS &, RHS &&>, void>
-checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
-  if (lhs != static_cast<LHS>(rhs)) {
-    LLVM_DEBUG(llvm::dbgs() << "NOTE: Value discrepancy for " << name << ": "
-                            << lhs << " (old) != " << rhs
-                            << " (new). Proceeding with " << rhs << ".\n");
-    lhs = std::forward<RHS>(rhs);
-  }
-}
-
 std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   std::tuple<StringRef, unsigned> ret("", 0);
 
@@ -141,6 +127,23 @@ std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   }
 
   return ret;
+}
+
+// native arch is not supported in Windows, which lacks both HSA and
+// HIP libraries during CI. For more information check:
+// https://github.com/ROCm/rocMLIR/pull/1790
+#ifndef _WIN32
+namespace {
+
+template <typename LHS, typename RHS>
+std::enable_if_t<std::is_assignable_v<LHS &, RHS &&>, void>
+checkAndSetInfo(StringRef name, LHS &lhs, RHS &&rhs) {
+  if (lhs != static_cast<LHS>(rhs)) {
+    LLVM_DEBUG(llvm::dbgs() << "NOTE: Value discrepancy for " << name << ": "
+                            << lhs << " (old) != " << rhs
+                            << " (new). Proceeding with " << rhs << ".\n");
+    lhs = std::forward<RHS>(rhs);
+  }
 }
 
 struct AgentInfo {
@@ -179,9 +182,6 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
   // - hasOcpFp8ConversionInstrs
   return ret;
 }
-
-// Build HSA stuff only if not on Windows
-#ifndef _WIN32
 
 #define RET_IF_HSA_ERR(err)                                                    \
   {                                                                            \
@@ -271,7 +271,6 @@ void fixNaviProperties(AgentInfo *agent_i, hipDeviceProp_t *prop) {
     prop->maxSharedMemoryPerMultiProcessor *= 2;
   }
 }
-#endif // _WIN32
 
 AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
   static std::mutex m;
@@ -321,12 +320,18 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
 
 } // anonymous namespace
 
+#endif // _WIN32
+
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
   // mlir/test/lit.site.cfg.py.in:set_arch_features()
   auto [chip, deviceId] = parseArchString(arch);
   if (chip == "native") {
+#ifdef _WIN32
+    llvm_unreachable("native arch lookup is not supported on Windows");
+#else
     return nativeArchInfo(deviceId);
+#endif
   }
   StringRef minor = chip.take_back(2);
   StringRef major = chip.slice(0, chip.size() - 2);
