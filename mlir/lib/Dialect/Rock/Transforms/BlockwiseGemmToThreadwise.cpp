@@ -513,11 +513,13 @@ struct BlockwiseGemmAccelRewritePattern
     }
     if (isScaledGemm) {
       wrappedLDSBufferForLoadScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getScaleA(), op.getBlockSize(), op.getInMPerThreadScale(),
-          "m", op.getScaleRotateMWithK(), op.getSplitKAcrossThreadsFirstA());
+          b, loc, op.getScaleA(), op.getBlockSize(),
+          op.getInMPerThreadScale().value(), "m", op.getScaleRotateMWithK(),
+          op.getSplitKAcrossThreadsFirstA());
       wrappedLDSBufferForLoadScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getScaleB(), op.getBlockSize(), op.getInNPerThreadScale(),
-          "n", op.getScaleRotateNWithK(), op.getSplitKAcrossThreadsFirstA());
+          b, loc, op.getScaleB(), op.getBlockSize(),
+          op.getInNPerThreadScale().value(), "n", op.getScaleRotateNWithK(),
+          op.getSplitKAcrossThreadsFirstA());
     }
 
     auto mLoop = affine::AffineForOp::create(b, loc, 0, mRepeats);
