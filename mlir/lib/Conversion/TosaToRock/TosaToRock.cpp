@@ -2004,6 +2004,87 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       op->moveAfter(expandedOutLse);
   }
 
+  // This function identifies when the currentSeqLen is a block argument
+  // that is one dimensional, and broadcasts it to the correct shape, and with
+  // the correct batch, numHeads values
+  FailureOr<Value> addBroadcastForBlockArg(PatternRewriter &rewriter,
+                                           Value currentSeqLen) const {
+    // Exit early if there is no currentSeqLen (no kv-cache)
+    if (!currentSeqLen)
+      return failure();
+
+    // Exit early if currentSeqLen is not a 1D block argument
+    if (!isa<BlockArgument>(currentSeqLen) || 
+        cast<ShapedType>(currentSeqLen.getType()).getRank() != 1)
+      return failure();
+    
+    // Extract the shape information
+    auto origShape = cast<ShapedType>(currentSeqLen.getType()).getShape()[0];
+
+    // Find the broadcast that populates the batch and numHeads values by
+    // performing a simple BFS on the input block arg
+    SmallVector<Value> toVisit = {currentSeqLen};
+    SetVector<Value> visited;
+    int batch = -1;
+    int numHeads = -1;
+
+    while(!toVisit.empty()) {
+      Value curNode = toVisit.pop_back_val();
+
+      // Skip previously visited nodes
+      if (visited.count(curNode) > 0)
+        continue;
+      visited.insert(curNode);
+
+      // Check if the current value is a broadcast to our desired dimensions.
+      // Note, there may be two such broadcasts that meet this criteria. The
+      // first is setting all dimensions to one, while the second is populating
+      // the shape with the correct values (i.e., the ones that we care about).
+      // For that reason we need to traverse using BFS instead of DFS. 
+      if (auto addOp = curNode.getDefiningOp<tosa::AddOp>()) {
+        auto addTy = dyn_cast<RankedTensorType>(addOp.getType());
+        if (addTy && addTy.getRank() == 4) {
+          batch = addTy.getShape()[0];
+          numHeads = addTy.getShape()[1];
+        }
+      }
+
+      // If we reach here, we need to visit the users of the current value
+      for (Operation *user : curNode.getUsers()) {
+        if (isa<func::ReturnOp>(user))
+          continue;
+        for (Value res : user->getResults())
+          toVisit.push_back(res);
+      }
+    }
+
+    // If we haven't set batch or numHeads, then exit
+    if (batch == -1 || numHeads == -1)
+      return failure();
+
+    // Create a tensor.expand_shape from 1D to 2D
+    auto loc = currentSeqLen.getLoc();
+    auto elemTy = cast<ShapedType>(currentSeqLen.getType()).getElementType();
+    SmallVector<int64_t, 2> expandedShape{origShape, 1};
+    auto expandedType = RankedTensorType::get(expandedShape, elemTy);
+    SmallVector<ReassociationIndices, 1> reassoc{{0, 1}};
+    Value expanded = rewriter.create<tensor::ExpandShapeOp>(
+      loc, expandedType, currentSeqLen, reassoc);
+  
+    // Create a tosa.const that is all zeros, but in our desired shape of
+    // batch x numHeads
+    auto broadcastTy = RankedTensorType::get({batch, numHeads}, elemTy);
+    auto zeroElems = cast<ElementsAttr>(rewriter.getZeroAttr(broadcastTy));
+    auto constOp = rewriter.create<tosa::ConstOp>(loc, broadcastTy, zeroElems);
+
+    // Create a tosa.add (broadcast) to our desired batch and numHeads values.
+    // Builder signature requires the explicit result type: (Type, Value, Value).
+    auto add = rewriter.create<tosa::AddOp>(loc, broadcastTy, expanded,
+                                            constOp.getResult());
+
+    return add.getOutput();
+  }
+
   FailureOr<AttentionMatcherValues> match(tosa::MatMulOp op) const {
     Value softmaxOutput = op.getA();
 
@@ -2169,6 +2250,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     bool isCausal = attentionMatcherValues.isCausal;
     TypeAttr softmaxTypeAttr =
         TypeAttr::get(attentionMatcherValues.softmaxType);
+
+    // If the current seq len is a block argument that is one dimensional,
+    // we need to broadcast it to make sure it has the correct shape + values
+    auto maybeNewSeqLen = addBroadcastForBlockArg(rewriter, currentSeqLen);
+    if (succeeded(maybeNewSeqLen))
+      currentSeqLen = maybeNewSeqLen.value();
 
     // Reshape currentSeqLen {batch, numHeads} -> {batch * numHeads}
     if (currentSeqLen &&

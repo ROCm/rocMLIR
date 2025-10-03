@@ -2861,8 +2861,7 @@ static LogicalResult verifyGemmPlusGemmLikeOp(RockGemmGemmWrapperInterface op,
       return op.emitError("Number of dimensions is not one (currentSeqLen)");
     }
 
-    if (seqLenType.getShape()[0] != 1 &&
-        seqLenType.getShape()[0] != oBatchDim) {
+    if (seqLenType.getShape()[0] != oBatchDim) {
       return op.emitError(
           "Batch dimensions do not match (currentSeqLen and Output)");
     }
