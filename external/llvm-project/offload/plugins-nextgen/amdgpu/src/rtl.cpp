@@ -142,35 +142,41 @@ namespace plugin {
 
 struct AMDGPUSignalTy;
 /// Use to transport information to OMPT timing functions.
-struct OmptKernelTimingArgsAsyncTy {
+struct ProfilingInfoTy {
   GenericDeviceTy *Device;
   AMDGPUSignalTy *Signal;
   double TicksToTime;
-  std::unique_ptr<ompt::OmptEventInfoTy> OmptEventInfo;
+  // FIXME: OMPT specific.
+  std::unique_ptr<ompt::OmptEventInfoTy> ProfilerSpecificData;
 };
 
-/// Get OmptKernelTimingArgsAsyncTy from the void * used in the action
+/// Get ProfilingInfoTy from the void * used in the action
 /// functions.
-static OmptKernelTimingArgsAsyncTy *getOmptTimingsArgs(void *Data);
+static ProfilingInfoTy *getProfilingInfo(void *Data);
 
 /// Returns the pair of <start, end> time for a kernel
 static std::pair<uint64_t, uint64_t>
-getKernelStartAndEndTime(const OmptKernelTimingArgsAsyncTy *Args);
+getKernelStartAndEndTime(const ProfilingInfoTy *Args);
 
 /// Returns the pair of <start, end> time for a data transfer
 static std::pair<uint64_t, uint64_t>
-getCopyStartAndEndTime(const OmptKernelTimingArgsAsyncTy *Args);
+getCopyStartAndEndTime(const ProfilingInfoTy *Args);
 
 /// Obtain the timing info and call the RegionInterface callback for the
 /// asynchronous trace records.
 static Error timeDataTransferInNsAsync(void *Data) {
-  auto Args = getOmptTimingsArgs(Data);
+  auto Args = getProfilingInfo(Data);
 
   auto [Start, End] = getCopyStartAndEndTime(Args);
 
-  auto OmptEventInfo = *Args->OmptEventInfo.get();
+  /// XXX For now this must not happen as this is only called in OMPT code path.
+  assert(Args->ProfilerSpecificData &&
+         "ProfilerSpecificData was null when profiler enabled");
+
+  // XXX: Is unique_ptr memory freed after leaving this scope?
+  auto OmptEventInfo = Args->ProfilerSpecificData.get();
   llvm::omp::target::ompt::RegionInterface.stopTargetDataMovementTraceAsync(
-      OmptEventInfo.TraceRecord, Start, End);
+      OmptEventInfo->TraceRecord, Start, End);
 
   return Plugin::success();
 }
@@ -192,11 +198,12 @@ getOrNullOmptEventInfo(AsyncInfoWrapperTy &AsyncInfoWrapper) {
 
   // We need to copy the content of the ProfilerData object to persist it
   // between multiple async operations.
-  auto LocalOmptEventInfo = std::make_unique<ompt::OmptEventInfoTy>(
-      *reinterpret_cast<ompt::OmptEventInfoTy *>(AI->ProfilerData));
-  // printOmptEventInfoTy(*AI->ProfilerData);
+  // TODO: This is OMPT specific right now
+  auto LocalOmptEventInfo =
+      reinterpret_cast<ompt::OmptEventInfoTy *>(AI->ProfilerData);
   printOmptEventInfoTy(*LocalOmptEventInfo);
-  return LocalOmptEventInfo;
+
+  return std::make_unique<ompt::OmptEventInfoTy>(*LocalOmptEventInfo);
 }
 
 } // namespace plugin
@@ -236,33 +243,13 @@ static double getTimeOfDay() {
   return TimeVal;
 }
 
-/// Get the first timepoints on host and device.
-void startH2DTimeRate(double *HTime, uint64_t *DTime) {
-  *HTime = getTimeOfDay();
-  *DTime = getSystemTimestampInNs();
-}
-
-/// Get the second timepoints on host and device and compute the rate
-/// required for translating device time to host time.
-void completeH2DTimeRate(double HostRef1, uint64_t DeviceRef1) {
-  double HostRef2 = getTimeOfDay();
-  uint64_t DeviceRef2 = getSystemTimestampInNs();
-  // Assume host (h) timing is related to device (d) timing as
-  // h = m.d + o, where m is the slope and o is the offset.
-  // Calculate slope and offset from the two host and device timepoints.
-  double HostDiff = HostRef2 - HostRef1;
-  uint64_t DeviceDiff = DeviceRef2 - DeviceRef1;
-  double Slope = DeviceDiff != 0 ? (HostDiff / DeviceDiff) : HostDiff;
-  double Offset = HostRef1 - Slope * DeviceRef1;
-  ompt::setOmptHostToDeviceRate(Slope, Offset);
-  DP("Translate time Slope: %f Offset: %f\n", Slope, Offset);
-}
-
 #else // OMPT_SUPPORT
 namespace llvm::omp::target::ompt {
 struct OmptEventInfoTy {};
 } // namespace llvm::omp::target::ompt
 namespace llvm::omp::target::plugin {
+
+/// When no OMPT is enabled, return nullptr to de-facto disable the profiling
 static std::unique_ptr<ompt::OmptEventInfoTy>
 getOrNullOmptEventInfo(AsyncInfoWrapperTy &AsyncInfoWrapper) {
   return nullptr;
@@ -292,7 +279,7 @@ namespace hsa_utils {
 /// Iterate elements using an HSA iterate function. Do not use this function
 /// directly but the specialized ones below instead.
 template <typename ElemTy, typename IterFuncTy, typename CallbackTy>
-hsa_status_t iterate(IterFuncTy Func, CallbackTy Cb) {
+static hsa_status_t iterate(IterFuncTy Func, CallbackTy Cb) {
   auto L = [](ElemTy Elem, void *Data) -> hsa_status_t {
     CallbackTy *Unwrapped = static_cast<CallbackTy *>(Data);
     return (*Unwrapped)(Elem);
@@ -304,7 +291,8 @@ hsa_status_t iterate(IterFuncTy Func, CallbackTy Cb) {
 /// use this function directly but the specialized ones below instead.
 template <typename ElemTy, typename IterFuncTy, typename IterFuncArgTy,
           typename CallbackTy>
-hsa_status_t iterate(IterFuncTy Func, IterFuncArgTy FuncArg, CallbackTy Cb) {
+static hsa_status_t iterate(IterFuncTy Func, IterFuncArgTy FuncArg,
+                            CallbackTy Cb) {
   auto L = [](ElemTy Elem, void *Data) -> hsa_status_t {
     CallbackTy *Unwrapped = static_cast<CallbackTy *>(Data);
     return (*Unwrapped)(Elem);
@@ -316,7 +304,8 @@ hsa_status_t iterate(IterFuncTy Func, IterFuncArgTy FuncArg, CallbackTy Cb) {
 /// use this function directly but the specialized ones below instead.
 template <typename Elem1Ty, typename Elem2Ty, typename IterFuncTy,
           typename IterFuncArgTy, typename CallbackTy>
-hsa_status_t iterate(IterFuncTy Func, IterFuncArgTy FuncArg, CallbackTy Cb) {
+static hsa_status_t iterate(IterFuncTy Func, IterFuncArgTy FuncArg,
+                            CallbackTy Cb) {
   auto L = [](Elem1Ty Elem1, Elem2Ty Elem2, void *Data) -> hsa_status_t {
     CallbackTy *Unwrapped = static_cast<CallbackTy *>(Data);
     return (*Unwrapped)(Elem1, Elem2);
@@ -325,21 +314,21 @@ hsa_status_t iterate(IterFuncTy Func, IterFuncArgTy FuncArg, CallbackTy Cb) {
 }
 
 /// Iterate agents.
-template <typename CallbackTy> Error iterateAgents(CallbackTy Callback) {
+template <typename CallbackTy> static Error iterateAgents(CallbackTy Callback) {
   hsa_status_t Status = iterate<hsa_agent_t>(hsa_iterate_agents, Callback);
   return Plugin::check(Status, "error in hsa_iterate_agents: %s");
 }
 
 /// Iterate ISAs of an agent.
 template <typename CallbackTy>
-Error iterateAgentISAs(hsa_agent_t Agent, CallbackTy Cb) {
+static Error iterateAgentISAs(hsa_agent_t Agent, CallbackTy Cb) {
   hsa_status_t Status = iterate<hsa_isa_t>(hsa_agent_iterate_isas, Agent, Cb);
   return Plugin::check(Status, "error in hsa_agent_iterate_isas: %s");
 }
 
 /// Iterate memory pools of an agent.
 template <typename CallbackTy>
-Error iterateAgentMemoryPools(hsa_agent_t Agent, CallbackTy Cb) {
+static Error iterateAgentMemoryPools(hsa_agent_t Agent, CallbackTy Cb) {
   hsa_status_t Status = iterate<hsa_amd_memory_pool_t>(
       hsa_amd_agent_iterate_memory_pools, Agent, Cb);
   return Plugin::check(Status,
@@ -348,10 +337,12 @@ Error iterateAgentMemoryPools(hsa_agent_t Agent, CallbackTy Cb) {
 
 /// Dispatches an asynchronous memory copy.
 /// Enables different SDMA engines for the dispatch in a round-robin fashion.
-Error asyncMemCopy(bool UseMultipleSdmaEngines, void *Dst, hsa_agent_t DstAgent,
-                   const void *Src, hsa_agent_t SrcAgent, size_t Size,
-                   uint32_t NumDepSignals, const hsa_signal_t *DepSignals,
-                   hsa_signal_t CompletionSignal) {
+static Error asyncMemCopy(bool UseMultipleSdmaEngines, void *Dst,
+                          hsa_agent_t DstAgent, const void *Src,
+                          hsa_agent_t SrcAgent, size_t Size,
+                          uint32_t NumDepSignals,
+                          const hsa_signal_t *DepSignals,
+                          hsa_signal_t CompletionSignal) {
   if (!UseMultipleSdmaEngines) {
     hsa_status_t S =
         hsa_amd_memory_async_copy(Dst, DstAgent, Src, SrcAgent, Size,
@@ -387,8 +378,8 @@ Error asyncMemCopy(bool UseMultipleSdmaEngines, void *Dst, hsa_agent_t DstAgent,
 #endif
 }
 
-Error getTargetTripleAndFeatures(hsa_agent_t Agent,
-                                 SmallVector<SmallString<32>> &Targets) {
+static Error getTargetTripleAndFeatures(hsa_agent_t Agent,
+                                        SmallVector<SmallString<32>> &Targets) {
   auto Err = hsa_utils::iterateAgentISAs(Agent, [&](hsa_isa_t ISA) {
     uint32_t Length;
     hsa_status_t Status;
@@ -683,8 +674,8 @@ private:
 struct AMDGPUDeviceImageTy : public DeviceImageTy {
   /// Create the AMDGPU image with the id and the target image pointer.
   AMDGPUDeviceImageTy(int32_t ImageId, GenericDeviceTy &Device,
-                      const __tgt_device_image *TgtImage)
-      : DeviceImageTy(ImageId, Device, TgtImage) {}
+                      std::unique_ptr<MemoryBuffer> &&TgtImage)
+      : DeviceImageTy(ImageId, Device, std::move(TgtImage)) {}
 
   /// Prepare and load the executable corresponding to the image.
   Error loadExecutable(const AMDGPUDeviceTy &Device);
@@ -736,6 +727,8 @@ struct AMDGPUKernelTy : public GenericKernelTy {
   AMDGPUKernelTy(const char *Name, GenericGlobalHandlerTy &Handler)
       : GenericKernelTy(Name),
         OMPX_SPMDOccupancyBasedOpt("OMPX_SPMD_OCCUPANCY_BASED_OPT", false),
+        OMPX_GenericSPMDOccupancyBasedOpt(
+            "OMPX_GENERIC_SPMD_OCCUPANCY_BASED_OPT", false),
         OMPX_BigJumpLoopOccupancyBasedOpt(
             "OMPX_BIGJUMPLOOP_OCCUPANCY_BASED_OPT", false),
         OMPX_XTeamReductionOccupancyBasedOpt(
@@ -878,6 +871,9 @@ struct AMDGPUKernelTy : public GenericKernelTy {
 
   /// Envar to enable occupancy-based optimization for SPMD kernel.
   BoolEnvar OMPX_SPMDOccupancyBasedOpt;
+
+  /// Envar to enable occupancy-based optimization for generic SPMD kernel.
+  BoolEnvar OMPX_GenericSPMDOccupancyBasedOpt;
 
   /// Envar to enable occupancy-based optimization for big jump loop.
   BoolEnvar OMPX_BigJumpLoopOccupancyBasedOpt;
@@ -1051,14 +1047,6 @@ private:
 
     if (isBigJumpLoopMode()) {
       int32_t NumTeamsEnvVar = GenericDevice.getOMPNumTeams();
-
-      // If envar OMPX_BIGJUMPLOOP_OCCUPANCY_BASED_OPT is set and no
-      // OMP_NUM_TEAMS is specified, optimize the num of teams based on
-      // occupancy value.
-      if (OMPX_BigJumpLoopOccupancyBasedOpt && NumTeamsEnvVar == 0) {
-        return OptimizeNumTeamsBaseOccupancy(GenericDevice, NumThreads);
-      }
-
       uint64_t NumGroups = 1;
       // Cannot assert a non-zero tripcount. Instead, launch with 1 team if the
       // tripcount is indeed zero.
@@ -1102,6 +1090,14 @@ private:
           NumGroups = LowTripCountBlocks;
         }
       }
+      // If envar OMPX_BIGJUMPLOOP_OCCUPANCY_BASED_OPT is set and no num_teams
+      // clause or OMP_NUM_TEAMS is specified, optimize the number of teams
+      // based on occupancy value.
+      if (OMPX_BigJumpLoopOccupancyBasedOpt && NumTeamsEnvVar == 0 &&
+          NumTeamsClause[0] == 0) {
+        return std::min(NumGroups, OptimizeNumTeamsBaseOccupancy(GenericDevice,
+                                                                 NumThreads));
+      }
       return std::min(NumGroups,
                       static_cast<uint64_t>(GenericDevice.getBlockLimit()));
     }
@@ -1135,12 +1131,12 @@ private:
       }
 
       // If envar OMPX_XTEAMREDUCTION_OCCUPANCY_BASED_OPT is set and no
-      // OMP_NUM_TEAMS is specified, optimize the num of teams based on
-      // occupancy value.
-      if (OMPX_XTeamReductionOccupancyBasedOpt && NumTeamsEnvVar == 0) {
+      // OMP_NUM_TEAMS or num_teams clause is specified, optimize the num of
+      // teams based on occupancy value.
+      if (OMPX_XTeamReductionOccupancyBasedOpt && NumTeamsEnvVar == 0 &&
+          NumTeamsClause[0] == 0) {
         uint64_t newNumTeams =
             OptimizeNumTeamsBaseOccupancy(GenericDevice, NumThreads);
-
         return std::min(newNumTeams, MaxNumGroups);
       }
 
@@ -1213,10 +1209,6 @@ private:
     // If envar OMPX_SPMD_OCCUPANCY_BASED_OPT is set and no OMP_NUM_TEAMS is
     // specified, optimize the num of teams based on occupancy value.
     int32_t NumTeamsEnvVar = GenericDevice.getOMPNumTeams();
-    if (isSPMDMode() && OMPX_SPMDOccupancyBasedOpt && NumTeamsEnvVar == 0) {
-      return OptimizeNumTeamsBaseOccupancy(GenericDevice, NumThreads);
-    }
-
     uint64_t TripCountNumBlocks = std::numeric_limits<uint64_t>::max();
     if (LoopTripCount > 0) {
       if (isSPMDMode()) {
@@ -1242,6 +1234,12 @@ private:
         // loop.
         TripCountNumBlocks = LoopTripCount;
       }
+    }
+
+    if (isSPMDMode() && OMPX_SPMDOccupancyBasedOpt && NumTeamsEnvVar == 0 &&
+        NumTeamsClause[0] == 0) {
+      return std::min(TripCountNumBlocks,
+                      OptimizeNumTeamsBaseOccupancy(GenericDevice, NumThreads));
     }
 
     auto getAdjustedDefaultNumBlocks =
@@ -1277,9 +1275,17 @@ private:
     }
 
     uint64_t PreferredNumBlocks = TripCountNumBlocks;
-    // If the loops are long running we rather reuse blocks than spawn too many.
-    if (GenericDevice.getReuseBlocksForHighTripCount())
+    // Occupancy-based setting overrides block reuse.
+    if (OMPX_GenericSPMDOccupancyBasedOpt && NumTeamsEnvVar == 0 && NumTeamsClause[0] == 0) {
+      PreferredNumBlocks =
+          std::min(PreferredNumBlocks,
+                   OptimizeNumTeamsBaseOccupancy(GenericDevice, NumThreads));
+    } else if (GenericDevice.getReuseBlocksForHighTripCount()) {
+      // If the loops are long running we rather reuse blocks than spawn too
+      // many.
       PreferredNumBlocks = std::min(TripCountNumBlocks, AdjustedNumBlocks);
+    }
+
     return std::min(PreferredNumBlocks,
                     (uint64_t)GenericDevice.getBlockLimit());
   }
@@ -1762,7 +1768,7 @@ private:
 #ifdef OMPT_SUPPORT
     /// Space for the OMPT action's arguments. A pointer to these arguments is
     /// passed to the action function.
-    OmptKernelTimingArgsAsyncTy OmptKernelTimingArgsAsync;
+    ProfilingInfoTy OmptKernelTimingArgsAsync;
 #endif
 
     /// Create an empty slot.
@@ -1813,7 +1819,7 @@ private:
         GenericDeviceTy *Device, AMDGPUSignalTy *OutputSignal,
         double TicksToTime, std::unique_ptr<ompt::OmptEventInfoTy> OMPTData) {
       OmptActionFunction = timeKernelInNsAsync;
-      OmptKernelTimingArgsAsync = OmptKernelTimingArgsAsyncTy{
+      OmptKernelTimingArgsAsync = ProfilingInfoTy{
           Device, OutputSignal, TicksToTime, std::move(OMPTData)};
       return Plugin::success();
     }
@@ -1821,11 +1827,10 @@ private:
     /// Schedule OMPT data transfer timing on the slot
     Error schedOmptAsyncD2HTransferTiming(
         GenericDeviceTy *Device, AMDGPUSignalTy *OutputSignal,
-        double TicksToTime,
-        std::unique_ptr<ompt::OmptEventInfoTy> OmptInfoData) {
+        double TicksToTime, std::unique_ptr<ompt::OmptEventInfoTy> OMPTData) {
       OmptActionFunction = timeDataTransferInNsAsync;
-      OmptKernelTimingArgsAsync = OmptKernelTimingArgsAsyncTy{
-          Device, OutputSignal, TicksToTime, std::move(OmptInfoData)};
+      OmptKernelTimingArgsAsync = ProfilingInfoTy{
+          Device, OutputSignal, TicksToTime, std::move(OMPTData)};
       return Plugin::success();
     }
 #endif
@@ -2075,7 +2080,7 @@ private:
     assert(Args->Dst && "Invalid destination buffer");
     assert(Args->Src && "Invalid source buffer");
 
-    auto BasePtr = Args->Dst;
+    auto *BasePtr = Args->Dst;
     for (size_t I = 0; I < Args->NumTimes; I++) {
       std::memcpy(BasePtr, Args->Src, Args->Size);
       BasePtr = reinterpret_cast<uint8_t *>(BasePtr) + Args->Size;
@@ -2180,7 +2185,7 @@ private:
 #ifdef OMPT_SUPPORT
   static Error timeKernelInNsAsync(void *Data) {
     assert(Data && "Invalid data pointer in OMPT profiling");
-    auto Args = getOmptTimingsArgs(Data);
+    auto Args = getProfilingInfo(Data);
 
     assert(Args && "Invalid args pointer in OMPT profiling");
     auto [StartTime, EndTime] = getKernelStartAndEndTime(Args);
@@ -2189,12 +2194,11 @@ private:
        "End %lu\n",
        StartTime, EndTime);
 
-    assert(Args->OmptEventInfo && "Invalid OEI pointer in OMPT profiling");
-    auto OmptEventInfo = *Args->OmptEventInfo;
+    auto OmptEventInfo = Args->ProfilerSpecificData.get();
 
-    assert(OmptEventInfo.TraceRecord && "Invalid TraceRecord");
+    assert(OmptEventInfo->TraceRecord && "Invalid TraceRecord");
     llvm::omp::target::ompt::RegionInterface.stopTargetSubmitTraceAsync(
-        OmptEventInfo.TraceRecord, OmptEventInfo.NumTeams, StartTime, EndTime);
+        OmptEventInfo->TraceRecord, OmptEventInfo->NumTeams, StartTime, EndTime);
 
     return Plugin::success();
   }
@@ -2451,11 +2455,11 @@ public:
   /// the pinned host buffer. Both operations are asynchronous and dependent.
   /// The intermediate pinned buffer will be released to the specified memory
   /// manager once the operation completes.
-  Error pushMemoryCopyH2DAsync(void *Dst, const void *Src, void *Inter,
-                               uint64_t CopySize,
-                               AMDGPUMemoryManagerTy &MemoryManager,
-                               std::unique_ptr<ompt::OmptEventInfoTy> OmptInfo = nullptr,
-                               size_t NumTimes = 1) {
+  Error pushMemoryCopyH2DAsync(
+      void *Dst, const void *Src, void *Inter, uint64_t CopySize,
+      AMDGPUMemoryManagerTy &MemoryManager,
+      std::unique_ptr<ompt::OmptEventInfoTy> OmptInfo = nullptr,
+      size_t NumTimes = 1) {
     // Retrieve available signals for the operation's outputs.
     AMDGPUSignalTy *OutputSignals[2] = {};
     if (auto Err = SignalManager.getResources(/*Num=*/2, OutputSignals))
@@ -3272,7 +3276,6 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
 
     setHSATicksToTimeConstant();
 
-#ifdef OMPT_SUPPORT
     // At init we capture two time points for host and device. The two
     // timepoints are spaced out to help smooth out their accuracy
     // differences.
@@ -3280,11 +3283,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     // the value for omp_get_wtime. So we use the same clock here to calculate
     // the slope/offset and convert device time to omp_get_wtime via
     // translate_time.
-    double HostRef1 = 0;
-    uint64_t DeviceRef1 = 0;
-#endif
-    // Take the first timepoints.
-    OMPT_IF_ENABLED(startH2DTimeRate(&HostRef1, &DeviceRef1););
+    auto StartTime = getDHTime();
 
     if (auto Err = preAllocateDeviceMemoryPool())
       return Err;
@@ -3393,7 +3392,8 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
       return Err;
 
     // Take the second timepoints and compute the required metadata.
-    OMPT_IF_ENABLED(completeH2DTimeRate(HostRef1, DeviceRef1););
+    auto EndTime = getDHTime();
+    deriveHostToDeviceClockOffset(StartTime, EndTime);
 
     uint32_t NumSdmaEngines = 0;
     if (auto Err =
@@ -3445,7 +3445,12 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     AMDGPUDeviceImageTy &AMDImage = static_cast<AMDGPUDeviceImageTy &>(*Image);
 
     // Unload the executable of the image.
-    return AMDImage.unloadExecutable();
+    if (auto Err = AMDImage.unloadExecutable())
+      return Err;
+
+    // Destroy the associated memory and invalidate the object.
+    Plugin.free(Image);
+    return Error::success();
   }
 
   /// Deinitialize the device and release its resources.
@@ -3470,18 +3475,12 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
 
   virtual Error callGlobalConstructors(GenericPluginTy &Plugin,
                                        DeviceImageTy &Image) override {
-    GenericGlobalHandlerTy &Handler = Plugin.getGlobalHandler();
-    if (Handler.isSymbolInImage(*this, Image, "amdgcn.device.fini"))
-      Image.setPendingGlobalDtors();
-
     return callGlobalCtorDtorCommon(Plugin, Image, /*IsCtor=*/true);
   }
 
   virtual Error callGlobalDestructors(GenericPluginTy &Plugin,
                                       DeviceImageTy &Image) override {
-    if (Image.hasPendingGlobalDtors())
-      return callGlobalCtorDtorCommon(Plugin, Image, /*IsCtor=*/false);
-    return Plugin::success();
+    return callGlobalCtorDtorCommon(Plugin, Image, /*IsCtor=*/false);
   }
 
   uint64_t getStreamBusyWaitMicroseconds() const { return OMPX_StreamBusyWait; }
@@ -3610,11 +3609,12 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
   }
 
   /// Load the binary image into the device and allocate an image object.
-  Expected<DeviceImageTy *> loadBinaryImpl(const __tgt_device_image *TgtImage,
-                                           int32_t ImageId) override {
+  Expected<DeviceImageTy *>
+  loadBinaryImpl(std::unique_ptr<MemoryBuffer> &&TgtImage,
+                 int32_t ImageId) override {
     // Allocate and initialize the image object.
     AMDGPUDeviceImageTy *AMDImage = Plugin.allocate<AMDGPUDeviceImageTy>();
-    new (AMDImage) AMDGPUDeviceImageTy(ImageId, *this, TgtImage);
+    new (AMDImage) AMDGPUDeviceImageTy(ImageId, *this, std::move(TgtImage));
 
     // Load the HSA executable.
     if (Error Err = AMDImage->loadExecutable(*this))
@@ -3634,7 +3634,6 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     switch (Kind) {
     case TARGET_ALLOC_DEFAULT:
     case TARGET_ALLOC_DEVICE:
-    case TARGET_ALLOC_DEVICE_NON_BLOCKING:
       MemoryPool = CoarseGrainedMemoryPools[0];
       break;
     case TARGET_ALLOC_HOST:
@@ -3815,7 +3814,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
 
 #ifdef OMPT_SUPPORT
       if (LocalOmptEventInfo) {
-        OmptKernelTimingArgsAsyncTy OmptKernelTimingArgsAsync{
+        ProfilingInfoTy OmptKernelTimingArgsAsync{
             this, &Signal, TicksToTime, std::move(LocalOmptEventInfo)};
         if (auto Err = timeDataTransferInNsAsync(&OmptKernelTimingArgsAsync))
           return Err;
@@ -3909,7 +3908,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
 
 #ifdef OMPT_SUPPORT
       if (LocalOmptEventInfo) {
-        OmptKernelTimingArgsAsyncTy OmptKernelTimingArgsAsync{
+        ProfilingInfoTy OmptKernelTimingArgsAsync{
             this, &Signal, TicksToTime, std::move(LocalOmptEventInfo)};
         if (auto Err = timeDataTransferInNsAsync(&OmptKernelTimingArgsAsync))
           return Err;
@@ -3967,7 +3966,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
 
 #ifdef OMPT_SUPPORT
       if (LocalOmptEventInfo) {
-        OmptKernelTimingArgsAsyncTy OmptKernelTimingArgsAsync{
+        ProfilingInfoTy OmptKernelTimingArgsAsync{
             this, &Signal, TicksToTime, std::move(LocalOmptEventInfo)};
         if (auto Err = timeDataTransferInNsAsync(&OmptKernelTimingArgsAsync))
           return Err;
@@ -4044,11 +4043,10 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
         // hsa_amd_memory_fill doesn't signal completion using a signal, so use
         // the existing host callback logic to handle that instead
         return Stream->pushHostCallback(Fill, Args);
-      } else {
-        // If there is no pending work, do the fill synchronously
-        auto Status = hsa_amd_memory_fill(TgtPtr, Pattern, Size / 4);
-        return Plugin::check(Status, "error in hsa_amd_memory_fill: %s\n");
       }
+      // If there is no pending work, do the fill synchronously
+      auto Status = hsa_amd_memory_fill(TgtPtr, Pattern, Size / 4);
+      return Plugin::check(Status, "error in hsa_amd_memory_fill: %s\n");
     }
 
     // Slow case; allocate an appropriate memory size and enqueue copies
@@ -4187,7 +4185,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
   }
 
   Expected<bool> hasPendingWorkImpl(AsyncInfoWrapperTy &AsyncInfo) override {
-    auto Stream = AsyncInfo.getQueueAs<AMDGPUStreamTy *>();
+    auto *Stream = AsyncInfo.getQueueAs<AMDGPUStreamTy *>();
     if (!Stream)
       return false;
 
@@ -4200,7 +4198,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
   Expected<bool> isEventCompleteImpl(void *EventPtr,
                                      AsyncInfoWrapperTy &AsyncInfo) override {
     AMDGPUEventTy *Event = reinterpret_cast<AMDGPUEventTy *>(EventPtr);
-    auto Stream = AsyncInfo.getQueueAs<AMDGPUStreamTy *>();
+    auto *Stream = AsyncInfo.getQueueAs<AMDGPUStreamTy *>();
     return Stream && Stream->isEventComplete(*Event);
   }
 
@@ -4257,7 +4255,7 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     hsa_device_type_t DevType;
     Status = getDeviceAttrRaw(HSA_AGENT_INFO_DEVICE, DevType);
     if (Status == HSA_STATUS_SUCCESS) {
-      switch (DevType) {
+      switch (static_cast<int>(DevType)) {
       case HSA_DEVICE_TYPE_CPU:
         TmpCharPtr = "CPU";
         break;
@@ -4639,7 +4637,7 @@ private:
     // Perform a quick check for the named kernel in the image. The kernel
     // should be created by the 'amdgpu-lower-ctor-dtor' pass.
     GenericGlobalHandlerTy &Handler = Plugin.getGlobalHandler();
-    if (IsCtor && !Handler.isSymbolInImage(*this, Image, KernelName))
+    if (!Handler.isSymbolInImage(*this, Image, KernelName))
       return Plugin::success();
 
     // Allocate and construct the AMDGPU kernel.
@@ -5008,6 +5006,35 @@ private:
 
   /// True if in multi-device mode.
   bool IsMultiDeviceEnabled = false;
+
+  /// Struct holding time in ns at a point in time for both host and device
+  /// This is used to compute a device-to-host offset and skew. Required for
+  /// OMPT function translate_time.
+  struct DevHostTimePair {
+    uint64_t Device;
+    double Host;
+  };
+
+  /// Get a DHTimepoint
+  DevHostTimePair getDHTime() const {
+    return DevHostTimePair{getSystemTimestampInNs(), getTimeOfDay()};
+  }
+
+  /// Compute time differences for host and device between Start and End
+  /// Assume host (h) timing is related to device (d) timing as
+  /// h = m.d + o, where m is the slope and o is the offset.
+  /// Calculate slope and offset from the two host and device timepoints.
+  void deriveHostToDeviceClockOffset(DevHostTimePair Start, DevHostTimePair End) {
+    double HostDiff = End.Host - Start.Host;
+    uint64_t DeviceDiff = End.Device - Start.Device;
+    double Slope = DeviceDiff != 0 ? (HostDiff / DeviceDiff) : HostDiff;
+    double Offset = Start.Host - Slope * Start.Device;
+    DP("Translate time Slope: %f Offset: %f\n", Slope, Offset);
+#ifdef OMPT_SUPPORT
+    // TODO: This will eventually move into the ProfilerInterface
+    ompt::setOmptHostToDeviceRate(Slope, Offset);
+#endif
+  }
 
   /// Representing all the runtime envar configs for a device.
   struct DeviceEnvarConfigTy {
@@ -5649,8 +5676,8 @@ Error AMDGPUKernelTy::printLaunchInfoDetails(GenericDeviceTy &GenericDevice,
     return Plugin::success();
 
   // General Info
-  auto NumGroups = NumBlocks;
-  auto ThreadsPerGroup = NumThreads;
+  auto *NumGroups = NumBlocks;
+  auto *ThreadsPerGroup = NumThreads;
 
   // Kernel Arguments Info
   auto ArgNum = KernelArgs.NumArgs;
@@ -5747,7 +5774,6 @@ void *AMDGPUDeviceTy::allocate(size_t Size, void *, TargetAllocTy Kind) {
   switch (Kind) {
   case TARGET_ALLOC_DEFAULT:
   case TARGET_ALLOC_DEVICE:
-  case TARGET_ALLOC_DEVICE_NON_BLOCKING:
     MemoryPool = CoarseGrainedMemoryPools[0];
     break;
   case TARGET_ALLOC_HOST:
@@ -5807,19 +5833,16 @@ void *AMDGPUDeviceTy::allocate(size_t Size, void *, TargetAllocTy Kind) {
 
 #ifdef OMPT_SUPPORT
 /// Casts and validated the OMPT-related info passed to the action function.
-static OmptKernelTimingArgsAsyncTy *getOmptTimingsArgs(void *Data) {
-  OmptKernelTimingArgsAsyncTy *Args =
-      reinterpret_cast<OmptKernelTimingArgsAsyncTy *>(Data);
+static ProfilingInfoTy *getProfilingInfo(void *Data) {
+  ProfilingInfoTy *Args = reinterpret_cast<ProfilingInfoTy *>(Data);
   assert(Args && "Invalid argument pointer");
   assert(Args->Device && "Invalid device");
   assert(Args->Signal && "Invalid signal");
-  assert(Args->OmptEventInfo && "Invalid OMPT Async data (nullptr)");
-  assert(Args->OmptEventInfo->TraceRecord && "Invalid Trace Record Pointer");
   return Args;
 }
 
 static std::pair<uint64_t, uint64_t>
-getKernelStartAndEndTime(const OmptKernelTimingArgsAsyncTy *Args) {
+getKernelStartAndEndTime(const ProfilingInfoTy *Args) {
   assert(Args->Device && "Invalid GenericDevice Pointer in OMPT profiling");
   assert(Args->Signal && "Invalid AMDGPUSignal Pointer in OMPT profiling");
   auto *AMDGPUDevice = reinterpret_cast<AMDGPUDeviceTy *>(Args->Device);
@@ -5841,7 +5864,7 @@ getKernelStartAndEndTime(const OmptKernelTimingArgsAsyncTy *Args) {
 }
 
 static std::pair<uint64_t, uint64_t>
-getCopyStartAndEndTime(const OmptKernelTimingArgsAsyncTy *Args) {
+getCopyStartAndEndTime(const ProfilingInfoTy *Args) {
   assert(Args->Device && "Invalid GenericDevice Pointer in OMPT profiling");
   assert(Args->Signal && "Invalid AMDGPUSignal Pointer in OMPT profiling");
   hsa_amd_profiling_async_copy_time_t TimeRec{0, 0};

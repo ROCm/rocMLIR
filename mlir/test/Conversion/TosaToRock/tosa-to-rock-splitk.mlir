@@ -135,4 +135,55 @@ func.func @mlir_convolution_multi_reduce(%arg0: tensor<320xf16>, %arg1: tensor<3
   return %collapsed_6, %collapsed : tensor<64xf16>, tensor<2621440xf16>
 }
 
+// CHECK-LABEL: @test_gemm_gemm
+// CHECK-SAME: -> (tensor<4096xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32})
+func.func @test_gemm_gemm(%arg0: tensor<4096xf32>, %arg1: tensor<4096xf32>, %arg2: tensor<4096xf32>) -> (tensor<4096xf32>) attributes {kernel} {
+  %0 = tosa.const_shape  {values = dense<4096> : tensor<1xindex>} : () -> !tosa.shape<1>
+  %1 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %2 = tosa.const_shape  {values = dense<[1, 64, 64]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %expanded = tensor.expand_shape %arg2 [[0, 1, 2]] output_shape [1, 64, 64] : tensor<4096xf32> into tensor<1x64x64xf32>
+  %expanded_0 = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [1, 64, 64] : tensor<4096xf32> into tensor<1x64x64xf32>
+  %expanded_1 = tensor.expand_shape %arg0 [[0, 1, 2]] output_shape [1, 64, 64] : tensor<4096xf32> into tensor<1x64x64xf32>
+  %3 = tosa.matmul %expanded_1, %expanded_0, %1, %1 {acc_type = f32} : (tensor<1x64x64xf32>, tensor<1x64x64xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x64x64xf32>
+
+  // CHECK: rock.gemm_elementwise_gemm
+  // CHECK: {firstGemmIndices = array<i64: 0>, perf_config = "attn:v2:64,128,32,16,32,16,4,4,1,2,1"
+  %4 = tosa.matmul %3, %expanded, %1, %1 {acc_type = f32, perf_config = "attn:v2:64,128,32,16,32,16,4,4,1,2,1"} : (tensor<1x64x64xf32>, tensor<1x64x64xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x64x64xf32>
+  %collapsed = tensor.collapse_shape %4 [[0, 1, 2]] : tensor<1x64x64xf32> into tensor<4096xf32>
+  return %collapsed : tensor<4096xf32>
+}
+
+// CHECK-LABEL: @test_conv_gemm
+// CHECK-SAME: -> (tensor<4096xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32})
+func.func @test_conv_gemm(%arg0: tensor<2048xf32>, %arg1: tensor<2304xf32>, %arg2: tensor<16xf32>) -> (tensor<4096xf32>) attributes {kernel} {
+  %0 = tosa.const_shape  {values = dense<4096> : tensor<1xindex>} : () -> !tosa.shape<1>
+  %1 = tosa.const_shape  {values = dense<[1, 128, 16]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %2 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<16xf32>}> : () -> tensor<16xf32>
+  %3 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %4 = tosa.const_shape  {values = dense<[2, 16, 8, 8]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %5 = tosa.const_shape  {values = dense<[16, 3, 3, 16]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %6 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x16x32xf32>}> : () -> tensor<1x16x32xf32>
+  %7 = tosa.const_shape  {values = dense<[16, 1, 1]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %expanded = tensor.expand_shape %arg2 [[0, 1, 2]] output_shape [16, 1, 1] : tensor<16xf32> into tensor<16x1x1xf32>
+  %8 = tosa.transpose %expanded {perms = array<i32: 2, 0, 1>} : (tensor<16x1x1xf32>) -> tensor<1x16x1xf32>
+  %9 = tosa.add %8, %6 : (tensor<1x16x1xf32>, tensor<1x16x32xf32>) -> tensor<1x16x32xf32>
+  %expanded_0 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [16, 3, 3, 16] : tensor<2304xf32> into tensor<16x3x3x16xf32>
+  %10 = tosa.transpose %expanded_0 {perms = array<i32: 0, 3, 1, 2>} : (tensor<16x3x3x16xf32>) -> tensor<16x16x3x3xf32>
+  %expanded_1 = tensor.expand_shape %arg0 [[0, 1, 2, 3]] output_shape [2, 16, 8, 8] : tensor<2048xf32> into tensor<2x16x8x8xf32>
+  %11 = tosa.transpose %expanded_1 {perms = array<i32: 0, 2, 3, 1>} : (tensor<2x16x8x8xf32>) -> tensor<2x8x8x16xf32>
+  %12 = tosa.transpose %11 {perms = array<i32: 0, 3, 1, 2>} : (tensor<2x8x8x16xf32>) -> tensor<2x16x8x8xf32>
+  %13 = tosa.transpose %12 {perms = array<i32: 0, 2, 3, 1>} : (tensor<2x16x8x8xf32>) -> tensor<2x8x8x16xf32>
+  %14 = tosa.transpose %10 {perms = array<i32: 0, 2, 3, 1>} : (tensor<16x16x3x3xf32>) -> tensor<16x3x3x16xf32>
+  %15 = tosa.conv2d %13, %14, %2, %3, %3 {acc_type = f32, dilation = array<i64: 1, 1>, group = 1 : i64, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>} : (tensor<2x8x8x16xf32>, tensor<16x3x3x16xf32>, tensor<16xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<2x8x8x16xf32>
+  %16 = tosa.transpose %15 {perms = array<i32: 0, 3, 1, 2>} : (tensor<2x8x8x16xf32>) -> tensor<2x16x8x8xf32>
+  %17 = tosa.transpose %16 {perms = array<i32: 0, 2, 3, 1>} : (tensor<2x16x8x8xf32>) -> tensor<2x8x8x16xf32>
+  %collapsed = tensor.collapse_shape %17 [[0, 1, 2], [3]] : tensor<2x8x8x16xf32> into tensor<128x16xf32>
+  %expanded_2 = tensor.expand_shape %collapsed [[0, 1], [2]] output_shape [1, 128, 16] : tensor<128x16xf32> into tensor<1x128x16xf32>
+
+  // CHECK: rock.conv_elementwise_gemm
+  // CHECK: perf_config = "attn:v2:64,128,32,16,32,16,4,4,1,2,1"
+  %18 = tosa.matmul %expanded_2, %9, %3, %3 {acc_type = f32, perf_config = "attn:v2:64,128,32,16,32,16,4,4,1,2,1"} : (tensor<1x128x16xf32>, tensor<1x16x32xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x128x32xf32>
+  %collapsed_3 = tensor.collapse_shape %18 [[0, 1, 2]] : tensor<1x128x32xf32> into tensor<4096xf32>
+  return %collapsed_3 : tensor<4096xf32>
+}
 }

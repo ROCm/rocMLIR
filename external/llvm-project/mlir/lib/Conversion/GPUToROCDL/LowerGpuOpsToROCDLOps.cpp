@@ -38,7 +38,6 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -195,9 +194,7 @@ struct GPUSubgroupBroadcastOpToROCDL
     if (adaptor.getBroadcastType() == gpu::BroadcastType::specific_lane) {
       rewriter.replaceOpWithNewOp<ROCDL::ReadlaneOp>(op, src.getType(), src,
                                                      adaptor.getLane());
-    } else { // first_active_lane or any_lane
-      // any_lane is lowered to readfirstlane too, to force value into scalar
-      // register.
+    } else { // first_active_lane
       rewriter.replaceOpWithNewOp<ROCDL::ReadfirstlaneOp>(op, src.getType(),
                                                           src);
     }
@@ -291,26 +288,7 @@ struct GPUShuffleOpLowering : public ConvertOpToLLVMPattern<gpu::ShuffleOp> {
 // code.
 struct LowerGpuOpsToROCDLOpsPass final
     : public impl::ConvertGpuOpsToROCDLOpsBase<LowerGpuOpsToROCDLOpsPass> {
-  LowerGpuOpsToROCDLOpsPass() = default;
-  LowerGpuOpsToROCDLOpsPass(
-      const std::string &chipset, unsigned indexBitwidth,
-      bool useBarePtrCallConv, gpu::amd::Runtime runtime,
-      std::optional<llvm::SmallDenseSet<StringRef>> allowedDialects) {
-    if (this->chipset.getNumOccurrences() == 0)
-      this->chipset = chipset;
-    if (this->indexBitwidth.getNumOccurrences() == 0)
-      this->indexBitwidth = indexBitwidth;
-    if (this->useBarePtrCallConv.getNumOccurrences() == 0)
-      this->useBarePtrCallConv = useBarePtrCallConv;
-    if (this->runtime.getNumOccurrences() == 0)
-      this->runtime = runtime;
-    if (this->allowedDialects.getNumOccurrences() == 0 &&
-        allowedDialects.has_value()) {
-      for (auto &str : allowedDialects.value()) {
-        this->allowedDialects.push_back(str.str());
-      }
-    }
-  }
+  using Base::Base;
 
   void getDependentDialects(DialectRegistry &registry) const override {
     Base::getDependentDialects(registry);
@@ -398,7 +376,7 @@ struct LowerGpuOpsToROCDLOpsPass final
       if (!allowedDialectsSet.empty() && !allowed)
         continue;
 
-      auto iface = dyn_cast<ConvertToLLVMPatternInterface>(dialect);
+      auto *iface = dyn_cast<ConvertToLLVMPatternInterface>(dialect);
       if (!iface) {
         // Error out if dialect was explicily specified but doesn't implement
         // conversion interface.
@@ -523,13 +501,4 @@ void mlir::populateGpuToROCDLConversionPatterns(
   patterns.add<GPUSubgroupSizeOpToROCDL>(converter, chipset);
 
   populateMathToROCDLConversionPatterns(converter, patterns);
-}
-
-std::unique_ptr<OperationPass<gpu::GPUModuleOp>>
-mlir::createLowerGpuOpsToROCDLOpsPass(
-    const std::string &chipset, unsigned indexBitwidth, bool useBarePtrCallConv,
-    gpu::amd::Runtime runtime,
-    const std::optional<llvm::SmallDenseSet<StringRef>> &allowedDialects) {
-  return std::make_unique<LowerGpuOpsToROCDLOpsPass>(
-      chipset, indexBitwidth, useBarePtrCallConv, runtime, allowedDialects);
 }

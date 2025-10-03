@@ -657,23 +657,27 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
       std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
                transposedV) = maybeRewrite.value();
 
-      auto newOp = rock::AttentionOp::create(
-          b, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
-          newTensorV, op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(),
-          op.getOut(), op.getLse(), transposedQ, transposedK, transposedV,
-          op.getOTransposedAttr(), op.getCausalAttr(), op.getSplitKVAttr(),
-          op.getFeaturesAttr(), op.getSoftmaxTypeAttr(), op.getParams0Attr(),
-          op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+    auto newOp = rock::AttentionOp::create(b, 
+        op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
+        op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(), op.getOut(),
+        op.getLse(), op.getNumHeadsQAttr(), op.getNumHeadsKVAttr(), transposedQ,
+        transposedK, transposedV, op.getOTransposedAttr(), op.getCausalAttr(),
+        op.getSplitKVAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        op.getSoftmaxTypeAttr(), op.getParams0Attr(), op.getParams1Attr(),
+        op.getFirstGemmIndicesAttr());
 
-      // copy linalg::GenericOp if there's any
-      bool linalgOpFound = false;
-      op.getPreSoftmaxBody().walk(
-          [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
-      if (linalgOpFound) {
-        b.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
-                             newOp.getPreSoftmaxBody().begin());
-      }
-      b.replaceOp(op, newOp);
+    // copy linalg::GenericOp if there's any
+    bool linalgOpFound = false;
+    op.getPreSoftmaxBody().walk(
+        [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
+    if (linalgOpFound) {
+      b.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
+                           newOp.getPreSoftmaxBody().begin());
+    }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
+
+    b.replaceOp(op, newOp);
 
       return success();
     }
@@ -722,27 +726,30 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
       if (convNoChange && finalLayoutC == layoutC)
         return failure();
 
-      auto newOp = rock::ConvElementwiseGemmOp::create(
-          rw, op->getLoc(), op->getResultTypes(), newFilter, newInput,
-          newTensorC, op.getElemwiseInputs(), op.getOut(), transposedC,
-          op.getOTransposedAttr(), op.getFeaturesAttr(), op.getPaddingAttr(),
-          op.getStridesAttr(), op.getDilationsAttr(), op.getParams0Attr(),
-          op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+    auto newOp = rock::ConvElementwiseGemmOp::create(
+        rw, op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
+        op.getElemwiseInputs(), op.getOut(), transposedC,
+        op.getOTransposedAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        op.getPaddingAttr(), op.getStridesAttr(), op.getDilationsAttr(),
+        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
 
       // set attributes
       newOp->setAttr("filter_layout", newFilterLayout);
       newOp->setAttr("input_layout", newInputLayout);
 
-      // copy linalg::GenericOp if there's any
-      bool linalgOpFound = false;
-      op.getPreSecondGemmBody().walk(
-          [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
-      if (linalgOpFound) {
-        rw.inlineRegionBefore(op.getPreSecondGemmBody(),
-                              newOp.getPreSecondGemmBody(),
-                              newOp.getPreSecondGemmBody().begin());
-      }
-      rw.replaceOp(op, newOp);
+    // copy linalg::GenericOp if there's any
+    bool linalgOpFound = false;
+    op.getPreSecondGemmBody().walk(
+        [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
+    if (linalgOpFound) {
+      rw.inlineRegionBefore(op.getPreSecondGemmBody(),
+                            newOp.getPreSecondGemmBody(),
+                            newOp.getPreSecondGemmBody().begin());
+    }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
+
+    rw.replaceOp(op, newOp);
 
       return success();
     }
@@ -767,23 +774,26 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
       std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
                transposedV) = maybeRewrite.value();
 
-      auto newOp = rock::GemmElementwiseGemmOp::create(
-          rw, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
-          newTensorV, op.getElemwiseInputs(), op.getOut(), transposedQ,
-          transposedK, transposedV, op.getOTransposedAttr(),
-          op.getFeaturesAttr(), op.getParams0Attr(), op.getParams1Attr(),
-          op.getFirstGemmIndicesAttr());
+    auto newOp = rock::GemmElementwiseGemmOp::create(
+        rw, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
+        newTensorV, op.getElemwiseInputs(), op.getOut(), transposedQ,
+        transposedK, transposedV, op.getOTransposedAttr(), op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), op.getParams0Attr(), op.getParams1Attr(),
+        op.getFirstGemmIndicesAttr());
 
-      // copy linalg::GenericOp if there's any
-      bool linalgOpFound = false;
-      op.getPreSecondGemmBody().walk(
-          [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
-      if (linalgOpFound) {
-        rw.inlineRegionBefore(op.getPreSecondGemmBody(),
-                              newOp.getPreSecondGemmBody(),
-                              newOp.getPreSecondGemmBody().begin());
-      }
-      rw.replaceOp(op, newOp);
+    // copy linalg::GenericOp if there's any
+    bool linalgOpFound = false;
+    op.getPreSecondGemmBody().walk(
+        [&linalgOpFound](linalg::GenericOp genOp) { linalgOpFound = true; });
+    if (linalgOpFound) {
+      rw.inlineRegionBefore(op.getPreSecondGemmBody(),
+                            newOp.getPreSecondGemmBody(),
+                            newOp.getPreSecondGemmBody().begin());
+    }
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
+
+    rw.replaceOp(op, newOp);
 
       return success();
     }
@@ -804,24 +814,11 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
                                        std::move(patternsConv), config)))
       return signalPassFailure();
 
-    RewritePatternSet patternsConvBwdData(&ctx);
-    patternsConvBwdData.add<ConvRewritePattern<rock::ConvBwdDataOp>>(&ctx);
-    if (failed(applyOpPatternsGreedily(getOperations<rock::ConvBwdDataOp>(func),
-                                       std::move(patternsConvBwdData), config)))
-      return signalPassFailure();
-
-    RewritePatternSet patternsConvBwdWeight(&ctx);
-    patternsConvBwdWeight.add<ConvRewritePattern<rock::ConvBwdWeightOp>>(&ctx);
-    if (failed(
-            applyOpPatternsGreedily(getOperations<rock::ConvBwdWeightOp>(func),
-                                    std::move(patternsConvBwdWeight), config)))
-      return signalPassFailure();
-
-    RewritePatternSet patternsGemm(&ctx);
-    patternsGemm.add<GemmRewritePattern>(&ctx);
-    if (failed(applyOpPatternsGreedily(getOperations<rock::GemmOp>(func),
-                                       std::move(patternsGemm), config)))
-      return signalPassFailure();
+  RewritePatternSet patternsGemm(&ctx);
+  patternsGemm.add<GemmRewritePattern>(&ctx);
+  if (failed(applyOpPatternsGreedily(getOperations<rock::GemmOp>(func),
+                                     std::move(patternsGemm), config)))
+    return signalPassFailure();
 
     RewritePatternSet patternsAttention(&ctx);
     patternsAttention.add<AttentionRewritePattern>(&ctx);

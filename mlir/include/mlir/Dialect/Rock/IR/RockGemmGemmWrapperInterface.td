@@ -243,6 +243,30 @@ def RockGemmGemmWrapperInterface : OpInterface<"RockGemmGemmWrapperInterface"> {
       }]
     >, 
     InterfaceMethod<
+      /*desc=*/[{
+        Return the store method attribute of this op.
+      }],
+      /*retType=*/"rock::StoreMethodAttr",
+      /*methodName=*/"getStoreMethodAttr",
+      /*args=*/(ins),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return $_op.getStoreMethodAttr();
+      }]
+    >, 
+    InterfaceMethod<
+      /*desc=*/[{
+        Set the store method attribute of this op.
+      }],
+      /*retType=*/"void",
+      /*methodName=*/"setStoreMethodAttr",
+      /*args=*/(ins "rock::StoreMethodAttr":$storeMethod),
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+      $_op.setStoreMethodAttr(storeMethod);
+      }]
+    >, 
+    InterfaceMethod<
         /*desc=*/[{
           Return the region corresponding to the fusion between first and second GEMM.
         }],

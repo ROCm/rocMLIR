@@ -44,7 +44,8 @@ bool IODEF(OutputNamelist)(Cookie cookie, const NamelistGroup &group) {
     if ((connection.NeedAdvance(prefixLen) &&
             !(io.AdvanceRecord() && EmitAscii(io, " ", 1))) ||
         !EmitAscii(io, prefix, prefixLen) ||
-        (connection.NeedAdvance(runtime::strlen(str) + (suffix != ' ')) &&
+        (connection.NeedAdvance(
+             Fortran::runtime::strlen(str) + (suffix != ' ')) &&
             !(io.AdvanceRecord() && EmitAscii(io, " ", 1)))) {
       return false;
     }
@@ -101,8 +102,8 @@ static constexpr RT_API_ATTRS char NormalizeIdChar(char32_t ch) {
   return static_cast<char>(ch >= 'A' && ch <= 'Z' ? ch - 'A' + 'a' : ch);
 }
 
-static RT_API_ATTRS bool GetLowerCaseName(IoStatementState &io, char buffer[],
-    std::size_t maxLength, bool crashIfTooLong = true) {
+static RT_API_ATTRS bool GetLowerCaseName(
+    IoStatementState &io, char buffer[], std::size_t maxLength) {
   std::size_t byteLength{0};
   if (auto ch{io.GetNextNonBlank(byteLength)}) {
     if (IsLegalIdStart(*ch)) {
@@ -116,10 +117,8 @@ static RT_API_ATTRS bool GetLowerCaseName(IoStatementState &io, char buffer[],
       if (j <= maxLength) {
         return true;
       }
-      if (crashIfTooLong) {
-        io.GetIoErrorHandler().SignalError(
-            "Identifier '%s...' in NAMELIST input group is too long", buffer);
-      }
+      io.GetIoErrorHandler().SignalError(
+          "Identifier '%s...' in NAMELIST input group is too long", buffer);
     }
   }
   return false;
@@ -258,13 +257,40 @@ static RT_API_ATTRS bool HandleSubscripts(IoStatementState &io,
   return false;
 }
 
-static RT_API_ATTRS void StorageSequenceExtension(
-    Descriptor &desc, const Descriptor &source) {
+static RT_API_ATTRS bool HasDefinedIoSubroutine(common::DefinedIo definedIo,
+    typeInfo::SpecialBinding::Which specialBinding,
+    const typeInfo::DerivedType *derivedType,
+    const NonTbpDefinedIoTable *table) {
+  for (; derivedType; derivedType = derivedType->GetParentType()) {
+    if ((table && table->Find(*derivedType, definedIo) != nullptr) ||
+        derivedType->FindSpecialBinding(specialBinding)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static RT_API_ATTRS bool HasDefinedIoSubroutine(common::DefinedIo definedIo,
+    typeInfo::SpecialBinding::Which specialBinding,
+    const Descriptor &descriptor, const NonTbpDefinedIoTable *table) {
+  const DescriptorAddendum *addendum{descriptor.Addendum()};
+  return addendum &&
+      HasDefinedIoSubroutine(
+          definedIo, specialBinding, addendum->derivedType(), table);
+}
+
+static RT_API_ATTRS void StorageSequenceExtension(Descriptor &desc,
+    const Descriptor &source, const io::NonTbpDefinedIoTable *table) {
   // Support the near-universal extension of NAMELIST input into a
   // designatable storage sequence identified by its initial scalar array
   // element.  For example, treat "A(1) = 1. 2. 3." as if it had been
   // "A(1:) = 1. 2. 3.".
-  if (desc.rank() == 0 && (source.rank() == 1 || source.IsContiguous())) {
+  // (But don't do this for derived types with defined formatted READs,
+  // since they might do non-list-directed input that won't stop at the
+  // next namelist input item name.)
+  if (desc.rank() == 0 && (source.rank() == 1 || source.IsContiguous()) &&
+      !HasDefinedIoSubroutine(common::DefinedIo::ReadFormatted,
+          typeInfo::SpecialBinding::Which::ReadFormatted, desc, table)) {
     if (auto stride{source.rank() == 1
                 ? source.GetDimension(0).ByteStride()
                 : static_cast<SubscriptValue>(source.ElementBytes())};
@@ -357,8 +383,9 @@ static RT_API_ATTRS bool HandleComponent(IoStatementState &io, Descriptor &desc,
     const DescriptorAddendum *addendum{source.Addendum()};
     if (const typeInfo::DerivedType *
         type{addendum ? addendum->derivedType() : nullptr}) {
-      if (const typeInfo::Component *comp{
-              type->FindDataComponent(compName, runtime::strlen(compName))}) {
+      if (const typeInfo::Component *
+          comp{type->FindDataComponent(
+              compName, Fortran::runtime::strlen(compName))}) {
         bool createdDesc{false};
         if (comp->rank() > 0 && source.rank() > 0) {
           // If base and component are both arrays, the component name
@@ -483,7 +510,7 @@ bool IODEF(InputNamelist)(Cookie cookie, const NamelistGroup &group) {
       handler.SignalError("NAMELIST input group has no name");
       return false;
     }
-    if (runtime::strcmp(group.groupName, name) == 0) {
+    if (Fortran::runtime::strcmp(group.groupName, name) == 0) {
       break; // found it
     }
     SkipNamelistGroup(io);
@@ -502,7 +529,7 @@ bool IODEF(InputNamelist)(Cookie cookie, const NamelistGroup &group) {
     }
     std::size_t itemIndex{0};
     for (; itemIndex < group.items; ++itemIndex) {
-      if (runtime::strcmp(name, group.item[itemIndex].name) == 0) {
+      if (Fortran::runtime::strcmp(name, group.item[itemIndex].name) == 0) {
         break;
       }
     }
@@ -561,7 +588,8 @@ bool IODEF(InputNamelist)(Cookie cookie, const NamelistGroup &group) {
         next = io.GetCurrentChar(byteCount);
       } while (next && (*next == '(' || *next == '%'));
       if (lastSubscriptDescriptor) {
-        StorageSequenceExtension(*lastSubscriptDescriptor, *lastSubscriptBase);
+        StorageSequenceExtension(*lastSubscriptDescriptor, *lastSubscriptBase,
+            group.nonTbpDefinedIo);
       }
     }
     // Skip the '='
@@ -576,14 +604,13 @@ bool IODEF(InputNamelist)(Cookie cookie, const NamelistGroup &group) {
     if (const auto *addendum{useDescriptor->Addendum()};
         addendum && addendum->derivedType()) {
       const NonTbpDefinedIoTable *table{group.nonTbpDefinedIo};
-      listInput->ResetForNextNamelistItem(&group);
+      listInput->ResetForNextNamelistItem(/*inNamelistSequence=*/true);
       if (!IONAME(InputDerivedType)(cookie, *useDescriptor, table) &&
           handler.InError()) {
         return false;
       }
     } else {
-      listInput->ResetForNextNamelistItem(
-          useDescriptor->rank() > 0 ? &group : nullptr);
+      listInput->ResetForNextNamelistItem(useDescriptor->rank() > 0);
       if (!descr::DescriptorIO<Direction::Input>(io, *useDescriptor) &&
           handler.InError()) {
         return false;
@@ -596,6 +623,12 @@ bool IODEF(InputNamelist)(Cookie cookie, const NamelistGroup &group) {
   }
   if (next && *next == '/') {
     io.HandleRelativePosition(byteCount);
+    if (auto *listInput{
+            io.get_if<ListDirectedStatementState<Direction::Input>>()}) {
+      // Don't let the namelist's terminal '/' mess up a parent I/O's
+      // list-directed input.
+      listInput->set_hitSlash(false);
+    }
   } else if (*next && (*next == '&' || *next == '$')) {
     // stop at beginning of next group
   } else {
@@ -607,51 +640,27 @@ bool IODEF(InputNamelist)(Cookie cookie, const NamelistGroup &group) {
 }
 
 RT_API_ATTRS bool IsNamelistNameOrSlash(IoStatementState &io) {
-  auto *listInput{io.get_if<ListDirectedStatementState<Direction::Input>>()};
-  if (!listInput || !listInput->namelistGroup()) {
-    return false; // not namelist
-  }
-  SavedPosition savedPosition{io};
-  std::size_t byteCount{0};
-  auto ch{io.GetNextNonBlank(byteCount)};
-  if (!ch) {
-    return false;
-  } else if (!IsLegalIdStart(*ch)) {
-    return *ch == '/' || *ch == '&' || *ch == '$';
-  }
-  char id[nameBufferSize];
-  if (!GetLowerCaseName(io, id, sizeof id, /*crashIfTooLong=*/false)) {
-    return true; // long name
-  }
-  // It looks like a name, but might be "inf" or "nan".  Check what
-  // follows.
-  ch = io.GetNextNonBlank(byteCount);
-  if (!ch) {
-    return false;
-  } else if (*ch == '=' || *ch == '%') {
-    return true;
-  } else if (*ch != '(') {
-    return false;
-  } else if (runtime::strcmp(id, "nan") != 0) {
-    return true;
-  }
-  // "nan(" ambiguity
-  int depth{1};
-  while (true) {
-    io.HandleRelativePosition(byteCount);
-    ch = io.GetNextNonBlank(byteCount);
-    if (depth == 0) {
-      // nan(...) followed by '=', '%', or '('?
-      break;
-    } else if (!ch) {
-      return true; // not a valid NaN(...)
-    } else if (*ch == '(') {
-      ++depth;
-    } else if (*ch == ')') {
-      --depth;
+  if (auto *listInput{
+          io.get_if<ListDirectedStatementState<Direction::Input>>()}) {
+    if (listInput->inNamelistSequence()) {
+      SavedPosition savedPosition{io};
+      std::size_t byteCount{0};
+      if (auto ch{io.GetNextNonBlank(byteCount)}) {
+        if (IsLegalIdStart(*ch)) {
+          do {
+            io.HandleRelativePosition(byteCount);
+            ch = io.GetCurrentChar(byteCount);
+          } while (ch && IsLegalIdChar(*ch));
+          ch = io.GetNextNonBlank(byteCount);
+          // TODO: how to deal with NaN(...) ambiguity?
+          return ch && (*ch == '=' || *ch == '(' || *ch == '%');
+        } else {
+          return *ch == '/' || *ch == '&' || *ch == '$';
+        }
+      }
     }
   }
-  return ch && (*ch == '=' || *ch == '%' || *ch == '(');
+  return false;
 }
 
 RT_OFFLOAD_API_GROUP_END

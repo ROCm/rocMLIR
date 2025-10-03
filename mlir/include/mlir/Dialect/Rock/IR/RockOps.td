@@ -100,7 +100,7 @@ def Rock_ConvOp : Rock_ConvOpBase<"conv", GemmInputTypes, GemmOutputTypes> {
 
 def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 {
-  dag additionalArgs = (ins IndexAttr:$kernelId);
+  dag additionalArgs = (ins IndexAttr:$kernelId, BoolAttr:$usesV4R1);
   let arguments = !con(commonConvArgs, additionalArgs);
   let summary = "N-D convolution backward data";
   let description = [{
@@ -108,6 +108,10 @@ def Rock_ConvBwdDataOp : Rock_ConvOpBase<"conv_bwd_data">
 
     The kernel ID represents which of the multiple backwards data kernels
     needed for the correct computation of the result this kernel is.
+
+    The boolean `usesV4R1` specifies if the broader compilation flow is using
+    the V4R1 algorithm for backwards data convs, which will require multiple
+    conv ops to be created to efficiently compute the data.
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
@@ -211,11 +215,11 @@ def Rock_AttentionOp
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out,
-          Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse,
-          UnitAttr:$qTransposed, UnitAttr:$kTransposed, UnitAttr:$vTransposed,
-          UnitAttr:$oTransposed, UnitAttr:$causal, I32Attr:$splitKV,
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          OptionalAttr<TypeAttr>:$softmaxType,
+          Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse, I32Attr:$numHeadsQ,
+          I32Attr:$numHeadsKV, UnitAttr:$qTransposed, UnitAttr:$kTransposed,
+          UnitAttr:$vTransposed, UnitAttr:$oTransposed, UnitAttr:$causal,
+          I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          StoreMethodAttr:$storeMethod, OptionalAttr<TypeAttr>:$softmaxType,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
           DenseI64ArrayAttr:$firstGemmIndices)>,
@@ -283,6 +287,7 @@ def Rock_GemmElementwiseGemmOp
           TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$aTransposed,
           UnitAttr:$bTransposed, UnitAttr:$cTransposed, UnitAttr:$oTransposed,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          StoreMethodAttr:$storeMethod,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
           DenseI64ArrayAttr:$firstGemmIndices)>,
@@ -333,8 +338,8 @@ def Rock_ConvElementwiseGemmOp
           Variadic<AnyTensorOrMemRef>:$elemwiseInputs,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out, UnitAttr:$cTransposed,
           UnitAttr:$oTransposed, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          IndexArrayLength<4>:$padding, IndexArrayLength<2>:$strides,
-          IndexArrayLength<2>:$dilations,
+          StoreMethodAttr:$storeMethod, IndexArrayLength<4>:$padding,
+          IndexArrayLength<2>:$strides, IndexArrayLength<2>:$dilations,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
           DenseI64ArrayAttr:$firstGemmIndices)>,
@@ -369,35 +374,6 @@ def Rock_ConvElementwiseGemmOp
         (`ab` `=` `elementwise` (`otherIns` `(` $elemwiseInputs^ `:` type($elemwiseInputs) `)`)? $preSecondGemmBody^ `\n`)?
         (`tr` $oTransposed^)? $out `=` `ab` `*` (`tr` $cTransposed^)? $c `:` type($c) `->` type($out) `\n`
     `}` attr-dict (`->` type($result)^)?
-  }];
-}
-
-def Rock_InitKernelOp
-    : Rock_Op<"init_kernel", []>,
-      Arguments<(ins AnyTensorOrMemRef:$buffer,
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          OptionalAttr<AnyAttrOf<[F32Attr, I32Attr]>>:$initValueAttr,
-          OptionalAttr<I32Attr>:$blockSize, OptionalAttr<I32Attr>:$gridSize,
-          OptionalAttr<IndexAttr>:$elemsPerThread)>,
-      Results<(outs Optional<AnyTensor>:$result)> {
-  let summary = "initialize a buffer";
-
-  let description = [{
-    Initialize a given buffer.
-
-    This operation is meant to operate as its own kernel, and is needed
-    for correctness in some cases (backwards data kernels where not all
-    pixels are written and backwards weight atomic add kernels).
-  }];
-
-  let assemblyFormat = [{
-    $buffer (`features` `=` $features^)? attr-dict `:` type($buffer) (`->` type($result)^)?
-  }];
-
-  // Declaration to enable the bufferization implementation to work as if this werr
-  // a gemm wrapper kernel
-  let extraClassDeclaration = [{
-    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(0); }
   }];
 }
 
@@ -565,9 +541,10 @@ def Rock_GridwiseAttentionAccelOp
           MemRefRankOf<[F32, F16, BF16], [3]>:$out,
           Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
           I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          I32Attr:$blockSize, I32Attr:$gridSize, UnitAttr:$disableQBypassLDS,
-          OptionalAttr<IndexAttr>:$prePadG0M,
+          StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
+          UnitAttr:$disableQBypassLDS, OptionalAttr<IndexAttr>:$prePadG0M,
           OptionalAttr<IndexAttr>:$prePadG0N,
+          OptionalAttr<IndexAttr>:$numRepeatsGQA,
           OptionalAttr<TypeAttr>:$softmaxType,
           RockAccelTuningParamAttrInterface:$params0,
           RockAccelTuningParamAttrInterface:$params1,

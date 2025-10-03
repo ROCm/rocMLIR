@@ -575,6 +575,7 @@ traceToWriter(Value startVal,
     LLVM_DEBUG(llvm::dbgs() << "Found multiple writers somehow\n");
     result = nullptr;
   }
+
   return result;
 }
 

@@ -141,24 +141,8 @@ struct WorkgroupIdRewritePattern
 
   LogicalResult matchAndRewrite(rock::WorkgroupIdOp op,
                                 PatternRewriter &b) const override {
-    Location loc = op.getLoc();
-    auto maybeIsReverseGrid = rock::getReverseGrid(op);
-    if (succeeded(maybeIsReverseGrid)) {
-      FailureOr<IntegerAttr> maybeGridSize = rock::getGridSize(op);
-      if (failed(maybeGridSize)) {
-        return op->emitError("grid_size should ve been set by now.\n");
-      }
-      int64_t gridSize = maybeGridSize.value().getValue().getSExtValue();
-      AffineMap reverseMap = rock::getIdxReversalMap(b);
-      Value gridSizeVal = b.createOrFold<arith::ConstantIndexOp>(loc, gridSize);
-      Value blockIdVal = gpu::BlockIdOp::create(b, loc, gpu::Dimension::x);
-      b.replaceOpWithNewOp<affine::AffineApplyOp>(
-          op, b.getIndexType(), reverseMap,
-          ValueRange{blockIdVal, gridSizeVal});
-    } else {
-      b.replaceOpWithNewOp<gpu::BlockIdOp>(op, b.getIndexType(),
-                                           gpu::Dimension::x);
-    }
+    b.replaceOpWithNewOp<gpu::BlockIdOp>(op, b.getIndexType(),
+                                         gpu::Dimension::x);
     return success();
   }
 };
@@ -220,9 +204,6 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       gpuFunc->setAttr("grid_size", attr);
       gridSize = cast<IntegerAttr>(attr).getInt();
       gpuFunc.setKnownGridSizeAttr(b.getDenseI32ArrayAttr({gridSize, 1, 1}));
-    }
-    if (auto isReverse = rock::getReverseGrid(theFunc).value_or(nullptr)) {
-      gpuFunc->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), isReverse);
     }
     FailureOr<StringAttr> maybeArch = rock::getArch(theFunc);
     if (succeeded(maybeArch)) {

@@ -21,6 +21,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -104,10 +105,22 @@ LogicalResult mlir::rock::calculateKBlockNum(const int64_t batchSize,
   return success();
 }
 
+bool mlir::rock::isEveryElementWrittenBwdData(ArrayRef<int64_t> strideDims,
+                                              ArrayRef<int64_t> dilationDims,
+                                              ArrayRef<int64_t> filterDims) {
+  bool result = true;
+  for (const auto &[stride, dilation, filterSize] :
+       zip(strideDims, dilationDims, filterDims)) {
+    if (!(dilation == 1 && stride <= filterSize))
+      result = false;
+  }
+  return result;
+}
+
 SmallVector<int64_t>
 mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
                                   ArrayRef<int64_t> dilationDims,
-                                  ArrayRef<int64_t> filterDims) {
+                                  ArrayRef<int64_t> filterDims, bool usesV4R1) {
   assert(strideDims.size() == dilationDims.size());
   SmallVector<int64_t, 5> gcdStrideDilations;
   for (const auto &[stride, dilation] : zip(strideDims, dilationDims))
@@ -117,25 +130,9 @@ mlir::rock::backwardDataKernelIds(ArrayRef<int64_t> strideDims,
   for (const auto &[stride, gcdSD] : zip(strideDims, gcdStrideDilations))
     filTilda.push_back(stride / gcdSD);
 
-  // Heuristic to determine if every pixel in the output would be written by the
-  // backward data convolution algorithm.
-  auto isEveryPixelWritten = [&]() -> bool {
-    bool result = true;
-    for (const auto &[stride, dilation, filterSize] :
-         zip(strideDims, dilationDims, filterDims)) {
-      if (!(dilation == 1 && stride <= filterSize))
-        result = false;
-    }
-    return result;
-  };
-  bool needZeroInitKernel = !isEveryPixelWritten();
-
-  llvm::SmallVector<int64_t> kernelIds;
-  if (needZeroInitKernel)
-    kernelIds.push_back(-1);
-
   // Populate the kernel IDs according to the current backward data convolution
   // algorithm implementation.
+  llvm::SmallVector<int64_t> kernelIds;
   int64_t subproduct = 1;
   int64_t product;
   for (size_t i = 1; i < filterDims.size(); i++)
@@ -717,24 +714,12 @@ FailureOr<RetAttrType> getAttrFromOpOrParents(
   return attr;
 }
 
-FailureOr<UnitAttr> mlir::rock::getReverseGrid(Operation *op) {
-  return getAttrFromOpOrParents<UnitAttr>(
-      op, rock::ReverseGridAttrAttr::getMnemonic());
-}
-
 FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {
   return getAttrFromOpOrParents<IntegerAttr>(op, "grid_size");
 }
 
 FailureOr<IntegerAttr> mlir::rock::getBlockSize(Operation *op) {
   return getAttrFromOpOrParents<IntegerAttr>(op, "block_size");
-}
-
-AffineMap mlir::rock::getIdxReversalMap(OpBuilder &b) {
-  auto dimExpr = mlir::getAffineDimExpr(0, b.getContext());
-  auto dimSizeExpr = mlir::getAffineSymbolExpr(0, b.getContext());
-  auto affineMap = mlir::AffineMap::get(1, 1, dimSizeExpr - 1 - dimExpr);
-  return affineMap;
 }
 
 ReassociationIndices
@@ -832,8 +817,11 @@ static void traceAlloc(memref::AllocOp buffer,
       if (writerOperand && readerOperand != writerOperand &&
           isa<MemoryEffects::Write>(effect.getEffect())) {
         Value writerOperandValue = writerOperand->get();
-        if (auto arg = dyn_cast<BlockArgument>(writerOperandValue))
-          args.push_back(arg);
+
+        FailureOr<BlockArgument> maybeArg =
+            findBlockArgument(writerOperandValue);
+        if (succeeded(maybeArg))
+          args.push_back(maybeArg.value());
         else if (memref::AllocOp writeBuffer =
                      writerOperandValue.getDefiningOp<memref::AllocOp>())
           traceAlloc(writeBuffer, deps, args, genericOpOperands);

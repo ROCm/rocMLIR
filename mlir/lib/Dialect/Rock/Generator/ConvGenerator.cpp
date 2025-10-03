@@ -42,14 +42,14 @@ ConvGenerator::ConvGenerator(
     const std::string &arch, const std::string &chip,
     bool disableSplitKForTuning, int64_t scheduleVersion,
     const std::string &triple, const std::string &chipFeatures,
-    const std::string &perfConfig, std::optional<int> num_cu, bool reverseGrid,
+    const std::string &perfConfig, std::optional<int> num_cu,
     GemmFeatures features, const std::optional<ConvOpType> operation,
     const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
     const std::string &outputDataTypeStr, ArrayRef<int> dilations,
     ArrayRef<int> strides, ArrayRef<int> paddingLeft,
     ArrayRef<int> paddingRight, const std::string &filterLayout,
     const std::string &inputLayout, const std::string &outputLayout,
-    const std::string &kernelBaseName)
+    const bool usesV4R1, const std::string &kernelBaseName)
     : config{arch,
              chip,
              disableSplitKForTuning,
@@ -58,7 +58,6 @@ ConvGenerator::ConvGenerator(
              chipFeatures,
              perfConfig,
              num_cu,
-             reverseGrid,
              features,
              operation,
              filterDataTypeStr,
@@ -71,6 +70,7 @@ ConvGenerator::ConvGenerator(
              filterLayout,
              inputLayout,
              outputLayout,
+             usesV4R1,
              kernelBaseName,
              -1,
              {},
@@ -278,28 +278,17 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
     }
     if (!needExtraPad) {
       Type dataType = getInputDataType(builder);
-      if (dataType.isF32()) {
+      if (dataType.isF16()) {
         // For the following case, use 2 kernels:
-        // - backward weight
-        // - XDLOPS
-        // - fp32
-        // - No need extra pad along Gemm M/N/K
-        // The first kernel will 0-initialize the output (filter tensor).
-        // The second kernel will conduct the actual backward weight
-        // convolution, using atomic add instructions.
-        kernelCount = 2;
-      } else if (dataType.isF16()) {
-        // For the following case, use 3 kernels:
         // - backward weight
         // - XDLOPS
         // - fp16
         // - No need extra pad along Gemm M/N/K
-        // The first kernel will 0-initialize the workspace.
-        // The second kernel will conduct the actual backward weight
-        // convolution, using atomic add instructions. The third kernel will do
+        // The first kernel will conduct the actual backward weight
+        // convolution, using atomic add instructions. The second kernel will do
         // elementwise conversion from fp32 in the workspace to fp16 in the
         // actual output (filter tensor).
-        kernelCount = 3;
+        kernelCount = 2;
       }
     }
   }
@@ -307,8 +296,9 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
 }
 
 int ConvGenerator::getBwdDataKernelCount() const {
-  llvm::SmallVector<int64_t> gemmIds = backwardDataKernelIds(
-      config.strideDims, config.dilationDims, config.filterDims);
+  llvm::SmallVector<int64_t> gemmIds =
+      backwardDataKernelIds(config.strideDims, config.dilationDims,
+                            config.filterDims, config.usesV4R1);
   return static_cast<int>(gemmIds.size());
 }
 
@@ -502,6 +492,12 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
     }
   };
 
+  auto strToBool = [&argMap](const std::string &key, bool &setting) {
+    if (argMap.find(key) != argMap.end()) {
+      setting = (argMap[key] == "true");
+    }
+  };
+
   std::string arch;
   strToStr("arch", arch);
   RocmDeviceName splitter;
@@ -518,6 +514,10 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
   config.chipFeatures = splitter.getFeaturesForBackend();
   config.triple = splitter.getTriple().str();
 
+  bool usesV4R1Config = true;
+  strToBool("usesV4R1", usesV4R1Config);
+  config.usesV4R1 = usesV4R1Config;
+
   FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(config.chip);
   if (failed(maybeChipset)) {
     emitError(UnknownLoc::get(builder.getContext()),
@@ -527,7 +527,6 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
-  strToInt(rock::ReverseGridAttrAttr::getMnemonic().str(), config.reverseGrid);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -758,7 +757,26 @@ ConvolutionDims ConvGenerator::getConvolutionDims(const Config *config) {
                          inDim["n"], inDim["g"]);
 }
 
-LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
+// Helper function to zero-initialize an argument of a FuncOp using the
+// prefill attribute
+static void zeroInitArg(OpBuilder &builder, func::FuncOp func,
+                        unsigned argIndex) {
+  auto argToPrefill = func.getArgument(argIndex);
+  auto attrName = rock::PrefillAttr::getMnemonic();
+  auto elementType = getElementTypeOrSelf(argToPrefill.getType());
+  Attribute zero;
+  if (isa<FloatType>(elementType)) {
+    zero = builder.getFloatAttr(elementType, 0.0);
+  } else {
+    assert(isa<IntegerType>(elementType) &&
+           "Unsupported element type for prefill attribute");
+    zero = builder.getIntegerAttr(elementType, 0);
+  }
+  func.setArgAttrs(argToPrefill.getArgNumber(),
+                   builder.getNamedAttr(attrName, zero));
+}
+
+LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
                                            bool isVerifier, bool ignoreTuning) {
   OpBuilder builder(module.getContext());
 
@@ -800,6 +818,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
     logicalFuncArgTypes = {filterArgType, inputArgType, outputArgType,
                            workspaceArgType};
   }
+
   SmallVector<Type, 3> physicalFuncArgTypes =
       llvm::map_to_vector(logicalFuncArgTypes, getFlattenedType);
   auto funcType = builder.getFunctionType(physicalFuncArgTypes, {});
@@ -818,8 +837,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   // Fix raw kernel ID in case it is less than 0.
   // The only case this could happen is to query the number of kernels needed
   // from MIIR API, where the kernel ID is not yet unknown.
-  if (rawKernelId < 0)
-    rawKernelId = 0;
+  if (kernelId < 0)
+    kernelId = 0;
 
   // Annotate kernel attribute to the FuncOp.
   StringAttr archStrAttr = builder.getStringAttr(config.arch);
@@ -829,20 +848,14 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   NamedAttribute numCUAttr = builder.getNamedAttr("num_cu", numCUIntAttr);
 
   SmallVector<NamedAttribute, 2> kernelAttrs = {
-      builder.getNamedAttr("kernel", builder.getI32IntegerAttr(rawKernelId)),
+      builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernelId)),
       archAttr, numCUAttr};
 
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
                               ArrayRef<NamedAttribute>(kernelAttrs));
-  // TODO[split-K]: split-K does not work with BwdWeight
-  if (!config.disableSplitKForTuning &&
-      config.operation.value() != ConvOpType::BwdWeight) {
+  if (!config.disableSplitKForTuning) {
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
-  if (config.reverseGrid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
                   builder.getUnitAttr());
   }
   if (config.scheduleVersion != 1) {
@@ -873,19 +886,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   for (auto &key : config.outputLayout)
     outputLayoutSpec.push_back(builder.getStringAttr(StringRef(&key, 1) + "o"));
 
-  // Set kernel ID to  be the same as the raw kernel ID.
-  // For backward data convolution, additional processing is needed below.
-  int64_t kernelId = rawKernelId;
-
-  // Obtain kernel ID as used by backwards data kernels from the raw,
-  // 0-indexed kernel ID.
-  if (config.operation.value() == ConvOpType::BwdData) {
-    llvm::SmallVector<int64_t> kernelIds = backwardDataKernelIds(
-        config.strideDims, config.dilationDims, config.filterDims);
-    assert(kernelIds.size() > static_cast<size_t>(rawKernelId));
-    kernelId = kernelIds[rawKernelId];
-  }
-
   std::vector<NamedAttribute> attributes{
       builder.getNamedAttr(
           "filter_layout",
@@ -906,6 +906,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
   if (config.operation.value() == ConvOpType::BwdData) {
     attributes.push_back(
         builder.getNamedAttr("kernelId", builder.getIndexAttr(kernelId)));
+    attributes.push_back(
+        builder.getNamedAttr("usesV4R1", builder.getBoolAttr(config.usesV4R1)));
   }
   // features
   GemmFeaturesAttr features =
@@ -955,34 +957,36 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
                    attributes);
   } break;
   case ConvOpType::BwdData: {
-    if (kernelId < 0) {
-      // zero init input tensor
-      InitKernelOp::create(builder, builder.getUnknownLoc(),
-                           /*resultType=*/TypeRange{}, func.getArgument(1),
-                           features, /*initValueAttr=*/nullptr,
-                           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-                           /*elemsPerThread=*/nullptr);
-    } else {
-      ConvBwdDataOp::create(builder, builder.getUnknownLoc(), ArrayRef<Type>{},
-                            args, attributes);
+    if (!rock::isEveryElementWrittenBwdData(
+            config.strideDims, config.dilationDims, config.filterDims)) {
+      // For all backwards data convolution ops that don't write to every pixel,
+      // we want to zeroinitialize the buffer in the second argument
+      // (input tensor)
+      // TODO: This is okay for right now since we are not doing any fusions.
+      // When we do handle fusions in the future there is no guarantee that
+      // arg 1 is going to be the input tensor.
+      zeroInitArg(builder, func, 1);
     }
+    builder.create<ConvBwdDataOp>(builder.getUnknownLoc(), ArrayRef<Type>{},
+                                  args, attributes);
   } break;
   case ConvOpType::BwdWeight: {
     int kernelCount = 0;
     if (failed(getBwdWeightKernelCount(builder, kernelCount))) {
       return failure();
     }
-    bool hasUtilities = (kernelCount > 1);
-    if (hasUtilities && kernelId == 0) {
-      // If there is a workspace, zero-init it, otherwise fill the filter
-      // tensor
-      InitKernelOp::create(builder, builder.getUnknownLoc(),
-                           /*resultType=*/TypeRange{},
-                           func.getArgument(hasWorkspace ? 3 : 0), features,
-                           /*initValueAttr=*/nullptr,
-                           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-                           /*elemsPerThread=*/nullptr);
-    } else if (hasUtilities && kernelId == 2) {
+
+    bool needsZeroInit = false;
+    bool needExtraPad = false;
+    if (rock::isAccel(config.features) &&
+        succeeded(needExtraPadBwdWeight(builder, needExtraPad))) {
+      if (!needExtraPad) {
+        auto dataType = getInputDataType(builder);
+        needsZeroInit = dataType.isF32() || dataType.isF16();
+      }
+    }
+
+    if (kernelId == 1) {
       // Workspace -> filter tensor
       ConvertingCopyKernelOp::create(
           builder, builder.getUnknownLoc(), /*resultType=*/TypeRange{},
@@ -990,6 +994,12 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int rawKernelId,
           /*blockSize=*/nullptr, /*gridSize=*/nullptr,
           /*elemsPerThread=*/nullptr);
     } else {
+      // TODO: This is okay for right now since we are not doing any fusions.
+      // When we do handle fusions in the future there is no guarantee that
+      // these specific args are going to be the input tensor.
+      if (needsZeroInit) {
+        zeroInitArg(builder, func, hasWorkspace ? 3 : 0);
+      }
       ConvBwdWeightOp::create(builder, builder.getUnknownLoc(),
                               ArrayRef<Type>{}, args, attributes);
     }

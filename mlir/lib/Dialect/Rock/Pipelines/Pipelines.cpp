@@ -139,6 +139,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   // Sort dimensions according to the underlying memory layout strides
   if (!noRock) {
     auto &funcPm4 = pm.nest<func::FuncOp>();
+    funcPm4.addPass(createRockRemoveOutputAllocPass());
     funcPm4.addPass(createRockFindFirstGemmIndexPass());
     funcPm4.addPass(createRockSortDimensionsMemoryLayoutPass());
   }
@@ -257,11 +258,14 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // We need to lower affine again, because the expand strided metadata pass
   // adds back affine.apply for memref.subview
   gpuPm.addPass(createLowerAffinePass());
-  gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
-      options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
-      /*useBarePtrCallConv=*/true, gpu::amd::Runtime::HIP,
-      llvm::SmallDenseSet<StringRef>{"memref", "math", "cf", "func", "vector",
-                                     "arith"}));
+  ConvertGpuOpsToROCDLOpsOptions rocdlOpts;
+  rocdlOpts.chipset = options.chip;
+  rocdlOpts.indexBitwidth = kDeriveIndexBitwidthFromDataLayout;
+  rocdlOpts.useBarePtrCallConv = true;
+  rocdlOpts.runtime = gpu::amd::Runtime::HIP;
+  rocdlOpts.allowedDialects.assign(
+      {"memref", "math", "cf", "func", "vector", "arith"});
+  gpuPm.addPass(createConvertGpuOpsToROCDLOps(rocdlOpts));
   // Ensure we only run passes on LLVM functions inside GPU modules.
   auto &llvmFuncPm = gpuPm.nest<LLVM::LLVMFuncOp>();
   // -canonicalize -cse so that we don't have to crawl through memref

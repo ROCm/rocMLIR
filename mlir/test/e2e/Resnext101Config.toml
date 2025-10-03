@@ -8,6 +8,12 @@ values = ["conv", "conv_bwd_data", "conv_bwd_weight"]
 prefix = "--operation "
 
 [[axis]]
+name = "v4r1"
+values = ["0", "1"]
+prefix = "-v4r1 "
+when = { operation = "conv_bwd_data" }
+
+[[axis]]
 name = "layout"
 values = ["-fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw", "-fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk"]
 

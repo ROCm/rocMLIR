@@ -1,9 +1,9 @@
 FROM ubuntu:22.04
 MAINTAINER Christopher Austen <chausten@amd.com>
 
-ARG ROCM_VERSION=6.4.2
+ARG ROCM_VERSION=7.0
 ARG ROCM_DEB_REPO=http://repo.radeon.com/rocm/apt/${ROCM_VERSION}
-ARG AMDGPU_DEB_REPO=https://repo.radeon.com/amdgpu/${ROCM_VERSION}/ubuntu
+ARG GRAPHICS_DEB_REPO=https://repo.radeon.com/graphics/${ROCM_VERSION}/ubuntu
 ARG ROCM_BUILD_NAME=jammy
 ARG ROCM_BUILD_NUM=main
 ARG ROCM_PATH=/opt/rocm-${ROCM_VERSION}
@@ -103,7 +103,7 @@ RUN groupadd -f render
 # Add ROCm build distribution
 RUN wget --no-check-certificate -qO - http://repo.radeon.com/rocm/rocm.gpg.key 2>/dev/null | apt-key add -
 RUN echo "deb [arch=amd64] ${ROCM_DEB_REPO} ${ROCM_BUILD_NAME} ${ROCM_BUILD_NUM}" > /etc/apt/sources.list.d/rocm.list
-RUN echo "deb [arch=amd64] ${AMDGPU_DEB_REPO} ${ROCM_BUILD_NAME} ${ROCM_BUILD_NUM}" > /etc/apt/sources.list.d/amdgpu.list
+RUN echo "deb [arch=amd64] ${GRAPHICS_DEB_REPO} ${ROCM_BUILD_NAME} ${ROCM_BUILD_NUM}" > /etc/apt/sources.list.d/graphics.list
 RUN echo 'Package: *' > /etc/apt/preferences.d/repo-radeon-pin-600 && \
     echo 'Pin: release o=repo.radeon.com' >> /etc/apt/preferences.d/repo-radeon-pin-600 && \
     echo 'Pin-Priority: 600' >> /etc/apt/preferences.d/repo-radeon-pin-600

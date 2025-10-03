@@ -220,7 +220,7 @@ Type getFlattenedType(Type type) {
                            mt.getMemorySpace());
   }
   if (auto st = dyn_cast<ShapedType>(type))
-    return st.cloneWith(st.getNumElements(), /*elementType=*/nullptr);
+    return st.cloneWith(st.getNumElements(), st.getElementType());
   return type;
 }
 

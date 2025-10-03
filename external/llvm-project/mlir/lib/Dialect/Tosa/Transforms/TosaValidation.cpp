@@ -579,7 +579,7 @@ private:
 
 template <>
 bool TosaValidation::levelCheckRanks(tosa::ArgMaxOp tosaOp) {
-  auto op = tosaOp.getOperation();
+  auto *op = tosaOp.getOperation();
   if (!levelCheckRank(op, tosaOp.getInput(), "operand", tosaLevel.MAX_RANK))
     return false;
 
@@ -592,7 +592,7 @@ bool TosaValidation::levelCheckRanks(tosa::ArgMaxOp tosaOp) {
 
 template <>
 bool TosaValidation::levelCheckRanks(tosa::IfOp tosaOp) {
-  auto op = tosaOp.getOperation();
+  auto *op = tosaOp.getOperation();
 
   // Only the condition input has rank limitation.
   if (!levelCheckRank(op, tosaOp.getCondition(), "operand", tosaLevel.MAX_RANK))
@@ -603,7 +603,7 @@ bool TosaValidation::levelCheckRanks(tosa::IfOp tosaOp) {
 
 template <>
 bool TosaValidation::levelCheckRanks(tosa::VariableOp tosaOp) {
-  auto op = tosaOp.getOperation();
+  auto *op = tosaOp.getOperation();
   auto variableType = getVariableType(tosaOp);
   if (!levelCheckRank(op, variableType, "variable type", tosaLevel.MAX_RANK))
     return false;
@@ -613,7 +613,7 @@ bool TosaValidation::levelCheckRanks(tosa::VariableOp tosaOp) {
 
 template <>
 bool TosaValidation::levelCheckSizes(tosa::VariableOp tosaOp) {
-  auto op = tosaOp.getOperation();
+  auto *op = tosaOp.getOperation();
   auto variableType = getVariableType(tosaOp);
   if (!levelCheckSize(op, variableType, "variable type"))
     return false;

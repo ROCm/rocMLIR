@@ -125,12 +125,6 @@ static llvm::cl::opt<int> num_cu(
                    "gfx906(60/64), gfx908(120)"),
     llvm::cl::value_desc("compute unit value"), llvm::cl::init(0));
 
-static llvm::cl::opt<bool> reverse_grid(
-    "reverse_grid",
-    llvm::cl::desc(
-        "Indicates whether to reverse the workgroup indices in the kernel"),
-    llvm::cl::value_desc("boolean"), llvm::cl::init(false));
-
 static llvm::cl::opt<std::string> perfConfig(
     "perf_config", llvm::cl::desc("performance config data used for tuning"),
     llvm::cl::value_desc("Serialized tuning parameters"), llvm::cl::init(""));
@@ -323,6 +317,11 @@ static llvm::cl::opt<bool> scaledGemm(
     "scaledGemm",
     llvm::cl::desc("Indicates whether to generate scaling gemm or not"),
     llvm::cl::value_desc("boolean"), llvm::cl::init(false));
+
+/// Backwards data convolution options
+static llvm::cl::opt<int64_t>
+    usesV4R1("v4r1", llvm::cl::desc("Use V4R1 for bwd_data convolution"),
+             llvm::cl::init(1));
 
 /// gemm+elementwise+gemm options
 static llvm::cl::opt<int64_t>
@@ -1384,7 +1383,7 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
 static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
                                                     const GenParams &params) {
-  // default perfConfig is attn:v1:32,32,32,32,32,32,1,1
+  // default perfConfig is attn:v2:32,32,32,32,32,32,1,1,1,2,1
   // keep in sync with AffixTuningParameters.cpp
   if (params.perfConfig.empty())
     return {32, 32};
@@ -2410,9 +2409,6 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   auto func =
       func::FuncOp::create(b, loc, isVerifier ? kernelNameVerifier : kernelName,
                            b.getFunctionType(flatTypes, {}), funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(), b.getUnitAttr());
-  }
 
   constexpr StringLiteral gName = "g", mName = "m", kName = "k", nName = "n";
   SmallVector<SmallVector<StringRef>> allArgNames;
@@ -3117,7 +3113,7 @@ static Value broadcastKVCacheRock(OpBuilder builder, Location loc,
          "Number of current sequence lenght must match batch dimension");
   SmallVector<StringRef> startNames = {"gemmG"};
   rock::BottomUpTMBuilder addDim(builder, startNames, inpShape);
-  addDim.addDim("seqLen", 1, 1);
+  addDim.addDim("numHeadsQ", 1, 1);
   addDim.passThrough(ArrayRef<uint32_t>{0}, ArrayRef<uint32_t>{0});
   auto addDimAttr = addDim.get();
   Value matrixAddDim =
@@ -3131,39 +3127,7 @@ static Value broadcastKVCacheRock(OpBuilder builder, Location loc,
       rock::TransformOp::create(builder, loc, matrixAddDim, broadcasterAttr);
 
   auto merger = rock::BottomUpTMBuilder::above(broadcaster, broadcasterAttr);
-  merger.merge("gemmG", 0, {"gemmG", "seqLen"});
-  auto mergerAttr = merger.get();
-  return rock::TransformOp::create(builder, loc, tensorBroadcast, mergerAttr);
-}
-
-static Value broadcastGQARock(OpBuilder builder, Location loc,
-                              Value inputTensor) {
-  assert(numHeadsQ % numHeadsKV == 0);
-
-  if (numHeadsQ == numHeadsKV)
-    return inputTensor;
-
-  int64_t numRepeats = numHeadsQ / numHeadsKV;
-  ArrayRef<int64_t> inpShape =
-      cast<ShapedType>(inputTensor.getType()).getShape();
-  SmallVector<StringRef> startNames = {"gemmG", "seqLen", "headDim"};
-  rock::BottomUpTMBuilder addDim(builder, startNames, inpShape);
-  addDim.addDim("broadcastDim", 1, 1);
-  addDim.passThrough({0, 2, 3}, {0, 1, 2});
-  auto addDimAttr = addDim.get();
-  Value matrixAddDim =
-      rock::TransformOp::create(builder, loc, inputTensor, addDimAttr);
-
-  auto broadcaster = rock::BottomUpTMBuilder::above(addDim, addDimAttr);
-  broadcaster.broadcast({1}, {numRepeats});
-  broadcaster.passThrough({0, 2, 3}, {0, 2, 3});
-  auto broadcasterAttr = broadcaster.get();
-  Value tensorBroadcast =
-      rock::TransformOp::create(builder, loc, matrixAddDim, broadcasterAttr);
-
-  auto merger = rock::BottomUpTMBuilder::above(broadcaster, broadcasterAttr);
-  merger.merge("gemmG", 0, {"gemmG", "broadcastDim"});
-  merger.passThrough({1, 2}, {2, 3});
+  merger.merge("gemmG", 0, {"gemmG", "numHeadsQ"});
   auto mergerAttr = merger.get();
   return rock::TransformOp::create(builder, loc, tensorBroadcast, mergerAttr);
 }
@@ -3198,10 +3162,6 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   auto func = func::FuncOp::create(builder, loc, kernelName,
                                    builder.getFunctionType(flatArgTypes, {}),
                                    funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3249,17 +3209,14 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   }
   output = unflattenedArgs[optionalArgsCounter];
 
-  keys = broadcastGQARock(builder, loc, keys);
-  values = broadcastGQARock(builder, loc, values);
-
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
-  auto attention = rock::AttentionOp::create(
-      builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
-      currentSeqLenTensor, output, lse, transposeQ, transposeK, transposeV,
-      transposeO, causalMasking, splitKV,
+  auto attention = rock::AttentionOp::create(builder,
+      loc, TypeRange{}, queries, keys, values, elemwiseInputs,
+      currentSeqLenTensor, output, lse, numHeadsQ, numHeadsKV, transposeQ,
+      transposeK, transposeV, transposeO, causalMasking, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
-      softmaxType,
+      storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,
       /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
@@ -3366,10 +3323,6 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   auto func = func::FuncOp::create(builder, loc, kernelName,
                                    builder.getFunctionType(flatArgTypes, {}),
                                    funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3396,7 +3349,7 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       builder, loc, TypeRange{}, filter, input, c, elemwiseInputs, output,
       transposeC, transposeO,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
-      builder.getIndexArrayAttr(pad),
+      storeMethod, builder.getIndexArrayAttr(pad),
       builder.getIndexArrayAttr(config->strideDims),
       builder.getIndexArrayAttr(config->dilationDims),
       /*params0=*/nullptr, /*params1=*/nullptr,
@@ -3444,6 +3397,11 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                             inputLayoutSpec.begin(), inputLayoutSpec.end())));
 
   func::ReturnOp::create(builder, loc);
+
+  if (!disableSplitKForTuning)
+    func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
+                  builder.getUnitAttr());
+
   module.push_back(func);
   return func;
 }
@@ -3477,10 +3435,6 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   auto func = func::FuncOp::create(builder, loc, kernelName,
                                    builder.getFunctionType(flatArgTypes, {}),
                                    funcAttrs);
-  if (reverse_grid) {
-    func->setAttr(rock::ReverseGridAttrAttr::getMnemonic(),
-                  builder.getUnitAttr());
-  }
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3501,6 +3455,7 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
       builder, loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA,
       transposeB, transposeC, transposeO,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
+      storeMethod,
       /*params0=*/nullptr, /*params1=*/nullptr,
       /*firstGemmIdx=*/builder.getDenseI64ArrayAttr({0}));
   {
@@ -3531,6 +3486,11 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                           builder.getStringAttr(params.perfConfig));
 
   func::ReturnOp::create(builder, loc);
+
+  if (!disableSplitKForTuning)
+    func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
+                  builder.getUnitAttr());
+
   module.push_back(func);
   return func;
 }
@@ -4838,10 +4798,11 @@ static LogicalResult populateHostHarnessLogic(
   bool gpuValidation = validationType == "gpu" &&
                        ((hasAccel || isSmallFloatIn) || heuristicValidation);
   bool isRandom = (randomSeed != "fixed" && randomSeed != "none");
-  bool isSplitK =
-      (genParams.perfConfig.empty())
-          ? false
-          : rock::isSplitKRequested(genParams.features, genParams.perfConfig);
+  bool isSplitK = (genParams.perfConfig.empty())
+                      ? false
+                      : rock::isSplitKRequested(
+                            genParams.features,
+                            StringAttr::get(context, genParams.perfConfig));
 
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
@@ -5166,6 +5127,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
       exit(1);
     }
 
+    bool usesV4R1Config = usesV4R1.getValue();
+
     RocmDeviceName targetInfo;
     if (failed(targetInfo.parse(arch.getValue()))) {
       llvm::errs() << "Invalid architecture name: " << arch << "\n";
@@ -5326,12 +5289,11 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
-          reverse_grid, enabledFeatures,
-          rock::convOpTypeFromKernelType(operation.getValue()),
+          enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilations, strides, paddingLeft,
           paddingRight, filterLayout.getValue(), inputLayout.getValue(),
-          outputLayout.getValue());
+          outputLayout.getValue(), usesV4R1Config);
 
       SmallVector<int64_t> inDims{inputHeight, inputWidth};
       if (nDims > 2) {

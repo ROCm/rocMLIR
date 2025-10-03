@@ -512,20 +512,20 @@ void ReduceMinOp::print(OpAsmPrinter &parser) {
 // Tosa utilities.
 //===----------------------------------------------------------------------===//
 
-std::optional<int64_t> idivCheck(const int64_t lhs, const int64_t rhs) {
+static std::optional<int64_t> idivCheck(const int64_t lhs, const int64_t rhs) {
   if (lhs % rhs != 0)
     return std::nullopt;
   return lhs / rhs;
 }
 
-Type getStorageElementTypeOrSelf(Type type) {
+static Type getStorageElementTypeOrSelf(Type type) {
   auto srcType = getElementTypeOrSelf(type);
   if (auto quantType = llvm::dyn_cast<mlir::quant::QuantizedType>(srcType))
     srcType = quantType.getStorageType();
   return srcType;
 }
 
-Type getStorageElementTypeOrSelf(Value value) {
+static Type getStorageElementTypeOrSelf(Value value) {
   return getStorageElementTypeOrSelf(value.getType());
 }
 
@@ -3074,7 +3074,7 @@ static LogicalResult verifyReduceOp(T op) {
     int64_t inputRank = inputType.getRank();
     // We allow for a special case where the input/output shape has rank 0 and
     // axis is also 0.
-    if (reduceAxis >= inputRank && !(reduceAxis == 0 && inputRank == 0)) {
+    if (reduceAxis >= inputRank && (reduceAxis != 0 || inputRank != 0)) {
       op.emitOpError("expect input tensor rank (")
           << inputRank << ") to be larger than reduce axis (" << reduceAxis
           << ")";
@@ -3088,7 +3088,7 @@ static LogicalResult verifyReduceOp(T op) {
           "expect output tensor rank to be equal to input tensor rank");
       return failure();
     }
-    if (reduceAxis >= outputRank && !(reduceAxis == 0 && outputRank == 0)) {
+    if (reduceAxis >= outputRank && (reduceAxis != 0 || outputRank != 0)) {
       op.emitOpError("expect output tensor rank (")
           << outputRank << ") to be larger than reduce axis (" << reduceAxis
           << ")";
@@ -3630,37 +3630,80 @@ LogicalResult TransposeConv2DOp::verify() {
   if (!outputType)
     return success();
 
+  auto inPad = getPad();
+  auto dilation = getDilation();
   const auto inputType = llvm::dyn_cast<RankedTensorType>(getInput().getType());
   if (inputType && weightType) {
     const int64_t inputHeight = inputType.getDimSize(1);
     const int64_t kernelHeight = weightType.getDimSize(1);
     const int64_t outputHeight = outputType.getDimSize(1);
 
-    if (ShapedType::isStatic(inputHeight) &&
-        ShapedType::isStatic(outputHeight)) {
-      if (outputHeight !=
-          (inputHeight - 1) * strideY + outPadTop + outPadBottom + kernelHeight)
-        return emitOpError(
-                   "dimension mismatch: expected OH == (IH - 1) * stride_y "
-                   "+ out_pad_top + out_pad_bottom + KH, but got ")
-               << outputHeight << " != (" << inputHeight << " - 1) * "
-               << strideY << " + " << outPadTop << " + " << outPadBottom
-               << " + " << kernelHeight;
+    // output_shape[i] = stride[i] * (input_size[i] - 1) + output_padding[i] +
+    // ((kernel_shape[i] - 1) * dilations[i] + 1)
+    //                   - pads[start_i] - pads[end_i]
+
+    if (!ShapedType::isDynamic(inputHeight) &&
+        !ShapedType::isDynamic(outputHeight)) {
+      // rocMLIR customization: If we have input padding and dilations then we
+      // want to use the more accurate formula that properly accounts for these
+      // values
+      if (inPad && dilation) {
+        if (outputHeight != (inputHeight - 1) * strideY + outPadTop +
+                                ((kernelHeight - 1) * (*dilation)[0] + 1) -
+                                (*inPad)[0] - (*inPad)[1]) {
+          return emitOpError(
+                     "dimension mismatch: expected OH = (IH - 1) * "
+                     "stride_y + out_pad_top + ((KH - 1) * dilation_y + "
+                     "1) - pad_top - pad_bottom, but got: ")
+                 << outputHeight << " != (" << inputHeight << " - 1) * "
+                 << strideY << " + " << outPadTop << " + ((" << kernelHeight
+                 << " - 1) * " << (*dilation)[0] << " + 1) - "
+                 << (*inPad)[0] - (*inPad)[1];
+        }
+      } else {
+        if (outputHeight != (inputHeight - 1) * strideY + outPadTop +
+                                outPadBottom + kernelHeight)
+          return emitOpError(
+                     "dimension mismatch: expected OH == (IH - 1) * stride_y "
+                     "+ out_pad_top + out_pad_bottom + KH, but got ")
+                 << outputHeight << " != (" << inputHeight << " - 1) * "
+                 << strideY << " + " << outPadTop << " + " << outPadBottom
+                 << " + " << kernelHeight;
+      }
     }
 
     const int64_t inputWidth = inputType.getDimSize(2);
     const int64_t kernelWidth = weightType.getDimSize(2);
     const int64_t outputWidth = outputType.getDimSize(2);
 
-    if (ShapedType::isStatic(inputWidth) && ShapedType::isStatic(outputWidth)) {
-      if (outputWidth !=
-          (inputWidth - 1) * strideX + outPadLeft + outPadRight + kernelWidth)
-        return emitOpError(
-                   "dimension mismatch: expected OW == (IW - 1) * stride_x "
-                   "+ out_pad_left + out_pad_right + KW, but got ")
-               << outputWidth << " != (" << inputWidth << " - 1) * " << strideX
-               << " + " << outPadLeft << " + " << outPadRight << " + "
-               << kernelWidth;
+    if (!ShapedType::isDynamic(inputWidth) &&
+        !ShapedType::isDynamic(outputWidth)) {
+      // rocMLIR customization: If we have input padding and dilations then we
+      // want to use the more accurate formula that properly accounts for these
+      // values
+      if (inPad && dilation) {
+        if (outputWidth != (inputWidth - 1) * strideX + outPadLeft +
+                               ((kernelWidth - 1) * (*dilation)[1] + 1) -
+                               (*inPad)[2] - (*inPad)[3]) {
+          return emitOpError(
+                     "dimension mismatch: expected OW = (IW - 1) * "
+                     "stride_x + out_pad_left + (KW - 1) * dilation_x + "
+                     "1 - pad_left - pad_right, but got: ")
+                 << outputWidth << " != (" << inputWidth << " - 1) * "
+                 << strideX << " + " << outPadLeft << " + ((" << kernelWidth
+                 << " - 1) * " << (*dilation)[1] << " + 1) - "
+                 << (*inPad)[2] - (*inPad)[3];
+        }
+      } else {
+        if (outputWidth !=
+            (inputWidth - 1) * strideX + outPadLeft + outPadRight + kernelWidth)
+          return emitOpError(
+                     "dimension mismatch: expected OW == (IW - 1) * stride_x "
+                     "+ out_pad_left + out_pad_right + KW, but got ")
+                 << outputWidth << " != (" << inputWidth << " - 1) * "
+                 << strideX << " + " << outPadLeft << " + " << outPadRight
+                 << " + " << kernelWidth;
+      }
     }
   }
 
@@ -4043,19 +4086,27 @@ LogicalResult IfOp::verify() {
           .failed())
     return failure();
 
-  auto thenYield = cast<tosa::YieldOp>(getThenGraph().front().getTerminator());
-  if (errorIfTypeOrShapeMismatch(*this, thenYield.getInputs(),
-                                 "'then_graph' results", getOutputList(),
-                                 "'output_list'")
-          .failed())
-    return failure();
+  // MLIR will verify the absence of the terminator for us if otherwise.
+  if (getThenGraph().front().mightHaveTerminator()) {
+    auto thenYield =
+        dyn_cast<tosa::YieldOp>(getThenGraph().front().getTerminator());
+    if (thenYield && errorIfTypeOrShapeMismatch(
+                         *this, thenYield.getInputs(), "'then_graph' results",
+                         getOutputList(), "'output_list'")
+                         .failed())
+      return failure();
+  }
 
-  auto elseYield = cast<tosa::YieldOp>(getElseGraph().front().getTerminator());
-  if (errorIfTypeOrShapeMismatch(*this, elseYield.getInputs(),
-                                 "'else_graph' results", getOutputList(),
-                                 "'output_list'")
-          .failed())
-    return failure();
+  // MLIR will verify the absence of the terminator for us if otherwise.
+  if (getElseGraph().front().mightHaveTerminator()) {
+    auto elseYield =
+        dyn_cast<tosa::YieldOp>(getElseGraph().front().getTerminator());
+    if (elseYield && errorIfTypeOrShapeMismatch(
+                         *this, elseYield.getInputs(), "'else_graph' results",
+                         getOutputList(), "'output_list'")
+                         .failed())
+      return failure();
+  }
 
   auto condType = getCondition().getType();
   if (errorIfShapeNotSizeOne(*this, condType).failed())
@@ -4123,7 +4174,7 @@ LogicalResult ReverseOp::verify() {
     int64_t inputRank = inputType.getRank();
     // We allow for a special case where the input/output shape has rank 0 and
     // axis is also 0.
-    if (reverseAxis >= inputRank && !(reverseAxis == 0 && inputRank == 0))
+    if (reverseAxis >= inputRank && (reverseAxis != 0 || inputRank != 0))
       return emitOpError("expect input tensor rank (")
              << inputRank << ") to be larger than reverse axis (" << reverseAxis
              << ")";
@@ -4133,7 +4184,7 @@ LogicalResult ReverseOp::verify() {
     if (inputType.hasRank() && outputRank != inputType.getRank())
       return emitOpError(
           "expect output tensor rank to be equal to input tensor rank");
-    if (reverseAxis >= outputRank && !(reverseAxis == 0 && outputRank == 0))
+    if (reverseAxis >= outputRank && (reverseAxis != 0 || outputRank != 0))
       return emitOpError("expect output tensor rank (")
              << outputRank << ") to be larger than reverse axis ("
              << reverseAxis << ")";
@@ -4348,7 +4399,7 @@ LogicalResult tosa::ConstShapeOp::verify() {
   // check that number of elements in values attr equal to rank of result shape
   auto count = getValues().getNumElements();
   auto rank = (cast<tosa::shapeType>(getResult().getType())).getRank();
-  if (!(count == rank || (count == 1 && rank == 0))) {
+  if (count != rank && (count != 1 || rank != 0)) {
     return emitOpError("expect number of elements in attribute values (")
            << count << ") to be equal to the rank (" << rank
            << ") for the result shape type";
