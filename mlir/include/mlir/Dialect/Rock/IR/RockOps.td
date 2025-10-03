@@ -143,7 +143,8 @@ def Rock_GemmOp
           Arg<TensorOrMemRefOf<GemmOutputTypes>, "matrix C">:$c,
           Optional<TensorOrMemRefOf<[F8E8M0FNU, F32]>>:$scaleA,
           Optional<TensorOrMemRefOf<[F8E8M0FNU, F32]>>:$scaleB,
-          UnitAttr:$aTransposed, UnitAttr:$bTransposed, UnitAttr:$cTransposed,
+          UnitAttr:$aTransposed, UnitAttr:$bTransposed, UnitAttr:$cTransposed, 
+          UnitAttr:$aScaleTransposed, UnitAttr:$bScaleTransposed,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, OptionalAttr<I32Attr>:$derivedBlockSize,
           OptionalAttr<I32Attr>:$gridSize,
@@ -170,7 +171,7 @@ def Rock_GemmOp
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a (`scaled` `by` $scaleA^)? `*` (`tr` $bTransposed^)? $b (`scaled` `by` $scaleB^)?
+    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a (`scaled` `by` (`tr` $aScaleTransposed^)? $scaleA^)? `*` (`tr` $bTransposed^)? $b (`scaled` `by` (`tr` $bScaleTransposed^)? $scaleB^)?
     (`features` `=` $features^)? `storeMethod` `=` $storeMethod attr-dict
     `:` type($c) `=` type($a) (`scaled` `by` type($scaleA)^)? `*` type($b) (`scaled` `by` type($scaleB)^)? (`->` type($result)^)?
   }];
@@ -1380,7 +1381,11 @@ def Rock_BlockwiseGemmAccelOp
           Optional<MemRefOf<LdsBufferTypes>>:$scaleA, 
           Optional<MemRefOf<LdsBufferTypes>>:$scaleB, 
           I32Attr:$inMPerThread,
-          I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
+          I32Attr:$inNPerThread, 
+          I32Attr:$inMPerThreadScale,
+          I32Attr:$inNPerThreadScale,
+          UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK, 
+          UnitAttr:$scaleRotateMWithK, UnitAttr:$scaleRotateNWithK,
           UnitAttr:$loadAfromLDS, UnitAttr:$loadBfromLDS,
           UnitAttr:$splitKAcrossThreadsFirstA,
           UnitAttr:$splitKAcrossThreadsFirstB, MemRefOf<AccelArgTypes>:$bufferA,

@@ -262,8 +262,10 @@ public:
     auto newGemm = rw.replaceOpWithNewOp<rock::GemmOp>(
         op, op->getResultTypes(), op.getA(), op.getB(), op.getC(), scaleA,
         scaleB, op.getATransposedAttr(), op.getBTransposedAttr(),
-        op.getCTransposedAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
-        op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
+        op.getCTransposedAttr(), op.getAScaleTransposedAttr(),
+        op.getBScaleTransposedAttr(), op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), op.getDerivedBlockSizeAttr(),
+        op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
     for (Operation *eraseOp : opsToErase)
       if (eraseOp && eraseOp->use_empty())

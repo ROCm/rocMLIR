@@ -2564,9 +2564,10 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, loc, ldsTileBufferK,
             ldsTileBufferQ ? ldsTileBufferQ : ldsTileBufferK, nullptr, nullptr,
             rewriter.getI32IntegerAttr(gemm0InMPerThread),
-            rewriter.getI32IntegerAttr(gemm0InNPerThread),
+            rewriter.getI32IntegerAttr(gemm0InNPerThread), nullptr, nullptr,
             /*rotateMWithK=*/nullptr,
             (ldsLayoutCfgNG0.doRotateWithK ? rewriter.getUnitAttr() : nullptr),
+            nullptr, nullptr,
             /*loadAfromLDS=*/rewriter.getUnitAttr(), /*loadBfromLDS=*/nullptr,
             /*splitKAcrossThreadsFirstA=*/nullptr,
             /*splitKAcrossThreadsFirstB=*/nullptr, preAccelRegBufferK,
@@ -2825,10 +2826,10 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter, loc, ldsTileBufferV,
               gemm1LDSBufferB ? gemm1LDSBufferB : ldsTileBufferV, nullptr,
               nullptr, rewriter.getI32IntegerAttr(gemm1InMPerThread),
-              rewriter.getI32IntegerAttr(gemm1InNPerThread),
+              rewriter.getI32IntegerAttr(gemm1InNPerThread), nullptr, nullptr,
               (ldsLayoutCfgMG1.doRotateWithK ? rewriter.getUnitAttr()
                                              : nullptr),
-              /*rotateNWithK=*/nullptr,
+              /*rotateNWithK=*/nullptr, nullptr, nullptr,
               /*loadAfromLDS=*/rewriter.getUnitAttr(),
               /*loadBfromLDS=*/
               !doBypassLDSSecondGemm ? rewriter.getUnitAttr() : nullptr,
@@ -3343,8 +3344,8 @@ struct GridwiseGemmAccelRewritePattern
     ArrayAttr storeBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
-    Value viewLoadBufferScaleA, viewStoreBufferScaleB;
-    Value viewStoreBufferScaleA, viewLoadBufferScaleB;
+    Value viewLoadBufferScaleA, viewLoadBufferScaleB;
+    Value viewStoreBufferScaleA, viewStoreBufferScaleB;
     FailureOr<RegsAsMatrixSubTiles> maybeScaleALdsStoreViews,
         maybeScaleBLdsStoreViews;
     if (isScaledGemm) {
@@ -3724,8 +3725,12 @@ struct GridwiseGemmAccelRewritePattern
               b, loc, ldsViewForGemmA, ldsViewForGemmB, ldsViewForGemmScaleA,
               ldsViewForGemmScaleB, b.getI32IntegerAttr(copyMPerThread),
               b.getI32IntegerAttr(copyNPerThread),
+              b.getI32IntegerAttr(copyScaleMPerThread),
+              b.getI32IntegerAttr(copyScaleNPerThread),
               (ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr),
               (ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr),
+              (ldsLayoutConfigScaleA.doRotateWithK ? b.getUnitAttr() : nullptr),
+              (ldsLayoutConfigScaleB.doRotateWithK ? b.getUnitAttr() : nullptr),
               /*loadAfromLDS=*/b.getUnitAttr(),
               /*loadBfromLDS=*/b.getUnitAttr(),
               /*splitKAcrossThreadsFirstA=*/nullptr,
@@ -3759,8 +3764,12 @@ struct GridwiseGemmAccelRewritePattern
               b, loc, ldsViewForGemmA, ldsViewForGemmB, ldsViewForGemmScaleA,
               ldsViewForGemmScaleB, b.getI32IntegerAttr(copyMPerThread),
               b.getI32IntegerAttr(copyNPerThread),
+              b.getI32IntegerAttr(copyScaleMPerThread),
+              b.getI32IntegerAttr(copyScaleNPerThread),
               (ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr),
               (ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr),
+              (ldsLayoutConfigScaleA.doRotateWithK ? b.getUnitAttr() : nullptr),
+              (ldsLayoutConfigScaleB.doRotateWithK ? b.getUnitAttr() : nullptr),
               /*loadAfromLDS=*/nullptr, /*loadBfromLDS=*/nullptr,
               /*splitKAcrossThreadsFirstA=*/nullptr,
               /*splitKAcrossThreadsFirstB=*/nullptr, arrayA, arrayB,

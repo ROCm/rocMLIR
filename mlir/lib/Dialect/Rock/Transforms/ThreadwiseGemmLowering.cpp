@@ -39,6 +39,7 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -736,8 +737,15 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       }
       {
         OpBuilder elseb = ifb.getElseBodyBuilder();
-        Value zeroVal = createZeroConstantOp(elseb, loc, loadType);
-        scf::YieldOp::create(elseb, loc, zeroVal);
+        Value constVal;
+        // if (isa<Float8E8M0FNUType>(getElementTypeOrSelf(loadType))) {
+        //   constVal = createConstantFloatOp(elseb, loc, loadType,
+        //                                    getElementTypeOrSelf(loadType),
+        //                                    1);
+        // } else {
+        constVal = createZeroConstantOp(elseb, loc, loadType);
+        //}
+        scf::YieldOp::create(elseb, loc, constVal);
       }
 
       if (!isDstVectorBuffer && !isSrcVectorBuffer) {

@@ -345,10 +345,10 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
   c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
   if (scaleA && scaleB) {
-    scaleA = normalizeMatrix(scaleA, rw, loc, !op.getATransposed(), "gemmK",
-                             "gemmM");
-    scaleB =
-        normalizeMatrix(scaleB, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
+    scaleA = normalizeMatrix(scaleA, rw, loc, !op.getAScaleTransposed(),
+                             "gemmK", "gemmM");
+    scaleB = normalizeMatrix(scaleB, rw, loc, op.getBScaleTransposed(), "gemmK",
+                             "gemmN");
   }
 
   const int64_t splitKFactor = op.getParams()->getSplitKFactor();

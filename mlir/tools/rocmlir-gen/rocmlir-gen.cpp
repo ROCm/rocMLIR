@@ -339,6 +339,16 @@ static llvm::cl::opt<bool>
                llvm::cl::desc("whether matrix B is GxKxN (default) or GxNxK"),
                llvm::cl::init(false));
 
+static llvm::cl::opt<bool> transposeScaleA(
+    "transScaleA",
+    llvm::cl::desc("whether matrix A is GxMxK (default) or GxKxM"),
+    llvm::cl::init(false));
+
+static llvm::cl::opt<bool> transposeScaleB(
+    "transScaleB",
+    llvm::cl::desc("whether matrix B is GxKxN (default) or GxNxK"),
+    llvm::cl::init(false));
+
 static llvm::cl::opt<bool>
     transposeC("transC",
                llvm::cl::desc("whether matrix C is GxMxN (default) or GxNxM"),
@@ -2346,10 +2356,12 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
                                 transposeB ? gemmK : gemmN},
                        cDims = {groupSize, transposeC ? gemmN : gemmM,
                                 transposeC ? gemmM : gemmN},
-                       aScale = {groupSize, transposeA ? gemmK / 32 : gemmM,
-                                 transposeA ? gemmM : gemmK / 32},
-                       bScale = {groupSize, transposeB ? gemmN : gemmK / 32,
-                                 transposeB ? gemmK / 32 : gemmN};
+                       aScale = {groupSize,
+                                 transposeScaleA ? gemmK / 32 : gemmM,
+                                 transposeScaleA ? gemmM : gemmK / 32},
+                       bScale = {groupSize,
+                                 transposeScaleB ? gemmN : gemmK / 32,
+                                 transposeScaleB ? gemmK / 32 : gemmN};
   MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
              bType = MemRefType::get(bDims, elemTypes[1]),
              cType = MemRefType::get(cDims, cElemType),
@@ -2411,10 +2423,12 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   allArgNames.emplace_back(SmallVector<StringRef>{
       gName, transposeC ? nName : mName, transposeC ? mName : nName});
   if (scaledGemm) {
-    allArgNames.emplace_back(SmallVector<StringRef>{
-        gName, transposeA ? kName : mName, transposeA ? mName : kName});
-    allArgNames.emplace_back(SmallVector<StringRef>{
-        gName, transposeB ? nName : kName, transposeB ? kName : nName});
+    allArgNames.emplace_back(
+        SmallVector<StringRef>{gName, transposeScaleA ? kName : mName,
+                               transposeScaleA ? mName : kName});
+    allArgNames.emplace_back(
+        SmallVector<StringRef>{gName, transposeScaleB ? nName : kName,
+                               transposeScaleB ? kName : nName});
   }
 
   Block *block = func.addEntryBlock();
@@ -2432,11 +2446,11 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       // create broadcast transform for aScale and bScale
       rock::BottomUpTMBuilder addDimTransform(
           b,
-          transposeA ? ArrayRef<StringRef>{"g", "kScale", "m"}
-                     : ArrayRef<StringRef>{"g", "m", "kScale"},
+          transposeScaleA ? ArrayRef<StringRef>{"g", "kScale", "m"}
+                          : ArrayRef<StringRef>{"g", "m", "kScale"},
           cast<ShapedType>(aScale.getType()).getShape(), loc);
-      uint32_t blockDim = transposeA ? 2 : 3;
-      if (transposeA) {
+      uint32_t blockDim = transposeScaleA ? 2 : 3;
+      if (transposeScaleA) {
         addDimTransform.passThrough({"g", "kScale", "m"}, {0, 1, 3},
                                     {"g", "kScale", "m"});
         addDimTransform.addDim("block", blockDim, 1);
@@ -2450,7 +2464,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       rock::BottomUpTMBuilder broadcastTransform =
           rock::BottomUpTMBuilder::above(addDimTransform, addDimTransformAttr);
       broadcastTransform.broadcast({blockDim}, {32});
-      if (transposeA) {
+      if (transposeScaleA) {
         broadcastTransform.passThrough({"g", "kScale", "m"});
       } else {
         broadcastTransform.passThrough({"g", "m", "kScale"});
@@ -2461,7 +2475,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       // merge transform
       rock::BottomUpTMBuilder mergeTransform = rock::BottomUpTMBuilder::above(
           broadcastTransform, broadcastTransformAttr);
-      if (transposeA) {
+      if (transposeScaleA) {
         mergeTransform.passThrough({"g", "m"}, {0, 2}, {"g", "m"});
         mergeTransform.merge("k", 1, {"kScale", "block"});
       } else {
@@ -2474,11 +2488,11 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       // create broadcast transform for bScale
       rock::BottomUpTMBuilder addDimTransform(
           b,
-          transposeB ? ArrayRef<StringRef>{"g", "n", "kScale"}
-                     : ArrayRef<StringRef>{"g", "kScale", "n"},
+          transposeScaleB ? ArrayRef<StringRef>{"g", "n", "kScale"}
+                          : ArrayRef<StringRef>{"g", "kScale", "n"},
           cast<ShapedType>(bScale.getType()).getShape(), loc);
-      uint32_t blockDim = transposeB ? 3 : 2;
-      if (transposeB) {
+      uint32_t blockDim = transposeScaleB ? 3 : 2;
+      if (transposeScaleB) {
         addDimTransform.passThrough({"g", "n", "kScale"});
         addDimTransform.addDim("block", blockDim, 1);
       } else {
@@ -2492,7 +2506,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       rock::BottomUpTMBuilder broadcastTransform =
           rock::BottomUpTMBuilder::above(addDimTransform, addDimTransformAttr);
       broadcastTransform.broadcast({blockDim}, {32});
-      if (transposeB) {
+      if (transposeScaleB) {
         broadcastTransform.passThrough({"g", "n", "kScale"});
       } else {
         broadcastTransform.passThrough({"g", "kScale", "n"});
@@ -2503,7 +2517,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       // merge transform
       rock::BottomUpTMBuilder mergeTransform = rock::BottomUpTMBuilder::above(
           broadcastTransform, broadcastTransformAttr);
-      if (transposeB) {
+      if (transposeScaleB) {
         mergeTransform.passThrough({"g", "n"}, {0, 1}, {"g", "n"});
         mergeTransform.merge("k", 2, {"kScale", "block"});
       } else {
@@ -2515,7 +2529,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   }
   auto gemm = rock::GemmOp::create(
       b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, aScale, bScale,
-      transposeA, transposeB, transposeC,
+      transposeA, transposeB, transposeC, transposeScaleA, transposeScaleB,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
 
@@ -3599,8 +3613,8 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
                                              transposeFlag ? d : kFloorDiv32};
       return AffineMap::get(4, 0, resultExprs, b.getContext());
     };
-    AffineMap aMapScaled = scaleAffineMap(transposeA, m);
-    AffineMap bMapScaled = scaleAffineMap(not transposeB, n);
+    AffineMap aMapScaled = scaleAffineMap(transposeScaleA, m);
+    AffineMap bMapScaled = scaleAffineMap(not transposeScaleB, n);
 
     aExpValScaled = expandArg(aScaleVal, argTypes[3]);
     bExpValScaled = expandArg(bScaleVal, argTypes[4]);

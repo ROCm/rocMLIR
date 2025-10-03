@@ -561,6 +561,60 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
                                              std::get<1>(sortedScaleB), "N", b);
       newScaleA = std::get<0>(batchReorderScaleA);
       newScaleB = std::get<0>(batchReorderScaleB);
+      auto newScaleAType = cast<ShapedType>(newScaleA.getType());
+      auto newScaleBType = cast<ShapedType>(newScaleB.getType());
+      auto newTensorAType = cast<ShapedType>(newTensorA.getType());
+      auto newTensorBType = cast<ShapedType>(newTensorB.getType());
+      if (newScaleAType.getShape() != newTensorAType.getShape()) {
+        auto scaleAShape = newScaleAType.getShape();
+        auto tensorAShape = newTensorAType.getShape();
+        // create transpose for scaleA
+        rock::BottomUpTMBuilder reorderScaleA(b, scaleAShape,
+                                              newScaleA.getLoc());
+        if (scaleAShape.size() == tensorAShape.size()) {
+          SmallVector<uint32_t> startIndices(scaleAShape.size());
+          std::iota(startIndices.begin(), startIndices.end(), 0);
+          SmallVector<uint32_t> endIndices(scaleAShape.size());
+          for (size_t i = 0; i < scaleAShape.size(); i++) {
+            for (size_t j = 0; j < tensorAShape.size(); j++) {
+              if (scaleAShape[i] == tensorAShape[j]) {
+                endIndices[i] = j;
+                break;
+              }
+            }
+          }
+          reorderScaleA.passThrough(endIndices, startIndices);
+          newScaleA = rock::transform(b, newScaleA,
+                                      b.getArrayAttr({reorderScaleA.get()}));
+        } else {
+          return op.emitOpError("cannot broadcast scaleA to tensorA");
+        }
+      }
+      if (newScaleBType.getShape() != newTensorBType.getShape()) {
+        auto scaleBShape = newScaleBType.getShape();
+        auto tensorBShape = newTensorBType.getShape();
+        // create transpose for scaleB
+        rock::BottomUpTMBuilder reorderScaleB(b, scaleBShape,
+                                              newScaleB.getLoc());
+        if (scaleBShape.size() == tensorBShape.size()) {
+          SmallVector<uint32_t> startIndices(scaleBShape.size());
+          std::iota(startIndices.begin(), startIndices.end(), 0);
+          SmallVector<uint32_t> endIndices(scaleBShape.size());
+          for (size_t i = 0; i < scaleBShape.size(); i++) {
+            for (size_t j = 0; j < tensorBShape.size(); j++) {
+              if (scaleBShape[i] == tensorBShape[j]) {
+                endIndices[i] = j;
+                break;
+              }
+            }
+          }
+          reorderScaleB.passThrough(endIndices, startIndices);
+          newScaleB = rock::transform(b, newScaleB,
+                                      b.getArrayAttr({reorderScaleB.get()}));
+        } else {
+          return op.emitOpError("cannot broadcast scaleA to tensorA");
+        }
+      }
     }
     LLVM_DEBUG(llvm::dbgs() << "newTensorA=" << newTensorA
                             << " newTensorB=" << newTensorB << "\n");
@@ -573,8 +627,8 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
     // todo : fix dimensions sorting for scaleA and scaleB
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
         op, op->getResultTypes(), newTensorA, newTensorB, op.getC(), newScaleA,
-        newScaleB, transposedA, transposedB, op.getCTransposedAttr(),
-        op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        newScaleB, transposedA, transposedB, op.getCTransposedAttr(), nullptr,
+        nullptr, op.getFeaturesAttr(), op.getStoreMethodAttr(),
         op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
 
