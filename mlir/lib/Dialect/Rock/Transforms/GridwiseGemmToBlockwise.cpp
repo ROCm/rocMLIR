@@ -3129,13 +3129,13 @@ struct GridwiseGemmAccelRewritePattern
     Type elementTypeScaleALoad, elementTypeScaleBLoad;
     if (isScaledGemm) {
       elementTypeScaleA = op.getScaleA().getType().getElementType();
-      auto maybeElementTypeScaleALoad = getGemmInputElementType(scaleA);
+      auto maybeElementTypeScaleALoad = getInputFusionElementType(scaleA);
       elementTypeScaleALoad = failed(maybeElementTypeScaleALoad)
                                   ? elementTypeScaleA
                                   : maybeElementTypeScaleALoad.value();
 
       elementTypeScaleB = op.getScaleB().getType().getElementType();
-      auto maybeElementTypeScaleBLoad = getGemmInputElementType(scaleB);
+      auto maybeElementTypeScaleBLoad = getInputFusionElementType(scaleB);
       elementTypeScaleBLoad = failed(maybeElementTypeScaleBLoad)
                                   ? elementTypeScaleB
                                   : maybeElementTypeScaleBLoad.value();
