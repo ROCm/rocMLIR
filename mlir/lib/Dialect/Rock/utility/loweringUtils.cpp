@@ -1173,3 +1173,12 @@ mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
   return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThread,
                        vectorTiebreaker};
 }
+
+std::optional<int64_t> mlir::rock::getWorkgroupMemorySize(MemRefType type) {
+  auto memSpaceValue =
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace()).getValue();
+  if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+    return type.getNumElements() * getByteWidth(type.getElementType());
+  }
+  return std::nullopt;
+}

@@ -257,6 +257,9 @@ FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
                                       int64_t blockSize, int64_t kPerBlock,
                                       int64_t dPerBlock, int64_t kpack,
                                       bool directToLDS);
+                                      
+// Get the LDS size of the memref
+std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
 
 } // end namespace rock
 } // end namespace mlir

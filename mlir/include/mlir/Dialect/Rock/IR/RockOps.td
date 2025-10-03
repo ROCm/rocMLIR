@@ -569,17 +569,25 @@ def Rock_GpuAllocOp:
   let hasVerifier = 1;
 }
 
-// Annotate lifetime of memory allocation on GPU memory hierachy.
-def Rock_GpuDeallocOp:
-    Rock_Op<"dealloc", [MemoryEffects<[MemFree<DefaultResource>]>]>,
-    Arguments<(ins AnyMemRef:$memref)> {
-  let summary = "Annotate lifetime of memory allocation on GPU";
+// Annotate the start of lifetime of a memory allocation on GPU.
+def Rock_LiveInOp : Rock_Op<"live_in">, Arguments<(ins AnyMemRef:$memref)> {
+  let summary =
+      "Annotate the start of lifetime of a LDS memory allocation on GPU";
   let description = [{
-    The `rock.dealloc` op annotates lifetime of memory allocation memory on GPU.
-    - Address space 0 : global.
-    - Address space 3 : LDS.
-    - Address space 5 : private (VGPR).
-    All other values would be considered as allocation on global.
+    The `rock.live_in` op annotates the start of lifetime of a LDS memory allocation on GPU.
+  }];
+  let assemblyFormat = [{
+    $memref attr-dict `:` type($memref)
+  }];
+  let hasVerifier = 1;
+}
+
+// Annotate the end of lifetime of a memory allocation on GPU.
+def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
+  let summary =
+      "Annotate the end of lifetime of a LDS memory allocation on GPU";
+  let description = [{
+    The `rock.live_out` op annotates the end of lifetime of a LDS memory allocation on GPU.
   }];
   let assemblyFormat = [{
     $memref attr-dict `:` type($memref)
