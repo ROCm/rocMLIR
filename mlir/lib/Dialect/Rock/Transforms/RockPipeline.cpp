@@ -377,6 +377,12 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
         for (auto [res, type] : dependencies) {
           if (type == WAR && getAddressSpace(res) == AddressSpace::Private)
             continue;
+
+          // The DAG is built using "resources", not multibuffers.
+          // So, it is possible that thisMultiBuffers[res] does not exist
+          if (!thisMultiBuffers.contains(res))
+            thisMultiBuffers[res] = 1;
+
           thisMultiBuffers[res]++;
         }
       }
@@ -405,8 +411,8 @@ DagType pruneGraph(const DagType &dag) {
   // dependency concerns two different iteration. In other words, if stageA
   // accesses LDS in iteration i and stageB accesses LDS in iteration j stageA
   // and stageB have no dependencies as long as i!=j
-  for (auto [source, edges] : dag) {
-    for (auto [sink, deps] : edges) {
+  for (const auto &[source, edges] : dag) {
+    for (const auto &[sink, deps] : edges) {
       DenseSet<std::pair<rock::GpuAllocOp, DependencyType>> newDeps;
       for (auto [alloc, type] : deps) {
         if (getAddressSpace(alloc) != gpu::AddressSpace::Workgroup)
@@ -448,6 +454,7 @@ void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
                    SmallVector<rock::StageOp> &extendedStages,
                    int64_t &initiationInterval, int64_t numIterations) {
   DagType dag = createDependencyGraph(stages, allocs);
+  // prune non-LDS dependencies
   dag = pruneGraph(dag);
 
   // If there is a loop, we probably need a backward barrier, i.e.,
@@ -527,6 +534,7 @@ bool checkIfPipeliningSupported(scf::ForOp forOp) {
     if (parentLoop->hasAttr(rockPipelineAttrName)) {
       return true;
     }
+    forOp = parentLoop;
   }
   return false;
 }
@@ -536,19 +544,24 @@ bool checkIfPipeliningSupported(scf::ForOp forOp) {
 SmallVector<scf::ForOp> collectLoopLevels(mlir::func::FuncOp func) {
   SmallVector<scf::ForOp> loops;
 
-  unsigned curLevelPos = 0;
   unsigned curLevelLen = 0;
   func.walk([&](scf::ForOp forOp) {
-    loops.push_back(forOp);
-    curLevelLen++;
+    if (forOp->getParentOp() == func) {
+      loops.push_back(forOp);
+      curLevelLen++;
+    }
   });
 
+  unsigned curLevelPos = 0;
   while (curLevelLen) {
     unsigned nextLevelLen = 0;
     for (unsigned i = 0; i < curLevelLen; i++) {
-      loops[curLevelPos + i].getBody()->walk([&](scf::ForOp forOp) {
-        loops.push_back(forOp);
-        nextLevelLen++;
+      scf::ForOp currParent = loops[curLevelPos + i];
+      currParent.getBody()->walk([&](scf::ForOp forOp) {
+        if (forOp->getParentOp() == currParent) {
+          loops.push_back(forOp);
+          nextLevelLen++;
+        }
       });
     }
     curLevelPos += curLevelLen;
@@ -695,15 +708,22 @@ void RockPipeline::runOnOperation() {
     };
 
     scf::populateSCFLoopPipeliningPatterns(patterns, options);
-    (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
+      return signalPassFailure();
   }
 
   // Remulti-buffer(if needed). Now we know what all the loops need, hence
   // we can safely allocate the right amount of resources in the function
   for (auto [alloc, factor] : multiBufferFactors) {
     SmallVector<rock::GpuAllocOp> newAllocs;
-    if (factor > 1)
-      (void)rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs, factor);
+    if (factor > 1) {
+      if (failed(rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs,
+                                         factor))) {
+
+        emitError(loc, "could not update multibuffer\n");
+        return signalPassFailure();
+      }
+    }
   }
 
   // Cleanup the stages
@@ -712,7 +732,8 @@ void RockPipeline::runOnOperation() {
       RewritePatternSet patterns(&getContext());
       patterns.add<RemoveStagesRewritePattern, PushBarrierDownRewritePattern,
                    RemoveBackToBackBarriersRewritePattern>(&getContext());
-      (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+      if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
+        return signalPassFailure();
     }
   }
 }

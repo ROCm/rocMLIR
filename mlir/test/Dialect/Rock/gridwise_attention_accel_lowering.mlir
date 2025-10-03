@@ -88,8 +88,8 @@
 
   // CHECK: rock.transforming_for
     // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
-    // CHECK: rock.in_bounds_store %[[tmp]] -> %[[gemm0AccBufScalar:.+]][
-  // CHECK: linalg.generic {{.*}} ins(%[[gemm0AccBufScalar]] {{.*}} outs(%[[gemm0AccBufScalar]]
+    // CHECK: rock.in_bounds_store %[[tmp]] -> %[[gemm0AccBuf:.+]][
+  // CHECK: linalg.generic {{.*}} ins(%[[gemm0AccBuf]] {{.*}} outs(%[[gemm0AccBufScalar:[0-9]+]]
     // CHECK: %[[gemm0Scaled:.+]] = arith.mulf %in, %[[ln2Recip]] : f32
     // CHECK: linalg.yield %[[gemm0Scaled]]
   // CHECK: %[[ldsReductionWS:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>

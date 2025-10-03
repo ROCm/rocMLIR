@@ -1312,16 +1312,17 @@ struct GridwiseAttentionAccelRewritePattern
   template <typename ElementwiseOpType>
   void postProcessFirstGemmSplat(PatternRewriter &rewriter, Location loc,
                                  layout::GridCoordinates gridCoords,
-                                 Value gemm0OutBuffer,
+                                 Value inputBuffer, Value outputBuffer,
                                  RegsAsMatrixSubTiles gemm0OutViews,
                                  TypedAttr splatVal) const {
-    MemRefType bufType = cast<MemRefType>(gemm0OutBuffer.getType());
+    assert(inputBuffer.getType() == outputBuffer.getType());
+    MemRefType bufType = cast<MemRefType>(inputBuffer.getType());
     SmallVector<AffineMap, 2> indexingMaps{
         2, rewriter.getMultiDimIdentityMap(bufType.getRank())};
     SmallVector<utils::IteratorType> iteratorTypes(
         bufType.getRank(), utils::IteratorType::parallel);
     linalg::GenericOp::create(
-        rewriter, loc, ValueRange(gemm0OutBuffer), ValueRange(gemm0OutBuffer),
+        rewriter, loc, ValueRange(inputBuffer), ValueRange(outputBuffer),
         indexingMaps, iteratorTypes,
         [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
           Value splatScalarConst = arith::ConstantOp::create(
@@ -2211,8 +2212,13 @@ struct GridwiseAttentionAccelRewritePattern
 
     Value gemm0OutBuffer = createBufferForGemmOut(loc, gemmOutElemType,
                                                   accelParamsGemm0, rewriter);
-    Value softmaxInputBuffer;
+    Value outputFirstGemm;
     if (fusionOutElemType != elemTypeSoftmax) {
+      outputFirstGemm = createBufferForGemmOut(loc, elemTypeSoftmax,
+                                               accelParamsGemm0, rewriter);
+    }
+    Value softmaxInputBuffer;
+    if (op.getEnableSoftmax()) {
       softmaxInputBuffer = createBufferForGemmOut(loc, elemTypeSoftmax,
                                                   accelParamsGemm0, rewriter);
     }
@@ -2558,14 +2564,14 @@ struct GridwiseAttentionAccelRewritePattern
       }
       gemm0OutBuffer = maybeFusionOutBuffer.value();
       if (fusionOutElemType == elemTypeSoftmax)
-        softmaxInputBuffer = gemm0OutBuffer;
+        outputFirstGemm = gemm0OutBuffer;
 
       // Softmax
       if (op.getEnableSoftmax()) {
         // convert gemm0OutBuffer to elemTypeSoftmax
         if (fusionOutElemType != elemTypeSoftmax) {
           createTypeConversionFlatAndStore(rewriter, loc, gemm0OutBuffer,
-                                           softmaxInputBuffer);
+                                           outputFirstGemm);
         }
         // Scale gemm0 output by (1/ln2)
         // So that we can use exp2 instead of exp.
@@ -2574,7 +2580,7 @@ struct GridwiseAttentionAccelRewritePattern
             elemTypeSoftmax.getIntOrFloatBitWidth() >= 32 ? APFloat::opOK
                                                           : APFloat::opInexact);
         postProcessFirstGemmSplat<ElementwiseMultOp>(
-            rewriter, loc, gridCoordsGemm0, softmaxInputBuffer,
+            rewriter, loc, gridCoordsGemm0, outputFirstGemm, softmaxInputBuffer,
             gemm0OutSubTileViews,
             ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
 
@@ -2659,7 +2665,7 @@ struct GridwiseAttentionAccelRewritePattern
       // Emit blockwise GEMM 1.
       {
         auto gemm0Out =
-            op.getEnableSoftmax() ? softmaxBufferExp : softmaxInputBuffer;
+            op.getEnableSoftmax() ? softmaxBufferExp : outputFirstGemm;
         if (elemTypeV != elemTypeSoftmax) {
           createTypeConversionFlatAndStore(rewriter, loc, gemm0Out,
                                            gemm1RegBufferB);
