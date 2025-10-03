@@ -89,8 +89,11 @@ class MLIROnlyConfig(ConvConfiguration):
                     '--padding_w_l', str(self.paddingWL),
                     '--padding_w_r', str(self.paddingWR)]
 
+        # Under the hood MIGraphX will use -v4r1 0 (i.e., all the gemms it
+        # creates are in a single kernel), so we want to make sure that this
+        # is the path this is tested.
         if self.direction == 'bwd':
-            result += ['-v4r1 1']
+            result += ['-v4r1 0']
 
         result += rocmlir_gen_flags
 
@@ -475,7 +478,7 @@ async def runConfig(paramIter: Iterable[IterType],
         for c in failures:
             print(' '.join(c.generateMlirDriverCommandLine(options.flags, kernel_repeats=None)))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
-    return len(failures) == 0 and len(n_passes) > 0
+    return len(failures) == 0 and n_passes > 0
 
 
 def main() -> bool:
