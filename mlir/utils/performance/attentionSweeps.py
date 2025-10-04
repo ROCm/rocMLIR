@@ -174,7 +174,62 @@ def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
         writer.writerow(['CommandLine'])
         for config in configs:
             writer.writerow([config.generateMlirDriverCommandLine('', kernel_repeats=None)])
-            
+
+def run_attention_sweep(args, options, paths, chip):
+    # TODO: use AmdArchDb python version when available
+
+    if chip.startswith('gfx9'):
+        perfConfigSpace = perfConfigSpaceMFMA
+    else:
+        perfConfigSpace = perfConfigSpaceWMMA
+
+    samples = [
+        (sampleAttentionShape(), random.choice(perfConfigSpace))
+        for _ in range(args.samples)
+    ]
+
+    # Filter out samples that exceed MAX_TOKENS
+    filtered_samples = [
+        s for s in samples if _within_limit(s[0][1], s[0][2], s[0][3]) # g, slq, slk
+    ]
+
+    if not args.quiet:
+        print(f"Filtered out {len(samples) - len(filtered_samples)} samples exceeding MAX_TOKENS={MAX_TOKENS}.")
+        print(f"Proceeding with {len(filtered_samples)} samples.\n")
+
+    samples = filtered_samples
+
+    passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
+
+    target_valid = args.samples
+    total_passed = 0
+    total_invalid = 0
+    total_failing = []
+
+    while (total_passed + len(total_failing)) < target_valid:
+        batch = [
+            (sampleAttentionShape(), random.choice(perfConfigSpace))
+            for _ in range(args.samples - total_passed - len(total_failing))
+        ]
+        batch = [
+            s for s in batch if _within_limit(s[0][1], s[0][2], s[0][3]) # g, slq, slk
+        ]
+
+        p, i, f = asyncio.run(sweepParameters(batch, toAttentionConfig, options, paths))
+        total_passed += p
+        total_invalid += i
+        total_failing.extend(f)
+
+    if failing:
+        print("\n" + "-" * 80)
+        print(f"{'Failing Configurations':^80}\n")
+        for fail in failing:
+            print(multilineRepr(fail))
+
+    print(f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}")
+
+    return 1 if failing else 0
+
 def main():
     parser = argparse.ArgumentParser(
             description='Sweep parameter values for attention to detect bugs')
@@ -206,59 +261,7 @@ def main():
     if not args.quiet:
         print(f"Sampling {args.samples} configurations from attention space...")
 
-    # TODO: use AmdArchDb python version when available
-    
-    if chip.startswith('gfx9'):
-        perfConfigSpace = perfConfigSpaceMFMA
-    else:
-        perfConfigSpace = perfConfigSpaceWMMA
-
-    samples = [
-        (sampleAttentionShape(), random.choice(perfConfigSpace))
-        for _ in range(args.samples)
-    ]
-    
-    # Filter out samples that exceed MAX_TOKENS
-    filtered_samples = [
-        s for s in samples if _within_limit(s[0][1], s[0][2], s[0][3]) # g, slq, slk
-    ]
-    
-    if not args.quiet:
-        print(f"Filtered out {len(samples) - len(filtered_samples)} samples exceeding MAX_TOKENS={MAX_TOKENS}.")
-        print(f"Proceeding with {len(filtered_samples)} samples.\n")
-
-    samples = filtered_samples
-
-    passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
-    
-    target_valid = args.samples
-    total_passed = 0
-    total_invalid = 0
-    total_failing = []
-
-    while (total_passed + len(total_failing)) < target_valid:
-        batch = [
-            (sampleAttentionShape(), random.choice(perfConfigSpace))
-            for _ in range(args.samples - total_passed - len(total_failing))
-        ]
-        batch = [
-            s for s in batch if _within_limit(s[0][1], s[0][2], s[0][3]) # g, slq, slk
-        ]
-
-        p, i, f = asyncio.run(sweepParameters(batch, toAttentionConfig, options, paths))
-        total_passed += p
-        total_invalid += i
-        total_failing.extend(f)
-
-    if failing:
-        print("\n" + "-" * 80)
-        print(f"{'Failing Configurations':^80}\n")
-        for fail in failing:
-            print(multilineRepr(fail))
-    
-    print(f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}")
-    
-    return 1 if failing else 0
+    return run_attention_sweep(args, options, paths, chip)
 
 if __name__ == '__main__':
     ret = main()
