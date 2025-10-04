@@ -93,7 +93,7 @@ class MLIROnlyConfig(ConvConfiguration):
         # creates are in a single kernel), so we want to make sure that this
         # is the path this is tested.
         if self.direction == 'bwd':
-            result += ['-v4r1 0']
+            result += ['-v4r1', '0']
 
         result += rocmlir_gen_flags
 
