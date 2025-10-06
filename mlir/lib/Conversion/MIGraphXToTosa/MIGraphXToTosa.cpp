@@ -302,8 +302,11 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
 
     if (isBwdDataConvOp) {
-      cop = tosa::TransposeConv2DOp::create(
+      cop = tosa::CustomOp::create(
           rewriter, loc, new1DOutTy,
+          /* operator_name */ "conv_bwd_data",
+          /* domain_name  */ "rock",
+          /* implementation_attrs  */ "",
           ValueRange{input, filter,
                      getZeroTensor(loc, newOutElementTy,
                                    cast<ShapedType>(new1DOutTy).getShape()[3],
@@ -327,8 +330,11 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
     if (isBwdDataConvOp) {
-      cop = tosa::TransposeConv2DOp::create(
+      cop = tosa::CustomOp::create(
           rewriter, loc, newOutTy,
+          /* operator_name */ "conv_bwd_data",
+          /* domain_name  */ "rock",
+          /* implementation_attrs  */ "",
           ValueRange{input, filter,
                      getZeroTensor(loc, newOutElementTy,
                                    cast<ShapedType>(newOutTy).getShape()[3],
