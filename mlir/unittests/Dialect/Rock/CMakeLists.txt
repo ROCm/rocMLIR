@@ -7,6 +7,7 @@ if(NOT WIN32)
 endif()
 
 add_rocmlir_unittest(MLIRRockUnitTests
+  PARTIAL_SOURCES_INTENDED
   ${ROCK_UNITTEST_SOURCES}
 )
 
