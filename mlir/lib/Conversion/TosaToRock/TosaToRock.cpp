@@ -1591,6 +1591,54 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return success();
   }
 
+  // Validates that a constant mask follows the causal mask pattern:
+  // - Each row i should have zeros at positions 0 through i (lower triangular 
+  //   part)
+  // - The upper triangular part (positions > i) can be any mix of 1's and 0's
+  bool isValidCausalMask(Operation *op) const {
+    // Get the constant value
+    DenseElementsAttr constAttr;
+    if (auto tosaConst = dyn_cast<tosa::ConstOp>(op)) {
+      constAttr = dyn_cast<DenseElementsAttr>(tosaConst.getValuesAttr());
+    } else if (auto arithConst = dyn_cast<arith::ConstantOp>(op)) {
+      constAttr = dyn_cast<DenseElementsAttr>(arithConst.getValue());
+    }
+
+    if (!constAttr)
+      return false;
+
+    auto shapedType = cast<ShapedType>(constAttr.getType());
+    auto shape = shapedType.getShape();
+    
+    // First two dims must be 1 (broadcast dimensions)
+    if (shape.size() != 4 || shape[0] != 1 || shape[1] != 1)
+      return false;
+
+    // Ensure that element type is integer
+    if (!constAttr.getElementType().isIntOrIndex())
+      return false;
+
+    int64_t seqLen = shape[2];
+    int64_t maxSeqLen = shape[3];
+
+    auto values = constAttr.getValues<APInt>();
+    for (int64_t row = 0; row < seqLen; ++row) {
+      for (int64_t col = 0; col < maxSeqLen; ++col) {
+        auto val = values[row * maxSeqLen + col].getSExtValue();
+
+        // Validate that the lower triangular portion is all zeros
+        if (col <= row && val != 0)
+            return false;
+
+        // Check that the rest is all just 0's and 1's
+        if (val != 0 && val != 1)
+          return false;
+      }
+    }
+
+    return true;
+  }
+
   FailureOr<Value> getCausal(Value input) const {
     auto select = getDefiningNonReshapeOpNonCastOp<tosa::SelectOp>(input);
     if (select) {
@@ -1627,14 +1675,15 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return result;
       } else if (auto broadcast = getDefiningNonReshapeOpNonCastOp<tosa::AddOp>(pred)) {
         // The input from MIGraphX will not be a constant range, so we cannot
-        // use the getConstComparison function
+        // use the getConstComparison function. Instead we need to check that
+        // the constant is a valid causal mask pattern.
         auto maybeNonZero = addBroadcast(broadcast);
         if (failed(maybeNonZero))
           return failure();
 
+        // Validate the causal mask pattern
         Operation *defOp = maybeNonZero.value().getDefiningOp();
-        if (!defOp && !isa<tosa::ConstOp>(defOp) &&
-            !isa<arith::ConstantOp>(defOp))
+        if (!isValidCausalMask(defOp))
           return failure();
 
         Value result = select.getInput3();
@@ -2174,7 +2223,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     LLVM_DEBUG(llvm::dbgs()
                << "first matmul = " << maybeFirstMatMul.value() << "\n");
     LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
-    LLVM_DEBUG(llvm::dbgs() << "IsKVCache: " << isKVCache << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "isKVCache: " << isKVCache << "\n");
     LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
     if (isDotProduct && hasReduceOp)
       return failure();
