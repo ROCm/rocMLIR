@@ -984,7 +984,7 @@ conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 65 -W 65 -k 128 -y 3 -x 3 -p
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 4096 -k 14336
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 4096 -k 4096
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 32000 -k 4096
-#inception_v3_int8_bs16.onnx
+#inception_v3_bs16.onnx
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 3 -H 299 -W 299 -k 32 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 2048 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 160 -H 17 -W 17 -k 192 -y 1 -x 7 -p 0 -q 3 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -1033,7 +1033,7 @@ conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 256 -H 35 -W 35 -k 64 -y 1 -x 1 -p
 -transA false -transB true -g 1 -m 16 -n 1000 -k 2048
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 768 -H 17 -W 17 -k 576 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 16 -c 768 -H 17 -W 17 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
-#inception_v3_int8_bs32.onnx
+#inception_v3_bs32.onnx
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 3 -H 299 -W 299 -k 32 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 192 -H 17 -W 17 -k 320 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 1280 -H 8 -W 8 -k 320 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -1082,7 +1082,7 @@ conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 384 -y 1 -x 1 -p
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 32 -c 2048 -H 8 -W 8 -k 448 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 -transA false -transB true -g 1 -m 32 -n 1000 -k 2048
-#inception_v3_int8_bs64.onnx
+#inception_v3_bs64.onnx
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 96 -H 35 -W 35 -k 96 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 384 -H 8 -W 8 -k 384 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 2048 -H 8 -W 8 -k 192 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -1131,7 +1131,7 @@ conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 1280 -H 8 -W 8 -k 448 -y 1 -x 1 -p
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 32 -H 147 -W 147 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 288 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 64 -c 192 -H 17 -W 17 -k 320 -y 3 -x 3 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -g 1
-#inception_v3_int8_bs128.onnx
+#inception_v3_bs128.onnx
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 384 -H 8 -W 8 -k 384 -y 3 -x 1 -p 1 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 192 -H 35 -W 35 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 128 -c 48 -H 35 -W 35 -k 64 -y 5 -x 5 -p 2 -q 2 -u 1 -v 1 -l 1 -j 1 -g 1
