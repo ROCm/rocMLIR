@@ -1708,6 +1708,11 @@ def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU,
     print(f"DEBUG: Looking for ({arch}, '{configStr}') in tuningDb")
     if tuningDb and (arch, configStr) not in tuningDb:
         print(f"DEBUG: NOT FOUND in tuningDb! This will result in NaN TFlops.")
+        print(f"DEBUG: configStr: '{configStr}'")
+        print(f"DEBUG: Available configs for arch {arch}:")
+        for (a, c) in tuningDb.keys():
+            if a == arch:
+                print(f"  '{c}'")
     if tuningDb:
         if (arch, configStr) in tuningDb:
             config.setPerfConfig(tuningDb[arch, configStr])
