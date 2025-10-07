@@ -15,8 +15,8 @@ module {
     %0 = migraphx.unpack %arg3 {axis = 1 : i64} : <4096x2048xui8, 2048x1> -> <4096x4096xi8, 4096x1>
     %1 = migraphx.broadcast %arg1 {axis = 0 : i64, out_lens = [4096, 4096]} : <4096xf16, 1> -> <4096x4096xf16, 0x1>
     %2 = migraphx.broadcast %arg2 {axis = 0 : i64, out_lens = [4096, 4096]} : <4096xf16, 1> -> <4096x4096xf16, 0x1>
-    %3 = migraphx.reshape %1 {dims = [64, 128]} : <4096x4096xf16, 0x1> -> <4096x4096xf16, 16536x2>
-    %4 = migraphx.reshape %2 {dims = [64, 128]} : <4096x4096xf16, 0x1> -> <4096x4096xf16, 16536x2>
+    %3 = migraphx.reshape %1 {dims = [4096, 4096]} : <4096x4096xf16, 0x1> -> <4096x4096xf16, 16536x2>
+    %4 = migraphx.reshape %2 {dims = [4096, 4096]} : <4096x4096xf16, 0x1> -> <4096x4096xf16, 16536x2>
     %5 = migraphx.dequantizelinear %0, %3, %4 : <4096x4096xi8, 4096x1>, <4096x4096xf16, 16536x2>, !migraphx.shaped<4096x4096xf16, 16536x2> -> <4096x4096xf16, 4096x1>
     %6 = migraphx.dot %2, %5 : <4096x4096xf16, 0x1>, <4096x4096xf16, 4096x1> -> <4096x4096xf16, 4096x1>
     %7 = migraphx.softmax %6 {axis = 1 : i64} : <4096x4096xf16, 4096x1> -> <4096x4096xf16, 4096x1>
