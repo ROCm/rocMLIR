@@ -37,6 +37,23 @@ def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
 // TosaToRock
 //===----------------------------------------------------------------------===//
 
+def RocmlirCustomTosaDecomposePass : Pass<"rocmlir-custom-tosa-decompose", ""> {
+  let summary = "Decompose RocMLIR's custom TOSA ops";
+  let description = [{
+    Pass that decomposes RocMLIR's custom TOSA operators.
+  }];
+  let dependentDialects = [
+    "arith::ArithDialect",
+    "linalg::LinalgDialect",
+    "tensor::TensorDialect",
+    "tosa::TosaDialect"
+  ];
+}
+
+//===----------------------------------------------------------------------===//
+// TosaToRock
+//===----------------------------------------------------------------------===//
+
 def RocmlirCustomTosaToLinalgPass : Pass<"rocmlir-custom-tosa-to-linalg", ""> {
   let summary = "Lower RocMLIR's custom TOSA ops to Linalg";
   let description = [{
