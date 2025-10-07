@@ -211,7 +211,6 @@ def getNanoSeconds(fileName):
 
 def getProfilerOutputPath(arch: str, baseOutPath):
     chip = GFX_CHIP_RE.search(arch).group(0)
-    # TODO (gfx950): check if gfx950 need this
     if(chip not in ["gfx950"]):
         return os.path.join('pmc_1', baseOutPath)
     return baseOutPath
@@ -221,7 +220,6 @@ def getMetricArgsForRocprof(arch: str):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     metrics_path = os.path.join(current_dir, ROCMLIR_INPUT_METRICS_FILE_NAME)
     metrics = []
-    # TODO (gfx950): check if gfx950 supports this
     if (chip not in ["gfx950"]):
        metrics = ['-i', metrics_path]
     return metrics
