@@ -67,19 +67,9 @@ public:
 
     // Translate acc_type, padding and stride attributes.
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
-    auto padAttr = cast<ArrayAttr>(op->getAttr("padding"));
-    auto strideAttr = cast<ArrayAttr>(op->getAttr("stride"));
-    
+    llvm::ArrayRef<int64_t> pad = cast<DenseI64ArrayAttr>(op->getAttr("pad"));
+    llvm::ArrayRef<int64_t> stride = cast<DenseI64ArrayAttr>(op->getAttr("stride"));    
     Type accType = accTypeAttr.getValue();
-    SmallVector<int64_t> stride;
-    SmallVector<int64_t> pad;
-
-    for (size_t i = 0; i < strideAttr.size(); i++) {
-      stride.push_back(dyn_cast<IntegerAttr>(strideAttr[i]).getInt());
-    }
-    for (size_t i = 0; i < padAttr.size(); i++) {
-      pad.push_back(dyn_cast<IntegerAttr>(padAttr[i]).getInt());
-    }
 
     // Get inputZp and weightZp operands.
     Value inputZp = op.getOperands()[3];
@@ -374,6 +364,13 @@ public:
 
 } // namespace
 
+void mlir::rock::populateRocmlirCustomTosaDecomposeTarget(
+    ConversionTarget &target) {
+  target.addLegalDialect<tosa::TosaDialect>();
+  target.addDynamicallyLegalOp<tosa::CustomOp>(
+      [](tosa::CustomOp op) { return op.getDomainName() != "rock"; });
+}
+
 void mlir::rock::populateRocmlirCustomTosaDecomposeConversionPatterns(
     RewritePatternSet &patterns) {
   patterns.add<TransposeConvNonStridedConverter>(patterns.getContext());
@@ -384,6 +381,8 @@ void RocmlirCustomTosaDecomposePass::runOnOperation() {
   Operation *op = getOperation();
 
   ConversionTarget target(getContext());
+  rock::populateRocmlirCustomTosaDecomposeTarget(target);
+
   RewritePatternSet patterns(&getContext());
   rock::populateRocmlirCustomTosaDecomposeConversionPatterns(patterns);
 
