@@ -284,14 +284,17 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     return reshaped;
   };
 
-  // Construct a new Conv2DOp/TransposeConv2DOp.
+  // Construct a new Conv2DOp. If it's a transpose convolution, create a
+  // CustomOp.
   Operation *cop;
   Type new1DOutTy;
   Value inputZp, weightZp;
   switch (dims) {
   case 1:
-    // Expand to do a conv2d/transpose_conv2d, because there's no 1d version of
-    // the ops.
+    // Expand to do a conv2d, because there's no 1d version of
+    // the ops. Even though this would not be neccesary for
+    // the custom op, we keep it like this to make the lowering
+    // more uniform.
     newShape.insert(std::prev(newShape.end()), 1);
     new1DOutTy = RankedTensorType::get(newShape, newOutElementTy);
     input = expandTo2D(input);
