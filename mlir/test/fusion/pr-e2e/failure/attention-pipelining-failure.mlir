@@ -1,6 +1,8 @@
 // This test will fail as long as the backend bug (case filed here:
 // https://ontrack-internal.amd.com/browse/SWDEV-559105) remains unimplemented.
-// When this passes, we can go ahead and remove this test.
+// When this passes, we can go ahead and remove this test and update the
+// gfx12 workaround that was added in GridwiseGemmToBlockwise
+// (see the PR here https://github.com/ROCm/rocMLIR/pull/1990)
 
 // XFAIL: *
 // RUN: rocmlir-driver -c %s | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s
