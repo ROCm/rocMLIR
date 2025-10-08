@@ -12,12 +12,9 @@ def printAllPerformance(chip, op):
     perfReportFound = False
 
     COLUMNS_TO_AVERAGE = ['Fusion TFlops', 'MLIR TFlops', 'Fusion/MLIR']
-    try:
-        df = pd.read_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE)
-        perfReportFound = True
-    except FileNotFoundError:
-        print('Perf report not found.')
-        return
+
+    df = pd.read_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE)
+    perfReportFound = True
 
     plotMean = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     plotMean.name = "Geo. mean"
@@ -45,5 +42,9 @@ def printAllPerformance(chip, op):
 
 # Main function.
 if __name__ == '__main__':
-    printAllPerformance(sys.argv[1], 'conv')
-    printAllPerformance(sys.argv[1], 'gemm')
+    try:
+        printAllPerformance(sys.argv[1], 'conv')
+        printAllPerformance(sys.argv[1], 'gemm')
+    except FileNotFoundError:
+        print('Perf report not found.')
+        sys.exit(1)
