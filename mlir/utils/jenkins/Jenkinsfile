@@ -1063,15 +1063,18 @@ pipeline {
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
                                                                     -c ../mlir/utils/performance/configs/tier1-gemm-configs \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}
-                                                                [ -f mlir_tuning_${CHIP}.tsv ]""" 
+                                                                [ -f mlir_tuning_${CHIP}.tsv ]"""
+                                                            sh "echo '=== Contents of mlir_tuning_${CHIP}.tsv after GEMM ===' && cat mlir_tuning_${CHIP}.tsv"
                                                             // Tune resnet50 and unet configs
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o convolution \
                                                                     -c ../mlir/utils/performance/configs/tier1-conv-configs \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            sh "echo '=== Contents of mlir_tuning_${CHIP}.tsv after CONV ===' && cat mlir_tuning_${CHIP}.tsv"
                                                             // Tune attention configs
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o attention \
                                                                     -c ../mlir/utils/performance/configs/tier1-attention-configs \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            sh "echo '=== Contents of mlir_tuning_${CHIP}.tsv after ATTENTION ===' && cat mlir_tuning_${CHIP}.tsv"
                                                             // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
                                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
