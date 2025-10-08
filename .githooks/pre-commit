@@ -12,12 +12,21 @@ readarray -d '' files < <(
     | grep -zE '\.py$' \
     | grep -zEv '^(llvm-project/|external/llvm-project/)'
 )
+
 if (( ${#files[@]} )); then
-    echo "Running yapf on ${#files[@]} files..."
-    yapf -i "${files[@]}"
-    echo "Staging changes..."
-    git add -- "${files[@]}"
+    if command -v yapf >/dev/null 2>&1; then
+        echo "Running yapf on ${#files[@]} files..."
+        yapf -i "${files[@]}"
+        echo "Staging changes..."
+        git add -- "${files[@]}"
+    else
+        echo "yapf not found, skipping Python formatting."
+    fi
 fi
+
+echo "Running clang-format on C/C++ files..."
+cd "$(git rev-parse --show-toplevel)"
+python3 mlir/utils/widgets/clangformat.py -q -i HEAD
 
 if (( NEED_POP )); then
     git stash pop -q || true
