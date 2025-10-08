@@ -260,7 +260,7 @@ func.func @rock_conv_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256
 func.func @rock_conv_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx906"} {
   // CHECK: rock.conv
   // CHECK-SAME: derivedBlockSize = 64
-  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 2, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 16, kpack = 1, mPerWave = 64, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
   // GRID: rock.gridwise_gemm
   // GRID-SAME: gridSize = 200704
   rock.conv(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add|atomic_add_f16 {
@@ -278,10 +278,10 @@ func.func @rock_conv_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x23
 // GRID-LABEL: @rock_conv_bwd_weight_7x7
 func.func @rock_conv_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {kernel = 0 : i32, arch = "amdgcn-amd-amdhsa:gfx906", numCU = 120 : i32} {
   // CHECK: rock.conv_bwd_weight
-  // CHECK-SAME: derivedBlockSize = 64
-  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 16, nPerBlock = 16, kpack = 8, mPerWave = 16, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+  // CHECK-SAME: derivedBlockSize = 256
+  // CHECK-SAME: params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 32, kpack = 4, mPerWave = 16, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
   // GRID: rock.gridwise_gemm
-  // GRID-SAME: gridSize = 40
+  // GRID-SAME: gridSize = 5
   rock.conv_bwd_weight(%arg0, %arg1, %arg2) features =  mfma|dot|atomic_add|atomic_add_f16 {
     dilations = [1 : index, 1 : index],
     filter_layout = ["g", "k", "c", "0", "1"],

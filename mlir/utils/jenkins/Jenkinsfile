@@ -1071,8 +1071,16 @@ pipeline {
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             sh "echo '=== Contents of mlir_tuning_${CHIP}.tsv after CONV ===' && cat mlir_tuning_${CHIP}.tsv"
                                                             // Tune attention configs
+                                                            def attnConfig = "../mlir/utils/performance/configs/tier1-attention-configs"
+                                                            def attnConfigToUse = attnConfig
+                                                            if (CHIP.startsWith("gfx1")) {
+                                                                attnConfigToUse = "tier1-attention-configs-nofp32"
+                                                                sh """
+                                                                    grep -v '\\-t f32' ${attnConfig} > ${attnConfigToUse}
+                                                                """
+                                                            }
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                                    -c ../mlir/utils/performance/configs/tier1-attention-configs \
+                                                                    -c ${attnConfigToUse} \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             sh "echo '=== Contents of mlir_tuning_${CHIP}.tsv after ATTENTION ===' && cat mlir_tuning_${CHIP}.tsv"
                                                             // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
