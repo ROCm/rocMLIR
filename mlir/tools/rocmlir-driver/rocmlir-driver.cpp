@@ -136,7 +136,7 @@ static LogicalResult runHostHighLevelPipeline(ModuleOp mod) {
   PassManager pm(mod->getName(), PassManager::Nesting::Implicit);
   if (failed(applyPassManagerCLOptions(pm)))
     return failure();
-  
+
   // Add verification passes
   pm.enableVerifier(verifyPasses);
 
