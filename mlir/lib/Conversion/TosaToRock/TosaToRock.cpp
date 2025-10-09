@@ -849,7 +849,6 @@ public:
       op->emitError(
           "TosaToRock lowering support for bwd_weight not supported");
     }
-    assert(convKind == "bwd_data" && "Expected bwd_data conv op");
 
     FailureOr<rock::RockConvInterface> rockConv =
         makeRockConv(rw, op, input, filter, output, padAttr, strideAttr,
@@ -862,7 +861,14 @@ public:
     if (failed(rockConv))
       return failure();
 
-    Value result = output;
+    Value result;
+    if (convKind == "bwd_data") {
+      result = output;
+    } else {
+      Operation *rockConvOp = rockConv->getOperation();
+      result = rock::TensorUntransformCastOp::create(
+          rw, loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
+    }
     
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
