@@ -42,12 +42,8 @@ def RocmlirCustomTosaDecomposePass : Pass<"rocmlir-custom-tosa-decompose", ""> {
   let description = [{
     Pass that decomposes RocMLIR's custom TOSA operators.
   }];
-  let dependentDialects = [
-    "arith::ArithDialect",
-    "linalg::LinalgDialect",
-    "tensor::TensorDialect",
-    "tosa::TosaDialect"
-  ];
+  let dependentDialects = ["arith::ArithDialect", "linalg::LinalgDialect",
+                           "tensor::TensorDialect", "tosa::TosaDialect"];
 }
 
 //===----------------------------------------------------------------------===//
