@@ -178,11 +178,11 @@ static FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc,
     kpack = vectorDataType.getNumElements();
     dataType = vectorDataType.getElementType();
   }
-
-  if (bufferShape[0] != kOuter * d * kpack * getByteWidth(dataType)) {
+  auto expectedLdsByteSize =
+      (kOuter * d * kpack * dataType.getIntOrFloatBitWidth()) / 8;
+  if (bufferShape[0] != expectedLdsByteSize) {
     return emitError(loc, "LDS buffer should have ")
-           << kOuter * d * kpack * getByteWidth(dataType)
-           << " elements but has " << bufferShape[0];
+           << expectedLdsByteSize << " elements but has " << bufferShape[0];
   }
   int64_t kpackPerThread = std::min(kPerThread, kpack);
   assert(kpack % kpackPerThread == 0);
@@ -3359,13 +3359,8 @@ struct GridwiseGemmAccelRewritePattern
     LDSLayoutConfigDim ldsLayoutConfigB =
         getLDSLayoutConfigDim(elementTypeB, kpack, maybeVecDimInfoB.value());
 
-    LDSLayoutConfigDim ldsLayoutConfigScaleA, ldsLayoutConfigScaleB;
-    if (isScaledGemm) {
-      ldsLayoutConfigScaleA = getLDSLayoutConfigDim(
-          elementTypeScaleA, kpack, maybeVecDimInfoScaleA.value());
-      ldsLayoutConfigScaleB = getLDSLayoutConfigDim(
-          elementTypeScaleB, kpack, maybeVecDimInfoScaleB.value());
-    }
+    LDSLayoutConfigDim ldsLayoutConfigScaleA = ldsLayoutConfigA,
+                       ldsLayoutConfigScaleB = ldsLayoutConfigB;
 
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
@@ -3505,18 +3500,22 @@ struct GridwiseGemmAccelRewritePattern
 
     // Compute required LDS sizes.
     // TODO: fix this for 4 bit values to use packing
-    int64_t ldsBlockASize =
-        kpacksPerBlock * mPerBlock * kpack * getByteWidth(elementTypeA);
-    int64_t ldsBlockBSize =
-        kpacksPerBlock * nPerBlock * kpack * getByteWidth(elementTypeB);
-    int64_t ldsBlockScaleASize = isScaledGemm
-                                     ? kpacksPerBlock * mPerBlock * kpack *
-                                           getByteWidth(elementTypeScaleA)
-                                     : 0;
-    int64_t ldsBlockScaleBSize = isScaledGemm
-                                     ? kpacksPerBlock * nPerBlock * kpack *
-                                           getByteWidth(elementTypeScaleB)
-                                     : 0;
+    int64_t ldsBlockASize = (kpacksPerBlock * mPerBlock * kpack *
+                             elementTypeA.getIntOrFloatBitWidth()) /
+                            8;
+    int64_t ldsBlockBSize = (kpacksPerBlock * nPerBlock * kpack *
+                             elementTypeB.getIntOrFloatBitWidth()) /
+                            8;
+    int64_t ldsBlockScaleASize =
+        isScaledGemm ? (kpacksPerBlock * mPerBlock * kpack *
+                        elementTypeScaleA.getIntOrFloatBitWidth()) /
+                           8
+                     : 0;
+    int64_t ldsBlockScaleBSize =
+        isScaledGemm ? (kpacksPerBlock * nPerBlock * kpack *
+                        elementTypeScaleB.getIntOrFloatBitWidth()) /
+                           8
+                     : 0;
 
     LLVM_DEBUG(llvm::dbgs()
                << "LDS block sizes (bytes): " << ldsBlockASize << " "

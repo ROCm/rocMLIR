@@ -674,11 +674,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
       a = newA;
     }
   }
+  ArrayRef<int64_t> scaleAShape, scaleBShape;
   if (scaleA && scaleB) {
     auto scaleAType = scaleA ? cast<MemRefType>(scaleA.getType()) : nullptr;
     auto scaleBType = scaleB ? cast<MemRefType>(scaleB.getType()) : nullptr;
-    auto scaleAShape = scaleAType.getShape();
-    auto scaleBShape = scaleBType.getShape();
+    scaleAShape = scaleAType.getShape();
+    scaleBShape = scaleBType.getShape();
     Type f8e8m0Type = rw.getF8E8M0Type();
     if (scaleAType.getElementType() != f8e8m0Type) {
       MemRefType newScaleAType = MemRefType::get(scaleAShape, f8e8m0Type);
@@ -701,11 +702,15 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   a = normalizeMatrix(a, rw, loc, !op.getATransposed(), "gemmK", "gemmM");
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
   c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
+  aShape = cast<MemRefType>(a.getType()).getShape();
+  bShape = cast<MemRefType>(b.getType()).getShape();
   if (scaleA && scaleB) {
-    scaleA = normalizeMatrix(scaleA, rw, loc, !op.getAScaleTransposed(),
-                             "gemmK", "gemmM");
-    scaleB = normalizeMatrix(scaleB, rw, loc, op.getBScaleTransposed(), "gemmK",
-                             "gemmN");
+    bool transposeScaleA = (aShape != scaleAShape);
+    scaleA =
+        normalizeMatrix(scaleA, rw, loc, transposeScaleA, "gemmK", "gemmM");
+    bool transposeScaleB = (bShape != scaleBShape);
+    scaleB =
+        normalizeMatrix(scaleB, rw, loc, transposeScaleB, "gemmK", "gemmN");
   }
 
   const int64_t splitKFactor = op.getParams()->getSplitKFactor();
@@ -717,9 +722,6 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
     std::tie(a, b, c) = maybeSplitk.value();
   }
-
-  aShape = cast<MemRefType>(a.getType()).getShape();
-  bShape = cast<MemRefType>(b.getType()).getShape();
 
   // Note, matrix dimension correctness is handled in the verifier
   GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
