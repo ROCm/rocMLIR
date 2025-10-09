@@ -728,36 +728,17 @@ public:
       return op->emitError(
           "Expected 'dilation' attribute to be present on the operation");
 
-    std::string convKind = "";
-    if (isa<tosa::TransposeConv2DOp>(op)) {
-      // If we are trying to convert bwd_weight, fail as it's currently not
-      // supported
-      convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
-      if (convKind == "bwd_weight") {
-        op->emitError(
-            "TosaToRock lowering support for bwd_weight not supported");
-      }
-      assert(convKind == "bwd_data" && "Expected bwd_data conv op");
-    }
-
     FailureOr<rock::RockConvInterface> rockConv =
         makeRockConv(rw, op, input, filter, output, padAttr, op.getStrideAttr(),
-                     dilationAttr, group, /*kernelID=*/0, convKind);
-
-    // Should not trigger here, only in the tosa::CustomOp version
-    // if (convKind == "bwd_data")
+                     dilationAttr, group, /*kernelID=*/0, "");
 
     if (failed(rockConv))
       return failure();
 
     Value result;
-    if (isa<tosa::TransposeConv2DOp>(op)) {
-      result = output;
-    } else {
-      Operation *rockConvOp = rockConv->getOperation();
-      result = rock::TensorUntransformCastOp::create(
-          rw, loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
-    }
+    Operation *rockConvOp = rockConv->getOperation();
+    result = rock::TensorUntransformCastOp::create(
+        rw, loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
 
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
