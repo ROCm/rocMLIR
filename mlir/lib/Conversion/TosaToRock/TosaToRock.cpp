@@ -798,15 +798,22 @@ public:
 
   LogicalResult matchAndRewrite(tosa::CustomOp op,
                                 tosa::CustomOp::Adaptor adaptor,
-                                ConversionPatternRewriter &rw) const final {      
+                                ConversionPatternRewriter &rw) const final {
+    // Make sure its a valid CustomOp representing a convolution.                              
     if (op.getDomainName() != "rock")
       return op->emitError("domain isn't rock");
-    if (op.getOperatorName() != "conv_bwd_data")
-      return op->emitError("isn't a conv_bwd_data");
+    if (op.getOperatorName() != "conv_fwd" && op.getOperatorName() != "conv_bwd_data" && op.getOperatorName() != "conv_bwd_weight")
+      return op->emitError("has an invalid operator_name");
     if (op.getNumOperands() < 5)
       return op->emitError("should have 5 or more operands");
     if (op.getNumResults() != 1)
       return op->emitError("should have 1 result");
+
+    // Verify all required attributes are present. group is optional.
+    for (std::string attrName : {"pad", "stride", "dilation", "conv_kind"}) {
+      if (!op->hasAttr(attrName))
+        return op->emitError("expected '" + attrName + "' attribute to be present on the op");
+    }
 
     auto operands = adaptor.getOperands();
     auto loc = op->getLoc();
@@ -824,35 +831,25 @@ public:
     Value output =
         bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
-    auto groupAttr = op->template getAttrOfType<IntegerAttr>("group");
-    auto padAttr = op->template getAttrOfType<DenseI64ArrayAttr>("pad");
-    auto strideAttr = op->template getAttrOfType<DenseI64ArrayAttr>("stride");
+    auto groupAttr = op->getAttrOfType<IntegerAttr>("group");
+    auto padAttr = op->getAttrOfType<DenseI64ArrayAttr>("pad");
+    auto strideAttr = op->getAttrOfType<DenseI64ArrayAttr>("stride");
     auto dilationAttr =
-        op->template getAttrOfType<DenseI64ArrayAttr>("dilation");
+        op->getAttrOfType<DenseI64ArrayAttr>("dilation");
 
-    // Verify all required attributes are present
     int64_t group = 1;
     if (groupAttr)
       group = groupAttr.getInt();
 
-    if (!padAttr)
-      return op->emitError(
-          "Expected 'pad' attribute to be present on the operation");
-
-    if (!dilationAttr)
-      return op->emitError(
-          "Expected 'dilation' attribute to be present on the operation");
-
     std::string convKind = "";    
     // If we are trying to convert bwd_weight, fail as it's currently not
     // supported
-    convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
+    convKind = op->getAttrOfType<StringAttr>("conv_kind").str();
     if (convKind == "bwd_weight") {
       op->emitError(
           "TosaToRock lowering support for bwd_weight not supported");
     }
     assert(convKind == "bwd_data" && "Expected bwd_data conv op");
-    
 
     FailureOr<rock::RockConvInterface> rockConv =
         makeRockConv(rw, op, input, filter, output, padAttr, strideAttr,
