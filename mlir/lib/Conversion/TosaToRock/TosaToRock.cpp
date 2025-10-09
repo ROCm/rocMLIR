@@ -688,7 +688,7 @@ static void addZeroInitPrefillAttribute(tosa::CustomOp op,
 }
 
 template <typename OpT>
-class ConvConverterLegacy final : public OpConversionPattern<OpT> {
+class ForwardConvConverter final : public OpConversionPattern<OpT> {
 public:
   using OpConversionPattern<OpT>::OpConversionPattern;
 
@@ -792,7 +792,7 @@ public:
   }
 };
 
-class ConvConverter final : public OpConversionPattern<tosa::CustomOp> {
+class BackwardConvConverter final : public OpConversionPattern<tosa::CustomOp> {
 public:
   using OpConversionPattern<tosa::CustomOp>::OpConversionPattern;
 
@@ -802,7 +802,7 @@ public:
     // Make sure its a valid CustomOp representing a convolution.                              
     if (op.getDomainName() != "rock")
       return op->emitError("domain isn't rock");
-    if (op.getOperatorName() != "conv_fwd" && op.getOperatorName() != "conv_bwd_data" && op.getOperatorName() != "conv_bwd_weight")
+    if (op.getOperatorName() != "conv_bwd_data" && op.getOperatorName() != "conv_bwd_weight")
       return op->emitError("has an invalid operator_name");
     if (op.getNumOperands() < 5)
       return op->emitError("should have 5 or more operands");
@@ -849,6 +849,7 @@ public:
       op->emitError(
           "TosaToRock lowering support for bwd_weight not supported");
     }
+    assert(convKind == "bwd_data" && "Expected bwd_data conv op");
 
     FailureOr<rock::RockConvInterface> rockConv =
         makeRockConv(rw, op, input, filter, output, padAttr, strideAttr,
@@ -861,14 +862,7 @@ public:
     if (failed(rockConv))
       return failure();
 
-    Value result;
-    if (convKind == "bwd_data") {
-      result = output;
-    } else {
-      Operation *rockConvOp = rockConv->getOperation();
-      result = rock::TensorUntransformCastOp::create(
-          rw, loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
-    }
+    Value result = output;
     
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
@@ -2446,8 +2440,9 @@ public:
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
-  patterns.add<ConvConverterLegacy<tosa::Conv3DOp>,
-               ConvConverter,
+  patterns.add<ForwardConvConverter<tosa::Conv2DOp>,
+               ForwardConvConverter<tosa::Conv3DOp>,                                   
+               BackwardConvConverter,
                MatMulConverter,
                ReduceSumConverter, ReduceMaxConverter>(context);
 }
