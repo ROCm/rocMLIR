@@ -745,7 +745,7 @@ public:
                      dilationAttr, group, /*kernelID=*/0, convKind);
 
     // Should not trigger here, only in the tosa::CustomOp version
-    // if (convKind == "bwd_data")      
+    // if (convKind == "bwd_data")
 
     if (failed(rockConv))
       return failure();
@@ -799,10 +799,11 @@ public:
   LogicalResult matchAndRewrite(tosa::CustomOp op,
                                 tosa::CustomOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
-    // Make sure its a valid CustomOp representing a convolution.                              
+    // Make sure its a valid CustomOp representing a convolution.
     if (op.getDomainName() != "rock")
       return op->emitError("domain isn't rock");
-    if (op.getOperatorName() != "conv_bwd_data" && op.getOperatorName() != "conv_bwd_weight")
+    if (op.getOperatorName() != "conv_bwd_data" &&
+        op.getOperatorName() != "conv_bwd_weight")
       return op->emitError("has an invalid operator_name");
     if (op.getNumOperands() < 5)
       return op->emitError("should have 5 or more operands");
@@ -812,7 +813,8 @@ public:
     // Verify all required attributes are present. group is optional.
     for (std::string attrName : {"pad", "stride", "dilation", "conv_kind"}) {
       if (!op->hasAttr(attrName))
-        return op->emitError("expected '" + attrName + "' attribute to be present on the op");
+        return op->emitError("expected '" + attrName +
+                             "' attribute to be present on the op");
     }
 
     auto operands = adaptor.getOperands();
@@ -834,20 +836,18 @@ public:
     auto groupAttr = op->getAttrOfType<IntegerAttr>("group");
     auto padAttr = op->getAttrOfType<DenseI64ArrayAttr>("pad");
     auto strideAttr = op->getAttrOfType<DenseI64ArrayAttr>("stride");
-    auto dilationAttr =
-        op->getAttrOfType<DenseI64ArrayAttr>("dilation");
+    auto dilationAttr = op->getAttrOfType<DenseI64ArrayAttr>("dilation");
 
     int64_t group = 1;
     if (groupAttr)
       group = groupAttr.getInt();
 
-    std::string convKind = "";    
+    std::string convKind = "";
     // If we are trying to convert bwd_weight, fail as it's currently not
     // supported
     convKind = op->getAttrOfType<StringAttr>("conv_kind").str();
     if (convKind == "bwd_weight") {
-      op->emitError(
-          "TosaToRock lowering support for bwd_weight not supported");
+      op->emitError("TosaToRock lowering support for bwd_weight not supported");
     }
     assert(convKind == "bwd_data" && "Expected bwd_data conv op");
 
@@ -856,14 +856,13 @@ public:
                      dilationAttr, group, /*kernelID=*/0, convKind);
 
     if (convKind == "bwd_data")
-      addZeroInitPrefillAttribute(op,
-                                  rockConv->getOperation());
+      addZeroInitPrefillAttribute(op, rockConv->getOperation());
 
     if (failed(rockConv))
       return failure();
 
     Value result = output;
-    
+
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
@@ -2441,10 +2440,9 @@ public:
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ForwardConvConverter<tosa::Conv2DOp>,
-               ForwardConvConverter<tosa::Conv3DOp>,                                   
-               BackwardConvConverter,
-               MatMulConverter,
-               ReduceSumConverter, ReduceMaxConverter>(context);
+               ForwardConvConverter<tosa::Conv3DOp>, BackwardConvConverter,
+               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
+      context);
 }
 
 void tosa::populateTosaToRockAttentionConversionPatterns(

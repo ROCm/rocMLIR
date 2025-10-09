@@ -1,4 +1,5 @@
-//===-- RocmlirCustomTosaDecompose.h Lower Rocmlir tosa custom ops--*- C++ -*-*-===//
+//===-- RocmlirCustomTosaDecompose.h Lower Rocmlir tosa custom ops--*- C++
+//-*-*-===//
 //
 // Part of the rocMLIRProject, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.

@@ -22,11 +22,10 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 namespace mlir {
 #define GEN_PASS_DEF_ROCMLIRCUSTOMTOSADECOMPOSEPASS
@@ -41,7 +40,7 @@ struct RocmlirCustomTosaDecomposePass
     : public impl::RocmlirCustomTosaDecomposePassBase<
           RocmlirCustomTosaDecomposePass> {
   void runOnOperation() override;
-};    
+};
 
 class TransposeConvNonStridedConverter
     : public OpRewritePattern<tosa::CustomOp> {
@@ -70,9 +69,11 @@ public:
     ShapedType resultTy = cast<ShapedType>(op->getResult(0).getType());
 
     // Translate acc_type, padding and stride attributes.
-    // TODO: Should we have all those attribute names as a constant and share them with MIGraphXToTosa?
+    // TODO: Should we have all those attribute names as a constant and share
+    // them with MIGraphXToTosa?
     llvm::ArrayRef<int64_t> pad = cast<DenseI64ArrayAttr>(op->getAttr("pad"));
-    llvm::ArrayRef<int64_t> stride = cast<DenseI64ArrayAttr>(op->getAttr("stride"));    
+    llvm::ArrayRef<int64_t> stride =
+        cast<DenseI64ArrayAttr>(op->getAttr("stride"));
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
     Type accType = accTypeAttr.getValue();
 
@@ -107,8 +108,8 @@ public:
                                 /* axis = */ rewriter.getI32IntegerAttr(2));
 
     Value conv2d = tosa::Conv2DOp::create(
-        rewriter, loc, resultTy, input, reverse2, bias, inputZp,
-        weightZp, rewriter.getDenseI64ArrayAttr(convPad),
+        rewriter, loc, resultTy, input, reverse2, bias, inputZp, weightZp,
+        rewriter.getDenseI64ArrayAttr(convPad),
         rewriter.getDenseI64ArrayAttr(stride),
         rewriter.getDenseI64ArrayAttr({1, 1}),
         /* acc_type = */ accType, /*group=*/nullptr);
@@ -118,8 +119,7 @@ public:
   }
 };
 
-class TransposeConvStridedConverter
-    : public OpRewritePattern<tosa::CustomOp> {
+class TransposeConvStridedConverter : public OpRewritePattern<tosa::CustomOp> {
 public:
   // Copy-pasted from mlir/lib/Dialect/Tosa/IR/TosaOps.cpp
   static FailureOr<int64_t> getZeroPoint(Value val, bool signExtend) {
@@ -147,7 +147,7 @@ public:
 
     // return non-zero value to trigger error check
     return -1;
-  }        
+  }
 
   using OpRewritePattern<tosa::CustomOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(tosa::CustomOp op,
@@ -179,7 +179,8 @@ public:
 
     // Translate acc_type, padding and stride attributes.
     llvm::ArrayRef<int64_t> pad = cast<DenseI64ArrayAttr>(op->getAttr("pad"));
-    llvm::ArrayRef<int64_t> stride = cast<DenseI64ArrayAttr>(op->getAttr("stride"));
+    llvm::ArrayRef<int64_t> stride =
+        cast<DenseI64ArrayAttr>(op->getAttr("stride"));
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
     Type accType = accTypeAttr.getValue();
 
@@ -403,7 +404,8 @@ public:
     }
 
     // We verified early that op has exactly one result, so getType(0) is safe.
-    rewriter.replaceOpWithNewOp<tosa::AddOp>(op, op.getType(0), resultPad, bias);
+    rewriter.replaceOpWithNewOp<tosa::AddOp>(op, op.getType(0), resultPad,
+                                             bias);
     return success();
   }
 };

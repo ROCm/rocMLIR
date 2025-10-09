@@ -23,6 +23,9 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/DebugLog.h"
+
+#define DEBUG_TYPE "tosa-to-rock"
 
 namespace mlir {
 #define GEN_PASS_DEF_TOSATOROCKPASS
@@ -37,6 +40,7 @@ public:
   void runOnOperation() override {
     auto func = getOperation();
     if (!func->hasAttr("kernel")) {
+      LDBG() << "func has no kernel attribute, skipping pass";
       return;
     }
     auto &ctx = getContext();
