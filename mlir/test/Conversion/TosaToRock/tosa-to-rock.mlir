@@ -66,6 +66,65 @@ func.func private @mlir_conv1d(%arg0: tensor<64xf32>, %arg1: tensor<672xf32>, %a
 
 // -----
 
+// CHECK-LABEL: mlir_bwd_conv1d
+// CHECK: %[[buf:.*]] = bufferization.alloc_tensor() : tensor<1x224x1x64xf32>
+// CHECK: %[[bufTransformed:.*]] = rock.transform %[[buf]] by #{{.*}} : tensor<1x224x1x64xf32> to tensor<1x224x1x1x64xf32>
+// CHECK: %[[convRes:.*]] = rock.conv_bwd_data(%{{.*}}, %[[bufTransformed]], %{{.*}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "hi", "wi", "gi", "ci"], kernelId = 0 : index, output_layout = ["no", "ho", "wo", "go", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index], usesV4R1 = false} : tensor<1x64x1x1x3xf32>, tensor<1x224x1x1x64xf32>, tensor<1x224x1x1x3xf32> -> tensor<1x224x1x1x64xf32>
+// CHECK-NEXT: %[[reshapeRes:.*]] = tosa.reshape %[[buf]]
+// CHECK-NEXT: %[[transRes:.*]] = rock.transform %[[reshapeRes]] by #{{.*}} : tensor<1x224x64xf32> to tensor<1x64x224xf32>
+
+func.func @mlir_bwd_conv1d(%arg0: tensor<64xf32>, %arg1: tensor<672xf32>, %arg2: tensor<192xf32>) -> tensor<14336xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  %0 = tosa.const_shape  {values = dense<14336> : tensor<1xindex>} : () -> !tosa.shape<1>
+  %1 = tosa.const_shape  {values = dense<[1, 224, 64]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %2 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<64xf32>}> : () -> tensor<64xf32>
+  %3 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %4 = tosa.const_shape  {values = dense<[64, 1, 1, 3]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %5 = tosa.const_shape  {values = dense<[1, 224, 1, 3]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %6 = tosa.const_shape  {values = dense<[1, 3, 224]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %7 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x64x224xf32>}> : () -> tensor<1x64x224xf32>
+  %8 = tosa.const_shape  {values = dense<[1, 64, 1]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %9 = tosa.reshape %arg0, %8 : (tensor<64xf32>, !tosa.shape<3>) -> tensor<1x64x1xf32>
+  %10 = tosa.add %9, %7 : (tensor<1x64x1xf32>, tensor<1x64x224xf32>) -> tensor<1x64x224xf32>
+  %11 = tosa.reshape %arg1, %6 : (tensor<672xf32>, !tosa.shape<3>) -> tensor<1x3x224xf32>
+  %12 = tosa.transpose %11 {perms = array<i32: 0, 2, 1>} : (tensor<1x3x224xf32>) -> tensor<1x224x3xf32>
+  %13 = tosa.reshape %12, %5 : (tensor<1x224x3xf32>, !tosa.shape<4>) -> tensor<1x224x1x3xf32>
+  %14 = tosa.reshape %arg2, %4 : (tensor<192xf32>, !tosa.shape<4>) -> tensor<64x1x1x3xf32>
+  %15 = tosa.custom %13, %14, %2, %3, %3 {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1>, domain_name = "rock", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x224x1x3xf32>, tensor<64x1x1x3xf32>, tensor<64xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x224x1x64xf32>
+  %16 = tosa.reshape %15, %1 : (tensor<1x224x1x64xf32>, !tosa.shape<3>) -> tensor<1x224x64xf32>
+  %17 = tosa.transpose %16 {perms = array<i32: 0, 2, 1>} : (tensor<1x224x64xf32>) -> tensor<1x64x224xf32>
+  %18 = tosa.add %17, %10 : (tensor<1x64x224xf32>, tensor<1x64x224xf32>) -> tensor<1x64x224xf32>
+  %19 = tosa.reshape %18, %0 : (tensor<1x64x224xf32>, !tosa.shape<1>) -> tensor<14336xf32>
+  return %19 : tensor<14336xf32>
+}
+
+// -----
+
+// CHECK-LABEL: mlir_bwd_conv2d
+// CHECK: %[[buf:.*]] = bufferization.alloc_tensor() : tensor<1x32x32x512xf32>
+// CHECK: %[[bufTransformed:.*]] = rock.transform %[[buf]] by #{{.*}} : tensor<1x32x32x512xf32> to tensor<1x32x32x1x512xf32>
+// CHECK: %[[convRes:.*]] = rock.conv_bwd_data(%{{.*}}, %[[bufTransformed]], %{{.*}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "y", "x", "c"], input_layout = ["ni", "hi", "wi", "gi", "ci"], kernelId = 0 : index, output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [2 : index, 2 : index], usesV4R1 = false} : tensor<1x512x4x4x512xf32>, tensor<1x32x32x1x512xf32>, tensor<1x16x16x1x512xf32> -> tensor<1x32x32x1x512xf32>
+// CHECK-NEXT: %[[transRes:.*]] = rock.transform %[[buf]] by #{{.*}} : tensor<1x32x32x512xf32> to tensor<1x512x32x32xf32>
+// CHECK-NEXT: %[[reshapeRes:.*]] = tosa.reshape %[[transRes]]
+
+func.func @mlir_bwd_conv2d(%arg0: tensor<131072xf32>, %arg1: tensor<4194304xf32>) -> tensor<524288xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  %0 = tosa.const_shape  {values = dense<524288> : tensor<1xindex>} : () -> !tosa.shape<1>
+  %1 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<512xf32>}> : () -> tensor<512xf32>
+  %2 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %3 = tosa.const_shape  {values = dense<[1, 512, 16, 16]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %4 = tosa.const_shape  {values = dense<[512, 512, 4, 4]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %5 = tosa.reshape %arg1, %4 : (tensor<4194304xf32>, !tosa.shape<4>) -> tensor<512x512x4x4xf32>
+  %6 = tosa.reshape %arg0, %3 : (tensor<131072xf32>, !tosa.shape<4>) -> tensor<1x512x16x16xf32>
+  %7 = tosa.transpose %6 {perms = array<i32: 0, 2, 3, 1>} : (tensor<1x512x16x16xf32>) -> tensor<1x16x16x512xf32>
+  %8 = tosa.transpose %5 {perms = array<i32: 0, 2, 3, 1>} : (tensor<512x512x4x4xf32>) -> tensor<512x4x4x512xf32>
+  %9 = tosa.custom %7, %8, %1, %2, %2 {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1>, domain_name = "rock", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 2, 2>} : (tensor<1x16x16x512xf32>, tensor<512x4x4x512xf32>, tensor<512xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x32x32x512xf32>
+  %10 = tosa.transpose %9 {perms = array<i32: 0, 3, 1, 2>} : (tensor<1x32x32x512xf32>) -> tensor<1x512x32x32xf32>
+  %11 = tosa.reshape %10, %0 : (tensor<1x512x32x32xf32>, !tosa.shape<1>) -> tensor<524288xf32>
+  return %11 : tensor<524288xf32>
+}
+
+
+// -----
+
 // CHECK-LABEL: mlir_dot_transpose_add
 // CHECK: %[[gemmRes:.*]] = rock.gemm %{{.*}} = %{{.*}} * %{{.*}} storeMethod =  set : tensor<1x4x5xf32> = tensor<1x4x5xf32> * tensor<1x5x5xf32> -> tensor<1x4x5xf32>
 // CHECK-NEXT: %{{.*}} = tosa.reshape %[[gemmRes]]
