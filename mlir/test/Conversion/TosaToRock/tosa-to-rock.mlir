@@ -9,7 +9,7 @@ func.func @test_fusion(%arg0: tensor<128x32x32x8xf32>, %arg1: tensor<128x3x3x8xf
   %zero = arith.constant dense<0.0> : tensor<128xf32>
   %input_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %weight_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
-  %0 = "tosa.conv2d"(%arg0, %arg1, %zero, %input_zp, %weight_zp) {acc_type = f32, dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<128x32x32x8xf32>, tensor<128x3x3x8xf32>, tensor<128xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<128x30x30x128xf32>
+  %0 = "tosa.custom"(%arg0, %arg1, %zero, %input_zp, %weight_zp) {acc_type = f32, conv_kind = "fwd_data", dilation = array<i64: 1, 1>, domain_name = "rock", implementation_attrs = "", operator_name = "conv_fwd", pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<128x32x32x8xf32>, tensor<128x3x3x8xf32>, tensor<128xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<128x30x30x128xf32>
   %1 = "tosa.abs"(%0) {} : (tensor<128x30x30x128xf32>) -> tensor<128x30x30x128xf32>
   %2 = "tosa.abs"(%1) {} : (tensor<128x30x30x128xf32>) -> tensor<128x30x30x128xf32>
 
@@ -54,7 +54,7 @@ func.func private @mlir_conv1d(%arg0: tensor<64xf32>, %arg1: tensor<672xf32>, %a
     %12 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<64xf32>}> : () -> tensor<64xf32>
     %input_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
     %weight_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
-    %13 = tosa.conv2d %10, %11, %12, %input_zp, %weight_zp {acc_type = f32, dilation = array<i64: 1, 1>, group = 1 : i64, pad = array<i64: 3, 3, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x224x1x3xf32>, tensor<64x7x1x3xf32>, tensor<64xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x224x1x64xf32>
+    %13 = tosa.custom %10, %11, %12, %input_zp, %weight_zp {acc_type = f32, conv_kind = "fwd_data", dilation = array<i64: 1, 1>, domain_name = "rock", implementation_attrs = "", operator_name = "conv_fwd", group = 1 : i64, pad = array<i64: 3, 3, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x224x1x3xf32>, tensor<64x7x1x3xf32>, tensor<64xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x224x1x64xf32>
     %const_shape6 = tosa.const_shape {values = dense<[1, 224, 64]> : tensor<3xindex>} : () -> !tosa.shape<3>
     %14 = tosa.reshape %13, %const_shape6 : (tensor<1x224x1x64xf32>, !tosa.shape<3>) -> tensor<1x224x64xf32> 
     %15 = tosa.transpose %14 {perms = array<i32: 0, 2, 1>} : (tensor<1x224x64xf32>) -> tensor<1x64x224xf32>
@@ -102,7 +102,7 @@ func.func @mlir_conv_transpose_add(%arg0: tensor<128x32x32x8xf32>, %arg1: tensor
 
   %input_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
   %weight_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
-  %0 = "tosa.conv2d"(%arg0, %arg1, %zero, %input_zp, %weight_zp) {acc_type = f32, dilation = array<i64: 1, 1>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<128x32x32x8xf32>, tensor<128x3x3x8xf32>, tensor<128xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<128x30x30x128xf32>
+  %0 = "tosa.custom"(%arg0, %arg1, %zero, %input_zp, %weight_zp) {acc_type = f32, conv_kind = "fwd_data", dilation = array<i64: 1, 1>, domain_name = "rock", implementation_attrs = "", operator_name = "conv_fwd", pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<128x32x32x8xf32>, tensor<128x3x3x8xf32>, tensor<128xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<128x30x30x128xf32>
   %const_shape = "tosa.const_shape"() {values = dense<[14745600]> : tensor<1xindex>} : () -> !tosa.shape<1>
   %1 = "tosa.reshape"(%0, %const_shape) : (tensor<128x30x30x128xf32>, !tosa.shape<1>) -> tensor<14745600xf32> 
   %6 = "tosa.transpose"(%0) {perms = array<i32: 0, 1, 3, 2>} : (tensor<128x30x30x128xf32>) -> tensor<128x30x128x30xf32>
