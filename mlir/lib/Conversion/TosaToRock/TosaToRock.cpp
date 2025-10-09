@@ -634,7 +634,7 @@ private:
   SmallVector<Operation *> visitedOps;
 };
 
-static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
+static void addZeroInitPrefillAttribute(tosa::CustomOp op,
                                         Operation *rockConv) {
   // First check if the TransposeConv2D op is going to require having it's
   // output zeroinitialized, i.e., not every element of the output buffer is
@@ -654,7 +654,7 @@ static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
 
   // Now we need to determine where to add the prefill attributes. Trace through
   // the output of the TransposeConv2D op to find where the result is used.
-  Value output = op.getResult();
+  Value output = op.getResult(0);
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   if (!func)
     return;
@@ -688,7 +688,7 @@ static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
 }
 
 template <typename OpT>
-class ConvConverter final : public OpConversionPattern<OpT> {
+class ConvConverterLegacy final : public OpConversionPattern<OpT> {
 public:
   using OpConversionPattern<OpT>::OpConversionPattern;
 
@@ -744,9 +744,8 @@ public:
         makeRockConv(rw, op, input, filter, output, padAttr, op.getStrideAttr(),
                      dilationAttr, group, /*kernelID=*/0, convKind);
 
-    if (convKind == "bwd_data")
-      addZeroInitPrefillAttribute(cast<tosa::TransposeConv2DOp>(op),
-                                  rockConv->getOperation());
+    // Should not trigger here, only in the tosa::CustomOp version
+    // if (convKind == "bwd_data")      
 
     if (failed(rockConv))
       return failure();
@@ -786,6 +785,114 @@ public:
           tensor::ExpandShapeOp::create(rw, loc, newType, bias, reassociations);
 
       result = tosa::AddOp::create(rw, loc, op.getType(),
+                                   ValueRange{result, biasExpand});
+    }
+    rw.replaceOp(op, result);
+    return success();
+  }
+};
+
+class ConvConverter final : public OpConversionPattern<tosa::CustomOp> {
+public:
+  using OpConversionPattern<tosa::CustomOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(tosa::CustomOp op,
+                                tosa::CustomOp::Adaptor adaptor,
+                                ConversionPatternRewriter &rw) const final {      
+    if (op.getDomainName() != "rock")
+      return op->emitError("domain isn't rock");
+    if (op.getOperatorName() != "conv_bwd_data")
+      return op->emitError("isn't a conv_bwd_data");
+    if (op.getNumOperands() < 5)
+      return op->emitError("should have 5 or more operands");
+    if (op.getNumResults() != 1)
+      return op->emitError("should have 1 result");
+
+    auto operands = adaptor.getOperands();
+    auto loc = op->getLoc();
+    auto *context = op->getContext();
+    auto input = operands[0];
+    auto filter = operands[1];
+    auto bias = operands[2];
+    RankedTensorType outputType = cast<RankedTensorType>(op.getType(0));
+
+    rock::GemmFeatures features = getGemmFeaturesFromOp(op, input.getType());
+
+    if (failed(setSplitKAttrs(op, features, rw)))
+      return failure();
+
+    Value output =
+        bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
+
+    auto groupAttr = op->template getAttrOfType<IntegerAttr>("group");
+    auto padAttr = op->template getAttrOfType<DenseI64ArrayAttr>("pad");
+    auto strideAttr = op->template getAttrOfType<DenseI64ArrayAttr>("stride");
+    auto dilationAttr =
+        op->template getAttrOfType<DenseI64ArrayAttr>("dilation");
+
+    // Verify all required attributes are present
+    int64_t group = 1;
+    if (groupAttr)
+      group = groupAttr.getInt();
+
+    if (!padAttr)
+      return op->emitError(
+          "Expected 'pad' attribute to be present on the operation");
+
+    if (!dilationAttr)
+      return op->emitError(
+          "Expected 'dilation' attribute to be present on the operation");
+
+    std::string convKind = "";    
+    // If we are trying to convert bwd_weight, fail as it's currently not
+    // supported
+    convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
+    if (convKind == "bwd_weight") {
+      op->emitError(
+          "TosaToRock lowering support for bwd_weight not supported");
+    }
+    assert(convKind == "bwd_data" && "Expected bwd_data conv op");
+    
+
+    FailureOr<rock::RockConvInterface> rockConv =
+        makeRockConv(rw, op, input, filter, output, padAttr, strideAttr,
+                     dilationAttr, group, /*kernelID=*/0, convKind);
+
+    if (convKind == "bwd_data")
+      addZeroInitPrefillAttribute(op,
+                                  rockConv->getOperation());
+
+    if (failed(rockConv))
+      return failure();
+
+    Value result = output;
+    
+    // test for zero bias, and ignore
+    if (!isConstantZero(op.getOperand(2))) {
+      // non-zero bias, replace with tosa.add w/ broadcast
+      auto biasType = cast<ShapedType>(bias.getType());
+      if (!biasType.hasStaticShape())
+        return failure();
+
+      int64_t nDims = cast<ShapedType>(input.getType()).getRank();
+      SmallVector<int64_t> biasShape;
+      for (int i = 0; i < nDims - 1; i++)
+        biasShape.push_back(1);
+      biasShape.push_back(biasType.getShape()[0]);
+      auto newType =
+          RankedTensorType::get(biasShape, biasType.getElementType());
+
+      // [[0, 1, 2, 3]]
+      ReassociationExprs exprs;
+      for (int i = 0; i < nDims; i++)
+        exprs.push_back(getAffineDimExpr(i, context));
+      SmallVector<ReassociationExprs, 1> reassociations;
+      reassociations.push_back(exprs);
+
+      auto biasExpand =
+          tensor::ExpandShapeOp::create(rw, loc, newType, bias, reassociations);
+
+      result = tosa::AddOp::create(rw, loc, op.getType(0),
                                    ValueRange{result, biasExpand});
     }
     rw.replaceOp(op, result);
@@ -2336,8 +2443,9 @@ public:
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
-  patterns.add<ConvConverter<tosa::Conv2DOp>, ConvConverter<tosa::Conv3DOp>,
-               ConvConverter<tosa::TransposeConv2DOp>, MatMulConverter,
+  patterns.add<ConvConverterLegacy<tosa::Conv3DOp>,
+               ConvConverter,
+               MatMulConverter,
                ReduceSumConverter, ReduceMaxConverter>(context);
 }
 
