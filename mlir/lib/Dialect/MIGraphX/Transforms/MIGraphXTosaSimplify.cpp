@@ -20,10 +20,12 @@
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/Debug.h"
 
 namespace mlir {
 namespace migraphx {
@@ -48,6 +50,10 @@ public:
     Value input = op.getInput();
     Type inputType = input.getType();
     Type outputType = op.getOutput().getType();
+    if (isa<Float8E8M0FNUType>(cast<ShapedType>(inputType).getElementType()) ||
+        isa<Float8E8M0FNUType>(cast<ShapedType>(outputType).getElementType())) {
+      return failure();
+    }
     if (inputType == outputType) {
       // If we find a cast that leads to the same type, we can eliminate it.
       b.replaceOp(op, input);

@@ -675,27 +675,6 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     }
   }
   ArrayRef<int64_t> scaleAShape, scaleBShape;
-  if (scaleA && scaleB) {
-    auto scaleAType = scaleA ? cast<MemRefType>(scaleA.getType()) : nullptr;
-    auto scaleBType = scaleB ? cast<MemRefType>(scaleB.getType()) : nullptr;
-    scaleAShape = scaleAType.getShape();
-    scaleBShape = scaleBType.getShape();
-    Type f8e8m0Type = rw.getF8E8M0Type();
-    if (scaleAType.getElementType() != f8e8m0Type) {
-      MemRefType newScaleAType = MemRefType::get(scaleAShape, f8e8m0Type);
-      memref::AllocOp newScaleA =
-          memref::AllocOp::create(rw, loc, newScaleAType);
-      createTypeConversionLaGeneric(rw, loc, scaleA, newScaleA);
-      scaleA = newScaleA;
-    }
-    if (scaleBType.getElementType() != f8e8m0Type) {
-      MemRefType newScaleBType = MemRefType::get(scaleBShape, f8e8m0Type);
-      memref::AllocOp newScaleB =
-          memref::AllocOp::create(rw, loc, newScaleBType);
-      createTypeConversionLaGeneric(rw, loc, scaleB, newScaleB);
-      scaleB = newScaleB;
-    }
-  }
 
   // Note: the gridwise ops take K x M and K x N, so A must be transposed if
   // it's in the natural M x K form
@@ -705,6 +684,11 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   aShape = cast<MemRefType>(a.getType()).getShape();
   bShape = cast<MemRefType>(b.getType()).getShape();
   if (scaleA && scaleB) {
+    auto scaleAType = scaleA ? cast<MemRefType>(scaleA.getType()) : nullptr;
+    auto scaleBType = scaleB ? cast<MemRefType>(scaleB.getType()) : nullptr;
+    scaleAShape = scaleAType.getShape();
+    scaleBShape = scaleBType.getShape();
+
     bool transposeScaleA = (aShape != scaleAShape);
     scaleA =
         normalizeMatrix(scaleA, rw, loc, transposeScaleA, "gemmK", "gemmM");
@@ -738,6 +722,25 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         padMatrix(scaleA, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
     scaleB =
         padMatrix(scaleB, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
+    auto scaleAType = scaleA ? cast<MemRefType>(scaleA.getType()) : nullptr;
+    auto scaleBType = scaleB ? cast<MemRefType>(scaleB.getType()) : nullptr;
+    scaleAShape = scaleAType.getShape();
+    scaleBShape = scaleBType.getShape();
+    Type f8e8m0Type = rw.getF8E8M0Type();
+    if (scaleAType.getElementType() != f8e8m0Type) {
+      MemRefType newScaleAType = MemRefType::get(scaleAShape, f8e8m0Type);
+      memref::AllocOp newScaleA =
+          memref::AllocOp::create(rw, loc, newScaleAType);
+      createTypeConversionLaGeneric(rw, loc, scaleA, newScaleA);
+      scaleA = newScaleA;
+    }
+    if (scaleBType.getElementType() != f8e8m0Type) {
+      MemRefType newScaleBType = MemRefType::get(scaleBShape, f8e8m0Type);
+      memref::AllocOp newScaleB =
+          memref::AllocOp::create(rw, loc, newScaleBType);
+      createTypeConversionLaGeneric(rw, loc, scaleB, newScaleB);
+      scaleB = newScaleB;
+    }
   }
 
   if (failed(computeGridSize(rw, op, a, b))) {
