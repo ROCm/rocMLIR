@@ -97,10 +97,11 @@ Errors = {errs.decode('utf-8')}""", file=sys.stderr)
             os.chdir(prevdir)
     return nanoSeconds
 
-def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, options: Options):
+def getWinningConfig(tuningOutput, testVector, config, paths: Path, options: Options):
     maxTFlops = -np.inf
     minNs = np.inf
     winningConfig = "None"
+    entries = []
     for i, result in enumerate(tuningOutput):
         result = result.decode('utf-8').strip()
         if not options.quiet and not options.compact_print and i > 0 and i % 100 == 0:
@@ -116,7 +117,7 @@ def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, opt
 
         config.setPerfConfig(perfConfig)
         entry = config.tableEntry(nanoSeconds)
-        allData.append(entry)
+        entries.append(entry)
         theseTFlops = entry['TFlops']
         # verify that each perfConfig passes accuracy verification
         if options.verifyPerfConfigs:
@@ -137,12 +138,11 @@ def getWinningConfig(tuningOutput, testVector, config, allData, paths: Path, opt
             if options.compact_print and not options.quiet:
                 print(f"Tested {i} configs, best perf {maxTFlops} TFlops {minNs} ns on perf_config {winningConfig}", file=sys.stderr)
 
-    return winningConfig, maxTFlops
+    return winningConfig, maxTFlops, entries
 
 #Tune MLIR Gemm or Convolution kernels
-def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
-    allData = []
-    winners = {}
+def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options, outFile, debugFile=None):
+    headerWritten = False
     tuning_driver_args = [f"--tuning-space={options.tuningSpaceKind}",
                           f"--num-iterations={NUM_ITERATIONS}",
                           f"--warmup-iterations={WARMUP_ITERATIONS}",
@@ -178,7 +178,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
         # Tune, printing progress as we go to avoid CI timeouts
-        winningConfig, maxTFlops = getWinningConfig(tuningLoop.stdout, testVector, config, allData, paths, options)
+        winningConfig, maxTFlops, entries = getWinningConfig(tuningLoop.stdout, testVector, config, paths, options)
 
         if options.verifyMode != "none":
             verifyNs = verifyKernelWithPerfConfig(winningConfig, config, paths, options)
@@ -191,12 +191,22 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
                 print("Note: Verify tflops counts verification kernel", file=sys.stderr)
         else:
             print(f"Tuned : {testVector} : {winningConfig} with {maxTFlops} TFlops", file=sys.stderr)
+
+        if debugFile:
+            pd.DataFrame(entries).to_csv(debugFile, sep='\t', mode='a', header=not headerWritten, index=False)
+            debugFile.flush()
+
         if options.tflops:
-            winners[testVector] = (winningConfig,maxTFlops)
+            if not headerWritten:
+                print(f"# arch\tnumCUs\ttestVector\tperfConfig\tTFlops ({options.tuningSpaceKind})", file=outFile)
+                headerWritten = True
+            print(f"{options.arch}\t{options.numCU}\t{testVector}\t{winningConfig}\t{maxTFlops}", file=outFile)
         else:
-            winners[testVector] = winningConfig
-    allData = pd.DataFrame(allData)
-    return winners, allData
+            if not headerWritten:
+                print(f"# arch\tnumCUs\ttestVector\tperfConfig ({options.tuningSpaceKind})", file=outFile)
+                headerWritten = True
+            print(f"{options.arch}\t{options.numCU}\t{testVector}\t{winningConfig}", file=outFile)
+        outFile.flush()
 
 #Extract gemm or conv configurations from fusion tests
 def extractFusionConfigs(test_dir, paths: Paths, options: Options):
@@ -406,35 +416,23 @@ def main(args=None):
     elif opType == Operation.CONV_GEMM:
         configs = perfRunner.getConvGemmConfigurations(paths.configuration_file_path)
 
-    winners, allData = tuneMLIRKernels(configs, confClass, paths, options)
-
-    if winners is None:
-        # Tuning aborted, bail
-        print("Tuning aborted")
-        return 1
-
-    if parsed_args.debug:
-        print(allData, file=sys.stderr)
-        allData.to_csv(f"{parsed_args.output}.debug", sep='\t')
-
     # Note, appending results here to allow multiple config sets
     if parsed_args.output == '-':
         outFile = sys.stdout
     else:
         outFile = open(parsed_args.output, 'a')
 
-    with outFile:
-        if parsed_args.tflops:
-            print(f"# arch\tnumCUs\ttestVector\tperfConfig\tTFlops ({options.tuningSpaceKind})", file=outFile)
-            for testVector, (perfConfig, tflops) in winners.items():
-                print(f"Arch = {arch}({numCU} CUs), vector = '{testVector}', \
-perfConfig = {perfConfig}, TFlops = {tflops}", file=sys.stderr)
-                print(f"{arch}\t{numCU}\t{testVector}\t{perfConfig}\t{tflops}", file=outFile)
-        else:
-            print(f"# arch\tnumCUs\ttestVector\tperfConfig ({options.tuningSpaceKind})", file=outFile)
-            for testVector, perfConfig in winners.items():
-                print(f"Arch = {arch}({numCU} CUs), vector = '{testVector}', perfConfig = {perfConfig}", file=sys.stderr)
-                print(f"{arch}\t{numCU}\t{testVector}\t{perfConfig}", file=outFile)
+    debugFile = None
+    if parsed_args.debug:
+        debugFile = open(f"{parsed_args.output}.debug", 'a')
+
+    try:
+        tuneMLIRKernels(configs, confClass, paths, options, outFile, debugFile)
+    finally:
+        if outFile != sys.stdout:
+            outFile.close()
+        if debugFile:
+            debugFile.close()
 
 if __name__ == '__main__':
     sys.exit(main())
