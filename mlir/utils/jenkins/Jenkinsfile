@@ -420,7 +420,6 @@ String getLabelFromCodepath(String codepath) {
         } else {
             label = 'mlir && ( gfx1100 || gfx1101 )'
         }
-    }
     } else if (codepath == "navi4x") {
         label = 'mlir && ( gfx1200 || gfx1201 )'
     } else {
