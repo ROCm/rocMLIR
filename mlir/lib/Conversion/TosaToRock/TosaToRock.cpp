@@ -972,7 +972,6 @@ public:
                                 ConversionPatternRewriter &rw) const final {
     Location loc = op->getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
-    llvm::dbgs() << op->getParentOfType<func::FuncOp>() << "\n";
     auto matA = op.getA();
     auto matB = op.getB();
     Value matABeforeCast = nullptr;
@@ -982,9 +981,6 @@ public:
     tosa::MulOp mulOpB = getDefiningNonReshapeOpNonBroadcast<tosa::MulOp>(matB);
     Value scaleA = nullptr, scaleB = nullptr;
     if (mulOpA && mulOpB) {
-      llvm::dbgs() << "Both inputs from mul\n";
-      llvm::dbgs() << "Mul A: " << mulOpA << "\n";
-      llvm::dbgs() << "Mul B: " << mulOpB << "\n";
       // Both inputs are coming from a mul op, this is likely a quantized
       // scaled matmul
       auto mulAInputs1 = mulOpA.getInput1();
