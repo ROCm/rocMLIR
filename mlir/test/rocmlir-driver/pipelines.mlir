@@ -12,6 +12,7 @@
 // MIGRAPHX-NEXT:migraphx-transform,
 // MIGRAPHX-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // MIGRAPHX-NEXT:migraphx-to-tosa,
+// MIGRAPHX-NEXT:cse,
 // MIGRAPHX-NEXT:migraphx-tosa-simplify))
 
 // GPU:Kernel pipeline:
