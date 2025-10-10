@@ -96,8 +96,10 @@ def main():
             print(ex.stderr)
         if not args.quiet:
             print(f"Command '{ex.cmd}' returned {ex.returncode}")
-            raise
+        raise
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(main())
