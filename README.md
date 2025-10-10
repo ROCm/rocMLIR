@@ -1,6 +1,6 @@
 # MLIR-based convolution, GEMM and attention kernel generator for ROCm
 
-This is the repository for a MLIR-based convolution, GEMM and attention kernel generator
+This is the repository for a MLIR-based convolution, GEMM, attention, GEMM+GEMM and CONV+GEMM kernel generator
 targetting AMD hardware. This generator is mainly used from
 [MIGraphX](https://github.com/ROCm/AMDMIGraphX),
 but it can be used on a standalone basis. (The ability to use this code via
