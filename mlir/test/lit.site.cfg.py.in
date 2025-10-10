@@ -80,12 +80,11 @@ config.features = None
 if config.rocm_path:
     try:
         agents = get_agents()
-        config.arch = ','.join(agents)
-        for x in agents:
-            if not config.features:
-                config.features, config.arch_support_mfma, config.arch_support_wmma = get_arch_features(x)
-                config.substitutions.append(('%features', config.features))
-        if not config.arch:
+        if agents:
+            config.arch = sorted(agents)[0]
+            config.features, config.arch_support_mfma, config.arch_support_wmma = get_arch_features(config.arch)
+            config.substitutions.append(('%features', config.features))
+        else:
             config.no_AMD_GPU = True
     except subprocess.CalledProcessError:
         config.no_AMD_GPU = True
