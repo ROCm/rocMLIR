@@ -313,15 +313,28 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     }
     break;
   case 3:
-    if (isBwdDataConvOp)
-      return op->emitError("Only 1-D and 2-D backwards convolution ops are "
-                           "supported");
-
     inputZp =
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
-    cop = tosa::Conv3DOp::create(
+
+    if (isBwdDataConvOp) {
+      cop = tosa::CustomOp::create(
+          rewriter, loc, newOutTy,
+          /* operator_name */ "conv_bwd_data",
+          /* domain_name  */ "rock",
+          /* implementation_attrs  */ "",
+          ValueRange{input, filter,
+                     getZeroTensor(
+                         loc,
+                         RankedTensorType::get(
+                             cast<ShapedType>(filter.getType()).getShape()[3],
+                             newOutElementTy),
+                         rewriter),
+                     inputZp, weightZp});
+    }      
+    else {
+      cop = tosa::Conv3DOp::create(
         rewriter, loc, newOutTy,
         ValueRange{input, filter,
                    rock::tosa::getZeroTensor(
