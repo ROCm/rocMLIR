@@ -482,6 +482,12 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Tuning mode - all configs from tuning space
     std::unique_ptr<rock::TuningParamSet> tuningSpace(
         rock::createTunableParamSpace(source, tuningSpaceKind));
+
+    if (tuningSpace->tuningRange.empty()) {
+      llvm::errs() << "Tuning range is empty\n";
+      return failure();
+    }
+
     for (rock::RockTuningParamAttrInterface tuningAttr :
          tuningSpace->tuningRange) {
       SmallString<64> perfConfig;
