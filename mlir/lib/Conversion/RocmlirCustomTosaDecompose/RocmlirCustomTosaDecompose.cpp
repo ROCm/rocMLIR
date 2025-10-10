@@ -10,10 +10,12 @@
 //
 // This pass is a downstream version of
 // mlir/lib/Dialect/Tosa/Transforms/TosaDecomposeTransposeConv.cpp
+// (code was
+// copied from rocMLIR commit ec067ce842b1580e02e222ec444b877f0f861e1b)
 // with the added functionality of supporting transposeConv in 3D.
 // Compared to upstream, we have the following changes:
-// - We expect tosa::CustomOp instead of tosa::CustomOp
-// - We support 1D, 2D (like upstream), and 3D transposed convolutions.
+// - We expect tosa::CustomOp instead of tosa::TransposeConv2DOp
+// - We support 2D (like upstream) but also 3D transposed convolutions.
 //
 //===----------------------------------------------------------------------===//
 

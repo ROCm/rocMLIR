@@ -9,7 +9,10 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Pass for decomposing rocmlir's custom Tosa ops
+// Pass for decomposing tosa::CustomOp representing backward convolution into
+// lower level tosa ops. This pass is essentially a downstream version of
+// mlir/lib/Dialect/Tosa/Transforms/TosaDecomposeTransposeConv.cpp (code was
+// copied from rocMLIR commit ec067ce842b1580e02e222ec444b877f0f861e1b)
 //
 //===----------------------------------------------------------------------===//
 

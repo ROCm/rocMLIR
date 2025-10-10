@@ -34,7 +34,7 @@ def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
 }
 
 //===----------------------------------------------------------------------===//
-// TosaToRock
+// RocmlirCustomTosaDecomposePass
 //===----------------------------------------------------------------------===//
 
 def RocmlirCustomTosaDecomposePass : Pass<"rocmlir-custom-tosa-decompose", ""> {
@@ -47,7 +47,7 @@ def RocmlirCustomTosaDecomposePass : Pass<"rocmlir-custom-tosa-decompose", ""> {
 }
 
 //===----------------------------------------------------------------------===//
-// TosaToRock
+// RocmlirCustomTosaToLinalgPass
 //===----------------------------------------------------------------------===//
 
 def RocmlirCustomTosaToLinalgPass : Pass<"rocmlir-custom-tosa-to-linalg", ""> {
