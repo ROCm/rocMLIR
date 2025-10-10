@@ -87,19 +87,19 @@ static Value createThreadViewMaps(Value redInput, int64_t blockSize,
   threadsToInpTensor.getStartNames(lowerNameRefs);
   threadsToInpTensor.merge("flatDim", 0, lowerNameRefs);
   TransformMapAttr mergeTrMap = threadsToInpTensor.get();
-  Value ret = rewriter.create<TransformOp>(loc, redInput, mergeTrMap);
+  Value ret = TransformOp::create(rewriter, loc, redInput, mergeTrMap);
 
   threadsToInpTensor = BottomUpTMBuilder::above(threadsToInpTensor, mergeTrMap);
   threadsToInpTensor.pad({"flatDim"},
                          {0, totalThreads * dataPerThread - lowerSizeProduct});
   TransformMapAttr padTrMap = threadsToInpTensor.get();
-  ret = rewriter.create<TransformOp>(loc, ret, padTrMap);
+  ret = TransformOp::create(rewriter, loc, ret, padTrMap);
 
   threadsToInpTensor = BottomUpTMBuilder::above(threadsToInpTensor, padTrMap);
   threadsToInpTensor.unmerge({"bid", "iter", "tid"}, {0, 1, 2}, "flatDim",
                              {gridSize, dataPerThread, blockSize});
   TransformMapAttr unmergeTrMap = threadsToInpTensor.get();
-  ret = rewriter.create<TransformOp>(loc, ret, unmergeTrMap);
+  ret = TransformOp::create(rewriter, loc, ret, unmergeTrMap);
 
   return ret;
 }
@@ -148,17 +148,17 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
 
   // Get current workgroup ID.
   WorkgroupIdOp bid =
-      rewriter.create<WorkgroupIdOp>(loc, rewriter.getIndexType());
+      WorkgroupIdOp::create(rewriter, loc, rewriter.getIndexType());
   // Get current workitem ID.
   WorkitemIdOp tid =
-      rewriter.create<WorkitemIdOp>(loc, rewriter.getIndexType());
-  Value zeroConstantOp = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+      WorkitemIdOp::create(rewriter, loc, rewriter.getIndexType());
+  Value zeroConstantOp = arith::ConstantIndexOp::create(rewriter, loc, 0);
   SmallVector<Value, 3> loadStartCoords = {bid, zeroConstantOp, tid};
 
   SmallVector<Value> zeroes(threadViewShape.size(), zeroConstantOp);
 
-  TransformingForOp outLoop = rewriter.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{loadStartCoords},
+  TransformingForOp outLoop = TransformingForOp::create(
+      rewriter, loc, ArrayRef<ValueRange>{loadStartCoords},
       ArrayRef<Attribute>{sourceTransformsFromOp}, ArrayRef<int64_t>(bounds),
       ArrayRef<int64_t>(strides),
       /*forceUnroll=*/true, /*useIndexDiffs=*/true);
@@ -167,14 +167,16 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
     rewriter.setInsertionPointToStart(outLoop.getBody());
     Block::BlockArgListType loadCoords = outLoop.getLowerCoords(/*domain=*/0);
     Value isValid = outLoop.getValidity(/*domain=*/0);
-    GlobalLoadOp loadVal = rewriter.create<GlobalLoadOp>(
-        loc, vectorType, op.getIn(), isValid, loadCoords, needs64BitIdx);
+    GlobalLoadOp loadVal =
+        GlobalLoadOp::create(rewriter, loc, vectorType, op.getIn(), isValid,
+                             loadCoords, needs64BitIdx);
     auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
         gpu::GPUDialect::getPrivateAddressSpace());
-    Value loadedReg = rewriter.create<GpuAllocOp>(
-        loc, MemRefType::get({vectorLength}, elementType, AffineMap{},
-                             privateMemoryAddressSpace));
-    rewriter.create<InBoundsStoreOp>(loc, loadVal, loadedReg, zeroConstantOp);
+    Value loadedReg = GpuAllocOp::create(
+        rewriter, loc,
+        MemRefType::get({vectorLength}, elementType, AffineMap{},
+                        privateMemoryAddressSpace));
+    InBoundsStoreOp::create(rewriter, loc, loadVal, loadedReg, zeroConstantOp);
 
     SmallVector<Value, 4> storeCoords;
     for (const auto &idxAndVal : llvm::enumerate(loadCoords)) {
@@ -193,11 +195,12 @@ LogicalResult ReduceRewritePattern::matchAndRewrite(
              << "The Reduce Method" << getNameForReduceMethod(rMethod)
              << " is not supported.!";
     }
-    rewriter.create<GlobalStoreOp>(
-        loc, loadedReg, op.getOut(), rewriter.getIndexAttr(vectorLength),
-        StoreMethodAttr::get(rewriter.getContext(), stMethod), zeroConstantOp,
-        isValid, storeCoords, needs64BitIdx ? rewriter.getUnitAttr() : nullptr,
-        /*canStoreOffEnd=*/nullptr, /*nontemporal=*/nullptr);
+    GlobalStoreOp::create(rewriter, loc, loadedReg, op.getOut(),
+                          rewriter.getIndexAttr(vectorLength),
+                          StoreMethodAttr::get(rewriter.getContext(), stMethod),
+                          zeroConstantOp, isValid, storeCoords,
+                          needs64BitIdx ? rewriter.getUnitAttr() : nullptr,
+                          /*canStoreOffEnd=*/nullptr, /*nontemporal=*/nullptr);
   }
   rewriter.eraseOp(op);
   return success();

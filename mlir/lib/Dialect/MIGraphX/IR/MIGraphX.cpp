@@ -63,7 +63,7 @@ Operation *MIGraphXDialect::materializeConstant(OpBuilder &builder,
   ElementsAttr elemsValue = dyn_cast<ElementsAttr>(value);
   if (!elemsValue)
     return nullptr;
-  return builder.create<LiteralOp>(loc, type, elemsValue);
+  return LiteralOp::create(builder, loc, type, elemsValue);
 }
 
 //===----------------------------------------------------------------------===//
@@ -310,6 +310,61 @@ LogicalResult LiteralOp::verify() {
       expectedStride *= len;
     }
   }
+  return success();
+}
+
+LogicalResult ReshapeOp::verify() {
+  MIXRShapedType inputType = getInput().getType();
+  MIXRShapedType outType = getOutput().getType();
+  ArrayAttr dimsAttr = getDims();
+
+  // Dynamic shapes are not currently supported
+  if (!inputType.hasStaticShape())
+    return emitOpError("Dynamic shapes are not supported");
+
+  if (dimsAttr.size() != outType.getRank())
+    return emitOpError("number of dims (")
+           << dimsAttr.size() << ") does not match result rank ("
+           << outType.getRank() << ")";
+
+  // Check that there is only a single -1 value
+  int missingDims = llvm::count_if(
+      dimsAttr.getAsRange<IntegerAttr>(),
+      [](IntegerAttr a) { return a.getInt() == -1; });
+  if (missingDims > 1)
+    return emitOpError("expected at most one target dimension to be -1");
+
+  // Check how many zero dimensions there are
+  int numZeros = llvm::count_if(
+      dimsAttr.getAsRange<IntegerAttr>(),
+      [](IntegerAttr a) { return a.getInt() == 0; });
+
+  if (missingDims > 0 && numZeros > 0)
+    return emitOpError("Cannot mix missing dimensions with zero dimension");
+
+  // Compare dimension values to output shape
+  for (auto [dimVal, outDim] : llvm::zip(dimsAttr, outType.getShape())) {
+    int64_t dimValue = cast<IntegerAttr>(dimVal).getInt();
+    // We cannot handle negative dims values that aren't -1 
+    if (dimValue < -1 ) {
+      return emitOpError("Non -1 negative values are not supported");
+    }
+
+    // Output dimensions can't be negative
+    if (outDim < 0)
+      return emitOpError("Negative output dimensions are not supported");
+
+    // Per-dimension consistency
+    if (dimValue >= 0 && outDim != dimValue)
+      return emitOpError("dimValue: ")
+             << dimValue << " inconsistent with result dimension " << outDim;
+  }
+
+  // Check that the number of elements in the input and output types match
+  int64_t inputElements = inputType.getNumElements();
+  if (inputElements != outType.getNumElements())
+    return emitOpError("input and output element counts do not match");
+
   return success();
 }
 

@@ -99,7 +99,7 @@ LogicalResult RewriteByteUnpackPattern::matchAndRewrite(
   MIXRShapedType packedByteType = op.getIn().getType();
   MIXRShapedType actualType = asInt4Tensor(packedByteType, axis);
   Value reinterpreted =
-      rewriter.create<UnpackOp>(loc, actualType, adaptor.getIn(), axis);
+      UnpackOp::create(rewriter, loc, actualType, adaptor.getIn(), axis);
   rewriter.replaceOpWithNewOp<ConvertOp>(op, outType, reinterpreted);
   return success();
 }
@@ -116,11 +116,13 @@ LogicalResult TransposeUnpackInterchange::matchAndRewrite(
 
   MIXRShapedType preTrReinterpretedType =
       asInt4Tensor(trOp.getInput().getType(), preTransposeAxis);
-  Value reinterpreted = rewriter.create<UnpackOp>(
-      op.getLoc(), preTrReinterpretedType, trOp.getInput(), preTransposeAxis);
+  Value reinterpreted =
+      UnpackOp::create(rewriter, op.getLoc(), preTrReinterpretedType,
+                       trOp.getInput(), preTransposeAxis);
   // Not a replaceOpWithNewOp() because we're keeping a different op's location.
-  Value transposed = rewriter.create<TransposeOp>(
-      trOp.getLoc(), op.getOut().getType(), reinterpreted, permutation);
+  Value transposed =
+      TransposeOp::create(rewriter, trOp.getLoc(), op.getOut().getType(),
+                          reinterpreted, permutation);
   rewriter.replaceOp(op, transposed);
   rewriter.eraseOp(trOp);
   return success();
@@ -147,10 +149,10 @@ LogicalResult ReshapeUnpackInterchange::matchAndRewrite(
       lastUnitDim = idx;
   MIXRShapedType oldShapeInt4 = asInt4Tensor(oldShapeBytes, lastUnitDim);
   MIXRShapedType newShapeInt4 = op.getOut().getType();
-  Value reinterpreted = rewriter.create<UnpackOp>(
-      op.getLoc(), oldShapeInt4, reshapeOp.getInput(), lastUnitDim);
-  Value reshaped = rewriter.create<ReshapeOp>(
-      reshapeOp.getLoc(), newShapeInt4, reinterpreted,
+  Value reinterpreted = UnpackOp::create(rewriter, op.getLoc(), oldShapeInt4,
+                                         reshapeOp.getInput(), lastUnitDim);
+  Value reshaped = ReshapeOp::create(
+      rewriter, reshapeOp.getLoc(), newShapeInt4, reinterpreted,
       rewriter.getI64ArrayAttr(newShapeInt4.getShape()));
   rewriter.replaceOp(op, reshaped);
   rewriter.eraseOp(reshapeOp);
@@ -177,10 +179,11 @@ LogicalResult MultiBroadcastUnpackInterchange::matchAndRewrite(
       newOutLens.push_back(attr);
     }
   }
-  Value reinterpreted = rewriter.create<UnpackOp>(
-      op.getLoc(), preBroadcastInt4, broadcastOp.getInput(), adaptor.getAxis());
-  Value broadcasted = rewriter.create<MultiBroadcastOp>(
-      broadcastOp.getLoc(), op.getOut().getType(), reinterpreted,
+  Value reinterpreted =
+      UnpackOp::create(rewriter, op.getLoc(), preBroadcastInt4,
+                       broadcastOp.getInput(), adaptor.getAxis());
+  Value broadcasted = MultiBroadcastOp::create(
+      rewriter, broadcastOp.getLoc(), op.getOut().getType(), reinterpreted,
       rewriter.getArrayAttr(newOutLens));
   rewriter.replaceOp(op, broadcasted);
   rewriter.eraseOp(broadcastOp);

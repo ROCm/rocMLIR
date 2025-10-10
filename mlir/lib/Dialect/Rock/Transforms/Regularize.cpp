@@ -387,14 +387,14 @@ regularizeTransformStack(memref::AllocOp oldAlloc, OpOperand *transformedUse,
   }
 
   rw.setInsertionPointAfter(oldAlloc);
-  auto newAlloc = rw.create<memref::AllocOp>(
-      oldAlloc.getLoc(), cast<MemRefType>(transformed.getType()));
+  auto newAlloc = memref::AllocOp::create(
+      rw, oldAlloc.getLoc(), cast<MemRefType>(transformed.getType()));
   Value newBuffer = newAlloc.getResult();
   rw.modifyOpInPlace(transformedUse->getOwner(),
                      [&]() { transformedUse->set(newBuffer); });
   Value viewed = newBuffer;
   for (auto [inverse, loc] : llvm::reverse(inverses))
-    viewed = rw.create<rock::TransformOp>(loc, viewed, inverse);
+    viewed = rock::TransformOp::create(rw, loc, viewed, inverse);
   // Don't replace the use that kicked all this off, we're probably about to
   // erase it.
   rw.replaceAllUsesExcept(buffer, viewed, transforms.back());
@@ -473,7 +473,7 @@ static LogicalResult isolateMultipleTransformingReaders(
       return allocOp.emitOpError("expected transformed reader ")
              << *(readOperand->getOwner()) << " to trace value to " << buffer
              << " but it reached " << probablyBuffer;
-    auto newBuffer = rw.create<memref::AllocOp>(loc, buffer.getType());
+    auto newBuffer = memref::AllocOp::create(rw, loc, buffer.getType());
     if (!transforms.empty()) {
       TransformOp viewRoot = transforms.back();
       rw.modifyOpInPlace(viewRoot, [&]() {
@@ -484,7 +484,7 @@ static LogicalResult isolateMultipleTransformingReaders(
                          [&]() { readOperand->set(newBuffer.getResult()); });
     }
     rw.setInsertionPointAfter(writeOperand);
-    auto copy = rw.create<memref::CopyOp>(loc, allocOp, newBuffer);
+    auto copy = memref::CopyOp::create(rw, loc, allocOp, newBuffer);
     state.worklist.push_back(newBuffer);
     state.outputFusionWrites.insert(&copy.getTargetMutable());
     bufferDeps.analyze(newBuffer);

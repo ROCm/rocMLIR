@@ -18,6 +18,7 @@
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallBitVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/iterator_range.h"
@@ -68,7 +69,6 @@ namespace dwarf {
 enum Tag : uint16_t;
 }
 
-class DbgVariableIntrinsic;
 class DbgVariableRecord;
 
 LLVM_ABI extern cl::opt<bool> EnableFSDiscriminator;
@@ -872,22 +872,22 @@ protected:
                    SizeInBits, AlignInBits, Encoding, NumExtraInhabitants,
                    Flags, Storage, ShouldCreate);
   }
-  LLVM_ABI static DIBasicType *getImpl(LLVMContext &Context, unsigned Tag,
-                                       MDString *Name, uint64_t SizeInBits,
-                                       uint32_t AlignInBits, unsigned Encoding,
-                                       uint32_t NumExtraInhabitants,
-                                       DIFlags Flags, StorageType Storage,
-                                       bool ShouldCreate = true) {
+  static DIBasicType *getImpl(LLVMContext &Context, unsigned Tag,
+                              MDString *Name, uint64_t SizeInBits,
+                              uint32_t AlignInBits, unsigned Encoding,
+                              uint32_t NumExtraInhabitants, DIFlags Flags,
+                              StorageType Storage, bool ShouldCreate = true) {
     auto *SizeInBitsNode = ConstantAsMetadata::get(
         ConstantInt::get(Type::getInt64Ty(Context), SizeInBits));
     return getImpl(Context, Tag, Name, SizeInBitsNode, AlignInBits, Encoding,
                    NumExtraInhabitants, Flags, Storage, ShouldCreate);
   }
-  static DIBasicType *getImpl(LLVMContext &Context, unsigned Tag,
-                              MDString *Name, Metadata *SizeInBits,
-                              uint32_t AlignInBits, unsigned Encoding,
-                              uint32_t NumExtraInhabitants, DIFlags Flags,
-                              StorageType Storage, bool ShouldCreate = true);
+  LLVM_ABI static DIBasicType *getImpl(LLVMContext &Context, unsigned Tag,
+                                       MDString *Name, Metadata *SizeInBits,
+                                       uint32_t AlignInBits, unsigned Encoding,
+                                       uint32_t NumExtraInhabitants,
+                                       DIFlags Flags, StorageType Storage,
+                                       bool ShouldCreate = true);
 
   TempDIBasicType cloneImpl() const {
     return getTemporary(getContext(), getTag(), getRawName(),
@@ -1007,7 +1007,7 @@ class DIFixedPointType : public DIBasicType {
                    SizeInBits, AlignInBits, Encoding, Flags, Kind, Factor,
                    Numerator, Denominator, Storage, ShouldCreate);
   }
-  LLVM_ABI static DIFixedPointType *
+  static DIFixedPointType *
   getImpl(LLVMContext &Context, unsigned Tag, MDString *Name,
           uint64_t SizeInBits, uint32_t AlignInBits, unsigned Encoding,
           DIFlags Flags, unsigned Kind, int Factor, APInt Numerator,
@@ -1018,7 +1018,7 @@ class DIFixedPointType : public DIBasicType {
                    Flags, Kind, Factor, Numerator, Denominator, Storage,
                    ShouldCreate);
   }
-  static DIFixedPointType *
+  LLVM_ABI static DIFixedPointType *
   getImpl(LLVMContext &Context, unsigned Tag, MDString *Name,
           Metadata *SizeInBits, uint32_t AlignInBits, unsigned Encoding,
           DIFlags Flags, unsigned Kind, int Factor, APInt Numerator,
@@ -1129,23 +1129,23 @@ class DIStringType : public DIType {
                    StringLength, StrLenExp, StrLocationExp, SizeInBitsNode,
                    AlignInBits, Encoding, Storage, ShouldCreate);
   }
-  LLVM_ABI static DIStringType *
-  getImpl(LLVMContext &Context, unsigned Tag, MDString *Name,
-          Metadata *StringLength, Metadata *StrLenExp, Metadata *StrLocationExp,
-          uint64_t SizeInBits, uint32_t AlignInBits, unsigned Encoding,
-          StorageType Storage, bool ShouldCreate = true) {
+  static DIStringType *getImpl(LLVMContext &Context, unsigned Tag,
+                               MDString *Name, Metadata *StringLength,
+                               Metadata *StrLenExp, Metadata *StrLocationExp,
+                               uint64_t SizeInBits, uint32_t AlignInBits,
+                               unsigned Encoding, StorageType Storage,
+                               bool ShouldCreate = true) {
     auto *SizeInBitsNode = ConstantAsMetadata::get(
         ConstantInt::get(Type::getInt64Ty(Context), SizeInBits));
     return getImpl(Context, Tag, Name, StringLength, StrLenExp, StrLocationExp,
                    SizeInBitsNode, AlignInBits, Encoding, Storage,
                    ShouldCreate);
   }
-  static DIStringType *getImpl(LLVMContext &Context, unsigned Tag,
-                               MDString *Name, Metadata *StringLength,
-                               Metadata *StrLenExp, Metadata *StrLocationExp,
-                               Metadata *SizeInBits, uint32_t AlignInBits,
-                               unsigned Encoding, StorageType Storage,
-                               bool ShouldCreate = true);
+  LLVM_ABI static DIStringType *
+  getImpl(LLVMContext &Context, unsigned Tag, MDString *Name,
+          Metadata *StringLength, Metadata *StrLenExp, Metadata *StrLocationExp,
+          Metadata *SizeInBits, uint32_t AlignInBits, unsigned Encoding,
+          StorageType Storage, bool ShouldCreate = true);
 
   TempDIStringType cloneImpl() const {
     return getTemporary(getContext(), getTag(), getRawName(),
@@ -2520,10 +2520,8 @@ public:
 class DILocation : public MDNode {
   friend class LLVMContextImpl;
   friend class MDNode;
-#ifdef EXPERIMENTAL_KEY_INSTRUCTIONS
   uint64_t AtomGroup : 61;
   uint64_t AtomRank : 3;
-#endif
 
   DILocation(LLVMContext &C, StorageType Storage, unsigned Line,
              unsigned Column, uint64_t AtomGroup, uint8_t AtomRank,
@@ -2553,20 +2551,8 @@ class DILocation : public MDNode {
   }
 
 public:
-  uint64_t getAtomGroup() const {
-#ifdef EXPERIMENTAL_KEY_INSTRUCTIONS
-    return AtomGroup;
-#else
-    return 0;
-#endif
-  }
-  uint8_t getAtomRank() const {
-#ifdef EXPERIMENTAL_KEY_INSTRUCTIONS
-    return AtomRank;
-#else
-    return 0;
-#endif
-  }
+  uint64_t getAtomGroup() const { return AtomGroup; }
+  uint8_t getAtomRank() const { return AtomRank; }
 
   const DILocation *getWithoutAtom() const {
     if (!getAtomGroup() && !getAtomRank())
@@ -4210,6 +4196,29 @@ public:
                                          unsigned ArgNo,
                                          Type *NewArgType = nullptr);
 
+  /// Create a copy of \p Expr updated to reflect that the debug operands
+  /// whose indexes are set in \p SpilledOpIndexes were spilled to the stack,
+  /// which is in the \p SpillAddrSpace address space.
+  ///
+  /// Handles both New and Old expressions, including Old expressions without
+  /// an explicit DW_OP_LLVM_arg.
+  static const DIExpression *spillArgs(const DIExpression *Expr,
+                                       SmallBitVector SpilledOpIndexes,
+                                       unsigned SpillAddrSpace);
+
+  /// Create a copy of \p Expr with an explicit indirection if \p IsIndirect, in
+  /// preparation for changing the referring intrinsic from one with the concept
+  /// of "IsIndirect" to one without it.
+  ///
+  /// Handles both Old and New expressions, being a no-op for New expressions
+  /// which always include indirection explicitly.
+  static const DIExpression *foldIntrinsicIndirection(const DIExpression *Expr,
+                                                      bool IsIndirect);
+
+  /// Create a copy of \p Expr updated to be suitable for use by DBG_INSTR_REF.
+  static const DIExpression *convertForInstrRef(const DIExpression *Expr,
+                                                bool IsIndirect);
+
   /// Create a copy of \p Expr with each instance of
   /// `DW_OP_LLVM_arg, \p OldArg` replaced with `DW_OP_LLVM_arg, \p NewArg`,
   /// and each instance of `DW_OP_LLVM_arg, Arg` with `DW_OP_LLVM_arg, Arg - 1`
@@ -5323,7 +5332,6 @@ class DebugVariable {
   LLVM_ABI static const FragmentInfo DefaultFragment;
 
 public:
-  LLVM_ABI DebugVariable(const DbgVariableIntrinsic *DII);
   LLVM_ABI DebugVariable(const DbgVariableRecord *DVR);
 
   DebugVariable(const DILocalVariable *Var,
@@ -5391,7 +5399,7 @@ template <> struct DenseMapInfo<DebugVariable> {
 /// information).
 class DebugVariableAggregate : public DebugVariable {
 public:
-  LLVM_ABI DebugVariableAggregate(const DbgVariableIntrinsic *DVI);
+  LLVM_ABI DebugVariableAggregate(const DbgVariableRecord *DVR);
   DebugVariableAggregate(const DebugVariable &V)
       : DebugVariable(V.getVariable(), std::nullopt, V.getInlinedAt()) {}
 };

@@ -24,6 +24,7 @@ LLVMCoroutines
 LLVMDebugInfoBTF
 LLVMDebugInfoCodeView
 LLVMDebugInfoDWARF
+LLVMDebugInfoDWARFLowLevel
 LLVMDebugInfoGSYM
 LLVMDebugInfoMSF
 LLVMDebugInfoPDB
@@ -31,6 +32,7 @@ LLVMDemangle
 LLVMExtensions
 LLVMFrontendAtomic
 LLVMFrontendDirective
+LLVMFrontendHLSL
 LLVMFrontendOffloading
 LLVMFrontendOpenMP
 LLVMGlobalISel
@@ -143,8 +145,6 @@ MLIRMemRefToLLVM
 MLIRMemRefTransforms
 MLIRMemRefUtils
 MLIRMemorySlotInterfaces
-MLIRMeshDialect
-MLIRMeshTransforms
 MLIRNVGPUDialect
 MLIRNVVMDialect
 MLIRNVVMTarget
@@ -156,6 +156,7 @@ MLIRParallelCombiningOpInterface
 MLIRParser
 MLIRPass
 MLIRPresburger
+MLIRPtrMemorySpaceInterfaces
 MLIRQuantDialect
 MLIRQuantUtils
 MLIRROCDLDialect
@@ -175,6 +176,8 @@ MLIRSPIRVImageInterfaces
 MLIRSPIRVSerialization
 MLIRSPIRVTarget
 MLIRShapedOpInterfaces
+MLIRShardDialect
+MLIRShardTransforms
 MLIRShardingInterface
 MLIRSideEffectInterfaces
 MLIRSparseTensorDialect
@@ -213,6 +216,7 @@ MLIRVectorTransforms
 MLIRVectorUtils
 MLIRViewLikeInterface
 MLIRX86VectorDialect
+MLIRXeVMDialect
 lldCommon
 lldELF
 )
