@@ -56,6 +56,7 @@
 #include "mlir/Transforms/RegionUtils.h"
 
 #include "GridLayoutEmitter.h"
+#include "LdsTransposeLoad.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
