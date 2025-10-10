@@ -988,14 +988,6 @@ pipeline {
                         }
                     }
                 }
-                post {
-                    unsuccessful {
-                        rebootNode()
-                    }
-                    always {
-                        cleanWs()
-                    }
-                }
             }
         }
         stage ("Tune MLIR kernels") {
