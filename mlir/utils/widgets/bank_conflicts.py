@@ -80,7 +80,7 @@ class Config:
         self.element_size_bytes = Config.compute_element_size_bytes(data_type)
         self.block_size = block_size
         self.elementInABank = Config.bank_size_bytes // self.element_size_bytes
-        self.copy_per_thread = d * self.K // self.block_size
+        self.copy_per_thread = d * self.k // self.block_size
         self.copyDPerThread = self.copy_per_thread // self.k_pack
 
     def __str__(self):
@@ -93,7 +93,7 @@ MperWave: {self.d_per_wave} elements
 k_pack: {self.k_pack} elements
 
 Parameters:
-LDS size: {self.M*self.K*self.element_size_bytes} bytes
+LDS size: {self.M*self.k*self.element_size_bytes} bytes
 block_size: {self.blocksize} workitems
 copy_per_thread : {self.copy_per_thread} elements
 copy_per_threadM: {self.dataperthreadAlongM} elements
