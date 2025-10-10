@@ -59,3 +59,6 @@ if __name__ == '__main__':
     except FileNotFoundError:
         print(f"Error: No performance report found for {sys.argv[1]}")
         sys.exit(1)
+    except Exception as e:
+        print(f'Error: {e}')
+        sys.exit(1)

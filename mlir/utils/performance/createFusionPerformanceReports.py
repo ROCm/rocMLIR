@@ -48,3 +48,6 @@ if __name__ == '__main__':
     except FileNotFoundError:
         print('Perf report not found.')
         sys.exit(1)
+    except Exception as e:
+        print(f'Error: {e}')
+        sys.exit(1)
