@@ -32,15 +32,15 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "LdsTransposeLoad.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
-
-#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
@@ -439,6 +439,9 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t nRepeats = params.nRepeats;
     int64_t kBase = params.kBase;
     int64_t kBasePerThread = params.kBasePerThread;
+    int64_t mPerBlock = tuningParams.getMPerBlock();
+    int64_t nPerBlock = tuningParams.getNPerBlock();
+    int64_t kPerBlock = kpackPerBlock * tuningParams.getKpack();
 
     auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
 
@@ -523,11 +526,16 @@ struct BlockwiseGemmAccelRewritePattern
           viewForReadInto = viewBufferAs(
               b, inputBuffer, getElementTypeOrSelf(argType), shapeForLoad);
         }
+        const hwtranspose::Decision &currentDecision =
+            isA ? decisionA : decisionB;
         // regs = read from LDS
-        ThreadwiseReadIntoOp::create(
+        auto twr = ThreadwiseReadIntoOp::create(
             b, loc, wrappedLDSBufferForLoad, viewForReadInto,
             b.getArrayAttr({}), ValueRange{tid, loopVar}, /*forceUnroll=*/true,
             /*useIndexDiffs=*/true);
+        if (hwtranspose::isApplicable(currentDecision)) {
+          hwtranspose::attachAttributes(twr, currentDecision, b);
+        }
       } else {
         if (cast<ShapedType>(buffer.getType()).getRank() == 1) {
           StringRef dk = isA ? "mk" : "nk";
@@ -544,7 +552,23 @@ struct BlockwiseGemmAccelRewritePattern
       return buffer;
     };
 
-    auto mLoop = affine::AffineForOp::create(b, loc, 0, mRepeats);
+    hwtranspose::Decision decisionA, decisionB;
+    if (directToLDS) {
+      auto *mfma = dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get());
+      if (!mfma) {
+        return failure();
+      }
+      hwtranspose::MfmaInstrShape shape{mfma->getMfmaNonKDim(),
+                                        mfma->getMfmaK()};
+      decisionA = hwtranspose::makeDecision(
+          arch, dataTypeA, op.getLdsLayoutMxK(), op.getLdsLayoutNxK(), shape,
+          hwtranspose::OperandKind::A, mPerBlock, nPerBlock, kPerBlock);
+      decisionB = hwtranspose::makeDecision(
+          arch, dataTypeB, op.getLdsLayoutMxK(), op.getLdsLayoutNxK(), shape,
+          hwtranspose::OperandKind::B, mPerBlock, nPerBlock, kPerBlock);
+    }
+
+    auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(mLoop.getBody());
