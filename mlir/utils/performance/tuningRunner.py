@@ -62,7 +62,7 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths,
     rocmlir_gen_command = paths.mlir_paths.rocmlir_gen_path + \
         verify_mode_flags(options.verify_mode) + \
         ' -print-verify-results=summary ' + \
-        config.generate_mlir_drver_commandline(options.rocmlir_gen_flags)
+        config.generate_mlir_driver_commandline(options.rocmlir_gen_flags)
     rocmlir_driver_command = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [
         '-O2',
@@ -193,7 +193,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                                                   options.num_cu)
             test_vector = config.to_command_line()
             print("Tuning:", test_vector, file=sys.stderr)
-            command_line_options = config.generate_mlir_drver_commandline(
+            command_line_options = config.generate_mlir_driver_commandline(
                 options.rocmlir_gen_flags)
             # Note, we don't need the -ph, this goes to the tuning driver
             kernel_gen_command = paths.mlir_paths.rocmlir_gen_path + ' ' + command_line_options

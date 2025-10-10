@@ -67,8 +67,8 @@ class MLIROnlyConfig(ConvConfiguration):
                 paddingWL={self.padding_wl!r}, paddingWR={self.padding_wr!r}, dilationH={self.dilation_h!r}, dilationW={self.dilation_w!r},
                 group={self.group!r}, arch={self.arch!r}, usesV4R1={v4r1_str!r}, perfConfig={perf_config_str!r})"""
 
-    def generate_mlir_drver_commandline(self,
-                                        rocmlir_gen_flags) -> Sequence[str]:
+    def generate_mlir_driver_commandline(self,
+                                         rocmlir_gen_flags) -> Sequence[str]:
         direction = {
             'fwd': 'conv',
             'bwd': 'conv_bwd_data',
@@ -223,10 +223,10 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
     if isinstance(config, MLIROnlyConfig):
-        rocmlir_gen_opts = config.generate_mlir_drver_commandline(
+        rocmlir_gen_opts = config.generate_mlir_driver_commandline(
             options.flags)
     else:
-        rocmlir_gen_opts = config.generate_mlir_drver_commandline(
+        rocmlir_gen_opts = config.generate_mlir_driver_commandline(
             ' '.join(options.flags), kernel_repeats=None).split()
         if getattr(config, "currentSeqLen") is not None:
             rocmlir_gen_opts.append(
@@ -560,8 +560,8 @@ async def run_config(param_iter: Iterable[IterType],
         print("*** Summary of failures ***")
         for c in failures:
             print(' '.join(
-                c.generate_mlir_drver_commandline(options.flags,
-                                                  kernel_repeats=None)))
+                c.generate_mlir_driver_commandline(options.flags,
+                                                   kernel_repeats=None)))
     print(
         f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0
