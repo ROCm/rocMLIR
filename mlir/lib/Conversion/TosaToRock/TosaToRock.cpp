@@ -781,7 +781,7 @@ public:
                                 tosa::CustomOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
     // Make sure its a valid CustomOp representing a convolution.
-    if (op.getDomainName() != "rock")
+    if (op.getDomainName() != "rocmlir")
       return op->emitError("domain isn't rock");
     if (op.getOperatorName() != "conv_bwd_data" &&
         op.getOperatorName() != "conv_bwd_weight")

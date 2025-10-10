@@ -13,7 +13,7 @@ func.func @bwd_data_conv2d(%arg0: tensor<131072xf32>, %arg1: tensor<4194304xf32>
   %5 = tosa.transpose %1 {perms = array<i32: 0, 2, 3, 1>} : (tensor<512x512x4x4xf32>) -> tensor<512x4x4x512xf32>
   %6 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
   %7 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<512xf32>}> : () -> tensor<512xf32>
-  %8 = tosa.custom %4, %5, %7, %6, %6 {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1>, domain_name = "rock", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 2, 2>} : (tensor<1x16x16x512xf32>, tensor<512x4x4x512xf32>, tensor<512xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x32x32x512xf32>
+  %8 = tosa.custom %4, %5, %7, %6, %6 {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 2, 2>} : (tensor<1x16x16x512xf32>, tensor<512x4x4x512xf32>, tensor<512xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x32x32x512xf32>
   %9 = tosa.transpose %8 {perms = array<i32: 0, 3, 1, 2>} : (tensor<1x32x32x512xf32>) -> tensor<1x512x32x32xf32>
   %10 = tosa.const_shape  {values = dense<524288> : tensor<1xindex>} : () -> !tosa.shape<1>
   %11 = tosa.reshape %9, %10 : (tensor<1x512x32x32xf32>, !tosa.shape<1>) -> tensor<524288xf32>
@@ -41,7 +41,7 @@ func.func @bwd_data_conv1d(%arg0: tensor<64xf32>, %arg1: tensor<672xf32>, %arg2:
   %12 = tosa.transpose %11 {perms = array<i32: 0, 2, 1>} : (tensor<1x3x224xf32>) -> tensor<1x224x3xf32>
   %13 = tosa.reshape %12, %5 : (tensor<1x224x3xf32>, !tosa.shape<4>) -> tensor<1x224x1x3xf32>
   %14 = tosa.reshape %arg2, %4 : (tensor<192xf32>, !tosa.shape<4>) -> tensor<64x1x1x3xf32>
-  %15 = tosa.custom %13, %14, %2, %3, %3 {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1>, domain_name = "rock", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x224x1x3xf32>, tensor<64x1x1x3xf32>, tensor<64xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x224x1x64xf32>
+  %15 = tosa.custom %13, %14, %2, %3, %3 {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>} : (tensor<1x224x1x3xf32>, tensor<64x1x1x3xf32>, tensor<64xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x224x1x64xf32>
   %16 = tosa.reshape %15, %1 : (tensor<1x224x1x64xf32>, !tosa.shape<3>) -> tensor<1x224x64xf32>
   %17 = tosa.transpose %16 {perms = array<i32: 0, 2, 1>} : (tensor<1x224x64xf32>) -> tensor<1x64x224xf32>
   %18 = tosa.add %17, %10 : (tensor<1x64x224xf32>, tensor<1x64x224xf32>) -> tensor<1x64x224xf32>

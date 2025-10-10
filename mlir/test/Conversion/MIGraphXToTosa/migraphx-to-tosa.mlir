@@ -206,11 +206,11 @@ func.func @quant_conv2d_float8(%arg0: !migraphx.shaped<1x16x4x4xf8E5M2, 256x16x4
   return %0 : !migraphx.shaped<1x16x4x4xf32, 256x16x4x1>
 }
 
-// CHECK-LABEL: @bwd_data_conv
+// CHECK-LABEL: @bwd_data_conv2d
 func.func @bwd_data_conv2d(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16x1>,
                                         %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {arch = "gfx942", kernel = "mixr", num_cu = 0 : i64} {
   // CHECK: tosa.custom
-  // CHECK-SAME: {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1>, domain_name = "rock", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 2, 2>}
+  // CHECK-SAME: {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 2, 2>}
   %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
     dilation = [1, 1],
     group = 1 : i64,
@@ -223,7 +223,7 @@ func.func @bwd_data_conv2d(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16
 // CHECK-LABEL: @bwd_data_conv1d
 func.func @bwd_data_conv1d(%arg0: !migraphx.shaped<1x64x224xf32, 0x1x0>, %arg1: !migraphx.shaped<1x3x224xf32, 672x224x1>, %arg2: !migraphx.shaped<64x3x1xf32, 3x1x1>) -> !migraphx.shaped<1x64x224xf32, 14336x224x1> {
   // CHECK: tosa.custom
-  // CHECK-SAME: {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1>, domain_name = "rock", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>}
+  // CHECK-SAME: {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0>, stride = array<i64: 1, 1>}
   %0 = migraphx.backwards_data_convolution %arg1, %arg2 {
     dilation = [1],
     group = 1 : i64,
