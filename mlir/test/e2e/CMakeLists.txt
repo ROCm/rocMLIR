@@ -46,7 +46,8 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrConvElementwiseGemmF16SplitK
     PrConvElementwiseGemmBF16SplitK
     PrGemmDirectToLDS
-  )
+    LdsTransposeLoad
+    )
   set(GEN_MODE "")
 endif()
 if (ROCK_E2E_TEST_ENABLED)
