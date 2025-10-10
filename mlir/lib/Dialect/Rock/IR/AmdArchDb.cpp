@@ -17,9 +17,9 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 
-// HIP and HSA are not supported on Windows CI.
-#ifndef _WIN32
-#include "hip/hip_runtime_api.h"
+#include "hip/hip.h"
+
+#ifdef ROCMLIR_USE_HSA_RUNTIME
 #include "hsa/hsa.h"
 #include "hsa/hsa_ext_amd.h"
 #endif
@@ -138,10 +138,6 @@ static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   return ret;
 }
 
-// native arch is not supported in Windows, which lacks both HSA and
-// HIP libraries during CI. For more information check:
-// https://github.com/ROCm/rocMLIR/pull/1790
-#ifndef _WIN32
 namespace {
 
 template <typename LHS, typename RHS>
@@ -178,7 +174,7 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
                   prop.sharedMemPerBlock);
 
 // We cannot get those values under Windows, since HSA is not supported.
-#ifndef _WIN32
+#ifdef ROCMLIR_USE_HAS_RUNTIME
   checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agentInfo.simdsPerCU);
   checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
                   agentInfo.maxWavesPerCU / agentInfo.simdsPerCU);
@@ -329,18 +325,14 @@ AmdArchInfo nativeArchInfo(unsigned deviceId = 0) {
 
 } // anonymous namespace
 
-#endif // _WIN32
+#endif // ROCMLIR_USE_HAS_RUNTIME
 
 AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
   // Keep this implementation in sync with
   // mlir/test/lit.site.cfg.py.in:set_arch_features()
   auto [chip, deviceId] = parseArchString(arch);
   if (chip == "native") {
-#ifdef _WIN32
-    llvm_unreachable("native arch lookup is not supported on Windows");
-#else
     return nativeArchInfo(deviceId);
-#endif
   }
   StringRef minor = chip.take_back(2);
   StringRef major = chip.slice(0, chip.size() - 2);

@@ -1,6 +1,5 @@
-if(NOT WIN32)
-    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
-
+find_package(Python 3 COMPONENTS Interpreter Development QUIET)
+if(Python_FOUND)
     include(${LLVM_EXTERNAL_SRC_DIR}/mlir/cmake/modules/MLIRDetectPythonEnv.cmake)
     mlir_detect_pybind11_install()
 

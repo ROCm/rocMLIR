@@ -47,22 +47,10 @@ target_link_libraries(MLIRRockOps
   MLIRLinalgTransformOps
   )
 
-# ROCm on Windows does not support HSA.
-# Also HIP is not supported on our CI,
-# so we cannot use either of them.
-if (NOT WIN32)
-  # From: https://github.com/ROCm/rocMLIR/blob/b6c726a324d2807494f770ed915af0e54cc6cb3f/external/llvm-project/mlir/lib/ExecutionEngine/CMakeLists.txt#L414
-  find_package(hip REQUIRED PATHS ${ROCM_PATH})
-  # We do need both of these. One is for linking, to get the HIP
-  # functions.  The other is for compiling, to get -D__HIP_PLATFORM_AMD__
-  target_link_libraries(MLIRRockOps PUBLIC
-    hip::host hip::amdhip64
-  )
-  target_link_libraries(obj.MLIRRockOps PUBLIC
-    hip::host hip::amdhip64
-  )
+find_package(hip REQUIRED PATHS ${ROCM_PATH} ${HIP_PATH})
+target_link_libraries(MLIRRockOps PUBLIC hip::host)
 
-  # From: https://github.com/ROCm/rocm-systems/blob/c53bdb9643afc2ef943fd25113a1c704d39aa6b4/projects/rocminfo/CMakeLists.txt
+if(ROCMLIR_USE_HSA_RUNTIME)
   find_package(hsa-runtime64 1.0 REQUIRED)
   target_link_libraries(MLIRRockOps PUBLIC hsa-runtime64::hsa-runtime64)
 endif()
