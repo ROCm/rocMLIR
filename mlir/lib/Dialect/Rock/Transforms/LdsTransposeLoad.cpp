@@ -67,9 +67,9 @@ bool calculatePanels(const MfmaInstrShape &shape, OperandKind operand,
                      int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
                      int64_t &mPanels, int64_t &nPanels, int64_t &kPanels) {
 
-  /*if (mPerBlock > 32 || nPerBlock > 32) {
+  if (mPerBlock > 32 || nPerBlock > 32) {
     return false;
-  }*/
+  }
 
   if (kPerBlock % shape.kMfma != 0) {
     return false;
