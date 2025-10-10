@@ -53,11 +53,15 @@ def printAllPerformance(chip, lib='rocBLAS'):
 
 # Main function.
 if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print("Error: missing chip argument (usage: createPerformanceReports.py <chip> [lib])")
+        sys.exit(1)
+    chip = sys.argv[1]
     lib = sys.argv[2] if len(sys.argv) > 2 else 'rocBLAS'
     try:
-        printAllPerformance(sys.argv[1], lib)
+        printAllPerformance(chip, lib)
     except FileNotFoundError:
-        print(f"Error: No performance report found for {sys.argv[1]}")
+        print(f"Error: No performance report found for {chip}")
         sys.exit(1)
     except Exception as e:
         print(f'Error: {e}')
