@@ -51,6 +51,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/InitRocMLIRCLOptions.h"
@@ -2698,6 +2699,25 @@ static Value applyMask(OpBuilder builder, Location loc, Value inputTensor,
   return result;
 }
 
+static Value getOneTensor(OpBuilder &builder, Location loc,
+                          RankedTensorType type) {
+  auto value = cast<ElementsAttr>(builder.getOneAttr(type));
+  return tosa::ConstOp::create(builder, loc, type, value);
+}
+
+static tosa::MulOp getMulOp(OpBuilder &builder, Location loc, Value input1,
+                            Value input2, Type elemType) {
+  auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+  elemType = getElementTypeOrSelf(elemType);
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+  Value constZero =
+      tosa::ConstOp::create(builder, loc, shiftType, shiftZeroAttr);
+  auto mulOp = createOpAndInfer<tosa::MulOp>(builder, loc, elemType, input1,
+                                             input2, /*shift=*/constZero);
+  return mulOp;
+}
+
 static Value createRange(OpBuilder builder, Location loc, size_t index,
                          const ArrayRef<int64_t> inpShape) {
   assert(index < inpShape.size());
@@ -2725,11 +2745,9 @@ static Value createRange(OpBuilder builder, Location loc, size_t index,
 
   // broadcast range to inputTensor shape
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
-  auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
-  auto zeroTensor = tosa::ConstOp::create(builder, loc, outType, zeroValue);
-  auto rangeBroadcast = createOpAndInfer<tosa::AddOp>(
-      builder, loc, builder.getI32Type(), zeroTensor, rangeValReshaped);
-
+  auto rangeBroadcast =
+      getMulOp(builder, loc, rangeValReshaped,
+               getOneTensor(builder, loc, outType), builder.getI32Type());
   return rangeBroadcast;
 }
 
@@ -2775,13 +2793,10 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
 
   // zero tensor
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
-  auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
-  auto zeroTensor = tosa::ConstOp::create(builder, loc, outType, zeroValue);
-
   // broadcast currentSeqLen
-  auto currentSeqLenBroadcast = createOpAndInfer<tosa::AddOp>(
-      builder, loc, builder.getI32Type(), zeroTensor, currentSeqLenVal);
-
+  auto currentSeqLenBroadcast =
+      getMulOp(builder, loc, currentSeqLenVal,
+               getOneTensor(builder, loc, outType), builder.getI32Type());
   // create mask
   auto mask =
       createOpAndInfer<tosa::GreaterOp>(builder, loc, builder.getIntegerType(1),
@@ -2823,13 +2838,11 @@ static Value broadcastBatchTosa(OpBuilder builder, Location loc,
     outShape.push_back(inpShape[i]);
   auto outType = RankedTensorType::get(outShape, inpType.getElementType());
 
-  auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
-  auto zeroTensor = tosa::ConstOp::create(builder, loc, outType, zeroValue);
-  auto addWithZero = createOpAndInfer<tosa::AddOp>(
-      builder, loc, inpType.getElementType(), zeroTensor, expandedValue);
-
+  auto mulWithOne =
+      getMulOp(builder, loc, expandedValue, getOneTensor(builder, loc, outType),
+               inpType.getElementType());
   // collapse
-  return tensor::CollapseShapeOp::create(builder, loc, addWithZero,
+  return tensor::CollapseShapeOp::create(builder, loc, mulWithOne,
                                          reassocIndices);
 }
 
@@ -2863,13 +2876,11 @@ static Value createMaskSplitKV(OpBuilder &builder, Location loc,
 
   // Create zero tensor of target shape
   auto outType = RankedTensorType::get(shape, builder.getI32Type());
-  auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
-  Value zeroTensor = builder.create<tosa::ConstOp>(loc, outType, zeroValue);
 
-  // Use tosa.add to broadcast reshaped [batch,1,1,...] to [batch,D1,D2,...]
+  // Use tosa.mul to broadcast reshaped [batch,1,1,...] to [batch,D1,D2,...]
   Value validSplitKVTensor =
-      builder.create<tosa::AddOp>(loc, outType, zeroTensor, initialTensor);
-
+      getMulOp(builder, loc, initialTensor, getOneTensor(builder, loc, outType),
+               outType);
   // create mask
   return createOpAndInfer<tosa::GreaterEqualOp>(
       builder, loc, builder.getIntegerType(1), rangeTensor, validSplitKVTensor);

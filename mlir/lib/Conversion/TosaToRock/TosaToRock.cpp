@@ -38,6 +38,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
@@ -57,29 +58,53 @@ using namespace mlir;
 
 namespace {
 
-static bool isZeroAttribute(Attribute value) {
+static bool isSpecificValueAttribute(Attribute value, double target) {
   if (auto intValue = dyn_cast<IntegerAttr>(value))
-    return intValue.getValue().isZero();
+    return target == 0.0 ? intValue.getValue().isZero()
+                         : intValue.getValue().isOne();
   if (auto fpValue = dyn_cast<FloatAttr>(value))
-    return fpValue.getValue().isZero();
+    return fpValue.getValue().isExactlyValue(target);
   if (auto splatValue = dyn_cast<SplatElementsAttr>(value))
-    return isZeroAttribute(splatValue.getSplatValue<Attribute>());
+    return isSpecificValueAttribute(splatValue.getSplatValue<Attribute>(),
+                                    target);
   if (auto elementsValue = dyn_cast<ElementsAttr>(value))
-    return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
+    return llvm::all_of(elementsValue.getValues<Attribute>(),
+                        [target](Attribute attr) {
+                          return isSpecificValueAttribute(attr, target);
+                        });
   if (auto elementsValue = dyn_cast<DenseElementsAttr>(value))
-    return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
+    return llvm::all_of(elementsValue.getValues<Attribute>(),
+                        [target](Attribute attr) {
+                          return isSpecificValueAttribute(attr, target);
+                        });
   if (auto arrayValue = dyn_cast<ArrayAttr>(value))
-    return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
+    return llvm::all_of(arrayValue.getValue(), [target](Attribute attr) {
+      return isSpecificValueAttribute(attr, target);
+    });
+  return false;
+}
+
+static bool isConstantValue(Value v, double target) {
+  if (auto cst = v.getDefiningOp<arith::ConstantOp>())
+    return isSpecificValueAttribute(cst.getValue(), target);
+  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
+    return isSpecificValueAttribute(cst.getValuesAttr(), target);
   return false;
 }
 
 static bool isConstantZero(Value v) {
-  if (auto cst = v.getDefiningOp<arith::ConstantOp>())
-    return isZeroAttribute(cst.getValue());
-  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
-    return isZeroAttribute(cst.getValuesAttr());
-  return false;
+  auto elementTy = getElementTypeOrSelf(cast<ShapedType>(v.getType()));
+  if (isa<Float8E8M0FNUType>(elementTy)) {
+    // zero is not representable in Float8E8M0FNUType
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "Encountered Float8E8M0FNUType, which cannot represent zero.\n");
+    return false;
+  }
+  return isConstantValue(v, 0.0);
 }
+
+static bool isConstantOne(Value v) { return isConstantValue(v, 1.0); }
 
 static bool isNegInfAttribute(Attribute value) {
   if (auto fpValue = dyn_cast<FloatAttr>(value)) {
@@ -1450,8 +1475,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
            (val.getDefiningOp<tensor::CollapseShapeOp>() ||
             val.getDefiningOp<tensor::ExpandShapeOp>() ||
             val.getDefiningOp<tosa::TransposeOp>() ||
-            val.getDefiningOp<tosa::AddOp>())) {
-      if (val.getDefiningOp<tosa::AddOp>()) {
+            val.getDefiningOp<tosa::MulOp>())) {
+      if (val.getDefiningOp<tosa::MulOp>()) {
         auto maybeBroadcast = addBroadcast(val);
         if (failed(maybeBroadcast))
           return failure();
@@ -1475,8 +1500,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   TosaOp getDefiningNonReshapeOpNonBroadcast(Value val) const {
     while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
            val.getDefiningOp<tensor::ExpandShapeOp>() ||
-           val.getDefiningOp<tosa::AddOp>()) {
-      if (val.getDefiningOp<tosa::AddOp>()) {
+           val.getDefiningOp<tosa::MulOp>()) {
+      if (val.getDefiningOp<tosa::MulOp>()) {
         auto maybeBroadcast = addBroadcast(val);
         if (failed(maybeBroadcast))
           return nullptr;
@@ -1507,31 +1532,31 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<Value> addBroadcast(Value val) const {
-    if (auto add = getDefiningNonReshapeOp<tosa::AddOp>(val)) {
+    if (auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val)) {
       // this is a broadcast add, one of the arguments comes is the actual
-      // value, the other is a 0 constant
-      Value nonZero;
+      // value, the other is a constant one
+      Value nonOne;
       if (auto constOp =
-              getDefiningNonReshapeOp<tosa::ConstOp>(add.getInput1())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput2();
+              getDefiningNonReshapeOp<tosa::ConstOp>(mul.getInput1())) {
+        if (isConstantOne(constOp.getResult()))
+          nonOne = mul.getInput2();
       } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
-                     add.getInput1())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput2();
+                     mul.getInput1())) {
+        if (isConstantOne(constOp.getResult()))
+          nonOne = mul.getInput2();
       }
 
       if (auto constOp =
-              getDefiningNonReshapeOp<tosa::ConstOp>(add.getInput2())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput1();
+              getDefiningNonReshapeOp<tosa::ConstOp>(mul.getInput2())) {
+        if (isConstantOne(constOp.getResult()))
+          nonOne = mul.getInput1();
       } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
-                     add.getInput2())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput1();
+                     mul.getInput2())) {
+        if (isConstantOne(constOp.getResult()))
+          nonOne = mul.getInput1();
       }
-      if (nonZero)
-        return nonZero;
+      if (nonOne)
+        return nonOne;
     }
     return failure();
   }
@@ -1539,19 +1564,19 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   LogicalResult getConstComparison(TypedValue<TensorType> input,
                                    size_t nonOneDimFromEnd) const {
     // input is a constant with a range from 0 to maxSeqLen
-    FailureOr<Value> maybeNonZero = addBroadcast(input);
-    if (failed(maybeNonZero))
+    FailureOr<Value> maybeNonOne = addBroadcast(input);
+    if (failed(maybeNonOne))
       return failure();
 
-    // check that maybeNonZero is a const with range 0..maxSeqLen
+    // check that maybeNonOne is a const with range 0..maxSeqLen
     bool isRange = false;
     Value rangeResult;
     if (auto constRange =
-            getDefiningNonReshapeOp<arith::ConstantOp>(maybeNonZero.value())) {
+            getDefiningNonReshapeOp<arith::ConstantOp>(maybeNonOne.value())) {
       rangeResult = constRange.getResult();
       isRange = isConstRange(rangeResult);
     } else if (auto constRange = getDefiningNonReshapeOp<tosa::ConstOp>(
-                   maybeNonZero.value())) {
+                   maybeNonOne.value())) {
       rangeResult = constRange.getResult();
       isRange = isConstRange(rangeResult);
     }
@@ -1737,13 +1762,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
         // input2 comes from argument: currentSeqLen
         auto input2 = greater.getInput2();
-        FailureOr<Value> maybeNonZero2 = addBroadcast(input2);
-        if (failed(maybeNonZero2))
+        FailureOr<Value> maybeNonOne2 = addBroadcast(input2);
+        if (failed(maybeNonOne2))
           return failure();
 
         // check that the right dimensions are broadcasted
         auto beforeBroadcastShape =
-            dyn_cast<ShapedType>(maybeNonZero2->getType());
+            dyn_cast<ShapedType>(maybeNonOne2->getType());
         if (beforeBroadcastShape) {
           auto shape = beforeBroadcastShape.getShape();
           if (beforeBroadcastShape.getRank() > 2 &&
@@ -1753,7 +1778,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           return failure();
         }
 
-        Value currentSeqLen = getValueNonReshapeOp(maybeNonZero2.value());
+        Value currentSeqLen = getValueNonReshapeOp(maybeNonOne2.value());
         Value result = select.getInput3();
 
         // currentSeqLen must be of i32 type
@@ -2303,10 +2328,10 @@ public:
 
 // We identify the pattern dummy add with implicit broadcasting
 // and rewrite it to be rock.transform broadcast
-class AddSplatZeroRewritePattern final : public OpRewritePattern<tosa::AddOp> {
+class MulSplatOneRewritePattern final : public OpRewritePattern<tosa::MulOp> {
 public:
-  using OpRewritePattern<tosa::AddOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(tosa::AddOp op,
+  using OpRewritePattern<tosa::MulOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(tosa::MulOp op,
                                 PatternRewriter &rw) const final {
     Location loc = op.getLoc();
     TypedValue<TensorType> inp1 = op.getInput1();
@@ -2314,11 +2339,11 @@ public:
     TypedValue<TensorType> out = op.getOutput();
 
     TypedValue<TensorType> bcastInput;
-    if (isConstantZero(inp1))
+    if (isConstantOne(inp1))
       bcastInput = inp2;
-    if (isConstantZero(inp2)) {
+    if (isConstantOne(inp2)) {
       if (bcastInput) {
-        return rw.notifyMatchFailure(op, "both inputs are splat zeros");
+        return rw.notifyMatchFailure(op, "both inputs are splat ones");
       }
       bcastInput = inp1;
     }
@@ -2328,7 +2353,7 @@ public:
       rw.replaceOp(op, bcast);
       return success();
     }
-    return rw.notifyMatchFailure(op, "none of the inputs are splat zeros");
+    return rw.notifyMatchFailure(op, "none of the inputs are splat ones");
   }
 };
 
@@ -2359,5 +2384,5 @@ void tosa::populateTosaToRockConvGemmConversionPatterns(
 void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<TransposeRewritePattern, CollapseExpandRewritePattern,
-               AddSplatZeroRewritePattern>(context);
+               MulSplatOneRewritePattern>(context);
 }
