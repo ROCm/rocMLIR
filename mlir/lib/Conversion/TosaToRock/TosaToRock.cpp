@@ -61,7 +61,7 @@ namespace {
 static bool isSpecificValueAttribute(Attribute value, double target) {
   if (auto intValue = dyn_cast<IntegerAttr>(value))
     return target == 0.0 ? intValue.getValue().isZero()
-                         : intValue.getValue().isOne();
+                         : intValue.getValue() == target;
   if (auto fpValue = dyn_cast<FloatAttr>(value))
     return fpValue.getValue().isExactlyValue(target);
   if (auto splatValue = dyn_cast<SplatElementsAttr>(value))
