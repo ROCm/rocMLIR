@@ -33,7 +33,7 @@
 // CHECK: %[[range3:.*]] = "tosa.const"() <{values = {{.*}} : tensor<1024xi32>}> : () -> tensor<1024xi32>
 // CHECK: %[[range3Reshaped:.*]] = tosa.reshape %[[range3:.*]], %{{.*}} : (tensor<1024xi32>, !tosa.shape<3>) -> tensor<1x1x1024xi32>
 // CHECK: %[[one2:.*]] = "tosa.const"() <{values = dense<1> : tensor<1x512x1024xi32>}> : () -> tensor<1x512x1024xi32>
-// CHECK: %[[rangeBroadcast3:.*]] = tosa.mul %[[one2]], %[[range3Reshaped]], %{{.*}}: (tensor<1x512x1024xi32>, tensor<1x1x1024xi32>, tensor<1xi8>) -> tensor<1x512x1024xi32>
+// CHECK: %[[rangeBroadcast3:.*]] = tosa.mul %[[one2]], %[[range3Reshaped]], %{{.*}} : (tensor<1x512x1024xi32>, tensor<1x1x1024xi32>, tensor<1xi8>) -> tensor<1x512x1024xi32>
 // CHECK: %[[mask2:.*]] = tosa.greater %[[rangeBroadcast3]], %[[rangeBroadcast2]] : (tensor<1x512x1024xi32>, tensor<1x512x1024xi32>) -> tensor<1x512x1024xi1>
 // CHECK: %[[ones:.*]] = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x512x1024xf32>}> : () -> tensor<1x512x1024xf32>
 // CHECK: %[[scaleTensor:.*]] = tosa.select %[[mask2]], %[[ones]], %[[scaledReshaped]] : (tensor<1x512x1024xi1>, tensor<1x512x1024xf32>, tensor<1x512x1024xf32>) -> tensor<1x512x1024xf32>
