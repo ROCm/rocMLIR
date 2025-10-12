@@ -231,7 +231,7 @@ func.func @mlir_softmaxf32_attention_with_scaling_multiple_converts(%arg0: tenso
   %18 = tosa.sub %13, %17 : (tensor<1x5x75352x75352xf32>, tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf32>
   %19 = tosa.exp %18 : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf32>
   %20 = tosa.reduce_sum %19 {axis = 3 : i32} : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x1xf32>
-  %21 = tosa.mul %20, %16, %shift: (tensor<1x5x75352x1xf32>, tensor<1x5x75352x75352xf32>, tensor<1xi8>) -> tensor<1x5x75352x75352xf32>
+  %21 = tosa.mul %20, %16, %shift : (tensor<1x5x75352x1xf32>, tensor<1x5x75352x75352xf32>, tensor<1xi8>) -> tensor<1x5x75352x75352xf32>
   %22 = tosa.reciprocal %21 : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf32>
   %23 = tosa.mul %19, %22, %12 : (tensor<1x5x75352x75352xf32>, tensor<1x5x75352x75352xf32>, tensor<1xi8>) -> tensor<1x5x75352x75352xf32>
   %24 = tosa.cast %23 : (tensor<1x5x75352x75352xf32>) -> tensor<1x5x75352x75352xf16>
