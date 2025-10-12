@@ -114,10 +114,6 @@ void MIGraphXToTosa::runOnOperation() {
   if (failed(applyPartialConversion(func, boundaryConversionTarget,
                                     std::move(boundaryPatterns))))
     return signalPassFailure();
-
-  OpPassManager cleanPM("func.func");
-  cleanPM.addPass(createCSEPass());
-  (void)runPipeline(cleanPM, func);
 }
 
 void mlir::migraphx::addMIGraphXToTosaPasses(OpPassManager &pm) {
