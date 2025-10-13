@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
+#include "mlir/Dialect/Rock/IR/RockTosaCustomOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -128,7 +129,7 @@ static Value createCastOp(PatternRewriter &rewriter, Location loc,
     assert(!inputType.isSignedInteger() &&
            !resElementTypeBeforeConvert.isSignedInteger());
     res = tosa::CustomOp::create(rewriter, loc, resType, ROCK_CUSTOMOP_UNSIGNED_CAST,
-                                 ROCK_TOSA_CUSTOMOP_DOMAIN_NAME, "", input)
+                                 ROCK_CUSTOMOP_DOMAIN_NAME, "", input)
               .getResult(0);
   } else {
     res = rewriter.createOrFold<tosa::CastOp>(loc, resType, input);
