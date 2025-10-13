@@ -25,7 +25,7 @@ import os
 import argparse
 import subprocess
 
-CLANG_FORMAT_PATH = '/opt/rocm/llvm/bin'
+CLANG_FORMAT_PATH = '/usr/bin/clang-format'
 EXCLUDE_FILES = ['requirements.in', 'onnx.proto']
 CLANG_EXTENSIONS = ('.c', '.cpp', '.hpp', '.h', '.cl', '.hip', '.in')
 
