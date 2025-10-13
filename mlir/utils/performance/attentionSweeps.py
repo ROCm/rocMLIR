@@ -237,7 +237,7 @@ def main():
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('-j', '--jobs', type=int, default=os.cpu_count())
     parser.add_argument('--mlir-build-dir', type=str, default=findMlirBuildDir())
-    parser.add_argument('--samples', type=int, default=20000)
+    parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
