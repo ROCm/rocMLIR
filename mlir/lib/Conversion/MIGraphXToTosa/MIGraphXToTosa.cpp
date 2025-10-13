@@ -241,6 +241,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   Operation *cop;
   Type new1DOutTy;
   Value inputZp, weightZp;
+  int lastDim = newShape.size() - 1;
   switch (dims) {
   case 1:
     // Expand to do a conv2d, because there's no 1d version of
@@ -266,7 +267,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                      rock::tosa::getZeroTensor(
                          rewriter, loc,
                          RankedTensorType::get(
-                             cast<ShapedType>(new1DOutTy).getShape()[3],
+                             cast<ShapedType>(new1DOutTy).getShape()[lastDim],
                              newOutElementTy)),
                      inputZp, weightZp});
     } else {
@@ -297,7 +298,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                      rock::tosa::getZeroTensor(
                          rewriter, loc,
                          RankedTensorType::get(
-                             cast<ShapedType>(newOutTy).getShape()[3],
+                             cast<ShapedType>(newOutTy).getShape()[lastDim],
                              newOutElementTy)),
                      inputZp, weightZp});
     } else {
@@ -328,7 +329,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                      getZeroTensor(
                          loc,
                          RankedTensorType::get(
-                             cast<ShapedType>(filter.getType()).getShape()[3],
+                             cast<ShapedType>(filter.getType()).getShape()[lastDim],
                              newOutElementTy),
                          rewriter),
                      inputZp, weightZp});
