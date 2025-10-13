@@ -473,11 +473,24 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     gpuBuffers.push_back(gpuBuffer);
   }
 
+  auto copyIR = [&](ModuleOp source,
+                    StringAttr perfConfigAttr) -> OwningOpRef<ModuleOp> {
+    OwningOpRef<ModuleOp> copy = cast<ModuleOp>(source->clone());
+
+    copy->walk([&perfConfigAttr](rock::RockGemmWrapperInterface op) {
+      op->setAttr("perf_config", perfConfigAttr);
+    });
+    copy->walk([&perfConfigAttr](rock::RockGemmGemmWrapperInterface op) {
+      op->setAttr("perf_config", perfConfigAttr);
+    });
+    return copy;
+  };
+
   // 4. Actually tune
   std::vector<SmallString<64>> configs;
   if (!benchmarkConfig.empty()) {
     // Benchmark mode - just one config
-    configs.push_back(SmallString<64>(benchmarkConfig));
+    configs.emplace_back(benchmarkConfig);
   } else {
     // Tuning mode - all configs from tuning space
     std::unique_ptr<rock::TuningParamSet> tuningSpace(
@@ -500,27 +513,25 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     llvm::outs() << perfConfig << "\t";
     OwningOpRef<ModuleOp> tuneCopy = cast<ModuleOp>(source->clone());
     StringAttr perfConfigAttr = StringAttr::get(ctx, perfConfig);
-    tuneCopy->walk([&perfConfigAttr](rock::RockGemmWrapperInterface op) {
-      op->setAttr("perf_config", perfConfigAttr);
-    });
-    tuneCopy->walk([&perfConfigAttr](rock::RockGemmGemmWrapperInterface op) {
-      op->setAttr("perf_config", perfConfigAttr);
-    });
 
-    if (!rock::isModuleFusible(tuneCopy.get(), perfConfig)) {
+    OwningOpRef<ModuleOp> applicabilityCopy = copyIR(source, perfConfigAttr);
+    if (!rock::isModuleFusible(applicabilityCopy.get(), perfConfig)) {
       llvm::outs() << "N/A\n";
       continue;
     }
 
-    if (failed(applicability.run(tuneCopy.get()))) {
+    if (failed(applicability.run(applicabilityCopy.get()))) {
       llvm::outs() << "N/A\n";
       continue;
     }
 
+    // We have to get these now, they disappear later. Also, if these attributes
+    // aren't set the contract of the applicability pipeline changed and that's
+    // a problem.
     SmallVector<uint32_t> blockSizes;
     SmallVector<uint32_t> gridSizes;
     for (auto &fnName : kernelFuncNames) {
-      auto tunedFunc = tuneCopy->lookupSymbol<func::FuncOp>(fnName);
+      auto tunedFunc = applicabilityCopy->lookupSymbol<func::FuncOp>(fnName);
       if (!tunedFunc) {
         llvm::errs() << "Tuned copy somehow missing kernel function\n";
         return failure();
@@ -530,10 +541,10 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       gridSizes.push_back(
           tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
     }
-    // We have to get these now, they disappear later. Also, if these attributes
-    // aren't set the contract of the applicability pipeline changed and that's
-    // a problem.
-    if (failed(compilation.run(tuneCopy.get()))) {
+
+    OwningOpRef<ModuleOp> compileCopy = copyIR(source, perfConfigAttr);
+
+    if (failed(compilation.run(compileCopy.get()))) {
       llvm::errs() << "Backend pipeline failed for config: " << perfConfig
                    << "\n";
       return failure();
@@ -542,7 +553,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Extract binary and benchmark
     SmallVector<std::string> hipModules;
     for (const auto &fnName : kernelFuncNames) {
-      auto binary = tuneCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
+      auto binary =
+          compileCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
       if (!binary) {
         llvm::errs() << "could not find the GPU binary\n";
       }
