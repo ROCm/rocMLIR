@@ -18,11 +18,10 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
-#include "mlir/Dialect/Rock/IR/RockTosaCustomOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/RockTosaCustomOps.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -128,7 +127,8 @@ static Value createCastOp(PatternRewriter &rewriter, Location loc,
       resElementTypeBeforeConvert.isUnsignedInteger()) {
     assert(!inputType.isSignedInteger() &&
            !resElementTypeBeforeConvert.isSignedInteger());
-    res = tosa::CustomOp::create(rewriter, loc, resType, ROCK_CUSTOMOP_UNSIGNED_CAST,
+    res = tosa::CustomOp::create(rewriter, loc, resType,
+                                 ROCK_CUSTOMOP_UNSIGNED_CAST,
                                  ROCK_CUSTOMOP_DOMAIN_NAME, "", input)
               .getResult(0);
   } else {
@@ -917,7 +917,8 @@ DivConverter::matchAndRewrite(migraphx::DivOp op, OpAdaptor adaptor,
         return op->emitError("Types of A and B must be the same");
       mlir::SmallVector<mlir::Value, 2> inputs = {inATensor, inBTensor};
       auto op = tosa::CustomOp::create(rewriter, loc, inATensor.getType(),
-                                       ROCK_CUSTOMOP_UNSIGNED_DIV, ROCK_CUSTOMOP_DOMAIN_NAME, "", inputs);
+                                       ROCK_CUSTOMOP_UNSIGNED_DIV,
+                                       ROCK_CUSTOMOP_DOMAIN_NAME, "", inputs);
       div = op->getResult(0);
     } else {
       div = createOpAndInfer<tosa::IntDivOp>(rewriter, loc, elementType,
@@ -1169,7 +1170,8 @@ ConvertConverter::matchAndRewrite(migraphx::ConvertOp op, OpAdaptor adaptor,
     assert(!inputType.isSignedInteger() && !outputType.isSignedInteger());
     rewriter.replaceOpWithNewOp<tosa::CustomOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
-        ROCK_CUSTOMOP_UNSIGNED_CAST, ROCK_CUSTOMOP_DOMAIN_NAME, "", adaptor.getInA());
+        ROCK_CUSTOMOP_UNSIGNED_CAST, ROCK_CUSTOMOP_DOMAIN_NAME, "",
+        adaptor.getInA());
   } else {
     rewriter.replaceOpWithNewOp<tosa::CastOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),

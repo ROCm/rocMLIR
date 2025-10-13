@@ -1,8 +1,8 @@
 #ifndef ROCK_TOSA_CUSTOM_OPS_H
 #define ROCK_TOSA_CUSTOM_OPS_H
 
-// Header to define "domain_name" and "operator_name"s attributes for tosa::CustomOp
-// representing rocMLIR operations.
+// Header to define "domain_name" and "operator_name"s attributes for
+// tosa::CustomOp representing rocMLIR operations.
 
 #define ROCK_CUSTOMOP_DOMAIN_NAME "rocmlir"
 

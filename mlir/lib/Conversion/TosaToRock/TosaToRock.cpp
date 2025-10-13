@@ -338,7 +338,8 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
         /*usesV4R1=*/rw.getBoolAttr(false));
   } else {
     // Handle forwards convolution
-    assert(convKind != ROCK_CUSTOMOP_CONV_BWD_WEIGHT && "bwd_weight currently not implemented");
+    assert(convKind != ROCK_CUSTOMOP_CONV_BWD_WEIGHT &&
+           "bwd_weight currently not implemented");
     cop = rock::ConvOp::create(
         rw, loc, convFields.outputExp.getType(), convFields.filterExp,
         convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
@@ -827,12 +828,13 @@ public:
     // If we are trying to convert bwd_weight, fail as it's currently not
     // supported.
     if (op.getOperatorName() == ROCK_CUSTOMOP_CONV_BWD_WEIGHT) {
-      return op->emitError("TosaToRock lowering support for bwd_weight not supported");
+      return op->emitError(
+          "TosaToRock lowering support for bwd_weight not supported");
     }
 
-    FailureOr<rock::RockConvInterface> rockConv =
-        makeRockConv(rw, op, input, filter, output, padAttr, strideAttr,
-                     dilationAttr, group, /*kernelID=*/0, ROCK_CUSTOMOP_CONV_BWD_DATA);
+    FailureOr<rock::RockConvInterface> rockConv = makeRockConv(
+        rw, op, input, filter, output, padAttr, strideAttr, dilationAttr, group,
+        /*kernelID=*/0, ROCK_CUSTOMOP_CONV_BWD_DATA);
 
     addZeroInitPrefillAttribute(op, rockConv->getOperation());
 

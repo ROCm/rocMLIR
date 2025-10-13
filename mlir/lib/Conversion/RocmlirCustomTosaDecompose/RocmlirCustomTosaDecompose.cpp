@@ -22,8 +22,8 @@
 #include "mlir/Conversion/RocmlirCustomTosaDecompose/RocmlirCustomTosaDecompose.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Rock/IR/RockTosaCustomOps.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
@@ -418,8 +418,9 @@ public:
 void mlir::rock::populateRocmlirCustomTosaDecomposeTarget(
     ConversionTarget &target) {
   target.addLegalDialect<tosa::TosaDialect>();
-  target.addDynamicallyLegalOp<tosa::CustomOp>(
-      [](tosa::CustomOp op) { return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME; });
+  target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
+    return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME;
+  });
 }
 
 void mlir::rock::populateRocmlirCustomTosaDecomposeConversionPatterns(

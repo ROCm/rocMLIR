@@ -15,8 +15,8 @@
 #include "mlir/Conversion/RocmlirCustomTosaToLinalg/RocmlirCustomTosaToLinalg.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Rock/IR/RockTosaCustomOps.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -107,8 +107,9 @@ void mlir::rock::populateRocmlirCustomTosaToLinalgTarget(
   target.addLegalOp<linalg::GenericOp, linalg::YieldOp, arith::ExtUIOp,
                     arith::TruncIOp, arith::DivUIOp, arith::FPToUIOp,
                     arith::UIToFPOp, tensor::EmptyOp>();
-  target.addDynamicallyLegalOp<tosa::CustomOp>(
-      [](tosa::CustomOp op) { return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME; });
+  target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
+    return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME;
+  });
 }
 
 void mlir::rock::populateRocmlirCustomTosaToLinalgConversionPatterns(
