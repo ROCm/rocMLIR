@@ -72,8 +72,6 @@ public:
     ShapedType resultTy = cast<ShapedType>(op->getResult(0).getType());
 
     // Translate acc_type, padding and stride attributes.
-    // TODO: Should we have all those attribute names as a constant and share
-    // them with MIGraphXToTosa?
     llvm::ArrayRef<int64_t> pad = cast<DenseI64ArrayAttr>(op->getAttr("pad"));
     llvm::ArrayRef<int64_t> stride =
         cast<DenseI64ArrayAttr>(op->getAttr("stride"));
