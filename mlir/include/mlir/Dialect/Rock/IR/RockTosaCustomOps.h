@@ -13,3 +13,4 @@
 #define ROCK_CUSTOMOP_UNSIGNED_CAST "unsigned_cast"
 
 #endif // ROCK_TOSA_CUSTOM_OPS_H
+
