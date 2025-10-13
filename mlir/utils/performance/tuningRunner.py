@@ -110,7 +110,11 @@ def getWinningConfig(tuningOutput, testVector, config, paths: Paths, options: Op
         if options.debug:
             print(result, file=sys.stderr)
         # Time is in ns
-        perfConfig, time = result.split('\t')
+        try:
+            perfConfig, time = result.split('\t')
+        except ValueError:
+            print("Invalid output")
+            return "None", -np.inf, []
         if time == "N/A":
             nanoSeconds = np.nan
         else:
