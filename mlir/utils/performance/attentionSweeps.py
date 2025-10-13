@@ -220,15 +220,15 @@ def run_attention_sweep(args, options, paths, chip):
         total_invalid += i
         total_failing.extend(f)
 
-    if failing:
+    if total_failing:
         print("\n" + "-" * 80)
         print(f"{'Failing Configurations':^80}\n")
-        for fail in failing:
+        for fail in total_failing:
             print(multilineRepr(fail))
 
     print(f"\nPassed: {total_passed}, Invalid: {total_invalid}, Failed: {len(total_failing)}")
 
-    return 1 if failing else 0
+    return 1 if total_failing else 0
 
 def main():
     parser = argparse.ArgumentParser(
