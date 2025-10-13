@@ -32,6 +32,7 @@ class Options:
     """Class for keeping option state for the parameter sweep script."""
     debug: bool
     quiet: bool
+    debugFails: bool
     arch: str
     flags: list
     concurrent_tests: int
@@ -254,7 +255,7 @@ Errors = {tuneErrs.decode('utf-8')}
     runnerOut = runnerOut.decode('utf-8')
 
     if lowering.returncode != 0:
-        if options.debug:
+        if options.debug or options.debugFails:
             print(f"""Low-level lowering did not complete succesfully for config {config!r}
 Command line = {rocmlirGenOpts}
 Errors = {loweringErrs.decode('utf-8')}
@@ -262,7 +263,7 @@ Return code = {lowering.returncode}""")
         return TestResult.FAIL
 
     if runner.returncode != 0:
-        if options.debug:
+        if options.debug or options.debugFails:
             print(f"""Runner execution failed for config {config!r}
 Output = {runnerOut}
 Errors = {runnerErrs.decode('utf-8')}
@@ -549,7 +550,7 @@ def main() -> bool:
             # unknow arch info
             print(f"""Unknown arch {arch}""", file=sys.stderr)
 
-    options = Options(debug=args.debug, quiet=args.quiet, logFailures=args.log_failures,
+    options = Options(debug=args.debug, quiet=args.quiet, logFailures=args.log_failures, debugFails = args.debug_fails,
         arch=arch, flags=rocmlir_gen_flags, concurrent_tests=args.jobs, numCu=getNumCU(perfRunner.getChip()))
 
     paths = perfRunner.create_paths(None, args.mlir_build_dir)

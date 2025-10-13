@@ -235,6 +235,7 @@ def main():
             description='Sweep parameter values for attention to detect bugs')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
+    parser.add_argument('--debug-fails', action='store_true')
     parser.add_argument('-j', '--jobs', type=int, default=os.cpu_count())
     parser.add_argument('--mlir-build-dir', type=str, default=findMlirBuildDir())
     parser.add_argument('--samples', type=int, default=1000)
@@ -248,6 +249,7 @@ def main():
     chip = chip_match.group(0)
     paths = createPaths(None, args.mlir_build_dir)
     options = Options(
+        debugFails = args.debug_fails
         debug=args.debug,
         quiet=args.quiet,
         arch=arch,
