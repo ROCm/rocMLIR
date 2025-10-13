@@ -70,8 +70,13 @@ public:
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect,
                            tensor::TensorDialect,
                            bufferization::BufferizationDialect>();
-    target.addIllegalOp<tosa::Conv2DOp, tosa::Conv3DOp, tosa::CustomOp,
-                        tosa::MatMulOp, tosa::ReduceSumOp, tosa::ReduceMaxOp>();
+    target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
+      return op.getDomainName() != "rocmlir" ||
+             (op.getOperatorName() != "conv_bwd_data" &&
+              op.getOperatorName() != "conv_bwd_weight");
+    });
+    target.addIllegalOp<tosa::Conv2DOp, tosa::Conv3DOp, tosa::MatMulOp,
+                        tosa::ReduceSumOp, tosa::ReduceMaxOp>();
 
     mlir::tosa::populateTosaToRockConversionPatterns(func->getContext(),
                                                      patterns);
