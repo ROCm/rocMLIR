@@ -437,15 +437,6 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   }
   cop->setAttr("pad", rewriter.getDenseI64ArrayAttr(pads));
 
-  // For both types of backwards convolution, we will be using
-  // tosa.transpose_conv2d, so we are going to add a conv_kind attribute so
-  // that we can distinguish between the two types in TosaToRock.
-  // TODO: We will need to add conv_kind = "bwd_weight" when we eventually
-  // add support for bwd_weight ops in MIGraphX.
-  if (isa<migraphx::ConvolutionBwdDataOp>(op)) {
-    cop->setAttr("conv_kind", rewriter.getStringAttr("bwd_data"));
-  }
-
   // Convert optional attributes
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
     cop->setAttr("perf_config", attr);
