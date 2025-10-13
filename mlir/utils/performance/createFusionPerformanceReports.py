@@ -10,13 +10,11 @@ import sys
 
 #Create html reports from .csv files
 def printAllPerformance(chip, op):
-    perfReportFound = False
 
     COLUMNS_TO_AVERAGE = ['Fusion TFlops', 'MLIR TFlops', 'Fusion/MLIR']
 
     df = pd.read_csv(chip + '_' + op + '_' +
                      reportUtils.PERF_REPORT_FUSION_FILE)
-    perfReportFound = True
 
     plotMean = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
     plotMean.name = "Geo. mean"
