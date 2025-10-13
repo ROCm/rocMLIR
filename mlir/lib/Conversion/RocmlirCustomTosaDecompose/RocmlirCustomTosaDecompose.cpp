@@ -78,6 +78,10 @@ public:
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
     Type accType = accTypeAttr.getValue();
 
+    int convDims = stride.size();                            
+    if (convDims != 2 && convDims != 3)
+      return rewriter.notifyMatchFailure(op, "conv op must be 2D or 3D");
+
     // Get inputZp and weightZp operands.
     Value inputZp = op.getOperands()[3];
     Value weightZp = op.getOperands()[4];
@@ -95,27 +99,44 @@ public:
     int64_t kernelHeight = weightTy.getDimSize(1);
     int64_t kernelWidth = weightTy.getDimSize(2);
 
-    llvm::SmallVector<int64_t> convPad(4, 0);
+    llvm::SmallVector<int64_t> convPad(convDims * 2, 0);
     convPad[0] = kernelHeight - 1 + pad[0];
     convPad[1] = kernelHeight - 1 + pad[1];
     convPad[2] = kernelWidth - 1 + pad[2];
     convPad[3] = kernelWidth - 1 + pad[3];
+    if (convDims == 3) {
+      convPad[4] = kernelWidth - 1 + pad[4];
+      convPad[5] = kernelWidth - 1 + pad[5];
+    }
 
-    auto reverse1 =
+    Value convOp;
+    Value reverse1 =
         tosa::ReverseOp::create(rewriter, loc, weightTy, weight,
                                 /* axis = */ rewriter.getI32IntegerAttr(1));
-    auto reverse2 =
+    Value reverse2 =
         tosa::ReverseOp::create(rewriter, loc, weightTy, reverse1,
                                 /* axis = */ rewriter.getI32IntegerAttr(2));
 
-    Value conv2d = tosa::Conv2DOp::create(
+    if (convDims == 2) {
+      convOp = tosa::Conv2DOp::create(
         rewriter, loc, resultTy, input, reverse2, bias, inputZp, weightZp,
         rewriter.getDenseI64ArrayAttr(convPad),
         rewriter.getDenseI64ArrayAttr(stride),
         rewriter.getDenseI64ArrayAttr({1, 1}),
-        /* acc_type = */ accType, /*group=*/nullptr);
+        /* acc_type = */ accType, /*group=*/ nullptr);
+    }
+    else {
+      Value reverse3 = tosa::ReverseOp::create(rewriter, loc, weightTy, reverse2,
+                                /* axis = */ rewriter.getI32IntegerAttr(3));
+      convOp = tosa::Conv3DOp::create(
+        rewriter, loc, resultTy, input, reverse3, bias, inputZp, weightZp,
+        rewriter.getDenseI64ArrayAttr(convPad),
+        rewriter.getDenseI64ArrayAttr(stride),
+        rewriter.getDenseI64ArrayAttr({1, 1, 1}),
+        /* acc_type = */ accType);
+    }
 
-    rewriter.replaceOp(op, conv2d);
+    rewriter.replaceOp(op, convOp);
     return success();
   }
 };

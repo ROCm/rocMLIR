@@ -116,3 +116,24 @@ func.func @bwd_data_conv1d(%arg0: tensor<64xf32>, %arg1: tensor<672xf32>, %arg2:
   return %19 : tensor<14336xf32>
 }
 
+// -----
+
+// CHECK: func.func @bwd_data_conv3d
+// CHECK: %[[reverse1:.*]] = tosa.reverse %{{.*}} {axis = 1 : i32} : (tensor<1x4x4x4x16xf32>) -> tensor<1x4x4x4x16xf32>
+// CHECK: %[[reverse2:.*]] = tosa.reverse %[[reverse1]] {axis = 2 : i32} : (tensor<1x4x4x4x16xf32>) -> tensor<1x4x4x4x16xf32>
+// CHECK: %[[reverse3:.*]] = tosa.reverse %[[reverse2]] {axis = 3 : i32} : (tensor<1x4x4x4x16xf32>) -> tensor<1x4x4x4x16xf32>
+// CHECK: tosa.conv3d %{{.*}}, %[[reverse3]], %{{.*}}, %{{.*}}, %{{.*}} {acc_type = f32, dilation = array<i64: 1, 1, 1>, pad = array<i64: 3, 3, 3, 3, 3, 3>, stride = array<i64: 1, 1, 1>} : (tensor<16x1x1x1x16xf32>, tensor<1x4x4x4x16xf32>, tensor<16xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x4x4x4x16xf32>
+func.func @bwd_data_conv3d(%arg0: tensor<1024xf32>, %arg1: tensor<256xf32>) -> tensor<1024xf32> {
+  %0 = tosa.const_shape  {values = dense<[16, 1, 1, 1, 16]> : tensor<5xindex>} : () -> !tosa.shape<5>
+  %1 = tosa.const_shape  {values = dense<1024> : tensor<1xindex>} : () -> !tosa.shape<1>
+  %2 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<16xf32>}> : () -> tensor<16xf32>
+  %3 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %4 = tosa.const_shape  {values = dense<[1, 16, 4, 4, 4]> : tensor<5xindex>} : () -> !tosa.shape<5>
+  %5 = tosa.reshape %arg0, %4 : (tensor<1024xf32>, !tosa.shape<5>) -> tensor<1x16x4x4x4xf32>
+  %6 = tosa.reshape %arg1, %0 : (tensor<256xf32>, !tosa.shape<5>) -> tensor<16x1x1x1x16xf32>
+  %7 = tosa.transpose %5 {perms = array<i32: 0, 2, 3, 4, 1>} : (tensor<1x16x4x4x4xf32>) -> tensor<1x4x4x4x16xf32>
+  %8 = tosa.custom %6, %7, %2, %3, %3 {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0, 0, 0>, stride = array<i64: 1, 1, 1>} : (tensor<16x1x1x1x16xf32>, tensor<1x4x4x4x16xf32>, tensor<16xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x4x4x4x16xf32>
+  %9 = tosa.transpose %8 {perms = array<i32: 0, 4, 1, 2, 3>} : (tensor<1x4x4x4x16xf32>) -> tensor<1x16x4x4x4xf32>
+  %10 = tosa.reshape %9, %1 : (tensor<1x16x4x4x4xf32>, !tosa.shape<1>) -> tensor<1024xf32>
+  return %10 : tensor<1024xf32>
+}
