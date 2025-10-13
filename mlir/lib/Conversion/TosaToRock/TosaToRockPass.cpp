@@ -71,9 +71,9 @@ public:
                            tensor::TensorDialect,
                            bufferization::BufferizationDialect>();
     target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
-      return op.getDomainName() != "rocmlir" ||
-             (op.getOperatorName() != "conv_bwd_data" &&
-              op.getOperatorName() != "conv_bwd_weight");
+      return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME ||
+             (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
+              op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT);
     });
     target.addIllegalOp<tosa::Conv2DOp, tosa::Conv3DOp, tosa::MatMulOp,
                         tosa::ReduceSumOp, tosa::ReduceMaxOp>();

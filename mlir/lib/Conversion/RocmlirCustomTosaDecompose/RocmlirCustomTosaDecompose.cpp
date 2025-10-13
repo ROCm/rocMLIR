@@ -51,9 +51,9 @@ public:
   LogicalResult matchAndRewrite(tosa::CustomOp op,
                                 PatternRewriter &rewriter) const final {
     // Make sure this is a transpose conv op.
-    if (op.getDomainName() != "rocmlir")
+    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
       return rewriter.notifyMatchFailure(op, "domain isn't rocmlir");
-    if (op.getOperatorName() != "conv_bwd_data")
+    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA)
       return rewriter.notifyMatchFailure(op, "isn't a conv_bwd_data");
     if (op.getNumOperands() < 5)
       return rewriter.notifyMatchFailure(op, "should have 5 or more operands");
@@ -155,9 +155,9 @@ public:
   LogicalResult matchAndRewrite(tosa::CustomOp op,
                                 PatternRewriter &rewriter) const final {
     // Make sure this is a transpose conv op.
-    if (op.getDomainName() != "rocmlir")
+    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
       return rewriter.notifyMatchFailure(op, "domain isn't rocmlir");
-    if (op.getOperatorName() != "conv_bwd_data")
+    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA)
       return rewriter.notifyMatchFailure(op, "isn't a conv_bwd_data");
     if (op.getNumOperands() < 5)
       return rewriter.notifyMatchFailure(op, "should have 5 or more operands");
@@ -418,7 +418,7 @@ void mlir::rock::populateRocmlirCustomTosaDecomposeTarget(
     ConversionTarget &target) {
   target.addLegalDialect<tosa::TosaDialect>();
   target.addDynamicallyLegalOp<tosa::CustomOp>(
-      [](tosa::CustomOp op) { return op.getDomainName() != "rocmlir"; });
+      [](tosa::CustomOp op) { return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME; });
 }
 
 void mlir::rock::populateRocmlirCustomTosaDecomposeConversionPatterns(

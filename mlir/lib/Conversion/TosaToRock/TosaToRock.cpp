@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTosaCustomOps.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
@@ -781,10 +782,10 @@ public:
                                 tosa::CustomOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
     // Make sure its a valid CustomOp representing a convolution.
-    if (op.getDomainName() != "rocmlir")
+    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
       return op->emitError("domain isn't rock");
-    if (op.getOperatorName() != "conv_bwd_data" &&
-        op.getOperatorName() != "conv_bwd_weight")
+    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
+        op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT)
       return op->emitError("has an invalid operator_name");
     if (op.getNumOperands() < 5)
       return op->emitError("should have 5 or more operands");

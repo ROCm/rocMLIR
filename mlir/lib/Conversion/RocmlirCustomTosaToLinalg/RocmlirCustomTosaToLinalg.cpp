@@ -47,10 +47,10 @@ struct UnsignedCastLoweringPattern
 LogicalResult UnsignedCastLoweringPattern::matchAndRewrite(
     tosa::CustomOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
-  if (op.getDomainName() != "rocmlir")
+  if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
     return rewriter.notifyMatchFailure(op, "domain isn't rocmlir");
-  if (op.getOperatorName() != "unsigned_cast" &&
-      op.getOperatorName() != "unsigned_div")
+  if (op.getOperatorName() != ROCK_CUSTOMOP_UNSIGNED_CAST &&
+      op.getOperatorName() != ROCK_CUSTOMOP_UNSIGNED_DIV)
     return rewriter.notifyMatchFailure(
         op, "isn't an unsigned_cast or unsigned_div");
 
@@ -72,7 +72,7 @@ LogicalResult UnsignedCastLoweringPattern::matchAndRewrite(
       iterationMaps, iteratorKinds,
       [&](OpBuilder &b, Location loc, ValueRange inputs) {
         Value result;
-        if (op.getOperatorName() == "unsigned_cast") {
+        if (op.getOperatorName() == ROCK_CUSTOMOP_UNSIGNED_CAST) {
           assert(inputs.size() == 2);
           if (isa<IntegerType>(inElemType)) {
             if (isa<FloatType>(outElemType)) {
@@ -88,7 +88,7 @@ LogicalResult UnsignedCastLoweringPattern::matchAndRewrite(
             assert(isa<IntegerType>(outElemType));
             result = arith::FPToUIOp::create(b, loc, outElemType, inputs[0]);
           }
-        } else if (op.getOperatorName() == "unsigned_div") {
+        } else if (op.getOperatorName() == ROCK_CUSTOMOP_UNSIGNED_DIV) {
           assert(isa<IntegerType>(outElemType));
           assert(isa<IntegerType>(inElemType));
           assert(inputs.size() == 3);
@@ -107,7 +107,7 @@ void mlir::rock::populateRocmlirCustomTosaToLinalgTarget(
                     arith::TruncIOp, arith::DivUIOp, arith::FPToUIOp,
                     arith::UIToFPOp, tensor::EmptyOp>();
   target.addDynamicallyLegalOp<tosa::CustomOp>(
-      [](tosa::CustomOp op) { return op.getDomainName() != "rocmlir"; });
+      [](tosa::CustomOp op) { return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME; });
 }
 
 void mlir::rock::populateRocmlirCustomTosaToLinalgConversionPatterns(
