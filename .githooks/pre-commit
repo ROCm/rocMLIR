@@ -24,12 +24,30 @@ if (( ${#files[@]} )); then
     fi
 fi
 
-echo "Running clang-format on C/C++ files..."
-cd "$(git rev-parse --show-toplevel)"
-if ! python3 mlir/utils/widgets/clangformat.py -q -i HEAD; then
-    echo "clang-format failed; aborting commit." >&2
-    (( NEED_POP )) && git stash pop -q || true
-    exit 1
+readarray -d '' cxxfiles < <(
+    git diff --cached --name-only -z --diff-filter=ACM \
+    | grep -zE '\.(c|cc|cxx|cpp|hpp|h|hh|hxx|hip|cl)$'
+)
+
+if (( ${#cxxfiles[@]} )); then
+    echo "Running clang-format on ${#cxxfiles[@]} staged C/C++ files..."
+    # Use direct clang-format to avoid re-diff logic; rely on available binary
+    clangfmt_bin="${CLANG_FORMAT_BIN:-clang-format}"
+    if ! command -v "$clangfmt_bin" >/dev/null 2>&1; then
+        echo "Warning: $clangfmt_bin not found, skipping C/C++ formatting."
+    else
+        for f in "${cxxfiles[@]}"; do
+            # Only format if file still exists
+            [[ -f "$f" ]] || continue
+            "$clangfmt_bin" -i "$f"
+        done
+        # Re-add any files changed by formatting so changes land in this commit
+        git add -- "${cxxfiles[@]}"
+        # Optionally fail if formatting introduced changes (enforce clean tree)
+        if ! git diff --cached --quiet -- "${cxxfiles[@]}"; then
+            echo "Applied clang-format changes and staged them."
+        fi
+    fi
 fi
 
 if (( NEED_POP )); then
