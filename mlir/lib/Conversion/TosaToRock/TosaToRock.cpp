@@ -689,6 +689,35 @@ static void addZeroInitPrefillAttribute(tosa::CustomOp op,
   }
 }
 
+static FailureOr<tosa::AddOp>
+replaceCstZeroWithAddNBcast(MLIRContext *context, ConversionPatternRewriter &rw,
+                            Location loc, Type resTy, Value bias, Value input,
+                            Value result) {
+  // non-zero bias, replace with tosa.add w/ broadcast
+  auto biasType = cast<ShapedType>(bias.getType());
+  if (!biasType.hasStaticShape())
+    return failure();
+
+  int64_t nDims = cast<ShapedType>(input.getType()).getRank();
+  SmallVector<int64_t> biasShape;
+  for (int i = 0; i < nDims - 1; i++)
+    biasShape.push_back(1);
+  biasShape.push_back(biasType.getShape()[0]);
+  auto newType = RankedTensorType::get(biasShape, biasType.getElementType());
+
+  // [[0, 1, 2, 3]]
+  ReassociationExprs exprs;
+  for (int i = 0; i < nDims; i++)
+    exprs.push_back(getAffineDimExpr(i, context));
+  SmallVector<ReassociationExprs, 1> reassociations;
+  reassociations.push_back(exprs);
+
+  auto biasExpand =
+      tensor::ExpandShapeOp::create(rw, loc, newType, bias, reassociations);
+
+  return tosa::AddOp::create(rw, loc, resTy, ValueRange{result, biasExpand});
+}
+
 template <typename OpT>
 class ForwardConvConverter final : public OpConversionPattern<OpT> {
 public:
@@ -745,30 +774,13 @@ public:
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
-      auto biasType = cast<ShapedType>(bias.getType());
-      if (!biasType.hasStaticShape())
+      FailureOr<tosa::AddOp> maybeResult = replaceCstZeroWithAddNBcast(
+          context, rw, loc, op.getType(), bias, input, result);
+
+      if (succeeded(maybeResult))
+        result = maybeResult.value();
+      else
         return failure();
-
-      int64_t nDims = cast<ShapedType>(input.getType()).getRank();
-      SmallVector<int64_t> biasShape;
-      for (int i = 0; i < nDims - 1; i++)
-        biasShape.push_back(1);
-      biasShape.push_back(biasType.getShape()[0]);
-      auto newType =
-          RankedTensorType::get(biasShape, biasType.getElementType());
-
-      // [[0, 1, 2, 3]]
-      ReassociationExprs exprs;
-      for (int i = 0; i < nDims; i++)
-        exprs.push_back(getAffineDimExpr(i, context));
-      SmallVector<ReassociationExprs, 1> reassociations;
-      reassociations.push_back(exprs);
-
-      auto biasExpand =
-          tensor::ExpandShapeOp::create(rw, loc, newType, bias, reassociations);
-
-      result = tosa::AddOp::create(rw, loc, op.getType(),
-                                   ValueRange{result, biasExpand});
     }
     rw.replaceOp(op, result);
     return success();
@@ -846,30 +858,13 @@ public:
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
-      auto biasType = cast<ShapedType>(bias.getType());
-      if (!biasType.hasStaticShape())
+      FailureOr<tosa::AddOp> maybeResult = replaceCstZeroWithAddNBcast(
+          context, rw, loc, op.getType(0), bias, input, result);
+
+      if (succeeded(maybeResult))
+        result = maybeResult.value();
+      else
         return failure();
-
-      int64_t nDims = cast<ShapedType>(input.getType()).getRank();
-      SmallVector<int64_t> biasShape;
-      for (int i = 0; i < nDims - 1; i++)
-        biasShape.push_back(1);
-      biasShape.push_back(biasType.getShape()[0]);
-      auto newType =
-          RankedTensorType::get(biasShape, biasType.getElementType());
-
-      // [[0, 1, 2, 3]]
-      ReassociationExprs exprs;
-      for (int i = 0; i < nDims; i++)
-        exprs.push_back(getAffineDimExpr(i, context));
-      SmallVector<ReassociationExprs, 1> reassociations;
-      reassociations.push_back(exprs);
-
-      auto biasExpand =
-          tensor::ExpandShapeOp::create(rw, loc, newType, bias, reassociations);
-
-      result = tosa::AddOp::create(rw, loc, op.getType(0),
-                                   ValueRange{result, biasExpand});
     }
     rw.replaceOp(op, result);
     return success();
