@@ -57,6 +57,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SMLoc.h"
+#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <iterator>
 #include <limits>
@@ -71,8 +72,9 @@ using namespace mlir::rock;
 // Utility Functions
 //===----------------------------------------------------------------------===//
 template <typename OpType>
-void getGemmEffects(OpType &op,
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static void
+getGemmEffects(OpType &op,
+               SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
 
@@ -84,8 +86,9 @@ void getGemmEffects(OpType &op,
 }
 
 template <typename OpType>
-void getGemmMatrixEffects(
-    OpType &op, SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static void
+getGemmMatrixEffects(OpType &op,
+                     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
 
@@ -97,8 +100,9 @@ void getGemmMatrixEffects(
 }
 
 template <typename OpType>
-void getAttentionEffects(
-    OpType &op, SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static void
+getAttentionEffects(OpType &op,
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
   effects.emplace_back(read, &op.getOutMutable());
@@ -120,8 +124,9 @@ void getAttentionEffects(
 }
 
 template <typename OpType>
-void getConvEffects(OpType &op,
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static void
+getConvEffects(OpType &op,
+               SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   effects.emplace_back(MemoryEffects::Read::get(), &op.getInputMutable(),
                        transform::TransformMappingResource::get());
   effects.emplace_back(MemoryEffects::Read::get(), &op.getFilterMutable(),
@@ -131,8 +136,9 @@ void getConvEffects(OpType &op,
 }
 
 template <typename OpType>
-void getCommonEffects(OpType &op,
-                      SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static void
+getCommonEffects(OpType &op,
+                 SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
   effects.emplace_back(read, &op.getSourceMutable());
@@ -1970,6 +1976,48 @@ LogicalResult ThreadwiseCopyOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// BlockwiseLoadTileOp
+//===----------------------------------------------------------------------===//
+
+void BlockwiseLoadTileOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  GemmLoadTileType loadType = getLoadType();
+
+  effects.emplace_back(read, &getSourceMutable());
+  if (loadType != GemmLoadTileType::BypassLDS) {
+    assert(getDestLDS() != nullptr);
+    effects.emplace_back(write, &getDestLDSMutable()[0]);
+    // DoubleBuffer means we write to LDS and then, load from it
+    if (loadType == GemmLoadTileType::DoubleBuffer)
+      effects.emplace_back(read, &getDestLDSMutable()[0]);
+  }
+  if (loadType != GemmLoadTileType::Default) {
+    assert(getDestRegisters() != nullptr);
+    effects.emplace_back(write, &getDestRegistersMutable()[0]);
+  }
+}
+
+LogicalResult BlockwiseLoadTileOp::verify() {
+  Value destLDS = getDestLDS();
+  Value destRegisters = getDestRegisters();
+  GemmLoadTileType loadType = getLoadType();
+
+  if (!destLDS && loadType != GemmLoadTileType::BypassLDS)
+    return emitOpError("destLDS must be set unless loadType is BypassLDS");
+
+  if (!destRegisters && loadType != GemmLoadTileType::Default)
+    return emitOpError("destRegisters must be set unless loadType is Default");
+
+  return success();
+}
+
+SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
+  return {getElementTypeA()};
+}
+
+//===----------------------------------------------------------------------===//
 // BlockwiseGemmOp
 //===----------------------------------------------------------------------===//
 
@@ -1999,8 +2047,47 @@ void BlockwiseGemmOp::getEffects(
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmAccelOp
 //===----------------------------------------------------------------------===//
+
+LogicalResult BlockwiseGemmAccelOp::verify() {
+  bool loadAFromLDS = getLoadAfromLDS();
+  bool loadBFromLDS = getLoadBfromLDS();
+  bool hasA = getMatrixA() != nullptr;
+  bool hasB = getMatrixB() != nullptr;
+
+  if (loadAFromLDS && !hasA)
+    return emitOpError("If loadAFromLDS is enabled, matrixA must be non-null.");
+  if (loadBFromLDS && !hasB)
+    return emitOpError("If loadBFromLDS is enabled, matrixB must be non-null.");
+
+  return success();
+}
+
 SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
   return {getMatrixA().getType()};
+}
+
+void BlockwiseGemmAccelOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
+  effects.emplace_back(read, &getMatrixCMutable());
+  effects.emplace_back(write, &getMatrixCMutable());
+
+  effects.emplace_back(read, &getBufferAMutable());
+  effects.emplace_back(read, &getBufferBMutable());
+
+  // if we load from LDS, we need to write to registers
+  if (getLoadAfromLDS()) {
+    assert(getMatrixA() != nullptr);
+    effects.emplace_back(read, &getMatrixAMutable()[0]);
+    effects.emplace_back(write, &getBufferAMutable());
+  }
+  if (getLoadBfromLDS()) {
+    assert(getMatrixB() != nullptr);
+    effects.emplace_back(read, &getMatrixBMutable()[0]);
+    effects.emplace_back(write, &getBufferBMutable());
+  }
 }
 
 //===----------------------------------------------------------------------===//
