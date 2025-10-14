@@ -1477,7 +1477,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
             val.getDefiningOp<tosa::TransposeOp>() ||
             val.getDefiningOp<tosa::MulOp>())) {
       if (val.getDefiningOp<tosa::MulOp>()) {
-        auto maybeBroadcast = addBroadcast(val);
+        auto maybeBroadcast = mulBroadcast(val);
         if (failed(maybeBroadcast))
           return failure();
         val = maybeBroadcast.value();
@@ -1502,7 +1502,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
            val.getDefiningOp<tensor::ExpandShapeOp>() ||
            val.getDefiningOp<tosa::MulOp>()) {
       if (val.getDefiningOp<tosa::MulOp>()) {
-        auto maybeBroadcast = addBroadcast(val);
+        auto maybeBroadcast = mulBroadcast(val);
         if (failed(maybeBroadcast))
           return nullptr;
         val = maybeBroadcast.value();
@@ -1531,9 +1531,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return val.getDefiningOp<TosaOp>();
   }
 
-  FailureOr<Value> addBroadcast(Value val) const {
+  FailureOr<Value> mulBroadcast(Value val) const {
     if (auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val)) {
-      // this is a broadcast add, one of the arguments comes is the actual
+      // this is a broadcast multiplication, one of the arguments is the actual
       // value, the other is a constant one
       Value nonOne;
       if (auto constOp =
@@ -1564,7 +1564,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   LogicalResult getConstComparison(TypedValue<TensorType> input,
                                    size_t nonOneDimFromEnd) const {
     // input is a constant with a range from 0 to maxSeqLen
-    FailureOr<Value> maybeNonOne = addBroadcast(input);
+    FailureOr<Value> maybeNonOne = mulBroadcast(input);
     if (failed(maybeNonOne))
       return failure();
 
@@ -1762,7 +1762,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
         // input2 comes from argument: currentSeqLen
         auto input2 = greater.getInput2();
-        FailureOr<Value> maybeNonOne2 = addBroadcast(input2);
+        FailureOr<Value> maybeNonOne2 = mulBroadcast(input2);
         if (failed(maybeNonOne2))
           return failure();
 
@@ -2326,7 +2326,7 @@ public:
   }
 };
 
-// We identify the pattern dummy add with implicit broadcasting
+// We identify the dummy pattern tosa.mul with implicit broadcasting
 // and rewrite it to be rock.transform broadcast
 class MulSplatOneRewritePattern final : public OpRewritePattern<tosa::MulOp> {
 public:
