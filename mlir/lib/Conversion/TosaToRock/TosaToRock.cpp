@@ -320,13 +320,15 @@ static FailureOr<rock::RockConvInterface>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              Value filter, Value output, DenseI64ArrayAttr pad,
              DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group, int64_t kernelID, std::string convKind) {
+             int64_t group, int64_t kernelID,
+             std::optional<std::string> convBackwardKind) {
   Location loc = op->getLoc();
   ConvFields convFields =
       commonConv(rw, op, input, filter, output, pad, stride, dilation, group);
 
   Operation *cop = nullptr;
-  if (convKind == ROCK_CUSTOMOP_CONV_BWD_DATA) {
+  if (convBackwardKind.has_value() &&
+      convBackwardKind.value() == ROCK_CUSTOMOP_CONV_BWD_DATA) {
     cop = rock::ConvBwdDataOp::create(
         rw, loc, convFields.outputExp.getType(), convFields.filterExp,
         convFields.outputExp, convFields.inputExp,
@@ -338,7 +340,8 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
         /*usesV4R1=*/rw.getBoolAttr(false));
   } else {
     // Handle forwards convolution
-    assert(convKind != ROCK_CUSTOMOP_CONV_BWD_WEIGHT &&
+    assert((!convBackwardKind.has_value() ||
+            convBackwardKind.value() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT) &&
            "bwd_weight currently not implemented");
     cop = rock::ConvOp::create(
         rw, loc, convFields.outputExp.getType(), convFields.filterExp,
@@ -801,11 +804,11 @@ public:
         op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT)
       return op->emitError("has an invalid operator_name");
     if (op.getNumOperands() < 5)
-      return op->emitError("should have 5 or more operands");
+      return op->emitError("must have 5 or more operands");
     if (op.getNumResults() != 1)
-      return op->emitError("should have 1 result");
+      return op->emitError("must have 1 result");
 
-    // Verify all required attributes are present. group is optional.
+    // Verify all required attributes are present. "group" is optional.
     for (std::string attrName : {"pad", "stride", "dilation"}) {
       if (!op->hasAttr(attrName))
         return op->emitError("expected '" + attrName +
