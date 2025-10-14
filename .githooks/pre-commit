@@ -27,6 +27,7 @@ fi
 readarray -d '' cxxfiles < <(
     git diff --cached --name-only -z --diff-filter=ACM \
     | grep -zE '\.(c|cc|cxx|cpp|hpp|h|hh|hxx|hip|cl)$'
+    | grep -zEv '^(llvm-project/|external/llvm-project/)'
 )
 
 if (( ${#cxxfiles[@]} )); then
