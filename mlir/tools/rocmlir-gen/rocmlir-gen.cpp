@@ -3832,7 +3832,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
         builder, loc, Float16Type::get(ctx), qkTensor);
     auto quantScaleF16 = getTensorForBlockArg(optionalArgsCounter++);
     qkTensor = rock::getTosaMulOp(builder, loc, qkTensor, quantScaleF16,
-                                  Float16Type::get(ctx), );
+                                  Float16Type::get(ctx));
   }
 
   if (hasAttnScale) {
