@@ -209,7 +209,7 @@ func.func @quant_conv2d_float8(%arg0: !migraphx.shaped<1x16x4x4xf8E5M2, 256x16x4
 // CHECK-LABEL: @bwd_data_conv3d
 func.func @bwd_data_conv3d(%arg0: !migraphx.shaped<1x16x4x4x4xf32, 1024x64x16x4x1>, %arg1: !migraphx.shaped<16x16x1x1x1xf32, 16x1x1x1x1>) -> !migraphx.shaped<1x16x4x4x4xf32, 1024x64x16x4x1> {
   // CHECK: tosa.custom
-  // CHECK-SAME: {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1, 1>, domain_name = "rock", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0, 0, 0>, stride = array<i64: 1, 1, 1>}
+  // CHECK-SAME: {acc_type = f32, dilation = array<i64: 1, 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0, 0, 0>, stride = array<i64: 1, 1, 1>}
   %0 = migraphx.backwards_data_convolution %arg1, %arg0 {
     dilation = [1, 1, 1],
     group = 1 : i64,
