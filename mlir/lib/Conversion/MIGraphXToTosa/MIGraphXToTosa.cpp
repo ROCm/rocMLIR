@@ -322,8 +322,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     if (isBwdDataConvOp) {
       cop = tosa::CustomOp::create(
           rewriter, loc, newOutTy,
-          /* operator_name */ "conv_bwd_data",
-          /* domain_name  */ "rocmlir",
+          /* operator_name */ ROCK_CUSTOMOP_CONV_BWD_DATA,
+          /* domain_name  */ ROCK_CUSTOMOP_DOMAIN_NAME,
           /* implementation_attrs  */ "",
           ValueRange{input, filter,
                      getZeroTensor(
