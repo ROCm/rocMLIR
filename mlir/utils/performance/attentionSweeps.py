@@ -249,7 +249,7 @@ def main():
     chip = chip_match.group(0)
     paths = createPaths(None, args.mlir_build_dir)
     options = Options(
-        debugFails = args.debug_fails
+        debugFails = args.debug_fails,
         debug=args.debug,
         quiet=args.quiet,
         arch=arch,
