@@ -323,7 +323,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
       cop = tosa::CustomOp::create(
           rewriter, loc, newOutTy,
           /* operator_name */ "conv_bwd_data",
-          /* domain_name  */ "rock",
+          /* domain_name  */ "rocmlir",
           /* implementation_attrs  */ "",
           ValueRange{input, filter,
                      getZeroTensor(
