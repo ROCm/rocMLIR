@@ -1,4 +1,4 @@
-//===- tosa Utility Functions  ------===//
+//===- tosa Utility Functions -===//
 //
 // Copyright 2025 Advanced Micro Devices.
 //
