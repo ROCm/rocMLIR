@@ -457,8 +457,9 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
   }];
 }
 
-
 // GEMM Features
+/// Keep in sync with Python bindings in
+/// mlir/lib/Dialect/Rock/utility/Bindings/AmdArchDbBindings.cpp
 def Rock_GemmFeatures_None : I32BitEnumAttrCaseNone<"none">;
 def Rock_GemmFeatures_Mfma : I32BitEnumAttrCaseBit<"mfma", 0>;
 def Rock_GemmFeatures_Wmma : I32BitEnumAttrCaseBit<"wmma", 1>;
@@ -487,6 +488,22 @@ def Rock_GemmFeatures
 }
 
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
+
+// GEMM load tile types
+def Rock_GemmLoadTileDefault : I32EnumAttrCase<"Default", 0>;
+def Rock_GemmLoadTileBypassLDS : I32EnumAttrCase<"BypassLDS", 1>;
+def Rock_GemmLoadTileDoubleBuffer : I32EnumAttrCase<"DoubleBuffer", 2>;
+
+def Rock_GemmLoadTileType
+    : Rock_I32Enum<"GemmLoadTileType", "GEMM load tile types",
+                   [Rock_GemmLoadTileDefault, Rock_GemmLoadTileBypassLDS,
+                    Rock_GemmLoadTileDoubleBuffer]> {
+  let cppNamespace = "::mlir::rock";
+  let genSpecializedAttr = 0;
+}
+
+def Rock_GemmLoadTileTypeAttr
+    : EnumAttr<Rock_Dialect, Rock_GemmLoadTileType, "GemmLoadTileType">;
 
 // Misc Attrs
 def Rock_PipelineAttr : Rock_Attr<"Pipeline"> {
