@@ -257,6 +257,7 @@ Errors = {tuneErrs.decode('utf-8')}
     if lowering.returncode != 0:
         if options.debug or options.debugFails:
             print(f"""Low-level lowering did not complete succesfully for config {config!r}
+Config = {config}
 Command line = {rocmlirGenOpts}
 Errors = {loweringErrs.decode('utf-8')}
 Return code = {lowering.returncode}""")
@@ -265,6 +266,7 @@ Return code = {lowering.returncode}""")
     if runner.returncode != 0:
         if options.debug or options.debugFails:
             print(f"""Runner execution failed for config {config!r}
+Config = {config}
 Output = {runnerOut}
 Errors = {runnerErrs.decode('utf-8')}
 Return code = {runner.returncode}""", file=sys.stderr)
@@ -275,6 +277,7 @@ Return code = {runner.returncode}""", file=sys.stderr)
     all_correct = all(line == expected_output for line in output_lines)
     if not all_correct:
         print(f"""Config returned incorrect result
+Config = {config}
 Output = {runnerOut}
 Errors = {runnerErrs.decode('utf-8')}""", file=sys.stderr)
         return TestResult.FAIL
