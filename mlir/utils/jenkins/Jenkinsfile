@@ -421,7 +421,11 @@ String getLabelFromCodepath(String codepath) {
             label = 'mlir && ( gfx1100 || gfx1101 )'
         }
     } else if (codepath == "navi4x") {
-        label = 'mlir && ( gfx1200 || gfx1201 )'
+        if (params.nightly || params.weekly) {
+            label = 'mlir && gfx1201'
+        } else {
+            label = 'mlir && ( gfx1200 || gfx1201 )'
+        }
     } else {
         echo "${codepath} is not supported"
         label = 'wrongLabel'
