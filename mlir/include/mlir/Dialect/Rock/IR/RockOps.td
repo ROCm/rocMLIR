@@ -1114,6 +1114,7 @@ def Rock_GlobalStoreOp
 defvar SameShapeVectorOfI1 = [{
   ::mlir::VectorType::get(::llvm::cast<::mlir::ShapedType>($_self).getShape(), ::mlir::IntegerType::get($_ctxt, 1))
 }];
+
 // threadwise_read_into
 def Rock_ThreadwiseReadIntoOp
     : Rock_Op<
@@ -1341,10 +1342,12 @@ defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF
 
 // blockwise_gemm_accel
 def Rock_BlockwiseGemmAccelOp
-    : Rock_Op<"blockwise_gemm_accel", [DeclareOpInterfaceMethods<
-                                          RockGemmFeaturesInterface>]>,
-      Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
-          MemRefOf<LdsBufferTypes>:$matrixB, I32Attr:$inMPerThread,
+    : Rock_Op<"blockwise_gemm_accel",
+              [AttrSizedOperandSegments,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      Arguments<(ins Optional<MemRefOf<LdsBufferTypes>>:$matrixA,
+          Optional<MemRefOf<LdsBufferTypes>>:$matrixB, I32Attr:$inMPerThread,
           I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
           UnitAttr:$loadAfromLDS, UnitAttr:$loadBfromLDS,
           UnitAttr:$splitKAcrossThreadsFirstA,
@@ -1362,11 +1365,51 @@ def Rock_BlockwiseGemmAccelOp
     scalars when kpack is 1.
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $bufferA `from` $matrixA `*`
-                        $bufferB `from` $matrixB (`features` `=` $features^)? attr-dict
-    `:` type($matrixC) `+` `` `=` type($bufferA) `from` type($matrixA) `*`
-                                  type($bufferB) `from` type($matrixB)
+    $matrixC `+` `` `=` $bufferA (`from` $matrixA^)? `*`
+                        $bufferB (`from` $matrixB^)? (`features` `=` $features^)? attr-dict
+    `:` type($matrixC) `+` `` `=` type($bufferA) (`from` type($matrixA)^)? `*`
+                                  type($bufferB) (`from` type($matrixB)^)?
   }];
+  let hasVerifier = 1;
+}
+
+// blockwise_load_tile
+def Rock_BlockwiseLoadTileOp
+    : Rock_Op<"blockwise_load_tile",
+              [AttrSizedOperandSegments,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
+                         "source global memory">:$source,
+          Arg<Optional<MemRefOf<LdsBufferTypes>>, "destination LDS">:$destLDS,
+          Arg<Optional<MemRefOf<NativeMemoryOpTypes>>,
+              "destination registers">:$destRegisters,
+          Rock_GemmLoadTileTypeAttr:$loadType, UnitAttr:$isA,
+          TypeAttr:$elementTypeA, TypeAttr:$elementTypeB,
+          TypeAttr:$elementTypeALoad, TypeAttr:$elementTypeBLoad,
+          UnitAttr:$rotateWithK, UnitAttr:$swapThreadIterSubDims,
+          Variadic<Index>:$sourceIndices, I64Attr:$G, I64Attr:$M, I64Attr:$N,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
+          RockAccelTuningParamAttrInterface:$params)> {
+  let summary =
+      "Blockwise load tile from global memory to LDS and/or registers";
+  let description = [{
+    The `rock.blockwise_load_tile` op does tile loading at workgroup (block) level.
+    We will load a tile of data from global memory into LDS and/or registers.
+
+    There are different load types:
+    - Default: Creates two stages, (1) load from memory, (2) write to LDS.
+    - BypassLDS: Bypasses LDS and loads from device memory to registers directly (only one stage).
+    - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
+
+    `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
+  }];
+  let assemblyFormat = [{
+    $source (`[` $sourceIndices^ `]`)? (`LDS` `->` $destLDS^)? (`->` $destRegisters^)? attr-dict
+    `:` type($source) (`LDS` `->` type($destLDS)^)? (`->` type($destRegisters)^)?
+  }];
+
+  let hasVerifier = 1;
 }
 
 // threadwise_gemm

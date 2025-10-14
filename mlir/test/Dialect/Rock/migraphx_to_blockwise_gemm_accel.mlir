@@ -1,4 +1,4 @@
-// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver -kernel-pipeline migraphx,highlevel -targets %arch |  rocmlir-driver -arch %arch -c --mlir-print-ir-after=rock-gridwise-gemm-to-blockwise -o /dev/null 2>&1 | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver -kernel-pipeline migraphx,highlevel -targets %arch |  rocmlir-driver -arch %arch -c --mlir-print-ir-after=rock-blockwise-load-tile-to-threadwise -o /dev/null 2>&1 | FileCheck %s
 
 module {
   // CHECK: %[[TRANS0:.*]] = rock.transform %{{.*}} <Unmerge{32, 4, 32} ["k_loop", "k_thread", "k_iter"] at [0, 5, 7] -> ["k"] at [1]>

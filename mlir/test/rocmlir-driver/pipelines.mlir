@@ -12,6 +12,7 @@
 // MIGRAPHX-NEXT:migraphx-transform,
 // MIGRAPHX-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // MIGRAPHX-NEXT:migraphx-to-tosa,
+// MIGRAPHX-NEXT:cse,
 // MIGRAPHX-NEXT:migraphx-tosa-simplify))
 
 // GPU:Kernel pipeline:
@@ -22,6 +23,7 @@
 // GPU-NEXT:rock-regularize,
 // GPU-NEXT:rock-shuffle-gemm-for-reductions,
 // GPU-NEXT:rock-gridwise-gemm-to-blockwise,
+// GPU-NEXT:rock-blockwise-load-tile-to-threadwise,
 // GPU-NEXT:rock-linalg-align,
 // GPU-NEXT:rock-blockwise-gemm-to-threadwise,
 // GPU-NEXT:rock-pipeline{rock-pipeline-remove-stages=true},
