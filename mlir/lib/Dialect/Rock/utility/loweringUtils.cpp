@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
@@ -889,4 +890,151 @@ mlir::rock::traceGemmOutputToGenericOps(Value matC, func::FuncOp func,
   traceAlloc(allocOp.value(), deps, args, genericOpOperands);
 
   return genericOpOperands;
+}
+
+/// Given a copy layout <copyDPerThread, copyKPerThread>, come up with the best
+/// vectorization strategy for the layout. For instance, if the layout is <D,K>
+/// = <2,16> and K is contiguous, we will vectorize by 16 along K and we will
+/// loop over the other dimension
+static std::pair<GemmDimension, int64_t>
+bestGlobalVectorization(Value matrix, int64_t copyDPerThread,
+                        int64_t copyKPerThread, GemmDimension tiebreaker,
+                        int64_t kPerBlock, int64_t dPerBlock) {
+  // A future commit will account for the underlying buffer's vectorization
+  // here.
+  VectorizationResult kVectorRes = getMaxVectorization(
+      matrix, static_cast<uint32_t>(GemmDimension::K), /*inputDimLen=*/
+      math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock),
+      matrix.getDefiningOp());
+  int64_t kVectorLen = kVectorRes.max;
+  VectorizationResult dVectorRes = getMaxVectorization(
+      matrix, static_cast<uint32_t>(GemmDimension::MorN), /*inputDimLen=*/
+      math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock),
+      matrix.getDefiningOp());
+  int64_t dVectorLen = dVectorRes.max;
+
+  if (kVectorLen > dVectorLen) {
+    kVectorLen = math_util::gcd(kVectorLen, copyKPerThread);
+    return {GemmDimension::K, kVectorLen};
+  }
+
+  if (dVectorLen > kVectorLen) {
+    dVectorLen = math_util::gcd(dVectorLen, copyDPerThread);
+    return {GemmDimension::MorN, dVectorLen};
+  }
+
+  return {tiebreaker, kVectorLen};
+}
+
+/// Compute a thread copy layout, i.e., how many elements a single thread (or
+/// workitem) reads along K and M (independently on how we vectorize the reads)
+static FailureOr<std::pair<int64_t, int64_t>>
+computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
+                     int64_t dPerBlock, int64_t kpack, Location loc) {
+
+  // By default, we try to maximize the LDS store vectorization. So we will try
+  // to read as many elements as possible along the contiguous dimension in LDS
+  // and `copyPerThread/elements` in the other dimension
+  int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
+  int64_t copyKPerThread = 0;
+  int64_t copyDPerThread = 0;
+
+  if (kpack == 1) {
+    copyDPerThread = math_util::gcd(maxVlen, copyPerThread);
+    copyKPerThread = copyPerThread / copyDPerThread;
+  } else {
+    copyKPerThread = math_util::gcd(maxVlen, copyPerThread);
+    copyDPerThread = copyPerThread / copyKPerThread;
+  }
+
+  if (copyKPerThread == 0 || copyDPerThread == 0) {
+    return emitError(loc) << "gemmA copy size too small,"
+                          << " copyKPerThread: " << copyKPerThread
+                          << " copyDPerThread: " << copyDPerThread << "\n";
+  }
+  if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
+    return mlir::emitError(loc)
+           << "gemmA per thread copy smaller than per"
+           << " block copy, incohereant tuning parameters\n";
+  }
+  return std::make_pair(copyKPerThread, copyDPerThread);
+}
+
+FailureOr<Value> mlir::rock::wrapLDSBufferForStore(
+    OpBuilder &b, Location loc, Value buffer, Type ldsReadType, int64_t kOuter,
+    StringRef dName, int64_t d, int64_t kPerThread, int64_t dPerThread,
+    bool rotateDWithK) {
+  MemRefType bufferType = cast<MemRefType>(buffer.getType());
+  ArrayRef<int64_t> bufferShape = bufferType.getShape();
+  Type dataType = ldsReadType;
+  if (bufferShape.size() != 1)
+    return emitError(loc, "Expected a flat buffer");
+  int64_t kpack = 1;
+  if (auto vectorDataType = dyn_cast<VectorType>(dataType)) {
+    kpack = vectorDataType.getNumElements();
+    dataType = vectorDataType.getElementType();
+  }
+
+  if (bufferShape[0] != kOuter * d * kpack * getByteWidth(dataType)) {
+    return emitError(loc, "LDS buffer should have ")
+           << kOuter * d * kpack * getByteWidth(dataType)
+           << " elements but has " << bufferShape[0];
+  }
+  int64_t kpackPerThread = std::min(kPerThread, kpack);
+  assert(kpack % kpackPerThread == 0);
+  int64_t threadsPerKpack = kpack / kpackPerThread;
+
+  Type ldsWriteType = vectorTypeOrSelf(dataType, kpackPerThread);
+  auto typedBuffer = viewBufferAs(b, buffer, ldsWriteType);
+
+  TopDownTMBuilder mergeKpack{
+      b, {"k", "d"}, {kOuter * threadsPerKpack * kpackPerThread, d}};
+  mergeKpack.merge({"k_outer", "kpack_idx", "kpack_vec"}, {0, 2, 3}, "k",
+                   {kOuter, threadsPerKpack, kpackPerThread});
+  mergeKpack.merge({dName}, {1}, "d", {d});
+
+  TransformMapAttr mergeKpackAttr = mergeKpack.get();
+  SmallVector<Attribute> transformAttrs{mergeKpackAttr};
+
+  // Rotate the buffer if necessary to minimize bank conflicts. Rotating the
+  // buffer has the benefit of minimizing bank conflicts when we are transposing
+  // the matrix from global to LDS. I.e., instead of storing different items in
+  // position (0,0), (1,0), (2,0), ... we store it in (0,0), (1,1), (2, 2), ...
+  int64_t stride = (kpack == 1 ? dPerThread : 1);
+  TopDownTMBuilder reshapeBuf = rotateIf(
+      rotateDWithK, mergeKpack, mergeKpackAttr, stride, dName, d, 1, "k_outer",
+      kOuter, {"k_outer"}, {"kpack_idx", "kpack_vec"}, transformAttrs);
+
+  reshapeBuf.unmerge("raw", 0, {"k_outer", dName, "kpack_idx"},
+                     {kOuter, d, threadsPerKpack});
+  reshapeBuf.ignore("kpack_vec");
+  TransformMapAttr reshapeBufAttr = reshapeBuf.get();
+  transformAttrs.push_back(reshapeBufAttr);
+
+  ArrayAttr asMatrix = b.getArrayAttr(transformAttrs);
+  return transform(b, typedBuffer, asMatrix);
+}
+
+FailureOr<VectorDimInfo>
+mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
+                         int64_t blockSize, int64_t kPerBlock,
+                         int64_t dPerBlock, int64_t kpack) {
+  int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
+  auto maybeCopyDPerThread = computeCopyPerThread(
+      elemType, copyPerThread, kPerBlock, dPerBlock, kpack, loc);
+  if (failed(maybeCopyDPerThread))
+    return failure();
+
+  int64_t copyKPerThread = (*maybeCopyDPerThread).first;
+  int64_t copyDPerThread = (*maybeCopyDPerThread).second;
+  // Find the best way of vectorizing the layout
+  GemmDimension vectorTiebreaker =
+      (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
+  int64_t vectorLen;
+  GemmDimension vectorDim;
+  std::tie(vectorDim, vectorLen) =
+      bestGlobalVectorization(matrix, copyDPerThread, copyKPerThread,
+                              vectorTiebreaker, kPerBlock, dPerBlock);
+  return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThread,
+                       vectorTiebreaker};
 }
