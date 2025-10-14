@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -rock-conv-to-gemm -rock-gemm-to-gridwise --rock-regularize --rock-gridwise-gemm-to-blockwise --rock-linalg-align %s -verify-diagnostics
+// RUN: rocmlir-opt -rock-conv-to-gemm -rock-gemm-to-gridwise --rock-regularize --rock-gridwise-gemm-to-blockwise --rock-blockwise-load-tile-to-threadwise --rock-linalg-align %s -verify-diagnostics
 
 #map = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 

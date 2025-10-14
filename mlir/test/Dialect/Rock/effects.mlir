@@ -221,6 +221,72 @@ func.func @rock_blockwise_gemm(%A : memref<8x128x1xf32, 3>,
   return
 }
 
+func.func @rock_blockwise_gemm_accel(%matrixA : memref<1024xvector<8xf8E4M3FN>, #gpu.address_space<workgroup>>,
+                                      %matrixB : memref<1024xvector<8xf8E5M2>, #gpu.address_space<workgroup>>,
+                                      %bufferA : memref<4xvector<8xf8E4M3FN>, #gpu.address_space<private>>,
+                                      %bufferB : memref<4xvector<8xf8E5M2>, #gpu.address_space<private>>,
+                                      %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {arch = "##TOKEN_ARCH##"} {
+  // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'write' on op operand 4, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    blockSize = 256 : i32,
+    inMPerThread = 2 : i32,
+    inNPerThread = 2 : i32,
+    params = #rock.xdlops_gemm_derived_params<
+      kpackPerBlock = 8,
+      mPerBlock = 128,
+      nPerBlock = 128,
+      kpack = 8,
+      mPerWave = 64,
+      nPerWave = 64,
+      mnPerXdl = 32,
+      splitKFactor = 1, 
+      scheduleVersion = 1, 
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<4xvector<16xf32>, #gpu.address_space<private>> += memref<4xvector<8xf8E4M3FN>, #gpu.address_space<private>> from memref<1024xvector<8xf8E4M3FN>, #gpu.address_space<workgroup>> * memref<4xvector<8xf8E5M2>, #gpu.address_space<private>> from memref<1024xvector<8xf8E5M2>, #gpu.address_space<workgroup>>
+  return
+}
+
+func.func @rock_blockwise_gemm_accel_lds(%matrixA : memref<1024xvector<8xf8E4M3FN>, #gpu.address_space<workgroup>>,
+                                      %matrixB : memref<1024xvector<8xf8E5M2>, #gpu.address_space<workgroup>>,
+                                      %bufferA : memref<4xvector<8xf8E4M3FN>, #gpu.address_space<private>>,
+                                      %bufferB : memref<4xvector<8xf8E5M2>, #gpu.address_space<private>>,
+                                      %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {arch = "##TOKEN_ARCH##"} {
+  // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'write' on op operand 4, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'write' on op operand 3, on resource '<Default>'}}
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    blockSize = 256 : i32,
+    inMPerThread = 2 : i32,
+    inNPerThread = 2 : i32,
+    loadAfromLDS,
+    loadBfromLDS,
+    params = #rock.xdlops_gemm_derived_params<
+      kpackPerBlock = 8,
+      mPerBlock = 128,
+      nPerBlock = 128,
+      kpack = 8,
+      mPerWave = 64,
+      nPerWave = 64,
+      mnPerXdl = 32,
+      splitKFactor = 1, 
+      scheduleVersion = 1, 
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<4xvector<16xf32>, #gpu.address_space<private>> += memref<4xvector<8xf8E4M3FN>, #gpu.address_space<private>> from memref<1024xvector<8xf8E4M3FN>, #gpu.address_space<workgroup>> * memref<4xvector<8xf8E5M2>, #gpu.address_space<private>> from memref<1024xvector<8xf8E5M2>, #gpu.address_space<workgroup>>
+  return
+}
+
 func.func @rock_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>,
                                 %rhs : memref<4x8x1xf32, 5>,
                                 %output : memref<8x8xf32, 5>) attributes {arch = "##TOKEN_ARCH##"} {
@@ -233,7 +299,7 @@ func.func @rock_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>,
   return
 }
 
-func.func @rock_accel_gemm(%matrixA : memref<1x16xf32, 5>,
+func.func @rock_threadwise_accel_gemm(%matrixA : memref<1x16xf32, 5>,
                            %matrixB : memref<1x16xf32, 5>,
                            %matrixC : memref<1x1xvector<32xf32>, 5>) attributes {arch = "##TOKEN_ARCH##"} {
   // expected-remark @below {{operation has no memory effects}}
@@ -355,3 +421,46 @@ func.func @rock_attention(%arg0: memref<1x64x1024xf32>,
   return
 }
 
+func.func @loadtile_doublebuffer(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #gpu.address_space<workgroup>>, %reg: memref<16xf32, #gpu.address_space<private>>) attributes {arch = "##TOKEN_ARCH##"} {
+  // expected-remark @below {{operation has no memory effects}}
+  %c0 = arith.constant 0 : index
+  // expected-remark @below {{operation has no memory effects}}
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
+
+  affine.for %arg1 = 0 to 2 {
+    // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
+    // expected-remark @below {{found an instance of 'write' on op operand 1, on resource '<Default>'}}
+    // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
+    // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
+    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] LDS -> %lds -> %reg {G = 1 : i64, M = 384 : i64, N = 384 : i64, blockSize = 64 : i32, elementTypeA = f32, elementTypeALoad = f32, elementTypeB = f32, elementTypeBLoad = f32, loadType = #rock<GemmLoadTileType DoubleBuffer>, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> LDS -> memref<4096xi8, #gpu.address_space<workgroup>> -> memref<16xf32, #gpu.address_space<private>>
+  }
+  return
+}
+
+func.func @loadtile_default(%arg0: memref<1x384x64xf32>, %lds: memref<4096xi8, #gpu.address_space<workgroup>>) attributes {arch = "##TOKEN_ARCH##"} {
+  // expected-remark @below {{operation has no memory effects}}
+  %c0 = arith.constant 0 : index
+  // expected-remark @below {{operation has no memory effects}}
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
+
+  affine.for %arg1 = 0 to 2 {
+    // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
+    // expected-remark @below {{found an instance of 'write' on op operand 1, on resource '<Default>'}}
+    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] LDS -> %lds {G = 1 : i64, M = 384 : i64, N = 384 : i64, blockSize = 64 : i32, elementTypeA = f32, elementTypeALoad = f32, elementTypeB = f32, elementTypeBLoad = f32, loadType = #rock<GemmLoadTileType Default>, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> LDS -> memref<4096xi8, #gpu.address_space<workgroup>>
+  }
+  return
+}
+
+func.func @loadtile_bypasslds(%arg0: memref<1x384x64xf32>, %reg: memref<16xf32, #gpu.address_space<private>>) attributes {arch = "##TOKEN_ARCH##"} {
+  // expected-remark @below {{operation has no memory effects}}
+  %c0 = arith.constant 0 : index
+  // expected-remark @below {{operation has no memory effects}}
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
+
+  affine.for %arg1 = 0 to 2 {
+    // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
+    // expected-remark @below {{found an instance of 'write' on op operand 1, on resource '<Default>'}}
+    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] -> %reg {G = 1 : i64, M = 384 : i64, N = 384 : i64, blockSize = 64 : i32, elementTypeA = f32, elementTypeALoad = f32, elementTypeB = f32, elementTypeBLoad = f32, loadType = #rock<GemmLoadTileType BypassLDS>, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> -> memref<16xf32, #gpu.address_space<private>>
+  }
+  return
+}

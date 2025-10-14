@@ -194,4 +194,12 @@ def RockRemoveOutputAllocPass
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
+def RockBlockwiseLoadTileToThreadwisePass
+    : Pass<"rock-blockwise-load-tile-to-threadwise", "::mlir::func::FuncOp"> {
+  let summary =
+      "This pass lowers `rock.blockwise_load_tile` to rock.threadwise_* ops";
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect",
+                           "arith::ArithDialect", "memref::MemRefDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES
