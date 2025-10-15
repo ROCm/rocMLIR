@@ -672,7 +672,7 @@ public:
         rw, loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
 
     // test for zero bias, and ignore
-    if (!rock::isConstantZero(op.getOperand(2))) {
+    if (!mlir::rock::isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
       FailureOr<tosa::AddOp> maybeResult = replaceCstZeroWithAddNBcast(
           context, rw, loc, op.getType(), bias, input, result);
@@ -756,7 +756,7 @@ public:
     Value result = output;
 
     // test for zero bias, and ignore
-    if (!isConstantZero(op.getOperand(2))) {
+    if (!mlir::rock::isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
       FailureOr<tosa::AddOp> maybeResult = replaceCstZeroWithAddNBcast(
           context, rw, loc, op.getType(0), bias, input, result);
@@ -1240,7 +1240,7 @@ struct ConvElementwiseGemmRewritePattern
 
     tosa::Conv2DOp firstConv = maybeConv.value();
     // bias not supported
-    if (!rock::isConstantZero(firstConv.getBias())) {
+    if (!mlir::rock::isConstantZero(firstConv.getBias())) {
       op.emitOpError("bias not supported yet");
       return failure();
     }
@@ -1491,21 +1491,21 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       Value nonOne;
       if (auto constOp =
               getDefiningNonReshapeOp<tosa::ConstOp>(mul.getInput1())) {
-        if (rock::isConstantOne(constOp.getResult()))
+        if (mlir::rock::isConstantOne(constOp.getResult()))
           nonOne = mul.getInput2();
       } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
                      mul.getInput1())) {
-        if (rock::isConstantOne(constOp.getResult()))
+        if (mlir::rock::isConstantOne(constOp.getResult()))
           nonOne = mul.getInput2();
       }
 
       if (auto constOp =
               getDefiningNonReshapeOp<tosa::ConstOp>(mul.getInput2())) {
-        if (rock::isConstantOne(constOp.getResult()))
+        if (mlir::rock::isConstantOne(constOp.getResult()))
           nonOne = mul.getInput1();
       } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
                      mul.getInput2())) {
-        if (rock::isConstantOne(constOp.getResult()))
+        if (mlir::rock::isConstantOne(constOp.getResult()))
           nonOne = mul.getInput1();
       }
       if (nonOne)
@@ -2292,9 +2292,9 @@ public:
     TypedValue<TensorType> out = op.getOutput();
 
     TypedValue<TensorType> bcastInput;
-    if (rock::isConstantOne(inp1))
+    if (mlir::rock::isConstantOne(inp1))
       bcastInput = inp2;
-    if (rock::isConstantOne(inp2)) {
+    if (mlir::rock::isConstantOne(inp2)) {
       if (bcastInput) {
         return rw.notifyMatchFailure(op, "both inputs are splat ones");
       }
