@@ -210,6 +210,20 @@ func.func @quant_conv2d_float8(%arg0: !migraphx.shaped<1x16x4x4xf8E5M2, 256x16x4
 func.func @bwd_data_conv2d(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16x1>,
                                         %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {arch = "gfx942", kernel = "mixr", num_cu = 0 : i64} {
   // CHECK: tosa.custom
+  // CHECK-SAME: {acc_type = f32, dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>}
+  %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
+    dilation = [1, 1],
+    group = 1 : i64,
+    padding = [1, 1, 1, 1],
+    padding_mode = 0 : i64,
+    stride = [1, 1]} : <1x512x16x16xf32, 131072x256x16x1>, <512x512x4x4xf32, 8192x16x4x1> -> <1x512x32x32xf32, 524288x1024x32x1>
+  return %0 : !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1>
+}
+
+// CHECK-LABEL: @bwd_data_conv2d_stride
+func.func @bwd_data_conv2d_stride(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16x1>,
+                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {arch = "gfx942", kernel = "mixr", num_cu = 0 : i64} {
+  // CHECK: tosa.custom
   // CHECK-SAME: {acc_type = f32, dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 2, 2>}
   %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
     dilation = [1, 1],
@@ -217,6 +231,34 @@ func.func @bwd_data_conv2d(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16
     padding = [1, 1, 1, 1],
     padding_mode = 0 : i64,
     stride = [2, 2]} : <1x512x16x16xf32, 131072x256x16x1>, <512x512x4x4xf32, 8192x16x4x1> -> <1x512x32x32xf32, 524288x1024x32x1>
+  return %0 : !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1>
+}
+
+// CHECK-LABEL: @bwd_data_conv2d_group
+func.func @bwd_data_conv2d_group(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16x1>,
+                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {arch = "gfx942", kernel = "mixr", num_cu = 0 : i64} {
+  // CHECK: tosa.custom
+  // CHECK-SAME: {acc_type = f32, dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 2 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>}
+  %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
+    dilation = [1, 1],
+    group = 2 : i64,
+    padding = [1, 1, 1, 1],
+    padding_mode = 0 : i64,
+    stride = [1, 1]} : <1x512x16x16xf32, 131072x256x16x1>, <512x512x4x4xf32, 8192x16x4x1> -> <1x512x32x32xf32, 524288x1024x32x1>
+  return %0 : !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1>
+}
+
+// CHECK-LABEL: @bwd_data_conv2d_dilation
+func.func @bwd_data_conv2d_dilation(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16x1>,
+                                        %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {arch = "gfx942", kernel = "mixr", num_cu = 0 : i64} {
+  // CHECK: tosa.custom
+  // CHECK-SAME: {acc_type = f32, dilation = array<i64: 2, 2>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>}
+  %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
+    dilation = [2, 2],
+    group = 1 : i64,
+    padding = [1, 1, 1, 1],
+    padding_mode = 0 : i64,
+    stride = [1, 1]} : <1x512x16x16xf32, 131072x256x16x1>, <512x512x4x4xf32, 8192x16x4x1> -> <1x512x32x32xf32, 524288x1024x32x1>
   return %0 : !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1>
 }
 
