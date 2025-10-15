@@ -23,7 +23,7 @@ struct TestEnv {
 
   TestEnv(bool withFunc = true) : builder(&ctx) {
     DialectRegistry reg;
-    reg.insert<tosa::TosaDialect>();
+    reg.insert<mlir::tosa::TosaDialect>();
     if (withFunc)
       reg.insert<func::FuncDialect>();
     ctx.appendDialectRegistry(reg);
@@ -33,15 +33,16 @@ struct TestEnv {
   }
 };
 
-static tosa::ConstOp buildConst(OpBuilder &b, Location loc,
-                                RankedTensorType type, double startVal = 0.0) {
+static mlir::tosa::ConstOp buildConst(OpBuilder &b, Location loc,
+                                      RankedTensorType type,
+                                      double startVal = 0.0) {
   SmallVector<Attribute> elems;
   elems.reserve(type.getNumElements());
   double v = startVal;
   for (int64_t i = 0, e = type.getNumElements(); i < e; ++i, v += 1.0)
     elems.push_back(b.getF32FloatAttr((float)v));
   auto attr = DenseElementsAttr::get(type, elems);
-  return b.create<tosa::ConstOp>(loc, type, attr);
+  return b.create<mlir::tosa::ConstOp>(loc, type, attr);
 }
 } // namespace
 
@@ -78,7 +79,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
   {
     auto tType = RankedTensorType::get({}, builder.getF32Type());
     auto attr = DenseElementsAttr::get(tType, builder.getF32FloatAttr(0.0f));
-    auto cst = builder.create<tosa::ConstOp>(loc, tType, attr);
+    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_TRUE(isConstantZero(cst));
     EXPECT_FALSE(isConstantOne(cst));
     EXPECT_TRUE(isConstantValue(cst, 0.0));
@@ -87,7 +88,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
     auto tType = RankedTensorType::get({}, builder.getF8E8M0Type());
     auto attr = DenseElementsAttr::get(tType, builder.getFloatAttr(
                                              builder.getF8E8M0Type(), 1.0f));
-    auto cst = builder.create<tosa::ConstOp>(loc, tType, attr);
+    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_FALSE(isConstantZero(cst));
     EXPECT_TRUE(isConstantOne(cst));
     EXPECT_FALSE(isConstantValue(cst, 0.0));
@@ -96,7 +97,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
   {
     auto tType = RankedTensorType::get({}, builder.getF32Type());
     auto attr = DenseElementsAttr::get(tType, builder.getF32FloatAttr(1.0f));
-    auto cst = builder.create<tosa::ConstOp>(loc, tType, attr);
+    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_TRUE(isConstantOne(cst));
     EXPECT_FALSE(isConstantZero(cst));
     EXPECT_TRUE(isConstantValue(cst, 1.0));
@@ -104,7 +105,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
   {
     auto tType = RankedTensorType::get({}, builder.getI32Type());
     auto attr = DenseElementsAttr::get(tType, builder.getI32IntegerAttr(1));
-    auto cst = builder.create<tosa::ConstOp>(loc, tType, attr);
+    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_TRUE(isConstantOne(cst));
     EXPECT_FALSE(isConstantZero(cst));
   }
@@ -125,7 +126,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
     auto tType = RankedTensorType::get({2, 2}, builder.getF16Type());
     SmallVector<Attribute> elems(4, builder.getF16FloatAttr(0.0));
     auto attr = DenseElementsAttr::get(tType, elems);
-    auto cst = builder.create<tosa::ConstOp>(loc, tType, attr);
+    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_TRUE(isConstantZero(cst));
     EXPECT_FALSE(isConstantOne(cst));
   }
@@ -133,7 +134,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
     auto tType = RankedTensorType::get({3}, builder.getI32Type());
     SmallVector<Attribute> elems(3, builder.getI32IntegerAttr(1));
     auto attr = DenseElementsAttr::get(tType, elems);
-    auto cst = builder.create<tosa::ConstOp>(loc, tType, attr);
+    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_TRUE(isConstantOne(cst));
     EXPECT_FALSE(isConstantZero(cst));
   }
@@ -143,7 +144,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
     elems.push_back(builder.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
     elems.push_back(builder.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
     auto attr = DenseElementsAttr::get(tType, elems);
-    auto cst = builder.create<tosa::ConstOp>(loc, tType, attr);
+    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_TRUE(isConstNegInf(cst));
   }
   {
@@ -152,7 +153,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
     for (int i = 0; i < 8; ++i)
       elems.push_back(builder.getI32IntegerAttr(i));
     auto attr = DenseElementsAttr::get(tType, elems);
-    auto cst = builder.create<tosa::ConstOp>(loc, tType, attr);
+    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_TRUE(isConstRange(cst));
   }
   {
@@ -163,7 +164,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
     elems.push_back(builder.getI32IntegerAttr(3));
     elems.push_back(builder.getI32IntegerAttr(1));
     auto attr = DenseElementsAttr::get(tType, elems);
-    auto cst = builder.create<tosa::ConstOp>(loc, tType, attr);
+    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_FALSE(isConstRange(cst));
   }
 }
@@ -171,9 +172,10 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
 TEST(TosaUtilsTest, AccTypeSelection) {
   TestEnv env(false); // only tosa
   OpBuilder &b = env.builder;
-  EXPECT_TRUE(getTosaAccType(b, b.getF16Type()).isF32());
-  EXPECT_TRUE(getTosaAccType(b, b.getBF16Type()).isF32());
-  EXPECT_TRUE(getTosaAccType(b, IntegerType::get(&env.ctx, 8)).isInteger(32));
+  EXPECT_TRUE(rock::tosa::getAccType(b, b.getF16Type()).isF32());
+  EXPECT_TRUE(rock::tosa::getAccType(b, b.getBF16Type()).isF32());
+  EXPECT_TRUE(
+      rock::tosa::getAccType(b, IntegerType::get(&env.ctx, 8)).isInteger(32));
 }
 
 TEST(TosaUtilsTest, CreateOpAndInferMulHelper) {
@@ -192,12 +194,11 @@ TEST(TosaUtilsTest, CreateOpAndInferMulHelper) {
   SmallVector<Attribute> elemsB(4, builder.getF32FloatAttr(3.0f));
   auto aAttr = DenseElementsAttr::get(tType, elemsA);
   auto bAttr = DenseElementsAttr::get(tType, elemsB);
-  auto aConst = builder.create<tosa::ConstOp>(loc, tType, aAttr);
-  auto bConst = builder.create<tosa::ConstOp>(loc, tType, bAttr);
+  auto aConst = builder.create<mlir::tosa::ConstOp>(loc, tType, aAttr);
+  auto bConst = builder.create<mlir::tosa::ConstOp>(loc, tType, bAttr);
 
-  auto mulOp =
-      getTosaMulOp(builder, loc, aConst.getResult(), bConst.getResult(),
-                   builder.getF32Type());
+  auto mulOp = rock::tosa::getMulOp(builder, loc, aConst.getResult(),
+                                    bConst.getResult(), builder.getF32Type());
   auto resType = cast<RankedTensorType>(mulOp.getResult().getType());
   EXPECT_EQ(resType.getShape().size(), 2u);
   EXPECT_EQ(resType.getDimSize(0), 2);
@@ -211,7 +212,8 @@ TEST(TosaTransposeUtilsTest, Basic3DTranspose) {
   auto srcType = RankedTensorType::get({2, 3, 4}, b.getF32Type());
   auto c0 = buildConst(b, b.getUnknownLoc(), srcType);
   SmallVector<int32_t> perm = {2, 1, 0};
-  auto tx = getTosaTransposeOp(b, b.getUnknownLoc(), c0.getResult(), perm);
+  auto tx =
+      rock::tosa::getTransposeOp(b, b.getUnknownLoc(), c0.getResult(), perm);
   auto resType = cast<RankedTensorType>(tx.getResult().getType());
   ASSERT_EQ(resType.getRank(), 3);
   EXPECT_EQ(resType.getDimSize(0), 4);
@@ -231,7 +233,8 @@ TEST(TosaTransposeUtilsTest, IdentityPermutation) {
   auto srcType = RankedTensorType::get({5, 6}, b.getF32Type());
   auto c0 = buildConst(b, b.getUnknownLoc(), srcType);
   SmallVector<int32_t> perm = {0, 1};
-  auto tx = getTosaTransposeOp(b, b.getUnknownLoc(), c0.getResult(), perm);
+  auto tx =
+      rock::tosa::getTransposeOp(b, b.getUnknownLoc(), c0.getResult(), perm);
   auto resType = cast<RankedTensorType>(tx.getResult().getType());
   EXPECT_EQ(resType.getShape(), ArrayRef<int64_t>({5, 6}));
 }
@@ -242,7 +245,8 @@ TEST(TosaTransposeUtilsTest, FourDPermutation) {
   auto srcType = RankedTensorType::get({1, 8, 16, 32}, b.getF32Type());
   auto c0 = buildConst(b, b.getUnknownLoc(), srcType);
   SmallVector<int32_t> perm = {0, 2, 3, 1};
-  auto tx = getTosaTransposeOp(b, b.getUnknownLoc(), c0.getResult(), perm);
+  auto tx =
+      rock::tosa::getTransposeOp(b, b.getUnknownLoc(), c0.getResult(), perm);
   auto resType = cast<RankedTensorType>(tx.getResult().getType());
   ASSERT_EQ(resType.getRank(), 4);
   EXPECT_EQ(resType.getDimSize(0), 1);

@@ -18,6 +18,7 @@
 #define MLIR_DIALECT_TOSA_UTILITY_H
 
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 
@@ -30,28 +31,10 @@ bool isConstantOne(Value v);
 bool isConstNegInf(Value v);
 bool isConstRange(Value v);
 
-template <typename Rewriter>
-Value getTosaOneTensor(Rewriter &builder, Location loc, RankedTensorType type) {
-  auto value = cast<ElementsAttr>(builder.getOneAttr(type));
-  return tosa::ConstOp::create(builder, loc, type, value);
-}
-
-template <typename Rewriter>
-Type getTosaAccType(Rewriter &rewriter, Type inputType) {
-  Type accType;
-  if (isa<FloatType>(inputType)) {
-    accType = rewriter.getF32Type();
-  } else if (isa<IntegerType>(inputType)) {
-    accType = rewriter.getI32Type();
-  } else {
-    llvm_unreachable("not expected type");
-  }
-  return accType;
-}
-
-template <typename TosaOp, typename Rewriter, typename... Args>
-TosaOp createTosaOpAndInfer(Rewriter &rewriter, Location loc, Type elemType,
-                            Args &&...args) {
+namespace tosa {
+template <typename TosaOp, typename... Args>
+TosaOp createOpAndInfer(OpBuilder &rewriter, Location loc, Type elemType,
+                        Args &&...args) {
   auto op =
       TosaOp::create(rewriter, loc, UnrankedTensorType::get(elemType), args...);
   InferShapedTypeOpInterface shapeInterface =
@@ -67,44 +50,19 @@ TosaOp createTosaOpAndInfer(Rewriter &rewriter, Location loc, Type elemType,
   return op;
 }
 
-template <typename Rewriter>
-Value getTosaZeroTensor(Location loc, RankedTensorType type,
-                        Rewriter &rewriter) {
-  auto value = cast<ElementsAttr>(rewriter.getZeroAttr(type));
-  return tosa::ConstOp::create(rewriter, loc, type, value);
-}
+Value getOneTensor(OpBuilder &builder, Location loc, RankedTensorType type);
 
-template <typename Rewriter>
-tosa::TransposeOp getTosaTransposeOp(Rewriter &rewriter, Location loc,
-                                     Value input,
-                                     ArrayRef<int32_t> permutation) {
-  ShapedType inputTy = cast<ShapedType>(input.getType());
-  auto inputShape = inputTy.getShape();
-  SmallVector<int64_t> newShape;
-  newShape.reserve(permutation.size());
-  for (int32_t fromIdx : permutation)
-    newShape.push_back(inputShape[fromIdx]);
-  Type newTy = RankedTensorType::get(newShape, inputTy.getElementType());
+Type getAccType(OpBuilder &builder, Type inputType);
 
-  auto newOp =
-      tosa::TransposeOp::create(rewriter, loc, newTy, input, permutation);
-  return newOp;
-}
+Value getZeroTensor(OpBuilder &builder, Location loc, RankedTensorType type);
 
-template <typename Rewriter>
-tosa::MulOp getTosaMulOp(Rewriter &rewriter, Location loc, Value input1,
-                         Value input2, Type elemType) {
-  auto shiftType = RankedTensorType::get({1}, rewriter.getIntegerType(8));
-  elemType = getElementTypeOrSelf(elemType);
-  auto shiftZeroAttr = DenseElementsAttr::get(
-      shiftType, rewriter.getZeroAttr(rewriter.getIntegerType(8)));
-  Value constZero =
-      tosa::ConstOp::create(rewriter, loc, shiftType, shiftZeroAttr);
-  auto mulOp = createTosaOpAndInfer<tosa::MulOp>(rewriter, loc, elemType,
-                                                 input1, input2, constZero);
-  return mulOp;
-}
+mlir::tosa::TransposeOp getTransposeOp(OpBuilder &builder, Location loc,
+                                       Value input,
+                                       ArrayRef<int32_t> permutation);
 
+mlir::tosa::MulOp getMulOp(OpBuilder &builder, Location loc, Value input1,
+                           Value input2, Type elemType);
+} // namespace tosa
 } // namespace rock
 } // namespace mlir
 

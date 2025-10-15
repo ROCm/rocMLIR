@@ -2677,7 +2677,7 @@ static Value applyMask(OpBuilder builder, Location loc, Value inputTensor,
                                         initValueAttr);
 
   // mask is 1 for values we want to set to "initVal"
-  auto result = rock::createTosaOpAndInfer<tosa::SelectOp>(
+  auto result = rock::tosa::createOpAndInfer<tosa::SelectOp>(
       builder, loc, inpType.getElementType(), mask, initVal, inputTensor);
   return result;
 }
@@ -2704,14 +2704,14 @@ static Value createRange(OpBuilder builder, Location loc, size_t index,
     newShape.push_back((i == index) ? inpShape[index] : 1);
 
   auto shapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
-  auto rangeValReshaped = rock::createTosaOpAndInfer<tosa::ReshapeOp>(
+  auto rangeValReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, builder.getI32Type(), rangeVal, shapeValue);
 
   // broadcast range to inputTensor shape
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
-  auto rangeBroadcast = rock::getTosaMulOp(
+  auto rangeBroadcast = rock::tosa::getMulOp(
       builder, loc, rangeValReshaped,
-      rock::getTosaOneTensor(builder, loc, outType), builder.getI32Type());
+      rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
   return rangeBroadcast;
 }
 
@@ -2725,7 +2725,7 @@ static Value causalMaskingTosa(OpBuilder builder, Location loc,
   Value colRange = createRange(builder, loc, 2, inpShape);
 
   // create mask (diagonal and lower triangular are zero)
-  auto mask = rock::createTosaOpAndInfer<tosa::GreaterOp>(
+  auto mask = rock::tosa::createOpAndInfer<tosa::GreaterOp>(
       builder, loc, builder.getIntegerType(1), colRange, rowRange);
 
   // apply mask
@@ -2743,7 +2743,7 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
                                       origShape[1], origShape[2]};
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
   auto newShapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
-  inputTensor = rock::createTosaOpAndInfer<tosa::ReshapeOp>(
+  inputTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, origType.getElementType(), inputTensor, newShapeValue);
 
   auto inpType = cast<RankedTensorType>(inputTensor.getType());
@@ -2758,11 +2758,11 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
   // zero tensor
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
   // broadcast currentSeqLen
-  auto currentSeqLenBroadcast = rock::getTosaMulOp(
+  auto currentSeqLenBroadcast = rock::tosa::getMulOp(
       builder, loc, currentSeqLenVal,
-      rock::getTosaOneTensor(builder, loc, outType), builder.getI32Type());
+      rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
   // create mask
-  auto mask = rock::createTosaOpAndInfer<tosa::GreaterOp>(
+  auto mask = rock::tosa::createOpAndInfer<tosa::GreaterOp>(
       builder, loc, builder.getIntegerType(1), rangeBroadcast,
       currentSeqLenBroadcast);
 
@@ -2770,7 +2770,7 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
 
   // reshape result back to [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
   auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
-  auto resultReshaped = rock::createTosaOpAndInfer<tosa::ReshapeOp>(
+  auto resultReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, inpType.getElementType(), result, origShapeValue);
 
   return resultReshaped;
@@ -2802,9 +2802,10 @@ static Value broadcastBatchTosa(OpBuilder builder, Location loc,
     outShape.push_back(inpShape[i]);
   auto outType = RankedTensorType::get(outShape, inpType.getElementType());
 
-  auto mulWithOne = rock::getTosaMulOp(
-      builder, loc, expandedValue,
-      rock::getTosaOneTensor(builder, loc, outType), inpType.getElementType());
+  auto mulWithOne =
+      rock::tosa::getMulOp(builder, loc, expandedValue,
+                           rock::tosa::getOneTensor(builder, loc, outType),
+                           inpType.getElementType());
   // collapse
   return tensor::CollapseShapeOp::create(builder, loc, mulWithOne,
                                          reassocIndices);
@@ -2836,11 +2837,11 @@ static Value createMaskSplitKV(OpBuilder &builder, Location loc,
   auto outType = RankedTensorType::get(shape, builder.getI32Type());
 
   // Use tosa.mul to broadcast reshaped [batch,1,1,...] to [batch,D1,D2,...]
-  Value validSplitKVTensor = rock::getTosaMulOp(
+  Value validSplitKVTensor = rock::tosa::getMulOp(
       builder, loc, initialTensor,
-      rock::getTosaOneTensor(builder, loc, outType), outType);
+      rock::tosa::getOneTensor(builder, loc, outType), outType);
   // create mask
-  return rock::createTosaOpAndInfer<tosa::GreaterEqualOp>(
+  return rock::tosa::createOpAndInfer<tosa::GreaterEqualOp>(
       builder, loc, builder.getIntegerType(1), rangeTensor, validSplitKVTensor);
 }
 
@@ -2867,16 +2868,16 @@ static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
   auto newResultShapeValue =
       tosa::getTosaConstShape(implicitBuilder, newResultShape);
-  resultTensor = rock::createTosaOpAndInfer<tosa::ReshapeOp>(
+  resultTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, elementType, resultTensor, newResultShapeValue);
   if (transposeO)
     resultTensor =
-        rock::getTosaTransposeOp(builder, loc, resultTensor, {0, 1, 3, 2});
+        rock::tosa::getTransposeOp(builder, loc, resultTensor, {0, 1, 3, 2});
 
   SmallVector<int64_t> newLseShape = {groupSize * numHeadsQ, splitKV,
                                       sequenceLengthQ, 1};
   auto newLseShapeValue = tosa::getTosaConstShape(implicitBuilder, newLseShape);
-  lseTensor = rock::createTosaOpAndInfer<tosa::ReshapeOp>(
+  lseTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, elementType, lseTensor, newLseShapeValue);
 
   Value resultTensorMask = createMaskSplitKV(
@@ -2891,30 +2892,30 @@ static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
                         -std::numeric_limits<float>::infinity());
 
   IntegerAttr axisAttr = builder.getI32IntegerAttr(1);
-  auto maxSplitKV = rock::createTosaOpAndInfer<tosa::ReduceMaxOp>(
+  auto maxSplitKV = rock::tosa::createOpAndInfer<tosa::ReduceMaxOp>(
       builder, loc, elementType, lseTensor, axisAttr);
 
-  auto norm = rock::createTosaOpAndInfer<tosa::SubOp>(builder, loc, elementType,
-                                                      lseTensor, maxSplitKV);
-  auto exp =
-      rock::createTosaOpAndInfer<tosa::ExpOp>(builder, loc, elementType, norm);
+  auto norm = rock::tosa::createOpAndInfer<tosa::SubOp>(
+      builder, loc, elementType, lseTensor, maxSplitKV);
+  auto exp = rock::tosa::createOpAndInfer<tosa::ExpOp>(builder, loc,
+                                                       elementType, norm);
 
-  auto sumExpNorm = rock::createTosaOpAndInfer<tosa::ReduceSumOp>(
+  auto sumExpNorm = rock::tosa::createOpAndInfer<tosa::ReduceSumOp>(
       builder, loc, elementType, exp, axisAttr);
-  auto sumExpNormRecip = rock::createTosaOpAndInfer<tosa::ReciprocalOp>(
+  auto sumExpNormRecip = rock::tosa::createOpAndInfer<tosa::ReciprocalOp>(
       builder, loc, elementType, sumExpNorm);
 
   Value outExp =
-      rock::getTosaMulOp(builder, loc, exp, resultTensor, elementType);
+      rock::tosa::getMulOp(builder, loc, exp, resultTensor, elementType);
 
   // apply mask to outExp to prevent NaN values
   outExp = applyMask(builder, loc, outExp, resultTensorMask, 0.0f);
 
-  auto outExpNorm = rock::createTosaOpAndInfer<tosa::ReduceSumOp>(
+  auto outExpNorm = rock::tosa::createOpAndInfer<tosa::ReduceSumOp>(
       builder, loc, elementType, outExp, axisAttr);
 
-  Value finalResult = rock::getTosaMulOp(builder, loc, outExpNorm,
-                                         sumExpNormRecip, elementType);
+  Value finalResult = rock::tosa::getMulOp(builder, loc, outExpNorm,
+                                           sumExpNormRecip, elementType);
 
   // broadcast the result in splitKV dimension
   // we have to do this because both cpu and gpu buffers have the same shape.
@@ -2923,7 +2924,7 @@ static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
   finalResult = broadcastBatchTosa(builder, loc, finalResult, splitKV);
   if (transposeO)
     finalResult =
-        rock::getTosaTransposeOp(builder, loc, finalResult, {0, 1, 3, 2});
+        rock::tosa::getTransposeOp(builder, loc, finalResult, {0, 1, 3, 2});
 
   // convert to one dimensional tensor
   SmallVector<ReassociationIndices> reassocIndices = {{0, 1, 2, 3}};
@@ -3074,27 +3075,27 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
           addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, quantBias);
       Value quantScaleF16 = addTensorArgToBlock(
           builder, loc, preSoftmaxElemwiseBlock, quantScale);
-      Value quantBiasI32 = rock::createTosaOpAndInfer<tosa::CastOp>(
+      Value quantBiasI32 = rock::tosa::createOpAndInfer<tosa::CastOp>(
           builder, loc, IntegerType::get(ctx, 32), quantBiasI8);
-      qkTensor = rock::createTosaOpAndInfer<tosa::SubOp>(
+      qkTensor = rock::tosa::createOpAndInfer<tosa::SubOp>(
           builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
-      qkTensor = rock::createTosaOpAndInfer<tosa::CastOp>(
+      qkTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
           builder, loc, Float16Type::get(ctx), qkTensor);
 
-      qkTensor = rock::getTosaMulOp(builder, loc, qkTensor, quantScaleF16,
-                                    Float16Type::get(ctx));
+      qkTensor = rock::tosa::getMulOp(builder, loc, qkTensor, quantScaleF16,
+                                      Float16Type::get(ctx));
     }
     if (hasAttnScale) {
       Value scaleTensor =
           addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, scale);
-      qkTensor = rock::getTosaMulOp(
+      qkTensor = rock::tosa::getMulOp(
           builder, loc, qkTensor, scaleTensor,
           cast<ShapedType>(scaleTensor.getType()).getElementType());
     }
     if (hasAttnBias) {
       Value biasTensor =
           addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, bias);
-      qkTensor = rock::createTosaOpAndInfer<tosa::AddOp>(
+      qkTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
           builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
           qkTensor, biasTensor);
     }
@@ -3511,8 +3512,8 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
   int32_t wDim = (filterInfo.imageDims[1] < filterInfo.gDim)
                      ? filterInfo.imageDims[1]
                      : filterInfo.imageDims[1] - 1;
-  filterTensor = rock::getTosaTransposeOp(builder, loc, filterTensor,
-                                          {kDim, hDim, wDim, cDim});
+  filterTensor = rock::tosa::getTransposeOp(builder, loc, filterTensor,
+                                            {kDim, hDim, wDim, cDim});
   auto inputTensor = getTensorForBlockArg(1);
   inputTensor = squeeze(builder, loc, inputTensor, inputInfo.gDim);
   int32_t nDim = (inputInfo.nonImg1Dim < inputInfo.gDim)
@@ -3524,12 +3525,12 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
                                                    : inputInfo.imageDims[0] - 1;
   wDim = (inputInfo.imageDims[1] < inputInfo.gDim) ? inputInfo.imageDims[1]
                                                    : inputInfo.imageDims[1] - 1;
-  inputTensor = rock::getTosaTransposeOp(builder, loc, inputTensor,
-                                         {nDim, hDim, wDim, cDim});
+  inputTensor = rock::tosa::getTransposeOp(builder, loc, inputTensor,
+                                           {nDim, hDim, wDim, cDim});
 
   auto cTensor = getTensorForBlockArg(2);
   if (transposeC) {
-    cTensor = rock::getTosaTransposeOp(builder, loc, cTensor, {0, 2, 1});
+    cTensor = rock::tosa::getTransposeOp(builder, loc, cTensor, {0, 2, 1});
   }
   auto inputZp =
       tosa::createZeroPointTensor(builder, loc, inputTensor.getType(), 0)
@@ -3540,8 +3541,8 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
 
   Type convOutElemType = params.types[2];
   // accumulate in 32 bit
-  Type firstAccType = rock::getTosaAccType(builder, params.types[0]);
-  assert(firstAccType == rock::getTosaAccType(builder, params.types[1]));
+  Type firstAccType = rock::tosa::getAccType(builder, params.types[0]);
+  assert(firstAccType == rock::tosa::getAccType(builder, params.types[1]));
 
   auto biasTy = RankedTensorType::get(
       cast<ShapedType>(filterTensor.getType()).getShape()[0], convOutElemType);
@@ -3555,7 +3556,7 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
     pads.push_back(config->paddingRightDims[i]);
   }
 
-  Value convOut = rock::createTosaOpAndInfer<tosa::Conv2DOp>(
+  Value convOut = rock::tosa::createOpAndInfer<tosa::Conv2DOp>(
       builder, loc, convOutElemType, inputTensor, filterTensor, biasTensor,
       inputZp, weightZp, builder.getDenseI64ArrayAttr(pads),
       builder.getDenseI64ArrayAttr(config->strideDims),
@@ -3571,16 +3572,16 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, cTensor.getType(), 0).value();
   Type secondGemmOutElemType = params.types[3];
   // accumulate in 32 bit
-  Type secondAccType = rock::getTosaAccType(builder, convOutElemType);
-  assert(secondAccType == rock::getTosaAccType(builder, params.types[2]));
-  auto resultTensorMatMul = rock::createTosaOpAndInfer<tosa::MatMulOp>(
+  Type secondAccType = rock::tosa::getAccType(builder, convOutElemType);
+  assert(secondAccType == rock::tosa::getAccType(builder, params.types[2]));
+  auto resultTensorMatMul = rock::tosa::createOpAndInfer<tosa::MatMulOp>(
       builder, loc, secondGemmOutElemType, gemmA, cTensor, abZp, cZp);
   resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
   Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
     resultTensor =
-        rock::getTosaTransposeOp(builder, loc, resultTensor, {0, 2, 1});
+        rock::tosa::getTransposeOp(builder, loc, resultTensor, {0, 2, 1});
   }
 
   Value output = block->getArguments().back();
@@ -3652,15 +3653,15 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
 
   auto aTensor = getTensorForBlockArg(0);
   if (transposeA) {
-    aTensor = rock::getTosaTransposeOp(builder, loc, aTensor, {0, 2, 1});
+    aTensor = rock::tosa::getTransposeOp(builder, loc, aTensor, {0, 2, 1});
   }
   auto bTensor = getTensorForBlockArg(1);
   if (transposeB) {
-    bTensor = rock::getTosaTransposeOp(builder, loc, bTensor, {0, 2, 1});
+    bTensor = rock::tosa::getTransposeOp(builder, loc, bTensor, {0, 2, 1});
   }
   auto cTensor = getTensorForBlockArg(2);
   if (transposeC) {
-    cTensor = rock::getTosaTransposeOp(builder, loc, cTensor, {0, 2, 1});
+    cTensor = rock::tosa::getTransposeOp(builder, loc, cTensor, {0, 2, 1});
   }
   auto aZp =
       tosa::createZeroPointTensor(builder, loc, aTensor.getType(), 0).value();
@@ -3669,9 +3670,9 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
 
   Type firstGemmOutElemType = params.types[2];
   // accumulate in 32 bit
-  Type firstAccType = rock::getTosaAccType(builder, params.types[0]);
-  assert(firstAccType == rock::getTosaAccType(builder, params.types[1]));
-  auto abTensorMatMul = rock::createTosaOpAndInfer<tosa::MatMulOp>(
+  Type firstAccType = rock::tosa::getAccType(builder, params.types[0]);
+  assert(firstAccType == rock::tosa::getAccType(builder, params.types[1]));
+  auto abTensorMatMul = rock::tosa::createOpAndInfer<tosa::MatMulOp>(
       builder, loc, firstGemmOutElemType, aTensor, bTensor, aZp, bZp);
   abTensorMatMul->setAttr("acc_type", TypeAttr::get(firstAccType));
   Value abTensor = abTensorMatMul.getResult();
@@ -3682,16 +3683,16 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, cTensor.getType(), 0).value();
   Type secondGemmOutElemType = params.types[3];
   // accumulate in 32 bit
-  Type secondAccType = rock::getTosaAccType(builder, firstGemmOutElemType);
-  assert(secondAccType == rock::getTosaAccType(builder, params.types[2]));
-  auto resultTensorMatMul = rock::createTosaOpAndInfer<tosa::MatMulOp>(
+  Type secondAccType = rock::tosa::getAccType(builder, firstGemmOutElemType);
+  assert(secondAccType == rock::tosa::getAccType(builder, params.types[2]));
+  auto resultTensorMatMul = rock::tosa::createOpAndInfer<tosa::MatMulOp>(
       builder, loc, secondGemmOutElemType, abTensor, cTensor, abZp, cZp);
   resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
   Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
     resultTensor =
-        rock::getTosaTransposeOp(builder, loc, resultTensor, {0, 2, 1});
+        rock::tosa::getTransposeOp(builder, loc, resultTensor, {0, 2, 1});
   }
 
   Value output = block->getArguments().back();
@@ -3764,16 +3765,17 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto queriesTensor = getTensorForBlockArg(0);
   if (transposeQ) {
     queriesTensor =
-        rock::getTosaTransposeOp(builder, loc, queriesTensor, {0, 2, 1});
+        rock::tosa::getTransposeOp(builder, loc, queriesTensor, {0, 2, 1});
   }
   auto keysTensor = getTensorForBlockArg(1);
   if (transposeK) {
-    keysTensor = rock::getTosaTransposeOp(builder, loc, keysTensor, {0, 2, 1});
+    keysTensor =
+        rock::tosa::getTransposeOp(builder, loc, keysTensor, {0, 2, 1});
   }
   auto valuesTensor = getTensorForBlockArg(2);
   if (transposeV) {
     valuesTensor =
-        rock::getTosaTransposeOp(builder, loc, valuesTensor, {0, 2, 1});
+        rock::tosa::getTransposeOp(builder, loc, valuesTensor, {0, 2, 1});
   }
   // GQA
   keysTensor = broadcastGQATosa(builder, loc, keysTensor);
@@ -3790,9 +3792,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, keysTensor.getType(), 0)
           .value();
   // accumulate in 32 bit
-  Type firstAccType = rock::getTosaAccType(builder, firstGemmOutElemType);
-  assert(firstAccType == rock::getTosaAccType(builder, params.types[1]));
-  auto qkTensorMatMul = rock::createTosaOpAndInfer<tosa::MatMulOp>(
+  Type firstAccType = rock::tosa::getAccType(builder, firstGemmOutElemType);
+  assert(firstAccType == rock::tosa::getAccType(builder, params.types[1]));
+  auto qkTensorMatMul = rock::tosa::createOpAndInfer<tosa::MatMulOp>(
       builder, loc, firstGemmOutElemType, queriesTensor, keysTensor, queriesZp,
       keysZp);
   qkTensorMatMul->setAttr("acc_type", TypeAttr::get(firstAccType));
@@ -3816,7 +3818,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     ImplicitLocOpBuilder implicitBuilder(loc, builder);
     auto shapeValue =
         tosa::getTosaConstShape(implicitBuilder, {shape[0], 1, 1, 1});
-    currentSeqLenTensor = rock::createTosaOpAndInfer<tosa::ReshapeOp>(
+    currentSeqLenTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
         builder, loc, type.getElementType(), currentSeqLenTensorRaw,
         shapeValue);
   }
@@ -3824,15 +3826,15 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   unsigned optionalArgsCounter = 3;
   if (isQuantized) {
     auto quantBiasI8 = getTensorForBlockArg(optionalArgsCounter++);
-    Value quantBiasI32 = rock::createTosaOpAndInfer<tosa::CastOp>(
+    Value quantBiasI32 = rock::tosa::createOpAndInfer<tosa::CastOp>(
         builder, loc, IntegerType::get(ctx, 32), quantBiasI8);
-    qkTensor = rock::createTosaOpAndInfer<tosa::SubOp>(
+    qkTensor = rock::tosa::createOpAndInfer<tosa::SubOp>(
         builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
-    qkTensor = rock::createTosaOpAndInfer<tosa::CastOp>(
+    qkTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
         builder, loc, Float16Type::get(ctx), qkTensor);
     auto quantScaleF16 = getTensorForBlockArg(optionalArgsCounter++);
-    qkTensor = rock::getTosaMulOp(builder, loc, qkTensor, quantScaleF16,
-                                  Float16Type::get(ctx));
+    qkTensor = rock::tosa::getMulOp(builder, loc, qkTensor, quantScaleF16,
+                                    Float16Type::get(ctx));
   }
 
   if (hasAttnScale) {
@@ -3844,7 +3846,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     if (causalMasking)
       scaleTensor = causalMaskingTosa(builder, loc, scaleTensor, 1.0f);
 
-    qkTensor = rock::getTosaMulOp(
+    qkTensor = rock::tosa::getMulOp(
         builder, loc, qkTensor, scaleTensor,
         cast<ShapedType>(scaleTensor.getType()).getElementType());
   }
@@ -3858,14 +3860,14 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     if (causalMasking)
       biasTensor = causalMaskingTosa(builder, loc, biasTensor, 0.0f);
 
-    qkTensor = rock::createTosaOpAndInfer<tosa::AddOp>(
+    qkTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
         builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
         qkTensor, biasTensor);
   }
   // cast to softmaxType
   auto softmaxType = typeFromString(softmaxDataType.getValue(), ctx);
-  qkTensor = rock::createTosaOpAndInfer<tosa::CastOp>(builder, loc, softmaxType,
-                                                      qkTensor);
+  qkTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(builder, loc,
+                                                        softmaxType, qkTensor);
 
   if (currentSeqLenTensor) {
     qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,
@@ -3882,13 +3884,13 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
                                  -std::numeric_limits<float>::infinity());
 
   constexpr int64_t reductionAxis = 2;
-  auto qkMaxs = rock::createTosaOpAndInfer<tosa::ReduceMaxOp>(
+  auto qkMaxs = rock::tosa::createOpAndInfer<tosa::ReduceMaxOp>(
       builder, loc, softmaxType, qkTensor, reductionAxis);
-  auto normalizedQkTensor = rock::createTosaOpAndInfer<tosa::SubOp>(
+  auto normalizedQkTensor = rock::tosa::createOpAndInfer<tosa::SubOp>(
       builder, loc, softmaxType, qkTensor, qkMaxs);
-  auto expsTensor = rock::createTosaOpAndInfer<tosa::ExpOp>(
+  auto expsTensor = rock::tosa::createOpAndInfer<tosa::ExpOp>(
       builder, loc, softmaxType, normalizedQkTensor);
-  auto expsSums = rock::createTosaOpAndInfer<tosa::ReduceSumOp>(
+  auto expsSums = rock::tosa::createOpAndInfer<tosa::ReduceSumOp>(
       builder, loc, softmaxType, expsTensor, reductionAxis);
   Type resultOutElementType =
       isQuantized ? Float16Type::get(ctx) : firstGemmOutElemType;
@@ -3898,22 +3900,22 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   // lse = (log(expsSums) + qkMaxs)
   if (returnLSE) {
     Type lseType = cast<ShapedType>(lseOut.getType()).getElementType();
-    Value expsSumsForLSE = rock::createTosaOpAndInfer<tosa::CastOp>(
+    Value expsSumsForLSE = rock::tosa::createOpAndInfer<tosa::CastOp>(
         builder, loc, lseType, expsSums);
-    Value qkMaxsForLSE =
-        rock::createTosaOpAndInfer<tosa::CastOp>(builder, loc, lseType, qkMaxs);
-    lseTensor = rock::createTosaOpAndInfer<tosa::LogOp>(builder, loc, lseType,
-                                                        expsSumsForLSE);
-    lseTensor = rock::createTosaOpAndInfer<tosa::AddOp>(
+    Value qkMaxsForLSE = rock::tosa::createOpAndInfer<tosa::CastOp>(
+        builder, loc, lseType, qkMaxs);
+    lseTensor = rock::tosa::createOpAndInfer<tosa::LogOp>(builder, loc, lseType,
+                                                          expsSumsForLSE);
+    lseTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
         builder, loc, lseType, lseTensor, qkMaxsForLSE);
   }
 
-  auto invExpsSums = rock::createTosaOpAndInfer<tosa::ReciprocalOp>(
+  auto invExpsSums = rock::tosa::createOpAndInfer<tosa::ReciprocalOp>(
       builder, loc, softmaxType, expsSums);
 
   Value softmaxTensor =
-      rock::getTosaMulOp(builder, loc, expsTensor, invExpsSums, softmaxType);
-  softmaxTensor = rock::createTosaOpAndInfer<tosa::CastOp>(
+      rock::tosa::getMulOp(builder, loc, expsTensor, invExpsSums, softmaxType);
+  softmaxTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
       builder, loc, resultOutElementType, softmaxTensor);
   auto softmaxZp =
       tosa::createZeroPointTensor(builder, loc, softmaxTensor.getType(), 0)
@@ -3923,8 +3925,8 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
           .value();
 
   // accumulate in 32 bit
-  Type secondAccType = rock::getTosaAccType(builder, resultOutElementType);
-  auto resultTensorMatMul = rock::createTosaOpAndInfer<tosa::MatMulOp>(
+  Type secondAccType = rock::tosa::getAccType(builder, resultOutElementType);
+  auto resultTensorMatMul = rock::tosa::createOpAndInfer<tosa::MatMulOp>(
       builder, loc, resultOutElementType, softmaxTensor, valuesTensor,
       softmaxZp, valuesZp);
   resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
@@ -3932,7 +3934,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 
   if (transposeO) {
     resultTensor =
-        rock::getTosaTransposeOp(builder, loc, resultTensor, {0, 2, 1});
+        rock::tosa::getTransposeOp(builder, loc, resultTensor, {0, 2, 1});
   }
 
   if (splitKV > 1) {

@@ -59,7 +59,7 @@ bool isSpecificValueAttribute(Attribute value, double target) {
 bool isConstantValue(Value v, double target) {
   if (auto cst = v.getDefiningOp<arith::ConstantOp>())
     return isSpecificValueAttribute(cst.getValue(), target);
-  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
+  if (auto cst = v.getDefiningOp<mlir::tosa::ConstOp>())
     return isSpecificValueAttribute(cst.getValuesAttr(), target);
   return false;
 }
@@ -116,10 +116,62 @@ static bool isConstRangeAttribute(Attribute value) {
 bool isConstRange(Value v) {
   if (auto cst = v.getDefiningOp<arith::ConstantOp>())
     return isConstRangeAttribute(cst.getValue());
-  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
+  if (auto cst = v.getDefiningOp<mlir::tosa::ConstOp>())
     return isConstRangeAttribute(cst.getValuesAttr());
   return false;
 }
 
+namespace tosa {
+Value getOneTensor(OpBuilder &builder, Location loc, RankedTensorType type) {
+  auto value = cast<ElementsAttr>(builder.getOneAttr(type));
+  return ::mlir::tosa::ConstOp::create(builder, loc, type, value);
+}
+
+Type getAccType(OpBuilder &builder, Type inputType) {
+  Type accType;
+  if (isa<FloatType>(inputType)) {
+    accType = builder.getF32Type();
+  } else if (isa<IntegerType>(inputType)) {
+    accType = builder.getI32Type();
+  } else {
+    llvm_unreachable("not expected type");
+  }
+  return accType;
+}
+
+Value getZeroTensor(OpBuilder &builder, Location loc, RankedTensorType type) {
+  auto value = cast<ElementsAttr>(builder.getZeroAttr(type));
+  return mlir::tosa::ConstOp::create(builder, loc, type, value);
+}
+
+mlir::tosa::TransposeOp getTransposeOp(OpBuilder &builder, Location loc,
+                                       Value input,
+                                       ArrayRef<int32_t> permutation) {
+  ShapedType inputTy = cast<ShapedType>(input.getType());
+  auto inputShape = inputTy.getShape();
+  SmallVector<int64_t> newShape;
+  newShape.reserve(permutation.size());
+  for (int32_t fromIdx : permutation)
+    newShape.push_back(inputShape[fromIdx]);
+  Type newTy = RankedTensorType::get(newShape, inputTy.getElementType());
+
+  auto newOp = ::mlir::tosa::TransposeOp::create(builder, loc, newTy, input,
+                                                 permutation);
+  return newOp;
+}
+
+::mlir::tosa::MulOp getMulOp(OpBuilder &builder, Location loc, Value input1,
+                             Value input2, Type elemType) {
+  auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+  elemType = getElementTypeOrSelf(elemType);
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+  Value constZero =
+      ::mlir::tosa::ConstOp::create(builder, loc, shiftType, shiftZeroAttr);
+  auto mulOp = createOpAndInfer<::mlir::tosa::MulOp>(builder, loc, elemType,
+                                                     input1, input2, constZero);
+  return mulOp;
+}
+} // namespace tosa
 } // namespace rock
 } // namespace mlir
