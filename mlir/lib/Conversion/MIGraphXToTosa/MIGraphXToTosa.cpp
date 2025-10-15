@@ -324,11 +324,14 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
           /* operator_name */ ROCK_CUSTOMOP_CONV_BWD_DATA,
           /* domain_name  */ ROCK_CUSTOMOP_DOMAIN_NAME,
           /* implementation_attrs  */ "",
-          ValueRange{input, filter,
-                     getZeroTensor(loc, RankedTensorType::get(
-                                   cast<ShapedType>(new1DOutTy).getShape()[3], newOutElementTy),
-                                   rewriter),
-                     inputZp, weightZp});
+          ValueRange{
+              input, filter,
+              getZeroTensor(loc,
+                            RankedTensorType::get(
+                                cast<ShapedType>(new1DOutTy).getShape()[3],
+                                newOutElementTy),
+                            rewriter),
+              inputZp, weightZp});
     } else {
       cop = tosa::Conv2DOp::create(
           rewriter, loc, new1DOutTy,
