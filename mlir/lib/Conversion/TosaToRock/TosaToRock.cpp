@@ -22,6 +22,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTosaCustomOps.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
@@ -344,13 +345,15 @@ static FailureOr<rock::RockConvInterface>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              Value filter, Value output, DenseI64ArrayAttr pad,
              DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group, int64_t kernelID, std::string convKind) {
+             int64_t group, int64_t kernelID,
+             std::optional<std::string> convBackwardKind) {
   Location loc = op->getLoc();
   ConvFields convFields =
       commonConv(rw, op, input, filter, output, pad, stride, dilation, group);
 
   Operation *cop = nullptr;
-  if (convKind == "bwd_data") {
+  if (convBackwardKind.has_value() &&
+      convBackwardKind.value() == ROCK_CUSTOMOP_CONV_BWD_DATA) {
     cop = rock::ConvBwdDataOp::create(
         rw, loc, convFields.outputExp.getType(), convFields.filterExp,
         convFields.outputExp, convFields.inputExp,
@@ -362,7 +365,9 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
         /*usesV4R1=*/rw.getBoolAttr(false));
   } else {
     // Handle forwards convolution
-    assert(convKind != "bwd_weight" && "bwd_weight currently not implemented");
+    assert((!convBackwardKind.has_value() ||
+            convBackwardKind.value() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT) &&
+           "bwd_weight currently not implemented");
     cop = rock::ConvOp::create(
         rw, loc, convFields.outputExp.getType(), convFields.filterExp,
         convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
@@ -659,7 +664,7 @@ private:
   SmallVector<Operation *> visitedOps;
 };
 
-static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
+static void addZeroInitPrefillAttribute(tosa::CustomOp op,
                                         Operation *rockConv) {
   // First check if the TransposeConv2D op is going to require having it's
   // output zeroinitialized, i.e., not every element of the output buffer is
@@ -679,7 +684,7 @@ static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
 
   // Now we need to determine where to add the prefill attributes. Trace through
   // the output of the TransposeConv2D op to find where the result is used.
-  Value output = op.getResult();
+  Value output = op.getResult(0);
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   if (!func)
     return;
@@ -712,8 +717,37 @@ static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
   }
 }
 
+static FailureOr<tosa::AddOp>
+replaceCstZeroWithAddNBcast(MLIRContext *context, ConversionPatternRewriter &rw,
+                            Location loc, Type resTy, Value bias, Value input,
+                            Value result) {
+  // non-zero bias, replace with tosa.add w/ broadcast
+  auto biasType = cast<ShapedType>(bias.getType());
+  if (!biasType.hasStaticShape())
+    return failure();
+
+  int64_t nDims = cast<ShapedType>(input.getType()).getRank();
+  SmallVector<int64_t> biasShape;
+  for (int i = 0; i < nDims - 1; i++)
+    biasShape.push_back(1);
+  biasShape.push_back(biasType.getShape()[0]);
+  auto newType = RankedTensorType::get(biasShape, biasType.getElementType());
+
+  // [[0, 1, 2, 3]]
+  ReassociationExprs exprs;
+  for (int i = 0; i < nDims; i++)
+    exprs.push_back(getAffineDimExpr(i, context));
+  SmallVector<ReassociationExprs, 1> reassociations;
+  reassociations.push_back(exprs);
+
+  auto biasExpand =
+      tensor::ExpandShapeOp::create(rw, loc, newType, bias, reassociations);
+
+  return tosa::AddOp::create(rw, loc, resTy, ValueRange{result, biasExpand});
+}
+
 template <typename OpT>
-class ConvConverter final : public OpConversionPattern<OpT> {
+class ForwardConvConverter final : public OpConversionPattern<OpT> {
 public:
   using OpConversionPattern<OpT>::OpConversionPattern;
 
@@ -753,65 +787,112 @@ public:
       return op->emitError(
           "Expected 'dilation' attribute to be present on the operation");
 
-    std::string convKind = "";
-    if (isa<tosa::TransposeConv2DOp>(op)) {
-      // If we are trying to convert bwd_weight, fail as it's currently not
-      // supported
-      convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
-      if (convKind == "bwd_weight") {
-        op->emitError(
-            "TosaToRock lowering support for bwd_weight not supported");
-      }
-      assert(convKind == "bwd_data" && "Expected bwd_data conv op");
-    }
-
     FailureOr<rock::RockConvInterface> rockConv =
         makeRockConv(rw, op, input, filter, output, padAttr, op.getStrideAttr(),
-                     dilationAttr, group, /*kernelID=*/0, convKind);
-
-    if (convKind == "bwd_data")
-      addZeroInitPrefillAttribute(cast<tosa::TransposeConv2DOp>(op),
-                                  rockConv->getOperation());
+                     dilationAttr, group, /*kernelID=*/0, "");
 
     if (failed(rockConv))
       return failure();
 
     Value result;
-    if (isa<tosa::TransposeConv2DOp>(op)) {
-      result = output;
-    } else {
-      Operation *rockConvOp = rockConv->getOperation();
-      result = rock::TensorUntransformCastOp::create(
-          rw, loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
-    }
+    Operation *rockConvOp = rockConv->getOperation();
+    result = rock::TensorUntransformCastOp::create(
+        rw, loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
 
     // test for zero bias, and ignore
     if (!isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
-      auto biasType = cast<ShapedType>(bias.getType());
-      if (!biasType.hasStaticShape())
+      FailureOr<tosa::AddOp> maybeResult = replaceCstZeroWithAddNBcast(
+          context, rw, loc, op.getType(), bias, input, result);
+
+      if (succeeded(maybeResult))
+        result = maybeResult.value();
+      else
         return failure();
+    }
+    rw.replaceOp(op, result);
+    return success();
+  }
+};
 
-      int64_t nDims = cast<ShapedType>(input.getType()).getRank();
-      SmallVector<int64_t> biasShape;
-      for (int i = 0; i < nDims - 1; i++)
-        biasShape.push_back(1);
-      biasShape.push_back(biasType.getShape()[0]);
-      auto newType =
-          RankedTensorType::get(biasShape, biasType.getElementType());
+class BackwardConvConverter final : public OpConversionPattern<tosa::CustomOp> {
+public:
+  using OpConversionPattern<tosa::CustomOp>::OpConversionPattern;
 
-      // [[0, 1, 2, 3]]
-      ReassociationExprs exprs;
-      for (int i = 0; i < nDims; i++)
-        exprs.push_back(getAffineDimExpr(i, context));
-      SmallVector<ReassociationExprs, 1> reassociations;
-      reassociations.push_back(exprs);
+  LogicalResult matchAndRewrite(tosa::CustomOp op,
+                                tosa::CustomOp::Adaptor adaptor,
+                                ConversionPatternRewriter &rw) const final {
+    // Make sure its a valid CustomOp representing a convolution.
+    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
+      return op->emitError("domain isn't rock");
+    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
+        op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT)
+      return op->emitError("has an invalid operator_name");
+    if (op.getNumOperands() < 5)
+      return op->emitError("must have 5 or more operands");
+    if (op.getNumResults() != 1)
+      return op->emitError("must have 1 result");
 
-      auto biasExpand =
-          tensor::ExpandShapeOp::create(rw, loc, newType, bias, reassociations);
+    // Verify all required attributes are present. "group" is optional.
+    for (std::string attrName : {"pad", "stride", "dilation"}) {
+      if (!op->hasAttr(attrName))
+        return op->emitError("expected '" + attrName +
+                             "' attribute to be present on the op");
+    }
 
-      result = tosa::AddOp::create(rw, loc, op.getType(),
-                                   ValueRange{result, biasExpand});
+    auto operands = adaptor.getOperands();
+    auto loc = op->getLoc();
+    auto *context = op->getContext();
+    auto input = operands[0];
+    auto filter = operands[1];
+    auto bias = operands[2];
+    RankedTensorType outputType = cast<RankedTensorType>(op.getType(0));
+
+    rock::GemmFeatures features = getGemmFeaturesFromOp(op, input.getType());
+
+    if (failed(setSplitKAttrs(op, features, rw)))
+      return failure();
+
+    Value output =
+        bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
+
+    auto groupAttr = op->getAttrOfType<IntegerAttr>("group");
+    auto padAttr = op->getAttrOfType<DenseI64ArrayAttr>("pad");
+    auto strideAttr = op->getAttrOfType<DenseI64ArrayAttr>("stride");
+    auto dilationAttr = op->getAttrOfType<DenseI64ArrayAttr>("dilation");
+
+    int64_t group = 1;
+    if (groupAttr)
+      group = groupAttr.getInt();
+
+    // If we are trying to convert bwd_weight, fail as it's currently not
+    // supported.
+    if (op.getOperatorName() == ROCK_CUSTOMOP_CONV_BWD_WEIGHT) {
+      return op->emitError(
+          "TosaToRock lowering support for bwd_weight not supported");
+    }
+
+    FailureOr<rock::RockConvInterface> rockConv = makeRockConv(
+        rw, op, input, filter, output, padAttr, strideAttr, dilationAttr, group,
+        /*kernelID=*/0, ROCK_CUSTOMOP_CONV_BWD_DATA);
+
+    addZeroInitPrefillAttribute(op, rockConv->getOperation());
+
+    if (failed(rockConv))
+      return failure();
+
+    Value result = output;
+
+    // test for zero bias, and ignore
+    if (!isConstantZero(op.getOperand(2))) {
+      // non-zero bias, replace with tosa.add w/ broadcast
+      FailureOr<tosa::AddOp> maybeResult = replaceCstZeroWithAddNBcast(
+          context, rw, loc, op.getType(0), bias, input, result);
+
+      if (succeeded(maybeResult))
+        result = maybeResult.value();
+      else
+        return failure();
     }
     rw.replaceOp(op, result);
     return success();
@@ -2361,9 +2442,10 @@ public:
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
-  patterns.add<ConvConverter<tosa::Conv2DOp>, ConvConverter<tosa::Conv3DOp>,
-               ConvConverter<tosa::TransposeConv2DOp>, MatMulConverter,
-               ReduceSumConverter, ReduceMaxConverter>(context);
+  patterns.add<ForwardConvConverter<tosa::Conv2DOp>,
+               ForwardConvConverter<tosa::Conv3DOp>, BackwardConvConverter,
+               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
+      context);
 }
 
 void tosa::populateTosaToRockAttentionConversionPatterns(

@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTosaCustomOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
@@ -70,8 +71,13 @@ public:
     target.addLegalDialect<rock::RockDialect, tosa::TosaDialect,
                            tensor::TensorDialect,
                            bufferization::BufferizationDialect>();
-    target.addIllegalOp<tosa::Conv2DOp, tosa::Conv3DOp, tosa::TransposeConv2DOp,
-                        tosa::MatMulOp, tosa::ReduceSumOp, tosa::ReduceMaxOp>();
+    target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
+      return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME ||
+             (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
+              op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT);
+    });
+    target.addIllegalOp<tosa::Conv2DOp, tosa::Conv3DOp, tosa::MatMulOp,
+                        tosa::ReduceSumOp, tosa::ReduceMaxOp>();
 
     mlir::tosa::populateTosaToRockConversionPatterns(func->getContext(),
                                                      patterns);

@@ -188,4 +188,25 @@ func.func @test_conv_gemm(%arg0: tensor<2048xf32>, %arg1: tensor<2304xf32>, %arg
   %collapsed_3 = tensor.collapse_shape %18 [[0, 1, 2]] : tensor<1x128x32xf32> into tensor<4096xf32>
   return %collapsed_3 : tensor<4096xf32>
 }
+
+// CHECK-LABEL: @test_backwards_conv
+// CHECK-SAME: -> (tensor<524288xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32})
+func.func @test_backwards_conv(%arg0: tensor<131072xf32>, %arg1: tensor<4194304xf32>) -> tensor<524288xf32> attributes {kernel} {
+  %0 = tosa.const_shape  {values = dense<[512, 512, 4, 4]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %1 = tosa.reshape %arg1, %0 : (tensor<4194304xf32>, !tosa.shape<4>) -> tensor<512x512x4x4xf32>
+  %2 = tosa.const_shape  {values = dense<[1, 512, 16, 16]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %3 = tosa.reshape %arg0, %2 : (tensor<131072xf32>, !tosa.shape<4>) -> tensor<1x512x16x16xf32>
+  %4 = tosa.transpose %3 {perms = array<i32: 0, 2, 3, 1>} : (tensor<1x512x16x16xf32>) -> tensor<1x16x16x512xf32>
+  %5 = tosa.transpose %1 {perms = array<i32: 0, 2, 3, 1>} : (tensor<512x512x4x4xf32>) -> tensor<512x4x4x512xf32>
+  %6 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %7 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %8 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<512xf32>}> : () -> tensor<512xf32>
+  // CHECK: rock.conv_bwd_data
+  // CHECK: perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"
+  %9 = tosa.custom %4, %5, %8, %6, %7 {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1", acc_type = f32, dilation = array<i64: 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0>, pad = array<i64: 1, 1, 1, 1>, stride = array<i64: 1, 1>} : (tensor<1x16x16x512xf32>, tensor<512x4x4x512xf32>, tensor<512xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x32x32x512xf32>
+  %10 = tosa.transpose %9 {perms = array<i32: 0, 3, 1, 2>} : (tensor<1x32x32x512xf32>) -> tensor<1x512x32x32xf32>
+  %11 = tosa.const_shape  {values = dense<524288> : tensor<1xindex>} : () -> !tosa.shape<1>
+  %12 = tosa.reshape %10, %11 : (tensor<1x512x32x32xf32>, !tosa.shape<1>) -> tensor<524288xf32>
+  return %12 : tensor<524288xf32>
+}
 }
