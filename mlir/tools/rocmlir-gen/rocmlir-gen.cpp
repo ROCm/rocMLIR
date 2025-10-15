@@ -2682,6 +2682,25 @@ static Value applyMask(OpBuilder builder, Location loc, Value inputTensor,
   return result;
 }
 
+static Value getOneTensor(OpBuilder &builder, Location loc,
+                          RankedTensorType type) {
+  auto value = cast<ElementsAttr>(builder.getOneAttr(type));
+  return tosa::ConstOp::create(builder, loc, type, value);
+}
+
+static tosa::MulOp getMulOp(OpBuilder &builder, Location loc, Value input1,
+                            Value input2, Type elemType) {
+  auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+  elemType = getElementTypeOrSelf(elemType);
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+  Value constZero =
+      tosa::ConstOp::create(builder, loc, shiftType, shiftZeroAttr);
+  auto mulOp = createOpAndInfer<tosa::MulOp>(builder, loc, elemType, input1,
+                                             input2, /*shift=*/constZero);
+  return mulOp;
+}
+
 static Value createRange(OpBuilder builder, Location loc, size_t index,
                          const ArrayRef<int64_t> inpShape) {
   assert(index < inpShape.size());
