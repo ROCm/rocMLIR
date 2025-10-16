@@ -24,9 +24,10 @@ module {
 
   // CHECK-LABEL: @dot_tr_collapse_reshape2
   func.func private @dot_tr_collapse_reshape2(%arg0: tensor<2x320x64x64xf32>, %arg1: tensor<1x320x320xf32>) -> tensor<2x4096x320xf32> attributes {arch = "##TOKEN_ARCH##", kernel} {
-    %cst = arith.constant dense<0.000000e+00> : tensor<2x320x320xf32>
+    %cst = arith.constant dense<1.000000e+00> : tensor<2x320x320xf32>
+    %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
     // CHECK-DAG: %[[TRANSFORM_ARG1_0:.*]] = rock.transform %arg1 {{.*}} : memref<1x320x320xf32> to memref<2x320x320xf32>
-    %0 = "tosa.add"(%cst, %arg1) : (tensor<2x320x320xf32>, tensor<1x320x320xf32>) -> tensor<2x320x320xf32>
+    %0 = "tosa.mul"(%cst, %arg1, %shift) : (tensor<2x320x320xf32>, tensor<1x320x320xf32>, tensor<1xi8>) -> tensor<2x320x320xf32>
     // CHECK-DAG: %[[TRANSFORM_ARG0_0:.*]] = rock.transform %arg0 {{.*}} : memref<2x320x64x64xf32> to memref<2x64x64x320xf32>
     // CHECK-DAG: %[[TRANSFORM_ARG0_1:.*]] = rock.transform %[[TRANSFORM_ARG0_0]] by {{.*}} : memref<2x64x64x320xf32> to memref<2x4096x320xf32>
     // CHECK-DAG: %[[TRANSFORM_ARG0_2:.*]] = rock.transform %[[TRANSFORM_ARG0_1]] by {{.*}} : memref<2x4096x320xf32> to memref<8192x320xf32>

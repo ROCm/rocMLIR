@@ -28,12 +28,12 @@
 // CHECK: %[[scaledReshaped:.*]] = tosa.reshape %[[scaledTensorRaw:.*]], %{{.*}} : (tensor<524288xf32>, !tosa.shape<3>) -> tensor<1x512x1024xf32>
 // CHECK: %[[range2:.*]] = "tosa.const"() <{values = {{.*}} : tensor<512xi32>}> : () -> tensor<512xi32>
 // CHECK: %[[range2Reshaped:.*]] = tosa.reshape %[[range2:.*]], %{{.*}} : (tensor<512xi32>, !tosa.shape<3>) -> tensor<1x512x1xi32>
-// CHECK: %[[zero:.*]] = "tosa.const"() <{values = dense<0> : tensor<1x512x1024xi32>}> : () -> tensor<1x512x1024xi32>
-// CHECK: %[[rangeBroadcast2:.*]] = tosa.add %[[zero]], %[[range2Reshaped]] : (tensor<1x512x1024xi32>, tensor<1x512x1xi32>) -> tensor<1x512x1024xi32>
+// CHECK: %[[one:.*]] = "tosa.const"() <{values = dense<1> : tensor<1x512x1024xi32>}> : () -> tensor<1x512x1024xi32>
+// CHECK: %[[rangeBroadcast2:.*]] = tosa.mul %[[range2Reshaped]], %[[one]], %{{.*}} : (tensor<1x512x1xi32>, tensor<1x512x1024xi32>, tensor<1xi8>) -> tensor<1x512x1024xi32>
 // CHECK: %[[range3:.*]] = "tosa.const"() <{values = {{.*}} : tensor<1024xi32>}> : () -> tensor<1024xi32>
 // CHECK: %[[range3Reshaped:.*]] = tosa.reshape %[[range3:.*]], %{{.*}} : (tensor<1024xi32>, !tosa.shape<3>) -> tensor<1x1x1024xi32>
-// CHECK: %[[zero2:.*]] = "tosa.const"() <{values = dense<0> : tensor<1x512x1024xi32>}> : () -> tensor<1x512x1024xi32>
-// CHECK: %[[rangeBroadcast3:.*]] = tosa.add %[[zero2]], %[[range3Reshaped]] : (tensor<1x512x1024xi32>, tensor<1x1x1024xi32>) -> tensor<1x512x1024xi32>
+// CHECK: %[[one2:.*]] = "tosa.const"() <{values = dense<1> : tensor<1x512x1024xi32>}> : () -> tensor<1x512x1024xi32>
+// CHECK: %[[rangeBroadcast3:.*]] = tosa.mul %[[range3Reshaped]], %[[one2]], %{{.*}} : (tensor<1x1x1024xi32>, tensor<1x512x1024xi32>, tensor<1xi8>) -> tensor<1x512x1024xi32>
 // CHECK: %[[mask2:.*]] = tosa.greater %[[rangeBroadcast3]], %[[rangeBroadcast2]] : (tensor<1x512x1024xi32>, tensor<1x512x1024xi32>) -> tensor<1x512x1024xi1>
 // CHECK: %[[ones:.*]] = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x512x1024xf32>}> : () -> tensor<1x512x1024xf32>
 // CHECK: %[[scaleTensor:.*]] = tosa.select %[[mask2]], %[[ones]], %[[scaledReshaped]] : (tensor<1x512x1024xi1>, tensor<1x512x1024xf32>, tensor<1x512x1024xf32>) -> tensor<1x512x1024xf32>
@@ -42,12 +42,12 @@
 
 // CHECK: %[[range4:.*]] = "tosa.const"() <{values = {{.*}} : tensor<512xi32>}> : () -> tensor<512xi32>
 // CHECK: %[[range4Reshaped:.*]] = tosa.reshape %[[range4:.*]], %{{.*}} : (tensor<512xi32>, !tosa.shape<3>) -> tensor<1x512x1xi32>
-// CHECK: %[[zero3:.*]] = "tosa.const"() <{values = dense<0> : tensor<1x512x1024xi32>}> : () -> tensor<1x512x1024xi32>
-// CHECK: %[[rangeBroadcast4:.*]] = tosa.add %[[zero3]], %[[range4Reshaped]] : (tensor<1x512x1024xi32>, tensor<1x512x1xi32>) -> tensor<1x512x1024xi32>
+// CHECK: %[[one3:.*]] = "tosa.const"() <{values = dense<1> : tensor<1x512x1024xi32>}> : () -> tensor<1x512x1024xi32>
+// CHECK: %[[rangeBroadcast4:.*]] = tosa.mul %[[range4Reshaped]], %[[one3]], %{{.*}} : (tensor<1x512x1xi32>, tensor<1x512x1024xi32>, tensor<1xi8>) -> tensor<1x512x1024xi32>
 // CHECK: %[[range5:.*]] = "tosa.const"() <{values = {{.*}} : tensor<1024xi32>}> : () -> tensor<1024xi32>
 // CHECK: %[[range5Reshaped:.*]] = tosa.reshape %[[range5:.*]], %{{.*}} : (tensor<1024xi32>, !tosa.shape<3>) -> tensor<1x1x1024xi32>
-// CHECK: %[[zero4:.*]] = "tosa.const"() <{values = dense<0> : tensor<1x512x1024xi32>}> : () -> tensor<1x512x1024xi32>
-// CHECK: %[[rangeBroadcast5:.*]] = tosa.add %[[zero4]], %[[range5Reshaped]] : (tensor<1x512x1024xi32>, tensor<1x1x1024xi32>) -> tensor<1x512x1024xi32>
+// CHECK: %[[one4:.*]] = "tosa.const"() <{values = dense<1> : tensor<1x512x1024xi32>}> : () -> tensor<1x512x1024xi32>
+// CHECK: %[[rangeBroadcast5:.*]] = tosa.mul %[[range5Reshaped]], %[[one4]], %{{.*}} : (tensor<1x1x1024xi32>, tensor<1x512x1024xi32>, tensor<1xi8>) -> tensor<1x512x1024xi32>
 // CHECK: %[[mask3:.*]] = tosa.greater %[[rangeBroadcast5]], %[[rangeBroadcast4]] : (tensor<1x512x1024xi32>, tensor<1x512x1024xi32>) -> tensor<1x512x1024xi1>
 // CHECK: %[[negInf:.*]] = "tosa.const"() <{values = dense<0xFF800000> : tensor<1x512x1024xf32>}> : () -> tensor<1x512x1024xf32>
 // CHECK: %[[qkTensor:.*]] = tosa.select %[[mask3]], %[[negInf]], %[[sqkTensorCast]] : (tensor<1x512x1024xi1>, tensor<1x512x1024xf32>, tensor<1x512x1024xf32>) -> tensor<1x512x1024xf32>

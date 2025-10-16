@@ -23,6 +23,7 @@
 // GPU-NEXT:rock-regularize,
 // GPU-NEXT:rock-shuffle-gemm-for-reductions,
 // GPU-NEXT:rock-gridwise-gemm-to-blockwise,
+// GPU-NEXT:rock-blockwise-load-tile-to-threadwise,
 // GPU-NEXT:rock-linalg-align,
 // GPU-NEXT:rock-blockwise-gemm-to-threadwise,
 // GPU-NEXT:rock-pipeline{rock-pipeline-remove-stages=true},
