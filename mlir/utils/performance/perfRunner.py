@@ -501,6 +501,7 @@ class ConvConfiguration(PerfConfiguration):
             str(self.group), '--kernel-repeats',
             str(MLIR_N_REPEATS), f"--perf_config={self.perfconfig}"
         ])
+
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
