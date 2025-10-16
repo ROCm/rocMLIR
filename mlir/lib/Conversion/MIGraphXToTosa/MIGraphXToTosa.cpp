@@ -249,7 +249,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     // the custom op, we keep it like this to make the lowering
     // more uniform.
     newShape.insert(std::prev(newShape.end()), 1);
-    new1DOutTy = RankedTensorType::get(newShape, newOutElementTy);
+    newOutTy = RankedTensorType::get(newShape, newOutElementTy);
     input = expandTo2D(input);
     filter = expandTo2D(filter);
     inputZp =
@@ -259,7 +259,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
 
     if (!isBwdDataConvOp) {
       cop = tosa::Conv2DOp::create(
-          rewriter, loc, new1DOutTy,
+          rewriter, loc, newOutTy,
           ValueRange{input, filter,
                      rock::tosa::getZeroTensor(
                          rewriter, loc,
@@ -312,15 +312,16 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   // Create backward conv op now if required (same for all dimsensions)
   if (isBwdDataConvOp) {
     cop = tosa::CustomOp::create(
-        rewriter, loc, dims == 1 ? new1DOutTy : newOutTy,
-        /* operator_name=*/ROCK_CUSTOMOP_CONV_BWD_DATA,
-        /* domain_name=*/ROCK_CUSTOMOP_DOMAIN_NAME,
-        /* implementation_attrs=*/"",
+        rewriter, loc, newOutTy,
+        /*operator_name=*/ROCK_CUSTOMOP_CONV_BWD_DATA,
+        /*domain_name=*/ROCK_CUSTOMOP_DOMAIN_NAME,
+        /*implementation_attrs=*/"",
         ValueRange{
             input, filter,
-             rock::tosa::getZeroTensor(rewriter, loc, newOutElementTy,
-                          cast<ShapedType>(dims == 1 ? new1DOutTy : newOutTy)
-                              .getShape()[lastDim]),
+            rock::tosa::getZeroTensor(loc, RankedTensorType::get(
+                                cast<ShapedType>(newOutTy).getShape()[lastDim],
+                                newOutElementTy),
+                          rewriter),
             inputZp, weightZp});
   }
 
