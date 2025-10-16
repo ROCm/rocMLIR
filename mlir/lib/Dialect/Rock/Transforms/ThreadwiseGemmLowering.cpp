@@ -34,15 +34,15 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "LdsTransposeLoad.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
-#include "LdsTransposeLoad.h"
 #include "llvm/Support/Debug.h"
 
 #include <iterator>
@@ -577,19 +577,6 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   int64_t numValues = dstBufferType.getNumElements();
   bool hwDirectToLDS128b, hwDirectToLDS32b;
-  // Check if the operation has the attribute for LDS Transpose Load
-  if (op->hasAttr("rock.hw_lds_transpose_enabled")) {
-    // Derive lowering info from attributes (layout, panel counts, operand).
-    auto info = mlir::rock::hwtranspose::deriveLoweringInfo(op, b);
-    if (info.usable) {
-      rock::hwtranspose::emitThreadwiseHWTranspose(op, info, b);
-    } else {
-      return op.emitOpError("LDS transpose load emission is not usable with "
-                            "the derived attributes");
-    }
-    return success();
-  }
-
   if (isGlobalToLDS) {
     if (transforms.empty()) {
       LLVM_DEBUG(llvm::dbgs() << "transforms is empty.\n");
@@ -603,6 +590,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
            "Global to LDS should not have vector buffers, not implemented yet");
 
     auto arch = getArch(op);
+    if (failed(arch))
       return emitError(loc) << "can't get arch\n";
     auto features = rock::lookupArchInfo(arch.value()).defaultFeatures;
     hwDirectToLDS128b =
@@ -614,7 +602,22 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
                  << "Direct to LDS is not supported by the hardware\n");
       return failure();
     }
+  }
 
+  // Check if the operation has the attribute for LDS Transpose Load
+  if (op->hasAttr("rock.hw_lds_transpose_enabled")) {
+    // Derive lowering info from attributes (layout, panel counts, operand).
+    auto info = mlir::rock::hwtranspose::deriveLoweringInfo(op, b);
+    if (info.usable) {
+      rock::hwtranspose::emitThreadwiseHWTranspose(op, info, b);
+    } else {
+      return op.emitOpError("LDS transpose load emission is not usable with "
+                            "the derived attributes");
+    }
+    return success();
+  }
+
+  size_t extraIdxCount = op.getExtraIndices().size();
   // We are vectorizing in the iter dimension, not block ID or thread ID
   auto elementType = sourceViewType.getElementType();
   Type loadType;
@@ -773,6 +776,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         constantNumElements = 32 / dstBufferType.getElementTypeBitWidth();
         directToLDSType = b.getF32Type();
         if (!hwDirectToLDS32b) {
+          LLVM_DEBUG(
+              llvm::dbgs()
               << "32 bits direct to LDS is not supported by the hardware\n");
           return failure();
         }
@@ -802,10 +807,12 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
       scf::IfOp ifb = scf::IfOp::create(b, loc, loadType, validity,
                                         /*withElseRegion=*/true);
-      scf::IfOp ifb =
-          b.create<scf::IfOp>(loc, loadType, validity, /*withElseRegion=*/true);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
+        Value loaded;
+        if (!isSrcVectorBuffer)
+          loaded =
+              InBoundsLoadOp::create(thenb, loc, loadType, buffer,
                                      loadLoop.getLowerCoords(/*domain=*/0));
         else
           loaded =

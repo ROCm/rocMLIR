@@ -491,6 +491,22 @@ struct BlockwiseGemmAccelRewritePattern
           op.getSplitKAcrossThreadsFirstB());
     }
 
+    hwtranspose::Decision decisionA, decisionB;
+    if (directToLDS) {
+      auto *mfma = dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get());
+      if (!mfma) {
+        return failure();
+      }
+      hwtranspose::MfmaInstrShape shape{mfma->getMfmaNonKDim(),
+                                        mfma->getMfmaK()};
+      decisionA = hwtranspose::makeDecision(
+          arch, dataTypeA, op.getLdsLayoutMxK(), op.getLdsLayoutNxK(), shape,
+          hwtranspose::OperandKind::A, mPerBlock, nPerBlock, kPerBlock);
+      decisionB = hwtranspose::makeDecision(
+          arch, dataTypeB, op.getLdsLayoutMxK(), op.getLdsLayoutNxK(), shape,
+          hwtranspose::OperandKind::B, mPerBlock, nPerBlock, kPerBlock);
+    }
+
     auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
                           Value loopVar, Type argType, int64_t repeats,
                           bool loadFromLDS, bool isA) -> Value {
@@ -551,22 +567,6 @@ struct BlockwiseGemmAccelRewritePattern
       }
       return buffer;
     };
-
-    hwtranspose::Decision decisionA, decisionB;
-    if (directToLDS) {
-      auto *mfma = dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get());
-      if (!mfma) {
-        return failure();
-      }
-      hwtranspose::MfmaInstrShape shape{mfma->getMfmaNonKDim(),
-                                        mfma->getMfmaK()};
-      decisionA = hwtranspose::makeDecision(
-          arch, dataTypeA, op.getLdsLayoutMxK(), op.getLdsLayoutNxK(), shape,
-          hwtranspose::OperandKind::A, mPerBlock, nPerBlock, kPerBlock);
-      decisionB = hwtranspose::makeDecision(
-          arch, dataTypeB, op.getLdsLayoutMxK(), op.getLdsLayoutNxK(), shape,
-          hwtranspose::OperandKind::B, mPerBlock, nPerBlock, kPerBlock);
-    }
 
     auto mLoop = b.create<affine::AffineForOp>(loc, 0, mRepeats);
     {

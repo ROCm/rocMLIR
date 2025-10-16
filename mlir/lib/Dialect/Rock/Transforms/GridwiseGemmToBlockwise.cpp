@@ -297,37 +297,6 @@ static LDSLayoutConfigDim getLDSLayoutConfigDim(Type elementType, int64_t kpack,
   return cfg;
 }
 
-/// Allocate the buffers for the compute operation. For direct to LDS, we
-/// buffers used for loading data into LDS will be nx(argType.dtype). When
-/// direct to LDS is disabled, the buffers will be nxargType.
-static std::tuple<Value, Value, Value, Value>
-allocateComputeBuffers(PatternRewriter &b, Location loc, Type argTypeA,
-                       Type argTypeB, int64_t arrayALen, int64_t arrayBLen,
-                       bool directToLDS) {
-  Value arrayAForLoad, arrayBForLoad;
-  Value arrayA, arrayB;
-  if (directToLDS) {
-    auto allocBuffer = [](PatternRewriter &b, Location loc, Type argType,
-                          int64_t arrayLen) {
-      Value arrayBase = gpuAlloc(b, loc, arrayLen * getByteWidth(argType),
-                                 b.getI8Type(), AddressSpace::Private);
-      Value arrayForLoad =
-          viewBufferAs(b, arrayBase, getElementTypeOrSelf(argType));
-      Value array = viewBufferAs(b, arrayBase, argType);
-      return std::make_tuple(arrayForLoad, array);
-    };
-    std::tie(arrayAForLoad, arrayA) = allocBuffer(b, loc, argTypeA, arrayALen);
-    std::tie(arrayBForLoad, arrayB) = allocBuffer(b, loc, argTypeB, arrayBLen);
-  } else {
-    arrayA = gpuAlloc(b, loc, arrayALen, argTypeA, AddressSpace::Private);
-    arrayB = gpuAlloc(b, loc, arrayBLen, argTypeB, AddressSpace::Private);
-    arrayAForLoad = arrayA;
-    arrayBForLoad = arrayB;
-  }
-
-  return std::make_tuple(arrayAForLoad, arrayBForLoad, arrayA, arrayB);
-}
-
 //===----------------------------------------------------------------------===//
 // GridwiseGemm lowering.
 //===----------------------------------------------------------------------===//
@@ -502,6 +471,11 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     FailureOr<VectorDimInfo> maybeVecDimInfoB =
         getVectorDim(loc, op.getB(), elementTypeB, blockSize, kPerBlock,
                      nPerBlock, kpack, directToLDS);
+    if (failed(maybeVecDimInfoB)) {
+      return failure();
+    }
+    LLVM_DEBUG(llvm::dbgs()
+               << "aCopyPerThread: " << aCopyPerThread << "\n"
                << "bCopyPerThread: " << bCopyPerThread << "\n"
                << "aVectorDim: " << maybeVecDimInfoA->vectorDim << "\n"
                << "aVectorLen: " << maybeVecDimInfoA->vectorLen << "\n"
@@ -1314,8 +1288,8 @@ struct GridwiseAttentionAccelRewritePattern
           switch (outOfScopeType) {
           case OutOfScopeType::KVCache:
             assert(currentSeqLen != nullptr);
-            isInvalid = arith::CmpIOp::create(thenb,
-                loc, arith::CmpIPredicate::ugt, mIndex, currentSeqLen);
+            isInvalid = arith::CmpIOp::create(
+                thenb, loc, arith::CmpIPredicate::ugt, mIndex, currentSeqLen);
             break;
           case OutOfScopeType::Causal:
             Value nIndex = lowerCoords[1];
@@ -1323,8 +1297,8 @@ struct GridwiseAttentionAccelRewritePattern
               nIndex = thenb.createOrFold<arith::DivUIOp>(loc, nIndex,
                                                           constNumRepeatsGQA);
 
-            isInvalid = arith::CmpIOp::create(thenb,
-                loc, arith::CmpIPredicate::ugt, mIndex, nIndex);
+            isInvalid = arith::CmpIOp::create(
+                thenb, loc, arith::CmpIPredicate::ugt, mIndex, nIndex);
             break;
           }
 
@@ -1735,7 +1709,7 @@ struct GridwiseAttentionAccelRewritePattern
         // so we need to take the minimum of currentSeqLen and maxRowOfBlock
         if (effectiveSeqLen)
           maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, currentSeqLen,
-                                                          maxRowOfBlock);
+                                                 maxRowOfBlock);
         effectiveSeqLen = maxRowOfBlock;
       }
 
@@ -1743,7 +1717,7 @@ struct GridwiseAttentionAccelRewritePattern
       Value constGemm0MPerBlock =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MPerBlock);
       Value numerator = arith::AddIOp::create(rewriter, loc, effectiveSeqLen,
-                                                       constGemm0MPerBlock);
+                                              constGemm0MPerBlock);
       end = rewriter.createOrFold<arith::DivUIOp>(loc, numerator,
                                                   constGemm0MPerBlock);
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
@@ -1764,12 +1738,12 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.createOrFold<arith::DivUIOp>(loc, numerator, constSplitKV);
 
         // if split-kv is enabled, we need to compute the start and end indices.
-        start = arith::MulIOp::create(rewriter, loc, gridCoordsGemm0.split_block,
-                                       gemm0MIterations);
-        Value splitPlusOne = arith::AddIOp::create(rewriter, loc,
-                                                    gridCoordsGemm0.split_block, one);
+        start = arith::MulIOp::create(
+            rewriter, loc, gridCoordsGemm0.split_block, gemm0MIterations);
+        Value splitPlusOne = arith::AddIOp::create(
+            rewriter, loc, gridCoordsGemm0.split_block, one);
         Value endSplitKV = arith::MulIOp::create(rewriter, loc, splitPlusOne,
-                                                  gemm0MIterations);
+                                                 gemm0MIterations);
         end = arith::MinUIOp::create(rewriter, loc, end, endSplitKV);
       }
       // compute last iteration of the block, this will be used later in
@@ -1786,9 +1760,10 @@ struct GridwiseAttentionAccelRewritePattern
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
       start = arith::MulIOp::create(rewriter, loc, gridCoordsGemm0.split_block,
                                     gemm0MIterations);
-      Value splitPlusOne =
-          arith::AddIOp::create(rewriter, loc, gridCoordsGemm0.split_block, one);
-      end = arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
+      Value splitPlusOne = arith::AddIOp::create(
+          rewriter, loc, gridCoordsGemm0.split_block, one);
+      end =
+          arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
     }
     return std::make_tuple(start, end, gemm0MBlocksLastIter, currentSeqLen);
   }
