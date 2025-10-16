@@ -12,7 +12,7 @@
 
 namespace mlir {
 namespace rock {
-#define GEN_PASS_DEF_ROCKCONVERTFP4ALLOCTOINT8PASS
+#define GEN_PASS_DEF_ROCKCONVERT4BITALLOCTO8BITPASS
 #include "mlir/Dialect/Rock/Passes.h.inc"
 } // namespace rock
 } // namespace mlir
@@ -21,9 +21,11 @@ using namespace mlir;
 
 namespace {
 
-static bool isTargetFp4(Type t) {
+static bool isTarget4Bit(Type t) {
   if (auto ft = dyn_cast<FloatType>(t))
     return ft.getWidth() == 4; // f4E2M2FN
+  if (auto it = dyn_cast<IntegerType>(t))
+    return it.getWidth() == 4; // i4
   return false;
 }
 
@@ -77,19 +79,20 @@ struct GpuDeallocRewritePattern : public OpRewritePattern<gpu::DeallocOp> {
   }
 };
 
-struct ConvertAllocPattern : OpRewritePattern<gpu::AllocOp> {
+struct GpuAllocRewritePattern : OpRewritePattern<gpu::AllocOp> {
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(gpu::AllocOp allocOp,
                                 PatternRewriter &rewriter) const override {
     auto memrefTy = dyn_cast<MemRefType>(allocOp.getResult(0).getType());
-    if (!memrefTy || !isTargetFp4(memrefTy.getElementType()))
+    if (!memrefTy || !isTarget4Bit(memrefTy.getElementType()))
       return failure();
 
     auto i8Ty = rewriter.getI8Type();
     ArrayRef<int64_t> shape = memrefTy.getShape(); 
     SmallVector<int64_t> newShape(shape.begin(), shape.end());
-    newShape.back() = (newShape.back() + 1) / 2; // 2 fp4 in 1 i8
+    newShape.back() =
+        (newShape.back() + 1) / 2; // pack two 4 bit values in 1 i8
     auto newMemRefTy = MemRefType::get(newShape, i8Ty,
                                        memrefTy.getLayout(),
                                        memrefTy.getMemorySpace());
@@ -108,13 +111,14 @@ struct ConvertAllocPattern : OpRewritePattern<gpu::AllocOp> {
   }
 };
 
-class RockConvertFp4AllocToInt8Pass
-    : public rock::impl::RockConvertFp4AllocToInt8PassBase<
-          RockConvertFp4AllocToInt8Pass> {
+class RockConvert4BitAllocTo8BitPass
+    : public rock::impl::RockConvert4BitAllocTo8BitPassBase<
+          RockConvert4BitAllocTo8BitPass> {
   void runOnOperation() override {
     func::FuncOp func = getOperation();
     RewritePatternSet patterns(&getContext());
-    patterns.add<ConvertAllocPattern, GpuDeallocRewritePattern, GpuMemcpyRewritePattern>(&getContext());
+    patterns.add<GpuAllocRewritePattern, GpuDeallocRewritePattern,
+                 GpuMemcpyRewritePattern>(&getContext());
     if (failed(applyPatternsGreedily(func, std::move(patterns))))
       signalPassFailure();
   }
