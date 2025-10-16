@@ -28,9 +28,9 @@
 
 #define DEBUG_TYPE "tosa-utils"
 
-namespace mlir { 
+namespace mlir {
 namespace rock {
-    
+
 bool isSpecificValueAttribute(Attribute value, double target) {
   if (auto intValue = dyn_cast<IntegerAttr>(value)) {
     if (target == 0.0)

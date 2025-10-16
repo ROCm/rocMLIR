@@ -262,13 +262,13 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
           /* operator_name */ ROCK_CUSTOMOP_CONV_BWD_DATA,
           /* domain_name  */ ROCK_CUSTOMOP_DOMAIN_NAME,
           /* implementation_attrs  */ "",
-          ValueRange{
-              input, filter,
-              rock::tosa::getZeroTensor(rewriter, loc,
-                            RankedTensorType::get(
-                                cast<ShapedType>(new1DOutTy).getShape()[3],
-                                newOutElementTy)),
-              inputZp, weightZp});
+          ValueRange{input, filter,
+                     rock::tosa::getZeroTensor(
+                         rewriter, loc,
+                         RankedTensorType::get(
+                             cast<ShapedType>(new1DOutTy).getShape()[3],
+                             newOutElementTy)),
+                     inputZp, weightZp});
     } else {
       cop = tosa::Conv2DOp::create(
           rewriter, loc, new1DOutTy,
@@ -399,7 +399,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   // transpose the output back to NCHW so that it can match following
   // operators.
   auto top = rock::tosa::getTransposeOp(rewriter, loc, cop->getResult(0),
-                                            fromChannelLast);
+                                        fromChannelLast);
   rewriter.replaceOp(op, top);
   return success();
 }
@@ -587,7 +587,7 @@ BroadcastConverter::matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
   // because tosa does not have an explicit broadcast op
   auto oneTensor = rock::tosa::getOneTensor(rewriter, loc, outType);
   auto mulWithOne = rock::tosa::getMulOp(rewriter, loc, sameRankReshapedOp,
-                                             oneTensor, elemType);
+                                         oneTensor, elemType);
   rewriter.replaceOp(op, mulWithOne);
   return success();
 }
@@ -641,8 +641,8 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
   // We create a dummy multiplication with one with implicit broadcasting
   // because tosa does not have an explicit broadcast op
   auto oneTensor = rock::tosa::getOneTensor(rewriter, loc, outType);
-  auto mulWithOne = rock::tosa::getMulOp(rewriter, loc, replacingValue,
-                                             oneTensor, elemType);
+  auto mulWithOne =
+      rock::tosa::getMulOp(rewriter, loc, replacingValue, oneTensor, elemType);
   rewriter.replaceOp(op, mulWithOne);
   return success();
 }
@@ -655,8 +655,8 @@ TransposeConverter::matchAndRewrite(migraphx::TransposeOp op, OpAdaptor adaptor,
   permutation.reserve(op.getPermutation().size());
   for (auto permElem : op.getPermutation().getAsRange<IntegerAttr>())
     permutation.push_back(permElem.getInt());
-  Value result = rock::tosa::getTransposeOp(
-      rewriter, loc, adaptor.getInput(), permutation);
+  Value result = rock::tosa::getTransposeOp(rewriter, loc, adaptor.getInput(),
+                                            permutation);
   rewriter.replaceOp(op, result);
   return success();
 }
@@ -791,7 +791,7 @@ LogicalResult ReduceMeanConverter::matchAndRewrite(
       rewriter, loc, elementType, tosaReciprocal, shapeValue);
 
   auto tosaMul = rock::tosa::getMulOp(rewriter, loc, adaptor.getInput(),
-                                          tosaReciprocalReshaped, elementType);
+                                      tosaReciprocalReshaped, elementType);
   auto tosaReduceSum = rock::tosa::createOpAndInfer<tosa::ReduceSumOp>(
       rewriter, loc, elementType, tosaMul, axis);
   rewriter.replaceOp(op, tosaReduceSum);
@@ -1141,8 +1141,8 @@ SoftmaxConverter::matchAndRewrite(migraphx::SoftmaxOp op, OpAdaptor adaptor,
   auto tosaReciprocal = rock::tosa::createOpAndInfer<tosa::ReciprocalOp>(
       rewriter, loc, elementType, tosaReduceSum);
 
-  tosa::MulOp tosaMul = rock::tosa::getMulOp(rewriter, loc, tosaExp,
-                                                 tosaReciprocal, elementType);
+  tosa::MulOp tosaMul =
+      rock::tosa::getMulOp(rewriter, loc, tosaExp, tosaReciprocal, elementType);
   rewriter.replaceOp(op, tosaMul);
   return success();
 }
@@ -1385,8 +1385,8 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   if (maybeSliced.getType() != resultType) {
     // We need a broadcast
     Value oneTensor = rock::tosa::getOneTensor(rewriter, loc, resultType);
-    maybeBroadcast = rock::tosa::getMulOp(rewriter, loc, oneTensor,
-                                              maybeSliced, resultType);
+    maybeBroadcast =
+        rock::tosa::getMulOp(rewriter, loc, oneTensor, maybeSliced, resultType);
   }
   rewriter.replaceOp(op, maybeBroadcast);
   return success();
@@ -1416,8 +1416,7 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
 
   Value transposed = in;
   if (!llvm::is_sorted(permutation))
-    transposed =
-        rock::tosa::getTransposeOp(rewriter, loc, in, permutationI32);
+    transposed = rock::tosa::getTransposeOp(rewriter, loc, in, permutationI32);
   if (transposed.getType() != memoryLayoutType) {
     rewriter.eraseOp(transposed.getDefiningOp());
     return op.emitOpError(

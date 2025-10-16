@@ -2,10 +2,10 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/DialectRegistry.h"
@@ -124,13 +124,13 @@ TEST(TosaUtilsTest, SpecificValueAttributeSignedZero) {
   Attribute negZeroAttr = b.getFloatAttr(f32Ty, negZeroAp);
 
   // For FloatAttr, the sign of zero must match the target's sign for a match.
-  // We assert that only +0.0 matches target +0.0, and only -0.0 matches target -0.0.
-  // We also probe -0.0 target.
+  // We assert that only +0.0 matches target +0.0, and only -0.0 matches target
+  // -0.0. We also probe -0.0 target.
   EXPECT_TRUE(isSpecificValueAttribute(posZeroAttr, 0.0));
   EXPECT_FALSE(isSpecificValueAttribute(negZeroAttr, 0.0));
 
-  // Target expressed as -0.0 (bitwise sign in the literal) should only match -0.0,
-  // not +0.0.
+  // Target expressed as -0.0 (bitwise sign in the literal) should only match
+  // -0.0, not +0.0.
   double negZeroLiteral = -0.0;
   EXPECT_FALSE(isSpecificValueAttribute(posZeroAttr, negZeroLiteral));
   EXPECT_TRUE(isSpecificValueAttribute(negZeroAttr, negZeroLiteral));
@@ -166,8 +166,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
   Location loc = builder.getUnknownLoc();
 
   auto funcType = builder.getFunctionType({}, {});
-  auto func =
-      builder.create<func::FuncOp>(loc, "test", funcType);
+  auto func = builder.create<func::FuncOp>(loc, "test", funcType);
   auto &entryBlock = *func.addEntryBlock();
   builder.setInsertionPointToStart(&entryBlock);
 
@@ -181,8 +180,8 @@ TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
   }
   {
     auto tType = RankedTensorType::get({}, builder.getF8E8M0Type());
-    auto attr = DenseElementsAttr::get(tType, builder.getFloatAttr(
-                                             builder.getF8E8M0Type(), 1.0f));
+    auto attr = DenseElementsAttr::get(
+        tType, builder.getFloatAttr(builder.getF8E8M0Type(), 1.0f));
     auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_FALSE(isConstantZero(cst));
     EXPECT_TRUE(isConstantOne(cst));
@@ -212,8 +211,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
   Location loc = builder.getUnknownLoc();
 
   auto funcType = builder.getFunctionType({}, {});
-  auto func =
-      builder.create<func::FuncOp>(loc, "test2", funcType);
+  auto func = builder.create<func::FuncOp>(loc, "test2", funcType);
   auto &entryBlock = *func.addEntryBlock();
   builder.setInsertionPointToStart(&entryBlock);
 
@@ -236,8 +234,10 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
   {
     auto tType = RankedTensorType::get({2}, builder.getF32Type());
     SmallVector<Attribute> elems;
-    elems.push_back(builder.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
-    elems.push_back(builder.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
+    elems.push_back(
+        builder.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
+    elems.push_back(
+        builder.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
     auto attr = DenseElementsAttr::get(tType, elems);
     auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
     EXPECT_TRUE(isConstNegInf(cst));
@@ -279,8 +279,7 @@ TEST(TosaUtilsTest, CreateOpAndInferMulHelper) {
   Location loc = builder.getUnknownLoc();
 
   auto funcType = builder.getFunctionType({}, {});
-  auto func =
-      builder.create<func::FuncOp>(loc, "test3", funcType);
+  auto func = builder.create<func::FuncOp>(loc, "test3", funcType);
   auto &entryBlock = *func.addEntryBlock();
   builder.setInsertionPointToStart(&entryBlock);
 
