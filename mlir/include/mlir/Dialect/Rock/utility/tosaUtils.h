@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // ============================================================
-#ifndef MLIR_DIALECT_TOSA_UTILITY_H
-#define MLIR_DIALECT_TOSA_UTILITY_H
+#ifndef MLIR_DIALECT_ROCK_TOSA_UTILITY_H
+#define MLIR_DIALECT_ROCK_TOSA_UTILITY_H
 
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/Builders.h"
@@ -66,4 +66,4 @@ mlir::tosa::MulOp getMulOp(OpBuilder &builder, Location loc, Value input1,
 } // namespace rock
 } // namespace mlir
 
-#endif // MLIR_DIALECT_TOSA_UTILITY_H
+#endif // MLIR_DIALECT_ROCK_TOSA_UTILITY_H

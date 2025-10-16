@@ -2696,8 +2696,8 @@ static tosa::MulOp getMulOp(OpBuilder &builder, Location loc, Value input1,
       shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
   Value constZero =
       tosa::ConstOp::create(builder, loc, shiftType, shiftZeroAttr);
-  auto mulOp = createOpAndInfer<tosa::MulOp>(builder, loc, elemType, input1,
-                                             input2, /*shift=*/constZero);
+  auto mulOp = rock::tosa::createOpAndInfer<tosa::MulOp>(
+      builder, loc, elemType, input1, input2, /*shift=*/constZero);
   return mulOp;
 }
 
