@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
 
 #include "llvm/ADT/APFloat.h"
@@ -36,10 +37,11 @@ bool isSpecificValueAttribute(Attribute value, double target) {
       return intValue.getValue().isZero();
     // Only compare if target is an integer value
     if (std::floor(target) == target) {
-      // Construct APInt with same bit width and sign as intValue
+      bool isSigned = false;
+      if (auto intTy = dyn_cast<IntegerType>(intValue.getType()))
+        isSigned = intTy.isSigned();
       llvm::APInt targetInt(intValue.getValue().getBitWidth(),
-                            static_cast<int64_t>(target),
-                            intValue.getValue().isSigned());
+                            static_cast<int64_t>(target), isSigned);
       return intValue.getValue() == targetInt;
     }
     return false;
