@@ -146,6 +146,20 @@ TEST(TosaUtilsTest, SpecificValueAttributeSignedZero) {
   EXPECT_TRUE(isSpecificValueAttribute(intZero, negZeroLiteral));
 }
 
+// Integer precision loss death test. The chosen double (2^53 + 1) cannot be
+// represented exactly; casting to int64_t loses 1 and makes targetInt64 !=
+// target
+TEST(TosaUtilsTest, SpecificValueAttributeLargeIntegerMismatch) {
+  TestEnv env(false);
+  OpBuilder &b = env.builder;
+  auto i64Ty = b.getI64Type();
+  Attribute anyInt = IntegerAttr::get(i64Ty, 0);
+
+  // 2^53 + 1 cannot be exactly represented as int64_t round‑trip from double.
+  double badTarget = 9007199254740993.0;
+  EXPECT_FALSE(isSpecificValueAttribute(anyInt, badTarget));
+}
+
 TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
   TestEnv env; // func + tosa
   OpBuilder &builder = env.builder;

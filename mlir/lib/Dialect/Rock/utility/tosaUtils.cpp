@@ -35,21 +35,27 @@ bool isSpecificValueAttribute(Attribute value, double target) {
   if (auto intValue = dyn_cast<IntegerAttr>(value)) {
     if (target == 0.0)
       return intValue.getValue().isZero();
-    // Only compare if target is an integer value
-    if (std::floor(target) == target) {
-      bool isSigned = false;
-      if (auto intTy = dyn_cast<IntegerType>(intValue.getType()))
-        isSigned = intTy.isSigned();
-      int64_t targetInt64 = static_cast<int64_t>(target);
-      // If the underlying integer type is not signed, a negative target cannot
-      // match.
-      if (!isSigned && targetInt64 < 0)
-        return false;
-      llvm::APInt targetInt(intValue.getValue().getBitWidth(),
-                            static_cast<uint64_t>(targetInt64), isSigned);
-      return intValue.getValue() == targetInt;
-    }
-    return false;
+
+    // Must be an integer-valued double.
+    if (std::floor(target) != target)
+      return false;
+
+    // Check representability in int64_t (avoid assert, return false).
+    int64_t targetInt64 = static_cast<int64_t>(target);
+    if (static_cast<double>(targetInt64) != target)
+      return false;
+
+    bool isSigned = false;
+    if (auto intTy = dyn_cast<IntegerType>(intValue.getType()))
+      isSigned = intTy.isSigned();
+
+    // Unsigned cannot match negative.
+    if (!isSigned && targetInt64 < 0)
+      return false;
+
+    llvm::APInt targetInt(intValue.getValue().getBitWidth(),
+                          static_cast<uint64_t>(targetInt64), isSigned);
+    return intValue.getValue() == targetInt;
   }
   if (auto fpValue = dyn_cast<FloatAttr>(value))
     return fpValue.getValue().isExactlyValue(target);
