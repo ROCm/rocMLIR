@@ -47,22 +47,103 @@ static mlir::tosa::ConstOp buildConst(OpBuilder &b, Location loc,
 } // namespace
 
 TEST(TosaUtilsTest, SpecificValueAttribute) {
-  TestEnv env; // with func + tosa
+  TestEnv env;
   auto &ctx = env.ctx;
-  auto f32Ty = Float32Type::get(&ctx);
-  Attribute a = FloatAttr::get(f32Ty, 1.0);
-  EXPECT_TRUE(isSpecificValueAttribute(a, 1.0));
-  EXPECT_FALSE(isSpecificValueAttribute(a, 0.0));
-  Attribute posZero = FloatAttr::get(f32Ty, 0.0);
-  EXPECT_TRUE(isSpecificValueAttribute(posZero, 0.0));
-  EXPECT_FALSE(isSpecificValueAttribute(posZero, -0.0));
+  OpBuilder b(&ctx);
 
-  Attribute b = IntegerAttr::get(IntegerType::get(&ctx, 32), 7);
-  EXPECT_TRUE(isSpecificValueAttribute(b, 7.0));
-  EXPECT_FALSE(isSpecificValueAttribute(b, 6.0));
-  Attribute zero = IntegerAttr::get(IntegerType::get(&ctx, 32), 0);
-  EXPECT_TRUE(isSpecificValueAttribute(zero, 0.0));
-  EXPECT_TRUE(isSpecificValueAttribute(zero, -0.0));
+  auto i32Ty = b.getI32Type();
+  auto si8Ty = IntegerType::get(&ctx, 8, IntegerType::Signed);
+  auto ui8Ty = IntegerType::get(&ctx, 8, IntegerType::Unsigned);
+
+  // Target == 0.0 fast path (true)
+  {
+    Attribute zero = IntegerAttr::get(i32Ty, 0);
+    EXPECT_TRUE(isSpecificValueAttribute(zero, 0.0));
+  }
+  // Target == 0.0 fast path (false)
+  {
+    Attribute five = IntegerAttr::get(i32Ty, 5);
+    EXPECT_FALSE(isSpecificValueAttribute(five, 0.0));
+  }
+  // Exact positive integer match
+  {
+    Attribute seven = IntegerAttr::get(i32Ty, 7);
+    EXPECT_TRUE(isSpecificValueAttribute(seven, 7.0));
+  }
+  // Positive integer mismatch
+  {
+    Attribute seven = IntegerAttr::get(i32Ty, 7);
+    EXPECT_FALSE(isSpecificValueAttribute(seven, 6.0));
+  }
+  // Non-integer target (should be false even if floor(value)!=value)
+  {
+    Attribute five = IntegerAttr::get(i32Ty, 5);
+    EXPECT_FALSE(isSpecificValueAttribute(five, 5.5));
+  }
+  // Negative signed integer match (tests isSigned = true path)
+  {
+    Attribute neg = IntegerAttr::get(si8Ty, -4);
+    EXPECT_TRUE(isSpecificValueAttribute(neg, -4.0));
+  }
+  // Negative signed integer mismatch
+  {
+    Attribute neg = IntegerAttr::get(si8Ty, -4);
+    EXPECT_FALSE(isSpecificValueAttribute(neg, -5.0));
+  }
+  // Unsigned integer compare with same positive target
+  {
+    Attribute u = IntegerAttr::get(ui8Ty, 200);
+    EXPECT_TRUE(isSpecificValueAttribute(u, 200.0));
+  }
+  // Unsigned integer with negative target (should be false)
+  {
+    Attribute u = IntegerAttr::get(ui8Ty, 3);
+    EXPECT_FALSE(isSpecificValueAttribute(u, -3.0));
+  }
+  // Already existing float cases to ensure no regressions.
+  {
+    auto f32 = b.getF32Type();
+    Attribute fa = b.getFloatAttr(f32, 1.0);
+    EXPECT_TRUE(isSpecificValueAttribute(fa, 1.0));
+    EXPECT_FALSE(isSpecificValueAttribute(fa, 2.0));
+  }
+}
+
+// Verifies behavior of positive vs negative zero for both float and integer
+// attrs.
+TEST(TosaUtilsTest, SpecificValueAttributeSignedZero) {
+  TestEnv env;
+  OpBuilder b(&env.ctx);
+
+  auto f32Ty = b.getF32Type();
+
+  // Construct +0.0f and -0.0f FloatAttr explicitly.
+  Attribute posZeroAttr = b.getFloatAttr(f32Ty, 0.0);
+  llvm::APFloat negZeroAp =
+      llvm::APFloat::getZero(f32Ty.getFloatSemantics(), /*Negative=*/true);
+  Attribute negZeroAttr = b.getFloatAttr(f32Ty, negZeroAp);
+
+  // Depending on implementation choice, +0.0 and -0.0 may both map to numeric
+  // 0.0. We assert that each compares equal to target 0.0. We also probe -0.0
+  // target.
+  EXPECT_TRUE(isSpecificValueAttribute(posZeroAttr, 0.0));
+  EXPECT_FALSE(isSpecificValueAttribute(negZeroAttr, 0.0));
+
+  // Target expressed as -0.0 (bitwise sign in the literal) should still match
+  // both.
+  double negZeroLiteral = -0.0;
+  EXPECT_FALSE(isSpecificValueAttribute(posZeroAttr, negZeroLiteral));
+  EXPECT_TRUE(isSpecificValueAttribute(negZeroAttr, negZeroLiteral));
+
+  // Sanity: a non‑zero small value should not match either zero.
+  EXPECT_FALSE(isSpecificValueAttribute(posZeroAttr, 1e-6));
+  EXPECT_FALSE(isSpecificValueAttribute(negZeroAttr, -1e-6));
+
+  // Integer zero should also match both +0.0 and -0.0 targets.
+  auto i32Ty = b.getI32Type();
+  Attribute intZero = IntegerAttr::get(i32Ty, 0);
+  EXPECT_TRUE(isSpecificValueAttribute(intZero, 0.0));
+  EXPECT_TRUE(isSpecificValueAttribute(intZero, negZeroLiteral));
 }
 
 TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {

@@ -40,8 +40,13 @@ bool isSpecificValueAttribute(Attribute value, double target) {
       bool isSigned = false;
       if (auto intTy = dyn_cast<IntegerType>(intValue.getType()))
         isSigned = intTy.isSigned();
+      int64_t targetInt64 = static_cast<int64_t>(target);
+      // If the underlying integer type is not signed, a negative target cannot
+      // match.
+      if (!isSigned && targetInt64 < 0)
+        return false;
       llvm::APInt targetInt(intValue.getValue().getBitWidth(),
-                            static_cast<int64_t>(target), isSigned);
+                            static_cast<uint64_t>(targetInt64), isSigned);
       return intValue.getValue() == targetInt;
     }
     return false;
