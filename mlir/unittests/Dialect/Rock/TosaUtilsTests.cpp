@@ -123,14 +123,14 @@ TEST(TosaUtilsTest, SpecificValueAttributeSignedZero) {
       llvm::APFloat::getZero(f32Ty.getFloatSemantics(), /*Negative=*/true);
   Attribute negZeroAttr = b.getFloatAttr(f32Ty, negZeroAp);
 
-  // Depending on implementation choice, +0.0 and -0.0 may both map to numeric
-  // 0.0. We assert that each compares equal to target 0.0. We also probe -0.0
-  // target.
+  // For FloatAttr, the sign of zero must match the target's sign for a match.
+  // We assert that only +0.0 matches target +0.0, and only -0.0 matches target -0.0.
+  // We also probe -0.0 target.
   EXPECT_TRUE(isSpecificValueAttribute(posZeroAttr, 0.0));
   EXPECT_FALSE(isSpecificValueAttribute(negZeroAttr, 0.0));
 
-  // Target expressed as -0.0 (bitwise sign in the literal) should still match
-  // both.
+  // Target expressed as -0.0 (bitwise sign in the literal) should only match -0.0,
+  // not +0.0.
   double negZeroLiteral = -0.0;
   EXPECT_FALSE(isSpecificValueAttribute(posZeroAttr, negZeroLiteral));
   EXPECT_TRUE(isSpecificValueAttribute(negZeroAttr, negZeroLiteral));
