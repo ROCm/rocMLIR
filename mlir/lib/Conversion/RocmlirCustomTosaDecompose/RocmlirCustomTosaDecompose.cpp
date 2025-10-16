@@ -48,17 +48,16 @@ struct RocmlirCustomTosaDecomposePass
 // If this is a backward-data (transpose) conv lowered from MIGraphX, its
 // filter logical in/out channels are reversed relative to forward Conv2D.
 FailureOr<std::tuple<Value, ShapedType>>
-swapInputOutputDimensions(OpBuilder &rewriter, tosa::CustomOp op,
-                          Value weight, ShapedType weightTy) {
+swapInputOutputDimensions(OpBuilder &rewriter, tosa::CustomOp op, Value weight,
+                          ShapedType weightTy) {
   if (op.getOperatorName() == ROCK_CUSTOMOP_CONV_BWD_DATA) {
     // Expected current shape: [K, H, W, C] but Conv2D expects [O, H, W, I]
     // Swap K<->C => permutation {3,1,2,0}.
     auto wShape = weightTy.getShape();
     SmallVector<int64_t, 4> swappedShape{
         wShape[3], // C becomes O
-        wShape[1],
-        wShape[2],
-        wShape[0]  // K becomes I
+        wShape[1], wShape[2],
+        wShape[0] // K becomes I
     };
     auto swappedTy =
         RankedTensorType::get(swappedShape, weightTy.getElementType());
@@ -100,7 +99,8 @@ public:
     ShapedType resultTy = cast<ShapedType>(op->getResult(0).getType());
 
     // Translate acc_type, padding and stride attributes.
-    llvm::ArrayRef<int64_t> outPad = cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
+    llvm::ArrayRef<int64_t> outPad =
+        cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
     llvm::ArrayRef<int64_t> stride =
         cast<DenseI64ArrayAttr>(op->getAttr("stride"));
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
@@ -284,7 +284,8 @@ public:
     Type resultETy = resultTy.getElementType();
 
     // Translate acc_type, padding and stride attributes.
-    llvm::ArrayRef<int64_t> outPad = cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
+    llvm::ArrayRef<int64_t> outPad =
+        cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
     llvm::ArrayRef<int64_t> stride =
         cast<DenseI64ArrayAttr>(op->getAttr("stride"));
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
@@ -384,8 +385,8 @@ public:
                           .getResult();
         int64_t padRows = (h == weightHeight - 1) ? 0 : (dH - 1);
         if (padRows > 0) {
-          llvm::SmallVector<int64_t, 8> padSpec =
-                            {0, 0, 0, padRows, 0, 0, 0, 0};
+          llvm::SmallVector<int64_t, 8> padSpec = {0, 0, 0, padRows,
+                                                   0, 0, 0, 0};
           Value padSpecVal = getTosaConstShape(rewriter, loc, padSpec);
           slice = CreateOpAndInferShape<tosa::PadOp>(
                       rewriter, loc, UnrankedTensorType::get(weightETy), slice,
@@ -409,8 +410,8 @@ public:
         SmallVector<Value> widthPieces;
         for (int64_t w = 0; w < weightWidth; ++w) {
           llvm::SmallVector<int64_t, 4> begin = {0, 0, w, 0};
-          llvm::SmallVector<int64_t, 4> size = {outputChannels, weightHeight,
-                                                1, inputChannels};
+          llvm::SmallVector<int64_t, 4> size = {outputChannels, weightHeight, 1,
+                                                inputChannels};
           Value beginVal = getTosaConstShape(rewriter, loc, begin);
           Value sizeVal = getTosaConstShape(rewriter, loc, size);
           Value slice = CreateOpAndInferShape<tosa::SliceOp>(
@@ -419,8 +420,8 @@ public:
                             .getResult();
           int64_t padCols = (w == weightWidth - 1) ? 0 : (dW - 1);
           if (padCols > 0) {
-            llvm::SmallVector<int64_t, 8> padSpec =
-                              {0, 0, 0, 0, 0, padCols, 0, 0};
+            llvm::SmallVector<int64_t, 8> padSpec = {0, 0,       0, 0,
+                                                     0, padCols, 0, 0};
             Value padSpecVal = getTosaConstShape(rewriter, loc, padSpec);
             slice = CreateOpAndInferShape<tosa::PadOp>(
                         rewriter, loc, UnrankedTensorType::get(weightETy),
@@ -447,7 +448,7 @@ public:
     // We want to capture the height and width values after dilation expansion,
     // but before padding is added later on.
     int64_t origWeightHeight = weightHeight;
-    int64_t origWeightWidth  = weightWidth;
+    int64_t origWeightWidth = weightWidth;
 
     // Pad the weight so that it is modulo of the striding.
     llvm::SmallVector<int64_t, 8> weightPadding = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -543,15 +544,15 @@ public:
     }
 
     // Perform the convolution using the zero bias.
-    Value conv2d = CreateOpAndInferShape<tosa::Conv2DOp>(
-                       rewriter, loc, UnrankedTensorType::get(resultETy), input,
-                       weight, zeroBias, inputZp.value(), weightZp.value(),
-                       /*pad=*/rewriter.getDenseI64ArrayAttr({0, 0, 0, 0}),
-                       /*stride=*/rewriter.getDenseI64ArrayAttr({1, 1}),
-                       /*dilation=*/rewriter.getDenseI64ArrayAttr({1, 1}),
-                       /* acc_type = */ accType,
-                       op->getAttrOfType<IntegerAttr>("group"))
-                       .getResult();
+    Value conv2d =
+        CreateOpAndInferShape<tosa::Conv2DOp>(
+            rewriter, loc, UnrankedTensorType::get(resultETy), input, weight,
+            zeroBias, inputZp.value(), weightZp.value(),
+            /*pad=*/rewriter.getDenseI64ArrayAttr({0, 0, 0, 0}),
+            /*stride=*/rewriter.getDenseI64ArrayAttr({1, 1}),
+            /*dilation=*/rewriter.getDenseI64ArrayAttr({1, 1}),
+            /* acc_type = */ accType, op->getAttrOfType<IntegerAttr>("group"))
+            .getResult();
 
     // Factor the resulting width / height.
     ShapedType convTy = cast<ShapedType>(conv2d.getType());
@@ -590,8 +591,10 @@ public:
     // Effective pad = outPad + (k - 1) - (inPad * stride)
     // Each input padded row/col expands to stride rows/cols in the upsampled
     // domain.
-    int64_t effPadTop  = outPad[0] + (origWeightHeight - stride[0]) - inPadVals[0]*stride[0];
-    int64_t effPadLeft = outPad[2] + (origWeightWidth  - stride[1]) - inPadVals[2]*stride[1];
+    int64_t effPadTop =
+        outPad[0] + (origWeightHeight - stride[0]) - inPadVals[0] * stride[0];
+    int64_t effPadLeft =
+        outPad[2] + (origWeightWidth - stride[1]) - inPadVals[2] * stride[1];
 
     // When we shrink from the orignal size to kPrime by grouping stride phases,
     // we discard some positions that existed in the conceptual upsampled view.
@@ -601,10 +604,10 @@ public:
     int64_t kHPrime = restridedWeightTy.getDimSize(1);
     int64_t kWPrime = restridedWeightTy.getDimSize(2);
     auto lost = [](int64_t Korig, int64_t kPrime, int64_t S) {
-      return (Korig - 1) - (kPrime - 1)*S;
+      return (Korig - 1) - (kPrime - 1) * S;
     };
     int64_t lostH = lost(origWeightHeight, kHPrime, stride[0]);
-    int64_t lostW = lost(origWeightWidth,  kWPrime, stride[1]);
+    int64_t lostW = lost(origWeightWidth, kWPrime, stride[1]);
 
     // If stride factoring compresses a dimension to a single spatial position,
     // i.e., kPrime == 1, then we dropped a ring of values around that position.
