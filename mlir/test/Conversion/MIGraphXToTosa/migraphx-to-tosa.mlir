@@ -219,7 +219,7 @@ func.func @bwd_data_conv3d(%arg0: !migraphx.shaped<1x16x4x4x4xf32, 1024x64x16x4x
   return %0 : !migraphx.shaped<1x16x4x4x4xf32, 1024x64x16x4x1>
 }
 
-// CHECK-LABEL: @bwd_data_conv
+// CHECK-LABEL: @bwd_data_conv2d
 func.func @bwd_data_conv2d(%arg0: !migraphx.shaped<1x512x16x16xf32,131072x256x16x1>,
                                         %arg1: !migraphx.shaped<512x512x4x4xf32, 8192x16x4x1>) -> !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1> attributes {arch = "gfx942", kernel = "mixr", num_cu = 0 : i64} {
   // CHECK: tosa.custom

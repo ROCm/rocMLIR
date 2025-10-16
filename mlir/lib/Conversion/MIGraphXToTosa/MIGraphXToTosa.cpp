@@ -257,20 +257,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
 
-    if (isBwdDataConvOp) {
-      cop = tosa::CustomOp::create(
-          rewriter, loc, new1DOutTy,
-          /* operator_name */ ROCK_CUSTOMOP_CONV_BWD_DATA,
-          /* domain_name  */ ROCK_CUSTOMOP_DOMAIN_NAME,
-          /* implementation_attrs  */ "",
-          ValueRange{input, filter,
-                     rock::tosa::getZeroTensor(
-                         rewriter, loc,
-                         RankedTensorType::get(
-                             cast<ShapedType>(new1DOutTy).getShape()[lastDim],
-                             newOutElementTy)),
-                     inputZp, weightZp});
-    } else {
+    if (!isBwdDataConvOp) {
       cop = tosa::Conv2DOp::create(
           rewriter, loc, new1DOutTy,
           ValueRange{input, filter,
@@ -288,20 +275,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
-    if (isBwdDataConvOp) {
-      cop = tosa::CustomOp::create(
-          rewriter, loc, newOutTy,
-          /* operator_name */ ROCK_CUSTOMOP_CONV_BWD_DATA,
-          /* domain_name  */ ROCK_CUSTOMOP_DOMAIN_NAME,
-          /* implementation_attrs  */ "",
-          ValueRange{input, filter,
-                     rock::tosa::getZeroTensor(
-                         rewriter, loc,
-                         RankedTensorType::get(
-                             cast<ShapedType>(newOutTy).getShape()[lastDim],
-                             newOutElementTy)),
-                     inputZp, weightZp});
-    } else {
+    if (!isBwdDataConvOp) {
       cop = tosa::Conv2DOp::create(
           rewriter, loc, newOutTy,
           ValueRange{input, filter,
@@ -319,22 +293,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
 
-    if (isBwdDataConvOp) {
-      cop = tosa::CustomOp::create(
-          rewriter, loc, newOutTy,
-          /* operator_name */ ROCK_CUSTOMOP_CONV_BWD_DATA,
-          /* domain_name  */ ROCK_CUSTOMOP_DOMAIN_NAME,
-          /* implementation_attrs  */ "",
-          ValueRange{input, filter,
-                     getZeroTensor(
-                         loc,
-                         RankedTensorType::get(
-                             cast<ShapedType>(filter.getType()).getShape()[lastDim],
-                             newOutElementTy),
-                         rewriter),
-                     inputZp, weightZp});
-    }      
-    else {
+    if (!isBwdDataConvOp) {
       cop = tosa::Conv3DOp::create(
         rewriter, loc, newOutTy,
         ValueRange{input, filter,
@@ -348,6 +307,21 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   default:
     return op->emitError("Only 1-D, 2-D, and 3-D have been implemented.");
     break;
+  }
+
+  // Create backward conv op now if required (same for all dimsensions)
+  if (isBwdDataConvOp) {
+    cop = tosa::CustomOp::create(
+        rewriter, loc, dims == 1 ? new1DOutTy : newOutTy,
+        /* operator_name=*/ROCK_CUSTOMOP_CONV_BWD_DATA,
+        /* domain_name=*/ROCK_CUSTOMOP_DOMAIN_NAME,
+        /* implementation_attrs=*/"",
+        ValueRange{
+            input, filter,
+             rock::tosa::getZeroTensor(rewriter, loc, newOutElementTy,
+                          cast<ShapedType>(dims == 1 ? new1DOutTy : newOutTy)
+                              .getShape()[lastDim]),
+            inputZp, weightZp});
   }
 
   // translate attributes
