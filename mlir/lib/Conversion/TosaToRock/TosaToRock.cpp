@@ -1011,7 +1011,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
               if (newReassocIdx[i] - newReassocIdx[i - 1] != 1) {
                 return rewriter.notifyMatchFailure(
                     op, "CollapseShape op following transpose collapses "
-                        "non-contigous pre-transpose dims.");
+                        "non-contiguous pre-transpose dims.");
               }
             }
           }
@@ -1019,7 +1019,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           // minIdx is the representative of a group that is
           // being collapsed. For e.g. for a collapse of [3,4,5] is assigned
           // with 3 as the representative. I also note that we only allow
-          // collapsing of contigous pre-transpose dims.
+          // collapsing of contiguous pre-transpose dims.
           newReassocIdxMap[newReassocIdx[0]] = newReassocIdx;
         }
 
@@ -1030,7 +1030,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         DenseMap<int32_t, int32_t> dimMap;
         // The vector of newDims (may) contain a discontinous
         // a range of representative minIdxs. Here we make
-        // it contigous by assigning order idx.
+        // it contiguous by assigning order idx.
         for (size_t i = 0; i < newDimsSorted.size(); i++) {
           dimMap[newDimsSorted[i]] = i;
           newReassocIndicesSorted.push_back(newReassocIdxMap[newDimsSorted[i]]);

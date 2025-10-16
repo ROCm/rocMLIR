@@ -902,7 +902,7 @@ static llvm::cl::opt<F8TypesChoice> forceF8Types(
                                 "'OCP' or 'OFP8' types")),
     llvm::cl::init(F8TypesChoice::Arch));
 
-enum class GEMMScheduleVersion : int { V1 = 1, V2 = 2 };
+enum class GEMMScheduleVersion : int { V1 = 1, V2 = 2, V3 = 3, V4 = 4 };
 
 static llvm::cl::opt<GEMMScheduleVersion> gemmScheduleVersion(
     "schedule_version",
@@ -910,7 +910,9 @@ static llvm::cl::opt<GEMMScheduleVersion> gemmScheduleVersion(
         "select amongst different available scheduling strategies for GEMM"),
     llvm::cl::values(
         clEnumValN(GEMMScheduleVersion::V1, "1", "Select GEMM Schedule V1"),
-        clEnumValN(GEMMScheduleVersion::V2, "2", "Select GEMM Schedule V2")),
+        clEnumValN(GEMMScheduleVersion::V2, "2", "Select GEMM Schedule V2"),
+        clEnumValN(GEMMScheduleVersion::V3, "3", "Select GEMM Schedule V3"),
+        clEnumValN(GEMMScheduleVersion::V4, "4", "Select GEMM Schedule V4")),
     llvm::cl::init(GEMMScheduleVersion::V1));
 
 ////////////////////////////////////////////////////////////////////////////////
