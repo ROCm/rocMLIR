@@ -94,7 +94,7 @@ bool isConstNegInf(Value v) {
 
 static bool isIntAttrSame(Attribute value, int64_t expectedVal) {
   if (auto intValue = dyn_cast<IntegerAttr>(value)) {
-    return isSpecificValueAttribute(value, expectedVal); 
+    return intValue.getValue() == expectedVal;
   }
   return false;
 }
