@@ -78,7 +78,7 @@ public:
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
     Type accType = accTypeAttr.getValue();
 
-    int convDims = stride.size();                            
+    int convDims = stride.size();
     if (convDims != 2 && convDims != 3)
       return rewriter.notifyMatchFailure(op, "conv op must be 2D or 3D");
 
@@ -119,21 +119,21 @@ public:
 
     if (convDims == 2) {
       convOp = tosa::Conv2DOp::create(
-        rewriter, loc, resultTy, input, reverse2, bias, inputZp, weightZp,
-        rewriter.getDenseI64ArrayAttr(convPad),
-        rewriter.getDenseI64ArrayAttr(stride),
-        rewriter.getDenseI64ArrayAttr({1, 1}),
-        /* acc_type = */ accType, /*group=*/ nullptr);
-    }
-    else {
-      Value reverse3 = tosa::ReverseOp::create(rewriter, loc, weightTy, reverse2,
-                                /* axis = */ rewriter.getI32IntegerAttr(3));
-      convOp = tosa::Conv3DOp::create(
-        rewriter, loc, resultTy, input, reverse3, bias, inputZp, weightZp,
-        rewriter.getDenseI64ArrayAttr(convPad),
-        rewriter.getDenseI64ArrayAttr(stride),
-        rewriter.getDenseI64ArrayAttr({1, 1, 1}),
-        /* acc_type = */ accType);
+          rewriter, loc, resultTy, input, reverse2, bias, inputZp, weightZp,
+          rewriter.getDenseI64ArrayAttr(convPad),
+          rewriter.getDenseI64ArrayAttr(stride),
+          rewriter.getDenseI64ArrayAttr({1, 1}),
+          /* acc_type = */ accType, /*group=*/nullptr);
+    } else {
+      Value reverse3 =
+          tosa::ReverseOp::create(rewriter, loc, weightTy, reverse2,
+                                  /* axis = */ rewriter.getI32IntegerAttr(3));
+      convOp = tosa::Conv3DOp::create(rewriter, loc, resultTy, input, reverse3,
+                                      bias, inputZp, weightZp,
+                                      rewriter.getDenseI64ArrayAttr(convPad),
+                                      rewriter.getDenseI64ArrayAttr(stride),
+                                      rewriter.getDenseI64ArrayAttr({1, 1, 1}),
+                                      /* acc_type = */ accType);
     }
 
     rewriter.replaceOp(op, convOp);
