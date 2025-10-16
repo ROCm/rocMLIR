@@ -100,7 +100,7 @@ public:
     ShapedType resultTy = cast<ShapedType>(op->getResult(0).getType());
 
     // Translate acc_type, padding and stride attributes.
-    llvm::ArrayRef<int64_t> pad = cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
+    llvm::ArrayRef<int64_t> outPad = cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
     llvm::ArrayRef<int64_t> stride =
         cast<DenseI64ArrayAttr>(op->getAttr("stride"));
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
@@ -166,15 +166,17 @@ public:
     // Conv2D/Conv3D padding derived from ConvTranspose (ONNX/PyTorch style)
     // convPad = effK - inPad + outPad
     SmallVector<int64_t, 4> convPad(convDims * 2, 0);
-    convPad[0] = effKHm1 - inPadVals[0] + pad[0];
-    convPad[1] = effKHm1 - inPadVals[1] + pad[1];
-    convPad[2] = effKWm1 - inPadVals[2] + pad[2];
-    convPad[3] = effKWm1 - inPadVals[3] + pad[3];
+    convPad[0] = effKHm1 - inPadVals[0] + outPad[0];
+    convPad[1] = effKHm1 - inPadVals[1] + outPad[1];
+    convPad[2] = effKWm1 - inPadVals[2] + outPad[2];
+    convPad[3] = effKWm1 - inPadVals[3] + outPad[3];
     if (convDims == 3) {
-      convPad[4] = effKDm1 - inPadVals[4] + pad[4];
-      convPad[5] = effKDm1 - inPadVals[5] + pad[5];
+      convPad[4] = effKDm1 - inPadVals[4] + outPad[4];
+      convPad[5] = effKDm1 - inPadVals[5] + outPad[5];
     }
 
+    // A negative padding value would require cropping, "slicing", the result
+    // to properly emulate negative padding.
     bool needSlice = false;
     SmallVector<int64_t,4> negExcess(convDims * 2, 0);
     for (int i = 0; i < convDims * 2; ++i) {
@@ -282,7 +284,7 @@ public:
     Type resultETy = resultTy.getElementType();
 
     // Translate acc_type, padding and stride attributes.
-    llvm::ArrayRef<int64_t> pad = cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
+    llvm::ArrayRef<int64_t> outPad = cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
     llvm::ArrayRef<int64_t> stride =
         cast<DenseI64ArrayAttr>(op->getAttr("stride"));
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
@@ -588,8 +590,8 @@ public:
     // Effective pad = outPad + (k - 1) - (inPad * stride)
     // Each input padded row/col expands to stride rows/cols in the upsampled
     // domain.
-    int64_t effPadTop  = pad[0] + (origWeightHeight - stride[0]) - inPadVals[0]*stride[0];
-    int64_t effPadLeft = pad[2] + (origWeightWidth  - stride[1]) - inPadVals[2]*stride[1];
+    int64_t effPadTop  = outPad[0] + (origWeightHeight - stride[0]) - inPadVals[0]*stride[0];
+    int64_t effPadLeft = outPad[2] + (origWeightWidth  - stride[1]) - inPadVals[2]*stride[1];
 
     // When we shrink from the orignal size to kPrime by grouping stride phases,
     // we discard some positions that existed in the conceptual upsampled view.
@@ -625,10 +627,10 @@ public:
       resultPadLeft = std::max<int64_t>(0, effPadLeft);
     } else {
       // Default to using legacy logic if input padding is not present
-      resultSliceTop = std::max<int64_t>(0, -pad[0]);
-      resultSliceLeft = std::max<int64_t>(0, -pad[2]);
-      resultPadTop = std::max<int64_t>(0, pad[0]);
-      resultPadLeft = std::max<int64_t>(0, pad[2]);
+      resultSliceTop = std::max<int64_t>(0, -outPad[0]);
+      resultSliceLeft = std::max<int64_t>(0, -outPad[2]);
+      resultPadTop = std::max<int64_t>(0, outPad[0]);
+      resultPadLeft = std::max<int64_t>(0, outPad[2]);
     }
 
     // Try to slice the targetted result size, cap to the convolutions width.

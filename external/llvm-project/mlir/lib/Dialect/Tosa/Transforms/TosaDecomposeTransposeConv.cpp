@@ -105,6 +105,10 @@ public:
     llvm::ArrayRef<int64_t> pad = op.getOutPad();
     llvm::ArrayRef<int64_t> stride = op.getStride();
 
+    // If striding is all 1 we can modify padding and reverse the kernel along
+    // the x/y direction to make it a regular convolution. This is much simpler
+    // then handling striding....
+
     // If strides are all 1 we dont need to use this one.
     if (llvm::all_of(stride, [](int64_t v) { return v == 1; }))
       return rewriter.notifyMatchFailure(op, "non-one stride found.");
