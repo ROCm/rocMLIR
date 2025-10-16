@@ -41,8 +41,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
-
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "LdsTransposeLoad.h"
 #include "llvm/Support/Debug.h"
 
 #include <iterator>
@@ -577,6 +577,19 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   int64_t numValues = dstBufferType.getNumElements();
   bool hwDirectToLDS128b, hwDirectToLDS32b;
+  // Check if the operation has the attribute for LDS Transpose Load
+  if (op->hasAttr("rock.hw_lds_transpose_enabled")) {
+    // Derive lowering info from attributes (layout, panel counts, operand).
+    auto info = mlir::rock::hwtranspose::deriveLoweringInfo(op, b);
+    if (info.usable) {
+      rock::hwtranspose::emitThreadwiseHWTranspose(op, info, b);
+    } else {
+      return op.emitOpError("LDS transpose load emission is not usable with "
+                            "the derived attributes");
+    }
+    return success();
+  }
+
   if (isGlobalToLDS) {
     if (transforms.empty()) {
       LLVM_DEBUG(llvm::dbgs() << "transforms is empty.\n");
