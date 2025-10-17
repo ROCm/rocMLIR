@@ -33,13 +33,11 @@ func.func @rock_output_swizzle(%matrix_c: memref<1x1280x2048xf16>) attributes{ar
   %view_29_2 = rock.transform %view_29 by <affine_map<(d0, d1, d2) -> ((d1 * 256 + d0) * 8 + d2)> by [<Unmerge{4, 256, 8} ["iter", "tid", "numElements"] at [1, 0, 2] -> ["flattenBlock"] at [0]>] bounds = [256, 4, 8] -> [8192]> : memref<8192xf16, #gpu.address_space<workgroup>> to memref<256x4x8xf16, #gpu.address_space<workgroup>>
   %view_29_3 = rock.transform %view_29_2 by <affine_map<(d0, d1) -> (d0, d1 floordiv 8, d1 mod 8)> by [<PassThrough ["tid"] at [0] -> ["tid"] at [0]>, <Merge{4, 8} ["iter"] at [1] -> ["iter", "numElements"] at [1, 2]>] bounds = [256, 32] -> [256, 4, 8]> : memref<256x4x8xf16, #gpu.address_space<workgroup>> to memref<256x32xf16, #gpu.address_space<workgroup>>
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%view_29_3) [%threadid] -> %registers : memref<256x32xf16, #wg> -> memref<32xf16, #priv>
-  rock.dealloc %29 : memref<16384xi8, #wg>
 
   %view_28 = memref.view %28[%c0][] : memref<16384xi8, #wg> to memref<8192xf16, #wg>
   %view_28_2 = rock.transform %view_28 by <affine_map<(d0, d1, d2) -> ((d1 * 256 + d0) * 8 + d2)> by [<Unmerge{4, 256, 8} ["iter", "tid", "numElements"] at [1, 0, 2] -> ["flattenBlock"] at [0]>] bounds = [256, 4, 8] -> [8192]> : memref<8192xf16, #gpu.address_space<workgroup>> to memref<256x4x8xf16, #gpu.address_space<workgroup>>
   %view_28_3 = rock.transform %view_28_2 by <affine_map<(d0, d1) -> (d0, d1 floordiv 8, d1 mod 8)> by [<PassThrough ["tid"] at [0] -> ["tid"] at [0]>, <Merge{4, 8} ["iter"] at [1] -> ["iter", "numElements"] at [1, 2]>] bounds = [256, 32] -> [256, 4, 8]> : memref<256x4x8xf16, #gpu.address_space<workgroup>> to memref<256x32xf16, #gpu.address_space<workgroup>>
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%view_28_3) [%threadid] -> %registers2 : memref<256x32xf16, #wg> -> memref<32xf16, #priv>
-  rock.dealloc %28 : memref<16384xi8, #wg>
   
   // add registers
   %load = rock.in_bounds_load %registers[%c0] : memref<32xf16, #priv>, index -> vector<32xf16>
@@ -224,8 +222,6 @@ func.func @rock_output_swizzle_multiple_outputs(%arg0: memref<1280xf16> {mhal.re
       }
     }
   }
-  rock.dealloc %0 : memref<8192xi8, #gpu.address_space<workgroup>>
-  rock.dealloc %1 : memref<8192xi8, #gpu.address_space<workgroup>>
   %61 = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
   rock.transforming_for {forceUnroll, useIndexDiffs} (%arg5) = [](%c0), (%arg6) = [#rock.transform_map<affine_map<(d0) -> (d0 * 16)> by [<Embed{16} ["vector"] at [0] -> ["scalar"] at [0]>] bounds = [1] -> [16]>](%c0) (%arg7, %arg8) = validity bounds [1] strides [1] {
     %75 = memref.load %43[%arg5] : memref<1xvector<16xf32>, #gpu.address_space<private>>
