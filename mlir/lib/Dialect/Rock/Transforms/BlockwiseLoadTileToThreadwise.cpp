@@ -24,6 +24,7 @@
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
@@ -74,12 +75,14 @@ class LoweringBlockwiseLoadTileOp final
       Location loc, PatternRewriter &b,
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
-      int64_t inDPerThread, bool rotateDWithK, bool forceUnroll) const {
+      int64_t inDPerThread, bool rotateDWithK, bool forceUnroll,
+      bool directToLDS, bool ldsLayoutDxK) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
     Value ldsViewForLoad = accelEmitterPtr->wrapLDSBufferForLoad(
-        b, loc, ldsView, blockSize, inDPerThread, dName, rotateDWithK);
+        b, loc, ldsView, blockSize, inDPerThread, dName, rotateDWithK,
+        directToLDS, ldsLayoutDxK);
 
     // We enhance the transformation from wrapLDSBufferForLoad using a builder
     // that, given a single index, splits it into "m"("n") and "k" and lets
@@ -154,7 +157,9 @@ class LoweringBlockwiseLoadTileOp final
 
     bool doRotateWithK = op.getRotateWithK();
     bool doSwapThreadIterSubDims = op.getSwapThreadIterSubDims();
-    LDSLayoutConfigDim ldsLayoutConfig{doRotateWithK, doSwapThreadIterSubDims};
+    bool ldsLayoutDxK = op.getLDSLayoutDxK();
+    LDSLayoutConfigDim ldsLayoutConfig{doRotateWithK, doSwapThreadIterSubDims,
+                                       ldsLayoutDxK};
 
     Type elementTypeA = op.getElementTypeA();
     Type elementTypeB = op.getElementTypeB();
@@ -183,8 +188,13 @@ class LoweringBlockwiseLoadTileOp final
     int64_t dPerBlock = isA ? mPerBlock : nPerBlock;
     int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
 
-    FailureOr<VectorDimInfo> maybeVecDimInfo = getVectorDim(
-        loc, source, elementTypeLoad, blockSize, kPerBlock, dPerBlock, kpack);
+    bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
+                       loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+    bool doubleBuffer = loadType == GemmLoadTileType::DoubleBuffer ||
+                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+    FailureOr<VectorDimInfo> maybeVecDimInfo =
+        getVectorDim(loc, source, elementTypeLoad, blockSize, kPerBlock,
+                     dPerBlock, kpack, directToLDS);
     if (failed(maybeVecDimInfo)) {
       return failure();
     }
@@ -210,6 +220,8 @@ class LoweringBlockwiseLoadTileOp final
           MemRefType::get({dRepeats * accelParams.kpackPerThread * kpack},
                           elementType, AffineMap{}, privateMemoryAddressSpace);
       loadBuffer = GpuAllocOp::create(b, loc, loadBufferType);
+    } else if (directToLDS) {
+      loadBuffer = viewBufferAs(b, ldsByteBuffer, elementType);
     } else {
       loadBuffer =
           gpuAlloc(b, loc, copyPerThread, elementType, AddressSpace::Private);
@@ -238,7 +250,7 @@ class LoweringBlockwiseLoadTileOp final
         maybeBufferViews = getLoadRegsAsTileViews(
             b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
             kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
-            vecDimInfo.inDPerThread, isKContiguousDim);
+            vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
       }
       if (failed(maybeBufferViews))
         return failure();
@@ -298,70 +310,74 @@ class LoweringBlockwiseLoadTileOp final
           rock::YieldOp::create(b, loc);
       }
     } else {
-      auto [stageLDSWrite, stageLDSWriteNew] =
-          createOrGetStage(b, loc, "LDSWrite", parentOp);
-      {
-        PatternRewriter::InsertionGuard guard(b);
-        b.setInsertionPointToStart(&stageLDSWrite.getRegion().back());
+      if (!directToLDS) {
+        auto [stageLDSWrite, stageLDSWriteNew] =
+            createOrGetStage(b, loc, "LDSWrite", parentOp);
+        {
+          PatternRewriter::InsertionGuard guard(b);
+          b.setInsertionPointToStart(&stageLDSWrite.getRegion().back());
 
-        // Get current workitem ID.
-        auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
+          // Get current workitem ID.
+          auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
 
-        FailureOr<RegsAsMatrixSubTiles> maybeBufferViews =
-            getLoadRegsAsTileViews(b, loc, source, dName, bidGridOrder,
-                                   bidGridLengths, blockSize, kPerBlock,
-                                   dPerBlock, vecDimInfo.inKPerThread,
-                                   vecDimInfo.inDPerThread, isKContiguousDim);
-        if (failed(maybeBufferViews))
-          return failure();
-        // We invert the transforms that are iter --> K x D slice of the tensor
-        // so that we can view loadBuffer as a K x D tensor
-        ArrayAttr loadBufferViews =
-            invertTransforms(b, loc, maybeBufferViews->threadSubTile);
-        Value viewLoadBuffer = transform(b, loadBuffer, loadBufferViews);
+          assert(directToLDS == false);
+          FailureOr<RegsAsMatrixSubTiles> maybeBufferViews =
+              getLoadRegsAsTileViews(
+                  b, loc, source, dName, bidGridOrder, bidGridLengths,
+                  blockSize, kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
+                  vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
+          if (failed(maybeBufferViews))
+            return failure();
+          // We invert the transforms that are iter --> K x D slice of the
+          // tensor so that we can view loadBuffer as a K x D tensor
+          ArrayAttr loadBufferViews =
+              invertTransforms(b, loc, maybeBufferViews->threadSubTile);
+          Value viewLoadBuffer = transform(b, loadBuffer, loadBufferViews);
 
-        FailureOr<RegsAsMatrixSubTiles> maybeLdsStoreViews =
-            getPackedRegsAsTileViews(
-                b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
-                kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
-                vecDimInfo.inDPerThread, kpack, isKContiguousDim,
-                ldsLayoutConfig.doSwapThreadIterSubDims);
-        if (failed(maybeLdsStoreViews))
-          return failure();
+          FailureOr<RegsAsMatrixSubTiles> maybeLdsStoreViews =
+              getPackedRegsAsTileViews(
+                  b, loc, source, dName, bidGridOrder, bidGridLengths,
+                  blockSize, kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
+                  vecDimInfo.inDPerThread, kpack, isKContiguousDim,
+                  ldsLayoutConfig.doSwapThreadIterSubDims);
+          if (failed(maybeLdsStoreViews))
+            return failure();
 
-        ArrayAttr storeBufferViews =
-            invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile);
-        Value viewStoreBuffer = transform(b, storeBuffer, storeBufferViews);
+          ArrayAttr storeBufferViews =
+              invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile);
+          Value viewStoreBuffer = transform(b, storeBuffer, storeBufferViews);
 
-        Type ldsReadType = vectorTypeOrSelf(elementType, kpack);
-        FailureOr<Value> maybeWrappedLds = wrapLDSBufferForStore(
-            b, loc, ldsByteBuffer, ldsReadType, kpacksPerBlock, dName,
-            dPerBlock, vecDimInfo.inKPerThread, vecDimInfo.inDPerThread,
-            ldsLayoutConfig.doRotateWithK);
-        if (failed(maybeWrappedLds))
-          return maybeWrappedLds;
-        // This is KxD view of the flat LDS buffer
-        Value wrappedLds = maybeWrappedLds.value();
-        // This will produce a (tid, iter) --> flat LDS view
-        wrappedLds = transform(b, wrappedLds, maybeLdsStoreViews->blockSubTile);
+          Type ldsReadType = vectorTypeOrSelf(elementType, kpack);
+          FailureOr<Value> maybeWrappedLds = wrapLDSBufferForStore(
+              b, loc, ldsByteBuffer, ldsReadType, kpacksPerBlock, dName,
+              dPerBlock, vecDimInfo.inKPerThread, vecDimInfo.inDPerThread,
+              ldsLayoutConfig.doRotateWithK);
+          if (failed(maybeWrappedLds))
+            return maybeWrappedLds;
+          // This is KxD view of the flat LDS buffer
+          Value wrappedLds = maybeWrappedLds.value();
+          // This will produce a (tid, iter) --> flat LDS view
+          wrappedLds =
+              transform(b, wrappedLds, maybeLdsStoreViews->blockSubTile);
 
-        // Emit potentially-transposing copies to store buffer. This is here
-        // both to enable code motion for fusions and to prevent the accesses to
-        // the memory from breaking software pipelining.
-        ThreadwiseCopyOp::create(b, loc, viewLoadBuffer, ValueRange{},
-                                 viewStoreBuffer, ValueRange{}, false, false);
-        // Emit blockwise stores
-        ThreadwiseWriteAllOp::create(b, loc, storeBuffer, wrappedLds,
-                                     /*extraViews=*/b.getArrayAttr({}),
-                                     /*extraIndices=*/ValueRange{tid},
-                                     StoreMethod::Set,
-                                     /*forceUnroll=*/forceUnroll,
-                                     /*useIndexDiffs=*/true);
-        if (stageLDSWriteNew)
-          rock::YieldOp::create(b, loc);
+          // Emit potentially-transposing copies to store buffer. This is here
+          // both to enable code motion for fusions and to prevent the accesses
+          // to the memory from breaking software pipelining.
+          ThreadwiseCopyOp::create(b, loc, viewLoadBuffer, ValueRange{},
+                                   viewStoreBuffer, ValueRange{}, false, false);
+          // Emit blockwise stores
+          ThreadwiseWriteAllOp::create(b, loc, storeBuffer, wrappedLds,
+                                       /*extraViews=*/b.getArrayAttr({}),
+                                       /*extraIndices=*/ValueRange{tid},
+                                       StoreMethod::Set,
+                                       /*forceUnroll=*/forceUnroll,
+                                       /*useIndexDiffs=*/true);
+          if (stageLDSWriteNew)
+            rock::YieldOp::create(b, loc);
+        }
       }
 
-      if (loadType == GemmLoadTileType::DoubleBuffer) {
+      if (doubleBuffer) {
         // Pipeline pass will remove this if the loop uses pipelining
         LDSBarrierOp::create(b, loc);
 
@@ -378,13 +394,19 @@ class LoweringBlockwiseLoadTileOp final
           // Get current workitem ID.
           auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
 
-          Type ldsReadType = vectorTypeOrSelf(elementType, kpack);
-          Value ldsViewForGemm = viewBufferAs(b, ldsByteBuffer, ldsReadType);
+          Value ldsViewForGemm;
+          if (directToLDS) {
+            ldsViewForGemm = viewBufferAs(b, ldsByteBuffer, elementType);
+          } else {
+            Type ldsReadType = vectorTypeOrSelf(elementType, kpack);
+            ldsViewForGemm = viewBufferAs(b, ldsByteBuffer, ldsReadType);
+          }
 
           auto copyDPerThread = vecDimInfo.inDPerThread;
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
                            destRegisters, blockSize, copyDPerThread,
-                           ldsLayoutConfig.doRotateWithK, forceUnroll);
+                           ldsLayoutConfig.doRotateWithK, forceUnroll,
+                           directToLDS, ldsLayoutConfig.ldsLayoutDxK);
           if (stageLDSReadNew)
             rock::YieldOp::create(b, loc);
         }
