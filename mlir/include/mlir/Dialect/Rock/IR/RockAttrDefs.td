@@ -490,14 +490,20 @@ def Rock_GemmFeatures
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
 
 // GEMM load tile types
-def Rock_GemmLoadTileDefault : I32EnumAttrCase<"Default", 0>;
-def Rock_GemmLoadTileBypassLDS : I32EnumAttrCase<"BypassLDS", 1>;
+def Rock_GemmLoadTileBypassLDS : I32EnumAttrCase<"BypassLDS", 0>;
+def Rock_GemmLoadTileDefault : I32EnumAttrCase<"Default", 1>;
 def Rock_GemmLoadTileDoubleBuffer : I32EnumAttrCase<"DoubleBuffer", 2>;
+def Rock_GemmLoadTileDirectToLDSDefault
+    : I32EnumAttrCase<"DirectToLDSDefault", 3>;
+def Rock_GemmLoadTileDirectToLDSDoubleBuffer
+    : I32EnumAttrCase<"DirectToLDSDoubleBuffer", 4>;
 
 def Rock_GemmLoadTileType
     : Rock_I32Enum<"GemmLoadTileType", "GEMM load tile types",
-                   [Rock_GemmLoadTileDefault, Rock_GemmLoadTileBypassLDS,
-                    Rock_GemmLoadTileDoubleBuffer]> {
+                   [Rock_GemmLoadTileBypassLDS, Rock_GemmLoadTileDefault,
+                    Rock_GemmLoadTileDoubleBuffer,
+                    Rock_GemmLoadTileDirectToLDSDefault,
+                    Rock_GemmLoadTileDirectToLDSDoubleBuffer]> {
   let cppNamespace = "::mlir::rock";
   let genSpecializedAttr = 0;
 }

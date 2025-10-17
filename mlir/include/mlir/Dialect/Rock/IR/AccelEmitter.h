@@ -101,7 +101,8 @@ struct AccelEmitter {
   virtual Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK,
+                       StringRef dName, bool rotateDWithK, bool directToLds,
+                       bool ldsLayoutDxK,
                        bool doSplitKAcrossThreadsFirst = false) const = 0;
 
   /// This functions creates the subtile views that is :
@@ -115,7 +116,7 @@ struct AccelEmitter {
   virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
-      int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+      int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
       bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false) const = 0;
 
   /// Validate the accelerator structure
@@ -176,16 +177,17 @@ struct MfmaEmitter : public AccelEmitter {
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, ValueRange regCOffset) override;
 
-  virtual Value
+  Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK,
+                       StringRef dName, bool rotateDWithK, bool directToLds,
+                       bool ldsLayoutDxK,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
-  virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
+  FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
-      int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+      int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
       bool rotateDWithK,
       bool doSplitKAcrossThreadsFirst = false) const override;
 
@@ -223,16 +225,17 @@ struct WmmaEmitter : public AccelEmitter {
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, ValueRange regCOffset) override;
 
-  virtual Value
+  Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
                        int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK,
+                       StringRef dName, bool rotateDWithK, bool directToLds,
+                       bool ldsLayoutDxK,
                        bool doSplitKAcrossThreadsFirst = false) const override;
 
-  virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
+  FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
-      int64_t dInCopyPerThread, StringRef dName, bool isKContigousDim,
+      int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
       bool rotateDWithK,
       bool doSplitKAcrossThreadsFirst = false) const override;
 

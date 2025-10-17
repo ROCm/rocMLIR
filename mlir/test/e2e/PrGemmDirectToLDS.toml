@@ -1,20 +1,20 @@
-directory = "PrGemmSplitK"
+directory = "PrGemmDirectToLDS"
 prefix = "rocmlir-gen"
 suffix = "--operation gemm --arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
-
-[[axis]]
-name = "splitKFactor"
-values = ["v3:64,64,16,32,32,4,3,1,2,1,1", "v3:64,64,16,32,32,4,4,2,2,1,1"]
-prefix = "-perf_config="
 
 [[axis]]
 name = "data type"
 values = ["f16"]
 prefix = "-t "
 
-## Gemm variants
+[[axis]]
+name = "schedule_version"
+values = ["v3:64,64,16,32,32,8,1,3,2,1,1", "v3:64,64,8,32,32,8,1,4,2,1,1"]
+prefix = "-perf_config="
+
+## Direct to LDS
 [[suite]]
-name = "PrGemmSplitK"
+name = "pr_gemm_direct_to_lds"
 
 [[suite.test]]
-config = "-g 3 -m 256 -k 769 -n 256"
+config = "-g 1 -m 512 -k 32 -n 512"
