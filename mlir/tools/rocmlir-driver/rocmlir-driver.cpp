@@ -131,9 +131,9 @@ parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
   return success();
 }
 
-static LogicalResult runHostHighLevelPipeline(ModuleOp mod) {
+static LogicalResult runHostHighLevelPipeline(ModuleOp m) {
   // Setup pass manager
-  PassManager pm(mod->getName(), PassManager::Nesting::Implicit);
+  PassManager pm(m->getName(), PassManager::Nesting::Implicit);
   if (failed(applyPassManagerCLOptions(pm)))
     return failure();
 
@@ -153,13 +153,13 @@ static LogicalResult runHostHighLevelPipeline(ModuleOp mod) {
     llvm::errs() << "\n";
   }
 
-  return pm.run(mod);
+  return pm.run(m);
 }
 
 static LogicalResult
-runKernelPipeline(StringRef arch, ModuleOp kmod,
+runKernelPipeline(StringRef arch, ModuleOp m,
                   llvm::SmallDenseSet<StringRef> &kernelPipelineSet) {
-  PassManager pm(kmod->getName(), PassManager::Nesting::Implicit);
+  PassManager pm(m->getName(), PassManager::Nesting::Implicit);
   if (failed(applyPassManagerCLOptions(pm)))
     return failure();
   pm.enableVerifier(verifyPasses);
@@ -219,7 +219,7 @@ runKernelPipeline(StringRef arch, ModuleOp kmod,
     pm.printAsTextualPipeline(llvm::errs());
     llvm::errs() << "\n";
   }
-  return pm.run(kmod);
+  return pm.run(m);
 }
 
 static LogicalResult runMLIRPasses(ModuleOp &module,
@@ -301,8 +301,12 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   StringRef targetArch = onlyArch;
   bool hasKernels = false;
-  // Find kernel module, defaults to top module
-  if (!kernelPipelineSet.empty() || hostPipelineSet.contains("highlevel")) {
+  // Right now we need to update the target architecture used when we
+  // are running the kernel pipeline, or if we are running the highlevel host
+  // pipeline.
+  bool needsTargetArchUpdate = !kernelPipelineSet.empty() ||
+                         hostPipelineSet.contains("highlevel")
+  if (needsTargetArchUpdate) {
     LogicalResult kernelResult = success();
     // If sub-modules exists with kernel.chip specified and in set
     // of targetChips, run KernelPipeline
