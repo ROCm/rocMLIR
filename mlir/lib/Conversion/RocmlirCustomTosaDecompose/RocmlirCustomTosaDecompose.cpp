@@ -45,6 +45,157 @@ struct RocmlirCustomTosaDecomposePass
   void runOnOperation() override;
 };
 
+// This is mostly a copy of the verification op that exists for
+// tosa::TransposeConv2DOp in upstream with the output shape checks updated
+// to properly account for input padding and dilation.
+// See here for the formula being used:
+// https://onnx.ai/onnx/operators/onnx__ConvTranspose.html
+LogicalResult verifyCustomOp(tosa::CustomOp op) {
+  llvm::ArrayRef<int64_t> strides =
+        cast<DenseI64ArrayAttr>(op->getAttr("stride"));
+  const int64_t strideY = strides[0];
+  const int64_t strideX = strides[1];
+
+  if (strideY < 1 || strideX < 1)
+    return op.emitOpError("expect all stride values to be >= 1, got [")
+           << strides << "]";
+
+  const auto checkPadAgainstKernelDim =
+      [&](int64_t pad_value, int64_t kernel_dim_size,
+             llvm::StringRef pad_name,
+             llvm::StringRef kernel_dim_name) -> LogicalResult {
+    if (pad_value <= -kernel_dim_size)
+      return op.emitOpError("expected ")
+             << pad_name << " > -" << kernel_dim_name
+             << ", but got: " << pad_name << "=" << pad_value << " and "
+             << kernel_dim_name << "=" << kernel_dim_size;
+    return success();
+  };
+
+  llvm::ArrayRef<int64_t> outPad =
+        cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
+  const int64_t outPadTop = outPad[0];
+  const int64_t outPadBottom = outPad[1];
+  const int64_t outPadLeft = outPad[2];
+  const int64_t outPadRight = outPad[3];
+
+  Value weight = op->getOperand(1);
+  const auto weightType =
+      llvm::dyn_cast<RankedTensorType>(weight.getType());
+
+  if (weightType) {
+    const int64_t kernelHeight = weightType.getDimSize(1);
+    if (ShapedType::isStatic(kernelHeight)) {
+      if (failed(checkPadAgainstKernelDim(outPadTop, kernelHeight,
+                                          "out_pad_top", "KH")))
+        return failure();
+
+      if (failed(checkPadAgainstKernelDim(outPadBottom, kernelHeight,
+                                          "out_pad_bottom", "KH")))
+        return failure();
+    }
+
+    const int64_t kernelWidth = weightType.getDimSize(2);
+    if (ShapedType::isStatic(kernelWidth)) {
+      if (failed(checkPadAgainstKernelDim(outPadLeft, kernelWidth,
+                                          "out_pad_left", "KW")))
+        return failure();
+
+      if (failed(checkPadAgainstKernelDim(outPadRight, kernelWidth,
+                                          "out_pad_right", "KW")))
+        return failure();
+    }
+  }
+
+  // Rest of the checks depend on the output type being a RankedTensorType
+  const auto outputType =
+      llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!outputType)
+    return success();
+
+  // Fetch pad & dilation;
+  SmallVector<int64_t, 2> dilation = {1, 1};
+  if (auto dilOpt = cast<DenseI64ArrayAttr>(op->getAttr("dilation"))) {
+    dilation[0] = (dilOpt)[0];
+    dilation[1] = (dilOpt)[1];
+  }
+
+  // Fetch input pads (default zeros)
+  SmallVector<int64_t, 4> inPad(4, 0);
+  if (auto padOpt = cast<DenseI64ArrayAttr>(op->getAttr("pad"))) {
+    inPad[0] = (padOpt)[0]; // top
+    inPad[1] = (padOpt)[1]; // bottom
+    inPad[2] = (padOpt)[2]; // left
+    inPad[3] = (padOpt)[3]; // right
+  }
+
+  Value input = op->getOperand(0);
+  const auto inputType = llvm::dyn_cast<RankedTensorType>(input.getType());
+  if (inputType && weightType) {
+    const int64_t inputHeight = inputType.getDimSize(1);
+    const int64_t kernelHeight = weightType.getDimSize(1);
+    const int64_t outputHeight = outputType.getDimSize(1);
+
+    if (!ShapedType::isDynamic(inputHeight) &&
+        !ShapedType::isDynamic(outputHeight)) {
+      if (outputHeight != (inputHeight - 1) * strideY + outPadTop +
+                          outPadBottom + ((kernelHeight - 1) * dilation[0]) +
+                          1 - inPad[0] - inPad[1]) {
+        return op.emitOpError(
+                    "dimension mismatch: expected OH = (IH - 1) * "
+                    "stride_y + out_pad_top + out_pad_bottom + ((KH - 1) * "
+                    "dilation_y + 1) - pad_top - pad_bottom, but got: ")
+                << outputHeight << " != (" << inputHeight << " - 1) * "
+                << strideY << " + " << outPadTop << " + "
+                << outPadBottom << " + ((" << kernelHeight
+                << " - 1) * " << dilation[0] << " + 1) - "
+                << inPad[0] << " - " << inPad[1];
+      } 
+    }
+
+    const int64_t inputWidth = inputType.getDimSize(2);
+    const int64_t kernelWidth = weightType.getDimSize(2);
+    const int64_t outputWidth = outputType.getDimSize(2);
+
+    if (!ShapedType::isDynamic(inputWidth) &&
+        !ShapedType::isDynamic(outputWidth)) {
+      if (outputWidth != (inputWidth - 1) * strideX + outPadLeft + outPadRight + 
+                              ((kernelWidth - 1) * dilation[1] + 1) -
+                              inPad[2] - inPad[3]) {
+        return op.emitOpError(
+                    "dimension mismatch: expected OW = (IW - 1) * "
+                    "stride_x + out_pad_left + out_pad_right + (KW - 1) * "
+                    "dilation_x + 1 - pad_left - pad_right, but got: ")
+                << outputWidth << " != (" << inputWidth << " - 1) * "
+                << strideX << " + " << outPadLeft << " + " << outPadRight
+                << " + ((" << kernelWidth << " - 1) * " << dilation[1]
+                << " + 1) - " << inPad[2] - inPad[3];
+      }
+    }
+  }
+
+  Value bias = op->getOperand(2);
+  const auto biasType = llvm::dyn_cast<RankedTensorType>(bias.getType());
+
+  if (!biasType)
+    return success();
+
+  const int64_t biasChannels = biasType.getDimSize(0);
+
+  // Skip further checks if bias is dynamic
+  if (biasChannels == ShapedType::kDynamic)
+    return success();
+
+  const int64_t outputChannels = outputType.getDimSize(3);
+  if (!ShapedType::isDynamic(outputChannels) &&
+      biasChannels != outputChannels && biasChannels != 1)
+    return op.emitOpError(
+               "bias channels expected to be equal to output channels (")
+           << outputChannels << ") or 1, got " << biasChannels;
+
+  return success();
+}
+
 // If this is a backward-data (transpose) conv lowered from MIGraphX, its
 // filter logical in/out channels are reversed relative to forward Conv2D.
 FailureOr<std::tuple<Value, ShapedType>>
@@ -87,6 +238,9 @@ public:
       return rewriter.notifyMatchFailure(op, "should have 5 or more operands");
     if (op.getNumResults() != 1)
       return rewriter.notifyMatchFailure(op, "should have 1 result");
+
+    if (failed(verifyCustomOp(op)))
+      return failure();
 
     Location loc = op->getLoc();
     Value input = op->getOperand(0);
@@ -267,6 +421,9 @@ public:
       return rewriter.notifyMatchFailure(op, "should have 5 or more operands");
     if (op.getNumResults() != 1)
       return rewriter.notifyMatchFailure(op, "should have 1 result");
+
+    if (failed(verifyCustomOp(op)))
+      return failure();
 
     Location loc = op->getLoc();
     Value input = op->getOperand(0);
