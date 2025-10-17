@@ -305,7 +305,7 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   // are running the kernel pipeline, or if we are running the highlevel host
   // pipeline.
   bool needsTargetArchUpdate = !kernelPipelineSet.empty() ||
-                         hostPipelineSet.contains("highlevel")
+                         hostPipelineSet.contains("highlevel");
   if (needsTargetArchUpdate) {
     LogicalResult kernelResult = success();
     // If sub-modules exists with kernel.chip specified and in set
