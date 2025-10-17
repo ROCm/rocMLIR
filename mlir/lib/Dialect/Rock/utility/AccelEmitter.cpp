@@ -567,6 +567,16 @@ int64_t MfmaEmitter::getRowGroupSize() const {
   return mfmaAttr.rowGroupSize;
 }
 
+int64_t MfmaEmitter::getMfmaK() const {
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  return mfmaAttr.k;
+}
+
+int64_t MfmaEmitter::getMfmaNonKDim() const {
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  return mfmaAttr.mfmaNonKDim;
+}
+
 llvm::FailureOr<RegsAsMatrixSubTiles>
 MfmaEmitter::createAccelGemmOperandTransforms(
     OpBuilder &b, Location loc, int64_t kIters,

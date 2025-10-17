@@ -203,6 +203,12 @@ struct MfmaEmitter : public AccelEmitter {
 
   int64_t getRowGroupSize() const;
 
+  // Return the MFMA K dimension
+  int64_t getMfmaK() const;
+
+  // Return the MFMA instruction's non-K dimension
+  int64_t getMfmaNonKDim() const;
+
   static bool classof(const AccelEmitter *AE) {
     return AE->getKind() == AccelEmitterKind::AEK_MFMAEmitter;
   }
