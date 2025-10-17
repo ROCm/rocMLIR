@@ -957,12 +957,13 @@ def Rock_IndexDiffUpdateOp :
 
 defvar SupportedMemoryElems = [F32, F16, BF16, I1, I<4>, I8, I16, I32,
                                F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
-defvar NativeMemoryOpTypes = [F32, F16, BF16, I<4>, I8, I16, I32,
-                           F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN, F4E2M1FN,
-                           VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32, F4E2M1FN]>,
-                           VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-                           VectorOfLengthAndType<[2, 4, 8, 16],
-                             [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>];
+defvar NativeMemoryOpTypes =
+    [F32, F16, BF16, I<4>, I8, I16, I32, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
+     F8E4M3FN, F4E2M1FN,
+     VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32, F4E2M1FN]>,
+     VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
+     VectorOfLengthAndType<[2, 4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
+                                           F8E4M3FN]>];
 
 // in_bounds_load
 def Rock_InBoundsLoadOp

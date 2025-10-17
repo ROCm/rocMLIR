@@ -609,7 +609,8 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
         LLVM_DEBUG(llvm::dbgs() << "Selected gfx950 double rate instruction\n");
         return;
       }
-      LLVM_DEBUG(llvm::dbgs() << "Incoherent with K for gfx950 double rate instruction\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Incoherent with K for gfx950 double rate instruction\n");
       // else select again
       result = failure();
       return;
