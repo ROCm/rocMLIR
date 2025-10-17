@@ -9,6 +9,8 @@
 // with the exact same shape and attributes as the one in the MIXR example below
 // RUN: rocmlir-gen --operation conv_bwd_data --arch %arch -t f32 --fil_layout gkcyx --in_layout ngchw --out_layout ngkhw --batchsize 1 --groupsize 1 --in_channels 1 --out_channels 1 --in_h 5 --in_w 5 --fil_h 3 --fil_w 3 --dilation_h 1 --dilation_w 1 --conv_stride_h 1 --conv_stride_w 1 --padding_h 0 --padding_w 0 -v4r1 0 -pv | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=GEN
 
+// TODO: We are actually generating a 2D conv with rocmlir-gen here since it does not support generating 3D
+//       This should be a 3D conv once rocmlir-gen supports it.
 module {
   // MIXR: [1,  2,  3,  2,  1,  2,  4,  6,  4,  2,  3,  6,  9,  6,  3,  2,  4,  6,  4,  2,  1,  2,  3,  2,  1]
   // GEN: [1 1 1]
