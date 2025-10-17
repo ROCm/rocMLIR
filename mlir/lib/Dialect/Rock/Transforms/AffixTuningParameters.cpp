@@ -53,6 +53,10 @@ private:
 
 void AffixTuningParameters::runOnOperation() {
   func::FuncOp func = getOperation();
+  // currently, in rocMLIR we only support one GEMM like or GemmPlusGemm like
+  // op per function. Therefore we check for that here. Note that rocMLIR does
+  // generate multiple kernels for the conv_bwd_data but that decomposition
+  // happens later in the pipeline.
   uint32_t fusedOpCnt = 0;
   func.walk([&](Operation *op) {
     if (isa<RockGemmGemmWrapperInterface>(op) ||
