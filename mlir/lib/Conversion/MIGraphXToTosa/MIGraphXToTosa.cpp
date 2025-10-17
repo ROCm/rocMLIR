@@ -298,11 +298,10 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
           rewriter, loc, newOutTy,
           ValueRange{input, filter,
                      rock::tosa::getZeroTensor(
-                         loc,
+                         rewriter, loc,
                          RankedTensorType::get(
                              cast<ShapedType>(filter.getType()).getShape()[0],
-                             newOutElementTy),
-                         rewriter),
+                             newOutElementTy)),
                      inputZp, weightZp});
     }
 
@@ -322,7 +321,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
         ValueRange{
             input, filter,
             rock::tosa::getZeroTensor(
-                loc,
+                rewriter, loc,
                 dims == 3
                     ? RankedTensorType::get(cast<ShapedType>(filter.getType())
                                                 .getShape()[lastDim],
@@ -330,8 +329,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                     : RankedTensorType::get(
                           cast<ShapedType>(dims == 1 ? new1DOutTy : newOutTy)
                               .getShape()[lastDim],
-                          newOutElementTy),
-                rewriter),
+                          newOutElementTy)),
             inputZp, weightZp});
   }
 
