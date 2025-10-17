@@ -185,7 +185,8 @@ static FailureOr<SmallVector<LiveRange>> computeLiveRanges(GpuAllocOp buffer,
       // Update the last read (could be write, read, read, ... pattern)
       lastRead = op;
       if (!currentWrite) {
-        return buffer->emitError("Read before write");
+        return buffer->emitError(
+            "Read before write (reading from uninitialized memory)");
       }
     }
   }

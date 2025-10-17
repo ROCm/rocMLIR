@@ -26,7 +26,7 @@ func.func @non_closed_read_write_pattern() attributes{arch = "##TOKEN_ARCH##", b
 func.func @read_before_write() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
   %0 = rock.alloc() : memref<1024xi8, #wg>
   %1 = rock.alloc() : memref<1024xi8, #wg>
-  // expected-error @+1 {{Read before write}}
+  // expected-error @+1 {{Read before write (reading from uninitialized memory)}}
   %2 = rock.alloc() : memref<2048xi8, #wg>
   %c0 = arith.constant 0 : index
   %view0 = memref.view %0[%c0][] : memref<1024xi8, #wg> to memref<256xf32, #wg>
