@@ -687,7 +687,9 @@ void mlir::rock::populateRocmlirCustomTosaDecomposeTarget(
     ConversionTarget &target) {
   target.addLegalDialect<tosa::TosaDialect>();
   target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
-    return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME;
+    return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME ||
+            (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
+            op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT);
   });
 }
 
