@@ -42,6 +42,7 @@
 // GPU-NEXT:rock-buffer-load-merge,
 // GPU-NEXT:rock-transform-to-memref,
 // GPU-NEXT:rock-emulate-narrow-type,
+// GPU-NEXT:rock-convert-4bit-memcpy-to-8bit,
 // GPU-NEXT:rock-loops-to-cf),
 // GPU-NEXT:convert-rock-to-gpu)
 

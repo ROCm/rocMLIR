@@ -12,7 +12,7 @@
 
 namespace mlir {
 namespace rock {
-#define GEN_PASS_DEF_ROCKCONVERT4BITALLOCTO8BITPASS
+#define GEN_PASS_DEF_ROCKCONVERT4BITMEMCPYTO8BITPASS
 #include "mlir/Dialect/Rock/Passes.h.inc"
 } // namespace rock
 } // namespace mlir
@@ -111,9 +111,9 @@ struct GpuAllocRewritePattern : OpRewritePattern<gpu::AllocOp> {
   }
 };
 
-class RockConvert4BitAllocTo8BitPass
-    : public rock::impl::RockConvert4BitAllocTo8BitPassBase<
-          RockConvert4BitAllocTo8BitPass> {
+class RockConvert4BitMemcpyTo8BitPass
+    : public rock::impl::RockConvert4BitMemcpyTo8BitPassBase<
+          RockConvert4BitMemcpyTo8BitPass> {
   void runOnOperation() override {
     func::FuncOp func = getOperation();
     RewritePatternSet patterns(&getContext());

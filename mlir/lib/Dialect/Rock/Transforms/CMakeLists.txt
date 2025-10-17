@@ -8,7 +8,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   CheckResidency.cpp
   CleanMath.cpp
   ConvToGemm.cpp
-  Convert4BitAllocTo8Bit.cpp
+  Convert4BitMemcpyTo8Bit.cpp
   EmulateNarrowType.cpp
   FoldBroadcast.cpp
   GemmToGridwise.cpp

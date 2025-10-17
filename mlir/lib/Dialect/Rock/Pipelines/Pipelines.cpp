@@ -200,7 +200,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      *   --math-extend-to-supported-types="source-types=f64,f32,f16
      * target-type=f32"
      *   --rock-buffer-load-merge --rock-transform-to-memref
-     *   --rock-emulate-narrow-type --rock-loops-to-cf
+     *   --rock-emulate-narrow-type --rock-convert-4bit-alloc-to-8bit --rock-loops-to-cf
      *    --convert-rock-to-gpu
      */
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
@@ -215,7 +215,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockBufferLoadMergePass());
     funcPm.addPass(rock::createRockTransformToMemrefPass());
     funcPm.addPass(rock::createRockEmulateNarrowTypePass());
-    funcPm.addPass(rock::createRockConvert4BitAllocTo8BitPass());
+    funcPm.addPass(rock::createRockConvert4BitMemcpyTo8BitPass());
     funcPm.addPass(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
   }
