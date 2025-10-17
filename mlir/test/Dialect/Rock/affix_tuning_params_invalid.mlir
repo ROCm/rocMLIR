@@ -53,5 +53,5 @@ func.func @two_gemms(
     : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FN> * memref<1x72x115200xf8E5M2>
   rock.gemm %c1 = tr %a1 * %b1 features = mfma|dot|atomic_add|atomic_add_f16|atomic_add_bf16 storeMethod = set
     : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FN> * memref<1x72x115200xf8E5M2>
-  func.return
+  return
 }
