@@ -1752,6 +1752,47 @@ LogicalResult InBoundsStoreOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// LDSTransposeLoadOp
+//===-----------------------------------------------------===//
+void LDSTransposeLoadOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  // This op only reads from LDS (workgroup) memory
+  auto *read = MemoryEffects::Read::get();
+  effects.emplace_back(read, &getSourceMutable());
+}
+
+LogicalResult LDSTransposeLoadOp::verify() {
+  // Source must be memref in workgroup (LDS) address space
+  MemRefType srcType = getSource().getType();
+  Attribute memSpaceAttr = srcType.getMemorySpace();
+  if (!memSpaceAttr)
+    return emitOpError(
+        "source memref must have an address space (workgroup/LDS)");
+  auto gpuMemSpaceAttr = dyn_cast<gpu::AddressSpaceAttr>(memSpaceAttr);
+  bool isWorkgroup = false;
+  if (gpuMemSpaceAttr &&
+      gpuMemSpaceAttr.getValue() == gpu::AddressSpace::Workgroup)
+    isWorkgroup = true;
+  else if (auto intAttr = dyn_cast<IntegerAttr>(memSpaceAttr)) {
+    // Accept raw integer 3 as LDS (common textual form memref<... , 3>)
+    if (intAttr.getInt() == 3)
+      isWorkgroup = true;
+  }
+  if (!isWorkgroup)
+    return emitOpError("source must reside in workgroup (LDS) memory");
+
+  // Indices size must match rank
+  if (getIndices().size() != srcType.getRank())
+    return emitOpError("expected " + Twine(srcType.getRank()) + " indices");
+  for (Value idx : getIndices()) {
+    if (!idx.getType().isIndex())
+      return emitOpError("indices must be of index type");
+  }
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // ThreadwiseReadIntoOp
 //===-----------------------------------------------------===//
 SmallPtrSet<OpOperand *, 2> ThreadwiseReadIntoOp::getAcceptingViewOperands() {

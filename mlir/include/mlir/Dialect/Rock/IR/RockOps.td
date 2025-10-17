@@ -1115,6 +1115,29 @@ defvar SameShapeVectorOfI1 = [{
   ::mlir::VectorType::get(::llvm::cast<::mlir::ShapedType>($_self).getShape(), ::mlir::IntegerType::get($_ctxt, 1))
 }];
 
+// lds_transpose_load
+def Rock_LDSTransposeLoadOp :
+  Rock_Op<"lds_transpose_load",
+          [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+  Arguments<(ins
+      Arg<MemRefOf<[F16, BF16]>, "LDS source buffer">:$source,
+      Variadic<Index>:$indices)>,
+  Results<(outs VectorOfLengthAndType<[4], [F16, BF16]>:$fragment)> {
+  let summary = "Hardware-assisted LDS transpose panel load (v4 fragment)";
+  let description = [{
+    LDS transpose panel load (vector<4 x F16/BF16>) for MFMA-friendly ordering.
+    Loads a single panel (4 elements) from LDS memory using AMD ds.read.tr16.* instructions.
+    The returned fragment ($fragment) is always a vector<4 x elementType>. 
+    Helps to reduced bank conflict. Only supported for gfx950.
+  }];
+
+  let assemblyFormat = [{
+    $source (`[` $indices^ `]`)? attr-dict `:` type($source) `->` type($fragment)
+  }];
+
+  let hasVerifier = 1;
+}
+
 // threadwise_read_into
 def Rock_ThreadwiseReadIntoOp
     : Rock_Op<
