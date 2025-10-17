@@ -63,20 +63,21 @@ static constexpr LayoutConfig kLayoutConfigs[] = {
 
 // Calculates the number of M/N/K panels per block based on the MFMA instruction
 // shape. Returns `true` if the dimensions divide evenly, otherwise `false`.
-bool calculatePanels(const MfmaInstrShape &shape, OperandKind operand,
-                     int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
-                     int64_t &mPanels, int64_t &nPanels, int64_t &kPanels) {
+bool calculatePanels(const MfmaInstrShape &shape, OperandKind operandA,
+                     OperandKind operandB, int64_t mPerBlock, int64_t nPerBlock,
+                     int64_t kPerBlock, int64_t &mPanels, int64_t &nPanels,
+                     int64_t &kPanels) {
 
-  /*if (mPerBlock > 32 || nPerBlock > 32) {
+  if (mPerBlock > 32 || nPerBlock > 32) {
     return false;
-  }*/
+  }
 
   if (kPerBlock % shape.kMfma != 0) {
     return false;
   }
   kPanels = kPerBlock / shape.kMfma;
 
-  if (operand == OperandKind::A) {
+  if (operandA == OperandKind::A) {
     if (mPerBlock % shape.mnMfma != 0)
       return false;
     mPanels = mPerBlock / shape.mnMfma;
@@ -101,16 +102,24 @@ LayoutKind selectLayout(int64_t mnDim, int64_t kDim) {
 // Analyzes GEMM tiling and MFMA instruction parameters to determine
 // if the hardware LDS transpose optimization can be applied.
 // Returns a `Decision` struct indicating applicability and layout details.
-Decision makeDecision(StringRef arch, Type elemType, bool ldsLayoutAIsMxK,
-                      bool ldsLayoutBIsNxK, const MfmaInstrShape &shape,
-                      OperandKind operand, int64_t mPerBlock, int64_t nPerBlock,
-                      int64_t kPerBlock) {
+Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
+                      bool DirectToLds, const MfmaInstrShape &shape,
+                      OperandKind operandA, OperandKind operandB,
+                      int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock) {
   Decision dec;
-  dec.operand = operand;
+  dec.operandA = operandA;
+  dec.operandB = operandB;
 
   // Basic applicability checks
-  if (!archSupported(arch) || !(elemType.isF16() || elemType.isBF16()) ||
-      ldsLayoutAIsMxK || ldsLayoutBIsNxK) {
+  if (!archSupported(arch) || !DirectToLds) {
+    return dec;
+  }
+
+  if (elemTypeA != elemTypeB) {
+    return dec;
+  }
+  if (!(elemTypeA.isF16() || elemTypeA.isBF16()) ||
+      !(elemTypeB.isF16() || elemTypeB.isBF16())) {
     return dec;
   }
 
@@ -127,8 +136,8 @@ Decision makeDecision(StringRef arch, Type elemType, bool ldsLayoutAIsMxK,
   }
 
   // Calculate and validate paneling
-  if (!calculatePanels(shape, operand, mPerBlock, nPerBlock, kPerBlock,
-                       dec.mPanels, dec.nPanels, dec.kPanels)) {
+  if (!calculatePanels(shape, dec.operandA, dec.operandB, mPerBlock, nPerBlock,
+                       kPerBlock, dec.mPanels, dec.nPanels, dec.kPanels)) {
     return dec;
   }
 
@@ -155,7 +164,7 @@ void attachAttributes(Operation *readIntoOp, const Decision &dec,
                       rewriter.getStringAttr(layoutName(dec.layout)));
   readIntoOp->setAttr(
       "rock.hw_lds_transpose_operand",
-      rewriter.getStringAttr(dec.operand == OperandKind::A ? "A" : "B"));
+      rewriter.getStringAttr(dec.operandA == OperandKind::A ? "A" : "B"));
 
   if (dec.mPanels > 1)
     readIntoOp->setAttr("rock.hw_lds_transpose_mpanels",
@@ -383,8 +392,7 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   for (Value pv : panelVectors) {
     for (int lane = 0; lane < 4 && produced < targetElems; ++lane) {
       Value ciLane = cst(lane);
-      Value elem =
-          b.create<vector::ExtractOp>(loc, pv, ciLane);
+      Value elem = b.create<vector::ExtractOp>(loc, pv, ciLane);
       Value idx = cst(produced++);
       b.create<InBoundsStoreOp>(loc, elem, dest, ValueRange{idx});
     }

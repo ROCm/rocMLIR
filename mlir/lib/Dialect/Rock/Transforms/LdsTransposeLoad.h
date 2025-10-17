@@ -28,8 +28,8 @@
 #ifndef MLIR_LIB_DIALECT_ROCK_TRANSFORMS_LDS_TRANSPOSE_LOAD_H
 #define MLIR_LIB_DIALECT_ROCK_TRANSFORMS_LDS_TRANSPOSE_LOAD_H
 
-#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/IR/PatternMatch.h"
 
 namespace mlir::rock::hwtranspose {
@@ -50,7 +50,8 @@ struct MfmaInstrShape {
 struct Decision {
   bool usable{false};
   LayoutKind layout{LayoutKind::None};
-  OperandKind operand{OperandKind::A};
+  OperandKind operandA{OperandKind::A};
+  OperandKind operandB{OperandKind::B};
   int64_t mPanels{1};
   int64_t nPanels{1};
   int64_t kPanels{1};
@@ -59,10 +60,10 @@ struct Decision {
 // The main decision-making function. It analyzes the GEMM parameters and
 // returns a Decision struct indicating if the optimization is applicable and
 // with which paneling configuration.
-Decision makeDecision(StringRef arch, Type elemType, bool ldsLayoutAIsMxK,
-                      bool ldsLayoutBIsNxK, const MfmaInstrShape &shape,
-                      OperandKind operand, int64_t mPerBlock, int64_t nPerBlock,
-                      int64_t kPerBlock);
+Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
+                      bool DirectToLds, const MfmaInstrShape &shape,
+                      OperandKind operandA, OperandKind operandB,
+                      int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock);
 
 // A convenience wrapper around makeDecision to quickly check for applicability.
 inline bool isApplicable(const Decision &dec) { return dec.usable; }

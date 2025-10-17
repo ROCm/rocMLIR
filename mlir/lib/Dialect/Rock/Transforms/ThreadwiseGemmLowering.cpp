@@ -41,7 +41,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
-
+#include "LdsTransposeLoad.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/Support/Debug.h"
 
@@ -602,6 +602,19 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
                  << "Direct to LDS is not supported by the hardware\n");
       return failure();
     }
+  }
+
+  // Check if the operation has the attribute for LDS Transpose Load
+  if (op->hasAttr("rock.hw_lds_transpose_enabled")) {
+    // Derive lowering info from attributes (layout, panel counts, operand).
+    auto info = mlir::rock::hwtranspose::deriveLoweringInfo(op, b);
+    if (info.usable) {
+      rock::hwtranspose::emitThreadwiseHWTranspose(op, info, b);
+    } else {
+      return op.emitOpError("LDS transpose load emission is not usable with "
+                            "the derived attributes");
+    }
+    return success();
   }
 
   size_t extraIdxCount = op.getExtraIndices().size();

@@ -32,15 +32,15 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "LdsTransposeLoad.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
-
-#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
@@ -439,6 +439,9 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t nRepeats = params.nRepeats;
     int64_t kBase = params.kBase;
     int64_t kBasePerThread = params.kBasePerThread;
+    int64_t mPerBlock = tuningParams.getMPerBlock();
+    int64_t nPerBlock = tuningParams.getNPerBlock();
+    int64_t kPerBlock = kpackPerBlock * tuningParams.getKpack();
 
     auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
 
@@ -488,103 +491,117 @@ struct BlockwiseGemmAccelRewritePattern
           op.getSplitKAcrossThreadsFirstB());
     }
 
-    auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
-                          Value loopVar, Type argType, int64_t repeats,
-                          bool loadFromLDS, bool isA) -> Value {
-      Value inputBuffer = buffer;
-      SmallVector<int64_t> shape;
-      if (directToLDS) {
-        shape.push_back(kBasePerThread);
-        auto memrefType = cast<MemRefType>(buffer.getType());
-        assert(memrefType.getRank() == 1);
-        assert(memrefType.getElementType() == b.getI8Type());
-        int64_t numBytes = getByteWidth(argType);
-        if (memrefType.getShape()[0] > kBasePerThread * numBytes) {
-          assert(memrefType.getShape()[0] ==
-                 kBasePerThread * repeats * numBytes);
-          shape.insert(shape.begin(), repeats);
-        } else {
-          assert(memrefType.getShape()[0] == kBasePerThread * numBytes);
-        }
-        // view for generateThreadwiseViewBuffer()
-        buffer = viewBufferAs(b, buffer, argType, shape);
-      }
+    hwtranspose::Decision decision;
+    auto *mfma = dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get());
+    if (!mfma) {
+      return op.emitOpError(
+          "MFMA emitter requires architecture with accelerator support.");
+    }
+    if (op.getLdsLayoutMxK() == 0 && op.getLdsLayoutNxK() == 0) {
+    hwtranspose::MfmaInstrShape shape{mfma->getMfmaNonKDim(), mfma->getMfmaK()};
+    decision = hwtranspose::makeDecision(
+        arch, dataTypeA, dataTypeB, directToLDS, shape,
+        hwtranspose::OperandKind::A, hwtranspose::OperandKind::B, mPerBlock,
+        nPerBlock, kPerBlock);
+  }
 
-      if (loadFromLDS) {
-        Value viewForReadInto = buffer;
-        if (directToLDS) {
-          SmallVector<int64_t> shapeForLoad(shape);
-          if (auto vectorType = dyn_cast<VectorType>(argType)) {
-            assert(vectorType.hasRank() == 1 && "Expected rank 1");
-            shapeForLoad[shapeForLoad.size() - 1] =
-                vectorType.getDimSize(0) *
-                shapeForLoad[shapeForLoad.size() - 1];
-          }
-          viewForReadInto = viewBufferAs(
-              b, inputBuffer, getElementTypeOrSelf(argType), shapeForLoad);
-        }
-        // regs = read from LDS
-        ThreadwiseReadIntoOp::create(
-            b, loc, wrappedLDSBufferForLoad, viewForReadInto,
-            b.getArrayAttr({}), ValueRange{tid, loopVar}, /*forceUnroll=*/true,
-            /*useIndexDiffs=*/true);
+  auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
+                        Value loopVar, Type argType, int64_t repeats,
+                        bool loadFromLDS, bool isA) -> Value {
+    Value inputBuffer = buffer;
+    SmallVector<int64_t> shape;
+    if (directToLDS) {
+      shape.push_back(kBasePerThread);
+      auto memrefType = cast<MemRefType>(buffer.getType());
+      assert(memrefType.getRank() == 1);
+      assert(memrefType.getElementType() == b.getI8Type());
+      int64_t numBytes = getByteWidth(argType);
+      if (memrefType.getShape()[0] > kBasePerThread * numBytes) {
+        assert(memrefType.getShape()[0] == kBasePerThread * repeats * numBytes);
+        shape.insert(shape.begin(), repeats);
       } else {
-        if (cast<ShapedType>(buffer.getType()).getRank() == 1) {
-          StringRef dk = isA ? "mk" : "nk";
-          StringRef indexStr = isA ? "iidx" : "jidx";
-          BottomUpTMBuilder regsBuilder(b, {dk}, {repeats * kBasePerThread},
-                                        loc);
-          regsBuilder.unmerge({indexStr, "k"}, {0, 1}, dk,
-                              {repeats, kBasePerThread});
-          buffer =
-              rock::transform(b, buffer, b.getArrayAttr({regsBuilder.get()}));
-        }
-        buffer = rock::createSliceOfFirstDim(b, loc, buffer, loopVar);
+        assert(memrefType.getShape()[0] == kBasePerThread * numBytes);
       }
-      return buffer;
-    };
+      // view for generateThreadwiseViewBuffer()
+      buffer = viewBufferAs(b, buffer, argType, shape);
+    }
 
-    auto mLoop = affine::AffineForOp::create(b, loc, 0, mRepeats);
+    if (loadFromLDS) {
+      Value viewForReadInto = buffer;
+      if (directToLDS) {
+        SmallVector<int64_t> shapeForLoad(shape);
+        if (auto vectorType = dyn_cast<VectorType>(argType)) {
+          assert(vectorType.hasRank() == 1 && "Expected rank 1");
+          shapeForLoad[shapeForLoad.size() - 1] =
+              vectorType.getDimSize(0) * shapeForLoad[shapeForLoad.size() - 1];
+        }
+        viewForReadInto = viewBufferAs(
+            b, inputBuffer, getElementTypeOrSelf(argType), shapeForLoad);
+      }
+      // regs = read from LDS
+      auto twr = ThreadwiseReadIntoOp::create(
+          b, loc, wrappedLDSBufferForLoad, viewForReadInto, b.getArrayAttr({}),
+          ValueRange{tid, loopVar}, /*forceUnroll=*/true,
+          /*useIndexDiffs=*/true);
+          if (hwtranspose::isApplicable(decision)) {
+          hwtranspose::attachAttributes(twr, decision, b);
+        }
+    } else {
+      if (cast<ShapedType>(buffer.getType()).getRank() == 1) {
+        StringRef dk = isA ? "mk" : "nk";
+        StringRef indexStr = isA ? "iidx" : "jidx";
+        BottomUpTMBuilder regsBuilder(b, {dk}, {repeats * kBasePerThread}, loc);
+        regsBuilder.unmerge({indexStr, "k"}, {0, 1}, dk,
+                            {repeats, kBasePerThread});
+        buffer =
+            rock::transform(b, buffer, b.getArrayAttr({regsBuilder.get()}));
+      }
+      buffer = rock::createSliceOfFirstDim(b, loc, buffer, loopVar);
+    }
+    return buffer;
+  };
+
+  auto mLoop = affine::AffineForOp::create(b, loc, 0, mRepeats);
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(mLoop.getBody());
+    Value i = mLoop.getInductionVar();
+
+    Value bufferA = adaptor.getBufferA();
+    bufferA = loadBuffer(bufferA, wrappedLDSBufferForLoadA, i, argTypeA,
+                         mRepeats, loadAFromLDS, true);
+    Value viewA =
+        accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferA);
+
+    auto nLoop = affine::AffineForOp::create(b, loc, 0, nRepeats);
     {
       OpBuilder::InsertionGuard guard(b);
-      b.setInsertionPointToStart(mLoop.getBody());
-      Value i = mLoop.getInductionVar();
+      b.setInsertionPointToStart(nLoop.getBody());
+      Value j = nLoop.getInductionVar();
 
-      Value bufferA = adaptor.getBufferA();
-      bufferA = loadBuffer(bufferA, wrappedLDSBufferForLoadA, i, argTypeA,
-                           mRepeats, loadAFromLDS, true);
-      Value viewA =
-          accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferA);
+      Value bufferB = adaptor.getBufferB();
+      bufferB = loadBuffer(bufferB, wrappedLDSBufferForLoadB, j, argTypeB,
+                           nRepeats, loadBFromLDS, false);
+      Value viewB =
+          accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
 
-      auto nLoop = affine::AffineForOp::create(b, loc, 0, nRepeats);
+      // regsC += regsA * regsB
+      auto kLoop = affine::AffineForOp::create(b, loc, 0, kBasePerThread);
       {
         OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPointToStart(nLoop.getBody());
-        Value j = nLoop.getInductionVar();
-
-        Value bufferB = adaptor.getBufferB();
-        bufferB = loadBuffer(bufferB, wrappedLDSBufferForLoadB, j, argTypeB,
-                             nRepeats, loadBFromLDS, false);
-        Value viewB =
-            accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
-
-        // regsC += regsA * regsB
-        auto kLoop = affine::AffineForOp::create(b, loc, 0, kBasePerThread);
-        {
-          OpBuilder::InsertionGuard guard(b);
-          b.setInsertionPointToStart(kLoop.getBody());
-          Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
-              b, loc, adaptor.getMatrixC());
-          Value k = kLoop.getInductionVar();
-          ThreadwiseAccelGemmOp::create(b, loc, viewA, viewB, viewC,
-                                        ValueRange{i, j, k},
-                                        op.getFeaturesAttr(), tuningParams);
-        }
+        b.setInsertionPointToStart(kLoop.getBody());
+        Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
+            b, loc, adaptor.getMatrixC());
+        Value k = kLoop.getInductionVar();
+        ThreadwiseAccelGemmOp::create(b, loc, viewA, viewB, viewC,
+                                      ValueRange{i, j, k}, op.getFeaturesAttr(),
+                                      tuningParams);
       }
     }
-    b.eraseOp(op);
-    return success();
   }
+  b.eraseOp(op);
+  return success();
+}
 };
 
 namespace {
