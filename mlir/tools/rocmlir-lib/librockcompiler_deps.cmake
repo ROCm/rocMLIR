@@ -244,6 +244,7 @@ MLIRRockTransforms
 MLIRRockTuning
 MLIRRockUtility
 MLIRTosaToRock
+RocmlirCustomTosaDecompose
 RocmlirCustomTosaToLinalg
 RocmlirEmulateFp8ExtTrunc
 )
