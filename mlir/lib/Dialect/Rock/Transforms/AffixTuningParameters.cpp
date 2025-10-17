@@ -64,7 +64,8 @@ void AffixTuningParameters::runOnOperation() {
     func.emitError(
         "Multiple GEMM like or GemmPlusGemm like ops detected in a single "
         "function. This is not supported.");
-    return signalPassFailure();
+    signalPassFailure();
+    return;
   }
   func.walk(
       [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
