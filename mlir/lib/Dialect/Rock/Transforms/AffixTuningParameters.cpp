@@ -53,7 +53,19 @@ private:
 
 void AffixTuningParameters::runOnOperation() {
   func::FuncOp func = getOperation();
-
+  uint32_t fusedOpCnt = 0;
+  func.walk([&](Operation *op) {
+    if (isa<RockGemmGemmWrapperInterface>(op) or
+        isa<RockGemmWrapperInterface>(op)) {
+      fusedOpCnt++;
+    }
+  });
+  if (fusedOpCnt > 1) {
+    func.emitError(
+        "Multiple GEMM like or GemmPlusGemm like ops detected in a single "
+        "function. This is not supported.");
+    return signalPassFailure();
+  }
   func.walk(
       [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
   func.walk(
