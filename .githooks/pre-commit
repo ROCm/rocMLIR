@@ -35,7 +35,8 @@ if (( ${#cxxfiles[@]} )); then
     # Use direct clang-format to avoid re-diff logic; rely on available binary
     clangfmt_bin="${CLANG_FORMAT_BIN:-clang-format}"
     if ! command -v "$clangfmt_bin" >/dev/null 2>&1; then
-        echo "Warning: $clangfmt_bin not found, skipping C/C++ formatting."
+        echo "Error: $clangfmt_bin not found, aborting commit."
+        exit 1
     else
         for f in "${cxxfiles[@]}"; do
             # Only format if file still exists
