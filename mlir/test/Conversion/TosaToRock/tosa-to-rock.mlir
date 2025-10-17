@@ -194,6 +194,7 @@ func.func @mlir_bwd_conv2d_dilation(%arg0: tensor<131072xf32>, %arg1: tensor<419
   %11 = tosa.const_shape  {values = dense<524288> : tensor<1xindex>} : () -> !tosa.shape<1>
   %12 = tosa.reshape %10, %11 : (tensor<1x512x32x32xf32>, !tosa.shape<1>) -> tensor<524288xf32>
   return %12 : tensor<524288xf32>
+}
 
 // -----
 
