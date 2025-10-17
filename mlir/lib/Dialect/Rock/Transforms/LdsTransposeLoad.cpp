@@ -384,7 +384,7 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
     for (int lane = 0; lane < 4 && produced < targetElems; ++lane) {
       Value ciLane = cst(lane);
       Value elem =
-          b.create<vector::ExtractElementOp>(loc, elemType, pv, ciLane);
+          b.create<vector::ExtractOp>(loc, pv, ciLane);
       Value idx = cst(produced++);
       b.create<InBoundsStoreOp>(loc, elem, dest, ValueRange{idx});
     }
