@@ -55,7 +55,7 @@ void AffixTuningParameters::runOnOperation() {
   func::FuncOp func = getOperation();
   uint32_t fusedOpCnt = 0;
   func.walk([&](Operation *op) {
-    if (isa<RockGemmGemmWrapperInterface>(op) or
+    if (isa<RockGemmGemmWrapperInterface>(op) ||
         isa<RockGemmWrapperInterface>(op)) {
       fusedOpCnt++;
     }
