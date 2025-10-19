@@ -39,8 +39,9 @@ func.func private @mlir_conv1d(%arg0: tensor<64xf32>, %arg1: tensor<672xf32>, %a
     %const_shape = tosa.const_shape {values = dense<[64, 1, 1]> : tensor<3xindex>} : () -> !tosa.shape<3>
     %0 = tosa.reshape %arg0, %const_shape : (tensor<64xf32>, !tosa.shape<3>) -> tensor<64x1x1xf32> 
     %2 = tosa.transpose %0 {perms = array<i32: 2, 0, 1>} : (tensor<64x1x1xf32>) -> tensor<1x64x1xf32>
-    %3 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x64x224xf32>}> : () -> tensor<1x64x224xf32>
-    %4 = tosa.add %3, %2 : (tensor<1x64x224xf32>, tensor<1x64x1xf32>) -> tensor<1x64x224xf32>
+    %3 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x64x224xf32>}> : () -> tensor<1x64x224xf32>
+    %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+    %4 = tosa.mul %3, %2, %shift : (tensor<1x64x224xf32>, tensor<1x64x1xf32>, tensor<1xi8>) -> tensor<1x64x224xf32>
     %const_shape2 = tosa.const_shape {values = dense<[64, 3, 7]> : tensor<3xindex>} : () -> !tosa.shape<3>
     %5 = tosa.reshape %arg2, %const_shape2 : (tensor<1344xf32>, !tosa.shape<3>) -> tensor<64x3x7xf32> 
     %const_shape3 = tosa.const_shape {values = dense<[1, 3, 224]> : tensor<3xindex>} : () -> !tosa.shape<3>
