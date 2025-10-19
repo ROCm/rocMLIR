@@ -1519,9 +1519,6 @@ static LogicalResult insertBlockwiseReduction(
       /*extraViews=*/nullptr,
       getBlockSize(reduceOp->getParentOfType<func::FuncOp>()).value());
 
-  ViewLikeOpInterface viewOp =
-      ldsWorkspace.getDefiningOp<ViewLikeOpInterface>();
-  GpuDeallocOp::create(rewriter, loc, viewOp.getViewSource());
   // Create partial reduction views
   ArrayAttr paddedReducedTrStack;
   {

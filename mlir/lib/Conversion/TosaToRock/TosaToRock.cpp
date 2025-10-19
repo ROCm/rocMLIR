@@ -28,6 +28,7 @@
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/tosaUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
@@ -58,135 +59,6 @@
 using namespace mlir;
 
 namespace {
-
-static bool isSpecificValueAttribute(Attribute value, double target) {
-  if (auto intValue = dyn_cast<IntegerAttr>(value))
-    return target == 0.0 ? intValue.getValue().isZero()
-                         : intValue.getValue() == target;
-  if (auto fpValue = dyn_cast<FloatAttr>(value))
-    return fpValue.getValue().isExactlyValue(target);
-  if (auto splatValue = dyn_cast<SplatElementsAttr>(value))
-    return isSpecificValueAttribute(splatValue.getSplatValue<Attribute>(),
-                                    target);
-  if (auto elementsValue = dyn_cast<ElementsAttr>(value))
-    return llvm::all_of(elementsValue.getValues<Attribute>(),
-                        [target](Attribute attr) {
-                          return isSpecificValueAttribute(attr, target);
-                        });
-  if (auto elementsValue = dyn_cast<DenseElementsAttr>(value))
-    return llvm::all_of(elementsValue.getValues<Attribute>(),
-                        [target](Attribute attr) {
-                          return isSpecificValueAttribute(attr, target);
-                        });
-  if (auto arrayValue = dyn_cast<ArrayAttr>(value))
-    return llvm::all_of(arrayValue.getValue(), [target](Attribute attr) {
-      return isSpecificValueAttribute(attr, target);
-    });
-  return false;
-}
-
-static bool isConstantValue(Value v, double target) {
-  if (auto cst = v.getDefiningOp<arith::ConstantOp>())
-    return isSpecificValueAttribute(cst.getValue(), target);
-  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
-    return isSpecificValueAttribute(cst.getValuesAttr(), target);
-  return false;
-}
-
-static bool isConstantZero(Value v) {
-  auto elementTy = getElementTypeOrSelf(cast<ShapedType>(v.getType()));
-  if (isa<Float8E8M0FNUType>(elementTy)) {
-    // zero is not representable in Float8E8M0FNUType
-    LLVM_DEBUG(
-        llvm::dbgs()
-        << "Encountered Float8E8M0FNUType, which cannot represent zero.\n");
-    return false;
-  }
-  return isConstantValue(v, 0.0);
-}
-
-static bool isConstantOne(Value v) { return isConstantValue(v, 1.0); }
-
-static bool isNegInfAttribute(Attribute value) {
-  if (auto fpValue = dyn_cast<FloatAttr>(value)) {
-    auto value = fpValue.getValue();
-
-    std::pair<APFloat, llvm::detail::opStatus> floatRes = rock::createAPFloat(
-        fpValue.getType(), -std::numeric_limits<float>::infinity());
-    auto expectedValue = floatRes.first;
-    auto status = floatRes.second;
-    assert(status == APFloat::opOK);
-
-    return value.compare(expectedValue) == llvm::APFloat::cmpEqual;
-  }
-  if (auto splatValue = dyn_cast<SplatElementsAttr>(value))
-    return isNegInfAttribute(splatValue.getSplatValue<Attribute>());
-  if (auto elementsValue = dyn_cast<ElementsAttr>(value))
-    return llvm::all_of(elementsValue.getValues<Attribute>(),
-                        isNegInfAttribute);
-  if (auto elementsValue = dyn_cast<DenseElementsAttr>(value))
-    return llvm::all_of(elementsValue.getValues<Attribute>(),
-                        isNegInfAttribute);
-  if (auto arrayValue = dyn_cast<ArrayAttr>(value))
-    return llvm::all_of(arrayValue.getValue(), isNegInfAttribute);
-
-  return false;
-}
-
-static bool isConstIsNegInf(Value v) {
-  if (auto cst = v.getDefiningOp<arith::ConstantOp>())
-    return isNegInfAttribute(cst.getValue());
-  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
-    return isNegInfAttribute(cst.getValuesAttr());
-  return false;
-}
-
-static bool isIntAttrSame(Attribute value, int64_t expectedVal) {
-  if (auto intValue = dyn_cast<IntegerAttr>(value)) {
-    auto value = intValue.getValue();
-
-    FailureOr<APInt> intRes =
-        rock::createAPInt(intValue.getType(), expectedVal);
-    if (failed(intRes))
-      return false;
-
-    return intRes.value() == value;
-  }
-  return false;
-}
-
-static bool isConstRangeAttribute(Attribute value) {
-  if (auto splatValue = dyn_cast<SplatElementsAttr>(value))
-    return false;
-  if (auto elementsValue = dyn_cast<ElementsAttr>(value))
-    return llvm::all_of(llvm::enumerate(elementsValue.getValues<Attribute>()),
-                        [](const auto &indexedAttr) {
-                          return isIntAttrSame(indexedAttr.value(),
-                                               indexedAttr.index());
-                        });
-  if (auto elementsValue = dyn_cast<DenseElementsAttr>(value))
-    return llvm::all_of(llvm::enumerate(elementsValue.getValues<Attribute>()),
-                        [](const auto &indexedAttr) {
-                          return isIntAttrSame(indexedAttr.value(),
-                                               indexedAttr.index());
-                        });
-  if (auto arrayValue = dyn_cast<ArrayAttr>(value))
-    return llvm::all_of(
-        llvm::enumerate(arrayValue.getValue()), [](const auto &indexedAttr) {
-          return isIntAttrSame(indexedAttr.value(), indexedAttr.index());
-        });
-
-  return false;
-}
-
-static bool isConstRange(Value v) {
-  if (auto cst = v.getDefiningOp<arith::ConstantOp>())
-    return isConstRangeAttribute(cst.getValue());
-  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
-    return isConstRangeAttribute(cst.getValuesAttr());
-  return false;
-}
-
 // Note:  we want something a bit more general than SmallString<8> for
 // the layout string, but it has to allow for inserting a character into
 // the string for the caller to see.
@@ -800,7 +672,7 @@ public:
         rw, loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
 
     // test for zero bias, and ignore
-    if (!isConstantZero(op.getOperand(2))) {
+    if (!mlir::rock::isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
       FailureOr<tosa::AddOp> maybeResult = replaceCstZeroWithAddNBcast(
           context, rw, loc, op.getType(), bias, input, result);
@@ -884,7 +756,7 @@ public:
     Value result = output;
 
     // test for zero bias, and ignore
-    if (!isConstantZero(op.getOperand(2))) {
+    if (!mlir::rock::isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
       FailureOr<tosa::AddOp> maybeResult = replaceCstZeroWithAddNBcast(
           context, rw, loc, op.getType(0), bias, input, result);
@@ -1139,7 +1011,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
               if (newReassocIdx[i] - newReassocIdx[i - 1] != 1) {
                 return rewriter.notifyMatchFailure(
                     op, "CollapseShape op following transpose collapses "
-                        "non-contigous pre-transpose dims.");
+                        "non-contiguous pre-transpose dims.");
               }
             }
           }
@@ -1147,7 +1019,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           // minIdx is the representative of a group that is
           // being collapsed. For e.g. for a collapse of [3,4,5] is assigned
           // with 3 as the representative. I also note that we only allow
-          // collapsing of contigous pre-transpose dims.
+          // collapsing of contiguous pre-transpose dims.
           newReassocIdxMap[newReassocIdx[0]] = newReassocIdx;
         }
 
@@ -1158,7 +1030,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         DenseMap<int32_t, int32_t> dimMap;
         // The vector of newDims (may) contain a discontinous
         // a range of representative minIdxs. Here we make
-        // it contigous by assigning order idx.
+        // it contiguous by assigning order idx.
         for (size_t i = 0; i < newDimsSorted.size(); i++) {
           dimMap[newDimsSorted[i]] = i;
           newReassocIndicesSorted.push_back(newReassocIdxMap[newDimsSorted[i]]);
@@ -1368,7 +1240,7 @@ struct ConvElementwiseGemmRewritePattern
 
     tosa::Conv2DOp firstConv = maybeConv.value();
     // bias not supported
-    if (!isConstantZero(firstConv.getBias())) {
+    if (!mlir::rock::isConstantZero(firstConv.getBias())) {
       op.emitOpError("bias not supported yet");
       return failure();
     }
@@ -1619,21 +1491,21 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       Value nonOne;
       if (auto constOp =
               getDefiningNonReshapeOp<tosa::ConstOp>(mul.getInput1())) {
-        if (isConstantOne(constOp.getResult()))
+        if (mlir::rock::isConstantOne(constOp.getResult()))
           nonOne = mul.getInput2();
       } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
                      mul.getInput1())) {
-        if (isConstantOne(constOp.getResult()))
+        if (mlir::rock::isConstantOne(constOp.getResult()))
           nonOne = mul.getInput2();
       }
 
       if (auto constOp =
               getDefiningNonReshapeOp<tosa::ConstOp>(mul.getInput2())) {
-        if (isConstantOne(constOp.getResult()))
+        if (mlir::rock::isConstantOne(constOp.getResult()))
           nonOne = mul.getInput1();
       } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
                      mul.getInput2())) {
-        if (isConstantOne(constOp.getResult()))
+        if (mlir::rock::isConstantOne(constOp.getResult()))
           nonOne = mul.getInput1();
       }
       if (nonOne)
@@ -1655,11 +1527,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (auto constRange =
             getDefiningNonReshapeOp<arith::ConstantOp>(maybeNonOne.value())) {
       rangeResult = constRange.getResult();
-      isRange = isConstRange(rangeResult);
+      isRange = rock::isConstRange(rangeResult);
     } else if (auto constRange = getDefiningNonReshapeOp<tosa::ConstOp>(
                    maybeNonOne.value())) {
       rangeResult = constRange.getResult();
-      isRange = isConstRange(rangeResult);
+      isRange = rock::isConstRange(rangeResult);
     }
 
     if (!isRange)
@@ -1687,9 +1559,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       auto onTrue = select.getInput2();
       bool isConsNegInf = false;
       if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(onTrue))
-        isConsNegInf = isConstIsNegInf(constOp.getResult());
+        isConsNegInf = rock::isConstNegInf(constOp.getResult());
       else if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(onTrue))
-        isConsNegInf = isConstIsNegInf(constOp.getResult());
+        isConsNegInf = rock::isConstNegInf(constOp.getResult());
 
       if (!isConsNegInf)
         return failure();
@@ -1827,9 +1699,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       auto onTrue = select.getInput2();
       bool isConsNegInf = false;
       if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(onTrue))
-        isConsNegInf = isConstIsNegInf(constOp.getResult());
+        isConsNegInf = rock::isConstNegInf(constOp.getResult());
       else if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(onTrue))
-        isConsNegInf = isConstIsNegInf(constOp.getResult());
+        isConsNegInf = rock::isConstNegInf(constOp.getResult());
 
       if (!isConsNegInf)
         return failure();
@@ -2420,9 +2292,9 @@ public:
     TypedValue<TensorType> out = op.getOutput();
 
     TypedValue<TensorType> bcastInput;
-    if (isConstantOne(inp1))
+    if (mlir::rock::isConstantOne(inp1))
       bcastInput = inp2;
-    if (isConstantOne(inp2)) {
+    if (mlir::rock::isConstantOne(inp2)) {
       if (bcastInput) {
         return rw.notifyMatchFailure(op, "both inputs are splat ones");
       }

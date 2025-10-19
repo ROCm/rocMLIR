@@ -1138,20 +1138,43 @@ LogicalResult GpuAllocOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// GpuDeallocOp
+// LiveInOp
 //===-----------------------------------------------------===//
 
-LogicalResult GpuDeallocOp::verify() {
+LogicalResult LiveInOp::verify() {
   // Make sure the input memref defining operation is a GpuAllocOp
-  if (auto gpuAlloc = dyn_cast<GpuAllocOp>(getMemref().getDefiningOp())) {
-    // Make sure the size is bigger than 0
-    if (getByteSize(getMemref().getType()) > 0) {
-      return success();
-    }
-    return emitError("The size of rock.dealloc should be greather than zero.");
-  }
-  return emitError("The operand of rock.dealloc must be the result of a "
-                   "rock.alloc operation.");
+  if (!isa<GpuAllocOp>(getMemref().getDefiningOp()))
+    return emitError("The operand of rock.live_in must be the result of a "
+                     "rock.alloc operation.");
+
+  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      getMemref().getType().getMemorySpace());
+  if (!memSpace ||
+      (memSpace &&
+       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
+    return emitError("The operand of rock.live_in must a LDS memref");
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// LiveOutOp
+//===-----------------------------------------------------===//
+
+LogicalResult LiveOutOp::verify() {
+  // Make sure the input memref defining operation is a GpuAllocOp
+  if (!isa<GpuAllocOp>(getMemref().getDefiningOp()))
+    return emitError("The operand of rock.live_out must be the result of a "
+                     "rock.alloc operation.");
+
+  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      getMemref().getType().getMemorySpace());
+  if (!memSpace ||
+      (memSpace &&
+       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
+    return emitError("The operand of rock.live_out must a LDS memref");
+
+  return success();
 }
 
 //===-----------------------------------------------------===//
@@ -1798,8 +1821,8 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
       dyn_cast_or_null<gpu::AddressSpaceAttr>(srcMemSpaceAttr);
   if (dstMemSpaceAttr &&
       (!gpuDstMemSpaceAttr ||
-       gpuDstMemSpaceAttr.getValue() != gpu::AddressSpace::Private))
-    return emitOpError("dest must be private registers");
+       gpuDstMemSpaceAttr.getValue() == gpu::AddressSpace::Global))
+    return emitOpError("dest must be private registers or LDS");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
   if (extraViews.empty())
@@ -1820,15 +1843,15 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   VectorType srcVectorType = dyn_cast<VectorType>(srcType.getElementType());
   VectorType dstVectorType = dyn_cast<VectorType>(destType.getElementType());
   if ((srcVectorType || dstVectorType) &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private)
+      (!gpuSrcMemSpaceAttr ||
+       gpuSrcMemSpaceAttr.getValue() == gpu::AddressSpace::Global))
     return emitOpError(
         "Vector buffers are not allowed when we read from global memory");
   if (srcVectorType && dstVectorType) {
     int64_t srcVectorLen = srcVectorType.getNumElements();
     int64_t dstVectorLen = dstVectorType.getNumElements();
     if ((srcVectorLen > dstVectorLen && srcVectorLen % dstVectorLen != 0) ||
-        (dstVectorLen > srcVectorLen && dstVectorLen % dstVectorLen != 0))
+        (dstVectorLen > srcVectorLen && dstVectorLen % srcVectorLen != 0))
       return emitOpError(
           "Vector buffers vector's lengths need to be evenly divisible");
   }

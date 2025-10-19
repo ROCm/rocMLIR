@@ -123,11 +123,6 @@ static void replaceUsesAndPropagateType(RewriterBase &rewriter, Location loc,
       // (note: since transforms are still being used, we don't even erase
       // them)
       replaceUsesAndPropagateType(rewriter, loc, transform, vals, loop);
-    } else if (auto dealloc = dyn_cast<rock::GpuDeallocOp>(owner)) {
-      SmallVector<Value> newViews(multibufferFactor);
-      for (size_t i = 0; i < multibufferFactor; i++) {
-        rock::GpuDeallocOp::create(rewriter, loc, vals[i]);
-      }
     } else if (auto extractMultiBuffer =
                    dyn_cast<rock::ExtractMultiBufferOp>(owner)) {
       SmallVector<Value> extendedBuffers;
@@ -214,8 +209,7 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
   }
 
   bool isUsedByViews = llvm::all_of(allocOp->getUsers(), [](Operation *user) {
-    return dyn_cast<memref::ViewOp>(user) != nullptr ||
-           dyn_cast<GpuDeallocOp>(user) != nullptr;
+    return dyn_cast<memref::ViewOp>(user) != nullptr;
   });
   if (!isUsedByViews) {
     LLVM_DEBUG(DBGS() << "-- Cannot detect the raw i8 buffer alloc followed by "
@@ -229,9 +223,6 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
   findAllocUsers(allocOp, users);
 
   for (Operation *user : users) {
-    if (dyn_cast<GpuDeallocOp>(user)) {
-      continue;
-    }
     auto parentLoop = user->getParentOfType<LoopLikeOpInterface>();
     if (!parentLoop) {
       LLVM_DEBUG(DBGS() << "--no parent loop -> fail\n");
@@ -255,7 +246,6 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
     } else {
       if (llvm::any_of(users, [&](Operation *otherUser) {
             return !isa<memref::DeallocOp>(otherUser) &&
-                   !isa<GpuDeallocOp>(otherUser) &&
                    !parentLoop->isProperAncestor(otherUser);
           })) {
         LLVM_DEBUG(
