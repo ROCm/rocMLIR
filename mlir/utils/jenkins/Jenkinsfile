@@ -494,7 +494,7 @@ void check_randomE2ETests(String codepath) {
               -DROCK_E2E_TEST_ENABLED=1
               -DROCMLIR_DRIVER_RANDOM_DATA_SEED=1
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=0
-              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
+              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j 1'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
