@@ -2037,7 +2037,8 @@ LogicalResult BlockwiseLoadTileOp::verify() {
     return emitOpError("destLDS must be set unless loadType is BypassLDS");
 
   if (!destRegisters && !singleBuffer)
-    return emitOpError("destRegisters must be set unless loadType is Default/DirectToLDSDefault");
+    return emitOpError("destRegisters must be set unless loadType is "
+                       "Default/DirectToLDSDefault");
 
   return success();
 }
