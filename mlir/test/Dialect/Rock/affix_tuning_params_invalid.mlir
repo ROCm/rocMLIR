@@ -43,7 +43,7 @@ func.func @rock_conv_schedulev2(%filter : memref<1x128x8x3x3xf32>, %input : memr
   return
 }
 
-// expected-error @below {{Multiple GEMM like or GemmPlusGemm like ops detected in a single function. This is not supported.}}
+// expected-error @below {{Multiple Fusion Roots detected in a single function. This is not supported.}}
 func.func @two_gemms(
     %a0: memref<1x72x128xf8E4M3FN>, %b0: memref<1x72x115200xf8E5M2>, %c0: memref<1x128x115200xf32>,
     %a1: memref<1x72x128xf8E4M3FN>, %b1: memref<1x72x115200xf8E5M2>, %c1: memref<1x128x115200xf32>)
