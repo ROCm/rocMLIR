@@ -53,7 +53,22 @@ private:
 
 void AffixTuningParameters::runOnOperation() {
   func::FuncOp func = getOperation();
-
+  // currently, in rocMLIR we only support one Fusion Root per function.
+  // Therefore we check for that here. Note that rocMLIR does generate multiple
+  // kernels for the conv_bwd_data but that decomposition happens later in the
+  // pipeline.
+  uint32_t fusionRootCnt = 0;
+  func.walk([&](Operation *op) {
+    if (op->hasTrait<OpTrait::rock::FusionRoot>()) {
+      fusionRootCnt++;
+    }
+  });
+  if (fusionRootCnt > 1) {
+    func.emitError("Multiple Fusion Roots detected in a single "
+                   "function. This is not supported.");
+    signalPassFailure();
+    return;
+  }
   func.walk(
       [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
   func.walk(
