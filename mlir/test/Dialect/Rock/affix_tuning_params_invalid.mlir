@@ -42,3 +42,16 @@ func.func @rock_conv_schedulev2(%filter : memref<1x128x8x3x3xf32>, %input : memr
   } : memref<1x128x8x3x3xf32>, memref<128x1x8x32x32xf32>, memref<128x1x128x30x30xf32>
   return
 }
+
+// expected-error @below {{Multiple Fusion Roots detected in a single function. This is not supported.}}
+func.func @two_gemms(
+    %a0: memref<1x72x128xf8E4M3FN>, %b0: memref<1x72x115200xf8E5M2>, %c0: memref<1x128x115200xf32>,
+    %a1: memref<1x72x128xf8E4M3FN>, %b1: memref<1x72x115200xf8E5M2>, %c1: memref<1x128x115200xf32>)
+    attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // First GEMM
+  rock.gemm %c0 = tr %a0 * %b0 features = mfma|dot|atomic_add|atomic_add_f16|atomic_add_bf16 storeMethod = set
+    : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FN> * memref<1x72x115200xf8E5M2>
+  rock.gemm %c1 = tr %a1 * %b1 features = mfma|dot|atomic_add|atomic_add_f16|atomic_add_bf16 storeMethod = set
+    : memref<1x128x115200xf32> = memref<1x72x128xf8E4M3FN> * memref<1x72x115200xf8E5M2>
+  return
+}
