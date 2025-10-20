@@ -1138,20 +1138,43 @@ LogicalResult GpuAllocOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// GpuDeallocOp
+// LiveInOp
 //===-----------------------------------------------------===//
 
-LogicalResult GpuDeallocOp::verify() {
+LogicalResult LiveInOp::verify() {
   // Make sure the input memref defining operation is a GpuAllocOp
-  if (auto gpuAlloc = dyn_cast<GpuAllocOp>(getMemref().getDefiningOp())) {
-    // Make sure the size is bigger than 0
-    if (getByteSize(getMemref().getType()) > 0) {
-      return success();
-    }
-    return emitError("The size of rock.dealloc should be greather than zero.");
-  }
-  return emitError("The operand of rock.dealloc must be the result of a "
-                   "rock.alloc operation.");
+  if (!isa<GpuAllocOp>(getMemref().getDefiningOp()))
+    return emitError("The operand of rock.live_in must be the result of a "
+                     "rock.alloc operation.");
+
+  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      getMemref().getType().getMemorySpace());
+  if (!memSpace ||
+      (memSpace &&
+       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
+    return emitError("The operand of rock.live_in must a LDS memref");
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// LiveOutOp
+//===-----------------------------------------------------===//
+
+LogicalResult LiveOutOp::verify() {
+  // Make sure the input memref defining operation is a GpuAllocOp
+  if (!isa<GpuAllocOp>(getMemref().getDefiningOp()))
+    return emitError("The operand of rock.live_out must be the result of a "
+                     "rock.alloc operation.");
+
+  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      getMemref().getType().getMemorySpace());
+  if (!memSpace ||
+      (memSpace &&
+       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
+    return emitError("The operand of rock.live_out must a LDS memref");
+
+  return success();
 }
 
 //===-----------------------------------------------------===//

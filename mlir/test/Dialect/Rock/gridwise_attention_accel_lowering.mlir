@@ -81,12 +81,10 @@
     // CHECK-DAG: %[[view2G0AStoreTr3:.+]] = rock.transform %[[view2G0AStoreTr2]]
     // CHECK: affine.for
       // CHECK: rock.threadwise_read_into {{.*}} [](%[[view2G0AStoreTr3]]) {{.*}} -> %[[preAccelRegA:.+]] :
-    // CHECK: rock.dealloc %[[ldsG0A]] : memref<4096xi8, #gpu.address_space<workgroup>>
 
     // Emit blockwise gemm0
     // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegB:.+]] from %[[view2G0BStore]] * %[[preAccelRegA]] from %[[view2G0AStore]]
     // CHECK-SAME: loadAfromLDS
-    // CHECK: rock.dealloc %[[ldsG0B]] : memref<4096xi8, #gpu.address_space<workgroup>>
 
   // CHECK: rock.transforming_for
     // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
@@ -97,7 +95,6 @@
   // CHECK: %[[ldsReductionWS:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsReductionWSView:.+]] = memref.view %[[ldsReductionWS]][{{.*}}][] : memref<256xi8, #gpu.address_space<workgroup>> to memref<64xf32, #gpu.address_space<workgroup>>
   // CHECK: rock.blockwise_broadcast_reduce max {{.*}} %[[gemm0AccBufScalar]] into %[[gemm0Max:[0-9]+]] using %[[ldsReductionWSView]]
-  // CHECK: rock.dealloc %[[ldsReductionWS]] : memref<256xi8, #gpu.address_space<workgroup>>
 
   // Compute exp(gemm0 - rowmax_j)
   // *****************************
@@ -113,7 +110,6 @@
   // CHECK: %[[ldsReductionWS2:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsReductionWS2View:.+]] = memref.view %[[ldsReductionWS2]][{{.*}}][] : memref<256xi8, #gpu.address_space<workgroup>> to memref<64xf32, #gpu.address_space<workgroup>>
   // CHECK: rock.blockwise_broadcast_reduce sum {{.*}} %[[gemm0NormExp]] into %[[gemm0NormExpSum:[0-9]+]] using %[[ldsReductionWS2View]]
-  // CHECK: rock.dealloc %[[ldsReductionWS2]] : memref<256xi8, #gpu.address_space<workgroup>>
 
   // li = exp(m_{j-1} - m_{j}) * l_{j-1} + rowsum(Pij)
   // where
@@ -203,8 +199,6 @@
     // CHECK: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += %[[preAccelRegB:.+]] from %[[view2G1BStore]] * %[[preAccelRegA:.+]] from %[[view2G1AStore]]
     // CHECK-SAME: loadAfromLDS
     // CHECK-SAME: loadBfromLDS
-    // CHECK: rock.dealloc %[[ldsG0BStore]] : memref<4096xi8, #gpu.address_space<workgroup>>
-    // CHECK: rock.dealloc %[[ldsG1AStore]] : memref<4096xi8, #gpu.address_space<workgroup>>
 
     // CHECK: rock.transforming_for
       // CHECK: %[[tmp1:.+]] =  memref.load %[[gemm1AccBuf]][
