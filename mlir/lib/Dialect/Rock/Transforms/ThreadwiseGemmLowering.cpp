@@ -34,15 +34,15 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "LdsTransposeLoad.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
-#include "LdsTransposeLoad.h"
-#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/Support/Debug.h"
 
 #include <iterator>
@@ -609,7 +609,9 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     // Derive lowering info from attributes (layout, panel counts, operand).
     auto info = mlir::rock::hwtranspose::deriveLoweringInfo(op, b);
     if (info.usable) {
-      rock::hwtranspose::emitThreadwiseHWTranspose(op, info, b);
+      if (failed(rock::hwtranspose::emitThreadwiseHWTranspose(op, info, b))) {
+        return failure();
+      }
     } else {
       return op.emitOpError("LDS transpose load emission is not usable with "
                             "the derived attributes");

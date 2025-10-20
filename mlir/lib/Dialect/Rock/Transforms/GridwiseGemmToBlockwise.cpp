@@ -33,6 +33,8 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
+#include "GridLayoutEmitter.h"
+#include "LdsTransposeLoad.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -40,6 +42,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
@@ -54,9 +57,6 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/RegionUtils.h"
-
-#include "GridLayoutEmitter.h"
-#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -1287,8 +1287,8 @@ struct GridwiseAttentionAccelRewritePattern
           switch (outOfScopeType) {
           case OutOfScopeType::KVCache:
             assert(currentSeqLen != nullptr);
-            isInvalid = arith::CmpIOp::create(thenb,
-                loc, arith::CmpIPredicate::ugt, mIndex, currentSeqLen);
+            isInvalid = arith::CmpIOp::create(
+                thenb, loc, arith::CmpIPredicate::ugt, mIndex, currentSeqLen);
             break;
           case OutOfScopeType::Causal:
             Value nIndex = lowerCoords[1];
@@ -1296,8 +1296,8 @@ struct GridwiseAttentionAccelRewritePattern
               nIndex = thenb.createOrFold<arith::DivUIOp>(loc, nIndex,
                                                           constNumRepeatsGQA);
 
-            isInvalid = arith::CmpIOp::create(thenb,
-                loc, arith::CmpIPredicate::ugt, mIndex, nIndex);
+            isInvalid = arith::CmpIOp::create(
+                thenb, loc, arith::CmpIPredicate::ugt, mIndex, nIndex);
             break;
           }
 
@@ -1708,7 +1708,7 @@ struct GridwiseAttentionAccelRewritePattern
         // so we need to take the minimum of currentSeqLen and maxRowOfBlock
         if (effectiveSeqLen)
           maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, currentSeqLen,
-                                                          maxRowOfBlock);
+                                                 maxRowOfBlock);
         effectiveSeqLen = maxRowOfBlock;
       }
 
@@ -1716,7 +1716,7 @@ struct GridwiseAttentionAccelRewritePattern
       Value constGemm0MPerBlock =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MPerBlock);
       Value numerator = arith::AddIOp::create(rewriter, loc, effectiveSeqLen,
-                                                       constGemm0MPerBlock);
+                                              constGemm0MPerBlock);
       end = rewriter.createOrFold<arith::DivUIOp>(loc, numerator,
                                                   constGemm0MPerBlock);
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
@@ -1737,12 +1737,12 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.createOrFold<arith::DivUIOp>(loc, numerator, constSplitKV);
 
         // if split-kv is enabled, we need to compute the start and end indices.
-        start = arith::MulIOp::create(rewriter, loc, gridCoordsGemm0.split_block,
-                                       gemm0MIterations);
-        Value splitPlusOne = arith::AddIOp::create(rewriter, loc,
-                                                    gridCoordsGemm0.split_block, one);
+        start = arith::MulIOp::create(
+            rewriter, loc, gridCoordsGemm0.split_block, gemm0MIterations);
+        Value splitPlusOne = arith::AddIOp::create(
+            rewriter, loc, gridCoordsGemm0.split_block, one);
         Value endSplitKV = arith::MulIOp::create(rewriter, loc, splitPlusOne,
-                                                  gemm0MIterations);
+                                                 gemm0MIterations);
         end = arith::MinUIOp::create(rewriter, loc, end, endSplitKV);
       }
       // compute last iteration of the block, this will be used later in
@@ -1759,9 +1759,10 @@ struct GridwiseAttentionAccelRewritePattern
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
       start = arith::MulIOp::create(rewriter, loc, gridCoordsGemm0.split_block,
                                     gemm0MIterations);
-      Value splitPlusOne =
-          arith::AddIOp::create(rewriter, loc, gridCoordsGemm0.split_block, one);
-      end = arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
+      Value splitPlusOne = arith::AddIOp::create(
+          rewriter, loc, gridCoordsGemm0.split_block, one);
+      end =
+          arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
     }
     return std::make_tuple(start, end, gemm0MBlocksLastIter, currentSeqLen);
   }
@@ -3172,6 +3173,21 @@ struct GridwiseGemmAccelRewritePattern
     Value regCAllocOp = createBufferForAccelGemmOut(loc, params, b);
 
     zeroAccBuffer(b, loc, regCAllocOp);
+
+    hwtranspose::Decision decision;
+    auto *mfma = dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get());
+    // Only compute a transpose decision if both layouts are DxK disabled.
+    if (mfma && !ldsLayoutConfigA.ldsLayoutDxK &&
+        !ldsLayoutConfigB.ldsLayoutDxK) {
+      hwtranspose::MfmaInstrShape shape{mfma->getMfmaNonKDim(),
+                                        mfma->getMfmaK()};
+      decision = hwtranspose::makeDecision(
+          arch, elementTypeA, elementTypeB, directToLDS, shape,
+          hwtranspose::OperandKind::A, hwtranspose::OperandKind::B, mPerBlock,
+          nPerBlock, kPerBlock);
+      // Store the computed decision globally for later use.
+      hwtranspose::setDecisionLdsTranspose(decision);
+    }
 
     // Emit loop.
     Value nIterations = ConstantIndexOp::create(b, loc, K / kPerBlock);

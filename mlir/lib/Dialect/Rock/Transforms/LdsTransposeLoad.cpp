@@ -99,6 +99,12 @@ LayoutKind selectLayout(int64_t mnDim, int64_t kDim) {
   return LayoutKind::None;
 }
 
+static DecisionLdsTransposeContext LdsTransposeDecison;
+
+DecisionLdsTransposeContext &getDecisionLdsTransposeContext() {
+  return LdsTransposeDecison;
+}
+
 // Analyzes GEMM tiling and MFMA instruction parameters to determine
 // if the hardware LDS transpose optimization can be applied.
 // Returns a `Decision` struct indicating applicability and layout details.
@@ -397,7 +403,7 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
       b.create<InBoundsStoreOp>(loc, elem, dest, ValueRange{idx});
     }
     if (produced >= targetElems)
-      break;
+      break; // Stop once we have written all target elements
   }
 
   b.replaceOp(op, ValueRange{});

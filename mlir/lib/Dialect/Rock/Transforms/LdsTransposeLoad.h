@@ -57,6 +57,21 @@ struct Decision {
   int64_t kPanels{1};
 };
 
+struct DecisionLdsTransposeContext {
+  std::optional<Decision> currentDecision;
+};
+
+// Global accessor for shared decision state during codegen.
+DecisionLdsTransposeContext &getDecisionLdsTransposeContext();
+
+inline void setDecisionLdsTranspose(const Decision &dec) {
+  DecisionLdsTransposeContext().currentDecision = dec;
+}
+
+inline std::optional<Decision> getDecisionLdsTranspose() {
+  return DecisionLdsTransposeContext().currentDecision;
+}
+
 // The main decision-making function. It analyzes the GEMM parameters and
 // returns a Decision struct indicating if the optimization is applicable and
 // with which paneling configuration.

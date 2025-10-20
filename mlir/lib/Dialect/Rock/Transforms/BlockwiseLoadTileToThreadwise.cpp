@@ -17,6 +17,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "GridLayoutEmitter.h"
+#include "LdsTransposeLoad.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -113,10 +114,15 @@ class LoweringBlockwiseLoadTileOp final
       regs = rock::transform(b, regs, b.getArrayAttr({mkRegBuilder.get()}));
     }
 
-    ThreadwiseReadIntoOp::create(b, loc, ldsViewForLoad, regs,
-                                 b.getArrayAttr({}), ValueRange{tid},
-                                 /*forceUnroll=*/forceUnroll,
-                                 /*useIndexDiffs=*/true);
+    auto globalDecisionOpt = hwtranspose::getDecisionLdsTranspose();
+    auto twr = ThreadwiseReadIntoOp::create(b, loc, ldsViewForLoad, regs,
+                                            b.getArrayAttr({}), ValueRange{tid},
+                                            /*forceUnroll=*/forceUnroll,
+                                            /*useIndexDiffs=*/true);
+    // Apply the global decision if it exists and is marked as usable.
+    if (globalDecisionOpt && hwtranspose::isApplicable(*globalDecisionOpt)) {
+      hwtranspose::attachAttributes(twr, *globalDecisionOpt, b);
+    }
   }
 
   std::pair<StageOp, bool> createOrGetStage(PatternRewriter &b, Location loc,
