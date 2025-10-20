@@ -183,8 +183,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     funcPm.addPass(rock::createRockVectorizeFusionsPass());
   }
+  // We run reuse LDS before the output swizzle pass because it uses a heuristic
+  // to determine whether to swizzle or not, and that heuristic needs the actual
+  // LDS usage. After running output swizzle, we'll create a new LDS buffer and
+  // we need to run reuse LDS again to be able to reuse LDS memory.
+  funcPm.addPass(rock::createRockAnnotateLivenessPass());
   funcPm.addPass(rock::createRockReuseLDSPass());
   funcPm.addPass(rock::createRockOutputSwizzlePass());
+  funcPm.addPass(rock::createRockAnnotateLivenessPass());
   funcPm.addPass(rock::createRockReuseLDSPass());
 
   if (!options.enableApplicability) {

@@ -686,10 +686,6 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       }
     }
 
-    // the LDS allocated to load A and B matrices won't be used anymore
-    GpuDeallocOp::create(b, loc, ldsByteBufferA);
-    GpuDeallocOp::create(b, loc, ldsByteBufferB);
-
     SmallVector<Attribute> transformAttrs;
 
     // Threadwise copy from register (naive tensor) to global (generic tensor).
@@ -2409,7 +2405,6 @@ struct GridwiseAttentionAccelRewritePattern
                                       preAccelRegBuffersQ, "n", blockSize,
                                       gemm0InNPerThread, *accelEmitterPtrGemm0,
                                       ldsLayoutCfgNG0.doRotateWithK);
-        GpuDeallocOp::create(rewriter, loc, ldsByteBufferQ);
       }
     }
 
@@ -2502,7 +2497,6 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter, loc, ldsTileBufferQ, preAccelRegBuffersQ, "n",
               blockSize, gemm0InNPerThread, *accelEmitterPtrGemm0,
               ldsLayoutCfgNG0.doRotateWithK);
-          GpuDeallocOp::create(rewriter, loc, ldsByteBufferQ);
         }
 
         // Emit lowered blockwise GEMM 0.
@@ -2520,8 +2514,6 @@ struct GridwiseAttentionAccelRewritePattern
             /*ldsLayoutNxK=*/nullptr, preAccelRegBufferK, preAccelRegBuffersQ,
             accRegBufferGemm0, featuresAttr, op.getBlockSizeAttr(),
             gemm0TuningParams);
-
-        GpuDeallocOp::create(rewriter, loc, ldsByteBufferK);
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
@@ -2621,7 +2613,6 @@ struct GridwiseAttentionAccelRewritePattern
             gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
             gemm0OutSubTileViewsTr.threadSubTile, /*extraViews=*/nullptr,
             blockSize);
-        GpuDeallocOp::create(rewriter, loc, ldsReductionWorkspaceByteBuffer);
 
         // softmax normalization.
         Value gemm0MNThreadwiseView =
@@ -2652,8 +2643,6 @@ struct GridwiseAttentionAccelRewritePattern
             gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
             gemm0OutSubTileViewsTr.threadSubTile,
             /*extraViews=*/nullptr, blockSize);
-        GpuDeallocOp::create(rewriter, loc,
-                             ldsReductionWorkspaceByteSecondBuffer);
         Value gemm0SumThreadwiseView =
             transform(rewriter, softmaxBufferSum,
                       invertTransforms(rewriter, loc,
@@ -2805,10 +2794,6 @@ struct GridwiseAttentionAccelRewritePattern
               /*ldsLayoutMxK=*/nullptr, /*ldsLayoutNxK=*/nullptr,
               preAccelRegBufferV, preAccelRegBufferQxK, accRegBufferGemm1,
               featuresAttr, op.getBlockSizeAttr(), gemm1TuningParams);
-
-          GpuDeallocOp::create(rewriter, loc, ldsByteBufferV);
-          if (!doBypassLDSSecondGemm)
-            GpuDeallocOp::create(rewriter, loc, gemm1LDSByteBufferB);
 
           // There is no second k-loop
           // Therefore can get the output straight away
@@ -3225,10 +3210,6 @@ struct GridwiseGemmAccelRewritePattern
         YieldOp::create(b, loc);
       }
     }
-
-    // the LDS allocated to load A and B matrices won't be used anymore
-    GpuDeallocOp::create(b, loc, ldsByteBufferA);
-    GpuDeallocOp::create(b, loc, ldsByteBufferB);
 
     // Matrix C write out logic.
     Value convertedC = createBufferForGemmOut(loc, destType, params, b);
