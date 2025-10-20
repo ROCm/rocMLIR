@@ -50,7 +50,28 @@ struct RocmlirCustomTosaDecomposePass
 // to properly account for input padding and dilation.
 // See here for the formula being used:
 // https://onnx.ai/onnx/operators/onnx__ConvTranspose.html
-LogicalResult verifyCustomOp(tosa::CustomOp op) {
+LogicalResult verifyConvTranspose(tosa::CustomOp op,
+                                  PatternRewriter &rewriter) {
+  // Make sure this is a transpose conv op.
+  if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
+    return rewriter.notifyMatchFailure(op, "domain isn't rocmlir");
+  if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA)
+    return rewriter.notifyMatchFailure(op, "isn't a conv_bwd_data");
+  if (op.getNumOperands() < 5)
+    return rewriter.notifyMatchFailure(op, "should have 5 or more operands");
+  if (op.getNumResults() != 1)
+    return rewriter.notifyMatchFailure(op, "should have 1 result");
+
+  const auto outputType =
+      llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!outputType)
+    return failure();
+
+  // Currently, we cannot handle supporting arbitrary Conv3D transpose ops, so
+  // for now we return failure().
+  if (outputType.getRank() == 5)
+    return failure();
+
   llvm::ArrayRef<int64_t> strides =
         cast<DenseI64ArrayAttr>(op->getAttr("stride"));
   const int64_t strideY = strides[0];
@@ -106,12 +127,6 @@ LogicalResult verifyCustomOp(tosa::CustomOp op) {
         return failure();
     }
   }
-
-  // Rest of the checks depend on the output type being a RankedTensorType
-  const auto outputType =
-      llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
-  if (!outputType)
-    return success();
 
   // Fetch pad & dilation;
   SmallVector<int64_t, 2> dilation = {1, 1};
@@ -229,17 +244,7 @@ public:
   using OpRewritePattern<tosa::CustomOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(tosa::CustomOp op,
                                 PatternRewriter &rewriter) const final {
-    // Make sure this is a transpose conv op.
-    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
-      return rewriter.notifyMatchFailure(op, "domain isn't rocmlir");
-    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA)
-      return rewriter.notifyMatchFailure(op, "isn't a conv_bwd_data");
-    if (op.getNumOperands() < 5)
-      return rewriter.notifyMatchFailure(op, "should have 5 or more operands");
-    if (op.getNumResults() != 1)
-      return rewriter.notifyMatchFailure(op, "should have 1 result");
-
-    if (failed(verifyCustomOp(op)))
+    if (failed(verifyConvTranspose(op, rewriter)))
       return failure();
 
     Location loc = op->getLoc();
@@ -412,17 +417,7 @@ public:
   using OpRewritePattern<tosa::CustomOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(tosa::CustomOp op,
                                 PatternRewriter &rewriter) const final {
-    // Make sure this is a transpose conv op.
-    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
-      return rewriter.notifyMatchFailure(op, "domain isn't rocmlir");
-    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA)
-      return rewriter.notifyMatchFailure(op, "isn't a conv_bwd_data");
-    if (op.getNumOperands() < 5)
-      return rewriter.notifyMatchFailure(op, "should have 5 or more operands");
-    if (op.getNumResults() != 1)
-      return rewriter.notifyMatchFailure(op, "should have 1 result");
-
-    if (failed(verifyCustomOp(op)))
+    if (failed(verifyConvTranspose(op, rewriter)))
       return failure();
 
     Location loc = op->getLoc();
