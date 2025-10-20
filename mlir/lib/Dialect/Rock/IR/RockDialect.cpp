@@ -59,6 +59,7 @@
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 
@@ -71,6 +72,14 @@ using namespace mlir::rock;
 //===----------------------------------------------------------------------===//
 // Utility Functions
 //===----------------------------------------------------------------------===//
+
+static Type getElementTypeOrSelfRecursive(Type type) {
+  while (auto shapedType = dyn_cast<ShapedType>(type)) {
+    type = dyn_cast<ShapedType>(type).getElementType();
+  }
+  return type;
+}
+
 template <typename OpType>
 static void
 getGemmEffects(OpType &op,
@@ -619,7 +628,10 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
 }
 
 static bool isFloat8Type(Type type) {
-  return isa<FloatType>(type) && type.getIntOrFloatBitWidth() == 8;
+  // exclude E8M0FNU since it is only supposed to encode exponent values and
+  // used for scales params
+  return isa<FloatType>(type) && type.getIntOrFloatBitWidth() == 8 &&
+         !isa<Float8E8M0FNUType>(type);
 }
 
 static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
@@ -629,27 +641,29 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
   if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
     if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
       if (isGfx11)
-        return op->emitOpError(
-            "Wmma gridwise supports only F16/BF16/int8 data types");
+        return op->emitOpError("Wmma supports only F16/BF16/int8 data types");
       if (!isFloat8Type(elemTypeA))
         return op->emitOpError(
-            "Wmma gridwise supports only F16/BF16/int8/E4M3/E5M2 data types");
+            "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
     if (elemTypeA != elemTypeB)
-      return op->emitOpError("Wmma gridwise does not support mixed types");
+      return op->emitOpError("Wmma does not support mixed types");
   }
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     bool isGfx95 = arch.contains("gfx95");
     if (isGfx95 && (isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeA) ||
                     isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeB))) {
       return op->emitOpError(
-          "Mfma gridwise does not support E4M3FNUZ/E5M2FNUZ data types");
+          "Mfma does not support E4M3FNUZ/E5M2FNUZ data types");
     }
     if (!isGfx95 && arch.contains("gfx9") &&
         (isa<Float8E4M3FNType, Float8E5M2Type>(elemTypeA) ||
          isa<Float8E4M3FNType, Float8E5M2Type>(elemTypeB))) {
-      return op->emitOpError(
-          "Mfma gridwise does not support E4M3/E5M2 data types ");
+      return op->emitOpError("Mfma does not support E4M3/E5M2 data types ");
+    }
+    if (!isGfx95 && (isa<Float4E2M1FNType>(elemTypeA) ||
+                     isa<Float4E2M1FNType>(elemTypeB))) {
+      return op->emitOpError("Mfma does not support Float4E2M1FN data type ");
     }
   }
   if (elemTypeC) {
@@ -895,6 +909,7 @@ void ConvBwdWeightOp::getEffects(
 LogicalResult GemmOp::verify() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
+
   Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
   // The integer gemm will produce i32 and then truncate/extend to the requested
   // iN e.g. i8.
@@ -927,7 +942,73 @@ LogicalResult GemmOp::verify() {
   if (kA != kB)
     return emitOpError("K dimensions don't match")
            << " k_a = " << kA << " k_b = " << kB;
-
+  bool hasScaleA = getScaleA() != nullptr;
+  bool hasScaleB = getScaleB() != nullptr;
+  if (hasScaleA != hasScaleB) {
+    return emitOpError("both scaleA and scaleB must be provided or neither");
+  }
+  if (getScaleA()) {
+    ShapedType typeScaleA = getScaleA().getType();
+    ArrayRef<int64_t> scaleADims = typeScaleA.getShape();
+    if (typeScaleA.getElementType() !=
+        Float8E8M0FNUType::get(this->getContext())) {
+      return emitOpError("scaleA must be of type Float8E8M0FNUType");
+    }
+    bool aScaleTransposed = getAScaleTransposed();
+    int64_t offsetScaleA = scaleADims.size() == 2 ? 0 : 1;
+    int64_t scaleAG = offsetScaleA ? scaleADims[0] : 1;
+    int64_t scaleAM = scaleADims[offsetScaleA + (aScaleTransposed ? 1 : 0)];
+    int64_t scaleAK = scaleADims[offsetScaleA + (aScaleTransposed ? 0 : 1)];
+    if (scaleAK != kA) {
+      return emitOpError(
+                 "scaleA's K dimension must match matrix A's K dimension")
+             << " scaleA_k = " << scaleAK << " k_a = " << kA;
+    }
+    if (scaleAM != mA) {
+      return emitOpError(
+                 "scaleA's M dimension must match matrix A's M dimension")
+             << " scaleA_m = " << scaleAM << " m_a = " << mA;
+    }
+    if (scaleAG != gA) {
+      return emitOpError(
+                 "scaleA's G dimension must match matrix A's G dimension")
+             << " scaleA_g = " << scaleAG << " g_a = " << gA;
+    }
+  }
+  if (getScaleB()) {
+    ShapedType typeScaleB = getScaleB().getType();
+    ArrayRef<int64_t> scaleBDims = typeScaleB.getShape();
+    if (typeScaleB.getElementType() !=
+        Float8E8M0FNUType::get(this->getContext())) {
+      return emitOpError("scaleB must be of type Float8E8M0FNUType");
+    }
+    bool bScaleTransposed = getBScaleTransposed();
+    int64_t offsetScaleB = scaleBDims.size() == 2 ? 0 : 1;
+    int64_t scaleBG = offsetScaleB ? scaleBDims[0] : 1;
+    int64_t scaleBK = scaleBDims[offsetScaleB + (bScaleTransposed ? 1 : 0)];
+    int64_t scaleBN = scaleBDims[offsetScaleB + (bScaleTransposed ? 0 : 1)];
+    if (scaleBK != kB) {
+      return emitOpError(
+                 "scaleB's K dimension must match matrix B's K dimension")
+             << " scaleB_k = " << scaleBK << " k_b = " << kB;
+    }
+    if (scaleBN != nB) {
+      return emitOpError(
+                 "scaleB's N dimension must match matrix B's N dimension")
+             << " scaleB_n = " << scaleBN << " n_b = " << nB;
+    }
+    if (scaleBG != gB) {
+      return emitOpError(
+                 "scaleB's G dimension must match matrix B's G dimension")
+             << " scaleB_g = " << scaleBG << " g_b = " << gB;
+    }
+  }
+  if (hasScaleA && hasScaleB) {
+    if (!isa<Float4E2M1FNType>(inElems)) {
+      return emitOpError(
+          "Scaled GEMMs are only supported for Float4E2M1FN input type");
+    }
+  }
   auto features = rock::getFeatures(this->getOperation());
   bool isXdlops = bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
@@ -983,6 +1064,21 @@ GemmSize GemmOp::getGemmSize() {
 void GemmOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getGemmEffects(*this, effects);
+  auto *read = MemoryEffects::Read::get();
+  if (getScaleA()) {
+    MutableOperandRange scaleARange = getScaleAMutable();
+    if (!scaleARange.empty()) {
+      OpOperand *scaleAOperand = &scaleARange[0];
+      effects.emplace_back(read, scaleAOperand);
+    }
+  }
+  if (getScaleB()) {
+    MutableOperandRange scaleBRange = getScaleBMutable();
+    if (!scaleBRange.empty()) {
+      OpOperand *scaleBOperand = &scaleBRange[0];
+      effects.emplace_back(read, scaleBOperand);
+    }
+  }
 }
 
 //===-----------------------------------------------------===//
@@ -994,14 +1090,18 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
              cType = op.getC().getType();
   Type aElem = aType.getElementType(), bElem = bType.getElementType(),
        cElem = cType.getElementType();
-
-  if (failed(verifyGemmTypes(op, rock::getFeatures(op), "gfx00", aElem, bElem,
-                             cElem)))
+  FailureOr<StringAttr> archAttr = rock::getArch(op);
+  if (failed(archAttr)) {
+    archAttr = StringAttr::get(op->getContext(), "gfx00");
+  }
+  if (failed(verifyGemmTypes(op, rock::getFeatures(op), archAttr->getValue(),
+                             aElem, bElem, cElem)))
     return failure();
   if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
   if (isFloat8Type(aElem) && !cElem.isF32())
     return op.emitOpError("8-bit float input requires f32 output");
+  // TODO: add verification for 4 bit float type output type
 
   ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
                     cShape = cType.getShape();
@@ -1049,6 +1149,45 @@ SmallVector<mlir::Type> GridwiseGemmAccelOp::getTypesForFeature() {
 LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 
 LogicalResult GridwiseGemmAccelOp::verify() {
+  Value scaleA = getScaleA();
+  Value scaleB = getScaleB();
+  if (scaleA == nullptr ^ scaleB == nullptr) {
+    return emitOpError("both scaleA and scaleB must be provided or neither");
+  }
+  if (scaleA) {
+    ShapedType typeScaleA = cast<ShapedType>(scaleA.getType());
+    ShapedType typeA = cast<ShapedType>(getA().getType());
+    if (typeScaleA.getElementType() !=
+        Float8E8M0FNUType::get(this->getContext())) {
+      return emitOpError("scaleA must be of type Float8E8M0FNUType");
+    }
+    ArrayRef<int64_t> scaleADims = typeScaleA.getShape();
+    ArrayRef<int64_t> aDims = typeA.getShape();
+    if (scaleADims != aDims) {
+      return emitOpError("scaleA dimensions must match matrix A dimensions");
+    }
+    if (typeA.getElementType() != Float4E2M1FNType::get(this->getContext())) {
+      return emitOpError(
+          "Matrix A must be of type Float4E2M1FNType when scaleA is provided.");
+    }
+  }
+  if (scaleB) {
+    ShapedType typeScaleB = cast<ShapedType>(scaleB.getType());
+    ShapedType typeB = cast<ShapedType>(getB().getType());
+    if (typeScaleB.getElementType() !=
+        Float8E8M0FNUType::get(this->getContext())) {
+      return emitOpError("scaleB must be of type Float8E8M0FNUType");
+    }
+    ArrayRef<int64_t> scaleBDims = typeScaleB.getShape();
+    ArrayRef<int64_t> bDims = typeB.getShape();
+    if (scaleBDims != bDims) {
+      return emitOpError("scaleB dimensions must match matrix B dimensions");
+    }
+    if (typeB.getElementType() != Float4E2M1FNType::get(this->getContext())) {
+      return emitOpError(
+          "Matrix B must be of type Float4E2M1FNType when scaleB is provided.");
+    }
+  }
   return verifyGridwiseGemm(*this);
 }
 
@@ -1060,6 +1199,21 @@ void GridwiseGemmOp::getEffects(
 void GridwiseGemmAccelOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   getGemmEffects(*this, effects);
+  auto *read = MemoryEffects::Read::get();
+  if (getScaleA()) {
+    MutableOperandRange scaleARange = getScaleAMutable();
+    if (!scaleARange.empty()) {
+      OpOperand *scaleAOperand = &scaleARange[0];
+      effects.emplace_back(read, scaleAOperand);
+    }
+  }
+  if (getScaleB()) {
+    MutableOperandRange scaleBRange = getScaleBMutable();
+    if (!scaleBRange.empty()) {
+      OpOperand *scaleBOperand = &scaleBRange[0];
+      effects.emplace_back(read, scaleBOperand);
+    }
+  }
 }
 
 //===-----------------------------------------------------===//
@@ -2083,12 +2237,115 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   bool loadBFromLDS = getLoadBfromLDS();
   bool hasA = getMatrixA() != nullptr;
   bool hasB = getMatrixB() != nullptr;
+  bool hasScaleALds = getScaleA() != nullptr;
+  bool hasScaleBLds = getScaleB() != nullptr;
+  bool hasScaleABuffer = getBufferScaleA() != nullptr;
+  bool hasScaleBBuffer = getBufferScaleB() != nullptr;
+  ShapedType aBufferType = cast<ShapedType>(getBufferA().getType());
+  ShapedType bBufferType = cast<ShapedType>(getBufferB().getType());
+  ShapedType cBufferType = cast<ShapedType>(getMatrixC().getType());
+  Type aType = getElementTypeOrSelfRecursive(aBufferType);
+  Type bType = getElementTypeOrSelfRecursive(bBufferType);
+  Type cType = getElementTypeOrSelfRecursive(cBufferType);
+  FailureOr<StringAttr> archAttr = rock::getArch(*this);
+  if (failed(archAttr)) {
+    archAttr = StringAttr::get(this->getContext(), "gfx00");
+  }
+  if (failed(verifyGemmTypes(*this, rock::getFeatures(*this),
+                             archAttr->getValue(), aType, bType, cType)))
+    return failure();
 
-  if (loadAFromLDS && !hasA)
-    return emitOpError("If loadAFromLDS is enabled, matrixA must be non-null.");
-  if (loadBFromLDS && !hasB)
-    return emitOpError("If loadBFromLDS is enabled, matrixB must be non-null.");
-
+  if (loadAFromLDS) {
+    if (!hasA)
+      return emitOpError(
+          "If loadAFromLDS is enabled, matrixA must be non-null.");
+    if (hasScaleABuffer && !hasScaleALds)
+      return emitOpError(
+          "If loadAFromLDS is enabled, scaleA must be loaded from LDS.");
+    if (hasScaleALds && !hasScaleABuffer)
+      return emitOpError(
+          "If scaleA is loaded from LDS, scaleA buffer must be non-null.");
+    if (hasScaleALds) {
+      ShapedType scaleALdsType = cast<ShapedType>(getScaleA().getType());
+      ShapedType aLdsType = cast<ShapedType>(getMatrixA().getType());
+      if (aLdsType.getShape() != scaleALdsType.getShape()) {
+        return emitOpError("If scaleA is loaded from LDS, its shape must match "
+                           "matrixA's shape.");
+      }
+      Type scaleALdsElemType = getElementTypeOrSelfRecursive(scaleALdsType);
+      if (scaleALdsElemType != Float8E8M0FNUType::get(this->getContext())) {
+        return emitOpError("ScaleA must be of type Float8E8M0FNU.");
+      }
+      Type aLdsElemType = getElementTypeOrSelfRecursive(aLdsType);
+      if (aLdsElemType != Float4E2M1FNType::get(this->getContext())) {
+        return emitOpError("For the scaled GEMMs, matrixA must be of "
+                           "type Float4E2M1FNType.");
+      }
+    }
+  }
+  if (hasScaleABuffer) {
+    ShapedType scaleABufferType = cast<ShapedType>(getBufferScaleA().getType());
+    if (aBufferType.getShape() != scaleABufferType.getShape()) {
+      return emitOpError("If scaleA buffer is non-null, its shape must match "
+                         "bufferA's shape.");
+    }
+    Type scaleABufferElemType = getElementTypeOrSelfRecursive(scaleABufferType);
+    if (scaleABufferElemType != Float8E8M0FNUType::get(this->getContext())) {
+      return emitOpError("ScaleA buffer must be of type Float8E8M0FNU.");
+    }
+    Type aBufferElemType = getElementTypeOrSelfRecursive(aBufferType);
+    if (aBufferElemType != Float4E2M1FNType::get(this->getContext())) {
+      return emitOpError("For the scaled GEMMs, bufferA must be of "
+                         "type Float4E2M1FNType.");
+    }
+  }
+  if (loadBFromLDS) {
+    if (!hasB)
+      return emitOpError(
+          "If loadBFromLDS is enabled, matrixB must be non-null.");
+    if (hasScaleBBuffer && !hasScaleBLds)
+      return emitOpError(
+          "If loadBFromLDS is enabled, scaleB must be loaded from LDS.");
+    if (hasScaleBLds && !hasScaleBBuffer)
+      return emitOpError(
+          "If scaleB is loaded from LDS, scaleB buffer must be non-null.");
+    if (hasScaleBLds) {
+      ShapedType scaleBLdsType = cast<ShapedType>(getScaleB().getType());
+      ShapedType bLdsType = cast<ShapedType>(getMatrixB().getType());
+      if (bLdsType.getShape() != scaleBLdsType.getShape()) {
+        return emitOpError("If scaleB is loaded from LDS, its shape must match "
+                           "matrixB's shape.");
+      }
+      Type scaleBLdsElemType = getElementTypeOrSelfRecursive(scaleBLdsType);
+      if (scaleBLdsElemType != Float8E8M0FNUType::get(this->getContext())) {
+        return emitOpError("ScaleB must be of type Float8E8M0FNU.");
+      }
+      Type bLdsElemType = getElementTypeOrSelfRecursive(bLdsType);
+      if (bLdsElemType != Float4E2M1FNType::get(this->getContext())) {
+        return emitOpError("For the scaled GEMMs, matrixB must be of "
+                           "type Float4E2M1FNType.");
+      }
+    }
+  }
+  if (hasScaleBBuffer) {
+    ShapedType scaleBBufferType = cast<ShapedType>(getBufferScaleB().getType());
+    if (bBufferType.getShape() != scaleBBufferType.getShape()) {
+      return emitOpError("If scaleB buffer is non-null, its shape must match "
+                         "bufferB's shape.");
+    }
+    Type scaleBBufferElemType = getElementTypeOrSelfRecursive(scaleBBufferType);
+    if (scaleBBufferElemType != Float8E8M0FNUType::get(this->getContext())) {
+      return emitOpError("ScaleB buffer must be of type Float8E8M0FNU.");
+    }
+    Type bBufferElemType = getElementTypeOrSelfRecursive(bBufferType);
+    if (bBufferElemType != Float4E2M1FNType::get(this->getContext())) {
+      return emitOpError("For the scaled GEMMs, bufferB must be of "
+                         "type Float4E2M1FNType.");
+    }
+  }
+  if (hasScaleABuffer ^ hasScaleBBuffer)
+    return emitOpError(
+        "scaleA and scaleB buffers must both be present or both be null.");
   return success();
 }
 
@@ -2106,17 +2363,28 @@ void BlockwiseGemmAccelOp::getEffects(
 
   effects.emplace_back(read, &getBufferAMutable());
   effects.emplace_back(read, &getBufferBMutable());
-
+  if (getBufferScaleA() && getBufferScaleB()) {
+    effects.emplace_back(read, &getBufferScaleAMutable()[0]);
+    effects.emplace_back(read, &getBufferScaleBMutable()[0]);
+  }
   // if we load from LDS, we need to write to registers
   if (getLoadAfromLDS()) {
     assert(getMatrixA() != nullptr);
     effects.emplace_back(read, &getMatrixAMutable()[0]);
     effects.emplace_back(write, &getBufferAMutable());
+    if (getScaleA()) {
+      effects.emplace_back(read, &getScaleAMutable()[0]);
+      effects.emplace_back(write, &getBufferScaleAMutable()[0]);
+    }
   }
   if (getLoadBfromLDS()) {
     assert(getMatrixB() != nullptr);
     effects.emplace_back(read, &getMatrixBMutable()[0]);
     effects.emplace_back(write, &getBufferBMutable());
+    if (getScaleB()) {
+      effects.emplace_back(read, &getScaleBMutable()[0]);
+      effects.emplace_back(write, &getBufferScaleBMutable()[0]);
+    }
   }
 }
 
@@ -2152,8 +2420,13 @@ SmallVector<mlir::Type> ThreadwiseAccelGemmOp::getTypesForFeature() {
 }
 
 LogicalResult ThreadwiseAccelGemmOp::verify() {
-  ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
-                    bShape = getMatrixB().getType().getShape(),
+  ShapedType aType = cast<ShapedType>(getMatrixA().getType());
+  ShapedType bType = cast<ShapedType>(getMatrixB().getType());
+
+  Type aElemType = getElementTypeOrSelfRecursive(aType);
+  Type bElemType = getElementTypeOrSelfRecursive(bType);
+  Type cElemType = getElementTypeOrSelfRecursive(getMatrixC().getType());
+  ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
                     cShape = getMatrixC().getType().getShape();
 
   if (aShape.size() != 2)
@@ -2166,12 +2439,62 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
     return emitOpError("C shape should be [M,N]");
   if (getComputeIndices().size() != 3)
     return emitOpError("ComputeIndices need to be a <i,j,k> tuple");
+  bool hasScaleA = getScaleA() != nullptr;
+  bool hasScaleB = getScaleB() != nullptr;
+  FailureOr<StringAttr> archAttr = rock::getArch(*this);
+  if (failed(archAttr)) {
+    archAttr = StringAttr::get(this->getContext(), "gfx00");
+  }
+  if (failed(verifyGemmTypes(*this, rock::getFeatures(*this),
+                             archAttr->getValue(), aElemType, bElemType,
+                             cElemType)))
+    return failure();
 
+  if (hasScaleA) {
+    ShapedType scaleAType = cast<ShapedType>(getScaleA().getType());
+    Type scaleAElemType = getElementTypeOrSelfRecursive(scaleAType);
+    if (scaleAElemType != Float8E8M0FNUType::get(this->getContext())) {
+      return emitOpError("ScaleA must be of type Float8E8M0FNU.");
+    }
+    if (aElemType != Float4E2M1FNType::get(this->getContext())) {
+      return emitOpError("For the scaled GEMMs, matrixA must be of "
+                         "type Float4E2M1FNType.");
+    }
+    if (aShape != scaleAType.getShape()) {
+      return emitOpError("ScaleA shape must match matrixA shape.");
+    }
+  }
+  if (hasScaleB) {
+    ShapedType scaleBType = cast<ShapedType>(getScaleB().getType());
+    Type scaleBElemType = getElementTypeOrSelfRecursive(scaleBType);
+    if (scaleBElemType != Float8E8M0FNUType::get(this->getContext())) {
+      return emitOpError("ScaleB must be of type Float8E8M0FNU.");
+    }
+    if (bElemType != Float4E2M1FNType::get(this->getContext())) {
+      return emitOpError("For the scaled GEMMs, matrixB must be of "
+                         "type Float4E2M1FNType.");
+    }
+    if (bShape != scaleBType.getShape()) {
+      return emitOpError("ScaleB shape must match matrixB shape.");
+    }
+  }
+  if (hasScaleA != hasScaleB) {
+    return emitOpError(
+        "ScaleA and ScaleB must both be present or both be null.");
+  }
   return success();
 }
 
 void ThreadwiseAccelGemmOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  if (getScaleA()) {
+    auto *read = MemoryEffects::Read::get();
+    effects.emplace_back(read, &getScaleAMutable()[0]);
+  }
+  if (getScaleB()) {
+    auto *read = MemoryEffects::Read::get();
+    effects.emplace_back(read, &getScaleBMutable()[0]);
+  }
   getGemmMatrixEffects(*this, effects);
 }
 

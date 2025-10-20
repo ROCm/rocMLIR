@@ -2503,6 +2503,7 @@ struct GridwiseAttentionAccelRewritePattern
         BlockwiseGemmAccelOp::create(
             rewriter, loc, ldsTileBufferK,
             ldsTileBufferQ ? ldsTileBufferQ : ldsTileBufferK,
+            /*aScale=*/nullptr, /*bScale=*/nullptr,
             rewriter.getI32IntegerAttr(gemm0InMPerThread),
             rewriter.getI32IntegerAttr(gemm0InNPerThread),
             /*rotateMWithK=*/nullptr,
@@ -2512,7 +2513,8 @@ struct GridwiseAttentionAccelRewritePattern
             /*splitKAcrossThreadsFirstB=*/nullptr,
             /*directToLDS=*/nullptr, /*ldsLayoutMxK=*/nullptr,
             /*ldsLayoutNxK=*/nullptr, preAccelRegBufferK, preAccelRegBuffersQ,
-            accRegBufferGemm0, featuresAttr, op.getBlockSizeAttr(),
+            accRegBufferGemm0, /*bufferScaleA=*/nullptr,
+            /*bufferScaleB=*/nullptr, featuresAttr, op.getBlockSizeAttr(),
             gemm0TuningParams);
       }
       accelEmitterPtrGemm0->computeOutputConversion(
@@ -2780,6 +2782,7 @@ struct GridwiseAttentionAccelRewritePattern
           BlockwiseGemmAccelOp::create(
               rewriter, loc, ldsTileBufferV,
               gemm1LDSBufferB ? gemm1LDSBufferB : ldsTileBufferV,
+              /*aScale=*/nullptr, /*bScale=*/nullptr,
               rewriter.getI32IntegerAttr(gemm1InMPerThread),
               rewriter.getI32IntegerAttr(gemm1InNPerThread),
               (ldsLayoutCfgMG1.doRotateWithK ? rewriter.getUnitAttr()
@@ -2793,7 +2796,8 @@ struct GridwiseAttentionAccelRewritePattern
               /*splitKAcrossThreadsFirstB=*/nullptr, /*directToLDS=*/nullptr,
               /*ldsLayoutMxK=*/nullptr, /*ldsLayoutNxK=*/nullptr,
               preAccelRegBufferV, preAccelRegBufferQxK, accRegBufferGemm1,
-              featuresAttr, op.getBlockSizeAttr(), gemm1TuningParams);
+              /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr, featuresAttr,
+              op.getBlockSizeAttr(), gemm1TuningParams);
 
           // There is no second k-loop
           // Therefore can get the output straight away
@@ -3193,8 +3197,8 @@ struct GridwiseGemmAccelRewritePattern
                            loadType == GemmLoadTileType::DirectToLDSDefault;
 
         BlockwiseGemmAccelOp::create(
-            b, loc, ldsViewForGemmA, ldsViewForGemmB,
-            b.getI32IntegerAttr(copyMPerThread),
+            b, loc, ldsViewForGemmA, ldsViewForGemmB, /*aScale=*/nullptr,
+            /*bScale=*/nullptr, b.getI32IntegerAttr(copyMPerThread),
             b.getI32IntegerAttr(copyNPerThread),
             (ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr),
             (ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr),
@@ -3205,7 +3209,8 @@ struct GridwiseGemmAccelRewritePattern
             (directToLDS ? b.getUnitAttr() : nullptr),
             (ldsLayoutConfigA.ldsLayoutDxK ? b.getUnitAttr() : nullptr),
             (ldsLayoutConfigB.ldsLayoutDxK ? b.getUnitAttr() : nullptr), arrayA,
-            arrayB, regCAllocOp, featuresAttr, op.getBlockSizeAttr(),
+            arrayB, regCAllocOp, /*bufferScaleA=*/nullptr,
+            /*bufferScaleB=*/nullptr, featuresAttr, op.getBlockSizeAttr(),
             op.getParamsAttr());
         YieldOp::create(b, loc);
       }

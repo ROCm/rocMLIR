@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/AMDGPU/Utils/Chipset.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
 
 #include "llvm/ADT/StringSwitch.h"
@@ -36,27 +37,31 @@ static constexpr AmdArchInfo
             /*totalVGPRPerEU*/ 256, /*totalSharedMemPerCU*/ 65536,
             /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
             /*hasFp8ConversionInstrs=*/false,
-            /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
+            /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+            /*maxNumXCC=*/1),
     cdna50Info(GemmFeatures::dot, /*waveSize=*/64, /*maxWavesPerEU*/ 8,
                /*totalSGPRPerEU*/ 512, /*totalVGPRPerEU*/ 256,
                /*totalSharedMemPerCU*/ 65536, /*maxSharedMemPerWG*/ 65536,
                /*numEUPerCU=*/4, /*minNumCU=*/10,
                /*hasFp8ConversionInstrs=*/false,
-               /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
+               /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+               /*maxNumXCC=*/1),
     cdnaInfo(GemmFeatures::mfma | GemmFeatures::dot | GemmFeatures::atomic_add |
                  GemmFeatures::atomic_add_f16,
              /*waveSize=*/64, /*maxWavesPerEU*/ 10, /*totalSGPRPerEU*/ 800,
              /*totalVGPRPerEU*/ 256, /*totalSharedMemPerCU*/ 65536,
              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/120,
              /*hasFp8ConversionInstrs=*/false,
-             /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
+             /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+             /*maxNumXCC=*/1),
     cdna2Info(GemmFeatures::mfma | GemmFeatures::dot |
                   GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16,
               /*waveSize=*/64, /*maxWavesPerEU*/ 8, /*totalSGPRPerEU*/ 800,
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/104,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
+              /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+              /*maxNumXCC=*/1),
     cdna3Info(GemmFeatures::mfma | GemmFeatures::dot |
                   GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
                   GemmFeatures::direct_to_lds_32b,
@@ -64,7 +69,8 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 65536,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/80,
               /*hasFp8ConversionInstrs=*/true,
-              /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/8),
+              /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+              /*maxNumXCC=*/8),
     cdna40Info(GemmFeatures::mfma | GemmFeatures::dot |
                    GemmFeatures::atomic_add | GemmFeatures::atomic_add_f16 |
                    GemmFeatures::atomic_add_bf16 |
@@ -74,7 +80,8 @@ static constexpr AmdArchInfo
                /*totalVGPRPerEU*/ 512, /*totalSharedMemPerCU*/ 163840,
                /*maxSharedMemPerWG*/ 163840, /*numEUPerCU=*/4, /*minNumCU=*/256,
                /*hasFp8ConversionInstrs=*/false,
-               /*hasOcpFp8ConversionInstrs=*/true, /*maxNumXCC=*/8),
+               /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/true,
+               /*maxNumXCC=*/8),
     // amdgpu target builds all RDNA in WGP Mode
     rdnaNoDotInfo(GemmFeatures::atomic_fmax_f32, /*waveSize=*/32,
                   /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
@@ -82,20 +89,23 @@ static constexpr AmdArchInfo
                   /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4,
                   /*minNumCU=*/36,
                   /*hasFp8ConversionInstrs=*/false,
-                  /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
+                  /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+                  /*maxNumXCC=*/1),
     rdnaInfo(GemmFeatures::dot | GemmFeatures::atomic_fmax_f32,
              /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 512,
              /*totalVGPRPerEU*/ 1024, /*totalSharedMemPerCU*/ 131072,
              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/36,
              /*hasFp8ConversionInstrs=*/false,
-             /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
+             /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+             /*maxNumXCC=*/1),
     rdna3Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
               /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 800,
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/false, /*maxNumXCC=*/1),
+              /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
+              /*maxNumXCC=*/1),
     rdna4Info(GemmFeatures::dot | GemmFeatures::atomic_add |
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma |
                   GemmFeatures::atomic_add_f16 | GemmFeatures::atomic_add_bf16,
@@ -103,7 +113,8 @@ static constexpr AmdArchInfo
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false,
-              /*hasOcpFp8ConversionInstrs=*/true, /*maxNumXCC=*/1);
+              /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
+              /*maxNumXCC=*/1);
 
 std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   std::tuple<StringRef, unsigned> ret("", 0);
@@ -395,6 +406,12 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   if (isMfma && !hasOcpFp8ConversionInstrs) {
     if (isa<Float8E4M3FNType>(elementType) || isa<Float8E5M2Type>(elementType))
       theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::mfma);
+  }
+  if (isMfma && !hasScaledGemm) {
+    if (isa<Float4E2M1FNType>(elementType) ||
+        isa<Float8E8M0FNUType>(elementType)) {
+      theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::mfma);
+    }
   }
   return theseFeatures;
 }
