@@ -71,7 +71,7 @@ private:
       llvm_unreachable("Invalid architecture string");
     }
     auto remaining = arch.substr(gfxPos);
-    auto endPos = remaining.find_first_not_of("0123456789", 3);
+    auto endPos = remaining.find_first_not_of("0123456789a", 3);
     return remaining.substr(0, endPos);
   }
 
@@ -96,12 +96,13 @@ private:
     return getArchName(arch).str() + "_" + makeSuffix(op, dataType);
   }
 
-  static const std::map<std::string, ParamArray> &getTable() {
-    static const std::map<std::string, ParamArray> table = buildTable();
+  static const std::unordered_map<std::string, ParamArray> &getTable() {
+    static const std::unordered_map<std::string, ParamArray> table =
+        buildTable();
     return table;
   }
 
-  static std::map<std::string, ParamArray> buildTable();
+  static std::unordered_map<std::string, ParamArray> buildTable();
 };
 
 } // anonymous namespace
@@ -820,7 +821,8 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
 namespace {
 
 template <>
-std::map<std::string, ParamLookupTable<InitParamsNonAccel>::ParamArray>
+std::unordered_map<std::string,
+                   ParamLookupTable<InitParamsNonAccel>::ParamArray>
 ParamLookupTable<InitParamsNonAccel>::buildTable() {
   return {
 #define NonAccel_LOOKUP_TABLE_GEN
@@ -831,7 +833,7 @@ ParamLookupTable<InitParamsNonAccel>::buildTable() {
 
 // Specialization for Accel (XDL/WMMA) parameters
 template <>
-std::map<std::string, ParamLookupTable<InitParamsAccel>::ParamArray>
+std::unordered_map<std::string, ParamLookupTable<InitParamsAccel>::ParamArray>
 ParamLookupTable<InitParamsAccel>::buildTable() {
   return {
 #define Accel_LOOKUP_TABLE_GEN
