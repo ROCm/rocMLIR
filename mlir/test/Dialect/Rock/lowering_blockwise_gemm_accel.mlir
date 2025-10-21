@@ -175,7 +175,7 @@ func.func @rock_blockwise_gemm_accel_direct_to_lds(%matrixA : memref<256xvector<
       nPerWave = 64,
       mnPerXdl = 32,
       splitKFactor = 1, 
-      scheduleVersion = 1, 
+      scheduleVersion = 4, 
       outputSwizzle = 2,
       forceUnroll = true>
   } : memref<4xvector<16xf32>, #priv> += memref<16xi8, #priv> from memref<256xvector<2xf32>, #wg> * memref<16xi8, #priv> from memref<256xvector<2xf32>, #wg>

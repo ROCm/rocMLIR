@@ -438,3 +438,121 @@ func.func @accel_gemm_gfx950_i8_16x16x64(%matrixA : memref<1x2xvector<16xi8>, 5>
   } : memref<1x1xvector<4xi32>, 5> += memref<1x2xvector<16xi8>, 5> * memref<1x2xvector<16xi8>, 5>
   return
 }
+
+func.func @accel_gemm_gfx950_f32_16x16x128_fp4(%matrixA : memref<1x1xvector<32xf4E2M1FN>, 5>,
+                                                 %matrixB : memref<1x1xvector<32xf4E2M1FN>, 5>,
+                                                 %matrixC : memref<1x1xvector<4xf32>, 5>) {
+  // CHECK-LABEL: func.func @accel_gemm_gfx950_f32_16x16x128_fp4
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK: amdgpu.mfma
+  // CHECK-SAME: blocks = 1 : i32, k = 128 : i32, m = 16 : i32, n = 16 : i32
+  // CHECK-SAME: vector<32xf4E2M1FN>, vector<32xf4E2M1FN>, vector<4xf32>
+  // CHECK-NOT: amdgpu.mfma
+  %c0 = arith.constant 0 : index
+  rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    params = #rock.xdlops_gemm_derived_params<
+      kpackPerBlock = 32,
+      kpack = 32,
+      mPerWave = 16,
+      nPerWave = 16,
+      mPerBlock = 16,
+      nPerBlock = 16,
+      mnPerXdl = 16,
+      splitKFactor = 1,
+      scheduleVersion = 1,
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<1x1xvector<4xf32>, 5> += memref<1x1xvector<32xf4E2M1FN>, 5> * memref<1x1xvector<32xf4E2M1FN>, 5>
+  return
+}
+
+func.func @accel_gemm_gfx950_f32_32x32x64_fp4(%matrixA : memref<1x1xvector<32xf4E2M1FN>, 5>,
+                                                 %matrixB : memref<1x1xvector<32xf4E2M1FN>, 5>,
+                                                 %matrixC : memref<1x1xvector<16xf32>, 5>) {
+  // CHECK-LABEL: func.func @accel_gemm_gfx950_f32_32x32x64_fp4
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK: amdgpu.mfma
+  // CHECK-SAME: blocks = 1 : i32, k = 64 : i32, m = 32 : i32, n = 32 : i32
+  // CHECK-SAME: vector<32xf4E2M1FN>, vector<32xf4E2M1FN>, vector<16xf32>
+  // CHECK-NOT: amdgpu.mfma
+  %c0 = arith.constant 0 : index
+  rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    params = #rock.xdlops_gemm_derived_params<
+      kpackPerBlock = 32,
+      kpack = 32,
+      mPerWave = 32,
+      nPerWave = 32,
+      mPerBlock = 32,
+      nPerBlock = 32,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 1,
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<1x1xvector<16xf32>, 5> += memref<1x1xvector<32xf4E2M1FN>, 5> * memref<1x1xvector<32xf4E2M1FN>, 5>
+  return
+}
+
+func.func @accel_gemm_gfx950_f32_64x64x512_fp4_1(%matrixA : memref<1x16xvector<32xf4E2M1FN>, 5>,
+                                                 %matrixB : memref<1x16xvector<32xf4E2M1FN>, 5>,
+                                                 %matrixC : memref<1x16xvector<4xf32>, 5>) {
+  // CHECK-LABEL: func.func @accel_gemm_gfx950_f32_64x64x512_fp4_1
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK: amdgpu.mfma
+  // CHECK-SAME: blocks = 1 : i32, k = 128 : i32, m = 16 : i32, n = 16 : i32
+  // CHECK-SAME: vector<32xf4E2M1FN>, vector<32xf4E2M1FN>, vector<4xf32>
+  // CHECK-NOT: amdgpu.mfma
+  %c0 = arith.constant 0 : index
+  rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    params = #rock.xdlops_gemm_derived_params<
+      kpackPerBlock = 512,
+      kpack = 32,
+      mPerWave = 32,
+      nPerWave = 32,
+      mPerBlock = 64,
+      nPerBlock = 64,
+      mnPerXdl = 16,
+      splitKFactor = 1,
+      scheduleVersion = 1,
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<1x16xvector<4xf32>, 5> += memref<1x16xvector<32xf4E2M1FN>, 5> * memref<1x16xvector<32xf4E2M1FN>, 5>
+  return
+}
+
+// each wave computes 32x32 output tile using 32x32x64 MFMA insn
+// note that kPerBlock is 512. So there will be 8 MFMA instructions per wave
+func.func @accel_gemm_gfx950_f32_64x64x512_fp4_2(%matrixA : memref<1x8xvector<32xf4E2M1FN>, 5>,
+                                                 %matrixB : memref<1x8xvector<32xf4E2M1FN>, 5>,
+                                                 %matrixC : memref<1x1xvector<16xf32>, 5>) {
+  // CHECK-LABEL: func.func @accel_gemm_gfx950_f32_64x64x512_fp4_2
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK: amdgpu.mfma
+  // CHECK-SAME: blocks = 1 : i32, k = 64 : i32, m = 32 : i32, n = 32 : i32
+  // CHECK-SAME: vector<32xf4E2M1FN>, vector<32xf4E2M1FN>, vector<16xf32>
+  // CHECK-NOT: amdgpu.mfma
+  %c0 = arith.constant 0 : index
+  rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    params = #rock.xdlops_gemm_derived_params<
+      kpackPerBlock = 512,
+      kpack = 32,
+      mPerWave = 32,
+      nPerWave = 32,
+      mPerBlock = 64,
+      nPerBlock = 64,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 1,
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<1x1xvector<16xf32>, 5> += memref<1x8xvector<32xf4E2M1FN>, 5> * memref<1x8xvector<32xf4E2M1FN>, 5>
+  return
+}
