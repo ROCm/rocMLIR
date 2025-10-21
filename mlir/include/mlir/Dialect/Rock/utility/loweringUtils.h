@@ -59,6 +59,7 @@ struct RegsAsMatrixSubTiles {
 struct LDSLayoutConfigDim {
   bool doRotateWithK;
   bool doSwapThreadIterSubDims;
+  bool ldsLayoutDxK;
 };
 
 // This is helper struct to aggregate
@@ -81,12 +82,11 @@ RegsAsMatrixSubTiles transposeSubTileViews(PatternRewriter &rewriter,
 // This function will create views of the register buffer of the loaded tile
 // of a matrix in global memory. Those views will provide sub-tiles of the
 // respective hierarchy within the GPU. See above about RegsAsMatrixSubTiles
-FailureOr<RegsAsMatrixSubTiles>
-getLoadRegsAsTileViews(OpBuilder &b, Location loc, Value globalBuffer,
-                       StringRef dName, ArrayRef<StringRef> bidGridOrder,
-                       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
-                       int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-                       int64_t dPerThread, bool isKContigousDim);
+FailureOr<RegsAsMatrixSubTiles> getLoadRegsAsTileViews(
+    OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
+    ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
+    int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
+    int64_t dPerThread, bool isKContiguousDim, bool directToLDS);
 
 // This function will create views of the register buffer of the loaded tile
 // but packed as kOuterPerThread, dPerThread and kPackPerThread for max
@@ -96,7 +96,7 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, int64_t kpack, bool isKContigousDim,
+    int64_t dPerThread, int64_t kpack, bool isKContiguousDim,
     bool doSwapThreadIterSubDimsForD = false);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
@@ -210,7 +210,13 @@ Value getFlattenedMemref(OpBuilder &b, Value nonFlatMemRef);
 
 /// Construct a `memref.view` operation that interprets the buffer `buffer`,
 /// whose elements are bytes, as a buffer of `type`.
-TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer, Type type);
+TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
+                                    Type elementType);
+
+/// Same as above but the user provides output dimensions.
+TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
+                                    Type elementType,
+                                    ArrayRef<int64_t> dimensions);
 
 // helper to allocate memory on the GPU
 Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
@@ -249,7 +255,11 @@ FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc, Value buffer,
 
 FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
                                       int64_t blockSize, int64_t kPerBlock,
-                                      int64_t dPerBlock, int64_t kpack);
+                                      int64_t dPerBlock, int64_t kpack,
+                                      bool directToLDS);
+
+// Get the LDS size of the memref
+std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
 
 } // end namespace rock
 } // end namespace mlir

@@ -569,17 +569,25 @@ def Rock_GpuAllocOp:
   let hasVerifier = 1;
 }
 
-// Annotate lifetime of memory allocation on GPU memory hierachy.
-def Rock_GpuDeallocOp:
-    Rock_Op<"dealloc", [MemoryEffects<[MemFree<DefaultResource>]>]>,
-    Arguments<(ins AnyMemRef:$memref)> {
-  let summary = "Annotate lifetime of memory allocation on GPU";
+// Annotate the start of lifetime of a memory allocation on GPU.
+def Rock_LiveInOp : Rock_Op<"live_in">, Arguments<(ins AnyMemRef:$memref)> {
+  let summary =
+      "Annotate the start of lifetime of a LDS memory allocation on GPU";
   let description = [{
-    The `rock.dealloc` op annotates lifetime of memory allocation memory on GPU.
-    - Address space 0 : global.
-    - Address space 3 : LDS.
-    - Address space 5 : private (VGPR).
-    All other values would be considered as allocation on global.
+    The `rock.live_in` op annotates the start of lifetime of a LDS memory allocation on GPU.
+  }];
+  let assemblyFormat = [{
+    $memref attr-dict `:` type($memref)
+  }];
+  let hasVerifier = 1;
+}
+
+// Annotate the end of lifetime of a memory allocation on GPU.
+def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
+  let summary =
+      "Annotate the end of lifetime of a LDS memory allocation on GPU";
+  let description = [{
+    The `rock.live_out` op annotates the end of lifetime of a LDS memory allocation on GPU.
   }];
   let assemblyFormat = [{
     $memref attr-dict `:` type($memref)
@@ -949,12 +957,13 @@ def Rock_IndexDiffUpdateOp :
 
 defvar SupportedMemoryElems = [F32, F16, BF16, I1, I<4>, I8, I16, I32,
                                F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
-defvar NativeMemoryOpTypes = [F32, F16, BF16, I<4>, I8, I16, I32,
-                           F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN,
-                           VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32]>,
-                           VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-                           VectorOfLengthAndType<[2, 4, 8, 16],
-                             [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>];
+defvar NativeMemoryOpTypes =
+    [F32, F16, BF16, I<4>, I8, I16, I32, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
+     F8E4M3FN, F4E2M1FN,
+     VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32, F4E2M1FN]>,
+     VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
+     VectorOfLengthAndType<[2, 4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
+                                           F8E4M3FN]>];
 
 // in_bounds_load
 def Rock_InBoundsLoadOp
@@ -1351,8 +1360,10 @@ def Rock_BlockwiseGemmAccelOp
           I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
           UnitAttr:$loadAfromLDS, UnitAttr:$loadBfromLDS,
           UnitAttr:$splitKAcrossThreadsFirstA,
-          UnitAttr:$splitKAcrossThreadsFirstB, MemRefOf<AccelArgTypes>:$bufferA,
-          MemRefOf<AccelArgTypes>:$bufferB, MemRefOf<AccelResTypes>:$matrixC,
+          UnitAttr:$splitKAcrossThreadsFirstB, UnitAttr:$directToLDS,
+          UnitAttr:$ldsLayoutMxK, UnitAttr:$ldsLayoutNxK,
+          MemRefOf<LdsBufferTypes>:$bufferA, MemRefOf<LdsBufferTypes>:$bufferB,
+          MemRefOf<AccelResTypes>:$matrixC,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
           RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Blockwise GEMM accelerated version";
@@ -1388,9 +1399,9 @@ def Rock_BlockwiseLoadTileOp
           TypeAttr:$elementTypeA, TypeAttr:$elementTypeB,
           TypeAttr:$elementTypeALoad, TypeAttr:$elementTypeBLoad,
           UnitAttr:$rotateWithK, UnitAttr:$swapThreadIterSubDims,
-          Variadic<Index>:$sourceIndices, I64Attr:$G, I64Attr:$M, I64Attr:$N,
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
-          RockAccelTuningParamAttrInterface:$params)> {
+          UnitAttr:$LDSLayoutDxK, Variadic<Index>:$sourceIndices, I64Attr:$G,
+          I64Attr:$M, I64Attr:$N, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          I32Attr:$blockSize, RockAccelTuningParamAttrInterface:$params)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
@@ -1434,6 +1445,7 @@ def Rock_ThreadwiseGemmOp
   }];
   let hasVerifier = 1;
 }
+
 // threadwise_accel_gemm
 def Rock_ThreadwiseAccelGemmOp
     : Rock_Op<"threadwise_accel_gemm",

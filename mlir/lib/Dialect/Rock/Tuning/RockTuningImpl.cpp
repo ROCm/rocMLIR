@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTuningParamAttrInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
@@ -261,11 +262,28 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
   // only enable tuning over gemm schedules when doing exhaustive tuning
-  auto getGemmSchedules = [](const TuningParamSetKind &tuningKind) {
+  auto getGemmSchedules = [&gemmOp](const TuningParamSetKind &tuningKind) {
+    auto features =
+        rock::lookupArchInfo(rock::getArchValue(gemmOp)).defaultFeatures;
+    bool directToLDS =
+        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b) ||
+        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
+
+    std::vector<GemmLoadTileType> loadTypes{GemmLoadTileType::Default};
     if (tuningKind == TuningParamSetKind::Exhaustive) {
-      return std::vector<uint32_t>{1, 2};
+      loadTypes.push_back(GemmLoadTileType::DoubleBuffer);
+      if (directToLDS) {
+        loadTypes.push_back(GemmLoadTileType::DirectToLDSDefault);
+        loadTypes.push_back(GemmLoadTileType::DirectToLDSDoubleBuffer);
+      }
     }
-    return std::vector<uint32_t>{1};
+    std::vector<uint32_t> schedules;
+    schedules.reserve(loadTypes.size());
+
+    for (auto loadType : loadTypes)
+      schedules.push_back(static_cast<uint32_t>(loadType));
+
+    return schedules;
   };
 
   // M/block N/block K/block M/wave N/wave kPack scheduleVersion

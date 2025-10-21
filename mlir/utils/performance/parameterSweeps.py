@@ -454,7 +454,7 @@ VANILLA_PERF_CONFIG = itertools.product(
     # splitKFactor (exponent)
     range(0, 1),
     # scheduleVersion
-    range(1, 3)
+    range(1, 5)
 )
 
 def to_vanilla_perf_config_test(params, options: Options) -> MLIROnlyConfig:
