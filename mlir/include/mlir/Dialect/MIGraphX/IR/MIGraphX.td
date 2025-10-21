@@ -439,7 +439,7 @@ def MIGraphX_TransposeOp :
 }
 
 def MIGraphX_ReshapeOp :
-    MIGraphX_Op<"reshape">,
+    MIGraphX_Op<"reshape", [AllElementTypesMatch<["input", "output"]>]>,
     Arguments<(ins AnyMIXRShaped:$input,
                    I64ArrayAttr:$dims
                    )>,
@@ -447,10 +447,17 @@ def MIGraphX_ReshapeOp :
   let summary = "reshape a tensor";
   let description = [{
     The `migraphx.reshape` op.
+
+    `dims` can contain values of -1 and 0. A value of -1 means to infer this 
+    dimension from the others. i.e., If we have an output shape of
+    `<4x2xf32, 0x1>` and the dims are `[4, -1]`, then the second dimension will
+    be inferred to be 2. A value of 0 means explicit zero-length dimension.
   }];
   let assemblyFormat = [{
     $input attr-dict `:` type($input) `->` type($output)
   }];
+
+  let hasVerifier = 1;
 }
 
 def MIGraphX_SliceOp :

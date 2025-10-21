@@ -29,6 +29,7 @@
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/tosaUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
@@ -51,6 +52,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/SymbolTable.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/InitRocMLIRCLOptions.h"
@@ -900,7 +902,7 @@ static llvm::cl::opt<F8TypesChoice> forceF8Types(
                                 "'OCP' or 'OFP8' types")),
     llvm::cl::init(F8TypesChoice::Arch));
 
-enum class GEMMScheduleVersion : int { V1 = 1, V2 = 2 };
+enum class GEMMScheduleVersion : int { V1 = 1, V2 = 2, V3 = 3, V4 = 4 };
 
 static llvm::cl::opt<GEMMScheduleVersion> gemmScheduleVersion(
     "schedule_version",
@@ -908,7 +910,9 @@ static llvm::cl::opt<GEMMScheduleVersion> gemmScheduleVersion(
         "select amongst different available scheduling strategies for GEMM"),
     llvm::cl::values(
         clEnumValN(GEMMScheduleVersion::V1, "1", "Select GEMM Schedule V1"),
-        clEnumValN(GEMMScheduleVersion::V2, "2", "Select GEMM Schedule V2")),
+        clEnumValN(GEMMScheduleVersion::V2, "2", "Select GEMM Schedule V2"),
+        clEnumValN(GEMMScheduleVersion::V3, "3", "Select GEMM Schedule V3"),
+        clEnumValN(GEMMScheduleVersion::V4, "4", "Select GEMM Schedule V4")),
     llvm::cl::init(GEMMScheduleVersion::V1));
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1333,7 +1337,7 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
     auto colType = MemRefType::get(colShape, oprType.getElementType());
 
     // Emit memref.collapse_shape
-    var = b.create<memref::CollapseShapeOp>(loc, colType, var, reassocs);
+    var = memref::CollapseShapeOp::create(b, loc, colType, var, reassocs);
   } else if (!shape.empty() && shape.size() < ndim) {
     // Expand last dims
     SmallVector<int64_t, 5> expShape;
@@ -1357,7 +1361,7 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
     auto expType = MemRefType::get(expShape, oprType.getElementType());
 
     // Emit memref.collapse_shape
-    var = b.create<memref::ExpandShapeOp>(loc, expType, var, reassocs);
+    var = memref::ExpandShapeOp::create(b, loc, expType, var, reassocs);
   }
 
   return var;
@@ -1399,22 +1403,23 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
     const StringRef constructorName = "setDeviceCtor";
     auto func = module.lookupSymbol<mlir::LLVM::LLVMFuncOp>(constructorName);
     if (!func) {
-      func = b.create<mlir::LLVM::LLVMFuncOp>(
-          module.getLoc(), constructorName,
+      func = mlir::LLVM::LLVMFuncOp::create(
+          b, module.getLoc(), constructorName,
           mlir::LLVM::LLVMFunctionType::get(LLVM::LLVMVoidType::get(context),
                                             {}));
       module.push_back(func);
 
       Block *block = func.addEntryBlock(b);
       b.setInsertionPoint(block, block->begin());
-      b.create<gpu::SetDefaultDeviceOp>(
-          loc, b.create<arith::ConstantIntOp>(loc, b.getIntegerType(32),
-                                              deviceNum.getValue()));
-      b.create<mlir::LLVM::ReturnOp>(loc, ValueRange{});
+      gpu::SetDefaultDeviceOp::create(
+          b, loc,
+          arith::ConstantIntOp::create(b, loc, b.getIntegerType(32),
+                                       deviceNum.getValue()));
+      mlir::LLVM::ReturnOp::create(b, loc, ValueRange{});
 
       b.setInsertionPointToEnd(module.getBody());
-      b.create<mlir::LLVM::GlobalCtorsOp>(
-          loc, b.getArrayAttr(mlir::SymbolRefAttr::get(func)),
+      mlir::LLVM::GlobalCtorsOp::create(
+          b, loc, b.getArrayAttr(mlir::SymbolRefAttr::get(func)),
           b.getI32ArrayAttr({priority}),
           b.getArrayAttr(mlir::LLVM::ZeroAttr::get(context)));
     }
@@ -1431,14 +1436,14 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
     cpuMem.push_back(arg);
 
     // Emit GPU memory allocation function calls.
-    auto gpuAllocOp = b.create<gpu::AllocOp>(
-        loc, arg.getType(), Type(), /*asyncDependencies=*/ValueRange{},
+    auto gpuAllocOp = gpu::AllocOp::create(
+        b, loc, arg.getType(), Type(), /*asyncDependencies=*/ValueRange{},
         /*dynamicSizes=*/ValueRange{}, /*symbolOperands=*/ValueRange{});
     Value gpuAlloc = gpuAllocOp.getResult(0);
     gpuMem.push_back(gpuAlloc);
 
     // Emit CPU->GPU memcpy function calls.
-    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{gpuAlloc, arg});
+    gpu::MemcpyOp::create(b, loc, TypeRange{}, ValueRange{gpuAlloc, arg});
   }
 
   // Emit kernel function call, repeating it if needed.
@@ -1448,10 +1453,10 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
                                              Value ignoredIv,
                                              ValueRange noArgs) {
     for (const auto &kernel : kernels) {
-      b.create<func::CallOp>(loc, kernel.func, gpuMem);
+      func::CallOp::create(b, loc, kernel.func, gpuMem);
     }
     if (ignoredIv) { // we're creating an actual loop
-      b.create<scf::YieldOp>(loc);
+      scf::YieldOp::create(b, loc);
     }
   };
   if (kernelRepeats > 1) {
@@ -1459,16 +1464,17 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
     Value kernelRepeatsOp =
         b.createOrFold<arith::ConstantIndexOp>(loc, kernelRepeats);
     Value step = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
-    b.create<scf::ForOp>(loc, zeroOp, kernelRepeatsOp, step,
-                         /*args=*/std::nullopt, emitWrappedCall);
+    scf::ForOp::create(b, loc, zeroOp, kernelRepeatsOp, step,
+                       /*args=*/std::nullopt, emitWrappedCall);
   } else {
     emitWrappedCall(b, loc, nullptr, {});
   }
 
   for (auto pair : llvm::enumerate(kernels[0].params)) {
     uint32_t i = pair.index();
-    b.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{cpuMem[i], gpuMem[i]});
-    b.create<gpu::DeallocOp>(loc, TypeRange{}, ValueRange{gpuMem[i]});
+    gpu::MemcpyOp::create(b, loc, TypeRange{},
+                          ValueRange{cpuMem[i], gpuMem[i]});
+    gpu::DeallocOp::create(b, loc, TypeRange{}, ValueRange{gpuMem[i]});
   }
   // hack for split-kv:
   // use LSE and output tensors to compute final attention result
@@ -1512,21 +1518,23 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
         memref::getTensorTypeFromMemRefType(
             cpuMem[cpuMem.size() - 1].getType()),
         cpuMem[cpuMem.size() - 1], true, false);
-    Value lseTensor = b.create<bufferization::ToTensorOp>(
+    Value lseTensor = bufferization::ToTensorOp::create(
+        b,
         loc,
         memref::getTensorTypeFromMemRefType(
             cpuMem[cpuMem.size() - 2].getType()),
         cpuMem[cpuMem.size() - 2], true, false);
     auto out = computeFinalAttentionStage(b, loc, resultTensor, lseTensor,
                                           validSplitKV);
-    Value outMemref = b.create<bufferization::ToBufferOp>(
+    Value outMemref = bufferization::ToBufferOp::create(
+        b,
         loc,
         cast<mlir::bufferization::BufferLikeType>(
             cpuMem[cpuMem.size() - 1].getType()),
         out);
-    b.create<memref::CopyOp>(loc, outMemref, cpuMem[cpuMem.size() - 1]);
+    memref::CopyOp::create(b, loc, outMemref, cpuMem[cpuMem.size() - 1]);
   }
-  b.create<func::ReturnOp>(loc, ValueRange{});
+  func::ReturnOp::create(b, loc, ValueRange{});
   return gpuWrapperFunc;
 }
 
@@ -1641,10 +1649,9 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
     } else {
       vOp = rock::createConstantFloatOp(b, loc, elemType, elemType, v.value());
     }
-    constantsVec = b.create<vector::InsertElementOp>(
-                        loc, vOp, constantsVec,
-                        b.create<arith::ConstantIndexOp>(loc, v.index()))
-                       .getResult();
+    constantsVec =
+        vector::InsertOp::create(b, loc, vOp, constantsVec, v.index())
+            .getResult();
   }
 
   Value toFillFlat = makeNDMemRef(b, toFill, 1);
@@ -1667,11 +1674,11 @@ static LogicalResult populateTensorFillLogic(OpBuilder &b, Location loc,
       [rowMajorMap, &constantsVec, toFillFlat](OpBuilder &b, Location loc,
                                                ValueRange ivs) {
         auto selectorOp =
-            b.create<affine::AffineApplyOp>(loc, rowMajorMap, ivs);
-        Value toStore = b.create<vector::ExtractElementOp>(
-                             loc, constantsVec, selectorOp->getResult(0))
+            affine::AffineApplyOp::create(b, loc, rowMajorMap, ivs);
+        Value toStore = vector::ExtractOp::create(b, loc, constantsVec,
+                                                  selectorOp->getResult(0))
                             .getResult();
-        b.create<memref::StoreOp>(loc, toStore, toFillFlat, ivs);
+        memref::StoreOp::create(b, loc, toStore, toFillFlat, ivs);
       });
   return success();
 }
@@ -1727,18 +1734,18 @@ static LogicalResult populateRandomTensorFillLogic(OpBuilder &b, Location loc,
         if (zeroInit) {
           randVal = rock::createZeroConstantOp(b, loc, elemType);
         } else {
-          auto randFloatCall = b.create<func::CallOp>(
-              loc, randFunc, ValueRange{minConst, maxConst});
+          auto randFloatCall = func::CallOp::create(
+              b, loc, randFunc, ValueRange{minConst, maxConst});
           Value randFloat = randFloatCall.getResult(0);
           if (elemType.isIntOrIndex())
-            randVal = b.create<arith::FPToSIOp>(loc, elemType, randFloat);
+            randVal = arith::FPToSIOp::create(b, loc, elemType, randFloat);
           else if (!elemType.isF32())
-            randVal = b.create<arith::TruncFOp>(loc, elemType, randFloat);
+            randVal = arith::TruncFOp::create(b, loc, elemType, randFloat);
           else
             randVal = randFloat;
         }
 
-        b.create<memref::StoreOp>(loc, randVal, toFillFlat, ivs);
+        memref::StoreOp::create(b, loc, randVal, toFillFlat, ivs);
       });
 
   return success();
@@ -1879,27 +1886,27 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
         if (dstElemType.isIntOrIndex()) {
           if (srcBitWidth < dstBitWidth)
             newLoadOp =
-                opBuilder.create<arith::ExtSIOp>(loc, dstElemType, loadOp);
+                arith::ExtSIOp::create(opBuilder, loc, dstElemType, loadOp);
           else
             newLoadOp =
-                opBuilder.create<arith::TruncIOp>(loc, dstElemType, loadOp);
+                arith::TruncIOp::create(opBuilder, loc, dstElemType, loadOp);
         } else {
           assert(isa<FloatType>(dstElemType));
           newLoadOp =
-              opBuilder.create<arith::SIToFPOp>(loc, dstElemType, loadOp);
+              arith::SIToFPOp::create(opBuilder, loc, dstElemType, loadOp);
         }
       } else {
         assert(isa<FloatType>(srcElemType));
         if (dstElemType.isIntOrIndex()) {
           newLoadOp =
-              opBuilder.create<arith::FPToSIOp>(loc, dstElemType, loadOp);
+              arith::FPToSIOp::create(opBuilder, loc, dstElemType, loadOp);
         } else {
           if (srcBitWidth < dstBitWidth)
             newLoadOp =
-                opBuilder.create<arith::ExtFOp>(loc, dstElemType, loadOp);
+                arith::ExtFOp::create(opBuilder, loc, dstElemType, loadOp);
           else
             newLoadOp =
-                opBuilder.create<arith::TruncFOp>(loc, dstElemType, loadOp);
+                arith::TruncFOp::create(opBuilder, loc, dstElemType, loadOp);
         }
       }
     }
@@ -1907,24 +1914,24 @@ static func::FuncOp getMemcpyFuncDecl(ModuleOp module, const MemRefType srcType,
   };
 
   if (srcType.getRank() == 1) {
-    auto cst0Op = b.create<arith::ConstantIndexOp>(loc, 0);
-    auto cst1Op = b.create<arith::ConstantIndexOp>(loc, 1);
-    auto size = b.create<memref::DimOp>(loc, src, cst0Op);
+    auto cst0Op = arith::ConstantIndexOp::create(b, loc, 0);
+    auto cst1Op = arith::ConstantIndexOp::create(b, loc, 1);
+    auto size = memref::DimOp::create(b, loc, src, cst0Op);
 
-    auto loop0 = b.create<scf::ForOp>(loc, cst0Op, size, cst1Op);
+    auto loop0 = scf::ForOp::create(b, loc, cst0Op, size, cst1Op);
     auto bt0 = OpBuilder::atBlockTerminator(loop0.getBody());
     auto iv0 = loop0.getInductionVar();
 
-    Value loadOp = bt0.create<memref::LoadOp>(loc, src, ValueRange{iv0});
+    Value loadOp = memref::LoadOp::create(bt0, loc, src, ValueRange{iv0});
     loadOp = insertConversionLogic(bt0, loadOp);
-    bt0.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{iv0});
+    memref::StoreOp::create(bt0, loc, loadOp, dst, ValueRange{iv0});
   } else {
-    Value loadOp = b.create<memref::LoadOp>(loc, src, ValueRange{});
+    Value loadOp = memref::LoadOp::create(b, loc, src, ValueRange{});
     loadOp = insertConversionLogic(b, loadOp);
-    b.create<memref::StoreOp>(loc, loadOp, dst, ValueRange{});
+    memref::StoreOp::create(b, loc, loadOp, dst, ValueRange{});
   }
 
-  b.create<func::ReturnOp>(loc, ValueRange{});
+  func::ReturnOp::create(b, loc, ValueRange{});
 
   return func;
 }
@@ -1939,10 +1946,10 @@ static void emitMemcpy(OpBuilder &b, Value src, Value dst) {
   auto dstFlatType = cast<MemRefType>(dstFlat.getType());
 
   if (srcFlatType == dstFlatType) {
-    b.create<memref::CopyOp>(loc, srcFlat, dstFlat);
+    memref::CopyOp::create(b, loc, srcFlat, dstFlat);
   } else {
     auto memcpyFunc = getMemcpyFuncDecl(module, srcFlatType, dstFlatType);
-    b.create<func::CallOp>(loc, memcpyFunc, ValueRange{srcFlat, dstFlat});
+    func::CallOp::create(b, loc, memcpyFunc, ValueRange{srcFlat, dstFlat});
   }
 }
 
@@ -1956,7 +1963,7 @@ static Value ensureFloatIsF32(OpBuilder &b, Location loc, Value ref,
     return ref;
   Value refFlat = makeNDMemRef(b, ref, 1);
   auto f32NewType = MemRefType::get(refType.getShape(), floatType);
-  auto refNew = b.create<memref::AllocOp>(loc, f32NewType);
+  auto refNew = memref::AllocOp::create(b, loc, f32NewType);
   Value refNewFlat = makeNDMemRef(b, refNew, 1);
   emitMemcpy(b, refFlat, refNewFlat);
   return refNew;
@@ -2148,31 +2155,31 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
       case rock::ConvOpType::Fwd:
         // in_D_idx = out_D_idx * stride_D + fil_D_idx * dilation_D -
         // padding_D_l;
-        applied = b.create<affine::AffineApplyOp>(loc, dMap,
-                                                  ValueRange{resultD, reduceD});
+        applied = affine::AffineApplyOp::create(b, loc, dMap,
+                                                ValueRange{resultD, reduceD});
         break;
       case rock::ConvOpType::BwdData: {
         // out_D_tmp = in_D_idx + padding_D_l - fil_D_idx * dilation_D;
-        Value tmpIdx = b.create<affine::AffineApplyOp>(
-            loc, dMap, ValueRange{resultD, reduceD});
+        Value tmpIdx = affine::AffineApplyOp::create(
+            b, loc, dMap, ValueRange{resultD, reduceD});
         conditionArgs.push_back(tmpIdx);
         // out_D_idx = out_D_tmp / stride_D;
         applied =
-            b.create<affine::AffineApplyOp>(loc, dMap2, ValueRange{tmpIdx});
+            affine::AffineApplyOp::create(b, loc, dMap2, ValueRange{tmpIdx});
         break;
       }
       case rock::ConvOpType::BwdWeight:
         // in_D_idx = out_D_idx * stride_h + fil_D_idx * dilation_h -
         // padding_D_l;
-        applied = b.create<affine::AffineApplyOp>(loc, dMap,
-                                                  ValueRange{reduceD, resultD});
+        applied = affine::AffineApplyOp::create(b, loc, dMap,
+                                                ValueRange{reduceD, resultD});
         break;
       }
       conditionArgs.push_back(applied);
     }
 
     affine::AffineIfOp ifOp =
-        b.create<affine::AffineIfOp>(loc, condition, conditionArgs, false);
+        affine::AffineIfOp::create(b, loc, condition, conditionArgs, false);
     auto thenBody = ifOp.getThenBodyBuilder();
 
     // Perform MAC operation
@@ -2205,23 +2212,23 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
     }
 
     auto loadOp1 =
-        thenBody.create<affine::AffineLoadOp>(loc, opd1, opd1Map, idx1);
+        affine::AffineLoadOp::create(thenBody, loc, opd1, opd1Map, idx1);
     auto loadOp2 =
-        thenBody.create<affine::AffineLoadOp>(loc, opd2, opd2Map, idx2);
+        affine::AffineLoadOp::create(thenBody, loc, opd2, opd2Map, idx2);
     size_t nIVs = genConfig.inputDimension.size();
-    auto loadOutput = thenBody.create<affine::AffineLoadOp>(
-        loc, result, resultStoreMap, ivs.take_front(nIVs));
+    auto loadOutput = affine::AffineLoadOp::create(
+        thenBody, loc, result, resultStoreMap, ivs.take_front(nIVs));
     if (elemType.isIntOrIndex()) {
-      auto muliOp = thenBody.create<arith::MulIOp>(loc, loadOp1, loadOp2);
-      auto extsiOp = thenBody.create<arith::ExtSIOp>(loc, elemType, muliOp);
-      auto addiOp = thenBody.create<arith::AddIOp>(loc, loadOutput, extsiOp);
-      thenBody.create<affine::AffineStoreOp>(
-          loc, addiOp, result, resultStoreMap, ivs.take_front(nIVs));
+      auto muliOp = arith::MulIOp::create(thenBody, loc, loadOp1, loadOp2);
+      auto extsiOp = arith::ExtSIOp::create(thenBody, loc, elemType, muliOp);
+      auto addiOp = arith::AddIOp::create(thenBody, loc, loadOutput, extsiOp);
+      affine::AffineStoreOp::create(thenBody, loc, addiOp, result,
+                                    resultStoreMap, ivs.take_front(nIVs));
     } else {
-      auto mulfOp = thenBody.create<arith::MulFOp>(loc, loadOp1, loadOp2);
-      auto addfOp = thenBody.create<arith::AddFOp>(loc, loadOutput, mulfOp);
-      thenBody.create<affine::AffineStoreOp>(
-          loc, addfOp, result, resultStoreMap, ivs.take_front(nIVs));
+      auto mulfOp = arith::MulFOp::create(thenBody, loc, loadOp1, loadOp2);
+      auto addfOp = arith::AddFOp::create(thenBody, loc, loadOutput, mulfOp);
+      affine::AffineStoreOp::create(thenBody, loc, addfOp, result,
+                                    resultStoreMap, ivs.take_front(nIVs));
     }
   };
 
@@ -2230,9 +2237,9 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
                               createConvLoopNest);
 
   if (!isa<BlockArgument>(opd1))
-    b.create<memref::DeallocOp>(loc, opd1);
+    memref::DeallocOp::create(b, loc, opd1);
   if (!isa<BlockArgument>(opd2))
-    b.create<memref::DeallocOp>(loc, opd2);
+    memref::DeallocOp::create(b, loc, opd2);
   if (!isa<BlockArgument>(result)) {
     BlockArgument resultBlockArg;
     switch (genConfig.operation.value()) {
@@ -2249,10 +2256,10 @@ createCPUConvWithMLIR(ModuleOp module, func::FuncOp func,
 
     Value resultFlat = makeNDMemRef(b, result, 1);
     emitMemcpy(b, resultFlat, resultBlockArg);
-    b.create<memref::DeallocOp>(loc, result);
+    memref::DeallocOp::create(b, loc, result);
   }
 
-  b.create<func::ReturnOp>(loc, ValueRange{});
+  func::ReturnOp::create(b, loc, ValueRange{});
 }
 
 static func::FuncOp
@@ -2368,8 +2375,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   SmallVector<Type, 3> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
   auto func =
-      b.create<func::FuncOp>(loc, isVerifier ? kernelNameVerifier : kernelName,
-                             b.getFunctionType(flatTypes, {}), funcAttrs);
+      func::FuncOp::create(b, loc, isVerifier ? kernelNameVerifier : kernelName,
+                           b.getFunctionType(flatTypes, {}), funcAttrs);
 
   constexpr StringLiteral gName = "g", mName = "m", kName = "k", nName = "n";
   SmallVector<SmallVector<StringRef>> allArgNames;
@@ -2388,8 +2395,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
 
-  auto gemm = b.create<rock::GemmOp>(
-      loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
+  auto gemm = rock::GemmOp::create(
+      b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
       transposeB, transposeC,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
@@ -2397,7 +2404,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
 
-  b.create<func::ReturnOp>(loc);
+  func::ReturnOp::create(b, loc);
 
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
@@ -2641,24 +2648,6 @@ getGemmElementwiseGemmDimNames(SmallVectorImpl<SmallVector<StringRef>> &result,
     result.emplace_back(SmallVector<StringRef>{gName, m, gemmO});
 }
 
-template <typename TosaOp, typename... Args>
-static TosaOp createOpAndInfer(OpBuilder &builder, Location loc, Type elemType,
-                               Args &&...args) {
-  auto op =
-      builder.create<TosaOp>(loc, UnrankedTensorType::get(elemType), args...);
-  InferShapedTypeOpInterface shapeInterface =
-      cast<InferShapedTypeOpInterface>(op.getOperation());
-  SmallVector<ShapedTypeComponents> returnShape;
-  LogicalResult shapeInferenceStatus = shapeInterface.inferReturnTypeComponents(
-      op.getContext(), op.getLoc(), op->getOperands(), op->getAttrDictionary(),
-      op->getPropertiesStorage(), op->getRegions(), returnShape);
-  assert(shapeInferenceStatus.succeeded());
-  Type newOutTy = RankedTensorType::get({returnShape[0].getDims()}, elemType);
-  auto result = op->getResult(0);
-  result.setType(newOutTy);
-  return op;
-}
-
 static Value addTensorArgToBlock(OpBuilder &builder, Location loc,
                                  Block *preSoftmaxElemwiseBlock,
                                  Value funcArg) {
@@ -2686,13 +2675,32 @@ static Value applyMask(OpBuilder builder, Location loc, Value inputTensor,
   DenseElementsAttr initValueAttr = DenseFPElementsAttr::get(
       RankedTensorType::get(inpShape, inpType.getElementType()), fpVal);
 
-  Value initVal = builder.create<tosa::ConstOp>(loc, initValueAttr.getType(),
-                                                initValueAttr);
+  Value initVal = tosa::ConstOp::create(builder, loc, initValueAttr.getType(),
+                                        initValueAttr);
 
   // mask is 1 for values we want to set to "initVal"
-  auto result = createOpAndInfer<tosa::SelectOp>(
+  auto result = rock::tosa::createOpAndInfer<tosa::SelectOp>(
       builder, loc, inpType.getElementType(), mask, initVal, inputTensor);
   return result;
+}
+
+static Value getOneTensor(OpBuilder &builder, Location loc,
+                          RankedTensorType type) {
+  auto value = cast<ElementsAttr>(builder.getOneAttr(type));
+  return tosa::ConstOp::create(builder, loc, type, value);
+}
+
+static tosa::MulOp getMulOp(OpBuilder &builder, Location loc, Value input1,
+                            Value input2, Type elemType) {
+  auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
+  elemType = getElementTypeOrSelf(elemType);
+  auto shiftZeroAttr = DenseElementsAttr::get(
+      shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
+  Value constZero =
+      tosa::ConstOp::create(builder, loc, shiftType, shiftZeroAttr);
+  auto mulOp = rock::tosa::createOpAndInfer<tosa::MulOp>(
+      builder, loc, elemType, input1, input2, /*shift=*/constZero);
+  return mulOp;
 }
 
 static Value createRange(OpBuilder builder, Location loc, size_t index,
@@ -2707,7 +2715,7 @@ static Value createRange(OpBuilder builder, Location loc, size_t index,
   DenseElementsAttr rangeAttr = DenseIntElementsAttr::get(
       RankedTensorType::get({inpShape[index]}, builder.getI32Type()), range);
   Value rangeVal =
-      builder.create<tosa::ConstOp>(loc, rangeAttr.getType(), rangeAttr);
+      tosa::ConstOp::create(builder, loc, rangeAttr.getType(), rangeAttr);
 
   // reshape
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
@@ -2717,16 +2725,14 @@ static Value createRange(OpBuilder builder, Location loc, size_t index,
     newShape.push_back((i == index) ? inpShape[index] : 1);
 
   auto shapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
-  auto rangeValReshaped = createOpAndInfer<tosa::ReshapeOp>(
+  auto rangeValReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, builder.getI32Type(), rangeVal, shapeValue);
 
   // broadcast range to inputTensor shape
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
-  auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
-  auto zeroTensor = builder.create<tosa::ConstOp>(loc, outType, zeroValue);
-  auto rangeBroadcast = createOpAndInfer<tosa::AddOp>(
-      builder, loc, builder.getI32Type(), zeroTensor, rangeValReshaped);
-
+  auto rangeBroadcast = rock::tosa::getMulOp(
+      builder, loc, rangeValReshaped,
+      rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
   return rangeBroadcast;
 }
 
@@ -2740,7 +2746,7 @@ static Value causalMaskingTosa(OpBuilder builder, Location loc,
   Value colRange = createRange(builder, loc, 2, inpShape);
 
   // create mask (diagonal and lower triangular are zero)
-  auto mask = createOpAndInfer<tosa::GreaterOp>(
+  auto mask = rock::tosa::createOpAndInfer<tosa::GreaterOp>(
       builder, loc, builder.getIntegerType(1), colRange, rowRange);
 
   // apply mask
@@ -2758,7 +2764,7 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
                                       origShape[1], origShape[2]};
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
   auto newShapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
-  inputTensor = createOpAndInfer<tosa::ReshapeOp>(
+  inputTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, origType.getElementType(), inputTensor, newShapeValue);
 
   auto inpType = cast<RankedTensorType>(inputTensor.getType());
@@ -2772,23 +2778,20 @@ static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
 
   // zero tensor
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
-  auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
-  auto zeroTensor = builder.create<tosa::ConstOp>(loc, outType, zeroValue);
-
   // broadcast currentSeqLen
-  auto currentSeqLenBroadcast = createOpAndInfer<tosa::AddOp>(
-      builder, loc, builder.getI32Type(), zeroTensor, currentSeqLenVal);
-
+  auto currentSeqLenBroadcast = rock::tosa::getMulOp(
+      builder, loc, currentSeqLenVal,
+      rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
   // create mask
-  auto mask =
-      createOpAndInfer<tosa::GreaterOp>(builder, loc, builder.getIntegerType(1),
-                                        rangeBroadcast, currentSeqLenBroadcast);
+  auto mask = rock::tosa::createOpAndInfer<tosa::GreaterOp>(
+      builder, loc, builder.getIntegerType(1), rangeBroadcast,
+      currentSeqLenBroadcast);
 
   Value result = applyMask(builder, loc, inputTensor, mask, initValue);
 
   // reshape result back to [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
   auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
-  auto resultReshaped = createOpAndInfer<tosa::ReshapeOp>(
+  auto resultReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, inpType.getElementType(), result, origShapeValue);
 
   return resultReshaped;
@@ -2811,8 +2814,8 @@ static Value broadcastBatchTosa(OpBuilder builder, Location loc,
   }
 
   auto newType = RankedTensorType::get(expandedShape, inpType.getElementType());
-  auto expandedValue = builder.create<tensor::ExpandShapeOp>(
-      loc, newType, inputTensor, reassocIndices);
+  auto expandedValue = tensor::ExpandShapeOp::create(
+      builder, loc, newType, inputTensor, reassocIndices);
 
   // broadcast
   SmallVector<int64_t, 4> outShape = {inpShape[0], numRepeat};
@@ -2820,20 +2823,13 @@ static Value broadcastBatchTosa(OpBuilder builder, Location loc,
     outShape.push_back(inpShape[i]);
   auto outType = RankedTensorType::get(outShape, inpType.getElementType());
 
-  auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
-  auto zeroTensor = builder.create<tosa::ConstOp>(loc, outType, zeroValue);
-  auto addWithZero = createOpAndInfer<tosa::AddOp>(
-      builder, loc, inpType.getElementType(), zeroTensor, expandedValue);
-
+  auto mulWithOne =
+      rock::tosa::getMulOp(builder, loc, expandedValue,
+                           rock::tosa::getOneTensor(builder, loc, outType),
+                           inpType.getElementType());
   // collapse
-  return builder.create<tensor::CollapseShapeOp>(loc, addWithZero,
-                                                 reassocIndices);
-}
-
-static Value transposeMatrix(OpBuilder &builder, Location loc, Value src,
-                             ArrayRef<int32_t> perm) {
-  auto elemType = cast<RankedTensorType>(src.getType()).getElementType();
-  return createOpAndInfer<tosa::TransposeOp>(builder, loc, elemType, src, perm);
+  return tensor::CollapseShapeOp::create(builder, loc, mulWithOne,
+                                         reassocIndices);
 }
 
 static Value createMaskSplitKV(OpBuilder &builder, Location loc,
@@ -2860,15 +2856,13 @@ static Value createMaskSplitKV(OpBuilder &builder, Location loc,
 
   // Create zero tensor of target shape
   auto outType = RankedTensorType::get(shape, builder.getI32Type());
-  auto zeroValue = cast<ElementsAttr>(builder.getZeroAttr(outType));
-  Value zeroTensor = builder.create<tosa::ConstOp>(loc, outType, zeroValue);
 
-  // Use tosa.add to broadcast reshaped [batch,1,1,...] to [batch,D1,D2,...]
-  Value validSplitKVTensor =
-      builder.create<tosa::AddOp>(loc, outType, zeroTensor, initialTensor);
-
+  // Use tosa.mul to broadcast reshaped [batch,1,1,...] to [batch,D1,D2,...]
+  Value validSplitKVTensor = rock::tosa::getMulOp(
+      builder, loc, initialTensor,
+      rock::tosa::getOneTensor(builder, loc, outType), outType);
   // create mask
-  return createOpAndInfer<tosa::GreaterEqualOp>(
+  return rock::tosa::createOpAndInfer<tosa::GreaterEqualOp>(
       builder, loc, builder.getIntegerType(1), rangeTensor, validSplitKVTensor);
 }
 
@@ -2895,16 +2889,17 @@ static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
   auto newResultShapeValue =
       tosa::getTosaConstShape(implicitBuilder, newResultShape);
-  resultTensor = createOpAndInfer<tosa::ReshapeOp>(
+  resultTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, elementType, resultTensor, newResultShapeValue);
   if (transposeO)
-    resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 1, 3, 2});
+    resultTensor =
+        rock::tosa::getTransposeOp(builder, loc, resultTensor, {0, 1, 3, 2});
 
   SmallVector<int64_t> newLseShape = {groupSize * numHeadsQ, splitKV,
                                       sequenceLengthQ, 1};
   auto newLseShapeValue = tosa::getTosaConstShape(implicitBuilder, newLseShape);
-  lseTensor = createOpAndInfer<tosa::ReshapeOp>(builder, loc, elementType,
-                                                lseTensor, newLseShapeValue);
+  lseTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, elementType, lseTensor, newLseShapeValue);
 
   Value resultTensorMask = createMaskSplitKV(
       builder, loc, newResultShapeAfterTranpose, 1, validSplitKV);
@@ -2918,34 +2913,30 @@ static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
                         -std::numeric_limits<float>::infinity());
 
   IntegerAttr axisAttr = builder.getI32IntegerAttr(1);
-  auto maxSplitKV = createOpAndInfer<tosa::ReduceMaxOp>(
+  auto maxSplitKV = rock::tosa::createOpAndInfer<tosa::ReduceMaxOp>(
       builder, loc, elementType, lseTensor, axisAttr);
 
-  auto norm = createOpAndInfer<tosa::SubOp>(builder, loc, elementType,
-                                            lseTensor, maxSplitKV);
-  auto exp = createOpAndInfer<tosa::ExpOp>(builder, loc, elementType, norm);
+  auto norm = rock::tosa::createOpAndInfer<tosa::SubOp>(
+      builder, loc, elementType, lseTensor, maxSplitKV);
+  auto exp = rock::tosa::createOpAndInfer<tosa::ExpOp>(builder, loc,
+                                                       elementType, norm);
 
-  auto sumExpNorm = createOpAndInfer<tosa::ReduceSumOp>(
+  auto sumExpNorm = rock::tosa::createOpAndInfer<tosa::ReduceSumOp>(
       builder, loc, elementType, exp, axisAttr);
-  auto sumExpNormRecip = createOpAndInfer<tosa::ReciprocalOp>(
+  auto sumExpNormRecip = rock::tosa::createOpAndInfer<tosa::ReciprocalOp>(
       builder, loc, elementType, sumExpNorm);
 
-  auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
-  auto shiftZeroAttr = DenseElementsAttr::get(
-      shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
-  Value constZero =
-      builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
-  Value outExp = createOpAndInfer<tosa::MulOp>(builder, loc, elementType, exp,
-                                               resultTensor, constZero);
+  Value outExp =
+      rock::tosa::getMulOp(builder, loc, exp, resultTensor, elementType);
 
   // apply mask to outExp to prevent NaN values
   outExp = applyMask(builder, loc, outExp, resultTensorMask, 0.0f);
 
-  auto outExpNorm = createOpAndInfer<tosa::ReduceSumOp>(
+  auto outExpNorm = rock::tosa::createOpAndInfer<tosa::ReduceSumOp>(
       builder, loc, elementType, outExp, axisAttr);
 
-  Value finalResult = createOpAndInfer<tosa::MulOp>(
-      builder, loc, elementType, outExpNorm, sumExpNormRecip, constZero);
+  Value finalResult = rock::tosa::getMulOp(builder, loc, outExpNorm,
+                                           sumExpNormRecip, elementType);
 
   // broadcast the result in splitKV dimension
   // we have to do this because both cpu and gpu buffers have the same shape.
@@ -2953,7 +2944,8 @@ static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
   // we have to broadcast the result.
   finalResult = broadcastBatchTosa(builder, loc, finalResult, splitKV);
   if (transposeO)
-    finalResult = transposeMatrix(builder, loc, finalResult, {0, 1, 3, 2});
+    finalResult =
+        rock::tosa::getTransposeOp(builder, loc, finalResult, {0, 1, 3, 2});
 
   // convert to one dimensional tensor
   SmallVector<ReassociationIndices> reassocIndices = {{0, 1, 2, 3}};
@@ -2982,19 +2974,19 @@ static Value broadcastKVCacheRock(OpBuilder builder, Location loc,
   addDim.passThrough(ArrayRef<uint32_t>{0}, ArrayRef<uint32_t>{0});
   auto addDimAttr = addDim.get();
   Value matrixAddDim =
-      builder.create<rock::TransformOp>(loc, inputTensor, addDimAttr);
+      rock::TransformOp::create(builder, loc, inputTensor, addDimAttr);
 
   auto broadcaster = rock::BottomUpTMBuilder::above(addDim, addDimAttr);
   broadcaster.broadcast({1}, {numHeadsQ});
   broadcaster.passThrough(ArrayRef<uint32_t>{0}, ArrayRef<uint32_t>{0});
   auto broadcasterAttr = broadcaster.get();
   Value tensorBroadcast =
-      builder.create<rock::TransformOp>(loc, matrixAddDim, broadcasterAttr);
+      rock::TransformOp::create(builder, loc, matrixAddDim, broadcasterAttr);
 
   auto merger = rock::BottomUpTMBuilder::above(broadcaster, broadcasterAttr);
   merger.merge("gemmG", 0, {"gemmG", "numHeadsQ"});
   auto mergerAttr = merger.get();
-  return builder.create<rock::TransformOp>(loc, tensorBroadcast, mergerAttr);
+  return rock::TransformOp::create(builder, loc, tensorBroadcast, mergerAttr);
 }
 
 static func::FuncOp createGpuAttentionKernel(ModuleOp module,
@@ -3024,8 +3016,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_attention");
-  auto func = builder.create<func::FuncOp>(
-      loc, kernelName, builder.getFunctionType(flatArgTypes, {}), funcAttrs);
+  auto func = func::FuncOp::create(builder, loc, kernelName,
+                                   builder.getFunctionType(flatArgTypes, {}),
+                                   funcAttrs);
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3075,7 +3068,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
-  auto attention = builder.create<rock::AttentionOp>(
+  auto attention = rock::AttentionOp::create(builder,
       loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, numHeadsQ, numHeadsKV, transposeQ,
       transposeK, transposeV, transposeO, causalMasking, splitKV,
@@ -3103,56 +3096,45 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
           addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, quantBias);
       Value quantScaleF16 = addTensorArgToBlock(
           builder, loc, preSoftmaxElemwiseBlock, quantScale);
-      Value quantBiasI32 = createOpAndInfer<tosa::CastOp>(
+      Value quantBiasI32 = rock::tosa::createOpAndInfer<tosa::CastOp>(
           builder, loc, IntegerType::get(ctx, 32), quantBiasI8);
-      qkTensor = createOpAndInfer<tosa::SubOp>(
+      qkTensor = rock::tosa::createOpAndInfer<tosa::SubOp>(
           builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
-      qkTensor = createOpAndInfer<tosa::CastOp>(
+      qkTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
           builder, loc, Float16Type::get(ctx), qkTensor);
-      auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
-      auto shiftZeroAttr = DenseElementsAttr::get(
-          shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
-      Value constZero =
-          builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
-      qkTensor = createOpAndInfer<tosa::MulOp>(
-          builder, loc, Float16Type::get(ctx), qkTensor, quantScaleF16,
-          /*shift=*/constZero);
+
+      qkTensor = rock::tosa::getMulOp(builder, loc, qkTensor, quantScaleF16,
+                                      Float16Type::get(ctx));
     }
     if (hasAttnScale) {
       Value scaleTensor =
           addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, scale);
-      auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
-      auto shiftZeroAttr = DenseElementsAttr::get(
-          shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
-      Value constZero =
-          builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
-      qkTensor = createOpAndInfer<tosa::MulOp>(
-          builder, loc,
-          cast<ShapedType>(scaleTensor.getType()).getElementType(), qkTensor,
-          scaleTensor, /*shift=*/constZero);
+      qkTensor = rock::tosa::getMulOp(
+          builder, loc, qkTensor, scaleTensor,
+          cast<ShapedType>(scaleTensor.getType()).getElementType());
     }
     if (hasAttnBias) {
       Value biasTensor =
           addTensorArgToBlock(builder, loc, preSoftmaxElemwiseBlock, bias);
-      qkTensor = createOpAndInfer<tosa::AddOp>(
+      qkTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
           builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
           qkTensor, biasTensor);
     }
     MemRefType resMemRefType =
         MemRefType::get({qShape[0], sequenceLengthQ, sequenceLengthK},
                         cast<ShapedType>(qkTensor.getType()).getElementType());
-    Value resMemref = builder.create<bufferization::ToBufferOp>(
-        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
+    Value resMemref = bufferization::ToBufferOp::create(
+        builder, loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
         qkTensor);
     Value outMemref = preSoftmaxElemwiseBlock->addArgument(resMemRefType, loc);
-    builder.create<memref::CopyOp>(loc, resMemref, outMemref);
-    builder.create<rock::YieldOp>(loc);
+    memref::CopyOp::create(builder, loc, resMemref, outMemref);
+    rock::YieldOp::create(builder, loc);
   }
 
   if (!params.perfConfig.empty())
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
-  builder.create<func::ReturnOp>(loc);
+  func::ReturnOp::create(builder, loc);
   module.push_back(func);
   return func;
 }
@@ -3184,8 +3166,9 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_conv_gemm");
-  auto func = builder.create<func::FuncOp>(
-      loc, kernelName, builder.getFunctionType(flatArgTypes, {}), funcAttrs);
+  auto func = func::FuncOp::create(builder, loc, kernelName,
+                                   builder.getFunctionType(flatArgTypes, {}),
+                                   funcAttrs);
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3208,9 +3191,9 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     pad.push_back(left);
     pad.push_back(right);
   }
-  auto convElntGemm = builder.create<rock::ConvElementwiseGemmOp>(
-      loc, TypeRange{}, filter, input, c, elemwiseInputs, output, transposeC,
-      transposeO,
+  auto convElntGemm = rock::ConvElementwiseGemmOp::create(
+      builder, loc, TypeRange{}, filter, input, c, elemwiseInputs, output,
+      transposeC, transposeO,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod, builder.getIndexArrayAttr(pad),
       builder.getIndexArrayAttr(config->strideDims),
@@ -3232,12 +3215,12 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     MemRefType resMemRefType =
         MemRefType::get({aShape[0], firstGemmSize.m, firstGemmSize.n},
                         cast<ShapedType>(abTensor.getType()).getElementType());
-    Value resMemref = builder.create<bufferization::ToBufferOp>(
-        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
+    Value resMemref = bufferization::ToBufferOp::create(
+        builder, loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
         abTensor);
     Value outMemref = preSecondGemmBlock->addArgument(resMemRefType, loc);
-    builder.create<memref::CopyOp>(loc, resMemref, outMemref);
-    builder.create<rock::YieldOp>(loc);
+    memref::CopyOp::create(builder, loc, resMemref, outMemref);
+    rock::YieldOp::create(builder, loc);
   }
 
   if (!params.perfConfig.empty())
@@ -3259,7 +3242,7 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                         builder.getArrayAttr(ArrayRef<Attribute>(
                             inputLayoutSpec.begin(), inputLayoutSpec.end())));
 
-  builder.create<func::ReturnOp>(loc);
+  func::ReturnOp::create(builder, loc);
 
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
@@ -3295,8 +3278,9 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
 
   constexpr StringLiteral kernelName("rock_gemm_gemm");
-  auto func = builder.create<func::FuncOp>(
-      loc, kernelName, builder.getFunctionType(flatArgTypes, {}), funcAttrs);
+  auto func = func::FuncOp::create(builder, loc, kernelName,
+                                   builder.getFunctionType(flatArgTypes, {}),
+                                   funcAttrs);
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3313,9 +3297,9 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   Value output = unflattenedArgs[3];
   SmallVector<Value> elemwiseInputs;
 
-  auto gemmElntGemm = builder.create<rock::GemmElementwiseGemmOp>(
-      loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA, transposeB,
-      transposeC, transposeO,
+  auto gemmElntGemm = rock::GemmElementwiseGemmOp::create(
+      builder, loc, TypeRange{}, a, b, c, elemwiseInputs, output, transposeA,
+      transposeB, transposeC, transposeO,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod,
       /*params0=*/nullptr, /*params1=*/nullptr,
@@ -3335,19 +3319,19 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     MemRefType resMemRefType =
         MemRefType::get({aShape[0], gemmM, gemmN},
                         cast<ShapedType>(abTensor.getType()).getElementType());
-    Value resMemref = builder.create<bufferization::ToBufferOp>(
-        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
+    Value resMemref = bufferization::ToBufferOp::create(
+        builder, loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType),
         abTensor);
     Value outMemref = preSecondGemmBlock->addArgument(resMemRefType, loc);
-    builder.create<memref::CopyOp>(loc, resMemref, outMemref);
-    builder.create<rock::YieldOp>(loc);
+    memref::CopyOp::create(builder, loc, resMemref, outMemref);
+    rock::YieldOp::create(builder, loc);
   }
 
   if (!params.perfConfig.empty())
     gemmElntGemm->setAttr("perf_config",
                           builder.getStringAttr(params.perfConfig));
 
-  builder.create<func::ReturnOp>(loc);
+  func::ReturnOp::create(builder, loc);
 
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
@@ -3370,8 +3354,8 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_gemm");
-  auto func = b.create<func::FuncOp>(loc, cpuKernName,
-                                     b.getFunctionType(flatArgTypes, {}));
+  auto func = func::FuncOp::create(b, loc, cpuKernName,
+                                   b.getFunctionType(flatArgTypes, {}));
   module.push_back(func);
 
   Block *block = func.addEntryBlock();
@@ -3389,7 +3373,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   auto cType = cast<MemRefType>(cVal.getType());
   Value zeroOut = rock::createZeroConstantOp(b, loc, cType.getElementType());
 
-  b.create<linalg::FillOp>(loc, zeroOut, cVal);
+  linalg::FillOp::create(b, loc, zeroOut, cVal);
 
   auto expandArg = [&loc, &b](Value arg, Type rawLogicalType) -> Value {
     auto logicalType = cast<MemRefType>(rawLogicalType);
@@ -3400,7 +3384,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
     ArrayRef<int64_t> logicalShape = logicalType.getShape();
     ReassociationIndices allDims = llvm::to_vector(
         llvm::iota_range<int64_t>(0, logicalShape.size(), false));
-    return b.create<memref::ExpandShapeOp>(loc, logicalType, arg, allDims);
+    return memref::ExpandShapeOp::create(b, loc, logicalType, arg, allDims);
   };
   AffineExpr g = b.getAffineDimExpr(0), m = b.getAffineDimExpr(1),
              n = b.getAffineDimExpr(2), k = b.getAffineDimExpr(3);
@@ -3413,8 +3397,8 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   Value aExpVal = expandArg(aVal, argTypes[0]),
         bExpVal = expandArg(bVal, argTypes[1]),
         cExpVal = expandArg(cVal, argTypes[2]);
-  b.create<linalg::GenericOp>(
-      loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
+  linalg::GenericOp::create(
+      b, loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
       ArrayRef<AffineMap>{aMap, bMap, cMap},
       ArrayRef<utils::IteratorType>{
           utils::IteratorType::parallel, utils::IteratorType::parallel,
@@ -3426,28 +3410,28 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
         if (isa<IntegerType>(cType)) {
           Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
           Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
-          Value mul = builder.create<arith::MulIOp>(loc, aExt, bExt);
-          Value add = builder.create<arith::AddIOp>(loc, mul, c);
-          builder.create<linalg::YieldOp>(loc, add);
+          Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
+          Value add = arith::AddIOp::create(builder, loc, mul, c);
+          linalg::YieldOp::create(builder, loc, add);
         } else {
-          Value mul = builder.create<arith::MulFOp>(loc, a, b);
-          Value add = builder.create<arith::AddFOp>(loc, mul, c);
-          builder.create<linalg::YieldOp>(loc, add);
+          Value mul = arith::MulFOp::create(builder, loc, a, b);
+          Value add = arith::AddFOp::create(builder, loc, mul, c);
+          linalg::YieldOp::create(builder, loc, add);
         }
       });
 
   if (!isa<BlockArgument>(aVal))
-    b.create<memref::DeallocOp>(loc, aVal);
+    memref::DeallocOp::create(b, loc, aVal);
   if (!isa<BlockArgument>(bVal))
-    b.create<memref::DeallocOp>(loc, bVal);
+    memref::DeallocOp::create(b, loc, bVal);
   if (!isa<BlockArgument>(cVal)) {
     BlockArgument resultBlockArg = block->getArgument(2);
     Value resultFlat = makeNDMemRef(b, cVal, 1);
     emitMemcpy(b, resultFlat, resultBlockArg);
-    b.create<memref::DeallocOp>(loc, cVal);
+    memref::DeallocOp::create(b, loc, cVal);
   }
 
-  b.create<func::ReturnOp>(loc);
+  func::ReturnOp::create(b, loc);
   return func;
 }
 
@@ -3466,7 +3450,7 @@ static Value squeeze(OpBuilder &builder, Location loc, Value src,
   }
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
   auto shapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
-  return builder.create<tosa::ReshapeOp>(loc, src, shapeValue);
+  return tosa::ReshapeOp::create(builder, loc, src, shapeValue);
 }
 
 static Value convOutToGemmA(OpBuilder &builder, Location loc, Value convOut,
@@ -3475,19 +3459,7 @@ static Value convOutToGemmA(OpBuilder &builder, Location loc, Value convOut,
   SmallVector<int64_t> newShape = {1, firstGemmSize.n, firstGemmSize.m};
   ImplicitLocOpBuilder implicitBuilder(loc, builder);
   auto shapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
-  return builder.create<tosa::ReshapeOp>(loc, convOut, shapeValue);
-}
-
-static Type getAccType(Type inputType, OpBuilder builder) {
-  Type accType;
-  if (isa<FloatType>(inputType)) {
-    accType = builder.getF32Type();
-  } else if (isa<IntegerType>(inputType)) {
-    accType = builder.getI32Type();
-  } else {
-    llvm_unreachable("not expected type");
-  }
-  return accType;
+  return tosa::ReshapeOp::create(builder, loc, convOut, shapeValue);
 }
 
 static func::FuncOp
@@ -3506,8 +3478,8 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_conv_gemm");
-  auto func = builder.create<func::FuncOp>(
-      loc, cpuKernName, builder.getFunctionType(flatArgTypes, {}));
+  auto func = func::FuncOp::create(builder, loc, cpuKernName,
+                                   builder.getFunctionType(flatArgTypes, {}));
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3516,8 +3488,8 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
                                &argTypes](unsigned blockArgIndex,
                                           bool isWritable = false) {
     constexpr bool isRestrict{true};
-    Value flatTensor = builder.create<bufferization::ToTensorOp>(
-        loc,
+    Value flatTensor = bufferization::ToTensorOp::create(
+        builder, loc,
         memref::getTensorTypeFromMemRefType(
             block->getArgument(blockArgIndex).getType()),
         block->getArgument(blockArgIndex), isRestrict, isWritable);
@@ -3532,11 +3504,11 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
       llvm::copy(origShape, expShape.begin() + 1);
       auto shapeValue = tosa::getTosaConstShape(implicitBuilder, expShape);
       reshapedTensor =
-          builder.create<tosa::ReshapeOp>(loc, flatTensor, shapeValue);
+          tosa::ReshapeOp::create(builder, loc, flatTensor, shapeValue);
     } else {
       auto shapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
       reshapedTensor =
-          builder.create<tosa::ReshapeOp>(loc, flatTensor, shapeValue);
+          tosa::ReshapeOp::create(builder, loc, flatTensor, shapeValue);
     }
     return reshapedTensor;
   };
@@ -3561,8 +3533,8 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
   int32_t wDim = (filterInfo.imageDims[1] < filterInfo.gDim)
                      ? filterInfo.imageDims[1]
                      : filterInfo.imageDims[1] - 1;
-  filterTensor =
-      transposeMatrix(builder, loc, filterTensor, {kDim, hDim, wDim, cDim});
+  filterTensor = rock::tosa::getTransposeOp(builder, loc, filterTensor,
+                                            {kDim, hDim, wDim, cDim});
   auto inputTensor = getTensorForBlockArg(1);
   inputTensor = squeeze(builder, loc, inputTensor, inputInfo.gDim);
   int32_t nDim = (inputInfo.nonImg1Dim < inputInfo.gDim)
@@ -3574,12 +3546,12 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
                                                    : inputInfo.imageDims[0] - 1;
   wDim = (inputInfo.imageDims[1] < inputInfo.gDim) ? inputInfo.imageDims[1]
                                                    : inputInfo.imageDims[1] - 1;
-  inputTensor =
-      transposeMatrix(builder, loc, inputTensor, {nDim, hDim, wDim, cDim});
+  inputTensor = rock::tosa::getTransposeOp(builder, loc, inputTensor,
+                                           {nDim, hDim, wDim, cDim});
 
   auto cTensor = getTensorForBlockArg(2);
   if (transposeC) {
-    cTensor = transposeMatrix(builder, loc, cTensor, {0, 2, 1});
+    cTensor = rock::tosa::getTransposeOp(builder, loc, cTensor, {0, 2, 1});
   }
   auto inputZp =
       tosa::createZeroPointTensor(builder, loc, inputTensor.getType(), 0)
@@ -3590,13 +3562,13 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
 
   Type convOutElemType = params.types[2];
   // accumulate in 32 bit
-  Type firstAccType = getAccType(params.types[0], builder);
-  assert(firstAccType == getAccType(params.types[1], builder));
+  Type firstAccType = rock::tosa::getAccType(builder, params.types[0]);
+  assert(firstAccType == rock::tosa::getAccType(builder, params.types[1]));
 
   auto biasTy = RankedTensorType::get(
       cast<ShapedType>(filterTensor.getType()).getShape()[0], convOutElemType);
-  auto biasTensor = builder.create<tosa::ConstOp>(
-      loc, biasTy, cast<ElementsAttr>(builder.getZeroAttr(biasTy)));
+  auto biasTensor = tosa::ConstOp::create(
+      builder, loc, biasTy, cast<ElementsAttr>(builder.getZeroAttr(biasTy)));
 
   SmallVector<int64_t> pads;
   assert(config->paddingLeftDims.size() == config->paddingRightDims.size());
@@ -3605,7 +3577,7 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
     pads.push_back(config->paddingRightDims[i]);
   }
 
-  Value convOut = createOpAndInfer<tosa::Conv2DOp>(
+  Value convOut = rock::tosa::createOpAndInfer<tosa::Conv2DOp>(
       builder, loc, convOutElemType, inputTensor, filterTensor, biasTensor,
       inputZp, weightZp, builder.getDenseI64ArrayAttr(pads),
       builder.getDenseI64ArrayAttr(config->strideDims),
@@ -3621,15 +3593,16 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, cTensor.getType(), 0).value();
   Type secondGemmOutElemType = params.types[3];
   // accumulate in 32 bit
-  Type secondAccType = getAccType(convOutElemType, builder);
-  assert(secondAccType == getAccType(params.types[2], builder));
-  auto resultTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+  Type secondAccType = rock::tosa::getAccType(builder, convOutElemType);
+  assert(secondAccType == rock::tosa::getAccType(builder, params.types[2]));
+  auto resultTensorMatMul = rock::tosa::createOpAndInfer<tosa::MatMulOp>(
       builder, loc, secondGemmOutElemType, gemmA, cTensor, abZp, cZp);
   resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
   Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
-    resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
+    resultTensor =
+        rock::tosa::getTransposeOp(builder, loc, resultTensor, {0, 2, 1});
   }
 
   Value output = block->getArguments().back();
@@ -3639,14 +3612,14 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
   auto shapeValue = tosa::getTosaConstShape(
       implicitBuilder, cast<ShapedType>(outputType).getShape());
   auto flatResultTensor =
-      builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
+      tosa::ReshapeOp::create(builder, loc, resultTensor, shapeValue);
 
-  auto flatResultMemref = builder.create<bufferization::ToBufferOp>(
-      loc, outputType, flatResultTensor);
+  auto flatResultMemref = bufferization::ToBufferOp::create(
+      builder, loc, outputType, flatResultTensor);
 
-  builder.create<memref::CopyOp>(loc, flatResultMemref, output);
+  memref::CopyOp::create(builder, loc, flatResultMemref, output);
 
-  builder.create<func::ReturnOp>(loc);
+  func::ReturnOp::create(builder, loc);
   module.push_back(func);
   return func;
 }
@@ -3664,8 +3637,8 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_gemm_gemm");
-  auto func = builder.create<func::FuncOp>(
-      loc, cpuKernName, builder.getFunctionType(flatArgTypes, {}));
+  auto func = func::FuncOp::create(builder, loc, cpuKernName,
+                                   builder.getFunctionType(flatArgTypes, {}));
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3674,8 +3647,8 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
                                &argTypes](unsigned blockArgIndex,
                                           bool isWritable = false) {
     constexpr bool isRestrict{true};
-    Value flatTensor = builder.create<bufferization::ToTensorOp>(
-        loc,
+    Value flatTensor = bufferization::ToTensorOp::create(
+        builder, loc,
         memref::getTensorTypeFromMemRefType(
             block->getArgument(blockArgIndex).getType()),
         block->getArgument(blockArgIndex), isRestrict, isWritable);
@@ -3690,26 +3663,26 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
       llvm::copy(origShape, expShape.begin() + 1);
       auto shapeValue = tosa::getTosaConstShape(implicitBuilder, expShape);
       reshapedTensor =
-          builder.create<tosa::ReshapeOp>(loc, flatTensor, shapeValue);
+          tosa::ReshapeOp::create(builder, loc, flatTensor, shapeValue);
     } else {
       auto shapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
       reshapedTensor =
-          builder.create<tosa::ReshapeOp>(loc, flatTensor, shapeValue);
+          tosa::ReshapeOp::create(builder, loc, flatTensor, shapeValue);
     }
     return reshapedTensor;
   };
 
   auto aTensor = getTensorForBlockArg(0);
   if (transposeA) {
-    aTensor = transposeMatrix(builder, loc, aTensor, {0, 2, 1});
+    aTensor = rock::tosa::getTransposeOp(builder, loc, aTensor, {0, 2, 1});
   }
   auto bTensor = getTensorForBlockArg(1);
   if (transposeB) {
-    bTensor = transposeMatrix(builder, loc, bTensor, {0, 2, 1});
+    bTensor = rock::tosa::getTransposeOp(builder, loc, bTensor, {0, 2, 1});
   }
   auto cTensor = getTensorForBlockArg(2);
   if (transposeC) {
-    cTensor = transposeMatrix(builder, loc, cTensor, {0, 2, 1});
+    cTensor = rock::tosa::getTransposeOp(builder, loc, cTensor, {0, 2, 1});
   }
   auto aZp =
       tosa::createZeroPointTensor(builder, loc, aTensor.getType(), 0).value();
@@ -3718,9 +3691,9 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
 
   Type firstGemmOutElemType = params.types[2];
   // accumulate in 32 bit
-  Type firstAccType = getAccType(params.types[0], builder);
-  assert(firstAccType == getAccType(params.types[1], builder));
-  auto abTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+  Type firstAccType = rock::tosa::getAccType(builder, params.types[0]);
+  assert(firstAccType == rock::tosa::getAccType(builder, params.types[1]));
+  auto abTensorMatMul = rock::tosa::createOpAndInfer<tosa::MatMulOp>(
       builder, loc, firstGemmOutElemType, aTensor, bTensor, aZp, bZp);
   abTensorMatMul->setAttr("acc_type", TypeAttr::get(firstAccType));
   Value abTensor = abTensorMatMul.getResult();
@@ -3731,15 +3704,16 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, cTensor.getType(), 0).value();
   Type secondGemmOutElemType = params.types[3];
   // accumulate in 32 bit
-  Type secondAccType = getAccType(firstGemmOutElemType, builder);
-  assert(secondAccType == getAccType(params.types[2], builder));
-  auto resultTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+  Type secondAccType = rock::tosa::getAccType(builder, firstGemmOutElemType);
+  assert(secondAccType == rock::tosa::getAccType(builder, params.types[2]));
+  auto resultTensorMatMul = rock::tosa::createOpAndInfer<tosa::MatMulOp>(
       builder, loc, secondGemmOutElemType, abTensor, cTensor, abZp, cZp);
   resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
   Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
-    resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
+    resultTensor =
+        rock::tosa::getTransposeOp(builder, loc, resultTensor, {0, 2, 1});
   }
 
   Value output = block->getArguments().back();
@@ -3749,14 +3723,14 @@ createCpuGemmElementwiseGemmKernelWithMlir(ModuleOp module,
   auto shapeValue = tosa::getTosaConstShape(
       implicitBuilder, cast<ShapedType>(outputType).getShape());
   auto flatResultTensor =
-      builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
+      tosa::ReshapeOp::create(builder, loc, resultTensor, shapeValue);
 
-  auto flatResultMemref = builder.create<bufferization::ToBufferOp>(
-      loc, outputType, flatResultTensor);
+  auto flatResultMemref = bufferization::ToBufferOp::create(
+      builder, loc, outputType, flatResultTensor);
 
-  builder.create<memref::CopyOp>(loc, flatResultMemref, output);
+  memref::CopyOp::create(builder, loc, flatResultMemref, output);
 
-  builder.create<func::ReturnOp>(loc);
+  func::ReturnOp::create(builder, loc);
   module.push_back(func);
   return func;
 }
@@ -3774,8 +3748,8 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
 
   constexpr llvm::StringLiteral cpuKernName("host_naive_attention");
-  auto func = builder.create<func::FuncOp>(
-      loc, cpuKernName, builder.getFunctionType(flatArgTypes, {}));
+  auto func = func::FuncOp::create(builder, loc, cpuKernName,
+                                   builder.getFunctionType(flatArgTypes, {}));
 
   Block *block = func.addEntryBlock();
   builder.setInsertionPointToStart(block);
@@ -3784,8 +3758,8 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
                                &argTypes](unsigned blockArgIndex,
                                           bool isWritable = false) {
     constexpr bool isRestrict{true};
-    Value flatTensor = builder.create<bufferization::ToTensorOp>(
-        loc,
+    Value flatTensor = bufferization::ToTensorOp::create(
+        builder, loc,
         memref::getTensorTypeFromMemRefType(
             block->getArgument(blockArgIndex).getType()),
         block->getArgument(blockArgIndex), isRestrict, isWritable);
@@ -3800,26 +3774,29 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       llvm::copy(origShape, expShape.begin() + 1);
       auto shapeValue = tosa::getTosaConstShape(implicitBuilder, expShape);
       reshapedTensor =
-          builder.create<tosa::ReshapeOp>(loc, flatTensor, shapeValue);
+          tosa::ReshapeOp::create(builder, loc, flatTensor, shapeValue);
     } else {
       auto shapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
       reshapedTensor =
-          builder.create<tosa::ReshapeOp>(loc, flatTensor, shapeValue);
+          tosa::ReshapeOp::create(builder, loc, flatTensor, shapeValue);
     }
     return reshapedTensor;
   };
 
   auto queriesTensor = getTensorForBlockArg(0);
   if (transposeQ) {
-    queriesTensor = transposeMatrix(builder, loc, queriesTensor, {0, 2, 1});
+    queriesTensor =
+        rock::tosa::getTransposeOp(builder, loc, queriesTensor, {0, 2, 1});
   }
   auto keysTensor = getTensorForBlockArg(1);
   if (transposeK) {
-    keysTensor = transposeMatrix(builder, loc, keysTensor, {0, 2, 1});
+    keysTensor =
+        rock::tosa::getTransposeOp(builder, loc, keysTensor, {0, 2, 1});
   }
   auto valuesTensor = getTensorForBlockArg(2);
   if (transposeV) {
-    valuesTensor = transposeMatrix(builder, loc, valuesTensor, {0, 2, 1});
+    valuesTensor =
+        rock::tosa::getTransposeOp(builder, loc, valuesTensor, {0, 2, 1});
   }
   // GQA
   keysTensor = broadcastGQATosa(builder, loc, keysTensor);
@@ -3836,9 +3813,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       tosa::createZeroPointTensor(builder, loc, keysTensor.getType(), 0)
           .value();
   // accumulate in 32 bit
-  Type firstAccType = getAccType(firstGemmOutElemType, builder);
-  assert(firstAccType == getAccType(params.types[1], builder));
-  auto qkTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+  Type firstAccType = rock::tosa::getAccType(builder, firstGemmOutElemType);
+  assert(firstAccType == rock::tosa::getAccType(builder, params.types[1]));
+  auto qkTensorMatMul = rock::tosa::createOpAndInfer<tosa::MatMulOp>(
       builder, loc, firstGemmOutElemType, queriesTensor, keysTensor, queriesZp,
       keysZp);
   qkTensorMatMul->setAttr("acc_type", TypeAttr::get(firstAccType));
@@ -3862,29 +3839,23 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     ImplicitLocOpBuilder implicitBuilder(loc, builder);
     auto shapeValue =
         tosa::getTosaConstShape(implicitBuilder, {shape[0], 1, 1, 1});
-    currentSeqLenTensor =
-        createOpAndInfer<tosa::ReshapeOp>(builder, loc, type.getElementType(),
-                                          currentSeqLenTensorRaw, shapeValue);
+    currentSeqLenTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+        builder, loc, type.getElementType(), currentSeqLenTensorRaw,
+        shapeValue);
   }
 
   unsigned optionalArgsCounter = 3;
   if (isQuantized) {
     auto quantBiasI8 = getTensorForBlockArg(optionalArgsCounter++);
-    Value quantBiasI32 = createOpAndInfer<tosa::CastOp>(
+    Value quantBiasI32 = rock::tosa::createOpAndInfer<tosa::CastOp>(
         builder, loc, IntegerType::get(ctx, 32), quantBiasI8);
-    qkTensor = createOpAndInfer<tosa::SubOp>(
+    qkTensor = rock::tosa::createOpAndInfer<tosa::SubOp>(
         builder, loc, IntegerType::get(ctx, 32), qkTensor, quantBiasI32);
-    qkTensor = createOpAndInfer<tosa::CastOp>(builder, loc,
-                                              Float16Type::get(ctx), qkTensor);
+    qkTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
+        builder, loc, Float16Type::get(ctx), qkTensor);
     auto quantScaleF16 = getTensorForBlockArg(optionalArgsCounter++);
-    auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
-    auto shiftZeroAttr = DenseElementsAttr::get(
-        shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
-    Value constZero =
-        builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
-    qkTensor = createOpAndInfer<tosa::MulOp>(
-        builder, loc, Float16Type::get(ctx), qkTensor, quantScaleF16,
-        /*shift=*/constZero);
+    qkTensor = rock::tosa::getMulOp(builder, loc, qkTensor, quantScaleF16,
+                                    Float16Type::get(ctx));
   }
 
   if (hasAttnScale) {
@@ -3896,14 +3867,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     if (causalMasking)
       scaleTensor = causalMaskingTosa(builder, loc, scaleTensor, 1.0f);
 
-    auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
-    auto shiftZeroAttr = DenseElementsAttr::get(
-        shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
-    Value constZero =
-        builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
-    qkTensor = createOpAndInfer<tosa::MulOp>(
-        builder, loc, cast<ShapedType>(scaleTensor.getType()).getElementType(),
-        qkTensor, scaleTensor, /*shift=*/constZero);
+    qkTensor = rock::tosa::getMulOp(
+        builder, loc, qkTensor, scaleTensor,
+        cast<ShapedType>(scaleTensor.getType()).getElementType());
   }
 
   if (hasAttnBias) {
@@ -3915,14 +3881,14 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     if (causalMasking)
       biasTensor = causalMaskingTosa(builder, loc, biasTensor, 0.0f);
 
-    qkTensor = createOpAndInfer<tosa::AddOp>(
+    qkTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
         builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
         qkTensor, biasTensor);
   }
   // cast to softmaxType
   auto softmaxType = typeFromString(softmaxDataType.getValue(), ctx);
-  qkTensor =
-      createOpAndInfer<tosa::CastOp>(builder, loc, softmaxType, qkTensor);
+  qkTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(builder, loc,
+                                                        softmaxType, qkTensor);
 
   if (currentSeqLenTensor) {
     qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,
@@ -3939,13 +3905,13 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
                                  -std::numeric_limits<float>::infinity());
 
   constexpr int64_t reductionAxis = 2;
-  auto qkMaxs = createOpAndInfer<tosa::ReduceMaxOp>(builder, loc, softmaxType,
-                                                    qkTensor, reductionAxis);
-  auto normalizedQkTensor = createOpAndInfer<tosa::SubOp>(
+  auto qkMaxs = rock::tosa::createOpAndInfer<tosa::ReduceMaxOp>(
+      builder, loc, softmaxType, qkTensor, reductionAxis);
+  auto normalizedQkTensor = rock::tosa::createOpAndInfer<tosa::SubOp>(
       builder, loc, softmaxType, qkTensor, qkMaxs);
-  auto expsTensor = createOpAndInfer<tosa::ExpOp>(builder, loc, softmaxType,
-                                                  normalizedQkTensor);
-  auto expsSums = createOpAndInfer<tosa::ReduceSumOp>(
+  auto expsTensor = rock::tosa::createOpAndInfer<tosa::ExpOp>(
+      builder, loc, softmaxType, normalizedQkTensor);
+  auto expsSums = rock::tosa::createOpAndInfer<tosa::ReduceSumOp>(
       builder, loc, softmaxType, expsTensor, reductionAxis);
   Type resultOutElementType =
       isQuantized ? Float16Type::get(ctx) : firstGemmOutElemType;
@@ -3955,27 +3921,22 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   // lse = (log(expsSums) + qkMaxs)
   if (returnLSE) {
     Type lseType = cast<ShapedType>(lseOut.getType()).getElementType();
-    Value expsSumsForLSE =
-        createOpAndInfer<tosa::CastOp>(builder, loc, lseType, expsSums);
-    Value qkMaxsForLSE =
-        createOpAndInfer<tosa::CastOp>(builder, loc, lseType, qkMaxs);
-    lseTensor =
-        createOpAndInfer<tosa::LogOp>(builder, loc, lseType, expsSumsForLSE);
-    lseTensor = createOpAndInfer<tosa::AddOp>(builder, loc, lseType, lseTensor,
-                                              qkMaxsForLSE);
+    Value expsSumsForLSE = rock::tosa::createOpAndInfer<tosa::CastOp>(
+        builder, loc, lseType, expsSums);
+    Value qkMaxsForLSE = rock::tosa::createOpAndInfer<tosa::CastOp>(
+        builder, loc, lseType, qkMaxs);
+    lseTensor = rock::tosa::createOpAndInfer<tosa::LogOp>(builder, loc, lseType,
+                                                          expsSumsForLSE);
+    lseTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
+        builder, loc, lseType, lseTensor, qkMaxsForLSE);
   }
 
-  auto invExpsSums =
-      createOpAndInfer<tosa::ReciprocalOp>(builder, loc, softmaxType, expsSums);
+  auto invExpsSums = rock::tosa::createOpAndInfer<tosa::ReciprocalOp>(
+      builder, loc, softmaxType, expsSums);
 
-  auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
-  auto shiftZeroAttr = DenseElementsAttr::get(
-      shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
-  Value constZero =
-      builder.create<tosa::ConstOp>(loc, shiftType, shiftZeroAttr);
-  Value softmaxTensor = createOpAndInfer<tosa::MulOp>(
-      builder, loc, softmaxType, expsTensor, invExpsSums, /*shift=*/constZero);
-  softmaxTensor = createOpAndInfer<tosa::CastOp>(
+  Value softmaxTensor =
+      rock::tosa::getMulOp(builder, loc, expsTensor, invExpsSums, softmaxType);
+  softmaxTensor = rock::tosa::createOpAndInfer<tosa::CastOp>(
       builder, loc, resultOutElementType, softmaxTensor);
   auto softmaxZp =
       tosa::createZeroPointTensor(builder, loc, softmaxTensor.getType(), 0)
@@ -3985,15 +3946,16 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
           .value();
 
   // accumulate in 32 bit
-  Type secondAccType = getAccType(resultOutElementType, builder);
-  auto resultTensorMatMul = createOpAndInfer<tosa::MatMulOp>(
+  Type secondAccType = rock::tosa::getAccType(builder, resultOutElementType);
+  auto resultTensorMatMul = rock::tosa::createOpAndInfer<tosa::MatMulOp>(
       builder, loc, resultOutElementType, softmaxTensor, valuesTensor,
       softmaxZp, valuesZp);
   resultTensorMatMul->setAttr("acc_type", TypeAttr::get(secondAccType));
   Value resultTensor = resultTensorMatMul.getResult();
 
   if (transposeO) {
-    resultTensor = transposeMatrix(builder, loc, resultTensor, {0, 2, 1});
+    resultTensor =
+        rock::tosa::getTransposeOp(builder, loc, resultTensor, {0, 2, 1});
   }
 
   if (splitKV > 1) {
@@ -4011,12 +3973,12 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   auto shapeValue = tosa::getTosaConstShape(
       implicitBuilder, cast<ShapedType>(outputType).getShape());
   auto flatResultTensor =
-      builder.create<tosa::ReshapeOp>(loc, resultTensor, shapeValue);
+      tosa::ReshapeOp::create(builder, loc, resultTensor, shapeValue);
 
-  auto flatResultMemref = builder.create<bufferization::ToBufferOp>(
-      loc, outputType, flatResultTensor);
+  auto flatResultMemref = bufferization::ToBufferOp::create(
+      builder, loc, outputType, flatResultTensor);
 
-  builder.create<memref::CopyOp>(loc, flatResultMemref, output);
+  memref::CopyOp::create(builder, loc, flatResultMemref, output);
 
   // return LSE (log-sum-exp)
   if (returnLSE) {
@@ -4024,15 +3986,15 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
     auto lseShapeValue = tosa::getTosaConstShape(
         implicitBuilder, cast<ShapedType>(lseOutType).getShape());
     auto flatLseTensor =
-        builder.create<tosa::ReshapeOp>(loc, lseTensor, lseShapeValue);
+        tosa::ReshapeOp::create(builder, loc, lseTensor, lseShapeValue);
 
-    auto flatLseMemref = builder.create<bufferization::ToBufferOp>(
-        loc, lseOutType, flatLseTensor);
+    auto flatLseMemref = bufferization::ToBufferOp::create(
+        builder, loc, lseOutType, flatLseTensor);
 
-    builder.create<memref::CopyOp>(loc, flatLseMemref, lseOut);
+    memref::CopyOp::create(builder, loc, flatLseMemref, lseOut);
   }
 
-  builder.create<func::ReturnOp>(loc);
+  func::ReturnOp::create(builder, loc);
   module.push_back(func);
   return func;
 }
@@ -4054,13 +4016,13 @@ static void emitPrintTensor(OpBuilder &b, Value var) {
     if (elemType != int32Type) {
       // make copy
       auto pvarType = MemRefType::get(varType.getShape(), int32Type);
-      pvar = b.create<memref::AllocOp>(loc, pvarType);
+      pvar = memref::AllocOp::create(b, loc, pvarType);
       emitMemcpy(b, var, pvar);
     }
   } else if (elemType != floatType) {
     // make copy
     auto pvarType = MemRefType::get(varType.getShape(), floatType);
-    pvar = b.create<memref::AllocOp>(loc, pvarType);
+    pvar = memref::AllocOp::create(b, loc, pvarType);
     emitMemcpy(b, var, pvar);
   }
 
@@ -4069,12 +4031,12 @@ static void emitPrintTensor(OpBuilder &b, Value var) {
   auto printFunc = makeFuncDecl(module, printFuncName, {unrankedMRType});
 
   // Emit cast + call print
-  auto printCast = b.create<memref::CastOp>(loc, unrankedMRType, pvar);
-  b.create<func::CallOp>(loc, printFunc, ValueRange{printCast});
+  auto printCast = memref::CastOp::create(b, loc, unrankedMRType, pvar);
+  func::CallOp::create(b, loc, printFunc, ValueRange{printCast});
 
   if (pvar != var) {
     // dealloc pvar
-    b.create<memref::DeallocOp>(loc, pvar);
+    memref::DeallocOp::create(b, loc, pvar);
   }
 }
 
@@ -4141,7 +4103,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
   auto getF32Val = [&](float val) -> Value {
     llvm::APFloat apVal(val);
-    return b.create<arith::ConstantFloatOp>(loc, floatType, apVal);
+    return arith::ConstantFloatOp::create(b, loc, floatType, apVal);
   };
   // Thresholds for different metrics
   // RMS: 0.00003f for all data types
@@ -4152,7 +4114,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
   char printDebug = static_cast<char>(printVerifyResults.getValue());
 
   auto printDebugVal =
-      b.create<arith::ConstantIntOp>(loc, charType, printDebug);
+      arith::ConstantIntOp::create(b, loc, charType, printDebug);
 
   // obtain function name of the verifier wrapper
   std::string verifyFuncName = "mcpuVerify";
@@ -4193,17 +4155,17 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     // clang-format on
 
     auto f32FlatType = MemRefType::get(valFlatType.getShape(), floatType);
-    testResultNew = b.create<memref::AllocOp>(loc, f32FlatType);
+    testResultNew = memref::AllocOp::create(b, loc, f32FlatType);
     emitMemcpy(b, testFlat, testResultNew);
-    testResult = b.create<memref::CastOp>(loc, mr1DUnkF32Type, testResultNew);
+    testResult = memref::CastOp::create(b, loc, mr1DUnkF32Type, testResultNew);
     mr1DUnkTestType = mr1DUnkF32Type;
     if (!valElemType.isF32()) {
-      valResultNew = b.create<memref::AllocOp>(loc, f32FlatType);
+      valResultNew = memref::AllocOp::create(b, loc, f32FlatType);
       emitMemcpy(b, valFlat, valResultNew);
-      valResult = b.create<memref::CastOp>(loc, mr1DUnkF32Type, valResultNew);
+      valResult = memref::CastOp::create(b, loc, mr1DUnkF32Type, valResultNew);
       mr1DUnkValType = mr1DUnkF32Type;
     } else {
-      valResult = b.create<memref::CastOp>(loc, mr1DUnkValType, valFlat);
+      valResult = memref::CastOp::create(b, loc, mr1DUnkValType, valFlat);
     }
 
     // Cast valid result down to the same type as test result and cast back
@@ -4230,17 +4192,17 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
           b, loc, lowerBounds, upperBounds, steps,
           [valFlat, testElemType, valElemType](OpBuilder &b, Location loc,
                                                ValueRange ivs) {
-            Value valOrig = b.create<affine::AffineLoadOp>(loc, valFlat, ivs);
+            Value valOrig = affine::AffineLoadOp::create(b, loc, valFlat, ivs);
             Value valTruncated =
-                b.create<arith::TruncFOp>(loc, testElemType, valOrig);
+                arith::TruncFOp::create(b, loc, testElemType, valOrig);
             Value valExt =
-                b.create<arith::ExtFOp>(loc, valElemType, valTruncated);
-            b.create<affine::AffineStoreOp>(loc, valExt, valFlat, ivs);
+                arith::ExtFOp::create(b, loc, valElemType, valTruncated);
+            affine::AffineStoreOp::create(b, loc, valExt, valFlat, ivs);
           });
     }
   } else {
-    testResult = b.create<memref::CastOp>(loc, mr1DUnkTestType, testFlat);
-    valResult = b.create<memref::CastOp>(loc, mr1DUnkValType, valFlat);
+    testResult = memref::CastOp::create(b, loc, mr1DUnkTestType, testFlat);
+    valResult = memref::CastOp::create(b, loc, mr1DUnkValType, valFlat);
   }
 
   // Prepare the validation result for the verify function
@@ -4267,25 +4229,25 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, floatType,
                                    floatType, floatType, charType, boolType});
-    b.create<func::CallOp>(loc, verifyFuncDecl,
+    func::CallOp::create(b, loc, verifyFuncDecl,
                            ValueRange{testResult, valResult, thr_RMS,
                                       thr_absDiff, thr_relDiff, printDebugVal,
                                       isFP32Val});
   } else {
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, charType});
-    b.create<func::CallOp>(loc, verifyFuncDecl,
-                           ValueRange{testResult, valResult, printDebugVal});
+    func::CallOp::create(b, loc, verifyFuncDecl,
+                         ValueRange{testResult, valResult, printDebugVal});
   }
 
   if (!isTestAndValSameType) {
     // Deallocate the buffer for f32 version of the test results
-    b.create<memref::DeallocOp>(loc, testResultNew);
+    memref::DeallocOp::create(b, loc, testResultNew);
     if (!valElemType.isF32())
-      b.create<memref::DeallocOp>(loc, valResultNew);
+      memref::DeallocOp::create(b, loc, valResultNew);
   }
 
-  b.create<func::ReturnOp>(loc, ValueRange{});
+  func::ReturnOp::create(b, loc, ValueRange{});
 
   return func;
 }
@@ -4338,10 +4300,10 @@ static void insertPrefills(func::FuncOp fut) {
         int argIdx = argIdxAndValueAttr.first;
         auto valueAttr = argIdxAndValueAttr.second;
         auto fillValue =
-            builder.create<arith::ConstantOp>(loc, cast<TypedAttr>(valueAttr));
+            arith::ConstantOp::create(builder, loc, cast<TypedAttr>(valueAttr));
         Value originalArg = launchOp.getArgOperands()[argIdx];
-        builder.create<linalg::FillOp>(loc, ValueRange{fillValue},
-                                       ValueRange{originalArg});
+        linalg::FillOp::create(builder, loc, ValueRange{fillValue},
+                               ValueRange{originalArg});
       }
     }
   });
@@ -4357,8 +4319,8 @@ static void undoAsyncLaunchPass(Operation *cloneFunc) {
       CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
       assert(callInt);
       auto operands = callInt.getArgOperands();
-      auto call = builder.create<func::CallOp>(op->getLoc(), calleeAttr,
-                                               TypeRange{}, operands);
+      auto call = func::CallOp::create(builder, op->getLoc(), calleeAttr,
+                                       TypeRange{}, operands);
       call->moveBefore(op);
       op->dropAllUses();
       op->erase();
@@ -4451,7 +4413,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       }
       auto kernelWrapperFunc = createGPUWrapper(module, kernelBaseName + "_ver",
                                                 kernelIFFuncs, genParams);
-      b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
+      func::CallOp::create(b, loc, kernelWrapperFunc, valVars);
       convGenerator.setKernelName(kernelBaseName);
     } else { // gemm GPU validation
       GenParams newParams = genParams;
@@ -4474,7 +4436,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
           createGpuGemmKernel(module, newParams, /*isVerifier=*/true));
       auto kernelWrapperFunc = createGPUWrapper(
           module, kernel.func.getName().str(), {kernel}, genParams);
-      b.create<func::CallOp>(loc, kernelWrapperFunc, valVars);
+      func::CallOp::create(b, loc, kernelWrapperFunc, valVars);
     }
   } else if (validationType != "clone") { // -pv_with_cpp or -pv_with_mlir (-pv)
     // Emit call to host_<conv>
@@ -4491,11 +4453,11 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       }
       auto cpuConvElementwiseGemmFunc =
           createCpuConvElementwiseGemmKernelWithMlir(module, genParams);
-      b.create<func::CallOp>(loc, cpuConvElementwiseGemmFunc, valVars);
+      func::CallOp::create(b, loc, cpuConvElementwiseGemmFunc, valVars);
     } else if (genParams.convConfig.has_value()) {
       const auto &genConfig = **genParams.convConfig;
       auto cpuConvFunc = createCPUConvFunc(module, genConfig);
-      b.create<func::CallOp>(loc, cpuConvFunc, valVars);
+      func::CallOp::create(b, loc, cpuConvFunc, valVars);
     } else if (genParams.operation == rock::KernelType::Gemm) {
       // Emit call to host gemm
       if (validationType == "cpp") {
@@ -4503,7 +4465,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
         exit(1);
       }
       auto cpuGemmFunc = createCpuGemmKernelWithMlir(module, genParams);
-      b.create<func::CallOp>(loc, cpuGemmFunc, valVars);
+      func::CallOp::create(b, loc, cpuGemmFunc, valVars);
     } else if (genParams.operation == rock::KernelType::Attention) {
       if (validationType == "cpp") {
         llvm::errs() << "External attention validator is not available\n";
@@ -4511,7 +4473,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       }
       auto cpuAttentionFunc =
           createCpuAttentionKernelWithMlir(module, genParams);
-      b.create<func::CallOp>(loc, cpuAttentionFunc, valVars);
+      func::CallOp::create(b, loc, cpuAttentionFunc, valVars);
     } else if (genParams.operation == rock::KernelType::GemmElementwiseGemm) {
       if (validationType == "cpp") {
         llvm::errs()
@@ -4520,7 +4482,7 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
       }
       auto cpuGemmElementwiseGemmFunc =
           createCpuGemmElementwiseGemmKernelWithMlir(module, genParams);
-      b.create<func::CallOp>(loc, cpuGemmElementwiseGemmFunc, valVars);
+      func::CallOp::create(b, loc, cpuGemmElementwiseGemmFunc, valVars);
     } else {
       llvm::errs()
           << "Validation generation requested, but no operation specified\n";
@@ -4541,8 +4503,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     cloneFunc->removeAttr("kernel");
     SymbolTable symbolTable(module);
     symbolTable.insert(cloneFunc);
-    b.create<func::CallOp>(loc, SymbolRefAttr::get(cloneFunc), TypeRange{},
-                           valVars);
+    func::CallOp::create(b, loc, SymbolRefAttr::get(cloneFunc), TypeRange{},
+                         valVars);
   }
 
   // Emit call to verifier
@@ -4556,8 +4518,8 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
     auto verifierFunc =
         createVerifierFunc(module, root0, testType, valType, funcName);
 
-    b.create<func::CallOp>(loc, verifierFunc,
-                           ValueRange{testResult, valResult});
+    func::CallOp::create(b, loc, verifierFunc,
+                         ValueRange{testResult, valResult});
   }
 }
 
@@ -4608,8 +4570,9 @@ static LogicalResult populateHostHarnessLogic(
   if (isRandom) {
     auto seedFunc = makeFuncDecl(module, "seedRandomValues", {b.getI32Type()});
     int seed = getRandomSeed();
-    Value seedConst = b.create<arith::ConstantIntOp>(loc, b.getI32Type(), seed);
-    b.create<func::CallOp>(loc, seedFunc, seedConst);
+    Value seedConst =
+        arith::ConstantIntOp::create(b, loc, b.getI32Type(), seed);
+    func::CallOp::create(b, loc, seedFunc, seedConst);
   }
 
   bool isAttention = false;
@@ -4677,17 +4640,17 @@ static LogicalResult populateHostHarnessLogic(
         paramMRType = MemRefType::get(paramMRType.getShape(), elemType);
       }
     }
-    auto lvar = b.create<memref::AllocOp>(loc, paramMRType);
+    auto lvar = memref::AllocOp::create(b, loc, paramMRType);
     localVars.push_back(lvar);
 
     if (!currentSeqLen.empty() && isAttention && idx == expectedCurrSeqLenIdx) {
       // fill with currentSeqLen
       // as it's very small, just define constant and store directly
       for (auto pair : llvm::enumerate(currentSeqLen)) {
-        Value index = b.create<arith::ConstantIndexOp>(loc, pair.index());
+        Value index = arith::ConstantIndexOp::create(b, loc, pair.index());
         Value value =
-            b.create<arith::ConstantIntOp>(loc, b.getI32Type(), pair.value());
-        b.create<memref::StoreOp>(loc, value, lvar, ValueRange{index});
+            arith::ConstantIntOp::create(b, loc, b.getI32Type(), pair.value());
+        memref::StoreOp::create(b, loc, value, lvar, ValueRange{index});
       }
     } else if (!isRandom) {
       bool zeroInit = llvm::is_contained(outIndices, idx) && isSplitK;
@@ -4722,7 +4685,7 @@ static LogicalResult populateHostHarnessLogic(
       }
 
       auto valType = MemRefType::get(paramMRType.getShape(), valElemType);
-      auto vvar = b.create<memref::AllocOp>(loc, valType);
+      auto vvar = memref::AllocOp::create(b, loc, valType);
       valVars.push_back(vvar);
 
       emitMemcpy(b, lvar, vvar);
@@ -4742,15 +4705,15 @@ static LogicalResult populateHostHarnessLogic(
           return k.func == root.func;
         }) != kernels.end();
     if (rootKernel) {
-      b.create<func::CallOp>(loc, root.func, localVars);
+      func::CallOp::create(b, loc, root.func, localVars);
     } else if (!valVars.empty()) {
-      b.create<func::CallOp>(loc, root.func, valVars);
+      func::CallOp::create(b, loc, root.func, valVars);
       if (!root.func->hasAttr("kernel")) {
         printValidationResults = true;
         printResults = false;
       }
     } else {
-      b.create<func::CallOp>(loc, root.func, localVars);
+      func::CallOp::create(b, loc, root.func, localVars);
       if (!root.func->hasAttr("kernel")) {
         printValidationResults = false;
         printResults = true;
@@ -4790,13 +4753,13 @@ static LogicalResult populateHostHarnessLogic(
   }
 
   for (auto &vvar : valVars) {
-    b.create<memref::DeallocOp>(loc, vvar);
+    memref::DeallocOp::create(b, loc, vvar);
   }
   for (auto &lvar : localVars) {
-    b.create<memref::DeallocOp>(loc, lvar);
+    memref::DeallocOp::create(b, loc, lvar);
   }
 
-  b.create<func::ReturnOp>(loc, ValueRange{});
+  func::ReturnOp::create(b, loc, ValueRange{});
 
   // Set of kernels
   llvm::SmallSetVector<func::FuncOp, 4> kernelsSet;
@@ -5204,11 +5167,11 @@ static void populateCloneHarnessLogic(ModuleOp module) {
                                           originalFunc.getFunctionType());
   Block *block = wrapperFunc.addEntryBlock();
   b.setInsertionPointToStart(block);
-  auto launchOp = b.create<mhal::LaunchOp>(loc, originalFunc, ValueRange{},
-                                           block->getArguments());
+  auto launchOp = mhal::LaunchOp::create(b, loc, originalFunc, ValueRange{},
+                                         block->getArguments());
   auto results = launchOp->getResults();
-  b.create<mhal::AwaitOp>(loc, results.front());
-  b.create<func::ReturnOp>(loc, ValueRange{results.drop_front()});
+  mhal::AwaitOp::create(b, loc, results.front());
+  func::ReturnOp::create(b, loc, ValueRange{results.drop_front()});
   module.push_back(wrapperFunc);
 
   auto xmoduleOp = ModuleOp::create(loc, "__xmodule_");

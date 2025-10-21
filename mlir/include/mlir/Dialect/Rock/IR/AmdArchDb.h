@@ -15,6 +15,8 @@
 namespace mlir {
 namespace rock {
 /// A structure containing information about a given AMD chip's features
+/// Keep in sync with Python bindings in
+/// mlir/lib/Dialect/Rock/utility/Bindings/AmdArchDbBindings.cpp
 struct AmdArchInfo {
   GemmFeatures defaultFeatures;
   int64_t waveSize;

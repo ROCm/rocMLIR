@@ -27,6 +27,7 @@ enum class MfmaTypeId : uint32_t {
   Fp16TyId,
   Bf16TyId,
   I8TyId,
+  Fp4TyId,
   Fp8Fp8TyId,
   Fp8Bf8TyId,
   Bf8Fp8TyId,

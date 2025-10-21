@@ -18,15 +18,11 @@ from perfRunner import AttentionConfiguration
 from perfRunner import GemmGemmConfiguration
 from perfRunner import ConvGemmConfiguration
 from perfRunner import Paths
-from perfRunner import MLIR_N_REPEATS as NUM_ITERATIONS
+from perfRunner import MLIR_N_REPEATS, WARMUP_ITERATIONS, TRIM_PERCENT, SLEEP_MS
 from perfCommonUtils import CORRECT_RESULT_RE
 
 import numpy as np
 import pandas as pd
-
-WARMUP_ITERATIONS = 10
-TRIM_PERCENT = 10
-SLEEP_MS = 1
 
 @dataclass(frozen=True)
 class Options:
@@ -144,7 +140,7 @@ def tuneMLIRKernels(configs, confClass, paths: Paths, options: Options):
     allData = []
     winners = {}
     tuning_driver_args = [f"--tuning-space={options.tuningSpaceKind}",
-                          f"--num-iterations={NUM_ITERATIONS}",
+                          f"--num-iterations={MLIR_N_REPEATS}",
                           f"--warmup-iterations={WARMUP_ITERATIONS}",
                           f"--trim-percent={TRIM_PERCENT}",
                           f"--sleep-ms={SLEEP_MS}"]
