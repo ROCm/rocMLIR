@@ -116,6 +116,7 @@ if(BUILD_FAT_LIBROCKCOMPILER)
     add_custom_target(__generate_fat_library DEPENDS ${full_output_path})
     add_dependencies(${LIBRARY_NAME} __generate_fat_library)
 
+    target_link_libraries(${LIBRARY_NAME} INTERFACE hsa-runtime64::hsa-runtime64)
     target_link_libraries(${LIBRARY_NAME}
         INTERFACE
             $<BUILD_INTERFACE:${full_output_path}>
@@ -186,12 +187,17 @@ if(BUILD_FAT_LIBROCKCOMPILER)
       INCLUDES DESTINATION include/${package_name} ${ARG_EXTRA_INCLUDES}
     )
 
+    if(NOT WIN32)
+        set(DEPENDS_HSA DEPENDS hsa-runtime64)
+    endif()
+
     # Generate package config and version file
     rocm_export_targets(
       NAMESPACE ${CMAKE_PROJECT_NAME}::
       NAME ${package_name}
       TARGETS ${package_name}
       COMPATIBILITY AnyNewerVersion
+      ${DEPENDS_HSA}
       )
 
   endfunction()
