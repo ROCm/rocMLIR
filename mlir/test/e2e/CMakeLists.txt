@@ -47,6 +47,7 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrConvElementwiseGemmBF16SplitK
     PrGemmDirectToLDS
     PrLdsTransposeLoad
+    PrConvDirectToLDS
   )
   set(GEN_MODE "")
 endif()
@@ -79,6 +80,7 @@ if (ROCK_E2E_TEST_ENABLED)
   )
   list(APPEND CONFIGS
   GemmDirectToLDS
+  ConvDirectToLDS
   )
 endif()
 # Create a list for dummy files
