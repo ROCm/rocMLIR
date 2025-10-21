@@ -80,10 +80,14 @@ private:
     llvm::raw_string_ostream os(dataTypeStr);
     os << dataType;
 
-    if (dataTypeStr.find("f8E") != std::string::npos)
+    if (dataTypeStr == "bf16") {
+      dataTypeStr = "f16";
+    } else if (dataTypeStr.find("f8E") != std::string::npos) {
       dataTypeStr = "fp8";
-    if (dataTypeStr.at(0) == 's' || dataTypeStr.at(0) == 'u')
+    } else if (dataType.isInteger() &&
+               (dataTypeStr.at(0) == 's' || dataTypeStr.at(0) == 'u')) {
       dataTypeStr = dataTypeStr.substr(1);
+    }
 
     return dataTypeStr;
   }
