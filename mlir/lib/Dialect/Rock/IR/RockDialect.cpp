@@ -2007,16 +2007,20 @@ void BlockwiseLoadTileOp::getEffects(
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
   GemmLoadTileType loadType = getLoadType();
+  bool doubleBuffer = loadType == GemmLoadTileType::DoubleBuffer ||
+                      loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+  bool singleBuffer = loadType == GemmLoadTileType::Default ||
+                      loadType == GemmLoadTileType::DirectToLDSDefault;
 
   effects.emplace_back(read, &getSourceMutable());
   if (loadType != GemmLoadTileType::BypassLDS) {
     assert(getDestLDS() != nullptr);
     effects.emplace_back(write, &getDestLDSMutable()[0]);
     // DoubleBuffer means we write to LDS and then, load from it
-    if (loadType == GemmLoadTileType::DoubleBuffer)
+    if (doubleBuffer)
       effects.emplace_back(read, &getDestLDSMutable()[0]);
   }
-  if (loadType != GemmLoadTileType::Default) {
+  if (!singleBuffer) {
     assert(getDestRegisters() != nullptr);
     effects.emplace_back(write, &getDestRegistersMutable()[0]);
   }
@@ -2026,12 +2030,15 @@ LogicalResult BlockwiseLoadTileOp::verify() {
   Value destLDS = getDestLDS();
   Value destRegisters = getDestRegisters();
   GemmLoadTileType loadType = getLoadType();
+  bool singleBuffer = loadType == GemmLoadTileType::Default ||
+                      loadType == GemmLoadTileType::DirectToLDSDefault;
 
   if (!destLDS && loadType != GemmLoadTileType::BypassLDS)
     return emitOpError("destLDS must be set unless loadType is BypassLDS");
 
-  if (!destRegisters && loadType != GemmLoadTileType::Default)
-    return emitOpError("destRegisters must be set unless loadType is Default");
+  if (!destRegisters && !singleBuffer)
+    return emitOpError("destRegisters must be set unless loadType is "
+                       "Default/DirectToLDSDefault");
 
   return success();
 }
