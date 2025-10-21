@@ -1466,7 +1466,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return val.getDefiningOp<TosaOp>();
   }
 
-  template <typename TosaOp> FailureOr<TosaOp>
+  template <typename TosaOp>
+  FailureOr<TosaOp>
   getDefiningNonReshapeOpNonCastOpNonBroadcastOp(Value val) const {
     while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
            val.getDefiningOp<tensor::ExpandShapeOp>() ||
@@ -1542,12 +1543,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto getConstantResult = [&](Value input) -> FailureOr<Value> {
       if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(input)) {
         return constOp.getResult();
-      } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(input)) {
+      } else if (auto constOp =
+                     getDefiningNonReshapeOp<arith::ConstantOp>(input)) {
         return constOp.getResult();
       }
       return failure();
     };
-    
+
     // input is a constant with a range from 0 to maxSeqLen
     FailureOr<Value> maybeNonOne = mulBroadcast(input);
     Value rangeInput;
@@ -1592,7 +1594,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   // Validates that a constant mask follows the causal mask pattern:
-  // - Each row i should have zeros at positions 0 through i (lower triangular 
+  // - Each row i should have zeros at positions 0 through i (lower triangular
   //   part)
   // - The upper triangular part (positions > i) can be any mix of 1's and 0's
   bool isValidCausalMask(Operation *op) const {
@@ -1609,7 +1611,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     auto shapedType = cast<ShapedType>(constAttr.getType());
     auto shape = shapedType.getShape();
-    
+
     // First two dims must be 1 (broadcast dimensions)
     if (shape.size() != 4 || shape[0] != 1 || shape[1] != 1)
       return false;
@@ -1628,7 +1630,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
         // Validate that the lower triangular portion is all zeros
         if (col <= row && val != 0)
-            return false;
+          return false;
 
         // Check that the rest is all just 0's and 1's
         if (val != 0 && val != 1)
@@ -1660,7 +1662,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       // 2. The greater op has already been constant folded by MIGraphX, so we
       //    find the broadcast input and then do the necessary constant checks
       auto maybeGreater =
-        getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred);
+          getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred);
       if (succeeded(maybeGreater)) {
         auto greater = maybeGreater.value();
         // input1 is a constant with a range from 0 to maxSeqLen (KV)
@@ -1673,7 +1675,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
         Value result = select.getInput3();
         return result;
-      } else if (auto broadcast = getDefiningNonReshapeOpNonCastOp<tosa::MulOp>(pred)) {
+      } else if (auto broadcast =
+                     getDefiningNonReshapeOpNonCastOp<tosa::MulOp>(pred)) {
         // The input from MIGraphX will not be a constant range, so we cannot
         // use the getConstComparison function. Instead we need to check that
         // the constant is a valid causal mask pattern.
@@ -1816,7 +1819,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
       auto pred = select.getInput1();
       auto maybeGreater =
-        getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred);
+          getDefiningNonReshapeOpNonCastOpNonBroadcastOp<tosa::GreaterOp>(pred);
       if (succeeded(maybeGreater)) {
         auto greater = maybeGreater.value();
         // input1 is a constant with a range from 0 to maxSeqLen
@@ -2063,10 +2066,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return failure();
 
     // Exit early if currentSeqLen is not a 1D block argument
-    if (!isa<BlockArgument>(currentSeqLen) || 
+    if (!isa<BlockArgument>(currentSeqLen) ||
         cast<ShapedType>(currentSeqLen.getType()).getRank() != 1)
       return failure();
-    
+
     // Extract the shape information
     auto origShape = cast<ShapedType>(currentSeqLen.getType()).getShape()[0];
 
@@ -2077,7 +2080,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     int batch = -1;
     int numHeads = -1;
 
-    while(!toVisit.empty()) {
+    while (!toVisit.empty()) {
       Value curNode = toVisit.pop_back_val();
 
       // Skip previously visited nodes
@@ -2118,8 +2121,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto expandedType = RankedTensorType::get(expandedShape, elemTy);
     SmallVector<ReassociationIndices, 1> reassoc{{0, 1}};
     Value expanded = rewriter.create<tensor::ExpandShapeOp>(
-      loc, expandedType, currentSeqLen, reassoc);
-  
+        loc, expandedType, currentSeqLen, reassoc);
+
     // Create a tosa.const that is all zeros, but in our desired shape of
     // batch x numHeads
     auto broadcastTy = RankedTensorType::get({batch, numHeads}, elemTy);
@@ -2128,7 +2131,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     // Create a tosa.mul (broadcast) to our desired batch and numHeads values.
 
-    auto mul = rock::tosa::getMulOp(rewriter, loc, expanded, constOp, broadcastTy);
+    auto mul =
+        rock::tosa::getMulOp(rewriter, loc, expanded, constOp, broadcastTy);
     // auto mul = rewriter.create<tosa::MulOp>(loc, broadcastTy, expanded,
     //                                         constOp.getResult());
 
