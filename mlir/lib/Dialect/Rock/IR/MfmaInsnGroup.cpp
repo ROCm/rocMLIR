@@ -6,6 +6,7 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Types.h"
 #include "mlir/Support/LLVM.h"
 
 #include "llvm/Support/Debug.h"
@@ -109,7 +110,13 @@ static auto getMfmaInsnInfoMap = []() -> const llvm::StringMap<MfmaInsnInfo> & {
       {ROCDL::mfma_f32_32x32x16_bf8_bf8::getOperationName(),
        {MfmaTypeId::Bf8Bf8TyId, 32, 16, 1}},
       {ROCDL::mfma_f32_16x16x32_bf8_bf8::getOperationName(),
-       {MfmaTypeId::Bf8Bf8TyId, 16, 32, 1}}};
+       {MfmaTypeId::Bf8Bf8TyId, 16, 32, 1}},
+
+      // fp4
+      {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName(),
+       {MfmaTypeId::Fp4TyId, 16, 128, 1}},
+      {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName(),
+       {MfmaTypeId::Fp4TyId, 32, 64, 1}}};
   return insnInfo;
 };
 
@@ -435,6 +442,12 @@ static auto getMfmaInsnGroupAttrMapGfx950 = []() {
       {{MfmaTypeId::Bf16TyId, 16, 16},
        {ROCDL::mfma_f32_16x16x32_bf16::getOperationName()}},
 
+      // scaled Fp4 MFMA
+      {{MfmaTypeId::Fp4TyId, 16, 16},
+       {ROCDL::mfma_scale_f32_16x16x128_f8f6f4::getOperationName()}},
+      {{MfmaTypeId::Fp4TyId, 32, 32},
+       {ROCDL::mfma_scale_f32_32x32x64_f8f6f4::getOperationName()}},
+
       // i8 double rate
       {{MfmaTypeId::I8TyId, 32, 32},
        {ROCDL::mfma_i32_32x32x32_i8::getOperationName()}},
@@ -544,6 +557,9 @@ static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
   if (isa<Float8E5M2Type>(dataTypeA) && isa<Float8E5M2Type>(dataTypeB)) {
     return MfmaTypeId::Bf8Bf8TyId;
   }
+  if (isa<Float4E2M1FNType>(dataTypeA) && isa<Float4E2M1FNType>(dataTypeB)) {
+    return MfmaTypeId::Fp4TyId;
+  }
   llvm_unreachable("Unsupported input argument type.");
 }
 
@@ -554,7 +570,9 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
                           << "elementType A: " << elementTypeA << "\n"
                           << "elementType B: " << elementTypeB << "\n"
                           << "arch: " << arch << "\n"
-                          << "mnPerXdl: " << mnPerXdl << "\n");
+                          << "mnPerXdl: " << mnPerXdl << "\n"
+                          << "kPack: " << kPack << "\n"
+                          << "KPackPerBlock: " << kPackPerBlock << "\n");
 
   // Use 64x64 as base unit in large waves
   int64_t mPerMfmaGroup = getLenPerMfmaGroup(mnPerXdl);
@@ -564,6 +582,7 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
                                 mPerMfmaGroup, nPerMfmaGroup};
 
   FailureOr<MfmaInsnGroup> result = failure();
+
   auto selectFrom = [&](const MfmaInsnGroupMap &groupMap) {
     // No point in overriding our good work
     if (succeeded(result))
@@ -590,6 +609,8 @@ MfmaInsnGroup::select(Type elementTypeA, Type elementTypeB, StringRef arch,
         LLVM_DEBUG(llvm::dbgs() << "Selected gfx950 double rate instruction\n");
         return;
       }
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Incoherent with K for gfx950 double rate instruction\n");
       // else select again
       result = failure();
       return;
