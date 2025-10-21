@@ -22,11 +22,13 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockConvInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTosaCustomOps.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/tosaUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
@@ -38,6 +40,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
@@ -56,111 +59,6 @@
 using namespace mlir;
 
 namespace {
-
-static bool isZeroAttribute(Attribute value) {
-  if (auto intValue = dyn_cast<IntegerAttr>(value))
-    return intValue.getValue().isZero();
-  if (auto fpValue = dyn_cast<FloatAttr>(value))
-    return fpValue.getValue().isZero();
-  if (auto splatValue = dyn_cast<SplatElementsAttr>(value))
-    return isZeroAttribute(splatValue.getSplatValue<Attribute>());
-  if (auto elementsValue = dyn_cast<ElementsAttr>(value))
-    return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
-  if (auto elementsValue = dyn_cast<DenseElementsAttr>(value))
-    return llvm::all_of(elementsValue.getValues<Attribute>(), isZeroAttribute);
-  if (auto arrayValue = dyn_cast<ArrayAttr>(value))
-    return llvm::all_of(arrayValue.getValue(), isZeroAttribute);
-  return false;
-}
-
-static bool isConstantZero(Value v) {
-  if (auto cst = v.getDefiningOp<arith::ConstantOp>())
-    return isZeroAttribute(cst.getValue());
-  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
-    return isZeroAttribute(cst.getValuesAttr());
-  return false;
-}
-
-static bool isNegInfAttribute(Attribute value) {
-  if (auto fpValue = dyn_cast<FloatAttr>(value)) {
-    auto value = fpValue.getValue();
-
-    std::pair<APFloat, llvm::detail::opStatus> floatRes = rock::createAPFloat(
-        fpValue.getType(), -std::numeric_limits<float>::infinity());
-    auto expectedValue = floatRes.first;
-    auto status = floatRes.second;
-    assert(status == APFloat::opOK);
-
-    return value.compare(expectedValue) == llvm::APFloat::cmpEqual;
-  }
-  if (auto splatValue = dyn_cast<SplatElementsAttr>(value))
-    return isNegInfAttribute(splatValue.getSplatValue<Attribute>());
-  if (auto elementsValue = dyn_cast<ElementsAttr>(value))
-    return llvm::all_of(elementsValue.getValues<Attribute>(),
-                        isNegInfAttribute);
-  if (auto elementsValue = dyn_cast<DenseElementsAttr>(value))
-    return llvm::all_of(elementsValue.getValues<Attribute>(),
-                        isNegInfAttribute);
-  if (auto arrayValue = dyn_cast<ArrayAttr>(value))
-    return llvm::all_of(arrayValue.getValue(), isNegInfAttribute);
-
-  return false;
-}
-
-static bool isConstIsNegInf(Value v) {
-  if (auto cst = v.getDefiningOp<arith::ConstantOp>())
-    return isNegInfAttribute(cst.getValue());
-  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
-    return isNegInfAttribute(cst.getValuesAttr());
-  return false;
-}
-
-static bool isIntAttrSame(Attribute value, int64_t expectedVal) {
-  if (auto intValue = dyn_cast<IntegerAttr>(value)) {
-    auto value = intValue.getValue();
-
-    FailureOr<APInt> intRes =
-        rock::createAPInt(intValue.getType(), expectedVal);
-    if (failed(intRes))
-      return false;
-
-    return intRes.value() == value;
-  }
-  return false;
-}
-
-static bool isConstRangeAttribute(Attribute value) {
-  if (auto splatValue = dyn_cast<SplatElementsAttr>(value))
-    return false;
-  if (auto elementsValue = dyn_cast<ElementsAttr>(value))
-    return llvm::all_of(llvm::enumerate(elementsValue.getValues<Attribute>()),
-                        [](const auto &indexedAttr) {
-                          return isIntAttrSame(indexedAttr.value(),
-                                               indexedAttr.index());
-                        });
-  if (auto elementsValue = dyn_cast<DenseElementsAttr>(value))
-    return llvm::all_of(llvm::enumerate(elementsValue.getValues<Attribute>()),
-                        [](const auto &indexedAttr) {
-                          return isIntAttrSame(indexedAttr.value(),
-                                               indexedAttr.index());
-                        });
-  if (auto arrayValue = dyn_cast<ArrayAttr>(value))
-    return llvm::all_of(
-        llvm::enumerate(arrayValue.getValue()), [](const auto &indexedAttr) {
-          return isIntAttrSame(indexedAttr.value(), indexedAttr.index());
-        });
-
-  return false;
-}
-
-static bool isConstRange(Value v) {
-  if (auto cst = v.getDefiningOp<arith::ConstantOp>())
-    return isConstRangeAttribute(cst.getValue());
-  if (auto cst = v.getDefiningOp<tosa::ConstOp>())
-    return isConstRangeAttribute(cst.getValuesAttr());
-  return false;
-}
-
 // Note:  we want something a bit more general than SmallString<8> for
 // the layout string, but it has to allow for inserting a character into
 // the string for the caller to see.
@@ -209,7 +107,7 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
                  layout.substr(lowerDim, layout.size() - lowerDim))
                .str();
 
-  return rw.create<rock::TransformOp>(loc, operand, transform.get());
+  return rock::TransformOp::create(rw, loc, operand, transform.get());
 }
 
 static rock::GemmFeatures getGemmFeaturesFromOp(Operation *op, Type inputType) {
@@ -319,15 +217,17 @@ static FailureOr<rock::RockConvInterface>
 makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
              Value filter, Value output, DenseI64ArrayAttr pad,
              DenseI64ArrayAttr stride, DenseI64ArrayAttr dilation,
-             int64_t group, int64_t kernelID, std::string convKind) {
+             int64_t group, int64_t kernelID,
+             std::optional<std::string> convBackwardKind) {
   Location loc = op->getLoc();
   ConvFields convFields =
       commonConv(rw, op, input, filter, output, pad, stride, dilation, group);
 
   Operation *cop = nullptr;
-  if (convKind == "bwd_data") {
-    cop = rw.create<rock::ConvBwdDataOp>(
-        loc, convFields.outputExp.getType(), convFields.filterExp,
+  if (convBackwardKind.has_value() &&
+      convBackwardKind.value() == ROCK_CUSTOMOP_CONV_BWD_DATA) {
+    cop = rock::ConvBwdDataOp::create(
+        rw, loc, convFields.outputExp.getType(), convFields.filterExp,
         convFields.outputExp, convFields.inputExp,
         /*features=*/nullptr,
         /*blockSize=*/nullptr,
@@ -337,9 +237,11 @@ makeRockConv(ConversionPatternRewriter &rw, Operation *op, Value input,
         /*usesV4R1=*/rw.getBoolAttr(false));
   } else {
     // Handle forwards convolution
-    assert(convKind != "bwd_weight" && "bwd_weight currently not implemented");
-    cop = rw.create<rock::ConvOp>(
-        loc, convFields.outputExp.getType(), convFields.filterExp,
+    assert((!convBackwardKind.has_value() ||
+            convBackwardKind.value() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT) &&
+           "bwd_weight currently not implemented");
+    cop = rock::ConvOp::create(
+        rw, loc, convFields.outputExp.getType(), convFields.filterExp,
         convFields.inputExp, convFields.outputExp, /*features=*/nullptr,
         /*blockSize=*/nullptr, /*gridSize=*/nullptr, convFields.pad,
         convFields.stride, convFields.dilation, /*params=*/nullptr);
@@ -617,11 +519,12 @@ struct ElementwiseRegionFinder {
     RankedTensorType resTensorType = cast<RankedTensorType>(lastRes.getType());
     MemRefType resMemRefType = MemRefType::get(resTensorType.getShape(),
                                                resTensorType.getElementType());
-    Value resMemref = regionBuilder.create<bufferization::ToBufferOp>(
-        loc, cast<mlir::bufferization::BufferLikeType>(resMemRefType), lastRes);
+    Value resMemref = bufferization::ToBufferOp::create(
+        regionBuilder, loc,
+        cast<mlir::bufferization::BufferLikeType>(resMemRefType), lastRes);
     Value outMemref = block->addArgument(resMemRefType, loc);
-    regionBuilder.create<memref::CopyOp>(loc, resMemref, outMemref);
-    regionBuilder.create<rock::YieldOp>(loc);
+    memref::CopyOp::create(regionBuilder, loc, resMemref, outMemref);
+    rock::YieldOp::create(regionBuilder, loc);
   }
 
 private:
@@ -633,7 +536,7 @@ private:
   SmallVector<Operation *> visitedOps;
 };
 
-static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
+static void addZeroInitPrefillAttribute(tosa::CustomOp op,
                                         Operation *rockConv) {
   // First check if the TransposeConv2D op is going to require having it's
   // output zeroinitialized, i.e., not every element of the output buffer is
@@ -653,7 +556,7 @@ static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
 
   // Now we need to determine where to add the prefill attributes. Trace through
   // the output of the TransposeConv2D op to find where the result is used.
-  Value output = op.getResult();
+  Value output = op.getResult(0);
   func::FuncOp func = op->getParentOfType<func::FuncOp>();
   if (!func)
     return;
@@ -686,8 +589,37 @@ static void addZeroInitPrefillAttribute(tosa::TransposeConv2DOp op,
   }
 }
 
+static FailureOr<tosa::AddOp>
+replaceCstZeroWithAddNBcast(MLIRContext *context, ConversionPatternRewriter &rw,
+                            Location loc, Type resTy, Value bias, Value input,
+                            Value result) {
+  // non-zero bias, replace with tosa.add w/ broadcast
+  auto biasType = cast<ShapedType>(bias.getType());
+  if (!biasType.hasStaticShape())
+    return failure();
+
+  int64_t nDims = cast<ShapedType>(input.getType()).getRank();
+  SmallVector<int64_t> biasShape;
+  for (int i = 0; i < nDims - 1; i++)
+    biasShape.push_back(1);
+  biasShape.push_back(biasType.getShape()[0]);
+  auto newType = RankedTensorType::get(biasShape, biasType.getElementType());
+
+  // [[0, 1, 2, 3]]
+  ReassociationExprs exprs;
+  for (int i = 0; i < nDims; i++)
+    exprs.push_back(getAffineDimExpr(i, context));
+  SmallVector<ReassociationExprs, 1> reassociations;
+  reassociations.push_back(exprs);
+
+  auto biasExpand =
+      tensor::ExpandShapeOp::create(rw, loc, newType, bias, reassociations);
+
+  return tosa::AddOp::create(rw, loc, resTy, ValueRange{result, biasExpand});
+}
+
 template <typename OpT>
-class ConvConverter final : public OpConversionPattern<OpT> {
+class ForwardConvConverter final : public OpConversionPattern<OpT> {
 public:
   using OpConversionPattern<OpT>::OpConversionPattern;
 
@@ -707,7 +639,7 @@ public:
       return failure();
 
     Value output =
-        rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
+        bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
     auto groupAttr = op->template getAttrOfType<IntegerAttr>("group");
     auto padAttr = op->template getAttrOfType<DenseI64ArrayAttr>("pad");
@@ -727,65 +659,112 @@ public:
       return op->emitError(
           "Expected 'dilation' attribute to be present on the operation");
 
-    std::string convKind = "";
-    if (isa<tosa::TransposeConv2DOp>(op)) {
-      // If we are trying to convert bwd_weight, fail as it's currently not
-      // supported
-      convKind = op->template getAttrOfType<StringAttr>("conv_kind").str();
-      if (convKind == "bwd_weight") {
-        op->emitError(
-            "TosaToRock lowering support for bwd_weight not supported");
-      }
-      assert(convKind == "bwd_data" && "Expected bwd_data conv op");
-    }
-
     FailureOr<rock::RockConvInterface> rockConv =
         makeRockConv(rw, op, input, filter, output, padAttr, op.getStrideAttr(),
-                     dilationAttr, group, /*kernelID=*/0, convKind);
-
-    if (convKind == "bwd_data")
-      addZeroInitPrefillAttribute(cast<tosa::TransposeConv2DOp>(op),
-                                  rockConv->getOperation());
+                     dilationAttr, group, /*kernelID=*/0, "");
 
     if (failed(rockConv))
       return failure();
 
     Value result;
-    if (isa<tosa::TransposeConv2DOp>(op)) {
-      result = output;
-    } else {
-      Operation *rockConvOp = rockConv->getOperation();
-      result = rw.create<rock::TensorUntransformCastOp>(
-          loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
-    }
+    Operation *rockConvOp = rockConv->getOperation();
+    result = rock::TensorUntransformCastOp::create(
+        rw, loc, outputType, rockConvOp->getResult(0), rockConv->getOutput());
 
     // test for zero bias, and ignore
-    if (!isConstantZero(op.getOperand(2))) {
+    if (!mlir::rock::isConstantZero(op.getOperand(2))) {
       // non-zero bias, replace with tosa.add w/ broadcast
-      auto biasType = cast<ShapedType>(bias.getType());
-      if (!biasType.hasStaticShape())
+      FailureOr<tosa::AddOp> maybeResult = replaceCstZeroWithAddNBcast(
+          context, rw, loc, op.getType(), bias, input, result);
+
+      if (succeeded(maybeResult))
+        result = maybeResult.value();
+      else
         return failure();
+    }
+    rw.replaceOp(op, result);
+    return success();
+  }
+};
 
-      int64_t nDims = cast<ShapedType>(input.getType()).getRank();
-      SmallVector<int64_t> biasShape;
-      for (int i = 0; i < nDims - 1; i++)
-        biasShape.push_back(1);
-      biasShape.push_back(biasType.getShape()[0]);
-      auto newType =
-          RankedTensorType::get(biasShape, biasType.getElementType());
+class BackwardConvConverter final : public OpConversionPattern<tosa::CustomOp> {
+public:
+  using OpConversionPattern<tosa::CustomOp>::OpConversionPattern;
 
-      // [[0, 1, 2, 3]]
-      ReassociationExprs exprs;
-      for (int i = 0; i < nDims; i++)
-        exprs.push_back(getAffineDimExpr(i, context));
-      SmallVector<ReassociationExprs, 1> reassociations;
-      reassociations.push_back(exprs);
+  LogicalResult matchAndRewrite(tosa::CustomOp op,
+                                tosa::CustomOp::Adaptor adaptor,
+                                ConversionPatternRewriter &rw) const final {
+    // Make sure its a valid CustomOp representing a convolution.
+    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
+      return op->emitError("domain isn't rock");
+    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
+        op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT)
+      return op->emitError("has an invalid operator_name");
+    if (op.getNumOperands() < 5)
+      return op->emitError("must have 5 or more operands");
+    if (op.getNumResults() != 1)
+      return op->emitError("must have 1 result");
 
-      auto biasExpand =
-          rw.create<tensor::ExpandShapeOp>(loc, newType, bias, reassociations);
+    // Verify all required attributes are present. "group" is optional.
+    for (std::string attrName : {"pad", "stride", "dilation"}) {
+      if (!op->hasAttr(attrName))
+        return op->emitError("expected '" + attrName +
+                             "' attribute to be present on the op");
+    }
 
-      result = rw.create<tosa::AddOp>(loc, op.getType(),
-                                      ValueRange{result, biasExpand});
+    auto operands = adaptor.getOperands();
+    auto loc = op->getLoc();
+    auto *context = op->getContext();
+    auto input = operands[0];
+    auto filter = operands[1];
+    auto bias = operands[2];
+    RankedTensorType outputType = cast<RankedTensorType>(op.getType(0));
+
+    rock::GemmFeatures features = getGemmFeaturesFromOp(op, input.getType());
+
+    if (failed(setSplitKAttrs(op, features, rw)))
+      return failure();
+
+    Value output =
+        bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
+
+    auto groupAttr = op->getAttrOfType<IntegerAttr>("group");
+    auto padAttr = op->getAttrOfType<DenseI64ArrayAttr>("pad");
+    auto strideAttr = op->getAttrOfType<DenseI64ArrayAttr>("stride");
+    auto dilationAttr = op->getAttrOfType<DenseI64ArrayAttr>("dilation");
+
+    int64_t group = 1;
+    if (groupAttr)
+      group = groupAttr.getInt();
+
+    // If we are trying to convert bwd_weight, fail as it's currently not
+    // supported.
+    if (op.getOperatorName() == ROCK_CUSTOMOP_CONV_BWD_WEIGHT) {
+      return op->emitError(
+          "TosaToRock lowering support for bwd_weight not supported");
+    }
+
+    FailureOr<rock::RockConvInterface> rockConv = makeRockConv(
+        rw, op, input, filter, output, padAttr, strideAttr, dilationAttr, group,
+        /*kernelID=*/0, ROCK_CUSTOMOP_CONV_BWD_DATA);
+
+    addZeroInitPrefillAttribute(op, rockConv->getOperation());
+
+    if (failed(rockConv))
+      return failure();
+
+    Value result = output;
+
+    // test for zero bias, and ignore
+    if (!mlir::rock::isConstantZero(op.getOperand(2))) {
+      // non-zero bias, replace with tosa.add w/ broadcast
+      FailureOr<tosa::AddOp> maybeResult = replaceCstZeroWithAddNBcast(
+          context, rw, loc, op.getType(0), bias, input, result);
+
+      if (succeeded(maybeResult))
+        result = maybeResult.value();
+      else
+        return failure();
     }
     rw.replaceOp(op, result);
     return success();
@@ -808,7 +787,7 @@ static Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape,
   if (!broadcastDone) {
     return inp;
   }
-  return b.create<rock::TransformOp>(loc, inp, broadcastDims.get());
+  return rock::TransformOp::create(b, loc, inp, broadcastDims.get());
 }
 
 class MatMulConverter final : public OpConversionPattern<tosa::MatMulOp> {
@@ -851,7 +830,7 @@ public:
     Location loc = op->getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
     Value output =
-        rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
+        bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
     rock::GemmFeatures features =
         getGemmFeaturesFromOp(op, op.getA().getType());
@@ -883,8 +862,9 @@ public:
     setLastDims(transposeB, bShape, {kDim, nDim});
     Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
 
-    auto rockGemm = rw.create<rock::GemmOp>(
-        loc, outputType, brA, brB, output, transposeA, transposeB, transposeC,
+    auto rockGemm = rock::GemmOp::create(
+        rw, loc, outputType, brA, brB, output, transposeA, transposeB,
+        transposeC,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
@@ -1031,7 +1011,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
               if (newReassocIdx[i] - newReassocIdx[i - 1] != 1) {
                 return rewriter.notifyMatchFailure(
                     op, "CollapseShape op following transpose collapses "
-                        "non-contigous pre-transpose dims.");
+                        "non-contiguous pre-transpose dims.");
               }
             }
           }
@@ -1039,7 +1019,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           // minIdx is the representative of a group that is
           // being collapsed. For e.g. for a collapse of [3,4,5] is assigned
           // with 3 as the representative. I also note that we only allow
-          // collapsing of contigous pre-transpose dims.
+          // collapsing of contiguous pre-transpose dims.
           newReassocIdxMap[newReassocIdx[0]] = newReassocIdx;
         }
 
@@ -1050,7 +1030,7 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         DenseMap<int32_t, int32_t> dimMap;
         // The vector of newDims (may) contain a discontinous
         // a range of representative minIdxs. Here we make
-        // it contigous by assigning order idx.
+        // it contiguous by assigning order idx.
         for (size_t i = 0; i < newDimsSorted.size(); i++) {
           dimMap[newDimsSorted[i]] = i;
           newReassocIndicesSorted.push_back(newReassocIdxMap[newDimsSorted[i]]);
@@ -1085,8 +1065,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         }
 
         tensor::CollapseShapeOp newCollapseShapeOp =
-            rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), tInput,
-                                                     newReassocIndicesSorted);
+            tensor::CollapseShapeOp::create(rewriter, op.getLoc(), tInput,
+                                            newReassocIndicesSorted);
 
         if (mergeTransposeWithGemmLikeOp(rewriter, op.getResult(), newDims,
                                          newCollapseShapeOp.getResult())
@@ -1260,7 +1240,7 @@ struct ConvElementwiseGemmRewritePattern
 
     tosa::Conv2DOp firstConv = maybeConv.value();
     // bias not supported
-    if (!isConstantZero(firstConv.getBias())) {
+    if (!mlir::rock::isConstantZero(firstConv.getBias())) {
       op.emitOpError("bias not supported yet");
       return failure();
     }
@@ -1273,8 +1253,8 @@ struct ConvElementwiseGemmRewritePattern
       PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
-    Value output = rewriter.create<bufferization::AllocTensorOp>(
-        loc, outputType, ValueRange{});
+    Value output = bufferization::AllocTensorOp::create(
+        rewriter, loc, outputType, ValueRange{});
 
     // This is guaranteed by the matcher
     tosa::Conv2DOp firstConv =
@@ -1301,9 +1281,9 @@ struct ConvElementwiseGemmRewritePattern
     if (failed(setSplitKAttrs(op, features, rewriter)))
       return;
 
-    auto convElentwiseGemmOp = rewriter.create<rock::ConvElementwiseGemmOp>(
-        loc, outputType, convFields.filterExp, convFields.inputExp, op.getB(),
-        elementwiseOtherArgs, output,
+    auto convElentwiseGemmOp = rock::ConvElementwiseGemmOp::create(
+        rewriter, loc, outputType, convFields.filterExp, convFields.inputExp,
+        op.getB(), elementwiseOtherArgs, output,
         /*cTransposed=*/nullptr,
         /*oTransposed=*/nullptr, /*features=*/nullptr,
         rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
@@ -1365,8 +1345,8 @@ struct GemmElementwiseGemmRewritePattern
     Location loc = op.getLoc();
 
     auto outputType = cast<RankedTensorType>(op.getType());
-    Value output = rewriter.create<bufferization::AllocTensorOp>(
-        loc, outputType, ValueRange{});
+    Value output = bufferization::AllocTensorOp::create(
+        rewriter, loc, outputType, ValueRange{});
     SmallVector<Value> elementwiseOtherArgs =
         elemwiseFinder.getElementwiseArgs();
     // This is guranteed by the matcher
@@ -1383,9 +1363,9 @@ struct GemmElementwiseGemmRewritePattern
       return;
 
     rock::GemmElementwiseGemmOp gemmElentwiseGemmOp =
-        rewriter.create<rock::GemmElementwiseGemmOp>(
-            loc, outputType, firstMatMulOp.getA(), firstMatMulOp.getB(),
-            op.getB(), elementwiseOtherArgs, output,
+        rock::GemmElementwiseGemmOp::create(
+            rewriter, loc, outputType, firstMatMulOp.getA(),
+            firstMatMulOp.getB(), op.getB(), elementwiseOtherArgs, output,
             /*qTransposed=*/nullptr,
             /*kTransposed=*/nullptr,
             /*vTransposed=*/nullptr,
@@ -1448,9 +1428,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
            (val.getDefiningOp<tensor::CollapseShapeOp>() ||
             val.getDefiningOp<tensor::ExpandShapeOp>() ||
             val.getDefiningOp<tosa::TransposeOp>() ||
-            val.getDefiningOp<tosa::AddOp>())) {
-      if (val.getDefiningOp<tosa::AddOp>()) {
-        auto maybeBroadcast = addBroadcast(val);
+            val.getDefiningOp<tosa::MulOp>())) {
+      if (val.getDefiningOp<tosa::MulOp>()) {
+        auto maybeBroadcast = mulBroadcast(val);
         if (failed(maybeBroadcast))
           return failure();
         val = maybeBroadcast.value();
@@ -1473,9 +1453,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   TosaOp getDefiningNonReshapeOpNonBroadcast(Value val) const {
     while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
            val.getDefiningOp<tensor::ExpandShapeOp>() ||
-           val.getDefiningOp<tosa::AddOp>()) {
-      if (val.getDefiningOp<tosa::AddOp>()) {
-        auto maybeBroadcast = addBroadcast(val);
+           val.getDefiningOp<tosa::MulOp>()) {
+      if (val.getDefiningOp<tosa::MulOp>()) {
+        auto maybeBroadcast = mulBroadcast(val);
         if (failed(maybeBroadcast))
           return nullptr;
         val = maybeBroadcast.value();
@@ -1504,32 +1484,32 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return val.getDefiningOp<TosaOp>();
   }
 
-  FailureOr<Value> addBroadcast(Value val) const {
-    if (auto add = getDefiningNonReshapeOp<tosa::AddOp>(val)) {
-      // this is a broadcast add, one of the arguments comes is the actual
-      // value, the other is a 0 constant
-      Value nonZero;
+  FailureOr<Value> mulBroadcast(Value val) const {
+    if (auto mul = getDefiningNonReshapeOp<tosa::MulOp>(val)) {
+      // this is a broadcast multiplication, one of the arguments is the actual
+      // value, the other is a constant one
+      Value nonOne;
       if (auto constOp =
-              getDefiningNonReshapeOp<tosa::ConstOp>(add.getInput1())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput2();
+              getDefiningNonReshapeOp<tosa::ConstOp>(mul.getInput1())) {
+        if (mlir::rock::isConstantOne(constOp.getResult()))
+          nonOne = mul.getInput2();
       } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
-                     add.getInput1())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput2();
+                     mul.getInput1())) {
+        if (mlir::rock::isConstantOne(constOp.getResult()))
+          nonOne = mul.getInput2();
       }
 
       if (auto constOp =
-              getDefiningNonReshapeOp<tosa::ConstOp>(add.getInput2())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput1();
+              getDefiningNonReshapeOp<tosa::ConstOp>(mul.getInput2())) {
+        if (mlir::rock::isConstantOne(constOp.getResult()))
+          nonOne = mul.getInput1();
       } else if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(
-                     add.getInput2())) {
-        if (isConstantZero(constOp.getResult()))
-          nonZero = add.getInput1();
+                     mul.getInput2())) {
+        if (mlir::rock::isConstantOne(constOp.getResult()))
+          nonOne = mul.getInput1();
       }
-      if (nonZero)
-        return nonZero;
+      if (nonOne)
+        return nonOne;
     }
     return failure();
   }
@@ -1537,21 +1517,21 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   LogicalResult getConstComparison(TypedValue<TensorType> input,
                                    size_t nonOneDimFromEnd) const {
     // input is a constant with a range from 0 to maxSeqLen
-    FailureOr<Value> maybeNonZero = addBroadcast(input);
-    if (failed(maybeNonZero))
+    FailureOr<Value> maybeNonOne = mulBroadcast(input);
+    if (failed(maybeNonOne))
       return failure();
 
-    // check that maybeNonZero is a const with range 0..maxSeqLen
+    // check that maybeNonOne is a const with range 0..maxSeqLen
     bool isRange = false;
     Value rangeResult;
     if (auto constRange =
-            getDefiningNonReshapeOp<arith::ConstantOp>(maybeNonZero.value())) {
+            getDefiningNonReshapeOp<arith::ConstantOp>(maybeNonOne.value())) {
       rangeResult = constRange.getResult();
-      isRange = isConstRange(rangeResult);
+      isRange = rock::isConstRange(rangeResult);
     } else if (auto constRange = getDefiningNonReshapeOp<tosa::ConstOp>(
-                   maybeNonZero.value())) {
+                   maybeNonOne.value())) {
       rangeResult = constRange.getResult();
-      isRange = isConstRange(rangeResult);
+      isRange = rock::isConstRange(rangeResult);
     }
 
     if (!isRange)
@@ -1579,9 +1559,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       auto onTrue = select.getInput2();
       bool isConsNegInf = false;
       if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(onTrue))
-        isConsNegInf = isConstIsNegInf(constOp.getResult());
+        isConsNegInf = rock::isConstNegInf(constOp.getResult());
       else if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(onTrue))
-        isConsNegInf = isConstIsNegInf(constOp.getResult());
+        isConsNegInf = rock::isConstNegInf(constOp.getResult());
 
       if (!isConsNegInf)
         return failure();
@@ -1719,9 +1699,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       auto onTrue = select.getInput2();
       bool isConsNegInf = false;
       if (auto constOp = getDefiningNonReshapeOp<arith::ConstantOp>(onTrue))
-        isConsNegInf = isConstIsNegInf(constOp.getResult());
+        isConsNegInf = rock::isConstNegInf(constOp.getResult());
       else if (auto constOp = getDefiningNonReshapeOp<tosa::ConstOp>(onTrue))
-        isConsNegInf = isConstIsNegInf(constOp.getResult());
+        isConsNegInf = rock::isConstNegInf(constOp.getResult());
 
       if (!isConsNegInf)
         return failure();
@@ -1735,13 +1715,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
         // input2 comes from argument: currentSeqLen
         auto input2 = greater.getInput2();
-        FailureOr<Value> maybeNonZero2 = addBroadcast(input2);
-        if (failed(maybeNonZero2))
+        FailureOr<Value> maybeNonOne2 = mulBroadcast(input2);
+        if (failed(maybeNonOne2))
           return failure();
 
         // check that the right dimensions are broadcasted
         auto beforeBroadcastShape =
-            dyn_cast<ShapedType>(maybeNonZero2->getType());
+            dyn_cast<ShapedType>(maybeNonOne2->getType());
         if (beforeBroadcastShape) {
           auto shape = beforeBroadcastShape.getShape();
           if (beforeBroadcastShape.getRank() > 2 &&
@@ -1751,7 +1731,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           return failure();
         }
 
-        Value currentSeqLen = getValueNonReshapeOp(maybeNonZero2.value());
+        Value currentSeqLen = getValueNonReshapeOp(maybeNonOne2.value());
         Value result = select.getInput3();
 
         // currentSeqLen must be of i32 type
@@ -1924,8 +1904,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         normalizedShape, inputTensor.getType().getElementType());
     auto normalizedShapeValue =
         tosa::getTosaConstShape(rewriter, loc, normalizedShape);
-    auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
-        loc, normalizedType, inputTensor, normalizedShapeValue);
+    auto reshapeOp = tosa::ReshapeOp::create(rewriter, loc, normalizedType,
+                                             inputTensor, normalizedShapeValue);
     return reshapeOp;
   }
 
@@ -2090,8 +2070,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                PatternRewriter &rewriter) const {
     Location loc = op.getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
-    Value output = rewriter.create<bufferization::AllocTensorOp>(
-        loc, outputType, ValueRange{});
+    Value output = bufferization::AllocTensorOp::create(
+        rewriter, loc, outputType, ValueRange{});
     RankedTensorType lseType;
     Value lse = attentionMatcherValues.lse;
     Value lseOut, lseOrig;
@@ -2103,12 +2083,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
       // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
       lseOrig = lse;
-      lse = rewriter.create<tensor::CollapseShapeOp>(op.getLoc(), lse,
-                                                     reassocIndicesLSE);
+      lse = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), lse,
+                                            reassocIndicesLSE);
 
       lseType = cast<RankedTensorType>(lse.getType());
-      lseOut = rewriter.create<bufferization::AllocTensorOp>(loc, lseType,
-                                                             ValueRange{});
+      lseOut = bufferization::AllocTensorOp::create(rewriter, loc, lseType,
+                                                    ValueRange{});
     }
     ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder =
         attentionMatcherValues.preSoftmaxElementwiseFinder;
@@ -2129,8 +2109,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (currentSeqLen &&
         cast<ShapedType>(currentSeqLen.getType()).getRank() == 2) {
       SmallVector<ReassociationIndices> reassocIndices = {{0, 1}};
-      currentSeqLen = rewriter.create<tensor::CollapseShapeOp>(
-          op.getLoc(), currentSeqLen, reassocIndices);
+      currentSeqLen = tensor::CollapseShapeOp::create(
+          rewriter, op.getLoc(), currentSeqLen, reassocIndices);
     }
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
@@ -2138,9 +2118,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     int64_t firstGemmBlockIndex = elemwiseRegion.getFirstGemmBlockIndex();
 
     // TODO: numHeadsQ and numHeadsKV migraphx integration
-    rock::AttentionOp attnOp = rewriter.create<rock::AttentionOp>(
-        loc, outputType, lseType, firstMatMulOp.getA(), firstMatMulOp.getB(),
-        op.getB(), elementwiseOtherArgs, currentSeqLen, output, lseOut,
+    rock::AttentionOp attnOp = rock::AttentionOp::create(
+        rewriter, loc, outputType, lseType, firstMatMulOp.getA(),
+        firstMatMulOp.getB(), op.getB(), elementwiseOtherArgs, currentSeqLen,
+        output, lseOut,
         /*numHeadsQ=*/rewriter.getI32IntegerAttr(1),
         /*numHeadsKV=*/rewriter.getI32IntegerAttr(1),
         /*qTransposed=*/nullptr,
@@ -2165,8 +2146,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value expandedOutLse;
     if (lse) {
       // Reverse the collapse operation
-      expandedOutLse = rewriter.create<tensor::ExpandShapeOp>(
-          op.getLoc(), lseOrig.getType(), attnOp->getResult(1),
+      expandedOutLse = tensor::ExpandShapeOp::create(
+          rewriter, op.getLoc(), lseOrig.getType(), attnOp->getResult(1),
           reassocIndicesLSE);
 
       // collecting AddOp before the first replace
@@ -2210,7 +2191,7 @@ typename std::enable_if_t<
   Location loc = op->getLoc();
   auto outputType = cast<RankedTensorType>(op.getType());
   Value output =
-      rw.create<bufferization::AllocTensorOp>(loc, outputType, ValueRange{});
+      bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
   int32_t blockSize = 256;
   auto elementCount =
@@ -2221,8 +2202,8 @@ typename std::enable_if_t<
     gridSize = std::min((int32_t)(20 * numCU.value()), gridSize);
   }
 
-  auto rockReduce = rw.create<rock::ReduceOp>(
-      loc, outputType, op.getInput(), output,
+  auto rockReduce = rock::ReduceOp::create(
+      rw, loc, outputType, op.getInput(), output,
       rw.getAttr<rock::ReduceMethodAttr>(rMethod),
       rw.getIndexAttr(op.getAxis()), rw.getI32IntegerAttr(blockSize),
       rw.getI32IntegerAttr(gridSize),
@@ -2298,12 +2279,12 @@ public:
   }
 };
 
-// We identify the pattern dummy add with implicit broadcasting
+// We identify the dummy pattern tosa.mul with implicit broadcasting
 // and rewrite it to be rock.transform broadcast
-class AddSplatZeroRewritePattern final : public OpRewritePattern<tosa::AddOp> {
+class MulSplatOneRewritePattern final : public OpRewritePattern<tosa::MulOp> {
 public:
-  using OpRewritePattern<tosa::AddOp>::OpRewritePattern;
-  LogicalResult matchAndRewrite(tosa::AddOp op,
+  using OpRewritePattern<tosa::MulOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(tosa::MulOp op,
                                 PatternRewriter &rw) const final {
     Location loc = op.getLoc();
     TypedValue<TensorType> inp1 = op.getInput1();
@@ -2311,11 +2292,11 @@ public:
     TypedValue<TensorType> out = op.getOutput();
 
     TypedValue<TensorType> bcastInput;
-    if (isConstantZero(inp1))
+    if (mlir::rock::isConstantOne(inp1))
       bcastInput = inp2;
-    if (isConstantZero(inp2)) {
+    if (mlir::rock::isConstantOne(inp2)) {
       if (bcastInput) {
-        return rw.notifyMatchFailure(op, "both inputs are splat zeros");
+        return rw.notifyMatchFailure(op, "both inputs are splat ones");
       }
       bcastInput = inp1;
     }
@@ -2325,7 +2306,7 @@ public:
       rw.replaceOp(op, bcast);
       return success();
     }
-    return rw.notifyMatchFailure(op, "none of the inputs are splat zeros");
+    return rw.notifyMatchFailure(op, "none of the inputs are splat ones");
   }
 };
 
@@ -2333,9 +2314,10 @@ public:
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
-  patterns.add<ConvConverter<tosa::Conv2DOp>, ConvConverter<tosa::Conv3DOp>,
-               ConvConverter<tosa::TransposeConv2DOp>, MatMulConverter,
-               ReduceSumConverter, ReduceMaxConverter>(context);
+  patterns.add<ForwardConvConverter<tosa::Conv2DOp>,
+               ForwardConvConverter<tosa::Conv3DOp>, BackwardConvConverter,
+               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
+      context);
 }
 
 void tosa::populateTosaToRockAttentionConversionPatterns(
@@ -2356,5 +2338,5 @@ void tosa::populateTosaToRockConvGemmConversionPatterns(
 void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<TransposeRewritePattern, CollapseExpandRewritePattern,
-               AddSplatZeroRewritePattern>(context);
+               MulSplatOneRewritePattern>(context);
 }

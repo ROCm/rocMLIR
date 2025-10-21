@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-regularize -rock-gridwise-gemm-to-blockwise -rock-linalg-align -mlir-print-local-scope %s | FileCheck %s
+// RUN: rocmlir-opt -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-regularize -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -rock-linalg-align -mlir-print-local-scope %s | FileCheck %s
 
 #map = affine_map<(d0, d1, d2) -> ((d0 * 32 + d1) * 128 + d2)>
 #map1 = affine_map<(d0, d1, d2) -> ((d0 * 128 + d1) * 32 + d2)>

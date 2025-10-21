@@ -95,12 +95,12 @@ struct ExtractStridedMetadataOpRockGpuAllocFolder
       return failure();
     Location loc = op.getLoc();
     auto makeConst = [&](int64_t value) -> Value {
-      return rewriter.create<arith::ConstantIndexOp>(loc, value);
+      return arith::ConstantIndexOp::create(rewriter, loc, value);
     };
     Value baseBuffer = nullptr;
     if (!op.getBaseBuffer().use_empty()) {
-      baseBuffer = rewriter.create<memref::ReinterpretCastOp>(
-          loc, cast<MemRefType>(op.getBaseBuffer().getType()),
+      baseBuffer = memref::ReinterpretCastOp::create(
+          rewriter, loc, cast<MemRefType>(op.getBaseBuffer().getType()),
           gpuAlloc.getResult(), 0, ArrayRef<int64_t>(), ArrayRef<int64_t>());
     }
     SmallVector<Value, 4> results = {
@@ -141,11 +141,11 @@ struct BufferLoadRewritePatttern
                                    rewriter.getIntegerType(newWidth));
     Value scaleConst =
         rewriter.createOrFold<arith::ConstantIntOp>(loc, scale, /*width=*/32);
-    Value newIndex = rewriter.create<arith::DivUIOp>(
-        loc, adaptor.getIndices()[0], scaleConst);
+    Value newIndex = arith::DivUIOp::create(
+        rewriter, loc, adaptor.getIndices()[0], scaleConst);
     // Note: if you're using sgpr offset for some reason, this won't work.
-    Value newLoad = rewriter.create<amdgpu::RawBufferLoadOp>(
-        loc, newType, adaptor.getMemref(), newIndex,
+    Value newLoad = amdgpu::RawBufferLoadOp::create(
+        rewriter, loc, newType, adaptor.getMemref(), newIndex,
         adaptor.getBoundsCheckAttr(), nullptr, nullptr);
     rewriter.replaceOpWithNewOp<vector::BitCastOp>(op, oldType, newLoad);
     return success();
@@ -178,11 +178,11 @@ struct BufferStoreRewritePatttern
                                    rewriter.getIntegerType(newWidth));
     Value scaleConst =
         rewriter.createOrFold<arith::ConstantIntOp>(loc, scale, /*width=*/32);
-    Value newIndex = rewriter.create<arith::DivUIOp>(
-        loc, adaptor.getIndices()[0], scaleConst);
+    Value newIndex = arith::DivUIOp::create(
+        rewriter, loc, adaptor.getIndices()[0], scaleConst);
     // Note: if you're using sgpr offset for some reason, this won't work.
     Value newValue =
-        rewriter.create<vector::BitCastOp>(loc, newType, adaptor.getValue());
+        vector::BitCastOp::create(rewriter, loc, newType, adaptor.getValue());
     rewriter.replaceOpWithNewOp<amdgpu::RawBufferStoreOp>(
         op, newValue, adaptor.getMemref(), newIndex,
         adaptor.getBoundsCheckAttr(), nullptr, nullptr);

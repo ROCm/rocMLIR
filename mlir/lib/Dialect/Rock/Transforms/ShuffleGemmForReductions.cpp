@@ -563,14 +563,14 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     Value trGemmInA = gemmInA;
     rewriter.setInsertionPointAfterValue(gemmInA);
     for (Attribute trMap : additionalViewsA) {
-      trGemmInA = rewriter.create<TransformOp>(rOp.getLoc(), trGemmInA,
-                                               cast<TransformMapAttr>(trMap));
+      trGemmInA = TransformOp::create(rewriter, rOp.getLoc(), trGemmInA,
+                                      cast<TransformMapAttr>(trMap));
     }
     Value trGemmInB = gemmInB;
     rewriter.setInsertionPointAfterValue(gemmInB);
     for (Attribute trMap : additionalViewsB) {
-      trGemmInB = rewriter.create<TransformOp>(rOp.getLoc(), trGemmInB,
-                                               cast<TransformMapAttr>(trMap));
+      trGemmInB = TransformOp::create(rewriter, rOp.getLoc(), trGemmInB,
+                                      cast<TransformMapAttr>(trMap));
     }
     ArrayAttr additionalOutputViews = generateShuffledGemmOutputViews(
         rewriter, g, m, mnPerBlock.value().MPerBlock, n,
@@ -580,8 +580,8 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     ArrayAttr invertedOutViews =
         invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews);
     for (Attribute trMap : invertedOutViews) {
-      trGemmOut = rewriter.create<TransformOp>(rOp.getLoc(), trGemmOut,
-                                               cast<TransformMapAttr>(trMap));
+      trGemmOut = TransformOp::create(rewriter, rOp.getLoc(), trGemmOut,
+                                      cast<TransformMapAttr>(trMap));
     }
     if (GridwiseGemmAccelOp gemmAccelOp =
             dyn_cast<GridwiseGemmAccelOp>(gemmOp)) {

@@ -57,6 +57,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SMLoc.h"
+#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <iterator>
 #include <limits>
@@ -71,8 +72,9 @@ using namespace mlir::rock;
 // Utility Functions
 //===----------------------------------------------------------------------===//
 template <typename OpType>
-void getGemmEffects(OpType &op,
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static void
+getGemmEffects(OpType &op,
+               SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
 
@@ -84,8 +86,9 @@ void getGemmEffects(OpType &op,
 }
 
 template <typename OpType>
-void getGemmMatrixEffects(
-    OpType &op, SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static void
+getGemmMatrixEffects(OpType &op,
+                     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
 
@@ -97,8 +100,9 @@ void getGemmMatrixEffects(
 }
 
 template <typename OpType>
-void getAttentionEffects(
-    OpType &op, SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static void
+getAttentionEffects(OpType &op,
+                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
   effects.emplace_back(read, &op.getOutMutable());
@@ -120,8 +124,9 @@ void getAttentionEffects(
 }
 
 template <typename OpType>
-void getConvEffects(OpType &op,
-                    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static void
+getConvEffects(OpType &op,
+               SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   effects.emplace_back(MemoryEffects::Read::get(), &op.getInputMutable(),
                        transform::TransformMappingResource::get());
   effects.emplace_back(MemoryEffects::Read::get(), &op.getFilterMutable(),
@@ -131,8 +136,9 @@ void getConvEffects(OpType &op,
 }
 
 template <typename OpType>
-void getCommonEffects(OpType &op,
-                      SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static void
+getCommonEffects(OpType &op,
+                 SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
   effects.emplace_back(read, &op.getSourceMutable());
@@ -1132,20 +1138,43 @@ LogicalResult GpuAllocOp::verify() {
 }
 
 //===-----------------------------------------------------===//
-// GpuDeallocOp
+// LiveInOp
 //===-----------------------------------------------------===//
 
-LogicalResult GpuDeallocOp::verify() {
+LogicalResult LiveInOp::verify() {
   // Make sure the input memref defining operation is a GpuAllocOp
-  if (auto gpuAlloc = dyn_cast<GpuAllocOp>(getMemref().getDefiningOp())) {
-    // Make sure the size is bigger than 0
-    if (getByteSize(getMemref().getType()) > 0) {
-      return success();
-    }
-    return emitError("The size of rock.dealloc should be greather than zero.");
-  }
-  return emitError("The operand of rock.dealloc must be the result of a "
-                   "rock.alloc operation.");
+  if (!isa<GpuAllocOp>(getMemref().getDefiningOp()))
+    return emitError("The operand of rock.live_in must be the result of a "
+                     "rock.alloc operation.");
+
+  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      getMemref().getType().getMemorySpace());
+  if (!memSpace ||
+      (memSpace &&
+       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
+    return emitError("The operand of rock.live_in must a LDS memref");
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// LiveOutOp
+//===-----------------------------------------------------===//
+
+LogicalResult LiveOutOp::verify() {
+  // Make sure the input memref defining operation is a GpuAllocOp
+  if (!isa<GpuAllocOp>(getMemref().getDefiningOp()))
+    return emitError("The operand of rock.live_out must be the result of a "
+                     "rock.alloc operation.");
+
+  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      getMemref().getType().getMemorySpace());
+  if (!memSpace ||
+      (memSpace &&
+       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
+    return emitError("The operand of rock.live_out must a LDS memref");
+
+  return success();
 }
 
 //===-----------------------------------------------------===//
@@ -1770,8 +1799,8 @@ ThreadwiseReadIntoOp::cloneWithExtraIndices(OpBuilder &builder,
     return getOperation();
   }
   // Only one operand supports view
-  auto newOp = builder.create<ThreadwiseReadIntoOp>(
-      getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
+  auto newOp = ThreadwiseReadIntoOp::create(
+      builder, getLoc(), view, getDest(), getExtraViews(), newExtraIndices,
       getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
 }
@@ -1792,8 +1821,8 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
       dyn_cast_or_null<gpu::AddressSpaceAttr>(srcMemSpaceAttr);
   if (dstMemSpaceAttr &&
       (!gpuDstMemSpaceAttr ||
-       gpuDstMemSpaceAttr.getValue() != gpu::AddressSpace::Private))
-    return emitOpError("dest must be private registers");
+       gpuDstMemSpaceAttr.getValue() == gpu::AddressSpace::Global))
+    return emitOpError("dest must be private registers or LDS");
   ArrayAttr extraViews = getExtraViews();
   ArrayRef<int64_t> inputShape;
   if (extraViews.empty())
@@ -1814,15 +1843,15 @@ LogicalResult ThreadwiseReadIntoOp::verify() {
   VectorType srcVectorType = dyn_cast<VectorType>(srcType.getElementType());
   VectorType dstVectorType = dyn_cast<VectorType>(destType.getElementType());
   if ((srcVectorType || dstVectorType) &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup &&
-      gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Private)
+      (!gpuSrcMemSpaceAttr ||
+       gpuSrcMemSpaceAttr.getValue() == gpu::AddressSpace::Global))
     return emitOpError(
         "Vector buffers are not allowed when we read from global memory");
   if (srcVectorType && dstVectorType) {
     int64_t srcVectorLen = srcVectorType.getNumElements();
     int64_t dstVectorLen = dstVectorType.getNumElements();
     if ((srcVectorLen > dstVectorLen && srcVectorLen % dstVectorLen != 0) ||
-        (dstVectorLen > srcVectorLen && dstVectorLen % dstVectorLen != 0))
+        (dstVectorLen > srcVectorLen && dstVectorLen % srcVectorLen != 0))
       return emitOpError(
           "Vector buffers vector's lengths need to be evenly divisible");
   }
@@ -1874,8 +1903,8 @@ ThreadwiseWriteAllOp::cloneWithExtraIndices(OpBuilder &builder,
   }
 
   // Only one operand supports view
-  auto newOp = builder.create<ThreadwiseWriteAllOp>(
-      getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
+  auto newOp = ThreadwiseWriteAllOp::create(
+      builder, getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
       getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
 }
@@ -1936,13 +1965,13 @@ ThreadwiseCopyOp::cloneWithExtraIndices(OpBuilder &builder, OpOperand &operand,
   // Only one operand supports view
   ThreadwiseCopyOp newOp;
   if (operand.getOperandNumber() == 0) {
-    newOp = builder.create<ThreadwiseCopyOp>(
-        getLoc(), view, newExtraIndices, getDest(), getExtraIndicesDest(),
-        getForceUnroll(), getUseIndexDiffs());
+    newOp = ThreadwiseCopyOp::create(builder, getLoc(), view, newExtraIndices,
+                                     getDest(), getExtraIndicesDest(),
+                                     getForceUnroll(), getUseIndexDiffs());
   } else {
-    newOp = builder.create<ThreadwiseCopyOp>(
-        getLoc(), getSource(), getExtraIndicesSource(), view, newExtraIndices,
-        getForceUnroll(), getUseIndexDiffs());
+    newOp = ThreadwiseCopyOp::create(
+        builder, getLoc(), getSource(), getExtraIndicesSource(), view,
+        newExtraIndices, getForceUnroll(), getUseIndexDiffs());
   }
   return newOp.getOperation();
 }
@@ -1967,6 +1996,55 @@ LogicalResult ThreadwiseCopyOp::verify() {
         "Un-extended source and dest buffers need to have the same shape.");
 
   return success();
+}
+
+//===----------------------------------------------------------------------===//
+// BlockwiseLoadTileOp
+//===----------------------------------------------------------------------===//
+
+void BlockwiseLoadTileOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  GemmLoadTileType loadType = getLoadType();
+  bool doubleBuffer = loadType == GemmLoadTileType::DoubleBuffer ||
+                      loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+  bool singleBuffer = loadType == GemmLoadTileType::Default ||
+                      loadType == GemmLoadTileType::DirectToLDSDefault;
+
+  effects.emplace_back(read, &getSourceMutable());
+  if (loadType != GemmLoadTileType::BypassLDS) {
+    assert(getDestLDS() != nullptr);
+    effects.emplace_back(write, &getDestLDSMutable()[0]);
+    // DoubleBuffer means we write to LDS and then, load from it
+    if (doubleBuffer)
+      effects.emplace_back(read, &getDestLDSMutable()[0]);
+  }
+  if (!singleBuffer) {
+    assert(getDestRegisters() != nullptr);
+    effects.emplace_back(write, &getDestRegistersMutable()[0]);
+  }
+}
+
+LogicalResult BlockwiseLoadTileOp::verify() {
+  Value destLDS = getDestLDS();
+  Value destRegisters = getDestRegisters();
+  GemmLoadTileType loadType = getLoadType();
+  bool singleBuffer = loadType == GemmLoadTileType::Default ||
+                      loadType == GemmLoadTileType::DirectToLDSDefault;
+
+  if (!destLDS && loadType != GemmLoadTileType::BypassLDS)
+    return emitOpError("destLDS must be set unless loadType is BypassLDS");
+
+  if (!destRegisters && !singleBuffer)
+    return emitOpError("destRegisters must be set unless loadType is "
+                       "Default/DirectToLDSDefault");
+
+  return success();
+}
+
+SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
+  return {getElementTypeA()};
 }
 
 //===----------------------------------------------------------------------===//
@@ -1999,8 +2077,47 @@ void BlockwiseGemmOp::getEffects(
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmAccelOp
 //===----------------------------------------------------------------------===//
+
+LogicalResult BlockwiseGemmAccelOp::verify() {
+  bool loadAFromLDS = getLoadAfromLDS();
+  bool loadBFromLDS = getLoadBfromLDS();
+  bool hasA = getMatrixA() != nullptr;
+  bool hasB = getMatrixB() != nullptr;
+
+  if (loadAFromLDS && !hasA)
+    return emitOpError("If loadAFromLDS is enabled, matrixA must be non-null.");
+  if (loadBFromLDS && !hasB)
+    return emitOpError("If loadBFromLDS is enabled, matrixB must be non-null.");
+
+  return success();
+}
+
 SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
   return {getMatrixA().getType()};
+}
+
+void BlockwiseGemmAccelOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
+  effects.emplace_back(read, &getMatrixCMutable());
+  effects.emplace_back(write, &getMatrixCMutable());
+
+  effects.emplace_back(read, &getBufferAMutable());
+  effects.emplace_back(read, &getBufferBMutable());
+
+  // if we load from LDS, we need to write to registers
+  if (getLoadAfromLDS()) {
+    assert(getMatrixA() != nullptr);
+    effects.emplace_back(read, &getMatrixAMutable()[0]);
+    effects.emplace_back(write, &getBufferAMutable());
+  }
+  if (getLoadBfromLDS()) {
+    assert(getMatrixB() != nullptr);
+    effects.emplace_back(read, &getMatrixBMutable()[0]);
+    effects.emplace_back(write, &getBufferBMutable());
+  }
 }
 
 //===----------------------------------------------------------------------===//

@@ -227,7 +227,7 @@ struct ThreadwiseWriteAllRewritePattern
                << elementsWrittenPerThread << ", performing swizzle\n");
 
     // Get current workitem ID.
-    auto tid = b.create<WorkitemIdOp>(loc, b.getIndexType());
+    auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
 
     // Allocate LDS for output.
     auto workgroupMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
@@ -235,7 +235,7 @@ struct ThreadwiseWriteAllRewritePattern
     auto ldsMemRefOutputType =
         MemRefType::get({ldsRequiredBytes}, b.getI8Type(), AffineMap{},
                         workgroupMemoryAddressSpace);
-    auto ldsBufferOutput = b.create<GpuAllocOp>(loc, ldsMemRefOutputType);
+    auto ldsBufferOutput = GpuAllocOp::create(b, loc, ldsMemRefOutputType);
     auto typedBuffer = viewBufferAs(b, ldsBufferOutput, destType);
 
     // Convert from raw -> dim0PerBlock, dim1PerBlock
@@ -257,12 +257,12 @@ struct ThreadwiseWriteAllRewritePattern
     auto ldsBufferMNToRaw = transform(b, typedBuffer, transformMNToRaw);
 
     // Store C results to LDS.
-    b.create<ThreadwiseWriteAllOp>(loc, convertedC, ldsBufferMNToRaw,
-                                   /*extraViews=*/idToLDS,
-                                   /*extraIndices=*/ValueRange{tid},
-                                   StoreMethod::Set,
-                                   /*forceUnroll=*/forceUnroll,
-                                   /*useIndexDiffs=*/useIndexDiffs);
+    ThreadwiseWriteAllOp::create(b, loc, convertedC, ldsBufferMNToRaw,
+                                 /*extraViews=*/idToLDS,
+                                 /*extraIndices=*/ValueRange{tid},
+                                 StoreMethod::Set,
+                                 /*forceUnroll=*/forceUnroll,
+                                 /*useIndexDiffs=*/useIndexDiffs);
 
     // Load from LDS to registers.
     int64_t iter = dataPerThread / elementsWrittenPerThread;
@@ -301,12 +301,11 @@ struct ThreadwiseWriteAllRewritePattern
     auto ldsBufferForLoad = transform(b, typedBuffer, ldsRead);
 
     // LDS barrier.
-    b.create<LDSBarrierOp>(loc);
+    LDSBarrierOp::create(b, loc);
 
-    b.create<ThreadwiseReadIntoOp>(loc, ldsBufferForLoad, finalC,
-                                   b.getArrayAttr({}), ValueRange{tid},
-                                   forceUnroll, useIndexDiffs);
-    b.create<GpuDeallocOp>(loc, ldsBufferOutput);
+    ThreadwiseReadIntoOp::create(b, loc, ldsBufferForLoad, finalC,
+                                 b.getArrayAttr({}), ValueRange{tid},
+                                 forceUnroll, useIndexDiffs);
 
     SmallVector<int64_t, 5> bidGridLengths;
     SmallVector<StringRef, 5> bidGridOrder;

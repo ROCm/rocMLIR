@@ -24,11 +24,11 @@
 
 // CHECK_SCALE-LABEL: func.func @host_naive_attention
 // CHECK_SCALE: %[[keysExpanded:.*]] = tensor.expand_shape {{.*}} output_shape [2, 1, 32, 1024] : tensor<2x32x1024xf32> into tensor<2x1x32x1024xf32>
-// CHECK_SCALE: %[[keysAdd:.*]] = tosa.add %{{.*}}, %[[keysExpanded]] : (tensor<2x2x32x1024xf32>, tensor<2x1x32x1024xf32>) -> tensor<2x2x32x1024xf32>
-// CHECK_SCALE: %[[keysTensor:.*]] = tensor.collapse_shape %[[keysAdd]] {{.*}} : tensor<2x2x32x1024xf32> into tensor<4x32x1024xf32>
+// CHECK_SCALE: %[[keysMul:.*]] = tosa.mul %[[keysExpanded]], %{{.*}}, %{{.*}}: (tensor<2x1x32x1024xf32>, tensor<2x2x32x1024xf32>, tensor<1xi8>) -> tensor<2x2x32x1024xf32>
+// CHECK_SCALE: %[[keysTensor:.*]] = tensor.collapse_shape %[[keysMul]] {{.*}} : tensor<2x2x32x1024xf32> into tensor<4x32x1024xf32>
 // CHECK_SCALE: %[[valuesExpanded:.*]] = tensor.expand_shape {{.*}} output_shape [2, 1, 1024, 32] : tensor<2x1024x32xf32> into tensor<2x1x1024x32xf32>
-// CHECK_SCALE: %[[valuesAdd:.*]] = tosa.add %{{.*}}, %[[valuesExpanded]] : (tensor<2x2x1024x32xf32>, tensor<2x1x1024x32xf32>) -> tensor<2x2x1024x32xf32>
-// CHECK_SCALE: %[[valuesTensor:.*]] = tensor.collapse_shape %[[valuesAdd]] {{.*}} : tensor<2x2x1024x32xf32> into tensor<4x1024x32xf32>
+// CHECK_SCALE: %[[valuesMul:.*]] = tosa.mul %[[valuesExpanded]], %{{.*}}, %{{.*}}: (tensor<2x1x1024x32xf32>, tensor<2x2x1024x32xf32>, tensor<1xi8>) -> tensor<2x2x1024x32xf32>
+// CHECK_SCALE: %[[valuesTensor:.*]] = tensor.collapse_shape %[[valuesMul]] {{.*}} : tensor<2x2x1024x32xf32> into tensor<4x1024x32xf32>
 // CHECK_SCALE: %[[qkTensor:.*]] = tosa.matmul %[[queriesTensor:.*]], %[[keysTensor]], %{{.*}}, %{{.*}} : ([[queriesShape:tensor<.*>]], [[keysShape:tensor<.*>]], tensor<1xf32>, tensor<1xf32>) -> [[squareShape:tensor<.*>]]
 // CHECK_SCALE-DAG: %[[sqkTensor:.*]] = tosa.mul %[[qkTensor]], %[[scaleTensor:.*]], %{{.*}} : ([[squareShape]], [[squareShape]], tensor<1xi8>) -> [[squareShape]]
 // CHECK_SCALE-DAG: %[[sqkTensorCast:.*]] = tosa.cast %[[sqkTensor]] : ([[squareShape]]) -> [[squareShape]]
@@ -67,11 +67,11 @@
 
 // CHECK_NO_SCALE-LABEL: func.func @host_naive_attention
 // CHECK_NO_SCALE: %[[keysExpanded:.*]] = tensor.expand_shape {{.*}} output_shape [2, 1, 32, 1024] : tensor<2x32x1024xf32> into tensor<2x1x32x1024xf32>
-// CHECK_NO_SCALE: %[[keysAdd:.*]] = tosa.add %{{.*}}, %[[keysExpanded]] : (tensor<2x2x32x1024xf32>, tensor<2x1x32x1024xf32>) -> tensor<2x2x32x1024xf32>
-// CHECK_NO_SCALE: %[[keysTensor:.*]] = tensor.collapse_shape %[[keysAdd]] {{.*}} : tensor<2x2x32x1024xf32> into tensor<4x32x1024xf32>
+// CHECK_NO_SCALE: %[[keysMul:.*]] = tosa.mul %[[keysExpanded]], %{{.*}}, %{{.*}}: (tensor<2x1x32x1024xf32>, tensor<2x2x32x1024xf32>, tensor<1xi8>) -> tensor<2x2x32x1024xf32>
+// CHECK_NO_SCALE: %[[keysTensor:.*]] = tensor.collapse_shape %[[keysMul]] {{.*}} : tensor<2x2x32x1024xf32> into tensor<4x32x1024xf32>
 // CHECK_NO_SCALE: %[[valuesExpanded:.*]] = tensor.expand_shape {{.*}} output_shape [2, 1, 1024, 32] : tensor<2x1024x32xf32> into tensor<2x1x1024x32xf32>
-// CHECK_NO_SCALE: %[[valuesAdd:.*]] = tosa.add %{{.*}}, %[[valuesExpanded]] : (tensor<2x2x1024x32xf32>, tensor<2x1x1024x32xf32>) -> tensor<2x2x1024x32xf32>
-// CHECK_NO_SCALE: %[[valuesTensor:.*]] = tensor.collapse_shape %[[valuesAdd]] {{.*}} : tensor<2x2x1024x32xf32> into tensor<4x1024x32xf32>
+// CHECK_NO_SCALE: %[[valuesMul:.*]] = tosa.mul %[[valuesExpanded]], %{{.*}}, %{{.*}}: (tensor<2x1x1024x32xf32>, tensor<2x2x1024x32xf32>, tensor<1xi8>) -> tensor<2x2x1024x32xf32>
+// CHECK_NO_SCALE: %[[valuesTensor:.*]] = tensor.collapse_shape %[[valuesMul]] {{.*}} : tensor<2x2x1024x32xf32> into tensor<4x1024x32xf32>
 // CHECK_NO_SCALE: %[[qkTensor:.*]] = tosa.matmul %[[queriesTensor:.*]], %[[keysTensor:.*]], %{{.*}}, %{{.*}} : ([[queriesShape:tensor<.*>]], [[keysShape:tensor<.*>]], tensor<1xf32>, tensor<1xf32>) -> [[squareShape:tensor<.*>]]
 // CHECK_NO_SCALE: %[[qkTensorCast:.*]] = tosa.cast %[[qkTensor]] : ([[squareShape]]) -> [[squareShape]]
 // CHECK_NO_SCALE-DAG: %[[sqkMaxs:.*]] = tosa.reduce_max %[[qkTensorCast]] {{.*}} : ([[squareShape]]) -> [[reducedShape:tensor<.*>]]

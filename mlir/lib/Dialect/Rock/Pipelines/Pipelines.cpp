@@ -150,7 +150,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   // rock lowering (tuning, global to block)
   /* rocmlir-opt --rock-affix-params --rock-conv-to-gemm
    *   --rock-fold-broadcast --rock-affix-params --rock-gemm-to-gridwise
-   *   --rock-regularize  --rock-gridwise-gemm-to-blockwise
+   *   --rock-regularize --rock-gridwise-gemm-to-blockwise
+   * --rock-blockwise-load-tile-to-threadwise
    */
   auto &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
@@ -161,6 +162,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   funcPm.addPass(rock::createRockRegularizePass());
   funcPm.addPass(rock::createRockShuffleGemmForReductions());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
+  funcPm.addPass(rock::createRockBlockwiseLoadTileToThreadwisePass());
+
   // We want to delay blockwise lowering in the fusion cases
   // until after linalg align pass because with reduction fusion
   // it may introduce blockwise_reductions.
@@ -180,8 +183,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     funcPm.addPass(rock::createRockVectorizeFusionsPass());
   }
+  // We run reuse LDS before the output swizzle pass because it uses a heuristic
+  // to determine whether to swizzle or not, and that heuristic needs the actual
+  // LDS usage. After running output swizzle, we'll create a new LDS buffer and
+  // we need to run reuse LDS again to be able to reuse LDS memory.
+  funcPm.addPass(rock::createRockAnnotateLivenessPass());
   funcPm.addPass(rock::createRockReuseLDSPass());
   funcPm.addPass(rock::createRockOutputSwizzlePass());
+  funcPm.addPass(rock::createRockAnnotateLivenessPass());
   funcPm.addPass(rock::createRockReuseLDSPass());
 
   if (!options.enableApplicability) {
@@ -254,11 +263,14 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // We need to lower affine again, because the expand strided metadata pass
   // adds back affine.apply for memref.subview
   gpuPm.addPass(createLowerAffinePass());
-  gpuPm.addPass(createLowerGpuOpsToROCDLOpsPass(
-      options.chip, /*indexBitwidth=*/kDeriveIndexBitwidthFromDataLayout,
-      /*useBarePtrCallConv=*/true, gpu::amd::Runtime::HIP,
-      llvm::SmallDenseSet<StringRef>{"memref", "math", "cf", "func", "vector",
-                                     "arith"}));
+  ConvertGpuOpsToROCDLOpsOptions rocdlOpts;
+  rocdlOpts.chipset = options.chip;
+  rocdlOpts.indexBitwidth = kDeriveIndexBitwidthFromDataLayout;
+  rocdlOpts.useBarePtrCallConv = true;
+  rocdlOpts.runtime = gpu::amd::Runtime::HIP;
+  rocdlOpts.allowedDialects.assign(
+      {"memref", "math", "cf", "func", "vector", "arith"});
+  gpuPm.addPass(createConvertGpuOpsToROCDLOps(rocdlOpts));
   // Ensure we only run passes on LLVM functions inside GPU modules.
   auto &llvmFuncPm = gpuPm.nest<LLVM::LLVMFuncOp>();
   // -canonicalize -cse so that we don't have to crawl through memref

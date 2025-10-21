@@ -105,7 +105,7 @@ Value mlir::rock::transform(OpBuilder &b, Value toBeTransformed,
   Location loc = toBeTransformed.getLoc();
   Value ret = toBeTransformed;
   for (TransformMapAttr trMap : reverseTransformVec) {
-    ret = b.create<TransformOp>(loc, ret, trMap);
+    ret = TransformOp::create(b, loc, ret, trMap);
   }
   return ret;
 }
@@ -158,7 +158,7 @@ TransformOp mlir::rock::reshapeBuffer(OpBuilder &b, Location loc, Value buffer,
   transform.unmerge("raw", 0, names, shape);
 
   TransformMapAttr transformAttr = transform.get();
-  auto ret = b.create<TransformOp>(loc, buffer, transformAttr);
+  auto ret = TransformOp::create(b, loc, buffer, transformAttr);
   return ret;
 }
 
@@ -973,7 +973,7 @@ VectorizationResult mlir::rock::getMaxVectorization(
 }
 
 void mlir::rock::collapseContiguousMerges(Value transformed) {
-  ContiguousMergesMap contigousMerges = findContiguousGroups(transformed);
+  ContiguousMergesMap contiguousMerges = findContiguousGroups(transformed);
   SmallVector<TransformOp> transformOps;
   std::tie(std::ignore, std::ignore) = untransform(transformed, transformOps);
   for (TransformOp trOp : llvm::reverse(transformOps)) {
@@ -989,8 +989,8 @@ void mlir::rock::collapseContiguousMerges(Value transformed) {
         ops.push_back(op);
         continue;
       }
-      auto mergeData = contigousMerges.find({map, op});
-      if (mergeData == contigousMerges.end()) {
+      auto mergeData = contiguousMerges.find({map, op});
+      if (mergeData == contiguousMerges.end()) {
         ops.push_back(op);
         continue;
       }
@@ -1017,7 +1017,7 @@ void mlir::rock::collapseContiguousMerges(Value transformed) {
         continue;
       }
       LLVM_DEBUG({
-        llvm::dbgs() << "[collapseContigousMerges] Updating: " << op << " to ";
+        llvm::dbgs() << "[collapseContiguousMerges] Updating: " << op << " to ";
         llvm::interleaveComma(newLengths, llvm::dbgs());
         llvm::dbgs() << "\n";
       });
@@ -1084,8 +1084,8 @@ Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
     int64_t bound = lowerBounds[lowerDim];
     Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
     Value output = outputs[lowerDim];
-    Value inBounds = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ult,
-                                             output, boundConst);
+    Value inBounds = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
+                                           output, boundConst);
     isValid =
         b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds, isValid);
   };
@@ -1239,7 +1239,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
                                   collapseTransform.startName(idx), mergeSizes);
         }
       }
-      inp = b.create<TransformOp>(loc, inp, collapseTransform.get());
+      inp = TransformOp::create(b, loc, inp, collapseTransform.get());
       auto inpType = cast<MemRefType>(inp.getType());
       inpShape = inpType.getShape();
       inpIdxMap = newInpIdxMap.getAffineMap();
@@ -1261,7 +1261,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
           newInpIdxMap.setResult(i, b.getAffineConstantExpr(0));
         }
       }
-      inp = b.create<TransformOp>(loc, inp, addDimtransform.get());
+      inp = TransformOp::create(b, loc, inp, addDimtransform.get());
       inpShape = cast<ShapedType>(inp.getType()).getShape();
       inpIdxMap = newInpIdxMap.getAffineMap();
     }
@@ -1303,7 +1303,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       }
     }
     if (hasBcast) {
-      inp = b.create<TransformOp>(loc, inp, bcastTransform.get());
+      inp = TransformOp::create(b, loc, inp, bcastTransform.get());
     }
 
     // Permute the dimensions of the fusion argument to match those of the gemm
@@ -1320,7 +1320,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
         identityVec.push_back(i);
       }
       permtransform.passThrough(identityVec, perm);
-      inp = b.create<TransformOp>(loc, inp, permtransform.get());
+      inp = TransformOp::create(b, loc, inp, permtransform.get());
     }
   }
   return inp;
@@ -1676,7 +1676,7 @@ void mlir::rock::expandFlatFunctionArguments(
       }
     }
     TransformMapAttr expandMap = flattener.get();
-    logicalVal = b.create<rock::TransformOp>(loc, arg, expandMap);
+    logicalVal = rock::TransformOp::create(b, loc, arg, expandMap);
   }
 }
 
@@ -1754,7 +1754,7 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
     addDimBuilder.addDim(extraName, pos + idx, len);
   }
   TransformMapAttr addDimAttr = addDimBuilder.get();
-  ret = b.create<TransformOp>(ret.getLoc(), ret, addDimAttr);
+  ret = TransformOp::create(b, ret.getLoc(), ret, addDimAttr);
 
   // Start iterating through the old stack
   for (TransformOp trOp : llvm::reverse(opsToWiden)) {
@@ -1816,7 +1816,7 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
     // Add the new transform to the stack
     TransformMapAttr newMap =
         TransformMapAttr::get(newOps, newUpperBounds, newLowerBounds);
-    ret = b.create<TransformOp>(trOp.getLoc(), ret, newMap);
+    ret = TransformOp::create(b, trOp.getLoc(), ret, newMap);
   }
   return ret;
 }

@@ -24,6 +24,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -37,6 +38,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 
@@ -169,37 +171,37 @@ struct ThreadwiseGemmRewritePattern
       b.setInsertionPointToStart(gemmLoop.getBody());
       // These are vector::TransferRead ops so they always return a vector
       // result so that FMA doesn't complain
-      Value aVal = b.create<vector::TransferReadOp>(
-          loc, abType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0),
+      Value aVal = vector::TransferReadOp::create(
+          b, loc, abType, bufferA, gemmLoop.getLowerCoords(/*domain=*/0),
           std::nullopt,
           /*inBounds=*/ArrayRef<bool>(true));
-      Value bVal = b.create<vector::TransferReadOp>(
-          loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1),
+      Value bVal = vector::TransferReadOp::create(
+          b, loc, abType, bufferB, gemmLoop.getLowerCoords(/*domain=*/1),
           std::nullopt,
           /*inBounds=*/ArrayRef<bool>(true));
       ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
-      Value cVal = b.create<InBoundsLoadOp>(loc, dataType, bufferC, cCoords);
+      Value cVal = InBoundsLoadOp::create(b, loc, dataType, bufferC, cCoords);
 
-      Value cVector = b.create<vector::SplatOp>(loc, abType, cVal);
+      Value cVector = vector::SplatOp::create(b, loc, abType, cVal);
       Value result;
       if (isa<IntegerType>(dataType)) {
-        Value mul = b.create<MulIOp>(loc, aVal, bVal);
-        result = b.create<AddIOp>(loc, mul, cVector);
+        Value mul = MulIOp::create(b, loc, aVal, bVal);
+        result = AddIOp::create(b, loc, mul, cVector);
         if (abType.getNumElements() != 1)
           return op.emitOpError(
               "Shouldn't've gone down the scalar code path (int)");
-        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
+        result = vector::ExtractOp::create(b, loc, result, zeroConst);
       } else if (isa<FloatType>(dataType)) {
-        result = b.create<vector::FMAOp>(loc, aVal, bVal, cVector);
+        result = vector::FMAOp::create(b, loc, aVal, bVal, cVector);
         if (abType.getNumElements() != 1)
           return op.emitOpError(
               "Shouldn't've gone down the scalar code path (float)");
-        result = b.create<vector::ExtractElementOp>(loc, result, zeroConst);
+        result = vector::ExtractOp::create(b, loc, result, zeroConst);
       } else {
         llvm_unreachable("Validation should make this ints or floats only");
       }
 
-      b.create<InBoundsStoreOp>(loc, result, bufferC, cCoords);
+      InBoundsStoreOp::create(b, loc, result, bufferC, cCoords);
     }
     return success();
   }
@@ -311,8 +313,8 @@ struct ThreadwiseAccelGemmRewritePattern
     auto computeStart = llvm::to_vector(op.getComputeIndices());
 
     // Emit the loop
-    auto accelLoop = b.create<TransformingForOp>(
-        loc, ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
+    auto accelLoop = TransformingForOp::create(
+        b, loc, ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
         ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC},
         /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
         /*strides=*/ArrayRef<int64_t>{1, 1, 1},
@@ -324,8 +326,10 @@ struct ThreadwiseAccelGemmRewritePattern
       auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
       auto coordsC = accelLoop.getLowerCoords(/*domain=*/2);
 
-      Value argA = b.create<memref::LoadOp>(loc, argTypeA, rawBufferA, coordsA);
-      Value argB = b.create<memref::LoadOp>(loc, argTypeB, rawBufferB, coordsB);
+      Value argA =
+          memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
+      Value argB =
+          memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
       emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
     }
     b.eraseOp(op);
@@ -455,8 +459,8 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
       extraIndicesSourceSize + extraIndicesDestSize, 1);
   llvm::append_range(extendedStrides, strides);
 
-  auto copyLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{extendedStart, extendedStart},
+  auto copyLoop = TransformingForOp::create(
+      b, loc, ArrayRef<ValueRange>{extendedStart, extendedStart},
       ArrayRef<Attribute>{copyFromView, copyToView},
       /*bounds=*/extendedBounds,
       /*strides=*/extendedStrides, false,
@@ -465,10 +469,10 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     PatternRewriter::InsertionGuard outerGuard(b);
     b.setInsertionPointToStart(copyLoop.getBody());
     Type loadType = vectorTypeOrSelf(elemType, vecLen);
-    auto val = b.create<InBoundsLoadOp>(loc, loadType, rawLoadBuffer,
-                                        copyLoop.getLowerCoords(0));
-    b.create<InBoundsStoreOp>(loc, val, rawStoreBuffer,
-                              copyLoop.getLowerCoords(1));
+    auto val = InBoundsLoadOp::create(b, loc, loadType, rawLoadBuffer,
+                                      copyLoop.getLowerCoords(0));
+    InBoundsStoreOp::create(b, loc, val, rawStoreBuffer,
+                            copyLoop.getLowerCoords(1));
   }
   b.eraseOp(op);
   return success();
@@ -483,8 +487,58 @@ static Value addIterationIndexIfScalar(PatternRewriter &b, Location loc,
   TopDownTMBuilder addZero(b, {"zero"}, {1}, loc);
   addZero.ignore("zero");
   TransformMapAttr addZeroAttr = addZero.get();
-  Value withIter = b.create<TransformOp>(loc, buffer, addZeroAttr);
+  Value withIter = TransformOp::create(b, loc, buffer, addZeroAttr);
   return withIter;
+}
+
+/// This function transforms [..., tid, item] into [item, wave_id, wave_tid].
+/// This is used to compute the LDS pointer for global to LDS. Note that the
+/// pointer has to be wavefront-uniform. Because the global to LDS instructions
+/// will do an implicit offset by 4 * lane_id bytes for size <= 4 bytes
+/// and 16 * lane_id bytes for larger sizes.
+static FailureOr<ArrayAttr>
+getGlobalToLDSTransform(ThreadwiseReadIntoOp op, PatternRewriter &b,
+                        Location loc,
+                        const SmallVector<Value, 3> &readStartCoords,
+                        const ArrayAttr &sourceTransforms, int64_t blockSize,
+                        int64_t waveSize, bool isGlobalToLDS) {
+  ArrayAttr globalToLDSTransform = b.getArrayAttr({});
+  // Transform used to compute LDS pointer for global to LDS
+  if (isGlobalToLDS) {
+    if (sourceTransforms.empty()) {
+      LLVM_DEBUG(llvm::dbgs() << "sourceTransforms is empty.\n");
+      return failure();
+    }
+    TransformMapAttr topMap = cast<TransformMapAttr>(sourceTransforms[0]);
+
+    // Create views as gridwise sub-tile of C
+    if (readStartCoords.size() < 2) {
+      return b.notifyMatchFailure(
+          loc, "read_into must have at least 2 extra indices");
+    }
+    SmallVector<StringRef> nonLDSDims = {};
+    SmallVector<StringRef> dims = {};
+    for (size_t i = 0; i < readStartCoords.size() - 2; i++) {
+      auto dim = b.getStringAttr(std::to_string(i));
+      dims.push_back(dim);
+      nonLDSDims.push_back(dim);
+    }
+    dims.push_back(b.getStringAttr("tid"));
+    dims.push_back(b.getStringAttr("item"));
+    TopDownTMBuilder splitMemoryCoords(b, dims, topMap.getUpperBounds(), loc);
+    for (auto dim : nonLDSDims) {
+      splitMemoryCoords.ignore(dim);
+    }
+
+    int64_t waveId = blockSize / waveSize;
+    splitMemoryCoords.merge({"wave", "wave_tid"}, {1, 2}, "tid",
+                            {waveId, waveSize});
+    splitMemoryCoords.passThrough({"item"}, 0, {"item"});
+    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+    globalToLDSTransform = b.getArrayAttr({splitMemoryCoordsAttr});
+  }
+
+  return globalToLDSTransform;
 }
 
 LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
@@ -501,10 +555,54 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   Value dest = adaptor.getDest();
   MemRefType dstBufferType = cast<MemRefType>(dest.getType());
 
-  int64_t numValues = dstBufferType.getNumElements();
-
   bool isSrcVectorBuffer = isa<VectorType>(sourceViewType.getElementType());
   bool isDstVectorBuffer = isa<VectorType>(dstBufferType.getElementType());
+
+  auto [buffer, transforms, needs64BitIdx] = untransform(b, sourceView);
+  // Unless specified it is assumed to be global
+  auto srcBufferType = cast<MemRefType>(buffer.getType());
+  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
+  if (srcBufferType.getMemorySpace()) {
+    srcAddrSpace =
+        cast<gpu::AddressSpaceAttr>(srcBufferType.getMemorySpace()).getValue();
+  }
+  auto destBufferType = cast<MemRefType>(dest.getType());
+  gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Private;
+  if (destBufferType.getMemorySpace()) {
+    dstAddrSpace =
+        cast<gpu::AddressSpaceAttr>(destBufferType.getMemorySpace()).getValue();
+  }
+  bool isGlobalToLDS = srcAddrSpace == gpu::AddressSpace::Global &&
+                       dstAddrSpace == gpu::AddressSpace::Workgroup;
+
+  int64_t numValues = dstBufferType.getNumElements();
+  bool hwDirectToLDS128b, hwDirectToLDS32b;
+  if (isGlobalToLDS) {
+    if (transforms.empty()) {
+      LLVM_DEBUG(llvm::dbgs() << "transforms is empty.\n");
+      return failure();
+    }
+    TransformMapAttr topMap = cast<TransformMapAttr>(transforms[0]);
+    numValues = topMap.getUpperBounds().asArrayRef().back();
+    assert(!isSrcVectorBuffer &&
+           "Global to LDS should not have vector buffers, not implemented yet");
+    assert(!isDstVectorBuffer &&
+           "Global to LDS should not have vector buffers, not implemented yet");
+
+    auto arch = getArch(op);
+    if (failed(arch))
+      return emitError(loc) << "can't get arch\n";
+    auto features = rock::lookupArchInfo(arch.value()).defaultFeatures;
+    hwDirectToLDS128b =
+        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b);
+    hwDirectToLDS32b =
+        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
+    if (!hwDirectToLDS128b && !hwDirectToLDS32b) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Direct to LDS is not supported by the hardware\n");
+      return failure();
+    }
+  }
 
   size_t extraIdxCount = op.getExtraIndices().size();
   // We are vectorizing in the iter dimension, not block ID or thread ID
@@ -549,15 +647,6 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     }
   }
 
-  auto [buffer, transforms, needs64BitIdx] = untransform(b, sourceView);
-  // Unless specified it is assumed to be global
-  auto srcBufferType = cast<MemRefType>(buffer.getType());
-  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
-  if (srcBufferType.getMemorySpace()) {
-    srcAddrSpace =
-        cast<gpu::AddressSpaceAttr>(srcBufferType.getMemorySpace()).getValue();
-  }
-
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = "
                           << vectorSrcLen << "\n");
   bool forceUnroll = op.getForceUnroll();
@@ -576,20 +665,43 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   SmallVector<Attribute> transformAttrs;
 
+  // get block size and wave size
+  auto maybeBlocksize = rock::getBlockSize(op);
+  if (failed(maybeBlocksize))
+    return b.notifyMatchFailure(loc, "must have a block size attribute");
+  int64_t blockSize = maybeBlocksize.value().getValue().getSExtValue();
+  auto maybeArch = rock::getArch(op);
+  if (failed(maybeArch))
+    return b.notifyMatchFailure(loc, "must have an arch attribute");
+  int64_t waveSize = rock::lookupArchInfo(maybeArch.value()).waveSize;
+
+  auto maybeGlobalToLDSTransform =
+      getGlobalToLDSTransform(op, b, loc, readStartCoords, transforms,
+                              blockSize, waveSize, isGlobalToLDS);
+  if (failed(maybeGlobalToLDSTransform))
+    return b.notifyMatchFailure(loc, "failed to get global to LDS transform");
+
+  auto globalToLDSTransform = maybeGlobalToLDSTransform.value();
+
   bool recordsValidity =
       op.getValidityRecord() && !op.getValidityRecord().use_empty();
   Value validityInit = nullptr;
   if (recordsValidity) {
     Value trueConst =
         b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-    validityInit = b.create<vector::SplatOp>(
-        loc, op.getValidityRecord().getType(), trueConst);
+    validityInit = vector::SplatOp::create(
+        b, loc, op.getValidityRecord().getType(), trueConst);
   }
-  auto loadLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{readStartCoords, readStartCoords},
-      ArrayRef<Attribute>{transforms, b.getArrayAttr({})}, bounds, strides,
-      forceUnroll, useIndexDiffs,
-      recordsValidity ? ValueRange{validityInit} : std::nullopt);
+  SmallVector<ValueRange> inits{readStartCoords, readStartCoords};
+  SmallVector<Attribute> loopTransforms{transforms, b.getArrayAttr({})};
+  if (isGlobalToLDS) {
+    inits.push_back(inits[0]);
+    loopTransforms.push_back(globalToLDSTransform);
+  }
+
+  auto loadLoop = TransformingForOp::create(
+      b, loc, inits, loopTransforms, bounds, strides, forceUnroll,
+      useIndexDiffs, recordsValidity ? ValueRange{validityInit} : std::nullopt);
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(loadLoop.getBody());
@@ -597,11 +709,11 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     Value destIndex = loadLoop.getLowerCoords(/*domain=*/1)[extraIdxCount];
 
     for (Value dynamicValidity : adaptor.getDynamicValidities()) {
-      Value validityHere = b.create<vector::ExtractOp>(
-          loc, b.getI1Type(), dynamicValidity, destIndex,
+      Value validityHere = vector::ExtractOp::create(
+          b, loc, b.getI1Type(), dynamicValidity, destIndex,
           ArrayRef<int64_t>{ShapedType::kDynamic});
       validity =
-          b.create<arith::AndIOp>(loc, b.getI1Type(), validity, validityHere);
+          arith::AndIOp::create(b, loc, b.getI1Type(), validity, validityHere);
     }
     Value nextValidityRecord = nullptr;
     if (recordsValidity) {
@@ -614,44 +726,99 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       }
       Value validityRecord = loadLoop.getIterArgs()[0];
       nextValidityRecord =
-          b.create<InsertSliceOp>(loc, validityRecord.getType(),
-                                  validityToStore, validityRecord, destIndex);
+          InsertSliceOp::create(b, loc, validityRecord.getType(),
+                                validityToStore, validityRecord, destIndex);
     }
 
-    if (srcAddrSpace == gpu::AddressSpace::Global) {
-      Value loaded = b.create<GlobalLoadOp>(
-          loc, loadType, buffer, validity,
-          loadLoop.getLowerCoords(/*domain=*/0), needs64BitIdx);
-      b.create<InBoundsStoreOp>(loc, loaded, dest, destIndex);
+    if (srcAddrSpace == gpu::AddressSpace::Global &&
+        dstAddrSpace == gpu::AddressSpace::Private) {
+      Value loaded = GlobalLoadOp::create(b, loc, loadType, buffer, validity,
+                                          loadLoop.getLowerCoords(/*domain=*/0),
+                                          needs64BitIdx);
+      InBoundsStoreOp::create(b, loc, loaded, dest, destIndex);
+    } else if (isGlobalToLDS) {
+      int64_t loadTypeByteWidth = getByteWidth(loadType);
+      if (loadTypeByteWidth != 16 && loadTypeByteWidth != 4)
+        return b.notifyMatchFailure(loc, "global to LDS is only supported for "
+                                         "128-bit or 32-bit loads currently");
+      ValueRange ldsCoords = loadLoop.getLowerCoords(/*domain=*/2);
+      Value item = ldsCoords[0];
+      Value waveId = ldsCoords[1];
+      // LDS index is index=item*(workgroup size)*16+wave_id*(wave size)*16 (in
+      // bytes)
+      int64_t constantNumElements;
+      Type directToLDSType;
+      if (loadTypeByteWidth == 16) {
+        assert(128 % dstBufferType.getElementTypeBitWidth() == 0);
+        constantNumElements = 128 / dstBufferType.getElementTypeBitWidth();
+        directToLDSType = b.getF128Type();
+        if (!hwDirectToLDS128b) {
+          LLVM_DEBUG(
+              llvm::dbgs()
+              << "128 bits direct to LDS is not supported by the hardware\n");
+          return failure();
+        }
+      } else {
+        assert(32 % dstBufferType.getElementTypeBitWidth() == 0);
+        constantNumElements = 32 / dstBufferType.getElementTypeBitWidth();
+        directToLDSType = b.getF32Type();
+        if (!hwDirectToLDS32b) {
+          LLVM_DEBUG(
+              llvm::dbgs()
+              << "32 bits direct to LDS is not supported by the hardware\n");
+          return failure();
+        }
+      }
+      assert(srcStride == constantNumElements);
+
+      // no need to multiply blockSize by constantNumElements, because the
+      // stride of the loop is already srcStride
+      Value itemConst = b.create<arith::ConstantIndexOp>(loc, blockSize);
+      Value ldsIndex = b.create<arith::MulIOp>(loc, item, itemConst);
+      Value waveIdConst =
+          b.create<arith::ConstantIndexOp>(loc, waveSize * constantNumElements);
+      Value ldsIndexWave = b.create<arith::MulIOp>(loc, waveId, waveIdConst);
+      // LDS index is wavefront-uniform as that is needed by load to LDS
+      // instruction
+      ldsIndex = b.create<arith::AddIOp>(loc, ldsIndex, ldsIndexWave);
+      GlobalLoadToLDSOp::create(b, loc, buffer, dest, validity, directToLDSType,
+                                loadLoop.getLowerCoords(/*domain=*/0),
+                                ValueRange{ldsIndex}, needs64BitIdx);
     } else {
       if (needs64BitIdx)
         return b.notifyMatchFailure(
             loc, "non-global address spaces must have 32-bit pointers");
-      scf::IfOp ifb =
-          b.create<scf::IfOp>(loc, loadType, validity, /*withElseRegion=*/true);
+
+      if (dstAddrSpace != gpu::AddressSpace::Private)
+        return b.notifyMatchFailure(loc, "destination must be private");
+
+      scf::IfOp ifb = scf::IfOp::create(b, loc, loadType, validity,
+                                        /*withElseRegion=*/true);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
         Value loaded;
         if (!isSrcVectorBuffer)
-          loaded = thenb.create<InBoundsLoadOp>(
-              loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
+          loaded =
+              InBoundsLoadOp::create(thenb, loc, loadType, buffer,
+                                     loadLoop.getLowerCoords(/*domain=*/0));
         else
-          loaded = thenb.create<memref::LoadOp>(
-              loc, loadType, buffer, loadLoop.getLowerCoords(/*domain=*/0));
-        thenb.create<scf::YieldOp>(loc, loaded);
+          loaded =
+              memref::LoadOp::create(thenb, loc, loadType, buffer,
+                                     loadLoop.getLowerCoords(/*domain=*/0));
+        scf::YieldOp::create(thenb, loc, loaded);
       }
       {
         OpBuilder elseb = ifb.getElseBodyBuilder();
         Value zeroVal = createZeroConstantOp(elseb, loc, loadType);
-        elseb.create<scf::YieldOp>(loc, zeroVal);
+        scf::YieldOp::create(elseb, loc, zeroVal);
       }
 
       if (!isDstVectorBuffer && !isSrcVectorBuffer) {
-        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destIndex);
+        InBoundsStoreOp::create(b, loc, ifb.getResult(0), dest, destIndex);
       } else if (!isDstVectorBuffer && isSrcVectorBuffer) {
-        destIndex = b.create<arith::MulIOp>(
-            loc, destIndex, b.create<ConstantIndexOp>(loc, vectorSrcLen));
-        b.create<InBoundsStoreOp>(loc, ifb.getResult(0), dest, destIndex);
+        destIndex = arith::MulIOp::create(
+            b, loc, destIndex, ConstantIndexOp::create(b, loc, vectorSrcLen));
+        InBoundsStoreOp::create(b, loc, ifb.getResult(0), dest, destIndex);
       } else {
         // Destination is a vector buffer
         Value idx = loadLoop.getLowerCoords(/*domain=*/1)[extraIdxCount];
@@ -667,7 +834,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
           idx = b.createOrFold<arith::DivUIOp>(loc, idx, srcVecLenVal);
         }
         if (vectorSrcLen == vectorDstLen) {
-          b.create<memref::StoreOp>(loc, ifb.getResult(0), dest, idx);
+          memref::StoreOp::create(b, loc, ifb.getResult(0), dest, idx);
         } else {
           // When the vector types differ, we need to find the gcd
           // to make it work for the both source and dest.
@@ -680,8 +847,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
             Value value = ifb.getResult(0);
             // Only need to perform slice extraction of vector-typed sources.
             if (vectorSrcLen > 1) {
-              value = b.create<ExtractSliceOp>(loc, commonVecType, value,
-                                               loadSliceStart);
+              value = ExtractSliceOp::create(b, loc, commonVecType, value,
+                                             loadSliceStart);
             }
             // Calculate base element offsets
             Value baseElementOffset = b.createOrFold<arith::MulIOp>(
@@ -696,21 +863,21 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
             Value storeVecStart = b.createOrFold<arith::DivUIOp>(
                 loc, elementOffset,
                 b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen));
-            Value storeVec = b.create<memref::LoadOp>(
-                loc, dstVectorType, dest, ValueRange{storeVecStart});
+            Value storeVec = memref::LoadOp::create(b, loc, dstVectorType, dest,
+                                                    ValueRange{storeVecStart});
             Value storeSliceStart = b.createOrFold<arith::RemUIOp>(
                 loc, elementOffset,
                 b.createOrFold<arith::ConstantIndexOp>(loc, vectorDstLen));
-            Value newStoreVec = b.create<InsertSliceOp>(
-                loc, dstVectorType, value, storeVec, storeSliceStart);
-            b.create<memref::StoreOp>(loc, newStoreVec, dest,
-                                      ValueRange{storeVecStart});
+            Value newStoreVec = InsertSliceOp::create(
+                b, loc, dstVectorType, value, storeVec, storeSliceStart);
+            memref::StoreOp::create(b, loc, newStoreVec, dest,
+                                    ValueRange{storeVecStart});
           }
         }
       }
     }
     if (recordsValidity)
-      b.create<rock::YieldOp>(loc, nextValidityRecord);
+      rock::YieldOp::create(b, loc, nextValidityRecord);
   }
   // Special case: we planned to record validity, but no one cared
   if (op.getValidityRecord() && !recordsValidity)
@@ -783,42 +950,42 @@ LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
   SmallVector<int64_t, 3> strides(writeStartCoords.size() - 1, 1);
   strides.push_back(vectorLen);
 
-  auto outLoop = b.create<TransformingForOp>(
-      loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
+  auto outLoop = TransformingForOp::create(
+      b, loc, ArrayRef<ValueRange>{writeStartCoords, writeStartCoords},
       ArrayRef<Attribute>{b.getArrayAttr({}), transforms}, bounds, strides,
       forceUnroll, useIndexDiffs);
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(outLoop.getBody());
     if (dstAddrSpace == gpu::AddressSpace::Global) {
-      b.create<GlobalStoreOp>(loc, source, buffer, b.getIndexAttr(vectorLen),
-                              op.getStoreMethodAttr(),
-                              outLoop.getLowerCoords(
-                                  /*domain=*/0)[extraIdxCount],
-                              outLoop.getValidity(/*domain=*/1),
-                              outLoop.getLowerCoords(/*domain=*/1),
-                              needs64BitIdx ? b.getUnitAttr() : nullptr,
-                              /*canStoreOffEnd=*/nullptr,
-                              /*nontemporal=*/b.getBoolAttr(false));
+      GlobalStoreOp::create(b, loc, source, buffer, b.getIndexAttr(vectorLen),
+                            op.getStoreMethodAttr(),
+                            outLoop.getLowerCoords(
+                                /*domain=*/0)[extraIdxCount],
+                            outLoop.getValidity(/*domain=*/1),
+                            outLoop.getLowerCoords(/*domain=*/1),
+                            needs64BitIdx ? b.getUnitAttr() : nullptr,
+                            /*canStoreOffEnd=*/nullptr,
+                            /*nontemporal=*/b.getBoolAttr(false));
     } else {
       if (needs64BitIdx)
         return b.notifyMatchFailure(
             loc, "non-global address spaces must have 32-bit pointers");
       Type loadType = vectorTypeOrSelf(elementType, vectorLen);
       TypedValue<IntegerType> valid = outLoop.getValidity(/*domain=*/1);
-      scf::IfOp ifb = b.create<scf::IfOp>(loc, valid, /*withElseRegion=*/false);
+      scf::IfOp ifb =
+          scf::IfOp::create(b, loc, valid, /*withElseRegion=*/false);
       {
         OpBuilder thenb = ifb.getThenBodyBuilder();
-        Value loaded =
-            thenb.create<InBoundsLoadOp>(loc, loadType, source,
-                                         outLoop.getLowerCoords(
-                                             /*domain=*/0)[extraIdxCount]);
+        Value loaded = InBoundsLoadOp::create(thenb, loc, loadType, source,
+                                              outLoop.getLowerCoords(
+                                                  /*domain=*/0)[extraIdxCount]);
         if (!isa<VectorType>(destElemType)) {
-          thenb.create<InBoundsStoreOp>(loc, loaded, buffer,
-                                        outLoop.getLowerCoords(/*domain=*/1));
+          InBoundsStoreOp::create(thenb, loc, loaded, buffer,
+                                  outLoop.getLowerCoords(/*domain=*/1));
         } else {
-          thenb.create<memref::StoreOp>(loc, loaded, buffer,
-                                        outLoop.getLowerCoords(/*domain=*/1));
+          memref::StoreOp::create(thenb, loc, loaded, buffer,
+                                  outLoop.getLowerCoords(/*domain=*/1));
         }
       }
     }
