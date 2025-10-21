@@ -2089,12 +2089,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       // Note, there may be two such broadcasts that meet this criteria. The
       // first is setting all dimensions to one, while the second is populating
       // the shape with the correct values (i.e., the ones that we care about).
-      // For that reason we need to traverse using BFS instead of DFS. 
-      if (auto addOp = curNode.getDefiningOp<tosa::AddOp>()) {
-        auto addTy = dyn_cast<RankedTensorType>(addOp.getType());
-        if (addTy && addTy.getRank() == 4) {
-          batch = addTy.getShape()[0];
-          numHeads = addTy.getShape()[1];
+      // For that reason we need to traverse using BFS instead of DFS.
+      if (auto mulOp = curNode.getDefiningOp<tosa::MulOp>()) {
+        auto mulTy = dyn_cast<RankedTensorType>(mulOp.getType());
+        if (mulTy && mulTy.getRank() == 4) {
+          batch = mulTy.getShape()[0];
+          numHeads = mulTy.getShape()[1];
         }
       }
 
@@ -2123,15 +2123,16 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // Create a tosa.const that is all zeros, but in our desired shape of
     // batch x numHeads
     auto broadcastTy = RankedTensorType::get({batch, numHeads}, elemTy);
-    auto zeroElems = cast<ElementsAttr>(rewriter.getZeroAttr(broadcastTy));
-    auto constOp = rewriter.create<tosa::ConstOp>(loc, broadcastTy, zeroElems);
+    auto oneElems = cast<ElementsAttr>(rewriter.getOneAttr(broadcastTy));
+    auto constOp = rewriter.create<tosa::ConstOp>(loc, broadcastTy, oneElems);
 
-    // Create a tosa.add (broadcast) to our desired batch and numHeads values.
-    // Builder signature requires the explicit result type: (Type, Value, Value).
-    auto add = rewriter.create<tosa::AddOp>(loc, broadcastTy, expanded,
-                                            constOp.getResult());
+    // Create a tosa.mul (broadcast) to our desired batch and numHeads values.
 
-    return add.getOutput();
+    auto mul = rock::tosa::getMulOp(rewriter, loc, expanded, constOp, broadcastTy);
+    // auto mul = rewriter.create<tosa::MulOp>(loc, broadcastTy, expanded,
+    //                                         constOp.getResult());
+
+    return mul.getOutput();
   }
 
   FailureOr<AttentionMatcherValues> match(tosa::MatMulOp op) const {
