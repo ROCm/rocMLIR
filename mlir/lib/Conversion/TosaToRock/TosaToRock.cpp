@@ -1471,9 +1471,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     while (val.getDefiningOp<tensor::CollapseShapeOp>() ||
            val.getDefiningOp<tensor::ExpandShapeOp>() ||
            val.getDefiningOp<tosa::CastOp>() ||
-           val.getDefiningOp<tosa::AddOp>()) {
-      if (val.getDefiningOp<tosa::AddOp>()) {
-        auto maybeBroadcast = addBroadcast(val);
+           val.getDefiningOp<tosa::MulOp>()) {
+      if (val.getDefiningOp<tosa::MulOp>()) {
+        auto maybeBroadcast = mulBroadcast(val);
         if (failed(maybeBroadcast))
           return failure();
         val = maybeBroadcast.value();
@@ -1569,7 +1569,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value rangeResult;
     auto rangeConstantResult = getConstantResult(rangeInput);
     bool isRange = succeeded(rangeConstantResult) &&
-                   isConstRange(rangeConstantResult.value());
+                   rock::isConstRange(rangeConstantResult.value());
 
     if (!isRange)
       return failure();
@@ -1673,16 +1673,16 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
         Value result = select.getInput3();
         return result;
-      } else if (auto broadcast = getDefiningNonReshapeOpNonCastOp<tosa::AddOp>(pred)) {
+      } else if (auto broadcast = getDefiningNonReshapeOpNonCastOp<tosa::MulOp>(pred)) {
         // The input from MIGraphX will not be a constant range, so we cannot
         // use the getConstComparison function. Instead we need to check that
         // the constant is a valid causal mask pattern.
-        auto maybeNonZero = addBroadcast(broadcast);
-        if (failed(maybeNonZero))
+        auto maybeNonOne = mulBroadcast(broadcast);
+        if (failed(maybeNonOne))
           return failure();
 
         // Validate the causal mask pattern
-        Operation *defOp = maybeNonZero.value().getDefiningOp();
+        Operation *defOp = maybeNonOne.value().getDefiningOp();
         if (!isValidCausalMask(defOp))
           return failure();
 
