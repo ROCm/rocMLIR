@@ -65,11 +65,11 @@ struct DecisionLdsTransposeContext {
 DecisionLdsTransposeContext &getDecisionLdsTransposeContext();
 
 inline void setDecisionLdsTranspose(const Decision &dec) {
-  DecisionLdsTransposeContext().currentDecision = dec;
+  getDecisionLdsTransposeContext().currentDecision = dec;
 }
 
 inline std::optional<Decision> getDecisionLdsTranspose() {
-  return DecisionLdsTransposeContext().currentDecision;
+  return getDecisionLdsTransposeContext().currentDecision;
 }
 
 // The main decision-making function. It analyzes the GEMM parameters and
