@@ -134,7 +134,7 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>,
   return
 }
 
-func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf4E2M1FN>, %B : memref<2x1024x2048xf4E2M1FN>, %C : memref<2x1024x2048xf32>, %scaleA : memref<2x1024x1024xf8E8M0FNU>, %scaleB : memref<2x1024x2048xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950", numCU = 224 : i32} {
+func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf4E2M1FN>, %B : memref<2x1024x2048xf4E2M1FN>, %C : memref<2x1024x2048xf32>, %scaleA : memref<2x1024x1024xf8E8M0FNU>, %scaleB : memref<2x1024x2048xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}

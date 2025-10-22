@@ -283,7 +283,7 @@ func.func @gridwise_gemm_accel_scaleB_input_type_invalid(%A: memref<1x4x8xf4E2M1
 }
 
 // Invalid arch 
-func.func @rock_gridwise_gemm_accel_invalid_arch(%A: memref<2x1024x1024xf4E2M1FN>, %B: memref<2x1024x2048xf4E2M1FN>, %C: memref<2x1024x2048xf32>, %scaleA : memref<2x1024x1024xf8E8M0FNU>, %scaleB : memref<2x1024x2048xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx942", numCU = 64 : i32} {
+func.func @rock_gridwise_gemm_accel_invalid_arch(%A: memref<2x1024x1024xf4E2M1FN>, %B: memref<2x1024x2048xf4E2M1FN>, %C: memref<2x1024x2048xf32>, %scaleA : memref<2x1024x1024xf8E8M0FNU>, %scaleB : memref<2x1024x2048xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx942", numCU = 304 : i32} {
   // expected-error @+1 {{'rock.gridwise_gemm_accel' op Mfma does not support Float4E2M1FN data type}}
   rock.gridwise_gemm_accel(%A, %B, %C, %scaleA, %scaleB) storeMethod(set) features = mfma {
     blockSize = 256 : i32,

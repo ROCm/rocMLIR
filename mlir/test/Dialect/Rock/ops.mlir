@@ -239,7 +239,7 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x
 // CHECK-LABEL: func.func @rock_gridwise_gemm_accel
 // CHECK-NEXT: rock.gridwise_gemm_accel
 
-func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf4E2M1FN>, %B : memref<2x1024x2048xf4E2M1FN>, %C : memref<2x1024x2048xf32>, %scaleA : memref<2x1024x1024xf8E8M0FNU>, %scaleB : memref<2x1024x2048xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950", numCU = 224 : i32} {
+func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf4E2M1FN>, %B : memref<2x1024x2048xf4E2M1FN>, %C : memref<2x1024x2048xf32>, %scaleA : memref<2x1024x1024xf8E8M0FNU>, %scaleB : memref<2x1024x2048xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
   rock.gridwise_gemm_accel(%A, %B, %C, %scaleA, %scaleB) storeMethod (set) features = mfma {
     blockSize = 256 : i32,
     gridSize = 1 : i32,
