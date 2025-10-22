@@ -2255,10 +2255,10 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   if (failed(archAttr)) {
     archAttr = StringAttr::get(this->getContext(), "gfx00");
   }
-  if (failed(verifyGemmTypes(*this, rock::getFeatures(*this),
-                             archAttr->getValue(), aType, bType, cType)))
-    return failure();
-
+  if (loadAFromLDS && loadBFromLDS)
+    if (failed(verifyGemmTypes(*this, rock::getFeatures(*this),
+                               archAttr->getValue(), aType, bType, cType)))
+      return failure();
   if (loadAFromLDS) {
     if (!hasA)
       return emitOpError(
