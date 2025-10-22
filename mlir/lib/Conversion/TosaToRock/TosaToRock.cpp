@@ -2130,12 +2130,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto constOp = rewriter.create<tosa::ConstOp>(loc, broadcastTy, oneElems);
 
     // Create a tosa.mul (broadcast) to our desired batch and numHeads values.
-
     auto mul =
         rock::tosa::getMulOp(rewriter, loc, expanded, constOp, broadcastTy);
-    // auto mul = rewriter.create<tosa::MulOp>(loc, broadcastTy, expanded,
-    //                                         constOp.getResult());
-
     return mul.getOutput();
   }
 
@@ -2305,11 +2301,16 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     TypeAttr softmaxTypeAttr =
         TypeAttr::get(attentionMatcherValues.softmaxType);
 
-    // If the current seq len is a block argument that is one dimensional,
-    // we need to broadcast it to make sure it has the correct shape + values
-    auto maybeNewSeqLen = addBroadcastForBlockArg(rewriter, currentSeqLen);
-    if (succeeded(maybeNewSeqLen))
-      currentSeqLen = maybeNewSeqLen.value();
+    // If currentSeqLen's dimension does not match the output dim, then it means
+    // that the proper value has not been broadcasted. We need to broadcast it
+    // to make sure it has the correct shape + values
+    if (currentSeqLen &&
+        (cast<ShapedType>(currentSeqLen.getType()).getShape()[0] !=
+         outputType.getShape()[0])) {
+      auto maybeNewSeqLen = addBroadcastForBlockArg(rewriter, currentSeqLen);
+      if (succeeded(maybeNewSeqLen))
+        currentSeqLen = maybeNewSeqLen.value();
+    }
 
     // Reshape currentSeqLen {batch, numHeads} -> {batch * numHeads}
     if (currentSeqLen &&
@@ -2318,6 +2319,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       currentSeqLen = tensor::CollapseShapeOp::create(
           rewriter, op.getLoc(), currentSeqLen, reassocIndices);
     }
+
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
         attentionMatcherValues.preSoftmaxElementwiseFinder;
