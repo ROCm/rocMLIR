@@ -2556,7 +2556,7 @@ struct GridwiseAttentionAccelRewritePattern
 
           BlockwiseGemmAccelOp::create(
               rewriter, loc, ldsTileBufferV, gemm1LDSBufferB,
-              /*aScale=*/nullptr, /*bScale=*/nullptr,
+              /*scaleA=*/nullptr, /*scaleB=*/nullptr,
               rewriter.getI32IntegerAttr(gemm1InMPerThread),
               rewriter.getI32IntegerAttr(gemm1InNPerThread),
               (ldsLayoutCfgMG1.doRotateWithK ? rewriter.getUnitAttr()
