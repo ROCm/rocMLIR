@@ -401,13 +401,10 @@ func.func @blockwise_gemm_accel_loadA_scaleA_missing_lds(
       inNPerThread = 2 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>> 
         scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>> 
+        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -437,13 +434,10 @@ func.func @blockwise_gemm_accel_loadA_scaleA_lds_only(
       inNPerThread = 2 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
         scaled by from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -474,14 +468,10 @@ func.func @blockwise_gemm_accel_scaleA_lds_shape_mismatch(
       inNPerThread = 2 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>
-        from memref<128xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>> from memref<128xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -512,14 +502,10 @@ func.func @blockwise_gemm_accel_scaleA_lds_type_bad(
       inNPerThread = 2 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E4M3FN>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>> from memref<256xvector<2xf8E4M3FN>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<vector<4xf8E8M0FNU>, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -550,14 +536,10 @@ func.func @blockwise_gemm_accel_matrixA_type_bad(
       inNPerThread = 2 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf16>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf16>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -586,14 +568,10 @@ func.func @blockwise_gemm_accel_scaleA_buffer_shape_bad(
       inNPerThread = 2 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<5xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<5xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -622,14 +600,10 @@ func.func @blockwise_gemm_accel_scaleA_buffer_type_bad(
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E4M3FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E4M3FN, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -658,14 +632,10 @@ func.func @blockwise_gemm_accel_bufferA_type_bad(
       inNPerThread = 2 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf16, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf16, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -725,14 +695,10 @@ func.func @blockwise_gemm_accel_scaleB_lds_shape_mismatch(
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<255xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<255xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -763,14 +729,10 @@ func.func @blockwise_gemm_accel_scaleB_lds_type_bad(
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E4M3FN>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E4M3FN>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -801,14 +763,10 @@ func.func @blockwise_gemm_accel_matrixB_type_bad(
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf16>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf16>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -837,14 +795,10 @@ func.func @blockwise_gemm_accel_scaleB_buffer_shape_bad(
       inNPerThread = 2 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<5xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<5xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -873,14 +827,10 @@ func.func @blockwise_gemm_accel_scaleB_buffer_type_bad(
       inNPerThread = 2 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E4M3FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E4M3FN, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -909,14 +859,10 @@ func.func @blockwise_gemm_accel_bufferB_type_bad(
       inNPerThread = 2 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf16, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>>  from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf16, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -947,14 +893,10 @@ func.func @blockwise_gemm_accel_invalid_arch(
       inNPerThread = 2 : i32,
       params = #blockwise_params    
       } : memref<4xvector<16xf32>, #gpu.address_space<private>>
-        += memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
-        * memref<4xf4E2M1FN, #gpu.address_space<private>>
-        from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
-        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>>
-        from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+        * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
+        scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
   return
 }
 
@@ -989,10 +931,7 @@ func.func @threadwise_gemm_accel_scale_mismatch1(
     features = mfma{
       arch = "amdgcn-amd-amdhsa:gfx950",
       params = #params
-    } : memref<2x3xf32, 5> 
-      += memref<2x4xf4E2M1FN, 5> 
-      scaled by memref<2x4xf8E8M0FNU, 5> 
-      * memref<3x4xf4E2M1FN, 5>
+    } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> scaled by memref<2x4xf8E8M0FNU, 5> * memref<3x4xf4E2M1FN, 5>
   return
 }
 
@@ -1010,10 +949,7 @@ func.func @threadwise_gemm_accel_scale_mismatch2(
     features = mfma{
       arch = "amdgcn-amd-amdhsa:gfx950",
       params = #params
-    } : memref<2x3xf32, 5> 
-      += memref<2x4xf4E2M1FN, 5> 
-      * memref<3x4xf4E2M1FN, 5> 
-      scaled by memref<3x4xf8E8M0FNU, 5>
+    } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> * memref<3x4xf4E2M1FN, 5> scaled by memref<3x4xf8E8M0FNU, 5>
   return
 }
 
@@ -1032,11 +968,7 @@ func.func @threadwise_gemm_accel_wrong_scale_type_A(
     features = mfma{
       arch = "amdgcn-amd-amdhsa:gfx950",
       params = #params
-    } : memref<2x3xf32, 5> 
-      += memref<2x4xf4E2M1FN, 5> 
-      scaled by memref<2x4xf8E4M3FN, 5> 
-      * memref<3x4xf4E2M1FN, 5> 
-      scaled by memref<3x4xf8E8M0FNU, 5>
+    } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> scaled by memref<2x4xf8E4M3FN, 5> * memref<3x4xf4E2M1FN, 5> scaled by memref<3x4xf8E8M0FNU, 5>
   return
 }
 
@@ -1055,11 +987,7 @@ func.func @threadwise_gemm_accel_wrong_scale_type_B(
     features = mfma{
       arch = "amdgcn-amd-amdhsa:gfx950",
       params = #params
-    } : memref<2x3xf32, 5> 
-      += memref<2x4xf4E2M1FN, 5> 
-      scaled by memref<2x4xf8E8M0FNU, 5> 
-      * memref<3x4xf4E2M1FN, 5> 
-      scaled by memref<3x4xf8E4M3FN, 5>
+    } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> scaled by memref<2x4xf8E8M0FNU, 5> * memref<3x4xf4E2M1FN, 5> scaled by memref<3x4xf8E4M3FN, 5>
   return
 }
 
@@ -1078,11 +1006,7 @@ func.func @threadwise_gemm_accel_wrong_matrix_type_A(
     features = mfma{
       arch = "amdgcn-amd-amdhsa:gfx950",
       params = #params
-    } : memref<2x3xf32, 5> 
-      += memref<2x4xf16, 5> 
-      scaled by memref<2x4xf8E8M0FNU, 5> 
-      * memref<3x4xf4E2M1FN, 5> 
-      scaled by memref<3x4xf8E8M0FNU, 5>
+    } : memref<2x3xf32, 5> += memref<2x4xf16, 5> scaled by memref<2x4xf8E8M0FNU, 5> * memref<3x4xf4E2M1FN, 5> scaled by memref<3x4xf8E8M0FNU, 5>
   return
 }
 
@@ -1101,11 +1025,7 @@ func.func @threadwise_gemm_accel_wrong_matrix_type_B(
     features = mfma{
       arch = "amdgcn-amd-amdhsa:gfx950",
       params = #params
-    } : memref<2x3xf32, 5> 
-      += memref<2x4xf4E2M1FN, 5> 
-      scaled by memref<2x4xf8E8M0FNU, 5> 
-      * memref<3x4xf16, 5> 
-      scaled by memref<3x4xf8E8M0FNU, 5>
+    } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> scaled by memref<2x4xf8E8M0FNU, 5> * memref<3x4xf16, 5> scaled by memref<3x4xf8E8M0FNU, 5>
   return
 }
 
@@ -1124,11 +1044,7 @@ func.func @threadwise_gemm_accel_scale_shape_mismatch_A(
     features = mfma{
       arch = "amdgcn-amd-amdhsa:gfx950",
       params = #params
-    } : memref<2x3xf32, 5> 
-      += memref<2x4xf4E2M1FN, 5> 
-      scaled by memref<3x4xf8E8M0FNU, 5> 
-      * memref<3x4xf4E2M1FN, 5> 
-      scaled by memref<3x4xf8E8M0FNU, 5>
+    } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> scaled by memref<3x4xf8E8M0FNU, 5> * memref<3x4xf4E2M1FN, 5> scaled by memref<3x4xf8E8M0FNU, 5>
   return
 }
 
@@ -1147,11 +1063,7 @@ func.func @threadwise_gemm_accel_scale_shape_mismatch_B(
     features = mfma{
       arch = "amdgcn-amd-amdhsa:gfx950",
       params = #params
-    } : memref<2x3xf32, 5> 
-      += memref<2x4xf4E2M1FN, 5> 
-      scaled by memref<2x4xf8E8M0FNU, 5> 
-      * memref<3x4xf4E2M1FN, 5> 
-      scaled by memref<4x4xf8E8M0FNU, 5>
+    } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> scaled by memref<2x4xf8E8M0FNU, 5> * memref<3x4xf4E2M1FN, 5> scaled by memref<4x4xf8E8M0FNU, 5>
   return
 }
 
@@ -1170,10 +1082,6 @@ func.func @threadwise_gemm_accel_unsupported_arch(
     features = mfma{
       arch = "amdgcn-amd-amdhsa:gfx942", // Unsupported architecture for Float4E2M1FN
       params = #params
-    } : memref<2x3xf32, 5> 
-      += memref<2x4xf4E2M1FN, 5> 
-      scaled by memref<2x4xf8E8M0FNU, 5> 
-      * memref<3x4xf4E2M1FN, 5> 
-      scaled by memref<3x4xf8E8M0FNU, 5>
+    } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> scaled by memref<2x4xf8E8M0FNU, 5> * memref<3x4xf4E2M1FN, 5> scaled by memref<3x4xf8E8M0FNU, 5>
   return
 }
