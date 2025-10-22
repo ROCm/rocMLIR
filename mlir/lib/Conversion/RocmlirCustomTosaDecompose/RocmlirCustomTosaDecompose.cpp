@@ -80,7 +80,7 @@ LogicalResult verifyConvTranspose(tosa::CustomOp op,
   int64_t strideZ = 1;
   if (convDims == 3)
     strideZ = strides[2];
-                                    
+
   if (strideY < 1 || strideX < 1 || strideZ < 1)
     return op.emitOpError("expect all stride values to be >= 1, got [")
            << strides << "]";
@@ -338,7 +338,7 @@ public:
     // A negative padding value would require cropping, "slicing", the result
     // to properly emulate negative padding.
     bool needSlice = false;
-    SmallVector<int64_t,4> negExcess(convDims * 2, 0);
+    SmallVector<int64_t, 4> negExcess(convDims * 2, 0);
     for (int i = 0; i < convDims * 2; ++i) {
       if (convPad[i] < 0) {
         negExcess[i] = -convPad[i];
@@ -365,18 +365,17 @@ public:
           rewriter.getDenseI64ArrayAttr(convPad),
           rewriter.getDenseI64ArrayAttr(stride),
           rewriter.getDenseI64ArrayAttr(dilationVals),
-          /* acc_type = */ accType,
-          op->getAttrOfType<IntegerAttr>("group"));
+          /* acc_type = */ accType, op->getAttrOfType<IntegerAttr>("group"));
     } else {
       Value reverse3 =
           tosa::ReverseOp::create(rewriter, loc, weightTy, reverse2,
                                   /* axis = */ rewriter.getI32IntegerAttr(3));
-      convOp = tosa::Conv3DOp::create(rewriter, loc, resultTy, input, reverse3,
-                                      bias, inputZp, weightZp,
-                                      rewriter.getDenseI64ArrayAttr(convPad),
-                                      rewriter.getDenseI64ArrayAttr(stride),
-                                      rewriter.getDenseI64ArrayAttr(dilationVals),
-                                      /* acc_type = */ accType);
+      convOp = tosa::Conv3DOp::create(
+          rewriter, loc, resultTy, input, reverse3, bias, inputZp, weightZp,
+          rewriter.getDenseI64ArrayAttr(convPad),
+          rewriter.getDenseI64ArrayAttr(stride),
+          rewriter.getDenseI64ArrayAttr(dilationVals),
+          /* acc_type = */ accType);
     }
 
     rewriter.replaceOp(op, convOp);
