@@ -67,17 +67,21 @@ LogicalResult verifyConvTranspose(tosa::CustomOp op,
   if (!outputType)
     return failure();
 
-  // Currently, we cannot handle supporting arbitrary Conv3D transpose ops, so
-  // for now we return failure().
-  if (outputType.getRank() == 5)
-    return failure();
-
   llvm::ArrayRef<int64_t> strides =
       cast<DenseI64ArrayAttr>(op->getAttr("stride"));
+  int convDims = strides.size();
+
+  // Right now we can only support 2D values
+  if (convDims == 3)
+    return failure();
+
   const int64_t strideY = strides[0];
   const int64_t strideX = strides[1];
-
-  if (strideY < 1 || strideX < 1)
+  int64_t strideZ = 1;
+  if (convDims == 3)
+    strideZ = strides[2];
+                                    
+  if (strideY < 1 || strideX < 1 || strideZ < 1)
     return op.emitOpError("expect all stride values to be >= 1, got [")
            << strides << "]";
 
@@ -267,7 +271,7 @@ public:
       return rewriter.notifyMatchFailure(op, "conv op must be 2D or 3D");
 
     // Fetch dilation (default all ones)
-    SmallVector<int64_t> dilationVals(ConvDims, 1);
+    SmallVector<int64_t> dilationVals(convDims, 1);
     if (auto dilOpt = cast<DenseI64ArrayAttr>(op->getAttr("dilation"))) {
       dilationVals[0] = (dilOpt)[0];
       dilationVals[1] = (dilOpt)[1];
@@ -372,8 +376,7 @@ public:
                                       rewriter.getDenseI64ArrayAttr(convPad),
                                       rewriter.getDenseI64ArrayAttr(stride),
                                       rewriter.getDenseI64ArrayAttr(dilationVals),
-                                      /* acc_type = */ accType,
-                                      op->getAttrOfType<IntegerAttr>("group"));
+                                      /* acc_type = */ accType);
     }
 
     rewriter.replaceOp(op, convOp);
