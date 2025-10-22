@@ -165,7 +165,7 @@ func.func @rock_accel_gemm_one_result_f4(%matrixA : memref<1x1xvector<32xf4E2M1F
                                             %matrixC : memref<1x1xvector<4xf32>, 5>) {
   %c0 = arith.constant 0 : index
   rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
-    arch = "amdgcn-amd-amdhsa:gfx950",
+    arch = "amdgcn-amd-amdhsa:gfx90a",
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
