@@ -1,5 +1,5 @@
-// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver -kernel-pipeline migraphx,highlevel -targets %arch | rocmlir-driver -arch %arch -c --mlir-print-ir-after=rock-gridwise-gemm-to-blockwise -o /dev/null 2>&1 -debug-only=rock-gridwise-to-blockwise | FileCheck %s
-// RUN: sed s/##TOKEN_ARCH##/gfx942/g %s | rocmlir-driver -kernel-pipeline migraphx,highlevel -targets gfx942 | rocmlir-driver -arch gfx942 -c --mlir-print-ir-after=rock-gridwise-gemm-to-blockwise -o /dev/null 2>&1 -debug-only=rock-gridwise-to-blockwise | FileCheck %s --check-prefix=VECTORIZATION
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver -kernel-pipeline migraphx,highlevel -targets %arch | rocmlir-driver -arch %arch -c --mlir-print-ir-after=rock-blockwise-load-tile-to-threadwise -o /dev/null 2>&1 -debug-only=rock-gridwise-to-blockwise | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/gfx942/g %s | rocmlir-driver -kernel-pipeline migraphx,highlevel -targets gfx942 | rocmlir-driver -arch gfx942 -c --mlir-print-ir-after=rock-blockwise-load-tile-to-threadwise -o /dev/null 2>&1 -debug-only=rock-gridwise-to-blockwise | FileCheck %s --check-prefix=VECTORIZATION
 
 // CHECK: elemTypeQLoad: f16
 // CHECK: elemTypeKLoad: i4
