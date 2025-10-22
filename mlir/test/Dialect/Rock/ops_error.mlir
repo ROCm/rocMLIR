@@ -69,6 +69,118 @@ func.func @attention_numheadsq_smaller_than_numheadskv(%arg0: memref<1x384x64xf1
 // gemm tests 
 // -----------------------------------------------------------------------------
 
+// Test case: Matrix A with invalid rank (rank 1)
+func.func @gemm_matrixA_wrong_rank(%a: memref<64xf32>, %b: memref<128x32xf32>, 
+                                   %c: memref<64x32xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @+1 {{Matrix A must be a rank 2 or rank 3 tensor representing [G,] M, K}}
+  rock.gemm %c = %a * %b features = dot storeMethod = set
+    : memref<64x32xf32> = memref<64xf32> * memref<128x32xf32>
+  func.return
+}
+
+// Test case: Matrix A with invalid rank (rank 4)
+func.func @gemm_matrixA_rank4(%a: memref<1x2x64x128xf32>, %b: memref<128x32xf32>, 
+                              %c: memref<64x32xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @+1 {{Matrix A must be a rank 2 or rank 3 tensor representing [G,] M, K}}
+  rock.gemm %c = %a * %b features = dot storeMethod = set
+    : memref<64x32xf32> = memref<1x2x64x128xf32> * memref<128x32xf32>
+  func.return
+}
+
+// Test case: Matrix B with invalid rank (rank 1)
+func.func @gemm_matrixB_wrong_rank(%a: memref<64x128xf32>, %b: memref<32xf32>, 
+                                   %c: memref<64x32xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @+1 {{Matrix B must be a rank 2 or rank 3 tensor representing [G,] M, K}}
+  rock.gemm %c = %a * %b features = dot storeMethod = set
+    : memref<64x32xf32> = memref<64x128xf32> * memref<32xf32>
+  func.return
+}
+
+// Test case: Matrix B with invalid rank (rank 4)
+func.func @gemm_matrixB_rank4(%a: memref<64x128xf32>, %b: memref<1x2x128x32xf32>, 
+                              %c: memref<64x32xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @+1 {{Matrix B must be a rank 2 or rank 3 tensor representing [G,] M, K}}
+  rock.gemm %c = %a * %b features = dot storeMethod = set
+    : memref<64x32xf32> = memref<64x128xf32> * memref<1x2x128x32xf32>
+  func.return
+}
+
+// Test case: Matrix C with invalid rank (rank 1)
+func.func @gemm_matrixC_wrong_rank(%a: memref<64x128xf32>, %b: memref<128x32xf32>, 
+                                   %c: memref<64xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @+1 {{Matrix C must be a rank 2 or rank 3 tensor representing [G,] M, K}}
+  rock.gemm %c = %a * %b features = dot storeMethod = set
+    : memref<64xf32> = memref<64x128xf32> * memref<128x32xf32>
+  func.return
+}
+
+// Test case: Matrix C with invalid rank (rank 4)
+func.func @gemm_matrixC_rank4(%a: memref<64x128xf32>, %b: memref<128x32xf32>, 
+                              %c: memref<1x2x64x32xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @+1 {{Matrix C must be a rank 2 or rank 3 tensor representing [G,] M, K}}
+  rock.gemm %c = %a * %b features = dot storeMethod = set
+    : memref<1x2x64x32xf32> = memref<64x128xf32> * memref<128x32xf32>
+  func.return
+}
+
+// Test case: Mixed ranks - A is rank 3, B and C are rank 2
+func.func @gemm_mixed_ranks1(%a: memref<2x64x128xf32>, %b: memref<128x32xf32>, 
+                             %c: memref<64x32xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @+1 {{group dimensions don't match g_a = 2 g_b = 1 g_c = 1}}
+  rock.gemm %c = %a * %b features = dot storeMethod = set
+    : memref<64x32xf32> = memref<2x64x128xf32> * memref<128x32xf32>
+  func.return
+}
+
+// Test case: Mixed ranks - B is rank 3, A and C are rank 2
+func.func @gemm_mixed_ranks2(%a: memref<64x128xf32>, %b: memref<2x128x32xf32>, 
+                             %c: memref<64x32xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @+1 {{group dimensions don't match g_a = 1 g_b = 2 g_c = 1}}
+  rock.gemm %c = %a * %b features = dot storeMethod = set
+    : memref<64x32xf32> = memref<64x128xf32> * memref<2x128x32xf32>
+  func.return
+}
+
+// Test case: ScaleA with invalid rank (rank 1)
+func.func @gemm_scaleA_wrong_rank(%a: memref<64x128xf4E2M1FN>, %b: memref<128x32xf4E2M1FN>, 
+                                  %c: memref<64x32xf32>, %scaleA: memref<128xf8E8M0FNU>,
+                                  %scaleB: memref<128x32xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-error @+1 {{scaleA must be a rank 2 or rank 3 tensor representing [G,] M, K}}
+  rock.gemm %c = %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set
+    : memref<64x32xf32> = memref<64x128xf4E2M1FN> scaled by memref<128xf8E8M0FNU> * memref<128x32xf4E2M1FN> scaled by memref<128x32xf8E8M0FNU>
+  func.return
+}
+
+// Test case: ScaleA with invalid rank (rank 4)
+func.func @gemm_scaleA_rank4(%a: memref<64x128xf4E2M1FN>, %b: memref<128x32xf4E2M1FN>, 
+                             %c: memref<64x32xf32>, %scaleA: memref<1x2x64x128xf8E8M0FNU>,
+                             %scaleB: memref<128x32xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-error @+1 {{scaleA must be a rank 2 or rank 3 tensor representing [G,] M, K}}
+  rock.gemm %c = %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set
+    : memref<64x32xf32> = memref<64x128xf4E2M1FN> scaled by memref<1x2x64x128xf8E8M0FNU> * memref<128x32xf4E2M1FN> scaled by memref<128x32xf8E8M0FNU>
+  func.return
+}
+
+// Test case: ScaleB with invalid rank (rank 1)
+func.func @gemm_scaleB_wrong_rank(%a: memref<64x128xf4E2M1FN>, %b: memref<128x32xf4E2M1FN>, 
+                                  %c: memref<64x32xf32>, %scaleA: memref<64x128xf8E8M0FNU>,
+                                  %scaleB: memref<32xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-error @+1 {{scaleB must be a rank 2 or rank 3 tensor representing [G,] M, K}}
+  rock.gemm %c = %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set
+    : memref<64x32xf32> = memref<64x128xf4E2M1FN> scaled by memref<64x128xf8E8M0FNU> * memref<128x32xf4E2M1FN> scaled by memref<32xf8E8M0FNU>
+  func.return
+}
+
+// Test case: ScaleB with invalid rank (rank 4)
+func.func @gemm_scaleB_rank4(%a: memref<64x128xf4E2M1FN>, %b: memref<128x32xf4E2M1FN>, 
+                             %c: memref<64x32xf32>, %scaleA: memref<64x128xf8E8M0FNU>,
+                             %scaleB: memref<1x2x128x32xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-error @+1 {{scaleB must be a rank 2 or rank 3 tensor representing [G,] M, K}}
+  rock.gemm %c = %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set
+    : memref<64x32xf32> = memref<64x128xf4E2M1FN> scaled by memref<64x128xf8E8M0FNU> * memref<128x32xf4E2M1FN> scaled by memref<1x2x128x32xf8E8M0FNU>
+  func.return
+}
+
 func.func @gemm_scale_presence_mismatch(%a: memref<2x64x128xf4E2M1FN>, %b: memref<2x128x32xf4E2M1FN>,
   %c: memref<2x64x32xf32>, %scaleA: memref<2x64x128xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
   // expected-error @+1 {{both scaleA and scaleB must be provided or neither}}

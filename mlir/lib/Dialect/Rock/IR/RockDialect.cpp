@@ -628,16 +628,17 @@ GemmSize GemmSize::fromConvolution(ConvOpType type,
 }
 
 static bool isFloat8Type(Type type) {
-  // exclude E8M0FNU since it is only supposed to encode exponent values and
-  // used for scales params
-  return isa<FloatType>(type) && type.getIntOrFloatBitWidth() == 8 &&
-         !isa<Float8E8M0FNUType>(type);
+  return isa<FloatType>(type) && type.getIntOrFloatBitWidth() == 8;
 }
 
 static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
   bool isGfx11 = arch.contains("gfx11");
+  if (isa<Float8E8M0FNUType>(elemTypeA) || isa<Float8E8M0FNUType>(elemTypeB)) {
+    return op->emitOpError(
+        "Matrix A or B is not allowed to have Float8E8M0FNU types");
+  }
   if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
     if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
       if (isGfx11)
@@ -919,6 +920,20 @@ LogicalResult GemmOp::verify() {
 
   ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape(),
                     dimsC = typeC.getShape();
+  auto rankCheck = [&](ArrayRef<int64_t> dims,
+                       StringRef name) -> LogicalResult {
+    if (dims.size() != 2 && dims.size() != 3) {
+      return emitOpError()
+             << name
+             << " must be a rank 2 or rank 3 tensor representing [G,] M, K";
+    }
+    return success();
+  };
+  if (failed(rankCheck(dimsA, "Matrix A")) ||
+      failed(rankCheck(dimsB, "Matrix B")) ||
+      failed(rankCheck(dimsC, "Matrix C"))) {
+    return failure();
+  }
   int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
           offsetB = dimsB.size() == 2 ? 0 : 1,
           offsetC = dimsC.size() == 2 ? 0 : 1;
@@ -950,8 +965,10 @@ LogicalResult GemmOp::verify() {
   if (getScaleA()) {
     ShapedType typeScaleA = getScaleA().getType();
     ArrayRef<int64_t> scaleADims = typeScaleA.getShape();
-    if (typeScaleA.getElementType() !=
-        Float8E8M0FNUType::get(this->getContext())) {
+    if (failed(rankCheck(scaleADims, "scaleA"))) {
+      return failure();
+    }
+    if (!isa<Float8E8M0FNUType>(typeScaleA.getElementType())) {
       return emitOpError("scaleA must be of type Float8E8M0FNUType");
     }
     bool aScaleTransposed = getAScaleTransposed();
@@ -978,8 +995,10 @@ LogicalResult GemmOp::verify() {
   if (getScaleB()) {
     ShapedType typeScaleB = getScaleB().getType();
     ArrayRef<int64_t> scaleBDims = typeScaleB.getShape();
-    if (typeScaleB.getElementType() !=
-        Float8E8M0FNUType::get(this->getContext())) {
+    if (failed(rankCheck(scaleBDims, "scaleB"))) {
+      return failure();
+    }
+    if (!isa<Float8E8M0FNUType>(typeScaleB.getElementType())) {
       return emitOpError("scaleB must be of type Float8E8M0FNUType");
     }
     bool bScaleTransposed = getBScaleTransposed();
@@ -987,6 +1006,7 @@ LogicalResult GemmOp::verify() {
     int64_t scaleBG = offsetScaleB ? scaleBDims[0] : 1;
     int64_t scaleBK = scaleBDims[offsetScaleB + (bScaleTransposed ? 1 : 0)];
     int64_t scaleBN = scaleBDims[offsetScaleB + (bScaleTransposed ? 0 : 1)];
+
     if (scaleBK != kB) {
       return emitOpError(
                  "scaleB's K dimension must match matrix B's K dimension")
@@ -1161,8 +1181,7 @@ LogicalResult GridwiseGemmAccelOp::verify() {
   if (scaleA) {
     ShapedType typeScaleA = cast<ShapedType>(scaleA.getType());
     ShapedType typeA = cast<ShapedType>(getA().getType());
-    if (typeScaleA.getElementType() !=
-        Float8E8M0FNUType::get(this->getContext())) {
+    if (!isa<Float8E8M0FNUType>(typeScaleA.getElementType())) {
       return emitOpError("scaleA must be of type Float8E8M0FNUType");
     }
     ArrayRef<int64_t> scaleADims = typeScaleA.getShape();
@@ -1178,8 +1197,7 @@ LogicalResult GridwiseGemmAccelOp::verify() {
   if (scaleB) {
     ShapedType typeScaleB = cast<ShapedType>(scaleB.getType());
     ShapedType typeB = cast<ShapedType>(getB().getType());
-    if (typeScaleB.getElementType() !=
-        Float8E8M0FNUType::get(this->getContext())) {
+    if (!isa<Float8E8M0FNUType>(typeScaleB.getElementType())) {
       return emitOpError("scaleB must be of type Float8E8M0FNUType");
     }
     ArrayRef<int64_t> scaleBDims = typeScaleB.getShape();
