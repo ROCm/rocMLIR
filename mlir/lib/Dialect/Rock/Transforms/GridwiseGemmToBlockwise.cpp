@@ -2282,7 +2282,8 @@ struct GridwiseAttentionAccelRewritePattern
 
         // Emit lowered blockwise GEMM 0.
         BlockwiseGemmAccelOp::create(
-            rewriter, loc, ldsTileBufferK, ldsTileBufferQ,
+            rewriter, loc, ldsTileBufferK,
+            ldsTileBufferQ ? ldsTileBufferQ : ldsTileBufferK,
             /*scaleA=*/nullptr, /*scaleB=*/nullptr,
             rewriter.getI32IntegerAttr(gemm0InMPerThread),
             rewriter.getI32IntegerAttr(gemm0InNPerThread),
@@ -2555,7 +2556,8 @@ struct GridwiseAttentionAccelRewritePattern
           }
 
           BlockwiseGemmAccelOp::create(
-              rewriter, loc, ldsTileBufferV, gemm1LDSBufferB,
+              rewriter, loc, ldsTileBufferV,
+              gemm1LDSBufferB ? gemm1LDSBufferB : ldsTileBufferV,
               /*scaleA=*/nullptr, /*scaleB=*/nullptr,
               rewriter.getI32IntegerAttr(gemm1InMPerThread),
               rewriter.getI32IntegerAttr(gemm1InNPerThread),
