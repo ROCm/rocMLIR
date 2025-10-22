@@ -1088,20 +1088,24 @@ template <typename GridOp>
 static LogicalResult verifyGridwiseGemm(GridOp op) {
   MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
              cType = op.getC().getType();
-  Type aElem = aType.getElementType(), bElem = bType.getElementType(),
-       cElem = cType.getElementType();
+  Type aElemType = getElementTypeOrSelfRecursive(aType);
+  Type bElemType = getElementTypeOrSelfRecursive(bType);
+  Type cElemType = getElementTypeOrSelfRecursive(cType);
   FailureOr<StringAttr> archAttr = rock::getArch(op);
   if (failed(archAttr)) {
     archAttr = StringAttr::get(op->getContext(), "gfx00");
   }
   if (failed(verifyGemmTypes(op, rock::getFeatures(op), archAttr->getValue(),
-                             aElem, bElem, cElem)))
+                             aElemType, bElemType, cElemType)))
     return failure();
-  if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
+  if (aElemType.isInteger(8) &&
+      !(cElemType.isInteger(32) || cElemType.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
-  if (isFloat8Type(aElem) && !cElem.isF32())
-    return op.emitOpError("8-bit float input requires f32 output");
-  // TODO: add verification for 4 bit float type output type
+  llvm::dbgs() << "aElemType: " << aElemType << ", bElemType: " << bElemType
+               << ", cElemType: " << cElemType << "\n";
+  if ((isFloat8Type(aElemType) || isa<Float4E2M1FNType>(aElemType)) &&
+      !cElemType.isF32())
+    return op.emitOpError("4-bit or 8-bit float input requires f32 output");
 
   ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
                     cShape = cType.getShape();
