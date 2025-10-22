@@ -73,7 +73,7 @@ LogicalResult verifyConvTranspose(tosa::CustomOp op,
     return failure();
 
   llvm::ArrayRef<int64_t> strides =
-        cast<DenseI64ArrayAttr>(op->getAttr("stride"));
+      cast<DenseI64ArrayAttr>(op->getAttr("stride"));
   const int64_t strideY = strides[0];
   const int64_t strideX = strides[1];
 
@@ -82,9 +82,8 @@ LogicalResult verifyConvTranspose(tosa::CustomOp op,
            << strides << "]";
 
   const auto checkPadAgainstKernelDim =
-      [&](int64_t pad_value, int64_t kernel_dim_size,
-             llvm::StringRef pad_name,
-             llvm::StringRef kernel_dim_name) -> LogicalResult {
+      [&](int64_t pad_value, int64_t kernel_dim_size, llvm::StringRef pad_name,
+          llvm::StringRef kernel_dim_name) -> LogicalResult {
     if (pad_value <= -kernel_dim_size)
       return op.emitOpError("expected ")
              << pad_name << " > -" << kernel_dim_name
@@ -94,15 +93,14 @@ LogicalResult verifyConvTranspose(tosa::CustomOp op,
   };
 
   llvm::ArrayRef<int64_t> outPad =
-        cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
+      cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
   const int64_t outPadTop = outPad[0];
   const int64_t outPadBottom = outPad[1];
   const int64_t outPadLeft = outPad[2];
   const int64_t outPadRight = outPad[3];
 
   Value weight = op->getOperand(1);
-  const auto weightType =
-      llvm::dyn_cast<RankedTensorType>(weight.getType());
+  const auto weightType = llvm::dyn_cast<RankedTensorType>(weight.getType());
 
   if (weightType) {
     const int64_t kernelHeight = weightType.getDimSize(1);
@@ -153,19 +151,18 @@ LogicalResult verifyConvTranspose(tosa::CustomOp op,
 
     if (!ShapedType::isDynamic(inputHeight) &&
         !ShapedType::isDynamic(outputHeight)) {
-      if (outputHeight != (inputHeight - 1) * strideY + outPadTop +
-                          outPadBottom + ((kernelHeight - 1) * dilation[0]) +
-                          1 - inPad[0] - inPad[1]) {
+      if (outputHeight !=
+          (inputHeight - 1) * strideY + outPadTop + outPadBottom +
+              ((kernelHeight - 1) * dilation[0]) + 1 - inPad[0] - inPad[1]) {
         return op.emitOpError(
-                    "dimension mismatch: expected OH = (IH - 1) * "
-                    "stride_y + out_pad_top + out_pad_bottom + ((KH - 1) * "
-                    "dilation_y + 1) - pad_top - pad_bottom, but got: ")
-                << outputHeight << " != (" << inputHeight << " - 1) * "
-                << strideY << " + " << outPadTop << " + "
-                << outPadBottom << " + ((" << kernelHeight
-                << " - 1) * " << dilation[0] << " + 1) - "
-                << inPad[0] << " - " << inPad[1];
-      } 
+                   "dimension mismatch: expected OH = (IH - 1) * "
+                   "stride_y + out_pad_top + out_pad_bottom + ((KH - 1) * "
+                   "dilation_y + 1) - pad_top - pad_bottom, but got: ")
+               << outputHeight << " != (" << inputHeight << " - 1) * "
+               << strideY << " + " << outPadTop << " + " << outPadBottom
+               << " + ((" << kernelHeight << " - 1) * " << dilation[0]
+               << " + 1) - " << inPad[0] << " - " << inPad[1];
+      }
     }
 
     const int64_t inputWidth = inputType.getDimSize(2);
@@ -174,17 +171,17 @@ LogicalResult verifyConvTranspose(tosa::CustomOp op,
 
     if (!ShapedType::isDynamic(inputWidth) &&
         !ShapedType::isDynamic(outputWidth)) {
-      if (outputWidth != (inputWidth - 1) * strideX + outPadLeft + outPadRight + 
-                              ((kernelWidth - 1) * dilation[1] + 1) -
-                              inPad[2] - inPad[3]) {
+      if (outputWidth != (inputWidth - 1) * strideX + outPadLeft + outPadRight +
+                             ((kernelWidth - 1) * dilation[1] + 1) - inPad[2] -
+                             inPad[3]) {
         return op.emitOpError(
-                    "dimension mismatch: expected OW = (IW - 1) * "
-                    "stride_x + out_pad_left + out_pad_right + (KW - 1) * "
-                    "dilation_x + 1 - pad_left - pad_right, but got: ")
-                << outputWidth << " != (" << inputWidth << " - 1) * "
-                << strideX << " + " << outPadLeft << " + " << outPadRight
-                << " + ((" << kernelWidth << " - 1) * " << dilation[1]
-                << " + 1) - " << inPad[2] - inPad[3];
+                   "dimension mismatch: expected OW = (IW - 1) * "
+                   "stride_x + out_pad_left + out_pad_right + (KW - 1) * "
+                   "dilation_x + 1 - pad_left - pad_right, but got: ")
+               << outputWidth << " != (" << inputWidth << " - 1) * " << strideX
+               << " + " << outPadLeft << " + " << outPadRight << " + (("
+               << kernelWidth << " - 1) * " << dilation[1] << " + 1) - "
+               << inPad[2] - inPad[3];
       }
     }
   }
@@ -840,7 +837,7 @@ void mlir::rock::populateRocmlirCustomTosaDecomposeTarget(
   target.addLegalDialect<tosa::TosaDialect>();
   target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
     return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME ||
-            (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
+           (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
             op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT);
   });
 }
