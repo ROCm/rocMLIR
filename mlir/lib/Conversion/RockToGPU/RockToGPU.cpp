@@ -160,11 +160,13 @@ void LowerRockOpsToGPUPass::runOnOperation() {
   auto processGpuKernelFunc = [&](gpu::GPUModuleOp &gpuMod,
                                   func::FuncOp &theFunc) -> LogicalResult {
     // Make sure that the function has the neccesary attributes.
-    if (!theFunc->hasAttr("block_size")) {
+    auto blockSizeAttr = theFunc->getAttr("block_size");
+    auto gridSizeAttr = theFunc->getAttr("grid_size");
+    if (!blockSizeAttr) {
       return theFunc->emitError()
              << "kernel func op is missing the block_size attribute";
     }
-    if (!theFunc->hasAttr("grid_size")) {
+    if (!gridSizeAttr) {
       return theFunc->emitError()
              << "kernel func op is missing the grid_size attribute";
     }
@@ -193,16 +195,15 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       gpuFunc.setAllArgAttrs(*argAttrs);
 
     gpuFunc->setAttr(gpu::GPUDialect::getKernelFuncAttrName(), b.getUnitAttr());
-    if (auto attr = theFunc->getAttr("block_size")) {
-      gpuFunc->setAttr("block_size", attr);
-      blockSize = cast<IntegerAttr>(attr).getInt();
-      gpuFunc.setKnownBlockSizeAttr(b.getDenseI32ArrayAttr({blockSize, 1, 1}));
-    }
-    if (auto attr = theFunc->getAttr("grid_size")) {
-      gpuFunc->setAttr("grid_size", attr);
-      gridSize = cast<IntegerAttr>(attr).getInt();
-      gpuFunc.setKnownGridSizeAttr(b.getDenseI32ArrayAttr({gridSize, 1, 1}));
-    }
+
+    gpuFunc->setAttr("block_size", blockSizeAttr);
+    blockSize = cast<IntegerAttr>(blockSizeAttr).getInt();
+    gpuFunc.setKnownBlockSizeAttr(b.getDenseI32ArrayAttr({blockSize, 1, 1}));
+
+    gpuFunc->setAttr("grid_size", gridSizeAttr);
+    gridSize = cast<IntegerAttr>(gridSizeAttr).getInt();
+    gpuFunc.setKnownGridSizeAttr(b.getDenseI32ArrayAttr({gridSize, 1, 1}));
+
     FailureOr<StringAttr> maybeArch = rock::getArch(theFunc);
     if (succeeded(maybeArch)) {
       gpuFunc->setAttr("arch", maybeArch.value());
