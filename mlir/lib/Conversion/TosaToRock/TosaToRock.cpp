@@ -1493,7 +1493,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
-  LogicalResult getConstComparison(TypedValue<TensorType> input,
+  // This function checks if a given input is a constant range. There are two
+  // possible cases that we can handle:
+  // - The input is broadcasted -> we can then check the resulting broadcasted
+  //   value to see if it's a constant range
+  // - The input is already a constant range
+  LogicalResult isConstantRange(TypedValue<TensorType> input,
                                    size_t nonOneDimFromEnd) const {
     // Lambda to get constant result from either tosa.const or arith.constant
     auto getConstantResult = [&](Value input) -> FailureOr<Value> {
@@ -1512,21 +1517,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     };
 
     // input is a constant with a range from 0 to maxSeqLen
-    FailureOr<Value> maybeNonOne = mulBroadcast(input);
-    Value rangeInput;
-    if (failed(maybeNonOne)) {
-      // The check in mulBroadcast will look to find a constant being
-      // broadcasted. If mulBroadcast fails, we also want to check and see if
-      // the input is already a constant. We will then have further checks down
-      // below to confirm that the constant has a correct value.
-      auto constantResult = getConstantResult(input);
-      if (failed(constantResult)) {
-        return failure();
-      }
-      rangeInput = constantResult.value();
-    } else {
-      rangeInput = maybeNonOne.value();
-    }
+    Value rangeInput = mulBroadcast(input).value_or(input);
 
     // check that rangeInput is a const with range 0..maxSeqLen
     Value rangeResult;
@@ -1642,18 +1633,18 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (succeeded(maybeGreater)) {
         auto greater = maybeGreater.value();
         // input1 is a constant with a range from 0 to maxSeqLen (KV)
-        if (failed(getConstComparison(greater.getInput1(), 0)))
+        if (failed(isConstantRange(greater.getInput1(), 0)))
           return failure();
 
         // input2 is a constant with a range from 0 to seqLenQ
-        if (failed(getConstComparison(greater.getInput2(), 1)))
+        if (failed(isConstantRange(greater.getInput2(), 1)))
           return failure();
 
         Value result = select.getInput3();
         return result;
       } else if (succeeded(maybeBroadcast)) {
         // The input from MIGraphX will not be a constant range, so we cannot
-        // use the getConstComparison function. Instead we need to check that
+        // use the isConstantRange function. Instead we need to check that
         // the constant is a valid causal mask pattern.
         auto maybeNonOne = mulBroadcast(maybeBroadcast.value());
         if (failed(maybeNonOne))
@@ -1821,7 +1812,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       if (succeeded(maybeGreater)) {
         auto greater = maybeGreater.value();
         // input1 is a constant with a range from 0 to maxSeqLen
-        if (failed(getConstComparison(greater.getInput1(), 0)))
+        if (failed(isConstantRange(greater.getInput1(), 0)))
           return failure();
 
         // input2 comes from argument: currentSeqLen
