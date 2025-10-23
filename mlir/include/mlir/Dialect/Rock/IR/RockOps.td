@@ -846,30 +846,25 @@ def Rock_TransformingForOp :
   }], [{ $_builder.getI32IntegerAttr($_self) }]>;
 
   let skipDefaultBuilders = 1;
-  let builders = [
-    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
-    "ArrayRef<Attribute>":$transforms,
-    "ArrayRef<int64_t>":$bounds, "std::optional<ArrayRef<int64_t>>":$strides,
-    "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "{}">:$iterArgs)>,
+  let builders =
+      [OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+           "ArrayRef<Attribute>":$transforms, "ArrayRef<int64_t>":$bounds,
+           "std::optional<ArrayRef<int64_t>>":$strides, "bool":$forceUnroll,
+           "bool":$useIndexDiffs, CArg<"ValueRange", "{}">:$iterArgs)>,
 
-    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
-    "ArrayRef<Attribute>":$transforms,
-    "ArrayAttr":$bounds, "ArrayAttr":$strides,
-    "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "{}">:$iterArgs)>,
+       OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+           "ArrayRef<Attribute>":$transforms, "ArrayAttr":$bounds,
+           "ArrayAttr":$strides, "bool":$forceUnroll, "bool":$useIndexDiffs,
+           CArg<"ValueRange", "{}">:$iterArgs)>,
 
-    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
-    "ArrayAttr":$transforms,
-    "ArrayRef<int64_t>":$bounds, "std::optional<ArrayRef<int64_t>>":$strides,
-    "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "{}">:$iterArgs)>,
+       OpBuilder<(ins "ArrayRef<ValueRange>":$inits, "ArrayAttr":$transforms,
+           "ArrayRef<int64_t>":$bounds,
+           "std::optional<ArrayRef<int64_t>>":$strides, "bool":$forceUnroll,
+           "bool":$useIndexDiffs, CArg<"ValueRange", "{}">:$iterArgs)>,
 
-    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
-    "ArrayAttr":$transforms,
-    "ArrayAttr":$bounds, "ArrayAttr":$strides,
-    "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "{}">:$iterArgs)>];
+       OpBuilder<(ins "ArrayRef<ValueRange>":$inits, "ArrayAttr":$transforms,
+           "ArrayAttr":$bounds, "ArrayAttr":$strides, "bool":$forceUnroll,
+           "bool":$useIndexDiffs, CArg<"ValueRange", "{}">:$iterArgs)>];
 
   let extraClassDeclaration = [{
     void moveOutOfLoop(ArrayRef<Operation *> ops);
