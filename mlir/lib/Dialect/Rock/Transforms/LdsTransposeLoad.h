@@ -88,7 +88,7 @@ LayoutKind selectLayout(int64_t nonKDim, int64_t instrK);
 
 // Attach attributes to the ThreadwiseReadIntoOp based on the decision.
 void attachAttributes(Operation *readIntoOp, const Decision &dec,
-                      PatternRewriter &rewriter);
+                      PatternRewriter &rewriter, bool isA);
 
 // Lowering-time description.
 struct LoweringInfo {

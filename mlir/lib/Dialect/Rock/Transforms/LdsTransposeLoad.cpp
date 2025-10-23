@@ -68,25 +68,24 @@ bool calculatePanels(const MfmaInstrShape &shape, OperandKind operandA,
                      int64_t kPerBlock, int64_t &mPanels, int64_t &nPanels,
                      int64_t &kPanels) {
 
-  if (mPerBlock > 32 || nPerBlock > 32) {
+  /*if (mPerBlock > 32 || nPerBlock > 32) {
     return false;
-  }
+  }*/
 
   if (kPerBlock % shape.kMfma != 0) {
     return false;
   }
   kPanels = kPerBlock / shape.kMfma;
 
-  if (operandA == OperandKind::A) {
+  if (operandA == OperandKind::A && operandB == OperandKind::B) {
     if (mPerBlock % shape.mnMfma != 0)
       return false;
     mPanels = mPerBlock / shape.mnMfma;
+    if (nPerBlock % shape.mnMfma != 0)
+      return false;
+    nPanels = nPerBlock / shape.mnMfma;
     return true;
   }
-
-  if (nPerBlock % shape.mnMfma != 0)
-    return false;
-  nPanels = nPerBlock / shape.mnMfma;
   return true;
 }
 
@@ -162,22 +161,26 @@ StringRef layoutName(LayoutKind kind) {
 // Attaches attributes to a `ThreadwiseReadIntoOp` to encode the chosen
 // LDS transpose configuration for later lowering.
 void attachAttributes(Operation *readIntoOp, const Decision &dec,
-                      PatternRewriter &rewriter) {
+                      PatternRewriter &rewriter, bool isA) {
   if (!dec.usable)
     return;
   readIntoOp->setAttr("rock.hw_lds_transpose_enabled", rewriter.getUnitAttr());
   readIntoOp->setAttr("rock.hw_lds_transpose_layout",
                       rewriter.getStringAttr(layoutName(dec.layout)));
-  readIntoOp->setAttr(
-      "rock.hw_lds_transpose_operand",
-      rewriter.getStringAttr(dec.operandA == OperandKind::A ? "A" : "B"));
 
-  if (dec.mPanels > 1)
-    readIntoOp->setAttr("rock.hw_lds_transpose_mpanels",
-                        rewriter.getI64IntegerAttr(dec.mPanels));
-  if (dec.nPanels > 1)
-    readIntoOp->setAttr("rock.hw_lds_transpose_npanels",
-                        rewriter.getI64IntegerAttr(dec.nPanels));
+  if (isA) {
+    readIntoOp->setAttr("rock.hw_lds_transpose_operand",
+                        rewriter.getStringAttr("A"));
+    if (dec.mPanels > 1)
+      readIntoOp->setAttr("rock.hw_lds_transpose_mpanels",
+                          rewriter.getI64IntegerAttr(dec.mPanels));
+  } else {
+    readIntoOp->setAttr("rock.hw_lds_transpose_operand",
+                        rewriter.getStringAttr("B"));
+    if (dec.nPanels > 1)
+      readIntoOp->setAttr("rock.hw_lds_transpose_npanels",
+                          rewriter.getI64IntegerAttr(dec.nPanels));
+  }
   if (dec.kPanels > 1)
     readIntoOp->setAttr("rock.hw_lds_transpose_kpanels",
                         rewriter.getI64IntegerAttr(dec.kPanels));
@@ -228,7 +231,10 @@ LoweringInfo deriveLoweringInfo(ThreadwiseReadIntoOp op, PatternRewriter &b) {
   // Operand kind
   if (auto operandAttr =
           op->getAttrOfType<StringAttr>("rock.hw_lds_transpose_operand")) {
-    if (operandAttr.getValue() == "B")
+    StringRef val = operandAttr.getValue();
+    if (val == "A")
+      info.operand = OperandKind::A;
+    else if (val == "B")
       info.operand = OperandKind::B;
   }
 

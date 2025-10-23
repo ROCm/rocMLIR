@@ -533,7 +533,7 @@ struct BlockwiseGemmAccelRewritePattern
         // Apply stored transpose attributes if a valid decision exists.
         if (globalDecisionOpt &&
             hwtranspose::isApplicable(*globalDecisionOpt)) {
-          hwtranspose::attachAttributes(twr, *globalDecisionOpt, b);
+          hwtranspose::attachAttributes(twr, *globalDecisionOpt, b, isA);
         }
       } else {
         if (cast<ShapedType>(buffer.getType()).getRank() == 1) {

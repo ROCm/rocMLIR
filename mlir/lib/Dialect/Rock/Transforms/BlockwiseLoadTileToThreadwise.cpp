@@ -77,7 +77,7 @@ class LoweringBlockwiseLoadTileOp final
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
       int64_t inDPerThread, bool rotateDWithK, bool forceUnroll,
-      bool directToLDS, bool ldsLayoutDxK) const {
+      bool directToLDS, bool ldsLayoutDxK, bool isA) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
@@ -121,7 +121,7 @@ class LoweringBlockwiseLoadTileOp final
                                             /*useIndexDiffs=*/true);
     // Apply the global decision if it exists and is marked as usable.
     if (globalDecisionOpt && hwtranspose::isApplicable(*globalDecisionOpt)) {
-      hwtranspose::attachAttributes(twr, *globalDecisionOpt, b);
+      hwtranspose::attachAttributes(twr, *globalDecisionOpt, b, isA);
     }
   }
 
@@ -412,7 +412,7 @@ class LoweringBlockwiseLoadTileOp final
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
                            destRegisters, blockSize, copyDPerThread,
                            ldsLayoutConfig.doRotateWithK, forceUnroll,
-                           directToLDS, ldsLayoutConfig.ldsLayoutDxK);
+                           directToLDS, ldsLayoutConfig.ldsLayoutDxK, isA);
           if (stageLDSReadNew)
             rock::YieldOp::create(b, loc);
         }
