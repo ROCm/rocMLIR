@@ -52,7 +52,6 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/SymbolTable.h"
-#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/InitRocMLIRCLOptions.h"
@@ -313,6 +312,11 @@ static llvm::cl::opt<int64_t> gemmN("n",
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
 
+static llvm::cl::opt<bool> scaledGemm(
+    "scaledGemm",
+    llvm::cl::desc("Indicates whether to generate scaling gemm or not"),
+    llvm::cl::value_desc("boolean"), llvm::cl::init(false));
+
 /// Backwards data convolution options
 static llvm::cl::opt<int64_t>
     usesV4R1("v4r1", llvm::cl::desc("Use V4R1 for bwd_data convolution"),
@@ -333,10 +337,24 @@ static llvm::cl::opt<bool>
                llvm::cl::desc("whether matrix B is GxKxN (default) or GxNxK"),
                llvm::cl::init(false));
 
+static llvm::cl::opt<bool> transposeScaleA(
+    "transScaleA",
+    llvm::cl::desc("whether matrix A is GxMxK (default) or GxKxM"),
+    llvm::cl::init(false));
+
+static llvm::cl::opt<bool> transposeScaleB(
+    "transScaleB",
+    llvm::cl::desc("whether matrix B is GxKxN (default) or GxNxK"),
+    llvm::cl::init(false));
+
 static llvm::cl::opt<bool>
     transposeC("transC",
                llvm::cl::desc("whether matrix C is GxMxN (default) or GxNxM"),
                llvm::cl::init(false));
+
+static llvm::cl::opt<int>
+    blockSize("block_size", llvm::cl::desc("Block size for scaled GEMMs"),
+              llvm::cl::value_desc("positive integer"), llvm::cl::init(32));
 
 static llvm::cl::opt<rock::StoreMethod> storeMethod(
     "store-method", llvm::cl::desc("storage method for gemm"),
@@ -971,6 +989,7 @@ struct GenParams {
   std::optional<const rock::ConvGenerator::Config *> convConfig = std::nullopt;
   StringRef arch;
   StringRef perfConfig;
+  bool isScaledOp = false;
 };
 
 namespace test {
@@ -1519,16 +1538,14 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
             cpuMem[cpuMem.size() - 1].getType()),
         cpuMem[cpuMem.size() - 1], true, false);
     Value lseTensor = bufferization::ToTensorOp::create(
-        b,
-        loc,
+        b, loc,
         memref::getTensorTypeFromMemRefType(
             cpuMem[cpuMem.size() - 2].getType()),
         cpuMem[cpuMem.size() - 2], true, false);
     auto out = computeFinalAttentionStage(b, loc, resultTensor, lseTensor,
                                           validSplitKV);
     Value outMemref = bufferization::ToBufferOp::create(
-        b,
-        loc,
+        b, loc,
         cast<mlir::bufferization::BufferLikeType>(
             cpuMem[cpuMem.size() - 1].getType()),
         out);
@@ -1558,6 +1575,7 @@ static Type typeFromString(StringRef name, MLIRContext *ctx) {
           .Case("bf16", BFloat16Type::get(ctx))
           .Case("i8", IntegerType::get(ctx, 8))
           .Case("i32", IntegerType::get(ctx, 32))
+          .Case("f4E2M1FN", Float4E2M1FNType::get(ctx))
           .Case("f8E5M2", Float8E5M2Type::get(ctx))
           .Case("f8E4M3FN", Float8E4M3FNType::get(ctx))
           .Case("f8E5M2FNUZ", Float8E5M2FNUZType::get(ctx))
@@ -1612,7 +1630,8 @@ static std::tuple<short, short> getRandomTestData(int idx, bool isRandFloat) {
   return std::make_tuple(min, max);
 }
 
-llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType, int idx) {
+static llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType,
+                                                        int idx) {
   llvm::SmallVector<float, 3> pattern;
   if (randomSeed == "none") {
     float fixedVal = 1.0f;
@@ -1621,13 +1640,17 @@ llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType, int idx) {
       isRandFloat = false;
     }
     if (isRandFloat)
-      // Clamp the fixed rondam float by 0.1 to avoid infs in some f16 tests
+      // Clamp the fixed random float by 0.1 to avoid infs in some f16 tests
       fixedVal *= 0.1f;
     pattern = {static_cast<float>(fixedVal)};
   } else if (randomSeed == "fixed") {
     if (elemType.isIntOrIndex())
       pattern = {1.0, -1.0, 2.0};
-    else
+    else if (isa<Float4E2M1FNType>(elemType)) {
+      pattern = {1, -4, 0.5, 1.5};
+    } else if (isa<Float8E8M0FNUType>(elemType)) {
+      pattern = {1, 2, 4, 8, 0.5, 0.25, 0.125};
+    } else
       pattern = {0.5, -1, 0.75};
   } else {
     llvm_unreachable("We shouldn't be here for random values");
@@ -2324,6 +2347,7 @@ createCPUConvFunc(ModuleOp module,
 static void getGemmTypes(ArrayRef<Type> elemTypes,
                          SmallVectorImpl<Type> &result, bool isCpuVerifier) {
   Type cElemType = elemTypes[2];
+  OpBuilder b(elemTypes[0].getContext());
   // Verify in int64_t to detect overflow
   if (elemTypes[0].isInteger(8) && isCpuVerifier)
     cElemType = IntegerType::get(cElemType.getContext(), 64);
@@ -2333,14 +2357,110 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
                        bDims = {groupSize, transposeB ? gemmN : gemmK,
                                 transposeB ? gemmK : gemmN},
                        cDims = {groupSize, transposeC ? gemmN : gemmM,
-                                transposeC ? gemmM : gemmN};
-
+                                transposeC ? gemmM : gemmN},
+                       aScale = {groupSize,
+                                 transposeScaleA ? gemmK / blockSize : gemmM,
+                                 transposeScaleA ? gemmM : gemmK / blockSize},
+                       bScale = {groupSize,
+                                 transposeScaleB ? gemmN : gemmK / blockSize,
+                                 transposeScaleB ? gemmK / blockSize : gemmN};
   MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
              bType = MemRefType::get(bDims, elemTypes[1]),
-             cType = MemRefType::get(cDims, cElemType);
+             cType = MemRefType::get(cDims, cElemType),
+             aScaleType = MemRefType::get(aScale, b.getF8E8M0Type()),
+             bScaleType = MemRefType::get(bScale, b.getF8E8M0Type());
   result.push_back(aType);
   result.push_back(bType);
   result.push_back(cType);
+  if (scaledGemm) {
+    result.push_back(aScaleType);
+    result.push_back(bScaleType);
+  }
+}
+
+static Value buildBroadcastedScales(OpBuilder b, Location loc, Value scale,
+                                    bool transpose, bool isA) {
+  // Initial logical dim order for A or B scale
+  SmallVector<StringRef, 3> initDims;
+  if (transpose) {
+    if (isA)
+      initDims = {"g", "kScale", "m"};
+    else
+      initDims = {"g", "n", "kScale"};
+  } else {
+    if (isA)
+      initDims = {"g", "m", "kScale"};
+    else
+      initDims = {"g", "kScale", "n"};
+  }
+  rock::BottomUpTMBuilder addDimB(
+      b, initDims, cast<ShapedType>(scale.getType()).getShape(), loc);
+
+  // Position where the added "block" dim will go
+  uint32_t blockDim = isA ? (transpose ? 2 : 3) : (transpose ? 3 : 2);
+
+  if (transpose) {
+    if (isA)
+      addDimB.passThrough({"g", "kScale", "m"}, {0, 1, 3},
+                          {"g", "kScale", "m"});
+    else
+      addDimB.passThrough({"g", "n", "kScale"});
+    addDimB.addDim("block", blockDim, 1);
+  } else {
+    addDimB.addDim("block", blockDim, 1);
+    if (isA)
+      addDimB.passThrough({"g", "m", "kScale"});
+    else
+      addDimB.passThrough({"g", "kScale", "n"}, {0, 1, 3},
+                          {"g", "kScale", "n"});
+  }
+  auto addDimAttr = addDimB.get();
+  scale = rock::TransformOp::create(b, loc, scale, addDimAttr);
+
+  // Broadcast the newly added block dim to blockSize.
+  rock::BottomUpTMBuilder broadcastB =
+      rock::BottomUpTMBuilder::above(addDimB, addDimAttr);
+  broadcastB.broadcast({blockDim}, {blockSize});
+  if (transpose) {
+    if (isA)
+      broadcastB.passThrough({"g", "kScale", "m"});
+    else
+      broadcastB.passThrough({"g", "n", "kScale"});
+  } else {
+    if (isA)
+      broadcastB.passThrough({"g", "m", "kScale"});
+    else
+      broadcastB.passThrough({"g", "kScale", "n"});
+  }
+  auto broadcastAttr = broadcastB.get();
+  scale = rock::TransformOp::create(b, loc, scale, broadcastAttr);
+
+  // Merge kScale + block into k; pass through the remaining dims.
+  rock::BottomUpTMBuilder mergeB =
+      rock::BottomUpTMBuilder::above(broadcastB, broadcastAttr);
+  if (isA) {
+    if (transpose) {
+      // dims: g, kScale, m, block
+      mergeB.passThrough({"g", "m"}, {0, 2}, {"g", "m"});
+      mergeB.merge("k", 1, {"kScale", "block"});
+    } else {
+      // dims: g, m, kScale, block
+      mergeB.merge("k", 2, {"kScale", "block"});
+      mergeB.passThrough({"g", "m"});
+    }
+  } else { // B scale
+    if (transpose) {
+      // dims: g, n, kScale, block
+      mergeB.passThrough({"g", "n"}, {0, 1}, {"g", "n"});
+      mergeB.merge("k", 2, {"kScale", "block"});
+    } else {
+      // dims: g, kScale, block, n
+      mergeB.passThrough({"g", "n"}, {0, 2}, {"g", "n"});
+      mergeB.merge("k", 1, {"kScale", "block"});
+    }
+  }
+  auto finalAttr = mergeB.get();
+  return rock::TransformOp::create(b, loc, scale, finalAttr);
 }
 
 static func::FuncOp createGpuGemmKernel(ModuleOp module,
@@ -2386,6 +2506,14 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       gName, transposeB ? nName : kName, transposeB ? kName : nName});
   allArgNames.emplace_back(SmallVector<StringRef>{
       gName, transposeC ? nName : mName, transposeC ? mName : nName});
+  if (scaledGemm) {
+    allArgNames.emplace_back(
+        SmallVector<StringRef>{gName, transposeScaleA ? kName : mName,
+                               transposeScaleA ? mName : kName});
+    allArgNames.emplace_back(
+        SmallVector<StringRef>{gName, transposeScaleB ? nName : kName,
+                               transposeScaleB ? kName : nName});
+  }
 
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
@@ -2394,11 +2522,17 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                                     expandedArgs);
 
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
+  Value aScale = nullptr, bScale = nullptr;
+  if (scaledGemm) {
 
+    aScale = buildBroadcastedScales(b, loc, expandedArgs[3], transposeScaleA,
+                                    /*isA=*/true);
+    bScale = buildBroadcastedScales(b, loc, expandedArgs[4], transposeScaleB,
+                                    /*isA=*/false);
+  }
   auto gemm = rock::GemmOp::create(
-      b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, /*scaleA=*/nullptr,
-      /*scaleB=*/nullptr, transposeA, transposeB, transposeC,
-      /*aScaleTransposed=*/false, /*bScaleTransposed=*/false,
+      b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, aScale, bScale,
+      transposeA, transposeB, transposeC, transposeScaleA, transposeScaleB,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
 
@@ -3050,8 +3184,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
-  auto attention = rock::AttentionOp::create(builder,
-      loc, TypeRange{}, queries, keys, values, elemwiseInputs,
+  auto attention = rock::AttentionOp::create(
+      builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, numHeadsQ, numHeadsKV, transposeQ,
       transposeK, transposeV, transposeO, causalMasking, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
@@ -3352,6 +3486,14 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   bVal = ensureFloatIsF32(b, loc, bVal, floatType);
   cVal = ensureFloatIsF32(b, loc, cVal, floatType);
 
+  Value aScaleVal = nullptr, bScaleVal = nullptr;
+  if (params.isScaledOp) {
+    aScaleVal = block->getArgument(3);
+    bScaleVal = block->getArgument(4);
+    aScaleVal = ensureFloatIsF32(b, loc, aScaleVal, floatType);
+    bScaleVal = ensureFloatIsF32(b, loc, bScaleVal, floatType);
+  }
+
   auto cType = cast<MemRefType>(cVal.getType());
   Value zeroOut = rock::createZeroConstantOp(b, loc, cType.getElementType());
 
@@ -3379,28 +3521,82 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   Value aExpVal = expandArg(aVal, argTypes[0]),
         bExpVal = expandArg(bVal, argTypes[1]),
         cExpVal = expandArg(cVal, argTypes[2]);
-  linalg::GenericOp::create(
-      b, loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
-      ArrayRef<AffineMap>{aMap, bMap, cMap},
-      ArrayRef<utils::IteratorType>{
-          utils::IteratorType::parallel, utils::IteratorType::parallel,
-          utils::IteratorType::parallel, utils::IteratorType::reduction},
-      /*doc=*/"", /*library_call=*/"",
-      [](OpBuilder &builder, Location loc, ValueRange elems) {
-        Value a = elems[0], b = elems[1], c = elems[2];
-        Type cType = c.getType();
-        if (isa<IntegerType>(cType)) {
-          Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
-          Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
-          Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
-          Value add = arith::AddIOp::create(builder, loc, mul, c);
-          linalg::YieldOp::create(builder, loc, add);
-        } else {
-          Value mul = arith::MulFOp::create(builder, loc, a, b);
-          Value add = arith::AddFOp::create(builder, loc, mul, c);
-          linalg::YieldOp::create(builder, loc, add);
-        }
-      });
+  Value aExpValScaled = nullptr, bExpValScaled = nullptr;
+  if (params.isScaledOp) {
+    // Generate affine map: (d0, d1, d2, d3) -> (d0, d1, (d2 floordiv
+    // blockSize), d3)
+    auto scaleAffineMap = [&](bool transposeFlag, AffineExpr d) -> AffineMap {
+      // Create constant for blockSize
+      auto cBlockSize = getAffineConstantExpr(blockSize, b.getContext());
+      // Create the expression: (d2 floordiv blockSize) * blockSize
+      auto kFloorDiv32 = k.floorDiv(cBlockSize);
+      // Create the result expressions: (d0, d1, (d2 floordiv blockSize) *
+      // blockSize, d3)
+      SmallVector<AffineExpr> resultExprs = {g, transposeFlag ? kFloorDiv32 : d,
+                                             transposeFlag ? d : kFloorDiv32};
+      return AffineMap::get(4, 0, resultExprs, b.getContext());
+    };
+    AffineMap aMapScaled = scaleAffineMap(transposeScaleA, m);
+    AffineMap bMapScaled = scaleAffineMap(not transposeScaleB, n);
+
+    aExpValScaled = expandArg(aScaleVal, argTypes[3]);
+    bExpValScaled = expandArg(bScaleVal, argTypes[4]);
+    linalg::GenericOp::create(
+        b, loc, ValueRange{aExpVal, bExpVal, aExpValScaled, bExpValScaled},
+        ValueRange{cExpVal},
+        ArrayRef<AffineMap>{aMap, bMap, aMapScaled, bMapScaled, cMap},
+        ArrayRef<utils::IteratorType>{
+            utils::IteratorType::parallel, utils::IteratorType::parallel,
+            utils::IteratorType::parallel, utils::IteratorType::reduction},
+        /*doc=*/"", /*library_call=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value a = elems[0], b = elems[1], aScale = elems[2],
+                bScale = elems[3];
+          Value c = elems[4];
+          Type cType = c.getType();
+          if (isa<IntegerType>(cType)) {
+            Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
+            Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
+            Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
+            Value add = arith::AddIOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          } else {
+            a = builder.create<arith::MulFOp>(loc, a, aScale);
+            b = builder.create<arith::MulFOp>(loc, b, bScale);
+            Value mul = arith::MulFOp::create(builder, loc, a, b);
+            Value add = arith::AddFOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          }
+        });
+    if (!isa<BlockArgument>(aScaleVal))
+      memref::DeallocOp::create(b, loc, aScaleVal);
+    if (!isa<BlockArgument>(bScaleVal))
+      memref::DeallocOp::create(b, loc, bScaleVal);
+  } else {
+    linalg::GenericOp::create(
+        b, loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
+        ArrayRef<AffineMap>{aMap, bMap, cMap},
+        ArrayRef<utils::IteratorType>{
+            utils::IteratorType::parallel, utils::IteratorType::parallel,
+            utils::IteratorType::parallel, utils::IteratorType::reduction},
+        /*doc=*/"", /*library_call=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value a = elems[0], b = elems[1];
+          Value c = elems[2];
+          Type cType = c.getType();
+          if (isa<IntegerType>(cType)) {
+            Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
+            Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
+            Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
+            Value add = arith::AddIOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          } else {
+            Value mul = arith::MulFOp::create(builder, loc, a, b);
+            Value add = arith::AddFOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          }
+        });
+  }
 
   if (!isa<BlockArgument>(aVal))
     memref::DeallocOp::create(b, loc, aVal);
@@ -4212,9 +4408,8 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
                                   {mr1DUnkTestType, mr1DUnkValType, floatType,
                                    floatType, floatType, charType, boolType});
     func::CallOp::create(b, loc, verifyFuncDecl,
-                           ValueRange{testResult, valResult, thr_RMS,
-                                      thr_absDiff, thr_relDiff, printDebugVal,
-                                      isFP32Val});
+                         ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
+                                    thr_relDiff, printDebugVal, isFP32Val});
   } else {
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, charType});
@@ -4729,8 +4924,9 @@ static LogicalResult populateHostHarnessLogic(
       bool printp = printInputs.getValue();
       if (lvar == localVars[outIdx])
         printp = printResults.getValue();
-      if (printp)
+      if (printp) {
         emitPrintTensor(b, lvar);
+      }
     }
   }
 
@@ -4940,7 +5136,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     } else
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
                                    wmmaFeature == FeatureToggle::on);
-
+    genParams.isScaledOp = scaledGemm;
     genParams.operation = operation;
     genParams.features = enabledFeatures;
     genParams.arch = arch;
