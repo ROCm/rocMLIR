@@ -71,6 +71,18 @@ using namespace mlir::rock;
 //===----------------------------------------------------------------------===//
 // Utility Functions
 //===----------------------------------------------------------------------===//
+
+static Type getElementTypeOrSelfRecursive(Type type) {
+  while (auto shapedType = dyn_cast<ShapedType>(type)) {
+    type = dyn_cast<ShapedType>(type).getElementType();
+  }
+  return type;
+}
+
+static Type getElementTypeOrSelfRecursive(Value val) {
+  return getElementTypeOrSelfRecursive(val.getType());
+}
+
 template <typename OpType>
 static void
 getGemmEffects(OpType &op,
@@ -2089,10 +2101,10 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   if (loadBFromLDS && !hasB)
     return emitOpError("If loadBFromLDS is enabled, matrixB must be non-null.");
 
-  if (hasA && getElementTypeOrSelf(getMatrixA()) != getElementTypeA())
+  if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) != getElementTypeA())
     return emitOpError("ElementTypeA and matrixA element type don't match");
 
-  if (hasB && getElementTypeOrSelf(getMatrixB()) != getElementTypeB())
+  if (hasB && getElementTypeOrSelfRecursive(getMatrixB()) != getElementTypeB())
     return emitOpError("ElementTypeA and matrixA element type don't match");
 
   return success();
