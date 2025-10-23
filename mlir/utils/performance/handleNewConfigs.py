@@ -13,6 +13,7 @@ import os
 import sys
 from typing import Iterable, Optional
 from perfRunner import getArch, getChip, getNumCU
+from perfCommonUtils import Operation
 
 # Global variables
 
@@ -60,24 +61,19 @@ def loadExistingConfigs(filepath):
     
     return configs
 
-def detectConfigType(config) -> Optional[str]:
-    """Detect config type: returns 'conv', 'gemm', or 'attention'."""
+def detectConfigType(config) -> Optional[Operation]:
+    """Detect config type: returns an Operation enum value or None."""
     # GEMM+GEMM and CONV+GEMM configs have -gemmO
     if "-gemmO" in config:
         if config.startswith("conv"):
-            return "conv_gemm"
-        else:
-            return "gemm_gemm"
-    # Conv configs start with conv, convfp16, convbfp16, convfp8, convint8, etc.
+            return Operation.CONV_GEMM
+        return Operation.GEMM_GEMM
     if config.startswith("conv"):
-        return "conv"
-    # Attention configs have -transQ, -transK, -transV, -transO, -seq_len_q, etc.
+        return Operation.CONV
     if any(flag in config for flag in ["-transQ", "-seq_len_q", "-head_dim_qk"]):
-        return "attention"
-    # GEMM configs have -transA, -transB, -m, -n, -k, etc.
+        return Operation.ATTENTION
     if any(flag in config for flag in ["-transA", "-transB", "-m", "-n", "-k"]):
-        return "gemm"
-
+        return Operation.GEMM
     return None
 
 
@@ -100,9 +96,9 @@ def parseArgs(argv=None):
                         help="Path to the file containing existing convolution configurations")
     parser.add_argument("--gemm", type=str, default=None,
                         help="Path to the file containing existing GEMM configurations")
-    parser.add_argument("--gemmgemm", type=str, default=None,
+    parser.add_argument("--gemm_gemm", type=str, default=None,
                         help="Path to the file containing existing GEMM_GEMM configurations")
-    parser.add_argument("--convgemm", type=str, default=None,
+    parser.add_argument("--conv_gemm", type=str, default=None,
                         help="Path to the file containing existing CONV_GEMM configurations")
     parser.add_argument("--attn", type=str, default=None,
                         help="Path to the file containing existing attention configurations")
@@ -128,19 +124,19 @@ def resolvePaths(args):
     else:
         gemmPath = GEMM_CONFIGS_DEFAULT
     
-    if args.gemmgemm:
-        gemmgemmPath = args.gemmgemm
+    if args.gemm_gemm:
+        gemm_gemmPath = args.gemm_gemm
     elif args.configs_dir:
-        gemmgemmPath = os.path.join(args.configs_dir, f"{GEMM_GEMM_FILE_NAME}")
+        gemm_gemmPath = os.path.join(args.configs_dir, f"{GEMM_GEMM_FILE_NAME}")
     else:
-        gemmgemmPath = GEMM_GEMM_CONFIGS_DEFAULT
+        gemm_gemmPath = GEMM_GEMM_CONFIGS_DEFAULT
 
-    if args.convgemm:
-        convgemmPath = args.convgemm
+    if args.conv_gemm:
+        conv_gemmPath = args.conv_gemm
     elif args.configs_dir:
-        convgemmPath = os.path.join(args.configs_dir, f"{CONV_GEMM_FILE_NAME}")
+        conv_gemmPath = os.path.join(args.configs_dir, f"{CONV_GEMM_FILE_NAME}")
     else:
-        convgemmPath = CONV_GEMM_CONFIGS_DEFAULT
+        conv_gemmPath = CONV_GEMM_CONFIGS_DEFAULT
     
     if args.attn:
         attnPath = args.attn
@@ -149,17 +145,17 @@ def resolvePaths(args):
     else:
         attnPath = ATTENTION_CONFIGS_DEFAULT
     
-    return newPath, convPath, gemmPath, gemmgemmPath, convgemmPath, attnPath
+    return newPath, convPath, gemmPath, gemm_gemmPath, conv_gemmPath, attnPath
 
 def main(argv=None):
     args = parseArgs(argv)
-    newConfigs, convConfigs, gemmConfigs, gemmgemmConfigs, convgemmConfigs, attentionConfigs = resolvePaths(args)
+    newConfigs, convConfigs, gemmConfigs, gemm_gemmConfigs, conv_gemmConfigs, attentionConfigs = resolvePaths(args)
 
     # Load existing configs
     existingConv = loadExistingConfigs(convConfigs)
     existingGemm = loadExistingConfigs(gemmConfigs)
-    existingGemmGemm = loadExistingConfigs(gemmgemmConfigs)
-    existingConvGemm = loadExistingConfigs(convgemmConfigs)
+    existingGemmGemm = loadExistingConfigs(gemm_gemmConfigs)
+    existingConvGemm = loadExistingConfigs(conv_gemmConfigs)
     existingAttention = loadExistingConfigs(attentionConfigs)
 
     newConv: list[str] = []
@@ -173,24 +169,24 @@ def main(argv=None):
             config = line.strip()
             if not config or config.startswith("#"):
                 continue
-            configType = detectConfigType(config)
-            if configType == "conv":
+            op = detectConfigType(config)
+            if op == Operation.CONV:
                 if config not in existingConv:
                     newConv.append(config)
                     existingConv.add(config)
-            elif configType == "gemm":
+            elif op == Operation.GEMM:
                 if config not in existingGemm:
                     newGemm.append(config)
                     existingGemm.add(config)
-            elif configType == "attention":
+            elif op == Operation.ATTENTION:
                 if config not in existingAttention:
                     newAttention.append(config)
                     existingAttention.add(config)
-            elif configType == "gemm_gemm":
+            elif op == Operation.GEMM_GEMM:
                 if config not in existingGemmGemm:
                     newGemmGemm.append(config)
                     existingGemmGemm.add(config)
-            elif configType == "conv_gemm":
+            elif op == Operation.CONV_GEMM:
                 if config not in existingConvGemm:
                     newConvGemm.append(config)
                     existingConvGemm.add(config)
@@ -200,8 +196,8 @@ def main(argv=None):
     # Append new configs to the appropriate files
     _appendConfigs(convConfigs, newConv)
     _appendConfigs(gemmConfigs, newGemm)
-    _appendConfigs(gemmgemmConfigs, newGemmGemm)
-    _appendConfigs(convgemmConfigs, newConvGemm)
+    _appendConfigs(gemm_gemmConfigs, newGemmGemm)
+    _appendConfigs(conv_gemmConfigs, newConvGemm)
     _appendConfigs(attentionConfigs, newAttention)
 
     print(f"Added:")
