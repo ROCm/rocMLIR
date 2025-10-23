@@ -353,7 +353,7 @@ struct BlockwiseGemmRewritePattern
         ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsA, b.getArrayAttr(threadACopyViewAttr)},
         ArrayRef<int64_t>{kPerThread, mRepeat, 1, mPerThread, kPack},
-        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
+        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyAGuard(b);
       b.setInsertionPointToStart(copyALoop.getBody());
@@ -371,7 +371,7 @@ struct BlockwiseGemmRewritePattern
         ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsB, b.getArrayAttr(threadBCopyViewAttr)},
         ArrayRef<int64_t>{kPerThread, nRepeat, 1, nPerThread, kPack},
-        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
+        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyBGuard(b);
       b.setInsertionPointToStart(copyBLoop.getBody());
@@ -920,7 +920,7 @@ struct BlockwiseReduceRewritePattern
                             rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{numElements},
         /*strides=*/ArrayRef<int64_t>{1},
-        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
@@ -963,7 +963,7 @@ struct BlockwiseReduceRewritePattern
                             rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{threadSubTile2DShape[nrDim], 1},
         /*strides=*/ArrayRef<int64_t>{1, 1},
-        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
@@ -978,7 +978,7 @@ struct BlockwiseReduceRewritePattern
           ArrayRef<Attribute>{inputBlockSubTile2dView},
           /*bounds=*/ArrayRef<int64_t>{1, 1},
           /*strides=*/ArrayRef<int64_t>{1, 1},
-          /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+          /*forceUnroll=*/true, /*useIndexDiffs=*/true);
       {
         OpBuilder::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(convertToBlockSubTile.getBody());
@@ -995,7 +995,7 @@ struct BlockwiseReduceRewritePattern
             ArrayRef<Attribute>{tidSubTileSliceView},
             /*bounds=*/ArrayRef<int64_t>{1},
             /*strides=*/ArrayRef<int64_t>{1},
-            /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+            /*forceUnroll=*/true, /*useIndexDiffs=*/true);
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(
@@ -1008,7 +1008,7 @@ struct BlockwiseReduceRewritePattern
               ArrayRef<Attribute>{toFlatLDSView},
               /*bounds=*/ArrayRef<int64_t>{1, 1},
               /*strides=*/ArrayRef<int64_t>{1, 1},
-              /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+              /*forceUnroll=*/true, /*useIndexDiffs=*/true);
           {
             OpBuilder::InsertionGuard guard(rewriter);
             rewriter.setInsertionPointToStart(ldsStoreloop.getBody());
