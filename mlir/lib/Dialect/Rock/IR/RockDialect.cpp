@@ -2089,6 +2089,12 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   if (loadBFromLDS && !hasB)
     return emitOpError("If loadBFromLDS is enabled, matrixB must be non-null.");
 
+  if (hasA && getElementTypeOrSelf(getMatrixA()) != getElementTypeA())
+    return emitOpError("ElementTypeA and matrixA element type don't match");
+
+  if (hasB && getElementTypeOrSelf(getMatrixB()) != getElementTypeB())
+    return emitOpError("ElementTypeA and matrixA element type don't match");
+
   return success();
 }
 

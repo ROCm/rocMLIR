@@ -414,15 +414,8 @@ struct BlockwiseGemmAccelRewritePattern
     bool loadAFromLDS = adaptor.getLoadAfromLDS();
     bool loadBFromLDS = adaptor.getLoadBfromLDS();
 
-    Type bufferElemTypeA =
-        cast<MemRefType>(adaptor.getMatrixA().getType()).getElementType();
-    Type bufferElemTypeB =
-        cast<MemRefType>(adaptor.getMatrixB().getType()).getElementType();
-    Type dataTypeA = bufferElemTypeA, dataTypeB = bufferElemTypeB;
-    if (auto bufferVecTypeA = dyn_cast<VectorType>(bufferElemTypeA))
-      dataTypeA = bufferVecTypeA.getElementType();
-    if (auto bufferVecTypeB = dyn_cast<VectorType>(bufferElemTypeB))
-      dataTypeB = bufferVecTypeB.getElementType();
+    Type dataTypeA = adaptor.getElementTypeA();
+    Type dataTypeB = adaptor.getElementTypeB();
 
     auto features = rock::getFeatures(op);
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(

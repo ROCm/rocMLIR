@@ -73,7 +73,7 @@ void AccelEmitter::computeOutputConversion(PatternRewriter &b, Location loc,
       b, loc, ArrayRef<ValueRange>{{zeroConstantOp}, {zeroConstantOp}},
       ArrayRef<Attribute>{b.getArrayAttr({}), b.getArrayAttr(toRegCScalarAttr)},
       /*bounds=*/ArrayRef<int64_t>{mRepeats * nRepeats * nResultVectors},
-      /*strides=*/std::nullopt, forceUnroll, /*useIndexDiffs=*/true);
+      /*strides=*/ArrayRef<int64_t>{}, forceUnroll, /*useIndexDiffs=*/true);
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(convertLoop.getBody());
