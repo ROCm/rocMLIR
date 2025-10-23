@@ -159,7 +159,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
 
   auto processGpuKernelFunc = [&](gpu::GPUModuleOp &gpuMod,
                                   func::FuncOp &theFunc) -> LogicalResult {
-    // Make sure that the function has the neccesary attributes.
+    // Make sure that the function has the necessary attributes.
     auto blockSizeAttr = theFunc->getAttr("block_size");
     auto gridSizeAttr = theFunc->getAttr("grid_size");
     if (!blockSizeAttr) {
