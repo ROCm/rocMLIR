@@ -1465,7 +1465,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
         b.createOrFold<arith::ConstantIndexOp>(loc, kernelRepeats);
     Value step = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
     scf::ForOp::create(b, loc, zeroOp, kernelRepeatsOp, step,
-                       /*args=*/std::nullopt, emitWrappedCall);
+                       /*initArgs=*/{}, emitWrappedCall);
   } else {
     emitWrappedCall(b, loc, nullptr, {});
   }
