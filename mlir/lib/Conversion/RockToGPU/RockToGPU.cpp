@@ -159,6 +159,16 @@ void LowerRockOpsToGPUPass::runOnOperation() {
 
   auto processGpuKernelFunc = [&](gpu::GPUModuleOp &gpuMod,
                                   func::FuncOp &theFunc) -> LogicalResult {
+    // Make sure that the function has the neccesary attributes.
+    if (!theFunc->hasAttr("block_size")) {
+      return theFunc->emitError()
+             << "kernel func op is missing the block_size attribute";
+    }
+    if (!theFunc->hasAttr("grid_size")) {
+      return theFunc->emitError()
+             << "kernel func op is missing the grid_size attribute";
+    }
+
     // Set up the symbol table for the GPU ModuleOp.
     SymbolTable gpuModuleSymbolTable(gpuMod);
     // Reset builder insertion point to the beginning of the GPU module,
@@ -201,6 +211,17 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     int32_t indexWidth = 32;
     if (theFunc->hasAttr("rock.64bitindex"))
       indexWidth = 64;
+
+    // Check that launch parameters are valid.
+    // We do not want to overcomplicate this pass, so for simplicity we do not
+    // check for hardware specific limit here. Instead, we just check that both
+    // blockSize and gridSize are greater than zero.
+    if (blockSize <= 0) {
+      return theFunc->emitError() << "kernel func op has an invalid block size";
+    }
+    if (gridSize <= 0) {
+      return theFunc->emitError() << "kernel func op has an invalid grid size";
+    }
 
     // move prefill attributes from func::FuncOp to gpu::GPUModuleOp
     llvm::SmallVector<Attribute, 4> prefillAttrs;
@@ -246,27 +267,28 @@ void LowerRockOpsToGPUPass::runOnOperation() {
 
     // Clone in global constants
     llvm::SmallDenseMap<SymbolRefAttr, FlatSymbolRefAttr> clonedConsts;
-    WalkResult result = funcBody.walk([&](memref::GetGlobalOp op)
-                                          -> WalkResult {
-      SymbolRefAttr globalSym = op.getNameAttr();
-      auto toClone = dyn_cast_or_null<memref::GlobalOp>(
-          SymbolTable::lookupNearestSymbolFrom(op, globalSym));
-      if (!toClone)
-        return WalkResult::interrupt();
-      if (toClone->getParentOfType<gpu::GPUModuleOp>() == gpuMod)
-        // Already cloned, continue
-        return WalkResult::advance();
-      auto maybeMapped = clonedConsts.find(globalSym);
-      if (maybeMapped == clonedConsts.end()) {
-        OpBuilder::InsertionGuard guard(b);
-        Operation *cloned = toClone.clone();
-        // There probably shouldn't be any renames, but let's be careful.
-        StringAttr newNameAttr = gpuModuleSymbolTable.insert(cloned);
-        clonedConsts.insert({globalSym, FlatSymbolRefAttr::get(newNameAttr)});
-      }
-      op.setNameAttr(clonedConsts.find(globalSym)->second);
-      return WalkResult::advance();
-    });
+    WalkResult result =
+        funcBody.walk([&](memref::GetGlobalOp op) -> WalkResult {
+          SymbolRefAttr globalSym = op.getNameAttr();
+          auto toClone = dyn_cast_or_null<memref::GlobalOp>(
+              SymbolTable::lookupNearestSymbolFrom(op, globalSym));
+          if (!toClone)
+            return WalkResult::interrupt();
+          if (toClone->getParentOfType<gpu::GPUModuleOp>() == gpuMod)
+            // Already cloned, continue
+            return WalkResult::advance();
+          auto maybeMapped = clonedConsts.find(globalSym);
+          if (maybeMapped == clonedConsts.end()) {
+            OpBuilder::InsertionGuard guard(b);
+            Operation *cloned = toClone.clone();
+            // There probably shouldn't be any renames, but let's be careful.
+            StringAttr newNameAttr = gpuModuleSymbolTable.insert(cloned);
+            clonedConsts.insert(
+                {globalSym, FlatSymbolRefAttr::get(newNameAttr)});
+          }
+          op.setNameAttr(clonedConsts.find(globalSym)->second);
+          return WalkResult::advance();
+        });
     if (result.wasInterrupted())
       return theFunc.emitOpError("failed to clone referenced global constants");
     // copy original_func attribute
