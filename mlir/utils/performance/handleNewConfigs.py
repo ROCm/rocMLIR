@@ -149,13 +149,13 @@ def resolvePaths(args):
 
 def main(argv=None):
     args = parseArgs(argv)
-    newConfigs, convConfigs, gemmConfigs, gemm_gemmConfigs, conv_gemmConfigs, attentionConfigs = resolvePaths(args)
+    newConfigs, convConfigs, gemmConfigs, gemmgemmConfigs, convgemmConfigs, attentionConfigs = resolvePaths(args)
 
     # Load existing configs
     existingConv = loadExistingConfigs(convConfigs)
     existingGemm = loadExistingConfigs(gemmConfigs)
-    existingGemmGemm = loadExistingConfigs(gemm_gemmConfigs)
-    existingConvGemm = loadExistingConfigs(conv_gemmConfigs)
+    existingGemmGemm = loadExistingConfigs(gemmgemmConfigs)
+    existingConvGemm = loadExistingConfigs(convgemmConfigs)
     existingAttention = loadExistingConfigs(attentionConfigs)
 
     newConv: list[str] = []
@@ -196,8 +196,8 @@ def main(argv=None):
     # Append new configs to the appropriate files
     _appendConfigs(convConfigs, newConv)
     _appendConfigs(gemmConfigs, newGemm)
-    _appendConfigs(gemm_gemmConfigs, newGemmGemm)
-    _appendConfigs(conv_gemmConfigs, newConvGemm)
+    _appendConfigs(gemmgemmConfigs, newGemmGemm)
+    _appendConfigs(convgemmConfigs, newConvGemm)
     _appendConfigs(attentionConfigs, newAttention)
 
     print(f"Added:")
