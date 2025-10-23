@@ -73,8 +73,8 @@ using namespace mlir::rock;
 //===----------------------------------------------------------------------===//
 
 static Type getElementTypeOrSelfRecursive(Type type) {
-  while (auto shapedType = dyn_cast<ShapedType>(type)) {
-    type = dyn_cast<ShapedType>(type).getElementType();
+  while (auto type = dyn_cast<ShapedType>(type)) {
+    type = type.getElementType();
   }
   return type;
 }
