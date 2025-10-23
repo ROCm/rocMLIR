@@ -17,6 +17,8 @@ func.func @rock_blockwise_gemm_accel_wmma(%matrixA : memref<16xvector<8xf16>, #w
     inNPerThread = 2 : i32,
     loadAfromLDS,
     loadBfromLDS,
+    elementTypeA = f16,
+    elementTypeB = f16,
     params = #rock.wmma_gemm_params<
       kpackPerBlock = 4,
       kpack = 8,
@@ -47,6 +49,8 @@ func.func @rock_blockwise_gemm_accel_wmma_largekpack(%matrixA : memref<32xvector
     inNPerThread = 2 : i32,
     loadAfromLDS,
     loadBfromLDS,
+    elementTypeA = f16,
+    elementTypeB = f16,
     params = #rock.wmma_gemm_params<
       mPerBlock = 32,
       nPerBlock = 32,
@@ -77,6 +81,8 @@ func.func @rock_blockwise_gemm_accel_wmma_int8(%matrixA : memref<32xvector<16xi8
     inNPerThread = 2 : i32,
     loadAfromLDS,
     loadBfromLDS,
+    elementTypeA = i8,
+    elementTypeB = i8,
     params = #rock.wmma_gemm_params<
       mPerBlock = 64,
       nPerBlock = 64,
@@ -105,6 +111,8 @@ func.func @rock_blockwise_gemm_accel_wmma_double_buffer(%matrixA : memref<16xvec
     blockSize = 32 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    elementTypeA = f16,
+    elementTypeB = f16,
     params = #rock.wmma_gemm_params<
       kpackPerBlock = 4,
       kpack = 8,
