@@ -42,5 +42,3 @@ func.func @main() {
   call @block_size_missing() : () -> ()
   return
 }
-
-
