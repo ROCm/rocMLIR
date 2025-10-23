@@ -1465,7 +1465,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
         b.createOrFold<arith::ConstantIndexOp>(loc, kernelRepeats);
     Value step = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
     scf::ForOp::create(b, loc, zeroOp, kernelRepeatsOp, step,
-                       /*args=*/std::nullopt, emitWrappedCall);
+                       /*initArgs=*/{}, emitWrappedCall);
   } else {
     emitWrappedCall(b, loc, nullptr, {});
   }
@@ -2682,25 +2682,6 @@ static Value applyMask(OpBuilder builder, Location loc, Value inputTensor,
   auto result = rock::tosa::createOpAndInfer<tosa::SelectOp>(
       builder, loc, inpType.getElementType(), mask, initVal, inputTensor);
   return result;
-}
-
-static Value getOneTensor(OpBuilder &builder, Location loc,
-                          RankedTensorType type) {
-  auto value = cast<ElementsAttr>(builder.getOneAttr(type));
-  return tosa::ConstOp::create(builder, loc, type, value);
-}
-
-static tosa::MulOp getMulOp(OpBuilder &builder, Location loc, Value input1,
-                            Value input2, Type elemType) {
-  auto shiftType = RankedTensorType::get({1}, builder.getIntegerType(8));
-  elemType = getElementTypeOrSelf(elemType);
-  auto shiftZeroAttr = DenseElementsAttr::get(
-      shiftType, builder.getZeroAttr(builder.getIntegerType(8)));
-  Value constZero =
-      tosa::ConstOp::create(builder, loc, shiftType, shiftZeroAttr);
-  auto mulOp = rock::tosa::createOpAndInfer<tosa::MulOp>(
-      builder, loc, elemType, input1, input2, /*shift=*/constZero);
-  return mulOp;
 }
 
 static Value createRange(OpBuilder builder, Location loc, size_t index,

@@ -851,25 +851,25 @@ def Rock_TransformingForOp :
     "ArrayRef<Attribute>":$transforms,
     "ArrayRef<int64_t>":$bounds, "std::optional<ArrayRef<int64_t>>":$strides,
     "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "std::nullopt">:$iterArgs)>,
+    CArg<"ValueRange", "{}">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayRef<Attribute>":$transforms,
     "ArrayAttr":$bounds, "ArrayAttr":$strides,
     "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "std::nullopt">:$iterArgs)>,
+    CArg<"ValueRange", "{}">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayAttr":$transforms,
     "ArrayRef<int64_t>":$bounds, "std::optional<ArrayRef<int64_t>>":$strides,
     "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "std::nullopt">:$iterArgs)>,
+    CArg<"ValueRange", "{}">:$iterArgs)>,
 
     OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
     "ArrayAttr":$transforms,
     "ArrayAttr":$bounds, "ArrayAttr":$strides,
     "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "std::nullopt">:$iterArgs)>];
+    CArg<"ValueRange", "{}">:$iterArgs)>];
 
   let extraClassDeclaration = [{
     void moveOutOfLoop(ArrayRef<Operation *> ops);
