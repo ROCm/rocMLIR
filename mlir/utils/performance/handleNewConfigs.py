@@ -11,9 +11,8 @@ Usage:
 
 import os
 import sys
-import shlex
-from typing import Iterable, Set, Optional
-from perfRunner import ConvConfiguration, GemmConfiguration, AttentionConfiguration, getArch, getChip, getNumCU
+from typing import Iterable, Optional
+from perfRunner import getArch, getChip, getNumCU
 
 # Global variables
 
@@ -21,11 +20,15 @@ from perfRunner import ConvConfiguration, GemmConfiguration, AttentionConfigurat
 # If --configs-dir is specified, these paths will be appended to it
 CONV_FILE_NAME = "tier1-conv-configs"
 GEMM_FILE_NAME = "tier1-gemm-configs"
+GEMM_GEMM_FILE_NAME = "tier1-gemmgemm-configs"
+CONV_GEMM_FILE_NAME = "tier1-convgemm-configs"
 ATTENTION_FILE_NAME = "tier1-attention-configs"
 
 NEW_CONFIGS_DEFAULT = f"../../mlir/utils/performance/problem-config-tier-1-models"
 CONV_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{CONV_FILE_NAME}"
 GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_FILE_NAME}"
+GEMM_GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_GEMM_FILE_NAME}"
+CONV_GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{CONV_GEMM_FILE_NAME}"
 ATTENTION_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{ATTENTION_FILE_NAME}"
 
 # Get the architecture and number of CUs from the environment
@@ -59,8 +62,12 @@ def loadExistingConfigs(filepath):
 
 def detectConfigType(config) -> Optional[str]:
     """Detect config type: returns 'conv', 'gemm', or 'attention'."""
-    # TODO: Add support for conv+gemm kernels in the future
-
+    # GEMM+GEMM and CONV+GEMM configs have -gemmO
+    if "-gemmO" in config:
+        if config.startswith("conv"):
+            return "conv_gemm"
+        else:
+            return "gemm_gemm"
     # Conv configs start with conv, convfp16, convbfp16, convfp8, convint8, etc.
     if config.startswith("conv"):
         return "conv"
@@ -73,34 +80,7 @@ def detectConfigType(config) -> Optional[str]:
 
     return None
 
-def _canonicalizeConvConfig(config: str) -> str:
-    """Converts a conv config to canonical form for deduplication."""
-    obj = ConvConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
-    return obj.toCommandLine()
 
-def _canonicalizeGemmConfig(config: str) -> str:
-    """Converts a GEMM config to canonical form for deduplication."""
-    obj = GemmConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
-    return obj.toCommandLine()
-
-def _canonicalizeAttentionConfig(config: str) -> str:
-    """Converts an attention config to canonical form for deduplication."""
-    obj = AttentionConfiguration.fromCommandLine(shlex.split(config), ARCH, NUM_CU)
-    return obj.toCommandLine()
-
-def canonicalSet(lines: Iterable[str], kind: str) -> Set[str]:
-    """Converts a set of configs to canonical form for deduplication."""
-    S: Set[str] = set()
-    for line in lines:
-        if kind == "conv":
-            S.add(_canonicalizeConvConfig(line))
-        elif kind == "gemm":
-            S.add(_canonicalizeGemmConfig(line))
-        elif kind == "attention":
-            S.add(_canonicalizeAttentionConfig(line))
-        else:
-            raise ValueError(f"Unknown kind: {kind}")
-    return S
 
 def _appendConfigs(path: str, lines: Iterable[str]):
     if not lines:
@@ -120,6 +100,10 @@ def parseArgs(argv=None):
                         help="Path to the file containing existing convolution configurations")
     parser.add_argument("--gemm", type=str, default=None,
                         help="Path to the file containing existing GEMM configurations")
+    parser.add_argument("--gemmgemm", type=str, default=None,
+                        help="Path to the file containing existing GEMM_GEMM configurations")
+    parser.add_argument("--convgemm", type=str, default=None,
+                        help="Path to the file containing existing CONV_GEMM configurations")
     parser.add_argument("--attn", type=str, default=None,
                         help="Path to the file containing existing attention configurations")
     
@@ -144,6 +128,20 @@ def resolvePaths(args):
     else:
         gemmPath = GEMM_CONFIGS_DEFAULT
     
+    if args.gemmgemm:
+        gemmgemmPath = args.gemmgemm
+    elif args.configs_dir:
+        gemmgemmPath = os.path.join(args.configs_dir, f"{GEMM_GEMM_FILE_NAME}")
+    else:
+        gemmgemmPath = GEMM_GEMM_CONFIGS_DEFAULT
+
+    if args.convgemm:
+        convgemmPath = args.convgemm
+    elif args.configs_dir:
+        convgemmPath = os.path.join(args.configs_dir, f"{CONV_GEMM_FILE_NAME}")
+    else:
+        convgemmPath = CONV_GEMM_CONFIGS_DEFAULT
+    
     if args.attn:
         attnPath = args.attn
     elif args.configs_dir:
@@ -151,48 +149,67 @@ def resolvePaths(args):
     else:
         attnPath = ATTENTION_CONFIGS_DEFAULT
     
-    return newPath, convPath, gemmPath, attnPath
+    return newPath, convPath, gemmPath, gemmgemmPath, convgemmPath, attnPath
 
 def main(argv=None):
     args = parseArgs(argv)
-    newConfigs, convConfigs, gemmConfigs, attentionConfigs = resolvePaths(args)
+    newConfigs, convConfigs, gemmConfigs, gemmgemmConfigs, convgemmConfigs, attentionConfigs = resolvePaths(args)
 
     # Load existing configs
     existingConv = loadExistingConfigs(convConfigs)
     existingGemm = loadExistingConfigs(gemmConfigs)
+    existingGemmGemm = loadExistingConfigs(gemmgemmConfigs)
+    existingConvGemm = loadExistingConfigs(convgemmConfigs)
     existingAttention = loadExistingConfigs(attentionConfigs)
 
     newConv: list[str] = []
     newGemm: list[str] = []
+    newGemmGemm: list[str] = []
+    newConvGemm: list[str] = []
     newAttention: list[str] = []
-    newRaw = readNonEmptyLines(newConfigs)
-    for raw in newRaw:
-        configType = detectConfigType(raw)
-        if not configType:
-            print(f"Error: Could not determine config type for: {raw}")
-            continue
-        if configType == "conv":
-            canon = _canonicalizeConvConfig(raw)
-            if canon not in existingConv:
-                newConv.append(raw)
-                existingConv.add(canon)
-        elif configType == "gemm":
-            canon = _canonicalizeGemmConfig(raw)
-            if canon not in existingGemm:
-                newGemm.append(raw)
-                existingGemm.add(canon)
-        elif configType == "attention":
-            canon = _canonicalizeAttentionConfig(raw)
-            if canon not in existingAttention:
-                newAttention.append(raw)
-                existingAttention.add(canon)
+
+    with open(newConfigs, "r") as f:
+        for line in f:
+            config = line.strip()
+            if not config or config.startswith("#"):
+                continue
+            configType = detectConfigType(config)
+            if configType == "conv":
+                if config not in existingConv:
+                    newConv.append(config)
+                    existingConv.add(config)
+            elif configType == "gemm":
+                if config not in existingGemm:
+                    newGemm.append(config)
+                    existingGemm.add(config)
+            elif configType == "attention":
+                if config not in existingAttention:
+                    newAttention.append(config)
+                    existingAttention.add(config)
+            elif configType == "gemm_gemm":
+                if config not in existingGemmGemm:
+                    newGemmGemm.append(config)
+                    existingGemmGemm.add(config)
+            elif configType == "conv_gemm":
+                if config not in existingConvGemm:
+                    newConvGemm.append(config)
+                    existingConvGemm.add(config)
+            else:
+                print(f"Warning: Could not determine config type for: {config}")
 
     # Append new configs to the appropriate files
     _appendConfigs(convConfigs, newConv)
     _appendConfigs(gemmConfigs, newGemm)
+    _appendConfigs(gemmgemmConfigs, newGemmGemm)
+    _appendConfigs(convgemmConfigs, newConvGemm)
     _appendConfigs(attentionConfigs, newAttention)
 
-    print(f"Added {len(newConv)} conv, {len(newGemm)} gemm, {len(newAttention)} attention configs.")
+    print(f"Added:")
+    print(f"    {len(newConv)} conv configs.")
+    print(f"    {len(newGemm)} gemm configs.")
+    print(f"    {len(newAttention)} attention configs.")
+    print(f"    {len(newGemmGemm)} gemm+gemm configs.")
+    print(f"    {len(newConvGemm)} conv+gemm configs.")
 
     return 0
 
