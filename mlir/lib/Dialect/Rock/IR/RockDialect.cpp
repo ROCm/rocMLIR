@@ -198,6 +198,33 @@ getCommonEffects(OpType &op,
   effects.emplace_back(write, &op.getDestMutable());
 }
 
+template <typename OpType>
+static LogicalResult verifyScales(OpType op, Value matrix, Value scale,
+                                  StringRef matrixName) {
+  if (scale != nullptr) {
+    ShapedType matrixType = cast<ShapedType>(matrix.getType());
+    ShapedType scaleType = cast<ShapedType>(scale.getType());
+    Type matrixElemType = getElementTypeOrSelfRecursive(matrixType);
+    Type scaleElemType = getElementTypeOrSelfRecursive(scaleType);
+
+    if (!isa<Float8E8M0FNUType>(scaleElemType)) {
+      return op.emitError(
+          llvm::formatv("Scale{0} must be of type Float8E8M0FNU.", matrixName));
+    }
+    if (!isa<Float4E2M1FNType>(matrixElemType)) {
+      return op.emitError(
+          llvm::formatv("For the scaled GEMMs, matrix{0} must be of "
+                        "type Float4E2M1FNType.",
+                        matrixName));
+    }
+    if (matrixType.getShape() != scaleType.getShape()) {
+      return op.emitError(llvm::formatv(
+          "Scale{0} shape must match matrix{0} shape.", matrixName));
+    }
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // RockDialect Interfaces
 //===----------------------------------------------------------------------===//
@@ -1003,70 +1030,61 @@ LogicalResult GemmOp::verify() {
            << " k_a = " << kA << " k_b = " << kB;
   bool hasScaleA = getScaleA() != nullptr;
   bool hasScaleB = getScaleB() != nullptr;
-  if (hasScaleA != hasScaleB) {
+  if (hasScaleA ^ hasScaleB) {
     return emitOpError("both scaleA and scaleB must be provided or neither");
   }
-  if (getScaleA()) {
-    ShapedType typeScaleA = getScaleA().getType();
-    ArrayRef<int64_t> scaleADims = typeScaleA.getShape();
-    if (failed(rankCheck(scaleADims, "scaleA"))) {
+  // Unified verification for scaleA / scaleB.
+  auto verifyScale = [&](Value scale, bool isA) -> LogicalResult {
+    if (!scale)
+      return success();
+    ShapedType ty = cast<ShapedType>(scale.getType());
+    ArrayRef<int64_t> dims = ty.getShape();
+    StringRef scaleName = isA ? "scaleA" : "scaleB";
+    if (failed(rankCheck(dims, scaleName)))
       return failure();
-    }
-    if (!isa<Float8E8M0FNUType>(typeScaleA.getElementType())) {
-      return emitOpError("scaleA must be of type Float8E8M0FNUType");
-    }
-    bool aScaleTransposed = getAScaleTransposed();
-    int64_t offsetScaleA = scaleADims.size() == 2 ? 0 : 1;
-    int64_t scaleAG = offsetScaleA ? scaleADims[0] : 1;
-    int64_t scaleAM = scaleADims[offsetScaleA + (aScaleTransposed ? 1 : 0)];
-    int64_t scaleAK = scaleADims[offsetScaleA + (aScaleTransposed ? 0 : 1)];
-    if (scaleAK != kA) {
-      return emitOpError(
-                 "scaleA's K dimension must match matrix A's K dimension")
-             << " scaleA_k = " << scaleAK << " k_a = " << kA;
-    }
-    if (scaleAM != mA) {
-      return emitOpError(
-                 "scaleA's M dimension must match matrix A's M dimension")
-             << " scaleA_m = " << scaleAM << " m_a = " << mA;
-    }
-    if (scaleAG != gA) {
-      return emitOpError(
-                 "scaleA's G dimension must match matrix A's G dimension")
-             << " scaleA_g = " << scaleAG << " g_a = " << gA;
-    }
-  }
-  if (getScaleB()) {
-    ShapedType typeScaleB = getScaleB().getType();
-    ArrayRef<int64_t> scaleBDims = typeScaleB.getShape();
-    if (failed(rankCheck(scaleBDims, "scaleB"))) {
-      return failure();
-    }
-    if (!isa<Float8E8M0FNUType>(typeScaleB.getElementType())) {
-      return emitOpError("scaleB must be of type Float8E8M0FNUType");
-    }
-    bool bScaleTransposed = getBScaleTransposed();
-    int64_t offsetScaleB = scaleBDims.size() == 2 ? 0 : 1;
-    int64_t scaleBG = offsetScaleB ? scaleBDims[0] : 1;
-    int64_t scaleBK = scaleBDims[offsetScaleB + (bScaleTransposed ? 1 : 0)];
-    int64_t scaleBN = scaleBDims[offsetScaleB + (bScaleTransposed ? 0 : 1)];
+    if (!isa<Float8E8M0FNUType>(ty.getElementType()))
+      return emitOpError() << scaleName << " must be of type Float8E8M0FNUType";
 
-    if (scaleBK != kB) {
-      return emitOpError(
-                 "scaleB's K dimension must match matrix B's K dimension")
-             << " scaleB_k = " << scaleBK << " k_b = " << kB;
-    }
-    if (scaleBN != nB) {
-      return emitOpError(
-                 "scaleB's N dimension must match matrix B's N dimension")
-             << " scaleB_n = " << scaleBN << " n_b = " << nB;
-    }
-    if (scaleBG != gB) {
-      return emitOpError(
-                 "scaleB's G dimension must match matrix B's G dimension")
-             << " scaleB_g = " << scaleBG << " g_b = " << gB;
-    }
-  }
+    bool transposed = isA ? getAScaleTransposed() : getBScaleTransposed();
+    int64_t offset = dims.size() == 2 ? 0 : 1;
+    int64_t g = offset ? dims[0] : 1;
+    int64_t first = dims[offset + (transposed ? 1 : 0)];
+    int64_t second = dims[offset + (transposed ? 0 : 1)];
+
+    int64_t expectedG = isA ? gA : gB;
+    int64_t expectedFirst = isA ? mA : kB;  // scaleA: M; scaleB: K
+    int64_t expectedSecond = isA ? kA : nB; // scaleA: K; scaleB: N
+
+    StringRef firstName = isA ? "M" : "K";
+    StringRef secondName = isA ? "K" : "N";
+
+    if (second != expectedSecond)
+      return emitOpError() << scaleName << "'s " << secondName
+                           << " dimension must match matrix "
+                           << (isA ? "A" : "B") << "'s " << secondName
+                           << " dimension"
+                           << " " << scaleName << "_" << secondName.lower()
+                           << " = " << second << " " << (isA ? "k_a" : "n_b")
+                           << " = " << expectedSecond;
+    if (first != expectedFirst)
+      return emitOpError() << scaleName << "'s " << firstName
+                           << " dimension must match matrix "
+                           << (isA ? "A" : "B") << "'s " << firstName
+                           << " dimension"
+                           << " " << scaleName << "_" << firstName.lower()
+                           << " = " << first << " " << (isA ? "m_a" : "k_b")
+                           << " = " << expectedFirst;
+    if (g != expectedG)
+      return emitOpError() << scaleName << "'s G dimension must match matrix "
+                           << (isA ? "A" : "B") << "'s G dimension"
+                           << " " << scaleName << "_g = " << g << " "
+                           << (isA ? "g_a" : "g_b") << " = " << expectedG;
+    return success();
+  };
+
+  if (failed(verifyScale(getScaleA(), /*isA=*/true)) ||
+      failed(verifyScale(getScaleB(), /*isA=*/false)))
+    return failure();
   if (hasScaleA && hasScaleB) {
     if (!isa<Float4E2M1FNType>(inElems)) {
       return emitOpError(
@@ -1140,12 +1158,10 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   Type aElemType = getElementTypeOrSelfRecursive(aType);
   Type bElemType = getElementTypeOrSelfRecursive(bType);
   Type cElemType = getElementTypeOrSelfRecursive(cType);
-  FailureOr<StringAttr> archAttr = rock::getArch(op);
-  if (failed(archAttr)) {
-    archAttr = StringAttr::get(op->getContext(), "gfx00");
-  }
-  if (failed(verifyGemmTypes(op, rock::getFeatures(op), archAttr->getValue(),
-                             aElemType, bElemType, cElemType)))
+  StringAttr archAttr =
+      rock::getArch(op).value_or(StringAttr::get(op.getContext(), "gfx00"));
+  if (failed(verifyGemmTypes(op, rock::getFeatures(op), archAttr, aElemType,
+                             bElemType, cElemType)))
     return failure();
   if (aElemType.isInteger(8) &&
       !(cElemType.isInteger(32) || cElemType.isInteger(8)))
@@ -1204,40 +1220,14 @@ LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 LogicalResult GridwiseGemmAccelOp::verify() {
   Value scaleA = getScaleA();
   Value scaleB = getScaleB();
-  if (scaleA == nullptr ^ scaleB == nullptr) {
+  bool hasScaleA = scaleA != nullptr;
+  bool hasScaleB = scaleB != nullptr;
+  if (hasScaleA ^ hasScaleB) {
     return emitOpError("both scaleA and scaleB must be provided or neither");
   }
-  auto verifyScales = [&](Value matrix, Value scale,
-                          StringRef name) -> LogicalResult {
-    ShapedType typeScale = cast<ShapedType>(scale.getType());
-    ShapedType matType = cast<ShapedType>(matrix.getType());
-    if (!isa<Float8E8M0FNUType>(typeScale.getElementType())) {
-      return emitOpError(
-          llvm::formatv("scale{0} must be of type Float8E8M0FNUType", name));
-    }
-    ArrayRef<int64_t> scaleDims = typeScale.getShape();
-    ArrayRef<int64_t> matDims = matType.getShape();
-    if (scaleDims != matDims) {
-      return emitOpError(llvm::formatv(
-          "scale{0} dimensions must match matrix {0} dimensions", name));
-    }
-    if (!isa<Float4E2M1FNType>(matType.getElementType())) {
-      return emitOpError(
-          llvm::formatv("Matrix {0} must be of type Float4E2M1FNType when "
-                        "scale{0} is provided.",
-                        name));
-    }
-    return success();
-  };
-  if (scaleA) {
-    if (failed(verifyScales(getA(), scaleA, "A"))) {
-      return failure();
-    };
-  }
-  if (scaleB) {
-    if (failed(verifyScales(getB(), scaleB, "B"))) {
-      return failure();
-    };
+  if (failed(verifyScales(*this, getA(), scaleA, "A")) ||
+      failed(verifyScales(*this, getB(), scaleB, "B"))) {
+    return failure();
   }
   return verifyGridwiseGemm(*this);
 }
@@ -2271,8 +2261,6 @@ void BlockwiseGemmOp::getEffects(
 LogicalResult BlockwiseGemmAccelOp::verify() {
   bool loadAFromLDS = getLoadAfromLDS();
   bool loadBFromLDS = getLoadBfromLDS();
-  bool hasA = getMatrixA() != nullptr;
-  bool hasB = getMatrixB() != nullptr;
   bool hasScaleALds = getScaleA() != nullptr;
   bool hasScaleBLds = getScaleB() != nullptr;
   bool hasScaleABuffer = getBufferScaleA() != nullptr;
@@ -2283,13 +2271,13 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   Type aType = getElementTypeOrSelfRecursive(aBufferType);
   Type bType = getElementTypeOrSelfRecursive(bBufferType);
   Type cType = getElementTypeOrSelfRecursive(cBufferType);
-  FailureOr<StringAttr> archAttr = rock::getArch(*this);
-  if (failed(archAttr)) {
-    archAttr = StringAttr::get(this->getContext(), "gfx00");
-  }
+
+  StringAttr archAttr = rock::getArch(*this).value_or(
+      StringAttr::get(this->getContext(), "gfx00"));
+
   if (loadAFromLDS && loadBFromLDS)
-    if (failed(verifyGemmTypes(*this, rock::getFeatures(*this),
-                               archAttr->getValue(), aType, bType, cType)))
+    if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr, aType,
+                               bType, cType)))
       return failure();
   auto verifyMatrixAndScale = [&](bool loadFromLds, Value matrix, Value lds,
                                   Value bufferScale, ShapedType bufferType,
@@ -2465,53 +2453,23 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
     return emitOpError("C shape should be [M,N]");
   if (getComputeIndices().size() != 3)
     return emitOpError("ComputeIndices need to be a <i,j,k> tuple");
+
+  StringAttr archAttr = rock::getArch(*this).value_or(
+      StringAttr::get(this->getContext(), "gfx00"));
+
+  if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr,
+                             aElemType, bElemType, cElemType)))
+    return failure();
+
   bool hasScaleA = getScaleA() != nullptr;
   bool hasScaleB = getScaleB() != nullptr;
-  FailureOr<StringAttr> archAttr = rock::getArch(*this);
-  if (failed(archAttr)) {
-    archAttr = StringAttr::get(this->getContext(), "gfx00");
-  }
-  if (failed(verifyGemmTypes(*this, rock::getFeatures(*this),
-                             archAttr->getValue(), aElemType, bElemType,
-                             cElemType)))
-    return failure();
-
-  auto verifyScale = [&](bool hasScale, Value matrix, Value scale,
-                         StringRef matrixName) -> LogicalResult {
-    if (hasScale) {
-      ShapedType matrixType = cast<ShapedType>(matrix.getType());
-      ShapedType scaleType = cast<ShapedType>(scale.getType());
-      Type matrixElemType = getElementTypeOrSelfRecursive(matrixType);
-      Type scaleElemType = getElementTypeOrSelfRecursive(scaleType);
-
-      if (!isa<Float8E8M0FNUType>(scaleElemType)) {
-        return emitOpError(llvm::formatv(
-            "Scale{0} must be of type Float8E8M0FNU.", matrixName));
-      }
-      if (!isa<Float4E2M1FNType>(matrixElemType)) {
-        return emitOpError(
-            llvm::formatv("For the scaled GEMMs, matrix{0} must be of "
-                          "type Float4E2M1FNType.",
-                          matrixName));
-      }
-      if (matrixType.getShape() != scaleType.getShape()) {
-        return emitOpError(llvm::formatv(
-            "Scale{0} shape must match matrix{0} shape.", matrixName));
-      }
-    }
-    return success();
-  };
-
-  if (failed(verifyScale(hasScaleA, getMatrixA(), getScaleA(), "A")))
-    return failure();
-
-  if (failed(verifyScale(hasScaleB, getMatrixB(), getScaleB(), "B")))
-    return failure();
-
   if (hasScaleA ^ hasScaleB) {
     return emitOpError(
         "ScaleA and ScaleB must both be present or both be null.");
   }
+  if (failed(verifyScales(*this, getMatrixA(), getScaleA(), "A")) ||
+      failed(verifyScales(*this, getMatrixB(), getScaleB(), "B")))
+    return failure();
   return success();
 }
 

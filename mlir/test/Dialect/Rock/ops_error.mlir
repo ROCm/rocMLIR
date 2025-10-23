@@ -341,7 +341,7 @@ func.func @gridwise_gemm_accel_scaleA_type_invalid(%A: memref<1x4x8xf4E2M1FN>, %
 
 // scaleA dims mismatch
 func.func @gridwise_gemm_accel_scaleA_dims_mismatch(%A: memref<1x4x8xf4E2M1FN>, %B: memref<1x4x16xf4E2M1FN>, %C: memref<1x8x16xf32>, %scaleA_bad_dims: memref<1x4x7xf8E8M0FNU>, %scaleB: memref<1x4x16xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{scaleA dimensions must match matrix A dimensions}}
+  // expected-error @+1 {{ScaleA shape must match matrixA shape.}}
   rock.gridwise_gemm_accel(%A, %B, %C, %scaleA_bad_dims, %scaleB) storeMethod(set) features = mfma {
     blockSize = 64 : i32,
     gridSize = 1 : i32,
@@ -352,7 +352,7 @@ func.func @gridwise_gemm_accel_scaleA_dims_mismatch(%A: memref<1x4x8xf4E2M1FN>, 
 
 // scaleA input type invalid
 func.func @gridwise_gemm_accel_scaleA_input_type_invalid(%A: memref<1x4x8xf16>, %B: memref<1x4x16xf4E2M1FN>, %C: memref<1x8x16xf32>, %scaleA: memref<1x4x8xf8E8M0FNU>, %scaleB: memref<1x4x16xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{Matrix A must be of type Float4E2M1FNType when scaleA is provided.}}
+  // expected-error @+1 {{For the scaled GEMMs, matrixA must be of type Float4E2M1FNType.}}
   rock.gridwise_gemm_accel(%A, %B, %C, %scaleA, %scaleB) storeMethod(set) features = mfma {
     blockSize = 64 : i32,
     gridSize = 1 : i32,
@@ -374,7 +374,7 @@ func.func @gridwise_gemm_accel_scaleB_type_invalid(%A: memref<1x4x8xf4E2M1FN>, %
 
 // scaleB dims mismatch
 func.func @gridwise_gemm_accel_scaleB_dims_mismatch(%A: memref<1x4x8xf4E2M1FN>, %B: memref<1x4x16xf4E2M1FN>, %C: memref<1x8x16xf32>, %scaleA: memref<1x4x8xf8E8M0FNU>, %scaleB_bad_dims: memref<1x4x15xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{scaleB dimensions must match matrix B dimensions}}
+  // expected-error @+1 {{ScaleB shape must match matrixB shape.}}
   rock.gridwise_gemm_accel(%A, %B, %C, %scaleA, %scaleB_bad_dims) storeMethod(set) features = mfma {
     blockSize = 64 : i32,
     gridSize = 1 : i32,
@@ -385,7 +385,7 @@ func.func @gridwise_gemm_accel_scaleB_dims_mismatch(%A: memref<1x4x8xf4E2M1FN>, 
 
 // scaleB input type invalid
 func.func @gridwise_gemm_accel_scaleB_input_type_invalid(%A: memref<1x4x8xf4E2M1FN>, %B: memref<1x4x16xf16>, %C: memref<1x8x16xf32>, %scaleA: memref<1x4x8xf8E8M0FNU>, %scaleB: memref<1x4x16xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // expected-error @+1 {{Matrix B must be of type Float4E2M1FNType when scaleB is provided.}}
+  // expected-error @+1 {{For the scaled GEMMs, matrixB must be of type Float4E2M1FNType.}}
   rock.gridwise_gemm_accel(%A, %B, %C, %scaleA, %scaleB) storeMethod(set) features = mfma {
     blockSize = 64 : i32,
     gridSize = 1 : i32,
