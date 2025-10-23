@@ -1358,9 +1358,9 @@ def Rock_BlockwiseGemmAccelOp
           UnitAttr:$splitKAcrossThreadsFirstB, UnitAttr:$directToLDS,
           UnitAttr:$ldsLayoutMxK, UnitAttr:$ldsLayoutNxK,
           MemRefOf<LdsBufferTypes>:$bufferA, MemRefOf<LdsBufferTypes>:$bufferB,
-          MemRefOf<AccelResTypes>:$matrixC,
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
-          RockAccelTuningParamAttrInterface:$params)> {
+          MemRefOf<AccelResTypes>:$matrixC, TypeAttr:$elementTypeA,
+          TypeAttr:$elementTypeB, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          I32Attr:$blockSize, RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
     The `rock.blockwise_gemm_accel` op does GEMM at workgroup (block) level.

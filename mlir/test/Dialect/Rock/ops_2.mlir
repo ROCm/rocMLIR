@@ -229,6 +229,8 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<12288xf32, 3>,
     inNPerThread = 2 : i32,
     loadAFromLDS,
     loadBFromLDS,
+    elementTypeA = f32,
+    elementTypeB = f32,
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
@@ -260,6 +262,8 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<12288xf32, 3>
     inNPerThread = 2 : i32,
     loadAFromLDS,
     loadBFromLDS,
+    elementTypeA = f32,
+    elementTypeB = f32,
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
