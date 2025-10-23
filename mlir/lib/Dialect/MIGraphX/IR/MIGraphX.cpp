@@ -322,7 +322,7 @@ LogicalResult ReshapeOp::verify() {
   if (!inputType.hasStaticShape())
     return emitOpError("Dynamic shapes are not supported");
 
-  if (static_cast<int64_t>(dimsAttr.size()) != outType.getRank())
+  if (dimsAttr.size() != outType.getRank())
     return emitOpError("number of dims (")
            << dimsAttr.size() << ") does not match result rank ("
            << outType.getRank() << ")";
