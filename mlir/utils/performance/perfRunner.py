@@ -202,15 +202,20 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
 
 # utility functions.
 def getNanoSeconds(fileName):
-    if not os.path.exists(fileName):
-        return np.nan
-    with open(fileName, 'r') as csv_file:
-        reader = csv.DictReader(csv_file, delimiter = ',')
-        result = 0
-        for row in reader:
-            result += int(float(row['AverageNs']))
-        csv_file.close()
-        return result
+    if not os.path.isfile(fileName):
+        raise FileNotFoundError(
+            f"getNanoSeconds: file '{fileName}' does not exist. "
+            "Maybe rocprof is creating it in another path?"
+        )
+
+    try:
+        with open(fileName, mode='r', newline='') as csv_file:
+            reader = csv.DictReader(csv_file)
+            return sum(int(float(row['AverageNs'])) for row in reader if 'AverageNs' in row)
+    except KeyError:
+        raise ValueError("getNanoSeconds: csv file is missing the 'AverageNs' column.")
+    except ValueError as e:
+        raise ValueError(f"getNanoSeconds: invalid value encountered in 'AverageNs' column: {e}")
 
 def getProfilerOutputPath(arch: str, baseOutPath):
     chip = GFX_CHIP_RE.search(arch).group(0)
@@ -250,6 +255,143 @@ def getBankConflict(fileName):
         result_average = sum(result) / len(result)
         return result_average
 
+# TODO: Copy/pasted from https://github.com/ROCm/rocMLIR/pull/1918, merge it properly when the PR is merged.
+numEUPerCU = 4
+
+def calculateNPerWave(n_per_wave, m_per_wave, n_per_block, m_per_block, arch):
+    """
+    Calculate the NPerWave value based on the given NPerWave value and the
+    architecture that we are targeting
+    """
+    # Split at the first ':' if it exists
+    if ':' in arch:
+        arch = arch.split(':', 1)[0]
+
+    # For CDNA architectures (gfx9xx) the n_per_wave value passed in is really
+    # mnPerXdl, so we need to calculate the actual n_per_wave value 
+    if arch.startswith('gfx9'):
+        # This should always match with what the value for maxWavesPerWG is in
+        # Rock.h
+        max_waves_per_wg = 4
+
+        m_waves = min(m_per_block / m_per_wave, max_waves_per_wg)
+        n_waves = max_waves_per_wg / m_waves
+        return max(n_per_block / n_waves, n_per_wave)
+
+    # For RDNA architectures (gfx10xx, gfx11xx, gfx12xx) we can just use the
+    # n_per_wave value as is
+    return n_per_wave
+
+def parse_perf_config(perf_config, num_cu, arch):
+    """
+    Parse the perfConfig string to extract tuning parameters.
+    
+    Format: attn:v1:MPerBlock,NPerBlock,KPerBlock,MPerWave,NPerWave,kPack,
+            splitKFactor,forceUnroll,ThreadCopyMore
+    
+    Returns:
+        dict: Dictionary containing parsed parameters
+
+    TODO: The format of the perfConfig string is subject to changes in the
+          future, so we should at a minimum be keeping this in sync with the
+          c++ code, but we should als consider making bindings to the c++ code
+          that can be called from here.
+    """
+    try:
+        # Split by ':' to separate operation, version, and parameters
+        parts = perf_config.split(':')
+        if len(parts) < 2:
+            raise ValueError(f"Invalid perfConfig format: {perf_config}")
+        
+        # The format is either going to have three parts or two parts. Make sure
+        # to properly handle the `operation` case
+        # - operation:version:parameters
+        # - version:parameters
+        version = None
+        if len(parts) >= 3:
+            # If there are three parts, then we assume the first part denoting
+            # the operation is going to be equal to `attn`
+            assert(parts[0] == 'attn')
+            params_str = parts[2]
+            version = parts[1]
+        else:
+            # parameters are after the first ':'
+            params_str = parts[1]
+            version = parts[0]
+
+            # Attention will be the only operation that uses the v1 format for
+            # PerfConfig, so in all other cases we should be using v3
+            assert(version == 'v3')
+        
+        # Split parameters by comma
+        params = params_str.split(',')
+        if ((version == "v1") and not (len(params) == 8)) \
+           or ((version == "v2") and not (len(params) == 9)) \
+           or ((version == "v3") and not (len(params) == 11)):
+            raise ValueError(f"Insufficient parameters in perfConfig")
+        
+        # Parse the required parameters. Note that kpack does not exist in v1,
+        # so we set it to 1
+
+        # TODO: We will have to use AmdArchDb.py so that we can get a non-accel/
+        # accel value so that we know which format we should be using. 
+        parsed_params = {
+            'MPerBlock': int(params[0]),
+            'NPerBlock': int(params[1]),
+            'KPerBlock': int(params[2]),
+            'MPerWave': int(params[3]),
+            'NPerWave': calculateNPerWave(int(params[4]), int(params[3]),
+                                          int(params[1]),
+                                          int(params[0]), arch),
+            'kPack': 1 if (version == "v1") else int(params[5]),
+            'splitKFactor': int(params[6])
+        }
+        
+        # Calculate M*N PerWave
+        parsed_params['MNPerWave'] = parsed_params['MPerWave'] * \
+                                     parsed_params['NPerWave']
+
+        # Calculate minNumWaves based on numCUs and numEUPerCU
+        parsed_params['minNumWaves'] = int(num_cu) * numEUPerCU
+        
+        return parsed_params
+        
+    except (ValueError, IndexError) as e:
+        print(f"Error parsing perfConfig '{perf_config}': {e}")
+        return None        
+
+# Validates that the db entry (composed by the arch, config, and perfConfig) is well-formed and consistent
+def validate_tuning_db_entry(arch, num_cu, config, perf_config):
+    # 1. Check perf_config with parse_perf_config helper function.
+    if num_cu == "unknown":
+        # parse_perf_config requires num_cu, so just pass 1 to make it happy.
+        parsed_params = parse_perf_config(perf_config, "1", arch)
+    else:
+        parsed_params = parse_perf_config(perf_config, num_cu, arch)
+
+    if parsed_params is None:
+        raise ValueError(f"invalid db entry: '{arch} {config} {perf_config}' with arch='{arch}': perf_config is invalid")
+
+    # 2. Validate arch
+    arch_pattern = r"^gfx([0-9]+)(:[^:\s]+)*$"
+    if not re.match(arch_pattern, arch):
+        raise ValueError(f"invalid db entry: '{arch} {config} {perf_config}' with arch='{arch}': arch is invalid")
+
+    # 3. Validate config
+    re_ty = r"(f32|f16|i16|i8)"
+    re_tf = r"(true|false)"
+    gemm_config_pattern = rf"^-t {re_ty} -out_datatype {re_ty} -transA {re_tf} -transB {re_tf} -g [0-9]+ -m [0-9]+ -n [0-9]+ -k [0-9]+$"
+
+    re_conv = r"(conv|convint8|convfp16)"
+    re_conv_f = r"(G0NC1|GN01C|GNC01|N01GC|NGC01)"
+    conv_config_pattern = rf"^conv -F [0-9]+ -f {re_conv_f} -I {re_conv_f} -O {re_conv_f} -n [0-9]+ -c [0-9]+ -H [0-9]+ -W [0-9]+ -k [0-9]+ -y [0-9]+ -x [0-9]+ -p [0-9]+ -q [0-9]+ -u [0-9]+ -v [0-9]+ -l [0-9]+ -j [0-9]+ -g [0-9]+$"
+
+    attn_ty = r"(f32|f16)"
+    attn_config_pattern = rf"^-t {attn_ty} -transQ {re_tf} -transK {re_tf} -transV {re_tf} -transO {re_tf} -g [0-9]+ -seq_len_q [0-9]+ -seq_len_k [0-9]+ -head_dim_qk [0-9]+ -head_dim_v [0-9]+$"
+
+    if not re.match(gemm_config_pattern, config) and not re.match(conv_config_pattern, config) and not re.match(attn_config_pattern, config):
+        raise ValueError(f"invalid db entry: '{arch} {config} {perf_config}' with config='{config}': config is invalid")
+
 # Tuning databases
 MaybeTuningDb = Optional[Dict[Tuple[str, str], str]]
 def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
@@ -266,17 +408,21 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
                 if len(entries) == 3:
                     arch, config, perfConfig = entries
                     ret[arch, config] = perfConfig
+                    numCu = "unknown"
                 # note: new format has 4 entries
                 elif len(entries) == 4:
-                    arch, _, config, perfConfig = entries
+                    arch, numCu, config, perfConfig = entries
                     ret[arch, config] = perfConfig
                 # note: 5-entry form includes tflops at end
                 elif len(entries) == 5:
-                    arch, _, config, perfConfig, _ = entries
+                    arch, numCu, config, perfConfig, _ = entries
                     ret[arch, config] = perfConfig
                 else:
                     print("Warning: Malformed tuning database entry:", line)
                     continue
+
+                # check that the line we just read is valid
+                validate_tuning_db_entry(arch, numCu, config, perfConfig)
         return ret
     except FileNotFoundError:
         if path:
