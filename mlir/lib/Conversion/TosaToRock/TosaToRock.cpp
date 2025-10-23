@@ -1515,7 +1515,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     FailureOr<Value> maybeNonOne = mulBroadcast(input);
     Value rangeInput;
     if (failed(maybeNonOne)) {
-      // The check to in mulBroadcast will look to find a constant being
+      // The check in mulBroadcast will look to find a constant being
       // broadcasted. If mulBroadcast fails, we also want to check and see if
       // the input is already a constant. We will then have further checks down
       // below to confirm that the constant has a correct value.
