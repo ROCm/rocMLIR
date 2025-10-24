@@ -7,22 +7,22 @@ if ! git diff --quiet || ! git diff --quiet -- .; then
     git stash push -q --keep-index --include-untracked -m precommit-format
 fi
 
-# readarray -d '' files < <(
-#     git diff --cached --name-only -z --diff-filter=ACM \
-#     | grep -zE '\.py$' \
-#     | grep -zEv '^(llvm-project/|external/llvm-project/)'
-# )
+readarray -d '' files < <(
+    git diff --cached --name-only -z --diff-filter=ACM \
+    | grep -zE '\.py$' \
+    | grep -zEv '^(llvm-project/|external/llvm-project/)'
+)
 
-# if (( ${#files[@]} )); then
-#     if command -v yapf >/dev/null 2>&1; then
-#         echo "Running yapf on ${#files[@]} files..."
-#         yapf -i "${files[@]}"
-#         echo "Staging changes..."
-#         git add -- "${files[@]}"
-#     else
-#         echo "yapf not found, skipping Python formatting."
-#     fi
-# fi
+if (( ${#files[@]} )); then
+    if command -v yapf >/dev/null 2>&1; then
+        echo "Running yapf on ${#files[@]} files..."
+        yapf -i "${files[@]}"
+        echo "Staging changes..."
+        git add -- "${files[@]}"
+    else
+        echo "yapf not found, skipping Python formatting."
+    fi
+fi
 
 readarray -d '' cxxfiles < <(git diff --cached --name-only -z --diff-filter=ACM \
   | grep -zE '\.(c|cc|cxx|cpp|hpp|h|hh|hxx|hip|cl)$' \
