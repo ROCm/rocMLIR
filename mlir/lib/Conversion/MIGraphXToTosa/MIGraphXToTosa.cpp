@@ -1180,6 +1180,14 @@ struct GreaterConverter final : public OpConversionPattern<migraphx::Greater> {
   matchAndRewrite(migraphx::Greater op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+
+struct EqualConverter final : public OpConversionPattern<migraphx::Equal> {
+  using OpConversionPattern<migraphx::Equal>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::Equal op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
 } // namespace
 
 LogicalResult
@@ -1284,6 +1292,23 @@ GreaterConverter::matchAndRewrite(migraphx::Greater op, OpAdaptor adaptor,
       rewriter.createOrFold<tosa::GreaterOp>(op->getLoc(), newType, inA, inB);
   rewriter.replaceOpWithNewOp<tosa::CastOp>(op, adaptor.getInA().getType(),
                                             goe);
+
+  return success();
+}
+
+LogicalResult
+EqualConverter::matchAndRewrite(migraphx::Equal op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const {
+  Value inA = adaptor.getInA();
+  Value inB = adaptor.getInB();
+
+  // Create a new tensor type with I1 element type
+  auto newType =
+      RankedTensorType::get(op.getType().getShape(), rewriter.getI1Type());
+  auto equal =
+      rewriter.createOrFold<tosa::EqualOp>(op->getLoc(), newType, inA, inB);
+  rewriter.replaceOpWithNewOp<tosa::CastOp>(op, adaptor.getInA().getType(),
+                                            equal);
 
   return success();
 }
@@ -1478,7 +1503,7 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                TrivialConverter<TanhOp, tosa::TanhOp>, QuantizeLinearConverter,
                DeQuantizeLinearConverter, ConvertConverter, NegConverter,
                ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
-               WhereConverter, GreaterConverter>(typeConverter,
+               WhereConverter, GreaterConverter, EqualConverter>(typeConverter,
                                                  patterns.getContext());
 }
 
