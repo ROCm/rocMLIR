@@ -216,8 +216,9 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     // Check that launch parameters are valid.
     // We do not want to overcomplicate this pass, so for simplicity we do not
     // check for hardware specific limit here. Instead, we just check that both
-    // blockSize and gridSize are greater than zero.
-    if (blockSize <= 0) {
+    // blockSize and gridSize are greater than zero and less than the max
+    // workgroupd size.
+    if (blockSize <= 0 || blockSize > rock::maxHardwareWorkgroupSize) {
       return theFunc->emitError() << "kernel func op has an invalid block size";
     }
     if (gridSize <= 0) {
