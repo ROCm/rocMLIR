@@ -273,6 +273,8 @@ func.func @rock_blockwise_gemm_accel(%matrixA : memref<1024xvector<8xf8E4M3FN>, 
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    elementTypeA = f8E4M3FN,
+    elementTypeB = f8E5M2,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 8,
       mPerBlock = 128,
@@ -309,6 +311,8 @@ func.func @rock_blockwise_gemm_accel_lds(%matrixA : memref<1024xvector<8xf8E4M3F
     inNPerThread = 2 : i32,
     loadAfromLDS,
     loadBfromLDS,
+    elementTypeA = f8E4M3FN,
+    elementTypeB = f8E5M2,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 8,
       mPerBlock = 128,

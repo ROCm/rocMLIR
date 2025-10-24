@@ -2295,7 +2295,8 @@ struct GridwiseAttentionAccelRewritePattern
             /*directToLDS=*/nullptr, /*ldsLayoutMxK=*/nullptr,
             /*ldsLayoutNxK=*/nullptr, preAccelRegBufferK, preAccelRegBuffersQ,
             accRegBufferGemm0, /*bufferScaleA=*/nullptr,
-            /*bufferScaleB=*/nullptr, featuresAttr, op.getBlockSizeAttr(),
+            /*bufferScaleB=*/nullptr, TypeAttr::get(elemTypeK),
+            TypeAttr::get(elemTypeQ), featuresAttr, op.getBlockSizeAttr(),
             gemm0TuningParams);
       }
       accelEmitterPtrGemm0->computeOutputConversion(
@@ -2572,7 +2573,8 @@ struct GridwiseAttentionAccelRewritePattern
               /*splitKAcrossThreadsFirstB=*/nullptr, /*directToLDS=*/nullptr,
               /*ldsLayoutMxK=*/nullptr, /*ldsLayoutNxK=*/nullptr,
               preAccelRegBufferV, preAccelRegBufferQxK, accRegBufferGemm1,
-              /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr, featuresAttr,
+              /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr, TypeAttr::get(elemTypeV), TypeAttr::get(elemTypeV), featuresAttr,
+             
               op.getBlockSizeAttr(), gemm1TuningParams);
 
           // There is no second k-loop
@@ -2986,7 +2988,8 @@ struct GridwiseGemmAccelRewritePattern
             (ldsLayoutConfigA.ldsLayoutDxK ? b.getUnitAttr() : nullptr),
             (ldsLayoutConfigB.ldsLayoutDxK ? b.getUnitAttr() : nullptr), arrayA,
             arrayB, regCAllocOp, /*bufferScaleA=*/nullptr,
-            /*bufferScaleB=*/nullptr, featuresAttr, op.getBlockSizeAttr(),
+            /*bufferScaleB=*/nullptr, TypeAttr::get(elementTypeA),
+            TypeAttr::get(elementTypeB), featuresAttr, op.getBlockSizeAttr(),
             op.getParamsAttr());
         YieldOp::create(b, loc);
       }

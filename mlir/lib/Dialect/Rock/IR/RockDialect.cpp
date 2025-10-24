@@ -81,11 +81,19 @@ static Type getElementTypeOrSelfRecursive(Type type) {
   return type;
 }
 
+static Type getElementTypeOrSelfRecursive(Value val) {
+  return getElementTypeOrSelfRecursive(val.getType());
+}
+
 template <int N>
 struct rank : rank<N - 1> {};
 
 template <>
 struct rank<0> {};
+
+
+
+
 
 template <typename OpType>
 static auto
@@ -2360,6 +2368,12 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   if (hasScaleABuffer ^ hasScaleBBuffer)
     return emitOpError(
         "scaleA and scaleB buffers must both be present or both be null.");
+  if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) != getElementTypeA())
+    return emitOpError("ElementTypeA and matrixA element type don't match");
+
+  if (hasB && getElementTypeOrSelfRecursive(getMatrixB()) != getElementTypeB())
+    return emitOpError("ElementTypeA and matrixA element type don't match");
+
   return success();
 }
 
