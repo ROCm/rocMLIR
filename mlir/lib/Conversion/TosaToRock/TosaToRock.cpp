@@ -1548,7 +1548,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Validates that a constant mask follows the causal mask pattern:
   // - Each row i should have zeros at positions 0 through i (lower triangular
   //   part)
-  // - The upper triangular part (positions > i) can be any mix of 1's and 0's
+  // - The upper triangular part (positions > i) has to be all 1's
   bool isValidCausalMask(Operation *op) const {
     // Get the constant value
     DenseElementsAttr constAttr;
@@ -1574,7 +1574,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     int64_t seqLen = shape[2];
     int64_t maxSeqLen = shape[3];
-
     auto values = constAttr.getValues<APInt>();
     for (int64_t row = 0; row < seqLen; ++row) {
       for (int64_t col = 0; col < maxSeqLen; ++col) {
@@ -1585,7 +1584,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           return false;
 
         // Check that the rest is all just 0's and 1's
-        if (val != 0 && val != 1)
+        if (col > row && val != 1)
           return false;
       }
     }
