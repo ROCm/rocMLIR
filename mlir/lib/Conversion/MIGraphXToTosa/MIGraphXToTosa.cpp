@@ -1503,8 +1503,8 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                TrivialConverter<TanhOp, tosa::TanhOp>, QuantizeLinearConverter,
                DeQuantizeLinearConverter, ConvertConverter, NegConverter,
                ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
-               WhereConverter, GreaterConverter, EqualConverter>(typeConverter,
-                                                 patterns.getContext());
+               WhereConverter, GreaterConverter, EqualConverter>(
+      typeConverter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(
