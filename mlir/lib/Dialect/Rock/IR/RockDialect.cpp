@@ -76,7 +76,7 @@ using namespace mlir::rock;
 
 static Type getElementTypeOrSelfRecursive(Type type) {
   while (auto shapedType = dyn_cast<ShapedType>(type)) {
-    type = dyn_cast<ShapedType>(type).getElementType();
+    type = shapedType.getElementType();
   }
   return type;
 }
@@ -90,10 +90,6 @@ struct rank : rank<N - 1> {};
 
 template <>
 struct rank<0> {};
-
-
-
-
 
 template <typename OpType>
 static auto
@@ -2269,7 +2265,6 @@ void BlockwiseGemmOp::getEffects(
 LogicalResult BlockwiseGemmAccelOp::verify() {
   bool loadAFromLDS = getLoadAfromLDS();
   bool loadBFromLDS = getLoadBfromLDS();
-
   bool hasA = getMatrixA() != nullptr;
   bool hasB = getMatrixB() != nullptr;
 
