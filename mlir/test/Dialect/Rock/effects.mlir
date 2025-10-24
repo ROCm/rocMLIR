@@ -360,6 +360,8 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
     inNPerThread = 2 : i32,
     loadAfromLDS,
     loadBfromLDS,
+    elementTypeA = f4E2M1FN,
+    elementTypeB = f4E2M1FN,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 2,
       kpack = 2,

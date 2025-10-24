@@ -2269,8 +2269,21 @@ void BlockwiseGemmOp::getEffects(
 LogicalResult BlockwiseGemmAccelOp::verify() {
   bool loadAFromLDS = getLoadAfromLDS();
   bool loadBFromLDS = getLoadBfromLDS();
-  bool hasScaleALds = getScaleA() != nullptr;
-  bool hasScaleBLds = getScaleB() != nullptr;
+
+  bool hasA = getMatrixA() != nullptr;
+  bool hasB = getMatrixB() != nullptr;
+
+  if (loadAFromLDS && !hasA)
+    return emitOpError("If loadAFromLDS is enabled, matrixA must be non-null.");
+  if (loadBFromLDS && !hasB)
+    return emitOpError("If loadBFromLDS is enabled, matrixB must be non-null.");
+
+  if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) != getElementTypeA())
+    return emitOpError("ElementTypeA and matrixA element type don't match");
+
+  if (hasB && getElementTypeOrSelfRecursive(getMatrixB()) != getElementTypeB())
+    return emitOpError("ElementTypeA and matrixA element type don't match");
+
   bool hasScaleABuffer = getBufferScaleA() != nullptr;
   bool hasScaleBBuffer = getBufferScaleB() != nullptr;
   ShapedType aBufferType = cast<ShapedType>(getBufferA().getType());
@@ -2365,14 +2378,10 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   if (failed(verifyMatrixAndScale(loadBFromLDS, getMatrixB(), getScaleB(),
                                   getBufferScaleB(), bBufferType, "B")))
     return failure();
+
   if (hasScaleABuffer ^ hasScaleBBuffer)
     return emitOpError(
         "scaleA and scaleB buffers must both be present or both be null.");
-  if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) != getElementTypeA())
-    return emitOpError("ElementTypeA and matrixA element type don't match");
-
-  if (hasB && getElementTypeOrSelfRecursive(getMatrixB()) != getElementTypeB())
-    return emitOpError("ElementTypeA and matrixA element type don't match");
 
   return success();
 }

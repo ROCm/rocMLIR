@@ -450,6 +450,8 @@ func.func @blockwise_gemm_accel_loadA_no_matrixA(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>>
@@ -477,6 +479,8 @@ func.func @blockwise_gemm_accel_scale_buffer_presence_a_only(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>>
@@ -511,6 +515,8 @@ func.func @blockwise_gemm_accel_loadA_scaleA_missing_lds(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>> 
@@ -544,6 +550,8 @@ func.func @blockwise_gemm_accel_loadA_scaleA_lds_only(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -578,6 +586,8 @@ func.func @blockwise_gemm_accel_scaleA_lds_shape_mismatch(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -612,6 +622,8 @@ func.func @blockwise_gemm_accel_scaleA_lds_type_bad(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -646,6 +658,8 @@ func.func @blockwise_gemm_accel_matrixA_type_bad(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f16,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf16>, #gpu.address_space<workgroup>>
@@ -678,6 +692,8 @@ func.func @blockwise_gemm_accel_scaleA_buffer_shape_bad(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -709,6 +725,8 @@ func.func @blockwise_gemm_accel_scaleA_buffer_type_bad(
       arch = "amdgcn-amd-amdhsa:gfx950",
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
@@ -742,6 +760,8 @@ func.func @blockwise_gemm_accel_bufferA_type_bad(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf16, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -770,6 +790,8 @@ func.func @blockwise_gemm_accel_scale_buffer_presence_b_only(
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
       blockSize = 256 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>>
@@ -804,6 +826,8 @@ func.func @blockwise_gemm_accel_scaleB_lds_shape_mismatch(
       loadBfromLDS,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
@@ -836,6 +860,8 @@ func.func @blockwise_gemm_accel_scaleB_lds_type_bad(
       arch = "amdgcn-amd-amdhsa:gfx950",
       loadAfromLDS,
       loadBfromLDS,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
       blockSize = 256 : i32,
@@ -870,6 +896,8 @@ func.func @blockwise_gemm_accel_matrixB_type_bad(
       arch = "amdgcn-amd-amdhsa:gfx950",
       loadAfromLDS,
       loadBfromLDS,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f16,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
       blockSize = 256 : i32,
@@ -905,6 +933,8 @@ func.func @blockwise_gemm_accel_scaleB_buffer_shape_bad(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -937,6 +967,8 @@ func.func @blockwise_gemm_accel_scaleB_buffer_type_bad(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -969,6 +1001,8 @@ func.func @blockwise_gemm_accel_bufferB_type_bad(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>>  from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -1003,6 +1037,8 @@ func.func @blockwise_gemm_accel_invalid_arch(
       blockSize = 256 : i32,
       inMPerThread = 2 : i32,
       inNPerThread = 2 : i32,
+      elementTypeA = f4E2M1FN,
+      elementTypeB = f4E2M1FN,
       params = #blockwise_params    
       } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
