@@ -2089,7 +2089,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // that is one dimensional, and broadcasts it to the correct shape, and with
   // the correct batch, numHeads values
   FailureOr<Value> addBroadcastForBlockArg(PatternRewriter &rewriter,
-                                           Value currentSeqLen) const {
+                                           Value currentSeqLen,
+                                           Value matrixQ) const {
     // Exit early if there is no currentSeqLen (no kv-cache)
     if (!currentSeqLen)
       return failure();
@@ -2102,46 +2103,28 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // Extract the shape information
     auto origShape = cast<ShapedType>(currentSeqLen.getType()).getShape()[0];
 
-    // Find the broadcast that populates the batch and numHeads values by
-    // performing a simple BFS on the input block arg
-    SmallVector<Value> toVisit = {currentSeqLen};
-    SetVector<Value> visited;
-    int batch = -1;
-    int numHeads = -1;
-
-    while (!toVisit.empty()) {
-      Value curNode = toVisit.pop_back_val();
-
-      // Skip previously visited nodes
-      if (visited.count(curNode) > 0)
-        continue;
-      visited.insert(curNode);
-
-      // Check if the current value is a broadcast to our desired dimensions.
-      // Note, there may be two such broadcasts that meet this criteria. The
-      // first is setting all dimensions to one, while the second is populating
-      // the shape with the correct values (i.e., the ones that we care about).
-      // For that reason we need to traverse using BFS instead of DFS.
-      if (auto mulOp = curNode.getDefiningOp<tosa::MulOp>()) {
-        auto mulTy = dyn_cast<RankedTensorType>(mulOp.getType());
-        if (mulTy && mulTy.getRank() == 4) {
-          batch = mulTy.getShape()[0];
-          numHeads = mulTy.getShape()[1];
-        }
-      }
-
-      // If we reach here, we need to visit the users of the current value
-      for (Operation *user : curNode.getUsers()) {
-        if (isa<func::ReturnOp>(user))
-          continue;
-        for (Value res : user->getResults())
-          toVisit.push_back(res);
-      }
+    // Find the original shape of matrixQ (before reshaping) to get the batch
+    // and numHeads values
+    if (!isa<tensor::CollapseShapeOp>(matrixQ.getDefiningOp())) {
+      // If we didn't find a collapse op, we can't determine the original shape
+      return failure();
     }
 
-    // If we haven't set batch or numHeads, then exit
-    if (batch == -1 || numHeads == -1)
+    auto collapse = cast<tensor::CollapseShapeOp>(matrixQ.getDefiningOp()); 
+    auto reassocIndices = collapse.getReassociationIndices();
+
+    // Check if the first reassociation merges two dimensions [0, 1]
+    if (reassocIndices.empty() || reassocIndices[0].size() != 2)
       return failure();
+
+    // Get the original shape before collapse
+    auto srcShape = collapse.getSrcType().getShape();
+    
+    if (srcShape.size() < 2)
+      return failure();
+    
+    int64_t batch = srcShape[0];
+    int64_t numHeads = srcShape[1];
 
     // Create a tensor.expand_shape from 1D to 2D
     auto loc = currentSeqLen.getLoc();
@@ -2339,7 +2322,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (currentSeqLen &&
         (cast<ShapedType>(currentSeqLen.getType()).getShape()[0] !=
          outputType.getShape()[0])) {
-      auto maybeNewSeqLen = addBroadcastForBlockArg(rewriter, currentSeqLen);
+      auto maybeNewSeqLen = addBroadcastForBlockArg(rewriter, currentSeqLen,
+                                                    firstMatMulOp.getA());
       if (succeeded(maybeNewSeqLen))
         currentSeqLen = maybeNewSeqLen.value();
     }
