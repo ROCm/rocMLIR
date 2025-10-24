@@ -23,14 +23,14 @@ import random
 import os
 
 from perfRunner import AttentionConfiguration
-from perfRunner import getArch, getNumCU, initializeDataTypesAttention
-from perfRunner import create_paths as createPaths
-from perfRunner import find_mlir_build_dir as findMlirBuildDir
-from perfRunner import DATA_TYPES_ATTENTION, GFX_CHIP_RE
-from parameterSweeps import Options, sweepParameters, multilineRepr
+from perfRunner import get_arch, get_num_cu, initialize_dtypes_attn
+from perfRunner import create_paths
+from perfRunner import find_mlir_build_dir
+from perfRunner import GFX_CHIP_RE
+from parameterSweeps import Options, sweep_parameters, multiline_repr
 
 # GLOBAL VARIABLES
-DATA_TYPES_ATTENTION = initializeDataTypesAttention()
+DATA_TYPES_ATTENTION = initialize_dtypes_attn()
 BOOLS = [True, False]
 SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
 
@@ -38,38 +38,40 @@ SPLIT_KV_OPTIONS = [1, 2, 4, 8, 16, 32, 64, 128]
 seed = datetime.utcnow().isocalendar()[1]
 random.seed(seed)
 
-def toAttentionConfig(params, options: Options) -> AttentionConfiguration:
+
+def to_attn_config(params, options: Options) -> AttentionConfiguration:
     """Converts a sampled parameter tuple into a AttentionConfiguration instance."""
     shape, perf = params
-    *shapeParams, currentSeqLen = shape
-    dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse, split_kv = shapeParams
-    perfString = f"attn:v2:{','.join(str(x) for x in perf)}"
-    attnConfig = AttentionConfiguration(
-        dtype=dtype,
-        g=g,
-        seq_len_q=slq,
-        seq_len_k=slk,
-        num_heads_q=nhq,
-        num_heads_kv=nhkv,
-        head_dim_qk=hdqk,
-        head_dim_v=hdv,
-        with_attn_scale=scale,
-        with_attn_bias=bias,
-        transQ=tq,
-        transK=tk,
-        transV=tv,
-        transO=to,
-        causal=causal,
-        return_lse=rlse,
-        split_kv=split_kv,
-        arch=options.arch,
-        numCU=options.numCu,
-        perf_config=perfString
-    )
-    attnConfig.currentSeqLen = currentSeqLen
-    return attnConfig
+    *shape_params, current_seqlen = shape
+    dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse, split_kv = shape_params
+    perf_str = f"attn:v2:{','.join(str(x) for x in perf)}"
+    attn_config = AttentionConfiguration(dtype=dtype,
+                                         g=g,
+                                         seq_len_q=slq,
+                                         seq_len_k=slk,
+                                         num_heads_q=nhq,
+                                         num_heads_kv=nhkv,
+                                         head_dim_qk=hdqk,
+                                         head_dim_v=hdv,
+                                         with_attn_scale=scale,
+                                         with_attn_bias=bias,
+                                         transQ=tq,
+                                         transK=tk,
+                                         transV=tv,
+                                         transO=to,
+                                         causal=causal,
+                                         return_lse=rlse,
+                                         split_kv=split_kv,
+                                         arch=options.arch,
+                                         num_cu=options.num_cu,
+                                         perf_config=perf_str)
+    attn_config.current_seqlen = current_seqlen
+    return attn_config
+
 
 IterType = TypeVar('IterType')
+
+
 def grouper(iterable: Iterable[IterType], n: int):
     it = iter(iterable)
     while True:
@@ -78,35 +80,37 @@ def grouper(iterable: Iterable[IterType], n: int):
             return
         yield chunk
 
-def genCurrentSeqLens(g: int, maxSeqLen: int) -> list[int]:
-    return [random.randint(0, maxSeqLen-1) for _ in range(g)]
 
-def sampleAttentionShape():
-    g = random.randint(1, 256) # GROUPS
-    seqLenK = random.randint(1, 16384) # SEQ_LEN_K 
+def gen_current_seqlens(g: int, max_seqlen: int) -> list[int]:
+    return [random.randint(0, max_seqlen - 1) for _ in range(g)]
 
-    useKVCache = random.choice(BOOLS)
-    currentSeqLen = genCurrentSeqLens(g, seqLenK) if useKVCache else None
-    seqLenQ = 1 if useKVCache else random.randint(1, 16384) # SEQ_LEN_Q
 
-    numHeadsQ = 1
-    numHeadsKV = 1
-    '''By default numHeadsQ and numHeadsKV are both 1. If numHeadsQ
-    and numHeadsKV are equal GQA is disabled. Both values are powers
-    of 2 typically. And numHeadsQ is divisible by numHeadsKV
-    Here we decide randomly if we will use numHeadsQ and numHeadsKV
+def sample_attn_shape():
+    g = random.randint(1, 256)  # GROUPS
+    seqlen_k = random.randint(1, 16384)  # SEQ_LEN_K
+
+    use_kvcache = random.choice(BOOLS)
+    current_seqlen = gen_current_seqlens(g, seqlen_k) if use_kvcache else None
+    seqlen_q = 1 if use_kvcache else random.randint(1, 16384)  # SEQ_LEN_Q
+
+    num_heads_q = 1
+    num_heads_kv = 1
+    '''By default num_heads_q and num_heads_kv are both 1. If num_heads_q
+    and num_heads_kv are equal GQA is disabled. Both values are powers
+    of 2 typically. And num_heads_q is divisible by num_heads_kv
+    Here we decide randomly if we will use num_heads_q and num_heads_kv
     different from the default values.
-    
-    Requirements:
-        - numHeadsQ >= numHeadsKV
-        - numHeadsQ % numHeadsKV == 0'''
-    genNumHeads = random.choice(BOOLS)
-    if genNumHeads:
-        while True:
-            numHeadsQ = 2**random.randint(1, 6)
-            numHeadsKV = 2**random.randint(1, 6)
 
-            if numHeadsQ > numHeadsKV and numHeadsQ%numHeadsKV == 0: # found valid case
+    Requirements:
+        - num_heads_q >= num_heads_kv
+        - num_heads_q % num_heads_kv == 0'''
+    gen_num_heads = random.choice(BOOLS)
+    if gen_num_heads:
+        while True:
+            num_heads_q = 2**random.randint(1, 6)
+            num_heads_kv = 2**random.randint(1, 6)
+
+            if num_heads_q > num_heads_kv and num_heads_q % num_heads_kv == 0:  # found valid case
                 break
 
     split_kv = 1
@@ -116,114 +120,114 @@ def sampleAttentionShape():
 
     return (
         random.choice(DATA_TYPES_ATTENTION),
-        g, # GROUPS
-        seqLenQ, # SEQ_LEN_Q
-        seqLenK, # SEQ_LEN_K
-        numHeadsQ, # NUM_HEADS_Q
-        numHeadsKV, # NUM_HEADS_KV
-        random.randint(1, 1024), # HEAD_DIM_QK
-        random.randint(1, 1024), # HEAD_DIM_V
-        random.choice(BOOLS),   # with_attn_scale
-        random.choice(BOOLS),   # with_attn_bias
-        random.choice(BOOLS),   # transQ
-        random.choice(BOOLS),   # transK
-        random.choice(BOOLS),   # transV
-        random.choice(BOOLS),   # transO
-        random.choice(BOOLS),   # causal
+        g,  # GROUPS
+        seqlen_q,  # SEQ_LEN_Q
+        seqlen_k,  # SEQ_LEN_K
+        num_heads_q,  # NUM_HEADS_Q
+        num_heads_kv,  # NUM_HEADS_KV
+        random.randint(1, 1024),  # HEAD_DIM_QK
+        random.randint(1, 1024),  # HEAD_DIM_V
+        random.choice(BOOLS),  # with_attn_scale
+        random.choice(BOOLS),  # with_attn_bias
+        random.choice(BOOLS),  # transQ
+        random.choice(BOOLS),  # transK
+        random.choice(BOOLS),  # transV
+        random.choice(BOOLS),  # transO
+        random.choice(BOOLS),  # causal
         return_lse,
-        split_kv, 
-        currentSeqLen
-    )
+        split_kv,
+        current_seqlen)
+
 
 # Keep in sync with RockTuningImpl.cpp
-perfConfigSpaceMFMA = list(itertools.product( # MFMA perfConfig space
-        [32, 64, 128, 256], # M/block G0
-        [32, 64, 128, 256], # M/block G1
-        [32, 64, 128, 256], # N/block G0
-        [8, 16, 32, 64],    # Kpack/Block
-        [32, 64, 128, 256], # M/Wave
-        [4, 16, 32],        # MN/Xdl
-        [4, 8, 16],         # kPack
-        [1],                # splitKFactor
-        [1],                # scheduleVersion
-        [2],                # outputSwizzle
-        [0, 1]              # forceUnroll
+perfconfig_space_mfma = list(
+    itertools.product(  # MFMA perfConfig space
+        [32, 64, 128, 256],  # M/block G0
+        [32, 64, 128, 256],  # M/block G1
+        [32, 64, 128, 256],  # N/block G0
+        [8, 16, 32, 64],  # Kpack/Block
+        [32, 64, 128, 256],  # M/Wave
+        [4, 16, 32],  # MN/Xdl
+        [4, 8, 16],  # kPack
+        [1],  # splitKFactor
+        [1],  # scheduleVersion
+        [2],  # outputSwizzle
+        [0, 1]  # forceUnroll
     ))
 
-perfConfigSpaceWMMA = list(itertools.product( # WMMA perfConfig space
-        [32, 64, 128],          # M/block G0
-        [32, 64, 128],          # M/block G1
-        [32, 64, 128, 256],     # N/block G0
-        [8, 16, 32, 64],        # Kpack/Block
-        [32, 64],               # M/Wave
-        [32, 64],               # N/Wave
-        [4, 8, 16],             # kPack
-        [1],                    # splitKFactor
-        [1],                    # scheduleVersion
-        [2],                    # outputSwizzle
-        [0, 1]                  # forceUnroll
+perfconfig_space_wmma = list(
+    itertools.product(  # WMMA perfConfig space
+        [32, 64, 128],  # M/block G0
+        [32, 64, 128],  # M/block G1
+        [32, 64, 128, 256],  # N/block G0
+        [8, 16, 32, 64],  # Kpack/Block
+        [32, 64],  # M/Wave
+        [32, 64],  # N/Wave
+        [4, 8, 16],  # kPack
+        [1],  # splitKFactor
+        [1],  # scheduleVersion
+        [2],  # outputSwizzle
+        [0, 1]  # forceUnroll
     ))
 
-def logFailingConfigs(configs: List[AttentionConfiguration], filename: str):
+
+def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
     with open(filename, mode='w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(['CommandLine'])
         for config in configs:
-            writer.writerow([config.generateMlirDriverCommandLine('', kernel_repeats=None)])
-            
+            writer.writerow([config.generate_mlir_driver_commandline('', kernel_repeats=None)])
+
+
 def main():
     parser = argparse.ArgumentParser(
-            description='Sweep parameter values for attention to detect bugs')
+        description='Sweep parameter values for attention to detect bugs')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--jobs', type=int, default=os.cpu_count())
-    parser.add_argument('--mlir-build-dir', type=str, default=findMlirBuildDir()),
+    parser.add_argument('--mlir-build-dir', type=str, default=find_mlir_build_dir()),
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
-    arch = getArch()
+    arch = get_arch()
     chip_match = GFX_CHIP_RE.search(arch)
     if chip_match is None:
         raise RuntimeError(f"Could not find GFX chip in arch string: {arch}")
     chip = chip_match.group(0)
-    paths = createPaths(None, args.mlir_build_dir)
-    options = Options(
-        debug=args.debug,
-        quiet=args.quiet,
-        arch=arch,
-        flags=[],
-        concurrent_tests=args.jobs,
-        numCu=getNumCU(chip),
-        logFailures=args.log_failures
-    )
-   
+    paths = create_paths(None, args.mlir_build_dir)
+    options = Options(debug=args.debug,
+                      quiet=args.quiet,
+                      arch=arch,
+                      flags=[],
+                      concurrent_tests=args.jobs,
+                      num_cu=get_num_cu(chip),
+                      log_failures=args.log_failures)
 
     if not args.quiet:
         print(f"Sampling {args.samples} configurations from attention space...")
 
     # TODO: use AmdArchDb python version when available
-    
+
     if chip.startswith('gfx9'):
-        perfConfigSpace = perfConfigSpaceMFMA
+        perfconfig_space = perfconfig_space_mfma
     else:
-        perfConfigSpace = perfConfigSpaceWMMA
+        perfconfig_space = perfconfig_space_wmma
 
-    samples = [
-        (sampleAttentionShape(), random.choice(perfConfigSpace))
-        for _ in range(args.samples)
-    ]
+    samples = [(sample_attn_shape(), random.choice(perfconfig_space)) for _ in range(args.samples)]
 
-    passed, invalid, failing = asyncio.run(sweepParameters(samples, toAttentionConfig, options, paths))
+    passed, invalid, failing = asyncio.run(sweep_parameters(samples, to_attn_config, options,
+                                                            paths))
     if failing:
         print("\n" + "-" * 80)
         print(f"{'Failing Configurations':^80}\n")
         for fail in failing:
-            print(multilineRepr(fail))
-    
+            print(multiline_repr(fail))
+
     print(f"\nPassed: {passed}, Invalid: {invalid}, Failed: {len(failing)}")
-    
+
     return 0
+
 
 if __name__ == '__main__':
     ret = main()
