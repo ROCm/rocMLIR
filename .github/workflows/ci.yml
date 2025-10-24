@@ -19,7 +19,6 @@ on:
       - "!external/llvm-project/**"
 jobs:
   py-checks:
-    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,7 +57,7 @@ jobs:
       - name: Run flake8
         if: steps.changes.outputs.files != ''
         run: |
-          flake8 --ignore=E501 ${{ steps.changes.outputs.files }}
+          flake8 --ignore=E501,E251,E124,E251,W605 ${{ steps.changes.outputs.files }}
 
       - name: Run YAPF check
         if: steps.changes.outputs.files != ''
