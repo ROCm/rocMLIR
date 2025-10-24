@@ -159,7 +159,8 @@ def RockOutputSwizzlePass : Pass<"rock-output-swizzle", "::mlir::func::FuncOp"> 
 }
 
 def RockReuseLDSPass : Pass<"rock-reuse-lds", "::mlir::func::FuncOp"> {
-  let summary = "This pass re-uses LDS memory by using the lifetime annotations (rock.dealloc)";
+  let summary = "This pass re-uses LDS memory by using the lifetime "
+                "annotations (rock.live_in, rock.live_out)";
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
@@ -200,6 +201,13 @@ def RockBlockwiseLoadTileToThreadwisePass
       "This pass lowers `rock.blockwise_load_tile` to rock.threadwise_* ops";
   let dependentDialects = ["rock::RockDialect", "affine::AffineDialect",
                            "arith::ArithDialect", "memref::MemRefDialect"];
+}
+
+def RockAnnotateLivenessPass
+    : Pass<"rock-annotate-liveness", "::mlir::func::FuncOp"> {
+  let summary = "This pass annotates LDS memory with liveness ops "
+                "(rock.live_in, rock.live_out)";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES

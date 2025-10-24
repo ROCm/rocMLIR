@@ -3,3 +3,12 @@
 
 // RUN: rocmlir-gen --arch gfx90a --operation=gemm -t f32 -g 1 -m 64 -k 128 -n 64 --num_cu=32 --emit-tuning-space=full | FileCheck %s --check-prefixes=CHECK-MI
 // CHECK-MI: v3:64,64,8,16,16,4,4,1,2,1,1
+
+// RUN: rocmlir-gen --arch gfx950 --operation=gemm -t f32 -g 1 -m 64 -k 128 -n 64 --num_cu=32 --emit-tuning-space=exhaustive | FileCheck %s --check-prefixes=CHECK-EXHAUSTIVE-DOUBLEBUFFER
+// CHECK-EXHAUSTIVE-DOUBLEBUFFER: v3:64,64,8,16,16,4,4,2,2,1,1
+
+// RUN: rocmlir-gen --arch gfx950 --operation=gemm -t f32 -g 1 -m 64 -k 128 -n 64 --num_cu=32 --emit-tuning-space=exhaustive | FileCheck %s --check-prefixes=CHECK-EXHAUSTIVE-DIRECTTOLDS-SINGLE
+// CHECK-EXHAUSTIVE-DIRECTTOLDS-SINGLE: v3:64,64,8,16,16,4,4,3,2,1,1
+
+// RUN: rocmlir-gen --arch gfx950 --operation=gemm -t f32 -g 1 -m 64 -k 128 -n 64 --num_cu=32 --emit-tuning-space=exhaustive | FileCheck %s --check-prefixes=CHECK-EXHAUSTIVE-DIRECTTOLDS-DOUBLE
+// CHECK-EXHAUSTIVE-DIRECTTOLDS-DOUBLE: v3:64,64,8,16,16,4,4,4,2,1,1
