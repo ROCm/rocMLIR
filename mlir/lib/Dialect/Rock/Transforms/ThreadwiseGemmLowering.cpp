@@ -701,7 +701,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   auto loadLoop = TransformingForOp::create(
       b, loc, inits, loopTransforms, bounds, strides, forceUnroll,
-      useIndexDiffs, recordsValidity ? ValueRange{validityInit} : std::nullopt);
+      useIndexDiffs, recordsValidity ? ValueRange{validityInit} : ValueRange{});
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(loadLoop.getBody());
