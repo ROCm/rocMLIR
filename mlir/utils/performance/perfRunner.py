@@ -51,6 +51,9 @@ OUTPUT_DATA_TYPES_MAP = {
     'bf8_bf8': 'f32'
 }
 MLIR_N_REPEATS = 100
+WARMUP_ITERATIONS = 10
+TRIM_PERCENT = 10
+SLEEP_MS = 1
 
 FILTER_LAYOUT_MAP = {
     'N': 'k',
@@ -1698,6 +1701,37 @@ def run_config_with_mlir(config: PerfConfiguration,
         rocmlir_gen_flags)
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
+
+    # Use HIP timing via tuning-driver if rocprof is disabled
+    if not use_rocprof:
+        if debug:
+            print("Using HIP timing for benchmarking")
+        rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
+        tuning_driver_command = [
+            paths.mlir_paths.rocmlir_tuning_driver_path,
+            f'--benchmark-config={config.perfConfig}',
+            f'--num-iterations={MLIR_N_REPEATS}',
+            f'--warmup-iterations={WARMUP_ITERATIONS}',
+            f'--trim-percent={TRIM_PERCENT}', f'--sleep-ms={SLEEP_MS}', '-'
+        ]
+        outs, noerr = run_pipeline(
+            [rocmlir_gen_cmd.split(), tuning_driver_command])
+        if noerr:
+            result = outs.decode().strip()
+            if result != "N/A":
+                try:
+                    parts = result.split('\t')
+                    if len(parts) == 2:
+                        return float(parts[1])
+                    else:
+                        return float(result)
+                except ValueError:
+                    if debug:
+                        print(f"Failed to parse timing result: {result}")
+        return np.nan
+
+    if debug:
+        print("Using rocprof for benchmarking")
     rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandline_options
     rocmlir_driver_cmd = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [
@@ -1720,8 +1754,14 @@ def run_config_with_mlir(config: PerfConfiguration,
 
 
 # Benchmarking function.
-def benchmark_mlir(commandline, conf_class, paths: Paths, arch, num_cu,
-                   tuning_db: MaybeTuningDb, rocmlir_gen_flags):
+def benchmark_mlir(commandline,
+                   conf_class,
+                   paths: Paths,
+                   arch,
+                   num_cu,
+                   tuning_db: MaybeTuningDb,
+                   rocmlir_gen_flags,
+                   use_rocprof=False):
     config = conf_class.from_command_line(commandline, arch, num_cu)
     config_str = config.to_command_line()
     if tuning_db:
@@ -1730,31 +1770,38 @@ def benchmark_mlir(commandline, conf_class, paths: Paths, arch, num_cu,
         else:  # Tuning DB present but doesn't contain config, return N/A
             return config.table_entry(np.nan)
 
-    nanoseconds = run_config_with_mlir(config, paths, arch, rocmlir_gen_flags)
-    return config.table_entry(nanoseconds)
+    nanoSeconds = run_config_with_mlir(config, paths, arch, rocmlir_gen_flags,
+                                       use_rocprof)
+    return config.tableEntry(nanoSeconds)
 
 
 # Generate MLIR vs. MIOpen or rocBLAS performance results
-def generate_performance_results(configs, conf_class, paths: Paths, arch,
-                                 num_cu, tuning_db: MaybeTuningDb,
+def generate_performance_results(configs,
+                                 conf_class,
+                                 paths: Paths,
+                                 arch,
+                                 num_cu,
+                                 tuning_db: MaybeTuningDb,
                                  quick_tuning_db: MaybeTuningDb,
-                                 rocmlir_gen_flags):
+                                 rocmlir_gen_flags,
+                                 use_rocprof=False):
     # Never pass tuning DB to this run
     mlir_df = pd.DataFrame(
-        benchmark_mlir(test_vector.split(
-            sep=' '), conf_class, paths, arch, num_cu, None, rocmlir_gen_flags)
+        benchmark_mlir(test_vector.split(sep=' '), conf_class, paths, arch,
+                       num_cu, None, rocmlir_gen_flags, use_rocprof)
         for test_vector in configs)
     tuned_df = None
     if tuning_db:
         tuned_df = pd.DataFrame(
             benchmark_mlir(test_vector.split(sep=' '), conf_class, paths, arch,
-                           num_cu, tuning_db, rocmlir_gen_flags)
+                           num_cu, tuning_db, rocmlir_gen_flags, use_rocprof)
             for test_vector in configs)
     quick_tuned_df = None
     if quick_tuning_db:
         quick_tuned_df = pd.DataFrame(
-            benchmark_mlir(test_vector.split(sep=' '), conf_class, paths, arch,
-                           num_cu, quick_tuning_db, rocmlir_gen_flags)
+            benchmark_mlir(test_vector.split(
+                sep=' '), conf_class, paths, arch, num_cu, quick_tuning_db,
+                           rocmlir_gen_flags, use_rocprof)
             for test_vector in configs)
 
     external_df = pd.DataFrame(
@@ -2016,8 +2063,12 @@ def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
 
 
 # Generate fusion vs. gemm/conv performance results
-def benchmark_fusion_kernels(test_dir, paths: Paths, arch, num_cu,
-                             tuning_db: MaybeTuningDb):
+def benchmark_fusion_kernels(test_dir,
+                             paths: Paths,
+                             arch,
+                             num_cu,
+                             tuning_db: MaybeTuningDb,
+                             use_rocprof=False):
     all_tests = []  # filename, test_vector, fut_name
     perf_results = {}  # associate test_vector to config and performances
     chip = GFX_CHIP_RE.search(arch).group(0)
@@ -2093,7 +2144,8 @@ def benchmark_fusion_kernels(test_dir, paths: Paths, arch, num_cu,
             continue
 
         # Run gemm or conv op with the same configuration
-        nanoseconds = run_config_with_mlir(config, paths, arch, '')
+        nanoseconds = run_config_with_mlir(config, paths, arch, '',
+                                           use_rocprof)
         one_entry['MLIR TFlops'] = config.compute_tflops(nanoseconds)
         one_entry[
             'Fusion/MLIR'] = one_entry['TFlops'] / one_entry['MLIR TFlops']
@@ -2321,6 +2373,13 @@ def main(args=None):
                         default=["f32", "f16", "i8"],
                         help='Force a set of datatypes')
 
+    parser.add_argument(
+        '--use-rocprof',
+        action="store_true",
+        help=
+        "Use rocprof instead of rocmlir-tuning-driver to collect performance data"
+    )
+
     parsed_args = parser.parse_args(args)
 
     rocmlir_gen_flags = ''
@@ -2391,7 +2450,8 @@ def main(args=None):
         # batch benchmark with MLIR and MIOpen.
         generate_performance_results(configs, conf_class, paths, arch, num_cu,
                                      tuning_db, quick_tuning_db,
-                                     rocmlir_gen_flags)
+                                     rocmlir_gen_flags,
+                                     parsed_args.use_rocprof)
     elif parsed_args.tuning:
         tune_mlir_kernels(configs, arch, num_cu)
     elif optype == Operation.FUSION:
@@ -2399,12 +2459,13 @@ def main(args=None):
             raise RuntimeError("MLIR build dir was not provided/found")
         else:
             benchmark_fusion_kernels(parsed_args.test_dir, paths, arch, num_cu,
-                                     tuning_db)
+                                     tuning_db, parsed_args.use_rocprof)
     else:
         if parsed_args.batch_mlir:
             df = pd.DataFrame(
-                benchmark_mlir(test_vector.split(sep=' '), conf_class, paths,
-                               arch, num_cu, tuning_db, rocmlir_gen_flags)
+                benchmark_mlir(test_vector.split(
+                    sep=' '), conf_class, paths, arch, num_cu, tuning_db,
+                               rocmlir_gen_flags, parsed_args.use_rocprof)
                 for test_vector in configs)
         elif parsed_args.batch_external:
             df = pd.DataFrame(
@@ -2425,12 +2486,14 @@ def main(args=None):
                     df = pd.DataFrame([
                         benchmark_mlir(parsed_args.config, conf_class, paths,
                                        arch, num_cu, tuning_db,
-                                       rocmlir_gen_flags)
+                                       rocmlir_gen_flags,
+                                       parsed_args.use_rocprof)
                     ])
                 else:
                     df = pd.DataFrame([
                         benchmark_mlir(config.split(), conf_class, paths, arch,
-                                       num_cu, tuning_db, rocmlir_gen_flags)
+                                       num_cu, tuning_db, rocmlir_gen_flags,
+                                       parsed_args.use_rocprof)
                         for config in configs
                     ])
         df.to_csv(parsed_args.filename)

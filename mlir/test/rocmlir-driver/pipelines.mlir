@@ -12,6 +12,7 @@
 // MIGRAPHX-NEXT:migraphx-transform,
 // MIGRAPHX-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // MIGRAPHX-NEXT:migraphx-to-tosa,
+// MIGRAPHX-NEXT:cse,
 // MIGRAPHX-NEXT:migraphx-tosa-simplify))
 
 // GPU:Kernel pipeline:
@@ -22,14 +23,17 @@
 // GPU-NEXT:rock-regularize,
 // GPU-NEXT:rock-shuffle-gemm-for-reductions,
 // GPU-NEXT:rock-gridwise-gemm-to-blockwise,
+// GPU-NEXT:rock-blockwise-load-tile-to-threadwise,
 // GPU-NEXT:rock-linalg-align,
 // GPU-NEXT:rock-blockwise-gemm-to-threadwise,
 // GPU-NEXT:rock-pipeline{rock-pipeline-remove-stages=true},
 // GPU-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // GPU-NEXT:convert-linalg-to-affine-loops,
 // GPU-NEXT:rock-vectorize-fusions,
+// GPU-NEXT:rock-annotate-liveness,
 // GPU-NEXT:rock-reuse-lds,
 // GPU-NEXT:rock-output-swizzle,
+// GPU-NEXT:rock-annotate-liveness,
 // GPU-NEXT:rock-reuse-lds,
 // GPU-NEXT:rock-lower-reduce,
 // GPU-NEXT:rock-threadwise-gemm-lowering,
@@ -131,6 +135,7 @@
 // HIGHLEVEL-NEXT:builtin.module(func.func(tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-rock,
 // HIGHLEVEL-NEXT:rock-view-to-transform,
+// HIGHLEVEL-NEXT:rocmlir-custom-tosa-decompose,
 // HIGHLEVEL-NEXT:rocmlir-custom-tosa-to-linalg),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),

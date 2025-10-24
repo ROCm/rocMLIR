@@ -1,0 +1,14 @@
+-t f32 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 3072 -k 768 -gemmO 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 3072 -k 768 -gemmO 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 4096 -k 1024 -gemmO 1024
+-t f32 -transA false -transB false -transC false -transO false -g 1 -m 1 -n 3072 -k 768 -gemmO 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 1 -n 3072 -k 768 -gemmO 768
+-t f16 -transA false -transB true -transC true -transO false -g 1 -m 384 -n 4096 -k 1024 -gemmO 1024
+-t f32 -transA false -transB false -transC false -transO false -g 1 -m 1000 -n 1024 -k 12544 -gemmO 1024
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 1000 -n 1024 -k 12544 -gemmO 1024
+-t f32 -transA false -transB false -transC false -transO false -g 1 -m 1500 -n 5120 -k 1280 -gemmO 1280
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 216 -n 5120 -k 1280 -gemmO 1280
+-t f16 -transA false -transB false -transC false -transO false -g 20 -m 216 -n 1 -k 64 -gemmO 64
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 3072 -k 768 -gemmO 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 5120 -k 1280 -gemmO 1280
+-t f16 -transA false -transB true -transC true -transO false -g 1 -m 2 -n 1280 -k 320 -gemmO 1280

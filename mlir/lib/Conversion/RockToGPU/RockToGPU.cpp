@@ -102,18 +102,6 @@ struct MIGPUAllocRewritePattern : public OpRewritePattern<rock::GpuAllocOp> {
   }
 };
 
-struct MIGPUDeallocRewritePattern
-    : public OpRewritePattern<rock::GpuDeallocOp> {
-  using OpRewritePattern<rock::GpuDeallocOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(rock::GpuDeallocOp op,
-                                PatternRewriter &b) const override {
-
-    b.eraseOp(op);
-    return mlir::success();
-  }
-};
-
 template <typename Tmi, typename Tgpu>
 struct MIOpRewritePattern : public OpRewritePattern<Tmi> {
   using OpRewritePattern<Tmi>::OpRewritePattern;
@@ -345,7 +333,7 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     RewritePatternSet patterns(ctx);
 
     // rock-lowering
-    patterns.add<MIGPUAllocRewritePattern, MIGPUDeallocRewritePattern,
+    patterns.add<MIGPUAllocRewritePattern,
                  MIOpRewritePattern<rock::WorkgroupBarrierOp, gpu::BarrierOp>,
                  MIOpRewritePattern<rock::LDSBarrierOp, amdgpu::LDSBarrierOp>,
                  WorkgroupIdRewritePattern,

@@ -41,8 +41,10 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
 namespace rock {
@@ -351,7 +353,7 @@ struct BlockwiseGemmRewritePattern
         ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsA, b.getArrayAttr(threadACopyViewAttr)},
         ArrayRef<int64_t>{kPerThread, mRepeat, 1, mPerThread, kPack},
-        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
+        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyAGuard(b);
       b.setInsertionPointToStart(copyALoop.getBody());
@@ -369,7 +371,7 @@ struct BlockwiseGemmRewritePattern
         ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsB, b.getArrayAttr(threadBCopyViewAttr)},
         ArrayRef<int64_t>{kPerThread, nRepeat, 1, nPerThread, kPack},
-        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
+        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyBGuard(b);
       b.setInsertionPointToStart(copyBLoop.getBody());
@@ -412,15 +414,8 @@ struct BlockwiseGemmAccelRewritePattern
     bool loadAFromLDS = adaptor.getLoadAfromLDS();
     bool loadBFromLDS = adaptor.getLoadBfromLDS();
 
-    Type bufferElemTypeA =
-        cast<MemRefType>(adaptor.getMatrixA().getType()).getElementType();
-    Type bufferElemTypeB =
-        cast<MemRefType>(adaptor.getMatrixB().getType()).getElementType();
-    Type dataTypeA = bufferElemTypeA, dataTypeB = bufferElemTypeB;
-    if (auto bufferVecTypeA = dyn_cast<VectorType>(bufferElemTypeA))
-      dataTypeA = bufferVecTypeA.getElementType();
-    if (auto bufferVecTypeB = dyn_cast<VectorType>(bufferElemTypeB))
-      dataTypeB = bufferVecTypeB.getElementType();
+    Type dataTypeA = adaptor.getElementTypeA();
+    Type dataTypeB = adaptor.getElementTypeB();
 
     auto features = rock::getFeatures(op);
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
@@ -471,17 +466,76 @@ struct BlockwiseGemmAccelRewritePattern
     // considered a temporary hack until we have a proper way of "searching"
     // through different schedules (either heuristically or automatically)
 
+    bool directToLDS = op.getDirectToLDS();
     Value wrappedLDSBufferForLoadA, wrappedLDSBufferForLoadB;
     if (loadAFromLDS) {
       wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
           b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
-          op.getRotateMWithK(), op.getSplitKAcrossThreadsFirstA());
+          op.getRotateMWithK(), directToLDS, op.getLdsLayoutMxK(),
+          op.getSplitKAcrossThreadsFirstA());
     }
     if (loadBFromLDS) {
       wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
           b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
-          op.getRotateNWithK(), op.getSplitKAcrossThreadsFirstA());
+          op.getRotateNWithK(), directToLDS, op.getLdsLayoutNxK(),
+          op.getSplitKAcrossThreadsFirstB());
     }
+
+    auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
+                          Value loopVar, Type argType, int64_t repeats,
+                          bool loadFromLDS, bool isA) -> Value {
+      Value inputBuffer = buffer;
+      SmallVector<int64_t> shape;
+      if (directToLDS) {
+        shape.push_back(kBasePerThread);
+        auto memrefType = cast<MemRefType>(buffer.getType());
+        assert(memrefType.getRank() == 1);
+        assert(memrefType.getElementType() == b.getI8Type());
+        int64_t numBytes = getByteWidth(argType);
+        if (memrefType.getShape()[0] > kBasePerThread * numBytes) {
+          assert(memrefType.getShape()[0] ==
+                 kBasePerThread * repeats * numBytes);
+          shape.insert(shape.begin(), repeats);
+        } else {
+          assert(memrefType.getShape()[0] == kBasePerThread * numBytes);
+        }
+        // view for generateThreadwiseViewBuffer()
+        buffer = viewBufferAs(b, buffer, argType, shape);
+      }
+
+      if (loadFromLDS) {
+        Value viewForReadInto = buffer;
+        if (directToLDS) {
+          SmallVector<int64_t> shapeForLoad(shape);
+          if (auto vectorType = dyn_cast<VectorType>(argType)) {
+            assert(vectorType.hasRank() == 1 && "Expected rank 1");
+            shapeForLoad[shapeForLoad.size() - 1] =
+                vectorType.getDimSize(0) *
+                shapeForLoad[shapeForLoad.size() - 1];
+          }
+          viewForReadInto = viewBufferAs(
+              b, inputBuffer, getElementTypeOrSelf(argType), shapeForLoad);
+        }
+        // regs = read from LDS
+        ThreadwiseReadIntoOp::create(
+            b, loc, wrappedLDSBufferForLoad, viewForReadInto,
+            b.getArrayAttr({}), ValueRange{tid, loopVar}, /*forceUnroll=*/true,
+            /*useIndexDiffs=*/true);
+      } else {
+        if (cast<ShapedType>(buffer.getType()).getRank() == 1) {
+          StringRef dk = isA ? "mk" : "nk";
+          StringRef indexStr = isA ? "iidx" : "jidx";
+          BottomUpTMBuilder regsBuilder(b, {dk}, {repeats * kBasePerThread},
+                                        loc);
+          regsBuilder.unmerge({indexStr, "k"}, {0, 1}, dk,
+                              {repeats, kBasePerThread});
+          buffer =
+              rock::transform(b, buffer, b.getArrayAttr({regsBuilder.get()}));
+        }
+        buffer = rock::createSliceOfFirstDim(b, loc, buffer, loopVar);
+      }
+      return buffer;
+    };
 
     auto mLoop = affine::AffineForOp::create(b, loc, 0, mRepeats);
     {
@@ -490,22 +544,8 @@ struct BlockwiseGemmAccelRewritePattern
       Value i = mLoop.getInductionVar();
 
       Value bufferA = adaptor.getBufferA();
-      if (loadAFromLDS) {
-        // regsA = read A from LDS
-        ThreadwiseReadIntoOp::create(
-            b, loc, wrappedLDSBufferForLoadA, bufferA, b.getArrayAttr({}),
-            ValueRange{tid, i}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-      } else {
-        if (cast<ShapedType>(bufferA.getType()).getRank() == 1) {
-          BottomUpTMBuilder regsBuilder(b, {"mk"}, {mRepeats * kBasePerThread},
-                                        loc);
-          regsBuilder.unmerge({"iidx", "k"}, {0, 1}, "mk",
-                              {mRepeats, kBasePerThread});
-          bufferA =
-              rock::transform(b, bufferA, b.getArrayAttr({regsBuilder.get()}));
-        }
-        bufferA = rock::createSliceOfFirstDim(b, loc, bufferA, i);
-      }
+      bufferA = loadBuffer(bufferA, wrappedLDSBufferForLoadA, i, argTypeA,
+                           mRepeats, loadAFromLDS, true);
       Value viewA =
           accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferA);
 
@@ -516,22 +556,8 @@ struct BlockwiseGemmAccelRewritePattern
         Value j = nLoop.getInductionVar();
 
         Value bufferB = adaptor.getBufferB();
-        if (loadBFromLDS) {
-          // regsB = read B from LDS
-          ThreadwiseReadIntoOp::create(
-              b, loc, wrappedLDSBufferForLoadB, bufferB, b.getArrayAttr({}),
-              ValueRange{tid, j}, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-        } else {
-          if (cast<ShapedType>(bufferB.getType()).getRank() == 1) {
-            BottomUpTMBuilder regsBBuilder(b, {"nk"},
-                                           {nRepeats * kBasePerThread}, loc);
-            regsBBuilder.unmerge({"jidx", "k"}, {0, 1}, "nk",
-                                 {nRepeats, kBasePerThread});
-            bufferB = rock::transform(b, bufferB,
-                                      b.getArrayAttr({regsBBuilder.get()}));
-          }
-          bufferB = rock::createSliceOfFirstDim(b, loc, bufferB, j);
-        }
+        bufferB = loadBuffer(bufferB, wrappedLDSBufferForLoadB, j, argTypeB,
+                             nRepeats, loadBFromLDS, false);
         Value viewB =
             accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
 
@@ -637,7 +663,7 @@ struct BlockwiseReduceRewritePattern
   }
 
   // This function will append views to target a flat LDS buffer
-  // where non-reduction dims are laid contigously as they are expected
+  // where non-reduction dims are laid contiguously as they are expected
   // function on parallel.
   ArrayAttr createLDSWorkspaceView(
       Location loc, PatternRewriter &rewriter, ArrayAttr regTensorView,
@@ -894,7 +920,7 @@ struct BlockwiseReduceRewritePattern
                             rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{numElements},
         /*strides=*/ArrayRef<int64_t>{1},
-        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
@@ -937,7 +963,7 @@ struct BlockwiseReduceRewritePattern
                             rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{threadSubTile2DShape[nrDim], 1},
         /*strides=*/ArrayRef<int64_t>{1, 1},
-        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
@@ -952,7 +978,7 @@ struct BlockwiseReduceRewritePattern
           ArrayRef<Attribute>{inputBlockSubTile2dView},
           /*bounds=*/ArrayRef<int64_t>{1, 1},
           /*strides=*/ArrayRef<int64_t>{1, 1},
-          /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+          /*forceUnroll=*/true, /*useIndexDiffs=*/true);
       {
         OpBuilder::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(convertToBlockSubTile.getBody());
@@ -969,7 +995,7 @@ struct BlockwiseReduceRewritePattern
             ArrayRef<Attribute>{tidSubTileSliceView},
             /*bounds=*/ArrayRef<int64_t>{1},
             /*strides=*/ArrayRef<int64_t>{1},
-            /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+            /*forceUnroll=*/true, /*useIndexDiffs=*/true);
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(
@@ -982,7 +1008,7 @@ struct BlockwiseReduceRewritePattern
               ArrayRef<Attribute>{toFlatLDSView},
               /*bounds=*/ArrayRef<int64_t>{1, 1},
               /*strides=*/ArrayRef<int64_t>{1, 1},
-              /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+              /*forceUnroll=*/true, /*useIndexDiffs=*/true);
           {
             OpBuilder::InsertionGuard guard(rewriter);
             rewriter.setInsertionPointToStart(ldsStoreloop.getBody());

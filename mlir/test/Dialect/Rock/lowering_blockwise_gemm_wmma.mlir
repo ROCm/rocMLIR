@@ -10,13 +10,15 @@ func.func @rock_blockwise_gemm_accel_wmma(%matrixA : memref<16xvector<8xf16>, #w
   // CHECK: affine.for {{.*}} = 0 to 1
   // CHECK: rock.threadwise_read_into
   // CHECK: rock.threadwise_accel_gemm
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = wmma{
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB  from %matrixB features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 32 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
     loadAfromLDS,
     loadBfromLDS,
+    elementTypeA = f16,
+    elementTypeB = f16,
     params = #rock.wmma_gemm_params<
       kpackPerBlock = 4,
       kpack = 8,
@@ -47,6 +49,8 @@ func.func @rock_blockwise_gemm_accel_wmma_largekpack(%matrixA : memref<32xvector
     inNPerThread = 2 : i32,
     loadAfromLDS,
     loadBfromLDS,
+    elementTypeA = f16,
+    elementTypeB = f16,
     params = #rock.wmma_gemm_params<
       mPerBlock = 32,
       nPerBlock = 32,
@@ -58,7 +62,7 @@ func.func @rock_blockwise_gemm_accel_wmma_largekpack(%matrixA : memref<32xvector
       scheduleVersion = 1, 
       outputSwizzle = 2,
       forceUnroll = true>
-  } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv> from memref<32xvector<8xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<32xvector<8xf16>, #wg>
+  } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv>  from memref<32xvector<8xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<32xvector<8xf16>, #wg>
   return
 }
 
@@ -77,6 +81,8 @@ func.func @rock_blockwise_gemm_accel_wmma_int8(%matrixA : memref<32xvector<16xi8
     inNPerThread = 2 : i32,
     loadAfromLDS,
     loadBfromLDS,
+    elementTypeA = i8,
+    elementTypeB = i8,
     params = #rock.wmma_gemm_params<
       mPerBlock = 64,
       nPerBlock = 64,
@@ -105,6 +111,8 @@ func.func @rock_blockwise_gemm_accel_wmma_double_buffer(%matrixA : memref<16xvec
     blockSize = 32 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    elementTypeA = f16,
+    elementTypeB = f16,
     params = #rock.wmma_gemm_params<
       kpackPerBlock = 4,
       kpack = 8,

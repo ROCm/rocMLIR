@@ -59,13 +59,12 @@ class PerfConfig:
 class MLIROnlyConfig(ConvConfiguration):
 
     def __repr__(self):
-        perf_config_str = str(self.perfconfig) if self.perfconfig else ""
-        v4r1_str = str(self.uses_v4r1) if self.uses_v4r1 else "1"
+        perf_config_str = str(self.perfConfig) if self.perfConfig else ""
         return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.conv_stride_h!r}, convStrideW={self.conv_stride_w!r}, paddingHL={self.padding_hl!r}, paddingHR={self.padding_hr!r},
                 paddingWL={self.padding_wl!r}, paddingWR={self.padding_wr!r}, dilationH={self.dilation_h!r}, dilationW={self.dilation_w!r},
-                group={self.group!r}, arch={self.arch!r}, usesV4R1={v4r1_str!r}, perfConfig={perf_config_str!r})"""
+                group={self.group!r}, arch={self.arch!r}, perfConfig={perf_config_str!r})"""
 
     def generate_mlir_driver_commandline(self,
                                          rocmlir_gen_flags) -> Sequence[str]:
@@ -96,8 +95,11 @@ class MLIROnlyConfig(ConvConfiguration):
             str(self.padding_wr)
         ]
 
-        if self.direction == 'bwd' and self.uses_v4r1 is not None:
-            result += ['-v4r1', str(self.uses_v4r1)]
+        # Under the hood MIGraphX will use -v4r1 0 (i.e., all the gemms it
+        # creates are in a single kernel), so we want to make sure that this
+        # is the path this is tested.
+        if self.direction == 'bwd':
+            result += ['-v4r1', '0']
 
         result += rocmlir_gen_flags
 
@@ -128,7 +130,6 @@ class MLIROnlyConfig(ConvConfiguration):
                  dilation_w: int,
                  group: int,
                  arch: str,
-                 uses_v4r1: Optional[int] = None,
                  perfconfig: Optional[PerfConfig] = None):
         if dtype not in {"f16", "f32", "bf16", "i8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
@@ -162,7 +163,6 @@ class MLIROnlyConfig(ConvConfiguration):
         self.group = group
         self.arch = arch
         self.perfconfig = perfconfig
-        self.uses_v4r1 = uses_v4r1
         self.ho = math.floor(
             (self.hi + self.padding_hl + self.padding_hr -
              (self.y - 1) * self.dilation_h - 1) / self.conv_stride_h) + 1
@@ -397,47 +397,33 @@ async def sweep_parameters(param_iter: Iterable[IterType],
     return (passed, invalid, failing_configs)
 
 
-def filtered_conv_structure():
-    for size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw, uses_v4r1 in itertools.product(
-            # Small/large - that is, do we have padding
-        [False, True],
-            # op
-        ['fwd', 'wrw', 'bwd'],
-            # layout
-        ['NCHW', 'NHWC'],
-            # dtype
-            # TODO(kdrewnia): add bf16 once we're confident in that support
-            # and add int8 for fwd only
-        ['f32', 'f16'],
-            # Padding - hl, hr, wl, wr in [0, 3]
-            # [0, 3] hits the cases 0, < y/x, == y/x, > y/x
-            range(0, 4),
-            range(0, 4),
-            range(0, 4),
-            range(0, 4),
-            # Stride - 1 or 2 - all meaningful strides before breaking past h/w=4
-            range(1, 3),
-            range(1, 3),
-            # Dilation in [1, 2] - all meaningful dilations before breaking past h/w=4
-            range(1, 3),
-            range(1, 3),
-            # UsesV4R1
-            # Note: This only applies to bwd_data ops, it will be a no-op for all others
-            range(0, 1)):
-        # Only include uses_v4r1 for bwd ops, otherwise set to None
-        if op == 'bwd':
-            yield (size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw,
-                   uses_v4r1)
-        else:
-            yield (size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw,
-                   None)
-
-
-CONV_STRUCTURE = filtered_conv_structure()
+CONV_STRUCTURE = itertools.product(
+    # Small/large - that is, do we have padding
+    [False, True],
+    # op
+    ['fwd', 'wrw', 'bwd'],
+    # layout
+    ['NCHW', 'NHWC'],
+    # dtype
+    # TODO(kdrewnia): add bf16 once we're confident in that support
+    # and add int8 for fwd only
+    ['f32', 'f16'],
+    # Padding - hl, hr, wl, wr in [0, 3]
+    # [0, 3] hits the cases 0, < y/x, == y/x, > y/x
+    range(0, 4),
+    range(0, 4),
+    range(0, 4),
+    range(0, 4),
+    # Stride - 1 or 2 - all meaningful strides before breaking past h/w=4
+    range(1, 3),
+    range(1, 3),
+    # Dilation in [1, 2] - all meaningful dilations befor breaking past h/w=4
+    range(1, 3),
+    range(1, 3))
 
 
 def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
-    size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw, uses_v4r1 = params
+    size, op, layout, dtype, phl, phr, pwl, pwr, sh, sw, dh, dw = params
     # Fixed parameters, y = x = 2, hi = wi = 4, g = 1
     g, hi, wi, y, x = 1, 4, 4, 2, 2
     if size:
@@ -447,8 +433,7 @@ def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
         # Values of n, c, k, meant to be small and to hit the padding kernel
         n, c, k = 1, 7, 7
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw,
-                          phl, phr, pwl, pwr, dh, dw, g, options.arch,
-                          uses_v4r1)
+                          phl, phr, pwl, pwr, dh, dw, g, options.arch)
 
 
 WMMA_PERF_CONFIG = itertools.product(
@@ -535,7 +520,7 @@ VANILLA_PERF_CONFIG = itertools.product(
     # splitKFactor (exponent)
     range(0, 1),
     # scheduleVersion
-    range(1, 3))
+    range(1, 5))
 
 
 def to_vanilla_perf_config_test(params, options: Options) -> MLIROnlyConfig:
@@ -564,7 +549,7 @@ async def run_config(param_iter: Iterable[IterType],
                                                    kernel_repeats=None)))
     print(
         f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
-    return len(failures) == 0
+    return len(failures) == 0 and n_passes > 0
 
 
 def main() -> bool:

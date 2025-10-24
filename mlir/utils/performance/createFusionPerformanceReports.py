@@ -6,16 +6,13 @@ import pandas as pd
 import sys
 
 
-# Create html reports from .csv files
+#Create html reports from .csv files
 def print_all_performance(chip, op):
 
     columns_to_average = ['Fusion TFlops', 'MLIR TFlops', 'Fusion/MLIR']
-    try:
-        df = pd.read_csv(chip + '_' + op + '_' +
-                         reportUtils.PERF_REPORT_FUSION_FILE)
-    except FileNotFoundError:
-        print('Perf report not found.')
-        return
+
+    df = pd.read_csv(chip + '_' + op + '_' +
+                     reportUtils.PERF_REPORT_FUSION_FILE)
 
     plot_mean = df[columns_to_average].agg(reportUtils.geo_mean)
     plot_mean.name = "Geo. mean"
@@ -47,5 +44,12 @@ def print_all_performance(chip, op):
 
 # Main function.
 if __name__ == '__main__':
-    print_all_performance(sys.argv[1], 'conv')
-    print_all_performance(sys.argv[1], 'gemm')
+    try:
+        print_all_performance(sys.argv[1], 'conv')
+        print_all_performance(sys.argv[1], 'gemm')
+    except FileNotFoundError:
+        print(f'Error: No performance report found for {sys.argv[1]}')
+        sys.exit(1)
+    except Exception as e:
+        print(f'Error: {e}')
+        sys.exit(1)

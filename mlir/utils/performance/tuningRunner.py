@@ -18,15 +18,11 @@ from perfRunner import AttentionConfiguration
 from perfRunner import GemmGemmConfiguration
 from perfRunner import ConvGemmConfiguration
 from perfRunner import Paths
-from perfRunner import MLIR_N_REPEATS as NUM_ITERATIONS
+from perfRunner import MLIR_N_REPEATS, WARMUP_ITERATIONS, TRIM_PERCENT, SLEEP_MS
 from perfCommonUtils import CORRECT_RESULT_RE
 
 import numpy as np
 import pandas as pd
-
-WARMUP_ITERATIONS = 10
-TRIM_PERCENT = 10
-SLEEP_MS = 1
 
 
 @dataclass(frozen=True)
@@ -182,15 +178,15 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
     winners = {}
     tuning_driver_args = [
         f"--tuning-space={options.tuning_space_kind}",
-        f"--num-iterations={NUM_ITERATIONS}",
+        f"--num-iterations={MLIR_N_REPEATS}",
         f"--warmup-iterations={WARMUP_ITERATIONS}",
         f"--trim-percent={TRIM_PERCENT}", f"--sleep-ms={SLEEP_MS}"
     ]
     for test_vector in configs:
         if not test_vector.endswith(".mlir"):
             command_line = test_vector.split(sep=' ')
-            config = conf_class.from_command_line(command_line, options.arch,
-                                                  options.num_cu)
+            config = conf_class.fromCommandLine(command_line, options.arch,
+                                                options.num_cu)
             test_vector = config.to_command_line()
             print("Tuning:", test_vector, file=sys.stderr)
             command_line_options = config.generate_mlir_driver_commandline(

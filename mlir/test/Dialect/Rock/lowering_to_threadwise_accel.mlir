@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
+// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
 
 // CHECK-LABEL: @rock_gemm_schedulev2
 func.func @rock_gemm_schedulev2(%arg0: memref<1x128x128xf16>, %arg1: memref<1x128x115200xf16>, %arg2: memref<1x128x115200xf32>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, grid_size = 3600 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
@@ -16,9 +16,9 @@ func.func @rock_gemm_schedulev2(%arg0: memref<1x128x128xf16>, %arg1: memref<1x12
     // CHECK: name = "GlobalRead"
     // CHECK: rock.stage 
     // CHECK: rock.threadwise_copy
-    // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
     // CHECK-SAME: memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
     // CHECK-SAME: memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
     // CHECK: name = "LDSWrite"
@@ -69,9 +69,9 @@ func.func @rock_gemm_schedulev1(%arg0: memref<1x128x128xf16>, %arg1: memref<1x12
     // CHECK: name = "GlobalRead"
     // CHECK: rock.stage 
     // CHECK: rock.threadwise_copy
-    // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
     // CHECK-SAME: memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
     // CHECK-SAME: memref<256x16xvector<8xf16>, #gpu.address_space<workgroup>>
     // CHECK: name = "LDSWrite"
@@ -116,9 +116,9 @@ func.func @rock_conv_gkc01_n01gc_ngk01_0_schedulev2(%arg0: memref<1x32x32xf16>, 
     // CHECK: name = "GlobalRead"
     // CHECK: rock.stage 
     // CHECK: rock.threadwise_copy
-    // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
     // CHECK-SAME: memref<256x4xvector<4xf16>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
     // CHECK-SAME: memref<256x8xvector<4xf16>, #gpu.address_space<workgroup>>
     // CHECK: name = "LDSWrite"
@@ -170,9 +170,9 @@ func.func @rock_conv_gkc01_n01gc_ngk01_0_schedulev1(%arg0: memref<1x32x32xf16>, 
     // CHECK: name = "GlobalRead"
     // CHECK: rock.stage 
     // CHECK: rock.threadwise_copy
-    // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
     // CHECK-SAME: memref<256x4xvector<4xf16>, #gpu.address_space<workgroup>>
+    // CHECK: rock.threadwise_copy
     // CHECK: rock.threadwise_write_all 
     // CHECK-SAME: memref<256x8xvector<4xf16>, #gpu.address_space<workgroup>>
     // CHECK: name = "LDSWrite"
