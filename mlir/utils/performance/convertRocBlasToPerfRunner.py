@@ -9,38 +9,38 @@ def stringify(config):
     return ' '.join(key + " " + val for key, val in config.items())
 
 
-def convertToPerfRunner(rocblasIns):
-    perfRunnerIns = {}
+def convert_to_perfrunner(rocblas_ins):
+    perfrunner_ins = {}
 
     # Default values (from rocblas-bench)
-    perfRunnerIns["-transA"] = "true"
-    perfRunnerIns["-transB"] = "true"
-    perfRunnerIns["-g"] = "1"
-    perfRunnerIns["-m"] = "128"
-    perfRunnerIns["-n"] = "128"
-    perfRunnerIns["-k"] = "128"
+    perfrunner_ins["-transA"] = "true"
+    perfrunner_ins["-transB"] = "true"
+    perfrunner_ins["-g"] = "1"
+    perfrunner_ins["-m"] = "128"
+    perfrunner_ins["-n"] = "128"
+    perfrunner_ins["-k"] = "128"
 
     # Convert the values to perfRunner values
-    for ii in range(1, len(rocblasIns), 2):
-        if rocblasIns[ii] == "-m":
-            perfRunnerIns["-m"] = rocblasIns[ii + 1]
-        elif rocblasIns[ii] == "-k":
-            perfRunnerIns["-k"] = rocblasIns[ii + 1]
-        elif rocblasIns[ii] == "-n":
-            perfRunnerIns["-n"] = rocblasIns[ii + 1]
-        elif "_type" in rocblasIns[ii]:
-            t = rocblasIns[ii + 1][0:3]
-            if "-t" in perfRunnerIns and perfRunnerIns["-t"] != t:
+    for ii in range(1, len(rocblas_ins), 2):
+        if rocblas_ins[ii] == "-m":
+            perfrunner_ins["-m"] = rocblas_ins[ii + 1]
+        elif rocblas_ins[ii] == "-k":
+            perfrunner_ins["-k"] = rocblas_ins[ii + 1]
+        elif rocblas_ins[ii] == "-n":
+            perfrunner_ins["-n"] = rocblas_ins[ii + 1]
+        elif "_type" in rocblas_ins[ii]:
+            t = rocblas_ins[ii + 1][0:3]
+            if "-t" in perfrunner_ins and perfrunner_ins["-t"] != t:
                 raise (ValueError("Mixed Layouts"))
-            perfRunnerIns["-t"] = t
-        elif rocblasIns[ii] == "--batch_count":
-            perfRunnerIns["-g"] = rocblasIns[ii + 1]
-        elif rocblasIns[ii] == "--transposeA" and rocblasIns[ii + 1] == "N":
-            perfRunnerIns["-transA"] = "false"
-        elif rocblasIns[ii] == "--transposeB" and rocblasIns[ii + 1] == "N":
-            perfRunnerIns["-transB"] = "false"
+            perfrunner_ins["-t"] = t
+        elif rocblas_ins[ii] == "--batch_count":
+            perfrunner_ins["-g"] = rocblas_ins[ii + 1]
+        elif rocblas_ins[ii] == "--transposeA" and rocblas_ins[ii + 1] == "N":
+            perfrunner_ins["-transA"] = "false"
+        elif rocblas_ins[ii] == "--transposeB" and rocblas_ins[ii + 1] == "N":
+            perfrunner_ins["-transB"] = "false"
 
-    return stringify(perfRunnerIns)
+    return stringify(perfrunner_ins)
 
 
 def main():
@@ -50,10 +50,7 @@ def main():
         allow_abbrev=False,
     )
 
-    parser.add_argument("-c",
-                        "--config-file",
-                        type=str,
-                        help="Config file to convert")
+    parser.add_argument("-c", "--config-file", type=str, help="Config file to convert")
 
     parser.add_argument("-o", "--output-file", type=str, help="New configfile")
 
@@ -63,21 +60,20 @@ def main():
     configs = []
 
     # Convert the input file line by line
-    for l in fin:
-        rocblasInputs = l.split(' ')
-        if l.startswith("#"):
+    for line in fin:
+        rocblas_inputs = line.split(' ')
+        if line.startswith("#"):
             continue
-        if l.isspace():
+        if line.isspace():
             continue
-        configs.append(convertToPerfRunner(rocblasInputs))
+        configs.append(convert_to_perfrunner(rocblas_inputs))
 
     # Save the result into the output file
     fout = open(parsed_args.output_file, 'w')
-    cmdLine = subprocess.list2cmdline(sys.argv[0:])
+    cmdline = subprocess.list2cmdline(sys.argv[0:])
 
-    print("# This file has been generated with the following command:",
-          file=fout)
-    print(f"# {cmdLine}\n", file=fout)
+    print("# This file has been generated with the following command:", file=fout)
+    print(f"# {cmdline}\n", file=fout)
 
     for config in configs:
         print(config, file=fout)
