@@ -2573,8 +2573,9 @@ struct GridwiseAttentionAccelRewritePattern
               /*splitKAcrossThreadsFirstB=*/nullptr, /*directToLDS=*/nullptr,
               /*ldsLayoutMxK=*/nullptr, /*ldsLayoutNxK=*/nullptr,
               preAccelRegBufferV, preAccelRegBufferQxK, accRegBufferGemm1,
-              /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr, TypeAttr::get(elemTypeV), TypeAttr::get(elemTypeV), featuresAttr,
-             
+              /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr,
+              TypeAttr::get(elemTypeV), TypeAttr::get(elemTypeV), featuresAttr,
+
               op.getBlockSizeAttr(), gemm1TuningParams);
 
           // There is no second k-loop
