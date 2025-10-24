@@ -1662,7 +1662,7 @@ def benchmark_mlir(commandline,
             return config.table_entry(np.nan)
 
     nanoseconds = run_config_with_mlir(config, paths, arch, rocmlir_gen_flags, use_rocprof)
-    return config.tableEntry(nanoseconds)
+    return config.table_entry(nanoseconds)
 
 
 # Generate MLIR vs. MIOpen or rocBLAS performance results
