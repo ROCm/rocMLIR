@@ -177,7 +177,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
     for test_vector in configs:
         if not test_vector.endswith(".mlir"):
             command_line = test_vector.split(sep=' ')
-            config = conf_class.fromCommandLine(command_line, options.arch, options.num_cu)
+            config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
             test_vector = config.to_command_line()
             print("Tuning:", test_vector, file=sys.stderr)
             command_line_options = config.generate_mlir_driver_commandline(
