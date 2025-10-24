@@ -1827,176 +1827,6 @@ struct GridwiseAttentionAccelRewritePattern
     rewriter.setInsertionPointToStart(&ifb.getThenRegion().front());
   }
 
-  // This function will create fromGlobalRegsBuffer and toLDSRegBuffer for a
-  // gemm input
-  std::tuple<Value, Value>
-  createRegBuffersForGemmIn(Location loc, int64_t kPerBlock, int64_t blockSize,
-                            Type elemType, int64_t dPerBlock,
-                            PatternRewriter &rewriter) const {
-    auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
-    int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
-    Type loadBufferType = MemRefType::get(
-        {copyPerThread}, elemType, AffineMap{}, privateMemoryAddressSpace);
-    Value fromGlobalRegBuffer =
-        GpuAllocOp::create(rewriter, loc, loadBufferType);
-    Value toLDSRegBuffer = GpuAllocOp::create(rewriter, loc, loadBufferType);
-    return {fromGlobalRegBuffer, toLDSRegBuffer};
-  }
-
-  void loadGemmOperandsFromLDSToRegs(PatternRewriter &rewriter, Location loc,
-                                     Value ldsTileBuffer,
-                                     Value preAccelRegBuffer, StringRef dName,
-                                     int64_t blockSize, int64_t inDPerThread,
-                                     const accel::AccelEmitter &accelEmitterPtr,
-                                     bool rotateDWithK) const {
-    // Get current workitem ID.
-    auto tid = WorkitemIdOp::create(rewriter, loc, rewriter.getIndexType());
-    rock::accel::AccelEmitterParams accelParams = accelEmitterPtr.getParams();
-    Value wrappedLDSBufferForLoad = accelEmitterPtr.wrapLDSBufferForLoad(
-        rewriter, loc, ldsTileBuffer, blockSize, inDPerThread, dName,
-        rotateDWithK, false, false);
-    int64_t repeats =
-        dName == "m" ? accelParams.mRepeats : accelParams.nRepeats;
-    affine::AffineForOp mRepeatsLoop =
-        affine::AffineForOp::create(rewriter, loc, 0, repeats, 1);
-    {
-      PatternRewriter::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointToStart(mRepeatsLoop.getBody());
-      Value mi = mRepeatsLoop.getInductionVar();
-      Value subview = preAccelRegBuffer;
-      if (repeats > 1) {
-        subview = createSliceOfFirstDim(rewriter, loc, preAccelRegBuffer, mi);
-      }
-      ThreadwiseReadIntoOp::create(rewriter, loc, wrappedLDSBufferForLoad,
-                                   subview, rewriter.getArrayAttr({}),
-                                   ValueRange{tid, mi}, true, true);
-    }
-  }
-
-  // This function will process a tile of gemm input into LDS buffer
-  // in a way it could be fed to blockwise_gemm_accel op
-  LogicalResult loadAndStoreGemmInputTileAttn(
-      Location loc, Value in, Value kIter, Type elemType,
-      rock::layout::GridCoordinates gridCoords, Value fromGlobalRegBuffer,
-      Value toLDSRegBuffer, Value destBuffer, StringRef nonKDimName,
-      int64_t kpack, int64_t kpacksPerBlock, int64_t dPerBlock,
-      uint32_t blockSize, uint32_t gridSize, ArrayRef<StringRef> bidGridOrder,
-      ArrayRef<int64_t> bidGridLengths, bool forceUnroll,
-      PatternRewriter &rewriter, const accel::AccelEmitter &accelEmitter,
-      LDSLayoutConfigDim ldsLayoutCfg, bool barrierBeforeWrite) const {
-
-    MemRefType destBufferType = cast<MemRefType>(destBuffer.getType());
-    mlir::gpu::AddressSpace destBufferAddrSpace =
-        cast<gpu::AddressSpaceAttr>(destBufferType.getMemorySpace()).getValue();
-    bool isDestBufferLDS = destBufferAddrSpace == gpu::AddressSpace::Workgroup;
-    if (!isDestBufferLDS && destBufferAddrSpace != gpu::AddressSpace::Private) {
-      return emitError(loc) << "the destination buffer to load global input "
-                               "tile should either be LDS or Regs.\n";
-    }
-
-    int64_t kPerBlock = kpacksPerBlock * kpack;
-    int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
-    int64_t kGlobal = cast<MemRefType>(in.getType()).getShape()[1];
-    int64_t kIters = kGlobal / kPerBlock;
-    if (copyPerThread == 0) {
-      return emitError(loc) << "Block size too large, rejecting as invalid.\n";
-    }
-    FailureOr<VectorDimInfo> maybeVectorDimInfo = getVectorDim(
-        loc, in, elemType, blockSize, kPerBlock, dPerBlock, kpack, false);
-    if (failed(maybeVectorDimInfo)) {
-      return failure();
-    }
-    GemmDimension vectorDim = maybeVectorDimInfo->vectorDim;
-    FailureOr<RegsAsMatrixSubTiles> maybeInBufferViews;
-    if (!isDestBufferLDS) {
-      maybeInBufferViews = accelEmitter.createAccelGemmOperandTransforms(
-          rewriter, loc, kIters, bidGridLengths, blockSize,
-          maybeVectorDimInfo->inDPerThread, nonKDimName,
-          vectorDim == GemmDimension::K, false);
-    } else {
-      maybeInBufferViews = getLoadRegsAsTileViews(
-          rewriter, loc, in, nonKDimName, bidGridOrder, bidGridLengths,
-          blockSize, kPerBlock, dPerBlock, maybeVectorDimInfo->inKPerThread,
-          maybeVectorDimInfo->inDPerThread, vectorDim == GemmDimension::K,
-          false);
-    }
-    if (failed(maybeInBufferViews)) {
-      return failure();
-    }
-    Value viewIn = transform(rewriter, in, maybeInBufferViews->gridSubTile);
-    auto tid = WorkitemIdOp::create(rewriter, loc, rewriter.getIndexType());
-    ThreadwiseReadIntoOp::create(
-        rewriter, loc, vectorOfBoolShapedLike(fromGlobalRegBuffer), viewIn,
-        fromGlobalRegBuffer,
-        /*dynamicValidities=*/ValueRange{},
-        /*extraViews=*/rewriter.getArrayAttr({}),
-        ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
-                   gridCoords.n_block, tid},
-        forceUnroll, true);
-    if (isDestBufferLDS) {
-      // threadwiseView is iter --> K,D
-      // Hence we invert to create the reg buffer to be viewed
-      // as K x D memref
-      ArrayAttr loadBufferViews =
-          invertTransforms(rewriter, loc, maybeInBufferViews->threadSubTile);
-      Value viewLoadBuffer =
-          transform(rewriter, fromGlobalRegBuffer, loadBufferViews);
-
-      FailureOr<RegsAsMatrixSubTiles> maybeLdsStoreViews =
-          getPackedRegsAsTileViews(rewriter, loc, in, nonKDimName, bidGridOrder,
-                                   bidGridLengths, blockSize, kPerBlock,
-                                   dPerBlock, maybeVectorDimInfo->inKPerThread,
-                                   maybeVectorDimInfo->inDPerThread, kpack,
-                                   vectorDim == GemmDimension::K,
-                                   ldsLayoutCfg.doSwapThreadIterSubDims);
-      if (failed(maybeLdsStoreViews)) {
-        return failure();
-      }
-
-      LogicalResult storeGemmTileStatus = storeGemmInputTile(
-          rewriter, loc, kpack, viewLoadBuffer, maybeLdsStoreViews.value(),
-          toLDSRegBuffer, destBuffer, kpacksPerBlock, nonKDimName, kPerBlock,
-          dPerBlock, maybeVectorDimInfo->inKPerThread,
-          maybeVectorDimInfo->inDPerThread, forceUnroll,
-          ldsLayoutCfg.doRotateWithK, barrierBeforeWrite);
-      if (failed(storeGemmTileStatus)) {
-        return failure();
-      }
-    } else {
-      assert(!ldsLayoutCfg.doSwapThreadIterSubDims &&
-             "doSwapThreadIterSubDims must be false if the destination buffer "
-             "is private memory");
-      assert(!barrierBeforeWrite &&
-             "can't add a LDS barrier if the destination buffer is not LDS");
-      accel::AccelEmitterParams accelEmitterParams = accelEmitter.getParams();
-      int64_t dRepeats = (nonKDimName == "m" ? accelEmitterParams.mRepeats
-                                             : accelEmitterParams.nRepeats);
-      affine::AffineForOp dRepeatsLoop =
-          affine::AffineForOp::create(rewriter, loc, 0, dRepeats, 1);
-      {
-        PatternRewriter::InsertionGuard guard(rewriter);
-        rewriter.setInsertionPointToStart(dRepeatsLoop.getBody());
-        Value di = dRepeatsLoop.getInductionVar();
-        Value subview = destBuffer;
-        if (dRepeats > 1) {
-          subview = createSliceOfFirstDim(rewriter, loc, destBuffer, di);
-        }
-        // InBufferViews provide --> K x D subtile views.
-        // Since we are iterating on D dimension, we need to transpose it.
-        RegsAsMatrixSubTiles inBufferViewsTr =
-            transposeSubTileViews(rewriter, loc, maybeInBufferViews.value());
-        Value viewLoadedBuffer = transform(
-            rewriter, fromGlobalRegBuffer,
-            invertTransforms(rewriter, loc, inBufferViewsTr.threadSubTile));
-        ThreadwiseReadIntoOp::create(rewriter, loc, viewLoadedBuffer, subview,
-                                     rewriter.getArrayAttr({}), ValueRange{di},
-                                     true, true);
-      }
-    }
-    return success();
-  }
-
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
@@ -2171,22 +2001,6 @@ struct GridwiseAttentionAccelRewritePattern
       gemm1LDSByteBufferBSize = 0;
     }
 
-    // Buffers for Gemm0
-    Value fromGlobalRegBufferQ;
-    Value toLDSRegBufferQ;
-    if (doBypassLDSForQ) {
-      auto loadBufferType =
-          MemRefType::get({accelParamsGemm0.nRepeats *
-                           accelParamsGemm0.kpackPerThread * gemm0kpack},
-                          elemTypeQ, AffineMap{}, privateMemoryAddressSpace);
-      fromGlobalRegBufferQ = GpuAllocOp::create(rewriter, loc, loadBufferType);
-    } else {
-      std::tie(fromGlobalRegBufferQ, toLDSRegBufferQ) =
-          createRegBuffersForGemmIn(loc, gemm0KPerBlock, blockSize, elemTypeQ,
-                                    gemm0NPerBlock, rewriter);
-    }
-    auto [fromGlobalRegBufferK, toLDSRegBufferK] = createRegBuffersForGemmIn(
-        loc, gemm0KPerBlock, blockSize, elemTypeK, gemm0MPerBlock, rewriter);
     // Note that we dont provide nRepeats because we dont want
     // nRepeats times reg buffer to be created for B of gemm0
     // because we wont be prefetching that.
@@ -2283,8 +2097,6 @@ struct GridwiseAttentionAccelRewritePattern
     auto gemm1OutSubTileViews = maybeGemm1OutSubTileViews.value();
     RegsAsMatrixSubTiles gemm1OutSubTileViewsTr =
         transposeSubTileViews(rewriter, loc, gemm1OutSubTileViews);
-    auto [fromGlobalRegBufferV, toLDSRegBufferV] = createRegBuffersForGemmIn(
-        loc, gemm1KPerBlock, blockSize, elemTypeV, gemm1MPerBlock, rewriter);
     int64_t gemm1MPerThread =
         getLowerShape(gemm1OutSubTileViewsTr.threadSubTile)[0];
 
@@ -2375,37 +2187,18 @@ struct GridwiseAttentionAccelRewritePattern
       auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
           rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch, splitKVConst);
 
-      if (doBypassLDSForQ) {
-        LogicalResult statusLoadQTile = loadAndStoreGemmInputTileAttn(
-            loc, inQ, /*kiter=*/zero, elemTypeQLoad, gridCoordsGemm0LoadQ,
-            fromGlobalRegBufferQ, toLDSRegBufferQ, preAccelRegBuffersQ, "n",
-            gemm0kpack, gemm0KpacksPerBlock, gemm0NPerBlock, blockSize,
-            gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-            *accelEmitterPtrGemm0, ldsLayoutCfgNG0, false);
-        if (failed(statusLoadQTile)) {
-          return failure();
-        }
-      } else {
-        Value ldsByteBufferQ =
+      Value ldsByteBufferQ = nullptr;
+      auto loadTypeQ = GemmLoadTileType::BypassLDS;
+      if (!doBypassLDSForQ) {
+        loadTypeQ = GemmLoadTileType::DoubleBuffer;
+        ldsByteBufferQ =
             createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
-        LogicalResult statusLoadQ = loadAndStoreGemmInputTileAttn(
-            loc, inQ, /*kiter=*/zero, elemTypeQLoad, gridCoordsGemm0LoadQ,
-            fromGlobalRegBufferQ, toLDSRegBufferQ, ldsByteBufferQ, "n",
-            gemm0kpack, gemm0KpacksPerBlock, gemm0NPerBlock, blockSize,
-            gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-            *accelEmitterPtrGemm0, ldsLayoutCfgNG0, false);
-        if (failed(statusLoadQ)) {
-          return failure();
-        }
-        LDSBarrierOp::create(rewriter, loc);
-
-        TypedValue<MemRefType> ldsTileBufferQ = viewBufferAs(
-            rewriter, ldsByteBufferQ, vectorTypeOrSelf(elemTypeQ, gemm0kpack));
-        loadGemmOperandsFromLDSToRegs(rewriter, loc, ldsTileBufferQ,
-                                      preAccelRegBuffersQ, "n", blockSize,
-                                      gemm0InNPerThread, *accelEmitterPtrGemm0,
-                                      ldsLayoutCfgNG0.doRotateWithK);
       }
+      loadAndStoreGemmInputTile(
+          loc, inQ, /*kiter=*/zero, tid, gridCoordsGemm0LoadQ, ldsByteBufferQ,
+          preAccelRegBuffersQ, loadTypeQ, "n", blockSize, elemTypeK,
+          elemTypeKLoad, elemTypeQ, elemTypeQLoad, gemm0G, gemm0M, gemm0N,
+          rewriter, gemm0TuningParams, featuresAttr, ldsLayoutCfgNG0);
     }
 
     bool dynamicMLoop = splitKV != 1 || isCausal || isKVCache;
@@ -2419,9 +2212,19 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value mLoopIV = mLoopOp.getSingleInductionVar().value();
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-      auto gridCoordsGemm0 =
+      layout::GridCoordinates gridCoordsGemm0 =
           layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks,
                                     gridSize, arch, splitKVConst);
+
+      // LDS buffers
+      Value ldsByteBufferQ;
+      if (gemm0K != gemm0KPerBlock)
+        ldsByteBufferQ =
+            createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
+
+      Value ldsByteBufferK = createLDSByteBuffer(
+          rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
+
       affine::AffineForOp kLoopOp =
           affine::AffineForOp::create(rewriter, loc, 0, kIterationsGemm0, 1);
       {
@@ -2449,60 +2252,37 @@ struct GridwiseAttentionAccelRewritePattern
           LLVM_DEBUG(llvm::dbgs()
                      << "adding a barrier in the first gemm loop\n");
 
+        if (addBarrierFirstGemm)
+          LDSBarrierOp::create(rewriter, loc);
+
         // if gemm0K is equal to gemm0KPerBlock, the Q tile
         // is already prefetched into regs. See above.
         TypedValue<MemRefType> ldsTileBufferQ;
-        Value ldsByteBufferQ;
         if (gemm0K != gemm0KPerBlock) {
-          ldsByteBufferQ =
-              createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
-          LogicalResult statusLoadQ = loadAndStoreGemmInputTileAttn(
-              loc, inQ, kLoopIV, elemTypeQLoad, gridCoordsGemm0,
-              fromGlobalRegBufferQ, toLDSRegBufferQ, ldsByteBufferQ, "n",
-              gemm0kpack, gemm0KpacksPerBlock, gemm0NPerBlock, blockSize,
-              gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll,
-              rewriter, *accelEmitterPtrGemm0, ldsLayoutCfgNG0,
-              addBarrierFirstGemm);
-          if (failed(statusLoadQ)) {
-            return failure();
-          }
-          // no need to add a barrier in the next call to
-          // loadAndStoreGemmInputTileAttn()
-          addBarrierFirstGemm = false;
+          loadAndStoreGemmInputTile(
+              loc, inQ, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferQ,
+              preAccelRegBuffersQ, GemmLoadTileType::DoubleBuffer, "n",
+              blockSize, elemTypeK, elemTypeKLoad, elemTypeQ, elemTypeQLoad,
+              gemm0G, gemm0M, gemm0N, rewriter, gemm0TuningParams, featuresAttr,
+              ldsLayoutCfgNG0);
           ldsTileBufferQ =
               viewBufferAs(rewriter, ldsByteBufferQ,
                            vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         }
-        // if we added a barrier in the previous block (load Q), there's no need
-        // to add it again here.
-        Value ldsByteBufferK = createLDSByteBuffer(
-            rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
-        LogicalResult statusLoadKTile = loadAndStoreGemmInputTileAttn(
-            loc, inK, kLoopIV, elemTypeKLoad, gridCoordsGemm0,
-            fromGlobalRegBufferK, toLDSRegBufferK, ldsByteBufferK, "m",
-            gemm0kpack, gemm0KpacksPerBlock, gemm0MPerBlock, blockSize,
-            gridSize, bidGridOrder, gemm0BidGridLengths, forceUnroll, rewriter,
-            *accelEmitterPtrGemm0, ldsLayoutCfgMG0, addBarrierFirstGemm);
-        if (failed(statusLoadKTile)) {
-          return failure();
-        }
+
+        loadAndStoreGemmInputTile(
+            loc, inK, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferK,
+            preAccelRegBufferK, GemmLoadTileType::Default, "m", blockSize,
+            elemTypeK, elemTypeKLoad, elemTypeQ, elemTypeQLoad, gemm0G, gemm0M,
+            gemm0N, rewriter, gemm0TuningParams, featuresAttr, ldsLayoutCfgMG0);
         TypedValue<MemRefType> ldsTileBufferK = viewBufferAs(
             rewriter, ldsByteBufferK, vectorTypeOrSelf(elemTypeK, gemm0kpack));
         // LDS barrier.
         LDSBarrierOp::create(rewriter, loc);
-        // if gemm0K is equal to gemm0KPerBlock, the Q tile
-        // is already prefetched into regs. See above.
-        if (gemm0K != gemm0KPerBlock) {
-          loadGemmOperandsFromLDSToRegs(
-              rewriter, loc, ldsTileBufferQ, preAccelRegBuffersQ, "n",
-              blockSize, gemm0InNPerThread, *accelEmitterPtrGemm0,
-              ldsLayoutCfgNG0.doRotateWithK);
-        }
 
         // Emit lowered blockwise GEMM 0.
         BlockwiseGemmAccelOp::create(
-            rewriter, loc, ldsTileBufferK,
-            ldsTileBufferQ ? ldsTileBufferQ : ldsTileBufferK,
+            rewriter, loc, ldsTileBufferK, ldsTileBufferQ,
             rewriter.getI32IntegerAttr(gemm0InMPerThread),
             rewriter.getI32IntegerAttr(gemm0InNPerThread),
             /*rotateMWithK=*/nullptr,
@@ -2512,7 +2292,8 @@ struct GridwiseAttentionAccelRewritePattern
             /*splitKAcrossThreadsFirstB=*/nullptr,
             /*directToLDS=*/nullptr, /*ldsLayoutMxK=*/nullptr,
             /*ldsLayoutNxK=*/nullptr, preAccelRegBufferK, preAccelRegBuffersQ,
-            accRegBufferGemm0, featuresAttr, op.getBlockSizeAttr(),
+            accRegBufferGemm0, TypeAttr::get(elemTypeK),
+            TypeAttr::get(elemTypeQ), featuresAttr, op.getBlockSizeAttr(),
             gemm0TuningParams);
       }
       accelEmitterPtrGemm0->computeOutputConversion(
@@ -2666,9 +2447,10 @@ struct GridwiseAttentionAccelRewritePattern
         } else {
           gemm1RegBufferB = gemm0Out;
         }
-        Value wrappedLDSBufferForLoadB;
         Value gemm1LDSByteBufferB;
         TypedValue<MemRefType> gemm1LDSBufferB;
+        // TODO: extend BlockwiseLoadTileOp to support loading from register
+        // buffer (as below)
         if (!doBypassLDSSecondGemm) {
           // The output RegsAsSubTile views are N x M where N is reduction dim
           RegsAsMatrixSubTiles gemm0OutSubTileNxMViews = gemm0OutSubTileViews;
@@ -2676,7 +2458,7 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter, loc, gemm0OutSubTileNxMViews.threadSubTile);
           Value gemm0ExpNMThreadwiseView = transform(
               rewriter, gemm1RegBufferB, gemm0ThreadwiseSubtileViewNxMMaps);
-          // Correct the below toLDSViews to be max LDS vectorizable
+          // TODO: Correct the below toLDSViews to be max LDS vectorizable
           // (For now just hacked in the existing view)
           // Copy copyKPerThread is set to 1 because
           // K is not packed as kpack vectors. Therefore, setting
@@ -2699,11 +2481,10 @@ struct GridwiseAttentionAccelRewritePattern
           gemm1LDSBufferB =
               viewBufferAs(rewriter, gemm1LDSByteBufferB,
                            vectorTypeOrSelf(elemTypeV, gemm1kpack));
-          wrappedLDSBufferForLoadB = accelEmitterPtrGemm1->wrapLDSBufferForLoad(
-              rewriter, loc, gemm1LDSBufferB, op.getBlockSize(),
-              gemm1InNPerThread, "n", false, false, false);
         }
 
+        Value ldsByteBufferV = createLDSByteBuffer(
+            rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
         affine::AffineForOp g1MLoopOp =
             affine::AffineForOp::create(rewriter, loc, 0, gemm1MBlocks, 1);
         {
@@ -2722,9 +2503,6 @@ struct GridwiseAttentionAccelRewritePattern
               rewriter, loc, bid, g1MLoopIndVar, gemm1NBlocks, gridSize, arch,
               splitKVConst);
 
-          Value ldsByteBufferV = createLDSByteBuffer(
-              rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
-
           // LDS Barrier (issue 1811): some threads might be loading from LDS
           // while others are in the next iteration (here), writing to LDS. This
           // barrier prevents that. No need to have the barrier if there's just
@@ -2733,28 +2511,26 @@ struct GridwiseAttentionAccelRewritePattern
           bool g1MIterOneIter =
               g1MLoopIters.has_value() && g1MLoopIters.value() == 1;
           bool addBarrierSecondGemm = !g1MIterOneIter;
-          if (addBarrierSecondGemm)
+          if (addBarrierSecondGemm) {
             LLVM_DEBUG(llvm::dbgs()
                        << "adding a barrier in the second gemm loop\n");
-
-          LogicalResult statusLoadVTile = loadAndStoreGemmInputTileAttn(
-              loc, inV,
-              /*kIter=*/mLoopIV, elemTypeVLoad, gridCoordsGemm1,
-              fromGlobalRegBufferV, toLDSRegBufferV, ldsByteBufferV, "m",
-              gemm1kpack, gemm1KpacksPerBlock, gemm1MPerBlock, blockSize,
-              gridSize, bidGridOrder, gemm1BidGridLengths, forceUnroll,
-              rewriter, *accelEmitterPtrGemm1, ldsLayoutCfgMG1,
-              addBarrierSecondGemm);
-          if (failed(statusLoadVTile)) {
-            return failure();
+            LDSBarrierOp::create(rewriter, loc);
           }
+
+          loadAndStoreGemmInputTile(
+              loc, inV,
+              /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
+              preAccelRegBufferV, GemmLoadTileType::Default, "m", blockSize,
+              elemTypeV, elemTypeVLoad, elemTypeV, elemTypeVLoad, gemm0G,
+              gemm1M, gemm1N, rewriter, gemm1TuningParams, featuresAttr,
+              ldsLayoutCfgMG1);
           TypedValue<MemRefType> ldsTileBufferV =
               viewBufferAs(rewriter, ldsByteBufferV,
                            vectorTypeOrSelf(elemTypeV, gemm1kpack));
           // LDS barrier.
           LDSBarrierOp::create(rewriter, loc);
-          // Emit GEMM 1.
 
+          // Emit GEMM 1.
           if (doBypassLDSSecondGemm) {
             ArrayAttr gemm1ThreadwiseSubtileViewDxKMaps = invertTransforms(
                 rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
@@ -2778,8 +2554,7 @@ struct GridwiseAttentionAccelRewritePattern
           }
 
           BlockwiseGemmAccelOp::create(
-              rewriter, loc, ldsTileBufferV,
-              gemm1LDSBufferB ? gemm1LDSBufferB : ldsTileBufferV,
+              rewriter, loc, ldsTileBufferV, gemm1LDSBufferB,
               rewriter.getI32IntegerAttr(gemm1InMPerThread),
               rewriter.getI32IntegerAttr(gemm1InNPerThread),
               (ldsLayoutCfgMG1.doRotateWithK ? rewriter.getUnitAttr()
@@ -2793,7 +2568,8 @@ struct GridwiseAttentionAccelRewritePattern
               /*splitKAcrossThreadsFirstB=*/nullptr, /*directToLDS=*/nullptr,
               /*ldsLayoutMxK=*/nullptr, /*ldsLayoutNxK=*/nullptr,
               preAccelRegBufferV, preAccelRegBufferQxK, accRegBufferGemm1,
-              featuresAttr, op.getBlockSizeAttr(), gemm1TuningParams);
+              TypeAttr::get(elemTypeV), TypeAttr::get(elemTypeV), featuresAttr,
+              op.getBlockSizeAttr(), gemm1TuningParams);
 
           // There is no second k-loop
           // Therefore can get the output straight away
@@ -3205,7 +2981,8 @@ struct GridwiseGemmAccelRewritePattern
             (directToLDS ? b.getUnitAttr() : nullptr),
             (ldsLayoutConfigA.ldsLayoutDxK ? b.getUnitAttr() : nullptr),
             (ldsLayoutConfigB.ldsLayoutDxK ? b.getUnitAttr() : nullptr), arrayA,
-            arrayB, regCAllocOp, featuresAttr, op.getBlockSizeAttr(),
+            arrayB, regCAllocOp, TypeAttr::get(elementTypeA),
+            TypeAttr::get(elementTypeB), featuresAttr, op.getBlockSizeAttr(),
             op.getParamsAttr());
         YieldOp::create(b, loc);
       }

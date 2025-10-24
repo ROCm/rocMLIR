@@ -846,30 +846,25 @@ def Rock_TransformingForOp :
   }], [{ $_builder.getI32IntegerAttr($_self) }]>;
 
   let skipDefaultBuilders = 1;
-  let builders = [
-    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
-    "ArrayRef<Attribute>":$transforms,
-    "ArrayRef<int64_t>":$bounds, "std::optional<ArrayRef<int64_t>>":$strides,
-    "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "std::nullopt">:$iterArgs)>,
+  let builders =
+      [OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+           "ArrayRef<Attribute>":$transforms, "ArrayRef<int64_t>":$bounds,
+           "std::optional<ArrayRef<int64_t>>":$strides, "bool":$forceUnroll,
+           "bool":$useIndexDiffs, CArg<"ValueRange", "{}">:$iterArgs)>,
 
-    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
-    "ArrayRef<Attribute>":$transforms,
-    "ArrayAttr":$bounds, "ArrayAttr":$strides,
-    "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "std::nullopt">:$iterArgs)>,
+       OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
+           "ArrayRef<Attribute>":$transforms, "ArrayAttr":$bounds,
+           "ArrayAttr":$strides, "bool":$forceUnroll, "bool":$useIndexDiffs,
+           CArg<"ValueRange", "{}">:$iterArgs)>,
 
-    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
-    "ArrayAttr":$transforms,
-    "ArrayRef<int64_t>":$bounds, "std::optional<ArrayRef<int64_t>>":$strides,
-    "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "std::nullopt">:$iterArgs)>,
+       OpBuilder<(ins "ArrayRef<ValueRange>":$inits, "ArrayAttr":$transforms,
+           "ArrayRef<int64_t>":$bounds,
+           "std::optional<ArrayRef<int64_t>>":$strides, "bool":$forceUnroll,
+           "bool":$useIndexDiffs, CArg<"ValueRange", "{}">:$iterArgs)>,
 
-    OpBuilder<(ins "ArrayRef<ValueRange>":$inits,
-    "ArrayAttr":$transforms,
-    "ArrayAttr":$bounds, "ArrayAttr":$strides,
-    "bool":$forceUnroll, "bool":$useIndexDiffs,
-    CArg<"ValueRange", "std::nullopt">:$iterArgs)>];
+       OpBuilder<(ins "ArrayRef<ValueRange>":$inits, "ArrayAttr":$transforms,
+           "ArrayAttr":$bounds, "ArrayAttr":$strides, "bool":$forceUnroll,
+           "bool":$useIndexDiffs, CArg<"ValueRange", "{}">:$iterArgs)>];
 
   let extraClassDeclaration = [{
     void moveOutOfLoop(ArrayRef<Operation *> ops);
@@ -1363,9 +1358,9 @@ def Rock_BlockwiseGemmAccelOp
           UnitAttr:$splitKAcrossThreadsFirstB, UnitAttr:$directToLDS,
           UnitAttr:$ldsLayoutMxK, UnitAttr:$ldsLayoutNxK,
           MemRefOf<LdsBufferTypes>:$bufferA, MemRefOf<LdsBufferTypes>:$bufferB,
-          MemRefOf<AccelResTypes>:$matrixC,
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
-          RockAccelTuningParamAttrInterface:$params)> {
+          MemRefOf<AccelResTypes>:$matrixC, TypeAttr:$elementTypeA,
+          TypeAttr:$elementTypeB, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          I32Attr:$blockSize, RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
     The `rock.blockwise_gemm_accel` op does GEMM at workgroup (block) level.
