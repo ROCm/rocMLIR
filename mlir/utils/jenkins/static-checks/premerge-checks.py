@@ -31,10 +31,7 @@ def get_diff(base_commit, ignore_external_files: bool) -> Tuple[bool, str]:
     command = f"git-clang-format --diff {base_commit}"
     if ignore_external_files:
         command = f"git-clang-format --diff {base_commit} $(git diff --name-only {base_commit} | grep -v '^external/')"
-    diff_run = subprocess.run(command,
-                              shell=True,
-                              stdout=subprocess.PIPE,
-                              stderr=subprocess.PIPE)
+    diff_run = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     is_diff_run_succesful = diff_run.returncode <= 1
     diff = diff_run.stdout.decode()
     print(diff)
@@ -47,9 +44,7 @@ def check_external_file(filename: str) -> bool:
     return re.search(regex, filename)
 
 
-def run_clang_format(base_commit,
-                     ignore_config,
-                     ignore_external_files: bool = False):
+def run_clang_format(base_commit, ignore_config, ignore_external_files: bool = False):
     """Apply clang-format and return if no issues were found.
   Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_format_report.py"""
 
@@ -62,20 +57,17 @@ def run_clang_format(base_commit,
 
     if ignore_config is not None and os.path.exists(ignore_config):
         ignore_lines = open(ignore_config, 'r').readlines()
-    ignore = pathspec.PathSpec.from_lines(
-        pathspec.patterns.GitWildMatchPattern, ignore_lines)
+    ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, ignore_lines)
     patched_file: unidiff.PatchedFile
     success = True
     for patched_file in patches:
         # drop diff prefix
         patched_file_src = patched_file.source_file[2:]
         patched_file_tgt = patched_file.target_file[2:]
-        if ignore.match_file(patched_file_src) or ignore.match_file(
-                patched_file_tgt):
+        if ignore.match_file(patched_file_src) or ignore.match_file(patched_file_tgt):
             continue
         if ignore_external_files:
-            if check_external_file(patched_file_src) or check_external_file(
-                    patched_file_tgt):
+            if check_external_file(patched_file_src) or check_external_file(patched_file_tgt):
                 continue
         hunk: unidiff.Hunk
         for hunk in patched_file:
@@ -90,15 +82,14 @@ def run_clang_format(base_commit,
 
 
 def remove_ignored(diff_lines, ignore_patterns_lines):
-    ignore = pathspec.PathSpec.from_lines(
-        pathspec.patterns.GitWildMatchPattern, ignore_patterns_lines)
+    ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern,
+                                          ignore_patterns_lines)
     good = True
     result = []
     for line in diff_lines:
         match = re.search(r'^diff --git (.*) (.*)$', line)
         if match:
-            good = not (ignore.match_file(match.group(1)) and
-                        ignore.match_file(match.group(2)))
+            good = not (ignore.match_file(match.group(1)) and ignore.match_file(match.group(2)))
         if good:
             result.append(line)
     return result
@@ -114,9 +105,7 @@ def check_third_party_file(filename: str) -> bool:
     return not re.search(regex, filename)
 
 
-def run_clang_tidy(base_commit,
-                   ignore_config,
-                   ignore_external_files: bool = False):
+def run_clang_tidy(base_commit, ignore_config, ignore_external_files: bool = False):
     """Apply clang-tidy and return if no issues were found.
   Extracted from https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang_tidy_report.py"""
 
@@ -126,18 +115,15 @@ def run_clang_tidy(base_commit,
                        stderr=subprocess.PIPE)
     diff = r.stdout.decode("utf-8", "ignore")
     if ignore_config is not None and os.path.exists(ignore_config):
-        ignore = pathspec.PathSpec.from_lines(
-            pathspec.patterns.GitWildMatchPattern,
-            open(ignore_config, 'r').readlines())
-        diff = remove_ignored(diff.splitlines(keepends=True),
-                              open(ignore_config, 'r'))
+        ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern,
+                                              open(ignore_config, 'r').readlines())
+        diff = remove_ignored(diff.splitlines(keepends=True), open(ignore_config, 'r'))
     else:
-        ignore = pathspec.PathSpec.from_lines(
-            pathspec.patterns.GitWildMatchPattern, [])
+        ignore = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, [])
     cpu_count = multiprocessing.cpu_count()
     p = subprocess.Popen([
-        './external/llvm-project/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py',
-        '-p0', '-quiet', '-j',
+        './external/llvm-project/clang-tools-extra/clang-tidy/tool/clang-tidy-diff.py', '-p0',
+        '-quiet', '-j',
         str(cpu_count), '-extra-arg=-std=c++17'
     ],
                          stdout=subprocess.PIPE,
@@ -162,9 +148,7 @@ def run_clang_tidy(base_commit,
             severity = match.group(4)
             if severity in ['warning', 'error']:
                 if ignore.match_file(file_name):
-                    print(
-                        '{} is ignored by pattern and no comment will be added'
-                        .format(file_name))
+                    print('{} is ignored by pattern and no comment will be added'.format(file_name))
                     continue
                 if check_third_party_file(file_name):
                     print(
@@ -184,8 +168,7 @@ def run_clang_tidy(base_commit,
                     errors_count += 1
 
     if errors_count + warn_count != 0:
-        print('clang-tidy found {} errors and {} warnings.'.format(
-            errors_count, warn_count))
+        print('clang-tidy found {} errors and {} warnings.'.format(errors_count, warn_count))
 
     if errors_count != 0:
         return False
@@ -205,16 +188,12 @@ if __name__ == '__main__':
                         type=str,
                         default='origin/develop',
                         help="The base commit to lint against")
-    parser.add_argument('--ignore-external',
-                        action='store_true',
-                        default=False)
+    parser.add_argument('--ignore-external', action='store_true', default=False)
     parsed_args = parser.parse_args(args)
     print(f"Running linters against base commit : {parsed_args.base_commit}")
     if not (run_clang_format(
-            parsed_args.base_commit,
-            './mlir/utils/jenkins/static-checks/clang-format.ignore',
+            parsed_args.base_commit, './mlir/utils/jenkins/static-checks/clang-format.ignore',
             parsed_args.ignore_external) and run_clang_tidy(
-                parsed_args.base_commit,
-                './mlir/utils/jenkins/static-checks/clang-tidy.ignore',
+                parsed_args.base_commit, './mlir/utils/jenkins/static-checks/clang-tidy.ignore',
                 parsed_args.ignore_external)):
         exit(1)

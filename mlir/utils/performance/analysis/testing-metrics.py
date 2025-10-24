@@ -51,30 +51,24 @@ def analyze_gemm_file(file, n):
 
     gemm_keys = ['TransA', 'TransB', 'g', 'm', 'k', 'n']
     perfconfig_params = [
-        'm_per_block', 'n_per_block', 'KPerBlock', 'MPerWave', 'NPerWave',
-        'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore'
+        'm_per_block', 'n_per_block', 'KPerBlock', 'MPerWave', 'NPerWave', 'kPack',
+        'split_k_factor', 'forceUnroll', 'ThreadCopyMore'
     ]
 
     assert df["PerfConfig"].str.startswith(
         "v2:").all(), "PerfConfig that doesn't start with v2: found"
-    df[perfconfig_params] = df["PerfConfig"].str.replace("v2:", "").str.split(
-        ",", expand=True)
+    df[perfconfig_params] = df["PerfConfig"].str.replace("v2:", "").str.split(",", expand=True)
 
     df["ArithmeticIntensity"] = df.apply(
-        lambda row: calculate_arithmetic_intensity(row["m"], row["n"], row["k"]
-                                                  ),
-        axis=1)
-    df["mn_per_wave"] = df.apply(lambda row:
-                                 (int(row["MPerWave"]) * int(row["NPerWave"])),
-                                 axis=1)
-    df["Occupancy"] = df.apply(lambda row: calculate_occupancy(
-        int(row["m"]), int(row["n"]), int(row["g"]), int(row["m_per_block"]),
-        int(row["n_per_block"]), int(row["mn_per_wave"]), min_num_waves),
+        lambda row: calculate_arithmetic_intensity(row["m"], row["n"], row["k"]), axis=1)
+    df["mn_per_wave"] = df.apply(lambda row: (int(row["MPerWave"]) * int(row["NPerWave"])), axis=1)
+    df["Occupancy"] = df.apply(lambda row: calculate_occupancy(int(row["m"]), int(row[
+        "n"]), int(row["g"]), int(row["m_per_block"]), int(row[
+            "n_per_block"]), int(row["mn_per_wave"]), min_num_waves),
                                axis=1)
     df["WorkImbalance"] = df.apply(lambda row: calculate_work_imbalance(
-        int(row["m"]), int(row["n"]), int(row["g"]), int(row["m_per_block"]),
-        int(row["n_per_block"]), int(row["mn_per_wave"]), min_num_waves,
-        int(row["split_k_factor"])),
+        int(row["m"]), int(row["n"]), int(row["g"]), int(row["m_per_block"]), int(row[
+            "n_per_block"]), int(row["mn_per_wave"]), min_num_waves, int(row["split_k_factor"])),
                                    axis=1)
 
     top_list = []
@@ -84,8 +78,7 @@ def analyze_gemm_file(file, n):
             threshold = group['TFlops'].max()
             top_list.append(group[group['TFlops'] == threshold])
         if args.t == "mn":
-            threshold = group[group['TFlops'] >= (group['TFlops'].max() *
-                                                  (1 - n / 100))]
+            threshold = group[group['TFlops'] >= (group['TFlops'].max() * (1 - n / 100))]
             top_list.append(group[group['TFlops'] >= threshold])
         if args.t == "qn":
             threshold = group['TFlops'].quantile(1 - n / 100.0)
@@ -94,36 +87,31 @@ def analyze_gemm_file(file, n):
     list = pd.concat(top_list)
 
     df[[
-        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA',
-        'TransB', 'g', 'm', 'k', 'n', 'PerfConfig', 'LDSBankConflict',
-        'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock', 'MPerWave',
-        'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
+        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'g', 'm', 'k',
+        'n', 'PerfConfig', 'LDSBankConflict', 'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock',
+        'MPerWave', 'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
         'ArithmeticIntensity', 'Occupancy', 'WorkImbalance'
     ]] = df[[
-        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA',
-        'TransB', 'g', 'm', 'k', 'n', 'PerfConfig', 'LDSBankConflict',
-        'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock', 'MPerWave',
-        'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
+        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'g', 'm', 'k',
+        'n', 'PerfConfig', 'LDSBankConflict', 'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock',
+        'MPerWave', 'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
         'ArithmeticIntensity', 'Occupancy', 'WorkImbalance'
     ]].apply(pd.to_numeric, errors='coerce')
 
     list[[
-        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA',
-        'TransB', 'g', 'm', 'k', 'n', 'PerfConfig', 'LDSBankConflict',
-        'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock', 'MPerWave',
-        'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
+        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'g', 'm', 'k',
+        'n', 'PerfConfig', 'LDSBankConflict', 'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock',
+        'MPerWave', 'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
         'ArithmeticIntensity', 'Occupancy', 'WorkImbalance'
     ]] = list[[
-        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA',
-        'TransB', 'g', 'm', 'k', 'n', 'PerfConfig', 'LDSBankConflict',
-        'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock', 'MPerWave',
-        'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
+        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'g', 'm', 'k',
+        'n', 'PerfConfig', 'LDSBankConflict', 'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock',
+        'MPerWave', 'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
         'ArithmeticIntensity', 'Occupancy', 'WorkImbalance'
     ]].apply(pd.to_numeric, errors='coerce')
 
     params = [
-        'm_per_block', 'n_per_block', 'KPerBlock', 'MPerWave', 'NPerWave',
-        'kPack', 'split_k_factor'
+        'm_per_block', 'n_per_block', 'KPerBlock', 'MPerWave', 'NPerWave', 'kPack', 'split_k_factor'
     ]
 
     if args.m == "ai":
@@ -167,10 +155,7 @@ def analyze_gemm_file(file, n):
         for i, nmk in enumerate(['n', 'm', 'k']):
             for j, param in enumerate(params):
                 subplot = axes[i, j]
-                sns.scatterplot(x=list[param],
-                                y=list[nmk],
-                                alpha=0.7,
-                                ax=subplot)
+                sns.scatterplot(x=list[param], y=list[nmk], alpha=0.7, ax=subplot)
                 subplot.set_xlabel(param)
                 subplot.set_ylabel(nmk)
         plot_output("NMK_vs_perfconfig_params.png")
@@ -181,8 +166,7 @@ def analyze_gemm_file(file, n):
 def analyze_conv_file(file, n):
     # implementation goes here
 
-    raise NotImplementedError(
-        "The script is not implemented for analyzing conv files yet.")
+    raise NotImplementedError("The script is not implemented for analyzing conv files yet.")
 
 
 def calculate_arithmetic_intensity(m, n, k):
@@ -222,8 +206,7 @@ def calculate_work_imbalance(m,
     waves = workgroups * waves_per_block
     work_imbalance_interm_res = (waves % min_num_waves) / min_num_waves
 
-    return ((1 - (work_imbalance_interm_res))
-            if work_imbalance_interm_res != 0 else 0)
+    return ((1 - (work_imbalance_interm_res)) if work_imbalance_interm_res != 0 else 0)
 
 
 def plot_output(name):
@@ -244,22 +227,16 @@ def determine_file_type(file):
     elif "TransA" in header:
         return "gemm"
     else:
-        raise Exception(
-            "Invalid file format or support for filetype not implemented yet: {file}"
-        )
+        raise Exception("Invalid file format or support for filetype not implemented yet: {file}")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Analyze .tsv.debug file")
     parser.add_argument("files", nargs="+")
-    parser.add_argument("--n", type=float,
-                        default=5)  # percent of configs close to winning
-    parser.add_argument("--m", type=str,
-                        default="ai")  # plots to be shown: ai, oc, wi, nmk
-    parser.add_argument("--t", type=str,
-                        default="m")  # threshold formula: m, mn, qn
-    parser.add_argument("--o", type=str,
-                        default=None)  # Directory in case of saving the plots
+    parser.add_argument("--n", type=float, default=5)  # percent of configs close to winning
+    parser.add_argument("--m", type=str, default="ai")  # plots to be shown: ai, oc, wi, nmk
+    parser.add_argument("--t", type=str, default="m")  # threshold formula: m, mn, qn
+    parser.add_argument("--o", type=str, default=None)  # Directory in case of saving the plots
     parser.add_argument(
         "--c", type=int, default=None
     )  # num_cus (if data is not collected on the machine on which the script is executed)

@@ -31,28 +31,26 @@ MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 # In order to prevent issues with the tuning data reporting, 'PerfConfig'
 # MUST STAY LAST!
 CONV_TEST_PARAMETERS = [
-    'Direction', 'DataType', 'Chip', 'numCU', 'FilterLayout', 'InputLayout',
-    'OutputLayout', 'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH',
-    'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW', 'PerfConfig'
+    'Direction', 'DataType', 'Chip', 'numCU', 'FilterLayout', 'InputLayout', 'OutputLayout', 'N',
+    'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH',
+    'PaddingW', 'PerfConfig'
 ]
 GEMM_TEST_PARAMETERS = [
-    'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'G', 'M',
-    'K', 'N', 'PerfConfig'
+    'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'G', 'M', 'K', 'N', 'PerfConfig'
 ]
 ATTN_TEST_PARAMETERS = [
-    'DataType', 'Chip', 'numCU', 'TransQ', 'TransK', 'TransV', 'TransO',
-    'Causal', 'ReturnLSE', 'SplitKV', 'WithAttnScale', 'WithAttnBias', 'G',
-    'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV',
-    'PerfConfig'
+    'DataType', 'Chip', 'numCU', 'TransQ', 'TransK', 'TransV', 'TransO', 'Causal', 'ReturnLSE',
+    'SplitKV', 'WithAttnScale', 'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ',
+    'NumHeadsKV', 'HeadDimQK', 'HeadDimV', 'PerfConfig'
 ]
 GEMM_GEMM_TEST_PARAMETERS = [
-    'DataType', 'Chip', 'numCU', 'TransA', 'TransB', 'TransC', 'TransO', 'G',
-    'M', 'K', 'N', 'O', 'PerfConfig'
+    'DataType', 'Chip', 'numCU', 'TransA', 'TransB', 'TransC', 'TransO', 'G', 'M', 'K', 'N', 'O',
+    'PerfConfig'
 ]
 CONV_GEMM_TEST_PARAMETERS = [
-    'DataType', 'Chip', 'numCU', 'FilterLayout', 'InputLayout', 'TransC',
-    'TransO', 'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW',
-    'StrideH', 'StrideW', 'PaddingH', 'PaddingW', 'O', 'PerfConfig'
+    'DataType', 'Chip', 'numCU', 'FilterLayout', 'InputLayout', 'TransC', 'TransO', 'N', 'C', 'H',
+    'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW', 'O',
+    'PerfConfig'
 ]
 ROUND_DIGITS = 2
 
@@ -98,8 +96,7 @@ def color_for_changes(value):
         return ''
 
 
-def set_common_styles(styler: 'pd.io.formats.style.Styler', speedup_cols: list,
-                      colorizer):
+def set_common_styles(styler: 'pd.io.formats.style.Styler', speedup_cols: list, colorizer):
     styler.set_table_styles([{
         'selector': 'tbody tr:nth-child(odd)',
         'props': [('background-color', '#e0e0e0')]
@@ -107,15 +104,11 @@ def set_common_styles(styler: 'pd.io.formats.style.Styler', speedup_cols: list,
         'selector': 'tbody tr:nth-child(even)',
         'props': [('background-color', '#eeeeee')]
     }, {
-        'selector':
-            'table',
-        'props': [('background-color', '#dddddd'),
-                  ('border-collapse', 'collapse')]
+        'selector': 'table',
+        'props': [('background-color', '#dddddd'), ('border-collapse', 'collapse')]
     }, {
-        'selector':
-            'th, td',
-        'props': [('padding', '0.5em'), ('text-align', 'center'),
-                  ('max-width', '150px')]
+        'selector': 'th, td',
+        'props': [('padding', '0.5em'), ('text-align', 'center'), ('max-width', '150px')]
     }])
     styler.format(precision=ROUND_DIGITS, na_rep="---")
     for col in speedup_cols:
@@ -141,13 +134,10 @@ def clean_data_for_humans(data: pd.DataFrame, title: str)\
         parameters = ATTN_TEST_PARAMETERS
 
     index_cols = {k: k for k in parameters}  # Preserves order
-    if all((x in data.columns)
-           for x in {"FilterLayout", "InputLayout", "OutputLayout"}):
-        if (((data["FilterLayout"] == "kcyx") &
-             (data["InputLayout"] == "nchw") &
+    if all((x in data.columns) for x in {"FilterLayout", "InputLayout", "OutputLayout"}):
+        if (((data["FilterLayout"] == "kcyx") & (data["InputLayout"] == "nchw") &
              (data["OutputLayout"] == "nkhw")) |
-            ((data["FilterLayout"] == "kyxc") &
-             (data["InputLayout"] == "nhwc") &
+            ((data["FilterLayout"] == "kyxc") & (data["InputLayout"] == "nhwc") &
              (data["OutputLayout"] == "nhwk"))).all():
             # Layouts are consistent
             to_remove = {"FilterLayout", "OutputLayout"}
@@ -163,8 +153,7 @@ def clean_data_for_humans(data: pd.DataFrame, title: str)\
     # to keep it transparent what we are tracking.
     # We can revisit this if it ever becomes an issue.
     if len(columns_to_drop) > 0 and not is_attention:
-        title = title + ": " + ", ".join(
-            f"{c} = {data[c].iloc[0]}" for c in columns_to_drop)
+        title = title + ": " + ", ".join(f"{c} = {data[c].iloc[0]}" for c in columns_to_drop)
         data = data.drop(columns=columns_to_drop, inplace=False)
         for c in columns_to_drop:
             if c == "Layout" and index_cols.get("InputLayout", "") == "Layout":

@@ -32,8 +32,7 @@ def gen_attr_from_hsaco(args):
 
 
 def add_args():
-    parser = argparse.ArgumentParser(
-        description="Convert hsaco elf to rocMLIR serialized text.")
+    parser = argparse.ArgumentParser(description="Convert hsaco elf to rocMLIR serialized text.")
 
     parser.add_argument("-i", help="Input hsaco kernel file", required=True)
     parser.add_argument("-o", help="Output kernel text file", default=None)

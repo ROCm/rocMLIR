@@ -30,28 +30,22 @@ __attribute__((aligned (4096)))
 __declspec(align(4096))
 #endif""",
                   file=out)
-            print(f"static constexpr char {lib}_bytes[{lib}_size + 1] = {{",
-                  file=out)
+            print(f"static constexpr char {lib}_bytes[{lib}_size + 1] = {{", file=out)
             for i, byte in enumerate(bc_bytes):
-                print(f"static_cast<char>({byte}),",
-                      file=out,
-                      end=("\n" if i % 8 == 0 else " "))
+                print(f"static_cast<char>({byte}),", file=out, end=("\n" if i % 8 == 0 else " "))
             # Terminating null pointer needed for
             print("0x00};", file=out)
         print(
             "static constexpr std::initializer_list<std::pair<llvm::StringRef, llvm::StringRef>> allLibList = {",
             file=out)
         for lib in libs:
-            print(
-                f"{{\"{lib}.bc\", llvm::StringRef({lib}_bytes, {lib}_size)}},",
-                file=out)
+            print(f"{{\"{lib}.bc\", llvm::StringRef({lib}_bytes, {lib}_size)}},", file=out)
         print("};", file=out)
-        print(
-            """static const llvm::StringMap<llvm::StringRef>& getDeviceLibraries() {
+        print("""static const llvm::StringMap<llvm::StringRef>& getDeviceLibraries() {
 static const llvm::StringMap<llvm::StringRef> allLibs(allLibList);
 return allLibs;
 }""",
-            file=out)
+              file=out)
 
 
 if __name__ == '__main__':

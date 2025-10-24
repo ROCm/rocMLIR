@@ -6,13 +6,7 @@ import shutil
 import itertools
 import tomli
 
-RANDTYPE = {
-    'f32': 'float',
-    'f16': 'float',
-    'bf16': 'float',
-    'i32': 'int',
-    'i8': 'int'
-}
+RANDTYPE = {'f32': 'float', 'f16': 'float', 'bf16': 'float', 'i32': 'int', 'i8': 'int'}
 
 
 def generate_option_list(table, key1, key2):
@@ -47,8 +41,7 @@ def generate_op_variants_test(indir, outdir, type, file, opspec):
                 # So far clone-verification only works with f32.  Also, tanh
                 # fails it because math.tanh is converted by gpu-to-rocdl pass
                 # which isn't run on the cloned function.
-                disablep='-DISABLE'
-                if type != 'f32' or opname == 'tanh' else ''))
+                disablep='-DISABLE' if type != 'f32' or opname == 'tanh' else ''))
 
 
 def generate_type_only_test(indir, outdir, type, file):
@@ -106,8 +99,7 @@ def run():
 
     def ignore_not_mlir(dir, files):
         return [
-            f for f in files if not f.endswith('.mlir') and
-            not os.path.isdir(os.path.join(dir, f))
+            f for f in files if not f.endswith('.mlir') and not os.path.isdir(os.path.join(dir, f))
         ]
 
     shutil.copytree(indir, outdir, ignore=ignore_not_mlir, dirs_exist_ok=True)

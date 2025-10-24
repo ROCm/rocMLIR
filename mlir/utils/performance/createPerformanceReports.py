@@ -10,22 +10,17 @@ import sys
 def print_all_performance(chip, lib='rocBLAS'):
 
     df = pd.read_csv(chip + '_' + reportUtils.PERF_REPORT_FILE[lib])
-    columns_to_average = [
-        'MLIR TFlops', f'{lib} TFlops (no MLIR Kernels)', f'MLIR/{lib}'
-    ]
+    columns_to_average = ['MLIR TFlops', f'{lib} TFlops (no MLIR Kernels)', f'MLIR/{lib}']
     if 'Tuned MLIR TFlops' in df:
-        columns_to_average += [
-            'Tuned MLIR TFlops', 'Tuned/Untuned', f'Tuned/{lib}'
-        ]
+        columns_to_average += ['Tuned MLIR TFlops', 'Tuned/Untuned', f'Tuned/{lib}']
         if 'Quick Tuned MLIR TFlops' in df:
             columns_to_average += [
-                'Quick Tuned MLIR TFlops', f'Quick Tuned/{lib}',
-                'Quick Tuned/Untuned', 'Quick Tuned/Tuned'
+                'Quick Tuned MLIR TFlops', f'Quick Tuned/{lib}', 'Quick Tuned/Untuned',
+                'Quick Tuned/Tuned'
             ]
     elif 'Quick Tuned MLIR TFlops' in df:
         columns_to_average += [
-            'Quick Tuned MLIR TFlops', f'Quick Tuned/{lib}',
-            'Quick Tuned/Untuned'
+            'Quick Tuned MLIR TFlops', f'Quick Tuned/{lib}', 'Quick Tuned/Untuned'
         ]
 
     # Only plot the actual averages, not the ratios
@@ -39,8 +34,7 @@ def print_all_performance(chip, lib='rocBLAS'):
     if lib == 'MIOpen':
         means = df.groupby(["Direction", "DataType", "InputLayout"])[columns_to_average]\
             .agg(reportUtils.geo_mean)
-        means.loc["All", "ALL",
-                  "ALL"] = df[columns_to_average].agg(reportUtils.geo_mean)
+        means.loc["All", "ALL", "ALL"] = df[columns_to_average].agg(reportUtils.geo_mean)
     else:
         means = df.groupby(["DataType"])[columns_to_average]\
             .agg(reportUtils.geo_mean)
@@ -51,24 +45,18 @@ def print_all_performance(chip, lib='rocBLAS'):
     if "Tuned/Untuned" in df:
         to_highlight += [f"Tuned/{lib}", "Tuned/Untuned"]
         if "Quick Tuned/Tuned":
-            to_highlight += [
-                f"Quick Tuned/{lib}", "Quick Tuned/Untuned",
-                "Quick Tuned/Tuned"
-            ]
+            to_highlight += [f"Quick Tuned/{lib}", "Quick Tuned/Untuned", "Quick Tuned/Tuned"]
     elif "Quick Tuned/Untuned" in df:
         to_highlight += [f"Quick Tuned/{lib}", "Quick Tuned/Untuned"]
     with open(chip + "_" + f"MLIR_vs_{lib}.html", 'w') as html_output:
-        reportUtils.html_report(df, means, f"MLIR vs. {lib} performance",
-                                to_highlight, reportUtils.color_for_speedups,
-                                html_output)
+        reportUtils.html_report(df, means, f"MLIR vs. {lib} performance", to_highlight,
+                                reportUtils.color_for_speedups, html_output)
 
 
 # Main function.
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print(
-            "Error: missing chip argument (usage: createPerformanceReports.py <chip> [lib])"
-        )
+        print("Error: missing chip argument (usage: createPerformanceReports.py <chip> [lib])")
         sys.exit(1)
     chip = sys.argv[1]
     lib = sys.argv[2] if len(sys.argv) > 2 else 'rocBLAS'

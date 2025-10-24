@@ -50,10 +50,7 @@ def main():
         allow_abbrev=False,
     )
 
-    parser.add_argument("-c",
-                        "--config-file",
-                        type=str,
-                        help="Config file to convert")
+    parser.add_argument("-c", "--config-file", type=str, help="Config file to convert")
 
     parser.add_argument("-o", "--output-file", type=str, help="New configfile")
 
@@ -75,8 +72,7 @@ def main():
     fout = open(parsed_args.output_file, 'w')
     cmdline = subprocess.list2cmdline(sys.argv[0:])
 
-    print("# This file has been generated with the following command:",
-          file=fout)
+    print("# This file has been generated with the following command:", file=fout)
     print(f"# {cmdline}\n", file=fout)
 
     for config in configs:

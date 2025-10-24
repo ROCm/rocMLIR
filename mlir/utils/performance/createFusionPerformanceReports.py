@@ -11,8 +11,7 @@ def print_all_performance(chip, op):
 
     columns_to_average = ['Fusion TFlops', 'MLIR TFlops', 'Fusion/MLIR']
 
-    df = pd.read_csv(chip + '_' + op + '_' +
-                     reportUtils.PERF_REPORT_FUSION_FILE)
+    df = pd.read_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE)
 
     plot_mean = df[columns_to_average].agg(reportUtils.geo_mean)
     plot_mean.name = "Geo. mean"
@@ -24,16 +23,13 @@ def print_all_performance(chip, op):
     if (op == 'conv'):
         means = df.groupby(["Direction", "DataType", "InputLayout"])[columns_to_average]\
             .agg(reportUtils.geo_mean)
-        means.loc[("All", "All", "All"), :] = df[columns_to_average].agg(
-            reportUtils.geo_mean)
-        means.to_csv(chip + '_' + op + '_' +
-                     reportUtils.PERF_STATS_REPORT_FUSION_FILE)
+        means.loc[("All", "All", "All"), :] = df[columns_to_average].agg(reportUtils.geo_mean)
+        means.to_csv(chip + '_' + op + '_' + reportUtils.PERF_STATS_REPORT_FUSION_FILE)
     else:
         means = df.groupby(["DataType"])[columns_to_average]\
             .agg(reportUtils.geo_mean)
         means.loc["All"] = df[columns_to_average].agg(reportUtils.geo_mean)
-        means.to_csv(chip + '_' + op + '_' +
-                     reportUtils.PERF_STATS_REPORT_FUSION_FILE)
+        means.to_csv(chip + '_' + op + '_' + reportUtils.PERF_STATS_REPORT_FUSION_FILE)
 
     to_highlight = ['Fusion/MLIR']
 

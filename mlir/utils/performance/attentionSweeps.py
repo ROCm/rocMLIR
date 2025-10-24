@@ -176,10 +176,7 @@ def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
         writer = csv.writer(csvfile)
         writer.writerow(['CommandLine'])
         for config in configs:
-            writer.writerow([
-                config.generate_mlir_driver_commandline('',
-                                                        kernel_repeats=None)
-            ])
+            writer.writerow([config.generate_mlir_driver_commandline('', kernel_repeats=None)])
 
 
 def main():
@@ -188,9 +185,7 @@ def main():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--jobs', type=int, default=os.cpu_count())
-    parser.add_argument('--mlir-build-dir',
-                        type=str,
-                        default=find_mlir_build_dir()),
+    parser.add_argument('--mlir-build-dir', type=str, default=find_mlir_build_dir()),
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--log-failures', action='store_true')
 
@@ -210,8 +205,7 @@ def main():
                       log_failures=args.log_failures)
 
     if not args.quiet:
-        print(
-            f"Sampling {args.samples} configurations from attention space...")
+        print(f"Sampling {args.samples} configurations from attention space...")
 
     # TODO: use AmdArchDb python version when available
 
@@ -220,11 +214,10 @@ def main():
     else:
         perfconfig_space = perfconfig_space_wmma
 
-    samples = [(sample_attn_shape(), random.choice(perfconfig_space))
-               for _ in range(args.samples)]
+    samples = [(sample_attn_shape(), random.choice(perfconfig_space)) for _ in range(args.samples)]
 
-    passed, invalid, failing = asyncio.run(
-        sweep_parameters(samples, to_attn_config, options, paths))
+    passed, invalid, failing = asyncio.run(sweep_parameters(samples, to_attn_config, options,
+                                                            paths))
     if failing:
         print("\n" + "-" * 80)
         print(f"{'Failing Configurations':^80}\n")

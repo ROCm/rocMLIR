@@ -46,10 +46,7 @@ class PerfConfig:
     def __init__(self, config: Sequence[int], version: Version = Version.V3):
         self._config = config
         self._version = version
-        self._version_map = {
-            PerfConfig.Version.V2: "v2",
-            PerfConfig.Version.V3: "v3"
-        }
+        self._version_map = {PerfConfig.Version.V2: "v2", PerfConfig.Version.V3: "v3"}
 
     def __str__(self):
         suffix = ','.join(str(v) for v in self._config)
@@ -66,8 +63,7 @@ class MLIROnlyConfig(ConvConfiguration):
                 paddingWL={self.padding_wl!r}, paddingWR={self.padding_wr!r}, dilationH={self.dilation_h!r}, dilationW={self.dilation_w!r},
                 group={self.group!r}, arch={self.arch!r}, perfConfig={perf_config_str!r})"""
 
-    def generate_mlir_driver_commandline(self,
-                                         rocmlir_gen_flags) -> Sequence[str]:
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags) -> Sequence[str]:
         direction = {
             'fwd': 'conv',
             'bwd': 'conv_bwd_data',
@@ -75,9 +71,9 @@ class MLIROnlyConfig(ConvConfiguration):
         }[self.direction]
 
         result = [
-            '--operation', direction, '-t', self.dataType, '--arch', self.arch,
-            '--fil_layout', self.filterLayout, '--in_layout', self.inputLayout,
-            '--out_layout', self.outputLayout, '--batchsize',
+            '--operation', direction, '-t', self.dataType, '--arch', self.arch, '--fil_layout',
+            self.filterLayout, '--in_layout', self.inputLayout, '--out_layout', self.outputLayout,
+            '--batchsize',
             str(self.n), '--in_channels',
             str(self.c), '--in_h',
             str(self.hi), '--in_w',
@@ -163,12 +159,10 @@ class MLIROnlyConfig(ConvConfiguration):
         self.group = group
         self.arch = arch
         self.perfconfig = perfconfig
-        self.ho = math.floor(
-            (self.hi + self.padding_hl + self.padding_hr -
-             (self.y - 1) * self.dilation_h - 1) / self.conv_stride_h) + 1
-        self.wo = math.floor(
-            (self.wi + self.padding_wl + self.padding_wr * 2 -
-             (self.x - 1) * self.dilation_w - 1) / self.conv_stride_w) + 1
+        self.ho = math.floor((self.hi + self.padding_hl + self.padding_hr -
+                              (self.y - 1) * self.dilation_h - 1) / self.conv_stride_h) + 1
+        self.wo = math.floor((self.wi + self.padding_wl + self.padding_wr * 2 -
+                              (self.x - 1) * self.dilation_w - 1) / self.conv_stride_w) + 1
 
 
 def multiline_repr(obj, num_fields=4):
@@ -223,33 +217,28 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
     """Runs the given configuration and returns whether it successfully concluded,
     failed validation, or was inapplicable."""
     if isinstance(config, MLIROnlyConfig):
-        rocmlir_gen_opts = config.generate_mlir_driver_commandline(
-            options.flags)
+        rocmlir_gen_opts = config.generate_mlir_driver_commandline(options.flags)
     else:
-        rocmlir_gen_opts = config.generate_mlir_driver_commandline(
-            ' '.join(options.flags), kernel_repeats=None).split()
+        rocmlir_gen_opts = config.generate_mlir_driver_commandline(' '.join(options.flags),
+                                                                   kernel_repeats=None).split()
         if getattr(config, "currentSeqLen") is not None:
-            rocmlir_gen_opts.append(
-                f"--current_seq_len={','.join(map(str, config.currentSeqLen))}"
-            )
+            rocmlir_gen_opts.append(f"--current_seq_len={','.join(map(str, config.currentSeqLen))}")
     rocmlir_gen_opts.append('-pv')
 
     applicable_from_gen, gen_to_applicable = os.pipe()
-    generator = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.rocmlir_gen_path,
-        *rocmlir_gen_opts,
-        stdout=gen_to_applicable,
-        stderr=asyncio.subprocess.PIPE,
-        stdin=asyncio.subprocess.DEVNULL)
+    generator = await asyncio.create_subprocess_exec(paths.mlir_paths.rocmlir_gen_path,
+                                                     *rocmlir_gen_opts,
+                                                     stdout=gen_to_applicable,
+                                                     stderr=asyncio.subprocess.PIPE,
+                                                     stdin=asyncio.subprocess.DEVNULL)
     os.close(gen_to_applicable)
 
-    applicability = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.rocmlir_driver_path,
-        '--kernel-pipeline=applicability',
-        '-',
-        stdin=applicable_from_gen,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE)
+    applicability = await asyncio.create_subprocess_exec(paths.mlir_paths.rocmlir_driver_path,
+                                                         '--kernel-pipeline=applicability',
+                                                         '-',
+                                                         stdin=applicable_from_gen,
+                                                         stdout=asyncio.subprocess.PIPE,
+                                                         stderr=asyncio.subprocess.PIPE)
     os.close(applicable_from_gen)
     _, gen_errs = await generator.communicate()
     high_level, tune_errs = await applicability.communicate()
@@ -265,8 +254,7 @@ Errors = {gen_errs.decode('utf-8')}
 
     if applicability.returncode != 0:
         if options.debug:
-            print(
-                f"""rocmlir-driver applicability pipeline failed for config {config!r}
+            print(f"""rocmlir-driver applicability pipeline failed for config {config!r}
 Generator command line = {rocmlir_gen_opts}
 Return code = {applicability.returncode}
 Errors = {tune_errs.decode('utf-8')}
@@ -274,14 +262,13 @@ Errors = {tune_errs.decode('utf-8')}
         return TestResult.INVALID
 
     runner_from_lowering, lowering_to_runner = os.pipe()
-    lowering = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.rocmlir_driver_path,
-        '--kernel-pipeline=full',
-        '--host-pipeline=runner',
-        '-',
-        stdin=asyncio.subprocess.PIPE,
-        stdout=lowering_to_runner,
-        stderr=asyncio.subprocess.PIPE)
+    lowering = await asyncio.create_subprocess_exec(paths.mlir_paths.rocmlir_driver_path,
+                                                    '--kernel-pipeline=full',
+                                                    '--host-pipeline=runner',
+                                                    '-',
+                                                    stdin=asyncio.subprocess.PIPE,
+                                                    stdout=lowering_to_runner,
+                                                    stderr=asyncio.subprocess.PIPE)
     os.close(lowering_to_runner)
 
     mlir_cpu_runner_args = [
@@ -289,12 +276,11 @@ Errors = {tune_errs.decode('utf-8')}
         f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}',
         '--entry-point-result=void'
     ]
-    runner = await asyncio.create_subprocess_exec(
-        paths.mlir_paths.cpu_runner_path,
-        *mlir_cpu_runner_args,
-        stdin=runner_from_lowering,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE)
+    runner = await asyncio.create_subprocess_exec(paths.mlir_paths.cpu_runner_path,
+                                                  *mlir_cpu_runner_args,
+                                                  stdin=runner_from_lowering,
+                                                  stdout=asyncio.subprocess.PIPE,
+                                                  stderr=asyncio.subprocess.PIPE)
     os.close(runner_from_lowering)
 
     _, lowering_errs = await lowering.communicate(input=high_level)
@@ -303,8 +289,7 @@ Errors = {tune_errs.decode('utf-8')}
 
     if lowering.returncode != 0:
         if options.debug:
-            print(
-                f"""Low-level lowering did not complete succesfully for config {config!r}
+            print(f"""Low-level lowering did not complete succesfully for config {config!r}
 Command line = {rocmlir_gen_opts}
 Errors = {lowering_errs.decode('utf-8')}
 Return code = {lowering.returncode}""")
@@ -319,11 +304,7 @@ Return code = {runner.returncode}""",
                   file=sys.stderr)
         return TestResult.FAIL
 
-    output_lines = [
-        line.strip()
-        for line in runner_out.splitlines()
-        if len(line.strip()) > 0
-    ]
+    output_lines = [line.strip() for line in runner_out.splitlines() if len(line.strip()) > 0]
     expected_output = "[1 1 1]"
     all_correct = all(line == expected_output for line in output_lines)
     if not all_correct:
@@ -369,17 +350,15 @@ async def drop_good_config(config, options: Options, paths: Paths):
     return result
 
 
-async def sweep_parameters(param_iter: Iterable[IterType],
-                           to_config: Callable[[IterType, Options],
-                                               PerfConfig], options: Options,
-                           paths: Paths) -> Tuple[int, int, List[PerfConfig]]:
+async def sweep_parameters(param_iter: Iterable[IterType], to_config: Callable[[IterType, Options],
+                                                                               PerfConfig],
+                           options: Options, paths: Paths) -> Tuple[int, int, List[PerfConfig]]:
     failing_configs = []
     passed = 0
     invalid = 0
     configs = (c for c in (to_config(p, options) for p in param_iter))
-    for configs in grouper(
-        (drop_good_config(c, options, paths) for c in configs),
-            options.concurrent_tests):
+    for configs in grouper((drop_good_config(c, options, paths) for c in configs),
+                           options.concurrent_tests):
         configs_future = asyncio.gather(*configs)
         try:
             configs_results = await configs_future
@@ -432,8 +411,8 @@ def to_conv_structure_type_test(params, options: Options) -> MLIROnlyConfig:
     else:
         # Values of n, c, k, meant to be small and to hit the padding kernel
         n, c, k = 1, 7, 7
-    return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw,
-                          phl, phr, pwl, pwr, dh, dw, g, options.arch)
+    return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl, phr, pwl, pwr, dh,
+                          dw, g, options.arch)
 
 
 WMMA_PERF_CONFIG = itertools.product(
@@ -490,12 +469,10 @@ def to_mfma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
         512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, m_per_block, n_per_block, k_per_block, m_per_wave, \
         n_per_wave, kpack, split_k, gemm_schedule = params
-    perf_config_tuple = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block,
-                         1 << m_per_wave, 1 << n_per_wave, 1 << kpack,
-                         1 << split_k, gemm_schedule, 2, 1, 1)
-    return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw,
-                          phl, phr, pwl, pwr, dh, dw, g, options.arch,
-                          PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
+    perf_config_tuple = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block, 1 << m_per_wave,
+                         1 << n_per_wave, 1 << kpack, 1 << split_k, gemm_schedule, 2, 1, 1)
+    return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl, phr, pwl, pwr, dh,
+                          dw, g, options.arch, PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
 
 
 VANILLA_PERF_CONFIG = itertools.product(
@@ -528,27 +505,22 @@ def to_vanilla_perf_config_test(params, options: Options) -> MLIROnlyConfig:
          512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, block_size, m_per_block, n_per_block, k_per_block, \
         m_per_thread, n_per_thread, split_k, schedule_version = params
-    perf_config_tuple = (1 << block_size, 1 << m_per_block, 1 << n_per_block,
-                         1 << k_per_block, 1 << m_per_thread, n_per_thread,
-                         1 << split_k, schedule_version, 2)
-    return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw,
-                          phl, phr, pwl, pwr, dh, dw, g, options.arch,
-                          PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
+    perf_config_tuple = (1 << block_size, 1 << m_per_block, 1 << n_per_block, 1 << k_per_block,
+                         1 << m_per_thread, n_per_thread, 1 << split_k, schedule_version, 2)
+    return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl, phr, pwl, pwr, dh,
+                          dw, g, options.arch, PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
 
 
-async def run_config(param_iter: Iterable[IterType],
-                     to_config: Callable[[IterType, Options], MLIROnlyConfig],
+async def run_config(param_iter: Iterable[IterType], to_config: Callable[[IterType, Options],
+                                                                         MLIROnlyConfig],
                      options: Options, paths: Paths) -> bool:
     n_passes, n_invalids, failures = \
         await sweep_parameters(param_iter, to_config, options, paths)
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
-            print(' '.join(
-                c.generate_mlir_driver_commandline(options.flags,
-                                                   kernel_repeats=None)))
-    print(
-        f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
+            print(' '.join(c.generate_mlir_driver_commandline(options.flags, kernel_repeats=None)))
+    print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0 and n_passes > 0
 
 
@@ -558,18 +530,15 @@ def main() -> bool:
     parser.add_argument('config',
                         help="The configuration to test",
                         choices=[
-                            'conv_structure', 'mfma_perf_config',
-                            'vanilla_perf_config', 'wmma_perf_config',
-                            'perf_config'
+                            'conv_structure', 'mfma_perf_config', 'vanilla_perf_config',
+                            'wmma_perf_config', 'perf_config'
                         ])
     parser.add_argument(
         '--debug',
         '-d',
         action='store_true',
         default=False,
-        help=
-        'Turn on debug output (print error messages on failure or inapplicability)'
-    )
+        help='Turn on debug output (print error messages on failure or inapplicability)')
     parser.add_argument('--no-debug',
                         '-D',
                         dest='debug',
@@ -585,12 +554,11 @@ def main() -> bool:
                         dest='quiet',
                         action='store_false',
                         help='Turn off quiet mode')
-    parser.add_argument(
-        '--xdlops',
-        '-x',
-        action='store_true',
-        default=False,
-        help='Use xdlops when generating kernels (default off)')
+    parser.add_argument('--xdlops',
+                        '-x',
+                        action='store_true',
+                        default=False,
+                        help='Use xdlops when generating kernels (default off)')
     parser.add_argument('--no-xdlops',
                         '-X',
                         dest='xdlops',
@@ -605,12 +573,11 @@ def main() -> bool:
                         type=str,
                         default='none',
                         help="codepath to control kernel generation")
-    parser.add_argument(
-        '--jobs',
-        '-j',
-        type=int,
-        default=(len(os.sched_getaffinity(0)) // 2),
-        help="Number of jobs to run in parallel (default %(default)s)")
+    parser.add_argument('--jobs',
+                        '-j',
+                        type=int,
+                        default=(len(os.sched_getaffinity(0)) // 2),
+                        help="Number of jobs to run in parallel (default %(default)s)")
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
@@ -626,9 +593,7 @@ def main() -> bool:
     if codepath not in supported_codepath:
         if 'gfx908' in arch or 'gfx90a' in arch:
             codepath = 'mfma'
-            rocmlir_gen_flags = [
-                '-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on'
-            ]
+            rocmlir_gen_flags = ['-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on']
         elif 'gfx942' in arch:
             codepath = 'mfma'
             rocmlir_gen_flags = [
@@ -639,8 +604,7 @@ def main() -> bool:
             codepath = 'mfma'
             rocmlir_gen_flags = [
                 '-mfma=on', '-dot=on', '-atomic_add=on', '-atomic_add_f16=on',
-                '-atomic_add_bf16=on', '-direct_to_lds_32b=on',
-                '-direct_to_lds_128b=on'
+                '-atomic_add_bf16=on', '-direct_to_lds_32b=on', '-direct_to_lds_128b=on'
             ]
         elif 'gfx906' in arch:
             codepath = 'vanilla'
@@ -651,14 +615,12 @@ def main() -> bool:
             rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=off']
         elif 'gfx11' in arch:
             codepath = 'wmma'
-            rocmlir_gen_flags = [
-                '-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer'
-            ]
+            rocmlir_gen_flags = ['-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer']
         elif 'gfx12' in arch:
             codepath = 'wmma'
             rocmlir_gen_flags = [
-                '-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer',
-                '-atomic_add_f16=on', '-atomic_add_bf16=on'
+                '-mfma=off', '-dot=on', '-atomic_add=on', '-wmma=infer', '-atomic_add_f16=on',
+                '-atomic_add_bf16=on'
             ]
         else:
             # unknow arch info
@@ -680,20 +642,16 @@ def main() -> bool:
     succeeded = False
     if config == 'conv_structure':
         succeeded = asyncio.run(
-            run_config(CONV_STRUCTURE, to_conv_structure_type_test, options,
-                       paths))
+            run_config(CONV_STRUCTURE, to_conv_structure_type_test, options, paths))
     elif config == 'mfma_perf_config':
         succeeded = asyncio.run(
-            run_config(MFMA_PERF_CONFIG, to_mfma_perf_config_test, options,
-                       paths))
+            run_config(MFMA_PERF_CONFIG, to_mfma_perf_config_test, options, paths))
     elif config == 'vanilla_perf_config':
         succeeded = asyncio.run(
-            run_config(VANILLA_PERF_CONFIG, to_vanilla_perf_config_test,
-                       options, paths))
+            run_config(VANILLA_PERF_CONFIG, to_vanilla_perf_config_test, options, paths))
     elif config == 'wmma_perf_config':
         succeeded = asyncio.run(
-            run_config(WMMA_PERF_CONFIG, to_mfma_perf_config_test, options,
-                       paths))
+            run_config(WMMA_PERF_CONFIG, to_mfma_perf_config_test, options, paths))
     else:
         print(f"Unknown config: {config}", file=sys.stderr)
     return succeeded
