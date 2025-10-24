@@ -2,53 +2,47 @@
 
 import reportUtils
 
-import csv
-import numpy as np
 import pandas as pd
 import sys
 
 
 #Create html reports from .csv files
-def printAllPerformance(chip, op):
+def print_all_performance(chip, op):
 
-    COLUMNS_TO_AVERAGE = ['Fusion TFlops', 'MLIR TFlops', 'Fusion/MLIR']
+    columns_to_average = ['Fusion TFlops', 'MLIR TFlops', 'Fusion/MLIR']
 
-    df = pd.read_csv(chip + '_' + op + '_' +
-                     reportUtils.PERF_REPORT_FUSION_FILE)
+    df = pd.read_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE)
 
-    plotMean = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
-    plotMean.name = "Geo. mean"
-    plotMean = pd.DataFrame(plotMean).T
+    plot_mean = df[columns_to_average].agg(reportUtils.geo_mean)
+    plot_mean.name = "Geo. mean"
+    plot_mean = pd.DataFrame(plot_mean).T
 
-    plotMean[['Fusion TFlops']]\
+    plot_mean[['Fusion TFlops']]\
         .to_csv(chip + '_' + op + '_' + reportUtils.PERF_PLOT_REPORT_FUSION_FILE, index=False)
 
     if (op == 'conv'):
-        means = df.groupby(["Direction", "DataType", "InputLayout"])[COLUMNS_TO_AVERAGE]\
-            .agg(reportUtils.geoMean)
-        means.loc[("All", "All",
-                   "All"), :] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
-        means.to_csv(chip + '_' + op + '_' +
-                     reportUtils.PERF_STATS_REPORT_FUSION_FILE)
+        means = df.groupby(["Direction", "DataType", "InputLayout"])[columns_to_average]\
+            .agg(reportUtils.geo_mean)
+        means.loc[("All", "All", "All"), :] = df[columns_to_average].agg(reportUtils.geo_mean)
+        means.to_csv(chip + '_' + op + '_' + reportUtils.PERF_STATS_REPORT_FUSION_FILE)
     else:
-        means = df.groupby(["DataType"])[COLUMNS_TO_AVERAGE]\
-            .agg(reportUtils.geoMean)
-        means.loc["All"] = df[COLUMNS_TO_AVERAGE].agg(reportUtils.geoMean)
-        means.to_csv(chip + '_' + op + '_' +
-                     reportUtils.PERF_STATS_REPORT_FUSION_FILE)
+        means = df.groupby(["DataType"])[columns_to_average]\
+            .agg(reportUtils.geo_mean)
+        means.loc["All"] = df[columns_to_average].agg(reportUtils.geo_mean)
+        means.to_csv(chip + '_' + op + '_' + reportUtils.PERF_STATS_REPORT_FUSION_FILE)
 
-    toHighlight = ['Fusion/MLIR']
+    to_highlight = ['Fusion/MLIR']
 
-    with open(chip + "_" + op + '_' + f"fusion.html", 'w') as htmlOutput:
-        reportUtils.htmlReport(df, means, f"Fusion performance", toHighlight,
-                               reportUtils.colorForSpeedups, htmlOutput)
+    with open(chip + "_" + op + '_' + "fusion.html", 'w') as html_output:
+        reportUtils.html_report(df, means, "Fusion performance", to_highlight,
+                                reportUtils.color_for_speedups, html_output)
 
 
 # Main function.
 if __name__ == '__main__':
     try:
-        printAllPerformance(sys.argv[1], 'conv')
-        printAllPerformance(sys.argv[1], 'gemm')
+        print_all_performance(sys.argv[1], 'conv')
+        print_all_performance(sys.argv[1], 'gemm')
     except FileNotFoundError:
         print(f'Error: No performance report found for {sys.argv[1]}')
         sys.exit(1)
