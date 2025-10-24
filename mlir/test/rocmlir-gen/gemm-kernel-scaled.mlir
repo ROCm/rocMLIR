@@ -1,5 +1,5 @@
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv | FileCheck %s --check-prefix=GEMM-SCALED
-// RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv -block_size 16 | FileCheck %s --check-prefix=GEMM-SCALED-16
+// RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv -quantBlockSize 16 | FileCheck %s --check-prefix=GEMM-SCALED-16
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm --transScaleA --transScaleB -pv | FileCheck %s --check-prefix=GEMM-SCALED-BOTHTRANS
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm --transScaleA -pv | FileCheck %s --check-prefix=GEMM-SCALED-TRANSA
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm --transScaleB -pv | FileCheck %s --check-prefix=GEMM-SCALED-TRANSB

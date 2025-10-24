@@ -353,8 +353,10 @@ static llvm::cl::opt<bool>
                llvm::cl::init(false));
 
 static llvm::cl::opt<int>
-    blockSize("block_size", llvm::cl::desc("Block size for scaled GEMMs"),
-              llvm::cl::value_desc("positive integer"), llvm::cl::init(32));
+    quantBlockSize("quantBlockSize",
+                   llvm::cl::desc("Block size for block-scaled quantized GEMM"),
+                   llvm::cl::value_desc("positive integer"),
+                   llvm::cl::init(32));
 
 static llvm::cl::opt<rock::StoreMethod> storeMethod(
     "store-method", llvm::cl::desc("storage method for gemm"),
@@ -1646,8 +1648,12 @@ static llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType,
   } else if (randomSeed == "fixed") {
     if (elemType.isIntOrIndex())
       pattern = {1.0, -1.0, 2.0};
+    // float4E2M1FN can only represent 8 values. Use a small set of values to
+    // avoid quantization error
     else if (isa<Float4E2M1FNType>(elemType)) {
       pattern = {1, -4, 0.5, 1.5};
+      // Float8E8M0FNU is only supposed to represent values that are in powers
+      // of 2 Use a small set of such values to avoid quantization error
     } else if (isa<Float8E8M0FNUType>(elemType)) {
       pattern = {1, 2, 4, 8, 0.5, 0.25, 0.125};
     } else
@@ -2352,18 +2358,23 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
   if (elemTypes[0].isInteger(8) && isCpuVerifier)
     cElemType = IntegerType::get(cElemType.getContext(), 64);
 
-  SmallVector<int64_t> aDims = {groupSize, transposeA ? gemmK : gemmM,
-                                transposeA ? gemmM : gemmK},
-                       bDims = {groupSize, transposeB ? gemmN : gemmK,
-                                transposeB ? gemmK : gemmN},
-                       cDims = {groupSize, transposeC ? gemmN : gemmM,
-                                transposeC ? gemmM : gemmN},
-                       aScale = {groupSize,
-                                 transposeScaleA ? gemmK / blockSize : gemmM,
-                                 transposeScaleA ? gemmM : gemmK / blockSize},
-                       bScale = {groupSize,
-                                 transposeScaleB ? gemmN : gemmK / blockSize,
-                                 transposeScaleB ? gemmK / blockSize : gemmN};
+  if (gemmK % quantBlockSize != 0) {
+    llvm::errs() << "GEMM K dimension must be multiple of quantBlockSize "
+                    "("
+                 << quantBlockSize << ")\n";
+    exit(1);
+  }
+  SmallVector<int64_t>
+      aDims = {groupSize, transposeA ? gemmK : gemmM,
+               transposeA ? gemmM : gemmK},
+      bDims = {groupSize, transposeB ? gemmN : gemmK,
+               transposeB ? gemmK : gemmN},
+      cDims = {groupSize, transposeC ? gemmN : gemmM,
+               transposeC ? gemmM : gemmN},
+      aScale = {groupSize, transposeScaleA ? gemmK / quantBlockSize : gemmM,
+                transposeScaleA ? gemmM : gemmK / quantBlockSize},
+      bScale = {groupSize, transposeScaleB ? gemmN : gemmK / quantBlockSize,
+                transposeScaleB ? gemmK / quantBlockSize : gemmN};
   MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
              bType = MemRefType::get(bDims, elemTypes[1]),
              cType = MemRefType::get(cDims, cElemType),
@@ -2420,7 +2431,7 @@ static Value buildBroadcastedScales(OpBuilder b, Location loc, Value scale,
   // Broadcast the newly added block dim to blockSize.
   rock::BottomUpTMBuilder broadcastB =
       rock::BottomUpTMBuilder::above(addDimB, addDimAttr);
-  broadcastB.broadcast({blockDim}, {blockSize});
+  broadcastB.broadcast({blockDim}, {quantBlockSize});
   if (transpose) {
     if (isA)
       broadcastB.passThrough({"g", "kScale", "m"});
@@ -3523,21 +3534,19 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
         cExpVal = expandArg(cVal, argTypes[2]);
   Value aExpValScaled = nullptr, bExpValScaled = nullptr;
   if (params.isScaledOp) {
-    // Generate affine map: (d0, d1, d2, d3) -> (d0, d1, (d2 floordiv
-    // blockSize), d3)
+    // Create scaled AffineMaps
+    // (g, m, n, k) -> (g, m, k // blockSize)  for A if not transposed
+    // (g, m, n, k) -> (g, k // blockSize, n)  for B if not transposed
     auto scaleAffineMap = [&](bool transposeFlag, AffineExpr d) -> AffineMap {
       // Create constant for blockSize
-      auto cBlockSize = getAffineConstantExpr(blockSize, b.getContext());
-      // Create the expression: (d2 floordiv blockSize) * blockSize
+      auto cBlockSize = getAffineConstantExpr(quantBlockSize, b.getContext());
       auto kFloorDiv32 = k.floorDiv(cBlockSize);
-      // Create the result expressions: (d0, d1, (d2 floordiv blockSize) *
-      // blockSize, d3)
       SmallVector<AffineExpr> resultExprs = {g, transposeFlag ? kFloorDiv32 : d,
                                              transposeFlag ? d : kFloorDiv32};
       return AffineMap::get(4, 0, resultExprs, b.getContext());
     };
     AffineMap aMapScaled = scaleAffineMap(transposeScaleA, m);
-    AffineMap bMapScaled = scaleAffineMap(not transposeScaleB, n);
+    AffineMap bMapScaled = scaleAffineMap(!transposeScaleB, n);
 
     aExpValScaled = expandArg(aScaleVal, argTypes[3]);
     bExpValScaled = expandArg(bScaleVal, argTypes[4]);
@@ -4924,9 +4933,8 @@ static LogicalResult populateHostHarnessLogic(
       bool printp = printInputs.getValue();
       if (lvar == localVars[outIdx])
         printp = printResults.getValue();
-      if (printp) {
+      if (printp)
         emitPrintTensor(b, lvar);
-      }
     }
   }
 
