@@ -93,11 +93,8 @@
     // CHECK: {name = "LDSRead"}
 
     // Emit blockwise gemm0
-    // CHECK-DAG: %[[viewG0AStore3:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK-DAG: %[[view2G0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
-    // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegB:.+]] from %[[view2G0BStore]] * %[[preAccelRegA]] from %[[viewG0AStore3]]
-    // CHECK-SAME: loadAfromLDS
-    // CHECK-NOT: loadBfromLDS
+    // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegB:.+]] from %[[view2G0BStore]] * %[[preAccelRegA]] {blockSize = 
 
   // CHECK: rock.transforming_for
     // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
@@ -217,8 +214,6 @@
 
     // Emit blockwise gemm1
     // CHECK: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += %[[preAccelRegB:.+]] from %[[view2G1BStore]] * %[[preAccelRegA:.+]] from %[[view2G1AStore]]
-    // CHECK-SAME: loadAfromLDS
-    // CHECK-SAME: loadBfromLDS
 
     // CHECK: rock.transforming_for
       // CHECK: %[[tmp1:.+]] =  memref.load %[[gemm1AccBuf]][
