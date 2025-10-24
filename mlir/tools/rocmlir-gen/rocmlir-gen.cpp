@@ -2358,7 +2358,7 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
   if (elemTypes[0].isInteger(8) && isCpuVerifier)
     cElemType = IntegerType::get(cElemType.getContext(), 64);
 
-  if (gemmK % quantBlockSize != 0) {
+  if (scaledGemm && gemmK % quantBlockSize != 0) {
     llvm::errs() << "GEMM K dimension must be multiple of quantBlockSize "
                     "("
                  << quantBlockSize << ")\n";
