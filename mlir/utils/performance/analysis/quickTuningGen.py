@@ -79,8 +79,19 @@ class FileWriter():
             "XDL": ["f32", "f16", "fp8", "i8"],
             "Wmma": ["f16", "fp8", "i8"]
         }
-        ops = ["GEMM", "CONV"]
-        architectures = ["gfx908", "gfx90a", "gfx942", "gfx950", "gfx1030", "gfx1100", "gfx1200"]
+        ops = [
+            "GEMM",
+            "CONV"
+        ]
+        architectures = [
+            "gfx908",
+            "gfx90a",
+            "gfx942",
+            "gfx950",
+            "gfx10",
+            "gfx11",
+            "gfx12"
+        ]
 
         instruction_type_cache = {}
         for arch in architectures:
@@ -114,6 +125,44 @@ class FileWriter():
                                 file.write(f"// BEGIN_{op}_{instruction_type}_{datatype}_{arch}_DECS\n\n")
                                 file.write(f"// END_{op}_{instruction_type}_{datatype}_{arch}_DECS\n\n")
                 file.write(f"#endif\n\n")
+
+            self.generate_lookup_table(file, instruction_types_to_datatypes, ops, architectures, instruction_type_cache)
+
+    def generate_lookup_table(self, file, instruction_types_to_datatypes, ops, architectures, instruction_type_cache):
+        """
+        Generate mappings for each instruction type, data type, operation, and architecture
+        """
+
+        file.write("#ifdef NonAccel_LOOKUP_TABLE_GEN\n")
+        file.write("return {\n")
+        for op in ops:
+            for arch in architectures:
+                if arch.startswith("gfx1"):
+                    for datatype in instruction_types_to_datatypes["NonAccel"]:
+                        if instruction_type_cache.get((arch, datatype)) == "NonAccel":
+                            init_params, n_init_params = self.get_init_params_names(arch, datatype, op.lower())
+                            key = f'"{arch}_{op.lower()}_default"'
+                            value = f'{{PopulateParams::{init_params}, PopulateParams::{n_init_params}}}'
+                            file.write(f'{{{key}, {value}}},\n')
+        file.write("};\n")
+        file.write("#endif\n\n")
+
+        file.write("#ifdef Accel_LOOKUP_TABLE_GEN\n")
+        file.write("return {\n")
+        for instruction_type in ["XDL", "Wmma"]:
+            if instruction_type in instruction_types_to_datatypes:
+                class_prefix = f"PopulateParams{instruction_type}"
+                for datatype in instruction_types_to_datatypes[instruction_type]:
+                    for op in ops:
+                        for arch in architectures:
+                            if instruction_type_cache.get((arch, datatype)) == instruction_type:
+                                init_params, n_init_params = self.get_init_params_names(arch, datatype, op.lower())
+                                key_suffix = "default" if datatype == "f32" else datatype
+                                key = f'"{arch}_{op.lower()}_{key_suffix}"'
+                                value = f'{{{class_prefix}::{init_params}, {class_prefix}::{n_init_params}}}'
+                                file.write(f'{{{key}, {value}}},\n')
+        file.write("};\n")
+        file.write("#endif\n\n")
 
     def get_init_params_names(self, arch, dtype, op):
         """
