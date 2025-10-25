@@ -34,52 +34,66 @@ public:
                                      Type dataType) {
     static const auto &table = getTable();
 
-    auto key = makeKey(getArchFamily(arch), op, dataType);
+    auto key = makeKey(arch, op, dataType);
+    LLVM_DEBUG(llvm::dbgs()
+               << "Lookup for tuning parameters with key " << key << "\n");
+
     auto it = table.find(key);
     if (it != table.end()) {
       return ArrayRef<ParamsType>(it->second.first, it->second.second);
     }
 
-    // TODO fallback
-    return ArrayRef<ParamsType>();
+    auto archFamily = getArchName(arch).drop_back(2).str();
+
+    std::string fallbackKey;
+    for (const auto &entry : table) {
+      if (entry.first.find(archFamily) != std::string::npos &&
+          entry.first.find(makeSuffix(op, dataType)) != std::string::npos) {
+        fallbackKey = std::max(fallbackKey, entry.first);
+      }
+    }
+
+    if (!fallbackKey.empty()) {
+      LLVM_DEBUG(llvm::dbgs() << "Falling back to tuning parameters with key "
+                              << fallbackKey << "\n");
+      return ArrayRef<ParamsType>(table.at(fallbackKey).first,
+                                  table.at(fallbackKey).second);
+    }
+
+    auto msg = "Tuning parameters not found for key " + key;
+    llvm_unreachable(msg.c_str());
   }
 
 private:
-  static StringRef getArchFamily(StringRef arch) {
-    if (arch.contains("gfx950"))
-      return "gfx950";
-    if (arch.contains("gfx942"))
-      return "gfx942";
-    if (arch.contains("gfx940"))
-      return "gfx940";
-    if (arch.contains("gfx90a"))
-      return "gfx90a";
-    if (arch.contains("gfx908"))
-      return "gfx908";
-    if (arch.contains("gfx12"))
-      return "gfx12";
-    if (arch.contains("gfx11"))
-      return "gfx11";
-    if (arch.contains("gfx10"))
-      return "gfx10";
-    return arch;
+  static StringRef getArchName(StringRef arch) {
+    auto gfxPos = arch.find("gfx");
+    if (gfxPos == StringRef::npos) {
+      llvm_unreachable("Invalid architecture string");
+    }
+    auto remaining = arch.substr(gfxPos);
+    auto endPos = remaining.find_first_not_of("0123456789", 3);
+    return remaining.substr(0, endPos);
   }
 
   static std::string getDataTypeString(Type dataType) {
-    int bitWidth = dataType.getIntOrFloatBitWidth();
-    if (bitWidth == 8) {
-      return dataType.isInteger() ? "i8" : "fp8";
-    } else if (bitWidth == 16) {
-      return "fp16";
-    } else if (bitWidth == 32) {
-      return "fp32";
-    }
-    return "default";
+    std::string dataTypeStr;
+    llvm::raw_string_ostream os(dataTypeStr);
+    os << dataType;
+
+    if (dataTypeStr.find("f8E") != std::string::npos)
+      dataTypeStr = "fp8";
+    if (dataTypeStr.at(0) == 's' || dataTypeStr.at(0) == 'u')
+      dataTypeStr = dataTypeStr.substr(1);
+
+    return dataTypeStr;
+  }
+
+  static std::string makeSuffix(KernelType op, Type dataType) {
+    return stringifyEnum(op).lower() + "_" + getDataTypeString(dataType);
   }
 
   static std::string makeKey(StringRef arch, KernelType op, Type dataType) {
-    std::string opStr = (op == KernelType::Gemm) ? "gemm" : "conv";
-    return (arch + "_" + opStr + "_" + getDataTypeString(dataType)).str();
+    return getArchName(arch).str() + "_" + makeSuffix(op, dataType);
   }
 
   static const std::map<std::string, ParamArray> &getTable() {
@@ -808,18 +822,22 @@ namespace {
 template <>
 std::map<std::string, ParamLookupTable<InitParamsNonAccel>::ParamArray>
 ParamLookupTable<InitParamsNonAccel>::buildTable() {
+  return {
 #define NonAccel_LOOKUP_TABLE_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef NonAccel_LOOKUP_TABLE_GEN
+  };
 }
 
 // Specialization for Accel (XDL/WMMA) parameters
 template <>
 std::map<std::string, ParamLookupTable<InitParamsAccel>::ParamArray>
 ParamLookupTable<InitParamsAccel>::buildTable() {
+  return {
 #define Accel_LOOKUP_TABLE_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Accel_LOOKUP_TABLE_GEN
+  };
 }
 
 } // anonymous namespace
