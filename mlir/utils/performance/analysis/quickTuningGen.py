@@ -38,13 +38,7 @@ class FileWriter():
         formated_perfconfig = ','.join(converted_values)
         return formated_perfconfig
 
-    def replace_section(
-            self,
-            file_path,
-            ifdef_guard,
-            begin_marker,
-            end_marker,
-            new_content):
+    def replace_section(self, file_path, ifdef_guard, begin_marker, end_marker, new_content):
         """
         Replaces a section between the markers with new content
         """
@@ -56,7 +50,8 @@ class FileWriter():
             ifdef_match = re.search(rf'{re.escape(ifdef_guard)}(.*?)(?=#endif)', content, re.DOTALL)
             if (ifdef_match):
                 insert_pos = ifdef_match.end()
-                content = content[:insert_pos] + f'{begin_marker}\n\n{end_marker}\n\n' + content[insert_pos:]
+                content = content[:insert_pos] + f'{begin_marker}\n\n{end_marker}\n\n' + content[
+                    insert_pos:]
             else:
                 raise ValueError(f"Cannot find {ifdef_guard} in {file_path}")
 
@@ -66,11 +61,7 @@ class FileWriter():
         with open(file_path, 'w') as file:
             file.write(content)
 
-    def update_lookup_table(
-            self,
-            file_path,
-            ifdef_guard,
-            mapping):
+    def update_lookup_table(self, file_path, ifdef_guard, mapping):
         """
         Updates a lookup table in the file with the given mapping
         """
@@ -129,7 +120,7 @@ class FileWriter():
         Helper method to generate init_params and n_init_params names.
         """
         if dtype == 'f32':
-            init_params = f"initParameters"
+            init_params = "initParameters"
         elif dtype == 'f16':
             init_params = "initParametersFp16"
         elif dtype == 'fp8' and op == 'conv':
@@ -203,8 +194,7 @@ class FileWriter():
             instruction_type = self.get_instruction_type(self.arch, datatype)
             new_content = '\n'.join(lines)
             self.replace_section(
-                file_path,
-                f"#ifdef {instruction_type}_DEFINITIONS_GEN",
+                file_path, f"#ifdef {instruction_type}_DEFINITIONS_GEN",
                 f"// BEGIN_{self.op.upper()}_{instruction_type}_{datatype}_{self.arch}_DEFS",
                 f"// END_{self.op.upper()}_{instruction_type}_{datatype}_{self.arch}_DEFS",
                 new_content)
@@ -228,22 +218,22 @@ class FileWriter():
             instruction_type = self.get_instruction_type(self.arch, datatype)
             new_content = '\n'.join(lines)
             self.replace_section(
-                file_path,
-                f"#ifdef {instruction_type}_DECLARATIONS_GEN",
+                file_path, f"#ifdef {instruction_type}_DECLARATIONS_GEN",
                 f"// BEGIN_{self.op.upper()}_{instruction_type}_{datatype}_{self.arch}_DECS",
                 f"// END_{self.op.upper()}_{instruction_type}_{datatype}_{self.arch}_DECS",
                 new_content)
 
         for datatype in result:
             instruction_type = self.get_instruction_type(self.arch, datatype)
-            class_prefix = f"PopulateParams{instruction_type}" if self.is_accel(self.arch, datatype) else "PopulateParams"
-            init_params, n_init_params = self.get_init_params_names(self.arch, datatype, self.op.lower())
+            class_prefix = f"PopulateParams{instruction_type}" if self.is_accel(
+                self.arch, datatype) else "PopulateParams"
+            init_params, n_init_params = self.get_init_params_names(self.arch, datatype,
+                                                                    self.op.lower())
             key = f'"{self.arch}_{self.op.lower()}_{datatype}"'
             value = f'{{{class_prefix}::{init_params}, {class_prefix}::{n_init_params}}}'
             self.update_lookup_table(
-                file_path,
-                "#ifdef Accel_LOOKUP_TABLE_GEN" if self.is_accel(self.arch, datatype) else "#ifdef NonAccel_LOOKUP_TABLE_GEN",
-                f'{{{key}, {value}}},')
+                file_path, "#ifdef Accel_LOOKUP_TABLE_GEN" if self.is_accel(self.arch, datatype)
+                else "#ifdef NonAccel_LOOKUP_TABLE_GEN", f'{{{key}, {value}}},')
 
 
 class PerfConfigsFinder():
