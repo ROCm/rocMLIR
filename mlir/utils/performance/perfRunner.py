@@ -1597,8 +1597,10 @@ def run_config_with_mlir(config: PerfConfiguration,
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
 
-    # Use HIP timing via tuning-driver if rocprof is disabled
-    if not use_rocprof:
+    nanoseconds = np.nan
+
+    # Use HIP timing via tuning-driver if rocprof is disabled and perfconfig is present
+    if not use_rocprof and config.perfconfig:
         if debug:
             print("Using HIP timing for benchmarking")
         rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
@@ -1609,36 +1611,30 @@ def run_config_with_mlir(config: PerfConfiguration,
         ]
         outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), tuning_driver_command])
         if noerr:
-            result = outs.decode().strip()
-            if result != "N/A":
-                try:
-                    parts = result.split('\t')
-                    if len(parts) == 2:
-                        return float(parts[1])
-                    else:
-                        return float(result)
-                except ValueError:
-                    if debug:
-                        print(f"Failed to parse timing result: {result}")
-        return np.nan
+            try:
+                _, time = outs.split()
+                if time != "N/A":
+                    nanoseconds = float(time)
+            except ValueError:
+                if debug:
+                    print(f"Failed to parse timing result: {outs}")
+    else:
+        if debug:
+            print("Using rocprof for benchmarking")
+        rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandline_options
+        rocmlir_driver_cmd = [paths.mlir_paths.rocmlir_driver_path, '-c']
+        mlir_cpu_runner_args = [
+            f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}',
+            '--entry-point-result=void'
+        ]
+        profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(arch) + [
+            '--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME, '--',
+            paths.mlir_paths.cpu_runner_path
+        ] + mlir_cpu_runner_args
 
-    if debug:
-        print("Using rocprof for benchmarking")
-    rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandline_options
-    rocmlir_driver_cmd = [paths.mlir_paths.rocmlir_driver_path, '-c']
-    mlir_cpu_runner_args = [
-        f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}',
-        '--entry-point-result=void'
-    ]
-    profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(arch) + [
-        '--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME, '--',
-        paths.mlir_paths.cpu_runner_path
-    ] + mlir_cpu_runner_args
-
-    outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), rocmlir_driver_cmd, profiler_cmd])
-    nanoseconds = np.nan
-    if noerr:
-        nanoseconds = get_nanoseconds(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
+        outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), rocmlir_driver_cmd, profiler_cmd])
+        if noerr:
+            nanoseconds = get_nanoseconds(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
 
     return nanoseconds
 
