@@ -50,9 +50,9 @@ OUTPUT_DATA_TYPES_MAP = {
     'bf8_fp8': 'f32',
     'bf8_bf8': 'f32'
 }
-MLIR_N_REPEATS = 100
-WARMUP_ITERATIONS = 10
-TRIM_PERCENT = 10
+MLIR_N_REPEATS = 10
+WARMUP_ITERATIONS = 1
+TRIM_PERCENT = 50  # Use median of the measurements
 SLEEP_MS = 1
 
 FILTER_LAYOUT_MAP = {'N': 'k', 'C': 'c', 'H': 'y', 'W': 'x', 'G': 'g', '0': '0', '1': '1'}

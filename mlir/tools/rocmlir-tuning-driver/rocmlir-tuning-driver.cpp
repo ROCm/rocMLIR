@@ -101,10 +101,11 @@ static llvm::cl::opt<unsigned> warmupIterations(
     "warmup-iterations", llvm::cl::desc("Number of warmup runs"),
     llvm::cl::value_desc("number of warmup runs"), llvm::cl::init(10));
 
-static llvm::cl::opt<unsigned> trimPercent(
-    "trim-percent",
-    llvm::cl::desc("Percentage to trim from top and bottom of results"),
-    llvm::cl::value_desc("trim percentage"), llvm::cl::init(10));
+static llvm::cl::opt<unsigned>
+    trimPercent("trim-percent",
+                llvm::cl::desc("Percentage to trim from top and bottom of "
+                               "results (median is used if >= 50)"),
+                llvm::cl::value_desc("trim percentage"), llvm::cl::init(10));
 
 static llvm::cl::opt<unsigned> sleepMs(
     "sleep-ms",
@@ -181,6 +182,7 @@ static LogicalResult flushL2Cache(hipStream_t stream) {
   return success();
 }
 
+// Assumes values is sorted
 static float computeMedian(const std::vector<float> &values) {
   if (values.empty())
     return 0.0;
@@ -193,20 +195,20 @@ static float computeMedian(const std::vector<float> &values) {
   }
 }
 
-static float computeTrimmedMean(std::vector<float> &values, unsigned trimPct) {
+// Assumes values is sorted
+static float computeTrimmedMean(const std::vector<float> &values,
+                                unsigned trimPct) {
   if (values.empty())
     return 0.0;
 
-  std::sort(values.begin(), values.end());
+  if (trimPct >= 50) {
+    // If we're trimming everything, just return median
+    return computeMedian(values);
+  }
 
   size_t trimCount = values.size() * trimPct / 100;
   size_t startIdx = trimCount;
   size_t endIdx = values.size() - trimCount;
-
-  if (startIdx >= endIdx) {
-    // If we'd trim everything, just return median
-    return computeMedian(values);
-  }
 
   float sum = 0.0;
   for (size_t i = startIdx; i < endIdx; ++i) {
@@ -229,12 +231,22 @@ static float computeStdDev(const std::vector<float> &values, float mean) {
   return std::sqrt(sumSquares / values.size());
 }
 
+struct BenchmarkParams {
+  unsigned numIterations;
+  unsigned warmupIterations;
+  unsigned trimPercent;
+  unsigned sleepMs;
+  bool showStats;
+};
+
 // In order to match rocprof, returns time in nanoseconds
-static FailureOr<double> benchmarkKernels(
-    ArrayRef<std::string> binaries, ArrayRef<std::string> funcNames,
-    ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-    benchmark::DataType dataType, ArrayRef<void *> hostBuffers,
-    MutableArrayRef<void *> gpuBuffers, ArrayRef<size_t> bufferSizes) {
+static FailureOr<double>
+benchmarkKernels(ArrayRef<std::string> binaries,
+                 ArrayRef<std::string> funcNames, ArrayRef<uint32_t> blockSizes,
+                 ArrayRef<uint32_t> gridSizes, benchmark::DataType dataType,
+                 ArrayRef<void *> hostBuffers,
+                 MutableArrayRef<void *> gpuBuffers,
+                 ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
   constexpr double msToNs = 1e6;
 
   hipStream_t stream;
@@ -267,7 +279,7 @@ static FailureOr<double> benchmarkKernels(
   }
 
   // Warmup run
-  for (unsigned iter = 0; iter < warmupIterations; ++iter) {
+  for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
     for (auto [func, blockSize, gridSize] :
          llvm::zip(functions, blockSizes, gridSizes)) {
       HIPCHECK(hipExtModuleLaunchKernel(
@@ -279,7 +291,7 @@ static FailureOr<double> benchmarkKernels(
   // Measure runs
   std::vector<float> measurements;
 
-  for (unsigned iter = 0; iter < numIterations; ++iter) {
+  for (unsigned iter = 0; iter < params.numIterations; ++iter) {
     if (failed(flushL2Cache(stream))) {
       return failure();
     }
@@ -311,8 +323,8 @@ static FailureOr<double> benchmarkKernels(
   }
 
   // Sleep to avoid GPU throttling
-  if (sleepMs > 0) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+  if (params.sleepMs > 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(params.sleepMs));
   }
 
   for (hipModule_t mod : modules) {
@@ -321,8 +333,8 @@ static FailureOr<double> benchmarkKernels(
 
   HIPCHECK(hipStreamDestroy(stream));
 
-  if (showStats && measurements.size()) {
-    std::sort(measurements.begin(), measurements.end());
+  std::sort(measurements.begin(), measurements.end());
+  if (params.showStats && measurements.size() > 1) {
     float median = computeMedian(measurements);
     float min = measurements.front();
     float max = measurements.back();
@@ -335,14 +347,13 @@ static FailureOr<double> benchmarkKernels(
     float stdDev = computeStdDev(measurements, mean);
     float coefficientOfVariation = (mean > 0) ? (stdDev / mean * 100) : 0;
 
-    llvm::outs() << " [min: " << min << ", median: " << median
+    llvm::outs() << "[min: " << min << ", median: " << median
                  << ", max: " << max << ", stddev: " << stdDev
-                 << ", cv: " << coefficientOfVariation << "%]\n";
+                 << ", cv: " << coefficientOfVariation << "%]\t";
   }
 
-  // Compute trimmed mean
-  float averageMilliseconds = computeTrimmedMean(measurements, trimPercent);
-  return msToNs * static_cast<double>(averageMilliseconds);
+  float result = computeTrimmedMean(measurements, params.trimPercent);
+  return msToNs * static_cast<double>(result);
 }
 
 static int toKernelOrder(Attribute attr) {
@@ -509,6 +520,12 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
   }
 
+  // Compilation (PassManager::run()) resets the cl opts, so we have to save the
+  // values.
+  // TODO: Is there a better way to do this?
+  const BenchmarkParams benchmarkParams = {numIterations, warmupIterations,
+                                           trimPercent, sleepMs, showStats};
+
   for (const auto &perfConfig : configs) {
     llvm::outs() << perfConfig << "\t";
     OwningOpRef<ModuleOp> tuneCopy = cast<ModuleOp>(source->clone());
@@ -544,6 +561,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
     OwningOpRef<ModuleOp> compileCopy = copyIR(source, perfConfigAttr);
 
+    // TODO: Call to run resets the cl opts
     if (failed(compilation.run(compileCopy.get()))) {
       llvm::errs() << "Backend pipeline failed for config: " << perfConfig
                    << "\n";
@@ -564,9 +582,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                                .str());
     }
 
-    FailureOr<double> timing =
-        benchmarkKernels(hipModules, kernelFuncNames, blockSizes, gridSizes,
-                         dataType, hostBuffers, gpuBuffers, bufferLengths);
+    FailureOr<double> timing = benchmarkKernels(
+        hipModules, kernelFuncNames, blockSizes, gridSizes, dataType,
+        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams);
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
       return failure();
