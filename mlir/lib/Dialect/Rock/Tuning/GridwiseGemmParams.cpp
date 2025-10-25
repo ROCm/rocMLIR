@@ -32,27 +32,18 @@ public:
 
   static ArrayRef<ParamsType> lookup(StringRef arch, KernelType op,
                                      Type dataType) {
-    static const auto &table = getTable();
-
+    arch = getArchName(arch);
     auto key = makeKey(arch, op, dataType);
     LLVM_DEBUG(llvm::dbgs()
                << "Lookup for tuning parameters with key " << key << "\n");
 
+    static const auto &table = getTable();
     auto it = table.find(key);
     if (it != table.end()) {
       return ArrayRef<ParamsType>(it->second.first, it->second.second);
     }
 
-    auto archFamily = getArchName(arch).drop_back(2).str();
-
-    std::string fallbackKey;
-    for (const auto &entry : table) {
-      if (entry.first.find(archFamily) != std::string::npos &&
-          entry.first.find(makeSuffix(op, dataType)) != std::string::npos) {
-        fallbackKey = std::max(fallbackKey, entry.first);
-      }
-    }
-
+    auto fallbackKey = findFallback(arch, op, dataType);
     if (!fallbackKey.empty()) {
       LLVM_DEBUG(llvm::dbgs() << "Falling back to tuning parameters with key "
                               << fallbackKey << "\n");
@@ -71,25 +62,74 @@ private:
       llvm_unreachable("Invalid architecture string");
     }
     auto remaining = arch.substr(gfxPos);
-    auto endPos = remaining.find_first_not_of("0123456789a", 3);
+    auto endPos =
+        remaining.find_if_not([](char c) { return llvm::isAlnum(c); }, 3);
     return remaining.substr(0, endPos);
   }
 
   static std::string getDataTypeString(Type dataType) {
     std::string dataTypeStr;
-    llvm::raw_string_ostream os(dataTypeStr);
-    os << dataType;
-
-    if (dataTypeStr == "bf16") {
-      dataTypeStr = "f16";
-    } else if (dataTypeStr.find("f8E") != std::string::npos) {
+    if (dataType.getIntOrFloatBitWidth() == 8 && isa<FloatType>(dataType)) {
+      // There are several 8-bit float types, but we use "fp8" generically
       dataTypeStr = "fp8";
-    } else if (dataType.isInteger() &&
-               (dataTypeStr.at(0) == 's' || dataTypeStr.at(0) == 'u')) {
-      dataTypeStr = dataTypeStr.substr(1);
+    } else if (dataType.getIntOrFloatBitWidth() == 16 &&
+               isa<FloatType>(dataType)) {
+      // We use "f16" for bf16 and f16 generically
+      dataTypeStr = "f16";
+    } else {
+      llvm::raw_string_ostream os(dataTypeStr);
+      os << dataType;
+      if (dataType.isInteger() &&
+          (dataTypeStr.at(0) == 's' || dataTypeStr.at(0) == 'u')) {
+        // Integer types can be printed as "sint" or "uint"
+        dataTypeStr = dataTypeStr.substr(1);
+      }
     }
-
     return dataTypeStr;
+  }
+
+  // Get all related archs sorted lexicographically
+  static std::vector<std::string> getRelatedArchs(StringRef arch, KernelType op,
+                                                  Type dataType) {
+    std::vector<std::string> archs;
+    auto prefix = arch.take_front(4);
+    auto suffix = makeSuffix(op, dataType);
+    static const auto &table = getTable();
+    for (const auto &entry : table) {
+      if (entry.first.find(prefix) != std::string::npos &&
+          entry.first.rfind(suffix) != std::string::npos) {
+        archs.push_back(entry.first.substr(0, entry.first.find('_')));
+      }
+    }
+    std::sort(archs.begin(), archs.end());
+    return archs;
+  }
+
+  // Search for fallback by truncating arch string
+  // e.g., gfx1151 -> gfx115 -> gfx11 -> gfx1
+  static std::string findFallback(StringRef arch, KernelType op,
+                                  Type dataType) {
+    const auto archs = getRelatedArchs(arch, op, dataType);
+    return findFallbackRecursive(arch.drop_back(1), op, dataType, archs);
+  }
+
+  static std::string
+  findFallbackRecursive(StringRef arch, KernelType op, Type dataType,
+                        const std::vector<std::string> &archs) {
+    if (arch == "gfx")
+      return "";
+
+    // Archs is sorted lexicographically, so we can search in reverse order for
+    // the latest matching arch
+    // e.g., gfx950 matches gfx9 before gfx942
+    auto it =
+        std::find_if(archs.rbegin(), archs.rend(), [&](const std::string &a) {
+          return a.find(arch.str()) != std::string::npos;
+        });
+    if (it == archs.rend())
+      return findFallbackRecursive(arch.drop_back(1), op, dataType, archs);
+    else
+      return makeKey(*it, op, dataType);
   }
 
   static std::string makeSuffix(KernelType op, Type dataType) {
@@ -97,7 +137,7 @@ private:
   }
 
   static std::string makeKey(StringRef arch, KernelType op, Type dataType) {
-    return getArchName(arch).str() + "_" + makeSuffix(op, dataType);
+    return arch.str() + "_" + makeSuffix(op, dataType);
   }
 
   static const std::unordered_map<std::string, ParamArray> &getTable() {

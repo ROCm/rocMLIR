@@ -338,7 +338,7 @@ class PerfConfigsFinder():
         return result
 
 
-def combine_data(input_dir, no_split_k):
+def combine_data(input_dir, no_splitk):
     """
     Combine all *.debug tuning data into a single file.
     """
@@ -354,7 +354,7 @@ def combine_data(input_dir, no_split_k):
     new_df = pd.concat(dfs, ignore_index=True)
 
     # Remove splitK from tuning data
-    if no_split_k:
+    if no_splitk:
         df_filtered = new_df[new_df['PerfConfig'].str.split(',').str[6] == '1']
         new_df = df_filtered
 
@@ -373,8 +373,8 @@ def print_results(result):
 
 def main(args=None):
     """
-    usage: quickTunerGen.py [-h] --input-dir INPUT_DIR --op {gemm,conv} [--th TH] --arch ARCH [--update] [--no-splitK]
-    usage exsample: python3 quickTuningGen.py --input-dir tunedData --op conv --arch gfx90a --update --no-splitK
+    usage: quickTunerGen.py [-h] --input-dir INPUT_DIR --op {gemm,conv} [--th TH] --arch ARCH [--update] [--no-splitk]
+    usage exsample: python3 quickTuningGen.py --input-dir tunedData --op conv --arch gfx90a --update --no-splitk
     """
     if args is None:
         args = sys.argv[1:]
@@ -391,14 +391,14 @@ def main(args=None):
 
     parser.add_argument("--update", required=False, default=False, action='store_true')
 
-    parser.add_argument('--no-splitK',
+    parser.add_argument('--no-splitk',
                         default=False,
                         action='store_true',
-                        help='Removing the spliK factor from the generated list')
+                        help='Removing the Split-K factor from the generated list')
 
     pargs = parser.parse_args()
 
-    combined_data = combine_data(pargs.input_dir, pargs.no_split_k)
+    combined_data = combine_data(pargs.input_dir, pargs.no_splitk)
 
     finder = PerfConfigsFinder(combined_data, pargs)
     result = finder.find()
