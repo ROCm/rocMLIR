@@ -1604,7 +1604,7 @@ def run_config_with_mlir(config: PerfConfiguration,
             print("Using HIP timing for benchmarking")
         rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
         tuning_driver_command = [
-            paths.mlir_paths.rocmlir_tuning_driver_path, f'--benchmark-config={config.perfConfig}',
+            paths.mlir_paths.rocmlir_tuning_driver_path, f'--benchmark-config={config.perfconfig}',
             f'--num-iterations={MLIR_N_REPEATS}', f'--warmup-iterations={WARMUP_ITERATIONS}',
             f'--trim-percent={TRIM_PERCENT}', f'--sleep-ms={SLEEP_MS}', '-'
         ]
