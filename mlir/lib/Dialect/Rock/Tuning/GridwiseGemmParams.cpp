@@ -23,6 +23,75 @@
 using namespace mlir;
 using namespace mlir::rock;
 
+namespace {
+
+template <typename ParamsType>
+class ParamLookupTable {
+public:
+  using ParamArray = std::pair<const ParamsType *, size_t>;
+
+  static ArrayRef<ParamsType> lookup(StringRef arch, KernelType op,
+                                     Type dataType) {
+    static const auto &table = getTable();
+
+    auto key = makeKey(getArchFamily(arch), op, dataType);
+    auto it = table.find(key);
+    if (it != table.end()) {
+      return ArrayRef<ParamsType>(it->second.first, it->second.second);
+    }
+
+    // TODO fallback
+    return ArrayRef<ParamsType>();
+  }
+
+private:
+  static StringRef getArchFamily(StringRef arch) {
+    if (arch.contains("gfx950"))
+      return "gfx950";
+    if (arch.contains("gfx942"))
+      return "gfx942";
+    if (arch.contains("gfx940"))
+      return "gfx940";
+    if (arch.contains("gfx90a"))
+      return "gfx90a";
+    if (arch.contains("gfx908"))
+      return "gfx908";
+    if (arch.contains("gfx12"))
+      return "gfx12";
+    if (arch.contains("gfx11"))
+      return "gfx11";
+    if (arch.contains("gfx10"))
+      return "gfx10";
+    return arch;
+  }
+
+  static std::string getDataTypeString(Type dataType) {
+    int bitWidth = dataType.getIntOrFloatBitWidth();
+    if (bitWidth == 8) {
+      return dataType.isInteger() ? "i8" : "fp8";
+    } else if (bitWidth == 16) {
+      return "fp16";
+    } else if (bitWidth == 32) {
+      return "fp32";
+    }
+    return "default";
+  }
+
+  static std::string makeKey(StringRef arch, KernelType op, Type dataType) {
+    std::string opStr = (op == KernelType::Gemm) ? "gemm" : "conv";
+    return (arch + "_" + opStr + "_" + getDataTypeString(dataType)).str();
+  }
+
+  static const std::map<std::string, ParamArray> &getTable() {
+    static const std::map<std::string, ParamArray> table = buildTable();
+    return table;
+  }
+
+  static std::map<std::string, ParamArray> buildTable();
+};
+
+} // anonymous namespace
+
 llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
                                           GemmDimension dim) {
   switch (dim) {
@@ -281,22 +350,8 @@ PopulateParams::obtainTuningParameters(RockGemmWrapperInterface op,
 std::vector<InitParamsNonAccel>
 PopulateParams::getTuningParameters(KernelType opType, Type dataTypeA,
                                     Type dataTypeB, StringRef arch) const {
-  ArrayRef<InitParamsNonAccel> params;
-  if (opType == KernelType::Gemm) {
-    if (arch.contains("gfx10"))
-      params = {initParametersGemmGfx1000, nInitParametersGemmGfx1000};
-    else if (arch.contains("gfx11"))
-      params = {initParametersGemmGfx1100, nInitParametersGemmGfx1100};
-    else
-      params = {initParametersGemmGfx1200, nInitParametersGemmGfx1200};
-  } else {
-    if (arch.contains("gfx10"))
-      params = {initParametersConvGfx1000, nInitParametersConvGfx1000};
-    else if (arch.contains("gfx11"))
-      params = {initParametersConvGfx1100, nInitParametersConvGfx1100};
-    else
-      params = {initParametersConvGfx1200, nInitParametersConvGfx1200};
-  }
+  auto params =
+      ParamLookupTable<InitParamsNonAccel>::lookup(arch, opType, dataTypeA);
   return std::vector<InitParamsNonAccel>(params);
 }
 
@@ -562,102 +617,9 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 std::vector<InitParamsAccel>
 PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
                                        Type dataTypeB, StringRef arch) const {
-  ArrayRef<InitParamsAccel> params;
-  if (opType == KernelType::Gemm) {
-    switch (dataTypeA.getIntOrFloatBitWidth()) {
-    case 8:
-      if (dataTypeA.isInteger()) {
-        if (arch.contains("gfx908"))
-          params = {initParametersI8GemmGfx908, nInitParametersI8GemmGfx908};
-        else if (arch.contains("gfx90a"))
-          params = {initParametersI8GemmGfx90a, nInitParametersI8GemmGfx90a};
-        else if (arch.contains("gfx942"))
-          params = {initParametersI8GemmGfx942, nInitParametersI8GemmGfx942};
-        else
-          params = {initParametersI8GemmGfx950, nInitParametersI8GemmGfx950};
-      } else {
-        if (arch.contains("gfx908"))
-          params = {initParametersFp8GemmGfx908, nInitParametersFp8GemmGfx908};
-        else if (arch.contains("gfx90a"))
-          params = {initParametersFp8GemmGfx90a, nInitParametersFp8GemmGfx90a};
-        else if (arch.contains("gfx942"))
-          params = {initParametersFp8GemmGfx942, nInitParametersFp8GemmGfx942};
-        else
-          params = {initParametersFp8GemmGfx950, nInitParametersFp8GemmGfx950};
-      }
-      break;
-    case 16:
-      if (arch.contains("gfx908"))
-        params = {initParametersFp16GemmGfx908, nInitParametersFp16GemmGfx908};
-      else if (arch.contains("gfx90a"))
-        params = {initParametersFp16GemmGfx90a, nInitParametersFp16GemmGfx90a};
-      else if (arch.contains("gfx942"))
-        params = {initParametersFp16GemmGfx942, nInitParametersFp16GemmGfx942};
-      else
-        params = {initParametersFp16GemmGfx950, nInitParametersFp16GemmGfx950};
-      break;
-    default:
-      if (arch.contains("gfx908"))
-        params = {initParametersGemmGfx908, nInitParametersGemmGfx908};
-      else if (arch.contains("gfx90a"))
-        params = {initParametersGemmGfx90a, nInitParametersGemmGfx90a};
-      else if (arch.contains("gfx942"))
-        params = {initParametersGemmGfx942, nInitParametersGemmGfx942};
-      else
-        params = {initParametersGemmGfx950, nInitParametersGemmGfx950};
-    }
-  } else {
-    switch (dataTypeA.getIntOrFloatBitWidth()) {
-    case 8:
-      if (dataTypeA.isInteger()) {
-        if (arch.contains("gfx908"))
-          params = {initParametersForwardI8ConvGfx908,
-                    nInitParametersForwardI8ConvGfx908};
-        else if (arch.contains("gfx90a"))
-          params = {initParametersForwardI8ConvGfx90a,
-                    nInitParametersForwardI8ConvGfx90a};
-        else if (arch.contains("gfx942"))
-          params = {initParametersForwardI8ConvGfx942,
-                    nInitParametersForwardI8ConvGfx942};
-        else
-          params = {initParametersForwardI8ConvGfx950,
-                    nInitParametersForwardI8ConvGfx950};
-      } else {
-        if (arch.contains("gfx908"))
-          params = {initParametersForwardFp8ConvGfx908,
-                    nInitParametersForwardFp8ConvGfx908};
-        else if (arch.contains("gfx90a"))
-          params = {initParametersForwardFp8ConvGfx90a,
-                    nInitParametersForwardFp8ConvGfx90a};
-        else if (arch.contains("gfx942"))
-          params = {initParametersForwardFp8ConvGfx942,
-                    nInitParametersForwardFp8ConvGfx942};
-        else
-          params = {initParametersForwardFp8ConvGfx950,
-                    nInitParametersForwardFp8ConvGfx950};
-      }
-      break;
-    case 16:
-      if (arch.contains("gfx908"))
-        params = {initParametersFp16ConvGfx908, nInitParametersFp16ConvGfx908};
-      else if (arch.contains("gfx90a"))
-        params = {initParametersFp16ConvGfx90a, nInitParametersFp16ConvGfx90a};
-      else if (arch.contains("gfx942"))
-        params = {initParametersFp16ConvGfx942, nInitParametersFp16ConvGfx942};
-      else
-        params = {initParametersFp16ConvGfx950, nInitParametersFp16ConvGfx950};
-      break;
-    default:
-      if (arch.contains("gfx908"))
-        params = {initParametersConvGfx908, nInitParametersConvGfx908};
-      else if (arch.contains("gfx90a"))
-        params = {initParametersConvGfx90a, nInitParametersConvGfx90a};
-      else if (arch.contains("gfx942"))
-        params = {initParametersConvGfx942, nInitParametersConvGfx942};
-      else
-        params = {initParametersConvGfx950, nInitParametersConvGfx950};
-    }
-  }
+  auto params =
+      ParamLookupTable<InitParamsAccel>::lookup(arch, opType, dataTypeA);
+
   std::vector<InitParamsAccel> res;
   // Only return valid XDLOp params
   std::copy_if(
@@ -800,84 +762,10 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
 std::vector<InitParamsAccel>
 PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
                                         Type dataTypeB, StringRef arch) const {
-  ArrayRef<InitParamsAccel> params;
+  auto params =
+      ParamLookupTable<InitParamsAccel>::lookup(arch, opType, dataTypeA);
+
   std::vector<InitParamsAccel> res;
-  if (opType == KernelType::Gemm) {
-    switch (dataTypeA.getIntOrFloatBitWidth()) {
-    case 8:
-      if (dataTypeA.isInteger()) {
-        if (arch.contains("gfx10"))
-          params = {initParametersI8GemmGfx1000, nInitParametersI8GemmGfx1000};
-        else if (arch.contains("gfx11"))
-          params = {initParametersI8GemmGfx1100, nInitParametersI8GemmGfx1100};
-        else
-          params = {initParametersI8GemmGfx1200, nInitParametersI8GemmGfx1200};
-      } else {
-        if (arch.contains("gfx10"))
-          params = {initParametersFp8GemmGfx1000,
-                    nInitParametersFp8GemmGfx1000};
-        else if (arch.contains("gfx11"))
-          params = {initParametersFp8GemmGfx1100,
-                    nInitParametersFp8GemmGfx1100};
-        else
-          params = {initParametersFp8GemmGfx1200,
-                    nInitParametersFp8GemmGfx1200};
-      }
-      break;
-    case 16:
-      if (arch.contains("gfx10"))
-        params = {initParametersFp16GemmGfx1000,
-                  nInitParametersFp16GemmGfx1000};
-      else if (arch.contains("gfx11"))
-        params = {initParametersFp16GemmGfx1100,
-                  nInitParametersFp16GemmGfx1100};
-      else
-        params = {initParametersFp16GemmGfx1200,
-                  nInitParametersFp16GemmGfx1200};
-      break;
-    default:
-      return res;
-    }
-  } else {
-    switch (dataTypeA.getIntOrFloatBitWidth()) {
-    case 8:
-      if (dataTypeA.isInteger()) {
-        if (arch.contains("gfx10"))
-          params = {initParametersForwardI8ConvGfx1000,
-                    nInitParametersForwardI8ConvGfx1000};
-        else if (arch.contains("gfx11"))
-          params = {initParametersForwardI8ConvGfx1100,
-                    nInitParametersForwardI8ConvGfx1100};
-        else
-          params = {initParametersForwardI8ConvGfx1200,
-                    nInitParametersForwardI8ConvGfx1200};
-      } else {
-        if (arch.contains("gfx10"))
-          params = {initParametersForwardFp8ConvGfx1000,
-                    nInitParametersForwardFp8ConvGfx1000};
-        else if (arch.contains("gfx11"))
-          params = {initParametersForwardFp8ConvGfx1100,
-                    nInitParametersForwardFp8ConvGfx1100};
-        else
-          params = {initParametersForwardFp8ConvGfx1200,
-                    nInitParametersForwardFp8ConvGfx1200};
-      }
-      break;
-    case 16:
-      if (arch.contains("gfx10"))
-        params = {initParametersFp16ConvGfx1000,
-                  nInitParametersFp16ConvGfx1000};
-      else if (arch.contains("gfx11"))
-        params = {initParametersFp16ConvGfx1100,
-                  nInitParametersFp16ConvGfx1100};
-      else
-        params = {initParametersFp16ConvGfx1200,
-                  nInitParametersFp16ConvGfx1200};
-      break;
-    default:
-      return res;
-    }
-  }
   // Only return valid Wmma params
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   std::copy_if(
@@ -914,3 +802,210 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.splitKFactor, validParams.gemmScheduleVersion,
       validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
 }
+
+namespace {
+
+template <>
+std::map<std::string, ParamLookupTable<InitParamsNonAccel>::ParamArray>
+ParamLookupTable<InitParamsNonAccel>::buildTable() {
+  return {
+      // GEMM parameters
+      {"gfx10_gemm_default",
+       {PopulateParams::initParametersGemmGfx1000,
+        PopulateParams::nInitParametersGemmGfx1000}},
+      {"gfx11_gemm_default",
+       {PopulateParams::initParametersGemmGfx1100,
+        PopulateParams::nInitParametersGemmGfx1100}},
+      {"gfx12_gemm_default",
+       {PopulateParams::initParametersGemmGfx1200,
+        PopulateParams::nInitParametersGemmGfx1200}},
+
+      // Conv parameters
+      {"gfx10_conv_default",
+       {PopulateParams::initParametersConvGfx1000,
+        PopulateParams::nInitParametersConvGfx1000}},
+      {"gfx11_conv_default",
+       {PopulateParams::initParametersConvGfx1100,
+        PopulateParams::nInitParametersConvGfx1100}},
+      {"gfx12_conv_default",
+       {PopulateParams::initParametersConvGfx1200,
+        PopulateParams::nInitParametersConvGfx1200}},
+  };
+}
+
+// Specialization for Accel (XDL/WMMA) parameters
+template <>
+std::map<std::string, ParamLookupTable<InitParamsAccel>::ParamArray>
+ParamLookupTable<InitParamsAccel>::buildTable() {
+  return {
+      // XDL GEMM parameters
+      {"gfx908_gemm_i8",
+       {PopulateParamsXDL::initParametersI8GemmGfx908,
+        PopulateParamsXDL::nInitParametersI8GemmGfx908}},
+      {"gfx90a_gemm_i8",
+       {PopulateParamsXDL::initParametersI8GemmGfx90a,
+        PopulateParamsXDL::nInitParametersI8GemmGfx90a}},
+      {"gfx942_gemm_i8",
+       {PopulateParamsXDL::initParametersI8GemmGfx942,
+        PopulateParamsXDL::nInitParametersI8GemmGfx942}},
+      {"gfx950_gemm_i8",
+       {PopulateParamsXDL::initParametersI8GemmGfx950,
+        PopulateParamsXDL::nInitParametersI8GemmGfx950}},
+
+      {"gfx908_gemm_fp8",
+       {PopulateParamsXDL::initParametersFp8GemmGfx908,
+        PopulateParamsXDL::nInitParametersFp8GemmGfx908}},
+      {"gfx90a_gemm_fp8",
+       {PopulateParamsXDL::initParametersFp8GemmGfx90a,
+        PopulateParamsXDL::nInitParametersFp8GemmGfx90a}},
+      {"gfx942_gemm_fp8",
+       {PopulateParamsXDL::initParametersFp8GemmGfx942,
+        PopulateParamsXDL::nInitParametersFp8GemmGfx942}},
+      {"gfx950_gemm_fp8",
+       {PopulateParamsXDL::initParametersFp8GemmGfx950,
+        PopulateParamsXDL::nInitParametersFp8GemmGfx950}},
+
+      {"gfx908_gemm_fp16",
+       {PopulateParamsXDL::initParametersFp16GemmGfx908,
+        PopulateParamsXDL::nInitParametersFp16GemmGfx908}},
+      {"gfx90a_gemm_fp16",
+       {PopulateParamsXDL::initParametersFp16GemmGfx90a,
+        PopulateParamsXDL::nInitParametersFp16GemmGfx90a}},
+      {"gfx942_gemm_fp16",
+       {PopulateParamsXDL::initParametersFp16GemmGfx942,
+        PopulateParamsXDL::nInitParametersFp16GemmGfx942}},
+      {"gfx950_gemm_fp16",
+       {PopulateParamsXDL::initParametersFp16GemmGfx950,
+        PopulateParamsXDL::nInitParametersFp16GemmGfx950}},
+
+      {"gfx908_gemm_default",
+       {PopulateParamsXDL::initParametersGemmGfx908,
+        PopulateParamsXDL::nInitParametersGemmGfx908}},
+      {"gfx90a_gemm_default",
+       {PopulateParamsXDL::initParametersGemmGfx90a,
+        PopulateParamsXDL::nInitParametersGemmGfx90a}},
+      {"gfx942_gemm_default",
+       {PopulateParamsXDL::initParametersGemmGfx942,
+        PopulateParamsXDL::nInitParametersGemmGfx942}},
+      {"gfx950_gemm_default",
+       {PopulateParamsXDL::initParametersGemmGfx950,
+        PopulateParamsXDL::nInitParametersGemmGfx950}},
+
+      // XDL Conv parameters
+      {"gfx908_conv_i8",
+       {PopulateParamsXDL::initParametersForwardI8ConvGfx908,
+        PopulateParamsXDL::nInitParametersForwardI8ConvGfx908}},
+      {"gfx90a_conv_i8",
+       {PopulateParamsXDL::initParametersForwardI8ConvGfx90a,
+        PopulateParamsXDL::nInitParametersForwardI8ConvGfx90a}},
+      {"gfx942_conv_i8",
+       {PopulateParamsXDL::initParametersForwardI8ConvGfx942,
+        PopulateParamsXDL::nInitParametersForwardI8ConvGfx942}},
+      {"gfx950_conv_i8",
+       {PopulateParamsXDL::initParametersForwardI8ConvGfx950,
+        PopulateParamsXDL::nInitParametersForwardI8ConvGfx950}},
+
+      {"gfx908_conv_fp8",
+       {PopulateParamsXDL::initParametersForwardFp8ConvGfx908,
+        PopulateParamsXDL::nInitParametersForwardFp8ConvGfx908}},
+      {"gfx90a_conv_fp8",
+       {PopulateParamsXDL::initParametersForwardFp8ConvGfx90a,
+        PopulateParamsXDL::nInitParametersForwardFp8ConvGfx90a}},
+      {"gfx942_conv_fp8",
+       {PopulateParamsXDL::initParametersForwardFp8ConvGfx942,
+        PopulateParamsXDL::nInitParametersForwardFp8ConvGfx942}},
+      {"gfx950_conv_fp8",
+       {PopulateParamsXDL::initParametersForwardFp8ConvGfx950,
+        PopulateParamsXDL::nInitParametersForwardFp8ConvGfx950}},
+
+      {"gfx908_conv_fp16",
+       {PopulateParamsXDL::initParametersFp16ConvGfx908,
+        PopulateParamsXDL::nInitParametersFp16ConvGfx908}},
+      {"gfx90a_conv_fp16",
+       {PopulateParamsXDL::initParametersFp16ConvGfx90a,
+        PopulateParamsXDL::nInitParametersFp16ConvGfx90a}},
+      {"gfx942_conv_fp16",
+       {PopulateParamsXDL::initParametersFp16ConvGfx942,
+        PopulateParamsXDL::nInitParametersFp16ConvGfx942}},
+      {"gfx950_conv_fp16",
+       {PopulateParamsXDL::initParametersFp16ConvGfx950,
+        PopulateParamsXDL::nInitParametersFp16ConvGfx950}},
+
+      {"gfx908_conv_default",
+       {PopulateParamsXDL::initParametersConvGfx908,
+        PopulateParamsXDL::nInitParametersConvGfx908}},
+      {"gfx90a_conv_default",
+       {PopulateParamsXDL::initParametersConvGfx90a,
+        PopulateParamsXDL::nInitParametersConvGfx90a}},
+      {"gfx942_conv_default",
+       {PopulateParamsXDL::initParametersConvGfx942,
+        PopulateParamsXDL::nInitParametersConvGfx942}},
+      {"gfx950_conv_default",
+       {PopulateParamsXDL::initParametersConvGfx950,
+        PopulateParamsXDL::nInitParametersConvGfx950}},
+
+      // WMMA GEMM parameters
+      {"gfx10_gemm_i8",
+       {PopulateParamsWmma::initParametersI8GemmGfx1000,
+        PopulateParamsWmma::nInitParametersI8GemmGfx1000}},
+      {"gfx11_gemm_i8",
+       {PopulateParamsWmma::initParametersI8GemmGfx1100,
+        PopulateParamsWmma::nInitParametersI8GemmGfx1100}},
+      {"gfx12_gemm_i8",
+       {PopulateParamsWmma::initParametersI8GemmGfx1200,
+        PopulateParamsWmma::nInitParametersI8GemmGfx1200}},
+
+      {"gfx10_gemm_fp8",
+       {PopulateParamsWmma::initParametersFp8GemmGfx1000,
+        PopulateParamsWmma::nInitParametersFp8GemmGfx1000}},
+      {"gfx11_gemm_fp8",
+       {PopulateParamsWmma::initParametersFp8GemmGfx1100,
+        PopulateParamsWmma::nInitParametersFp8GemmGfx1100}},
+      {"gfx12_gemm_fp8",
+       {PopulateParamsWmma::initParametersFp8GemmGfx1200,
+        PopulateParamsWmma::nInitParametersFp8GemmGfx1200}},
+
+      {"gfx10_gemm_fp16",
+       {PopulateParamsWmma::initParametersFp16GemmGfx1000,
+        PopulateParamsWmma::nInitParametersFp16GemmGfx1000}},
+      {"gfx11_gemm_fp16",
+       {PopulateParamsWmma::initParametersFp16GemmGfx1100,
+        PopulateParamsWmma::nInitParametersFp16GemmGfx1100}},
+      {"gfx12_gemm_fp16",
+       {PopulateParamsWmma::initParametersFp16GemmGfx1200,
+        PopulateParamsWmma::nInitParametersFp16GemmGfx1200}},
+
+      // WMMA Conv parameters
+      {"gfx10_conv_i8",
+       {PopulateParamsWmma::initParametersForwardI8ConvGfx1000,
+        PopulateParamsWmma::nInitParametersForwardI8ConvGfx1000}},
+      {"gfx11_conv_i8",
+       {PopulateParamsWmma::initParametersForwardI8ConvGfx1100,
+        PopulateParamsWmma::nInitParametersForwardI8ConvGfx1100}},
+      {"gfx12_conv_i8",
+       {PopulateParamsWmma::initParametersForwardI8ConvGfx1200,
+        PopulateParamsWmma::nInitParametersForwardI8ConvGfx1200}},
+
+      {"gfx10_conv_fp8",
+       {PopulateParamsWmma::initParametersForwardFp8ConvGfx1000,
+        PopulateParamsWmma::nInitParametersForwardFp8ConvGfx1000}},
+      {"gfx11_conv_fp8",
+       {PopulateParamsWmma::initParametersForwardFp8ConvGfx1100,
+        PopulateParamsWmma::nInitParametersForwardFp8ConvGfx1100}},
+      {"gfx12_conv_fp8",
+       {PopulateParamsWmma::initParametersForwardFp8ConvGfx1200,
+        PopulateParamsWmma::nInitParametersForwardFp8ConvGfx1200}},
+
+      {"gfx10_conv_fp16",
+       {PopulateParamsWmma::initParametersFp16ConvGfx1000,
+        PopulateParamsWmma::nInitParametersFp16ConvGfx1000}},
+      {"gfx11_conv_fp16",
+       {PopulateParamsWmma::initParametersFp16ConvGfx1100,
+        PopulateParamsWmma::nInitParametersFp16ConvGfx1100}},
+      {"gfx12_conv_fp16",
+       {PopulateParamsWmma::initParametersFp16ConvGfx1200,
+        PopulateParamsWmma::nInitParametersFp16ConvGfx1200}},
+  };
+}
+
+} // anonymous namespace

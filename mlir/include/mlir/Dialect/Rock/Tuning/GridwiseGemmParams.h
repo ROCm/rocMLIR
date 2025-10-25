@@ -19,6 +19,11 @@
 #include "mlir/Dialect/Rock/Tuning/Serializable.h"
 #include <optional>
 
+namespace {
+template <typename ParamsType>
+class ParamLookupTable;
+} // anonymous namespace
+
 namespace llvm {
 class raw_ostream;
 } // end namespace llvm
@@ -325,6 +330,8 @@ private:
 
   LogicalResult populateDerived(const InitParamsNonAccel &validParams);
 
+  friend class ParamLookupTable<InitParamsNonAccel>;
+
 public:
   LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
                                        const StringRef perfConfig,
@@ -422,6 +429,8 @@ class PopulateParamsXDL : public PopulateParamsAccel {
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef XDL_DECLARATIONS_GEN
 
+  friend class ParamLookupTable<InitParamsAccel>;
+
 public:
   std::vector<InitParamsAccel>
   getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
@@ -449,6 +458,8 @@ private:
 #define Wmma_DECLARATIONS_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Wmma_DECLARATIONS_GEN
+
+  friend class ParamLookupTable<InitParamsAccel>;
 
 public:
   std::vector<InitParamsAccel>
