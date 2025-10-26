@@ -56,7 +56,7 @@ class PerfConfig:
 class MLIROnlyConfig(ConvConfiguration):
 
     def __repr__(self):
-        perf_config_str = str(self.perfConfig) if self.perfConfig else ""
+        perf_config_str = str(self.perfconfig) if self.perfconfig else ""
         return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.conv_stride_h!r}, convStrideW={self.conv_stride_w!r}, paddingHL={self.padding_hl!r}, paddingHR={self.padding_hr!r},
