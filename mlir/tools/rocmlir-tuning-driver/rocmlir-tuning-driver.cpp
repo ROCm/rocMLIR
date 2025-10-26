@@ -40,6 +40,7 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
@@ -101,16 +102,21 @@ static llvm::cl::opt<unsigned> warmupIterations(
     "warmup-iterations", llvm::cl::desc("Number of warmup runs"),
     llvm::cl::value_desc("number of warmup runs"), llvm::cl::init(10));
 
-static llvm::cl::opt<unsigned>
-    trimPercent("trim-percent",
-                llvm::cl::desc("Percentage to trim from top and bottom of "
-                               "results (median is used if >= 50)"),
-                llvm::cl::value_desc("trim percentage"), llvm::cl::init(10));
+static llvm::cl::opt<bool>
+    useMedian("use-median",
+              llvm::cl::desc("Use median of runs instead of mean for timing "
+                             "(overrides trim-percent)"),
+              llvm::cl::init(false));
 
-static llvm::cl::opt<unsigned> sleepMs(
-    "sleep-ms",
-    llvm::cl::desc("Milliseconds to sleep between runs to avoid throttling"),
-    llvm::cl::value_desc("milliseconds to sleep"), llvm::cl::init(1));
+static llvm::cl::opt<unsigned> trimPercent(
+    "trim-percent",
+    llvm::cl::desc("Percentage to trim from top and bottom of results"),
+    llvm::cl::value_desc("trim percentage [0, 50)"), llvm::cl::init(10));
+
+static llvm::cl::opt<unsigned> sleepUs(
+    "sleep-us",
+    llvm::cl::desc("Microseconds to sleep between runs to avoid throttling"),
+    llvm::cl::value_desc("microseconds to sleep"), llvm::cl::init(1000));
 
 static llvm::cl::opt<bool> showStats(
     "show-stats",
@@ -121,7 +127,7 @@ static llvm::cl::opt<std::string> benchmarkConfig(
     "benchmark-config",
     llvm::cl::desc(
         "Run benchmark with specific perf config only (skip tuning)"),
-    llvm::cl::init(""));
+    llvm::cl::value_desc("perf config string"), llvm::cl::init(""));
 
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
@@ -182,10 +188,12 @@ static LogicalResult flushL2Cache(hipStream_t stream) {
   return success();
 }
 
-// Assumes values is sorted
 static float computeMedian(const std::vector<float> &values) {
   if (values.empty())
     return 0.0;
+
+  assert(std::is_sorted(values.begin(), values.end()) &&
+         "values must be sorted");
 
   size_t n = values.size();
   if (n % 2 == 0) {
@@ -195,27 +203,16 @@ static float computeMedian(const std::vector<float> &values) {
   }
 }
 
-// Assumes values is sorted
-static float computeTrimmedMean(const std::vector<float> &values,
-                                unsigned trimPct) {
+static float computeMean(const std::vector<float> &values) {
   if (values.empty())
     return 0.0;
 
-  if (trimPct >= 50) {
-    // If we're trimming everything, just return median
-    return computeMedian(values);
-  }
-
-  size_t trimCount = values.size() * trimPct / 100;
-  size_t startIdx = trimCount;
-  size_t endIdx = values.size() - trimCount;
-
   float sum = 0.0;
-  for (size_t i = startIdx; i < endIdx; ++i) {
+  for (size_t i = 0; i < values.size(); ++i) {
     sum += values[i];
   }
 
-  return sum / (endIdx - startIdx);
+  return sum / values.size();
 }
 
 static float computeStdDev(const std::vector<float> &values, float mean) {
@@ -231,11 +228,30 @@ static float computeStdDev(const std::vector<float> &values, float mean) {
   return std::sqrt(sumSquares / values.size());
 }
 
+static std::vector<float> trimValues(const std::vector<float> &values,
+                                     unsigned trimPct) {
+  if (values.empty() || trimPct == 0)
+    return values;
+
+  if (trimPct >= 50)
+    return {};
+
+  assert(std::is_sorted(values.begin(), values.end()) &&
+         "values must be sorted");
+
+  size_t trimCount = values.size() * trimPct / 100;
+  size_t startIdx = trimCount;
+  size_t endIdx = values.size() - trimCount;
+
+  return std::vector<float>(values.begin() + startIdx, values.begin() + endIdx);
+}
+
 struct BenchmarkParams {
   unsigned numIterations;
   unsigned warmupIterations;
+  bool useMedian;
   unsigned trimPercent;
-  unsigned sleepMs;
+  unsigned sleepUs;
   bool showStats;
 };
 
@@ -247,8 +263,6 @@ benchmarkKernels(ArrayRef<std::string> binaries,
                  ArrayRef<void *> hostBuffers,
                  MutableArrayRef<void *> gpuBuffers,
                  ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
-  constexpr double msToNs = 1e6;
-
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream));
 
@@ -277,6 +291,13 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     HIPCHECK(hipModuleGetFunction(&func, mod, funcName.c_str()));
     functions.push_back(func);
   }
+
+  // Sleep guard to avoid GPU throttling
+  auto sleepGuard = llvm::make_scope_exit([&params] {
+    if (params.sleepUs > 0) {
+      std::this_thread::sleep_for(std::chrono::microseconds(params.sleepUs));
+    }
+  });
 
   // Warmup run
   for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
@@ -322,11 +343,6 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     measurements.push_back(totalMilliseconds);
   }
 
-  // Sleep to avoid GPU throttling
-  if (params.sleepMs > 0) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(params.sleepMs));
-  }
-
   for (hipModule_t mod : modules) {
     HIPCHECK(hipModuleUnload(mod));
   }
@@ -334,26 +350,24 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   HIPCHECK(hipStreamDestroy(stream));
 
   std::sort(measurements.begin(), measurements.end());
+
   if (params.showStats && measurements.size() > 1) {
     float median = computeMedian(measurements);
     float min = measurements.front();
     float max = measurements.back();
-
-    float mean = 0.0;
-    for (float val : measurements)
-      mean += val;
-    mean /= measurements.size();
-
+    float mean = computeMean(measurements);
     float stdDev = computeStdDev(measurements, mean);
     float coefficientOfVariation = (mean > 0) ? (stdDev / mean * 100) : 0;
-
     llvm::outs() << "[min: " << min << ", median: " << median
                  << ", max: " << max << ", stddev: " << stdDev
                  << ", cv: " << coefficientOfVariation << "%]\t";
   }
 
-  float result = computeTrimmedMean(measurements, params.trimPercent);
-  return msToNs * static_cast<double>(result);
+  auto msToNs = [](float ms) { return 1e6 * static_cast<double>(ms); };
+  if (params.useMedian)
+    return msToNs(computeMedian(measurements));
+  else
+    return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
 }
 
 static int toKernelOrder(Attribute attr) {
@@ -520,11 +534,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
   }
 
-  // Compilation (PassManager::run()) resets the cl opts, so we have to save the
-  // values.
-  // TODO: Is there a better way to do this?
+  // NOTE: Compilation (PassManager::run()) resets the cl opts, so we have to
+  // save the values.
   const BenchmarkParams benchmarkParams = {numIterations, warmupIterations,
-                                           trimPercent, sleepMs, showStats};
+                                           useMedian,     trimPercent,
+                                           sleepUs,       showStats};
 
   for (const auto &perfConfig : configs) {
     llvm::outs() << perfConfig << "\t";
@@ -561,7 +575,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
     OwningOpRef<ModuleOp> compileCopy = copyIR(source, perfConfigAttr);
 
-    // TODO: Call to run resets the cl opts
+    // NOTE: Call to run() resets the cl opts
     if (failed(compilation.run(compileCopy.get()))) {
       llvm::errs() << "Backend pipeline failed for config: " << perfConfig
                    << "\n";
@@ -610,6 +624,12 @@ int main(int argc, char **argv) {
 
   mlir::registerMLIRCLOptions();
   llvm::cl::ParseCommandLineOptions(argc, argv, "rocMLIR tuning driver");
+
+  if (trimPercent >= 50) {
+    llvm::errs() << "trim-percent must be less than 50 to avoid trimming all "
+                    "measurements\n";
+    return EXIT_FAILURE;
+  }
 
   DialectRegistry registry;
   registerRocMLIRDialects(registry);
