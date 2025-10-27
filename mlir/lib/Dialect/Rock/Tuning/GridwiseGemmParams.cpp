@@ -43,7 +43,7 @@ public:
       return ArrayRef<ParamsType>(it->second.first, it->second.second);
     }
 
-    auto fallbackKey = findFallback(arch, op, dataType);
+    auto fallbackKey = findFallback(key);
     if (!fallbackKey.empty()) {
       LLVM_DEBUG(llvm::dbgs() << "Falling back to tuning parameters with key "
                               << fallbackKey << "\n");
@@ -56,6 +56,7 @@ public:
   }
 
 private:
+  static constexpr auto separator = '_';
   // For non-accel params, fall back to any gfx
   static constexpr auto fallbackArchPrefixLen =
       std::is_same_v<ParamsType, InitParamsNonAccel> ? 3 : 4;
@@ -107,65 +108,65 @@ private:
     }
   }
 
-  // Get all related archs sorted lexicographically
-  static std::vector<std::string> getRelatedArchs(StringRef arch, KernelType op,
-                                                  Type dataType) {
-    std::vector<std::string> archs;
-    auto prefix = arch.take_front(fallbackArchPrefixLen).str();
-    auto suffix = makeSuffix(op, dataType);
+  // Get all related entries sorted lexicographically
+  static std::vector<std::string> getRelatives(const std::string &target) {
+    const auto suffixLen = target.size() - target.find(separator);
+
+    std::vector<std::string> relatives;
+
     static const auto &table = getTable();
     for (const auto &entry : table) {
-      if (entry.first.find(prefix) != std::string::npos &&
-          entry.first.rfind(suffix) != std::string::npos) {
-        archs.push_back(entry.first.substr(0, entry.first.find('_')));
+      const auto &candidate = entry.first;
+      // If suffix and prefix match, then they are relatives
+      if (std::equal(target.rbegin(), target.rbegin() + suffixLen,
+                     candidate.rbegin()) &&
+          std::equal(target.begin(), target.begin() + fallbackArchPrefixLen,
+                     candidate.begin())) {
+        relatives.push_back(candidate);
       }
     }
-    std::sort(archs.begin(), archs.end());
-    return archs;
+
+    return relatives;
   }
 
-  // Search for fallback by truncating arch string
-  // e.g., gfx1151 -> gfx115 -> gfx11 -> gfx1
-  static std::string findFallback(StringRef arch, KernelType op,
-                                  Type dataType) {
-    const auto archs = getRelatedArchs(arch, op, dataType);
-    return findFallbackRecursive(arch.drop_back(1), op, dataType, archs);
-  }
-
-  static std::string
-  findFallbackRecursive(StringRef arch, KernelType op, Type dataType,
-                        const std::vector<std::string> &archs) {
-    if (arch.size() < fallbackArchPrefixLen)
+  // Find the lexicographically closest relative
+  static std::string findFallback(const std::string &target) {
+    const auto relatives = getRelatives(target);
+    if (relatives.empty())
       return "";
 
-    // Archs is sorted lexicographically, so we can search in reverse order for
-    // the latest matching arch
-    // e.g., gfx950 matches gfx9 before gfx942
-    auto it =
-        std::find_if(archs.rbegin(), archs.rend(), [&](const std::string &a) {
-          return a.find(arch.str()) != std::string::npos;
-        });
-    if (it == archs.rend())
-      return findFallbackRecursive(arch.drop_back(1), op, dataType, archs);
-    else
-      return makeKey(*it, op, dataType);
+    auto it = std::lower_bound(relatives.begin(), relatives.end(), target);
+    if (it == relatives.end())
+      return relatives.back();
+    else if (it == relatives.begin())
+      return relatives.front();
+    else {
+      auto [mismatchNext, _] =
+          std::mismatch(target.begin(), target.end(), it->begin());
+      auto [mismatchPrev, _] =
+          std::mismatch(target.begin(), target.end(), std::prev(it)->begin());
+      if (mismatchNext < mismatchPrev)
+        return *std::prev(it);
+      else
+        // If the mismatches are equal, prefer the larger (newer) candidate
+        return *it;
+    }
   }
 
   static std::string makeSuffix(KernelType op, Type dataType) {
-    return getKernelTypeString(op) + "_" + getDataTypeString(dataType);
+    return getKernelTypeString(op) + separator + getDataTypeString(dataType);
   }
 
   static std::string makeKey(StringRef arch, KernelType op, Type dataType) {
-    return arch.str() + "_" + makeSuffix(op, dataType);
+    return arch.str() + separator + makeSuffix(op, dataType);
   }
 
-  static const std::unordered_map<std::string, ParamArray> &getTable() {
-    static const std::unordered_map<std::string, ParamArray> table =
-        buildTable();
+  static const std::map<std::string, ParamArray> &getTable() {
+    static const std::map<std::string, ParamArray> table = buildTable();
     return table;
   }
 
-  static std::unordered_map<std::string, ParamArray> buildTable();
+  static std::map<std::string, ParamArray> buildTable();
 };
 
 } // anonymous namespace
@@ -884,8 +885,7 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
 namespace {
 
 template <>
-std::unordered_map<std::string,
-                   ParamLookupTable<InitParamsNonAccel>::ParamArray>
+std::map<std::string, ParamLookupTable<InitParamsNonAccel>::ParamArray>
 ParamLookupTable<InitParamsNonAccel>::buildTable() {
   return {
 #define NonAccel_LOOKUP_TABLE_GEN
@@ -896,7 +896,7 @@ ParamLookupTable<InitParamsNonAccel>::buildTable() {
 
 // Specialization for Accel (XDL/WMMA) parameters
 template <>
-std::unordered_map<std::string, ParamLookupTable<InitParamsAccel>::ParamArray>
+std::map<std::string, ParamLookupTable<InitParamsAccel>::ParamArray>
 ParamLookupTable<InitParamsAccel>::buildTable() {
   return {
 #define Accel_LOOKUP_TABLE_GEN
