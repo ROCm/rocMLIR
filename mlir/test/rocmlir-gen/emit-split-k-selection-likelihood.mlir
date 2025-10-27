@@ -12,4 +12,4 @@
 
 // TEST_GFX1032_1: never
 // TEST_GFX1032_2: maybe
-// TEST_GFX1032_3: maybe
+// TEST_GFX1032_3: always
