@@ -55,13 +55,12 @@ def MIGraphX_LiteralOp : MIGraphX_Op<"literal",
 
 // Elementwise binary operations
 
-class MIGraphX_ElementwiseBinaryOp<string name, list<Trait> traits = []> :
-    MIGraphX_Op<name,
-                !listconcat(traits,
-                            [AllElementTypesMatch<["inA", "inB", "output"]>])>,
-    Arguments<(ins AnyMIXRShaped:$inA,
-                   AnyMIXRShaped:$inB)>,
-    Results<(outs AnyMIXRShaped:$output)> {
+class MIGraphX_ElementwiseBinaryOp<string name, list<Trait> traits = []>
+    : MIGraphX_Op<
+          name, !listconcat(
+                    traits, [AllElementTypesMatch<["inA", "inB", "output"]>])>,
+      Arguments<(ins AnyMIXRShaped:$inA, AnyMIXRShaped:$inB)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise " # name # " of two shaped values with broadcast";
   let assemblyFormat = [{
     $inA `,` $inB attr-dict
