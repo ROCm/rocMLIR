@@ -18,7 +18,7 @@ from perfRunner import AttentionConfiguration
 from perfRunner import GemmGemmConfiguration
 from perfRunner import ConvGemmConfiguration
 from perfRunner import Paths
-from perfRunner import MLIR_N_REPEATS, WARMUP_ITERATIONS, TRIM_PERCENT, SLEEP_MS
+from perfRunner import MLIR_N_REPEATS, WARMUP_ITERATIONS, SLEEP_US
 from perfCommonUtils import CORRECT_RESULT_RE
 
 import numpy as np
@@ -171,8 +171,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
     winners = {}
     tuning_driver_args = [
         f"--tuning-space={options.tuning_space_kind}", f"--num-iterations={MLIR_N_REPEATS}",
-        f"--warmup-iterations={WARMUP_ITERATIONS}", f"--trim-percent={TRIM_PERCENT}",
-        f"--sleep-ms={SLEEP_MS}"
+        f"--warmup-iterations={WARMUP_ITERATIONS}", f"--sleep-us={SLEEP_US}", "--use-median"
     ]
     for test_vector in configs:
         if not test_vector.endswith(".mlir"):
