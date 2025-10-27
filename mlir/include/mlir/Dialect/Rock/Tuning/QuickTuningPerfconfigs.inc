@@ -1618,7 +1618,6 @@ static const InitParamsAccel initParametersForwardI8ConvGfx1200[nInitParametersF
 {"gfx90a_conv_i8", {PopulateParamsXDL::initParametersForwardI8ConvGfx90a, PopulateParamsXDL::nInitParametersForwardI8ConvGfx90a}},
 {"gfx942_conv_i8", {PopulateParamsXDL::initParametersForwardI8ConvGfx942, PopulateParamsXDL::nInitParametersForwardI8ConvGfx942}},
 {"gfx950_conv_i8", {PopulateParamsXDL::initParametersForwardI8ConvGfx950, PopulateParamsXDL::nInitParametersForwardI8ConvGfx950}},
-
 {"gfx1000_gemm_f16", {PopulateParamsWmma::initParametersFp16GemmGfx1000, PopulateParamsWmma::nInitParametersFp16GemmGfx1000}},
 {"gfx1100_gemm_f16", {PopulateParamsWmma::initParametersFp16GemmGfx1100, PopulateParamsWmma::nInitParametersFp16GemmGfx1100}},
 {"gfx1200_gemm_f16", {PopulateParamsWmma::initParametersFp16GemmGfx1200, PopulateParamsWmma::nInitParametersFp16GemmGfx1200}},
