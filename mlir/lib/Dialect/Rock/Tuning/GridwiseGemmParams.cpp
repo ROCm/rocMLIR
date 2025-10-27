@@ -141,10 +141,14 @@ private:
     else if (it == relatives.begin())
       return relatives.front();
     else {
-      auto [mismatchNext, _] =
+      auto mismatchNext = target.end();
+      std::tie(mismatchNext, std::ignore) =
           std::mismatch(target.begin(), target.end(), it->begin());
-      auto [mismatchPrev, _] =
+
+      auto mismatchPrev = target.end();
+      std::tie(mismatchPrev, std::ignore) =
           std::mismatch(target.begin(), target.end(), std::prev(it)->begin());
+
       if (mismatchNext < mismatchPrev)
         return *std::prev(it);
       else
