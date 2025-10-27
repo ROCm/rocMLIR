@@ -1634,7 +1634,8 @@ def run_config_with_mlir(config: PerfConfiguration,
 
         outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), rocmlir_driver_cmd, profiler_cmd])
         if noerr:
-            nanoseconds = get_nanoseconds(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
+            nanoseconds = get_nanoseconds(
+                get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
 
     return nanoseconds
 
@@ -1801,8 +1802,8 @@ def get_fusion_test_info(filename, paths: Paths):
     if "-migraphx-to-tosa" in rocmlir_cmd:
         rocmliropt_cmd = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa']
         rocmlir_driver_cmd = [
-            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
-            '-kernel-pipeline', 'highlevel', '-targets', chip
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-kernel-pipeline',
+            'highlevel', '-targets', chip
         ]
         # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmliropt_cmd,
@@ -1836,8 +1837,8 @@ def get_fusion_test_info(filename, paths: Paths):
         p1.stdout.close()
     else:
         rocmlir_driver_cmd = [
-            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
-            '-kernel-pipeline', 'highlevel', '-targets', chip
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-kernel-pipeline',
+            'highlevel', '-targets', chip
         ]
         # rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlir_driver_cmd,
@@ -1875,8 +1876,8 @@ def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
         rocmliropt_cmd = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
         commands.append(rocmliropt_cmd)
         rocmlir_driver_cmd = [
-            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
-            '-kernel-pipeline', 'highlevel' '-targets', chip
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-kernel-pipeline',
+            'highlevel', '-targets', chip
         ]
         commands.append(rocmlir_driver_cmd)
     elif "migraphx" in rocmlir_cmd:
@@ -1891,8 +1892,8 @@ def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
         commands.append(rocmlir_driver_cmd)
     else:
         rocmlir_driver_cmd = [
-            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
-            '-kernel-pipeline', 'highlevel', '-targets', chip
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-kernel-pipeline',
+            'highlevel', '-targets', chip
         ]
         commands.append(rocmlir_driver_cmd)
 
