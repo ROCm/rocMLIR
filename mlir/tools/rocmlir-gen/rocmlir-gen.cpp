@@ -991,7 +991,6 @@ struct GenParams {
   std::optional<const rock::ConvGenerator::Config *> convConfig = std::nullopt;
   StringRef arch;
   StringRef perfConfig;
-  bool isScaledOp = false;
 };
 
 namespace test {
@@ -3498,7 +3497,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   cVal = ensureFloatIsF32(b, loc, cVal, floatType);
 
   Value aScaleVal = nullptr, bScaleVal = nullptr;
-  if (params.isScaledOp) {
+  if (scaledGemm) {
     aScaleVal = block->getArgument(3);
     bScaleVal = block->getArgument(4);
     aScaleVal = ensureFloatIsF32(b, loc, aScaleVal, floatType);
@@ -3533,7 +3532,7 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
         bExpVal = expandArg(bVal, argTypes[1]),
         cExpVal = expandArg(cVal, argTypes[2]);
   Value aExpValScaled = nullptr, bExpValScaled = nullptr;
-  if (params.isScaledOp) {
+  if (scaledGemm) {
     // Create scaled AffineMaps
     // (g, m, n, k) -> (g, m, k // blockSize)  for A if not transposed
     // (g, m, n, k) -> (g, k // blockSize, n)  for B if not transposed
@@ -5144,7 +5143,6 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     } else
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
                                    wmmaFeature == FeatureToggle::on);
-    genParams.isScaledOp = scaledGemm;
     genParams.operation = operation;
     genParams.features = enabledFeatures;
     genParams.arch = arch;
