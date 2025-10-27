@@ -56,6 +56,10 @@ public:
   }
 
 private:
+  // For non-accel params, fall back to any gfx
+  static constexpr auto fallbackArchPrefixLen =
+      std::is_same_v<ParamsType, InitParamsNonAccel> ? 3 : 4;
+
   static StringRef getArchName(StringRef arch) {
     auto gfxPos = arch.find("gfx");
     if (gfxPos == StringRef::npos) {
@@ -69,7 +73,11 @@ private:
 
   static std::string getDataTypeString(Type dataType) {
     std::string dataTypeStr;
-    if (dataType.getIntOrFloatBitWidth() == 8 && isa<FloatType>(dataType)) {
+    if constexpr (std::is_same_v<ParamsType, InitParamsNonAccel>) {
+      // For non-accel params, we only support f32
+      dataTypeStr = "f32";
+    } else if (dataType.getIntOrFloatBitWidth() == 8 &&
+               isa<FloatType>(dataType)) {
       // There are several 8-bit float types, but we use "fp8" generically
       dataTypeStr = "fp8";
     } else if (dataType.getIntOrFloatBitWidth() == 16 &&
@@ -88,11 +96,22 @@ private:
     return dataTypeStr;
   }
 
+  static std::string getKernelTypeString(KernelType kernelType) {
+    switch (kernelType) {
+    case KernelType::ConvBwdData:
+    case KernelType::ConvBwdWeight:
+      // We use the same suffix for all convolution types
+      return stringifyEnum(KernelType::Conv).lower();
+    default:
+      return stringifyEnum(kernelType).lower();
+    }
+  }
+
   // Get all related archs sorted lexicographically
   static std::vector<std::string> getRelatedArchs(StringRef arch, KernelType op,
                                                   Type dataType) {
     std::vector<std::string> archs;
-    auto prefix = arch.take_front(4);
+    auto prefix = arch.take_front(fallbackArchPrefixLen).str();
     auto suffix = makeSuffix(op, dataType);
     static const auto &table = getTable();
     for (const auto &entry : table) {
@@ -116,7 +135,7 @@ private:
   static std::string
   findFallbackRecursive(StringRef arch, KernelType op, Type dataType,
                         const std::vector<std::string> &archs) {
-    if (arch == "gfx")
+    if (arch.size() < fallbackArchPrefixLen)
       return "";
 
     // Archs is sorted lexicographically, so we can search in reverse order for
@@ -133,7 +152,7 @@ private:
   }
 
   static std::string makeSuffix(KernelType op, Type dataType) {
-    return stringifyEnum(op).lower() + "_" + getDataTypeString(dataType);
+    return getKernelTypeString(op) + "_" + getDataTypeString(dataType);
   }
 
   static std::string makeKey(StringRef arch, KernelType op, Type dataType) {
