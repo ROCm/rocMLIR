@@ -193,9 +193,6 @@ FailureOr<rock::GpuAllocOp> findGpuAlloc(Value value);
 // `memref::AllocOp` or fails.
 FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
 
-/// Compute, if possible, the constant different between two values.
-std::optional<int64_t> computeConstDiff(Value l, Value u);
-
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
 
