@@ -56,10 +56,9 @@ func.func @load_vector_oob(%mem: memref<1x2x3x4x8xf32>, %idx: index, %valid: i1)
 }
 
 // CHECK-LABEL: func.func @load_scalar
-// CHECK-SAME: (%[[mem:.*]]: memref<f32>, %[[idx:.*]]: index)
-func.func @load_scalar_empty_mem(%mem: memref<f32>, %idx: index) -> f32 {
+// CHECK-SAME: (%[[mem:.*]]: memref<f32>)
+func.func @load_scalar(%mem: memref<f32>) -> f32 {
     %true = arith.constant true
-    %c0 = arith.constant 0 : index
     // CHECK: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
     // CHECK-SAME: #gpu.address_space<global>
     // CHECK: %[[ret:.*]] = memref.load %[[cast]][] : memref<f32, #gpu.address_space<global>>

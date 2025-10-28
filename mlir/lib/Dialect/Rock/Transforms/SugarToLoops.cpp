@@ -1164,6 +1164,21 @@ Value selectDataIf4b(Location loc, PatternRewriter &b,
   return b.createOrFold<vector::ExtractOp>(loc, loadedVec, lsb);
 }
 
+struct GlobalPrefetchRewritePattern
+    : public OpRewritePattern<GlobalPrefetchOp> {
+  using OpRewritePattern<GlobalPrefetchOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(GlobalPrefetchOp op,
+                                PatternRewriter &b) const override {
+    Value source = op.getSource();
+
+    source = asGlobal(b, source);
+    b.replaceOpWithNewOp<memref::PrefetchOp>(
+        op, source, op.getSourceCoord(), /*isWrite=*/false, /*localityHint=*/3,
+        /*isDataCache=*/true);
+    return success();
+  }
+};
+
 struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
   using OpRewritePattern<GlobalLoadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(GlobalLoadOp op,
@@ -1620,8 +1635,8 @@ void RockSugarToLoopsPass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<ExtractSliceRewritePattern, InsertSliceRewritePattern,
                GlobalLoadRewritePattern, GlobalLoadToLDSRewritePattern,
-               GlobalStoreRewritePattern, InBoundsLoadRewritePattern,
-               InBoundsStoreRewritePattern>(ctx);
+               GlobalPrefetchRewritePattern, GlobalStoreRewritePattern,
+               InBoundsLoadRewritePattern, InBoundsStoreRewritePattern>(ctx);
   if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 

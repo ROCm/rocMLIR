@@ -41,11 +41,13 @@
       // CHECK: %[[KTr0:.+]] = rock.transform %[[K]] by
       // CHECK-NEXT: %[[KTr1:.+]] = rock.transform %[[KTr0]] by
       // CHECK-NEXT: rock.threadwise_read_into {{.*}}(%[[KTr1]]) {{.*}} -> %[[G0Bregs]] :
+      // CHECK-NEXT: rock.threadwise_prefetch
 
       // Load G0A tile to regs
       // CHECK-NEXT: %[[QTr1:.+]] = rock.transform %[[QTr0]] by
       // CHECK-NEXT: %[[QTr2:.+]] = rock.transform %[[QTr1]] by
       // CHECK-NEXT: rock.threadwise_read_into {{.*}}(%[[QTr2]]) {{.*}} -> %[[G0Aregs]] :
+      // CHECK-NEXT: rock.threadwise_prefetch
     // CHECK: {name = "GlobalRead"}
 
     // CHECK: rock.stage
@@ -194,6 +196,7 @@
       // CHECK-DAG: %[[VTr0:.+]] = rock.transform %[[V]] by
       // CHECK-DAG: %[[VTr1:.+]] = rock.transform %[[VTr0]] by
       // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[VTr1]]) {{.*}} -> %[[G1Bregs]] :
+      // CHECK-NEXT: rock.threadwise_prefetch
     // CHECK: {name = "GlobalRead"}
 
     // CHECK: rock.stage  

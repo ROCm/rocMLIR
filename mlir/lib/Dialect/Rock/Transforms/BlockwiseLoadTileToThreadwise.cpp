@@ -18,6 +18,7 @@
 
 #include "GridLayoutEmitter.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
@@ -262,6 +263,19 @@ class LoweringBlockwiseLoadTileOp final
                                    /*dynamicValidities=*/ValueRange{},
                                    /*extraViews=*/b.getArrayAttr({}),
                                    /*extraIndices=*/indices, forceUnroll, true);
+
+      // add one to k_loop to prefetch next iteration
+      SmallVector<Value> indicesNext(indices.begin(), indices.end());
+      Value one = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
+      indicesNext[0] =
+          arith::AddIOp::create(b, loc, indicesNext[0], one).getResult();
+
+      // it's ok if the indices are out of bounds because we use
+      // GLOBAL_PREFETCH_B8 with Speculative Prefetch
+      rock::ThreadwisePrefetchOp::create(b, loc, wrappedSource,
+                                         /*extraViews=*/b.getArrayAttr({}),
+                                         /*extraIndices=*/indicesNext,
+                                         forceUnroll, true);
       if (stageGlobalReadNew)
         rock::YieldOp::create(b, loc);
     }

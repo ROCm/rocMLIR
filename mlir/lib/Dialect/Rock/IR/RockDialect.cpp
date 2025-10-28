@@ -1835,21 +1835,40 @@ LogicalResult IndexDiffUpdateOp::verify() {
   return success();
 }
 
-template <typename Load>
-static LogicalResult verifyGlobalLoad(Load op) {
+template <typename LoadOrPrefetch>
+static LogicalResult verifyGlobalLoadAndPrefetch(LoadOrPrefetch op) {
   MemRefType sourceType = op.getSource().getType();
   size_t nDims = sourceType.getRank();
 
   if (op.getSourceCoord().size() != nDims)
-    return op.emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  if (op.getCanReadOffEnd() && nDims != 1)
-    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
+    return op.emitOpError("Expected " + Twine(nDims) + " coordinates");
   Attribute memSpaceAttr = sourceType.getMemorySpace();
   auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return op.emitOpError("Source memref must live in global memory");
   return success();
+}
+
+template <typename Load>
+static LogicalResult verifyGlobalLoad(Load op) {
+  if (failed(verifyGlobalLoadAndPrefetch(op)))
+    return failure();
+
+  MemRefType sourceType = op.getSource().getType();
+  size_t nDims = sourceType.getRank();
+
+  if (op.getCanReadOffEnd() && nDims != 1)
+    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// GlobalPrefetchOp
+//===-----------------------------------------------------===//
+
+LogicalResult GlobalPrefetchOp::verify() {
+  return verifyGlobalLoadAndPrefetch(*this);
 }
 
 //===-----------------------------------------------------===//
@@ -1953,6 +1972,66 @@ LogicalResult InBoundsStoreOp::verify() {
   if (isa<ShapedType>(dataType) && !isa<VectorType>(dataType))
     return emitOpError(
         "Non-scalar data types must be vectors, not other shaped types");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// ThreadwisePrefetchOp
+//===-----------------------------------------------------===//
+
+SmallPtrSet<OpOperand *, 2> ThreadwisePrefetchOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  return {operands.begin()};
+}
+
+std::optional<OperandRange>
+ThreadwisePrefetchOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return std::nullopt;
+  }
+  // Only one operand supports view
+  return getExtraIndices();
+}
+
+Operation *
+ThreadwisePrefetchOp::cloneWithExtraIndices(OpBuilder &builder,
+                                            OpOperand &operand, Value view,
+                                            ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return getOperation();
+  }
+
+  // Only one operand supports view
+  auto newOp = ThreadwisePrefetchOp::create(
+      builder, getLoc(), view, getExtraViews(), newExtraIndices,
+      getForceUnroll(), getUseIndexDiffs());
+  return newOp.getOperation();
+}
+
+LogicalResult ThreadwisePrefetchOp::verify() {
+  MemRefType srcType = getSource().getType();
+  Attribute srcMemSpaceAttr = srcType.getMemorySpace();
+  auto gpuSrcMemSpaceAttr =
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(srcMemSpaceAttr);
+  if (srcMemSpaceAttr &&
+      (!gpuSrcMemSpaceAttr ||
+       gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
+    return emitOpError("prefetching only works for global");
+  ArrayAttr extraViews = getExtraViews();
+  ArrayRef<int64_t> inputShape;
+  if (extraViews.empty())
+    inputShape = getSource().getType().getShape();
+  else
+    inputShape = cast<TransformMapAttr>(extraViews[0]).getUpperBounds();
+
+  size_t extraIdxCount = getExtraIndices().size();
+  if (inputShape.empty()) {
+    if (extraIdxCount != 0)
+      return emitOpError("read from a scalar value cannot have coordinates");
+  } else if (inputShape.size() != extraIdxCount + 1) {
+    return emitOpError("source view must be extraIndices + 1");
+  }
+
   return success();
 }
 

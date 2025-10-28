@@ -478,6 +478,8 @@ traceToNonViewReaders(Operation *op, Value parentVal,
     if (copyOp.getSource() == parentVal) {
       nonViewReaders.push_back(op);
     }
+  } else if (isa<ThreadwisePrefetchOp>(op)) {
+    // ignore because ThreadwisePrefetchOp is not a reader.
   } else {
     return op->emitError() << "Found an unsupported operator that needs to "
                               "be added reader checks \n"
