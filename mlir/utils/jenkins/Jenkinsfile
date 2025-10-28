@@ -156,13 +156,14 @@ def advancedNodeCheck(Map params) {
     }
     boolean doCleanWs = params.doCleanWs
     boolean doGPUcheck = params.doGPUcheck
-    resetGPUs()
 
     if (doCleanWs) {
         timeout(time: 15, unit: 'MINUTES', activity: true) {
             cleanWs()
         }
     }
+
+    resetGPUs()
 
     timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'docker version' }
 
@@ -634,6 +635,11 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
             // Retry ONLY the health-check. We don't want to retry the actual stages
             try {
                 stage("Health checks on ${env.NODE_NAME}") {
+                    echo 'Cleaning up old Docker images...'
+                    def pruneStatus = sh(script: 'docker image prune -af --filter "until=720h"', returnStatus: true)
+                    if (pruneStatus != 0) {
+                        echo "[withHealthyNode] WARNING: Docker image prune failed with exit code ${pruneStatus}. Continuing health check."
+                    }
                     healthChecks()
                     gitHealthCheck()
                 }
@@ -781,7 +787,7 @@ pipeline {
                                 withHealthyNode(
                                     getLabelFromCodepath(CODEPATH),
                                     {
-                                        checkNodeHealth()
+                                        checkNodeHealth([doCleanWs: true])
                                     },
                                     {
                                         stage("SCM Checkout") {
