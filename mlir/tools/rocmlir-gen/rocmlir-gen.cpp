@@ -2396,8 +2396,9 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
 
   auto gemm = rock::GemmOp::create(
-      b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
-      transposeB, transposeC,
+      b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, /*scaleA=*/nullptr,
+      /*scaleB=*/nullptr, transposeA, transposeB, transposeC,
+      /*aScaleTransposed=*/false, /*bScaleTransposed=*/false,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
 
