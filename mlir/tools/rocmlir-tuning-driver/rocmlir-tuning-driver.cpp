@@ -463,21 +463,17 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // 2. Set up pipelines. Do this only once to save on construction cost.
   MLIRContext *ctx = source->getContext();
   ctx->enableMultithreading();
-  PassManager applicability(source->getName(), PassManager::Nesting::Implicit);
-  PassManager compilation(source->getName(), PassManager::Nesting::Implicit);
 
   ctx->loadAllAvailableDialects();
   rock::KernelOptions applicabilityOpts;
   applicabilityOpts.enableApplicability = true;
   applicabilityOpts.enableFusion = true;
   applicabilityOpts.tuningFallback = false;
-  rock::buildKernelPipeline(applicability, applicabilityOpts);
 
   rock::KernelOptions compilationKernOpts;
   compilationKernOpts.enableApplicability = false;
   compilationKernOpts.enableFusion = true;
   compilationKernOpts.tuningFallback = false;
-  rock::buildKernelPipeline(compilation, compilationKernOpts);
 
   RocmDeviceName deviceName;
   StringRef archName =
@@ -493,7 +489,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   backendOpts.features = backendFeatures;
   backendOpts.optLevel = 3;
   backendOpts.suppressDiagnostic = true;
-  rock::buildBackendPipeline(compilation, backendOpts);
 
   // Now that we're in the kernel execution zone, turn off error messages
   // Register a handler that swallows all diagnostic print
@@ -556,15 +551,20 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   ctx->loadAllAvailableDialects();
   std::vector<CompiledArtifacts> compiledKernels;
   auto compileFunc = [&, sourceCopy = source.clone()](StringRef perfConfig) {
+    MLIRContext *ctx = sourceCopy->getContext();
+    ctx->enableMultithreading();
     StringAttr perfConfigAttr = StringAttr::get(ctx, perfConfig);
-
     OwningOpRef<ModuleOp> applicabilityCopy =
         copyIR(sourceCopy, perfConfigAttr);
     if (!rock::isModuleFusible(applicabilityCopy.get(), perfConfig)) {
       llvm::outs() << "N/A\n";
       return failure();
     }
-
+    PassManager applicability(sourceCopy->getName(),
+                              PassManager::Nesting::Implicit);
+    PassManager compilation(sourceCopy->getName(),
+                            PassManager::Nesting::Implicit);
+    rock::buildKernelPipeline(applicability, applicabilityOpts);
     if (failed(applicability.run(applicabilityCopy.get()))) {
       llvm::outs() << "N/A\n";
       return failure();
@@ -586,7 +586,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       gridSizes.push_back(
           tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
     }
-
+    rock::buildKernelPipeline(compilation, compilationKernOpts);
+    rock::buildBackendPipeline(compilation, backendOpts);
     OwningOpRef<ModuleOp> compileCopy = copyIR(sourceCopy, perfConfigAttr);
 
     // NOTE: Call to run() resets the cl opts
