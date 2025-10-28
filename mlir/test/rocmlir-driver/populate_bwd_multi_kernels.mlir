@@ -5,9 +5,9 @@
 // RUN: rocmlir-gen --arch gfx906 -fil_layout=gkyxc -in_layout=nhwgc -out_layout=nhwgk -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=3 -fil_w=3 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1  --operation=conv_bwd_data -v4r1 0 | rocmlir-opt -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STRIDE2_GKYXC_NO_V4R1
 
 // This config requires a zero initialization for the bwd_data input.
-// RUN: rocmlir-gen --arch gfx906  -fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1  --operation=conv_bwd_data | FileCheck %s --check-prefix=STRIDE2_1x1_TOP_LEVEL
+// RUN: rocmlir-gen --arch gfx906  -fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1  --operation=conv_bwd_data -v4r1 1 | FileCheck %s --check-prefix=STRIDE2_1x1_TOP_LEVEL
 // Check after -rock-lowering, only gemm with corresponding kernel IDs exists.
-// RUN: rocmlir-gen --arch gfx906  -fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1  --operation=conv_bwd_data | rocmlir-opt -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STRIDE2_1x1_LOWERING
+// RUN: rocmlir-gen --arch gfx906  -fil_layout=gkcyx -in_layout=ngchw -out_layout=ngkhw -batchsize=32 -in_channels=32 -out_channels=32 -in_h=14 -in_w=14 -fil_h=1 -fil_w=1 --dilation_h=1 --dilation_w=1 --padding_h=1 --padding_w=1 --conv_stride_h=2 --conv_stride_w=2 --groupsize=1  --operation=conv_bwd_data -v4r1 1 | rocmlir-opt -rock-affix-params -rock-conv-to-gemm | FileCheck %s --check-prefix=STRIDE2_1x1_LOWERING
 
 // STRIDE2: {{rock.gemm.*kernelId = 0 : index.*}}
 // STRIDE2: {{rock.gemm.*kernelId = 1 : index.*}}

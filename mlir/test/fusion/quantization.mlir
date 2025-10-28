@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver -host-pipeline highlevel -arch gfx906 %s | FileCheck %s
+// RUN: rocmlir-driver -kernel-pipeline highlevel -arch gfx906 %s | FileCheck %s
 
 // CHECK-LABEL: test_conv_with_cast
 // CHECK: arith.sitofp {{.*}} : i32 to f32

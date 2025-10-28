@@ -81,9 +81,6 @@ static cl::opt<bool> dumpPipelines(
 
 /////////////////////////////////////////////////////////////////////////////
 //// Backend target spec
-static cl::opt<bool> cpuOnly("cpu-only", cl::Hidden, cl::init(false),
-                             cl::Optional);
-
 static cl::opt<int> gpuOpt("gO",
                            cl::desc("Optimization level for GPU compilation"),
                            cl::value_desc("Integer from 0 to 3"), cl::init(3));
@@ -134,10 +131,35 @@ parsePipeline(StringRef pipeline, llvm::SmallDenseSet<StringRef> &pipelineSet,
   return success();
 }
 
+static LogicalResult runHostHighLevelPipeline(ModuleOp m) {
+  // Setup pass manager
+  PassManager pm(m->getName(), PassManager::Nesting::Implicit);
+  if (failed(applyPassManagerCLOptions(pm)))
+    return failure();
+
+  // Add verification passes
+  pm.enableVerifier(verifyPasses);
+
+  // Set disableRock to true since we are just running on the host
+  rock::BufferizeOptions opts;
+  opts.disableRock = true;
+
+  // Run the bufferize pipeline
+  rock::buildBufferizePipeline(pm, opts);
+
+  if (dumpPipelines) {
+    llvm::errs() << "Host pipeline:\n";
+    pm.printAsTextualPipeline(llvm::errs());
+    llvm::errs() << "\n";
+  }
+
+  return pm.run(m);
+}
+
 static LogicalResult
-runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
+runKernelPipeline(StringRef arch, ModuleOp m,
                   llvm::SmallDenseSet<StringRef> &kernelPipelineSet) {
-  PassManager pm(kmod->getName(), PassManager::Nesting::Implicit);
+  PassManager pm(m->getName(), PassManager::Nesting::Implicit);
   if (failed(applyPassManagerCLOptions(pm)))
     return failure();
   pm.enableVerifier(verifyPasses);
@@ -158,10 +180,9 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
   if (kernelPipelineSet.contains("migraphx")) {
     migraphx::addHighLevelPipeline(pm);
   }
-  if (isHighLevel) {
-    rock::BufferizeOptions opts;
-    opts.disableRock = cpuOnly.getValue();
-    rock::buildBufferizePipeline(pm, opts);
+
+  if (kernelPipelineSet.contains("highlevel")) {
+    rock::buildBufferizePipeline(pm);
   }
 
   // Set up lowering pipeline.
@@ -198,7 +219,7 @@ runKernelPipeline(StringRef arch, ModuleOp kmod, bool isHighLevel,
     pm.printAsTextualPipeline(llvm::errs());
     llvm::errs() << "\n";
   }
-  return pm.run(kmod);
+  return pm.run(m);
 }
 
 static LogicalResult runMLIRPasses(ModuleOp &module,
@@ -280,8 +301,12 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
 
   StringRef targetArch = onlyArch;
   bool hasKernels = false;
-  // Find kernel module, defaults to top module
-  if (!kernelPipelineSet.empty() || isHighLevel) {
+  // Right now we need to update the target architecture used when we
+  // are running the kernel pipeline, or if we are running the highlevel host
+  // pipeline.
+  bool needsTargetArchUpdate =
+      !kernelPipelineSet.empty() || hostPipelineSet.contains("highlevel");
+  if (needsTargetArchUpdate) {
     LogicalResult kernelResult = success();
     // If sub-modules exists with kernel.chip specified and in set
     // of targetChips, run KernelPipeline
@@ -290,7 +315,11 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
       hasKernels |= (bool)archAttr;
       if (archAttr && llvm::find(targetList, archAttr.getValue())) {
         kernelResult = runKernelPipeline(archAttr.getValue(), kernelModule,
-                                         isHighLevel, kernelPipelineSet);
+                                         kernelPipelineSet);
+        // Run host high-level pipeline if specified
+        if (hostPipelineSet.contains("highlevel"))
+          kernelResult = runHostHighLevelPipeline(kernelModule);
+
         targetArch = archAttr.getValue();
       }
     });
@@ -302,8 +331,11 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
         }
       }
       targetArch = onlyArch;
-      kernelResult =
-          runKernelPipeline(onlyArch, module, isHighLevel, kernelPipelineSet);
+      kernelResult = runKernelPipeline(onlyArch, module, kernelPipelineSet);
+
+      // Run host high-level pipeline if specified
+      if (hostPipelineSet.contains("highlevel"))
+        kernelResult = runHostHighLevelPipeline(module);
     }
     if (failed(kernelResult))
       return kernelResult;
