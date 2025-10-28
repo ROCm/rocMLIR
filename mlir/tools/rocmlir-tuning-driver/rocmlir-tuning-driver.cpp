@@ -462,6 +462,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   }
   // 2. Set up pipelines. Do this only once to save on construction cost.
   MLIRContext *ctx = source->getContext();
+  ctx->enableMultithreading();
   PassManager applicability(source->getName(), PassManager::Nesting::Implicit);
   PassManager compilation(source->getName(), PassManager::Nesting::Implicit);
 
