@@ -32,6 +32,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
+#include "mlir/IR/Threading.h"
 #include "mlir/InitRocMLIRCLOptions.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/InitRocMLIRPasses.h"
@@ -42,13 +43,17 @@
 
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <chrono>
 #include <cstdlib>
 #include <thread>
+#include <utility>
 
 // Utilities to allocate buffers
 #include "../utils/performance/common/benchmarkUtils.h"
@@ -416,6 +421,13 @@ extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
   return std::make_pair(toTuneType, outputType);
 }
 
+struct CompiledArtifacts {
+  SmallVector<std::string> hipModules;
+  SmallVector<uint32_t> blockSizes;
+  SmallVector<uint32_t> gridSizes;
+  StringAttr perfConfig;
+};
+
 static LogicalResult runTuningLoop(ModuleOp source) {
   // Verify prerequisites
   SmallVector<func::FuncOp> funcs;
@@ -448,12 +460,12 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         shapedTy.getNumElements() * shapedTy.getElementTypeBitWidth();
     bufferLengths.push_back(sizeInBits / 8);
   }
-
   // 2. Set up pipelines. Do this only once to save on construction cost.
   MLIRContext *ctx = source->getContext();
   PassManager applicability(source->getName(), PassManager::Nesting::Implicit);
   PassManager compilation(source->getName(), PassManager::Nesting::Implicit);
 
+  ctx->loadAllAvailableDialects();
   rock::KernelOptions applicabilityOpts;
   applicabilityOpts.enableApplicability = true;
   applicabilityOpts.enableFusion = true;
@@ -469,8 +481,10 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   RocmDeviceName deviceName;
   StringRef archName =
       source->getAttrOfType<StringAttr>("mhal.arch").getValue();
-  if (failed(deviceName.parse(archName)))
-    return source->emitOpError("could not parse arch name: " + archName);
+  if (failed(deviceName.parse(archName))) {
+    source->emitOpError("could not parse arch name: " + archName);
+    return failure();
+  }
   rock::BackendOptions backendOpts;
   backendOpts.triple = deviceName.getTriple().str();
   backendOpts.chip = deviceName.getChip().str();
@@ -511,7 +525,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     return copy;
   };
 
-  // 4. Actually tune
+  // 4.  Collecte all perf configs to try
   std::vector<SmallString<64>> configs;
   if (!benchmarkConfig.empty()) {
     // Benchmark mode - just one config
@@ -535,25 +549,24 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   }
 
   // NOTE: Compilation (PassManager::run()) resets the cl opts, so we have to
-  // save the values.
   const BenchmarkParams benchmarkParams = {numIterations, warmupIterations,
                                            useMedian,     trimPercent,
                                            sleepUs,       showStats};
-
-  for (const auto &perfConfig : configs) {
-    llvm::outs() << perfConfig << "\t";
-    OwningOpRef<ModuleOp> tuneCopy = cast<ModuleOp>(source->clone());
+  ctx->loadAllAvailableDialects();
+  std::vector<CompiledArtifacts> compiledKernels;
+  auto compileFunc = [&, sourceCopy = source.clone()](StringRef perfConfig) {
     StringAttr perfConfigAttr = StringAttr::get(ctx, perfConfig);
 
-    OwningOpRef<ModuleOp> applicabilityCopy = copyIR(source, perfConfigAttr);
+    OwningOpRef<ModuleOp> applicabilityCopy =
+        copyIR(sourceCopy, perfConfigAttr);
     if (!rock::isModuleFusible(applicabilityCopy.get(), perfConfig)) {
       llvm::outs() << "N/A\n";
-      continue;
+      return failure();
     }
 
     if (failed(applicability.run(applicabilityCopy.get()))) {
       llvm::outs() << "N/A\n";
-      continue;
+      return failure();
     }
 
     // We have to get these now, they disappear later. Also, if these attributes
@@ -573,7 +586,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
           tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
     }
 
-    OwningOpRef<ModuleOp> compileCopy = copyIR(source, perfConfigAttr);
+    OwningOpRef<ModuleOp> compileCopy = copyIR(sourceCopy, perfConfigAttr);
 
     // NOTE: Call to run() resets the cl opts
     if (failed(compilation.run(compileCopy.get()))) {
@@ -581,7 +594,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                    << "\n";
       return failure();
     }
-
+    llvm::dbgs() << "Successfully compiled config: " << perfConfig << "\n";
     // Extract binary and benchmark
     SmallVector<std::string> hipModules;
     for (const auto &fnName : kernelFuncNames) {
@@ -589,21 +602,34 @@ static LogicalResult runTuningLoop(ModuleOp source) {
           compileCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
       if (!binary) {
         llvm::errs() << "could not find the GPU binary\n";
+        return failure();
       }
       hipModules.push_back(cast<gpu::ObjectAttr>(binary.getObjects()[0])
                                .getObject()
                                .getValue()
                                .str());
     }
-
+    compiledKernels.push_back(
+        CompiledArtifacts{std::move(hipModules), std::move(blockSizes),
+                          std::move(gridSizes), perfConfigAttr});
+    return success();
+  };
+  llvm::outs() << "Compiling " << configs.size() << " configurations using "
+               << std::thread::hardware_concurrency() << " threads\n";
+  LogicalResult compileResult =
+      failableParallelForEach(ctx, configs, compileFunc);
+  if (compileResult.failed()) {
+    return failure();
+  }
+  for (const auto &candidateKernel : compiledKernels) {
     FailureOr<double> timing = benchmarkKernels(
-        hipModules, kernelFuncNames, blockSizes, gridSizes, dataType,
-        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams);
+        candidateKernel.hipModules, kernelFuncNames, candidateKernel.blockSizes,
+        candidateKernel.gridSizes, dataType, hostBuffers, gpuBuffers,
+        bufferLengths, benchmarkParams);
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
       return failure();
     }
-    llvm::outs() << timing << "\n";
   }
   for (void *buffer : hostBuffers) {
     free(buffer);
