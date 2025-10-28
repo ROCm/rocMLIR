@@ -605,7 +605,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Applicability check
     OwningOpRef<ModuleOp> applicabilityCopy =
         copyIRThread(threadSource.get(), perfConfigAttr);
-    if (!rock::isModuleFusible(applicabilityCopy.get(), result.perfConfig)) {
+    if (rock::isSplitKRequested(applicabilityCopy.get(), perfConfig) &&
+        failed(rock::testFusionLegalitySplitK(applicabilityCopy.get()))) {
       result.status = CompilationStatus::NotApplicable;
       return result;
     }
