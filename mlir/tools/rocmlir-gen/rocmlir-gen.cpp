@@ -320,7 +320,7 @@ static llvm::cl::opt<bool> scaledGemm(
 /// Backwards data convolution options
 static llvm::cl::opt<int64_t>
     usesV4R1("v4r1", llvm::cl::desc("Use V4R1 for bwd_data convolution"),
-             llvm::cl::init(1));
+             llvm::cl::init(0));
 
 /// gemm+elementwise+gemm options
 static llvm::cl::opt<int64_t>

@@ -1170,8 +1170,6 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   if (aElemType.isInteger(8) &&
       !(cElemType.isInteger(32) || cElemType.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
-  llvm::dbgs() << "aElemType: " << aElemType << ", bElemType: " << bElemType
-               << ", cElemType: " << cElemType << "\n";
   if ((isFloat8Type(aElemType) || isa<Float4E2M1FNType>(aElemType)) &&
       !cElemType.isF32())
     return op.emitOpError("4-bit or 8-bit float input requires f32 output");

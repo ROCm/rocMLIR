@@ -6,7 +6,7 @@ import pandas as pd
 import sys
 
 
-#Create html reports from .csv files
+# Create html reports from .csv files
 def print_all_performance(chip, op):
 
     columns_to_average = ['Fusion TFlops', 'MLIR TFlops', 'Fusion/MLIR']
