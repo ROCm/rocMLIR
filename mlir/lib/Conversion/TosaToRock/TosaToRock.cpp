@@ -1438,8 +1438,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return val;
   }
 
-  template <typename TosaOp> FailureOr<TosaOp> getDefiningOpSkipping(
-                    Value val, DenseSet<StringRef> opsToSkip) const {
+  template <typename TosaOp>
+  FailureOr<TosaOp> getDefiningOpSkipping(Value val,
+                                          DenseSet<StringRef> opsToSkip) const {
     auto maybeResult = getValueSkipping(val, opsToSkip);
     if (failed(maybeResult))
       return failure();
@@ -1451,18 +1452,18 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<Value> mulBroadcast(Value val) const {
-    DenseSet<StringRef> opsToSkip {
-      tensor::CollapseShapeOp::getOperationName(),
-      tensor::ExpandShapeOp::getOperationName()
-    };
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName()};
     auto maybeMul = getDefiningOpSkipping<tosa::MulOp>(val, opsToSkip);
     if (succeeded(maybeMul)) {
       auto mul = maybeMul.value();
       // this is a broadcast multiplication, one of the arguments is the actual
       // value, the other is a constant one
       Value nonOne;
-      auto maybeTosaConstIn1 = getDefiningOpSkipping<tosa::ConstOp>(mul.getInput1(), opsToSkip);
-      auto maybeArithConstIn1 = getDefiningOpSkipping<arith::ConstantOp>(mul.getInput1(), opsToSkip);
+      auto maybeTosaConstIn1 =
+          getDefiningOpSkipping<tosa::ConstOp>(mul.getInput1(), opsToSkip);
+      auto maybeArithConstIn1 =
+          getDefiningOpSkipping<arith::ConstantOp>(mul.getInput1(), opsToSkip);
       if (succeeded(maybeTosaConstIn1)) {
         if (mlir::rock::isConstantOne(maybeTosaConstIn1.value().getResult()))
           nonOne = mul.getInput2();
@@ -1471,8 +1472,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           nonOne = mul.getInput2();
       }
 
-      auto maybeTosaConstIn2 = getDefiningOpSkipping<tosa::ConstOp>(mul.getInput2(), opsToSkip);
-      auto maybeArithConstIn2 = getDefiningOpSkipping<arith::ConstantOp>(mul.getInput2(), opsToSkip);
+      auto maybeTosaConstIn2 =
+          getDefiningOpSkipping<tosa::ConstOp>(mul.getInput2(), opsToSkip);
+      auto maybeArithConstIn2 =
+          getDefiningOpSkipping<arith::ConstantOp>(mul.getInput2(), opsToSkip);
       if (succeeded(maybeTosaConstIn2)) {
         if (mlir::rock::isConstantOne(maybeTosaConstIn2.value().getResult()))
           nonOne = mul.getInput1();
@@ -1492,15 +1495,15 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   //   value to see if it's a constant range
   // - The input is already a constant range
   LogicalResult isConstantRange(TypedValue<TensorType> input,
-                                   size_t nonOneDimFromEnd) const {
+                                size_t nonOneDimFromEnd) const {
     // Lambda to get constant result from either tosa.const or arith.constant
     auto getConstantResult = [&](Value input) -> FailureOr<Value> {
-      DenseSet<StringRef> opsToSkip {
-        tensor::CollapseShapeOp::getOperationName(),
-        tensor::ExpandShapeOp::getOperationName()
-      };
-      auto maybeTosaConst = getDefiningOpSkipping<tosa::ConstOp>(input, opsToSkip);
-      auto maybeArithConst = getDefiningOpSkipping<arith::ConstantOp>(input, opsToSkip);
+      DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                    tensor::ExpandShapeOp::getOperationName()};
+      auto maybeTosaConst =
+          getDefiningOpSkipping<tosa::ConstOp>(input, opsToSkip);
+      auto maybeArithConst =
+          getDefiningOpSkipping<arith::ConstantOp>(input, opsToSkip);
       if (succeeded(maybeTosaConst)) {
         return maybeTosaConst.value().getResult();
       } else if (succeeded(maybeArithConst)) {
@@ -1597,27 +1600,27 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   //       (2) A pre-folded broadcasted constant 1 upper‑triangular mask tensor
   //           representing the causal mask
   FailureOr<Value> getCausal(Value input) const {
-    DenseSet<StringRef> opsToSkip {
-      tensor::CollapseShapeOp::getOperationName(),
-      tensor::ExpandShapeOp::getOperationName(),
-      tosa::CastOp::getOperationName()
-    };
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName(),
+                                  tosa::CastOp::getOperationName()};
     auto maybeSelect = getDefiningOpSkipping<tosa::SelectOp>(input, opsToSkip);
     if (succeeded(maybeSelect)) {
       auto select = maybeSelect.value();
       // Check onTrue is -inf
       auto onTrue = select.getInput2();
       bool isConstNegInf = false;
-      DenseSet<StringRef> expandAndCollapse {
-        tensor::CollapseShapeOp::getOperationName(),
-        tensor::ExpandShapeOp::getOperationName()
-      };
-      auto maybeTosaConst = getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
-      auto maybeArithConst = getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
+      DenseSet<StringRef> expandAndCollapse{
+          tensor::CollapseShapeOp::getOperationName(),
+          tensor::ExpandShapeOp::getOperationName()};
+      auto maybeTosaConst =
+          getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
+      auto maybeArithConst =
+          getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
       if (succeeded(maybeTosaConst))
         isConstNegInf = rock::isConstNegInf(maybeTosaConst.value().getResult());
       else if (succeeded(maybeArithConst))
-        isConstNegInf = rock::isConstNegInf(maybeArithConst.value().getResult());
+        isConstNegInf =
+            rock::isConstNegInf(maybeArithConst.value().getResult());
 
       if (!isConstNegInf)
         return failure();
@@ -1630,8 +1633,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       //    find the broadcast input and then do the necessary constant checks
       auto maybeBroadcast = getDefiningOpSkipping<tosa::MulOp>(pred, opsToSkip);
       opsToSkip.insert(tosa::MulOp::getOperationName());
-      auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred,
-                                                                 opsToSkip);
+      auto maybeGreater =
+          getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
       if (succeeded(maybeGreater)) {
         auto greater = maybeGreater.value();
         // input1 is a constant with a range from 0 to maxSeqLen (KV)
@@ -1732,14 +1735,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         if (!logOp)
           continue;
 
-        DenseSet<StringRef> expandAndCollapse {
-          tensor::CollapseShapeOp::getOperationName(),
-          tensor::ExpandShapeOp::getOperationName()
-        };
-        auto maybeLogOp = getDefiningOpSkipping<tosa::LogOp>(addOp.getInput1(), expandAndCollapse);
+        DenseSet<StringRef> expandAndCollapse{
+            tensor::CollapseShapeOp::getOperationName(),
+            tensor::ExpandShapeOp::getOperationName()};
+        auto maybeLogOp = getDefiningOpSkipping<tosa::LogOp>(addOp.getInput1(),
+                                                             expandAndCollapse);
         if (failed(maybeLogOp))
-          maybeLogOp =
-              getDefiningOpSkipping<tosa::LogOp>(addOp.getInput2(), expandAndCollapse);
+          maybeLogOp = getDefiningOpSkipping<tosa::LogOp>(addOp.getInput2(),
+                                                          expandAndCollapse);
 
         assert(succeeded(maybeLogOp) && "Expected to find log op");
         auto logOpFromAdd = maybeLogOp.value();
@@ -1750,17 +1753,21 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
         // ReduceMax could be gone if there's only one dim, then, we don't
         // know the previous op, because it could be anything we want to fuse
-        auto maybeReduceMaxOpFromAdd = getDefiningOpSkipping<Operation *>(addOp.getInput1(), expandAndCollapse);
+        auto maybeReduceMaxOpFromAdd = getDefiningOpSkipping<Operation *>(
+            addOp.getInput1(), expandAndCollapse);
         if (failed(maybeReduceMaxOpFromAdd) ||
             isa<tosa::LogOp>(maybeReduceMaxOpFromAdd.value()))
-          maybeReduceMaxOpFromAdd = getDefiningOpSkipping<Operation *>(addOp.getInput2(), expandAndCollapse);
+          maybeReduceMaxOpFromAdd = getDefiningOpSkipping<Operation *>(
+              addOp.getInput2(), expandAndCollapse);
 
-        assert(succeeded(maybeReduceMaxOpFromAdd) && "Expected to find reduce max op");
+        assert(succeeded(maybeReduceMaxOpFromAdd) &&
+               "Expected to find reduce max op");
         auto *reduceMaxOpFromAdd = maybeReduceMaxOpFromAdd.value();
 
         if (auto castOp = dyn_cast<tosa::CastOp>(reduceMaxOpFromAdd)) {
           // if the reduceMax is a cast, we need to get the input of the cast
-          auto maybeCast = getDefiningOpSkipping<Operation *>(castOp.getInput(), expandAndCollapse);
+          auto maybeCast = getDefiningOpSkipping<Operation *>(
+              castOp.getInput(), expandAndCollapse);
           assert(succeeded(maybeCast) && "Expected a castOp");
           reduceMaxOpFromAdd = maybeCast.value();
         }
@@ -1781,11 +1788,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<std::pair<Value, Value>> getKVCache(Value softmaxInput) const {
-    DenseSet<StringRef> opsToSkip {
-      tensor::CollapseShapeOp::getOperationName(),
-      tensor::ExpandShapeOp::getOperationName(),
-      tosa::CastOp::getOperationName()
-    };
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName(),
+                                  tosa::CastOp::getOperationName()};
     auto maybeSelect =
         getDefiningOpSkipping<tosa::SelectOp>(softmaxInput, opsToSkip);
     if (succeeded(maybeSelect)) {
@@ -1793,12 +1798,13 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       // Check onTrue is -inf
       auto onTrue = select.getInput2();
       bool isConsNegInf = false;
-      DenseSet<StringRef> expandAndCollapse {
-        tensor::CollapseShapeOp::getOperationName(),
-        tensor::ExpandShapeOp::getOperationName()
-      };
-      auto maybeTosaConst = getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
-      auto maybeArithConst = getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
+      DenseSet<StringRef> expandAndCollapse{
+          tensor::CollapseShapeOp::getOperationName(),
+          tensor::ExpandShapeOp::getOperationName()};
+      auto maybeTosaConst =
+          getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
+      auto maybeArithConst =
+          getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
       if (succeeded(maybeArithConst))
         isConsNegInf = rock::isConstNegInf(maybeArithConst.value().getResult());
       else if (succeeded(maybeTosaConst))
@@ -1809,8 +1815,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
       opsToSkip.insert(tosa::MulOp::getOperationName());
       auto pred = select.getInput1();
-      auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred,
-                                                                 opsToSkip);
+      auto maybeGreater =
+          getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
       if (succeeded(maybeGreater)) {
         auto greater = maybeGreater.value();
         // input1 is a constant with a range from 0 to maxSeqLen
@@ -1835,7 +1841,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           return failure();
         }
 
-        auto maybeCurrentSeqLen = getValueSkipping(maybeNonOne2.value(), expandAndCollapse);
+        auto maybeCurrentSeqLen =
+            getValueSkipping(maybeNonOne2.value(), expandAndCollapse);
         assert(succeeded(maybeCurrentSeqLen) && "Must have non-reshape op");
         Value currentSeqLen = maybeCurrentSeqLen.value();
         Value result = select.getInput3();
@@ -1847,12 +1854,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           return failure();
 
         // we'll check now if currentSeqLen comes from a block argument
-        DenseSet<StringRef> seqLenSkip {
-          tensor::CollapseShapeOp::getOperationName(),
-          tensor::ExpandShapeOp::getOperationName(),
-          tosa::TransposeOp::getOperationName(),
-          tosa::MulOp::getOperationName()
-        };
+        DenseSet<StringRef> seqLenSkip{
+            tensor::CollapseShapeOp::getOperationName(),
+            tensor::ExpandShapeOp::getOperationName(),
+            tosa::TransposeOp::getOperationName(),
+            tosa::MulOp::getOperationName()};
         FailureOr<Value> mustBeBlockArg =
             getValueSkipping(currentSeqLen, seqLenSkip);
 
@@ -1929,27 +1935,25 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
   FailureOr<SoftmaxMatcherValues> maybeSoftmaxNumerator(Value val,
                                                         Operation *rsum) const {
-    DenseSet<StringRef> expandAndCollapse {
-      tensor::CollapseShapeOp::getOperationName(),
-      tensor::ExpandShapeOp::getOperationName()
-    };
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
     auto maybeExp = getDefiningOpSkipping<tosa::ExpOp>(val, expandAndCollapse);
     if (failed(maybeExp))
       return failure();
     tosa::ExpOp exp = maybeExp.value();
 
-    auto maybeSub = getDefiningOpSkipping<tosa::SubOp>(exp.getInput1(), expandAndCollapse);
+    auto maybeSub =
+        getDefiningOpSkipping<tosa::SubOp>(exp.getInput1(), expandAndCollapse);
     if (failed(maybeSub))
       return failure();
     tosa::SubOp sub = maybeSub.value();
 
     bool hasTosaReduce = false;
     Value result;
-    DenseSet<StringRef> opsToSkip {
-      tensor::CollapseShapeOp::getOperationName(),
-      tensor::ExpandShapeOp::getOperationName(),
-      tosa::MulOp::getOperationName()
-    };
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName(),
+                                  tosa::MulOp::getOperationName()};
     auto maybeRmax =
         getDefiningOpSkipping<tosa::ReduceMaxOp>(sub.getInput2(), opsToSkip);
     tosa::ReduceMaxOp rmax = nullptr;
@@ -1975,11 +1979,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
   FailureOr<SoftmaxMatcherValues> maybeSoftmaxDenominator(Value val) const {
     FailureOr<SoftmaxMatcherValues> result;
-    DenseSet<StringRef> opsToSkip {
-      tensor::CollapseShapeOp::getOperationName(),
-      tensor::ExpandShapeOp::getOperationName(),
-      tosa::MulOp::getOperationName()
-    };
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName(),
+                                  tosa::MulOp::getOperationName()};
     auto maybeRsum = getDefiningOpSkipping<tosa::ReduceSumOp>(val, opsToSkip);
     if (succeeded(maybeRsum)) {
       auto rsum = maybeRsum.value();
@@ -2001,28 +2003,25 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   }
 
   FailureOr<SoftmaxMatcherValues> maybeSoftmax(Value val) const {
-    DenseSet<StringRef> expandAndCollapse {
-      tensor::CollapseShapeOp::getOperationName(),
-      tensor::ExpandShapeOp::getOperationName()
-    };
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
     auto maybeMul = getDefiningOpSkipping<tosa::MulOp>(val, expandAndCollapse);
     if (failed(maybeMul))
       return failure();
     auto mul = maybeMul.value();
-  
-    DenseSet<StringRef> opsToSkip {
-      tensor::CollapseShapeOp::getOperationName(),
-      tensor::ExpandShapeOp::getOperationName(),
-      tosa::MulOp::getOperationName()
-    };
-    auto maybeRecIn1 = getDefiningOpSkipping<tosa::ReciprocalOp>(
-            mul.getInput1(), opsToSkip);
+
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName(),
+                                  tosa::MulOp::getOperationName()};
+    auto maybeRecIn1 =
+        getDefiningOpSkipping<tosa::ReciprocalOp>(mul.getInput1(), opsToSkip);
     if (succeeded(maybeRecIn1)) {
       return maybeSoftmaxDenominator(maybeRecIn1.value().getInput1());
     }
 
-    auto maybeRecIn2 = getDefiningOpSkipping<tosa::ReciprocalOp>(
-            mul.getInput2(), opsToSkip);
+    auto maybeRecIn2 =
+        getDefiningOpSkipping<tosa::ReciprocalOp>(mul.getInput2(), opsToSkip);
     if (succeeded(maybeRecIn2)) {
       return maybeSoftmaxDenominator(maybeRecIn2.value().getInput1());
     }
@@ -2113,7 +2112,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return failure();
     }
 
-    auto collapse = cast<tensor::CollapseShapeOp>(matrixQ.getDefiningOp()); 
+    auto collapse = cast<tensor::CollapseShapeOp>(matrixQ.getDefiningOp());
     auto reassocIndices = collapse.getReassociationIndices();
 
     // Check if the first reassociation merges two dimensions [0, 1]
@@ -2122,10 +2121,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     // Get the original shape before collapse
     auto srcShape = collapse.getSrcType().getShape();
-    
+
     if (srcShape.size() < 2)
       return failure();
-    
+
     int64_t batch = srcShape[0];
     int64_t numHeads = srcShape[1];
 
@@ -2152,18 +2151,19 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
   FailureOr<AttentionMatcherValues> match(tosa::MatMulOp op) const {
     Value softmaxOutput = op.getA();
-    DenseSet<StringRef> expandAndCollapse {
-      tensor::CollapseShapeOp::getOperationName(),
-      tensor::ExpandShapeOp::getOperationName()
-    };
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
 
     // check if the softmax is done in different precision compared to GEMMs
     Type softmaxType =
         cast<ShapedType>(softmaxOutput.getType()).getElementType();
-    auto maybesoftmaxOutputCastOp = getDefiningOpSkipping<tosa::CastOp>(softmaxOutput, expandAndCollapse);
+    auto maybesoftmaxOutputCastOp =
+        getDefiningOpSkipping<tosa::CastOp>(softmaxOutput, expandAndCollapse);
     if (succeeded(maybesoftmaxOutputCastOp)) {
       softmaxOutput = maybesoftmaxOutputCastOp.value().getInput();
-      if (succeeded(getDefiningOpSkipping<tosa::CastOp>(softmaxOutput, expandAndCollapse))) {
+      if (succeeded(getDefiningOpSkipping<tosa::CastOp>(softmaxOutput,
+                                                        expandAndCollapse))) {
         LLVM_DEBUG(llvm::dbgs()
                    << "softmax output has multiple casts. rocMLIR only allows "
                       "one cast between softmax and gemm2\n");

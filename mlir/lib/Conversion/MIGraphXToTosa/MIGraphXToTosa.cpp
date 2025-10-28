@@ -583,9 +583,8 @@ BroadcastConverter::matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
   // We create a dummy multiplication with one with implicit broadcasting
   // because tosa does not have an explicit broadcast op
   auto oneTensor = rock::tosa::getOneTensor(rewriter, loc, outType);
-  auto mulWithOne =
-      rock::tosa::getMulOp(rewriter, loc, sameRankReshapedOp, oneTensor,
-                           newOutElementTy);
+  auto mulWithOne = rock::tosa::getMulOp(rewriter, loc, sameRankReshapedOp,
+                                         oneTensor, newOutElementTy);
   rewriter.replaceOp(op, mulWithOne);
   return success();
 }
@@ -640,8 +639,7 @@ LogicalResult MultiBroadcastConverter::matchAndRewrite(
   // because tosa does not have an explicit broadcast op
   auto oneTensor = rock::tosa::getOneTensor(rewriter, loc, outType);
   auto mulWithOne =
-      rock::tosa::getMulOp(rewriter, loc, replacingValue, oneTensor,
-                           elemType);
+      rock::tosa::getMulOp(rewriter, loc, replacingValue, oneTensor, elemType);
   rewriter.replaceOp(op, mulWithOne);
   return success();
 }
@@ -789,9 +787,8 @@ LogicalResult ReduceMeanConverter::matchAndRewrite(
   Value tosaReciprocalReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       rewriter, loc, elementType, tosaReciprocal, shapeValue);
 
-  auto tosaMul = rock::tosa::getMulOp(
-      rewriter, loc, adaptor.getInput(), tosaReciprocalReshaped,
-      elementType);
+  auto tosaMul = rock::tosa::getMulOp(rewriter, loc, adaptor.getInput(),
+                                      tosaReciprocalReshaped, elementType);
   auto tosaReduceSum = rock::tosa::createOpAndInfer<tosa::ReduceSumOp>(
       rewriter, loc, elementType, tosaMul, axis);
   rewriter.replaceOp(op, tosaReduceSum);
