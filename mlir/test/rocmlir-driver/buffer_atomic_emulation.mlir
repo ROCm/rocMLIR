@@ -13,7 +13,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1030"} {
 // CHECK: %[[res:.+]] = llvm.bitcast %[[resInt]] : i32 to f32
 // CHECK: %[[cond:.+]] = llvm.icmp "eq" %[[resInt]], %[[prevInt]]
 // CHECK: llvm.cond_br %[[cond]], ^{{.*}}, ^[[bb]](%[[res]] : f32)
-func.func @add_scalar(%val: f32, %mem: memref<4xf32>) attributes {kernel} {
+func.func @add_scalar(%val: f32, %mem: memref<4xf32>) attributes {kernel, block_size = 32 : i32, grid_size = 1} {
   %c0 = arith.constant 0 : i32
   amdgpu.raw_buffer_atomic_fadd {boundsCheck = false} %val -> %mem[%c0] : f32 -> memref<4xf32>, i32
   return
