@@ -18,6 +18,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
@@ -427,6 +428,18 @@ static LogicalResult extractFuncOps(ModuleOp op,
   return success();
 }
 
+static bool doesModuleHaveFusions(ModuleOp module) {
+  WalkResult result = module.walk([](Operation *op) {
+    // Check for linalg.generic or rock.reduce (standalone fusion ops)
+    if (isa<linalg::GenericOp>(op) || isa<rock::ReduceOp>(op)) {
+      return WalkResult::interrupt();
+    }
+    
+    return WalkResult::advance();
+  });
+  return result.wasInterrupted();
+}
+
 static LogicalResult runTuningLoop(ModuleOp source) {
   // Verify prerequisites
   SmallVector<func::FuncOp> funcs;
@@ -606,14 +619,15 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       return copy;
     };
 
-    // Applicability check
-    OwningOpRef<ModuleOp> sourceCopy =
-        copyIRThread(threadSource.get(), perfConfigAttr);
-    if (!rock::isModuleFusible(sourceCopy.get(), result.perfConfig)) {
+    if (doesModuleHaveFusions(threadSource.get()) &&
+        !rock::isModuleFusible(threadSource.get(), result.perfConfig)) {
       result.status = CompilationStatus::NotApplicable;
       return result;
     }
 
+    // Applicability check
+    OwningOpRef<ModuleOp> sourceCopy =
+        copyIRThread(threadSource.get(), perfConfigAttr);
     if (failed(threadApplicability.run(sourceCopy.get()))) {
       result.status = CompilationStatus::NotApplicable;
       return result;
