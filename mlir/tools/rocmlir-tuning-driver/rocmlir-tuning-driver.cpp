@@ -671,7 +671,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Thread pool with work stealing pattern
     auto worker = [&]() {
       while (true) {
-        // Check if any compilation has failed (relaxed: just an optimization hint)
+        // Check if any compilation has failed (relaxed: just an optimization
+        // hint)
         if (compilationFailed.load(std::memory_order_relaxed))
           break;
 
