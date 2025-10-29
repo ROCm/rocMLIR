@@ -533,9 +533,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                                            sleepUs,       showStats};
 
   // Determine number of parallel threads
-  unsigned numThreads = (numCompileThreads > 0) ? numCompileThreads 
-                                                 : std::thread::hardware_concurrency();
-  if (numThreads == 0) numThreads = 4; // fallback
+  unsigned numThreads = (numCompileThreads > 0)
+                            ? numCompileThreads
+                            : std::thread::hardware_concurrency();
+  if (numThreads == 0)
+    numThreads = 4; // fallback
 
   // Serialize source module once (shared by all threads for cloning)
   std::string sourceModuleStr;
@@ -550,34 +552,35 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   auto compileConfig = [&](size_t idx) -> CompilationResult {
     CompilationResult result;
     result.perfConfig = configs[idx];
-    
+
     // Each thread needs its own context and pass managers for thread-safety
     DialectRegistry threadRegistry;
     registerRocMLIRDialects(threadRegistry);
     MLIRContext threadCtx(threadRegistry);
     threadCtx.getDiagEngine().registerHandler([](Diagnostic &diag) {});
-    
+
     // Parse the serialized module in this thread's context
-    OwningOpRef<ModuleOp> threadSource = 
+    OwningOpRef<ModuleOp> threadSource =
         parseSourceString<ModuleOp>(sourceModuleStr, &threadCtx);
-    if (!threadSource) return result;
-    
+    if (!threadSource)
+      return result;
+
     // Set up pipelines for this thread
-    PassManager threadApplicability(&threadCtx, 
+    PassManager threadApplicability(&threadCtx,
                                     PassManager::getAnyOpAnchorName(),
                                     PassManager::Nesting::Implicit);
-    PassManager threadCompilation(&threadCtx, 
-                                  PassManager::getAnyOpAnchorName(),
+    PassManager threadCompilation(&threadCtx, PassManager::getAnyOpAnchorName(),
                                   PassManager::Nesting::Implicit);
-    
+
     rock::buildKernelPipeline(threadApplicability, applicabilityOpts);
     rock::buildKernelPipeline(threadCompilation, compilationKernOpts);
     rock::buildBackendPipeline(threadCompilation, backendOpts);
-    
+
     StringAttr perfConfigAttr = StringAttr::get(&threadCtx, result.perfConfig);
-    
+
     // Helper to copy IR with perf config set
-    auto copyIRThread = [&](ModuleOp src, StringAttr attr) -> OwningOpRef<ModuleOp> {
+    auto copyIRThread = [&](ModuleOp src,
+                            StringAttr attr) -> OwningOpRef<ModuleOp> {
       OwningOpRef<ModuleOp> copy = cast<ModuleOp>(src->clone());
       copy->walk([&attr](rock::RockGemmWrapperInterface op) {
         op->setAttr("perf_config", attr);
@@ -587,74 +590,77 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       });
       return copy;
     };
-    
+
     // Applicability check
-    OwningOpRef<ModuleOp> applicabilityCopy = 
+    OwningOpRef<ModuleOp> applicabilityCopy =
         copyIRThread(threadSource.get(), perfConfigAttr);
     if (!rock::isModuleFusible(applicabilityCopy.get(), result.perfConfig)) {
       return result; // Not applicable
     }
-    
+
     if (failed(threadApplicability.run(applicabilityCopy.get()))) {
       return result; // Not applicable
     }
-    
+
     result.isApplicable = true;
-    
+
     // Extract block and grid sizes
     for (auto &fnName : kernelFuncNames) {
       auto tunedFunc = applicabilityCopy->lookupSymbol<func::FuncOp>(fnName);
-      if (!tunedFunc) return result;
+      if (!tunedFunc)
+        return result;
       result.blockSizes.push_back(
           tunedFunc->getAttrOfType<IntegerAttr>("block_size").getInt());
       result.gridSizes.push_back(
           tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
     }
-    
+
     // Compilation
-    OwningOpRef<ModuleOp> compileCopy = 
+    OwningOpRef<ModuleOp> compileCopy =
         copyIRThread(threadSource.get(), perfConfigAttr);
     if (failed(threadCompilation.run(compileCopy.get()))) {
       std::lock_guard<std::mutex> lock(outputMutex);
-      llvm::errs() << "Backend pipeline failed for config: " 
+      llvm::errs() << "Backend pipeline failed for config: "
                    << result.perfConfig << "\n";
       return result;
     }
-    
+
     result.compilationSucceeded = true;
-    
+
     // Extract binaries
     for (const auto &fnName : kernelFuncNames) {
-      auto binary = compileCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
-      if (!binary) return result;
-      result.hipModules.push_back(
-          cast<gpu::ObjectAttr>(binary.getObjects()[0])
-              .getObject()
-              .getValue()
-              .str());
+      auto binary =
+          compileCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
+      if (!binary)
+        return result;
+      result.hipModules.push_back(cast<gpu::ObjectAttr>(binary.getObjects()[0])
+                                      .getObject()
+                                      .getValue()
+                                      .str());
     }
-    
+
     return result;
   };
 
   // Launch parallel compilation tasks
   {
     std::atomic<size_t> nextIdx{0};
-    
+
     // Thread pool pattern
     auto worker = [&]() {
       while (true) {
         size_t idx = nextIdx.fetch_add(1);
-        if (idx >= configs.size()) break;
+        if (idx >= configs.size())
+          break;
         compilationResults[idx] = compileConfig(idx);
       }
     };
-    
+
     std::vector<std::thread> threads;
     for (unsigned i = 0; i < numThreads; ++i) {
       threads.emplace_back(worker);
     }
-    
+
     for (auto &t : threads) {
       t.join();
     }
@@ -663,21 +669,21 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // Sequential benchmarking phase (must be sequential for accurate timing)
   for (const auto &result : compilationResults) {
     llvm::outs() << result.perfConfig << "\t";
-    
+
     if (!result.isApplicable) {
       llvm::outs() << "N/A\n";
       continue;
     }
-    
+
     if (!result.compilationSucceeded) {
       llvm::outs() << "COMPILE_FAILED\n";
       continue;
     }
-    
+
     FailureOr<double> timing = benchmarkKernels(
         result.hipModules, kernelFuncNames, result.blockSizes, result.gridSizes,
         dataType, hostBuffers, gpuBuffers, bufferLengths, benchmarkParams);
-    
+
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
       return failure();
