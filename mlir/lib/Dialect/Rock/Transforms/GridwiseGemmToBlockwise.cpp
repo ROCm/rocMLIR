@@ -2282,7 +2282,9 @@ struct GridwiseAttentionAccelRewritePattern
 
         // Emit lowered blockwise GEMM 0.
         BlockwiseGemmAccelOp::create(
-            rewriter, loc, ldsTileBufferK, ldsTileBufferQ,
+            rewriter, loc, ldsTileBufferK,
+            ldsTileBufferQ ? ldsTileBufferQ : ldsTileBufferK,
+            /*scaleA=*/nullptr, /*scaleB=*/nullptr,
             rewriter.getI32IntegerAttr(gemm0InMPerThread),
             rewriter.getI32IntegerAttr(gemm0InNPerThread),
             /*rotateMWithK=*/nullptr,
@@ -2292,7 +2294,8 @@ struct GridwiseAttentionAccelRewritePattern
             /*splitKAcrossThreadsFirstB=*/nullptr,
             /*directToLDS=*/nullptr, /*ldsLayoutMxK=*/nullptr,
             /*ldsLayoutNxK=*/nullptr, preAccelRegBufferK, preAccelRegBuffersQ,
-            accRegBufferGemm0, TypeAttr::get(elemTypeK),
+            accRegBufferGemm0, /*bufferScaleA=*/nullptr,
+            /*bufferScaleB=*/nullptr, TypeAttr::get(elemTypeK),
             TypeAttr::get(elemTypeQ), featuresAttr, op.getBlockSizeAttr(),
             gemm0TuningParams);
       }
@@ -2554,7 +2557,9 @@ struct GridwiseAttentionAccelRewritePattern
           }
 
           BlockwiseGemmAccelOp::create(
-              rewriter, loc, ldsTileBufferV, gemm1LDSBufferB,
+              rewriter, loc, ldsTileBufferV,
+              gemm1LDSBufferB ? gemm1LDSBufferB : ldsTileBufferV,
+              /*scaleA=*/nullptr, /*scaleB=*/nullptr,
               rewriter.getI32IntegerAttr(gemm1InMPerThread),
               rewriter.getI32IntegerAttr(gemm1InNPerThread),
               (ldsLayoutCfgMG1.doRotateWithK ? rewriter.getUnitAttr()
@@ -2568,7 +2573,9 @@ struct GridwiseAttentionAccelRewritePattern
               /*splitKAcrossThreadsFirstB=*/nullptr, /*directToLDS=*/nullptr,
               /*ldsLayoutMxK=*/nullptr, /*ldsLayoutNxK=*/nullptr,
               preAccelRegBufferV, preAccelRegBufferQxK, accRegBufferGemm1,
+              /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr,
               TypeAttr::get(elemTypeV), TypeAttr::get(elemTypeV), featuresAttr,
+
               op.getBlockSizeAttr(), gemm1TuningParams);
 
           // There is no second k-loop
@@ -2969,8 +2976,8 @@ struct GridwiseGemmAccelRewritePattern
                            loadType == GemmLoadTileType::DirectToLDSDefault;
 
         BlockwiseGemmAccelOp::create(
-            b, loc, ldsViewForGemmA, ldsViewForGemmB,
-            b.getI32IntegerAttr(copyMPerThread),
+            b, loc, ldsViewForGemmA, ldsViewForGemmB, /*aScale=*/nullptr,
+            /*bScale=*/nullptr, b.getI32IntegerAttr(copyMPerThread),
             b.getI32IntegerAttr(copyNPerThread),
             (ldsLayoutConfigA.doRotateWithK ? b.getUnitAttr() : nullptr),
             (ldsLayoutConfigB.doRotateWithK ? b.getUnitAttr() : nullptr),
@@ -2981,7 +2988,8 @@ struct GridwiseGemmAccelRewritePattern
             (directToLDS ? b.getUnitAttr() : nullptr),
             (ldsLayoutConfigA.ldsLayoutDxK ? b.getUnitAttr() : nullptr),
             (ldsLayoutConfigB.ldsLayoutDxK ? b.getUnitAttr() : nullptr), arrayA,
-            arrayB, regCAllocOp, TypeAttr::get(elementTypeA),
+            arrayB, regCAllocOp, /*bufferScaleA=*/nullptr,
+            /*bufferScaleB=*/nullptr, TypeAttr::get(elementTypeA),
             TypeAttr::get(elementTypeB), featuresAttr, op.getBlockSizeAttr(),
             op.getParamsAttr());
         YieldOp::create(b, loc);

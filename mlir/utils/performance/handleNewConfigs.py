@@ -12,8 +12,9 @@ Usage:
 import os
 import sys
 from typing import Iterable, Optional
-from perfRunner import getArch, getChip, getNumCU
+from perfRunner import get_arch, get_chip, get_num_cu
 from perfCommonUtils import Operation
+
 
 # Global variables
 
@@ -25,7 +26,7 @@ GEMM_GEMM_FILE_NAME = "tier1-gemmgemm-configs"
 CONV_GEMM_FILE_NAME = "tier1-convgemm-configs"
 ATTENTION_FILE_NAME = "tier1-attention-configs"
 
-NEW_CONFIGS_DEFAULT = f"../../mlir/utils/performance/problem-config-tier-1-models"
+NEW_CONFIGS_DEFAULT = "../../mlir/utils/performance/problem-config-tier-1-models"
 CONV_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{CONV_FILE_NAME}"
 GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_FILE_NAME}"
 GEMM_GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_GEMM_FILE_NAME}"
@@ -33,20 +34,22 @@ CONV_GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{CONV_GEMM_FI
 ATTENTION_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{ATTENTION_FILE_NAME}"
 
 # Get the architecture and number of CUs from the environment
-ARCH = getArch()
-CHIP = getChip()
-NUM_CU = getNumCU(CHIP)
+ARCH = get_arch()
+CHIP = get_chip()
+NUM_CU = get_num_cu(CHIP)
 
 # ---------------------------------------------------
 
-def readNonEmptyLines(path: str) -> list[str]:
+
+def read_non_empty_lines(path: str) -> list[str]:
     if not os.path.exists(path):
         print(f"Error: {path} does not exist")
         sys.exit(-1)
     with open(path, "r") as f:
         return [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
 
-def loadExistingConfigs(filepath):
+
+def load_existing_configs(filepath):
     """Load existing configs from a file into a set (stripped, ignoring empty lines and comments)."""
     configs = set()
     if os.path.exists(filepath):
@@ -58,10 +61,11 @@ def loadExistingConfigs(filepath):
     else:
         print(f"Error: {filepath} does not exist")
         sys.exit(-1)
-    
+
     return configs
 
-def detectConfigType(config) -> Optional[Operation]:
+
+def detect_conf_type(config) -> Optional[Operation]:
     """Detect config type: returns an Operation enum value or None."""
     # GEMM+GEMM and CONV+GEMM configs have -gemmO
     if "-gemmO" in config:
@@ -77,137 +81,155 @@ def detectConfigType(config) -> Optional[Operation]:
     return None
 
 
-
-def _appendConfigs(path: str, lines: Iterable[str]):
+def _append_configs(path: str, lines: Iterable[str]):
     if not lines:
         return
     with open(path, "a") as f:
         for line in lines:
             f.write(line.rstrip() + "\n")
 
-def parseArgs(argv=None):
+
+def parse_args(argv=None):
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--new", type=str, default=NEW_CONFIGS_DEFAULT,
+    parser.add_argument("--new",
+                        type=str,
+                        default=NEW_CONFIGS_DEFAULT,
                         help="Path to the file containing new configurations to add")
-    parser.add_argument("--configs-dir", type=str, default=None,
+    parser.add_argument("--configs-dir",
+                        type=str,
+                        default=None,
                         help="Path to the directory containing the existing configuration files")
-    parser.add_argument("--conv", type=str, default=None,
+    parser.add_argument("--conv",
+                        type=str,
+                        default=None,
                         help="Path to the file containing existing convolution configurations")
-    parser.add_argument("--gemm", type=str, default=None,
+    parser.add_argument("--gemm",
+                        type=str,
+                        default=None,
                         help="Path to the file containing existing GEMM configurations")
-    parser.add_argument("--gemm_gemm", type=str, default=None,
+    parser.add_argument("--gemm_gemm",
+                        type=str,
+                        default=None,
                         help="Path to the file containing existing GEMM_GEMM configurations")
-    parser.add_argument("--conv_gemm", type=str, default=None,
+    parser.add_argument("--conv_gemm",
+                        type=str,
+                        default=None,
                         help="Path to the file containing existing CONV_GEMM configurations")
-    parser.add_argument("--attn", type=str, default=None,
+    parser.add_argument("--attn",
+                        type=str,
+                        default=None,
                         help="Path to the file containing existing attention configurations")
-    
+
     return parser.parse_args(argv)
 
-def resolvePaths(args):
+
+def resolve_paths(args):
     """ Resolve paths to configuration files based on command line arguments.
         Priority: explicit conv/gemm/attn paths > --configs-dir > default paths """
-    newPath = args.new or NEW_CONFIGS_DEFAULT
+    new_path = args.new or NEW_CONFIGS_DEFAULT
 
     if args.conv:
-        convPath = args.conv
+        conv_path = args.conv
     elif args.configs_dir:
-        convPath = os.path.join(args.configs_dir, f"{CONV_FILE_NAME}")
+        conv_path = os.path.join(args.configs_dir, f"{CONV_FILE_NAME}")
     else:
-        convPath = CONV_CONFIGS_DEFAULT
+        conv_path = CONV_CONFIGS_DEFAULT
 
     if args.gemm:
-        gemmPath = args.gemm
+        gemm_path = args.gemm
     elif args.configs_dir:
-        gemmPath = os.path.join(args.configs_dir, f"{GEMM_FILE_NAME}")
+        gemm_path = os.path.join(args.configs_dir, f"{GEMM_FILE_NAME}")
     else:
-        gemmPath = GEMM_CONFIGS_DEFAULT
+        gemm_path = GEMM_CONFIGS_DEFAULT
     
     if args.gemm_gemm:
-        gemm_gemmPath = args.gemm_gemm
+        gemm_gemm_path = args.gemm_gemm
     elif args.configs_dir:
-        gemm_gemmPath = os.path.join(args.configs_dir, f"{GEMM_GEMM_FILE_NAME}")
+        gemm_gemm_path = os.path.join(args.configs_dir, f"{GEMM_GEMM_FILE_NAME}")
     else:
-        gemm_gemmPath = GEMM_GEMM_CONFIGS_DEFAULT
+        gemm_gemm_path = GEMM_GEMM_CONFIGS_DEFAULT
 
     if args.conv_gemm:
-        conv_gemmPath = args.conv_gemm
+        conv_gemm_path = args.conv_gemm
     elif args.configs_dir:
-        conv_gemmPath = os.path.join(args.configs_dir, f"{CONV_GEMM_FILE_NAME}")
+        conv_gemm_path = os.path.join(args.configs_dir, f"{CONV_GEMM_FILE_NAME}")
     else:
-        conv_gemmPath = CONV_GEMM_CONFIGS_DEFAULT
+        conv_gemm_path = CONV_GEMM_CONFIGS_DEFAULT
     
     if args.attn:
-        attnPath = args.attn
+        attn_path = args.attn
     elif args.configs_dir:
-        attnPath = os.path.join(args.configs_dir, f"{ATTENTION_FILE_NAME}")
+        attn_path = os.path.join(args.configs_dir, f"{ATTENTION_FILE_NAME}")
     else:
-        attnPath = ATTENTION_CONFIGS_DEFAULT
-    
-    return newPath, convPath, gemmPath, gemm_gemmPath, conv_gemmPath, attnPath
+
+        attn_path = ATTENTION_CONFIGS_DEFAULT
+
+    return new_path, conv_path, gemm_path, gemm_gemm_path, conv_gemm_path, attn_path
+
 
 def main(argv=None):
-    args = parseArgs(argv)
-    newConfigs, convConfigs, gemmConfigs, gemmgemmConfigs, convgemmConfigs, attentionConfigs = resolvePaths(args)
+    args = parse_args(argv)
+    new_configs, conv_configs, gemm_configs, gemm_gemm_configs, conv_gemm_config, attn_configs = resolve_paths(args)
 
     # Load existing configs
-    existingConv = loadExistingConfigs(convConfigs)
-    existingGemm = loadExistingConfigs(gemmConfigs)
-    existingGemmGemm = loadExistingConfigs(gemmgemmConfigs)
-    existingConvGemm = loadExistingConfigs(convgemmConfigs)
-    existingAttention = loadExistingConfigs(attentionConfigs)
+    existing_conv = load_existing_configs(conv_configs)
+    existing_gemm = load_existing_configs(gemm_configs)
+    existing_gemm_gemm = load_existing_configs(gemm_gemm_configs)
+    existing_conv_gemm = load_existing_configs(conv_gemm_configs)
+    existing_attn = load_existing_configs(attn_configs)
 
-    newConv: list[str] = []
-    newGemm: list[str] = []
-    newGemmGemm: list[str] = []
-    newConvGemm: list[str] = []
-    newAttention: list[str] = []
+    new_conv: list[str] = []
+    new_gemm: list[str] = []
+    new_gemm_gemm: list[str] = []
+    new_conv_gemm: list[str] = []
+    new_attn: list[str] = []
 
-    with open(newConfigs, "r") as f:
+    with open(new_configs, "r") as f:
         for line in f:
             config = line.strip()
             if not config or config.startswith("#"):
                 continue
-            op = detectConfigType(config)
+            op = detect_conf_type(config)
             if op == Operation.CONV:
-                if config not in existingConv:
-                    newConv.append(config)
-                    existingConv.add(config)
+                if config not in existing_conv:
+                    new_conv.append(config)
+                    existing_conv.add(config)
             elif op == Operation.GEMM:
-                if config not in existingGemm:
-                    newGemm.append(config)
-                    existingGemm.add(config)
+                if config not in existing_gemm:
+                    new_gemm.append(config)
+                    existing_gemm.add(config)
             elif op == Operation.ATTENTION:
-                if config not in existingAttention:
-                    newAttention.append(config)
-                    existingAttention.add(config)
+                if config not in existing_attn:
+                    new_attn.append(config)
+                    existing_attn.add(config)
             elif op == Operation.GEMM_GEMM:
-                if config not in existingGemmGemm:
-                    newGemmGemm.append(config)
-                    existingGemmGemm.add(config)
+                if config not in existing_gemm_gemm:
+                    new_gemm_gemm.append(config)
+                    existing_gemm_gemm.add(config)
             elif op == Operation.CONV_GEMM:
-                if config not in existingConvGemm:
-                    newConvGemm.append(config)
-                    existingConvGemm.add(config)
+                if config not in existing_conv_gemm:
+                    new_conv_gemm.append(config)
+                    existing_conv_gemm.add(config)
             else:
                 print(f"Warning: Could not determine config type for: {config}")
 
     # Append new configs to the appropriate files
-    _appendConfigs(convConfigs, newConv)
-    _appendConfigs(gemmConfigs, newGemm)
-    _appendConfigs(gemmgemmConfigs, newGemmGemm)
-    _appendConfigs(convgemmConfigs, newConvGemm)
-    _appendConfigs(attentionConfigs, newAttention)
+    _append_configs(conv_configs, new_conv)
+    _append_configs(gemm_configs, new_gemm)
+    _append_configs(gemm_gemm_configs, new_gemm_gemm)
+    _append_configs(conv_gemm_configs, new_conv_gemm)
+    _append_configs(attn_configs, new_attn)
 
     print(f"Added:")
-    print(f"    {len(newConv)} conv configs.")
-    print(f"    {len(newGemm)} gemm configs.")
-    print(f"    {len(newAttention)} attention configs.")
-    print(f"    {len(newGemmGemm)} gemm+gemm configs.")
-    print(f"    {len(newConvGemm)} conv+gemm configs.")
+    print(f"    {len(new_conv)} conv configs.")
+    print(f"    {len(new_gemm)} gemm configs.")
+    print(f"    {len(new_attn)} attention configs.")
+    print(f"    {len(new_gemm_gemm)} gemm+gemm configs.")
+    print(f"    {len(new_conv_gemm)} conv+gemm configs.")
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

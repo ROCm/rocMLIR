@@ -39,17 +39,24 @@ DATA_TYPES_ATTENTION_WMMA = ['i8', 'f16', 'bf16']
 DATA_TYPES_ATTENTION_MFMA = ['i8', 'f32', 'f16', 'bf16']
 DATA_TYPES_GEMM_GEMM = ['f32', 'f16', 'bf16']
 DATA_TYPES_CONV_GEMM = ['f32', 'f16', 'bf16']
-OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i32', 'fp8':'f32',
-                         'fp8_fp8': 'f32', 'fp8_bf8': 'f32', 'bf8_fp8': 'f32',
-                         'bf8_bf8': 'f32'}
-MLIR_N_REPEATS = 100
-WARMUP_ITERATIONS = 10
-TRIM_PERCENT = 10
-SLEEP_MS = 1
+OUTPUT_DATA_TYPES_MAP = {
+    'f32': 'f32',
+    'f16': 'f16',
+    'bf16': 'bf16',
+    'i8': 'i32',
+    'fp8': 'f32',
+    'fp8_fp8': 'f32',
+    'fp8_bf8': 'f32',
+    'bf8_fp8': 'f32',
+    'bf8_bf8': 'f32'
+}
+MLIR_N_REPEATS = 10
+WARMUP_ITERATIONS = 1
+SLEEP_US = 100
 
-FILTER_LAYOUT_MAP = {'N':'k', 'C':'c', 'H':'y', 'W':'x', 'G':'g', '0':'0', '1':'1'}
-INPUT_LAYOUT_MAP = {'N':'n', 'C':'c', 'H':'h', 'W':'w', 'G':'g', '0':'0', '1':'1'}
-OUTPUT_LAYOUT_MAP = {'N':'n', 'C':'k', 'H':'h', 'W':'w', 'G':'g', '0':'0', '1':'1'}
+FILTER_LAYOUT_MAP = {'N': 'k', 'C': 'c', 'H': 'y', 'W': 'x', 'G': 'g', '0': '0', '1': '1'}
+INPUT_LAYOUT_MAP = {'N': 'n', 'C': 'c', 'H': 'h', 'W': 'w', 'G': 'g', '0': '0', '1': '1'}
+OUTPUT_LAYOUT_MAP = {'N': 'n', 'C': 'k', 'H': 'h', 'W': 'w', 'G': 'g', '0': '0', '1': '1'}
 
 # Compiled regexp object used for extracting elapsed time from MIOpenDriver's output
 ELAPSED_TIME_RE = re.compile(r"Elapsed: ([0-9\.]*) ms")
@@ -58,46 +65,55 @@ GFX_CHIP_RE = re.compile(r"gfx[0-9a-z]+")
 INFO_ARCH_NAME = re.compile(r"Name:\s*(.*)")
 INFO_ARCH_CU = re.compile(r"Compute Unit:\s*(.*)")
 
+
 def input_layouts(input_layout):
     return "".join(INPUT_LAYOUT_MAP[char] for char in input_layout)
 
+
 def output_layouts(output_layout):
     return "".join(OUTPUT_LAYOUT_MAP[char] for char in output_layout)
-    
+
+
 def filter_layouts(filter_layout):
     return "".join(FILTER_LAYOUT_MAP[char] for char in filter_layout)
+
 
 def inverse_output_layouts(output_layout):
     map = {v: k for k, v in OUTPUT_LAYOUT_MAP.items()}
     return "".join(map[char] for char in output_layout)
 
+
 def inverse_input_layouts(input_layout):
     map = {v: k for k, v in INPUT_LAYOUT_MAP.items()}
     return "".join(map[char] for char in input_layout)
+
 
 def inverse_filter_layouts(filter_layout):
     map = {v: k for k, v in FILTER_LAYOUT_MAP.items()}
     return "".join(map[char] for char in filter_layout)
 
+
 @dataclass
 class MLIRPaths:
-    rocmlir_gen_path : str
-    rocmlir_driver_path : str
-    rocmlir_opt_path : str
-    cpu_runner_path : str
-    libmlir_rocm_runtime_path : str
-    libconv_validation_wrappers_path : str
-    libmlir_runtime_utils_path : str
-    libmlir_c_runner_utils_path : str
-    rocmlir_tuning_driver_path : str
-    rocblas_benchmark_driver_path : Optional[str] = None
-    ck_gemm_benchmark_driver_path : Optional[str] = None
+    rocmlir_gen_path: str
+    rocmlir_driver_path: str
+    rocmlir_opt_path: str
+    cpu_runner_path: str
+    libmlir_rocm_runtime_path: str
+    libconv_validation_wrappers_path: str
+    libmlir_runtime_utils_path: str
+    libmlir_c_runner_utils_path: str
+    rocmlir_tuning_driver_path: str
+    rocblas_benchmark_driver_path: Optional[str] = None
+    ck_gemm_benchmark_driver_path: Optional[str] = None
+
 
 @dataclass
 class Paths:
     """This structure is used to hold paths needed to perform the tests"""
-    configuration_file_path : str
+    configuration_file_path: str
     mlir_paths: Optional[MLIRPaths] = None
+
 
 def find_mlir_build_dir() -> str:
     """
@@ -118,7 +134,8 @@ def find_mlir_build_dir() -> str:
     if not rocmlir_gen_path:
         try:
             # Prioritize the search in the current repo first.
-            search_root = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
+            search_root = str(
+                subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
         except subprocess.CalledProcessError:
             # Else look in the home or WORKSPACE directory
             search_root = os.environ.get('WORKSPACE', str(Path.home()))
@@ -133,6 +150,7 @@ def find_mlir_build_dir() -> str:
     build_dir = Path(rocmlir_gen_path).parent.parent
     return str(build_dir)
 
+
 def hip_check(call_result):
     err = call_result[0]
     result = call_result[1:]
@@ -142,35 +160,44 @@ def hip_check(call_result):
         raise RuntimeError(str(err))
     return result
 
-def getArch() -> str:
+
+def get_arch() -> str:
     agents = set()
     device_count = hip_check(hip.hipGetDeviceCount())
     for device in range(device_count):
         props = hip.hipDeviceProp_t()
-        hip_check(hip.hipGetDeviceProperties(props,device))
+        hip_check(hip.hipGetDeviceProperties(props, device))
         agent = props.gcnArchName.decode('utf-8')
         agents.add(agent)
-    if(len(agents) > 1):
-        print(f"WARNING: Found {len(agents)} different kinds of agents on the same machine :  {', '.join(agents)}")
-        print("WARNING: Using the first agent by default. If you want to use a different agent, please set the HIP_VISIBLE_DEVICES environment variable.")
+    if (len(agents) > 1):
+        print(
+            f"WARNING: Found {len(agents)} different kinds of agents on the same machine :  {', '.join(agents)}"
+        )
+        print(
+            "WARNING: Using the first agent by default. If you want to use a different agent, please set the HIP_VISIBLE_DEVICES environment variable."
+        )
     # select first agent by default
     return list(agents)[0]
 
-def getChip():
-    arch = getArch()
+
+def get_chip():
+    arch = get_arch()
     chip = GFX_CHIP_RE.search(arch).group(0)
     return chip
 
+
 DATA_TYPES_ATTENTION = None
 
-def initializeDataTypesAttention():
+
+def initialize_dtypes_attn():
     global DATA_TYPES_ATTENTION
-    if getChip().startswith('gfx9'):
+    if get_chip().startswith('gfx9'):
         DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_MFMA
     else:
         DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
-        
-    return DATA_TYPES_ATTENTION # For modules that import this function
+
+    return DATA_TYPES_ATTENTION  # For modules that import this function
+
 
 def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
     """Creates the composite Paths structure using build dir paths"""
@@ -184,60 +211,64 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
         llvm_bin_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
-        mlir_paths = MLIRPaths(rocmlir_gen_path = mlir_bin_dir + '/rocmlir-gen',
-            rocmlir_driver_path = mlir_bin_dir + '/rocmlir-driver',
-            rocmlir_opt_path = mlir_bin_dir + '/rocmlir-opt',
-            cpu_runner_path = llvm_bin_dir + '/mlir-runner',
-            libmlir_rocm_runtime_path =  llvm_lib_dir + '/libmlir_rocm_runtime.so',
-            libconv_validation_wrappers_path = mlir_lib_dir + '/libconv-validation-wrappers.so',
-            libmlir_runtime_utils_path = llvm_lib_dir + '/libmlir_runner_utils.so',
-            libmlir_c_runner_utils_path = llvm_lib_dir + '/libmlir_c_runner_utils.so',
-            rocmlir_tuning_driver_path = mlir_bin_dir + '/rocmlir-tuning-driver',
-            rocblas_benchmark_driver_path = str(rocblas_benchmark_driver_location) \
-              if rocblas_benchmark_driver_location.exists() else None,
-            ck_gemm_benchmark_driver_path = str(ck_gemm_benchmark_driver_location) \
-              if ck_gemm_benchmark_driver_location.exists() else None)
+        mlir_paths = MLIRPaths(
+            rocmlir_gen_path=mlir_bin_dir + '/rocmlir-gen',
+            rocmlir_driver_path=mlir_bin_dir + '/rocmlir-driver',
+            rocmlir_opt_path=mlir_bin_dir + '/rocmlir-opt',
+            cpu_runner_path=llvm_bin_dir + '/mlir-runner',
+            libmlir_rocm_runtime_path=llvm_lib_dir + '/libmlir_rocm_runtime.so',
+            libconv_validation_wrappers_path=mlir_lib_dir + '/libconv-validation-wrappers.so',
+            libmlir_runtime_utils_path=llvm_lib_dir + '/libmlir_runner_utils.so',
+            libmlir_c_runner_utils_path=llvm_lib_dir + '/libmlir_c_runner_utils.so',
+            rocmlir_tuning_driver_path=mlir_bin_dir + '/rocmlir-tuning-driver',
+            rocblas_benchmark_driver_path=(str(rocblas_benchmark_driver_location)
+                                           if rocblas_benchmark_driver_location.exists() else None),
+            ck_gemm_benchmark_driver_path=(str(ck_gemm_benchmark_driver_location)
+                                           if ck_gemm_benchmark_driver_location.exists() else None))
 
     return Paths(config_file_path, mlir_paths)
 
+
 # utility functions.
-def getNanoSeconds(fileName):
-    if not os.path.exists(fileName):
+def get_nanoseconds(filename):
+    if not os.path.exists(filename):
         return np.nan
-    with open(fileName, 'r') as csv_file:
-        reader = csv.DictReader(csv_file, delimiter = ',')
+    with open(filename, 'r') as csv_file:
+        reader = csv.DictReader(csv_file, delimiter=',')
         result = 0
         for row in reader:
             result += int(float(row['AverageNs']))
         csv_file.close()
         return result
 
-def getProfilerOutputPath(arch: str, baseOutPath):
+
+def get_profiler_output_path(arch: str, base_out_path):
     chip = GFX_CHIP_RE.search(arch).group(0)
     # TODO (gfx950): check if gfx950 need this
-    if(chip not in ["gfx942"]):
-        return os.path.join('pmc_1', baseOutPath)
-    return baseOutPath
+    if (chip not in ["gfx942"]):
+        return os.path.join('pmc_1', base_out_path)
+    return base_out_path
 
-def getMetricArgsForRocprof(arch: str):
+
+def get_metric_args_for_rocprof(arch: str):
     chip = GFX_CHIP_RE.search(arch).group(0)
     current_dir = os.path.dirname(os.path.abspath(__file__))
     metrics_path = os.path.join(current_dir, ROCMLIR_INPUT_METRICS_FILE_NAME)
     metrics = []
     # TODO (gfx950): check if gfx950 supports this
     if (chip not in ["gfx942"]):
-       metrics = ['-i', metrics_path]
+        metrics = ['-i', metrics_path]
     return metrics
 
 
 # Bank conflict functions.The percentage of GPUTime LDS is stalled by bank
 # conflicts. Value range: 0% (optimal) to 100% (bad).
-def getBankConflict(fileName):
-    if not os.path.exists(fileName):
+def get_bank_conflict(filename):
+    if not os.path.exists(filename):
         result = "NaN"
         return result
-    with open(fileName, 'r') as csv_file:
-        reader = csv.DictReader(csv_file, delimiter = ',')
+    with open(filename, 'r') as csv_file:
+        reader = csv.DictReader(csv_file, delimiter=',')
         header = reader.fieldnames
         if 'Counter_Name' not in header or 'Counter_Value' not in header:
             return np.nan
@@ -250,13 +281,16 @@ def getBankConflict(fileName):
         result_average = sum(result) / len(result)
         return result_average
 
+
 # Tuning databases
 MaybeTuningDb = Optional[Dict[Tuple[str, str], str]]
+
+
 def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
     try:
         ret = {}
-        with open(path, 'r') as dbFile:
-            for line in dbFile:
+        with open(path, 'r') as db_file:
+            for line in db_file:
                 line = line.strip()
                 if line.startswith('#'):
                     continue
@@ -264,16 +298,16 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
 
                 # note: legacy format has 3 entries
                 if len(entries) == 3:
-                    arch, config, perfConfig = entries
-                    ret[arch, config] = perfConfig
+                    arch, config, perfconfig = entries
+                    ret[arch, config] = perfconfig
                 # note: new format has 4 entries
                 elif len(entries) == 4:
-                    arch, _, config, perfConfig = entries
-                    ret[arch, config] = perfConfig
+                    arch, _, config, perfconfig = entries
+                    ret[arch, config] = perfconfig
                 # note: 5-entry form includes tflops at end
                 elif len(entries) == 5:
-                    arch, _, config, perfConfig, _ = entries
-                    ret[arch, config] = perfConfig
+                    arch, _, config, perfconfig, _ = entries
+                    ret[arch, config] = perfconfig
                 else:
                     print("Warning: Malformed tuning database entry:", line)
                     continue
@@ -283,18 +317,23 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
             print("Warning: Failed to find tuning database:", path)
         return None
 
-def getMilliseconds(output):
+
+def get_miliseconds(output):
     result = re.search(r"kernel time: (.*)", output.decode("utf-8"))
     if not result:
         return float('NaN')
 
     return float(result.group(1))
 
-def runPipeline(proc_specs):
+
+def run_pipeline(proc_specs):
     procs = []
     for proc in proc_specs:
         prev_stdout = procs[-1].stdout if procs else subprocess.DEVNULL
-        po = subprocess.Popen(proc, stdin=prev_stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        po = subprocess.Popen(proc,
+                              stdin=prev_stdout,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE)
         procs.append(po)
     try:
         for p in procs:
@@ -310,30 +349,31 @@ def runPipeline(proc_specs):
         outs, errs = p.communicate()
     return outs, False
 
+
 class PerfConfiguration:
     TABLE_COLUMNS = []
 
-    def computeTFlops(self, ns: int) -> float:
+    def compute_tflops(self, ns: int) -> float:
         raise NotImplementedError()
 
-    def tableEntry(self, nanoSeconds):
+    def table_entry(self, nanoseconds):
         raise NotImplementedError()
 
-    def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
         raise NotImplementedError()
 
-    def setPerfConfig(self, perf_config):
-        raise NotImplementedError()
-
-    @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
-        raise NotImplementedError()
-
-    def toCommandLine(self):
+    def set_perfconfig(self, perf_config):
         raise NotImplementedError()
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
+    def from_command_line(cls, argv, arch, num_cu):
+        raise NotImplementedError()
+
+    def to_command_line(self):
+        raise NotImplementedError()
+
+    @classmethod
+    def benchmark_external(cls, commandline, paths: Paths, arch, num_cu):
         raise NotImplementedError()
 
     EXTERNAL_NAME = "unknown"
@@ -342,12 +382,13 @@ class PerfConfiguration:
         attrs = ', '.join(f"{key}={value!r}" for key, value in self.__dict__.items())
         return f"{self.__class__.__name__}({attrs})"
 
+
 # convolution configurations.
-def getConvConfigurations(fileName):
+def get_conv_configurations(filename):
     configs = []
-    if fileName:
-        with open(fileName, 'r') as configFile:
-            lines = configFile.readlines()
+    if filename:
+        with open(filename, 'r') as config_file:
+            lines = config_file.readlines()
             # All combinations of conv direction, type and layouts
             for direction, datatype, layout, line in \
                     itertools.product(DIRECTIONS, DATA_TYPES, LAYOUTS, lines):
@@ -356,11 +397,11 @@ def getConvConfigurations(fileName):
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
-                
+
                 # Skip unsupported datatypes
                 if datatype == 'convfp8':
                     unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
-                    if getChip() in unsupported_chips:
+                    if get_chip() in unsupported_chips:
                         continue
 
                 # Skip int8 non-fwd convolutions
@@ -393,94 +434,99 @@ def getConvConfigurations(fileName):
                 if "-O" in line:
                     output_layout = ""
 
-                oneConfig = f"{datatype}{direction}{filter_layout}{input_layout}{output_layout}{line}"
-                if oneConfig not in configs:
-                    configs.append(oneConfig)
+                one_config = f"{datatype}{direction}{filter_layout}{input_layout}{output_layout}{line}"
+                if one_config not in configs:
+                    configs.append(one_config)
     return configs
+
 
 class ConvConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.CONV_TEST_PARAMETERS + ['LDSBankConflict'] + ['TFlops']
     EXTERNAL_NAME = "MIOpen"
 
-    def computeTFlops(self, ns):
+    def compute_tflops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
-        assert(self.k % self.group == 0)
-        assert(self.c % self.group == 0)
-        return (2.0 * self.n * (self.c//self.group) * self.k * self.ho * self.wo * self.y * self.x) / (float(ns) * 1e-9) / 1e12
+        assert (self.k % self.group == 0)
+        assert (self.c % self.group == 0)
+        return (2.0 * self.n * (self.c // self.group) * self.k * self.ho * self.wo * self.y *
+                self.x) / (float(ns) * 1e-9) / 1e12
 
-    def tableEntry(self, nanoSeconds):
+    def table_entry(self, nanoseconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
-        bankConflict = getBankConflict(getProfilerOutputPath(self.arch, BENCHMARKING_METRICS_FILE_NAME))
+        bank_conflict = get_bank_conflict(
+            get_profiler_output_path(self.arch, BENCHMARKING_METRICS_FILE_NAME))
         result = OrderedDict()
-        values = [self.direction, self.dataType, self.chip, self.numCU, self.filterLayout, self.inputLayout, self.outputLayout,
-                   self.n, self.c, self.hi, self.wi, self.k, self.y, self.x, self.dilationH, self.dilationW,
-                   self.convStrideH, self.convStrideW, self.paddingH, self.paddingW, self.perfConfig, bankConflict,
-                   self.computeTFlops(nanoSeconds)]
-        assert(len(self.TABLE_COLUMNS) == len(values))
+        values = [
+            self.direction, self.datatype, self.chip, self.num_cu, self.filter_layout,
+            self.input_layout, self.output_layout, self.n, self.c, self.hi, self.wi, self.k, self.y,
+            self.x, self.dilation_h, self.dilation_w, self.conv_stride_h, self.conv_stride_w,
+            self.padding_h, self.padding_w, self.perfconfig, bank_conflict,
+            self.compute_tflops(nanoseconds)
+        ]
+        assert (len(self.TABLE_COLUMNS) == len(values))
 
         for k, v in zip(self.TABLE_COLUMNS, values):
             result[k] = v
         return result
 
-    def setPerfConfig(self, perf_config):
-        self.perfConfig = perf_config
+    def set_perfconfig(self, perf_config):
+        self.perfconfig = perf_config
 
-    def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
-        direction = {'fwd':'--operation conv',
-                     'bwd':'--operation conv_bwd_data',
-                     'wrw':'--operation conv_bwd_weight'}[self.direction]
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
+        direction = {
+            'fwd': '--operation conv',
+            'bwd': '--operation conv_bwd_data',
+            'wrw': '--operation conv_bwd_weight'
+        }[self.direction]
 
-        result = ' '.join([direction,
-                           '-t', self.dataType,
-                           '--arch', self.arch,
-                           '--num_cu', str(self.numCU),
-                           '--fil_layout', self.filterLayout,
-                           '--in_layout', self.inputLayout,
-                           '--out_layout', self.outputLayout,
-                           '--batchsize', str(self.n),
-                           '--in_channels', str(self.c),
-                           '--in_h', str(self.hi),
-                           '--in_w', str(self.wi),
-                           '--out_channels', str(self.k),
-                           '--fil_h', str(self.y),
-                           '--fil_w', str(self.x),
-                           '--dilation_h', str(self.dilationH),
-                           '--dilation_w', str(self.dilationW),
-                           '--conv_stride_h', str(self.convStrideH),
-                           '--conv_stride_w', str(self.convStrideW),
-                           '--padding_h', str(self.paddingH),
-                           '--padding_w', str(self.paddingW),
-                           '--groupsize', str(self.group),
-                           '--kernel-repeats', str(MLIR_N_REPEATS),
-                           f"--perf_config={self.perfConfig}"])
+        result = ' '.join([
+            direction, '-t', self.datatype, '--arch', self.arch, '--num_cu',
+            str(self.num_cu), '--fil_layout', self.filter_layout, '--in_layout', self.input_layout,
+            '--out_layout', self.output_layout, '--batchsize',
+            str(self.n), '--in_channels',
+            str(self.c), '--in_h',
+            str(self.hi), '--in_w',
+            str(self.wi), '--out_channels',
+            str(self.k), '--fil_h',
+            str(self.y), '--fil_w',
+            str(self.x), '--dilation_h',
+            str(self.dilation_h), '--dilation_w',
+            str(self.dilation_w), '--conv_stride_h',
+            str(self.conv_stride_h), '--conv_stride_w',
+            str(self.conv_stride_w), '--padding_h',
+            str(self.padding_h), '--padding_w',
+            str(self.padding_w), '--groupsize',
+            str(self.group), '--kernel-repeats',
+            str(MLIR_N_REPEATS), f"--perf_config={self.perfconfig}"
+        ])
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
-        # determine dataType from argv[1]
+    def from_command_line(cls, argv, arch, num_cu):
+        # determine datatype from argv[1]
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         if argv[0] == 'conv':
-            dataType = 'f32'
+            datatype = 'f32'
         elif argv[0] == 'convfp16':
-            dataType = 'f16'
+            datatype = 'f16'
         elif argv[0] == 'convbfp16':
-            dataType = 'bf16'
+            datatype = 'bf16'
         elif argv[0] == 'convint8':
-            dataType = 'i8'
+            datatype = 'i8'
         elif argv[0] == 'convfp8_fp8':
-            dataType = 'fp8_fp8'
+            datatype = 'fp8_fp8'
         elif argv[0] == 'convfp8':
-            dataType = 'fp8'
+            datatype = 'fp8'
         elif argv[0] == 'convfp8_bf8':
-            dataType = 'fp8_bf8'
+            datatype = 'fp8_bf8'
         elif argv[0] == 'convbf8_fp8':
-            dataType = 'bf8_fp8'
+            datatype = 'bf8_fp8'
         elif argv[0] == 'convbf8_bf8':
-            dataType = 'bf8_bf8'
+            datatype = 'bf8_bf8'
 
         try:
             # TBD:
@@ -509,11 +555,11 @@ class ConvConfiguration(PerfConfiguration):
                 elif int(arg) == 4:
                     direction = 'wrw'
             elif opt == '-f':
-                filterLayout = arg
+                filter_layout = arg
             elif opt == '-I':
-                inputLayout = arg
+                input_layout = arg
             elif opt == '-O':
-                outputLayout = arg
+                output_layout = arg
             elif opt == "-n":
                 n = int(arg)
             elif opt == '-c':
@@ -529,51 +575,52 @@ class ConvConfiguration(PerfConfiguration):
             elif opt == '-x':
                 x = int(arg)
             elif opt == '-u':
-                convStrideH = int(arg)
+                conv_stride_h = int(arg)
             elif opt == '-v':
-                convStrideW = int(arg)
+                conv_stride_w = int(arg)
             elif opt == '-p':
-                paddingH = int(arg)
+                padding_h = int(arg)
             elif opt == '-q':
-                paddingW = int(arg)
+                padding_w = int(arg)
             elif opt == '-l':
-                dilationH = int(arg)
+                dilation_h = int(arg)
             elif opt == '-j':
-                dilationW = int(arg)
+                dilation_w = int(arg)
             elif opt == '-g':
                 group = int(arg)
             else:
                 continue
 
-        return cls(dataType, direction, filterLayout, inputLayout, outputLayout, n, c, hi, wi, k, y, x,
-            convStrideH, convStrideW, paddingH, paddingW, dilationH, dilationW,
-                   group, arch, numCU)
+        return cls(datatype, direction, filter_layout, input_layout, output_layout, n, c, hi, wi, k,
+                   y, x, conv_stride_h, conv_stride_w, padding_h, padding_w, dilation_h, dilation_w,
+                   group, arch, num_cu)
 
-    def toCommandLine(self):
-        return (f"conv{ {'f32':'', 'f16':'fp16', 'bf16':'bfp16', 'i8':'int8','fp8_fp8':'fp8_fp8', 'fp8': 'fp8'}[self.dataType]} "
-                + f"-F { {'fwd':1, 'bwd':2, 'wrw':4}[self.direction]} "
-                + f"-f {inverse_filter_layouts(self.filterLayout)} -I {self.inputLayout.upper()} "
-                + f"-O {inverse_output_layouts(self.outputLayout)} "
-                + f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} "
-                + f"-y {self.y} -x {self.x} -p {self.paddingH} -q {self.paddingW} "
-                + f"-u {self.convStrideH} -v {self.convStrideW} -l {self.dilationH} "
-                + f"-j {self.dilationW} -m conv -g {self.group} -t 1")
+    def to_command_line(self):
+        return (
+            f"conv{ {'f32':'', 'f16':'fp16', 'bf16':'bfp16', 'i8':'int8','fp8_fp8':'fp8_fp8', 'fp8': 'fp8'}[self.datatype]} "
+            + f"-F { {'fwd':1, 'bwd':2, 'wrw':4}[self.direction]} " +
+            f"-f {inverse_filter_layouts(self.filter_layout)} -I {self.input_layout.upper()} " +
+            f"-O {inverse_output_layouts(self.output_layout)} " +
+            f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} " +
+            f"-y {self.y} -x {self.x} -p {self.padding_h} -q {self.padding_w} " +
+            f"-u {self.conv_stride_h} -v {self.conv_stride_w} -l {self.dilation_h} " +
+            f"-j {self.dilation_w} -m conv -g {self.group} -t 1")
 
-    def __init__(self, dtype: str, direction: str, filterLayout: str, inputLayout:str, outputLayout:str,
-                    n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
-                    convStrideH: int, convStrideW: int, paddingH: int, paddingW: int,
-                    dilationH: int, dilationW: int, group: int, arch: str, numCU: int):
+    def __init__(self, dtype: str, direction: str, filter_layout: str, input_layout: str,
+                 output_layout: str, n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
+                 conv_stride_h: int, conv_stride_w: int, padding_h: int, padding_w: int,
+                 dilation_h: int, dilation_w: int, group: int, arch: str, num_cu: int):
         if dtype not in {"f16", "f32", "bf16", "i8", "fp8_fp8", "fp8"}:
             raise ValueError(f"Invalid datatype: {dtype}")
         if direction not in {"fwd", "bwd", "wrw"}:
             raise ValueError(f"Invalid direction: {direction}")
 
-        self.dataType = dtype
+        self.datatype = dtype
         self.direction = direction
 
-        self.filterLayout = filter_layouts(filterLayout)
-        self.inputLayout = input_layouts(inputLayout)
-        self.outputLayout = output_layouts(outputLayout)
+        self.filter_layout = filter_layouts(filter_layout)
+        self.input_layout = input_layouts(input_layout)
+        self.output_layout = output_layouts(output_layout)
 
         self.n = n
         self.c = c
@@ -583,96 +630,104 @@ class ConvConfiguration(PerfConfiguration):
         self.y = y
         self.x = x
 
-        self.convStrideH = convStrideH
-        self.convStrideW = convStrideW
-        self.paddingH = paddingH
-        self.paddingW = paddingW
-        self.dilationH = dilationH
-        self.dilationW = dilationW
+        self.conv_stride_h = conv_stride_h
+        self.conv_stride_w = conv_stride_w
+        self.padding_h = padding_h
+        self.padding_w = padding_w
+        self.dilation_h = dilation_h
+        self.dilation_w = dilation_w
 
         self.group = group
         self.arch = arch
-        self.numCU = numCU
+        self.num_cu = num_cu
         self.chip = GFX_CHIP_RE.search(arch).group(0)
 
-        self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
-        self.wo = math.floor((self.wi + self.paddingW * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
+        self.ho = math.floor((self.hi + self.padding_h * 2 -
+                              (self.y - 1) * self.dilation_h - 1) / self.conv_stride_h) + 1
+        self.wo = math.floor((self.wi + self.padding_w * 2 -
+                              (self.x - 1) * self.dilation_w - 1) / self.conv_stride_w) + 1
 
-        self.perfConfig = ''
+        self.perfconfig = ''
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
-        if os.path.exists(getProfilerOutputPath(arch, BENCHMARKING_METRICS_FILE_NAME)):
-            os.remove(getProfilerOutputPath(arch, BENCHMARKING_METRICS_FILE_NAME))
-        config = cls.fromCommandLine(commandLine, arch, numCU)
-        MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0', '-t', '1']
-        print("Running MIOpen Benchmark: ", ' '.join(commandLine))
+    def benchmark_external(cls, commandline, paths: Paths, arch, num_cu):
+        if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME)):
+            os.remove(get_profiler_output_path(arch, BENCHMARKING_METRICS_FILE_NAME))
+        config = cls.from_command_line(commandline, arch, num_cu)
+        miopen_driver_cmd = [MIOPENDRIVER, *commandline, '-V', '0', '-t', '1']
+        print("Running MIOpen Benchmark: ", ' '.join(commandline))
         # invoke MIOpenDriver.
-        outs, noerr = runPipeline([MIOpenDriverCommand])
-        nanoSeconds = np.nan
+        outs, noerr = run_pipeline([miopen_driver_cmd])
+        nanoseconds = np.nan
         if noerr:
             # convert bytes to str
             outs = outs.decode('utf-8')
             # Extract Elapsed time in ms from the output of MIOpenDriver
             # Use regular expression to match the contents between
             # "Elasped: " (note the space at the end) and "ms"
-            elapsedTimeInMs = ELAPSED_TIME_RE.search(outs).group(1)
-            nanoSeconds = float(elapsedTimeInMs)*1.0e6
-            
-        return config.tableEntry(nanoSeconds)
+            elapsed_time_in_ms = ELAPSED_TIME_RE.search(outs).group(1)
+            nanoseconds = float(elapsed_time_in_ms) * 1.0e6
 
-def getGemmConfigurations(fileName, dataTypes=DATA_TYPES_GEMM, outDataTypeMap=OUTPUT_DATA_TYPES_MAP):
+        return config.table_entry(nanoseconds)
+
+
+def get_gemm_configurations(filename,
+                            datatypes=DATA_TYPES_GEMM,
+                            out_dtype_map=OUTPUT_DATA_TYPES_MAP):
     configs = []
 
-    if fileName:
-        with open(fileName, 'r') as configFile:
-            lines = configFile.readlines()
+    if filename:
+        with open(filename, 'r') as config_file:
+            lines = config_file.readlines()
 
             # All combinations of types and transposition (A and B)
-            for datatype, transA, transB, line in \
+            for datatype, trans_a, trans_b, line in \
                     itertools.product(DATA_TYPES_GEMM, ['false', 'true'], ['false', 'true'], lines):
                 line = line.strip()
-                
+
                 # Skip empty lines
                 if len(line) == 0 or line[0] == '#':
                     continue
-                if datatype not in dataTypes:
+                if datatype not in datatypes:
                     continue
 
                 # Skip unsupported datatypes
                 if datatype == 'fp8':
-                     unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
-                     if getChip() in unsupported_chips:
+                    unsupported_chips = {'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1101'}
+                    if get_chip() in unsupported_chips:
                         continue
 
                 # We need trailing spaces here to account for the concat below
                 # Skip type if already in
-                dataTypeString = ""
+                datatype_string = ""
                 if "-t " not in line:
-                    dataTypeString = f"-t {datatype} "
+                    datatype_string = f"-t {datatype} "
 
-                # Skip transA if already in
-                transAString = ""
+                # Skip trans_a if already in
+                trans_a_string = ""
                 if "-transA " not in line:
-                    transAString = f"-transA {transA} "
+                    trans_a_string = f"-transA {trans_a} "
 
-                # Skip transB if already in
-                transBString = ""
+                # Skip trans_b if already in
+                trans_b_string = ""
                 if "-transB " not in line:
-                    transBString = f"-transB {transB} "
+                    trans_b_string = f"-transB {trans_b} "
 
                 # Skip out_datatype if already in
-                outDataTypeString = ""
+                out_dtype_string = ""
                 if "-out_datatype" not in line:
-                    outDataTypeString = "-out_datatype " + outDataTypeMap.get(datatype, datatype) + " "
+                    out_dtype_string = "-out_datatype " + out_dtype_map.get(datatype,
+                                                                            datatype) + " "
 
                 # Strip to avoid spurious spaces
-                oneConfig = f"{dataTypeString}{outDataTypeString}{transAString}{transBString}{line}".strip()
-                if oneConfig not in configs:
-                    configs.append(oneConfig)
+                one_config = f"{datatype_string}{out_dtype_string}{trans_a_string}{trans_b_string}{line}".strip(
+                )
+                if one_config not in configs:
+                    configs.append(one_config)
     return configs
 
-def getConvGemmConfigurations(fileName):
+
+def get_conv_gemm_configurations(filename):
     bool_space = ['false', 'true']
     default_test_space = {
         "-t": DATA_TYPES_CONV_GEMM,
@@ -682,9 +737,9 @@ def getConvGemmConfigurations(fileName):
         "-transO": bool_space,
     }
     configs = []
-    if fileName:
-        with open(fileName, 'r') as configFile:
-            lines = configFile.readlines()
+    if filename:
+        with open(filename, 'r') as config_file:
+            lines = config_file.readlines()
             for line in lines:
                 line = line.strip()
                 # Skip empty lines
@@ -699,21 +754,22 @@ def getConvGemmConfigurations(fileName):
 
                     - (?<!\S) ensures that flag is not part of another token (e.g. that -t is not part of -transQ)
                     - (?!\S) ensures that flag is followed by a space or line end.
-                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is. 
+                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is.
                     """
                     if not re.search(rf"(?<!\S){re.escape(arg)}(?!\S)", line):
                         test_space.append(default_test_space[arg])
                         args.append(arg)
                 for test_vector in itertools.product(*test_space):
                     # Strip to avoid spurious spaces
-                    oneConfig = line.strip()
+                    one_config = line.strip()
                     for arg, value in zip(args, test_vector):
-                        oneConfig = f"{arg} {value} {oneConfig}"
-                    if oneConfig not in configs:
-                        configs.append(oneConfig)
+                        one_config = f"{arg} {value} {one_config}"
+                    if one_config not in configs:
+                        configs.append(one_config)
     return configs
 
-def getGemmGemmConfigurations(fileName):
+
+def get_gemm_gemm_configurations(filename):
     bool_space = ['false', 'true']
     default_test_space = {
         "-t": DATA_TYPES_GEMM_GEMM,
@@ -723,9 +779,9 @@ def getGemmGemmConfigurations(fileName):
         "-transO": bool_space,
     }
     configs = []
-    if fileName:
-        with open(fileName, 'r') as configFile:
-            lines = configFile.readlines()
+    if filename:
+        with open(filename, 'r') as config_file:
+            lines = config_file.readlines()
             for line in lines:
                 line = line.strip()
                 # Skip empty lines
@@ -740,23 +796,24 @@ def getGemmGemmConfigurations(fileName):
 
                     - (?<!\S) ensures that flag is not part of another token (e.g. that -t is not part of -transQ)
                     - (?!\S) ensures that flag is followed by a space or line end.
-                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is. 
+                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is.
                     """
                     if not re.search(rf"(?<!\S){re.escape(arg)}(?!\S)", line):
                         test_space.append(default_test_space[arg])
                         args.append(arg)
                 for test_vector in itertools.product(*test_space):
                     # Strip to avoid spurious spaces
-                    oneConfig = line.strip()
+                    one_config = line.strip()
                     for arg, value in zip(args, test_vector):
-                        oneConfig = f"{arg} {value} {oneConfig}"
-                    if oneConfig not in configs:
-                        configs.append(oneConfig)
+                        one_config = f"{arg} {value} {one_config}"
+                    if one_config not in configs:
+                        configs.append(one_config)
     return configs
 
-def getAttentionConfigurations(fileName):
+
+def get_attn_configurations(filename):
     if DATA_TYPES_ATTENTION is None:
-        initializeDataTypesAttention()
+        initialize_dtypes_attn()
     bool_space = ['false', 'true']
     default_test_space = {
         "-t": DATA_TYPES_ATTENTION,
@@ -771,9 +828,9 @@ def getAttentionConfigurations(fileName):
     }
 
     configs = []
-    if fileName:
-        with open(fileName, 'r') as configFile:
-            lines = configFile.readlines()
+    if filename:
+        with open(filename, 'r') as config_file:
+            lines = config_file.readlines()
             for line in lines:
                 line = line.strip()
                 if len(line) == 0 or line.startswith('#'):
@@ -788,66 +845,67 @@ def getAttentionConfigurations(fileName):
 
                     - (?<!\S) ensures that flag is not part of another token (e.g. that -t is not part of -transQ)
                     - (?!\S) ensures that flag is followed by a space or line end.
-                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is. 
+                    - re.escape(arg) ensures that flag, in case it contains special character(s), is matched as it is.
                     """
                     if not re.search(rf"(?<!\S){re.escape(arg)}(?!\S)", line):
                         test_space.append(default_test_space[arg])
                         args.append(arg)
 
-
                 for test_vector in itertools.product(*test_space):
                     # Strip to avoid spurious spaces
-                    oneConfig = line.strip()
+                    one_config = line.strip()
                     for arg, value in zip(args, test_vector):
-                        oneConfig = f"{arg} {value} {oneConfig}"
-                    
+                        one_config = f"{arg} {value} {one_config}"
+
                     # Check for valid dtypes
-                    foundDtype = re.search(r"-t\s+(\w+)", oneConfig)
-                    if not foundDtype or foundDtype.group(1) not in DATA_TYPES_ATTENTION:
+                    found_dtype = re.search(r"-t\s+(\w+)", one_config)
+                    if not found_dtype or found_dtype.group(1) not in DATA_TYPES_ATTENTION:
                         continue
 
-                    if oneConfig not in configs:
-                        configs.append(oneConfig)
+                    if one_config not in configs:
+                        configs.append(one_config)
 
     return configs
 
 
 class GemmConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.GEMM_TEST_PARAMETERS + ['LDSBankConflict'] + ['TFlops']
-    def computeTFlops(self, ns):
+
+    def compute_tflops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
         return (2.0 * self.g * self.m * self.k * self.n) / (float(ns) * 1e-9) / 1e12
 
-    def tableEntry(self, nanoSeconds):
+    def table_entry(self, nanoseconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
-        bankConflict = getBankConflict(getProfilerOutputPath(self.arch, BENCHMARKING_METRICS_FILE_NAME))
+        bank_conflict = get_bank_conflict(
+            get_profiler_output_path(self.arch, BENCHMARKING_METRICS_FILE_NAME))
         result = OrderedDict()
-        values = [self.dataType, self.outDataType, self.chip, self.numCU, self.transA, self.transB, \
-                   self.g, self.m, self.k, self.n, self.perfConfig, bankConflict, self.computeTFlops(nanoSeconds)]
-        assert(len(self.TABLE_COLUMNS) == len(values))
+        values = [
+            self.datatype, self.out_dtype, self.chip, self.num_cu, self.trans_a, self.trans_b,
+            self.g, self.m, self.k, self.n, self.perfconfig, bank_conflict,
+            self.compute_tflops(nanoseconds)
+        ]
+        assert (len(self.TABLE_COLUMNS) == len(values))
 
         for k, v in zip(self.TABLE_COLUMNS, values):
             result[k] = v
         return result
 
-    def setPerfConfig(self, perf_config):
-        self.perfConfig = perf_config
+    def set_perfconfig(self, perf_config):
+        self.perfconfig = perf_config
 
-    def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
-        result = ' '.join(['-operation', 'gemm',
-                           '-t', self.dataType,
-                           '-out_datatype', self.outDataType,
-                           '--arch', self.arch,
-                           '--num_cu', str(self.numCU),
-                           '-g', str(self.g),
-                           '-m', str(self.m),
-                           '-k', str(self.k),
-                           '-n', str(self.n),
-                           f"-transA={self.transA}",
-                           f"-transB={self.transB}",
-                           '--kernel-repeats', str(MLIR_N_REPEATS),
-                           f"--perf_config={self.perfConfig}"])
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
+        result = ' '.join([
+            '-operation', 'gemm', '-t', self.datatype, '-out_datatype', self.out_dtype, '--arch',
+            self.arch, '--num_cu',
+            str(self.num_cu), '-g',
+            str(self.g), '-m',
+            str(self.m), '-k',
+            str(self.k), '-n',
+            str(self.n), f"-transA={self.trans_a}", f"-transB={self.trans_b}", '--kernel-repeats',
+            str(MLIR_N_REPEATS), f"--perf_config={self.perfconfig}"
+        ])
 
         result += ' '
         if rocmlir_gen_flags != '':
@@ -855,16 +913,16 @@ class GemmConfiguration(PerfConfiguration):
         return result
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
+    def from_command_line(cls, argv, arch, num_cu):
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         dtype = None
         g = None
         m = None
         k = None
         n = None
-        transA = None
-        transB = None
-        outDataType = None
+        trans_a = None
+        trans_b = None
+        out_dtype = None
         perf_config = ''
         for i in range(0, len(argv), 2):
             opt = argv[i]
@@ -880,64 +938,93 @@ class GemmConfiguration(PerfConfiguration):
             elif opt == '-n':
                 n = int(val)
             elif opt.endswith("-transA"):
-                transA = (val.lower() in ["1", "true"])
+                trans_a = (val.lower() in ["1", "true"])
             elif opt.endswith("-transB"):
-                transB = (val.lower() in ["1", "true"])
+                trans_b = (val.lower() in ["1", "true"])
             elif opt.endswith("-out_datatype"):
-                outDataType = val.lower()
+                out_dtype = val.lower()
             elif opt.endswith("-perf_config"):
                 perf_config = val
             else:
                 raise ValueError(f"Unknown GEMM config argument {opt} -> {val}")
-        for v in [dtype, outDataType, g, m, k, n, transA, transB]:
+        for v in [dtype, out_dtype, g, m, k, n, trans_a, trans_b]:
             if v is None:
                 raise ValueError("Incomplete GEMM configuration")
 
-        return cls(dtype, outDataType, g, m, k, n, transA, transB, arch, numCU, perf_config)
+        return cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, arch, num_cu, perf_config)
 
-    def toCommandLine(self):
-        return (f"-t {self.dataType} -out_datatype {self.outDataType} "
-                + f"-transA {str(self.transA).lower()} -transB {str(self.transB).lower()} "
-                + f"-g {self.g} -m {self.m} -n {self.n} -k {self.k}")
+    def to_command_line(self):
+        return (f"-t {self.datatype} -out_datatype {self.out_dtype} " +
+                f"-transA {str(self.trans_a).lower()} -transB {str(self.trans_b).lower()} " +
+                f"-g {self.g} -m {self.m} -n {self.n} -k {self.k}")
 
-    def __init__(self, dtype: str, outDataType: str, g: int, m: int, k: int, n: int,
-                 transA: bool, transB: bool, arch: str, numCU: int, perf_config: str = ''):
+    def __init__(self,
+                 dtype: str,
+                 out_dtype: str,
+                 g: int,
+                 m: int,
+                 k: int,
+                 n: int,
+                 trans_a: bool,
+                 trans_b: bool,
+                 arch: str,
+                 num_cu: int,
+                 perf_config: str = ''):
         if dtype not in DATA_TYPES_GEMM:
             raise ValueError(f"Invalid datatype: {dtype}")
-        
-        self.dataType = dtype
-        self.outDataType = outDataType
+
+        self.datatype = dtype
+        self.out_dtype = out_dtype
         self.g = g
         self.m = m
         self.k = k
         self.n = n
-        self.transA = transA
-        self.transB = transB
-        self.perfConfig = perf_config
+        self.trans_a = trans_a
+        self.trans_b = trans_b
+        self.perfconfig = perf_config
 
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
-        self.numCU = numCU
+        self.num_cu = num_cu
+
 
 class ConvGemmConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.CONV_GEMM_TEST_PARAMETERS + ['TFlops']
 
-    def __init__(self, dtype: str, filterLayout: str, inputLayout:str, 
-                 transC: bool, transO: bool, n: int, c: int, 
-                 hi: int, wi: int, k: int, y: int, x: int, o: int, 
-                 convStrideH: int, convStrideW: int, paddingH: int, paddingW: int,
-                dilationH: int, dilationW: int, group: int,
-                 arch: str, numCU: int, perf_config: str = ''):
+    def __init__(self,
+                 dtype: str,
+                 filter_layout: str,
+                 input_layout: str,
+                 trans_c: bool,
+                 trans_o: bool,
+                 n: int,
+                 c: int,
+                 hi: int,
+                 wi: int,
+                 k: int,
+                 y: int,
+                 x: int,
+                 o: int,
+                 conv_stride_h: int,
+                 conv_stride_w: int,
+                 padding_h: int,
+                 padding_w: int,
+                 dilation_h: int,
+                 dilation_w: int,
+                 group: int,
+                 arch: str,
+                 num_cu: int,
+                 perf_config: str = ''):
         if dtype not in DATA_TYPES_CONV_GEMM:
             raise ValueError(f"Invalid datatype for a: {dtype}")
 
-        self.dataType = dtype
-        
-        self.filterLayout = filter_layouts(filterLayout)
-        self.inputLayout = input_layouts(inputLayout)
-        self.transC = transC
-        self.transO = transO
-        
+        self.datatype = dtype
+
+        self.filter_layout = filter_layouts(filter_layout)
+        self.input_layout = input_layouts(input_layout)
+        self.trans_c = trans_c
+        self.trans_o = trans_o
+
         self.n = n
         self.c = c
         self.hi = hi
@@ -947,29 +1034,32 @@ class ConvGemmConfiguration(PerfConfiguration):
         self.x = x
         self.o = o
 
-        self.convStrideH = convStrideH
-        self.convStrideW = convStrideW
-        self.paddingH = paddingH
-        self.paddingW = paddingW
-        self.dilationH = dilationH
-        self.dilationW = dilationW
+        self.conv_stride_h = conv_stride_h
+        self.conv_stride_w = conv_stride_w
+        self.padding_h = padding_h
+        self.padding_w = padding_w
+        self.dilation_h = dilation_h
+        self.dilation_w = dilation_w
 
         self.group = group
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
-        self.numCU = numCU
-        self.perfConfig = perf_config
+        self.num_cu = num_cu
+        self.perfconfig = perf_config
 
-        self.ho = math.floor((self.hi + self.paddingH * 2 - (self.y - 1) * self.dilationH - 1 ) / self.convStrideH) + 1
-        self.wo = math.floor((self.wi + self.paddingW * 2 - (self.x - 1) * self.dilationW - 1 ) / self.convStrideW) + 1
+        self.ho = math.floor((self.hi + self.padding_h * 2 -
+                              (self.y - 1) * self.dilation_h - 1) / self.conv_stride_h) + 1
+        self.wo = math.floor((self.wi + self.padding_w * 2 -
+                              (self.x - 1) * self.dilation_w - 1) / self.conv_stride_w) + 1
 
-    def computeTFlops(self, ns):
+    def compute_tflops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
-        assert(self.k % self.group == 0)
-        assert(self.c % self.group == 0)
+        assert (self.k % self.group == 0)
+        assert (self.c % self.group == 0)
 
-        first_conv_flops = 2.0 * self.n * (self.c//self.group) * self.k * self.ho * self.wo * self.y * self.x
+        first_conv_flops = 2.0 * self.n * (
+            self.c // self.group) * self.k * self.ho * self.wo * self.y * self.x
         first_gemm_m = self.k
         first_gemm_n = self.n * self.ho * self.wo
         batch_second_gemm = 1.0
@@ -978,71 +1068,43 @@ class ConvGemmConfiguration(PerfConfiguration):
 
         return total_flops / (float(ns) * 1e-9) / 1e12
 
-    def tableEntry(self, nanoSeconds):
+    def table_entry(self, nanoseconds):
         result = {}
         values = [
-            self.dataType,
-            self.chip,
-            self.numCU,
-            self.filterLayout, 
-            self.inputLayout,
-            self.transC,
-            self.transO,
-            self.n,
-            self.c, 
-            self.hi, 
-            self.wi, 
-            self.k, 
-            self.y, 
-            self.x,
-            self.o,
-            self.dilationH, self.dilationW,
-            self.convStrideH, self.convStrideW, 
-            self.paddingH, self.paddingW,
-            self.perfConfig,
-            self.computeTFlops(nanoSeconds)
+            self.datatype, self.chip, self.num_cu, self.filter_layout, self.input_layout,
+            self.trans_c, self.trans_o, self.n, self.c, self.hi, self.wi, self.k, self.y, self.x,
+            self.o, self.dilation_h, self.dilation_w, self.conv_stride_h, self.conv_stride_w,
+            self.padding_h, self.padding_w, self.perfconfig,
+            self.compute_tflops(nanoseconds)
         ]
-        assert(len(self.TABLE_COLUMNS) == len(values))
+        assert (len(self.TABLE_COLUMNS) == len(values))
         for k, v in zip(self.TABLE_COLUMNS, values):
             result[k] = v
         return result
-    
-    def setPerfConfig(self, perf_config):
-        self.perfConfig = perf_config
 
-    def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
-        result = ' '.join(['-operation', 'conv_gemm',
-                           '-t', self.dataType,
-                           '--arch', self.arch,
-                           f'--num_cu={self.numCU}',
-                           f'--fil_layout={self.filterLayout}',
-                           f'--in_layout={self.inputLayout}',
-                           f'--transC={self.transC}',
-                           f'--transO={self.transO}',
-                           f'--batchsize={self.n}',
-                           f'--in_channels={self.c}',
-                           f'--in_h={self.hi}',
-                           f'--in_w={self.wi}',
-                           f'--out_channels={self.k}',
-                           f'--fil_h={self.y}',
-                           f'--fil_w={self.x}',
-                           f'--dilation_h={self.dilationH}',
-                           f'--dilation_w={self.dilationW}',
-                           f'--conv_stride_h={self.convStrideH}',
-                           f'--conv_stride_w={self.convStrideW}',
-                           f'--padding_h={self.paddingH}',
-                           f'--padding_w={self.paddingW}',
-                           f'--groupsize={self.group}',
-                           f'--gemmO={self.o}',
-                           f'--kernel-repeats={MLIR_N_REPEATS}',
-                           f"--perf_config={self.perfConfig}"])
+    def set_perfconfig(self, perf_config):
+        self.perfconfig = perf_config
+
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
+        result = ' '.join([
+            '-operation', 'conv_gemm', '-t', self.datatype, '--arch', self.arch,
+            f'--num_cu={self.num_cu}', f'--fil_layout={self.filter_layout}',
+            f'--in_layout={self.input_layout}', f'--transC={self.trans_c}',
+            f'--transO={self.trans_o}', f'--batchsize={self.n}', f'--in_channels={self.c}',
+            f'--in_h={self.hi}', f'--in_w={self.wi}', f'--out_channels={self.k}',
+            f'--fil_h={self.y}', f'--fil_w={self.x}', f'--dilation_h={self.dilation_h}',
+            f'--dilation_w={self.dilation_w}', f'--conv_stride_h={self.conv_stride_h}',
+            f'--conv_stride_w={self.conv_stride_w}', f'--padding_h={self.padding_h}',
+            f'--padding_w={self.padding_w}', f'--groupsize={self.group}', f'--gemmO={self.o}',
+            f'--kernel-repeats={MLIR_N_REPEATS}', f"--perf_config={self.perfconfig}"
+        ])
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
+    def from_command_line(cls, argv, arch, num_cu):
         # optional defaults
         perf_config = ''
         dtype = None
@@ -1054,17 +1116,17 @@ class ConvGemmConfiguration(PerfConfiguration):
         y = None
         x = None
         o = None
-        convStrideH = None
-        convStrideW = None
-        paddingH = None
-        paddingW = None
-        dilationH = None
-        dilationW = None
+        conv_stride_h = None
+        conv_stride_w = None
+        padding_h = None
+        padding_w = None
+        dilation_h = None
+        dilation_w = None
         group = None
-        filterLayout = None
-        inputLayout = None
-        transC = False
-        transO = False
+        filter_layout = None
+        input_layout = None
+        trans_c = False
+        trans_o = False
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         for i in range(0, len(argv), 2):
             opt = argv[i]
@@ -1088,74 +1150,89 @@ class ConvGemmConfiguration(PerfConfiguration):
             elif opt.endswith("-gemmO"):
                 o = int(val)
             elif opt == '-u':
-                convStrideH = int(val)
+                conv_stride_h = int(val)
             elif opt == '-v':
-                convStrideW = int(val)
+                conv_stride_w = int(val)
             elif opt == '-p':
-                paddingH = int(val)
+                padding_h = int(val)
             elif opt == '-q':
-                paddingW = int(val)
+                padding_w = int(val)
             elif opt == '-l':
-                dilationH = int(val)
+                dilation_h = int(val)
             elif opt == '-j':
-                dilationW = int(val)
+                dilation_w = int(val)
             elif opt == '-g':
                 group = int(val)
             elif opt == '-f':
-                filterLayout = val
+                filter_layout = val
             elif opt == '-I':
-                inputLayout = val
+                input_layout = val
             elif opt.endswith("-transC"):
-                transC = (val.lower() in ["1", "true"])
+                trans_c = (val.lower() in ["1", "true"])
             elif opt.endswith("-transO"):
-                transO = (val.lower() in ["1", "true"])
+                trans_o = (val.lower() in ["1", "true"])
             elif opt.endswith("-perf_config"):
                 perf_config = val
             else:
                 raise ValueError(f"Unknown conv+gemm config argument {opt} -> {val}")
-        for v in [dtype, n, c, hi, wi, k, y, x, o, convStrideH, convStrideW, paddingH, paddingW, 
-                  dilationH, dilationW, group, filterLayout, inputLayout, transC, transO]:
+        for v in [
+                dtype, n, c, hi, wi, k, y, x, o, conv_stride_h, conv_stride_w, padding_h, padding_w,
+                dilation_h, dilation_w, group, filter_layout, input_layout, trans_c, trans_o
+        ]:
             if v is None:
                 raise ValueError("Incomplete conv+gemm configuration")
-            
-        return cls(dtype, filterLayout, inputLayout, transC, transO, n, c, hi, wi, k, y, x, o, 
-                   convStrideH, convStrideW, paddingH, paddingW, dilationH, dilationW, group, 
-                   arch, numCU, perf_config)
-    
-    def toCommandLine(self):
-        return (f"-t {self.dataType} "
-                + f"-f {inverse_filter_layouts(self.filterLayout)} -I {self.inputLayout.upper()} "
-                + f"-transC {str(self.transC).lower()} -transO {str(self.transO).lower()} "
-                + f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} "
-                + f"-y {self.y} -x {self.x} -p {self.paddingH} -q {self.paddingW} "
-                + f"-u {self.convStrideH} -v {self.convStrideW} -l {self.dilationH} "
-                + f"-j {self.dilationW} -g {self.group}"
-                + f"-gemmO {str(self.o)}")
+
+        return cls(dtype, filter_layout, input_layout, trans_c, trans_o, n, c, hi, wi, k, y, x, o,
+                   conv_stride_h, conv_stride_w, padding_h, padding_w, dilation_h, dilation_w,
+                   group, arch, num_cu, perf_config)
+
+    def to_command_line(self):
+        return (f"-t {self.datatype} " +
+                f"-f {inverse_filter_layouts(self.filter_layout)} -I {self.input_layout.upper()} " +
+                f"-transC {str(self.trans_c).lower()} -transO {str(self.trans_o).lower()} " +
+                f"-n {self.n} -c {self.c} -H {self.hi} -W {self.wi} -k {self.k} " +
+                f"-y {self.y} -x {self.x} -p {self.padding_h} -q {self.padding_w} " +
+                f"-u {self.conv_stride_h} -v {self.conv_stride_w} -l {self.dilation_h} " +
+                f"-j {self.dilation_w} -g {self.group}" + f"-gemmO {str(self.o)}")
+
 
 class GemmGemmConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.GEMM_GEMM_TEST_PARAMETERS + ['TFlops']
-    def __init__(self, dtype: str, g: int, m: int, k: int, n: int, o: int, 
-                 transA: bool, transB: bool, transC: bool, transO: bool, arch: str, numCU: int, perf_config: str = ''):
+
+    def __init__(self,
+                 dtype: str,
+                 g: int,
+                 m: int,
+                 k: int,
+                 n: int,
+                 o: int,
+                 trans_a: bool,
+                 trans_b: bool,
+                 trans_c: bool,
+                 trans_o: bool,
+                 arch: str,
+                 num_cu: int,
+                 perf_config: str = ''):
         if dtype not in DATA_TYPES_GEMM_GEMM:
             raise ValueError(f"Invalid datatype for a: {dtype}")
 
-        self.dataType = dtype
+        self.datatype = dtype
         self.g = g
         self.m = m
         self.k = k
         self.n = n
         self.o = o
-        self.transA = transA
-        self.transB = transB
-        self.transC = transC
-        self.transO = transO
+        self.trans_a = trans_a
+        self.trans_b = trans_b
+        self.trans_c = trans_c
+        self.trans_o = trans_o
 
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
-        self.numCU = numCU
-        self.perfConfig = perf_config
+        self.num_cu = num_cu
+        self.perfconfig = perf_config
 
-    def computeTFlops(self, ns):
+    def compute_tflops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
         first_matmul_flops = 2.0 * self.g * self.m * self.k * self.n
@@ -1164,55 +1241,40 @@ class GemmGemmConfiguration(PerfConfiguration):
 
         return total_flops / (float(ns) * 1e-9) / 1e12
 
-    def tableEntry(self, nanoSeconds):
+    def table_entry(self, nanoseconds):
         result = {}
         values = [
-            self.dataType,
-            self.chip,
-            self.numCU,
-            self.transA,
-            self.transB,
-            self.transC,
-            self.transO,
-            self.g,
-            self.m,
-            self.k,
-            self.n,
-            self.o,
-            self.perfConfig,
-            self.computeTFlops(nanoSeconds)
+            self.datatype, self.chip, self.num_cu, self.trans_a, self.trans_b, self.trans_c,
+            self.trans_o, self.g, self.m, self.k, self.n, self.o, self.perfconfig,
+            self.compute_tflops(nanoseconds)
         ]
-        assert(len(self.TABLE_COLUMNS) == len(values))
+        assert (len(self.TABLE_COLUMNS) == len(values))
         for k, v in zip(self.TABLE_COLUMNS, values):
             result[k] = v
         return result
-    
-    def setPerfConfig(self, perf_config):
-        self.perfConfig = perf_config
 
-    def generateMlirDriverCommandLine(self, rocmlir_gen_flags):
-        result = ' '.join(['-operation', 'gemm_gemm',
-                           '-t', self.dataType,
-                           '--arch', self.arch,
-                           '--num_cu', str(self.numCU),
-                           '-g', str(self.g),
-                           '-m', str(self.m),
-                           '-k', str(self.k),
-                           '-n', str(self.n),
-                           '-gemmO', str(self.o),
-                           f"-transA={self.transA}",
-                           f"-transB={self.transB}",
-                           f"-transC={self.transC}",
-                           f"-transO={self.transO}",
-                           '--kernel-repeats', str(MLIR_N_REPEATS),
-                           f"--perf_config={self.perfConfig}"])
+    def set_perfconfig(self, perf_config):
+        self.perfconfig = perf_config
+
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
+        result = ' '.join([
+            '-operation', 'gemm_gemm', '-t', self.datatype, '--arch', self.arch, '--num_cu',
+            str(self.num_cu), '-g',
+            str(self.g), '-m',
+            str(self.m), '-k',
+            str(self.k), '-n',
+            str(self.n), '-gemmO',
+            str(self.o), f"-transA={self.trans_a}", f"-transB={self.trans_b}",
+            f"-transC={self.trans_c}", f"-transO={self.trans_o}", '--kernel-repeats',
+            str(MLIR_N_REPEATS), f"--perf_config={self.perfconfig}"
+        ])
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
+    def from_command_line(cls, argv, arch, num_cu):
         # optional defaults
         perf_config = ''
         dtype = None
@@ -1221,10 +1283,10 @@ class GemmGemmConfiguration(PerfConfiguration):
         k = None
         n = None
         o = None
-        transA = False
-        transB = False
-        transC = False
-        transO = False
+        trans_a = False
+        trans_b = False
+        trans_c = False
+        trans_o = False
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         for i in range(0, len(argv), 2):
             opt = argv[i]
@@ -1242,40 +1304,62 @@ class GemmGemmConfiguration(PerfConfiguration):
             elif opt.endswith("-gemmO"):
                 o = int(val)
             elif opt.endswith("-transA"):
-                transA = (val.lower() in ["1", "true"])
+                trans_a = (val.lower() in ["1", "true"])
             elif opt.endswith("-transB"):
-                transB = (val.lower() in ["1", "true"])
+                trans_b = (val.lower() in ["1", "true"])
             elif opt.endswith("-transC"):
-                transC = (val.lower() in ["1", "true"])
+                trans_c = (val.lower() in ["1", "true"])
             elif opt.endswith("-transO"):
-                transO = (val.lower() in ["1", "true"])
+                trans_o = (val.lower() in ["1", "true"])
             elif opt.endswith("-perf_config"):
                 perf_config = val
             else:
                 raise ValueError(f"Unknown gemm+gemm config argument {opt} -> {val}")
-        for v in [dtype, g, m, k, n, o, transA, transB, transC, transO]:
+        for v in [dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o]:
             if v is None:
                 raise ValueError("Incomplete gemm+gemm configuration")
 
-        return cls(dtype, g, m, k, n, o, transA, transB, transC, transO, arch, numCU, perf_config)
+        return cls(dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o, arch, num_cu,
+                   perf_config)
 
-    def toCommandLine(self):
-        return (f"-t {self.dataType} "
-                + f"-transA {str(self.transA).lower()} -transB {str(self.transB).lower()} "
-                + f"-transC {str(self.transC).lower()} -transO {str(self.transO).lower()} "
-                + f"-g {self.g} "
-                + f"-m {str(self.m)} -k {str(self.k)} -n {str(self.n)} -gemmO {str(self.o)}")
+    def to_command_line(self):
+        return (f"-t {self.datatype} " +
+                f"-transA {str(self.trans_a).lower()} -transB {str(self.trans_b).lower()} " +
+                f"-transC {str(self.trans_c).lower()} -transO {str(self.trans_o).lower()} " +
+                f"-g {self.g} " +
+                f"-m {str(self.m)} -k {str(self.k)} -n {str(self.n)} -gemmO {str(self.o)}")
+
 
 class AttentionConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.ATTN_TEST_PARAMETERS + ['TFlops']
-    def __init__(self, dtype: str, g: int, seq_len_q: int, seq_len_k: int, num_heads_q: int, num_heads_kv: int, head_dim_qk: int, head_dim_v: int, with_attn_scale: bool, with_attn_bias: bool,
-                 transQ: bool, transK: bool, transV: bool, transO: bool, causal: bool, return_lse: bool, split_kv: int, arch: str, numCU: int, perf_config: str = ''):
+
+    def __init__(self,
+                 dtype: str,
+                 g: int,
+                 seq_len_q: int,
+                 seq_len_k: int,
+                 num_heads_q: int,
+                 num_heads_kv: int,
+                 head_dim_qk: int,
+                 head_dim_v: int,
+                 with_attn_scale: bool,
+                 with_attn_bias: bool,
+                 trans_q: bool,
+                 trans_k: bool,
+                 trans_v: bool,
+                 trans_o: bool,
+                 causal: bool,
+                 return_lse: bool,
+                 split_kv: int,
+                 arch: str,
+                 num_cu: int,
+                 perf_config: str = ''):
         if DATA_TYPES_ATTENTION is None:
-            initializeDataTypesAttention()
+            initialize_dtypes_attn()
         if dtype not in DATA_TYPES_ATTENTION:
             raise ValueError(f"Invalid datatype for a: {dtype}")
-        
-        self.dataType = dtype
+
+        self.datatype = dtype
         self.g = g
         self.seq_len_q = seq_len_q
         self.seq_len_k = seq_len_k
@@ -1285,20 +1369,20 @@ class AttentionConfiguration(PerfConfiguration):
         self.head_dim_v = head_dim_v
         self.with_attn_scale = with_attn_scale
         self.with_attn_bias = with_attn_bias
-        self.transQ = transQ
-        self.transK = transK
-        self.transV = transV
-        self.transO = transO
+        self.trans_q = trans_q
+        self.trans_k = trans_k
+        self.trans_v = trans_v
+        self.trans_o = trans_o
         self.causal = causal
         self.return_lse = return_lse
         self.split_kv = split_kv
 
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
-        self.numCU = numCU
-        self.perfConfig = perf_config
+        self.num_cu = num_cu
+        self.perfconfig = perf_config
 
-    def computeTFlops(self, ns, only_matmul_flops=True):
+    def compute_tflops(self, ns, only_matmul_flops=True):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
         # GQA broadcasts so that both num_heads_q == num_heads_kv
@@ -1322,69 +1406,48 @@ class AttentionConfiguration(PerfConfiguration):
                 total_flops += g * self.seq_len_q * self.seq_len_k
         return total_flops / (float(ns) * 1e-9) / 1e12
 
-    def tableEntry(self, nanoSeconds):
+    def table_entry(self, nanoseconds):
         result = {}
         values = [
-            self.dataType,
-            self.chip,
-            self.numCU,
-            self.transQ,
-            self.transK,
-            self.transV,
-            self.transO,
-            self.causal,
-            self.return_lse,
-            self.split_kv,
-            self.with_attn_scale,
-            self.with_attn_bias,
-            self.g,
-            self.seq_len_q,
-            self.seq_len_k,
-            self.num_heads_q,
-            self.num_heads_kv,
-            self.head_dim_qk,
-            self.head_dim_v,
-            self.perfConfig,
-            self.computeTFlops(nanoSeconds)
+            self.datatype, self.chip, self.num_cu, self.trans_q, self.trans_k, self.trans_v,
+            self.trans_o, self.causal, self.return_lse, self.split_kv, self.with_attn_scale,
+            self.with_attn_bias, self.g, self.seq_len_q, self.seq_len_k, self.num_heads_q,
+            self.num_heads_kv, self.head_dim_qk, self.head_dim_v, self.perfconfig,
+            self.compute_tflops(nanoseconds)
         ]
-        assert(len(self.TABLE_COLUMNS) == len(values))
+        assert (len(self.TABLE_COLUMNS) == len(values))
         for k, v in zip(self.TABLE_COLUMNS, values):
             result[k] = v
         return result
 
-    def setPerfConfig(self, perf_config):
-        self.perfConfig = perf_config
+    def set_perfconfig(self, perf_config):
+        self.perfconfig = perf_config
 
-    def generateMlirDriverCommandLine(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
-        result = ' '.join(['-operation', 'attention',
-                           '-t', self.dataType,
-                           '--arch', self.arch,
-                           '--num_cu', str(self.numCU),
-                           '-g', str(self.g),
-                           '-seq_len_q', str(self.seq_len_q),
-                           '-seq_len_k', str(self.seq_len_k),
-                           '-num_heads_q', str(self.num_heads_q),
-                           '-num_heads_kv', str(self.num_heads_kv),
-                           '-head_dim_qk', str(self.head_dim_qk),
-                           '-head_dim_v', str(self.head_dim_v),
-                           f"-with-attn-scale={self.with_attn_scale}",
-                           f"-with-attn-bias={self.with_attn_bias}",
-                           f"-transQ={self.transQ}",
-                           f"-transK={self.transK}",
-                           f"-transV={self.transV}",
-                           f"-transO={self.transO}",
-                           f"-causal={self.causal}",
-                           f"-return_lse={self.return_lse}",
-                           f"-split_kv={self.split_kv}",
-                        *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
-                           f"--perf_config={self.perfConfig}"])
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
+        result = ' '.join([
+            '-operation', 'attention', '-t', self.datatype, '--arch', self.arch, '--num_cu',
+            str(self.num_cu), '-g',
+            str(self.g), '-seq_len_q',
+            str(self.seq_len_q), '-seq_len_k',
+            str(self.seq_len_k), '-num_heads_q',
+            str(self.num_heads_q), '-num_heads_kv',
+            str(self.num_heads_kv), '-head_dim_qk',
+            str(self.head_dim_qk), '-head_dim_v',
+            str(self.head_dim_v), f"-with-attn-scale={self.with_attn_scale}",
+            f"-with-attn-bias={self.with_attn_bias}", f"-transQ={self.trans_q}",
+            f"-transK={self.trans_k}", f"-transV={self.trans_v}", f"-transO={self.trans_o}",
+            f"-causal={self.causal}", f"-return_lse={self.return_lse}",
+            f"-split_kv={self.split_kv}",
+            *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
+            f"--perf_config={self.perfconfig}"
+        ])
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
-    def fromCommandLine(cls, argv, arch, numCU):
+    def from_command_line(cls, argv, arch, num_cu):
         # optional defaults
         perf_config = ''
         dtype = None
@@ -1395,10 +1458,10 @@ class AttentionConfiguration(PerfConfiguration):
         num_heads_kv = 1
         head_dim_qk = None
         head_dim_v = None
-        transQ = False
-        transK = False
-        transV = False
-        transO = False
+        trans_q = False
+        trans_k = False
+        trans_v = False
+        trans_o = False
         causal = False
         return_lse = False
         split_kv = 1
@@ -1429,13 +1492,13 @@ class AttentionConfiguration(PerfConfiguration):
             elif opt.endswith("-with-attn-bias"):
                 with_attn_bias = (val.lower() in ["1", "true"])
             elif opt.endswith("-transQ"):
-                transQ = (val.lower() in ["1", "true"])
+                trans_q = (val.lower() in ["1", "true"])
             elif opt.endswith("-transK"):
-                transK = (val.lower() in ["1", "true"])
+                trans_k = (val.lower() in ["1", "true"])
             elif opt.endswith("-transV"):
-                transV = (val.lower() in ["1", "true"])
+                trans_v = (val.lower() in ["1", "true"])
             elif opt.endswith("-transO"):
-                transO = (val.lower() in ["1", "true"])
+                trans_o = (val.lower() in ["1", "true"])
             elif opt.endswith("-causal"):
                 causal = (val.lower() in ["1", "true"])
             elif opt.endswith("-return_lse"):
@@ -1446,77 +1509,91 @@ class AttentionConfiguration(PerfConfiguration):
                 perf_config = val
             else:
                 raise ValueError(f"Unknown Attention config argument {opt} -> {val}")
-        for v in [dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, return_lse, split_kv]:
+        for v in [
+                dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v,
+                with_attn_scale, with_attn_bias, trans_q, trans_k, trans_v, trans_o, causal,
+                return_lse, split_kv
+        ]:
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk, head_dim_v, with_attn_scale, with_attn_bias, transQ, transK, transV, transO, causal, return_lse, split_kv, arch, numCU, perf_config)
+        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk,
+                   head_dim_v, with_attn_scale, with_attn_bias, trans_q, trans_k, trans_v, trans_o,
+                   causal, return_lse, split_kv, arch, num_cu, perf_config)
 
-    def toCommandLine(self):
-        return (f"-t {self.dataType} "
-                + f"-transQ {str(self.transQ).lower()} -transK {str(self.transK).lower()} "
-                + f"-transV {str(self.transV).lower()} -transO {str(self.transO).lower()} "
-                + f"-causal {str(self.causal).lower()} "
-                + f"-return_lse {str(self.return_lse).lower()} "
-                + f"-split_kv {str(self.split_kv)} "
-                + f"-g {self.g} "
-                + f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
-                + f"-with-attn-scale {str(self.with_attn_scale).lower()} "
-                + f"-with-attn-bias {str(self.with_attn_bias).lower()}")
+    def to_command_line(self):
+        return (
+            f"-t {self.datatype} " +
+            f"-transQ {str(self.trans_q).lower()} -transK {str(self.trans_k).lower()} " +
+            f"-transV {str(self.trans_v).lower()} -transO {str(self.trans_o).lower()} " +
+            f"-causal {str(self.causal).lower()} " +
+            f"-return_lse {str(self.return_lse).lower()} " + f"-split_kv {str(self.split_kv)} " +
+            f"-g {self.g} " +
+            f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
+            + f"-with-attn-scale {str(self.with_attn_scale).lower()} " +
+            f"-with-attn-bias {str(self.with_attn_bias).lower()}")
 
 
 class RocBLASGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "rocBLAS"
 
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
-        config = cls.fromCommandLine(commandLine, arch, numCU)
+    def benchmark_external(cls, commandline, paths: Paths, arch, num_cu):
+        config = cls.from_command_line(commandline, arch, num_cu)
         if not paths.mlir_paths.rocblas_benchmark_driver_path:
             raise ValueError("rocblas-benchmark-driver not built")
-        benchmarkArgs = config.generateMlirDriverCommandLine("")
+        benchmark_args = config.generate_mlir_driver_commandline("")
         # remove the result file generated by rocprof in previous benchmarking
-        if os.path.exists(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME)):
-            os.remove(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
+        if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME)):
+            os.remove(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
         print(f"Running rocBLAS benchmark {config!r}")
-        profilerCommand = [paths.mlir_paths.rocblas_benchmark_driver_path] + \
-            benchmarkArgs.split()
-        outs, noerr = runPipeline([profilerCommand])
-        nanoSeconds = np.nan
+        profiler_cmd = [paths.mlir_paths.rocblas_benchmark_driver_path] + \
+            benchmark_args.split()
+        outs, noerr = run_pipeline([profiler_cmd])
+        nanoseconds = np.nan
         if noerr:
-            milliSeconds = getMilliseconds(outs)
-            nanoSeconds = milliSeconds*1e6
-            
-        return config.tableEntry(nanoSeconds)
+            miliseconds = get_miliseconds(outs)
+            nanoseconds = miliseconds * 1e6
+
+        return config.table_entry(nanoseconds)
+
 
 class CKGemmConfig(GemmConfiguration):
     EXTERNAL_NAME = "CK"
+
     @classmethod
-    def benchmarkExternal(cls, commandLine, paths: Paths, arch, numCU):
-        config = cls.fromCommandLine(commandLine, arch, numCU)
+    def benchmark_external(cls, commandline, paths: Paths, arch, num_cu):
+        config = cls.from_command_line(commandline, arch, num_cu)
         if not paths.mlir_paths.ck_gemm_benchmark_driver_path:
             raise ValueError("ck-gemm-benchmark-driver not built")
-        benchmarkArgs = config.generateMlirDriverCommandLine("")
+        benchmark_args = config.generate_mlir_driver_commandline("")
 
         print(f"Running CK benchmark {config!r}")
 
-        if arch=="gfx1030" and config.g > 1:
-            return config.tableEntry(float('NaN'))
+        if arch == "gfx1030" and config.g > 1:
+            return config.table_entry(float('NaN'))
 
-        profilerCommand = [paths.mlir_paths.ck_gemm_benchmark_driver_path] + \
-            benchmarkArgs.split()
-        outs, noerr = runPipeline([profilerCommand])
-        nanoSeconds = np.nan
+        profiler_cmd = [paths.mlir_paths.ck_gemm_benchmark_driver_path] + \
+            benchmark_args.split()
+        outs, noerr = run_pipeline([profiler_cmd])
+        nanoseconds = np.nan
         if noerr:
-            milliSeconds = getMilliseconds(outs)
-            nanoSeconds = milliSeconds*1e6
+            miliseconds = get_miliseconds(outs)
+            nanoseconds = miliseconds * 1e6
 
-        return config.tableEntry(nanoSeconds)
+        return config.table_entry(nanoseconds)
 
-def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen_flags, use_rocprof=False, debug=True):
+
+def run_config_with_mlir(config: PerfConfiguration,
+                         paths: Paths,
+                         arch,
+                         rocmlir_gen_flags,
+                         use_rocprof=False,
+                         debug=True):
     # remove the result file generated by rocprof in previous benchmarking
-    if os.path.exists(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME)):
-        os.remove(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
-    commandLineOptions = config.generateMlirDriverCommandLine(rocmlir_gen_flags)
+    if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME)):
+        os.remove(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
+    commandline_options = config.generate_mlir_driver_commandline(rocmlir_gen_flags)
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
 
@@ -1524,17 +1601,13 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen
     if not use_rocprof:
         if debug:
             print("Using HIP timing for benchmarking")
-        rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' ' + commandLineOptions
-        tuningDriverCommand = [
-            paths.mlir_paths.rocmlir_tuning_driver_path,
-            f'--benchmark-config={config.perfConfig}',
-            f'--num-iterations={MLIR_N_REPEATS}',
-            f'--warmup-iterations={WARMUP_ITERATIONS}',
-            f'--trim-percent={TRIM_PERCENT}',
-            f'--sleep-ms={SLEEP_MS}',
-            '-'
+        rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
+        tuning_driver_command = [
+            paths.mlir_paths.rocmlir_tuning_driver_path, f'--benchmark-config={config.perfconfig}',
+            f'--num-iterations={MLIR_N_REPEATS}', f'--warmup-iterations={WARMUP_ITERATIONS}',
+            f'--sleep-us={SLEEP_US}', '--use-median', '-'
         ]
-        outs, noerr = runPipeline([rocmlirGenCommand.split(), tuningDriverCommand])
+        outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), tuning_driver_command])
         if noerr:
             result = outs.decode().strip()
             if result != "N/A":
@@ -1551,306 +1624,412 @@ def runConfigWithMLIR(config: PerfConfiguration, paths: Paths, arch, rocmlir_gen
 
     if debug:
         print("Using rocprof for benchmarking")
-    rocmlirGenCommand = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandLineOptions
-    rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-c']
-    mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(arch) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME, '--' ,paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandline_options
+    rocmlir_driver_cmd = [paths.mlir_paths.rocmlir_driver_path, '-c']
+    mlir_cpu_runner_args = [
+        f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}',
+        '--entry-point-result=void'
+    ]
+    profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(arch) + [
+        '--kernel-trace', '--stats', '-f', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME, '--',
+        paths.mlir_paths.cpu_runner_path
+    ] + mlir_cpu_runner_args
 
-    outs, noerr = runPipeline([rocmlirGenCommand.split(), rocmlirDriverCommand, profilerCommand])
-    nanoSeconds = np.nan
+    outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), rocmlir_driver_cmd, profiler_cmd])
+    nanoseconds = np.nan
     if noerr:
-        nanoSeconds = getNanoSeconds(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
+        nanoseconds = get_nanoseconds(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
 
-    return nanoSeconds
+    return nanoseconds
+
 
 # Benchmarking function.
-def benchmarkMLIR(commandLine, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, rocmlir_gen_flags, use_rocprof=False):
-    config = confClass.fromCommandLine(commandLine, arch, numCU)
-    configStr = config.toCommandLine()
-    if tuningDb:
-        if (arch, configStr) in tuningDb:
-            config.setPerfConfig(tuningDb[arch, configStr])
-        else: # Tuning DB present but doesn't contain config, return N/A
-            return config.tableEntry(np.nan)
+def benchmark_mlir(commandline,
+                   conf_class,
+                   paths: Paths,
+                   arch,
+                   num_cu,
+                   tuning_db: MaybeTuningDb,
+                   rocmlir_gen_flags,
+                   use_rocprof=False):
+    config = conf_class.from_command_line(commandline, arch, num_cu)
+    config_str = config.to_command_line()
+    if tuning_db:
+        if (arch, config_str) in tuning_db:
+            config.set_perfconfig(tuning_db[arch, config_str])
+        else:  # Tuning DB present but doesn't contain config, return N/A
+            return config.table_entry(np.nan)
 
-    nanoSeconds = runConfigWithMLIR(config, paths, arch, rocmlir_gen_flags, use_rocprof)
-    return config.tableEntry(nanoSeconds)
+    nanoseconds = run_config_with_mlir(config, paths, arch, rocmlir_gen_flags, use_rocprof)
+    return config.table_entry(nanoseconds)
 
-#Generate MLIR vs. MIOpen or rocBLAS performance results
-def generatePerformanceResults(configs, confClass, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, quickTuningDb: MaybeTuningDb, rocmlir_gen_flags, use_rocprof=False):
+
+# Generate MLIR vs. MIOpen or rocBLAS performance results
+def generate_performance_results(configs,
+                                 conf_class,
+                                 paths: Paths,
+                                 arch,
+                                 num_cu,
+                                 tuning_db: MaybeTuningDb,
+                                 quick_tuning_db: MaybeTuningDb,
+                                 rocmlir_gen_flags,
+                                 use_rocprof=False):
     # Never pass tuning DB to this run
-    mlir_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, None, rocmlir_gen_flags, use_rocprof)
-        for testVector in configs)
+    mlir_df = pd.DataFrame(
+        benchmark_mlir(test_vector.split(
+            sep=' '), conf_class, paths, arch, num_cu, None, rocmlir_gen_flags, use_rocprof)
+        for test_vector in configs)
     tuned_df = None
-    if tuningDb:
-        tuned_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags, use_rocprof)
-            for testVector in configs)
+    if tuning_db:
+        tuned_df = pd.DataFrame(
+            benchmark_mlir(test_vector.split(sep=' '), conf_class, paths, arch, num_cu, tuning_db,
+                           rocmlir_gen_flags, use_rocprof) for test_vector in configs)
     quick_tuned_df = None
-    if quickTuningDb:
-        quick_tuned_df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, quickTuningDb, rocmlir_gen_flags, use_rocprof)
-            for testVector in configs)
+    if quick_tuning_db:
+        quick_tuned_df = pd.DataFrame(
+            benchmark_mlir(test_vector.split(sep=' '), conf_class, paths, arch, num_cu,
+                           quick_tuning_db, rocmlir_gen_flags, use_rocprof)
+            for test_vector in configs)
 
-    external_df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch, numCU)
-        for testVector in configs)
+    external_df = pd.DataFrame(
+        conf_class.benchmark_external(test_vector.split(sep=' '), paths, arch, num_cu)
+        for test_vector in configs)
 
-    externalName = confClass.EXTERNAL_NAME
-    df = mlir_df.merge(external_df, on=confClass.TABLE_COLUMNS[:-2],
-                           suffixes=('', f" ({externalName})"))
-    externalTFlopsCol = f"{externalName} TFlops (no MLIR Kernels)"
-    df.rename(columns={'TFlops': 'MLIR TFlops', f"TFlops ({externalName})": externalTFlopsCol}, inplace=True)
-#     if tuned_df is None and quick_tuned_df is None:
-#         df.drop(columns=['PerfConfig'], inplace=True)
+    external_name = conf_class.EXTERNAL_NAME
+    df = mlir_df.merge(external_df,
+                       on=conf_class.TABLE_COLUMNS[:-2],
+                       suffixes=('', f" ({external_name})"))
+    external_tflops_col = f"{external_name} TFlops (no MLIR Kernels)"
+    df.rename(columns={
+        'TFlops': 'MLIR TFlops',
+        f"TFlops ({external_name})": external_tflops_col
+    },
+              inplace=True)
+    #     if tuned_df is None and quick_tuned_df is None:
+    #         df.drop(columns=['PerfConfig'], inplace=True)
     if tuned_df is not None:
         # No need for suffixes, the conflicting columns have been renamed
         # Also note that we're ignoring PerfConfig with the -3
-        df = df.merge(tuned_df, on=confClass.TABLE_COLUMNS[:-3],
-            suffixes=('', ' (tuned)'))
+        df = df.merge(tuned_df, on=conf_class.TABLE_COLUMNS[:-3], suffixes=('', ' (tuned)'))
         df.drop(columns=['PerfConfig'], inplace=True)
-        df.rename(columns={'TFlops': 'Tuned MLIR TFlops', 'PerfConfig (tuned)' : 'PerfConfig' }, inplace=True)
+        df.rename(columns={
+            'TFlops': 'Tuned MLIR TFlops',
+            'PerfConfig (tuned)': 'PerfConfig'
+        },
+                  inplace=True)
     if quick_tuned_df is not None:
         # No need for suffixes, the conflicting columns have been renamed
         # Also note that we're ignoring PerfConfig with the -3
-        df = df.merge(quick_tuned_df, on=confClass.TABLE_COLUMNS[:-3],
-            suffixes=('', ' (quick tuned)'))
+        df = df.merge(quick_tuned_df,
+                      on=conf_class.TABLE_COLUMNS[:-3],
+                      suffixes=('', ' (quick tuned)'))
         df.rename(columns={'TFlops': 'Quick Tuned MLIR TFlops'}, inplace=True)
 
-    df[f"MLIR/{externalName}"] = df['MLIR TFlops'] / df[externalTFlopsCol]
+    df[f"MLIR/{external_name}"] = df['MLIR TFlops'] / df[external_tflops_col]
     if tuned_df is not None:
-        df[f"Tuned/{externalName}"] = df['Tuned MLIR TFlops'] / df[externalTFlopsCol]
+        df[f"Tuned/{external_name}"] = df['Tuned MLIR TFlops'] / df[external_tflops_col]
         df["Tuned/Untuned"] = df['Tuned MLIR TFlops'] / df['MLIR TFlops']
     if quick_tuned_df is not None:
-        df[f"Quick Tuned/{externalName}"] = df['Quick Tuned MLIR TFlops'] / df[externalTFlopsCol]
+        df[f"Quick Tuned/{external_name}"] = df['Quick Tuned MLIR TFlops'] / df[external_tflops_col]
         df["Quick Tuned/Untuned"] = df['Quick Tuned MLIR TFlops'] / df['MLIR TFlops']
     if tuned_df is not None and quick_tuned_df is not None:
         df["Quick Tuned/Tuned"] = df['Quick Tuned MLIR TFlops'] / df['Tuned MLIR TFlops']
     chip = GFX_CHIP_RE.search(arch).group(0)
-    if confClass is RocBLASGemmConfig:
-        reportFile = reportUtils.PERF_REPORT_FILE['rocBLAS']
-    elif confClass is CKGemmConfig:
-        reportFile = reportUtils.PERF_REPORT_FILE['CK']
+    if conf_class is RocBLASGemmConfig:
+        report_file = reportUtils.PERF_REPORT_FILE['rocBLAS']
+    elif conf_class is CKGemmConfig:
+        report_file = reportUtils.PERF_REPORT_FILE['CK']
     else:
-        reportFile = reportUtils.PERF_REPORT_FILE['MIOpen']
+        report_file = reportUtils.PERF_REPORT_FILE['MIOpen']
     df.fillna(np.nan, inplace=True)
-    df.to_csv(chip + '_' + reportFile, index=False)
+    df.to_csv(chip + '_' + report_file, index=False)
 
-def getSolverName(testVector, arch, numCU):
-    config = ConvConfiguration.fromCommandLine(testVector.split(sep=' '), arch, numCU)
+
+def get_solver_name(test_vector, arch, num_cu):
+    config = ConvConfiguration.from_command_line(test_vector.split(sep=' '), arch, num_cu)
     if config.direction == 'fwd':
-        solverName = 'ConvMlirIgemmFwd'
+        solver_name = 'ConvMlirIgemmFwd'
     elif config.direction == 'bwd':
-        solverName = 'ConvMlirIgemmBwd'
+        solver_name = 'ConvMlirIgemmBwd'
     else:
-        solverName = 'ConvMlirIgemmWrW'
+        solver_name = 'ConvMlirIgemmWrW'
     if config.chip in ['gfx908', 'gfx90a', 'gfx942', 'gfx950']:
-        solverName+='Xdlops'
-    return solverName
+        solver_name += 'Xdlops'
+    return solver_name
+
 
 RUNNABLE_TEST_RE = re.compile(r"//\s*RUN\s*:(.*)")
 ROCMLIRGEN_RE = re.compile(r"rocmlir-gen.*?-fut\s*(\w+)")
-def findRunCommand(filename):
-    rocmlirCommand = None
-    futName = None
+
+
+def find_run_command(filename):
+    rocmlir_cmd = None
+    fut_name = None
     with open(filename, 'r') as f:
         for line in f:
-            hasRun = RUNNABLE_TEST_RE.search(line)
-            hasRocmlirGen = ROCMLIRGEN_RE.search(line)
-            if hasRun:
-                command = hasRun.group(1)
-                if not rocmlirCommand:
+            has_run = RUNNABLE_TEST_RE.search(line)
+            has_rocmlir_gen = ROCMLIRGEN_RE.search(line)
+            if has_run:
+                command = has_run.group(1)
+                if not rocmlir_cmd:
                     parts = command.split('|')  # Split the command using the "|" separator
                     if 'rocmlir-driver' in parts[0] or 'rocmlir-opt' in parts[0]:
-                        rocmlirCommand = parts[0].strip() # Find rocmlir-driver command
+                        rocmlir_cmd = parts[0].strip()  # Find rocmlir-driver command
                     elif 'rocmlir-driver' in parts[1] or 'rocmlir-opt' in parts[1]:
-                        rocmlirCommand = parts[1].strip()
+                        rocmlir_cmd = parts[1].strip()
 
-                if hasRocmlirGen and not futName:
-                    futName = hasRocmlirGen.group(1)
+                if has_rocmlir_gen and not fut_name:
+                    fut_name = has_rocmlir_gen.group(1)
 
-                if 'runner' in line: # Stop processing lines after finding a runner
-                    return rocmlirCommand, futName
+                if 'runner' in line:  # Stop processing lines after finding a runner
+                    return rocmlir_cmd, fut_name
 
     # Not found a "RUN" command or a runner
     print("WARNING: cannot find valid RUN command in ", filename)
     return None, None
 
-# Extract testVector and test function name from the test file
-def getFusionTestInfo(filename, paths: Paths):
-    chip = getChip()
-    testEntry = {}
-    rocmlirCommand, futName = findRunCommand(filename)
-    if not rocmlirCommand:
-        return testEntry
+
+# Extract test_vector and test function name from the test file
+def get_fusion_test_info(filename, paths: Paths):
+    chip = get_chip()
+    test_entry = {}
+    rocmlir_cmd, fut_name = find_run_command(filename)
+    if not rocmlir_cmd:
+        return test_entry
     # rocmlir-gen -fut test -arch gfx90a --clone-harness
-    rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', chip, '--clone-harness', filename]
-    p0 = subprocess.Popen(rocmlirgenCommand, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    if "-migraphx-to-tosa" in rocmlirCommand:
-        rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa']
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
+    rocmlirgen_cmd = [
+        paths.mlir_paths.rocmlir_gen_path, '-fut', fut_name, '-arch', chip, '--clone-harness',
+        filename
+    ]
+    p0 = subprocess.Popen(rocmlirgen_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if "-migraphx-to-tosa" in rocmlir_cmd:
+        rocmliropt_cmd = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa']
+        rocmlir_driver_cmd = [
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
+            '-kernel-pipeline', 'highlevel', '-targets', chip
+        ]
         # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
-        p1 = subprocess.Popen(rocmlirOptCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p1 = subprocess.Popen(rocmliropt_cmd,
+                              stdin=p0.stdout,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL)
         # pipe to rocmlir-driver -host-pipeline highlevel -targets gfx90a
-        p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p2 = subprocess.Popen(rocmlir_driver_cmd,
+                              stdin=p1.stdout,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL)
         p1.stdout.close()
-    elif "migraphx" in rocmlirCommand:
-        rocmlirMigraphxCommand = [paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx']
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', chip]
+    elif "migraphx" in rocmlir_cmd:
+        rocmlir_migraphx_cmd = [
+            paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx,highlevel'
+        ]
+        rocmlir_driver_cmd = [
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel',
+            '-targets', chip
+        ]
         # rocmlir-driver -kernel-pipeline migraphx ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
-        p1 = subprocess.Popen(rocmlirMigraphxCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p1 = subprocess.Popen(rocmlir_migraphx_cmd,
+                              stdin=p0.stdout,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL)
         # pipe to rocmlir-driver -host-pipeline highlevel -targets gfx90a
-        p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p1.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p2 = subprocess.Popen(rocmlir_driver_cmd,
+                              stdin=p1.stdout,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL)
         p1.stdout.close()
     else:
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
+        rocmlir_driver_cmd = [
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
+            '-kernel-pipeline', 'highlevel', '-targets', chip
+        ]
         # rocmlir-driver -host-pipeline highlevel -targets gfx90a
-        p2 = subprocess.Popen(rocmlirDriverCommand, stdin=p0.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p2 = subprocess.Popen(rocmlir_driver_cmd,
+                              stdin=p0.stdout,
+                              stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL)
 
     # pipe to rocmlir_gen --emit-tuning-key
-    tuningKey = subprocess.Popen([paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', '-'], stdin=p2.stdout,
-                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    tuning_key = subprocess.Popen([paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', '-'],
+                                  stdin=p2.stdout,
+                                  stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
     p2.stdout.close()
-    output, _ = tuningKey.communicate()
+    output, _ = tuning_key.communicate()
     result = output.decode('utf-8').strip().split('\t')
-    testEntry = {'filename' : filename, 'testVector' : result[2], 'futName' : futName}
-    return testEntry
+    test_entry = {'filename': filename, 'testVector': result[2], 'futName': fut_name}
+    return test_entry
 
-def runFusionKernel(filename, rocmlirGenArgs, paths: Paths):
-    arch = getArch()
-    chip = getChip()
-    if os.path.exists(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME)):
-        os.remove(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
 
-    rocmlirCommand, futName = findRunCommand(filename)
+def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
+    arch = get_arch()
+    chip = get_chip()
+    if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME)):
+        os.remove(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
+
+    rocmlir_cmd, fut_name = find_run_command(filename)
 
     # rocmlir-gen -fut test -arch gfx90a --clone-harness
-    rocmlirgenCommand = [paths.mlir_paths.rocmlir_gen_path, '-fut', futName, '-arch', chip, '--clone-harness', filename]
-    commands = [rocmlirgenCommand]
-    if "-migraphx-to-tosa" in rocmlirCommand:
-        rocmlirOptCommand = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
-        commands.append(rocmlirOptCommand)
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
-        commands.append(rocmlirDriverCommand)
-    elif "migraphx" in rocmlirCommand:
-        rocmlirMigraphxCommand = [paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx']
-        commands.append(rocmlirMigraphxCommand)
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel', '-targets', chip]
-        commands.append(rocmlirDriverCommand)
+    rocmlirgen_cmd = [
+        paths.mlir_paths.rocmlir_gen_path, '-fut', fut_name, '-arch', chip, '--clone-harness',
+        filename
+    ]
+    commands = [rocmlirgen_cmd]
+    if "-migraphx-to-tosa" in rocmlir_cmd:
+        rocmliropt_cmd = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
+        commands.append(rocmliropt_cmd)
+        rocmlir_driver_cmd = [
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
+            '-kernel-pipeline', 'highlevel' '-targets', chip
+        ]
+        commands.append(rocmlir_driver_cmd)
+    elif "migraphx" in rocmlir_cmd:
+        rocmlir_migraphx_cmd = [
+            paths.mlir_paths.rocmlir_driver_path, '-kernel-pipeline', 'migraphx,highlevel'
+        ]
+        commands.append(rocmlir_migraphx_cmd)
+        rocmlir_driver_cmd = [
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'migraphx,highlevel',
+            '-targets', chip
+        ]
+        commands.append(rocmlir_driver_cmd)
     else:
-        rocmlirDriverCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-targets', chip]
-        commands.append(rocmlirDriverCommand)
+        rocmlir_driver_cmd = [
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
+            '-kernel-pipeline', 'highlevel', '-targets', chip
+        ]
+        commands.append(rocmlir_driver_cmd)
 
-    rocmlirGenCommand = [paths.mlir_paths.rocmlir_gen_path] + rocmlirGenArgs
-    commands.append(rocmlirGenCommand)
-    kernelPipelineCommand = [paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'mhal,runner', '-kernel-pipeline', 'full']
-    commands.append(kernelPipelineCommand)
-    mlir_cpu_runner_args = [f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}', '--entry-point-result=void']
-    profilerCommand = [ROCPROF] + getMetricArgsForRocprof(chip) + ['--kernel-trace', '--stats', '-o', BENCHMARKING_RESULT_FILE_NAME] + ['--', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
-    commands.append(profilerCommand)
-    outs, noerr = runPipeline(commands)
-    nanoSeconds = np.nan
+    rocmlir_gen_cmd = [paths.mlir_paths.rocmlir_gen_path] + rocmlir_gen_args
+    commands.append(rocmlir_gen_cmd)
+    kernel_pipeline_cmd = [
+        paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'mhal,runner', '-kernel-pipeline',
+        'full'
+    ]
+    commands.append(kernel_pipeline_cmd)
+    mlir_cpu_runner_args = [
+        f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}',
+        '--entry-point-result=void'
+    ]
+    profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(chip) + [
+        '--kernel-trace', '--stats', '-f', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME
+    ] + ['--', paths.mlir_paths.cpu_runner_path] + mlir_cpu_runner_args
+    commands.append(profiler_cmd)
+    outs, noerr = run_pipeline(commands)
+    nanoseconds = np.nan
     if noerr:
-        nanoSeconds = getNanoSeconds(getProfilerOutputPath(arch, BENCHMARKING_STATS_FILE_NAME))
+        nanoseconds = get_nanoseconds(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
 
-    return nanoSeconds
+    return nanoseconds
+
 
 # Generate fusion vs. gemm/conv performance results
-def benchmarkFusionKernels(test_dir, paths: Paths, arch, numCU, tuningDb: MaybeTuningDb, use_rocprof=False):
-    allTests = [] #filename, testVector, futName
-    perfResults = {} #associate testVector to config and performances
+def benchmark_fusion_kernels(test_dir,
+                             paths: Paths,
+                             arch,
+                             num_cu,
+                             tuning_db: MaybeTuningDb,
+                             use_rocprof=False):
+    all_tests = []  # filename, test_vector, fut_name
+    perf_results = {}  # associate test_vector to config and performances
     chip = GFX_CHIP_RE.search(arch).group(0)
 
     # Prepare test cases
-    for filename in glob.glob(test_dir+'/*.mlir'):
-        testEntry = getFusionTestInfo(filename, paths)
-        if testEntry:
-            allTests.append(testEntry)
+    for filename in glob.glob(test_dir + '/*.mlir'):
+        test_entry = get_fusion_test_info(filename, paths)
+        if test_entry:
+            all_tests.append(test_entry)
 
-    if tuningDb:
+    if tuning_db:
         # Force all split-K factors to 1, to avoid trouble because fusion
         # and split-K aren't compatible.  Crude parser approximating
         # InitParamsAccel::visit().
-        for (arch,config),perfConfig in tuningDb.items():
-            splitPerf = perfConfig.split(',')
-            if ((perfConfig[0:3] == 'v2:' or perfConfig[0:3] == 'v3:') and int(splitPerf[6]) > 1):
-                splitPerf[6] = '1'
-                tuningDb[arch,config] = ','.join(splitPerf)
+        for (arch, config), perfconfig in tuning_db.items():
+            split_perf = perfconfig.split(',')
+            if ((perfconfig[0:3] == 'v2:' or perfconfig[0:3] == 'v3:') and int(split_perf[6]) > 1):
+                split_perf[6] = '1'
+                tuning_db[arch, config] = ','.join(split_perf)
 
     # Profile each test case
-    for test in allTests:
+    for test in all_tests:
         filename = test['filename']
-        testVector = test['testVector']
-        futName = test['futName']
+        test_vector = test['testVector']
+        fut_name = test['futName']
 
         print("Profiling:", filename)
         # Sanity check
-        if not testVector:
+        if not test_vector:
             print("\tCannot find a test vector")
             continue
-        if not futName:
+        if not fut_name:
             print("\tCannot find rocmlir-gen with -fut")
             continue
 
-        commandLine = testVector.split(sep=' ')
-        if commandLine[0].startswith('conv'):
+        commandline = test_vector.split(sep=' ')
+        if commandline[0].startswith('conv'):
             op = 'conv'
-            config = ConvConfiguration.fromCommandLine(commandLine, arch, numCU)
+            config = ConvConfiguration.from_command_line(commandline, arch, num_cu)
         else:
             op = 'gemm'
-            config = GemmConfiguration.fromCommandLine(commandLine, arch, numCU)
+            config = GemmConfiguration.from_command_line(commandline, arch, num_cu)
 
         # Find the best perf_config
-        bestPerf =""
-        if tuningDb:
-            configStr = config.toCommandLine()
-            if (arch, configStr) in tuningDb:
-                bestPerf = tuningDb[arch, configStr]
-                config.setPerfConfig(bestPerf)
-            else: # Tuning DB present but doesn't contain config, add a NaN entry
-                if not testVector in perfResults:
-                    oneEntry = config.tableEntry(np.nan)
-                    oneEntry['MLIR TFlops'] = np.nan
-                    oneEntry['Fusion/MLIR'] = np.nan
-                    oneEntry['FileName'] = filename
-                    perfResults[testVector] = oneEntry
+        best_perf = ""
+        if tuning_db:
+            config_str = config.to_command_line()
+            if (arch, config_str) in tuning_db:
+                best_perf = tuning_db[arch, config_str]
+                config.set_perfconfig(best_perf)
+            else:  # Tuning DB present but doesn't contain config, add a NaN entry
+                if test_vector not in perf_results:
+                    one_entry = config.table_entry(np.nan)
+                    one_entry['MLIR TFlops'] = np.nan
+                    one_entry['Fusion/MLIR'] = np.nan
+                    one_entry['FileName'] = filename
+                    perf_results[test_vector] = one_entry
                 continue
 
         # Run fusion test
-        rocmlirGenArgs = ['-ph', '-fut='+futName+'_wrapper', '--perf_config='+bestPerf, '-']
-        nanoSeconds = runFusionKernel(filename, rocmlirGenArgs, paths)
-        oneEntry = config.tableEntry(nanoSeconds)
+        rocmlir_gen_args = [
+            '-ph', '-fut=' + fut_name + '_wrapper', '--perf_config=' + best_perf, '-'
+        ]
+        nanoseconds = run_fusion_kernel(filename, rocmlir_gen_args, paths)
+        one_entry = config.table_entry(nanoseconds)
         # Keep the best performance
-        if testVector in perfResults and oneEntry['TFlops'] <= perfResults[testVector]['TFlops']:
+        if test_vector in perf_results and one_entry['TFlops'] <= perf_results[test_vector][
+                'TFlops']:
             continue
 
         # Run gemm or conv op with the same configuration
-        nanoSeconds = runConfigWithMLIR(config, paths, arch, '', use_rocprof)
-        oneEntry['MLIR TFlops'] = config.computeTFlops(nanoSeconds)
-        oneEntry['Fusion/MLIR'] = oneEntry['TFlops']/oneEntry['MLIR TFlops']
-        oneEntry['FileName'] = filename
-        perfResults[testVector] = oneEntry
+        nanoseconds = run_config_with_mlir(config, paths, arch, '', use_rocprof)
+        one_entry['MLIR TFlops'] = config.compute_tflops(nanoseconds)
+        one_entry['Fusion/MLIR'] = one_entry['TFlops'] / one_entry['MLIR TFlops']
+        one_entry['FileName'] = filename
+        perf_results[test_vector] = one_entry
 
-    df = pd.DataFrame(perfResults.values())
+    df = pd.DataFrame(perf_results.values())
     df.fillna(np.nan, inplace=True)
     df.rename(columns={'TFlops': 'Fusion TFlops'}, inplace=True)
     df.to_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE, index=False)
 
-#Tune MIOpen with MLIR kernels
-def tuneMLIRKernels(configs, arch, numCU):
+
+# Tune MIOpen with MLIR kernels
+def tune_mlir_kernels(configs, arch, num_cu):
     solver_names = {
-        testVector: getSolverName(testVector, arch, numCU)
-        for testVector in configs
+        test_vector: get_solver_name(test_vector, arch, num_cu) for test_vector in configs
     }
 
     envs = os.environ.copy()
     envs['MIOPEN_FIND_ENFORCE'] = '4'
     envs['MIOPEN_DRIVER_USE_GPU_REFERENCE'] = '1'
-    for testVector in configs:
-        envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER'] = solver_names[testVector]
-        commandLine = testVector.split(sep=' ')
-        config = ConvConfiguration.fromCommandLine(commandLine, arch, numCU)
-        if config.inputLayout == 'nchw':
-            MIOpenDriverCommand = [MIOPENDRIVER, *commandLine, '-V', '0']
-            print(' '.join(MIOpenDriverCommand))
-            p1 = subprocess.Popen(MIOpenDriverCommand,
+    for test_vector in configs:
+        envs['MIOPEN_DEBUG_FIND_ONLY_SOLVER'] = solver_names[test_vector]
+        commandline = test_vector.split(sep=' ')
+        config = ConvConfiguration.from_command_line(commandline, arch, num_cu)
+        if config.input_layout == 'nchw':
+            miopen_driver_cmd = [MIOPENDRIVER, *commandline, '-V', '0']
+            print(' '.join(miopen_driver_cmd))
+            p1 = subprocess.Popen(miopen_driver_cmd,
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE,
                                   env=envs)
@@ -1864,56 +2043,60 @@ def tuneMLIRKernels(configs, arch, numCU):
                 print("MIOpen tuning timed out")
                 _, errs = p1.communicate()
 
-def parseDataTypes(data_types):
+
+def parse_data_types(data_types):
     if not data_types:
         return DATA_TYPES_GEMM, OUTPUT_DATA_TYPES_MAP
     datatypes = []
-    outMap = {}
+    out_map = {}
     for dpair in data_types:
         dt = dpair.split('_')
         datatypes.append(dt[0])
-        outMap[dt[0]] = dt[0]
+        out_map[dt[0]] = dt[0]
         if len(dt) == 2:
-            outMap[dt[0]] = dt[1]
+            out_map[dt[0]] = dt[1]
         elif dt[0] == 'i8':
-            outMap[dt[0]] = 'i32'
+            out_map[dt[0]] = 'i32'
         elif dt[0] == 'fp8':
-            outMap[dt[0]] = 'f32'
-    return datatypes, outMap
+            out_map[dt[0]] = 'f32'
+    return datatypes, out_map
 
-def getNumCU(chip):
+
+def get_num_cu(chip):
     try:
-        rocminfo = subprocess.check_output("/opt/rocm/bin/rocminfo",
-                                           stderr=subprocess.PIPE)
+        rocminfo = subprocess.check_output("/opt/rocm/bin/rocminfo", stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         print(e.stderr.decode('utf-8'))
         raise
     except Exception as e:
         print(f"Exception: {e}")
         raise
-    rocminfoLines = rocminfo.decode("utf-8").split("\n")
-    foundChip = False
-    for line in rocminfoLines:
-        if not foundChip:
+    rocminfo_lines = rocminfo.decode("utf-8").split("\n")
+    found_chip = False
+    for line in rocminfo_lines:
+        if not found_chip:
             m = INFO_ARCH_NAME.search(line)
             if m and chip in m.group(1).strip():
-                foundChip = True
-        if foundChip:
-            computeUnit = INFO_ARCH_CU.search(line)
-            if computeUnit:
-                return int(computeUnit.group(1))
+                found_chip = True
+        if found_chip:
+            compute_unit = INFO_ARCH_CU.search(line)
+            if compute_unit:
+                return int(compute_unit.group(1))
     assert False, f"Cannot find number of CUs for {chip}"
 
 
-def foundExternalTool(paths: Paths, opType: Operation, gemmLibrary : Optional[GEMMLibrary] = None):
-    if opType == Operation.GEMM:
+def found_external_tool(paths: Paths,
+                        optype: Operation,
+                        gemm_library: Optional[GEMMLibrary] = None):
+    if optype == Operation.GEMM:
         if not paths.mlir_paths:
             return False
-        if gemmLibrary == GEMMLibrary.CK and not paths.mlir_paths.ck_gemm_benchmark_driver_path:
+        if gemm_library == GEMMLibrary.CK and not paths.mlir_paths.ck_gemm_benchmark_driver_path:
             return False
-        if gemmLibrary == GEMMLibrary.ROCBLAS and not paths.mlir_paths.rocblas_benchmark_driver_path:
+        if gemm_library == GEMMLibrary.ROCBLAS and not paths.mlir_paths.rocblas_benchmark_driver_path:
             return False
     return True
+
 
 # Main function.
 def main(args=None):
@@ -1935,12 +2118,13 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
-    arch = getArch()
-    chip = getChip() 
-    numCU = getNumCU(chip)
-    initializeDataTypesAttention()
+    arch = get_arch()
+    chip = get_chip()
+    num_cu = get_num_cu(chip)
+    initialize_dtypes_attn()
 
-    root_dir = str(subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
+    root_dir = str(
+        subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
     default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
 
     parser = argparse.ArgumentParser(
@@ -1949,110 +2133,87 @@ def main(args=None):
         allow_abbrev=False,
     )
 
-    parser.add_argument("--op", "--operation", choices=['conv', 'gemm', 'fusion', 'attention', 'gemm_gemm', 'conv_gemm'],
-        default='conv',
-        help="Operation to benchmark")
+    parser.add_argument("--op",
+                        "--operation",
+                        choices=['conv', 'gemm', 'fusion', 'attention', 'gemm_gemm', 'conv_gemm'],
+                        default='conv',
+                        help="Operation to benchmark")
 
     mutex_arg_group = parser.add_mutually_exclusive_group()
-    mutex_arg_group.add_argument(
-        "--tuning",
-        action="store_true",
-        help="Only tune the MLIR kernels"
-    )
-    mutex_arg_group.add_argument(
-        "-b", "--batch_mlir",
-        action="store_true",
-        help="CSV batch benchmarking mode with MLIR"
-    )
-    mutex_arg_group.add_argument(
-        "--batch_external",
-        action="store_true",
-        help="CSV batch benchmarking mode with external reference"
-    )
+    mutex_arg_group.add_argument("--tuning", action="store_true", help="Only tune the MLIR kernels")
+    mutex_arg_group.add_argument("-b",
+                                 "--batch_mlir",
+                                 action="store_true",
+                                 help="CSV batch benchmarking mode with MLIR")
+    mutex_arg_group.add_argument("--batch_external",
+                                 action="store_true",
+                                 help="CSV batch benchmarking mode with external reference")
     mutex_arg_group.add_argument(
         "--batch_all",
         action="store_true",
-        help="CSV batch benchmarking with MLIR and external reference (defalut on no args)"
-    )
-    mutex_arg_group.add_argument(
-        "--external",
-        action="store_true",
-        help="benchmark a single config externally"
-    )
+        help="CSV batch benchmarking with MLIR and external reference (defalut on no args)")
+    mutex_arg_group.add_argument("--external",
+                                 action="store_true",
+                                 help="benchmark a single config externally")
 
-    parser.add_argument(
-        "-c", "--configs_file",
-        type=str,
-        default=default_conv_configs,
-        help="File of configurations to test"
-    )
+    parser.add_argument("-c",
+                        "--configs_file",
+                        type=str,
+                        default=default_conv_configs,
+                        help="File of configurations to test")
 
-    parser.add_argument(
-        "-o",
-        type=str,
-        default=chip + '_' + date.today().strftime("perf.%m%d%y"),
-        help="Output file name",
-        dest="fileName"
-    )
-    parser.add_argument(
-        "-t", "--tuning_db",
-        type=str,
-        default=argparse.SUPPRESS,
-        help="Tuning database filename"
-    )
-    parser.add_argument(
-        "-qt", "--quick_tuning_db",
-        type=str,
-        default=argparse.SUPPRESS,
-        help="Quick tuning database filename"
-    )
+    parser.add_argument("-o",
+                        type=str,
+                        default=chip + '_' + date.today().strftime("perf.%m%d%y"),
+                        help="Output file name",
+                        dest="filename")
+    parser.add_argument("-t",
+                        "--tuning_db",
+                        type=str,
+                        default=argparse.SUPPRESS,
+                        help="Tuning database filename")
+    parser.add_argument("-qt",
+                        "--quick_tuning_db",
+                        type=str,
+                        default=argparse.SUPPRESS,
+                        help="Quick tuning database filename")
 
-    parser.add_argument(
-        "--test_dir",
-        type=str,
-        default="../mlir/test/fusion/resnet50-e2e",
-        help="The directory of tests"
-    )
+    parser.add_argument("--test_dir",
+                        type=str,
+                        default="../mlir/test/fusion/resnet50-e2e",
+                        help="The directory of tests")
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
         default=find_mlir_build_dir(),
         help="The build directory of MLIR based kernel generator",
     )
-    parser.add_argument(
-        "config",
-        type=str,
-        nargs='*',
-        help="The specific config to test, if you want to test one"
-    )
+    parser.add_argument("config",
+                        type=str,
+                        nargs='*',
+                        help="The specific config to test, if you want to test one")
 
-    parser.add_argument(
-        "--rocmlir_gen_flags",
-        type=str,
-        default=argparse.SUPPRESS,
-        help="rocmlir-gen flags to toggle each feature"
-    )
+    parser.add_argument("--rocmlir_gen_flags",
+                        type=str,
+                        default=argparse.SUPPRESS,
+                        help="rocmlir-gen flags to toggle each feature")
 
-    parser.add_argument(
-        "--external-gemm-library",
-        type=str,
-        default="rocBLAS",
-        help="(rocBLAS | CK) external library to run GEMM routines"
-    )
+    parser.add_argument("--external-gemm-library",
+                        type=str,
+                        default="rocBLAS",
+                        help="(rocBLAS | CK) external library to run GEMM routines")
 
     parser.add_argument(
         '--data-type',
-         nargs='+',
-         choices=["f32", "f16", "i8", "i8_i32", "i8_i8", "fp8", "fp8_fp8", "fp8_f32"],
-         default=["f32", "f16", "i8"],
-         help='Force a set of datatypes'
-    )
+        nargs='+',
+        choices=["f32", "f16", "i8", "i8_i32", "i8_i8", "fp8", "fp8_fp8", "fp8_f32"],
+        default=["f32", "f16", "i8"],
+        help='Force a set of datatypes')
 
     parser.add_argument(
         '--use-rocprof',
         action="store_true",
-        help="Use rocprof instead of rocmlir-tuning-driver to collect performance data"
-    )
+        help="Use rocprof instead of rocmlir-tuning-driver to collect performance data")
 
     parsed_args = parser.parse_args(args)
 
@@ -2060,94 +2221,110 @@ def main(args=None):
     if 'rocmlir_gen_flags' in parsed_args:
         rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
 
-    tuningDb = None
-    quickTuningDb = None
+    tuning_db = None
+    quick_tuning_db = None
     if 'tuning_db' in parsed_args:
-        tuningDb = read_tuning_db(parsed_args.tuning_db)
+        tuning_db = read_tuning_db(parsed_args.tuning_db)
 
     if 'quick_tuning_db' in parsed_args:
-        quickTuningDb = read_tuning_db(parsed_args.quick_tuning_db)
+        quick_tuning_db = read_tuning_db(parsed_args.quick_tuning_db)
 
     # Impose default behavior when no args have been passed
     if len(args) == 0:
         parsed_args.batch_all = True
 
-    confClass = PerfConfiguration
-    opType = Operation.fromName(parsed_args.op)
-    if opType == Operation.CONV:
-        confClass = ConvConfiguration
-        externalLib = None
-    elif opType == Operation.GEMM:
-        externalLib = GEMMLibrary.fromName(parsed_args.external_gemm_library)
-        if externalLib == GEMMLibrary.ROCBLAS:
-            confClass = RocBLASGemmConfig
-        elif externalLib == GEMMLibrary.CK:
-            confClass = CKGemmConfig
-    elif opType == Operation.ATTENTION:
-        confClass = AttentionConfiguration
-        externalLib = None
-    elif opType == Operation.GEMM_GEMM:
-        confClass = GemmGemmConfiguration
-        externalLib = None
-    elif opType == Operation.CONV_GEMM:
-        confClass = ConvGemmConfiguration
-        externalLib = None
+    conf_class = PerfConfiguration
+    optype = Operation.from_name(parsed_args.op)
+    if optype == Operation.CONV:
+        conf_class = ConvConfiguration
+        external_lib = None
+    elif optype == Operation.GEMM:
+        external_lib = GEMMLibrary.from_name(parsed_args.external_gemm_library)
+        if external_lib == GEMMLibrary.ROCBLAS:
+            conf_class = RocBLASGemmConfig
+        elif external_lib == GEMMLibrary.CK:
+            conf_class = CKGemmConfig
+    elif optype == Operation.ATTENTION:
+        conf_class = AttentionConfiguration
+        external_lib = None
+    elif optype == Operation.GEMM_GEMM:
+        conf_class = GemmGemmConfiguration
+        external_lib = None
+    elif optype == Operation.CONV_GEMM:
+        conf_class = ConvGemmConfiguration
+        external_lib = None
 
     configs_path = None if parsed_args.config else parsed_args.configs_file
     paths = create_paths(configs_path, parsed_args.mlir_build_dir)
     configs = None
-    if opType == Operation.CONV:
-        configs = getConvConfigurations(paths.configuration_file_path)
-    elif opType == Operation.GEMM:
-        datatypes, outputTypeMap = parseDataTypes(parsed_args.data_type)
-        configs = getGemmConfigurations(paths.configuration_file_path, datatypes, outputTypeMap)
-    elif opType == Operation.ATTENTION:
-        configs = getAttentionConfigurations(paths.configuration_file_path)
-    elif opType == Operation.GEMM_GEMM:
-        configs = getGemmGemmConfigurations(paths.configuration_file_path)
-    elif opType == Operation.CONV_GEMM:
-        configs = getConvGemmConfigurations(paths.configuration_file_path)
+    if optype == Operation.CONV:
+        configs = get_conv_configurations(paths.configuration_file_path)
+    elif optype == Operation.GEMM:
+        datatypes, output_type_map = parse_data_types(parsed_args.data_type)
+        configs = get_gemm_configurations(paths.configuration_file_path, datatypes, output_type_map)
+    elif optype == Operation.ATTENTION:
+        configs = get_attn_configurations(paths.configuration_file_path)
+    elif optype == Operation.GEMM_GEMM:
+        configs = get_gemm_gemm_configurations(paths.configuration_file_path)
+    elif optype == Operation.CONV_GEMM:
+        configs = get_conv_gemm_configurations(paths.configuration_file_path)
 
     if parsed_args.external or parsed_args.batch_external or parsed_args.batch_all:
-        if not foundExternalTool(paths, opType, externalLib):
-            raise RuntimeError("External benchmark reference (MIOpen or rocBLAS driver) needed but not found")
+        if not found_external_tool(paths, optype, external_lib):
+            raise RuntimeError(
+                "External benchmark reference (MIOpen or rocBLAS driver) needed but not found")
 
     if parsed_args.batch_mlir or parsed_args.batch_all:
         if not paths.mlir_paths:
             raise RuntimeError("MLIR build dir was not provided/found")
 
-
-    #If no arguments are passed, then benchmark with MLIR and MIOpen
+    # If no arguments are passed, then benchmark with MLIR and MIOpen
     if parsed_args.batch_all:
         # batch benchmark with MLIR and MIOpen.
-        generatePerformanceResults(configs, confClass, paths, arch, numCU, tuningDb, quickTuningDb, rocmlir_gen_flags, parsed_args.use_rocprof)
+        generate_performance_results(configs, conf_class, paths, arch, num_cu, tuning_db,
+                                     quick_tuning_db, rocmlir_gen_flags, parsed_args.use_rocprof)
     elif parsed_args.tuning:
-        tuneMLIRKernels(configs, arch, numCU)
-    elif opType == Operation.FUSION:
+        tune_mlir_kernels(configs, arch, num_cu)
+    elif optype == Operation.FUSION:
         if not parsed_args.mlir_build_dir:
             raise RuntimeError("MLIR build dir was not provided/found")
         else:
-            benchmarkFusionKernels(parsed_args.test_dir, paths, arch, numCU, tuningDb, parsed_args.use_rocprof)
+            benchmark_fusion_kernels(parsed_args.test_dir, paths, arch, num_cu, tuning_db,
+                                     parsed_args.use_rocprof)
     else:
         if parsed_args.batch_mlir:
-            df = pd.DataFrame(benchmarkMLIR(testVector.split(sep=' '), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags, parsed_args.use_rocprof) for testVector in configs)
+            df = pd.DataFrame(
+                benchmark_mlir(test_vector.split(sep=' '), conf_class, paths, arch, num_cu,
+                               tuning_db, rocmlir_gen_flags, parsed_args.use_rocprof)
+                for test_vector in configs)
         elif parsed_args.batch_external:
-            df = pd.DataFrame(confClass.benchmarkExternal(testVector.split(sep=' '), paths, arch, numCU) for testVector in configs)
+            df = pd.DataFrame(
+                conf_class.benchmark_external(test_vector.split(sep=' '), paths, arch, num_cu)
+                for test_vector in configs)
         elif parsed_args.external:
-            df = pd.DataFrame([confClass.benchmarkExternal(parsed_args.config, paths, arch, numCU)])
+            df = pd.DataFrame(
+                [conf_class.benchmark_external(parsed_args.config, paths, arch, num_cu)])
         else:
             # Will only reach here with more than 1 unspecified arguments
-            # These are arguments are directly passed through to benchmarkMLIR
+            # These are arguments are directly passed through to benchmark_mlir
             if not parsed_args.mlir_build_dir:
                 raise RuntimeError("MLIR build dir was not provided/found")
             else:
                 if parsed_args.config:
-                    df = pd.DataFrame([benchmarkMLIR(parsed_args.config, confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags, parsed_args.use_rocprof)])
+                    df = pd.DataFrame([
+                        benchmark_mlir(parsed_args.config, conf_class, paths, arch, num_cu,
+                                       tuning_db, rocmlir_gen_flags, parsed_args.use_rocprof)
+                    ])
                 else:
-                    df = pd.DataFrame([benchmarkMLIR(config.split(), confClass, paths, arch, numCU, tuningDb, rocmlir_gen_flags, parsed_args.use_rocprof) for config in configs])
-        df.to_csv(parsed_args.fileName)
+                    df = pd.DataFrame([
+                        benchmark_mlir(config.split(), conf_class, paths, arch, num_cu, tuning_db,
+                                       rocmlir_gen_flags, parsed_args.use_rocprof)
+                        for config in configs
+                    ])
+        df.to_csv(parsed_args.filename)
         with pd.option_context('display.precision', reportUtils.ROUND_DIGITS):
-            print(df) # for interactive consumption
+            print(df)  # for interactive consumption
+
 
 if __name__ == '__main__':
     sys.exit(main())
