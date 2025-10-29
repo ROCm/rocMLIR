@@ -635,7 +635,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
     // Applicability check
     if (doesModuleHaveFusions(threadSource.get()) &&
-        !rock::isModuleFusible(threadSource.get(), perfConfig)) {
+        !rock::isModuleFusible(threadSource.get(), result.perfConfig)) {
       result.status = CompilationStatus::NotApplicable;
       return result;
     }
