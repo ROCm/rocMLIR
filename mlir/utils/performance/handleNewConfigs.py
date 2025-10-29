@@ -162,7 +162,6 @@ def resolve_paths(args):
     elif args.configs_dir:
         attn_path = os.path.join(args.configs_dir, f"{ATTENTION_FILE_NAME}")
     else:
-
         attn_path = ATTENTION_CONFIGS_DEFAULT
 
     return new_path, conv_path, gemm_path, gemm_gemm_path, conv_gemm_path, attn_path
