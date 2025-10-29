@@ -1591,7 +1591,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   log(sum(exp(sub(x, x)))) + max(x)
   = log(exp(sub(x, x))) + x
   = sub(x, x) + x
-  
+
   Upstream disabled folding of log(exp(..)) by default, so we need to match the
   following two patterns:
   1. The folded pattern: sub(x, x) + x
@@ -1619,22 +1619,22 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           }
         }
       }
-      
+
       // Pattern 2: Check for log(exp(sub(x, x))) + x
       tosa::ExpOp expOp = dyn_cast<tosa::ExpOp>(user);
       if (!expOp)
         continue;
-        
+
       for (Operation *expUser : expOp->getUsers()) {
         tosa::LogOp logOp = dyn_cast<tosa::LogOp>(expUser);
         if (!logOp)
           continue;
-          
+
         for (Operation *logUser : logOp->getUsers()) {
           tosa::AddOp addOp = dyn_cast<tosa::AddOp>(logUser);
           if (!addOp)
             continue;
-            
+
           Value addOpInput1 = addOp.getInput1();
           Value addOpInput2 = addOp.getInput2();
           // Check if one input is the log result and the other is the
