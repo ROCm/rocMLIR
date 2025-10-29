@@ -18,6 +18,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
@@ -439,6 +440,36 @@ extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
   return std::make_pair(toTuneType, outputType);
 }
 
+static bool doesModuleHaveFusions(ModuleOp module) {
+  WalkResult result = module.walk([](Operation *op) {
+    // Check for linalg.generic or rock.reduce (standalone fusion ops)
+    if (isa<linalg::GenericOp>(op) || isa<rock::ReduceOp>(op)) {
+      return WalkResult::interrupt();
+    }
+    
+    // Check for fusions in RockGemmGemmWrapperInterface ops (attention,
+    // gemm+gemm, conv+gemm) via non-empty preSecondGemmRegion (which includes
+    // preSoftmaxBody for attention and preSecondGemmBody for gemm+gemm and
+    // conv+gemm)
+    if (auto gemmGemmOp = dyn_cast<rock::RockGemmGemmWrapperInterface>(op)) {
+      if (!gemmGemmOp.getPreSecondGemmRegion().getBlocks().empty()) {
+        return WalkResult::interrupt();
+      }
+    }
+    
+    // Check for gridwise attention accel operations (doesn't implement the
+    // interface)
+    if (auto gridwiseAttnOp = dyn_cast<rock::GridwiseAttentionAccelOp>(op)) {
+      if (!gridwiseAttnOp.getPreSoftmaxBody().getBlocks().empty()) {
+        return WalkResult::interrupt();
+      }
+    }
+    
+    return WalkResult::advance();
+  });
+  return result.wasInterrupted();
+}
+
 static LogicalResult runTuningLoop(ModuleOp source) {
   // Verify prerequisites
   SmallVector<func::FuncOp> funcs;
@@ -603,13 +634,14 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     };
 
     // Applicability check
-    OwningOpRef<ModuleOp> applicabilityCopy =
-        copyIRThread(threadSource.get(), perfConfigAttr);
-    if (!rock::isModuleFusible(applicabilityCopy.get(), result.perfConfig)) {
+    if (doesModuleHaveFusions(threadSource.get()) &&
+        !rock::isModuleFusible(threadSource.get(), result.perfConfig)) {
       result.status = CompilationStatus::NotApplicable;
       return result;
     }
 
+    OwningOpRef<ModuleOp> applicabilityCopy =
+        copyIRThread(threadSource.get(), perfConfigAttr);
     if (failed(threadApplicability.run(applicabilityCopy.get()))) {
       result.status = CompilationStatus::NotApplicable;
       return result;
