@@ -618,6 +618,17 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
         ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
       }
       ROCDL::SBarrierOp::create(rewriter, loc);
+      rewriter.replaceOpWithNewOp<ROCDL::SBarrierOp>(op);
+    } else if (chipset == kGfx1250) {
+      Location loc = op->getLoc();
+
+      // HACK for direct to LDS
+      if (hackForDirectToLDS) {
+        ROCDL::WaitAsynccntOp::create(rewriter, loc, 0);
+      }
+      ROCDL::WaitAsynccntOp::create(rewriter, loc, 0);
+      ROCDL::BarrierSignalOp::create(rewriter, loc, -1);
+      rewriter.replaceOpWithNewOp<ROCDL::BarrierWaitOp>(op, -1);
     } else {
       ROCDL::BarrierSignalOp::create(rewriter, loc, -1);
       ROCDL::BarrierWaitOp::create(rewriter, loc, -1);
