@@ -620,7 +620,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       auto tunedFunc = applicabilityCopy->lookupSymbol<func::FuncOp>(fnName);
       if (!tunedFunc) {
         result.status = CompilationStatus::CompilationFailed;
-        compilationFailed.store(true);
+        compilationFailed.store(true, std::memory_order_relaxed);
         return result;
       }
       result.blockSizes.push_back(
@@ -637,7 +637,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       llvm::errs() << "Backend pipeline failed for config: "
                    << result.perfConfig << "\n";
       result.status = CompilationStatus::CompilationFailed;
-      compilationFailed.store(true);
+      compilationFailed.store(true, std::memory_order_relaxed);
       return result;
     }
 
@@ -647,7 +647,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
           compileCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
       if (!binary) {
         result.status = CompilationStatus::CompilationFailed;
-        compilationFailed.store(true);
+        compilationFailed.store(true, std::memory_order_relaxed);
         return result;
       }
       result.hipModules.push_back(cast<gpu::ObjectAttr>(binary.getObjects()[0])
@@ -660,18 +660,22 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     return result;
   };
 
-  // Launch parallel compilation tasks
+  // Launch parallel compilation tasks with dynamic work stealing
+  // Note: We use atomic counter instead of static partitioning because
+  // compilation times vary dramatically between configs (NotApplicable is fast,
+  // full compilation is slow). Dynamic work stealing provides better load
+  // balancing by allowing fast threads to pick up more work.
   {
     std::atomic<size_t> nextIdx{0};
 
-    // Thread pool pattern
+    // Thread pool with work stealing pattern
     auto worker = [&]() {
       while (true) {
-        // Check if any compilation has failed
-        if (compilationFailed.load())
+        // Check if any compilation has failed (relaxed: just an optimization hint)
+        if (compilationFailed.load(std::memory_order_relaxed))
           break;
 
-        size_t idx = nextIdx.fetch_add(1);
+        size_t idx = nextIdx.fetch_add(1, std::memory_order_relaxed);
         if (idx >= configs.size())
           break;
 
@@ -690,7 +694,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   }
 
   // Check if any compilation failed and terminate early
-  if (compilationFailed.load()) {
+  if (compilationFailed.load(std::memory_order_relaxed)) {
     llvm::errs()
         << "Compilation failed for one or more configs. Terminating.\n";
     return failure();
