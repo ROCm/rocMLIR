@@ -18,6 +18,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
@@ -439,6 +440,16 @@ extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
   return std::make_pair(toTuneType, outputType);
 }
 
+static bool doesModuleHaveFusions(ModuleOp module) {
+  WalkResult result = module.walk([](Operation *op) {
+    if (isa<linalg::GenericOp>(op) || isa<rock::ReduceOp>(op)) {
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return result.wasInterrupted();
+}
+
 static LogicalResult runTuningLoop(ModuleOp source) {
   // Verify prerequisites
   SmallVector<func::FuncOp> funcs;
@@ -605,8 +616,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Applicability check
     OwningOpRef<ModuleOp> applicabilityCopy =
         copyIRThread(threadSource.get(), perfConfigAttr);
-    if (rock::isSplitKRequested(applicabilityCopy.get(), perfConfig) &&
-        failed(rock::testFusionLegalitySplitK(applicabilityCopy.get()))) {
+    if (doesModuleHaveFusions(applicabilityCopy.get()) &&
+        !rock::isModuleFusible(applicabilityCopy.get(), perfConfig)) {
       result.status = CompilationStatus::NotApplicable;
       return result;
     }
