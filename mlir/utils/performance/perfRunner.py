@@ -1597,8 +1597,10 @@ def run_config_with_mlir(config: PerfConfiguration,
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
 
-    # Use HIP timing via tuning-driver if rocprof is disabled
-    if not use_rocprof:
+    nanoseconds = np.nan
+
+    # Use HIP timing via tuning-driver if rocprof is disabled and perfconfig is present
+    if not use_rocprof and config.perfconfig:
         if debug:
             print("Using HIP timing for benchmarking")
         rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
@@ -1609,36 +1611,31 @@ def run_config_with_mlir(config: PerfConfiguration,
         ]
         outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), tuning_driver_command])
         if noerr:
-            result = outs.decode().strip()
-            if result != "N/A":
-                try:
-                    parts = result.split('\t')
-                    if len(parts) == 2:
-                        return float(parts[1])
-                    else:
-                        return float(result)
-                except ValueError:
-                    if debug:
-                        print(f"Failed to parse timing result: {result}")
-        return np.nan
+            try:
+                _, time = outs.split()
+                if time != "N/A":
+                    nanoseconds = float(time)
+            except ValueError:
+                if debug:
+                    print(f"Failed to parse timing result: {outs}")
+    else:
+        if debug:
+            print("Using rocprof for benchmarking")
+        rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandline_options
+        rocmlir_driver_cmd = [paths.mlir_paths.rocmlir_driver_path, '-c']
+        mlir_cpu_runner_args = [
+            f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}',
+            '--entry-point-result=void'
+        ]
+        profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(arch) + [
+            '--kernel-trace', '--stats', '-f', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME, '--',
+            paths.mlir_paths.cpu_runner_path
+        ] + mlir_cpu_runner_args
 
-    if debug:
-        print("Using rocprof for benchmarking")
-    rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandline_options
-    rocmlir_driver_cmd = [paths.mlir_paths.rocmlir_driver_path, '-c']
-    mlir_cpu_runner_args = [
-        f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}',
-        '--entry-point-result=void'
-    ]
-    profiler_cmd = [ROCPROF] + get_metric_args_for_rocprof(arch) + [
-        '--kernel-trace', '--stats', '-f', 'csv', '-o', BENCHMARKING_RESULT_FILE_NAME, '--',
-        paths.mlir_paths.cpu_runner_path
-    ] + mlir_cpu_runner_args
-
-    outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), rocmlir_driver_cmd, profiler_cmd])
-    nanoseconds = np.nan
-    if noerr:
-        nanoseconds = get_nanoseconds(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
+        outs, noerr = run_pipeline([rocmlir_gen_cmd.split(), rocmlir_driver_cmd, profiler_cmd])
+        if noerr:
+            nanoseconds = get_nanoseconds(
+                get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
 
     return nanoseconds
 
@@ -1805,8 +1802,8 @@ def get_fusion_test_info(filename, paths: Paths):
     if "-migraphx-to-tosa" in rocmlir_cmd:
         rocmliropt_cmd = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa']
         rocmlir_driver_cmd = [
-            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
-            '-kernel-pipeline', 'highlevel', '-targets', chip
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-kernel-pipeline',
+            'highlevel', '-targets', chip
         ]
         # rocmlir-opt -migraphx-to-tosa ../mlir/test/fusion/resnet50-e2e/mixr-resnet-fusion-case-1.mlir
         p1 = subprocess.Popen(rocmliropt_cmd,
@@ -1840,8 +1837,8 @@ def get_fusion_test_info(filename, paths: Paths):
         p1.stdout.close()
     else:
         rocmlir_driver_cmd = [
-            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
-            '-kernel-pipeline', 'highlevel', '-targets', chip
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-kernel-pipeline',
+            'highlevel', '-targets', chip
         ]
         # rocmlir-driver -host-pipeline highlevel -targets gfx90a
         p2 = subprocess.Popen(rocmlir_driver_cmd,
@@ -1879,8 +1876,8 @@ def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
         rocmliropt_cmd = [paths.mlir_paths.rocmlir_opt_path, '-migraphx-to-tosa', filename]
         commands.append(rocmliropt_cmd)
         rocmlir_driver_cmd = [
-            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
-            '-kernel-pipeline', 'highlevel' '-targets', chip
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-kernel-pipeline',
+            'highlevel', '-targets', chip
         ]
         commands.append(rocmlir_driver_cmd)
     elif "migraphx" in rocmlir_cmd:
@@ -1895,8 +1892,8 @@ def run_fusion_kernel(filename, rocmlir_gen_args, paths: Paths):
         commands.append(rocmlir_driver_cmd)
     else:
         rocmlir_driver_cmd = [
-            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel',
-            '-kernel-pipeline', 'highlevel', '-targets', chip
+            paths.mlir_paths.rocmlir_driver_path, '-host-pipeline', 'highlevel', '-kernel-pipeline',
+            'highlevel', '-targets', chip
         ]
         commands.append(rocmlir_driver_cmd)
 
