@@ -47,6 +47,7 @@
 #include "llvm/Support/SourceMgr.h"
 
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <cstdlib>
 #include <future>
@@ -263,10 +264,15 @@ struct BenchmarkParams {
   bool showStats;
 };
 
+enum class CompilationStatus {
+  NotApplicable,      // Config not applicable for this kernel
+  CompilationFailed,  // Config applicable but compilation failed
+  Success             // Successfully compiled
+};
+
 struct CompilationResult {
   SmallString<64> perfConfig;
-  bool isApplicable = false;
-  bool compilationSucceeded = false;
+  CompilationStatus status = CompilationStatus::NotApplicable;
   SmallVector<std::string> hipModules;
   SmallVector<uint32_t> blockSizes;
   SmallVector<uint32_t> gridSizes;
@@ -538,6 +544,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                             : std::thread::hardware_concurrency();
   if (numThreads == 0)
     numThreads = 4; // fallback
+  
+  // Don't create more threads than configs to compile
+  numThreads = std::min(numThreads, static_cast<unsigned>(configs.size()));
 
   // Serialize source module once (shared by all threads for cloning)
   std::string sourceModuleStr;
@@ -548,6 +557,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // Parallel compilation phase
   std::vector<CompilationResult> compilationResults(configs.size());
   std::mutex outputMutex; // For thread-safe console output
+  std::atomic<bool> compilationFailed{false}; // Flag to signal early termination
 
   auto compileConfig = [&](size_t idx) -> CompilationResult {
     CompilationResult result;
@@ -595,20 +605,23 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     OwningOpRef<ModuleOp> applicabilityCopy =
         copyIRThread(threadSource.get(), perfConfigAttr);
     if (!rock::isModuleFusible(applicabilityCopy.get(), result.perfConfig)) {
-      return result; // Not applicable
+      result.status = CompilationStatus::NotApplicable;
+      return result;
     }
 
     if (failed(threadApplicability.run(applicabilityCopy.get()))) {
-      return result; // Not applicable
+      result.status = CompilationStatus::NotApplicable;
+      return result;
     }
-
-    result.isApplicable = true;
 
     // Extract block and grid sizes
     for (auto &fnName : kernelFuncNames) {
       auto tunedFunc = applicabilityCopy->lookupSymbol<func::FuncOp>(fnName);
-      if (!tunedFunc)
+      if (!tunedFunc) {
+        result.status = CompilationStatus::CompilationFailed;
+        compilationFailed.store(true);
         return result;
+      }
       result.blockSizes.push_back(
           tunedFunc->getAttrOfType<IntegerAttr>("block_size").getInt());
       result.gridSizes.push_back(
@@ -622,23 +635,27 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       std::lock_guard<std::mutex> lock(outputMutex);
       llvm::errs() << "Backend pipeline failed for config: "
                    << result.perfConfig << "\n";
+      result.status = CompilationStatus::CompilationFailed;
+      compilationFailed.store(true);
       return result;
     }
-
-    result.compilationSucceeded = true;
 
     // Extract binaries
     for (const auto &fnName : kernelFuncNames) {
       auto binary =
           compileCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
-      if (!binary)
+      if (!binary) {
+        result.status = CompilationStatus::CompilationFailed;
+        compilationFailed.store(true);
         return result;
+      }
       result.hipModules.push_back(cast<gpu::ObjectAttr>(binary.getObjects()[0])
                                       .getObject()
                                       .getValue()
                                       .str());
     }
 
+    result.status = CompilationStatus::Success;
     return result;
   };
 
@@ -649,9 +666,14 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // Thread pool pattern
     auto worker = [&]() {
       while (true) {
+        // Check if any compilation has failed
+        if (compilationFailed.load())
+          break;
+        
         size_t idx = nextIdx.fetch_add(1);
         if (idx >= configs.size())
           break;
+        
         compilationResults[idx] = compileConfig(idx);
       }
     };
@@ -666,19 +688,26 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
   }
 
+  // Check if any compilation failed and terminate early
+  if (compilationFailed.load()) {
+    llvm::errs() << "Compilation failed for one or more configs. Terminating.\n";
+    return failure();
+  }
+
   // Sequential benchmarking phase (must be sequential for accurate timing)
+  // Note: Due to early exit on compilation failures, only NotApplicable and
+  // Success statuses are possible here.
   for (const auto &result : compilationResults) {
     llvm::outs() << result.perfConfig << "\t";
 
-    if (!result.isApplicable) {
+    if (result.status == CompilationStatus::NotApplicable) {
       llvm::outs() << "N/A\n";
       continue;
     }
 
-    if (!result.compilationSucceeded) {
-      llvm::outs() << "COMPILE_FAILED\n";
-      continue;
-    }
+    // At this point, status must be Success (we exited early on any failures)
+    assert(result.status == CompilationStatus::Success &&
+           "Unexpected compilation status in benchmarking phase");
 
     FailureOr<double> timing = benchmarkKernels(
         result.hipModules, kernelFuncNames, result.blockSizes, result.gridSizes,
