@@ -347,7 +347,6 @@ def combine_data(input_dir, no_splitk):
     dfs = []
     for file in tsv_files:
         df = pd.read_csv(file, sep='\t', index_col=None)
-        df = df[df.columns[1:]]
         dfs.append(df)
     if not dfs:
         return None
