@@ -8,8 +8,9 @@ func.func @conv_gemm(%arg0: tensor<131072xf32>, %arg1: tensor<36864xf32>, %arg2:
   %2 = tosa.const_shape  {values = dense<[64, 1, 1]> : tensor<3xindex>} : () -> !tosa.shape<3>
   %expanded_0 = tensor.expand_shape %arg3 [[0, 1, 2]] output_shape [64, 1, 1] : tensor<64xf32> into tensor<64x1x1xf32>
   %3 = tosa.transpose %expanded_0 {perms = array<i32: 2, 1, 0>} : (tensor<64x1x1xf32>) -> tensor<1x1x64xf32>
-  %4 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x2048x64xf32>}> : () -> tensor<1x2048x64xf32>
-  %5 = tosa.add %3, %4 : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>) -> tensor<1x2048x64xf32>
+  %4 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x2048x64xf32>}> : () -> tensor<1x2048x64xf32>
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8> 
+  %5 = tosa.mul %3, %4, %shift : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>, tensor<1xi8>) -> tensor<1x2048x64xf32>
   %6 = tosa.const_shape  {values = dense<[64, 3, 3, 64]> : tensor<4xindex>} : () -> !tosa.shape<4>
   %expanded_1 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [64, 3, 3, 64] : tensor<36864xf32> into tensor<64x3x3x64xf32>
   %7 = tosa.transpose %expanded_1 {perms = array<i32: 0, 3, 1, 2>} : (tensor<64x3x3x64xf32>) -> tensor<64x64x3x3xf32>
@@ -69,8 +70,9 @@ func.func @conv_gemm_with_bias_only(%arg0: tensor<131072xf32>, %arg1: tensor<368
   %2 = tosa.const_shape  {values = dense<[64, 1, 1]> : tensor<3xindex>} : () -> !tosa.shape<3>
   %expanded_0 = tensor.expand_shape %arg3 [[0, 1, 2]] output_shape [64, 1, 1] : tensor<64xf32> into tensor<64x1x1xf32>
   %3 = tosa.transpose %expanded_0 {perms = array<i32: 2, 1, 0>} : (tensor<64x1x1xf32>) -> tensor<1x1x64xf32>
-  %4 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x2048x64xf32>}> : () -> tensor<1x2048x64xf32>
-  %5 = tosa.add %3, %4 : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>) -> tensor<1x2048x64xf32>
+  %4 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x2048x64xf32>}> : () -> tensor<1x2048x64xf32>
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8> 
+  %5 = tosa.mul %3, %4, %shift : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>, tensor<1xi8>) -> tensor<1x2048x64xf32>
   %6 = tosa.const_shape  {values = dense<[64, 3, 3, 64]> : tensor<4xindex>} : () -> !tosa.shape<4>
   %expanded_1 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [64, 3, 3, 64] : tensor<36864xf32> into tensor<64x3x3x64xf32>
   %7 = tosa.transpose %expanded_1 {perms = array<i32: 0, 3, 1, 2>} : (tensor<64x3x3x64xf32>) -> tensor<64x64x3x3xf32>
@@ -102,11 +104,12 @@ func.func @conv_gemm_with_scale_and_bias(%arg0: tensor<131072xf32>, %arg1: tenso
   %2 = tosa.const_shape  {values = dense<[64, 1, 1]> : tensor<3xindex>} : () -> !tosa.shape<3>
   %expanded_0 = tensor.expand_shape %arg4 [[0, 1, 2]] output_shape [64, 1, 1] : tensor<64xf32> into tensor<64x1x1xf32>
   %3 = tosa.transpose %expanded_0 {perms = array<i32: 2, 1, 0>} : (tensor<64x1x1xf32>) -> tensor<1x1x64xf32>
-  %4 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x2048x64xf32>}> : () -> tensor<1x2048x64xf32>
-  %5 = tosa.add %3, %4 : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>) -> tensor<1x2048x64xf32>
+  %4 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x2048x64xf32>}> : () -> tensor<1x2048x64xf32>
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %5 = tosa.mul %3, %4, %shift : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>, tensor<1xi8>) -> tensor<1x2048x64xf32>
   %expanded_1 = tensor.expand_shape %arg3 [[0, 1, 2]] output_shape [64, 1, 1] : tensor<64xf32> into tensor<64x1x1xf32>
   %6 = tosa.transpose %expanded_1 {perms = array<i32: 2, 1, 0>} : (tensor<64x1x1xf32>) -> tensor<1x1x64xf32>
-  %7 = tosa.add %6, %4 : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>) -> tensor<1x2048x64xf32>
+  %7 = tosa.mul %6, %4, %shift : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>, tensor<1xi8>) -> tensor<1x2048x64xf32>
   %8 = tosa.const_shape  {values = dense<[64, 3, 3, 64]> : tensor<4xindex>} : () -> !tosa.shape<4>
   %expanded_2 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [64, 3, 3, 64] : tensor<36864xf32> into tensor<64x3x3x64xf32>
   %9 = tosa.transpose %expanded_2 {perms = array<i32: 0, 3, 1, 2>} : (tensor<64x3x3x64xf32>) -> tensor<64x64x3x3xf32>
@@ -140,11 +143,12 @@ func.func @conv_gemm_with_scale_bias_exp(%arg0: tensor<131072xf32>, %arg1: tenso
   %2 = tosa.const_shape  {values = dense<[64, 1, 1]> : tensor<3xindex>} : () -> !tosa.shape<3>
   %expanded_0 = tensor.expand_shape %arg4 [[0, 1, 2]] output_shape [64, 1, 1] : tensor<64xf32> into tensor<64x1x1xf32>
   %3 = tosa.transpose %expanded_0 {perms = array<i32: 2, 1, 0>} : (tensor<64x1x1xf32>) -> tensor<1x1x64xf32>
-  %4 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x2048x64xf32>}> : () -> tensor<1x2048x64xf32>
-  %5 = tosa.add %3, %4 : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>) -> tensor<1x2048x64xf32>
+  %4 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x2048x64xf32>}> : () -> tensor<1x2048x64xf32>
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %5 = tosa.mul %3, %4, %shift : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>, tensor<1xi8>) -> tensor<1x2048x64xf32>
   %expanded_1 = tensor.expand_shape %arg3 [[0, 1, 2]] output_shape [64, 1, 1] : tensor<64xf32> into tensor<64x1x1xf32>
   %6 = tosa.transpose %expanded_1 {perms = array<i32: 2, 1, 0>} : (tensor<64x1x1xf32>) -> tensor<1x1x64xf32>
-  %7 = tosa.add %6, %4 : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>) -> tensor<1x2048x64xf32>
+  %7 = tosa.mul %6, %4, %shift : (tensor<1x1x64xf32>, tensor<1x2048x64xf32>, tensor<1xi8>) -> tensor<1x2048x64xf32>
   %8 = tosa.const_shape  {values = dense<[64, 3, 3, 64]> : tensor<4xindex>} : () -> !tosa.shape<4>
   %expanded_2 = tensor.expand_shape %arg1 [[0, 1, 2, 3]] output_shape [64, 3, 3, 64] : tensor<36864xf32> into tensor<64x3x3x64xf32>
   %9 = tosa.transpose %expanded_2 {perms = array<i32: 0, 3, 1, 2>} : (tensor<64x3x3x64xf32>) -> tensor<64x64x3x3xf32>

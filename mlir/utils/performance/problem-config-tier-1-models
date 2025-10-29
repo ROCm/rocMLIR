@@ -21,6 +21,7 @@
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
 -t f32 -out_datatype f32 -transA false -transB true -g 1 -m 1 -n 768 -k 768
+-t f32 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 3072 -k 768 -gemmO 768
 #bert_base_uncased_1
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
@@ -28,6 +29,7 @@
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
 -t f32 -out_datatype f32 -transA false -transB true -g 1 -m 1 -n 768 -k 768
+-t f32 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 3072 -k 768 -gemmO 768
 #bert_base_uncased_1_fp16
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 768
@@ -35,6 +37,7 @@
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 768 -k 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 3072 -k 768 -gemmO 768
 #bert_base_uncased_1_int8
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 768
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
@@ -56,6 +59,7 @@
 -t f32 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t f32 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 3072 -k 768 -gemmO 768
 #distilgpt2_1_int8
 -t f32 -out_datatype f32 -transA false -transB false -g 12 -m 384 -n 64 -k 384
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
@@ -179,6 +183,7 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 768 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
 -t f16 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 3072 -k 768 -gemmO 768
 #bert_large_uncased_1_fp16_gpu
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 1024 -k 1024
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 1024 -k 4096
@@ -186,12 +191,14 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 
 -t f16 -transQ false -transK true -transV false -transO false -g 16 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 4096 -k 1024
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 1 -n 1024 -k 1024
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 4096 -k 1024 -gemmO 1024
 #distilgpt2_1_fp16_gpu
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 2304 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 3072
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 768 -k 768
 -t f16 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 384 -n 3072 -k 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 384 -n 3072 -k 768 -gemmO 768
 #gpt2
 -t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 64 -k 1
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
@@ -199,6 +206,7 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 768 -k 3072
 -t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 1 -k 64
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
+-t f32 -transA false -transB false -transC false -transO false -g 1 -m 1 -n 3072 -k 768 -gemmO 768
 #gpt2_fp16
 -t f16 -out_datatype f16 -transA false -transB false -g 12 -m 1 -n 64 -k 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
@@ -206,6 +214,7 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 384 -H 28 -W 28 -k 512 -y 1 -x 
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 2304 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 3072 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 12 -m 1 -n 1 -k 64
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 1 -n 3072 -k 768 -gemmO 768
 #gpt2_int8
 -t f32 -out_datatype f32 -transA false -transB false -g 12 -m 1 -n 64 -k 1
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1 -n 768 -k 768
@@ -304,6 +313,7 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 128 -W 128 -k 512 -y 3 -
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 1024 -k 4096
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 4096 -k 1024
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 384 -n 2 -k 1024
+-t f16 -transA false -transB true -transC true -transO false -g 1 -m 384 -n 4096 -k 1024 -gemmO 1024
 #llama2_decoder
 -t f32 -out_datatype f32 -transA false -transB true -g 32 -m 256 -n 256 -k 128
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 256 -n 22016 -k 4096
@@ -393,6 +403,7 @@ conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 128 -y 1 -x 1 
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 25 -W 25 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f32 -transA false -transB false -transC false -transO false -g 1 -m 1000 -n 1024 -k 12544 -gemmO 1024
 #mask_rcnn_fp16
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 512 -H 100 -W 100 -k 128 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 3 -H 800 -W 800 -k 64 -y 7 -x 7 -p 3 -q 3 -u 2 -v 2 -l 1 -j 1 -g 1
@@ -437,6 +448,7 @@ convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 200 -W 200 -k 128 -y 1 -
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 100 -W 100 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 2048 -H 25 -W 25 -k 256 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
 convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 13 -W 13 -k 12 -y 1 -x 1 -p 0 -q 0 -u 1 -v 1 -l 1 -j 1 -g 1
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 1000 -n 1024 -k 12544 -gemmO 1024
 #mask_rcnn_int8
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 200 -W 200 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 256 -H 25 -W 25 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
@@ -541,6 +553,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 5120 -k 1280
 -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 1500 -n 3840 -k 1280
 -t f32 -transQ false -transK true -transV false -transO false -g 20 -seq_len_q 1500 -seq_len_k 1500 -head_dim_qk 64 -head_dim_v 64
+-t f32 -transA false -transB false -transC false -transO false -g 1 -m 1500 -n 5120 -k 1280 -gemmO 1280
 #whisper_large_decoder
 -t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 1 -k 64
 -t f16 -out_datatype f16 -transA false -transB false -g 20 -m 216 -n 64 -k 1
@@ -552,6 +565,8 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 5120 -k 1280
 -t f16 -out_datatype f16 -transA false -transB true -g 20 -m 216 -n 216 -k 64
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 216 -n 51865 -k 1280
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 216 -n 5120 -k 1280 -gemmO 1280
+-t f16 -transA false -transB false -transC false -transO false -g 20 -m 216 -n 1 -k 64 -gemmO 64
 #mistral_7b
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 28672 -k 4096
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 256 -n 6144 -k 4096
@@ -565,6 +580,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 768
 -t f16 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 3072 -k 768 -gemmO 768
 #sd3_text_encoder
 -t f16 -out_datatype f16 -transA false -transB false -g 12 -m 77 -n 64 -k 77
 -t f16 -out_datatype f16 -transA false -transB true -g 12 -m 77 -n 77 -k 64
@@ -573,6 +589,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 3072 -k 768 -gemmO 768
 #sd3_text_encoder_fp16
 -t f16 -out_datatype f16 -transA false -transB true -g 12 -m 77 -n 77 -k 64
 -t f16 -out_datatype f16 -transA false -transB false -g 12 -m 77 -n 64 -k 77
@@ -581,6 +598,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 768 -k 3072
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 3072 -k 768 -gemmO 768
 #sd3_text_encoder_int8
 -t f16 -out_datatype f16 -transA false -transB false -g 12 -m 77 -n 64 -k 77
 -t f16 -out_datatype f16 -transA false -transB true -g 12 -m 77 -n 77 -k 64
@@ -604,6 +622,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 5120 -k 1280
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 1280 -k 5120
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1280 -k 1280
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 5120 -k 1280 -gemmO 1280
 #sd3_text_encoder_2_int8
 -t f16 -out_datatype f16 -transA false -transB false -g 20 -m 77 -n 64 -k 77
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 1280 -k 1280
@@ -627,6 +646,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 5120 -k 1280
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 1280 -k 5120
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1280 -k 1280
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 5120 -k 1280 -gemmO 1280
 #sd3_text_encoder_3
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 12288 -k 4096
 -t f16 -out_datatype f16 -transA false -transB false -g 64 -m 77 -n 64 -k 77
@@ -647,6 +667,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f16 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 3072 -k 768 -gemmO 768
 #sd3_5_text_encoder_2_fp16
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 3840 -k 1280
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 1280 -k 1280
@@ -654,6 +675,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f16 -transQ false -transK true -transV false -transO false -g 20 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 1280 -k 5120
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1280 -k 1280
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 5120 -k 1280 -gemmO 1280
 #sd3_5_text_encoder_3_fp16
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 20480 -k 4096
 -t f16 -transQ false -transK true -transV false -transO false -g 64 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
@@ -667,6 +689,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f16 -transQ false -transK true -transV false -transO false -g 12 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 768 -k 768
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 77 -n 3072 -k 768
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 3072 -k 768 -gemmO 768
 #sd3_5_text_encoder_2
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 3840 -k 1280
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 1280 -k 1280
@@ -674,6 +697,7 @@ conv -F 1 -f GN01C -I N01GC -O N01GC -n 1 -c 1280 -H 3000 -W 1 -k 1280 -y 3 -x 1
 -t f16 -transQ false -transK true -transV false -transO false -g 20 -seq_len_q 77 -seq_len_k 77 -head_dim_qk 64 -head_dim_v 64
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 1280 -k 5120
 -t f16 -out_datatype f16 -transA false -transB false -g 1 -m 1 -n 1280 -k 1280
+-t f16 -transA false -transB false -transC false -transO false -g 1 -m 77 -n 5120 -k 1280 -gemmO 1280
 #sd3_5_text_encoder_3
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 12288 -k 4096
 -t f16 -out_datatype f16 -transA false -transB true -g 1 -m 77 -n 20480 -k 4096
@@ -3500,3 +3524,5 @@ conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 128 -W 128 -k 64 -y 3 -x 3 -p
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 256 -W 256 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 512 -W 512 -k 64 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
 conv -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 64 -H 512 -W 512 -k 3 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1
+#unet_model
+-t f16 -transA false -transB true -transC true -transO false -g 1 -m 2 -n 1280 -k 320 -gemmO 1280

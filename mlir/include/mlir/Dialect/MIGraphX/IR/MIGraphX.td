@@ -55,11 +55,12 @@ def MIGraphX_LiteralOp : MIGraphX_Op<"literal",
 
 // Elementwise binary operations
 
-class MIGraphX_ElementwiseBinaryOp<string name, list<Trait> traits = []> :
-    MIGraphX_Op<name, traits>,
-    Arguments<(ins AnyMIXRShaped:$inA,
-                   AnyMIXRShaped:$inB)>,
-    Results<(outs AnyMIXRShaped:$output)> {
+class MIGraphX_ElementwiseBinaryOp<string name, list<Trait> traits = []>
+    : MIGraphX_Op<
+          name, !listconcat(
+                    traits, [AllElementTypesMatch<["inA", "inB", "output"]>])>,
+      Arguments<(ins AnyMIXRShaped:$inA, AnyMIXRShaped:$inB)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise " # name # " of two shaped values with broadcast";
   let assemblyFormat = [{
     $inA `,` $inB attr-dict
@@ -78,6 +79,20 @@ def MIGraphX_DivOp :
 def MIGraphX_PowOp :
     MIGraphX_ElementwiseBinaryOp<"pow">;
 def MIGraphX_Greater : MIGraphX_ElementwiseBinaryOp<"greater">;
+
+def MIGraphX_Equal : MIGraphX_ElementwiseBinaryOp<"equal"> {
+  let summary = [{
+    Elementwise equality comparison
+  }];
+
+  let description = [{
+    Returns the truth value of (input1 == input2) element-wise.
+
+    Returns a tensor with the same element type as the inputs (not i1) to
+    match MIGraphX's IR representation. This allows direct use with
+    `migraphx.where`, which requires I8/SI8/UI8 condition tensors.
+  }];
+}
 
 def MIGraphX_ClipOp :
     MIGraphX_Op<"clip">,
