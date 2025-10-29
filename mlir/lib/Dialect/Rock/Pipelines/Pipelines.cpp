@@ -69,6 +69,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockViewToTransformPass());
   }
 
+  funcPm.addPass(createRocmlirCustomTosaDecomposePass());
   funcPm.addPass(createRocmlirCustomTosaToLinalgPass());
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
@@ -150,7 +151,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   // rock lowering (tuning, global to block)
   /* rocmlir-opt --rock-affix-params --rock-conv-to-gemm
    *   --rock-fold-broadcast --rock-affix-params --rock-gemm-to-gridwise
-   *   --rock-regularize  --rock-gridwise-gemm-to-blockwise
+   *   --rock-regularize --rock-gridwise-gemm-to-blockwise
+   * --rock-blockwise-load-tile-to-threadwise
    */
   auto &funcPm = pm.nest<func::FuncOp>();
   funcPm.addPass(rock::createRockAffixTuningParametersPass(
@@ -161,6 +163,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
   funcPm.addPass(rock::createRockRegularizePass());
   funcPm.addPass(rock::createRockShuffleGemmForReductions());
   funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
+  funcPm.addPass(rock::createRockBlockwiseLoadTileToThreadwisePass());
+
   // We want to delay blockwise lowering in the fusion cases
   // until after linalg align pass because with reduction fusion
   // it may introduce blockwise_reductions.
@@ -180,8 +184,14 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     funcPm.addPass(rock::createRockVectorizeFusionsPass());
   }
+  // We run reuse LDS before the output swizzle pass because it uses a heuristic
+  // to determine whether to swizzle or not, and that heuristic needs the actual
+  // LDS usage. After running output swizzle, we'll create a new LDS buffer and
+  // we need to run reuse LDS again to be able to reuse LDS memory.
+  funcPm.addPass(rock::createRockAnnotateLivenessPass());
   funcPm.addPass(rock::createRockReuseLDSPass());
   funcPm.addPass(rock::createRockOutputSwizzlePass());
+  funcPm.addPass(rock::createRockAnnotateLivenessPass());
   funcPm.addPass(rock::createRockReuseLDSPass());
 
   if (!options.enableApplicability) {

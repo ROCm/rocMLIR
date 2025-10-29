@@ -4,7 +4,7 @@
 // CHECK-NEXT: gpu.module @emptykernel_module
 // CHECK-NEXT: gpu.func @emptykernel(%{{.*}}: memref<?x?x?x?xf32> {llvm.noalias}) kernel
 module {
-  func.func @emptykernel(%arg0: memref<?x?x?x?xf32> {llvm.noalias}) attributes {kernel = 0 : i32} {
+  func.func @emptykernel(%arg0: memref<?x?x?x?xf32> {llvm.noalias}) attributes {kernel = 0 : i32, block_size = 32 : i32, grid_size = 1 : i32} {
     return
   }
 }
@@ -16,7 +16,7 @@ module {
 // CHECK-NEXT: gpu.func @emptykernel(%{{.*}}: memref<?x?x?x?xf32> {llvm.noalias}) kernel
 // CHECK-SAME: arch = "gfx90a"
 module {
-  func.func @emptykernel(%arg0: memref<?x?x?x?xf32> {llvm.noalias}) attributes {kernel = 0 : i32, arch = "gfx90a"} {
+  func.func @emptykernel(%arg0: memref<?x?x?x?xf32> {llvm.noalias}) attributes {kernel = 0 : i32, block_size = 32 : i32, grid_size = 1 : i32, arch = "gfx90a"} {
     return
   }
 }

@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -split-input-file --migraphx-transform --canonicalize --migraphx-to-tosa %s -verify-diagnostics -o -| FileCheck %s
+// RUN: rocmlir-opt -split-input-file --migraphx-transform --canonicalize --migraphx-to-tosa --cse %s -verify-diagnostics -o -| FileCheck %s
 
 module  {
   // CHECK-LABEL: func @literal_zero
@@ -269,10 +269,10 @@ module  {
     // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0, %[[constshape3]]
     // CHECK-DAG: %[[INPUT:.*]] = tosa.reshape %[[ARG2]], %[[constshape]]
     %0 = migraphx.broadcast %arg2 {axis = 0, out_lens = [64, 768, 2304]} : <1x768x2304xf16, 1769472x2304x1> -> <64x768x2304xf16, 0x2304x1>
-    // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{values = dense<0.000000e+00> : tensor<64x768x2304xf16>}> : () -> tensor<64x768x2304xf16>
-    // CHECK-DAG: %[[ADD:.*]] = tosa.add %[[CST0]], %[[INPUT]]
+    // CHECK-DAG: %[[CST1:.*]] = "tosa.const"() <{values = dense<1.000000e+00> : tensor<64x768x2304xf16>}> : () -> tensor<64x768x2304xf16>
+    // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[INPUT]], %[[CST1]], %{{.*}}
     %1 = migraphx.dot %arg1, %0 : <64x64x768xf16, 49152x768x1>, <64x768x2304xf16, 0x2304x1> -> <64x64x2304xf16, 147456x2304x1>
-    // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[ARG1]], %[[ADD]]
+    // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[ARG1]], %[[MUL]]
     // CHECK-SAME: {acc_type = f32}
     // CHECK-DAG: %[[BIASED:.*]] = tosa.add %[[MATMUL]], %[[ARG0]]
     // CHECK-DAG: %[[constshape5:.+]] = tosa.const_shape  {values = dense<9437184> : tensor<1xindex>} : () -> !tosa.shape<1>
@@ -291,10 +291,10 @@ module  {
     // CHECK-DAG: %[[constshape3:.+]] = tosa.const_shape  {values = dense<[64, 64, 2304]> : tensor<3xindex>} : () -> !tosa.shape<3>
     // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0, %[[constshape3]]
     %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [64, 768, 2304]} : <1x768x2304xf16, 1769472x2304x1> -> <64x768x2304xf16, 0x2304x1>
-    // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{values = dense<0.000000e+00> : tensor<64x768x2304xf16>}> : () -> tensor<64x768x2304xf16>
-    // CHECK-DAG: %[[ADD:.*]] = tosa.add %[[CST0]], %[[ARG2]]
+    // CHECK-DAG: %[[CST1:.*]] = "tosa.const"() <{values = dense<1.000000e+00> : tensor<64x768x2304xf16>}> : () -> tensor<64x768x2304xf16>
+    // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG2]], %[[CST1]], %{{.*}}
     %1 = migraphx.dot %arg1, %0 : <64x64x768xf16, 49152x768x1>, <64x768x2304xf16, 0x2304x1> -> <64x64x2304xf16, 147456x2304x1>
-    // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[ARG1]], %[[ADD]]
+    // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[ARG1]], %[[MUL]]
     // CHECK-SAME: {acc_type = f32}
     // CHECK-DAG: %[[BIASED:.*]] = tosa.add %[[MATMUL]], %[[ARG0]]
     // CHECK-DAG: %[[constshape5:.+]] = tosa.const_shape  {values = dense<9437184> : tensor<1xindex>} : () -> !tosa.shape<1>
@@ -315,10 +315,10 @@ module  {
     %0 = migraphx.multibroadcast %arg2 {out_dyn_dims = [], out_lens = [2, 4, 8, 768, 2304]} : <1x1x1x768x2304xf16, 1769472x1769472x1769472x2304x1> -> <2x4x8x768x2304xf16, 0x0x0x2304x1>
     // CHECK-DAG: %[[constshape4:.+]] = tosa.const_shape  {values = dense<[64, 64, 768]> : tensor<3xindex>} : () -> !tosa.shape<3>
     // CHECK-DAG: %[[RESHAPE0:.*]] = tosa.reshape %[[ARG1]], %[[constshape4]]
-    // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{values = dense<0.000000e+00> : tensor<2x4x8x768x2304xf16>}> : () -> tensor<2x4x8x768x2304xf16>
-    // CHECK-DAG: %[[ADD:.*]] = tosa.add %[[CST0]], %[[ARG2]]
+    // CHECK-DAG: %[[CST1:.*]] = "tosa.const"() <{values = dense<1.000000e+00> : tensor<2x4x8x768x2304xf16>}> : () -> tensor<2x4x8x768x2304xf16>
+    // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG2]], %[[CST1]], %{{.*}}
     // CHECK-DAG: %[[constshape5:.+]] = tosa.const_shape  {values = dense<[64, 768, 2304]> : tensor<3xindex>} : () -> !tosa.shape<3>
-    // CHECK-DAG: %[[RESHAPE1:.*]] = tosa.reshape %[[ADD]], %[[constshape5]]
+    // CHECK-DAG: %[[RESHAPE1:.*]] = tosa.reshape %[[MUL]], %[[constshape5]]
     %1 = migraphx.dot %arg1, %0 : <2x4x8x64x768xf16, 1572864x393216x49152x768x1>, <2x4x8x768x2304xf16, 0x0x0x2304x1> -> <2x4x8x64x2304xf16, 4718592x1179648x147456x2304x1>
     // CHECK-DAG: %[[MATMUL:.*]] = tosa.matmul %[[RESHAPE0]], %[[RESHAPE1]]
     // CHECK-SAME: {acc_type = f32}
@@ -367,13 +367,13 @@ module  {
     // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1, %[[constshape]]
     // CHECK-DAG: %[[constshape2:.+]] = tosa.const_shape  {values = dense<64> : tensor<2xindex>} : () -> !tosa.shape<2>
     // CHECK-DAG: %[[ARG0:.*]] = tosa.reshape %arg0, %[[constshape2]]
-    // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{values = dense<0.000000e+00> : tensor<64x64xf16>}> : () -> tensor<64x64xf16>
-    // CHECK-DAG: %[[ADD0:.*]] = tosa.add %[[CST0]], %[[ARG1]]
+    // CHECK-DAG: %[[CST1:.*]] = "tosa.const"() <{values = dense<1.000000e+00> : tensor<64x64xf16>}> : () -> tensor<64x64xf16>
+    // CHECK-DAG: %[[MUL0:.*]] = tosa.mul %[[ARG1]], %[[CST1]], %{{.*}}
     // CHECK-DAG: %[[constshape3:.+]] = tosa.const_shape  {values = dense<1> : tensor<2xindex>} : () -> !tosa.shape<2>
     // CHECK-DAG: %[[RESHAPE:.*]] = tosa.reshape %arg2, %[[constshape3]]
-    // CHECK-DAG: %[[ADD1:.*]] = tosa.add %[[CST0]], %[[RESHAPE]]
-    // CHECK: %[[MAX:.*]] = tosa.maximum %[[ARG0]], %[[ADD0]]
-    // CHECK: %[[MIN:.*]] = tosa.minimum %[[MAX]], %[[ADD1]]
+    // CHECK-DAG: %[[MUL1:.*]] = tosa.mul %[[RESHAPE]], %[[CST1]], %{{.*}}
+    // CHECK: %[[MAX:.*]] = tosa.maximum %[[ARG0]], %[[MUL0]]
+    // CHECK: %[[MIN:.*]] = tosa.minimum %[[MAX]], %[[MUL1]]
     // CHECK-DAG: %[[constshape4:.+]] = tosa.const_shape  {values = dense<4096> : tensor<1xindex>} : () -> !tosa.shape<1>
     // CHECK: %[[RET:.*]] = tosa.reshape %[[MIN]], %[[constshape4]]
     // CHECK: return %[[RET]]
@@ -398,9 +398,9 @@ module  {
     // CHECK-DAG: %[[constshape2:.+]] = tosa.const_shape  {values = dense<64> : tensor<2xindex>} : () -> !tosa.shape<2>
     // CHECK-DAG: %[[ARG1:.*]] = tosa.reshape %arg1, %[[constshape2]]
     // CHECK-DAG: %[[ARG2:.*]] = tosa.reshape %arg2, %[[constshape2]]
-    // CHECK-DAG: %[[CST0:.*]] = "tosa.const"() <{values = dense<0> : tensor<64x64xi8>}> : () -> tensor<64x64xi8>
-    // CHECK-DAG: %[[ADD:.*]] = tosa.add %[[CST0]], %[[ARG0]]
-    // CHECK-DAG: %[[CAST:.*]] = tosa.cast %[[ADD]]
+    // CHECK-DAG: %[[CST1:.*]] = "tosa.const"() <{values = dense<1> : tensor<64x64xi8>}> : () -> tensor<64x64xi8>
+    // CHECK-DAG: %[[MUL:.*]] = tosa.mul %[[ARG0]], %[[CST1]], %{{.*}}
+    // CHECK-DAG: %[[CAST:.*]] = tosa.cast %[[MUL]]
     // CHECK-DAG: tosa.select %[[CAST]], %[[ARG1]], %[[ARG2]]
     %0 = migraphx.multibroadcast %arg0 {out_dyn_dims = [], out_lens = [64, 64]} : <64x1xi8, 1x1> -> <64x64xi8, 1x0>
     %1 = migraphx.where %0, %arg1, %arg2 : <64x64xi8, 1x0>, <64x64xf16, 64x1>, <64x64xf16, 64x1> -> <64x64xf16, 64x1>
@@ -664,6 +664,26 @@ module  {
     %cst = migraphx.literal (dense<1> : tensor<1x36x384x64xsi32>) : <1x36x384x64xsi32, 884736x24576x64x1>
     %0 = migraphx.add %arg0, %cst : <1x36x384x64xsi32, 884736x24576x64x1>, <1x36x384x64xsi32, 884736x24576x64x1> -> <1x36x384x64xsi32, 884736x24576x64x1>
     %1 = migraphx.greater %arg0, %0 : <1x36x384x64xsi32, 884736x24576x64x1>, <1x36x384x64xsi32, 884736x24576x64x1> -> <1x36x384x64xsi32, 884736x24576x64x1>
+    return %1 : !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>
+  }
+
+  // CHECK-LABEL: func.func @func_equal
+  // CHECK: %[[eq:.+]] = tosa.equal {{.*}} : (tensor<1x36x384x64xi32>, tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi1>
+  // CHECK-NEXT: tosa.cast %[[eq]] : (tensor<1x36x384x64xi1>) -> tensor<1x36x384x64xi32>
+  func.func @func_equal(%arg0: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %cst = migraphx.literal (dense<1> : tensor<1x36x384x64xi32>) : <1x36x384x64xi32, 884736x24576x64x1>
+    %0 = migraphx.add %arg0, %cst : <1x36x384x64xi32, 884736x24576x64x1>, <1x36x384x64xi32, 884736x24576x64x1> -> <1x36x384x64xi32, 884736x24576x64x1>
+    %1 = migraphx.equal %arg0, %0 : <1x36x384x64xi32, 884736x24576x64x1>, <1x36x384x64xi32, 884736x24576x64x1> -> <1x36x384x64xi32, 884736x24576x64x1>
+    return %1 : !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>
+  }
+
+  // CHECK-LABEL: func.func @func_equal_si32
+  // CHECK: %[[eq:.+]] = tosa.equal {{.*}} : (tensor<1x36x384x64xi32>, tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi1>
+  // CHECK-NEXT: tosa.cast %[[eq]] : (tensor<1x36x384x64xi1>) -> tensor<1x36x384x64xi32>
+  func.func @func_equal_si32(%arg0: !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %cst = migraphx.literal (dense<1> : tensor<1x36x384x64xsi32>) : <1x36x384x64xsi32, 884736x24576x64x1>
+    %0 = migraphx.add %arg0, %cst : <1x36x384x64xsi32, 884736x24576x64x1>, <1x36x384x64xsi32, 884736x24576x64x1> -> <1x36x384x64xsi32, 884736x24576x64x1>
+    %1 = migraphx.equal %arg0, %0 : <1x36x384x64xsi32, 884736x24576x64x1>, <1x36x384x64xsi32, 884736x24576x64x1> -> <1x36x384x64xsi32, 884736x24576x64x1>
     return %1 : !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>
   }
 }
