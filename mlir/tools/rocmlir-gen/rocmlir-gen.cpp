@@ -1519,16 +1519,14 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
             cpuMem[cpuMem.size() - 1].getType()),
         cpuMem[cpuMem.size() - 1], true, false);
     Value lseTensor = bufferization::ToTensorOp::create(
-        b,
-        loc,
+        b, loc,
         memref::getTensorTypeFromMemRefType(
             cpuMem[cpuMem.size() - 2].getType()),
         cpuMem[cpuMem.size() - 2], true, false);
     auto out = computeFinalAttentionStage(b, loc, resultTensor, lseTensor,
                                           validSplitKV);
     Value outMemref = bufferization::ToBufferOp::create(
-        b,
-        loc,
+        b, loc,
         cast<mlir::bufferization::BufferLikeType>(
             cpuMem[cpuMem.size() - 1].getType()),
         out);
@@ -3050,8 +3048,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
-  auto attention = rock::AttentionOp::create(builder,
-      loc, TypeRange{}, queries, keys, values, elemwiseInputs,
+  auto attention = rock::AttentionOp::create(
+      builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, numHeadsQ, numHeadsKV, transposeQ,
       transposeK, transposeV, transposeO, causalMasking, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
@@ -4212,9 +4210,8 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
                                   {mr1DUnkTestType, mr1DUnkValType, floatType,
                                    floatType, floatType, charType, boolType});
     func::CallOp::create(b, loc, verifyFuncDecl,
-                           ValueRange{testResult, valResult, thr_RMS,
-                                      thr_absDiff, thr_relDiff, printDebugVal,
-                                      isFP32Val});
+                         ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
+                                    thr_relDiff, printDebugVal, isFP32Val});
   } else {
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, charType});

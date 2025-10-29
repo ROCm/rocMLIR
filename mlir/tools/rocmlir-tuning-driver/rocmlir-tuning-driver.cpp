@@ -265,9 +265,9 @@ struct BenchmarkParams {
 };
 
 enum class CompilationStatus {
-  NotApplicable,      // Config not applicable for this kernel
-  CompilationFailed,  // Config applicable but compilation failed
-  Success             // Successfully compiled
+  NotApplicable,     // Config not applicable for this kernel
+  CompilationFailed, // Config applicable but compilation failed
+  Success            // Successfully compiled
 };
 
 struct CompilationResult {
@@ -544,7 +544,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
                             : std::thread::hardware_concurrency();
   if (numThreads == 0)
     numThreads = 4; // fallback
-  
+
   // Don't create more threads than configs to compile
   numThreads = std::min(numThreads, static_cast<unsigned>(configs.size()));
 
@@ -557,7 +557,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // Parallel compilation phase
   std::vector<CompilationResult> compilationResults(configs.size());
   std::mutex outputMutex; // For thread-safe console output
-  std::atomic<bool> compilationFailed{false}; // Flag to signal early termination
+  std::atomic<bool> compilationFailed{
+      false}; // Flag to signal early termination
 
   auto compileConfig = [&](size_t idx) -> CompilationResult {
     CompilationResult result;
@@ -669,11 +670,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         // Check if any compilation has failed
         if (compilationFailed.load())
           break;
-        
+
         size_t idx = nextIdx.fetch_add(1);
         if (idx >= configs.size())
           break;
-        
+
         compilationResults[idx] = compileConfig(idx);
       }
     };
@@ -690,7 +691,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
   // Check if any compilation failed and terminate early
   if (compilationFailed.load()) {
-    llvm::errs() << "Compilation failed for one or more configs. Terminating.\n";
+    llvm::errs()
+        << "Compilation failed for one or more configs. Terminating.\n";
     return failure();
   }
 
