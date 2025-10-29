@@ -2013,8 +2013,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (hasReduceOp) {
       lse = getLSE(rsum, rmax);
     } else {
-      // if there is no reduce op, then we have seq_len=1 and lse is just
-      // sub(x, x) + x
+      // if there is no reduce op, then we have seq_len=1 and lse is either
+      // sub(x, x) + x or log(exp(sub(x, x))) + x
       lse = getLSESeqLen1(cast<tosa::SubOp>(sub));
     }
     // lse has three or four dimensions
