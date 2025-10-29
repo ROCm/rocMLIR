@@ -183,6 +183,7 @@ def main(argv=None):
     new_gemm_gemm: list[str] = []
     new_conv_gemm: list[str] = []
     new_attn: list[str] = []
+    unrecognized_configs: list[str] = []
 
     with open(new_configs, "r") as f:
         for line in f:
@@ -212,6 +213,7 @@ def main(argv=None):
                     existing_conv_gemm.add(config)
             else:
                 print(f"Warning: Could not determine config type for: {config}")
+                unrecognized_configs.append(config)
 
     # Append new configs to the appropriate files
     _append_configs(conv_configs, new_conv)
@@ -226,6 +228,13 @@ def main(argv=None):
     print(f"    {len(new_attn)} attention configs.")
     print(f"    {len(new_gemm_gemm)} gemm+gemm configs.")
     print(f"    {len(new_conv_gemm)} conv+gemm configs.")
+    
+    if unrecognized_configs:
+        print(f"\nWarning: {len(unrecognized_configs)} unrecognized config(s) were skipped.")
+        print("Unrecognized configs:")
+        for config in unrecognized_configs:
+            print(f"    {config}")
+        return 1
 
     return 0
 
