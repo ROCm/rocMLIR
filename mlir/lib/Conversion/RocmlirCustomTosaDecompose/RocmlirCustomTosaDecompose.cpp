@@ -739,13 +739,11 @@ public:
         rewriter, loc, UnrankedTensorType::get(resultETy), conv2d,
         convReshapeDims1Value);
 
-    // Effective pad = outPad + (k - 1) - (inPad * stride)
-    // Each input padded row/col expands to stride rows/cols in the upsampled
-    // domain.
+    // Effective pad = outPad + (paddedK - stride - 1) - (inPad * stride)
     int64_t effPadTop =
-        outPad[0] + (origWeightHeight - stride[0]) - inPadVals[0] * stride[0];
+        outPad[0] + (origWeightHeight - stride[0] - 1) - inPadVals[0] * stride[0];
     int64_t effPadLeft =
-        outPad[2] + (origWeightWidth - stride[1]) - inPadVals[2] * stride[1];
+        outPad[2] + (origWeightWidth - stride[1] - 1) - inPadVals[2] * stride[1];
 
     // When we shrink from the orignal size to kPrime by grouping stride phases,
     // we discard some positions that existed in the conceptual upsampled view.
