@@ -19,6 +19,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRRockTransforms
   MLIRRockUtility
   MLIRUBToLLVM
+  RocmlirCustomTosaDecompose
   RocmlirCustomTosaToLinalg
   RocmlirEmulateFp8ExtTrunc
 

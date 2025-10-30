@@ -38,7 +38,7 @@ public:
   void runOnOperation() override {
     auto func = getOperation();
     if (!func->hasAttr("kernel")) {
-      return;
+      llvm::report_fatal_error("func op does not have the kernel attribute");
     }
     auto &ctx = getContext();
     // Split patterns into two stages by bufferization

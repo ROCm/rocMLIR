@@ -15,6 +15,8 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
     inNPerThread = 2 : i32,
     loadAFromLDS,
     loadBFromLDS,
+    elementTypeA = f32,
+    elementTypeB = f32,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 2,
       kpack = 2,
@@ -43,6 +45,8 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<128xvector<8xi
     inNPerThread = 2 : i32,
     loadAFromLDS,
     loadBFromLDS,
+    elementTypeA = i8,
+    elementTypeB = i8,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 2,
       kpack = 8,
@@ -73,6 +77,8 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8(%matrixA : memref<1024xvector<8xf8E
     inNPerThread = 2 : i32,
     loadAFromLDS,
     loadBFromLDS,
+    elementTypeA = f8E4M3FNUZ,
+    elementTypeB = f8E5M2FNUZ,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 8,
       mPerBlock = 128,
@@ -103,6 +109,8 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp(%matrixA : memref<1024xvector<8
     inNPerThread = 2 : i32,
     loadAFromLDS,
     loadBFromLDS,
+    elementTypeA = f8E4M3FN,
+    elementTypeB = f8E5M2,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 8,
       mPerBlock = 128,
@@ -135,6 +143,8 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp_double_buffer(%matrixA : memref
     blockSize = 256 : i32,
     inMPerThread = 2 : i32,
     inNPerThread = 2 : i32,
+    elementTypeA = f8E4M3FN,
+    elementTypeB = f8E5M2,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 8,
       mPerBlock = 128,
@@ -166,6 +176,8 @@ func.func @rock_blockwise_gemm_accel_direct_to_lds(%matrixA : memref<256xvector<
     directToLDS,
     ldsLayoutMxK,
     ldsLayoutNxK,
+    elementTypeA = f32,
+    elementTypeB = f32,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 2,
       kpack = 2,
@@ -175,7 +187,7 @@ func.func @rock_blockwise_gemm_accel_direct_to_lds(%matrixA : memref<256xvector<
       nPerWave = 64,
       mnPerXdl = 32,
       splitKFactor = 1, 
-      scheduleVersion = 1, 
+      scheduleVersion = 4, 
       outputSwizzle = 2,
       forceUnroll = true>
   } : memref<4xvector<16xf32>, #priv> += memref<16xi8, #priv> from memref<256xvector<2xf32>, #wg> * memref<16xi8, #priv> from memref<256xvector<2xf32>, #wg>

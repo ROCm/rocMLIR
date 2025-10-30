@@ -198,6 +198,29 @@ func.func @mlir_bwd_conv2d_dilation(%arg0: tensor<131072xf32>, %arg1: tensor<419
 
 // -----
 
+// CHECK-LABEL: mlir_bwd_conv3d
+// CHECK: %[[buf:.*]] = bufferization.alloc_tensor() : tensor<1x4x4x4x16xf32>
+// CHECK: %[[bufTransformed:.*]] = rock.transform %[[buf]] by #{{.*}} : tensor<1x4x4x4x16xf32> to tensor<1x4x4x4x1x16xf32>
+// CHECK: %[[convRes:.*]] = rock.conv_bwd_data(%{{.*}}, %[[bufTransformed]], %{{.*}}) {dilations = [1 : index, 1 : index, 1 : index], filter_layout = ["g", "k", "0", "1", "2", "c"], input_layout = ["ni", "0i", "1i", "2i", "gi", "ci"], kernelId = 0 : index, output_layout = ["no", "0o", "1o", "2o", "go", "ko"], padding = [0 : index, 0 : index, 0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index, 1 : index], usesV4R1 = false} : tensor<1x1x4x4x4x16xf32>, tensor<1x4x4x4x1x16xf32>, tensor<16x1x1x1x1x16xf32> -> tensor<1x4x4x4x1x16xf32>
+// CHECK-NEXT: %[[transRes:.*]] = rock.transform %[[buf]] by #{{.*}} : tensor<1x4x4x4x16xf32> to tensor<1x16x4x4x4xf32>
+// CHECK-NEXT: %[[reshapeRes:.*]] = tosa.reshape %[[transRes]]
+func.func @mlir_bwd_conv3d(%arg0: tensor<1024xf32>, %arg1: tensor<256xf32>) -> tensor<1024xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  %0 = tosa.const_shape  {values = dense<[16, 1, 1, 1, 16]> : tensor<5xindex>} : () -> !tosa.shape<5>
+  %1 = tosa.const_shape  {values = dense<1024> : tensor<1xindex>} : () -> !tosa.shape<1>
+  %2 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<16xf32>}> : () -> tensor<16xf32>
+  %3 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %4 = tosa.const_shape  {values = dense<[1, 16, 4, 4, 4]> : tensor<5xindex>} : () -> !tosa.shape<5>
+  %5 = tosa.reshape %arg0, %4 : (tensor<1024xf32>, !tosa.shape<5>) -> tensor<1x16x4x4x4xf32>
+  %6 = tosa.reshape %arg1, %0 : (tensor<256xf32>, !tosa.shape<5>) -> tensor<16x1x1x1x16xf32>
+  %7 = tosa.transpose %5 {perms = array<i32: 0, 2, 3, 4, 1>} : (tensor<1x16x4x4x4xf32>) -> tensor<1x4x4x4x16xf32>
+  %8 = tosa.custom %6, %7, %2, %3, %3 {acc_type = f32, conv_kind = "bwd_data", dilation = array<i64: 1, 1, 1>, domain_name = "rocmlir", group = 1 : i64, implementation_attrs = "", operator_name = "conv_bwd_data", out_pad = array<i64: 0, 0, 0, 0, 0, 0>, pad = array<i64: 0, 0, 0, 0, 0, 0>, stride = array<i64: 1, 1, 1>} : (tensor<16x1x1x1x16xf32>, tensor<1x4x4x4x16xf32>, tensor<16xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x4x4x4x16xf32>
+  %9 = tosa.transpose %8 {perms = array<i32: 0, 4, 1, 2, 3>} : (tensor<1x4x4x4x16xf32>) -> tensor<1x16x4x4x4xf32>
+  %10 = tosa.reshape %9, %1 : (tensor<1x16x4x4x4xf32>, !tosa.shape<1>) -> tensor<1024xf32>
+  return %10 : tensor<1024xf32>
+}
+
+// -----
+
 // CHECK-LABEL: mlir_dot_transpose_add
 // CHECK: %[[gemmRes:.*]] = rock.gemm %{{.*}} = %{{.*}} * %{{.*}} storeMethod =  set : tensor<1x4x5xf32> = tensor<1x4x5xf32> * tensor<1x5x5xf32> -> tensor<1x4x5xf32>
 // CHECK-NEXT: %{{.*}} = tosa.reshape %[[gemmRes]]

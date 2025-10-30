@@ -1,5 +1,6 @@
 set(ROCK_UNITTEST_SOURCES
   TransformMapBuilderTests.cpp
+  TosaUtilsTests.cpp
 )
 
 if(NOT WIN32)
@@ -15,4 +16,7 @@ target_link_libraries(MLIRRockUnitTests
   PRIVATE
   MLIRRockOps
   MLIRRockUtility
+  MLIRTosaDialect
+  MLIRFuncDialect
+  MLIRIR
 )

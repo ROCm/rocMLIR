@@ -45,21 +45,208 @@ struct RocmlirCustomTosaDecomposePass
   void runOnOperation() override;
 };
 
+// This is mostly a copy of the verification op that exists for
+// tosa::TransposeConv2DOp in upstream with the output shape checks updated
+// to properly account for input padding and dilation.
+// See here for the formula being used:
+// https://onnx.ai/onnx/operators/onnx__ConvTranspose.html
+LogicalResult verifyConvTranspose(tosa::CustomOp op,
+                                  PatternRewriter &rewriter) {
+  // Make sure this is a transpose conv op.
+  if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
+    return rewriter.notifyMatchFailure(op, "domain isn't rocmlir");
+  if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA)
+    return rewriter.notifyMatchFailure(op, "isn't a conv_bwd_data");
+  if (op.getNumOperands() < 5)
+    return rewriter.notifyMatchFailure(op, "should have 5 or more operands");
+  if (op.getNumResults() != 1)
+    return rewriter.notifyMatchFailure(op, "should have 1 result");
+
+  const auto outputType =
+      llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!outputType)
+    return failure();
+
+  llvm::ArrayRef<int64_t> strides =
+      cast<DenseI64ArrayAttr>(op->getAttr("stride"));
+  int convDims = strides.size();
+
+  // Right now we can only support 2D values
+  if (convDims == 3)
+    return failure();
+
+  const int64_t strideY = strides[0];
+  const int64_t strideX = strides[1];
+  int64_t strideZ = 1;
+  if (convDims == 3)
+    strideZ = strides[2];
+
+  if (strideY < 1 || strideX < 1 || strideZ < 1)
+    return op.emitOpError("expect all stride values to be >= 1, got [")
+           << strides << "]";
+
+  const auto checkPadAgainstKernelDim =
+      [&](int64_t pad_value, int64_t kernel_dim_size, llvm::StringRef pad_name,
+          llvm::StringRef kernel_dim_name) -> LogicalResult {
+    if (pad_value <= -kernel_dim_size)
+      return op.emitOpError("expected ")
+             << pad_name << " > -" << kernel_dim_name
+             << ", but got: " << pad_name << "=" << pad_value << " and "
+             << kernel_dim_name << "=" << kernel_dim_size;
+    return success();
+  };
+
+  llvm::ArrayRef<int64_t> outPad =
+      cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
+  const int64_t outPadTop = outPad[0];
+  const int64_t outPadBottom = outPad[1];
+  const int64_t outPadLeft = outPad[2];
+  const int64_t outPadRight = outPad[3];
+
+  Value weight = op->getOperand(1);
+  const auto weightType = llvm::dyn_cast<RankedTensorType>(weight.getType());
+
+  if (weightType) {
+    const int64_t kernelHeight = weightType.getDimSize(1);
+    if (ShapedType::isStatic(kernelHeight)) {
+      if (failed(checkPadAgainstKernelDim(outPadTop, kernelHeight,
+                                          "out_pad_top", "KH")))
+        return failure();
+
+      if (failed(checkPadAgainstKernelDim(outPadBottom, kernelHeight,
+                                          "out_pad_bottom", "KH")))
+        return failure();
+    }
+
+    const int64_t kernelWidth = weightType.getDimSize(2);
+    if (ShapedType::isStatic(kernelWidth)) {
+      if (failed(checkPadAgainstKernelDim(outPadLeft, kernelWidth,
+                                          "out_pad_left", "KW")))
+        return failure();
+
+      if (failed(checkPadAgainstKernelDim(outPadRight, kernelWidth,
+                                          "out_pad_right", "KW")))
+        return failure();
+    }
+  }
+
+  // Fetch pad & dilation;
+  SmallVector<int64_t, 2> dilation = {1, 1};
+  if (auto dilOpt = cast<DenseI64ArrayAttr>(op->getAttr("dilation"))) {
+    dilation[0] = (dilOpt)[0];
+    dilation[1] = (dilOpt)[1];
+  }
+
+  // Fetch input pads (default zeros)
+  SmallVector<int64_t, 4> inPad(4, 0);
+  if (auto padOpt = cast<DenseI64ArrayAttr>(op->getAttr("pad"))) {
+    inPad[0] = (padOpt)[0]; // top
+    inPad[1] = (padOpt)[1]; // bottom
+    inPad[2] = (padOpt)[2]; // left
+    inPad[3] = (padOpt)[3]; // right
+  }
+
+  Value input = op->getOperand(0);
+  const auto inputType = llvm::dyn_cast<RankedTensorType>(input.getType());
+  if (inputType && weightType) {
+    const int64_t inputHeight = inputType.getDimSize(1);
+    const int64_t kernelHeight = weightType.getDimSize(1);
+    const int64_t outputHeight = outputType.getDimSize(1);
+
+    if (!ShapedType::isDynamic(inputHeight) &&
+        !ShapedType::isDynamic(outputHeight)) {
+      if (outputHeight !=
+          (inputHeight - 1) * strideY + outPadTop + outPadBottom +
+              ((kernelHeight - 1) * dilation[0]) + 1 - inPad[0] - inPad[1]) {
+        return op.emitOpError(
+                   "dimension mismatch: expected OH = (IH - 1) * "
+                   "stride_y + out_pad_top + out_pad_bottom + ((KH - 1) * "
+                   "dilation_y + 1) - pad_top - pad_bottom, but got: ")
+               << outputHeight << " != (" << inputHeight << " - 1) * "
+               << strideY << " + " << outPadTop << " + " << outPadBottom
+               << " + ((" << kernelHeight << " - 1) * " << dilation[0]
+               << " + 1) - " << inPad[0] << " - " << inPad[1];
+      }
+    }
+
+    const int64_t inputWidth = inputType.getDimSize(2);
+    const int64_t kernelWidth = weightType.getDimSize(2);
+    const int64_t outputWidth = outputType.getDimSize(2);
+
+    if (!ShapedType::isDynamic(inputWidth) &&
+        !ShapedType::isDynamic(outputWidth)) {
+      if (outputWidth != (inputWidth - 1) * strideX + outPadLeft + outPadRight +
+                             ((kernelWidth - 1) * dilation[1] + 1) - inPad[2] -
+                             inPad[3]) {
+        return op.emitOpError(
+                   "dimension mismatch: expected OW = (IW - 1) * "
+                   "stride_x + out_pad_left + out_pad_right + (KW - 1) * "
+                   "dilation_x + 1 - pad_left - pad_right, but got: ")
+               << outputWidth << " != (" << inputWidth << " - 1) * " << strideX
+               << " + " << outPadLeft << " + " << outPadRight << " + (("
+               << kernelWidth << " - 1) * " << dilation[1] << " + 1) - "
+               << inPad[2] - inPad[3];
+      }
+    }
+  }
+
+  Value bias = op->getOperand(2);
+  const auto biasType = llvm::dyn_cast<RankedTensorType>(bias.getType());
+
+  if (!biasType)
+    return success();
+
+  const int64_t biasChannels = biasType.getDimSize(0);
+
+  // Skip further checks if bias is dynamic
+  if (biasChannels == ShapedType::kDynamic)
+    return success();
+
+  const int64_t outputChannels = outputType.getDimSize(3);
+  if (!ShapedType::isDynamic(outputChannels) &&
+      biasChannels != outputChannels && biasChannels != 1)
+    return op.emitOpError(
+               "bias channels expected to be equal to output channels (")
+           << outputChannels << ") or 1, got " << biasChannels;
+
+  return success();
+}
+
+// If this is a backward-data (transpose) conv lowered from MIGraphX, its
+// filter logical in/out channels are reversed relative to forward Conv2D.
+FailureOr<std::tuple<Value, ShapedType>>
+swapInputOutputDimensions(OpBuilder &rewriter, tosa::CustomOp op, Value weight,
+                          ShapedType weightTy) {
+  if (op.getOperatorName() == ROCK_CUSTOMOP_CONV_BWD_DATA) {
+    // Expected current shape: [K, H, W, C] but Conv2D expects [O, H, W, I]
+    // Swap K<->C => permutation {3,1,2,0}.
+    auto wShape = weightTy.getShape();
+    SmallVector<int64_t, 4> swappedShape{
+        wShape[3], // C becomes O
+        wShape[1], wShape[2],
+        wShape[0] // K becomes I
+    };
+    auto swappedTy =
+        RankedTensorType::get(swappedShape, weightTy.getElementType());
+    weight = rewriter.create<tosa::TransposeOp>(
+        op.getLoc(), swappedTy, weight,
+        rewriter.getDenseI32ArrayAttr({3, 1, 2, 0}));
+    weightTy = cast<ShapedType>(weight.getType());
+
+    return std::make_tuple(weight, weightTy);
+  }
+
+  return failure();
+}
+
 class TransposeConvNonStridedConverter
     : public OpRewritePattern<tosa::CustomOp> {
 public:
   using OpRewritePattern<tosa::CustomOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(tosa::CustomOp op,
                                 PatternRewriter &rewriter) const final {
-    // Make sure this is a transpose conv op.
-    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
-      return rewriter.notifyMatchFailure(op, "domain isn't rocmlir");
-    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA)
-      return rewriter.notifyMatchFailure(op, "isn't a conv_bwd_data");
-    if (op.getNumOperands() < 5)
-      return rewriter.notifyMatchFailure(op, "should have 5 or more operands");
-    if (op.getNumResults() != 1)
-      return rewriter.notifyMatchFailure(op, "should have 1 result");
+    if (failed(verifyConvTranspose(op, rewriter)))
+      return failure();
 
     Location loc = op->getLoc();
     Value input = op->getOperand(0);
@@ -72,11 +259,38 @@ public:
     ShapedType resultTy = cast<ShapedType>(op->getResult(0).getType());
 
     // Translate acc_type, padding and stride attributes.
-    llvm::ArrayRef<int64_t> pad = cast<DenseI64ArrayAttr>(op->getAttr("pad"));
+    llvm::ArrayRef<int64_t> outPad =
+        cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
     llvm::ArrayRef<int64_t> stride =
         cast<DenseI64ArrayAttr>(op->getAttr("stride"));
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
     Type accType = accTypeAttr.getValue();
+
+    int convDims = stride.size();
+    if (convDims != 2 && convDims != 3)
+      return rewriter.notifyMatchFailure(op, "conv op must be 2D or 3D");
+
+    // Fetch dilation (default all ones)
+    SmallVector<int64_t> dilationVals(convDims, 1);
+    if (auto dilOpt = cast<DenseI64ArrayAttr>(op->getAttr("dilation"))) {
+      dilationVals[0] = (dilOpt)[0];
+      dilationVals[1] = (dilOpt)[1];
+      if (convDims == 3)
+        dilationVals[2] = (dilOpt)[2];
+    }
+
+    // Fetch input pads (default zeros)
+    SmallVector<int64_t, 4> inPadVals(convDims * 2, 0);
+    if (auto padOpt = cast<DenseI64ArrayAttr>(op->getAttr("pad"))) {
+      inPadVals[0] = (padOpt)[0];
+      inPadVals[1] = (padOpt)[1];
+      inPadVals[2] = (padOpt)[2];
+      inPadVals[3] = (padOpt)[3];
+      if (convDims == 3) {
+        inPadVals[4] = (padOpt)[4];
+        inPadVals[5] = (padOpt)[5];
+      }
+    }
 
     // Get inputZp and weightZp operands.
     Value inputZp = op.getOperands()[3];
@@ -92,30 +306,79 @@ public:
         !biasTy.hasStaticShape() || !resultTy.hasStaticShape())
       return failure();
 
+    // Swap dimensions if needed
+    auto swapOr = swapInputOutputDimensions(rewriter, op, weight, weightTy);
+    if (succeeded(swapOr)) {
+      weight = std::get<0>(swapOr.value());
+      weightTy = std::get<1>(swapOr.value());
+    }
+
     int64_t kernelHeight = weightTy.getDimSize(1);
     int64_t kernelWidth = weightTy.getDimSize(2);
+    int64_t effKHm1 = (kernelHeight - 1) * dilationVals[0];
+    int64_t effKWm1 = (kernelWidth - 1) * dilationVals[1];
+    int64_t effKDm1 = 0;
+    if (convDims == 3) {
+      int64_t kernelDepth = weightTy.getDimSize(3);
+      effKDm1 = (kernelDepth - 1) * dilationVals[2];
+    }
 
-    llvm::SmallVector<int64_t> convPad(4, 0);
-    convPad[0] = kernelHeight - 1 + pad[0];
-    convPad[1] = kernelHeight - 1 + pad[1];
-    convPad[2] = kernelWidth - 1 + pad[2];
-    convPad[3] = kernelWidth - 1 + pad[3];
+    // Conv2D/Conv3D padding derived from ConvTranspose (ONNX/PyTorch style)
+    // convPad = effK - inPad + outPad
+    SmallVector<int64_t, 4> convPad(convDims * 2, 0);
+    convPad[0] = effKHm1 - inPadVals[0] + outPad[0];
+    convPad[1] = effKHm1 - inPadVals[1] + outPad[1];
+    convPad[2] = effKWm1 - inPadVals[2] + outPad[2];
+    convPad[3] = effKWm1 - inPadVals[3] + outPad[3];
+    if (convDims == 3) {
+      convPad[4] = effKDm1 - inPadVals[4] + outPad[4];
+      convPad[5] = effKDm1 - inPadVals[5] + outPad[5];
+    }
 
-    auto reverse1 =
+    // A negative padding value would require cropping, "slicing", the result
+    // to properly emulate negative padding.
+    bool needSlice = false;
+    SmallVector<int64_t, 4> negExcess(convDims * 2, 0);
+    for (int i = 0; i < convDims * 2; ++i) {
+      if (convPad[i] < 0) {
+        negExcess[i] = -convPad[i];
+        convPad[i] = 0;
+        needSlice = true;
+      }
+    }
+
+    if (needSlice)
+      return rewriter.notifyMatchFailure(op, "Cannot currently handle negative "
+                                             "padding values.");
+
+    Value convOp;
+    Value reverse1 =
         tosa::ReverseOp::create(rewriter, loc, weightTy, weight,
                                 /* axis = */ rewriter.getI32IntegerAttr(1));
-    auto reverse2 =
+    Value reverse2 =
         tosa::ReverseOp::create(rewriter, loc, weightTy, reverse1,
                                 /* axis = */ rewriter.getI32IntegerAttr(2));
 
-    Value conv2d = tosa::Conv2DOp::create(
-        rewriter, loc, resultTy, input, reverse2, bias, inputZp, weightZp,
-        rewriter.getDenseI64ArrayAttr(convPad),
-        rewriter.getDenseI64ArrayAttr(stride),
-        rewriter.getDenseI64ArrayAttr({1, 1}),
-        /* acc_type = */ accType, /*group=*/nullptr);
+    if (convDims == 2) {
+      convOp = tosa::Conv2DOp::create(
+          rewriter, loc, resultTy, input, reverse2, bias, inputZp, weightZp,
+          rewriter.getDenseI64ArrayAttr(convPad),
+          rewriter.getDenseI64ArrayAttr(stride),
+          rewriter.getDenseI64ArrayAttr(dilationVals),
+          /* acc_type = */ accType, op->getAttrOfType<IntegerAttr>("group"));
+    } else {
+      Value reverse3 =
+          tosa::ReverseOp::create(rewriter, loc, weightTy, reverse2,
+                                  /* axis = */ rewriter.getI32IntegerAttr(3));
+      convOp = tosa::Conv3DOp::create(
+          rewriter, loc, resultTy, input, reverse3, bias, inputZp, weightZp,
+          rewriter.getDenseI64ArrayAttr(convPad),
+          rewriter.getDenseI64ArrayAttr(stride),
+          rewriter.getDenseI64ArrayAttr(dilationVals),
+          /* acc_type = */ accType);
+    }
 
-    rewriter.replaceOp(op, conv2d);
+    rewriter.replaceOp(op, convOp);
     return success();
   }
 };
@@ -153,15 +416,8 @@ public:
   using OpRewritePattern<tosa::CustomOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(tosa::CustomOp op,
                                 PatternRewriter &rewriter) const final {
-    // Make sure this is a transpose conv op.
-    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
-      return rewriter.notifyMatchFailure(op, "domain isn't rocmlir");
-    if (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA)
-      return rewriter.notifyMatchFailure(op, "isn't a conv_bwd_data");
-    if (op.getNumOperands() < 5)
-      return rewriter.notifyMatchFailure(op, "should have 5 or more operands");
-    if (op.getNumResults() != 1)
-      return rewriter.notifyMatchFailure(op, "should have 1 result");
+    if (failed(verifyConvTranspose(op, rewriter)))
+      return failure();
 
     Location loc = op->getLoc();
     Value input = op->getOperand(0);
@@ -179,7 +435,8 @@ public:
     Type resultETy = resultTy.getElementType();
 
     // Translate acc_type, padding and stride attributes.
-    llvm::ArrayRef<int64_t> pad = cast<DenseI64ArrayAttr>(op->getAttr("pad"));
+    llvm::ArrayRef<int64_t> outPad =
+        cast<DenseI64ArrayAttr>(op->getAttr("out_pad"));
     llvm::ArrayRef<int64_t> stride =
         cast<DenseI64ArrayAttr>(op->getAttr("stride"));
     auto accTypeAttr = cast<TypeAttr>(op->getAttr("acc_type"));
@@ -189,9 +446,28 @@ public:
     Value inputZpOperand = op.getOperands()[3];
     Value weightZpOperand = op.getOperands()[4];
 
-    // If striding is all 1 we can modify padding and reverse the kernel along
-    // the x/y direction to make it a regular convolution. This is much simpler
-    // then handling striding....
+    // Swap dimensions if needed
+    auto swapOr = swapInputOutputDimensions(rewriter, op, weight, weightTy);
+    if (succeeded(swapOr)) {
+      weight = std::get<0>(swapOr.value());
+      weightTy = std::get<1>(swapOr.value());
+    }
+
+    // Fetch dilation (default {1,1})
+    SmallVector<int64_t, 2> dilationVals = {1, 1};
+    if (auto dilOpt = cast<DenseI64ArrayAttr>(op->getAttr("dilation"))) {
+      dilationVals[0] = (dilOpt)[0];
+      dilationVals[1] = (dilOpt)[1];
+    }
+
+    // Fetch input padding (default {0, 0, 0, 0})
+    SmallVector<int64_t, 4> inPadVals = {0, 0, 0, 0};
+    if (auto inPadOpt = cast<DenseI64ArrayAttr>(op->getAttr("pad"))) {
+      inPadVals[0] = (inPadOpt)[0];
+      inPadVals[1] = (inPadOpt)[1];
+      inPadVals[2] = (inPadOpt)[2];
+      inPadVals[3] = (inPadOpt)[3];
+    }
 
     // If strides are all 1 we dont need to use this one.
     if (llvm::all_of(stride, [](int64_t v) { return v == 1; }))
@@ -207,16 +483,6 @@ public:
     int64_t weightHeight = weightTy.getDimSize(1);
     int64_t weightWidth = weightTy.getDimSize(2);
     int64_t inputChannels = weightTy.getDimSize(3);
-
-    // Pad the weight so that it is modulo of the striding.
-    llvm::SmallVector<int64_t, 8> weightPadding = {0, 0, 0, 0, 0, 0, 0, 0};
-    weightPadding[3] =
-        (weightHeight % stride[0]) ? (stride[0] - weightHeight % stride[0]) : 0;
-    weightPadding[5] =
-        (weightWidth % stride[1]) ? (stride[1] - weightWidth % stride[1]) : 0;
-
-    Value weightPaddingVal =
-        getTosaConstShape(rewriter, op->getLoc(), weightPadding);
 
     // Get and verify zero points.
     FailureOr<int64_t> maybeIZp = getZeroPoint(inputZpOperand, false);
@@ -241,6 +507,109 @@ public:
         createPadConstTensor(builder, op->getLoc(), input, inputZpVal);
     const Value weightPadConst =
         createPadConstTensor(builder, op->getLoc(), input, weightZpVal);
+
+    // Helper to create a scalar pad value (weight zero-point)
+    auto createWeightPadConst = [&](Value like) -> Value {
+      return createPadConstTensor(builder, loc, like, weightZpVal);
+    };
+
+    // Explicitly materialize dilation in the weight tensor by inserting
+    // (d-1) rows / columns of zero between the original kernel rows and
+    // columns. After this expansion we can treat dilation as 1
+    // for the remainder of the lowering.
+    if (dilationVals[0] > 1 || dilationVals[1] > 1) {
+      int64_t dH = dilationVals[0];
+      int64_t dW = dilationVals[1];
+
+      // Expand height: iterate original over original rows, slice each 1-row
+      // slab, and (except for the final row) pad (dH-1) zero rows below it.
+      SmallVector<Value> heightPieces;
+      for (int64_t h = 0; h < weightHeight; ++h) {
+        llvm::SmallVector<int64_t, 4> begin = {0, h, 0, 0};
+        llvm::SmallVector<int64_t, 4> size = {outputChannels, 1, weightWidth,
+                                              inputChannels};
+        Value beginVal = getTosaConstShape(rewriter, loc, begin);
+        Value sizeVal = getTosaConstShape(rewriter, loc, size);
+        Value slice = CreateOpAndInferShape<tosa::SliceOp>(
+                          rewriter, loc, UnrankedTensorType::get(weightETy),
+                          weight, beginVal, sizeVal)
+                          .getResult();
+        int64_t padRows = (h == weightHeight - 1) ? 0 : (dH - 1);
+        if (padRows > 0) {
+          llvm::SmallVector<int64_t, 8> padSpec = {0, 0, 0, padRows,
+                                                   0, 0, 0, 0};
+          Value padSpecVal = getTosaConstShape(rewriter, loc, padSpec);
+          slice = CreateOpAndInferShape<tosa::PadOp>(
+                      rewriter, loc, UnrankedTensorType::get(weightETy), slice,
+                      padSpecVal, createWeightPadConst(weight))
+                      .getResult();
+        }
+        heightPieces.push_back(slice);
+      }
+      weight = CreateOpAndInferShape<tosa::ConcatOp>(
+                   rewriter, loc, UnrankedTensorType::get(weightETy),
+                   SmallVector<Value>(heightPieces.begin(), heightPieces.end()),
+                   rewriter.getI32IntegerAttr(1))
+                   .getResult();
+
+      // Update dims after height expansion
+      weightTy = cast<ShapedType>(weight.getType());
+      weightHeight = weightTy.getDimSize(1); // now (origH-1)*dH + 1
+
+      // Expand width similarly if horizontal dilation > 1.
+      if (dW > 1) {
+        SmallVector<Value> widthPieces;
+        for (int64_t w = 0; w < weightWidth; ++w) {
+          llvm::SmallVector<int64_t, 4> begin = {0, 0, w, 0};
+          llvm::SmallVector<int64_t, 4> size = {outputChannels, weightHeight, 1,
+                                                inputChannels};
+          Value beginVal = getTosaConstShape(rewriter, loc, begin);
+          Value sizeVal = getTosaConstShape(rewriter, loc, size);
+          Value slice = CreateOpAndInferShape<tosa::SliceOp>(
+                            rewriter, loc, UnrankedTensorType::get(weightETy),
+                            weight, beginVal, sizeVal)
+                            .getResult();
+          int64_t padCols = (w == weightWidth - 1) ? 0 : (dW - 1);
+          if (padCols > 0) {
+            llvm::SmallVector<int64_t, 8> padSpec = {0, 0,       0, 0,
+                                                     0, padCols, 0, 0};
+            Value padSpecVal = getTosaConstShape(rewriter, loc, padSpec);
+            slice = CreateOpAndInferShape<tosa::PadOp>(
+                        rewriter, loc, UnrankedTensorType::get(weightETy),
+                        slice, padSpecVal, createWeightPadConst(weight))
+                        .getResult();
+          }
+          widthPieces.push_back(slice);
+        }
+        weight = CreateOpAndInferShape<tosa::ConcatOp>(
+                     rewriter, loc, UnrankedTensorType::get(weightETy),
+                     SmallVector<Value>(widthPieces.begin(), widthPieces.end()),
+                     rewriter.getI32IntegerAttr(2))
+                     .getResult();
+      }
+
+      // Update type/dims post width expansion.
+      weightTy = cast<ShapedType>(weight.getType());
+      weightWidth = weightTy.getDimSize(2);
+
+      // After explicit expansion, treat dilation as 1 for the remainder.
+      dilationVals = {1, 1};
+    }
+
+    // We want to capture the height and width values after dilation expansion,
+    // but before padding is added later on.
+    int64_t origWeightHeight = weightHeight;
+    int64_t origWeightWidth = weightWidth;
+
+    // Pad the weight so that it is modulo of the striding.
+    llvm::SmallVector<int64_t, 8> weightPadding = {0, 0, 0, 0, 0, 0, 0, 0};
+    weightPadding[3] =
+        (weightHeight % stride[0]) ? (stride[0] - weightHeight % stride[0]) : 0;
+    weightPadding[5] =
+        (weightWidth % stride[1]) ? (stride[1] - weightWidth % stride[1]) : 0;
+
+    Value weightPaddingVal =
+        getTosaConstShape(rewriter, op->getLoc(), weightPadding);
 
     weight = CreateOpAndInferShape<tosa::PadOp>(
         rewriter, loc, UnrankedTensorType::get(weightETy), weight,
@@ -284,10 +653,19 @@ public:
 
     // We need to pad the input far enough that we can pull all values.
     llvm::SmallVector<int64_t, 8> inputPadding = {0, 0, 0, 0, 0, 0, 0, 0};
-    inputPadding[2] += restridedWeightTy.getDimSize(1) - 1;
-    inputPadding[3] += restridedWeightTy.getDimSize(1) - 1;
-    inputPadding[4] += restridedWeightTy.getDimSize(2) - 1;
-    inputPadding[5] += restridedWeightTy.getDimSize(2) - 1;
+    // If the op has input padding, make sure to use that. If not, default back
+    // to using the legacy logic.
+    if (op->hasAttr("pad")) {
+      inputPadding[2] = inPadVals[0];
+      inputPadding[3] = inPadVals[1];
+      inputPadding[4] = inPadVals[2];
+      inputPadding[5] = inPadVals[3];
+    } else {
+      inputPadding[2] += restridedWeightTy.getDimSize(1) - 1;
+      inputPadding[3] += restridedWeightTy.getDimSize(1) - 1;
+      inputPadding[4] += restridedWeightTy.getDimSize(2) - 1;
+      inputPadding[5] += restridedWeightTy.getDimSize(2) - 1;
+    }
 
     Value inputPaddingVal =
         getTosaConstShape(rewriter, op->getLoc(), inputPadding);
@@ -317,14 +695,15 @@ public:
     }
 
     // Perform the convolution using the zero bias.
-    Value conv2d = CreateOpAndInferShape<tosa::Conv2DOp>(
-                       rewriter, loc, UnrankedTensorType::get(resultETy), input,
-                       weight, zeroBias, inputZp.value(), weightZp.value(),
-                       /*pad=*/rewriter.getDenseI64ArrayAttr({0, 0, 0, 0}),
-                       /*stride=*/rewriter.getDenseI64ArrayAttr({1, 1}),
-                       /*dilation=*/rewriter.getDenseI64ArrayAttr({1, 1}),
-                       /* acc_type = */ accType, /*group=*/nullptr)
-                       .getResult();
+    Value conv2d =
+        CreateOpAndInferShape<tosa::Conv2DOp>(
+            rewriter, loc, UnrankedTensorType::get(resultETy), input, weight,
+            zeroBias, inputZp.value(), weightZp.value(),
+            /*pad=*/rewriter.getDenseI64ArrayAttr({0, 0, 0, 0}),
+            /*stride=*/rewriter.getDenseI64ArrayAttr({1, 1}),
+            /*dilation=*/rewriter.getDenseI64ArrayAttr({1, 1}),
+            /* acc_type = */ accType, op->getAttrOfType<IntegerAttr>("group"))
+            .getResult();
 
     // Factor the resulting width / height.
     ShapedType convTy = cast<ShapedType>(conv2d.getType());
@@ -360,11 +739,53 @@ public:
         rewriter, loc, UnrankedTensorType::get(resultETy), conv2d,
         convReshapeDims1Value);
 
-    // Determine the amount to slice / pad from the result start.
-    int64_t resultSliceTop = std::max<int64_t>(0, -pad[0]);
-    int64_t resultSliceLeft = std::max<int64_t>(0, -pad[2]);
-    int64_t resultPadTop = std::max<int64_t>(0, pad[0]);
-    int64_t resultPadLeft = std::max<int64_t>(0, pad[2]);
+    // Effective pad = outPad + (k - 1) - (inPad * stride)
+    // Each input padded row/col expands to stride rows/cols in the upsampled
+    // domain.
+    int64_t effPadTop =
+        outPad[0] + (origWeightHeight - stride[0]) - inPadVals[0] * stride[0];
+    int64_t effPadLeft =
+        outPad[2] + (origWeightWidth - stride[1]) - inPadVals[2] * stride[1];
+
+    // When we shrink from the orignal size to kPrime by grouping stride phases,
+    // we discard some positions that existed in the conceptual upsampled view.
+    // The total span of the original field is kOrig -1, and the span
+    // represented after factoring is kPrime - 1. The difference is the values
+    // that have been lost
+    int64_t kHPrime = restridedWeightTy.getDimSize(1);
+    int64_t kWPrime = restridedWeightTy.getDimSize(2);
+    auto lost = [](int64_t Korig, int64_t kPrime, int64_t S) {
+      return (Korig - 1) - (kPrime - 1) * S;
+    };
+    int64_t lostH = lost(origWeightHeight, kHPrime, stride[0]);
+    int64_t lostW = lost(origWeightWidth, kWPrime, stride[1]);
+
+    // If stride factoring compresses a dimension to a single spatial position,
+    // i.e., kPrime == 1, then we dropped a ring of values around that position.
+    // To keep the result centered, update effPad by the half the lost distance.
+    if (kHPrime == 1 && lostH > 0)
+      effPadTop += lostH / 2;
+    if (kWPrime == 1 && lostW > 0)
+      effPadLeft += lostW / 2;
+
+    int64_t resultSliceTop;
+    int64_t resultSliceLeft;
+    int64_t resultPadTop;
+    int64_t resultPadLeft;
+    // Convert effective padding into slice (crop) and post-pad just like the
+    // prior logic but now using effPad*.
+    if (op->hasAttr("pad")) {
+      resultSliceTop = std::max<int64_t>(0, -effPadTop);
+      resultSliceLeft = std::max<int64_t>(0, -effPadLeft);
+      resultPadTop = std::max<int64_t>(0, effPadTop);
+      resultPadLeft = std::max<int64_t>(0, effPadLeft);
+    } else {
+      // Default to using legacy logic if input padding is not present
+      resultSliceTop = std::max<int64_t>(0, -outPad[0]);
+      resultSliceLeft = std::max<int64_t>(0, -outPad[2]);
+      resultPadTop = std::max<int64_t>(0, outPad[0]);
+      resultPadLeft = std::max<int64_t>(0, outPad[2]);
+    }
 
     // Try to slice the targetted result size, cap to the convolutions width.
     int64_t resultSliceHeight =
@@ -417,7 +838,9 @@ void mlir::rock::populateRocmlirCustomTosaDecomposeTarget(
     ConversionTarget &target) {
   target.addLegalDialect<tosa::TosaDialect>();
   target.addDynamicallyLegalOp<tosa::CustomOp>([](tosa::CustomOp op) {
-    return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME;
+    return op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME ||
+           (op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_DATA &&
+            op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT);
   });
 }
 
