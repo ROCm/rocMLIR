@@ -402,7 +402,7 @@ String getLabelFromCodepath(String codepath) {
     if (codepath == "mfma") {
         label = 'mlir && (gfx942 || gfx908 || gfx90a)'
     } else if (codepath == "gfx950") {
-        if(params.weekly || params.nightly) {
+        if (params.weekly || params.nightly) {
             label = 'mlir && linux-mi355-8'
         } else {
             label = 'mlir && linux-mi355-1'
