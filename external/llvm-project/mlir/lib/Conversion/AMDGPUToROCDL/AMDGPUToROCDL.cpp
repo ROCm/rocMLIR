@@ -586,33 +586,9 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
           /*is_align_stack=*/false, LLVM::TailCallKind::None,
           /*asm_dialect=*/asmDialectAttr,
           /*operand_attrs=*/ArrayAttr());
-<<<<<<< HEAD:external/llvm-project/mlir/lib/Conversion/AMDGPUToROCDL/AMDGPUToROCDL.cpp
-      return success();
-    }
-    if (chipset.majorVersion < 12) {
-      constexpr int32_t ldsOnlyBitsGfx6789 = ~(0x1f << 8);
-      constexpr int32_t ldsOnlyBitsGfx10 = ~(0x3f << 8);
-      // Left in place in case someone disables the inline ASM path or future
-      // chipsets use the same bit pattern.
-      constexpr int32_t ldsOnlyBitsGfx11 = ~(0x3f << 4);
-
-      int32_t ldsOnlyBits;
-      if (chipset.majorVersion == 11)
-        ldsOnlyBits = ldsOnlyBitsGfx11;
-      else if (chipset.majorVersion == 10)
-        ldsOnlyBits = ldsOnlyBitsGfx10;
-      else if (chipset.majorVersion <= 9)
-        ldsOnlyBits = ldsOnlyBitsGfx6789;
-      else
-        return op.emitOpError(
-                   "don't know how to lower this for chipset major version")
-               << chipset.majorVersion;
-
-      Location loc = op->getLoc();
-
+    } else if (chipset.majorVersion < 12) {
       // HACK for direct to LDS
       if (hackForDirectToLDS) {
-        // unsigned vmCnt = std::min(63u, op.getNum());
         unsigned vmCnt = 0;
 
         // Extract low and high bits and combine while setting all other bits to
@@ -623,13 +599,24 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
         unsigned waitValue = lowBits | highBits | otherCnts;
 
         ROCDL::SWaitcntOp::create(rewriter,loc, waitValue);
+
+        constexpr int32_t ldsOnlyBitsGfx6789 = ~(0x1f << 8);
+        constexpr int32_t ldsOnlyBitsGfx10 = ~(0x3f << 8);
+        constexpr int32_t ldsOnlyBitsGfx11 = ~(0x3f << 4);
+        int32_t ldsOnlyBits;
+        if (chipset.majorVersion == 11)
+          ldsOnlyBits = ldsOnlyBitsGfx11;
+        else if (chipset.majorVersion == 10)
+          ldsOnlyBits = ldsOnlyBitsGfx10;
+        else if (chipset.majorVersion <= 9)
+          ldsOnlyBits = ldsOnlyBitsGfx6789;
+        else
+          return op.emitOpError(
+                    "don't know how to lower this for chipset major version")
+                << chipset.majorVersion;
+        ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
       }
-      ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
-      rewriter.replaceOpWithNewOp<ROCDL::SBarrierOp>(op);
-=======
-    } else if (chipset.majorVersion < 12) {
       ROCDL::SBarrierOp::create(rewriter, loc);
->>>>>>> cb1c9dfd699c (Squashed 'external/llvm-project/' changes from 1e1a4d577e7e..8ffe4def7d09):mlir/lib/Conversion/AMDGPUToROCDL/AMDGPUToROCDL.cpp
     } else {
       ROCDL::BarrierSignalOp::create(rewriter, loc, -1);
       ROCDL::BarrierWaitOp::create(rewriter, loc, -1);
