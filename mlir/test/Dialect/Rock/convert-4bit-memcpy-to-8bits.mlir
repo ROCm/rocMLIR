@@ -1,4 +1,3 @@
-// filepath: \home\umayadav\repo\rocMLIR\mlir\test\Dialect\Rock\convert-4bit-memcpy-to-8bits.mlir
 // RUN: rocmlir-opt --rock-convert-4bit-memcpy-to-8bit %s | FileCheck %s
 
 // The pass rewrites gpu.alloc/dealloc of any 4-bit element (i4 or f4E2M1FN) to an
@@ -11,26 +10,24 @@
 // Callee kernels (no allocs inside -> untouched).
 // ---------------------------------------------------------------------------
 // CHECK-LABEL: func.func @kernel_i4
-func.func @kernel_i4(%in : memref<32xi4>, %out : memref<32xi4>) {
+func.func @kernel_i4(%in : memref<*xi4>, %out : memref<*xi4>) {
   func.return
 }
 // CHECK-LABEL: func.func @kernel_f4
-func.func @kernel_f4(%in : memref<32xf4E2M1FN>, %out : memref<32xf4E2M1FN>) {
+func.func @kernel_f4(%in : memref<*xf4E2M1FN>, %out : memref<*xf4E2M1FN>) {
   func.return
 }
 
 // ---------------------------------------------------------------------------
 // Two i4 allocs + memcpy between them (tests alloc + memcpy + dealloc rewrite).
-// 4x10 -> 4x5
+// 4x10 -> 4x5 (halves the last dimension and converts to i8)
 // ---------------------------------------------------------------------------
 // CHECK-LABEL: func.func @alloc_pair_i4
-// CHECK: %[[A_RAW:.*]] = gpu.alloc() : memref<4x5xi8>
-// CHECK: %[[A_CAST:.*]] = unrealized_conversion_cast %[[A_RAW]] : memref<4x5xi8> to memref<4x10xi4>
-// CHECK: %[[B_RAW:.*]] = gpu.alloc() : memref<4x5xi8>
-// CHECK: %[[B_CAST:.*]] = unrealized_conversion_cast %[[B_RAW]] : memref<4x5xi8> to memref<4x10xi4>
-// CHECK: gpu.memcpy %[[B_RAW]], %[[A_RAW]] : memref<4x5xi8>, memref<4x5xi8>
-// CHECK: gpu.dealloc %[[A_RAW]] : memref<4x5xi8>
-// CHECK: gpu.dealloc %[[B_RAW]] : memref<4x5xi8>
+// CHECK: %[[A:.*]] = gpu.alloc{{.*}}: memref<4x5xi8>
+// CHECK: %[[B:.*]] = gpu.alloc{{.*}}: memref<4x5xi8>
+// CHECK: gpu.memcpy{{.*}}%[[B]], %[[A]]{{.*}}: memref<4x5xi8>, memref<4x5xi8>
+// CHECK: gpu.dealloc{{.*}}%[[A]]{{.*}}: memref<4x5xi8>
+// CHECK: gpu.dealloc{{.*}}%[[B]]{{.*}}: memref<4x5xi8>
 func.func @alloc_pair_i4() {
   %a = gpu.alloc() : memref<4x10xi4>
   %b = gpu.alloc() : memref<4x10xi4>
@@ -45,13 +42,11 @@ func.func @alloc_pair_i4() {
 // 4x10 -> 4x5
 // ---------------------------------------------------------------------------
 // CHECK-LABEL: func.func @alloc_pair_f4
-// CHECK: %[[A_RAW:.*]] = gpu.alloc() : memref<4x5xi8>
-// CHECK: %[[A_CAST:.*]] = unrealized_conversion_cast %[[A_RAW]] : memref<4x5xi8> to memref<4x10xf4E2M1FN>
-// CHECK: %[[B_RAW:.*]] = gpu.alloc() : memref<4x5xi8>
-// CHECK: %[[B_CAST:.*]] = unrealized_conversion_cast %[[B_RAW]] : memref<4x5xi8> to memref<4x10xf4E2M1FN>
-// CHECK: gpu.memcpy %[[B_RAW]], %[[A_RAW]] : memref<4x5xi8>, memref<4x5xi8>
-// CHECK: gpu.dealloc %[[A_RAW]] : memref<4x5xi8>
-// CHECK: gpu.dealloc %[[B_RAW]] : memref<4x5xi8>
+// CHECK: %[[A:.*]] = gpu.alloc{{.*}}: memref<4x5xi8>
+// CHECK: %[[B:.*]] = gpu.alloc{{.*}}: memref<4x5xi8>
+// CHECK: gpu.memcpy{{.*}}%[[B]], %[[A]]{{.*}}: memref<4x5xi8>, memref<4x5xi8>
+// CHECK: gpu.dealloc{{.*}}%[[A]]{{.*}}: memref<4x5xi8>
+// CHECK: gpu.dealloc{{.*}}%[[B]]{{.*}}: memref<4x5xi8>
 func.func @alloc_pair_f4() {
   %a = gpu.alloc() : memref<4x10xf4E2M1FN>
   %b = gpu.alloc() : memref<4x10xf4E2M1FN>
@@ -62,125 +57,247 @@ func.func @alloc_pair_f4() {
 }
 
 // ---------------------------------------------------------------------------
-// i4 process flow: arg_in -> in_tmp, kernel(in_tmp,out_tmp), out_tmp -> arg_out.
-// Memcpys with one cast operand (no rewrite). Deallocs use raw.
-// 32 -> 16
+// Test with odd last dimension: 3x5x9 -> 3x5x5 (ceil(9/2) = 5)
 // ---------------------------------------------------------------------------
-// CHECK-LABEL: func.func @process_i4_32
-// CHECK: %[[IN_RAW:.*]] = gpu.alloc() : memref<16xi8>
-// CHECK: %[[IN_CAST:.*]] = unrealized_conversion_cast %[[IN_RAW]] : memref<16xi8> to memref<32xi4>
-// CHECK: %[[OUT_RAW:.*]] = gpu.alloc() : memref<16xi8>
-// CHECK: %[[OUT_CAST:.*]] = unrealized_conversion_cast %[[OUT_RAW]] : memref<16xi8> to memref<32xi4>
-// CHECK: gpu.memcpy %[[IN_CAST]], %arg_in : memref<32xi4>, memref<32xi4>
-// CHECK: func.call @kernel_i4(%[[IN_CAST]], %[[OUT_CAST]]) : (memref<32xi4>, memref<32xi4>) -> ()
-// CHECK: gpu.memcpy %arg_out, %[[OUT_CAST]] : memref<32xi4>, memref<32xi4>
-// CHECK: gpu.dealloc %[[IN_RAW]] : memref<16xi8>
-// CHECK: gpu.dealloc %[[OUT_RAW]] : memref<16xi8>
-func.func @process_i4_32(%arg_in : memref<32xi4>, %arg_out : memref<32xi4>) {
-  %in_tmp = gpu.alloc() : memref<32xi4>
-  %out_tmp = gpu.alloc() : memref<32xi4>
-  gpu.memcpy %in_tmp, %arg_in : memref<32xi4>, memref<32xi4>
-  func.call @kernel_i4(%in_tmp, %out_tmp) : (memref<32xi4>, memref<32xi4>) -> ()
-  gpu.memcpy %arg_out, %out_tmp : memref<32xi4>, memref<32xi4>
-  gpu.dealloc %in_tmp : memref<32xi4>
-  gpu.dealloc %out_tmp : memref<32xi4>
+// CHECK-LABEL: func.func @alloc_odd_dimension
+// CHECK: %[[A:.*]] = gpu.alloc{{.*}}: memref<3x5x5xi8>
+// CHECK: gpu.dealloc{{.*}}%[[A]]{{.*}}: memref<3x5x5xi8>
+func.func @alloc_odd_dimension() {
+  %a = gpu.alloc() : memref<3x5x9xi4>
+  gpu.dealloc %a : memref<3x5x9xi4>
   func.return
 }
 
 // ---------------------------------------------------------------------------
-// f4 process flow: same as above but float 4-bit also rewritten.
-// 32 -> 16; memcpys not rewritten (single cast operand).
+// Test 1D case: 64 -> 32
 // ---------------------------------------------------------------------------
-// CHECK-LABEL: func.func @process_f4_32
-// CHECK: %[[IN_RAW:.*]] = gpu.alloc() : memref<16xi8>
-// CHECK: %[[IN_CAST:.*]] = unrealized_conversion_cast %[[IN_RAW]] : memref<16xi8> to memref<32xf4E2M1FN>
-// CHECK: %[[OUT_RAW:.*]] = gpu.alloc() : memref<16xi8>
-// CHECK: %[[OUT_CAST:.*]] = unrealized_conversion_cast %[[OUT_RAW]] : memref<16xi8> to memref<32xf4E2M1FN>
-// CHECK: gpu.memcpy %[[IN_CAST]], %arg_in : memref<32xf4E2M1FN>, memref<32xf4E2M1FN>
-// CHECK: func.call @kernel_f4(%[[IN_CAST]], %[[OUT_CAST]]) : (memref<32xf4E2M1FN>, memref<32xf4E2M1FN>) -> ()
-// CHECK: gpu.memcpy %arg_out, %[[OUT_CAST]] : memref<32xf4E2M1FN>, memref<32xf4E2M1FN>
-// CHECK: gpu.dealloc %[[IN_RAW]] : memref<16xi8>
-// CHECK: gpu.dealloc %[[OUT_RAW]] : memref<16xi8>
-func.func @process_f4_32(%arg_in : memref<32xf4E2M1FN>, %arg_out : memref<32xf4E2M1FN>) {
-  %in_tmp = gpu.alloc() : memref<32xf4E2M1FN>
-  %out_tmp = gpu.alloc() : memref<32xf4E2M1FN>
-  gpu.memcpy %in_tmp, %arg_in : memref<32xf4E2M1FN>, memref<32xf4E2M1FN>
-  func.call @kernel_f4(%in_tmp, %out_tmp) : (memref<32xf4E2M1FN>, memref<32xf4E2M1FN>) -> ()
-  gpu.memcpy %arg_out, %out_tmp : memref<32xf4E2M1FN>, memref<32xf4E2M1FN>
-  gpu.dealloc %in_tmp : memref<32xf4E2M1FN>
-  gpu.dealloc %out_tmp : memref<32xf4E2M1FN>
+// CHECK-LABEL: func.func @alloc_1d
+// CHECK: %[[A:.*]] = gpu.alloc{{.*}}: memref<32xi8>
+// CHECK: gpu.dealloc{{.*}}%[[A]]{{.*}}: memref<32xi8>
+func.func @alloc_1d() {
+  %a = gpu.alloc() : memref<64xi4>
+  gpu.dealloc %a : memref<64xi4>
   func.return
 }
 
 // ---------------------------------------------------------------------------
-// i4 multi-dim (odd last dim): 3x5x9 -> 3x5x5 raw.
-// Memcpys single cast -> unchanged.
+// Test with function call - simulating input from rock-emulate-narrow-type
+// The function signatures have already been converted to i8 by previous pass
 // ---------------------------------------------------------------------------
-// CHECK-LABEL: func.func @process_i4_3x5x9
-// CHECK: %[[IN_RAW:.*]] = gpu.alloc() : memref<3x5x5xi8>
-// CHECK: %[[IN_CAST:.*]] = unrealized_conversion_cast %[[IN_RAW]] : memref<3x5x5xi8> to memref<3x5x9xi4>
-// CHECK: %[[OUT_RAW:.*]] = gpu.alloc() : memref<3x5x5xi8>
-// CHECK: %[[OUT_CAST:.*]] = unrealized_conversion_cast %[[OUT_RAW]] : memref<3x5x5xi8> to memref<3x5x9xi4>
-// CHECK: gpu.memcpy %[[IN_CAST]], %arg_in : memref<3x5x9xi4>, memref<3x5x9xi4>
-// CHECK: func.call @kernel_i4(%[[IN_CAST]], %[[OUT_CAST]]) : (memref<3x5x9xi4>, memref<3x5x9xi4>) -> ()
-// CHECK: gpu.memcpy %arg_out, %[[OUT_CAST]] : memref<3x5x9xi4>, memref<3x5x9xi4>
-// CHECK: gpu.dealloc %[[IN_RAW]] : memref<3x5x5xi8>
-// CHECK: gpu.dealloc %[[OUT_RAW]] : memref<3x5x5xi8>
-func.func @process_i4_3x5x9(%arg_in : memref<3x5x9xi4>, %arg_out : memref<3x5x9xi4>) {
-  %in_tmp = gpu.alloc() : memref<3x5x9xi4>
-  %out_tmp = gpu.alloc() : memref<3x5x9xi4>
-  gpu.memcpy %in_tmp, %arg_in : memref<3x5x9xi4>, memref<3x5x9xi4>
-  func.call @kernel_i4(%in_tmp, %out_tmp) : (memref<3x5x9xi4>, memref<3x5x9xi4>) -> ()
-  gpu.memcpy %arg_out, %out_tmp : memref<3x5x9xi4>, memref<3x5x9xi4>
-  gpu.dealloc %in_tmp : memref<3x5x9xi4>
-  gpu.dealloc %out_tmp : memref<3x5x9xi4>
+// CHECK-LABEL: func.func private @callee_i4
+// CHECK-SAME: memref<32xi8>
+func.func private @callee_i4(%arg0: memref<32xi8>, %arg1: memref<64xf16>)
+
+// ---------------------------------------------------------------------------
+// Test GPU alloc + memcpy + function call pattern
+// Input: After rock-emulate-narrow-type (args are i8, with casts to i4)
+// Output: All casts removed, everything uses i8, memcpy between casts rewritten
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func @test_with_call
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[GPU_I8:.*]] = gpu.alloc{{.*}}: memref<32xi8>
+// CHECK: gpu.memcpy{{.*}}%[[GPU_I8]], %arg0{{.*}}: memref<32xi8>, memref<32xi8>
+// CHECK: %[[F16_ALLOC:.*]] = gpu.alloc{{.*}}: memref<64xf16>
+// CHECK: gpu.memcpy{{.*}}%[[F16_ALLOC]], %arg1{{.*}}: memref<64xf16>, memref<64xf16>
+// CHECK: call @callee_i4(%[[GPU_I8]], %[[F16_ALLOC]]) : (memref<32xi8>, memref<64xf16>) -> ()
+// CHECK: gpu.memcpy{{.*}}%arg0, %[[GPU_I8]]{{.*}}: memref<32xi8>, memref<32xi8>
+// CHECK: gpu.dealloc{{.*}}%[[GPU_I8]]{{.*}}: memref<32xi8>
+// CHECK: gpu.memcpy{{.*}}%arg1, %[[F16_ALLOC]]{{.*}}: memref<64xf16>, memref<64xf16>
+// CHECK: gpu.dealloc{{.*}}%[[F16_ALLOC]]{{.*}}: memref<64xf16>
+func.func @test_with_call(%arg0: memref<32xi8>, %arg1: memref<64xf16>) {
+  %arg0_i4 = builtin.unrealized_conversion_cast %arg0 : memref<32xi8> to memref<64xi4>
+  %i4_gpu = gpu.alloc() : memref<64xi4>
+  %i4_gpu_i8 = builtin.unrealized_conversion_cast %i4_gpu : memref<64xi4> to memref<32xi8>
+  gpu.memcpy %i4_gpu, %arg0_i4 : memref<64xi4>, memref<64xi4>
+  %f16_gpu = gpu.alloc() : memref<64xf16>
+  gpu.memcpy %f16_gpu, %arg1 : memref<64xf16>, memref<64xf16>
+  func.call @callee_i4(%i4_gpu_i8, %f16_gpu) : (memref<32xi8>, memref<64xf16>) -> ()
+  gpu.memcpy %arg0_i4, %i4_gpu : memref<64xi4>, memref<64xi4>
+  gpu.dealloc %i4_gpu : memref<64xi4>
+  gpu.memcpy %arg1, %f16_gpu : memref<64xf16>, memref<64xf16>
+  gpu.dealloc %f16_gpu : memref<64xf16>
   func.return
 }
 
 // ---------------------------------------------------------------------------
-// f4 multi-dim (odd last dim) also rewritten.
+// Test with f4 in function call (after rock-emulate-narrow-type)
 // ---------------------------------------------------------------------------
-// CHECK-LABEL: func.func @process_f4_3x5x9
-// CHECK: %[[IN_RAW:.*]] = gpu.alloc() : memref<3x5x5xi8>
-// CHECK: %[[IN_CAST:.*]] = unrealized_conversion_cast %[[IN_RAW]] : memref<3x5x5xi8> to memref<3x5x9xf4E2M1FN>
-// CHECK: %[[OUT_RAW:.*]] = gpu.alloc() : memref<3x5x5xi8>
-// CHECK: %[[OUT_CAST:.*]] = unrealized_conversion_cast %[[OUT_RAW]] : memref<3x5x5xi8> to memref<3x5x9xf4E2M1FN>
-// CHECK: gpu.memcpy %[[IN_CAST]], %arg_in : memref<3x5x9xf4E2M1FN>, memref<3x5x9xf4E2M1FN>
-// CHECK: func.call @kernel_f4(%[[IN_CAST]], %[[OUT_CAST]]) : (memref<3x5x9xf4E2M1FN>, memref<3x5x9xf4E2M1FN>) -> ()
-// CHECK: gpu.memcpy %arg_out, %[[OUT_CAST]] : memref<3x5x9xf4E2M1FN>, memref<3x5x9xf4E2M1FN>
-// CHECK: gpu.dealloc %[[IN_RAW]] : memref<3x5x5xi8>
-// CHECK: gpu.dealloc %[[OUT_RAW]] : memref<3x5x5xi8>
-func.func @process_f4_3x5x9(%arg_in : memref<3x5x9xf4E2M1FN>, %arg_out : memref<3x5x9xf4E2M1FN>) {
-  %in_tmp = gpu.alloc() : memref<3x5x9xf4E2M1FN>
-  %out_tmp = gpu.alloc() : memref<3x5x9xf4E2M1FN>
-  gpu.memcpy %in_tmp, %arg_in : memref<3x5x9xf4E2M1FN>, memref<3x5x9xf4E2M1FN>
-  func.call @kernel_f4(%in_tmp, %out_tmp) : (memref<3x5x9xf4E2M1FN>, memref<3x5x9xf4E2M1FN>) -> ()
-  gpu.memcpy %arg_out, %out_tmp : memref<3x5x9xf4E2M1FN>, memref<3x5x9xf4E2M1FN>
-  gpu.dealloc %in_tmp : memref<3x5x9xf4E2M1FN>
-  gpu.dealloc %out_tmp : memref<3x5x9xf4E2M1FN>
+// CHECK-LABEL: func.func private @callee_f4
+// CHECK-SAME: memref<16xi8>
+func.func private @callee_f4(%arg0: memref<16xi8>)
+
+// CHECK-LABEL: func.func @test_f4_with_call
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[GPU_I8:.*]] = gpu.alloc{{.*}}: memref<16xi8>
+// CHECK: gpu.memcpy{{.*}}%[[GPU_I8]], %arg0{{.*}}: memref<16xi8>, memref<16xi8>
+// CHECK: call @callee_f4(%[[GPU_I8]]) : (memref<16xi8>) -> ()
+// CHECK: gpu.memcpy{{.*}}%arg0, %[[GPU_I8]]{{.*}}: memref<16xi8>, memref<16xi8>
+// CHECK: gpu.dealloc{{.*}}%[[GPU_I8]]{{.*}}: memref<16xi8>
+func.func @test_f4_with_call(%arg0: memref<16xi8>) {
+  %arg0_f4 = builtin.unrealized_conversion_cast %arg0 : memref<16xi8> to memref<32xf4E2M1FN>
+  %f4_gpu = gpu.alloc() : memref<32xf4E2M1FN>
+  %f4_gpu_i8 = builtin.unrealized_conversion_cast %f4_gpu : memref<32xf4E2M1FN> to memref<16xi8>
+  gpu.memcpy %f4_gpu, %arg0_f4 : memref<32xf4E2M1FN>, memref<32xf4E2M1FN>
+  func.call @callee_f4(%f4_gpu_i8) : (memref<16xi8>) -> ()
+  gpu.memcpy %arg0_f4, %f4_gpu : memref<32xf4E2M1FN>, memref<32xf4E2M1FN>
+  gpu.dealloc %f4_gpu : memref<32xf4E2M1FN>
   func.return
 }
 
 // ---------------------------------------------------------------------------
-// i4 large flat: 64 -> 32
+// Test with multiple i4 allocations passed to function (after rock-emulate-narrow-type)
 // ---------------------------------------------------------------------------
-// CHECK-LABEL: func.func @process_i4_64
-// CHECK: %[[IN_RAW:.*]] = gpu.alloc() : memref<32xi8>
-// CHECK: %[[IN_CAST:.*]] = unrealized_conversion_cast %[[IN_RAW]] : memref<32xi8> to memref<64xi4>
-// CHECK: %[[OUT_RAW:.*]] = gpu.alloc() : memref<32xi8>
-// CHECK: %[[OUT_CAST:.*]] = unrealized_conversion_cast %[[OUT_RAW]] : memref<32xi8> to memref<64xi4>
-// CHECK: gpu.memcpy %[[IN_CAST]], %arg_in : memref<64xi4>, memref<64xi4>
-// CHECK: func.call @kernel_i4(%[[IN_CAST]], %[[OUT_CAST]]) : (memref<64xi4>, memref<64xi4>) -> ()
-// CHECK: gpu.memcpy %arg_out, %[[OUT_CAST]] : memref<64xi4>, memref<64xi4>
-// CHECK: gpu.dealloc %[[IN_RAW]] : memref<32xi8>
-// CHECK: gpu.dealloc %[[OUT_RAW]] : memref<32xi8>
-func.func @process_i4_64(%arg_in : memref<64xi4>, %arg_out : memref<64xi4>) {
-  %in_tmp = gpu.alloc() : memref<64xi4>
-  %out_tmp = gpu.alloc() : memref<64xi4>
-  gpu.memcpy %in_tmp, %arg_in : memref<64xi4>, memref<64xi4>
-  func.call @kernel_i4(%in_tmp, %out_tmp) : (memref<64xi4>, memref<64xi4>) -> ()
-  gpu.memcpy %arg_out, %out_tmp : memref<64xi4>, memref<64xi4>
-  gpu.dealloc %in_tmp : memref<64xi4>
-  gpu.dealloc %out_tmp : memref<64xi4>
+// CHECK-LABEL: func.func private @callee_multi
+// CHECK-SAME: memref<32xi8>
+// CHECK-SAME: memref<32xi8>
+func.func private @callee_multi(%arg0: memref<32xi8>, %arg1: memref<32xi8>)
+
+// CHECK-LABEL: func.func @test_multi_i4_call
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[GPU1:.*]] = gpu.alloc{{.*}}: memref<32xi8>
+// CHECK: %[[GPU2:.*]] = gpu.alloc{{.*}}: memref<32xi8>
+// CHECK: gpu.memcpy{{.*}}%[[GPU1]], %arg0{{.*}}: memref<32xi8>, memref<32xi8>
+// CHECK: gpu.memcpy{{.*}}%[[GPU2]], %arg1{{.*}}: memref<32xi8>, memref<32xi8>
+// CHECK: call @callee_multi(%[[GPU1]], %[[GPU2]]) : (memref<32xi8>, memref<32xi8>) -> ()
+// CHECK: gpu.dealloc{{.*}}%[[GPU1]]{{.*}}: memref<32xi8>
+// CHECK: gpu.dealloc{{.*}}%[[GPU2]]{{.*}}: memref<32xi8>
+func.func @test_multi_i4_call(%arg0: memref<32xi8>, %arg1: memref<32xi8>) {
+  %arg0_i4 = builtin.unrealized_conversion_cast %arg0 : memref<32xi8> to memref<64xi4>
+  %arg1_i4 = builtin.unrealized_conversion_cast %arg1 : memref<32xi8> to memref<64xi4>
+  %gpu1 = gpu.alloc() : memref<64xi4>
+  %gpu1_i8 = builtin.unrealized_conversion_cast %gpu1 : memref<64xi4> to memref<32xi8>
+  %gpu2 = gpu.alloc() : memref<64xi4>
+  %gpu2_i8 = builtin.unrealized_conversion_cast %gpu2 : memref<64xi4> to memref<32xi8>
+  gpu.memcpy %gpu1, %arg0_i4 : memref<64xi4>, memref<64xi4>
+  gpu.memcpy %gpu2, %arg1_i4 : memref<64xi4>, memref<64xi4>
+  func.call @callee_multi(%gpu1_i8, %gpu2_i8) : (memref<32xi8>, memref<32xi8>) -> ()
+  gpu.dealloc %gpu1 : memref<64xi4>
+  gpu.dealloc %gpu2 : memref<64xi4>
   func.return
 }
+
+// ---------------------------------------------------------------------------
+// Test 2D memref with even last dimension: 4x10xi4 -> 4x5xi8
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func private @callee_2d
+// CHECK-SAME: memref<4x5xi8>
+func.func private @callee_2d(%arg0: memref<4x5xi8>)
+
+// CHECK-LABEL: func.func @test_2d_even
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[GPU:.*]] = gpu.alloc{{.*}}: memref<4x5xi8>
+// CHECK: gpu.memcpy{{.*}}%[[GPU]], %arg0{{.*}}: memref<4x5xi8>, memref<4x5xi8>
+// CHECK: call @callee_2d(%[[GPU]]) : (memref<4x5xi8>) -> ()
+// CHECK: gpu.memcpy{{.*}}%arg0, %[[GPU]]{{.*}}: memref<4x5xi8>, memref<4x5xi8>
+// CHECK: gpu.dealloc{{.*}}%[[GPU]]{{.*}}: memref<4x5xi8>
+func.func @test_2d_even(%arg0: memref<4x5xi8>) {
+  %arg0_i4 = builtin.unrealized_conversion_cast %arg0 : memref<4x5xi8> to memref<4x10xi4>
+  %gpu = gpu.alloc() : memref<4x10xi4>
+  %gpu_i8 = builtin.unrealized_conversion_cast %gpu : memref<4x10xi4> to memref<4x5xi8>
+  gpu.memcpy %gpu, %arg0_i4 : memref<4x10xi4>, memref<4x10xi4>
+  func.call @callee_2d(%gpu_i8) : (memref<4x5xi8>) -> ()
+  gpu.memcpy %arg0_i4, %gpu : memref<4x10xi4>, memref<4x10xi4>
+  gpu.dealloc %gpu : memref<4x10xi4>
+  func.return
+}
+
+// ---------------------------------------------------------------------------
+// Test 3D memref with odd last dimension: 3x5x9xi4 -> 3x5x5xi8 (ceil(9/2) = 5)
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func private @callee_3d_odd
+// CHECK-SAME: memref<3x5x5xi8>
+func.func private @callee_3d_odd(%arg0: memref<3x5x5xi8>)
+
+// CHECK-LABEL: func.func @test_3d_odd
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[GPU:.*]] = gpu.alloc{{.*}}: memref<3x5x5xi8>
+// CHECK: gpu.memcpy{{.*}}%[[GPU]], %arg0{{.*}}: memref<3x5x5xi8>, memref<3x5x5xi8>
+// CHECK: call @callee_3d_odd(%[[GPU]]) : (memref<3x5x5xi8>) -> ()
+// CHECK: gpu.memcpy{{.*}}%arg0, %[[GPU]]{{.*}}: memref<3x5x5xi8>, memref<3x5x5xi8>
+// CHECK: gpu.dealloc{{.*}}%[[GPU]]{{.*}}: memref<3x5x5xi8>
+func.func @test_3d_odd(%arg0: memref<3x5x5xi8>) {
+  %arg0_i4 = builtin.unrealized_conversion_cast %arg0 : memref<3x5x5xi8> to memref<3x5x9xi4>
+  %gpu = gpu.alloc() : memref<3x5x9xi4>
+  %gpu_i8 = builtin.unrealized_conversion_cast %gpu : memref<3x5x9xi4> to memref<3x5x5xi8>
+  gpu.memcpy %gpu, %arg0_i4 : memref<3x5x9xi4>, memref<3x5x9xi4>
+  func.call @callee_3d_odd(%gpu_i8) : (memref<3x5x5xi8>) -> ()
+  gpu.memcpy %arg0_i4, %gpu : memref<3x5x9xi4>, memref<3x5x9xi4>
+  gpu.dealloc %gpu : memref<3x5x9xi4>
+  func.return
+}
+
+// ---------------------------------------------------------------------------
+// Test 2D f4 with odd last dimension: 8x7xf4 -> 8x4xi8 (ceil(7/2) = 4)
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func private @callee_f4_2d_odd
+// CHECK-SAME: memref<8x4xi8>
+func.func private @callee_f4_2d_odd(%arg0: memref<8x4xi8>)
+
+// CHECK-LABEL: func.func @test_f4_2d_odd
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[GPU:.*]] = gpu.alloc{{.*}}: memref<8x4xi8>
+// CHECK: gpu.memcpy{{.*}}%[[GPU]], %arg0{{.*}}: memref<8x4xi8>, memref<8x4xi8>
+// CHECK: call @callee_f4_2d_odd(%[[GPU]]) : (memref<8x4xi8>) -> ()
+// CHECK: gpu.memcpy{{.*}}%arg0, %[[GPU]]{{.*}}: memref<8x4xi8>, memref<8x4xi8>
+// CHECK: gpu.dealloc{{.*}}%[[GPU]]{{.*}}: memref<8x4xi8>
+func.func @test_f4_2d_odd(%arg0: memref<8x4xi8>) {
+  %arg0_f4 = builtin.unrealized_conversion_cast %arg0 : memref<8x4xi8> to memref<8x7xf4E2M1FN>
+  %gpu = gpu.alloc() : memref<8x7xf4E2M1FN>
+  %gpu_i8 = builtin.unrealized_conversion_cast %gpu : memref<8x7xf4E2M1FN> to memref<8x4xi8>
+  gpu.memcpy %gpu, %arg0_f4 : memref<8x7xf4E2M1FN>, memref<8x7xf4E2M1FN>
+  func.call @callee_f4_2d_odd(%gpu_i8) : (memref<8x4xi8>) -> ()
+  gpu.memcpy %arg0_f4, %gpu : memref<8x7xf4E2M1FN>, memref<8x7xf4E2M1FN>
+  gpu.dealloc %gpu : memref<8x7xf4E2M1FN>
+  func.return
+}
+
+// ---------------------------------------------------------------------------
+// Test 4D with even last dimension: 2x3x4x16xi4 -> 2x3x4x8xi8
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func private @callee_4d
+// CHECK-SAME: memref<2x3x4x8xi8>
+func.func private @callee_4d(%arg0: memref<2x3x4x8xi8>)
+
+// CHECK-LABEL: func.func @test_4d_even
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[GPU:.*]] = gpu.alloc{{.*}}: memref<2x3x4x8xi8>
+// CHECK: gpu.memcpy{{.*}}%[[GPU]], %arg0{{.*}}: memref<2x3x4x8xi8>, memref<2x3x4x8xi8>
+// CHECK: call @callee_4d(%[[GPU]]) : (memref<2x3x4x8xi8>) -> ()
+// CHECK: gpu.dealloc{{.*}}%[[GPU]]{{.*}}: memref<2x3x4x8xi8>
+func.func @test_4d_even(%arg0: memref<2x3x4x8xi8>) {
+  %arg0_i4 = builtin.unrealized_conversion_cast %arg0 : memref<2x3x4x8xi8> to memref<2x3x4x16xi4>
+  %gpu = gpu.alloc() : memref<2x3x4x16xi4>
+  %gpu_i8 = builtin.unrealized_conversion_cast %gpu : memref<2x3x4x16xi4> to memref<2x3x4x8xi8>
+  gpu.memcpy %gpu, %arg0_i4 : memref<2x3x4x16xi4>, memref<2x3x4x16xi4>
+  func.call @callee_4d(%gpu_i8) : (memref<2x3x4x8xi8>) -> ()
+  gpu.dealloc %gpu : memref<2x3x4x16xi4>
+  func.return
+}
+
+// ---------------------------------------------------------------------------
+// Test mixed: 2D with odd, multiple allocations with memcpy between them
+// 6x11xi4 -> 6x6xi8 (ceil(11/2) = 6)
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func @test_mixed_2d_odd_multi_alloc
+// CHECK-NOT: unrealized_conversion_cast
+// CHECK: %[[A:.*]] = gpu.alloc{{.*}}: memref<6x6xi8>
+// CHECK: %[[B:.*]] = gpu.alloc{{.*}}: memref<6x6xi8>
+// CHECK: gpu.memcpy{{.*}}%[[A]], %arg0{{.*}}: memref<6x6xi8>, memref<6x6xi8>
+// CHECK: gpu.memcpy{{.*}}%[[B]], %[[A]]{{.*}}: memref<6x6xi8>, memref<6x6xi8>
+// CHECK: gpu.memcpy{{.*}}%arg0, %[[B]]{{.*}}: memref<6x6xi8>, memref<6x6xi8>
+// CHECK: gpu.dealloc{{.*}}%[[A]]{{.*}}: memref<6x6xi8>
+// CHECK: gpu.dealloc{{.*}}%[[B]]{{.*}}: memref<6x6xi8>
+func.func @test_mixed_2d_odd_multi_alloc(%arg0: memref<6x6xi8>) {
+  %arg0_i4 = builtin.unrealized_conversion_cast %arg0 : memref<6x6xi8> to memref<6x11xi4>
+  %a = gpu.alloc() : memref<6x11xi4>
+  %a_i8 = builtin.unrealized_conversion_cast %a : memref<6x11xi4> to memref<6x6xi8>
+  %b = gpu.alloc() : memref<6x11xi4>
+  %b_i8 = builtin.unrealized_conversion_cast %b : memref<6x11xi4> to memref<6x6xi8>
+  gpu.memcpy %a, %arg0_i4 : memref<6x11xi4>, memref<6x11xi4>
+  gpu.memcpy %b, %a : memref<6x11xi4>, memref<6x11xi4>
+  gpu.memcpy %arg0_i4, %b : memref<6x11xi4>, memref<6x11xi4>
+  gpu.dealloc %a : memref<6x11xi4>
+  gpu.dealloc %b : memref<6x11xi4>
+  func.return
+}
+
