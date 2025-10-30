@@ -345,3 +345,46 @@ func.func @mlir_attention_single_token(%arg0: tensor<128xf32>, %arg1: tensor<256
   %collapsed_7 = tensor.collapse_shape %20 [[0, 1, 2]] : tensor<8x1x32xf32> into tensor<256xf32>
   return %collapsed_7, %collapsed_4 : tensor<256xf32>, tensor<8xf32>
 }
+
+// CHECK-LABEL: @mlir_attention_lse_unfolded
+// CHECK: %[[lseBuffer:.+]] = bufferization.alloc_tensor() : tensor<8x1xf32>
+// CHECK: %{{.*}}, %[[lseOut:.*]] = rock.attention
+// CHECK: lse = %[[lseBuffer]] : tensor<8x1xf32>
+// CHECK: %[[lseExpanded:.*]] = tensor.expand_shape %[[lseOut]]
+// CHECK: %[[lseCollapsed:.*]] = tensor.collapse_shape %[[lseExpanded]]
+// CHECK: return %{{.*}}, %[[lseCollapsed]] : tensor<256xf32>, tensor<8xf32>
+func.func private @mlir_attention_lse_unfolded(%arg0: tensor<128xf32>, %arg1: tensor<256xf32>, %arg2: tensor<128xf32>) -> (tensor<256xf32>, tensor<8xf32>) attributes {arch = "##TOKEN_ARCH##", kernel} {
+  %0 = tosa.const_shape  {values = dense<256> : tensor<1xindex>} : () -> !tosa.shape<1>
+  %1 = tosa.const_shape  {values = dense<[8, 1, 1]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %2 = tosa.const_shape  {values = dense<8> : tensor<1xindex>} : () -> !tosa.shape<1>
+  %3 = tosa.const_shape  {values = dense<[2, 4, 1, 1]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %4 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %5 = tosa.const_shape  {values = dense<[8, 32, 1]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %6 = tosa.const_shape  {values = dense<[8, 1, 32]> : tensor<3xindex>} : () -> !tosa.shape<3>
+  %7 = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %8 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<2x2x2x1x32xf32>}> : () -> tensor<2x2x2x1x32xf32>
+  %9 = tosa.const_shape  {values = dense<[2, 2, 1, 1, 32]> : tensor<5xindex>} : () -> !tosa.shape<5>
+  %10 = tosa.const_shape  {values = dense<[2, 4, 1, 32]> : tensor<4xindex>} : () -> !tosa.shape<4>
+  %expanded = tensor.expand_shape %arg0 [[0, 1, 2, 3, 4]] output_shape [2, 2, 1, 1, 32] : tensor<128xf32> into tensor<2x2x1x1x32xf32>
+  %11 = tosa.mul %expanded, %8, %7 : (tensor<2x2x1x1x32xf32>, tensor<2x2x2x1x32xf32>, tensor<1xi8>) -> tensor<2x2x2x1x32xf32>
+  %expanded_0 = tensor.expand_shape %arg2 [[0, 1, 2, 3, 4]] output_shape [2, 2, 1, 1, 32] : tensor<128xf32> into tensor<2x2x1x1x32xf32>
+  %12 = tosa.mul %expanded_0, %8, %7 : (tensor<2x2x1x1x32xf32>, tensor<2x2x2x1x32xf32>, tensor<1xi8>) -> tensor<2x2x2x1x32xf32>
+  %collapsed = tensor.collapse_shape %12 [[0], [1, 2], [3], [4]] : tensor<2x2x2x1x32xf32> into tensor<2x4x1x32xf32>
+  %13 = tosa.transpose %collapsed {perms = array<i32: 0, 1, 3, 2>} : (tensor<2x4x1x32xf32>) -> tensor<2x4x32x1xf32>
+  %expanded_1 = tensor.expand_shape %arg1 [[0, 1, 2]] output_shape [8, 1, 32] : tensor<256xf32> into tensor<8x1x32xf32>
+  %collapsed_2 = tensor.collapse_shape %13 [[0, 1], [2], [3]] : tensor<2x4x32x1xf32> into tensor<8x32x1xf32>
+  %14 = tosa.matmul %expanded_1, %collapsed_2, %4, %4 {acc_type = f32} : (tensor<8x1x32xf32>, tensor<8x32x1xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<8x1x1xf32>
+  %expanded_3 = tensor.expand_shape %14 [[0, 1], [2], [3]] output_shape [2, 4, 1, 1] : tensor<8x1x1xf32> into tensor<2x4x1x1xf32>
+  %15 = tosa.sub %expanded_3, %expanded_3 : (tensor<2x4x1x1xf32>, tensor<2x4x1x1xf32>) -> tensor<2x4x1x1xf32>
+  %16 = tosa.exp %15 : (tensor<2x4x1x1xf32>) -> tensor<2x4x1x1xf32>
+  %17 = tosa.reciprocal %16 : (tensor<2x4x1x1xf32>) -> tensor<2x4x1x1xf32>
+  %18 = tosa.mul %16, %17, %7 : (tensor<2x4x1x1xf32>, tensor<2x4x1x1xf32>, tensor<1xi8>) -> tensor<2x4x1x1xf32>
+  %19 = tosa.log %16 : (tensor<2x4x1x1xf32>) -> tensor<2x4x1x1xf32>
+  %20 = tosa.add %19, %expanded_3 : (tensor<2x4x1x1xf32>, tensor<2x4x1x1xf32>) -> tensor<2x4x1x1xf32>
+  %collapsed_4 = tensor.collapse_shape %20 [[0, 1, 2, 3]] : tensor<2x4x1x1xf32> into tensor<8xf32>
+  %collapsed_5 = tensor.collapse_shape %18 [[0, 1], [2], [3]] : tensor<2x4x1x1xf32> into tensor<8x1x1xf32>
+  %collapsed_6 = tensor.collapse_shape %11 [[0, 1, 2], [3], [4]] : tensor<2x2x2x1x32xf32> into tensor<8x1x32xf32>
+  %21 = tosa.matmul %collapsed_5, %collapsed_6, %4, %4 {acc_type = f32} : (tensor<8x1x1xf32>, tensor<8x1x32xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<8x1x32xf32>
+  %collapsed_7 = tensor.collapse_shape %21 [[0, 1, 2]] : tensor<8x1x32xf32> into tensor<256xf32>
+  return %collapsed_7, %collapsed_4 : tensor<256xf32>, tensor<8xf32>
+}
