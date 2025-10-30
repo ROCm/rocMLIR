@@ -45,6 +45,8 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrConvElementwiseGemmF32SplitK
     PrConvElementwiseGemmF16SplitK
     PrConvElementwiseGemmBF16SplitK
+    PrGemmDirectToLDS
+    PrConvDirectToLDS
   )
   set(GEN_MODE "")
 endif()
@@ -74,6 +76,10 @@ if (ROCK_E2E_TEST_ENABLED)
   gemm_split_k_f16
   gemm_split_k_bf16
   gemm_split_k_f32
+  )
+  list(APPEND CONFIGS
+  GemmDirectToLDS
+  ConvDirectToLDS
   )
 endif()
 # Create a list for dummy files

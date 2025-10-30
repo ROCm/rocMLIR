@@ -721,11 +721,13 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
 
   // This kernel is not run when there is padding on the GEMM
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::AtomicAdd);
-  GemmOp::create(
-      b, loc, getResultType(op, gemmFilter), gemmOutput, gemmInput, gemmFilter,
-      /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
-      op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
+  GemmOp::create(b, loc, getResultType(op, gemmFilter), gemmOutput, gemmInput,
+                 gemmFilter, /*scaleA=*/nullptr, /*scaleB=*/nullptr,
+                 /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
+                 /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
+                 /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
+                 storeMethod, op.getDerivedBlockSizeAttr(),
+                 op.getGridSizeAttr(), op.getParamsAttr());
 
   // Finally, erase the original Conv op.
   b.eraseOp(op);
@@ -1084,8 +1086,10 @@ FailureOr<std::tuple<Value, Value, Value>> backwardDataV4R1(ConvBwdDataOp op,
   auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
   auto gemm = GemmOp::create(
       b, loc, getResultType(op, gemmInput), gemmFilter, gemmOutput, gemmInput,
+      /*scaleA=*/nullptr, /*scaleB=*/nullptr,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-      /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
+      /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
+      /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
       op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
   gemm->setAttr("kernelId", b.getIndexAttr(kernelId));
@@ -1439,10 +1443,12 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     auto tuningParams = op.getParamsAttr();
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
     GemmOp::create(b, loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
+                   /*scaleA=*/nullptr, /*scaleB=*/nullptr,
                    /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-                   /*cTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
-                   op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
-                   tuningParams);
+                   /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
+                   /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
+                   storeMethod, op.getDerivedBlockSizeAttr(),
+                   op.getGridSizeAttr(), tuningParams);
 
     // Finally, erase the original Conv op.
     b.eraseOp(op);

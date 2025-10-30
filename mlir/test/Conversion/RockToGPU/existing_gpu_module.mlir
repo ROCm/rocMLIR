@@ -6,7 +6,7 @@
 module {
   gpu.module @existing_module {
   }
-  func.func @emptykernel(%arg0: memref<?x?x?x?xf32>) attributes {kernel = 0 : i32} {
+  func.func @emptykernel(%arg0: memref<?x?x?x?xf32>) attributes {kernel = 0 : i32, block_size = 32 : i32, grid_size = 1 : i32} {
     return
   }
 }

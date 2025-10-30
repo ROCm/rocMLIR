@@ -13,6 +13,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Support/LLVM.h"
 
@@ -53,6 +54,24 @@ struct RegsAsMatrixSubTiles {
   std::optional<ArrayAttr> blockSubTileTidSlice;
 };
 
+// Following structures holds knobs to tweak the
+// the LDS layout for gemms/attention ops.
+struct LDSLayoutConfigDim {
+  bool doRotateWithK;
+  bool doSwapThreadIterSubDims;
+  bool ldsLayoutDxK;
+};
+
+// This is helper struct to aggregate
+// derived information w.r.t load vectorization
+struct VectorDimInfo {
+  GemmDimension vectorDim;
+  int64_t vectorLen;
+  int64_t inKPerThread;
+  int64_t inDPerThread;
+  GemmDimension vectorTiebreaker;
+};
+
 // The rows and columns of subtile view needs to
 // be transposed depending on which operand of
 // gemm the view is going to be.
@@ -63,12 +82,11 @@ RegsAsMatrixSubTiles transposeSubTileViews(PatternRewriter &rewriter,
 // This function will create views of the register buffer of the loaded tile
 // of a matrix in global memory. Those views will provide sub-tiles of the
 // respective hierarchy within the GPU. See above about RegsAsMatrixSubTiles
-FailureOr<RegsAsMatrixSubTiles>
-getLoadRegsAsTileViews(OpBuilder &b, Location loc, Value globalBuffer,
-                       StringRef dName, ArrayRef<StringRef> bidGridOrder,
-                       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
-                       int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-                       int64_t dPerThread, bool isKContigousDim);
+FailureOr<RegsAsMatrixSubTiles> getLoadRegsAsTileViews(
+    OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
+    ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
+    int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
+    int64_t dPerThread, bool isKContiguousDim, bool directToLDS);
 
 // This function will create views of the register buffer of the loaded tile
 // but packed as kOuterPerThread, dPerThread and kPackPerThread for max
@@ -78,7 +96,7 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, int64_t kpack, bool isKContigousDim,
+    int64_t dPerThread, int64_t kpack, bool isKContiguousDim,
     bool doSwapThreadIterSubDimsForD = false);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
@@ -192,7 +210,13 @@ Value getFlattenedMemref(OpBuilder &b, Value nonFlatMemRef);
 
 /// Construct a `memref.view` operation that interprets the buffer `buffer`,
 /// whose elements are bytes, as a buffer of `type`.
-TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer, Type type);
+TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
+                                    Type elementType);
+
+/// Same as above but the user provides output dimensions.
+TypedValue<MemRefType> viewBufferAs(OpBuilder &b, Value buffer,
+                                    Type elementType,
+                                    ArrayRef<int64_t> dimensions);
 
 // helper to allocate memory on the GPU
 Value gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim, Type elementType,
@@ -213,6 +237,29 @@ FailureOr<BlockArgument> findBlockArgument(Value value);
 FailureOr<SmallVector<OpOperand *>>
 traceGemmOutputToGenericOps(Value matC, func::FuncOp func,
                             const BufferDependencyAnalysis &deps);
+
+/// Wraps the LDS buffer "buffer", which is <kOuter * d * kpack *
+/// sizeof(T) x i8> into a tid x iter view, where `iter` iterates over nominal
+/// scalar indices into a buffer of type T. `buffer` will be reinterpreted as a
+/// buffer with element type vector<kpackPerThread x T> (with kpackPerThread ==
+/// 1 meaning just T). The resulting view must be iterated over with a stride of
+/// no less than min(kPerThread, kpack). Also note that the `d` dimension
+/// might be rotated to minimize bank conflicts (i.e., depending on
+/// `rotateDWithK`
+// we can apply a transformation similar to `d=(d+kOuter)%D`)
+FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc, Value buffer,
+                                       Type ldsReadType, int64_t kOuter,
+                                       StringRef dName, int64_t d,
+                                       int64_t kPerThread, int64_t dPerThread,
+                                       bool rotateDWithK = false);
+
+FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
+                                      int64_t blockSize, int64_t kPerBlock,
+                                      int64_t dPerBlock, int64_t kpack,
+                                      bool directToLDS);
+
+// Get the LDS size of the memref
+std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
 
 } // end namespace rock
 } // end namespace mlir

@@ -156,13 +156,14 @@ def advancedNodeCheck(Map params) {
     }
     boolean doCleanWs = params.doCleanWs
     boolean doGPUcheck = params.doGPUcheck
-    resetGPUs()
 
     if (doCleanWs) {
         timeout(time: 15, unit: 'MINUTES', activity: true) {
             cleanWs()
         }
     }
+
+    resetGPUs()
 
     timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'docker version' }
 
@@ -281,11 +282,11 @@ void showEnv() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm6.4-latest'
+    return 'rocm/mlir:rocm7.0-latest'
 }
 
 String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm6.4-latest'
+    return 'rocm/mlir-migraphx-ci:rocm7.0-latest'
 }
 
 void preMergeCheck(String codepath) {
@@ -346,7 +347,7 @@ void postProcessPerfRes(String chip) {
         alwaysLinkToLastBuild: false,
         keepAll: true,
         reportDir: 'build/reports',
-        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_rocBLAS.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
+        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
         reportName: "Performance report for ${chip}"
     ])
 
@@ -354,14 +355,6 @@ void postProcessPerfRes(String chip) {
     plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
         csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
         title: "Test performance summary ${chip}, Conv",\
-        yaxis: 'TFlops',\
-        style: 'line',\
-        group: 'Performance plots'
-  }
-  if (fileExists("build/${chip}_mlir_vs_rocblas_perf_for_plot.csv")) {
-    plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
-        csvSeries: [[file: "build/${chip}_mlir_vs_rocblas_perf_for_plot.csv", displayTableFlag: false]],\
-        title: "Test performance summary ${chip}, GEMM",\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
@@ -415,9 +408,17 @@ String getLabelFromCodepath(String codepath) {
     } else if (codepath == "vanilla"){
         label = 'mlir'
     } else if (codepath == "navi3x") {
-        label = 'mlir && ( gfx1100 || gfx1101 )'
+        if (params.nightly || params.weekly) {
+            label = 'mlir && gfx1100'
+        } else {
+            label = 'mlir && ( gfx1100 || gfx1101 )'
+        }
     } else if (codepath == "navi4x") {
-        label = 'mlir && ( gfx1200 || gfx1201 )'
+        if (params.nightly || params.weekly) {
+            label = 'mlir && gfx1201'
+        } else {
+            label = 'mlir && ( gfx1200 || gfx1201 )'
+        }
     } else {
         echo "${codepath} is not supported"
         label = 'wrongLabel'
@@ -541,7 +542,6 @@ boolean shouldRunFromChip(String chip) {
         case "gfx1030":
             return shouldRunFromCodepath("navi21")
         case "gfx1100":
-        case "gfx1101":
             return shouldRunFromCodepath("navi3x")
         case "gfx1200":
         case "gfx1201":
@@ -635,6 +635,11 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
             // Retry ONLY the health-check. We don't want to retry the actual stages
             try {
                 stage("Health checks on ${env.NODE_NAME}") {
+                    echo 'Cleaning up old Docker images...'
+                    def pruneStatus = sh(script: 'docker image prune -af --filter "until=720h"', returnStatus: true)
+                    if (pruneStatus != 0) {
+                        echo "[withHealthyNode] WARNING: Docker image prune failed with exit code ${pruneStatus}. Continuing health check."
+                    }
                     healthChecks()
                     gitHealthCheck()
                 }
@@ -782,7 +787,7 @@ pipeline {
                                 withHealthyNode(
                                     getLabelFromCodepath(CODEPATH),
                                     {
-                                        checkNodeHealth()
+                                        checkNodeHealth([doCleanWs: true])
                                     },
                                     {
                                         stage("SCM Checkout") {
@@ -1069,8 +1074,16 @@ pipeline {
                                                                     -c ../mlir/utils/performance/configs/tier1-conv-configs \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Tune attention configs
+                                                            def attnConfig = "../mlir/utils/performance/configs/tier1-attention-configs"
+                                                            def attnConfigToUse = attnConfig
+                                                            if (CHIP.startsWith("gfx1")) {
+                                                                attnConfigToUse = "tier1-attention-configs-nofp32"
+                                                                sh """
+                                                                    grep -v '\\-t f32' ${attnConfig} > ${attnConfigToUse}
+                                                                """
+                                                            }
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o attention \
-                                                                    -c ../mlir/utils/performance/configs/tier1-attention-configs \
+                                                                    -c ${attnConfigToUse} \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
                                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
@@ -1227,10 +1240,9 @@ pipeline {
                                                     stage("Build MLIR") {
                                                         // Clean up build settings to disable static library and allow ROCm testing
                                                         buildProject(
-                                                            'check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver',
+                                                            'check-rocmlir-build-only ci-performance-scripts',
                                                             '-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ ' +
-                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang ' +
-                                                            '-DROCMLIR_ENABLE_BENCHMARKS=rocblas'
+                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang '
                                                         )
                                                     }
 
@@ -1243,7 +1255,7 @@ pipeline {
                                                             target: 'build/oldData'
                                                     }
 
-                                                    stage("Test MLIR vs MIOpen/rocBLAS") {
+                                                    stage("Test MLIR vs MIOpen") {
                                                         dir('build') {
                                                             def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
                                                             def convToUse = "${WORKSPACE}/build/tier1-conv-configs"
@@ -1262,11 +1274,6 @@ pipeline {
                                                             // Run MLIR vs MIOpen perf benchmarks.
                                                             sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
                                                                 --configs_file=${convToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
-                                                            // Run MLIR vs rocBLAS perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                                --configs_file=${gemmToUse} \
                                                                 --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                                                 --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                         }
@@ -1345,10 +1352,8 @@ pipeline {
                                                         dir('build') {
                                                             sh 'ls -l'
                                                             sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
-                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
                                                             sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
                                                             sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
-                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
                                                             sh 'mkdir -p reports && cp ./*.html reports'
                                                         }
                                                         postProcessPerfRes("${CHIP}")

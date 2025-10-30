@@ -40,13 +40,18 @@
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
 
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/SourceMgr.h"
 
+#include <atomic>
+#include <cassert>
 #include <chrono>
 #include <cstdlib>
+#include <future>
+#include <mutex>
 #include <thread>
 
 // Utilities to allocate buffers
@@ -101,20 +106,37 @@ static llvm::cl::opt<unsigned> warmupIterations(
     "warmup-iterations", llvm::cl::desc("Number of warmup runs"),
     llvm::cl::value_desc("number of warmup runs"), llvm::cl::init(10));
 
+static llvm::cl::opt<bool>
+    useMedian("use-median",
+              llvm::cl::desc("Use median of runs instead of mean for timing "
+                             "(overrides trim-percent)"),
+              llvm::cl::init(false));
+
 static llvm::cl::opt<unsigned> trimPercent(
     "trim-percent",
     llvm::cl::desc("Percentage to trim from top and bottom of results"),
-    llvm::cl::value_desc("trim percentage"), llvm::cl::init(10));
+    llvm::cl::value_desc("trim percentage [0, 50)"), llvm::cl::init(10));
 
-static llvm::cl::opt<unsigned> sleepMs(
-    "sleep-ms",
-    llvm::cl::desc("Milliseconds to sleep between runs to avoid throttling"),
-    llvm::cl::value_desc("milliseconds to sleep"), llvm::cl::init(1));
+static llvm::cl::opt<unsigned> sleepUs(
+    "sleep-us",
+    llvm::cl::desc("Microseconds to sleep between runs to avoid throttling"),
+    llvm::cl::value_desc("microseconds to sleep"), llvm::cl::init(1000));
 
 static llvm::cl::opt<bool> showStats(
     "show-stats",
     llvm::cl::desc("Show detailed statistics (min, max, median, stddev, cv)"),
     llvm::cl::init(false));
+
+static llvm::cl::opt<std::string> benchmarkConfig(
+    "benchmark-config",
+    llvm::cl::desc(
+        "Run benchmark with specific perf config only (skip tuning)"),
+    llvm::cl::value_desc("perf config string"), llvm::cl::init(""));
+
+static llvm::cl::opt<unsigned> numCompileThreads(
+    "num-compile-threads",
+    llvm::cl::desc("Number of parallel compilation threads (0 = auto)"),
+    llvm::cl::value_desc("thread count"), llvm::cl::init(0));
 
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
@@ -179,6 +201,9 @@ static float computeMedian(const std::vector<float> &values) {
   if (values.empty())
     return 0.0;
 
+  assert(std::is_sorted(values.begin(), values.end()) &&
+         "values must be sorted");
+
   size_t n = values.size();
   if (n % 2 == 0) {
     return (values[n / 2 - 1] + values[n / 2]) / 2.0;
@@ -187,27 +212,16 @@ static float computeMedian(const std::vector<float> &values) {
   }
 }
 
-static float computeTrimmedMean(std::vector<float> &values, unsigned trimPct) {
+static float computeMean(const std::vector<float> &values) {
   if (values.empty())
     return 0.0;
 
-  std::sort(values.begin(), values.end());
-
-  size_t trimCount = values.size() * trimPct / 100;
-  size_t startIdx = trimCount;
-  size_t endIdx = values.size() - trimCount;
-
-  if (startIdx >= endIdx) {
-    // If we'd trim everything, just return median
-    return computeMedian(values);
-  }
-
   float sum = 0.0;
-  for (size_t i = startIdx; i < endIdx; ++i) {
+  for (size_t i = 0; i < values.size(); ++i) {
     sum += values[i];
   }
 
-  return sum / (endIdx - startIdx);
+  return sum / values.size();
 }
 
 static float computeStdDev(const std::vector<float> &values, float mean) {
@@ -223,14 +237,55 @@ static float computeStdDev(const std::vector<float> &values, float mean) {
   return std::sqrt(sumSquares / values.size());
 }
 
-// In order to match rocprof, returns time in nanoseconds
-static FailureOr<double> benchmarkKernels(
-    ArrayRef<std::string> binaries, ArrayRef<std::string> funcNames,
-    ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-    benchmark::DataType dataType, ArrayRef<void *> hostBuffers,
-    MutableArrayRef<void *> gpuBuffers, ArrayRef<size_t> bufferSizes) {
-  constexpr double msToNs = 1e6;
+static std::vector<float> trimValues(const std::vector<float> &values,
+                                     unsigned trimPct) {
+  if (values.empty() || trimPct == 0)
+    return values;
 
+  if (trimPct >= 50)
+    return {};
+
+  assert(std::is_sorted(values.begin(), values.end()) &&
+         "values must be sorted");
+
+  size_t trimCount = values.size() * trimPct / 100;
+  size_t startIdx = trimCount;
+  size_t endIdx = values.size() - trimCount;
+
+  return std::vector<float>(values.begin() + startIdx, values.begin() + endIdx);
+}
+
+struct BenchmarkParams {
+  unsigned numIterations;
+  unsigned warmupIterations;
+  bool useMedian;
+  unsigned trimPercent;
+  unsigned sleepUs;
+  bool showStats;
+};
+
+enum class CompilationStatus {
+  NotApplicable,     // Config not applicable for this kernel
+  CompilationFailed, // Config applicable but compilation failed
+  Success            // Successfully compiled
+};
+
+struct CompilationResult {
+  SmallString<64> perfConfig;
+  CompilationStatus status = CompilationStatus::NotApplicable;
+  SmallVector<std::string> hipModules;
+  SmallVector<uint32_t> blockSizes;
+  SmallVector<uint32_t> gridSizes;
+};
+
+// In order to match rocprof, returns time in nanoseconds
+static FailureOr<double>
+benchmarkKernels(ArrayRef<std::string> binaries,
+                 ArrayRef<std::string> funcNames, ArrayRef<uint32_t> blockSizes,
+                 ArrayRef<uint32_t> gridSizes, benchmark::DataType dataType,
+                 ArrayRef<void *> hostBuffers,
+                 MutableArrayRef<void *> gpuBuffers,
+                 ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream));
 
@@ -260,8 +315,15 @@ static FailureOr<double> benchmarkKernels(
     functions.push_back(func);
   }
 
+  // Sleep guard to avoid GPU throttling
+  auto sleepGuard = llvm::make_scope_exit([&params] {
+    if (params.sleepUs > 0) {
+      std::this_thread::sleep_for(std::chrono::microseconds(params.sleepUs));
+    }
+  });
+
   // Warmup run
-  for (unsigned iter = 0; iter < warmupIterations; ++iter) {
+  for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
     for (auto [func, blockSize, gridSize] :
          llvm::zip(functions, blockSizes, gridSizes)) {
       HIPCHECK(hipExtModuleLaunchKernel(
@@ -273,7 +335,7 @@ static FailureOr<double> benchmarkKernels(
   // Measure runs
   std::vector<float> measurements;
 
-  for (unsigned iter = 0; iter < numIterations; ++iter) {
+  for (unsigned iter = 0; iter < params.numIterations; ++iter) {
     if (failed(flushL2Cache(stream))) {
       return failure();
     }
@@ -304,39 +366,31 @@ static FailureOr<double> benchmarkKernels(
     measurements.push_back(totalMilliseconds);
   }
 
-  // Sleep to avoid GPU throttling
-  if (sleepMs > 0) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
-  }
-
   for (hipModule_t mod : modules) {
     HIPCHECK(hipModuleUnload(mod));
   }
 
   HIPCHECK(hipStreamDestroy(stream));
 
-  if (showStats && measurements.size()) {
-    std::sort(measurements.begin(), measurements.end());
+  std::sort(measurements.begin(), measurements.end());
+
+  if (params.showStats && measurements.size() > 1) {
     float median = computeMedian(measurements);
     float min = measurements.front();
     float max = measurements.back();
-
-    float mean = 0.0;
-    for (float val : measurements)
-      mean += val;
-    mean /= measurements.size();
-
+    float mean = computeMean(measurements);
     float stdDev = computeStdDev(measurements, mean);
     float coefficientOfVariation = (mean > 0) ? (stdDev / mean * 100) : 0;
-
-    llvm::outs() << " [min: " << min << ", median: " << median
+    llvm::outs() << "[min: " << min << ", median: " << median
                  << ", max: " << max << ", stddev: " << stdDev
-                 << ", cv: " << coefficientOfVariation << "%]\n";
+                 << ", cv: " << coefficientOfVariation << "%]\t";
   }
 
-  // Compute trimmed mean
-  float averageMilliseconds = computeTrimmedMean(measurements, trimPercent);
-  return msToNs * static_cast<double>(averageMilliseconds);
+  auto msToNs = [](float ms) { return 1e6 * static_cast<double>(ms); };
+  if (params.useMedian)
+    return msToNs(computeMedian(measurements));
+  else
+    return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
 }
 
 static int toKernelOrder(Attribute attr) {
@@ -418,22 +472,16 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     bufferLengths.push_back(sizeInBits / 8);
   }
 
-  // 2. Set up pipelines. Do this only once to save on construction cost.
-  MLIRContext *ctx = source->getContext();
-  PassManager applicability(source->getName(), PassManager::Nesting::Implicit);
-  PassManager compilation(source->getName(), PassManager::Nesting::Implicit);
-
+  // 2. Set up compilation options (shared across all threads)
   rock::KernelOptions applicabilityOpts;
   applicabilityOpts.enableApplicability = true;
   applicabilityOpts.enableFusion = true;
   applicabilityOpts.tuningFallback = false;
-  rock::buildKernelPipeline(applicability, applicabilityOpts);
 
   rock::KernelOptions compilationKernOpts;
   compilationKernOpts.enableApplicability = false;
   compilationKernOpts.enableFusion = true;
   compilationKernOpts.tuningFallback = false;
-  rock::buildKernelPipeline(compilation, compilationKernOpts);
 
   RocmDeviceName deviceName;
   StringRef archName =
@@ -447,12 +495,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   backendOpts.features = backendFeatures;
   backendOpts.optLevel = 3;
   backendOpts.suppressDiagnostic = true;
-  rock::buildBackendPipeline(compilation, backendOpts);
-
-  // Now that we're in the kernel execution zone, turn off error messages
-  // Register a handler that swallows all diagnostic print
-  DiagnosticEngine &engine = ctx->getDiagEngine();
-  engine.registerHandler([](Diagnostic &diag) {});
 
   // 3. Initialize host buffers and allocate device buffers
   std::vector<void *> hostBuffers;
@@ -467,72 +509,217 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     gpuBuffers.push_back(gpuBuffer);
   }
 
-  // 4. Actually tune
-  std::unique_ptr<rock::TuningParamSet> tuningSpace(
-      rock::createTunableParamSpace(source, tuningSpaceKind));
-  for (rock::RockTuningParamAttrInterface tuningAttr :
-       tuningSpace->tuningRange) {
-    OwningOpRef<ModuleOp> tuneCopy = cast<ModuleOp>(source->clone());
-    // TODO: remove this once perf_config gets parsed earlier
-    SmallString<64> perfConfig;
-    tuningAttr.getPerfConfigStr(perfConfig);
-    llvm::outs() << perfConfig << "\t";
-    StringAttr perfConfigAttr = StringAttr::get(ctx, perfConfig);
-    tuneCopy->walk([&perfConfigAttr](rock::RockGemmWrapperInterface op) {
-      op->setAttr("perf_config", perfConfigAttr);
-    });
-    tuneCopy->walk([&perfConfigAttr](rock::RockGemmGemmWrapperInterface op) {
-      op->setAttr("perf_config", perfConfigAttr);
-    });
+  // 4. Collect perf configs to compile
+  std::vector<SmallString<64>> configs;
+  if (!benchmarkConfig.empty()) {
+    // Benchmark mode - just one config
+    configs.emplace_back(benchmarkConfig);
+  } else {
+    // Tuning mode - all configs from tuning space
+    std::unique_ptr<rock::TuningParamSet> tuningSpace(
+        rock::createTunableParamSpace(source, tuningSpaceKind));
 
-    if (!rock::isModuleFusible(tuneCopy.get(), perfConfig)) {
-      llvm::outs() << "N/A\n";
-      continue;
-    }
-
-    if (failed(applicability.run(tuneCopy.get()))) {
-      llvm::outs() << "N/A\n";
-      continue;
-    }
-
-    SmallVector<uint32_t> blockSizes;
-    SmallVector<uint32_t> gridSizes;
-    for (auto &fnName : kernelFuncNames) {
-      auto tunedFunc = tuneCopy->lookupSymbol<func::FuncOp>(fnName);
-      if (!tunedFunc) {
-        llvm::errs() << "Tuned copy somehow missing kernel function\n";
-        return failure();
-      }
-      blockSizes.push_back(
-          tunedFunc->getAttrOfType<IntegerAttr>("block_size").getInt());
-      gridSizes.push_back(
-          tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
-    }
-    // We have to get these now, they disappear later. Also, if these attributes
-    // aren't set the contract of the applicability pipeline changed and that's
-    // a problem.
-    if (failed(compilation.run(tuneCopy.get()))) {
-      llvm::errs() << "Backend pipeline failed for config: " << perfConfig
-                   << "\n";
+    if (tuningSpace->tuningRange.empty()) {
+      llvm::errs() << "Tuning range is empty\n";
       return failure();
     }
 
-    // Extract binary and benchmark
-    SmallVector<std::string> hipModules;
-    for (const auto &fnName : kernelFuncNames) {
-      auto binary = tuneCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
-      if (!binary) {
-        llvm::errs() << "could not find the GPU binary\n";
-      }
-      hipModules.push_back(cast<gpu::ObjectAttr>(binary.getObjects()[0])
-                               .getObject()
-                               .getValue()
-                               .str());
+    for (rock::RockTuningParamAttrInterface tuningAttr :
+         tuningSpace->tuningRange) {
+      SmallString<64> perfConfig;
+      tuningAttr.getPerfConfigStr(perfConfig);
+      configs.push_back(perfConfig);
+    }
+  }
+
+  // NOTE: Compilation (PassManager::run()) resets the cl opts, so we have to
+  // save the values.
+  const BenchmarkParams benchmarkParams = {numIterations, warmupIterations,
+                                           useMedian,     trimPercent,
+                                           sleepUs,       showStats};
+
+  // Determine number of parallel threads
+  unsigned numThreads = (numCompileThreads > 0)
+                            ? numCompileThreads
+                            : std::thread::hardware_concurrency();
+  if (numThreads == 0)
+    numThreads = 4; // fallback
+
+  // Don't create more threads than configs to compile
+  numThreads = std::min(numThreads, static_cast<unsigned>(configs.size()));
+
+  // Serialize source module once (shared by all threads for cloning)
+  std::string sourceModuleStr;
+  llvm::raw_string_ostream sourceOs(sourceModuleStr);
+  source->print(sourceOs);
+  sourceOs.flush();
+
+  // Parallel compilation phase
+  std::vector<CompilationResult> compilationResults(configs.size());
+  std::mutex outputMutex; // For thread-safe console output
+  std::atomic<bool> compilationFailed{
+      false}; // Flag to signal early termination
+
+  auto compileConfig = [&](size_t idx) -> CompilationResult {
+    CompilationResult result;
+    result.perfConfig = configs[idx];
+
+    // Each thread needs its own context and pass managers for thread-safety
+    DialectRegistry threadRegistry;
+    registerRocMLIRDialects(threadRegistry);
+    MLIRContext threadCtx(threadRegistry);
+    threadCtx.getDiagEngine().registerHandler([](Diagnostic &diag) {});
+
+    // Parse the serialized module in this thread's context
+    OwningOpRef<ModuleOp> threadSource =
+        parseSourceString<ModuleOp>(sourceModuleStr, &threadCtx);
+    if (!threadSource)
+      return result;
+
+    // Set up pipelines for this thread
+    PassManager threadApplicability(&threadCtx,
+                                    PassManager::getAnyOpAnchorName(),
+                                    PassManager::Nesting::Implicit);
+    PassManager threadCompilation(&threadCtx, PassManager::getAnyOpAnchorName(),
+                                  PassManager::Nesting::Implicit);
+
+    rock::buildKernelPipeline(threadApplicability, applicabilityOpts);
+    rock::buildKernelPipeline(threadCompilation, compilationKernOpts);
+    rock::buildBackendPipeline(threadCompilation, backendOpts);
+
+    StringAttr perfConfigAttr = StringAttr::get(&threadCtx, result.perfConfig);
+
+    // Helper to copy IR with perf config set
+    auto copyIRThread = [&](ModuleOp src,
+                            StringAttr attr) -> OwningOpRef<ModuleOp> {
+      OwningOpRef<ModuleOp> copy = cast<ModuleOp>(src->clone());
+      copy->walk([&attr](rock::RockGemmWrapperInterface op) {
+        op->setAttr("perf_config", attr);
+      });
+      copy->walk([&attr](rock::RockGemmGemmWrapperInterface op) {
+        op->setAttr("perf_config", attr);
+      });
+      return copy;
+    };
+
+    // Applicability check
+    OwningOpRef<ModuleOp> applicabilityCopy =
+        copyIRThread(threadSource.get(), perfConfigAttr);
+    if (!rock::isModuleFusible(applicabilityCopy.get(), result.perfConfig)) {
+      result.status = CompilationStatus::NotApplicable;
+      return result;
     }
 
-    FailureOr<double> timing =
-        benchmarkKernels(hipModules, kernelFuncNames, blockSizes, gridSizes,
-                         dataType, hostBuffers, gpuBuffers, bufferLengths);
+    if (failed(threadApplicability.run(applicabilityCopy.get()))) {
+      result.status = CompilationStatus::NotApplicable;
+      return result;
+    }
+
+    // Extract block and grid sizes
+    for (auto &fnName : kernelFuncNames) {
+      auto tunedFunc = applicabilityCopy->lookupSymbol<func::FuncOp>(fnName);
+      if (!tunedFunc) {
+        result.status = CompilationStatus::CompilationFailed;
+        compilationFailed.store(true, std::memory_order_relaxed);
+        return result;
+      }
+      result.blockSizes.push_back(
+          tunedFunc->getAttrOfType<IntegerAttr>("block_size").getInt());
+      result.gridSizes.push_back(
+          tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
+    }
+
+    // Compilation
+    OwningOpRef<ModuleOp> compileCopy =
+        copyIRThread(threadSource.get(), perfConfigAttr);
+    if (failed(threadCompilation.run(compileCopy.get()))) {
+      std::lock_guard<std::mutex> lock(outputMutex);
+      llvm::errs() << "Backend pipeline failed for config: "
+                   << result.perfConfig << "\n";
+      result.status = CompilationStatus::CompilationFailed;
+      compilationFailed.store(true, std::memory_order_relaxed);
+      return result;
+    }
+
+    // Extract binaries
+    for (const auto &fnName : kernelFuncNames) {
+      auto binary =
+          compileCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
+      if (!binary) {
+        result.status = CompilationStatus::CompilationFailed;
+        compilationFailed.store(true, std::memory_order_relaxed);
+        return result;
+      }
+      result.hipModules.push_back(cast<gpu::ObjectAttr>(binary.getObjects()[0])
+                                      .getObject()
+                                      .getValue()
+                                      .str());
+    }
+
+    result.status = CompilationStatus::Success;
+    return result;
+  };
+
+  // Launch parallel compilation tasks with dynamic work stealing
+  // Note: We use atomic counter instead of static partitioning because
+  // compilation times vary dramatically between configs (NotApplicable is fast,
+  // full compilation is slow). Dynamic work stealing provides better load
+  // balancing by allowing fast threads to pick up more work.
+  {
+    std::atomic<size_t> nextIdx{0};
+
+    // Thread pool with work stealing pattern
+    auto worker = [&]() {
+      while (true) {
+        // Check if any compilation has failed (relaxed: just an optimization
+        // hint)
+        if (compilationFailed.load(std::memory_order_relaxed))
+          break;
+
+        size_t idx = nextIdx.fetch_add(1, std::memory_order_relaxed);
+        if (idx >= configs.size())
+          break;
+
+        compilationResults[idx] = compileConfig(idx);
+      }
+    };
+
+    std::vector<std::thread> threads;
+    for (unsigned i = 0; i < numThreads; ++i) {
+      threads.emplace_back(worker);
+    }
+
+    for (auto &t : threads) {
+      t.join();
+    }
+  }
+
+  // Check if any compilation failed and terminate early
+  if (compilationFailed.load(std::memory_order_relaxed)) {
+    llvm::errs()
+        << "Compilation failed for one or more configs. Terminating.\n";
+    return failure();
+  }
+
+  // Sequential benchmarking phase (must be sequential for accurate timing)
+  // Note: Due to early exit on compilation failures, only NotApplicable and
+  // Success statuses are possible here.
+  for (const auto &result : compilationResults) {
+    llvm::outs() << result.perfConfig << "\t";
+
+    if (result.status == CompilationStatus::NotApplicable) {
+      llvm::outs() << "N/A\n";
+      continue;
+    }
+
+    // At this point, status must be Success (we exited early on any failures)
+    assert(result.status == CompilationStatus::Success &&
+           "Unexpected compilation status in benchmarking phase");
+
+    FailureOr<double> timing = benchmarkKernels(
+        result.hipModules, kernelFuncNames, result.blockSizes, result.gridSizes,
+        dataType, hostBuffers, gpuBuffers, bufferLengths, benchmarkParams);
+
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
       return failure();
@@ -558,6 +745,12 @@ int main(int argc, char **argv) {
 
   mlir::registerMLIRCLOptions();
   llvm::cl::ParseCommandLineOptions(argc, argv, "rocMLIR tuning driver");
+
+  if (trimPercent >= 50) {
+    llvm::errs() << "trim-percent must be less than 50 to avoid trimming all "
+                    "measurements\n";
+    return EXIT_FAILURE;
+  }
 
   DialectRegistry registry;
   registerRocMLIRDialects(registry);

@@ -160,6 +160,33 @@ func.func @rock_accel_gemm_one_result(%matrixA : memref<1x16xf32, 5>,
 
 // ----
 
+func.func @rock_accel_gemm_one_result_f4(%matrixA : memref<1x1xvector<32xf4E2M1FN>, 5>,
+                                            %matrixB : memref<1x1xvector<32xf4E2M1FN>, 5>,
+                                            %matrixC : memref<1x1xvector<4xf32>, 5>) {
+  %c0 = arith.constant 0 : index
+  rock.threadwise_accel_gemm %matrixC += %matrixA * %matrixB at [%c0, %c0, %c0] features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    params = #rock.xdlops_gemm_derived_params<
+      mPerBlock = 256,
+      nPerBlock = 256,
+      kpackPerBlock = 32,
+      mPerWave = 16,
+      nPerWave = 16,
+      mnPerXdl = 16,
+      kpack = 1,
+      splitKFactor = 1, 
+      scheduleVersion = 1, 
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<1x1xvector<4xf32>, 5> += memref<1x1xvector<32xf4E2M1FN>, 5> * memref<1x1xvector<32xf4E2M1FN>, 5>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_accel_gemm_one_result_f4
+// CHECK: rock.threadwise_accel_gemm
+
+// ----
+
 #transform_map0 = #rock.transform_map<affine_map<(d0, d1) -> (2*d0 + d1)> by [<Unmerge{2, 2} ["ci", "cj"] at [0, 1] -> ["offset"] at [0]>] bounds = [2, 2] -> [4]>
 
 func.func @rock_accel_gemm_two_results(%matrixA : memref<1x16xf32, 5>,
@@ -202,6 +229,8 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<12288xf32, 3>,
     inNPerThread = 2 : i32,
     loadAFromLDS,
     loadBFromLDS,
+    elementTypeA = f32,
+    elementTypeB = f32,
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
@@ -233,6 +262,8 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<12288xf32, 3>
     inNPerThread = 2 : i32,
     loadAFromLDS,
     loadBFromLDS,
+    elementTypeA = f32,
+    elementTypeB = f32,
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,

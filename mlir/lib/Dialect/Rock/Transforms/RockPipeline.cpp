@@ -593,34 +593,6 @@ void RockPipeline::runOnOperation() {
   Location loc = func->getLoc();
   IRRewriter rewriter(ctx);
 
-  // Allocs before we transform them into multibuffers
-  llvm::SetVector<rock::GpuAllocOp> singleAllocs;
-  func.walk([&](rock::GpuAllocOp alloc) { singleAllocs.insert(alloc); });
-
-  // Always (try to) multi-buffer by one and store the new
-  // allocs in a set
-  // Store multibuffers in "multiAllocs" and store all buffers
-  // including private and global in "resources"
-  llvm::SetVector<rock::GpuAllocOp> multiAllocs;
-  llvm::SetVector<rock::GpuAllocOp> resources;
-  for (auto alloc : singleAllocs) {
-    SmallVector<rock::GpuAllocOp> newAllocs;
-    if (succeeded(rock::multiBuffer(rewriter, alloc, newAllocs, 1, true))) {
-      multiAllocs.insert(newAllocs.back());
-      resources.insert(newAllocs.back());
-    } else {
-      resources.insert(alloc);
-    }
-  }
-
-  // Collect the global resources (i.e., the memory allocations)
-  // Note: we can only have two kind of memory:
-  // - Registers
-  // - LDS
-  DenseMap<rock::GpuAllocOp, int> multiBufferFactors;
-  for (auto res : multiAllocs)
-    multiBufferFactors[res] = 1;
-
   auto rockPipelineAttrName = rock::PipelineAttr::getMnemonic();
 
   // Maybe this might be a bit too much for now, but we are a compiler
@@ -644,75 +616,120 @@ void RockPipeline::runOnOperation() {
     }
   }
 
-  for (auto forOp : loopsToPipeline) {
-    SmallVector<rock::StageOp> stages;
+  if (loopsToPipeline.empty()) {
+    LLVM_DEBUG(DBGS() << "No loops to pipeline\n");
 
-    // Get the initiation interval (II)
-    int64_t ii =
-        dyn_cast<rock::PipelineAttr>(forOp->removeAttr(rockPipelineAttrName))
-            .getInitiationInterval();
-
-    forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
-
-    forOp.walk([](rock::LDSBarrierOp barrier) {
-      if (!barrier->getParentOfType<rock::StageOp>())
-        barrier->erase();
-    });
-
-    if (stages.empty())
-      continue;
-
-    LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
-    LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
-    size_t numStages = stages.size();
-    auto maybeNumIterations =
-        rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
-    assert(isConstantIntValue(forOp.getStep(), 1) &&
-           "Step size other one is not permitted in rock-pipeline");
-    if (!maybeNumIterations.has_value()) {
-      emitError(loc,
-                "Number of iterations are unknown while doing rock-pipeline\n");
-      return signalPassFailure();
-    }
-    adjustInitiationInterval(maybeNumIterations.value(), numStages, ii);
-
-    // Insert the barriers as new stages
-    SmallVector<rock::StageOp> extendedStages;
-    // use "multiAllocs" to place LDS barriers, no need to explicitly place
-    // barriers for registers or globals
-    placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages, ii,
-                  maybeNumIterations.value());
-
-    ScheduleType schedule;
-    // use all "resources" to generate dependency graph and generate schedule
-    createSchedule(extendedStages, resources, ii, schedule, multiBufferFactors);
-
-    RewritePatternSet patterns(&getContext());
-    mlir::scf::PipeliningOption options;
-    options.getScheduleFn = [&](scf::ForOp curFurOp, ScheduleType &sched) {
-      if (curFurOp == forOp)
-        sched = schedule;
-    };
-
-    scf::populateSCFLoopPipeliningPatterns(patterns, options);
-    (void)applyPatternsGreedily(getOperation(), std::move(patterns));
-  }
-
-  // Remulti-buffer(if needed). Now we know what all the loops need, hence
-  // we can safely allocate the right amount of resources in the function
-  for (auto [alloc, factor] : multiBufferFactors) {
-    SmallVector<rock::GpuAllocOp> newAllocs;
-    if (factor > 1)
-      (void)rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs, factor);
-  }
-
-  // Cleanup the stages
-  {
     if (removeStages) {
+      // Remove all stages
       RewritePatternSet patterns(&getContext());
-      patterns.add<RemoveStagesRewritePattern, PushBarrierDownRewritePattern,
-                   RemoveBackToBackBarriersRewritePattern>(&getContext());
+      patterns.add<RemoveStagesRewritePattern>(&getContext());
       (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+    }
+  } else {
+    LLVM_DEBUG(DBGS() << "Found " << loopsToPipeline.size()
+                      << " loops to pipeline\n");
+
+    // Allocs before we transform them into multibuffers
+    llvm::SetVector<rock::GpuAllocOp> singleAllocs;
+    func.walk([&](rock::GpuAllocOp alloc) { singleAllocs.insert(alloc); });
+
+    // Always (try to) multi-buffer by one and store the new
+    // allocs in a set
+    // Store multibuffers in "multiAllocs" and store all buffers
+    // including private and global in "resources"
+    llvm::SetVector<rock::GpuAllocOp> multiAllocs;
+    llvm::SetVector<rock::GpuAllocOp> resources;
+    for (auto alloc : singleAllocs) {
+      SmallVector<rock::GpuAllocOp> newAllocs;
+      if (succeeded(rock::multiBuffer(rewriter, alloc, newAllocs, 1, true))) {
+        multiAllocs.insert(newAllocs.back());
+        resources.insert(newAllocs.back());
+      } else {
+        resources.insert(alloc);
+      }
+    }
+
+    // Collect the global resources (i.e., the memory allocations)
+    // Note: we can only have two kind of memory:
+    // - Registers
+    // - LDS
+    DenseMap<rock::GpuAllocOp, int> multiBufferFactors;
+    for (auto res : multiAllocs)
+      multiBufferFactors[res] = 1;
+
+    for (auto forOp : loopsToPipeline) {
+      SmallVector<rock::StageOp> stages;
+
+      // Get the initiation interval (II)
+      int64_t ii =
+          dyn_cast<rock::PipelineAttr>(forOp->removeAttr(rockPipelineAttrName))
+              .getInitiationInterval();
+
+      forOp.walk([&](rock::StageOp stageOp) { stages.push_back(stageOp); });
+
+      forOp.walk([](rock::LDSBarrierOp barrier) {
+        if (!barrier->getParentOfType<rock::StageOp>())
+          barrier->erase();
+      });
+
+      if (stages.empty())
+        continue;
+
+      LLVM_DEBUG(DBGS() << "Number of stages: " << stages.size() << "\n");
+      LLVM_DEBUG(DBGS() << "Initiation Interval: " << ii << "\n");
+      size_t numStages = stages.size();
+      auto maybeNumIterations =
+          rock::computeConstDiff(forOp.getLowerBound(), forOp.getUpperBound());
+      assert(isConstantIntValue(forOp.getStep(), 1) &&
+             "Step size other one is not permitted in rock-pipeline");
+      if (!maybeNumIterations.has_value()) {
+        emitError(
+            loc,
+            "Number of iterations are unknown while doing rock-pipeline\n");
+        return signalPassFailure();
+      }
+      adjustInitiationInterval(maybeNumIterations.value(), numStages, ii);
+
+      // Insert the barriers as new stages
+      SmallVector<rock::StageOp> extendedStages;
+      // use "multiAllocs" to place LDS barriers, no need to explicitly place
+      // barriers for registers or globals
+      placeBarriers(rewriter, loc, forOp, stages, multiAllocs, extendedStages,
+                    ii, maybeNumIterations.value());
+
+      ScheduleType schedule;
+      // use all "resources" to generate dependency graph and generate schedule
+      createSchedule(extendedStages, resources, ii, schedule,
+                     multiBufferFactors);
+
+      RewritePatternSet patterns(&getContext());
+      mlir::scf::PipeliningOption options;
+      options.getScheduleFn = [&](scf::ForOp curFurOp, ScheduleType &sched) {
+        if (curFurOp == forOp)
+          sched = schedule;
+      };
+
+      scf::populateSCFLoopPipeliningPatterns(patterns, options);
+      (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+    }
+
+    // Remulti-buffer(if needed). Now we know what all the loops need, hence
+    // we can safely allocate the right amount of resources in the function
+    for (auto [alloc, factor] : multiBufferFactors) {
+      SmallVector<rock::GpuAllocOp> newAllocs;
+      if (factor > 1)
+        (void)rock::updateMultiBuffer(rewriter, loc, {alloc}, newAllocs,
+                                      factor);
+    }
+
+    // Cleanup the stages
+    {
+      if (removeStages) {
+        RewritePatternSet patterns(&getContext());
+        patterns.add<RemoveStagesRewritePattern, PushBarrierDownRewritePattern,
+                     RemoveBackToBackBarriersRewritePattern>(&getContext());
+        (void)applyPatternsGreedily(getOperation(), std::move(patterns));
+      }
     }
   }
 }
