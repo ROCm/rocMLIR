@@ -1411,12 +1411,12 @@ def Rock_BlockwiseLoadTileOp
           Arg<Optional<MemRefOf<NativeMemoryOpTypes>>,
               "destination registers">:$destRegisters,
           Rock_GemmLoadTileTypeAttr:$loadType, UnitAttr:$isA,
-          TypeAttr:$elementTypeA, TypeAttr:$elementTypeB,
-          TypeAttr:$elementTypeALoad, TypeAttr:$elementTypeBLoad,
-          UnitAttr:$rotateWithK, UnitAttr:$swapThreadIterSubDims,
-          UnitAttr:$LDSLayoutDxK, Variadic<Index>:$sourceIndices, I64Attr:$G,
-          I64Attr:$M, I64Attr:$N, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          I32Attr:$blockSize, RockAccelTuningParamAttrInterface:$params)> {
+          TypeAttr:$elementTypeA, TypeAttr:$elementTypeB, TypeAttr:$elementType,
+          TypeAttr:$elementLoadType, UnitAttr:$rotateWithK,
+          UnitAttr:$swapThreadIterSubDims, UnitAttr:$LDSLayoutDxK,
+          Variadic<Index>:$sourceIndices, I64Attr:$G, I64Attr:$M, I64Attr:$N,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
+          RockAccelTuningParamAttrInterface:$params)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
@@ -1429,6 +1429,9 @@ def Rock_BlockwiseLoadTileOp
     - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
 
     `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
+    `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. they are data types for the Matrix A & B of the GEMMs. 
+    `elementLoadType` is the element type of the global buffer this BlockwiseLoadTileOp is trying to load. 
+    `elementType` is the elementType in the registers. Note that it may differ from `elementLoadType` because of input fusions.  
   }];
   let assemblyFormat = [{
     $source (`[` $sourceIndices^ `]`)? (`LDS` `->` $destLDS^)? (`->` $destRegisters^)? attr-dict
