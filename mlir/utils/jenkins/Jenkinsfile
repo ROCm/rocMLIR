@@ -444,7 +444,7 @@ String getLabelFromChip(String chip) {
         case "gfx942":
             return "mlir && gfx942"
         case "gfx950":
-            if(params.nightly || params.weekly) {
+            if (params.nightly || params.weekly) {
                 return "mlir && linux-mi355-8"
             } else {
                 return "mlir && linux-mi355-1"
