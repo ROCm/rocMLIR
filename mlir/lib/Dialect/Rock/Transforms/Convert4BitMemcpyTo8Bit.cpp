@@ -32,27 +32,26 @@ static bool isTarget4Bit(Type t) {
 struct GpuMemcpyRewritePattern : public OpRewritePattern<gpu::MemcpyOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  LogicalResult
-  matchAndRewrite(gpu::MemcpyOp op, 
-                  PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(gpu::MemcpyOp op,
+                                PatternRewriter &rewriter) const override {
     Value src = op.getSrc();
     Value dst = op.getDst();
-    if(src.getDefiningOp<mlir::UnrealizedConversionCastOp>() == nullptr ||
-       dst.getDefiningOp<mlir::UnrealizedConversionCastOp>() == nullptr) {
+    if (src.getDefiningOp<mlir::UnrealizedConversionCastOp>() == nullptr ||
+        dst.getDefiningOp<mlir::UnrealizedConversionCastOp>() == nullptr) {
       // no casts, nothing to do
       return failure();
     }
-    while(auto cast = 
-              src.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
+    while (auto cast = src.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
       src = cast.getInputs()[0];
     }
-    while(auto cast = dst.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
+    while (auto cast = dst.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
       dst = cast.getInputs()[0];
     }
-    if(dst.getType() != src.getType()) {
+    if (dst.getType() != src.getType()) {
       return failure();
     }
-    rewriter.replaceOpWithNewOp<gpu::MemcpyOp>(op, TypeRange{}, ValueRange{dst, src}); 
+    rewriter.replaceOpWithNewOp<gpu::MemcpyOp>(op, TypeRange{},
+                                               ValueRange{dst, src});
     return success();
   }
 };
@@ -89,21 +88,21 @@ struct GpuAllocRewritePattern : OpRewritePattern<gpu::AllocOp> {
       return failure();
 
     auto i8Ty = rewriter.getI8Type();
-    ArrayRef<int64_t> shape = memrefTy.getShape(); 
+    ArrayRef<int64_t> shape = memrefTy.getShape();
     SmallVector<int64_t> newShape(shape.begin(), shape.end());
     newShape.back() =
         (newShape.back() + 1) / 2; // pack two 4 bit values in 1 i8
-    auto newMemRefTy = MemRefType::get(newShape, i8Ty,
-                                       memrefTy.getLayout(),
+    auto newMemRefTy = MemRefType::get(newShape, i8Ty, memrefTy.getLayout(),
                                        memrefTy.getMemorySpace());
     rewriter.setInsertionPoint(allocOp);
     auto newAlloc = rewriter.create<gpu::AllocOp>(
         allocOp.getLoc(), newMemRefTy, ValueRange{allocOp.getDynamicSizes()},
-        ValueRange{allocOp.getAsyncDependencies()}, ValueRange{allocOp.getSymbolOperands()},
-        allocOp.getHostShared());
+        ValueRange{allocOp.getAsyncDependencies()},
+        ValueRange{allocOp.getSymbolOperands()}, allocOp.getHostShared());
 
     auto castBack = rewriter.create<UnrealizedConversionCastOp>(
-        allocOp.getLoc(), TypeRange{memrefTy}, ValueRange{newAlloc.getResult(0)});
+        allocOp.getLoc(), TypeRange{memrefTy},
+        ValueRange{newAlloc.getResult(0)});
 
     allocOp.replaceAllUsesWith(castBack.getResults());
     rewriter.eraseOp(allocOp);
@@ -125,4 +124,3 @@ class RockConvert4BitMemcpyTo8BitPass
 };
 
 } // namespace
-

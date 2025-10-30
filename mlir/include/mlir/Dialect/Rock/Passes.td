@@ -13,7 +13,8 @@ include "mlir/Pass/PassBase.td"
 
 def RockConvert4BitMemcpyTo8BitPass
     : Pass<"rock-convert-4bit-memcpy-to-8bit", "::mlir::func::FuncOp"> {
-  let summary = "Convert gpu.memcpy on 4 bit element type memrefs to 8 bit element type";
+  let summary =
+      "Convert gpu.memcpy on 4 bit element type memrefs to 8 bit element type";
   let description = [{
     Change the physical storage of gpu.alloc buffers whose memref element type
     is the 4-bit integer or float (printed as f4E2M2FN) to i8 while preserving the original
