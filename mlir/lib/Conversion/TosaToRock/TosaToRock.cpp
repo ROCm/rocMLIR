@@ -1544,8 +1544,15 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Validates that a constant mask follows the causal mask pattern:
   // - Each row i should have zeros at positions 0 through i (lower triangular
   //   part)
-  // - The upper triangular part (positions > i) has to be all 1's
-  bool isValidCausalMask(Operation *op) const {
+  // - The upper triangular part (positions > i) depends on the pattern:
+  //     * For select-based masks (expectOnesInUpperTriangle=true): 1's
+  //     * For non-select based masks (expectOnesInUpperTriangle=false): large
+  //       negative values
+  // - In the select-based mask case, the upper triangular part that is all 1's
+  //   is combined with the -inf/large negative values that are fed into the
+  //   select op, resulting in the same type of mask pattern that we see in the
+  //   non-select based mask case.
+  bool isValidCausalMask(Operation *op, bool expectOnesInUpperTriangle) const {
     // Get the constant value
     DenseElementsAttr constAttr;
     if (auto tosaConst = dyn_cast<tosa::ConstOp>(op)) {
@@ -1564,106 +1571,188 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (shape.size() != 4 || shape[0] != 1 || shape[1] != 1)
       return false;
 
-    // Ensure that element type is integer
-    if (!constAttr.getElementType().isIntOrIndex())
+    // Sanity check that this is either an integer/index type or a float type
+    bool isInt = constAttr.getElementType().isIntOrIndex();
+    if (!isInt && !isa<FloatType>(constAttr.getElementType()))
       return false;
 
     int64_t seqLen = shape[2];
     int64_t maxSeqLen = shape[3];
-    auto values = constAttr.getValues<APInt>();
-    for (int64_t row = 0; row < seqLen; ++row) {
-      for (int64_t col = 0; col < maxSeqLen; ++col) {
-        auto val = values[row * maxSeqLen + col].getSExtValue();
+    
+    // Generic validation function that works with any value type
+    auto validateMask = [&](auto values, auto isZero, auto isOne,
+                            auto isLargeNegative) -> bool {
+      for (int64_t row = 0; row < seqLen; ++row) {
+        for (int64_t col = 0; col < maxSeqLen; ++col) {
+          auto val = values[row * maxSeqLen + col];
+          
+          // Validate that the lower triangular portion is all zeros
+          if (col <= row && !isZero(val))
+            return false;
 
-        // Validate that the lower triangular portion is all zeros
-        if (col <= row && val != 0)
-          return false;
-
-        // Check that the rest is all just 0's and 1's
-        if (col > row && val != 1)
-          return false;
+          // Check that the upper triangular portion is correct
+          bool validUpperTriangleVal = expectOnesInUpperTriangle
+                                      ? isOne(val)
+                                      : isLargeNegative(val);
+          if (col > row && !validUpperTriangleVal)
+            return false;
+        }
       }
-    }
+      return true;
+    };
 
-    return true;
+    if (isInt) {
+      auto intValues = constAttr.getValues<APInt>();
+      return validateMask(
+          intValues,
+          [](const APInt &v) { return v.getSExtValue() == 0; },
+          [](const APInt &v) { return v.getSExtValue() == 1; },
+          [](const APInt &v) { return v.getSExtValue() <= -10000; });
+    } else {
+      auto floatValues = constAttr.getValues<APFloat>();
+      return validateMask(
+          floatValues,
+          [](const APFloat &v) { return v.convertToDouble() == 0.0; },
+          [](const APFloat &v) { return v.convertToDouble() == 1.0; },
+          [](const APFloat &v) { return v.convertToDouble() <= -10000.0; });
+    }
   }
 
-  // Detects a standard causal mask for attention ops.
-  // The function will look for a select op with the following:
+  // Helper function to detect select-based causal mask pattern:
   //   - true branch is a splat -inf constant
   //   - false branch is the tensor value that we want to return
   //   - pred is either:
   //       (1) tosa.greater(const1, const2) comparing two constant 0..N range
-  //           tensors:
-  //             * const1: range 0..maxSeqLen
-  //             * const2 : range 0..seqLenQ
+  //           tensors
   //       (2) A pre-folded broadcasted constant 1 upper‑triangular mask tensor
-  //           representing the causal mask
-  FailureOr<Value> getCausal(Value input) const {
+  FailureOr<Value> getCausalFromSelect(Value input) const {
     DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
                                   tensor::ExpandShapeOp::getOperationName(),
                                   tosa::CastOp::getOperationName()};
     auto maybeSelect = getDefiningOpSkipping<tosa::SelectOp>(input, opsToSkip);
-    if (succeeded(maybeSelect)) {
-      auto select = maybeSelect.value();
-      // Check onTrue is -inf
-      auto onTrue = select.getInput2();
-      bool isConstNegInf = false;
-      DenseSet<StringRef> expandAndCollapse{
-          tensor::CollapseShapeOp::getOperationName(),
-          tensor::ExpandShapeOp::getOperationName()};
-      auto maybeTosaConst =
-          getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
-      auto maybeArithConst =
-          getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
-      if (succeeded(maybeTosaConst))
-        isConstNegInf = rock::isConstNegInf(maybeTosaConst.value().getResult());
-      else if (succeeded(maybeArithConst))
-        isConstNegInf =
-            rock::isConstNegInf(maybeArithConst.value().getResult());
+    if (failed(maybeSelect))
+      return failure();
 
-      if (!isConstNegInf)
+    auto select = maybeSelect.value();
+    // Check onTrue is -inf
+    auto onTrue = select.getInput2();
+    bool isConstNegInf = false;
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+    auto maybeTosaConst =
+        getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
+    auto maybeArithConst =
+        getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
+    if (succeeded(maybeTosaConst))
+      isConstNegInf = rock::isConstNegInf(maybeTosaConst.value().getResult());
+    else if (succeeded(maybeArithConst))
+      isConstNegInf =
+          rock::isConstNegInf(maybeArithConst.value().getResult());
+
+    if (!isConstNegInf)
+      return failure();
+
+    auto pred = select.getInput1();
+    // There are two cases that we need to be able to handle for the pred:
+    // 1. We have a greater op that is doing a comparison between two
+    //    constants
+    // 2. The greater op has already been constant folded by MIGraphX, so we
+    //    find the broadcast input and then do the necessary constant checks
+    auto maybeBroadcast = getDefiningOpSkipping<tosa::MulOp>(pred, opsToSkip);
+    opsToSkip.insert(tosa::MulOp::getOperationName());
+    auto maybeGreater =
+        getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
+    if (succeeded(maybeGreater)) {
+      auto greater = maybeGreater.value();
+      // input1 is a constant with a range from 0 to maxSeqLen (KV)
+      if (failed(isConstantRange(greater.getInput1(), 0)))
         return failure();
 
-      auto pred = select.getInput1();
-      // There are two cases that we need to be able to handle for the pred:
-      // 1. We have a greater op that is doing a comparison between two
-      //    constants
-      // 2. The greater op has already been constant folded by MIGraphX, so we
-      //    find the broadcast input and then do the necessary constant checks
-      auto maybeBroadcast = getDefiningOpSkipping<tosa::MulOp>(pred, opsToSkip);
-      opsToSkip.insert(tosa::MulOp::getOperationName());
-      auto maybeGreater =
-          getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
-      if (succeeded(maybeGreater)) {
-        auto greater = maybeGreater.value();
-        // input1 is a constant with a range from 0 to maxSeqLen (KV)
-        if (failed(isConstantRange(greater.getInput1(), 0)))
-          return failure();
+      // input2 is a constant with a range from 0 to seqLenQ
+      if (failed(isConstantRange(greater.getInput2(), 1)))
+        return failure();
 
-        // input2 is a constant with a range from 0 to seqLenQ
-        if (failed(isConstantRange(greater.getInput2(), 1)))
-          return failure();
+      Value result = select.getInput3();
+      return result;
+    } else if (succeeded(maybeBroadcast)) {
+      // The input from MIGraphX will not be a constant range, so we cannot
+      // use the isConstantRange function. Instead we need to check that
+      // the constant is a valid causal mask pattern.
+      auto maybeNonOne = mulBroadcast(maybeBroadcast.value());
+      if (failed(maybeNonOne))
+        return failure();
 
-        Value result = select.getInput3();
-        return result;
-      } else if (succeeded(maybeBroadcast)) {
-        // The input from MIGraphX will not be a constant range, so we cannot
-        // use the isConstantRange function. Instead we need to check that
-        // the constant is a valid causal mask pattern.
-        auto maybeNonOne = mulBroadcast(maybeBroadcast.value());
-        if (failed(maybeNonOne))
-          return failure();
+      // Validate the causal mask pattern (select uses 1's in upper triangle)
+      Operation *defOp = maybeNonOne.value().getDefiningOp();
+      if (!isValidCausalMask(defOp, /*expectOnesInUpperTriangle=*/true))
+        return failure();
 
-        // Validate the causal mask pattern
-        Operation *defOp = maybeNonOne.value().getDefiningOp();
-        if (!isValidCausalMask(defOp))
-          return failure();
+      Value result = select.getInput3();
+      return result;
+    }
+    return failure();
+  }
 
-        Value result = select.getInput3();
-        return result;
+  // Helper function to detect add-based causal mask pattern:
+  //   - Looks for tosa.add(scores, mask) where mask is a constant with:
+  //     * 0s in lower triangle (allow attention)
+  //     * Large negative values in upper triangle (block attention)
+  FailureOr<Value> getCausalFromAdd(Value input) const {
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName(),
+                                  tosa::CastOp::getOperationName()};
+    auto maybeAdd = getDefiningOpSkipping<tosa::AddOp>(input, opsToSkip);
+    if (failed(maybeAdd))
+      return failure();
+
+    auto add = maybeAdd.value();
+    Value input1 = add.getInput1();
+    Value input2 = add.getInput2();
+
+    // Try to find the causal mask constant in either input
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+
+    // Check if input2 is a causal mask (broadcasted via mul)
+    auto maybeNonOne2 = mulBroadcast(input2);
+    if (succeeded(maybeNonOne2)) {
+      Operation *defOp = maybeNonOne2.value().getDefiningOp();
+      if (defOp && isValidCausalMask(defOp,
+                                     /*expectOnesInUpperTriangle=*/false)) {
+        // input1 is the attention scores (what we want to return)
+        return input1;
       }
     }
+
+    // Check if input1 is a causal mask (broadcasted via mul)
+    auto maybeNonOne1 = mulBroadcast(input1);
+    if (succeeded(maybeNonOne1)) {
+      Operation *defOp = maybeNonOne1.value().getDefiningOp();
+      if (defOp && isValidCausalMask(defOp,
+                                     /*expectOnesInUpperTriangle=*/false)) {
+        // input2 is the attention scores (what we want to return)
+        return input2;
+      }
+    }
+
+    return failure();
+  }
+
+  // Detects a standard causal mask for attention ops.
+  // Tries both select-based and add-based patterns.
+  FailureOr<Value> getCausal(Value input) const {
+    // Try select-based pattern first (most common)
+    auto selectResult = getCausalFromSelect(input);
+    if (succeeded(selectResult))
+      return selectResult;
+
+    // Try add-based pattern
+    auto addResult = getCausalFromAdd(input);
+    if (succeeded(addResult))
+      return addResult;
+
     return failure();
   }
 
