@@ -66,7 +66,7 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths, options: Opt
     ]
     profiler_command = [perfRunner.ROCPROF] + perfRunner.get_metric_args_for_rocprof(
         options.arch) + [
-            '--kernel-trace', '--stats', '-o', perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--',
+            '--kernel-trace', '--stats', '-f', 'csv', '-o', perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--',
             paths.mlir_paths.cpu_runner_path
         ] + mlir_cpu_runner_args
 

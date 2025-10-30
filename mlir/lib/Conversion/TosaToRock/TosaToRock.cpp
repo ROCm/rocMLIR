@@ -863,8 +863,9 @@ public:
     Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
 
     auto rockGemm = rock::GemmOp::create(
-        rw, loc, outputType, brA, brB, output, transposeA, transposeB,
-        transposeC,
+        rw, loc, outputType, brA, brB, output, /*scaleA=*/nullptr,
+        /*scaleB=*/nullptr, transposeA, transposeB, transposeC,
+        /*aScaleTransposed=*/nullptr, /*bScaleTransposed=*/nullptr,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
@@ -1590,6 +1591,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   log(sum(exp(sub(x, x)))) + max(x)
   = log(exp(sub(x, x))) + x
   = sub(x, x) + x
+
+  Upstream disabled folding of log(exp(..)) by default, so we need to match the
+  following two patterns:
+  1. The folded pattern: sub(x, x) + x
+  2. The unfolded pattern: log(exp(sub(x, x))) + x
   */
   Value getLSESeqLen1(tosa::SubOp subOp) const {
     if (subOp.getInput1() != subOp.getInput2()) {
@@ -1598,6 +1604,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     }
     Value subInput = subOp.getInput1();
     for (Operation *user : subOp->getUsers()) {
+      // Pattern 1: Check for direct add: sub(x, x) + x
       if (tosa::AddOp addOp = dyn_cast<tosa::AddOp>(user)) {
         Value addOpInput1 = addOp.getInput1();
         Value addOpInput2 = addOp.getInput2();
@@ -1612,9 +1619,36 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           }
         }
       }
+
+      // Pattern 2: Check for log(exp(sub(x, x))) + x
+      tosa::ExpOp expOp = dyn_cast<tosa::ExpOp>(user);
+      if (!expOp)
+        continue;
+
+      for (Operation *expUser : expOp->getUsers()) {
+        tosa::LogOp logOp = dyn_cast<tosa::LogOp>(expUser);
+        if (!logOp)
+          continue;
+
+        for (Operation *logUser : logOp->getUsers()) {
+          tosa::AddOp addOp = dyn_cast<tosa::AddOp>(logUser);
+          if (!addOp)
+            continue;
+
+          Value addOpInput1 = addOp.getInput1();
+          Value addOpInput2 = addOp.getInput2();
+          // Check if one input is the log result and the other is the
+          // original subInput (x)
+          if ((addOpInput1 == logOp.getOutput() && addOpInput2 == subInput) ||
+              (addOpInput2 == logOp.getOutput() && addOpInput1 == subInput)) {
+            return addOp.getOutput();
+          }
+        }
+      }
     }
     return nullptr;
   }
+
   /**
    * Attempts to match and extract a Log-Sum-Exp (LSE) pattern from TOSA
    * operations.
@@ -1979,8 +2013,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (hasReduceOp) {
       lse = getLSE(rsum, rmax);
     } else {
-      // if there is no reduce op, then we have seq_len=1 and lse is just
-      // sub(x, x) + x
+      // if there is no reduce op, then we have seq_len=1 and lse is either
+      // sub(x, x) + x or log(exp(sub(x, x))) + x
       lse = getLSESeqLen1(cast<tosa::SubOp>(sub));
     }
     // lse has three or four dimensions
