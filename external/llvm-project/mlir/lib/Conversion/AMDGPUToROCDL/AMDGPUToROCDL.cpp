@@ -624,11 +624,11 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
 
       // HACK for direct to LDS
       if (hackForDirectToLDS) {
-        ROCDL::WaitAsynccntOp::create(rewriter, loc, 0);
+        // unsigned asyncCnt = std::min(63u, op.getNum());
+        unsigned asyncCnt = 0;
+        ROCDL::WaitAsynccntOp::create(rewriter, loc, asyncCnt);
       }
-      ROCDL::WaitAsynccntOp::create(rewriter, loc, 0);
-      ROCDL::BarrierSignalOp::create(rewriter, loc, -1);
-      rewriter.replaceOpWithNewOp<ROCDL::BarrierWaitOp>(op, -1);
+      rewriter.replaceOpWithNewOp<ROCDL::SBarrierOp>(op);
     } else {
       ROCDL::BarrierSignalOp::create(rewriter, loc, -1);
       ROCDL::BarrierWaitOp::create(rewriter, loc, -1);
@@ -2075,8 +2075,10 @@ struct ConvertAMDGPUToROCDLPass
     }
     // workaround for https://ontrack-internal.amd.com/browse/SWDEV-514726
     WalkResult walkResult =
-        getOperation()->walk([](amdgpu::GatherToLDSOp) -> WalkResult {
-          return WalkResult::interrupt();
+        getOperation()->walk([](Operation *op) -> WalkResult {
+          if (isa<amdgpu::GatherToLDSOp, amdgpu::AsyncLoadToLDSOp>(op))
+            return WalkResult::interrupt();
+          return mlir::WalkResult::advance();
         });
     bool hackForDirectToLDS = walkResult.wasInterrupted();
 

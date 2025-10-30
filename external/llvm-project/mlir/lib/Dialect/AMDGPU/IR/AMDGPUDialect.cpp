@@ -574,9 +574,6 @@ LogicalResult AsyncLoadToLDSOp::verify() {
   MemRefType srcType = cast<MemRefType>(getSrc().getType());
   MemRefType dstType = cast<MemRefType>(getDst().getType());
 
-  if (!dstType.areTrailingDimsContiguous(1))
-    return emitOpError("destination type inner most dim must be contiguous");
-
   auto elemType = srcType.getElementType();
   // Check $src and $dst element types are the same.
   if (elemType != dstType.getElementType())
@@ -592,11 +589,6 @@ LogicalResult AsyncLoadToLDSOp::verify() {
   }
   if (!llvm::is_contained({8, 32, 64, 128}, transferSize))
     return emitOpError("Transfering type size must be 8, 32, 64 or 128 bits");
-
-  if (!hasGlobalMemorySpace(srcType.getMemorySpace()) &&
-      !hasFatRawBufferMemorySpace(srcType.getMemorySpace()))
-    return emitOpError(
-        "source memory address space must be global or fat raw buffer");
 
   if (!hasWorkgroupMemorySpace(dstType.getMemorySpace()))
     return emitOpError("destination memory address space must be Workgroup");

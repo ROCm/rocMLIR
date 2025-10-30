@@ -394,8 +394,10 @@ struct LowerGpuOpsToROCDLOpsPass final
     }
     // workaround for https://ontrack-internal.amd.com/browse/SWDEV-514726
     WalkResult walkResult =
-        getOperation()->walk([](amdgpu::GatherToLDSOp) -> WalkResult {
-          return WalkResult::interrupt();
+        getOperation()->walk([](Operation *op) -> WalkResult {
+          if (isa<amdgpu::GatherToLDSOp, amdgpu::AsyncLoadToLDSOp>(op))
+            return WalkResult::interrupt();
+          return mlir::WalkResult::advance();
         });
     bool hackForDirectToLDS = walkResult.wasInterrupted();
 
