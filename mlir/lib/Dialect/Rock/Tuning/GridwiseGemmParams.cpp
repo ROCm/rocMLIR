@@ -129,7 +129,17 @@ private:
     return relatives;
   }
 
-  // Find the lexicographically closest relative
+  // Finds the lexicographically closest architecture variant when the exact
+  // target key is not found in the lookup table.
+  //
+  // A "relative" entry must have:
+  // - Same suffix (operation + data type, e.g., "_gemm_f16")
+  // - Same architecture prefix (e.g., "gfx9" for gfx908, gfx90a, gfx942)
+  //
+  // Example: If target "gfx1151_gemm_f16" is missing but "gfx1101_gemm_f16"
+  // and "gfx1201_gemm_f16" exist, this picks the lexicographically closest one
+  // (gfx1101_gemm_f16). This enables graceful fallback between similar GPU
+  // architectures.
   static std::string findFallback(const std::string &target) {
     const auto relatives = getRelatives(target);
     if (relatives.empty())
@@ -319,8 +329,8 @@ PopulateParams::populateDerived(const InitParamsNonAccel &params) {
   LogicalResult res = calculateBlockGemmPerformanceParameters(params);
 
   if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
-                            << " size.\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "Incoherent blockGemm tuning parameter " << " size.\n");
     return failure();
   }
 

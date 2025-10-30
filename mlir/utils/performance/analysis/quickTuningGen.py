@@ -45,7 +45,7 @@ class FileWriter():
         with open(file_path, 'r') as file:
             content = file.read()
 
-        pattern = re.compile(f'{begin_marker}.*?{end_marker}', re.DOTALL)
+        pattern = re.compile(f'{re.escape(begin_marker)}.*?{re.escape(end_marker)}', re.DOTALL)
         if not pattern.search(content):
             ifdef_match = re.search(rf'{re.escape(ifdef_guard)}(.*?)(?=#endif)', content, re.DOTALL)
             if (ifdef_match):
@@ -55,8 +55,8 @@ class FileWriter():
             else:
                 raise ValueError(f"Cannot find {ifdef_guard} in {file_path}")
 
-        replacment = f'{begin_marker}\n{new_content}\n{end_marker}'
-        content = pattern.sub(replacment, content)
+        replacement = f'{begin_marker}\n{new_content}\n{end_marker}'
+        content = pattern.sub(replacement, content)
 
         with open(file_path, 'w') as file:
             file.write(content)
@@ -68,7 +68,7 @@ class FileWriter():
         with open(file_path, 'r') as file:
             content = file.read()
 
-        pattern = re.compile(f'{mapping}', re.DOTALL)
+        pattern = re.compile(f'{re.escape(mapping)}', re.DOTALL)
         if not pattern.search(content):
             ifdef_match = re.search(rf'{re.escape(ifdef_guard)}(.*?)(?=#endif)', content, re.DOTALL)
             if (ifdef_match):
@@ -373,7 +373,7 @@ def print_results(result):
 def main(args=None):
     """
     usage: quickTunerGen.py [-h] --input-dir INPUT_DIR --op {gemm,conv} [--th TH] --arch ARCH [--update] [--no-splitk]
-    usage exsample: python3 quickTuningGen.py --input-dir tunedData --op conv --arch gfx90a --update --no-splitk
+    usage example: python3 quickTuningGen.py --input-dir tunedData --op conv --arch gfx90a --update --no-splitk
     """
     if args is None:
         args = sys.argv[1:]
@@ -393,7 +393,7 @@ def main(args=None):
     parser.add_argument('--no-splitk',
                         default=False,
                         action='store_true',
-                        help='Removing the Split-K factor from the generated list')
+                        help='Remove the Split-K factor from the generated list')
 
     pargs = parser.parse_args()
 
