@@ -51,7 +51,7 @@ llvm.func @alias_scopes(%arg0: f32, %arg1: !llvm.ptr {llvm.noalias}, %arg2: !llv
   %v = llvm.load %arg1 : !llvm.ptr -> f32
   %w = llvm.fadd %v, %arg0 : f32
   %flags = llvm.mlir.constant(822243328 : i32) : i32
-  %extent = llvm.mlir.constant(128 : i32) : i32
+  %extent = llvm.mlir.constant(128 : i64) : i64
   %stride = llvm.mlir.constant(0 : i16) : i16
   %c0 = llvm.mlir.constant(0 : i32) : i32
   %b = rocdl.make.buffer.rsrc %arg2, %stride, %extent, %flags : !llvm.ptr to <8>
