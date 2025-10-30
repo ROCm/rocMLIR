@@ -1429,7 +1429,7 @@ def Rock_BlockwiseLoadTileOp
     - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
 
     `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
-    `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. they are data types for the Matrix A & B of the GEMMs. 
+    `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. They are data types for the Matrix A & B of the GEMMs. 
     `elementLoadType` is the element type of the global buffer this BlockwiseLoadTileOp is trying to load. 
     `elementType` is the elementType in the registers. Note that it may differ from `elementLoadType` because of input fusions.  
   }];
