@@ -1341,6 +1341,18 @@ struct TransposeLoadOpLowering
   }
 };
 
+static int getLoadWidth(Type transferType) {
+  // TODO: instead of only transfering one element per thread, we could
+  // augment it to transfer multiple elements per thread by issuing multiple
+  // `global_load_lds` instructions.
+  if (auto transferVectorType = dyn_cast<VectorType>(transferType)) {
+    return (transferVectorType.getNumElements() *
+            transferVectorType.getElementTypeBitWidth()) /
+           8;
+  }
+  return transferType.getIntOrFloatBitWidth() / 8;
+}
+
 struct GatherToLDSOpLowering : public ConvertOpToLLVMPattern<GatherToLDSOp> {
   GatherToLDSOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
       : ConvertOpToLLVMPattern<GatherToLDSOp>(converter), chipset(chipset) {}
@@ -1357,19 +1369,7 @@ struct GatherToLDSOpLowering : public ConvertOpToLLVMPattern<GatherToLDSOp> {
 
     auto srcMemRefType = cast<MemRefType>(op.getSrc().getType());
     auto dstMemRefType = cast<MemRefType>(op.getDst().getType());
-
-    // TODO: instead of only transfering one element per thread, we could
-    // augment it to transfer multiple elements per thread by issuing multiple
-    // `global_load_lds` instructions.
-    Type transferType = op.getTransferType();
-    int loadWidth = [&]() -> int {
-      if (auto transferVectorType = dyn_cast<VectorType>(transferType)) {
-        return (transferVectorType.getNumElements() *
-                transferVectorType.getElementTypeBitWidth()) /
-               8;
-      }
-      return transferType.getIntOrFloatBitWidth() / 8;
-    }();
+    int loadWidth = getLoadWidth(op.getTransferType());
 
     // Currently only 1, 2, 4, 12 and 16 byte loads are supported.
     if (!llvm::is_contained({1, 2, 4, 12, 16}, loadWidth))
@@ -1422,19 +1422,7 @@ struct AsyncLoadToLDSOpLowering
 
     auto srcMemRefType = cast<MemRefType>(op.getSrc().getType());
     auto dstMemRefType = cast<MemRefType>(op.getDst().getType());
-
-    // TODO: instead of only transfering one element per thread, we could
-    // augment it to transfer multiple elements per thread by issuing multiple
-    // `global_load_lds` instructions.
-    Type transferType = op.getTransferType();
-    int loadWidth = [&]() -> int {
-      if (auto transferVectorType = dyn_cast<VectorType>(transferType)) {
-        return (transferVectorType.getNumElements() *
-                transferVectorType.getElementTypeBitWidth()) /
-               8;
-      }
-      return transferType.getIntOrFloatBitWidth() / 8;
-    }();
+    int loadWidth = getLoadWidth(op.getTransferType());
 
     // Currently only 1, 4, 8 and 16 byte loads are supported.
     if (!llvm::is_contained({1, 4, 8, 16}, loadWidth))
