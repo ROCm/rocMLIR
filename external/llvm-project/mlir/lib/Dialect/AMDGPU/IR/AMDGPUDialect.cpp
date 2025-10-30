@@ -590,6 +590,9 @@ LogicalResult AsyncLoadToLDSOp::verify() {
   if (!llvm::is_contained({8, 32, 64, 128}, transferSize))
     return emitOpError("Transfering type size must be 8, 32, 64 or 128 bits");
 
+  if (!hasGlobalMemorySpace(srcType.getMemorySpace()))
+    return emitOpError("source memory address space must be global");
+
   if (!hasWorkgroupMemorySpace(dstType.getMemorySpace()))
     return emitOpError("destination memory address space must be Workgroup");
 
