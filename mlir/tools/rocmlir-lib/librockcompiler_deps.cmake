@@ -140,6 +140,7 @@ MLIRMathDialect
 MLIRMathToLLVM
 MLIRMathToROCDL
 MLIRMathTransforms
+MLIRMemOpInterfaces
 MLIRMemRefDialect
 MLIRMemRefToLLVM
 MLIRMemRefTransforms

@@ -26,7 +26,7 @@ func.func @doublebuffer(%arg0: memref<1x384x64xf32>) attributes {block_size = 25
     // CHECK-NEXT: rock.yield
     // CHECK: {name = "LDSRead"}
   affine.for %arg1 = 0 to 2 {
-    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] LDS -> %lds -> %reg {G = 1 : i64, M = 384 : i64, N = 384 : i64, blockSize = 64 : i32, elementTypeA = f32, elementTypeALoad = f32, elementTypeB = f32, elementTypeBLoad = f32, loadType = #rock<GemmLoadTileType DoubleBuffer>, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> LDS -> memref<4096xi8, #gpu.address_space<workgroup>> -> memref<16xf32, #gpu.address_space<private>>
+    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] LDS -> %lds -> %reg {G = 1 : i64, M = 384 : i64, N = 384 : i64, blockSize = 64 : i32, elementTypeA = f32, elementTypeB = f32, elementType = f32, elementLoadType = f32, loadType = #rock<GemmLoadTileType DoubleBuffer>, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> LDS -> memref<4096xi8, #gpu.address_space<workgroup>> -> memref<16xf32, #gpu.address_space<private>>
   }
   return
 }
@@ -49,7 +49,7 @@ func.func @default(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i
     // CHECK-NEXT: rock.yield
     // CHECK: {name = "LDSWrite"}
   affine.for %arg1 = 0 to 2 {
-    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] LDS -> %lds {G = 1 : i64, M = 384 : i64, N = 384 : i64, blockSize = 64 : i32, elementTypeA = f32, elementTypeALoad = f32, elementTypeB = f32, elementTypeBLoad = f32, loadType = #rock<GemmLoadTileType Default>, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> LDS -> memref<4096xi8, #gpu.address_space<workgroup>>
+    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] LDS -> %lds {G = 1 : i64, M = 384 : i64, N = 384 : i64, blockSize = 64 : i32, elementTypeA = f32, elementTypeB = f32, elementType = f32, elementLoadType = f32, loadType = #rock<GemmLoadTileType Default>, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> LDS -> memref<4096xi8, #gpu.address_space<workgroup>>
   }
   return
 }
@@ -72,7 +72,7 @@ func.func @bypasslds(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 :
     // CHECK: rock.yield
     // CHECK: {name = "RegTranspose"}
   affine.for %arg1 = 0 to 2 {
-    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] -> %reg {G = 1 : i64, M = 384 : i64, N = 384 : i64, blockSize = 64 : i32, elementTypeA = f32, elementTypeALoad = f32, elementTypeB = f32, elementTypeBLoad = f32, loadType = #rock<GemmLoadTileType BypassLDS>, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> -> memref<16xf32, #gpu.address_space<private>>
+    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] -> %reg {G = 1 : i64, M = 384 : i64, N = 384 : i64, blockSize = 64 : i32, elementTypeA = f32, elementTypeB = f32, elementType = f32, elementLoadType = f32, loadType = #rock<GemmLoadTileType BypassLDS>, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> -> memref<16xf32, #gpu.address_space<private>>
   }
   return
 }
