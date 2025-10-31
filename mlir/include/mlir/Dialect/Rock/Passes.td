@@ -239,4 +239,10 @@ def RockAnnotateLivenessPass
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
+def RockAddAsyncWaitPass
+    : Pass<"rock-add-async-wait", "::mlir::func::FuncOp"> {
+  let summary = "This pass adds async wait operations for LDS memory";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES
