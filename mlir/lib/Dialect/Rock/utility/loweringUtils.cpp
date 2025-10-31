@@ -774,28 +774,21 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   int64_t numBytes = bufferType.getShape()[0];
   int64_t numElements = std::accumulate(dimensions.begin(), dimensions.end(),
                                         int64_t{1}, std::multiplies<>());
-  int64_t byteWidth;
-  llvm::dbgs() << "==========================\n";
-  llvm::dbgs() << "elementType: " << elementType << "\n";
-  llvm::dbgs() << "numElements: " << numElements << "\n";
-  llvm::dbgs() << "numBytes: " << numBytes << "\n";
-  llvm::dbgs() << "buffer: " << buffer << "\n";
-  if (isa<VectorType>(elementType)) {
-    byteWidth = getByteWidth(elementType);
-  } else {
-    byteWidth = getPackedByteWidth(numElements, elementType);
-  }
-  llvm::dbgs() << "byteWidth: " << byteWidth << "\n";
-  assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
-
   int64_t bitWidth = getElementTypeOrSelf(elementType).getIntOrFloatBitWidth();
-  if (bitWidth < 8) {
+
+  // Calculate byte width: packed for sub-byte types, normal otherwise
+  bool isSubByteNonVector = bitWidth < 8 && !isa<VectorType>(elementType);
+  int64_t byteWidth = isSubByteNonVector
+                          ? getPackedByteWidth(numElements, elementType)
+                          : getByteWidth(elementType);
+  assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
+  // Verify dimensions match buffer size
+  if (isSubByteNonVector) {
     int64_t elementsPerByte = llvm::divideCeil(8, bitWidth);
     assert(numBytes * elementsPerByte == numElements &&
            "Provided dimensions don't match buffer size");
   } else {
-    int64_t bytesPerElement = llvm::divideCeil(bitWidth, 8);
-    assert(numBytes / bytesPerElement == numElements &&
+    assert(numBytes / byteWidth == numElements &&
            "Provided dimensions don't match buffer size");
   }
 
@@ -815,15 +808,19 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   assert(bufferType.getElementType() == b.getI8Type() &&
          "Buffer type must be a i8 memref for viewBufferAs");
   int64_t bitWidth = getElementTypeOrSelf(elementType).getIntOrFloatBitWidth();
-  int64_t bytesPerElement = llvm::divideCeil(bitWidth, 8);
-  int64_t elementsPerByte = llvm::divideCeil(8, bitWidth);
-  int64_t divisor = bytesPerElement;
-  if (bitWidth < 8) {
-    divisor = elementsPerByte;
-  }
   int64_t numBytes = bufferType.getShape()[0];
-  assert(numBytes % divisor == 0 && "Can't evenly fit type into buffer");
-  int64_t length = numBytes / divisor;
+  int64_t byteWidth = getByteWidth(elementType);
+  bool isSubByteNonVector = bitWidth < 8 && !isa<VectorType>(elementType);
+  int64_t length = 0;
+  if (isSubByteNonVector) {
+    int64_t elementsPerByte = llvm::divideCeil(8, bitWidth);
+    assert(numBytes % elementsPerByte == 0 &&
+           "can't evenly fit type into buffer");
+    length = numBytes * elementsPerByte;
+  } else {
+    length = numBytes / byteWidth;
+    assert(numBytes % byteWidth == 0 && "can't evenly fit type into buffer");
+  }
   return viewBufferAs(b, buffer, elementType, {length});
 }
 
