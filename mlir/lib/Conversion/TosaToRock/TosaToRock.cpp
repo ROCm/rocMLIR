@@ -1578,22 +1578,21 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     int64_t seqLen = shape[2];
     int64_t maxSeqLen = shape[3];
-    
+
     // Generic validation function that works with any value type
     auto validateMask = [&](auto values, auto isZero, auto isOne,
                             auto isLargeNegative) -> bool {
       for (int64_t row = 0; row < seqLen; ++row) {
         for (int64_t col = 0; col < maxSeqLen; ++col) {
           auto val = values[row * maxSeqLen + col];
-          
+
           // Validate that the lower triangular portion is all zeros
           if (col <= row && !isZero(val))
             return false;
 
           // Check that the upper triangular portion is correct
-          bool validUpperTriangleVal = expectOnesInUpperTriangle
-                                      ? isOne(val)
-                                      : isLargeNegative(val);
+          bool validUpperTriangleVal =
+              expectOnesInUpperTriangle ? isOne(val) : isLargeNegative(val);
           if (col > row && !validUpperTriangleVal)
             return false;
         }
@@ -1604,8 +1603,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (isInt) {
       auto intValues = constAttr.getValues<APInt>();
       return validateMask(
-          intValues,
-          [](const APInt &v) { return v.getSExtValue() == 0; },
+          intValues, [](const APInt &v) { return v.getSExtValue() == 0; },
           [](const APInt &v) { return v.getSExtValue() == 1; },
           [](const APInt &v) { return v.getSExtValue() <= -10000; });
     } else {
@@ -1647,8 +1645,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (succeeded(maybeTosaConst))
       isConstNegInf = rock::isConstNegInf(maybeTosaConst.value().getResult());
     else if (succeeded(maybeArithConst))
-      isConstNegInf =
-          rock::isConstNegInf(maybeArithConst.value().getResult());
+      isConstNegInf = rock::isConstNegInf(maybeArithConst.value().getResult());
 
     if (!isConstNegInf)
       return failure();
@@ -1661,8 +1658,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     //    find the broadcast input and then do the necessary constant checks
     auto maybeBroadcast = getDefiningOpSkipping<tosa::MulOp>(pred, opsToSkip);
     opsToSkip.insert(tosa::MulOp::getOperationName());
-    auto maybeGreater =
-        getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
+    auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
     if (succeeded(maybeGreater)) {
       auto greater = maybeGreater.value();
       // input1 is a constant with a range from 0 to maxSeqLen (KV)
