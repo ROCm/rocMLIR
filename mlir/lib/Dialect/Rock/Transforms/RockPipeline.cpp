@@ -743,32 +743,26 @@ void RockPipeline::runOnOperation() {
     // Cleanup the stages
     {
       if (removeStages) {
-        RewritePatternSet patterns(&getContext());
-        patterns.add<RemoveStagesRewritePattern, PushBarrierDownRewritePattern,
-                     RemoveBackToBackBarriersRewritePattern>(&getContext());
-        if (failed(applyPatternsGreedily(func, std::move(patterns))))
+        RewritePatternSet patternsPushBarrier(&getContext());
+        // run PushBarrierDownRewritePattern before RemoveStagesRewritePattern,
+        // because the latter will remove the stages and their terminators
+        patternsPushBarrier.add<PushBarrierDownRewritePattern>(ctx);
+        if (failed(applyPatternsGreedily(func, std::move(patternsPushBarrier))))
           return signalPassFailure();
 
-        // RewritePatternSet patternsPushBarrier(&getContext());
-        // // run PushBarrierDownRewritePattern before RemoveStagesRewritePattern,
-        // // because the latter will remove the stages and their terminators
-        // patternsPushBarrier.add<PushBarrierDownRewritePattern>(ctx);
-        // if (failed(applyPatternsGreedily(func, std::move(patternsPushBarrier))))
-        //   return signalPassFailure();
+        // run RemoveStagesRewritePattern before
+        // RemoveBackToBackBarriersRewritePattern, because the latter expects to
+        // find no stages
+        RewritePatternSet patternsRemoveStages(&getContext());
+        patternsRemoveStages.add<RemoveStagesRewritePattern>(ctx);
+        if (failed(
+                applyPatternsGreedily(func, std::move(patternsRemoveStages))))
+          return signalPassFailure();
 
-        // // run RemoveStagesRewritePattern before
-        // // RemoveBackToBackBarriersRewritePattern, because the latter expects to
-        // // find no stages
-        // RewritePatternSet patternsRemoveStages(&getContext());
-        // patternsRemoveStages.add<RemoveStagesRewritePattern>(ctx);
-        // if (failed(
-        //         applyPatternsGreedily(func, std::move(patternsRemoveStages))))
-        //   return signalPassFailure();
-
-        // RewritePatternSet patternsBackToBack(&getContext());
-        // patternsBackToBack.add<RemoveBackToBackBarriersRewritePattern>(ctx);
-        // if (failed(applyPatternsGreedily(func, std::move(patternsBackToBack))))
-        //   return signalPassFailure();
+        RewritePatternSet patternsBackToBack(&getContext());
+        patternsBackToBack.add<RemoveBackToBackBarriersRewritePattern>(ctx);
+        if (failed(applyPatternsGreedily(func, std::move(patternsBackToBack))))
+          return signalPassFailure();
       }
     }
   }
