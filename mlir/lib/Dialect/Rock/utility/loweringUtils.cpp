@@ -814,7 +814,6 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
          "Buffer type must be a i8 memref for viewBufferAs");
   int64_t bitWidth = getElementTypeOrSelf(elementType).getIntOrFloatBitWidth();
   int64_t numBytes = bufferType.getShape()[0];
-  int64_t byteWidth = getByteWidth(elementType);
   bool isSubByteNonVector = bitWidth < 8 && !isa<VectorType>(elementType);
   int64_t length = 0;
   if (isSubByteNonVector) {
@@ -823,6 +822,7 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
            "Can't evenly fit type into buffer");
     length = totalBitWidth / bitWidth;
   } else {
+    int64_t byteWidth = getByteWidth(elementType);
     length = numBytes / byteWidth;
     assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
   }
