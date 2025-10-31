@@ -584,7 +584,7 @@ BroadcastConverter::matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
   // because tosa does not have an explicit broadcast op
   auto oneTensor = rock::tosa::getOneTensor(rewriter, loc, outType);
   auto mulWithOne = rock::tosa::getMulOp(rewriter, loc, sameRankReshapedOp,
-                                         oneTensor, elemType);
+                                         oneTensor, newOutElementTy);
   rewriter.replaceOp(op, mulWithOne);
   return success();
 }
