@@ -17,7 +17,7 @@ def RockPack4BitGpuOpsTo8BitPass
       "Pack GPU memory operations on 4-bit element types to use 8-bit storage";
   let description = [{
     Change the physical storage of gpu.alloc buffers whose memref element type
-    is the 4-bit integer or float (printed as f4E2M2FN) to i8 while preserving the original
+    is the 4-bit integer or float (printed as f4E2M1FN) to i8 while preserving the original
     logical buffer size. This transformation packs two 4-bit values into one 8-bit value
     (halving the last dimension). It handles gpu.alloc, gpu.dealloc, and gpu.memcpy operations,
     preserving async semantics and host_shared attributes. This is necessary as GPU memory
