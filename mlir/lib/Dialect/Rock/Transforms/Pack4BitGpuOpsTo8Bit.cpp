@@ -164,4 +164,3 @@ class RockPack4BitGpuOpsTo8BitPass
 };
 
 } // namespace
-
