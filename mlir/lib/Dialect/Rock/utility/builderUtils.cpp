@@ -209,8 +209,17 @@ Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source) {
 
 int64_t getByteWidth(Type type) {
   if (auto vecType = dyn_cast<VectorType>(type))
-    return (vecType.getElementTypeBitWidth() * vecType.getNumElements()) / 8;
-  return type.getIntOrFloatBitWidth() / 8;
+    return llvm::divideCeil(
+        vecType.getElementTypeBitWidth() * vecType.getNumElements(), 8);
+  return llvm::divideCeil(type.getIntOrFloatBitWidth(), 8);
+}
+
+int64_t getPackedByteWidth(uint64_t numElements, Type type) {
+  if (auto vecType = dyn_cast<VectorType>(type))
+    return llvm::divideCeil(vecType.getElementTypeBitWidth() *
+                                vecType.getNumElements() * numElements,
+                            8);
+  return llvm::divideCeil(numElements * type.getIntOrFloatBitWidth(), 8);
 }
 
 Type getFlattenedType(Type type) {

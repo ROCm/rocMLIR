@@ -571,7 +571,7 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     }
     auto bufferType = alloc.getOutput().getType();
     auto numElements = bufferType.getNumElements();
-    auto elementBytes = getByteWidth(bufferType.getElementType());
+    auto elementBytes = bufferType.getElementType().getIntOrFloatBitWidth() / 8;
     auto rank = bufferType.getRank();
     if (elementBytes != 1) {
       LLVM_DEBUG(llvm::dbgs() << "GpuAllocOp allocates a type of "

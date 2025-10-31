@@ -123,10 +123,9 @@ static void loadAndStoreGemmInputTile(
 }
 
 static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
-                                 int64_t numElements, Type elemType) {
+                                 int64_t ldsBlockSize, Type elemType) {
   auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getWorkgroupAddressSpace());
-  int64_t ldsBlockSize = numElements * getByteWidth(elemType);
   auto ldsMemRefType =
       MemRefType::get({ldsBlockSize}, rewriter.getI8Type(), AffineMap{},
                       workgroupMemoryAddressSpace);
@@ -159,7 +158,7 @@ static std::tuple<Value, Value, Value, Value> createRegInterrimBufferForAccel(
       int64_t length = std::accumulate(shape.begin(), shape.end(), int64_t{1},
                                        std::multiplies<>());
 
-      Value arrayBase = gpuAlloc(b, loc, length * getByteWidth(argType),
+      Value arrayBase = gpuAlloc(b, loc, getPackedByteWidth(length, argType),
                                  b.getI8Type(), gpu::AddressSpace::Private);
 
       SmallVector<int64_t> shapeForLoad(shape);
@@ -398,9 +397,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize =
-        kpacksPerBlock * mPerBlock * kpack * getByteWidth(elementTypeA);
+        getPackedByteWidth(kpacksPerBlock * mPerBlock * kpack, elementTypeA);
     int64_t ldsBlockBSize =
-        kpacksPerBlock * nPerBlock * kpack * getByteWidth(elementTypeB);
+        getPackedByteWidth(kpacksPerBlock * nPerBlock * kpack, elementTypeB);
     LLVM_DEBUG(llvm::dbgs() << "LDS block size (in bytes):" << ldsBlockASize
                             << " " << ldsBlockBSize << "\n");
     if (failed(checkLDSSize(op, ldsBlockASize, ldsBlockBSize)))
@@ -2190,8 +2189,9 @@ struct GridwiseAttentionAccelRewritePattern
       auto loadTypeQ = GemmLoadTileType::BypassLDS;
       if (!doBypassLDSForQ) {
         loadTypeQ = GemmLoadTileType::DoubleBuffer;
-        ldsByteBufferQ =
-            createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
+        ldsByteBufferQ = createLDSByteBuffer(
+            rewriter, loc, getPackedByteWidth(ldsByteBufferQSize, elemTypeQ),
+            elemTypeQ);
       }
       loadAndStoreGemmInputTile(
           rewriter, loc, inQ, /*kiter=*/zero, tid, gridCoordsGemm0LoadQ,
@@ -2218,11 +2218,14 @@ struct GridwiseAttentionAccelRewritePattern
       // LDS buffers
       Value ldsByteBufferQ;
       if (gemm0K != gemm0KPerBlock)
-        ldsByteBufferQ =
-            createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
+        ldsByteBufferQ = createLDSByteBuffer(
+            rewriter, loc, getPackedByteWidth(ldsByteBufferQSize, elemTypeQ),
+            elemTypeQ);
 
       Value ldsByteBufferK = createLDSByteBuffer(
-          rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
+          rewriter, loc,
+          getPackedByteWidth(gemm0KPerBlock * gemm0MPerBlock, elemTypeK),
+          elemTypeK);
 
       affine::AffineForOp kLoopOp =
           affine::AffineForOp::create(rewriter, loc, 0, kIterationsGemm0, 1);
@@ -2384,7 +2387,9 @@ struct GridwiseAttentionAccelRewritePattern
         APInt reductionAxis = APInt(64, 1);
         // Softmax max reduction
         Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
-            rewriter, loc, reductionWorkspaceSize, elemTypeSoftmax);
+            rewriter, loc,
+            getPackedByteWidth(reductionWorkspaceSize, elemTypeSoftmax),
+            elemTypeSoftmax);
         TypedValue<MemRefType> ldsReductionWorkspaceBuffer = viewBufferAs(
             rewriter, ldsReductionWorkspaceByteBuffer, elemTypeSoftmax);
         BlockwiseBroadcastReduceOp::create(
@@ -2415,7 +2420,9 @@ struct GridwiseAttentionAccelRewritePattern
 
         // Softmax sum reduction
         Value ldsReductionWorkspaceByteSecondBuffer = createLDSByteBuffer(
-            rewriter, loc, reductionWorkspaceSize, elemTypeSoftmax);
+            rewriter, loc,
+            getPackedByteWidth(reductionWorkspaceSize, elemTypeSoftmax),
+            elemTypeSoftmax);
         TypedValue<MemRefType> ldsReductionWorkspaceSecondBuffer = viewBufferAs(
             rewriter, ldsReductionWorkspaceByteSecondBuffer, elemTypeSoftmax);
         BlockwiseBroadcastReduceOp::create(
@@ -2468,7 +2475,9 @@ struct GridwiseAttentionAccelRewritePattern
           // We should get rid of storing to LDS altogether with
           // the transposed layout for this gemm.
           gemm1LDSByteBufferB = createLDSByteBuffer(
-              rewriter, loc, gemm1LDSByteBufferBSize, elemTypeV);
+              rewriter, loc,
+              getPackedByteWidth(gemm1LDSByteBufferBSize, elemTypeV),
+              elemTypeV);
 
           LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
               rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView,
@@ -2485,7 +2494,9 @@ struct GridwiseAttentionAccelRewritePattern
         }
 
         Value ldsByteBufferV = createLDSByteBuffer(
-            rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
+            rewriter, loc,
+            getPackedByteWidth(gemm1KPerBlock * gemm1MPerBlock, elemTypeV),
+            elemTypeV);
         affine::AffineForOp g1MLoopOp =
             affine::AffineForOp::create(rewriter, loc, 0, gemm1MBlocks, 1);
         {
@@ -2895,12 +2906,12 @@ struct GridwiseGemmAccelRewritePattern
     // Alocate LDS and create subviews.
 
     // Compute required LDS sizes.
-    int64_t ldsBlockASize = kpacksPerBlock * mPerBlock * kpack;
-    int64_t ldsBlockBSize = kpacksPerBlock * nPerBlock * kpack;
-    LLVM_DEBUG(llvm::dbgs()
-               << "LDS block sizes (bytes): "
-               << ldsBlockASize * getByteWidth(elementTypeA) << " "
-               << ldsBlockBSize * getByteWidth(elementTypeB) << "\n");
+    int64_t ldsBlockASize =
+        getPackedByteWidth(kpacksPerBlock * mPerBlock * kpack, elementTypeA);
+    int64_t ldsBlockBSize =
+        getPackedByteWidth(kpacksPerBlock * nPerBlock * kpack, elementTypeB);
+    LLVM_DEBUG(llvm::dbgs() << "LDS block sizes (bytes): " << ldsBlockASize
+                            << " " << ldsBlockBSize << "\n");
     if (failed(checkLDSSize(op, ldsBlockASize, ldsBlockBSize)))
       return op.emitOpError("requires too much LDS");
 
