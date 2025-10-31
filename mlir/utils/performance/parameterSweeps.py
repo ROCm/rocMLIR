@@ -213,8 +213,8 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
     if isinstance(config, MLIROnlyConfig):
         rocmlir_gen_opts = config.generate_mlir_driver_commandline(options.flags)
     else:
-        rocmlir_gen_opts = config.generate_mlir_driver_commandline(' '.join(options.flags),
-                                                                   kernel_repeats=None).split()
+        rocmlir_gen_opts = config.generate_mlir_driver_commandline(' '.join(options.flags)
+                                                                   ).split()
         if getattr(config, "currentSeqLen") is not None:
             rocmlir_gen_opts.append(f"--current_seq_len={','.join(map(str, config.currentSeqLen))}")
     rocmlir_gen_opts.append('-pv')
@@ -513,7 +513,7 @@ async def run_config(param_iter: Iterable[IterType], to_config: Callable[[IterTy
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
-            print(' '.join(c.generate_mlir_driver_commandline(options.flags, kernel_repeats=None)))
+            print(' '.join(c.generate_mlir_driver_commandline(options.flags)))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0 and n_passes > 0
 
