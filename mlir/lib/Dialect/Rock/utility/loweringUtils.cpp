@@ -815,7 +815,7 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   if (isSubByteNonVector) {
     int64_t elementsPerByte = llvm::divideCeil(8, bitWidth);
     assert(numBytes % elementsPerByte == 0 &&
-           "can't evenly fit type into buffer");
+           "Can't evenly fit type into buffer");
     length = numBytes * elementsPerByte;
   } else {
     length = numBytes / byteWidth;
