@@ -513,7 +513,7 @@ async def run_config(param_iter: Iterable[IterType], to_config: Callable[[IterTy
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
-            print(' '.join(c.generate_mlir_driver_commandline(options.flags, kernel_repeats=None)))
+            print(' '.join(c.generate_mlir_driver_commandline(options.flags)))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0 and n_passes > 0
 
