@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt --rock-convert-4bit-memcpy-to-8bit %s | FileCheck %s
+// RUN: rocmlir-opt --rock-pack-4bit-gpu-ops-to-8bit %s | FileCheck %s
 
 // The pass rewrites gpu.alloc/dealloc of any 4-bit element (i4 or f4E2M1FN) to an
 // i8 buffer whose last dimension is halved (ceil(N/2)), inserts an
@@ -6,17 +6,23 @@
 // gpu.memcpy only when BOTH operands are such casts, replacing them with a
 // memcpy on the raw i8 memrefs.
 
-// ---------------------------------------------------------------------------
-// Callee kernels (no allocs inside -> untouched).
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Callee function declarations (remain untouched)
+// ===========================================================================
+
 // CHECK-LABEL: func.func @kernel_i4
 func.func @kernel_i4(%in : memref<*xi4>, %out : memref<*xi4>) {
   func.return
 }
+
 // CHECK-LABEL: func.func @kernel_f4
 func.func @kernel_f4(%in : memref<*xf4E2M1FN>, %out : memref<*xf4E2M1FN>) {
   func.return
 }
+
+// ===========================================================================
+// Basic transformations - i4 and f4 types
+// ===========================================================================
 
 // ---------------------------------------------------------------------------
 // Two i4 allocs + memcpy between them (tests alloc + memcpy + dealloc rewrite).
@@ -56,17 +62,9 @@ func.func @alloc_pair_f4() {
   func.return
 }
 
-// ---------------------------------------------------------------------------
-// Test with odd last dimension: 3x5x9 -> 3x5x5 (ceil(9/2) = 5)
-// ---------------------------------------------------------------------------
-// CHECK-LABEL: func.func @alloc_odd_dimension
-// CHECK: %[[A:.*]] = gpu.alloc{{.*}}: memref<3x5x5xi8>
-// CHECK: gpu.dealloc{{.*}}%[[A]]{{.*}}: memref<3x5x5xi8>
-func.func @alloc_odd_dimension() {
-  %a = gpu.alloc() : memref<3x5x9xi4>
-  gpu.dealloc %a : memref<3x5x9xi4>
-  func.return
-}
+// ===========================================================================
+// 1D tests
+// ===========================================================================
 
 // ---------------------------------------------------------------------------
 // Test 1D case: 64 -> 32
@@ -79,6 +77,127 @@ func.func @alloc_1d() {
   gpu.dealloc %a : memref<64xi4>
   func.return
 }
+
+// ===========================================================================
+// 3D tests
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Test with odd last dimension: 3x5x9 -> 3x5x5 (ceil(9/2) = 5)
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func @alloc_odd_dimension
+// CHECK: %[[A:.*]] = gpu.alloc{{.*}}: memref<3x5x5xi8>
+// CHECK: gpu.dealloc{{.*}}%[[A]]{{.*}}: memref<3x5x5xi8>
+func.func @alloc_odd_dimension() {
+  %a = gpu.alloc() : memref<3x5x9xi4>
+  gpu.dealloc %a : memref<3x5x9xi4>
+  func.return
+}
+
+// ===========================================================================
+// Edge case dimensions - small and large odd dimensions
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Test edge case: dimension of 1 - ceil(1/2) = 1
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func @test_dim_one
+// CHECK: %[[A:.*]] = gpu.alloc{{.*}}: memref<4x1xi8>
+// CHECK: gpu.dealloc{{.*}}%[[A]]{{.*}}: memref<4x1xi8>
+func.func @test_dim_one() {
+  %a = gpu.alloc() : memref<4x1xi4>
+  gpu.dealloc %a : memref<4x1xi4>
+  func.return
+}
+
+// ---------------------------------------------------------------------------
+// Test edge case: dimension of 3 - ceil(3/2) = 2
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func @test_dim_three
+// CHECK: %[[A:.*]] = gpu.alloc{{.*}}: memref<2xi8>
+// CHECK: gpu.dealloc{{.*}}%[[A]]{{.*}}: memref<2xi8>
+func.func @test_dim_three() {
+  %a = gpu.alloc() : memref<3xi4>
+  gpu.dealloc %a : memref<3xi4>
+  func.return
+}
+
+// ===========================================================================
+// Host-shared attribute tests
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Test host_shared allocation
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func @test_host_shared
+// CHECK: %[[A:.*]] = gpu.alloc host_shared () : memref<64xi8>
+// CHECK: gpu.dealloc %[[A]] : memref<64xi8>
+func.func @test_host_shared() {
+  %a = gpu.alloc host_shared () : memref<128xi4>
+  gpu.dealloc %a : memref<128xi4>
+  func.return
+}
+
+// ===========================================================================
+// Async operation tests
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Test async alloc/dealloc - async token must be preserved
+// Verifies that async tokens are properly threaded through the transformation
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func @test_async_alloc_dealloc
+// CHECK: %[[MEM:.*]], %[[TOKEN:.*]] = gpu.alloc async () : memref<64xi8>
+// CHECK: %[[CAST:.*]]:2 = builtin.unrealized_conversion_cast %[[MEM]], %[[TOKEN]]
+// CHECK: gpu.dealloc async [%[[CAST]]#1] %[[CAST]]#0
+func.func @test_async_alloc_dealloc() {
+  %mem, %token = gpu.alloc async () : memref<128xi4>
+  %token_dealloc = gpu.dealloc async [%token] %mem : memref<128xi4>
+  func.return
+}
+
+// ---------------------------------------------------------------------------
+// Test async with f4E2M1FN type
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func @test_async_f4
+// CHECK: %[[MEM:.*]], %[[TOKEN:.*]] = gpu.alloc async () : memref<16xi8>
+// CHECK: %[[CAST:.*]]:2 = builtin.unrealized_conversion_cast %[[MEM]], %[[TOKEN]]
+// CHECK: gpu.dealloc async [%[[CAST]]#1] %[[CAST]]#0
+func.func @test_async_f4() {
+  %mem, %token = gpu.alloc async () : memref<32xf4E2M1FN>
+  %token_dealloc = gpu.dealloc async [%token] %mem : memref<32xf4E2M1FN>
+  func.return
+}
+
+// ---------------------------------------------------------------------------
+// Test async host_shared - both attributes preserved
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func @test_async_host_shared
+// CHECK: %[[MEM:.*]], %[[TOKEN:.*]] = gpu.alloc async host_shared () : memref<32xi8>
+// CHECK: %[[CAST:.*]]:2 = builtin.unrealized_conversion_cast %[[MEM]], %[[TOKEN]]
+// CHECK: gpu.dealloc async [%[[CAST]]#1] %[[CAST]]#0
+func.func @test_async_host_shared() {
+  %mem, %token = gpu.alloc async host_shared () : memref<64xi4>
+  %token_dealloc = gpu.dealloc async [%token] %mem : memref<64xi4>
+  func.return
+}
+
+// ---------------------------------------------------------------------------
+// Test async 2D with odd last dimension
+// ---------------------------------------------------------------------------
+// CHECK-LABEL: func.func @test_async_2d_odd
+// CHECK: %[[MEM:.*]], %[[TOKEN:.*]] = gpu.alloc async () : memref<8x4xi8>
+// CHECK: %[[CAST:.*]]:2 = builtin.unrealized_conversion_cast %[[MEM]], %[[TOKEN]]
+// CHECK: gpu.dealloc async [%[[CAST]]#1] %[[CAST]]#0
+func.func @test_async_2d_odd() {
+  %mem, %token = gpu.alloc async () : memref<8x7xf4E2M1FN>
+  %token_dealloc = gpu.dealloc async [%token] %mem : memref<8x7xf4E2M1FN>
+  func.return
+}
+
+// ===========================================================================
+// Function call integration tests (after rock-emulate-narrow-type pass)
+// ===========================================================================
 
 // ---------------------------------------------------------------------------
 // Test with function call - simulating input from rock-emulate-narrow-type
@@ -273,6 +392,10 @@ func.func @test_4d_even(%arg0: memref<2x3x4x8xi8>) {
   gpu.dealloc %gpu : memref<2x3x4x16xi4>
   func.return
 }
+
+// ===========================================================================
+// Complex memcpy chain tests
+// ===========================================================================
 
 // ---------------------------------------------------------------------------
 // Test mixed: 2D with odd, multiple allocations with memcpy between them

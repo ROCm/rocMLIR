@@ -14,7 +14,7 @@
 
 namespace mlir {
 namespace rock {
-#define GEN_PASS_DEF_ROCKCONVERT4BITMEMCPYTO8BITPASS
+#define GEN_PASS_DEF_ROCKPACK4BITGPUOPSTO8BITPASS
 #include "mlir/Dialect/Rock/Passes.h.inc"
 } // namespace rock
 } // namespace mlir
@@ -39,13 +39,17 @@ struct GpuMemcpyRewritePattern : public OpRewritePattern<gpu::MemcpyOp> {
     }
     while (auto cast = src.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
       if (cast.getInputs().size() != 1) {
-        return failure();
+        return rewriter.notifyMatchFailure(
+            op, "cannot handle unrealized_conversion_cast with multiple inputs "
+                "for source operand");
       }
       src = cast.getInputs()[0];
     }
     while (auto cast = dst.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
       if (cast.getInputs().size() != 1) {
-        return failure();
+        return rewriter.notifyMatchFailure(
+            op, "cannot handle unrealized_conversion_cast with multiple inputs "
+                "for destination operand");
       }
       dst = cast.getInputs()[0];
     }
@@ -74,7 +78,9 @@ struct GpuDeallocRewritePattern : public OpRewritePattern<gpu::DeallocOp> {
     while (auto cast =
                buffer.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
       if (cast.getInputs().size() != 1) {
-        return failure();
+        return rewriter.notifyMatchFailure(
+            op, "cannot handle unrealized_conversion_cast with multiple inputs "
+                "for memref operand");
       }
       buffer = cast.getInputs()[0];
     }
@@ -144,9 +150,9 @@ struct GpuAllocRewritePattern : OpRewritePattern<gpu::AllocOp> {
   }
 };
 
-class RockConvert4BitMemcpyTo8BitPass
-    : public rock::impl::RockConvert4BitMemcpyTo8BitPassBase<
-          RockConvert4BitMemcpyTo8BitPass> {
+class RockPack4BitGpuOpsTo8BitPass
+    : public rock::impl::RockPack4BitGpuOpsTo8BitPassBase<
+          RockPack4BitGpuOpsTo8BitPass> {
   void runOnOperation() override {
     func::FuncOp func = getOperation();
     RewritePatternSet patterns(&getContext());
@@ -158,3 +164,4 @@ class RockConvert4BitMemcpyTo8BitPass
 };
 
 } // namespace
+

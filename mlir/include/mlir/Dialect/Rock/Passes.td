@@ -11,14 +11,17 @@
 
 include "mlir/Pass/PassBase.td"
 
-def RockConvert4BitMemcpyTo8BitPass
-    : Pass<"rock-convert-4bit-memcpy-to-8bit", "::mlir::func::FuncOp"> {
+def RockPack4BitGpuOpsTo8BitPass
+    : Pass<"rock-pack-4bit-gpu-ops-to-8bit", "::mlir::func::FuncOp"> {
   let summary =
-      "Convert gpu.memcpy on 4 bit element type memrefs to 8 bit element type";
+      "Pack GPU memory operations on 4-bit element types to use 8-bit storage";
   let description = [{
     Change the physical storage of gpu.alloc buffers whose memref element type
     is the 4-bit integer or float (printed as f4E2M2FN) to i8 while preserving the original
-    logical buffer size. This is necessary as gpu.memcpy can not do subbyte addressing.
+    logical buffer size. This transformation packs two 4-bit values into one 8-bit value
+    (halving the last dimension). It handles gpu.alloc, gpu.dealloc, and gpu.memcpy operations,
+    preserving async semantics and host_shared attributes. This is necessary as GPU memory
+    operations cannot do subbyte addressing.
   }];
   let dependentDialects = ["gpu::GPUDialect"];
 }
