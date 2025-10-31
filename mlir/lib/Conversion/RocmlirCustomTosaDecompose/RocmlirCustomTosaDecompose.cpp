@@ -29,6 +29,7 @@
 #include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/Support/Debug.h"
 
 namespace mlir {
 #define GEN_PASS_DEF_ROCMLIRCUSTOMTOSADECOMPOSEPASS
@@ -761,10 +762,11 @@ public:
     // If stride factoring compresses a dimension to a single spatial position,
     // i.e., kPrime == 1, then we dropped a ring of values around that position.
     // To keep the result centered, update effPad by the half the lost distance.
+    // Apply centering adjustment to the PERPENDICULAR dimension only.
     if (kHPrime == 1 && lostH > 0)
-      effPadTop += lostH / 2;
+      effPadLeft += lostH / 2;   // Height compresses → adjust width
     if (kWPrime == 1 && lostW > 0)
-      effPadLeft += lostW / 2;
+      effPadTop += lostW / 2;    // Width compresses → adjust height
 
     int64_t resultSliceTop;
     int64_t resultSliceLeft;
