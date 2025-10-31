@@ -823,8 +823,8 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
     length = totalBitWidth / bitWidth;
   } else {
     int64_t byteWidth = getByteWidth(elementType);
-    length = numBytes / byteWidth;
     assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
+    length = numBytes / byteWidth;
   }
   return viewBufferAs(b, buffer, elementType, {length});
 }
