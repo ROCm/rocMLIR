@@ -331,29 +331,25 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
                                                 %bufferScaleA : memref<4xf8E8M0FNU, #gpu.address_space<private>>,
                                                 %bufferScaleB : memref<4xf8E8M0FNU, #gpu.address_space<private>>,
                                                 %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
+  // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'write' on op operand 4, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'read' on op operand 5, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'write' on op operand 5, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'read' on op operand 6, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'write' on op operand 6, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 7, on resource '<Default>'}}
-  // expected-remark @below {{found an instance of 'write' on op operand 7, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 8, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'write' on op operand 0, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'read' on op operand 5, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'write' on op operand 7, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'write' on op operand 1, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'read' on op operand 6, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 8, on resource '<Default>'}}
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA scaled by %bufferScaleA from %matrixScaleA * %bufferB from %matrixB scaled by %bufferScaleB from %matrixScaleB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950",
-    blockSize= 256 : i32,
-    inMPerThread = 2 : i32,
-    inNPerThread = 2 : i32,
-    loadAfromLDS,
-    loadBfromLDS,
-    elementTypeA = f4E2M1FN,
-    elementTypeB = f4E2M1FN,
+    blockSize = 256 : i32,
+    matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
+    matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 2,
       kpack = 2,
@@ -419,7 +415,7 @@ func.func @rock_threadwise_gemm_accel_scaled(%matrixA : memref<1x4xvector<4xf4E2
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
-  rock.threadwise_accel_gemm %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma{
+  rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma{
     arch = "amdgcn-amd-amdhsa:gfx950",
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,

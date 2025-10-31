@@ -2271,6 +2271,7 @@ void BlockwiseGemmOp::getEffects(
 LogicalResult BlockwiseGemmAccelOp::verify() {
   bool hasA = getMatrixA() != nullptr;
   bool hasB = getMatrixB() != nullptr;
+  bool directToLDS = getMatrixParamsA().getDirectToLDS() || getMatrixParamsB().getDirectToLDS();
 
   if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) !=
                   getMatrixParamsA().getElementType())
@@ -2294,7 +2295,7 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
 
   if (hasA && hasB)
     if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr, aType,
-                               bType, cType)))
+                               bType, directToLDS ? nullptr : cType)))
       return failure();
   auto verifyMatrixAndScale = [&](bool loadFromLds, Value matrix, Value lds,
                                   Value bufferScale, ShapedType bufferType,
