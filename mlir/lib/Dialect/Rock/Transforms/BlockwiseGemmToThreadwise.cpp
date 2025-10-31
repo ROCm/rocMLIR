@@ -491,7 +491,7 @@ struct BlockwiseGemmAccelRewritePattern
         auto memrefType = cast<MemRefType>(buffer.getType());
         assert(memrefType.getRank() == 1);
         assert(memrefType.getElementType() == b.getI8Type());
-        int64_t numBytes = getPackedByteWidth(kBasePerThread, argType);
+        int64_t numBytes = getPackedByteSize(kBasePerThread, argType);
         if (memrefType.getShape()[0] > numBytes) {
           assert(memrefType.getShape()[0] == numBytes * repeats);
           shape.insert(shape.begin(), repeats);

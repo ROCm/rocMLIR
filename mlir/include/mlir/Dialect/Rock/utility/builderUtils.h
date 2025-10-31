@@ -51,7 +51,7 @@ int64_t getByteWidth(Type type);
 // For the sub byte types, like f4E2M1FN, we need to pack 2 of them into 1 byte.
 // calculate the number of bytes required to store `numElements` of given
 // `type`.
-int64_t getPackedByteWidth(uint64_t numElements, Type type);
+int64_t getPackedByteSize(uint64_t numElements, Type type);
 
 // Get a 1-D version of the shaped type `type`, preserving memory space.
 Type getFlattenedType(Type type);

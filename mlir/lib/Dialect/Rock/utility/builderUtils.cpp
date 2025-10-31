@@ -214,7 +214,7 @@ int64_t getByteWidth(Type type) {
   return llvm::divideCeil(type.getIntOrFloatBitWidth(), 8);
 }
 
-int64_t getPackedByteWidth(uint64_t numElements, Type type) {
+int64_t getPackedByteSize(uint64_t numElements, Type type) {
   if (auto vecType = dyn_cast<VectorType>(type))
     return llvm::divideCeil(vecType.getElementTypeBitWidth() *
                                 vecType.getNumElements() * numElements,

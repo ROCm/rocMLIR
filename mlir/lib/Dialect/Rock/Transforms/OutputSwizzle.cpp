@@ -90,7 +90,7 @@ static int64_t getLDSTotalSize(func::FuncOp &func) {
             .getValue();
     if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
       totalSize +=
-          getPackedByteWidth(type.getNumElements(), type.getElementType());
+          getPackedByteSize(type.getNumElements(), type.getElementType());
     }
   });
   return totalSize;
@@ -179,7 +179,7 @@ struct ThreadwiseWriteAllRewritePattern
     bool useIndexDiffs = true;
     bool forceUnroll = true;
     int64_t ldsRequiredBytes =
-        getPackedByteWidth(dim0PerBlock * dim1PerBlock, destType);
+        getPackedByteSize(dim0PerBlock * dim1PerBlock, destType);
 
     // Decide register vectorization.
     constexpr int64_t dimensionM = 1;
@@ -435,7 +435,7 @@ void RockOutputSwizzlePass::runOnOperation() {
 
       Type destType = threadwiseWriteAll.getDest().getType().getElementType();
       int64_t ldsRequiredBytes =
-          getPackedByteWidth(dim0PerBlock * dim1PerBlock, destType);
+          getPackedByteSize(dim0PerBlock * dim1PerBlock, destType);
 
       // not enough LDS memory
       if (failed(checkLDSSize(threadwiseWriteAll, ldsRequiredBytes))) {

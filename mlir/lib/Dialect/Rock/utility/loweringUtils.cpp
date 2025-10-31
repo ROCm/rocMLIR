@@ -779,7 +779,7 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   // Calculate byte width: packed for sub-byte types, normal otherwise
   bool isSubByteNonVector = bitWidth < 8 && !isa<VectorType>(elementType);
   int64_t byteWidth = isSubByteNonVector
-                          ? getPackedByteWidth(numElements, elementType)
+                          ? getPackedByteSize(numElements, elementType)
                           : getByteWidth(elementType);
   assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
   // Verify dimensions match buffer size
@@ -839,7 +839,7 @@ Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim,
     return GpuAllocOp::create(b, loc, memType);
   }
   auto rawMemType =
-      MemRefType::get({getPackedByteWidth(bufferDim, elementType)},
+      MemRefType::get({getPackedByteSize(bufferDim, elementType)},
                       b.getI8Type(), AffineMap{}, memoryAddressSpaceAttr);
   auto buffer = GpuAllocOp::create(b, loc, rawMemType);
 
@@ -1086,9 +1086,9 @@ FailureOr<Value> mlir::rock::wrapLDSBufferForStore(
     kpack = vectorDataType.getNumElements();
     dataType = vectorDataType.getElementType();
   }
-  if (bufferShape[0] != getPackedByteWidth(kOuter * d * kpack, dataType)) {
+  if (bufferShape[0] != getPackedByteSize(kOuter * d * kpack, dataType)) {
     return emitError(loc, "LDS buffer should have ")
-           << getPackedByteWidth(kOuter * d * kpack, dataType)
+           << getPackedByteSize(kOuter * d * kpack, dataType)
            << " elements but has " << bufferShape[0];
   }
   int64_t kpackPerThread = std::min(kPerThread, kpack);
@@ -1200,7 +1200,7 @@ std::optional<int64_t> mlir::rock::getWorkgroupMemorySize(MemRefType type) {
   auto memSpaceValue =
       dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace()).getValue();
   if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-    return getPackedByteWidth(type.getNumElements(), type.getElementType());
+    return getPackedByteSize(type.getNumElements(), type.getElementType());
   }
   return std::nullopt;
 }
