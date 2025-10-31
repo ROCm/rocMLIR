@@ -123,7 +123,8 @@ static void loadAndStoreGemmInputTile(
 }
 
 static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
-                                 int64_t ldsBlockSize, Type elemType) {
+                                 int64_t numElements, Type elementType) {
+  int64_t ldsBlockSize = getPackedByteSize(numElements, elementType);
   auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getWorkgroupAddressSpace());
   auto ldsMemRefType =
@@ -2189,9 +2190,8 @@ struct GridwiseAttentionAccelRewritePattern
       auto loadTypeQ = GemmLoadTileType::BypassLDS;
       if (!doBypassLDSForQ) {
         loadTypeQ = GemmLoadTileType::DoubleBuffer;
-        ldsByteBufferQ = createLDSByteBuffer(
-            rewriter, loc, getPackedByteSize(ldsByteBufferQSize, elemTypeQ),
-            elemTypeQ);
+        ldsByteBufferQ =
+            createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
       }
       loadAndStoreGemmInputTile(
           rewriter, loc, inQ, /*kiter=*/zero, tid, gridCoordsGemm0LoadQ,
@@ -2218,14 +2218,11 @@ struct GridwiseAttentionAccelRewritePattern
       // LDS buffers
       Value ldsByteBufferQ;
       if (gemm0K != gemm0KPerBlock)
-        ldsByteBufferQ = createLDSByteBuffer(
-            rewriter, loc, getPackedByteSize(ldsByteBufferQSize, elemTypeQ),
-            elemTypeQ);
+        ldsByteBufferQ =
+            createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
 
       Value ldsByteBufferK = createLDSByteBuffer(
-          rewriter, loc,
-          getPackedByteSize(gemm0KPerBlock * gemm0MPerBlock, elemTypeK),
-          elemTypeK);
+          rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
 
       affine::AffineForOp kLoopOp =
           affine::AffineForOp::create(rewriter, loc, 0, kIterationsGemm0, 1);
@@ -2387,9 +2384,7 @@ struct GridwiseAttentionAccelRewritePattern
         APInt reductionAxis = APInt(64, 1);
         // Softmax max reduction
         Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
-            rewriter, loc,
-            getPackedByteSize(reductionWorkspaceSize, elemTypeSoftmax),
-            elemTypeSoftmax);
+            rewriter, loc, reductionWorkspaceSize, elemTypeSoftmax);
         TypedValue<MemRefType> ldsReductionWorkspaceBuffer = viewBufferAs(
             rewriter, ldsReductionWorkspaceByteBuffer, elemTypeSoftmax);
         BlockwiseBroadcastReduceOp::create(
@@ -2420,9 +2415,7 @@ struct GridwiseAttentionAccelRewritePattern
 
         // Softmax sum reduction
         Value ldsReductionWorkspaceByteSecondBuffer = createLDSByteBuffer(
-            rewriter, loc,
-            getPackedByteSize(reductionWorkspaceSize, elemTypeSoftmax),
-            elemTypeSoftmax);
+            rewriter, loc, reductionWorkspaceSize, elemTypeSoftmax);
         TypedValue<MemRefType> ldsReductionWorkspaceSecondBuffer = viewBufferAs(
             rewriter, ldsReductionWorkspaceByteSecondBuffer, elemTypeSoftmax);
         BlockwiseBroadcastReduceOp::create(
@@ -2475,8 +2468,7 @@ struct GridwiseAttentionAccelRewritePattern
           // We should get rid of storing to LDS altogether with
           // the transposed layout for this gemm.
           gemm1LDSByteBufferB = createLDSByteBuffer(
-              rewriter, loc,
-              getPackedByteSize(gemm1LDSByteBufferBSize, elemTypeV), elemTypeV);
+              rewriter, loc, gemm1LDSByteBufferBSize, elemTypeV);
 
           LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
               rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView,
@@ -2493,9 +2485,7 @@ struct GridwiseAttentionAccelRewritePattern
         }
 
         Value ldsByteBufferV = createLDSByteBuffer(
-            rewriter, loc,
-            getPackedByteSize(gemm1KPerBlock * gemm1MPerBlock, elemTypeV),
-            elemTypeV);
+            rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
         affine::AffineForOp g1MLoopOp =
             affine::AffineForOp::create(rewriter, loc, 0, gemm1MBlocks, 1);
         {
@@ -2915,10 +2905,10 @@ struct GridwiseGemmAccelRewritePattern
       return op.emitOpError("requires too much LDS");
 
     // Allocate LDS.
-    Value ldsByteBufferA =
-        createLDSByteBuffer(b, loc, ldsBlockASize, elementTypeA);
-    Value ldsByteBufferB =
-        createLDSByteBuffer(b, loc, ldsBlockBSize, elementTypeB);
+    Value ldsByteBufferA = createLDSByteBuffer(
+        b, loc, kpacksPerBlock * mPerBlock * kpack, elementTypeA);
+    Value ldsByteBufferB = createLDSByteBuffer(
+        b, loc, kpacksPerBlock * nPerBlock * kpack, elementTypeB);
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
