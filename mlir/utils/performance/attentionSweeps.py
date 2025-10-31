@@ -176,7 +176,7 @@ def log_failing_configs(configs: List[AttentionConfiguration], filename: str):
         writer = csv.writer(csvfile)
         writer.writerow(['CommandLine'])
         for config in configs:
-            writer.writerow([config.generate_mlir_driver_commandline('')])
+            writer.writerow([config.generate_mlir_driver_commandline('', kernel_repeats=None)])
 
 
 def main():

@@ -1423,7 +1423,7 @@ class AttentionConfiguration(PerfConfiguration):
     def set_perfconfig(self, perf_config):
         self.perfconfig = perf_config
 
-    def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
         result = ' '.join([
             '-operation', 'attention', '-t', self.datatype, '--arch', self.arch, '--num_cu',
             str(self.num_cu), '-g',
@@ -1438,7 +1438,7 @@ class AttentionConfiguration(PerfConfiguration):
             f"-transK={self.trans_k}", f"-transV={self.trans_v}", f"-transO={self.trans_o}",
             f"-causal={self.causal}", f"-return_lse={self.return_lse}",
             f"-split_kv={self.split_kv}",
-            f"--kernel-repeats={MLIR_N_REPEATS}",
+            *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
             f"--perf_config={self.perfconfig}"
         ])
         result += ' '
