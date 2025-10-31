@@ -2325,13 +2325,13 @@ struct GridwiseAttentionAccelRewritePattern
         LDSBarrierOp::create(rewriter, loc);
 
         // Emit lowered blockwise GEMM 0.
-        blockwiseGemmAccel(rewriter, loc, GemmLoadTileType::Default, loadTypeQ,
-                           preAccelRegBufferK, preAccelRegBuffersQ,
-                           accRegBufferGemm0, matrixParamsK, matrixParamsQ,
-                           /*scaleA=*/nullptr, /*scaleB=*/nullptr,
-                           /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr,
-                           ldsTileBufferK, ldsTileBufferQ, featuresAttr,
-                           op.getBlockSizeAttr(), gemm0TuningParams);
+        blockwiseGemmAccel(
+            rewriter, loc, GemmLoadTileType::Default, loadTypeQ,
+            preAccelRegBufferK, preAccelRegBuffersQ, accRegBufferGemm0,
+            matrixParamsK, matrixParamsQ, ldsTileBufferK, ldsTileBufferQ,
+            /*scaleA=*/nullptr, /*scaleB=*/nullptr,
+            /*bufferScaleA=*/nullptr, /*bufferScaleB=*/nullptr, featuresAttr,
+            op.getBlockSizeAttr(), gemm0TuningParams);
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
