@@ -761,12 +761,36 @@ public:
 
     // If stride factoring compresses a dimension to a single spatial position,
     // i.e., kPrime == 1, then we dropped a ring of values around that position.
-    // To keep the result centered, update effPad by the half the lost distance.
-    // Apply centering adjustment to the PERPENDICULAR dimension only.
-    if (kHPrime == 1 && lostH > 0)
-      effPadLeft += lostH / 2;   // Height compresses → adjust width
-    if (kWPrime == 1 && lostW > 0)
-      effPadTop += lostW / 2;    // Width compresses → adjust height
+    // The adjustment pattern depends on which dimension has asymmetric padding.
+    
+    // Check which dimension has asymmetric padding
+    bool hasAsymmetricHeight = (weightPadding[2] != weightPadding[3]);
+    bool hasAsymmetricWidth = (weightPadding[4] != weightPadding[5]);
+
+    if (kHPrime == 1 && lostH > 0) {
+      // Height dimension compressed (kHPrime==1)
+      if (hasAsymmetricWidth) {
+        // Width has asymmetric padding + height compressed
+        // When the perpendicular dimension has asymmetric padding, we need to adjust
+        // BOTH dimensions (not just the perpendicular one):
+        // - Compressed dimension gets adjusted by -lostH/2 (opposite of standard centering)
+        // - Asymmetric dimension gets adjusted by +lostH/2
+        // This accounts for how the asymmetric padding interacts with the stride
+        // factorization, transpose, and reverse operations.
+        int64_t adjustment = lostH / 2;
+        effPadTop -= adjustment;  // Adjust compressed dimension negatively
+        effPadLeft += adjustment; // Adjust asymmetric dimension positively
+      } else {
+        // Standard case: no asymmetric width padding
+        int64_t adjustment = lostH / 2;
+        effPadLeft += adjustment;
+      }
+    }
+    if (kWPrime == 1 && lostW > 0) {
+      // Width dimension compressed (kWPrime==1)
+      int64_t adjustment = lostW / 2;
+      effPadTop += adjustment;
+    }
 
     int64_t resultSliceTop;
     int64_t resultSliceLeft;
