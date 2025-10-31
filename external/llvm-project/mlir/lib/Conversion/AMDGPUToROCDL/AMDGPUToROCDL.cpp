@@ -617,8 +617,7 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
                 << chipset.majorVersion;
         ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
       }
-      ROCDL::SBarrierOp::create(rewriter, loc);
-      rewriter.replaceOpWithNewOp<ROCDL::SBarrierOp>(op);
+      ROCDL::SBarrierOp::create(rewriter, loc);      
     } else if (chipset == kGfx1250) {
       Location loc = op->getLoc();
 
