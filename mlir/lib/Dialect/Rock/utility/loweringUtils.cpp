@@ -774,18 +774,23 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   int64_t numBytes = bufferType.getShape()[0];
   int64_t numElements = std::accumulate(dimensions.begin(), dimensions.end(),
                                         int64_t{1}, std::multiplies<>());
-  int64_t bitWidth = getElementTypeOrSelf(elementType).getIntOrFloatBitWidth();
+  int64_t elementBitWidth =
+      getElementTypeOrSelf(elementType).getIntOrFloatBitWidth();
 
   // Calculate byte width: packed for sub-byte types, normal otherwise
-  bool isSubByteNonVector = bitWidth < 8 && !isa<VectorType>(elementType);
+  bool isSubByteNonVector =
+      elementBitWidth < 8 && !isa<VectorType>(elementType);
   int64_t byteWidth = isSubByteNonVector
                           ? getPackedByteSize(numElements, elementType)
                           : getByteWidth(elementType);
   assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
   // Verify dimensions match buffer size
   if (isSubByteNonVector) {
-    int64_t elementsPerByte = llvm::divideCeil(8, bitWidth);
-    assert(numBytes * elementsPerByte == numElements &&
+    int64_t totalBitWidth = numBytes * 8;
+    assert(totalBitWidth % elementBitWidth == 0 &&
+           "Can't evenly fit type into buffer");
+    int64_t length = totalBitWidth / elementBitWidth;
+    assert(length == numElements &&
            "Provided dimensions don't match buffer size");
   } else {
     assert(numBytes / byteWidth == numElements &&
@@ -813,10 +818,10 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   bool isSubByteNonVector = bitWidth < 8 && !isa<VectorType>(elementType);
   int64_t length = 0;
   if (isSubByteNonVector) {
-    int64_t elementsPerByte = llvm::divideCeil(8, bitWidth);
-    assert(numBytes % elementsPerByte == 0 &&
+    int64_t totalBitWidth = numBytes * 8;
+    assert(totalBitWidth % bitWidth == 0 &&
            "Can't evenly fit type into buffer");
-    length = numBytes * elementsPerByte;
+    length = totalBitWidth / bitWidth;
   } else {
     length = numBytes / byteWidth;
     assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
