@@ -20,6 +20,7 @@ def RockConvert4BitMemcpyTo8BitPass
     is the 4-bit integer or float (printed as f4E2M2FN) to i8 while preserving the original
     logical buffer size. This is necessary as gpu.memcpy can not do subbyte addressing.
   }];
+  let dependentDialects = ["gpu::GPUDialect"];
 }
 
 def RockViewToTransformPass : Pass<"rock-view-to-transform", "::mlir::func::FuncOp"> {

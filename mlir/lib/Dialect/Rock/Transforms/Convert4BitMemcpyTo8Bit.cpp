@@ -10,6 +10,8 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/Support/MathExtras.h"
+
 namespace mlir {
 namespace rock {
 #define GEN_PASS_DEF_ROCKCONVERT4BITMEMCPYTO8BITPASS
@@ -21,13 +23,7 @@ using namespace mlir;
 
 namespace {
 
-static bool isTarget4Bit(Type t) {
-  if (auto ft = dyn_cast<FloatType>(t))
-    return ft.getWidth() == 4; // f4E2M2FN
-  if (auto it = dyn_cast<IntegerType>(t))
-    return it.getWidth() == 4; // i4
-  return false;
-}
+static bool isTarget4Bit(Type t) { return t.getIntOrFloatBitWidth() == 4; }
 
 struct GpuMemcpyRewritePattern : public OpRewritePattern<gpu::MemcpyOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -42,16 +38,26 @@ struct GpuMemcpyRewritePattern : public OpRewritePattern<gpu::MemcpyOp> {
       return failure();
     }
     while (auto cast = src.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
+      if (cast.getInputs().size() != 1) {
+        return failure();
+      }
       src = cast.getInputs()[0];
     }
     while (auto cast = dst.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
+      if (cast.getInputs().size() != 1) {
+        return failure();
+      }
       dst = cast.getInputs()[0];
     }
     if (dst.getType() != src.getType()) {
       return failure();
     }
-    rewriter.replaceOpWithNewOp<gpu::MemcpyOp>(op, TypeRange{},
-                                               ValueRange{dst, src});
+    // Preserve async token type and dependencies from the original memcpy
+    SmallVector<Type> resultTypes;
+    if (op.getAsyncToken())
+      resultTypes.push_back(op.getAsyncToken().getType());
+    rewriter.replaceOpWithNewOp<gpu::MemcpyOp>(
+        op, resultTypes, op.getAsyncDependencies(), dst, src);
     return success();
   }
 };
@@ -67,13 +73,19 @@ struct GpuDeallocRewritePattern : public OpRewritePattern<gpu::DeallocOp> {
     }
     while (auto cast =
                buffer.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
+      if (cast.getInputs().size() != 1) {
+        return failure();
+      }
       buffer = cast.getInputs()[0];
     }
     assert(buffer.getDefiningOp<gpu::AllocOp>() &&
            "expected gpu dealloc to use a gpu alloc");
-    gpu::DeallocOp newDealloc = rewriter.create<gpu::DeallocOp>(
-        op.getLoc(), TypeRange{}, ValueRange{buffer});
-    rewriter.replaceOp(op, newDealloc);
+    // Preserve async token type and dependencies from the original dealloc
+    SmallVector<Type> resultTypes;
+    if (op.getAsyncToken())
+      resultTypes.push_back(op.getAsyncToken().getType());
+    rewriter.replaceOpWithNewOp<gpu::DeallocOp>(
+        op, resultTypes, op.getAsyncDependencies(), buffer);
     return success();
   }
 };
@@ -83,26 +95,48 @@ struct GpuAllocRewritePattern : OpRewritePattern<gpu::AllocOp> {
 
   LogicalResult matchAndRewrite(gpu::AllocOp allocOp,
                                 PatternRewriter &rewriter) const override {
-    auto memrefTy = dyn_cast<MemRefType>(allocOp.getResult(0).getType());
+    auto memrefTy = dyn_cast<MemRefType>(allocOp.getMemref().getType());
     if (!memrefTy || !isTarget4Bit(memrefTy.getElementType()))
       return failure();
 
-    auto i8Ty = rewriter.getI8Type();
     ArrayRef<int64_t> shape = memrefTy.getShape();
+    // Check if the last dimension is dynamic - we cannot handle this case
+    // because we'd need to compute (dynamicSize + 1) / 2 at runtime
+    if (shape.empty() || ShapedType::isDynamic(shape.back())) {
+      return rewriter.notifyMatchFailure(
+          allocOp, "cannot convert 4-bit alloc with dynamic last dimension");
+    }
+
+    auto i8Ty = rewriter.getI8Type();
     SmallVector<int64_t> newShape(shape.begin(), shape.end());
-    newShape.back() =
-        (newShape.back() + 1) / 2; // pack two 4 bit values in 1 i8
+    // Pack two 4-bit values in 1 i8, using ceiling division
+    newShape.back() = llvm::divideCeil(newShape.back(), 2);
     auto newMemRefTy = MemRefType::get(newShape, i8Ty, memrefTy.getLayout(),
                                        memrefTy.getMemorySpace());
+
+    // Preserve async token type if present
+    SmallVector<Type> newAllocResultTypes{newMemRefTy};
+    if (allocOp.getAsyncToken())
+      newAllocResultTypes.push_back(allocOp.getAsyncToken().getType());
+
     rewriter.setInsertionPoint(allocOp);
     auto newAlloc = rewriter.create<gpu::AllocOp>(
-        allocOp.getLoc(), newMemRefTy, ValueRange{allocOp.getDynamicSizes()},
+        allocOp.getLoc(), newAllocResultTypes,
+        ValueRange{allocOp.getDynamicSizes()},
         ValueRange{allocOp.getAsyncDependencies()},
         ValueRange{allocOp.getSymbolOperands()}, allocOp.getHostShared());
 
+    // Cast back: convert (new_i8_memref [, token]) to (old_i4_memref [, token])
+    // Collect inputs for the cast (memref and optionally token)
+    SmallVector<Value> castInputs{newAlloc.getMemref()};
+    SmallVector<Type> castOutputTypes{memrefTy};
+    if (allocOp.getAsyncToken()) {
+      castInputs.push_back(newAlloc.getAsyncToken());
+      castOutputTypes.push_back(allocOp.getAsyncToken().getType());
+    }
+
     auto castBack = rewriter.create<UnrealizedConversionCastOp>(
-        allocOp.getLoc(), TypeRange{memrefTy},
-        ValueRange{newAlloc.getResult(0)});
+        allocOp.getLoc(), castOutputTypes, castInputs);
 
     allocOp.replaceAllUsesWith(castBack.getResults());
     rewriter.eraseOp(allocOp);
