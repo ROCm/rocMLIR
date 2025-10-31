@@ -90,12 +90,11 @@ struct RockGridwiseGemmToBlockwisePass
 // This function will process a tile of gemm input into LDS (or register)
 // buffer in a way it could be fed to blockwise_gemm_accel op
 static void loadAndStoreGemmInputTile(
-    Location loc, Value in, Value kIter, Value tid,
+    PatternRewriter &rewriter, Location loc, Value in, Value kIter, Value tid,
     rock::layout::GridCoordinates gridCoords, Value destLDS, Value destRegs,
     GemmLoadTileType loadType, StringRef nonKDimName, uint32_t blockSize,
-    Type elementTypeA, Type elementTypeALoad, Type elementTypeB,
-    Type elementTypeBLoad, int64_t G, int64_t M, int64_t N,
-    PatternRewriter &rewriter,
+    Type elementTypeA, Type elementTypeB, Type elementType,
+    Type elementLoadType, int64_t G, int64_t M, int64_t N,
     const RockAccelTuningParamAttrInterface &gemmTuningParams,
     const GemmFeaturesAttr &featuresAttr,
     const LDSLayoutConfigDim &ldsLayoutCfg) {
@@ -114,7 +113,7 @@ static void loadAndStoreGemmInputTile(
   BlockwiseLoadTileOp::create(
       rewriter, loc, in, destLDS, destRegs, loadTypeAttr, isA,
       TypeAttr::get(elementTypeA), TypeAttr::get(elementTypeB),
-      TypeAttr::get(elementTypeALoad), TypeAttr::get(elementTypeBLoad),
+      TypeAttr::get(elementType), TypeAttr::get(elementLoadType),
       rotateWithKAttr, swapThreadIterSubDimsAttr, ldsLayoutDxKAttr,
       ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
                  gridCoords.n_block, tid},
@@ -2195,10 +2194,10 @@ struct GridwiseAttentionAccelRewritePattern
             createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
       }
       loadAndStoreGemmInputTile(
-          loc, inQ, /*kiter=*/zero, tid, gridCoordsGemm0LoadQ, ldsByteBufferQ,
-          preAccelRegBuffersQ, loadTypeQ, "n", blockSize, elemTypeK,
-          elemTypeKLoad, elemTypeQ, elemTypeQLoad, gemm0G, gemm0M, gemm0N,
-          rewriter, gemm0TuningParams, featuresAttr, ldsLayoutCfgNG0);
+          rewriter, loc, inQ, /*kiter=*/zero, tid, gridCoordsGemm0LoadQ,
+          ldsByteBufferQ, preAccelRegBuffersQ, loadTypeQ, "n", blockSize,
+          elemTypeK, elemTypeQ, elemTypeQ, elemTypeQLoad, gemm0G, gemm0M,
+          gemm0N, gemm0TuningParams, featuresAttr, ldsLayoutCfgNG0);
     }
 
     bool dynamicMLoop = splitKV != 1 || isCausal || isKVCache;
@@ -2260,21 +2259,20 @@ struct GridwiseAttentionAccelRewritePattern
         TypedValue<MemRefType> ldsTileBufferQ;
         if (gemm0K != gemm0KPerBlock) {
           loadAndStoreGemmInputTile(
-              loc, inQ, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferQ,
+              rewriter, loc, inQ, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferQ,
               preAccelRegBuffersQ, GemmLoadTileType::DoubleBuffer, "n",
-              blockSize, elemTypeK, elemTypeKLoad, elemTypeQ, elemTypeQLoad,
-              gemm0G, gemm0M, gemm0N, rewriter, gemm0TuningParams, featuresAttr,
-              ldsLayoutCfgNG0);
+              blockSize, elemTypeK, elemTypeQ, elemTypeQ, elemTypeQLoad, gemm0G,
+              gemm0M, gemm0N, gemm0TuningParams, featuresAttr, ldsLayoutCfgNG0);
           ldsTileBufferQ =
               viewBufferAs(rewriter, ldsByteBufferQ,
                            vectorTypeOrSelf(elemTypeQ, gemm0kpack));
         }
 
         loadAndStoreGemmInputTile(
-            loc, inK, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferK,
+            rewriter, loc, inK, kLoopIV, tid, gridCoordsGemm0, ldsByteBufferK,
             preAccelRegBufferK, GemmLoadTileType::Default, "m", blockSize,
-            elemTypeK, elemTypeKLoad, elemTypeQ, elemTypeQLoad, gemm0G, gemm0M,
-            gemm0N, rewriter, gemm0TuningParams, featuresAttr, ldsLayoutCfgMG0);
+            elemTypeK, elemTypeQ, elemTypeK, elemTypeKLoad, gemm0G, gemm0M,
+            gemm0N, gemm0TuningParams, featuresAttr, ldsLayoutCfgMG0);
         TypedValue<MemRefType> ldsTileBufferK = viewBufferAs(
             rewriter, ldsByteBufferK, vectorTypeOrSelf(elemTypeK, gemm0kpack));
         // LDS barrier.
@@ -2521,12 +2519,11 @@ struct GridwiseAttentionAccelRewritePattern
           }
 
           loadAndStoreGemmInputTile(
-              loc, inV,
+              rewriter, loc, inV,
               /*kIter=*/mLoopIV, tid, gridCoordsGemm1, ldsByteBufferV,
               preAccelRegBufferV, GemmLoadTileType::Default, "m", blockSize,
-              elemTypeV, elemTypeVLoad, elemTypeV, elemTypeVLoad, gemm0G,
-              gemm1M, gemm1N, rewriter, gemm1TuningParams, featuresAttr,
-              ldsLayoutCfgMG1);
+              elemTypeV, elemTypeV, elemTypeV, elemTypeVLoad, gemm0G, gemm1M,
+              gemm1N, gemm1TuningParams, featuresAttr, ldsLayoutCfgMG1);
           TypedValue<MemRefType> ldsTileBufferV =
               viewBufferAs(rewriter, ldsByteBufferV,
                            vectorTypeOrSelf(elemTypeV, gemm1kpack));
@@ -2956,15 +2953,15 @@ struct GridwiseGemmAccelRewritePattern
 
       // Load from global memory to LDS
       loadAndStoreGemmInputTile(
-          loc, matB, /*kiter=*/iv, tid, gridCoords, ldsByteBufferB,
-          arrayBForLoad, loadType, "n", blockSize, elementTypeA,
-          elementTypeALoad, elementTypeB, elementTypeBLoad, G, M, N, b,
-          op.getParamsAttr(), featuresAttr, ldsLayoutConfigB);
+          b, loc, matB, /*kiter=*/iv, tid, gridCoords, ldsByteBufferB,
+          arrayBForLoad, loadType, "n", blockSize, elementTypeA, elementTypeB,
+          elementTypeB, elementTypeBLoad, G, M, N, op.getParamsAttr(),
+          featuresAttr, ldsLayoutConfigB);
       loadAndStoreGemmInputTile(
-          loc, matA, /*kiter=*/iv, tid, gridCoords, ldsByteBufferA,
-          arrayAForLoad, loadType, "m", blockSize, elementTypeA,
-          elementTypeALoad, elementTypeB, elementTypeBLoad, G, M, N, b,
-          op.getParamsAttr(), featuresAttr, ldsLayoutConfigA);
+          b, loc, matA, /*kiter=*/iv, tid, gridCoords, ldsByteBufferA,
+          arrayAForLoad, loadType, "m", blockSize, elementTypeA, elementTypeB,
+          elementTypeA, elementTypeALoad, G, M, N, op.getParamsAttr(),
+          featuresAttr, ldsLayoutConfigA);
 
       // Emit blockwise GEMM. This will load data from LDS (or registers) and
       // compute the MMA at the same time

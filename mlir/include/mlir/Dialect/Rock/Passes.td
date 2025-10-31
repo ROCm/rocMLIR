@@ -11,6 +11,21 @@
 
 include "mlir/Pass/PassBase.td"
 
+def RockPack4BitGpuOpsTo8BitPass
+    : Pass<"rock-pack-4bit-gpu-ops-to-8bit", "::mlir::func::FuncOp"> {
+  let summary =
+      "Pack GPU memory operations on 4-bit element types to use 8-bit storage";
+  let description = [{
+    Change the physical storage of gpu.alloc buffers whose memref element type
+    is the 4-bit integer or float (printed as f4E2M1FN) to i8 while preserving the original
+    logical buffer size. This transformation packs two 4-bit values into one 8-bit value
+    (halving the last dimension). It handles gpu.alloc, gpu.dealloc, and gpu.memcpy operations,
+    preserving async semantics and host_shared attributes. This is necessary as GPU memory
+    operations cannot do subbyte addressing.
+  }];
+  let dependentDialects = ["gpu::GPUDialect"];
+}
+
 def RockViewToTransformPass : Pass<"rock-view-to-transform", "::mlir::func::FuncOp"> {
   let summary = "convert tensor view ops to rock.transform";
   let dependentDialects = ["rock::RockDialect", "tensor::TensorDialect",

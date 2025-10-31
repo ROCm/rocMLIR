@@ -2226,7 +2226,7 @@ LogicalResult BlockwiseLoadTileOp::verify() {
 }
 
 SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
-  return {getElementTypeA()};
+  return {getElementType()};
 }
 
 //===----------------------------------------------------------------------===//
