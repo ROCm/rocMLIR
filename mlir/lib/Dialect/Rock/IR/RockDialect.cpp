@@ -2271,7 +2271,8 @@ void BlockwiseGemmOp::getEffects(
 LogicalResult BlockwiseGemmAccelOp::verify() {
   bool hasA = getMatrixA() != nullptr;
   bool hasB = getMatrixB() != nullptr;
-  bool directToLDS = getMatrixParamsA().getDirectToLDS() || getMatrixParamsB().getDirectToLDS();
+  bool directToLDS = getMatrixParamsA().getDirectToLDS() ||
+                     getMatrixParamsB().getDirectToLDS();
 
   if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) !=
                   getMatrixParamsA().getElementType())
