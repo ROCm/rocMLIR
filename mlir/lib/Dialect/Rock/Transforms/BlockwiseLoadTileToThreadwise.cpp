@@ -163,9 +163,8 @@ class LoweringBlockwiseLoadTileOp final
 
     Type elementTypeA = op.getElementTypeA();
     Type elementTypeB = op.getElementTypeB();
-    Type elementTypeLoad =
-        isA ? op.getElementTypeALoad() : op.getElementTypeBLoad();
-    Type elementType = isA ? elementTypeA : elementTypeB;
+    Type elementTypeLoad = op.getElementLoadType();
+    Type elementType = op.getElementType();
 
     auto accelEmitterPtr = accel::AccelEmitter::select(
         features, elementTypeA, elementTypeB, arch, tuningParams);

@@ -14,13 +14,16 @@ func.func @lds_barrier_workaround(%mem: memref<192xf32, #amdgpu_fat_buffer_addrs
   %lds = memref.alloc() : memref<4xf32, #gpu_lds_addrspace>
   amdgpu.gather_to_lds %mem[%c0], %lds[%c0] : f32, memref<192xf32, #amdgpu_fat_buffer_addrspace>, memref<4xf32, #gpu_lds_addrspace>
   // GFX942: rocdl.load.to.lds
+  // GFX942: llvm.fence syncscope("workgroup") release {llvm.mmra = #mmra_tag}
   // GFX942-NEXT: rocdl.s.waitcnt -49168
   // GFX942-NEXT: rocdl.s.waitcnt -7937
   // GFX942-NEXT: rocdl.s.barrier
   // GFX950: rocdl.load.to.lds
+  // GFX950: llvm.fence syncscope("workgroup") release {llvm.mmra = #mmra_tag}
   // GFX950-NEXT: rocdl.s.waitcnt -49168
   // GFX950-NEXT: rocdl.s.waitcnt -7937
   // GFX950-NEXT: rocdl.s.barrier
   amdgpu.lds_barrier
   func.return
 }
+
