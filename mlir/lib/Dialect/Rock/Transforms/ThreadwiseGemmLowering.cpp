@@ -300,7 +300,6 @@ struct ThreadwiseGemmAccelRewritePattern
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
     Type argTypeScaleA = dataTypeScaleA, argTypeScaleB = dataTypeScaleB;
-    // todo : fix shapes for scaleA and scaleB
     if (isScaledGemm && dyn_cast<VectorType>(argTypeA) &&
         dyn_cast<VectorType>(argTypeB)) {
       // clone shape of ArgTypeA but retain elementType of dataTypeScaleA
