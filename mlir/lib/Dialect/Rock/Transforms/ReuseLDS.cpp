@@ -571,13 +571,14 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     }
     auto bufferType = alloc.getOutput().getType();
     auto numElements = bufferType.getNumElements();
-    auto elementBytes = bufferType.getElementType().getIntOrFloatBitWidth() / 8;
-    auto rank = bufferType.getRank();
-    if (elementBytes != 1) {
-      LLVM_DEBUG(llvm::dbgs() << "GpuAllocOp allocates a type of "
-                              << elementBytes << " bytes, expected 1 byte\n");
+    auto elementType = bufferType.getElementType();
+    auto i8Type = rewriter.getI8Type();
+    if (elementType != i8Type) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Element type is not int8, it's " << elementType << "\n");
       return failure();
     }
+    auto rank = bufferType.getRank();
     if (rank != 1) {
       LLVM_DEBUG(llvm::dbgs() << "Rank should be one, it's " << rank << "\n");
       return failure();
