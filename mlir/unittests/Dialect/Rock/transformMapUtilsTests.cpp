@@ -78,7 +78,7 @@ TEST(AddPassThroughIndicesTest, AddAtPositionZero) {
 
   ASSERT_TRUE(result);
   auto resultType = cast<MemRefType>(result.getType());
-  
+
   // Result should have shape [2, 8, 16] (new dims prepended)
   EXPECT_EQ(resultType.getRank(), 3);
   EXPECT_EQ(resultType.getShape()[0], 2);
@@ -104,7 +104,7 @@ TEST(AddPassThroughIndicesTest, AddAtPositionMiddle) {
 
   ASSERT_TRUE(result);
   auto resultType = cast<MemRefType>(result.getType());
-  
+
   // Result should have shape [8, 4, 2] (new dim inserted in middle)
   EXPECT_EQ(resultType.getRank(), 3);
   EXPECT_EQ(resultType.getShape()[0], 8);
@@ -129,7 +129,7 @@ TEST(AddPassThroughIndicesTest, AddAtPositionEnd) {
 
   ASSERT_TRUE(result);
   auto resultType = cast<MemRefType>(result.getType());
-  
+
   // Result should have shape [8, 2, 3, 4] (new dims appended)
   EXPECT_EQ(resultType.getRank(), 4);
   EXPECT_EQ(resultType.getShape()[0], 8);
@@ -175,7 +175,7 @@ TEST(AddPassThroughIndicesTest, MultiBufferAtPositionZero) {
 
   ASSERT_TRUE(result);
   auto resultType = cast<MemRefType>(result.getType());
-  
+
   // Result should have shape [2, 2, 16]
   EXPECT_EQ(resultType.getRank(), 3);
   EXPECT_EQ(resultType.getShape()[0], 2);
@@ -198,7 +198,7 @@ TEST(AddPassThroughIndicesTest, MultipleDimensionsAtPositionZero) {
 
   ASSERT_TRUE(result);
   auto resultType = cast<MemRefType>(result.getType());
-  
+
   // Result should have shape [1, 2, 3, 8, 2, 4]
   EXPECT_EQ(resultType.getRank(), 6);
   EXPECT_EQ(resultType.getShape()[0], 1);
@@ -234,15 +234,14 @@ TEST(AddPassThroughIndicesTest, SingleDimensionAtPositionZero) {
   OpBuilder &b = env.builder;
   Location loc = b.getUnknownLoc();
 
-  Value transformed =
-      createTransformedMemRef(b, loc, {16}, b.getF16Type());
+  Value transformed = createTransformedMemRef(b, loc, {16}, b.getF16Type());
 
   // Add just 1 dimension at position 0
   Value result = addPassThroughIndices(b, transformed, {5}, 0);
 
   ASSERT_TRUE(result);
   auto resultType = cast<MemRefType>(result.getType());
-  
+
   EXPECT_EQ(resultType.getRank(), 2);
   EXPECT_EQ(resultType.getShape()[0], 5);
   EXPECT_EQ(resultType.getShape()[1], 16);
@@ -255,28 +254,27 @@ TEST(AddPassThroughIndicesTest, ValidTransformStack) {
   OpBuilder &b = env.builder;
   Location loc = b.getUnknownLoc();
 
-  Value transformed =
-      createTransformedMemRef(b, loc, {16}, b.getF16Type());
+  Value transformed = createTransformedMemRef(b, loc, {16}, b.getF16Type());
 
   Value result = addPassThroughIndices(b, transformed, {2, 8}, 0);
 
   ASSERT_TRUE(result);
-  
+
   // The result should be a TransformOp
   auto transformOp = result.getDefiningOp<TransformOp>();
   ASSERT_TRUE(transformOp);
-  
+
   // The transform should have proper bounds
   auto transform = transformOp.getTransform();
   auto upperBounds = transform.getUpperBounds();
   auto lowerBounds = transform.getLowerBounds();
-  
+
   // Upper bounds should be [2, 8, 16]
   EXPECT_EQ(upperBounds.size(), 3U);
   EXPECT_EQ(upperBounds[0], 2);
   EXPECT_EQ(upperBounds[1], 8);
   EXPECT_EQ(upperBounds[2], 16);
-  
+
   // The addPassThroughIndices function creates a transform that widens
   // the existing transform stack, so lower bounds include the added dimensions
   EXPECT_EQ(lowerBounds.size(), 3U);
@@ -286,4 +284,3 @@ TEST(AddPassThroughIndicesTest, ValidTransformStack) {
 }
 
 } // end anonymous namespace
-
