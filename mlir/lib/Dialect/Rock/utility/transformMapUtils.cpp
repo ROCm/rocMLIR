@@ -1742,12 +1742,14 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
   BottomUpTMBuilder addDimBuilder(b, underlyingShape, ret.getLoc());
   SmallVector<StringRef> underlyingNames;
   addDimBuilder.getStartNames(underlyingNames);
-  addDimBuilder.passThrough(
-      ArrayRef<StringRef>(underlyingNames).take_front(pos));
+  auto frontNames = ArrayRef<StringRef>(underlyingNames).take_front(pos);
+  if (!frontNames.empty())
+    addDimBuilder.passThrough(frontNames);
   auto backNames = ArrayRef<StringRef>(underlyingNames).drop_front(pos);
   SmallVector<uint32_t> backPoses(backNames.size());
   std::iota(backPoses.begin(), backPoses.end(), pos + numberOfIndices);
-  addDimBuilder.passThrough(backNames, backPoses, backNames);
+  if (!backNames.empty())
+    addDimBuilder.passThrough(backNames, backPoses, backNames);
   for (auto [idx, len] : llvm::enumerate(lengths)) {
     SmallString<8> extraName;
     ("extra_" + Twine(idx)).toVector(extraName);
