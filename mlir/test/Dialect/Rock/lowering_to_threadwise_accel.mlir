@@ -45,7 +45,7 @@ func.func @rock_gemm_schedulev2(%arg0: memref<1x128x128xf16>, %arg1: memref<1x12
     // CHECK-SAME: 0 to 8
     // CHECK: %[[outReg:.*]] = rock.transform 
     // CHECK-SAME: memref<1x1xvector<16xf32>, #gpu.address_space<private>>
-    // CHECK: rock.threadwise_accel_gemm %[[outReg]] +=  %[[AReg]] * %[[BReg]]
+    // CHECK: rock.threadwise_gemm_accel %[[outReg]] +=  %[[AReg]] * %[[BReg]]
     // CHECK-SAME: scheduleVersion = 2
     // CHECK: name = "MMA"
     // CHECK: pipeline = #rock.pipeline<1>
@@ -92,7 +92,7 @@ func.func @rock_gemm_schedulev1(%arg0: memref<1x128x128xf16>, %arg1: memref<1x12
     // CHECK-SAME: 0 to 8
     // CHECK: %[[outReg:.*]] = rock.transform 
     // CHECK-SAME: memref<1x1xvector<16xf32>, #gpu.address_space<private>>
-    // CHECK: rock.threadwise_accel_gemm %[[outReg]] +=  %[[AReg]] * %[[BReg]]
+    // CHECK: rock.threadwise_gemm_accel %[[outReg]] +=  %[[AReg]] * %[[BReg]]
     // CHECK-SAME: scheduleVersion = 1
     // CHECK: name = "MMA"
     // CHECK: pipeline = #rock.pipeline<2>
@@ -145,7 +145,7 @@ func.func @rock_conv_gkc01_n01gc_ngk01_0_schedulev2(%arg0: memref<1x32x32xf16>, 
     // CHECK-SAME: 0 to 2
     // CHECK: %[[outReg:.*]] = rock.transform 
     // CHECK-SAME: memref<2x1xvector<4xf32>, #gpu.address_space<private>>
-    // CHECK: rock.threadwise_accel_gemm %[[outReg]] +=  %[[AReg]] * %[[BReg]]
+    // CHECK: rock.threadwise_gemm_accel %[[outReg]] +=  %[[AReg]] * %[[BReg]]
     // CHECK-SAME: scheduleVersion = 2
     // CHECK: name = "MMA"
     // CHECK: pipeline = #rock.pipeline<1>
@@ -193,11 +193,10 @@ func.func @rock_conv_gkc01_n01gc_ngk01_0_schedulev1(%arg0: memref<1x32x32xf16>, 
     // CHECK-SAME: 0 to 2
     // CHECK: %[[outReg:.*]] = rock.transform 
     // CHECK-SAME: memref<2x1xvector<4xf32>, #gpu.address_space<private>>
-    // CHECK: rock.threadwise_accel_gemm %[[outReg]] +=  %[[AReg]] * %[[BReg]]
+    // CHECK: rock.threadwise_gemm_accel %[[outReg]] +=  %[[AReg]] * %[[BReg]]
     // CHECK-SAME: scheduleVersion = 1
     // CHECK: name = "MMA"
     // CHECK: pipeline = #rock.pipeline<2>
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 400 : i32, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 64, kpack = 4, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x32x32xf16>, memref<1x32x25600xf16>, memref<1x32x25600xf32>
   return
 }
-

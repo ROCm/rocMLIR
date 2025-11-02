@@ -559,7 +559,7 @@ Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
 }
 
 template <typename AllocType>
-FailureOr<AllocType> findAlloc(Value value) {
+static FailureOr<AllocType> findAlloc(Value value) {
   auto *curOp = value.getDefiningOp();
   auto maybeAllocOp = dyn_cast_or_null<AllocType>(curOp);
   while (!maybeAllocOp) {
@@ -579,7 +579,7 @@ FailureOr<AllocType> findAlloc(Value value) {
       } else if (buffers.size() == 1) {
         curOp = buffers.back().getDefiningOp();
       } else {
-        int64_t index = selectIndex.value();
+        int64_t index = selectIndex.value() % buffers.size();
         curOp = buffers[index].getDefiningOp();
       }
     } else {
@@ -616,16 +616,6 @@ FailureOr<BlockArgument> mlir::rock::findBlockArgument(Value value) {
   }
 
   return maybeBlockArg;
-}
-
-std::optional<int64_t> mlir::rock::computeConstDiff(Value l, Value u) {
-  IntegerAttr clb, cub;
-  if (matchPattern(l, m_Constant(&clb)) && matchPattern(u, m_Constant(&cub))) {
-    llvm::APInt lbValue = clb.getValue();
-    llvm::APInt ubValue = cub.getValue();
-    return (ubValue - lbValue).getSExtValue();
-  }
-  return std::nullopt;
 }
 
 // The rows and columns of subtile view needs to

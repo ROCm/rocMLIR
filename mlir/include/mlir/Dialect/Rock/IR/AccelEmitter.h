@@ -100,10 +100,8 @@ struct AccelEmitter {
   /// is dependent on the type of accelerator we are targeting
   virtual Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
-                       int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK, bool directToLds,
-                       bool ldsLayoutDxK,
-                       bool doSplitKAcrossThreadsFirst = false) const = 0;
+                       const BlockwiseMatrixParamsAttr &matrixParams,
+                       int64_t blockSize, StringRef dName) const = 0;
 
   /// This functions creates the subtile views that is :
   /// 1) gridSubTileView :
@@ -177,12 +175,9 @@ struct MfmaEmitter : public AccelEmitter {
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, ValueRange regCOffset) override;
 
-  Value
-  wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
-                       int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK, bool directToLds,
-                       bool ldsLayoutDxK,
-                       bool doSplitKAcrossThreadsFirst = false) const override;
+  Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                             const BlockwiseMatrixParamsAttr &matrixParams,
+                             int64_t blockSize, StringRef dName) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
@@ -225,12 +220,9 @@ struct WmmaEmitter : public AccelEmitter {
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
                           Value bufferC, ValueRange regCOffset) override;
 
-  Value
-  wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
-                       int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK, bool directToLds,
-                       bool ldsLayoutDxK,
-                       bool doSplitKAcrossThreadsFirst = false) const override;
+  Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                             const BlockwiseMatrixParamsAttr &matrixParams,
+                             int64_t blockSize, StringRef dName) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
