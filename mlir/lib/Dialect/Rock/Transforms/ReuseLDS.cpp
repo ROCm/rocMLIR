@@ -574,8 +574,9 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     auto elementType = bufferType.getElementType();
     auto i8Type = rewriter.getI8Type();
     if (elementType != i8Type) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Element type is not int8, it's " << elementType << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "LDS buffer element type must be i8. Element "
+                                 "type is not int8, but it's "
+                              << elementType << "\n");
       return failure();
     }
     auto rank = bufferType.getRank();
