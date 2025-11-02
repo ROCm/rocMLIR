@@ -20,7 +20,6 @@
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
-#include "llvm/Support/MathExtras.h"
 
 using mlir::arith::ConstantOp;
 

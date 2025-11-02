@@ -2988,18 +2988,16 @@ struct GridwiseGemmAccelRewritePattern
         b, loc, kpacksPerBlock * mPerBlock * kpack, elementTypeA);
     Value ldsByteBufferB = createLDSByteBuffer(
         b, loc, kpacksPerBlock * nPerBlock * kpack, elementTypeB);
-    Value ldsByteBufferScaleA = createLDSByteBuffer(
-        b, loc,
-        hasScaleA ? getPackedByteSize(kpacksPerBlock * mPerBlock * kpack,
-                                      elementTypeScaleA)
-                  : 0,
-        elementTypeScaleA);
-    Value ldsByteBufferScaleB = createLDSByteBuffer(
-        b, loc,
-        hasScaleB ? getPackedByteSize(kpacksPerBlock * nPerBlock * kpack,
-                                      elementTypeScaleB)
-                  : 0,
-        elementTypeScaleB);
+    Value ldsByteBufferScaleA =
+        hasScaleA
+            ? createLDSByteBuffer(b, loc, kpacksPerBlock * mPerBlock * kpack,
+                                  elementTypeScaleA)
+            : nullptr;
+    Value ldsByteBufferScaleB =
+        hasScaleB
+            ? createLDSByteBuffer(b, loc, kpacksPerBlock * nPerBlock * kpack,
+                                  elementTypeScaleB)
+            : nullptr;
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
     Type ldsReadTypeScaleA = vectorTypeOrSelf(elementTypeScaleA, kpack);
@@ -3009,7 +3007,7 @@ struct GridwiseGemmAccelRewritePattern
     if (directToLDS) {
       ldsViewForGemmA = viewBufferAs(b, ldsByteBufferA, elementTypeA);
       ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, elementTypeB);
-      if (hasScaleA) {
+      if (isScaledGemm) {
         op->emitOpError("Direct to LDS scaled GEMM is not supported yet.");
         return failure();
       }
