@@ -1365,26 +1365,22 @@ def Rock_BlockwiseGemmAccelOp
               [AttrSizedOperandSegments,
                DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
-      Arguments<(ins Optional<MemRefOf<LdsBufferTypes>>:$matrixA,
+      Arguments<(ins MemRefOf<LdsBufferTypes>:$bufferA,
+          MemRefOf<LdsBufferTypes>:$bufferB, MemRefOf<AccelResTypes>:$matrixC,
+          Rock_BlockwiseMatrixParamsAttr:$matrixParamsA,
+          Rock_BlockwiseMatrixParamsAttr:$matrixParamsB,
+          Optional<MemRefOf<LdsBufferTypes>>:$matrixA,
           Optional<MemRefOf<LdsBufferTypes>>:$matrixB,
           Optional<MemRefOf<LdsBufferTypes>>:$scaleA,
-          Optional<MemRefOf<LdsBufferTypes>>:$scaleB, I32Attr:$inMPerThread,
-          I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
-          UnitAttr:$loadAfromLDS, UnitAttr:$loadBfromLDS,
-          UnitAttr:$splitKAcrossThreadsFirstA,
-          UnitAttr:$splitKAcrossThreadsFirstB, UnitAttr:$directToLDS,
-          UnitAttr:$ldsLayoutMxK, UnitAttr:$ldsLayoutNxK,
-          MemRefOf<LdsBufferTypes>:$bufferA, MemRefOf<LdsBufferTypes>:$bufferB,
-          MemRefOf<AccelResTypes>:$matrixC,
+          Optional<MemRefOf<LdsBufferTypes>>:$scaleB,
           Optional<MemRefOf<LdsBufferTypes>>:$bufferScaleA,
           Optional<MemRefOf<LdsBufferTypes>>:$bufferScaleB,
-          TypeAttr:$elementTypeA, TypeAttr:$elementTypeB,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
           RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
     The `rock.blockwise_gemm_accel` op does GEMM at workgroup (block) level.
-    - Matrix A and Matrix B shall reside on LDS or registers (depending on loadAfromLDS and loadBfromLDS).
+    - Matrix A and Matrix B shall reside on registers (if matrixA or matrixB are passed, we load them from LDS).
     - Matrix C shall be vectors.
 
     The elements of matrices A and B should be vectors of length kpack, or
@@ -1410,11 +1406,11 @@ def Rock_BlockwiseLoadTileOp
           Arg<Optional<MemRefOf<LdsBufferTypes>>, "destination LDS">:$destLDS,
           Arg<Optional<MemRefOf<NativeMemoryOpTypes>>,
               "destination registers">:$destRegisters,
-          Rock_GemmLoadTileTypeAttr:$loadType, UnitAttr:$isA,
-          TypeAttr:$elementTypeA, TypeAttr:$elementTypeB, TypeAttr:$elementType,
-          TypeAttr:$elementLoadType, UnitAttr:$rotateWithK,
-          UnitAttr:$swapThreadIterSubDims, UnitAttr:$LDSLayoutDxK,
-          Variadic<Index>:$sourceIndices, I64Attr:$G, I64Attr:$M, I64Attr:$N,
+          Rock_GemmLoadTileTypeAttr:$loadType, TypeAttr:$elementType,
+          TypeAttr:$elementLoadType,
+          Rock_BlockwiseMatrixParamsAttr:$matrixParamsA,
+          Rock_BlockwiseMatrixParamsAttr:$matrixParamsB, UnitAttr:$isA,
+          Variadic<Index>:$sourceIndices,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
           RockAccelTuningParamAttrInterface:$params)> {
   let summary =
@@ -1427,6 +1423,8 @@ def Rock_BlockwiseLoadTileOp
     - Default: Creates two stages, (1) load from memory, (2) write to LDS.
     - BypassLDS: Bypasses LDS and loads from device memory to registers directly (only one stage).
     - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
+    - DirectToLDSDefault: Same as Default, but a single stage loads from memory and writes to LDS.
+    - DirectToLDSDoubleBuffer: Same as DoubleBuffer, but a single stage loads from memory and writes to LDS.
 
     `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
     `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. They are data types for the Matrix A & B of the GEMMs. 
@@ -1464,9 +1462,9 @@ def Rock_ThreadwiseGemmOp
   let hasVerifier = 1;
 }
 
-// threadwise_accel_gemm
-def Rock_ThreadwiseAccelGemmOp
-    : Rock_Op<"threadwise_accel_gemm",
+// threadwise_gemm_accel
+def Rock_ThreadwiseGemmAccelOp
+    : Rock_Op<"threadwise_gemm_accel",
               [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                AttrSizedOperandSegments]>,
@@ -1481,7 +1479,7 @@ def Rock_ThreadwiseAccelGemmOp
           RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Accelerated GEMM";
   let description = [{
-    The `rock.accel_gemm` op is an abstraction of doing GEMM based on an accelerator.
+    The `rock.threadwise_gemm_accel` op is an abstraction of doing GEMM based on an accelerator.
     It would employ a series of accelerator (e.g., mfma or wmma) operations.
 
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector

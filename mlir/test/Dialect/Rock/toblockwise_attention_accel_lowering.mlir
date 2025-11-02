@@ -28,8 +28,6 @@
   // CHECK: affine.for
     // CHECK: rock.lds_barrier
     // CHECK: rock.blockwise_load_tile %[[QTr0]]{{.*}} LDS -> %[[ldsG0A]] -> %[[preAccelRegA:[0-9]+]] {{.*}}#rock<GemmLoadTileType DoubleBuffer>
-
-    // CHECK-DAG: %[[viewG0AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     
     // CHECK: rock.blockwise_load_tile %[[K]]{{.*}} LDS -> %[[ldsG0B]] -> %[[preAccelRegB:[0-9]+]] {{.*}}#rock<GemmLoadTileType Default>
 
@@ -37,9 +35,7 @@
     // CHECK: rock.lds_barrier
 
     // Emit blockwise gemm0
-    // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegB]] from %[[viewG0BStore]] * %[[preAccelRegA]] from %[[viewG0AStore]]
-    // CHECK-SAME: loadAfromLDS
-    // CHECK-NOT: loadBfromLDS
+    // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegB]] from %[[viewG0BStore]] * %[[preAccelRegA]] {blockSize = 
 
   // CHECK: rock.transforming_for
     // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
@@ -135,8 +131,6 @@
 
     // Emit blockwise gemm1
     // CHECK: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += %[[preAccelRegV]] from %[[view2G1BStore]] * %[[preAccelRegA:[0-9]+]] from %[[view2G1AStore]]
-    // CHECK-SAME: loadAfromLDS
-    // CHECK-SAME: loadBfromLDS
 
     // CHECK: rock.transforming_for
       // CHECK: %[[tmp1:.+]] =  memref.load %[[gemm1AccBuf]][
@@ -183,16 +177,12 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096
   // CHECK: rock.lds_barrier
   // CHECK: rock.blockwise_load_tile {{.*}}#rock<GemmLoadTileType Default>
   // CHECK: rock.lds_barrier
-  // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-NOT: loadBfromLDS
+  // CHECK: rock.blockwise_gemm_accel %{{.*}} += %{{.*}} from %{{.*}} * %{{.*}} {blockSize =
   // CHECK: affine.for %{{.*}} = 0 to 2 {
   // CHECK: rock.lds_barrier
   // CHECK: rock.blockwise_load_tile {{.*}}#rock<GemmLoadTileType Default>
   // CHECK: rock.lds_barrier
-  // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-SAME: loadBfromLDS
+  // CHECK: rock.blockwise_gemm_accel %{{.*}} += %{{.*}} from %{{.*}} * %{{.*}} from %{{.*}}
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["seq_q", "head_qk"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xi8> to memref<1x64x64xi8>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["seq_k", "head_qk"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xi8> to memref<1x64x64xi8>
   %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["head_v", "seq_k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xf16> to memref<1x64x64xf16>
@@ -239,16 +229,12 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1844(%arg0: memref<3276
   // CHECK: rock.lds_barrier
   // CHECK: rock.blockwise_load_tile {{.*}}#rock<GemmLoadTileType Default>
   // CHECK: rock.lds_barrier
-  // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-NOT: loadBfromLDS
+  // CHECK: rock.blockwise_gemm_accel %{{.*}} += %{{.*}} from %{{.*}} * %{{.*}} {blockSize =
   // CHECK: affine.for %{{.*}} = 0 to 1 {
   // CHECK-NOT: rock.lds_barrier
   // CHECK: rock.blockwise_load_tile {{.*}}#rock<GemmLoadTileType Default>
   // CHECK: rock.lds_barrier
-  // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-NOT: loadBfromLDS
+  // CHECK: rock.blockwise_gemm_accel %{{.*}} += %{{.*}} from %{{.*}} * %{{.*}} {blockSize =
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1 * 128 + d2)> by [<Unmerge{256, 128} ["m", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 256, 128] -> [32768]> : memref<32768xf16> to memref<1x256x128xf16>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d1 * 128 + d2)> by [<Unmerge{256, 128} ["n", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 256, 128] -> [32768]> : memref<32768xf16> to memref<1x256x128xf16>
   %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 128 + d2)> by [<Unmerge{256, 128} ["n", "gemmO"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 256, 128] -> [32768]> : memref<32768xf16> to memref<1x256x128xf16>
@@ -270,16 +256,12 @@ func.func @gridwise_attn_barriers_before_lds_write_nobarriers(%arg0: memref<1638
   // CHECK-NOT: rock.lds_barrier
   // CHECK: rock.blockwise_load_tile {{.*}}#rock<GemmLoadTileType Default>
   // CHECK: rock.lds_barrier
-  // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-NOT: loadBfromLDS
+  // CHECK: rock.blockwise_gemm_accel %{{.*}} += %{{.*}} from %{{.*}} * %{{.*}} {blockSize =
   // CHECK: affine.for %{{.*}} = 0 to 1 {
   // CHECK-NOT: rock.lds_barrier
   // CHECK: rock.blockwise_load_tile {{.*}}#rock<GemmLoadTileType Default>
   // CHECK: rock.lds_barrier
-  // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-NOT: loadBfromLDS
+  // CHECK: rock.blockwise_gemm_accel %{{.*}} += %{{.*}} from %{{.*}} * %{{.*}} {blockSize =
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1 * 128 + d2)> by [<Unmerge{128, 128} ["m", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 128, 128] -> [16384]> : memref<16384xf16> to memref<1x128x128xf16>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d1 * 128 + d2)> by [<Unmerge{128, 128} ["n", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 128, 128] -> [16384]> : memref<16384xf16> to memref<1x128x128xf16>
   %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 128 + d2)> by [<Unmerge{128, 128} ["n", "gemmO"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 128, 128] -> [16384]> : memref<16384xf16> to memref<1x128x128xf16>
@@ -301,16 +283,12 @@ func.func @gridwise_attn_barriers_before_lds_write_nofallback_barrier(%arg0: mem
   // CHECK: rock.blockwise_load_tile {{.*}}#rock<GemmLoadTileType DoubleBuffer>
   // CHECK: rock.blockwise_load_tile {{.*}}#rock<GemmLoadTileType Default>
   // CHECK: rock.lds_barrier
-  // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-NOT: loadBfromLDS
+  // CHECK: rock.blockwise_gemm_accel %{{.*}} += %{{.*}} from %{{.*}} * %{{.*}} {blockSize =
   // CHECK: affine.for %{{.*}} = 0 to 1 {
   // CHECK-NOT: rock.lds_barrier
   // CHECK: rock.blockwise_load_tile {{.*}}#rock<GemmLoadTileType Default>
   // CHECK: rock.lds_barrier
-  // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-NOT: loadBfromLDS
+  // CHECK: rock.blockwise_gemm_accel %{{.*}} += %{{.*}} from %{{.*}} * %{{.*}} {blockSize =
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1 * 256 + d2)> by [<Unmerge{128, 256} ["m", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 128, 256] -> [32768]> : memref<32768xf16> to memref<1x128x256xf16>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d1 * 256 + d2)> by [<Unmerge{128, 256} ["n", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 128, 256] -> [32768]> : memref<32768xf16> to memref<1x128x256xf16>
   %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 128 + d2)> by [<Unmerge{128, 128} ["n", "gemmO"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 128, 128] -> [16384]> : memref<16384xf16> to memref<1x128x128xf16>
