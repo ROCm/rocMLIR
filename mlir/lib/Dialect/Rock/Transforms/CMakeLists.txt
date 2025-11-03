@@ -68,6 +68,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRRockUtility
   MLIRExecutionEngineUtils
   MLIRSCFTransforms
+  MLIRAMDGPUUtils
   MLIRSCFToControlFlow
   MLIRSupport
   MLIRTosaDialect
