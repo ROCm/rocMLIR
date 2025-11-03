@@ -684,8 +684,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   aShape = cast<MemRefType>(a.getType()).getShape();
   bShape = cast<MemRefType>(b.getType()).getShape();
   if (scaleA && scaleB) {
-    auto scaleAType = scaleA ? cast<MemRefType>(scaleA.getType()) : nullptr;
-    auto scaleBType = scaleB ? cast<MemRefType>(scaleB.getType()) : nullptr;
+    auto scaleAType = cast<MemRefType>(scaleA.getType());
+    auto scaleBType = cast<MemRefType>(scaleB.getType());
     scaleAShape = scaleAType.getShape();
     scaleBShape = scaleBType.getShape();
 
@@ -724,8 +724,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         padMatrix(scaleA, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
     scaleB =
         padMatrix(scaleB, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
-    auto scaleAType = scaleA ? cast<MemRefType>(scaleA.getType()) : nullptr;
-    auto scaleBType = scaleB ? cast<MemRefType>(scaleB.getType()) : nullptr;
+    auto scaleAType = cast<MemRefType>(scaleA.getType());
+    auto scaleBType = cast<MemRefType>(scaleB.getType());
     scaleAShape = scaleAType.getShape();
     scaleBShape = scaleBType.getShape();
     Type f8e8m0Type = rw.getF8E8M0Type();
@@ -781,7 +781,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
                                       utils::IteratorType::parallel,
                                       utils::IteratorType::parallel},
-        /*doc=*/"", /*library_call=*/"",
+        /*doc=*/"", /*libraryCall=*/"",
         [](OpBuilder &builder, Location loc, ValueRange elems) {
           Value accumulator = elems[0], c = elems[1];
           Type cType = c.getType();
