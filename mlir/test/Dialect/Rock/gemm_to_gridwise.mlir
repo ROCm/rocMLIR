@@ -555,3 +555,75 @@ func.func @rock_attention_gqa(%arg0: memref<64x1x128xf16>, %arg1: memref<8x128x8
   } {features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, firstGemmIndices = array<i64: 0>, numHeadsKV = 8 : i32, numHeadsQ = 64 : i32, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, softmaxType = f32, splitKV = 4 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
+
+// -----
+
+// Tests for scaled GEMM 
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_already_f8e8m0
+// CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf4E2M1FN>, %[[b:.*]]: memref<1x72x512xf4E2M1FN>, %[[c:.*]]: memref<1x128x512xf32>, %[[scaleA:.*]]: memref<1x128x72xf8E8M0FNU>, %[[scaleB:.*]]: memref<1x72x512xf8E8M0FNU>)
+// CHECK-SAME: grid_size = 16 : i32
+func.func @gemm_scaled_fp4_already_f8e8m0(%a: memref<1x72x128xf4E2M1FN>, %b: memref<1x72x512xf4E2M1FN>, %c: memref<1x128x512xf32>, %scaleA: memref<1x128x72xf8E8M0FNU>, %scaleB: memref<1x72x512xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // CHECK: %[[normalizeScaleA:.*]] = rock.transform %[[scaleA]] by {{.*}} : memref<1x128x72xf8E8M0FNU> to memref<1x72x128xf8E8M0FNU{{.*}}>
+  // CHECK: rock.gridwise_gemm_accel(%[[a]], %[[b]], %[[c]], %[[normalizeScaleA]], %[[scaleB]])
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 16 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<1x128x512xf32> = memref<1x72x128xf4E2M1FN> scaled by memref<1x128x72xf8E8M0FNU> * memref<1x72x512xf4E2M1FN> scaled by memref<1x72x512xf8E8M0FNU>
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_with_padding
+// CHECK-SAME: (%[[a:.*]]: memref<1x1x1xf4E2M1FN>, %[[b:.*]]: memref<1x1x1xf4E2M1FN>, %[[c:.*]]: memref<1x1x1xf32>, %[[scaleA:.*]]: memref<1x1x1xf8E8M0FNU>, %[[scaleB:.*]]: memref<1x1x1xf8E8M0FNU>)
+// CHECK-SAME: grid_size = 1
+func.func @gemm_scaled_fp4_with_padding(%a: memref<1x1x1xf4E2M1FN>, %b: memref<1x1x1xf4E2M1FN>, %c: memref<1x1x1xf32>, %scaleA: memref<1x1x1xf8E8M0FNU>, %scaleB: memref<1x1x1xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // CHECK-DAG: %[[padA:.*]] = rock.transform %[[a]] by {{.*}} : memref<1x1x1xf4E2M1FN> to memref<1x8x64xf4E2M1FN{{.*}}>
+  // CHECK-DAG: %[[padB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x1x1xf4E2M1FN> to memref<1x8x64xf4E2M1FN{{.*}}>
+  // CHECK-DAG: %[[padC:.*]] = rock.transform %[[c]] by {{.*}} : memref<1x1x1xf32> to memref<1x64x64xf32{{.*}}>
+  // CHECK-DAG: %[[padScaleA:.*]] = rock.transform %[[scaleA]] by {{.*}} : memref<1x1x1xf8E8M0FNU> to memref<1x8x64xf8E8M0FNU{{.*}}>
+  // CHECK-DAG: %[[padScaleB:.*]] = rock.transform %[[scaleB]] by {{.*}} : memref<1x1x1xf8E8M0FNU> to memref<1x8x64xf8E8M0FNU{{.*}}>
+  // CHECK: rock.gridwise_gemm_accel(%[[padA]], %[[padB]], %[[padC]], %[[padScaleA]], %[[padScaleB]])
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 1 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<1x1x1xf32> = memref<1x1x1xf4E2M1FN> scaled by memref<1x1x1xf8E8M0FNU> * memref<1x1x1xf4E2M1FN> scaled by memref<1x1x1xf8E8M0FNU>
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_transposed
+// CHECK-SAME: (%[[a:.*]]: memref<1x128x72xf4E2M1FN>, %[[b:.*]]: memref<1x512x72xf4E2M1FN>, %[[c:.*]]: memref<1x512x128xf32>, %[[scaleA:.*]]: memref<1x72x128xf8E8M0FNU>, %[[scaleB:.*]]: memref<1x72x512xf8E8M0FNU>)
+// CHECK-SAME: grid_size = 16 : i32
+func.func @gemm_scaled_fp4_transposed(%a: memref<1x128x72xf4E2M1FN>, %b: memref<1x512x72xf4E2M1FN>, %c: memref<1x512x128xf32>, %scaleA: memref<1x72x128xf8E8M0FNU>, %scaleB: memref<1x72x512xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // CHECK-DAG: %[[normalizeA:.*]] = rock.transform %[[a]] {{.*}} : memref<1x128x72xf4E2M1FN> to memref<1x72x128xf4E2M1FN{{.*}}>
+  // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] {{.*}} : memref<1x512x72xf4E2M1FN> to memref<1x72x512xf4E2M1FN{{.*}}>
+  // CHECK-DAG: %[[normalizeC:.*]] = rock.transform %[[c]] {{.*}} : memref<1x512x128xf32> to memref<1x128x512xf32{{.*}}>
+  // CHECK: rock.gridwise_gemm_accel(%[[normalizeA]], %[[normalizeB]], %[[normalizeC]], %[[scaleA]], %[[scaleB]])
+  rock.gemm tr %c = %a scaled by tr %scaleA * tr %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 16 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<1x512x128xf32> = memref<1x128x72xf4E2M1FN> scaled by memref<1x72x128xf8E8M0FNU> * memref<1x512x72xf4E2M1FN> scaled by memref<1x72x512xf8E8M0FNU>
+  func.return
+}
+
+// -----
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_with_f32_scales
+// CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf4E2M1FN>, %[[b:.*]]: memref<1x72x512xf4E2M1FN>, %[[c:.*]]: memref<1x128x512xf32>, %[[scaleA:.*]]: memref<1x128x72xf32>, %[[scaleB:.*]]: memref<1x72x512xf32>)
+// CHECK-SAME: grid_size = 16 : i32
+func.func @gemm_scaled_fp4_with_f32_scales(%a: memref<1x72x128xf4E2M1FN>, %b: memref<1x72x512xf4E2M1FN>, %c: memref<1x128x512xf32>, %scaleA: memref<1x128x72xf32>, %scaleB: memref<1x72x512xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // CHECK: %[[normalizeScaleA:.*]] = rock.transform %[[scaleA]] by {{.*}} : memref<1x128x72xf32> to memref<1x72x128xf32{{.*}}>
+  // CHECK: %[[allocScaleA:.*]] = memref.alloc() : memref<1x72x128xf8E8M0FNU>
+  // CHECK: linalg.generic {{{.*}}} ins(%[[normalizeScaleA]] : memref<1x72x128xf32{{.*}}>) outs(%[[allocScaleA]] : memref<1x72x128xf8E8M0FNU>)
+  // CHECK: %[[allocScaleB:.*]] = memref.alloc() : memref<1x72x512xf8E8M0FNU>
+  // CHECK: linalg.generic {{{.*}}} ins(%[[scaleB]] : memref<1x72x512xf32>) outs(%[[allocScaleB]] : memref<1x72x512xf8E8M0FNU>)
+  // CHECK: rock.gridwise_gemm_accel(%[[a]], %[[b]], %[[c]], %[[allocScaleA]], %[[allocScaleB]])
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 16 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<1x128x512xf32> = memref<1x72x128xf4E2M1FN> scaled by memref<1x128x72xf32> * memref<1x72x512xf4E2M1FN> scaled by memref<1x72x512xf32>
+  func.return
+}
