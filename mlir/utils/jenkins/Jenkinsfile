@@ -467,8 +467,7 @@ String getLabelFromChip(String chip) {
 int setLitWorkerCount() {
     int limit_lit_workers = 8
     def gpu_arch = get_gpu_architecture()
-    if (gpu_arch.contains('gfx908') || gpu_arch.contains('gfx90a') ||
-        gpu_arch.contains('gfx950')) {
+    if (gpu_arch.contains('gfx908') || gpu_arch.contains('gfx90a')) {
         limit_lit_workers = 20
     } else if (gpu_arch.contains('gfx942')) {
         limit_lit_workers = 64
