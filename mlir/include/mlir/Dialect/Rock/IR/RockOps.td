@@ -616,6 +616,18 @@ def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
   let hasVerifier = 1;
 }
 
+// Annotate the start of lifetime of a memory allocation on GPU.
+def Rock_AsyncWaitOp : Rock_Op<"async_wait">, Arguments<(ins I32Attr:$num_inst)> {
+  let summary =
+      "TODO";
+  let description = [{
+    The `rock.async_wait` op....
+  }];
+  let assemblyFormat = [{
+    attr-dict
+  }];
+}
+
 // Select one among a set of multiple buffers
 def Rock_ExtractMultiBufferOp:
     Rock_Op<"extract_multibuffer", [Pure]>,
