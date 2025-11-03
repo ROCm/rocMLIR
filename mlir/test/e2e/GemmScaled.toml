@@ -1,0 +1,56 @@
+directory = "GemmScaled"
+prefix = "rocmlir-gen"
+suffix = "--operation gemm -out_dtype f32 --arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "transA"
+values = ["true", "false"]
+prefix = "--transA="
+
+[[axis]]
+name = "transB"
+values = ["true", "false"]
+prefix = "--transB="
+
+[[axis]]
+name = "transC"
+values = ["true", "false"]
+prefix = "--transC="
+
+[[axis]]
+name = "data type"
+values = ["f4E2M1FN"]
+prefix = "-t "
+
+[[axis]]
+name = "scaledGemm"
+values = ["true"]
+prefix = "--scaledGemm=" 
+
+[[axis]]
+name = "scaleA dtype"
+values = ["f8E8M0FNU"]
+prefix = "-scale_a_dtype "
+
+[[axis]]
+name = "scaleB dtype"
+values = ["f8E8M0FNU"]
+prefix =  "-scale_b_dtype "
+
+[[axis]]
+name = "schedule_version"
+values = ["1"]
+prefix = "--schedule_version  "
+
+## Gemm variants
+[[suite]]
+name = "gemm_scaled"
+
+[[suite.test]]
+config = "-g 3 -m 1024 -k 768 -n 1024"
+
+[[suite.test]]
+config = "-g 1 -m 1 -k 32 -n 1"
+
+[[suite.test]]
+config = "-g 1 -m 512 -k 32 -n 512"
