@@ -110,21 +110,18 @@ struct Fp8TruncToCallPattern final : public OpConversionPattern<TruncFOp> {
 
 } // namespace
 
-static bool isFp8(Type t) {
-  return isa<FloatType>(t) && t.getIntOrFloatBitWidth() == 8 &&
-         !isa<Float8E8M0FNUType>(t);
-}
-
 static bool isNanooF8(Type t) {
   return isa<Float8E5M2FNUZType, Float8E4M3FNUZType>(t);
 }
 
 static bool isOcpF8(Type t) { return isa<Float8E5M2Type, Float8E4M3FNType>(t); }
 
+static bool isNanooOrOcpF8(Type t) { return isNanooF8(t) || isOcpF8(t); }
+
 static LogicalResult canBeConverted(Type t, bool hasF8ConversionInstrs,
                                     bool hasOcpF8ConversionInstrs) {
   Type elemType = getElementTypeOrSelf(t);
-  if (!isFp8(elemType))
+  if (!isNanooOrOcpF8(elemType))
     return failure();
   if (hasF8ConversionInstrs && isNanooF8(elemType)) {
     return failure();
@@ -144,8 +141,8 @@ LogicalResult Fp8ExtToTableLookupPattern::match(ExtFOp op) const {
 
 static Value getFloatValueTableFor(Type elementType, Operation *op,
                                    ConversionPatternRewriter &rewriter) {
-  assert(isFp8(elementType) &&
-         "tables can only be generated for scalar float types");
+  assert(isNanooOrOcpF8(elementType) &&
+         "tables can only be generated for scalar nanoo or ocp f8 types");
   auto type = cast<FloatType>(elementType);
   Operation *module = SymbolTable::getNearestSymbolTable(op);
   auto globalType = MemRefType::get(256, rewriter.getF32Type());

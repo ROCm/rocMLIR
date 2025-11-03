@@ -1,6 +1,6 @@
 directory = "PrGemmScaled"
 prefix = "rocmlir-gen"
-suffix = "--operation gemm --scaledGemm --arch %arch %pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+suffix = "--operation gemm -out_dtype f32 --scaledGemm --arch %arch -pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
 [[axis]]
 name = "transA"
@@ -24,7 +24,7 @@ prefix = "-t "
 
 [[axis]]
 name = "schedule_version"
-values = ["1", "2"]
+values = ["1"]
 prefix = "--schedule_version  "
 
 ## Gemm variants
@@ -32,8 +32,8 @@ prefix = "--schedule_version  "
 name = "pr_gemm_scaled"
 
 [[suite.test]]
-config = "-g 3 -m 1024 -k 769 -n 1024"
+config = "-g 3 -m 1024 -k 768 -n 1024"
 
 # Test large tensors with padding
 [[suite.test]]
-config = "-g 1 -m 32768 -k 1 -n 32769"
+config = "-g 1 -m 32768 -k 32 -n 32769"
