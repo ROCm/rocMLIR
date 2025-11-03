@@ -1721,16 +1721,16 @@ ArrayRef<int64_t> mlir::rock::getLowerShape(ArrayAttr transformStack) {
       .getLowerBounds();
 }
 
-Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
-                                        ArrayRef<int64_t> lengths,
-                                        int64_t pos) {
+FailureOr<Value> mlir::rock::addPassThroughIndices(OpBuilder &b,
+                                                   Value transformed,
+                                                   ArrayRef<int64_t> lengths,
+                                                   int64_t pos) {
   MLIRContext *context = transformed.getContext();
   size_t numberOfIndices = lengths.size();
 
   // No dimensions to add, return
   if (numberOfIndices == 0)
     return transformed;
-
   SmallVector<TransformOp> opsToWiden;
   Value ret;
   std::tie(ret, std::ignore) = untransform(transformed, opsToWiden);
@@ -1739,15 +1739,22 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
   /// shapes match up.
   ArrayRef<int64_t> underlyingShape =
       cast<ShapedType>(ret.getType()).getShape();
+  if (pos > underlyingShape.size()) {
+    LLVM_DEBUG(llvm::dbgs() << "Invalid position for addPassThroughIndices: "
+                            << pos << "\n");
+    return failure();
+  }
   BottomUpTMBuilder addDimBuilder(b, underlyingShape, ret.getLoc());
   SmallVector<StringRef> underlyingNames;
   addDimBuilder.getStartNames(underlyingNames);
-  addDimBuilder.passThrough(
-      ArrayRef<StringRef>(underlyingNames).take_front(pos));
+  auto frontNames = ArrayRef<StringRef>(underlyingNames).take_front(pos);
+  if (!frontNames.empty())
+    addDimBuilder.passThrough(frontNames);
   auto backNames = ArrayRef<StringRef>(underlyingNames).drop_front(pos);
   SmallVector<uint32_t> backPoses(backNames.size());
   std::iota(backPoses.begin(), backPoses.end(), pos + numberOfIndices);
-  addDimBuilder.passThrough(backNames, backPoses, backNames);
+  if (!backNames.empty())
+    addDimBuilder.passThrough(backNames, backPoses, backNames);
   for (auto [idx, len] : llvm::enumerate(lengths)) {
     SmallString<8> extraName;
     ("extra_" + Twine(idx)).toVector(extraName);
