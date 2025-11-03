@@ -571,7 +571,7 @@ PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
         if (arch.contains("gfx950")) {
           params = {initParametersF4GemmGfx950, nInitParametersF4GemmGfx950};
         } else {
-          llvm::report_fatal_error("Unsupported arch for fp8 gemm");
+          llvm::report_fatal_error("Unsupported arch for fp4 kernels");
         }
       }
       break;
