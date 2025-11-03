@@ -2566,9 +2566,10 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       aScale = rock::normalizeMatrix(aScale, b, loc, true, mName, kName);
       transposeScaleA = false;
     }
-
-    auto aMap = AffineMap::getMultiDimIdentityMap(3, ctx);
-    auto bMap = AffineMap::getMultiDimIdentityMap(3, ctx);
+    uint64_t rankA = cast<ShapedType>(aVal.getType()).getRank();
+    uint64_t rankB = cast<ShapedType>(bVal.getType()).getRank();
+    auto aMap = AffineMap::getMultiDimIdentityMap(rankA, ctx);
+    auto bMap = AffineMap::getMultiDimIdentityMap(rankB, ctx);
     auto multipledValA =
         memref::AllocOp::create(b, loc, llvm::cast<MemRefType>(aVal.getType()));
     auto multipledValB =
