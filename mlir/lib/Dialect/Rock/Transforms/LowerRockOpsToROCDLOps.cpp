@@ -57,7 +57,7 @@ namespace rock {
 } // namespace rock
 } // namespace mlir
 
-#define DEBUG_TYPE "convert-rock-to-rocdl"
+#define DEBUG_TYPE "rock-to-rocdl"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -68,6 +68,13 @@ struct AsyncWaitOpConversion
     : public ConvertOpToLLVMPattern<rock::AsyncWaitOp> {
   using ConvertOpToLLVMPattern<
       rock::AsyncWaitOp>::ConvertOpToLLVMPattern;
+
+  AsyncWaitOpConversion(const LLVMTypeConverter &converter,
+                           amdgpu::Chipset chipset)
+      : ConvertOpToLLVMPattern<rock::AsyncWaitOp>(converter),
+        chipset(chipset) {}
+
+  mlir::amdgpu::Chipset chipset;
 
   LogicalResult
   matchAndRewrite(rock::AsyncWaitOp op, OpAdaptor adaptor,
@@ -84,6 +91,23 @@ struct AsyncWaitOpConversion
     unsigned waitValue = lowBits | highBits | otherCnts;
 
     ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);
+
+    // I think this should not be neccesary...
+    constexpr int32_t ldsOnlyBitsGfx6789 = ~(0x1f << 8);
+    constexpr int32_t ldsOnlyBitsGfx10 = ~(0x3f << 8);
+    constexpr int32_t ldsOnlyBitsGfx11 = ~(0x3f << 4);
+    int32_t ldsOnlyBits;
+    if (chipset.majorVersion == 11)
+      ldsOnlyBits = ldsOnlyBitsGfx11;
+    else if (chipset.majorVersion == 10)
+      ldsOnlyBits = ldsOnlyBitsGfx10;
+    else if (chipset.majorVersion <= 9)
+      ldsOnlyBits = ldsOnlyBitsGfx6789;
+    else
+      return op.emitOpError(
+                "don't know how to lower this for chipset major version")
+            << chipset.majorVersion;
+    ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
     rewriter.eraseOp(op);
 
     return success();
@@ -101,11 +125,17 @@ struct LowerRockOpsToROCDLOpsPass final
     LLVMTypeConverter converter(ctx);
     RewritePatternSet patterns(ctx);
 
+    FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse("gfx942");
+    if (failed(maybeChipset)) {
+      emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
+      return signalPassFailure();
+    }
+
     LLVMConversionTarget target(getContext());
     target.addIllegalOp<rock::AsyncWaitOp>();
     target.addLegalDialect<ROCDL::ROCDLDialect>();
 
-    patterns.add<AsyncWaitOpConversion>(converter);
+    patterns.add<AsyncWaitOpConversion>(converter, *maybeChipset);
 
     if (failed(applyPartialConversion(op, target, std::move(patterns))))
       signalPassFailure();
