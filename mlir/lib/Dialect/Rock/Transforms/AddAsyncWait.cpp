@@ -93,7 +93,7 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
 
   for (auto barrier : barriers) {
     int waitToken = getWaitCount(barrier);
-    rewriter.setInsertionPointAfter(barrier);
+    rewriter.setInsertionPoint(barrier);
     rock::AsyncWaitOp::create(rewriter, barrier->getLoc(), waitToken);
   }
 
