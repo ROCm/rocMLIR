@@ -95,7 +95,7 @@ struct LowerRockOpsToROCDLOpsPass final
   using Base::Base;
 
   void runOnOperation() override {
-    func::FuncOp op = getOperation();
+    LLVM::LLVMFuncOp op = getOperation();
     MLIRContext *ctx = op.getContext();
 
     LLVMTypeConverter converter(ctx);
