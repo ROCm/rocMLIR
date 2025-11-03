@@ -561,7 +561,7 @@ struct BlockwiseGemmAccelRewritePattern
       Value viewScaleA = nullptr, viewScaleB = nullptr;
       if (isScaledGemm) {
         if (matrixParamsA.getDirectToLDS()) {
-          llvm::errs() << "Direct to LDS scaled GEMM is not supported yet.\n";
+          op->emitOpError("Direct to LDS scaled GEMM is not supported yet.");
           return failure();
         }
         Value bufferScaleA = adaptor.getBufferScaleA();
@@ -587,7 +587,7 @@ struct BlockwiseGemmAccelRewritePattern
             accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
         if (isScaledGemm) {
           if (matrixParamsB.getDirectToLDS()) {
-            llvm::errs() << "Direct to LDS scaled GEMM is not supported yet.\n";
+            op->emitOpError("Direct to LDS scaled GEMM is not supported yet.");
             return failure();
           }
           Value bufferScaleB = adaptor.getBufferScaleB();
