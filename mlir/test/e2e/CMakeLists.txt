@@ -55,6 +55,7 @@ if (ROCK_E2E_TEST_ENABLED)
   list(APPEND CONFIGS
   GemmVariants
   GemmScaled
+  GemmScaledF32
   MixedConvLayouts
   )
   list(APPEND CONFIGS

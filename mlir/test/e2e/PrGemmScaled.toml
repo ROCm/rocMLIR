@@ -24,12 +24,12 @@ prefix = "-t "
 
 [[axis]]
 name = "scaleA dtype"
-values = ["f8E8M0FNU", "f32"]
+values = ["f8E8M0FNU"]
 prefix = "-scale_a_dtype "
 
 [[axis]]
 name = "scaleB dtype"
-values = ["f8E8M0FNU", "f32"]
+values = ["f8E8M0FNU"]
 prefix =  "-scale_b_dtype "
 
 [[axis]]
