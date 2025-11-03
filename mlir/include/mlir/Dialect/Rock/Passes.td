@@ -228,7 +228,12 @@ def RockAnnotateLivenessPass
 def RockAddAsyncWaitPass
     : Pass<"rock-add-async-wait", "::mlir::func::FuncOp"> {
   let summary = "This pass adds async wait operations for LDS memory";
-  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
+  let dependentDialects = ["rock::RockDialect"];
+}
+
+def ConvertRockOpsToROCDLOps : Pass<"rock-to-rocdl", "::mlir::func::FuncOp"> {
+  let summary = "This pass lowers async wait operations to ROCDL";
+  let dependentDialects = ["rock::RockDialect", "ROCDL::ROCDLDialect", "LLVM::LLVMDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES
