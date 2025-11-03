@@ -30,3 +30,13 @@ func.func @gfx950_lds_exceeded(%arg0: memref<1x128x512xf32>, %arg1: memref<1x128
   return
 }
 
+// -----
+
+// This test verifies that the pass correctly reports an error when LDS size is exceeded
+func.func @test_lds_overflow_with_scales(%arg0: memref<1x1024x1024xf4E2M1FN>, %arg1: memref<1x1024x1024xf4E2M1FN>, %arg2: memref<1x1024x1024xf32>, %arg3: memref<1x1024x1024xf8E8M0FNU>, %arg4: memref<1x1024x1024xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950", block_size = 256 : i32, grid_size = 1 : i32} {
+  // expected-error @+2 {{requires too much LDS}}
+  // expected-error @+1 {{failed to legalize operation 'rock.gridwise_gemm_accel'}}
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) features =  mfma {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 16, mPerBlock = 512, nPerBlock = 512, kpack = 32, mPerWave = 256, nPerWave = 256, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x1024x1024xf4E2M1FN>, memref<1x1024x1024xf4E2M1FN>, memref<1x1024x1024xf32>, memref<1x1024x1024xf8E8M0FNU>, memref<1x1024x1024xf8E8M0FNU>
+  return
+}
+
