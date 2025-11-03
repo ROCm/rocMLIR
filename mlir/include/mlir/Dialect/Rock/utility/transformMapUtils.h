@@ -242,8 +242,8 @@ ArrayAttr prependUpperViews(OpBuilder &b, ArrayAttr viewsToPrepend,
 // The position P where we want the new variables to appear can be specified by
 // the `pos` input parameter. The parameter `length` represents the size of the
 // new dimensions to be inserted.
-Value addPassThroughIndices(OpBuilder &b, Value transformed,
-                            ArrayRef<int64_t> lengths, int64_t pos);
+FailureOr<Value> addPassThroughIndices(OpBuilder &b, Value transformed,
+                                       ArrayRef<int64_t> lengths, int64_t pos);
 
 ArrayRef<int64_t> getLowerShape(ArrayAttr transformStack);
 
