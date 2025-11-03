@@ -211,8 +211,8 @@ struct ThreadwiseGemmRewritePattern
 // AccelGemm lowering.
 //===----------------------------------------------------------------------===//
 struct ThreadwiseAccelGemmRewritePattern
-    : public OpConversionPattern<ThreadwiseAccelGemmOp> {
-  using OpConversionPattern<ThreadwiseAccelGemmOp>::OpConversionPattern;
+    : public OpConversionPattern<ThreadwiseGemmAccelOp> {
+  using OpConversionPattern<ThreadwiseGemmAccelOp>::OpConversionPattern;
 
   // Create a normalized view `[startShape, sizes]`. Then convert this to a
   // "real" view by ignoring some of the indices and letting the rest pass
@@ -236,8 +236,8 @@ struct ThreadwiseAccelGemmRewritePattern
     return td.get();
   }
 
-  LogicalResult matchAndRewrite(ThreadwiseAccelGemmOp op,
-                                ThreadwiseAccelGemmOpAdaptor adaptor,
+  LogicalResult matchAndRewrite(ThreadwiseGemmAccelOp op,
+                                ThreadwiseGemmAccelOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
@@ -716,7 +716,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   auto loadLoop = TransformingForOp::create(
       b, loc, inits, loopTransforms, bounds, strides, forceUnroll,
-      useIndexDiffs, recordsValidity ? ValueRange{validityInit} : std::nullopt);
+      useIndexDiffs, recordsValidity ? ValueRange{validityInit} : ValueRange{});
   {
     OpBuilder::InsertionGuard guard(b);
     b.setInsertionPointToStart(loadLoop.getBody());
@@ -1030,7 +1030,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   }
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseAccelGemmOp>();
+  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseGemmAccelOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();

@@ -406,12 +406,10 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
   return ret;
 }
 
-Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
-                                        Value buffer, int64_t blockSize,
-                                        int64_t dInCopyPerThread,
-                                        StringRef dName, bool rotateDWithK,
-                                        bool directToLds, bool ldsLayoutDxK,
-                                        bool doSplitKAcrossThreadsFirst) const {
+Value MfmaEmitter::wrapLDSBufferForLoad(
+    OpBuilder &b, Location loc, Value buffer,
+    const BlockwiseMatrixParamsAttr &matrixParams, int64_t blockSize,
+    StringRef dName) const {
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
@@ -423,6 +421,9 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t mPerBlock = tuningParams.getMPerBlock();
   int64_t nPerBlock = tuningParams.getNPerBlock();
   int64_t kPack = tuningParams.getKpack();
+  bool rotateDWithK = matrixParams.getRotateDWithK();
+  bool ldsLayoutDxK = matrixParams.getLDSLayoutDxK();
+  int64_t dPerThread = matrixParams.getInDPerThread();
 
   // Extract relevant emitter parameters
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
@@ -433,7 +434,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   // Note that when directToLDS is disabled, we are loading vector<kpackxdtype>
   // from LDS, so we load kpackPerThread. When directToLDS is enabled, we
   // load vector<1xdtype>, so each thread will load kpackPerThread * kPack.
-  if (directToLds) {
+  if (matrixParams.getDirectToLDS()) {
     kIter *= kPack;
     kPerBlock *= kPack;
     assert(!rotateDWithK && "rotateDWithK must not be enabled for directToLds");
@@ -484,7 +485,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 
     transformAttrs.push_back(toLDSRowColAttr);
 
-    int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
+    int64_t stride = (kPack == 1 ? dPerThread : 1);
     auto offset =
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
@@ -524,7 +525,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     // d = blk_td + d_i * waveOffset
     toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
                         {dRepeats, dWaves, inputSpanLen});
-    if (doSplitKAcrossThreadsFirst) {
+    if (matrixParams.getSplitKAcrossThreadsFirst()) {
       // k = blk_id + (waveSize / inputSpanLen) * k_i
       toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id"},
                           {kIter, waveSize / inputSpanLen});
@@ -539,7 +540,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
     transformAttrs.push_back(toLDSRowColAttr);
 
-    int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
+    int64_t stride = (kPack == 1 ? dPerThread : 1);
     auto offset =
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
@@ -816,12 +817,10 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   return params;
 }
 
-Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
-                                        Value buffer, int64_t blockSize,
-                                        int64_t dInCopyPerThread,
-                                        StringRef dName, bool rotateDWithK,
-                                        bool directToLds, bool ldsLayoutDxK,
-                                        bool doSplitKAcrossThreadsFirst) const {
+Value WmmaEmitter::wrapLDSBufferForLoad(
+    OpBuilder &b, Location loc, Value buffer,
+    const BlockwiseMatrixParamsAttr &matrixParams, int64_t blockSize,
+    StringRef dName) const {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -831,8 +830,10 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t nPerWave = tuningParams.getNPerWave();
   int64_t kPack = tuningParams.getKpack();
   // TODO: gfx10 supports directToLDS. Implement it.
-  assert(!directToLds && "direct to LDS not supported for WMMA");
-  assert(!ldsLayoutDxK && "WMMA only supports LDS layout KxD for now");
+  assert(!matrixParams.getDirectToLDS() &&
+         "direct to LDS not supported for WMMA");
+  assert(!matrixParams.getLDSLayoutDxK() &&
+         "WMMA only supports LDS layout KxD for now");
 
   // Extract relevant emitter parameters
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
@@ -897,10 +898,10 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
   transformAttrs.push_back(toLDSRowColAttr);
 
-  int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
-  auto offset =
-      rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
-               dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
+  int64_t stride = (kPack == 1 ? matrixParams.getInDPerThread() : 1);
+  auto offset = rotateIf(matrixParams.getRotateDWithK(), toLDSRowCol,
+                         toLDSRowColAttr, stride, "d", dPerBlock, 0, "k",
+                         kPerBlock, {}, {"k"}, transformAttrs);
 
   offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
 

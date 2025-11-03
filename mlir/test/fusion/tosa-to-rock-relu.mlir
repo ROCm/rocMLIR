@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver -host-pipeline highlevel -kernel-pipeline=gpu,rocdl %s | FileCheck %s
+// RUN: rocmlir-driver -kernel-pipeline=highlevel,gpu,rocdl %s | FileCheck %s
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx1030"} {
 // CHECK: llvm.func @test_fusion

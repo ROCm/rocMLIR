@@ -69,6 +69,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockViewToTransformPass());
   }
 
+  funcPm.addPass(createRocmlirCustomTosaDecomposePass());
   funcPm.addPass(createRocmlirCustomTosaToLinalgPass());
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
@@ -206,7 +207,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      *   --math-extend-to-supported-types="source-types=f64,f32,f16
      * target-type=f32"
      *   --rock-buffer-load-merge --rock-transform-to-memref
-     *   --rock-emulate-narrow-type --rock-loops-to-cf
+     *   --rock-emulate-narrow-type --rock-pack-4bit-gpu-ops-to-8bit
+     * --rock-loops-to-cf
      *    --convert-rock-to-gpu
      */
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
@@ -221,6 +223,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockBufferLoadMergePass());
     funcPm.addPass(rock::createRockTransformToMemrefPass());
     funcPm.addPass(rock::createRockEmulateNarrowTypePass());
+    funcPm.addPass(rock::createRockPack4BitGpuOpsTo8BitPass());
     funcPm.addPass(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
   }

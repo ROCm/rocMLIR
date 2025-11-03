@@ -353,7 +353,7 @@ struct BlockwiseGemmRewritePattern
         ArrayRef<ValueRange>{ldsBufferAStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsA, b.getArrayAttr(threadACopyViewAttr)},
         ArrayRef<int64_t>{kPerThread, mRepeat, 1, mPerThread, kPack},
-        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
+        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyAGuard(b);
       b.setInsertionPointToStart(copyALoop.getBody());
@@ -371,7 +371,7 @@ struct BlockwiseGemmRewritePattern
         ArrayRef<ValueRange>{ldsBufferBStartCoords, registerStartCoords},
         ArrayRef<Attribute>{transformsB, b.getArrayAttr(threadBCopyViewAttr)},
         ArrayRef<int64_t>{kPerThread, nRepeat, 1, nPerThread, kPack},
-        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*indexDiffs=*/true);
+        /*strides=*/std::nullopt, /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard copyBGuard(b);
       b.setInsertionPointToStart(copyBLoop.getBody());
@@ -411,18 +411,13 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
-    bool loadAFromLDS = adaptor.getLoadAfromLDS();
-    bool loadBFromLDS = adaptor.getLoadBfromLDS();
+    bool loadAFromLDS = adaptor.getMatrixA() != nullptr;
+    bool loadBFromLDS = adaptor.getMatrixB() != nullptr;
+    BlockwiseMatrixParamsAttr matrixParamsA = op.getMatrixParamsA();
+    BlockwiseMatrixParamsAttr matrixParamsB = op.getMatrixParamsB();
 
-    Type bufferElemTypeA =
-        cast<MemRefType>(adaptor.getMatrixA().getType()).getElementType();
-    Type bufferElemTypeB =
-        cast<MemRefType>(adaptor.getMatrixB().getType()).getElementType();
-    Type dataTypeA = bufferElemTypeA, dataTypeB = bufferElemTypeB;
-    if (auto bufferVecTypeA = dyn_cast<VectorType>(bufferElemTypeA))
-      dataTypeA = bufferVecTypeA.getElementType();
-    if (auto bufferVecTypeB = dyn_cast<VectorType>(bufferElemTypeB))
-      dataTypeB = bufferVecTypeB.getElementType();
+    Type dataTypeA = matrixParamsA.getElementType();
+    Type dataTypeB = matrixParamsB.getElementType();
 
     auto features = rock::getFeatures(op);
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
@@ -456,7 +451,8 @@ struct BlockwiseGemmAccelRewritePattern
                << "kpackPerBlock: " << kpackPerBlock << "\n"
                << "loadAFromLDS: " << loadAFromLDS << "\n"
                << "loadBFromLDS: " << loadBFromLDS << "\n"
-               << "rotateMWithK: " << op.getRotateMWithK() << "\n"
+               << "rotateMWithK: " << matrixParamsA.getRotateDWithK() << "\n"
+               << "rotateNWithK: " << matrixParamsB.getRotateDWithK() << "\n"
                << "bufferA type: " << adaptor.getBufferA().getType() << "\n"
                << "bufferB type: " << adaptor.getBufferB().getType() << "\n");
 
@@ -475,24 +471,20 @@ struct BlockwiseGemmAccelRewritePattern
     // considered a temporary hack until we have a proper way of "searching"
     // through different schedules (either heuristically or automatically)
 
-    bool directToLDS = op.getDirectToLDS();
     Value wrappedLDSBufferForLoadA, wrappedLDSBufferForLoadB;
     if (loadAFromLDS) {
       wrappedLDSBufferForLoadA = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getMatrixA(), op.getBlockSize(), op.getInMPerThread(), "m",
-          op.getRotateMWithK(), directToLDS, op.getLdsLayoutMxK(),
-          op.getSplitKAcrossThreadsFirstA());
+          b, loc, op.getMatrixA(), matrixParamsA, op.getBlockSize(), "m");
     }
     if (loadBFromLDS) {
       wrappedLDSBufferForLoadB = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getMatrixB(), op.getBlockSize(), op.getInNPerThread(), "n",
-          op.getRotateNWithK(), directToLDS, op.getLdsLayoutNxK(),
-          op.getSplitKAcrossThreadsFirstB());
+          b, loc, op.getMatrixB(), matrixParamsB, op.getBlockSize(), "n");
     }
 
     auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
                           Value loopVar, Type argType, int64_t repeats,
-                          bool loadFromLDS, bool isA) -> Value {
+                          bool loadFromLDS, bool directToLDS,
+                          bool isA) -> Value {
       Value inputBuffer = buffer;
       SmallVector<int64_t> shape;
       if (directToLDS) {
@@ -558,8 +550,9 @@ struct BlockwiseGemmAccelRewritePattern
       Value i = mLoop.getInductionVar();
 
       Value bufferA = adaptor.getBufferA();
-      bufferA = loadBuffer(bufferA, wrappedLDSBufferForLoadA, i, argTypeA,
-                           mRepeats, loadAFromLDS, true);
+      bufferA =
+          loadBuffer(bufferA, wrappedLDSBufferForLoadA, i, argTypeA, mRepeats,
+                     loadAFromLDS, matrixParamsA.getDirectToLDS(), true);
       Value viewA =
           accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferA);
 
@@ -570,8 +563,9 @@ struct BlockwiseGemmAccelRewritePattern
         Value j = nLoop.getInductionVar();
 
         Value bufferB = adaptor.getBufferB();
-        bufferB = loadBuffer(bufferB, wrappedLDSBufferForLoadB, j, argTypeB,
-                             nRepeats, loadBFromLDS, false);
+        bufferB =
+            loadBuffer(bufferB, wrappedLDSBufferForLoadB, j, argTypeB, nRepeats,
+                       loadBFromLDS, matrixParamsB.getDirectToLDS(), false);
         Value viewB =
             accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
 
@@ -583,7 +577,8 @@ struct BlockwiseGemmAccelRewritePattern
           Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();
-          ThreadwiseAccelGemmOp::create(b, loc, viewA, viewB, viewC,
+          ThreadwiseGemmAccelOp::create(b, loc, viewA, viewB, viewC,
+                                        /*scaleA=*/nullptr, /*scaleB=*/nullptr,
                                         ValueRange{i, j, k},
                                         op.getFeaturesAttr(), tuningParams);
         }
@@ -934,7 +929,7 @@ struct BlockwiseReduceRewritePattern
                             rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{numElements},
         /*strides=*/ArrayRef<int64_t>{1},
-        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
@@ -977,7 +972,7 @@ struct BlockwiseReduceRewritePattern
                             rewriter.getArrayAttr({})},
         /*bounds=*/ArrayRef<int64_t>{threadSubTile2DShape[nrDim], 1},
         /*strides=*/ArrayRef<int64_t>{1, 1},
-        /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+        /*forceUnroll=*/true, /*useIndexDiffs=*/true);
     {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(loop.getBody());
@@ -992,7 +987,7 @@ struct BlockwiseReduceRewritePattern
           ArrayRef<Attribute>{inputBlockSubTile2dView},
           /*bounds=*/ArrayRef<int64_t>{1, 1},
           /*strides=*/ArrayRef<int64_t>{1, 1},
-          /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+          /*forceUnroll=*/true, /*useIndexDiffs=*/true);
       {
         OpBuilder::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(convertToBlockSubTile.getBody());
@@ -1009,7 +1004,7 @@ struct BlockwiseReduceRewritePattern
             ArrayRef<Attribute>{tidSubTileSliceView},
             /*bounds=*/ArrayRef<int64_t>{1},
             /*strides=*/ArrayRef<int64_t>{1},
-            /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+            /*forceUnroll=*/true, /*useIndexDiffs=*/true);
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(
@@ -1022,7 +1017,7 @@ struct BlockwiseReduceRewritePattern
               ArrayRef<Attribute>{toFlatLDSView},
               /*bounds=*/ArrayRef<int64_t>{1, 1},
               /*strides=*/ArrayRef<int64_t>{1, 1},
-              /*useIndexDiffs=*/true, /*forceUnroll=*/true);
+              /*forceUnroll=*/true, /*useIndexDiffs=*/true);
           {
             OpBuilder::InsertionGuard guard(rewriter);
             rewriter.setInsertionPointToStart(ldsStoreloop.getBody());

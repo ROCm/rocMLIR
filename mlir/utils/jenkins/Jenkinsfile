@@ -156,13 +156,14 @@ def advancedNodeCheck(Map params) {
     }
     boolean doCleanWs = params.doCleanWs
     boolean doGPUcheck = params.doGPUcheck
-    resetGPUs()
 
     if (doCleanWs) {
         timeout(time: 15, unit: 'MINUTES', activity: true) {
             cleanWs()
         }
     }
+
+    resetGPUs()
 
     timeout(time: 5, unit: 'MINUTES', activity: true) { sh 'docker version' }
 
@@ -281,11 +282,11 @@ void showEnv() {
 
 String dockerImage() {
     // If this is being changed please change Dockerfile.migraphx-ci's base image as well
-    return 'rocm/mlir:rocm6.4-latest'
+    return 'rocm/mlir:rocm7.0-latest'
 }
 
 String dockerImageCIMIGraphX() {
-    return 'rocm/mlir-migraphx-ci:rocm6.4-latest'
+    return 'rocm/mlir-migraphx-ci:rocm7.0-latest'
 }
 
 void preMergeCheck(String codepath) {
@@ -346,7 +347,7 @@ void postProcessPerfRes(String chip) {
         alwaysLinkToLastBuild: false,
         keepAll: true,
         reportDir: 'build/reports',
-        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_rocBLAS.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
+        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
         reportName: "Performance report for ${chip}"
     ])
 
@@ -354,14 +355,6 @@ void postProcessPerfRes(String chip) {
     plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
         csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
         title: "Test performance summary ${chip}, Conv",\
-        yaxis: 'TFlops',\
-        style: 'line',\
-        group: 'Performance plots'
-  }
-  if (fileExists("build/${chip}_mlir_vs_rocblas_perf_for_plot.csv")) {
-    plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
-        csvSeries: [[file: "build/${chip}_mlir_vs_rocblas_perf_for_plot.csv", displayTableFlag: false]],\
-        title: "Test performance summary ${chip}, GEMM",\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
@@ -407,7 +400,13 @@ String getLabelFromCodepath(String codepath) {
     echo "codepath is ${codepath}"
     String label = ''
     if (codepath == "mfma") {
-        label = 'mlir && (gfx950 || gfx942 || gfx908 || gfx90a)'
+        label = 'mlir && (gfx942 || gfx908 || gfx90a)'
+    } else if (codepath == "gfx950") {
+        if (params.weekly || params.nightly) {
+            label = 'mlir && linux-mi355-8'
+        } else {
+            label = 'mlir && linux-mi355-1'
+        }
     } else if (codepath == "navi21") {
         // For non-performance related testing, use both workstations (gfx1030w)
         // and server nodes (gfx1030)
@@ -445,7 +444,11 @@ String getLabelFromChip(String chip) {
         case "gfx942":
             return "mlir && gfx942"
         case "gfx950":
-            return "mlir && gfx950"
+            if (params.nightly || params.weekly) {
+                return "mlir && linux-mi355-8"
+            } else {
+                return "mlir && linux-mi355-1"
+            }
         case "gfx1030":
             // For [Tune MLIR Kernels] and [Performance report] stages,
             // fix the vm-5 workstation for testing
@@ -500,9 +503,10 @@ void check_randomE2ETests(String codepath) {
 }
 
 void parameterSweep(String CONFIG, String codepath) {
+    int limit_lit_workers = setLitWorkerCount()
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
-            sh """python3 ./bin/parameterSweeps.py -j 5 ${CONFIG} --log-failures"""
+            sh """python3 ./bin/parameterSweeps.py -j ${limit_lit_workers} ${CONFIG} --log-failures"""
         }
     }
 }
@@ -514,6 +518,9 @@ boolean shouldRunFromCodepath(String codepath) {
     }
     // Run mfma on private CI
     if ((codepath == "mfma") && params.canXdlops) {
+        return true
+    }
+    if (codepath == "gfx950" && params.canXdlops && params.disable950 == false) {
         return true
     }
     // Run navi21 on private nightly or weekly CI if it is not disabled
@@ -545,7 +552,7 @@ boolean shouldRunFromChip(String chip) {
         case "gfx942":
             return params.disable942 == false && shouldRunFromCodepath("mfma")
         case "gfx950":
-            return params.disable950 == false && shouldRunFromCodepath("mfma")
+            return params.disable950 == false && shouldRunFromCodepath("gfx950")
         case "gfx1030":
             return shouldRunFromCodepath("navi21")
         case "gfx1100":
@@ -559,7 +566,7 @@ boolean shouldRunFromChip(String chip) {
 void archivePerfDB() {
     // Note: add additional architectures here
     dir ('build/perfDB') {
-        def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942', 'gfx1100', 'gfx1201'] : ['vanilla']
+        def architectures = params.canXdlops ? ['gfx908', 'gfx90a', 'gfx942', 'gfx950', 'gfx1100', 'gfx1201'] : ['vanilla']
         for (arch in architectures) {
             try {
                 unstash name: "MLIR-PerfDB-${arch}"
@@ -584,6 +591,7 @@ boolean shouldRunBuildAndTest(String codepath) {
     if (params.codepath == codepath && params.canXdlops) {
         if (params.codepath == "mfma") return true
         if (params.codepath == "vanilla") return true
+        if (params.codepath == "gfx950" && params.disable950 == false) return true
         if (params.codepath == "navi21" && params.disableNavi21 == false) return true
         if (params.codepath == "navi3x" && params.disableNavi3x == false) return true
         if (params.codepath == "navi4x" && params.disableNavi4x == false) return true
@@ -642,6 +650,11 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
             // Retry ONLY the health-check. We don't want to retry the actual stages
             try {
                 stage("Health checks on ${env.NODE_NAME}") {
+                    echo 'Cleaning up old Docker images...'
+                    def pruneStatus = sh(script: 'docker image prune -af --filter "until=720h"', returnStatus: true)
+                    if (pruneStatus != 0) {
+                        echo "[withHealthyNode] WARNING: Docker image prune failed with exit code ${pruneStatus}. Continuing health check."
+                    }
                     healthChecks()
                     gitHealthCheck()
                 }
@@ -720,7 +733,7 @@ pipeline {
 
         // choose the codepath for testing
         choice(name: 'codepath',
-               choices: ['default', 'mfma', 'navi21', 'navi3x', 'navi4x', 'vanilla'],
+               choices: ['default', 'mfma', 'navi21', 'navi3x', 'navi4x', 'vanilla', 'gfx950'],
                description: 'Choose the codepath to test')
         // option to disable navi21 cells in case nodes are offline
         booleanParam(name: 'disableNavi21', defaultValue: true,
@@ -774,7 +787,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'vanilla', 'mfma', 'navi21', 'navi3x', 'navi4x'
+                        values 'vanilla', 'mfma', 'navi21', 'navi3x', 'navi4x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -789,7 +802,7 @@ pipeline {
                                 withHealthyNode(
                                     getLabelFromCodepath(CODEPATH),
                                     {
-                                        checkNodeHealth()
+                                        checkNodeHealth([doCleanWs: true])
                                     },
                                     {
                                         stage("SCM Checkout") {
@@ -917,7 +930,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'vanilla', 'navi21'
+                        values 'mfma', 'vanilla', 'navi21', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1005,7 +1018,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx1100', 'gfx1201'
+                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx950', 'gfx1100', 'gfx1201'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1180,7 +1193,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CHIP'
-                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx1030', 'gfx1100', 'gfx1201'
+                        values 'gfx908', 'gfx90a', 'gfx942', 'gfx950', 'gfx1030', 'gfx1100', 'gfx1201'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1242,10 +1255,9 @@ pipeline {
                                                     stage("Build MLIR") {
                                                         // Clean up build settings to disable static library and allow ROCm testing
                                                         buildProject(
-                                                            'check-rocmlir-build-only ci-performance-scripts rocblas-benchmark-driver',
+                                                            'check-rocmlir-build-only ci-performance-scripts',
                                                             '-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ ' +
-                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang ' +
-                                                            '-DROCMLIR_ENABLE_BENCHMARKS=rocblas'
+                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang '
                                                         )
                                                     }
 
@@ -1258,7 +1270,7 @@ pipeline {
                                                             target: 'build/oldData'
                                                     }
 
-                                                    stage("Test MLIR vs MIOpen/rocBLAS") {
+                                                    stage("Test MLIR vs MIOpen") {
                                                         dir('build') {
                                                             def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
                                                             def convToUse = "${WORKSPACE}/build/tier1-conv-configs"
@@ -1277,11 +1289,6 @@ pipeline {
                                                             // Run MLIR vs MIOpen perf benchmarks.
                                                             sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
                                                                 --configs_file=${convToUse} \
-                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
-                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
-                                                            // Run MLIR vs rocBLAS perf benchmarks
-                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
-                                                                --configs_file=${gemmToUse} \
                                                                 --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                                                 --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                         }
@@ -1360,10 +1367,8 @@ pipeline {
                                                         dir('build') {
                                                             sh 'ls -l'
                                                             sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
-                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} rocBLAS'
                                                             sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
                                                             sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
-                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_rocblas_perf.csv ./${CHIP}_mlir_vs_rocblas_perf.csv'
                                                             sh 'mkdir -p reports && cp ./*.html reports'
                                                         }
                                                         postProcessPerfRes("${CHIP}")
@@ -1398,7 +1403,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'navi21'
+                        values 'mfma', 'navi21', 'navi4x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row
@@ -1517,7 +1522,7 @@ pipeline {
                 axes {
                     axis {
                         name 'CODEPATH'
-                        values 'mfma', 'navi3x', 'navi4x'
+                        values 'mfma', 'navi4x', 'gfx950'
                     }
                 }
                 // One big scripted step per matrix row

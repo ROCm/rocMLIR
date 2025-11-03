@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -canonicalize -verify-diagnostics %s | FileCheck %s
+// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -canonicalize -verify-diagnostics %s | FileCheck %s
 
 #xdlops_gemm_params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 32, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor=1, scheduleVersion=1, outputSwizzle=2, forceUnroll = true>
 // CHECK-LABEL: @gridwise_attn_simple
@@ -22,69 +22,79 @@
 // Outer N-tile loop
 // CHECK: affine.for
   // CHECK-DAG: rock.fill(%[[gemm0AccBuf:.+]], %[[zeroVecF32]])
+  // CHECK: %[[ldsG0A:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+  // CHECK: %[[ldsG0B:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+  // CHECK-DAG: %[[G0Aregs:.+]] = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
+  
+  // Repack G0A tile regs for better LDS store vectorization
+  // CHECK-DAG: %[[G0AregsKpack:.+]] = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
 
+  // Repack G0B tile regs for better LDS store vectorization
+  // CHECK-DAG: %[[G0Bregs:.+]] = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
+  // CHECK-DAG: %[[G0BregsKpack:.+]] = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
+  
   // Inner gemm0 KpacksPerBlock loop
   // CHECK: affine.for
-    // CHECK: %[[ldsG0A:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
-    // Load G0A tile to regs
-    // CHECK-DAG: %[[QTr1:.+]] = rock.transform %[[QTr0]] by
-    // CHECK-DAG: %[[QTr2:.+]] = rock.transform %[[QTr1]] by
-    // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[QTr2]]) {{.*}} -> %[[G0Aregs:.+]] :
+    // CHECK: rock.lds_barrier
+    // CHECK: rock.stage
+      // Load G0B tile to regs
+      // CHECK: %[[KTr0:.+]] = rock.transform %[[K]] by
+      // CHECK-NEXT: %[[KTr1:.+]] = rock.transform %[[KTr0]] by
+      // CHECK-NEXT: rock.threadwise_read_into {{.*}}(%[[KTr1]]) {{.*}} -> %[[G0Bregs]] :
 
-    // Repack G0A tile regs for better LDS store vectorization
-    // CHECK-DAG: %[[G0AregsTr0:.+]] = rock.transform %[[G0Aregs]] by
-    // CHECK-DAG: %[[G0AregsTr1:.+]] = rock.transform %[[G0AregsTr0]] by
-    // CHECK: %[[G0AregsKpackTr0:.+]] = rock.transform %[[G0AregsKpack:.+]] by
-    // CHECK-DAG: %[[G0AregsKpackTr1:.+]] = rock.transform %[[G0AregsKpackTr0:.+]] by
-    // CHECK-DAG: rock.threadwise_copy %[[G0AregsTr1]] -> %[[G0AregsKpackTr1]]
+      // Load G0A tile to regs
+      // CHECK-NEXT: %[[QTr1:.+]] = rock.transform %[[QTr0]] by
+      // CHECK-NEXT: %[[QTr2:.+]] = rock.transform %[[QTr1]] by
+      // CHECK-NEXT: rock.threadwise_read_into {{.*}}(%[[QTr2]]) {{.*}} -> %[[G0Aregs]] :
+    // CHECK: {name = "GlobalRead"}
 
-    // Viewing G0 LDS A tile buffer
-    // CHECK-DAG: %[[viewG0AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
-    // CHECK-DAG: %[[viewG0AStoreTr0:.+]] = rock.transform %[[viewG0AStore]]
-    // CHECK-DAG: %[[viewG0AStoreTr1:.+]] = rock.transform %[[viewG0AStoreTr0]]
-    // CHECK-DAG: %[[viewG0AStoreTr2:.+]] = rock.transform %[[viewG0AStoreTr1]]
-    // CHECK-DAG: %[[viewG0AStoreTr3:.+]] = rock.transform %[[viewG0AStoreTr2]]
+    // CHECK: rock.stage
+      // CHECK-DAG: %[[G0BregsTr0:.+]] = rock.transform %[[G0Bregs]] by
+      // CHECK-DAG: %[[G0BregsTr1:.+]] = rock.transform %[[G0BregsTr0]] by
+      // CHECK-DAG: %[[G0BregsKpackTr0:.+]] = rock.transform %[[G0BregsKpack]] by
+      // CHECK-DAG: %[[G0BregsKpackTr1:.+]] = rock.transform %[[G0BregsKpackTr0:.+]] by
+      // CHECK-DAG: rock.threadwise_copy %[[G0BregsTr1]] -> %[[G0BregsKpackTr1]]
 
-    // Store to LDS G0A tile buffer
-    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G0AregsKpack]] -> [](%[[viewG0AStoreTr3]])
-    // CHECK-DAG: %[[view2G0AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
-    // CHECK: %[[ldsG0B:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+      // Store to LDS G0B tile buffer
+      // CHECK-DAG: %[[viewG0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+      // CHECK-DAG: %[[viewG0BStoreTr0:.+]] = rock.transform %[[viewG0BStore]]
+      // CHECK-DAG: %[[viewG0BStoreTr1:.+]] = rock.transform %[[viewG0BStoreTr0]]
+      // CHECK-DAG: %[[viewG0BStoreTr2:.+]] = rock.transform %[[viewG0BStoreTr1]]
+      // CHECK-DAG: %[[viewG0BStoreTr3:.+]] = rock.transform %[[viewG0BStoreTr2]]
+      // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G0BregsKpack]] -> [](%[[viewG0BStoreTr3]])
 
-    // Load G0B tile to regs
-    // CHECK-DAG: %[[KTr0:.+]] = rock.transform %[[K]] by
-    // CHECK-DAG: %[[KTr1:.+]] = rock.transform %[[KTr0]] by
-    // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[KTr1]]) {{.*}} -> %[[G0Bregs:.+]] :
+      // CHECK-DAG: %[[G0AregsTr0:.+]] = rock.transform %[[G0Aregs]] by
+      // CHECK-DAG: %[[G0AregsTr1:.+]] = rock.transform %[[G0AregsTr0]] by
+      // CHECK-DAG: %[[G0AregsKpackTr0:.+]] = rock.transform %[[G0AregsKpack]] by
+      // CHECK-DAG: %[[G0AregsKpackTr1:.+]] = rock.transform %[[G0AregsKpackTr0:.+]] by
+      // CHECK-DAG: rock.threadwise_copy %[[G0AregsTr1]] -> %[[G0AregsKpackTr1]]
+      
+      // Store to LDS G0A tile buffer
+      // CHECK-DAG: %[[viewG0AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+      // CHECK-DAG: %[[viewG0AStoreTr0:.+]] = rock.transform %[[viewG0AStore]]
+      // CHECK-DAG: %[[viewG0AStoreTr1:.+]] = rock.transform %[[viewG0AStoreTr0]]
+      // CHECK-DAG: %[[viewG0AStoreTr2:.+]] = rock.transform %[[viewG0AStoreTr1]]
+      // CHECK-DAG: %[[viewG0AStoreTr3:.+]] = rock.transform %[[viewG0AStoreTr2]]
+      // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G0AregsKpack]] -> [](%[[viewG0AStoreTr3]])
 
-    // Repack G0B tile regs for better LDS store vectorization
-    // CHECK-DAG: %[[G0BregsTr0:.+]] = rock.transform %[[G0Bregs]] by
-    // CHECK-DAG: %[[G0BregsTr1:.+]] = rock.transform %[[G0BregsTr0]] by
-    // CHECK: %[[G0BregsKpackTr0:.+]] = rock.transform %[[G0BregsKpack:.+]] by
-    // CHECK-DAG: %[[G0BregsKpackTr1:.+]] = rock.transform %[[G0BregsKpackTr0:.+]] by
-    // CHECK-DAG: rock.threadwise_copy %[[G0BregsTr1]] -> %[[G0BregsKpackTr1]]
+    // CHECK: {name = "LDSWrite"}
 
-    // Viewing G0 LDS B tile buffer
-    // CHECK-DAG: %[[viewG0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
-    // CHECK-DAG: %[[viewG0BStoreTr0:.+]] = rock.transform %[[viewG0BStore]]
-    // CHECK-DAG: %[[viewG0BStoreTr1:.+]] = rock.transform %[[viewG0BStoreTr0]]
-    // CHECK-DAG: %[[viewG0BStoreTr2:.+]] = rock.transform %[[viewG0BStoreTr1]]
-    // CHECK-DAG: %[[viewG0BStoreTr3:.+]] = rock.transform %[[viewG0BStoreTr2]]
-
-    // Store to LDS G0B tile buffer
-    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G0BregsKpack]] -> [](%[[viewG0BStoreTr3]])
-    // CHECK-DAG: %[[view2G0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK: rock.lds_barrier
 
-    // Load G0A from LDS to regs
-    // CHECK-DAG: %[[view2G0AStoreTr0:.+]] = rock.transform %[[view2G0AStore]]
-    // CHECK-DAG: %[[view2G0AStoreTr1:.+]] = rock.transform %[[view2G0AStoreTr0]]
-    // CHECK-DAG: %[[view2G0AStoreTr2:.+]] = rock.transform %[[view2G0AStoreTr1]]
-    // CHECK-DAG: %[[view2G0AStoreTr3:.+]] = rock.transform %[[view2G0AStoreTr2]]
-    // CHECK: affine.for
-      // CHECK: rock.threadwise_read_into {{.*}} [](%[[view2G0AStoreTr3]]) {{.*}} -> %[[preAccelRegA:.+]] :
+    // CHECK: rock.stage
+      // Load G0A from LDS to regs
+      // CHECK-DAG: %[[viewG0AStore2:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+      // CHECK-DAG: %[[view2G0AStoreTr0:.+]] = rock.transform %[[viewG0AStore2]]
+      // CHECK-DAG: %[[view2G0AStoreTr1:.+]] = rock.transform %[[view2G0AStoreTr0]]
+      // CHECK-DAG: %[[view2G0AStoreTr2:.+]] = rock.transform %[[view2G0AStoreTr1]]
+      // CHECK-DAG: %[[view2G0AStoreTr3:.+]] = rock.transform %[[view2G0AStoreTr2]]
+      // CHECK-DAG: %[[view2G0AStoreTr4:.+]] = rock.transform %[[view2G0AStoreTr3]]
+      // CHECK: rock.threadwise_read_into {{.*}} [](%[[view2G0AStoreTr4]]) {{.*}} -> %[[preAccelRegA:.+]] :
+    // CHECK: {name = "LDSRead"}
 
     // Emit blockwise gemm0
-    // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegB:.+]] from %[[view2G0BStore]] * %[[preAccelRegA]] from %[[view2G0AStore]]
-    // CHECK-SAME: loadAfromLDS
+    // CHECK-DAG: %[[view2G0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+    // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegB:.+]] from %[[view2G0BStore]] * %[[preAccelRegA]] {blockSize = 
 
   // CHECK: rock.transforming_for
     // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
@@ -165,40 +175,45 @@
   // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1AregsKpack]] -> [](%[[viewG1AStoreTr7]])
   // CHECK-DAG: %[[view2G1AStore:.+]] = memref.view %[[ldsG1AStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
   
+  // CHECK-DAG: %[[ldsG0BStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+
+  // Repack G1B tile regs for better LDS store vectorization
+  // CHECK-DAG: %[[G1Bregs:.+]] = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
+  // CHECK-DAG: %[[G1BregsKpack:.+]] = rock.alloc() : memref<16xf32, #gpu.address_space<private>>
+
   // Gemm1
   // CHECK: affine.for %[[g1MIter:.+]]
     // CHECK-DAG: rock.fill(%[[gemm1AccBuf:.+]], %[[zeroVecF32]])
-    // CHECK-DAG: %[[ldsG0BStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+    // CHECK: rock.lds_barrier
 
-    // Load G1B tile from global to regs
-    // CHECK-DAG: %[[VTr0:.+]] = rock.transform %[[V]] by
-    // CHECK-DAG: %[[VTr1:.+]] = rock.transform %[[VTr0]] by
-    // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[VTr1]]) {{.*}} -> %[[G1Bregs:.+]] :
+    // CHECK: rock.stage
+      // Load G1B tile from global to regs
+      // CHECK-DAG: %[[VTr0:.+]] = rock.transform %[[V]] by
+      // CHECK-DAG: %[[VTr1:.+]] = rock.transform %[[VTr0]] by
+      // CHECK-DAG: rock.threadwise_read_into {{.*}}(%[[VTr1]]) {{.*}} -> %[[G1Bregs]] :
+    // CHECK: {name = "GlobalRead"}
 
-    // Repack G1B tile regs for better LDS store vectorization
-    // CHECK-DAG: %[[G1BregsTr0:.+]] = rock.transform %[[G1Bregs]] by
-    // CHECK-DAG: %[[G1BregsTr1:.+]] = rock.transform %[[G1BregsTr0]] by
-    // CHECK: %[[G1BregsKpackTr0:.+]] = rock.transform %[[G1BregsKpack:.+]] by
-    // CHECK-DAG: %[[G1BregsKpackTr1:.+]] = rock.transform %[[G1BregsKpackTr0:.+]] by
-    // CHECK-DAG: rock.threadwise_copy %[[G1BregsTr1]] -> %[[G1BregsKpackTr1]]
+    // CHECK: rock.stage  
+      // CHECK-DAG: %[[G1BregsTr0:.+]] = rock.transform %[[G1Bregs]] by
+      // CHECK-DAG: %[[G1BregsTr1:.+]] = rock.transform %[[G1BregsTr0]] by
+      // CHECK-DAG: %[[G1BregsKpackTr0:.+]] = rock.transform %[[G1BregsKpack]] by
+      // CHECK-DAG: %[[G1BregsKpackTr1:.+]] = rock.transform %[[G1BregsKpackTr0:.+]] by
+      // CHECK-DAG: rock.threadwise_copy %[[G1BregsTr1]] -> %[[G1BregsKpackTr1]]
+      // Store to LDS G1B tile buffer
+      // CHECK-DAG: %[[viewG1BStore:.+]] = memref.view %[[ldsG0BStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
+      // CHECK-DAG: %[[viewG1BStoreTr0:.+]] = rock.transform %[[viewG1BStore]]
+      // CHECK-DAG: %[[viewG1BStoreTr1:.+]] = rock.transform %[[viewG1BStoreTr0]]
+      // CHECK-DAG: %[[viewG1BStoreTr2:.+]] = rock.transform %[[viewG1BStoreTr1]]
+      // CHECK-DAG: %[[viewG1BStoreTr3:.+]] = rock.transform %[[viewG1BStoreTr2]]
+      // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1BregsKpack]] -> [](%[[viewG1BStoreTr3]])
+    // CHECK: {name = "LDSWrite"}
 
-    // Viewing G1 LDS B tile buffer
-    // CHECK-DAG: %[[viewG1BStore:.+]] = memref.view %[[ldsG0BStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
-    // CHECK-DAG: %[[viewG1BStoreTr0:.+]] = rock.transform %[[viewG1BStore]]
-    // CHECK-DAG: %[[viewG1BStoreTr1:.+]] = rock.transform %[[viewG1BStoreTr0]]
-    // CHECK-DAG: %[[viewG1BStoreTr2:.+]] = rock.transform %[[viewG1BStoreTr1]]
-    // CHECK-DAG: %[[viewG1BStoreTr3:.+]] = rock.transform %[[viewG1BStoreTr2]]
-
-    // Store to LDS G1B tile buffer
-    // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1BregsKpack]] -> [](%[[viewG1BStoreTr3]])
     // CHECK-DAG: %[[view2G1BStore:.+]] = memref.view %[[ldsG0BStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
 
     // CHECK-DAG: rock.lds_barrier
 
     // Emit blockwise gemm1
     // CHECK: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += %[[preAccelRegB:.+]] from %[[view2G1BStore]] * %[[preAccelRegA:.+]] from %[[view2G1AStore]]
-    // CHECK-SAME: loadAfromLDS
-    // CHECK-SAME: loadBfromLDS
 
     // CHECK: rock.transforming_for
       // CHECK: %[[tmp1:.+]] =  memref.load %[[gemm1AccBuf]][
@@ -533,10 +548,10 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096
   // CHECK: affine.for %{{.*}} = 0 to 2 {
   // CHECK: affine.for %{{.*}} = 0 to 1 {
   // CHECK: rock.lds_barrier
-  // CHECK-NEXT: rock.threadwise_write_all {{.*}} : memref<64xi8, #gpu.address_space<private>> -> memref<64x64xvector<8xi8>, #gpu.address_space<workgroup>>
+  // CHECK: rock.threadwise_write_all {{.*}} : memref<64xi8, #gpu.address_space<private>> -> memref<64x64xvector<8xi8>, #gpu.address_space<workgroup>>
   // CHECK: affine.for %{{.*}} = 0 to 2 {
   // CHECK: rock.lds_barrier
-  // CHECK-NEXT: rock.threadwise_write_all {{.*}} : memref<16xf16, #gpu.address_space<private>> -> memref<64x16xvector<8xf16>, #gpu.address_space<workgroup>>
+  // CHECK: rock.threadwise_write_all {{.*}} : memref<16xf16, #gpu.address_space<private>> -> memref<64x16xvector<8xf16>, #gpu.address_space<workgroup>>
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["seq_q", "head_qk"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xi8> to memref<1x64x64xi8>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["seq_k", "head_qk"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xi8> to memref<1x64x64xi8>
   %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> (d1 * 64 + d2)> by [<Unmerge{64, 64} ["head_v", "seq_k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 64, 64] -> [4096]> : memref<4096xf16> to memref<1x64x64xf16>
@@ -864,7 +879,7 @@ func.func @gridwise_attn_barriers_before_lds_write_issue_1844(%arg0: memref<3276
   // CHECK: affine.for %{{.*}} = 0 to 2 {
   // CHECK: affine.for %{{.*}} = 0 to 1 {
   // CHECK: rock.lds_barrier
-  // CHECK-NEXT: rock.threadwise_write_all {{.*}} : memref<64xf16, #gpu.address_space<private>> -> memref<256x64xvector<4xf16>, #gpu.address_space<workgroup>>
+  // CHECK: rock.threadwise_write_all {{.*}} : memref<64xf16, #gpu.address_space<private>> -> memref<256x64xvector<4xf16>, #gpu.address_space<workgroup>>
   // CHECK: affine.for %{{.*}} = 0 to 1 {
   // CHECK-NOT: rock.lds_barrier
   // CHECK: rock.threadwise_write_all {{.*}} : memref<64xf16, #gpu.address_space<private>> -> memref<256x64xvector<4xf16>, #gpu.address_space<workgroup>>
@@ -910,7 +925,7 @@ func.func @gridwise_attn_barriers_before_lds_write_nofallback_barrier(%arg0: mem
   // CHECK: affine.for %{{.*}} = 0 to 1 {
   // CHECK: affine.for %{{.*}} = 0 to 2 {
   // CHECK: rock.lds_barrier
-  // CHECK-NEXT: rock.threadwise_write_all {{.*}} : memref<64xf16, #gpu.address_space<private>> -> memref<256x64xvector<4xf16>, #gpu.address_space<workgroup>>
+  // CHECK: rock.threadwise_write_all {{.*}} : memref<64xf16, #gpu.address_space<private>> -> memref<256x64xvector<4xf16>, #gpu.address_space<workgroup>>
   // CHECK: rock.threadwise_write_all {{.*}} : memref<64xf16, #gpu.address_space<private>> -> memref<256x64xvector<4xf16>, #gpu.address_space<workgroup>>
   // CHECK: affine.for %{{.*}} = 0 to 1 {
   // CHECK-NOT: rock.lds_barrier

@@ -4,7 +4,7 @@
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx942 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_MI300 --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=binary -arch=gfx950 /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=BINARY_MI350 --strict-whitespace
 // RUN: rocmlir-driver -dump-pipelines -host-pipeline=mhal -targets=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=MHAL --match-full-lines --strict-whitespace
-// RUN: rocmlir-driver -dump-pipelines -host-pipeline=highlevel -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=HIGHLEVEL --match-full-lines --strict-whitespace
+// RUN: rocmlir-driver -dump-pipelines -kernel-pipeline=highlevel -arch=gfx90a /dev/null -o /dev/null 2>&1 | sed -e 's/,/,\n/g' | FileCheck %s --check-prefix=HIGHLEVEL --match-full-lines --strict-whitespace
 
 // COM: Do not put a leading space between the colon and the pass you're looking for
 // MIGRAPHX:Kernel pipeline:
@@ -44,6 +44,7 @@
 // GPU-NEXT:rock-buffer-load-merge,
 // GPU-NEXT:rock-transform-to-memref,
 // GPU-NEXT:rock-emulate-narrow-type,
+// GPU-NEXT:rock-pack-4bit-gpu-ops-to-8bit,
 // GPU-NEXT:rock-loops-to-cf),
 // GPU-NEXT:convert-rock-to-gpu)
 
@@ -135,6 +136,7 @@
 // HIGHLEVEL-NEXT:builtin.module(func.func(tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-rock,
 // HIGHLEVEL-NEXT:rock-view-to-transform,
+// HIGHLEVEL-NEXT:rocmlir-custom-tosa-decompose,
 // HIGHLEVEL-NEXT:rocmlir-custom-tosa-to-linalg),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),

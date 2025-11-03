@@ -2097,8 +2097,6 @@ module attributes {mhal.arch = "##TOKEN_ARCH##"} {
     %1288 = arith.addi %946, %c1 : index
     cf.br ^bb122(%1288 : index)
   ^bb139:  // pred: ^bb122
-    rock.dealloc %0 : memref<2048xi8, #gpu.address_space<workgroup>>
-    rock.dealloc %1 : memref<2048xi8, #gpu.address_space<workgroup>>
     %1289 = arith.addi %77, %c1 : index
     cf.br ^bb14(%1289 : index)
   ^bb140:  // pred: ^bb14

@@ -453,11 +453,7 @@ def Tosa_TransposeConv2DOp : Tosa_ConvOp<"transpose_conv2d"> {
 
       Tosa_IntArrayAttr4:$out_pad, Tosa_IntArrayAttr2:$stride,
       TypeAttrOf<Tosa_AccType>:$acc_type,
-      DefaultValuedOptionalAttr<BoolAttr, "false">:$local_bound,
-      // rocMLIR Customizations
-      OptionalAttr<I64Attr>:$group, OptionalAttr<Tosa_IntArrayAttr2>:$dilation,
-      OptionalAttr<Tosa_IntArrayAttr4>:$pad
-      // End of rocMLIR Customizations
+      DefaultValuedOptionalAttr<BoolAttr, "false">:$local_bound
   );
 
   let results = (outs
@@ -1332,8 +1328,6 @@ def Tosa_ExpOp : Tosa_ElementwiseUnaryOp<"exp"> {
     Extension<[Tosa_EXT_BF16]>,
   ];
 
-  let hasFolder = 1;
-
   let assemblyFormat = "operands attr-dict `:` functional-type(operands, results)";
 }
 
@@ -1385,8 +1379,6 @@ def Tosa_LogOp : Tosa_ElementwiseUnaryOp<"log"> {
     Profile<[Tosa_PRO_FP]>,
     Extension<[Tosa_EXT_BF16]>,
   ];
-
-  let hasFolder = 1;
 
   let assemblyFormat = "operands attr-dict `:` functional-type(operands, results)";
 }
