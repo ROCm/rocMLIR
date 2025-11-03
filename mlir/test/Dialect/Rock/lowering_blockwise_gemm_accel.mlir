@@ -13,7 +13,7 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
     blockSize= 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
-    params = #rock.xdlops_gemm_derived_params<
+    params = #rock.mfma_gemm_params<
       kpackPerBlock = 2,
       kpack = 2,
       mPerBlock = 128,
@@ -39,7 +39,7 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<128xvector<8xi
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = i8, elementTypeLoad = i8, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = i8, elementTypeLoad = i8, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
-    params = #rock.xdlops_gemm_derived_params<
+    params = #rock.mfma_gemm_params<
       kpackPerBlock = 2,
       kpack = 8,
       mPerBlock = 64,
@@ -67,7 +67,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8(%matrixA : memref<1024xvector<8xf8E
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f8E4M3FNUZ, elementTypeLoad = f8E4M3FNUZ, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f8E5M2FNUZ, elementTypeLoad = f8E5M2FNUZ, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
-    params = #rock.xdlops_gemm_derived_params<
+    params = #rock.mfma_gemm_params<
       kpackPerBlock = 8,
       mPerBlock = 128,
       nPerBlock = 128,
@@ -95,7 +95,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp(%matrixA : memref<1024xvector<8
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f8E4M3FN, elementTypeLoad = f8E4M3FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f8E5M2, elementTypeLoad = f8E5M2, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
-    params = #rock.xdlops_gemm_derived_params<
+    params = #rock.mfma_gemm_params<
       kpackPerBlock = 8,
       mPerBlock = 128,
       nPerBlock = 128,
@@ -125,7 +125,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp_double_buffer(%bufferA : memref
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f8E4M3FN, elementTypeLoad = f8E4M3FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f8E5M2, elementTypeLoad = f8E5M2, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
-    params = #rock.xdlops_gemm_derived_params<
+    params = #rock.mfma_gemm_params<
       kpackPerBlock = 8,
       mPerBlock = 128,
       nPerBlock = 128,
@@ -153,7 +153,7 @@ func.func @rock_blockwise_gemm_accel_direct_to_lds(%matrixA : memref<256xvector<
     blockSize= 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = true, directToLDS = true, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = true, directToLDS = true, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
-    params = #rock.xdlops_gemm_derived_params<
+    params = #rock.mfma_gemm_params<
       kpackPerBlock = 2,
       kpack = 2,
       mPerBlock = 128,

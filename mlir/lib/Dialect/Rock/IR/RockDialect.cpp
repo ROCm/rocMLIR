@@ -245,8 +245,8 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "general_gemm_params";
       return AliasResult::OverridableAlias;
     }
-    if (isa<XdlopsGemmParamsAttr>(attr)) {
-      os << "xldops_gemm_params";
+    if (isa<MfmaGemmParamsAttr>(attr)) {
+      os << "mfma_gemm_params";
       return AliasResult::OverridableAlias;
     }
     return AliasResult::NoAlias;
@@ -1098,12 +1098,11 @@ LogicalResult GemmOp::verify() {
     }
   }
   auto features = rock::getFeatures(this->getOperation());
-  bool isXdlops = bitEnumContainsAll(features, GemmFeatures::mfma);
+  bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
-    if (isXdlops &&
-        !isa<XdlopsGemmParamsAttr, XdlopsGemmDerivedParamsAttr>(params))
-      return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
+    if (isMfma && !isa<MfmaGemmParamsAttr>(params))
+      return emitOpError("an mfma GEMM has non-mfma tuning parameters");
     if (getFeatures() == GemmFeatures::none &&
         !isa<GeneralGemmParamsAttr>(params))
       return emitOpError("an all-hardware gemm must used the general gemm "
@@ -1115,7 +1114,7 @@ LogicalResult GemmOp::verify() {
     }
   }
 
-  if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
+  if (getDerivedBlockSize().has_value() && !isMfma && !isWmma) {
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
   }
@@ -3079,7 +3078,8 @@ void AttentionOp::getEffects(
 // AttentionPerfConfig Attr
 //===-----------------------------------------------------===//
 
-AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
+AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
+                                           bool isWmma) {
   // Here a conventional c++ string split is being
   // done because MLIR lacks parseSourceString() method
   // to parse Attributes and its only there for Ops.
@@ -3098,10 +3098,21 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
   if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
     return {};
   }
-  if (version != 1 && version != 2) {
+  if (version != 1 && version != 2 && version != 3) {
     return {};
   }
-  size_t expectedNumTokens = version == 1 ? 8 : 11;
+  size_t expectedNumTokens = 0;
+  switch (version) {
+  case 1:
+    expectedNumTokens = 8;
+    break;
+  case 2:
+    expectedNumTokens = 11;
+    break;
+  case 3:
+    expectedNumTokens = 12;
+    break;
+  }
   SmallVector<StringRef, 11> tokens;
   rest.split(tokens, ',');
   if (tokens.size() != expectedNumTokens) {
@@ -3113,21 +3124,39 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
     llvm::to_integer(s, param);
     return param;
   });
+  bool isV3 = version == 3;
   int64_t mPerBlockG0 = params[0];
   int64_t mPerBlockG1 = params[1];
   int64_t nPerBlockG0 = params[2];
   int64_t kpackPerBlock = params[3];
   int64_t mPerWave = params[4];
-  int64_t mnPerXdl = params[5];
-  int64_t kpack = params[6];
-  int64_t splitKFactor = version == 2 ? params[7] : 1;
-  int64_t scheduleVersion = version == 2 ? params[8] : 1;
-  int64_t outputSwizzle = version == 2 ? params[9] : 2;
+  int64_t nPerWave, mnPerXdl;
+  int64_t lastIdx = 5;
+  if (isV3) {
+    nPerWave = params[lastIdx++];
+    mnPerXdl = params[lastIdx++];
+    // the code below is for compatibility with < v3
+  } else if (isWmma) {
+    mnPerXdl = params[lastIdx++];
+    nPerWave = mnPerXdl;
+  } else {
+    mnPerXdl = params[lastIdx++];
+    const int64_t maxWavesPerWG = 4;
+    int64_t mWaves = std::min(mPerBlockG0 / mPerWave, maxWavesPerWG);
+    int64_t nWaves = maxWavesPerWG / mWaves;
+
+    mPerWave = mPerBlockG0 / mWaves;
+    nPerWave = std::max(nPerBlockG0 / nWaves, mnPerXdl);
+  }
+  int64_t kpack = params[lastIdx++];
+  int64_t splitKFactor = version > 1 ? params[lastIdx++] : 1;
+  int64_t scheduleVersion = version > 1 ? params[lastIdx++] : 1;
+  int64_t outputSwizzle = version > 1 ? params[lastIdx++] : 2;
   int64_t forceUnroll = params[expectedNumTokens - 1] == 1;
-  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(), mPerBlockG0,
-                                 mPerBlockG1, nPerBlockG0, kpackPerBlock,
-                                 mPerWave, mnPerXdl, kpack, splitKFactor,
-                                 scheduleVersion, outputSwizzle, forceUnroll);
+  return AttnPerfConfigAttr::get(
+      perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
+      kpackPerBlock, mPerWave, nPerWave, mnPerXdl, kpack, splitKFactor,
+      scheduleVersion, outputSwizzle, forceUnroll);
 }
 
 //===-----------------------------------------------------===//
