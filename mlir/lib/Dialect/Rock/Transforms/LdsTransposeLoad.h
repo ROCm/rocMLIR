@@ -55,6 +55,8 @@ struct Decision {
   int64_t mPanels{1};
   int64_t nPanels{1};
   int64_t kPanels{1};
+  int64_t mPerBlock{1};
+  int64_t nPerBlock{1};
 };
 
 struct DecisionLdsTransposeContext {
@@ -101,6 +103,8 @@ struct LoweringInfo {
   int64_t mPanels{1};
   int64_t nPanels{1};
   int64_t kPanels{1};
+  int64_t mPerBlock{1};
+  int64_t nPerBlock{1};
 };
 
 // Derives lowering information from the attributes of a ThreadwiseReadIntoOp.

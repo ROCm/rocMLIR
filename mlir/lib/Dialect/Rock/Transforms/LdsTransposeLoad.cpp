@@ -64,13 +64,9 @@ static constexpr LayoutConfig kLayoutConfigs[] = {
 // Calculates the number of M/N/K panels per block based on the MFMA instruction
 // shape. Returns `true` if the dimensions divide evenly, otherwise `false`.
 bool calculatePanels(const MfmaInstrShape &shape, OperandKind operandA,
-                     OperandKind operandB, int64_t mPerBlock, int64_t nPerBlock,
-                     int64_t kPerBlock, int64_t &mPanels, int64_t &nPanels,
-                     int64_t &kPanels) {
-
-  /*if (mPerBlock > 32 || nPerBlock > 32) {
-    return false;
-  }*/
+                     OperandKind operandB, int64_t &mPerBlock,
+                     int64_t &nPerBlock, int64_t kPerBlock, int64_t &mPanels,
+                     int64_t &nPanels, int64_t &kPanels) {
 
   if (kPerBlock % shape.kMfma != 0) {
     return false;
@@ -114,6 +110,8 @@ Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
   Decision dec;
   dec.operandA = operandA;
   dec.operandB = operandB;
+  dec.mPerBlock = mPerBlock;
+  dec.nPerBlock = nPerBlock;
 
   // Basic applicability checks
   if (!archSupported(arch) || !DirectToLds) {
@@ -141,8 +139,9 @@ Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
   }
 
   // Calculate and validate paneling
-  if (!calculatePanels(shape, dec.operandA, dec.operandB, mPerBlock, nPerBlock,
-                       kPerBlock, dec.mPanels, dec.nPanels, dec.kPanels)) {
+  if (!calculatePanels(shape, dec.operandA, dec.operandB, dec.mPerBlock,
+                       dec.nPerBlock, kPerBlock, dec.mPanels, dec.nPanels,
+                       dec.kPanels)) {
     return dec;
   }
 
@@ -171,12 +170,18 @@ void attachAttributes(Operation *readIntoOp, const Decision &dec,
   if (isA) {
     readIntoOp->setAttr("rock.hw_lds_transpose_operand",
                         rewriter.getStringAttr("A"));
+    if (dec.mPerBlock)
+      readIntoOp->setAttr("rock.hw_lds_transpose_mperblock",
+                          rewriter.getI64IntegerAttr(dec.mPerBlock));
     if (dec.mPanels > 1)
       readIntoOp->setAttr("rock.hw_lds_transpose_mpanels",
                           rewriter.getI64IntegerAttr(dec.mPanels));
   } else {
     readIntoOp->setAttr("rock.hw_lds_transpose_operand",
                         rewriter.getStringAttr("B"));
+    if (dec.nPerBlock)
+      readIntoOp->setAttr("rock.hw_lds_transpose_nperblock",
+                          rewriter.getI64IntegerAttr(dec.nPerBlock));
     if (dec.nPanels > 1)
       readIntoOp->setAttr("rock.hw_lds_transpose_npanels",
                           rewriter.getI64IntegerAttr(dec.nPanels));
@@ -211,17 +216,6 @@ LoweringInfo deriveLoweringInfo(ThreadwiseReadIntoOp op, PatternRewriter &b) {
   if (info.layout == LayoutKind::None)
     return info;
 
-  // Read paneling info directly from attributes
-  if (auto mPanelsAttr =
-          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_mpanels"))
-    info.mPanels = mPanelsAttr.getInt();
-  if (auto nPanelsAttr =
-          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_npanels"))
-    info.nPanels = nPanelsAttr.getInt();
-  if (auto kPanelsAttr =
-          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_kpanels"))
-    info.kPanels = kPanelsAttr.getInt();
-
   // Destination buffer type
   auto dest = op.getDest();
   auto destType = cast<MemRefType>(dest.getType());
@@ -232,10 +226,30 @@ LoweringInfo deriveLoweringInfo(ThreadwiseReadIntoOp op, PatternRewriter &b) {
   if (auto operandAttr =
           op->getAttrOfType<StringAttr>("rock.hw_lds_transpose_operand")) {
     StringRef val = operandAttr.getValue();
-    if (val == "A")
+    if (val == "A") {
       info.operand = OperandKind::A;
-    else if (val == "B")
+      if (auto mPerBlockAttr =
+              op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_mperblock"))
+        info.mPerBlock = mPerBlockAttr.getInt();
+      if (auto mPanelsAttr =
+              op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_mpanels"))
+        info.mPanels = mPanelsAttr.getInt();
+      if (auto kPanelsAttr =
+              op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_kpanels"))
+        info.kPanels = kPanelsAttr.getInt();
+
+    } else if (val == "B") {
       info.operand = OperandKind::B;
+      if (auto nPerBlockAttr =
+              op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_nperblock"))
+        info.nPerBlock = nPerBlockAttr.getInt();
+      if (auto nPanelsAttr =
+              op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_npanels"))
+        info.nPanels = nPanelsAttr.getInt();
+      if (auto kPanelsAttr =
+              op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_kpanels"))
+        info.kPanels = kPanelsAttr.getInt();
+    }
   }
 
   info.usable = true;
@@ -282,57 +296,37 @@ static SmallVector<Value> getBasePanelOffsets(LayoutKind layout, Value lane,
     return b.create<arith::RemUIOp>(loc, a, m);
   };
   SmallVector<Value> panelOffsets;
+  Value c16 = cst(16), c4 = cst(4), c2 = cst(2);
+  Value blockId = div(lane, c16);
+  Value laneInBlock = rem(lane, c16);
+  // Base offset calculations
+  Value mOffsetBase = mul(rem(laneInBlock, c4), c4);
+  Value kOffsetBase = div(laneInBlock, c4);
 
   switch (layout) {
   case LayoutKind::L16x32: {
-    Value c16 = cst(16), c32 = cst(32), c4 = cst(4), cPanel = cst(16);
-    Value laneDiv16 = div(lane, c16);
-    Value laneMod16 = rem(lane, c16);
-    Value offset = add(mul(laneDiv16, c32), laneMod16);
-    Value off0 = mul(c4, offset);
-    Value off1 = mul(c4, add(offset, cPanel));
-    panelOffsets = {off0, off1};
+    panelOffsets = {kOffsetBase, mOffsetBase};
     break;
   }
   case LayoutKind::L16x16: {
-    Value c16 = cst(16), c4 = cst(4);
-    Value laneDiv16 = div(lane, c16);
-    Value laneMod16 = rem(lane, c16);
-    Value offset = add(mul(laneDiv16, c16), laneMod16);
-    Value off0 = mul(c4, offset);
-    panelOffsets = {off0};
+    // kbase = kOffsetBase + (blockId * 4)
+    Value kBase = add(mul(blockId, c4), kOffsetBase);
+    panelOffsets = {kBase, mOffsetBase};
     break;
   }
   case LayoutKind::L32x16: {
-    Value c32 = cst(32), c64 = cst(64), c16 = cst(16), c4 = cst(4), c8 = cst(8),
-          c32el = cst(32);
-    Value tidMod32 = rem(lane, c32);
-
-    Value term0 = mul(div(lane, c32), c64);
-    Value term1 = mul(div(tidMod32, c16), c4);
-    Value tidMod32Mod16 = rem(tidMod32, c16);
-    Value term2 = mul(div(tidMod32Mod16, c4), c8);
-    Value term3 = rem(tidMod32Mod16, c4);
-
-    Value offset = add(add(term0, term1), add(term2, term3));
-    Value off0 = mul(c4, offset);
-    Value off1 = add(off0, c32el);
-    panelOffsets = {off0, off1};
+    // mbase = mOffsetBase + (blockId % 2) * 16
+    Value mBase = add(mul(rem(blockId, c2), cst(16)), mOffsetBase);
+    panelOffsets = {kOffsetBase, mBase};
     break;
   }
   case LayoutKind::L32x8: {
-    Value c32 = cst(32), c16 = cst(16), c4 = cst(4), c8 = cst(8);
-    Value tidMod32 = rem(lane, c32);
+    // k_base_local = kOffsetBase + (blockId / 2) * 4
+    Value kBase = add(mul(div(blockId, c2), c4), kOffsetBase);
 
-    Value term0 = mul(div(lane, c32), c32);
-    Value term1 = mul(div(tidMod32, c16), c4);
-    Value tidMod32Mod16 = rem(tidMod32, c16);
-    Value term2 = mul(div(tidMod32Mod16, c4), c8);
-    Value term3 = rem(tidMod32Mod16, c4);
-
-    Value offset = add(term0, add(term1, add(term2, term3)));
-    Value off0 = mul(c4, offset);
-    panelOffsets = {off0};
+    // m_offset_base = mOffsetBase + (blockId % 2) * 16
+    Value mBase = add(mul(rem(blockId, c2), cst(16)), mOffsetBase);
+    panelOffsets = {kBase, mBase};
     break;
   }
   default:
@@ -360,39 +354,191 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   };
   // Compute lane ID within the wavefront (0–63).
   Value lane = b.create<arith::RemUIOp>(loc, tid, cst(64));
+
+  // Use mPerBlock as stride for operand A, nPerBlock for operand B
+  int64_t ldsStride =
+      (info.operand == OperandKind::A) ? info.mPerBlock : info.nPerBlock;
+
   // Compute base LDS panel offsets according to the layout and lane mapping.
   SmallVector<Value> panelOffsets =
       getBasePanelOffsets(info.layout, lane, b, loc);
 
-  // Each LDS transpose load returns a vector<4 x elemType>.
+  // Determine if this is a double-rate instruction
+  // Double-rate ONLY for L32x16 (32x32x16 MFMA) and L16x32 (16x16x32 MFMA)
+  // L16x16 (16x16x16 MFMA) and L32x8 (32x32x8 MFMA) are SINGLE-RATE
+  // instruction.
+  auto [nonKDim, instrK] = getLayoutDims(info.layout);
+  bool isDoubleRate =
+      (info.layout == LayoutKind::L32x16 || info.layout == LayoutKind::L16x32);
+
+  // Each ds_read_tr16_b64 call ALWAYS returns vector<4xf16>
+  // For double-rate, we make 2 calls and store all 8 elements separately
   VectorType panelVecType = VectorType::get({4}, elemType);
+
+  // panelVectors will contain:
+  // - Single-rate: 1 vector<4xf16> per K tile
+  // - Double-rate: 2 vector<4xf16> per K tile (low + high)
   SmallVector<Value> panelVectors;
 
-  // Multi-K fused case:
-  // Expand the offsets across multiple K panels.
-  // Each additional K-panel is offset by (nonKDim * instrK) elements.
-  if (info.kPanels > 1) {
-    auto [nonKDim, instrK] = getLayoutDims(info.layout);
-    int64_t tileStrideElems = nonKDim * instrK; // full slice size
-    Value strideC = cst(tileStrideElems);
-    SmallVector<Value> baseOffsets = panelOffsets;
-    SmallVector<Value> expanded;
-    for (int64_t kp = 0; kp < info.kPanels; ++kp) {
-      Value offsetKP = b.create<arith::MulIOp>(loc, strideC, cst(kp));
-      for (Value off : panelOffsets) {
-        expanded.push_back(b.create<arith::AddIOp>(loc, off, offsetKP));
-      }
-    }
-    panelOffsets = std::move(expanded);
-  }
-  // Main LDS load: perform transpose loads for all panels.
-  for (Value off : panelOffsets) {
-    auto l = b.create<rock::LDSTransposeLoadOp>(loc, panelVecType, rawSrc,
-                                                ValueRange{off});
-    panelVectors.push_back(l.getFragment());
+  // Get base offsets from getBasePanelOffsets
+  // For panelOffsets[0] = k_base_local, panelOffsets[1] = m_offset_base
+  Value k_base_local = panelOffsets[0];
+  Value m_offset_base = panelOffsets[1];
+
+  // M/N stride: MNMfma (e.g., 32)
+  // K stride per tile: KMfma (e.g., 8)
+  int64_t mnStride = nonKDim;
+  int64_t kTileStride = instrK;
+
+  Value mnStrideVal = cst(mnStride);
+  Value kTileStrideVal = cst(kTileStride);
+  Value ldsStrideVal = cst(ldsStride);
+
+  // The extra indices tell us WHICH M/N tile we're loading in this iteration.
+  // Check if there's an extra index for M/N tile selection
+  ValueRange extraIndices = op.getExtraIndices();
+  Value mnTileIndex = nullptr;
+
+  // Extra indices format: [tid, m_tile_idx] for A or [tid, n_tile_idx] for B
+  if (extraIndices.size() >= 2) {
+    mnTileIndex = extraIndices[1]; // Second index is the M/N tile iterator
   }
 
-  int64_t sliceElems = (int64_t)panelOffsets.size() * 4;
+  // If we have an M/N tile index from the outer loop, use it
+  // Otherwise, generate all M/N tiles (fallback for single-tile case)
+  int64_t startMnIdx = 0;
+  int64_t endMnIdx = 1;
+  bool useDynamicMnIndex = false;
+
+  if (mnTileIndex) {
+    // Outer loop handles M/N iteration, we load only ONE M/N tile per call
+    useDynamicMnIndex = true;
+    endMnIdx = 1;
+  } else {
+    // No outer loop, generate all M/N tiles statically
+    if (info.operand == OperandKind::A) {
+      endMnIdx = info.mPanels;
+    } else if (info.operand == OperandKind::B) {
+      endMnIdx = info.nPanels;
+    }
+  }
+
+  int64_t kPanels = info.kPanels;
+
+  // For double-rate layouts ONLY (L32x16, L16x32), compute k_offset_base
+  // L32x16 (32x32x16): k_offset_base = (block_id / 2) * 8
+  // L16x32 (16x16x32): k_offset_base = block_id * 8
+  Value blockId = nullptr;
+  Value kOffsetBase = nullptr;
+
+  if (isDoubleRate) {
+    Value c16 = cst(16), c2 = cst(2), c8 = cst(8);
+    blockId = b.create<arith::DivUIOp>(loc, lane, c16);
+
+    if (info.layout == LayoutKind::L32x16) {
+      // k_offset_base = (block_id / 2) * 8
+      kOffsetBase = b.create<arith::MulIOp>(
+          loc, b.create<arith::DivUIOp>(loc, blockId, c2), c8);
+    } else if (info.layout == LayoutKind::L16x32) {
+      // k_offset_base = block_id * 8
+      kOffsetBase = b.create<arith::MulIOp>(loc, blockId, c8);
+    }
+  }
+
+  // Generate loads: If outer loop exists, load one M/N tile with all K tiles
+  //                 Otherwise, load all M/N tiles with all K tiles
+  for (int64_t mnIdxLocal = startMnIdx; mnIdxLocal < endMnIdx; ++mnIdxLocal) {
+    for (int64_t kIdx = 0; kIdx < kPanels; ++kIdx) {
+      // Calculate m_base for this M/N tile
+      Value m_base = m_offset_base;
+      if (useDynamicMnIndex) {
+        // Use dynamic index from outer loop: m_base += mnTileIndex * mnStride
+        Value mnOffsetAdd =
+            b.create<arith::MulIOp>(loc, mnTileIndex, mnStrideVal);
+        m_base = b.create<arith::AddIOp>(loc, m_base, mnOffsetAdd);
+      } else if (mnIdxLocal > 0) {
+        // Use static index: m_base += mnIdxLocal * mnStride
+        Value mnOffsetAdd =
+            b.create<arith::MulIOp>(loc, mnStrideVal, cst(mnIdxLocal));
+        m_base = b.create<arith::AddIOp>(loc, m_base, mnOffsetAdd);
+      }
+
+      if (!isDoubleRate) {
+        // SINGLE-RATE (L32x8, L16x16): One load per K tile
+        // k_base = k_base_local + kIdx * kTileStride
+        Value k_base = k_base_local;
+        if (kIdx > 0) {
+          Value kOffsetAdd =
+              b.create<arith::MulIOp>(loc, kTileStrideVal, cst(kIdx));
+          k_base = b.create<arith::AddIOp>(loc, k_base, kOffsetAdd);
+        }
+
+        // final_offset = k_base * ldsStride + m_base
+        Value final_offset = b.create<arith::AddIOp>(
+            loc, m_base, b.create<arith::MulIOp>(loc, k_base, ldsStrideVal));
+
+        // Perform LDS transpose load (ds_read_tr16_b64) -> returns
+        // vector<4xf16>
+        auto l = b.create<rock::LDSTransposeLoadOp>(loc, panelVecType, rawSrc,
+                                                    ValueRange{final_offset});
+        panelVectors.push_back(l.getFragment());
+
+      } else {
+        // DOUBLE-RATE (L32x16, L16x32): TWO loads per K tile
+        // Each load returns vector<4xf16>, total 8 elements per K tile
+        // k_offset_low = k_offset_base + k_tile * KMfma
+        // k_offset_high = k_offset_base + 4 + k_tile * KMfma
+
+        Value kTileOffset =
+            b.create<arith::MulIOp>(loc, kTileStrideVal, cst(kIdx));
+        Value k_offset_low =
+            b.create<arith::AddIOp>(loc, kOffsetBase, kTileOffset);
+        Value k_offset_high =
+            b.create<arith::AddIOp>(loc, k_offset_low, cst(4));
+
+        Value k_base_low =
+            b.create<arith::AddIOp>(loc, k_base_local, k_offset_low);
+        Value k_base_high =
+            b.create<arith::AddIOp>(loc, k_base_local, k_offset_high);
+
+        // offset_low = k_base_low * ldsStride + m_base
+        Value offset_low = b.create<arith::AddIOp>(
+            loc, m_base,
+            b.create<arith::MulIOp>(loc, k_base_low, ldsStrideVal));
+
+        // offset_high = k_base_high * ldsStride + m_base
+        Value offset_high = b.create<arith::AddIOp>(
+            loc, m_base,
+            b.create<arith::MulIOp>(loc, k_base_high, ldsStrideVal));
+
+        // Load low half: returns vector<4xf16>
+        auto load_low = b.create<rock::LDSTransposeLoadOp>(
+            loc, panelVecType, rawSrc, ValueRange{offset_low});
+        panelVectors.push_back(load_low.getFragment());
+
+        // Load high half: returns vector<4xf16>
+        auto load_high = b.create<rock::LDSTransposeLoadOp>(
+            loc, panelVecType, rawSrc, ValueRange{offset_high});
+        panelVectors.push_back(load_high.getFragment());
+      }
+    }
+  }
+
+  // Calculate expected number of loads
+  // - Single-rate: 1 load per K tile → actualMnTiles × kPanels loads
+  // - Double-rate: 2 loads per K tile → actualMnTiles × kPanels × 2 loads
+  int64_t actualMnTiles = endMnIdx - startMnIdx;
+  int64_t loadsPerKTile = isDoubleRate ? 2 : 1;
+  int64_t expectedLoads = actualMnTiles * kPanels * loadsPerKTile;
+
+  // Each load ALWAYS produces 4 elements (ds_read_tr16_b64 → vector<4xf16>)
+  int64_t sliceElems = expectedLoads * 4;
+
+  // Verify we generated the expected number of loads
+  if (panelVectors.size() != (size_t)expectedLoads) {
+    return op.emitOpError("Mismatch in number of generated loads: expected ")
+           << expectedLoads << ", got " << panelVectors.size();
+  }
 
   // Scalar buffer path rank-1.
   int64_t destCap = destType.getShape()[0];
