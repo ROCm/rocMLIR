@@ -317,7 +317,11 @@ class PerfConfigsFinder():
                 # Add a constraint for each problem ensuring at least one perfconfig is selected
                 prob += pulp.lpSum([a[i][j] * x[j] for j in range(m)]) >= 1, f"Cover_problem_{i}"
 
-            prob.solve(pulp.PULP_CBC_CMD(msg=0))
+            status = prob.solve(pulp.PULP_CBC_CMD(msg=0))
+            if status != pulp.LpStatusOptimal:
+                raise ValueError(
+                    f"No optimal solution found for data type {data_type}. Solution status: {pulp.LpStatus[status]}"
+                )
 
             selected_configs = [perfconfigs[j] for j in range(m) if x[j].varValue == 1]
 
