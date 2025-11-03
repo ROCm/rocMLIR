@@ -231,7 +231,7 @@ def RockAddAsyncWaitPass
   let dependentDialects = ["rock::RockDialect"];
 }
 
-def ConvertRockOpsToROCDLOps : Pass<"rock-to-rocdl", "::mlir::func::FuncOp"> {
+def ConvertRockOpsToROCDLOps : Pass<"rock-to-rocdl", "::mlir::LLVM::LLVMFuncOp"> {
   let summary = "This pass lowers async wait operations to ROCDL";
   let dependentDialects = ["rock::RockDialect", "ROCDL::ROCDLDialect", "LLVM::LLVMDialect"];
 }
