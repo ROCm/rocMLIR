@@ -76,7 +76,8 @@ class LoweringBlockwiseLoadTileOp final
       Location loc, PatternRewriter &b,
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
-      bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams, bool isA) const {
+      bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams,
+      bool isA) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
@@ -410,9 +411,8 @@ class LoweringBlockwiseLoadTileOp final
           }
 
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
-                           destRegisters, blockSize, copyDPerThread,
-                           ldsLayoutConfig.doRotateWithK, forceUnroll, matrixParams,
-                           directToLDS, ldsLayoutConfig.ldsLayoutDxK, isA);
+                           destRegisters, blockSize, forceUnroll, matrixParams,
+                           isA);
           if (stageLDSReadNew)
             rock::YieldOp::create(b, loc);
         }
