@@ -1721,9 +1721,10 @@ ArrayRef<int64_t> mlir::rock::getLowerShape(ArrayAttr transformStack) {
       .getLowerBounds();
 }
 
-Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
-                                        ArrayRef<int64_t> lengths,
-                                        int64_t pos) {
+FailureOr<Value> mlir::rock::addPassThroughIndices(OpBuilder &b,
+                                                   Value transformed,
+                                                   ArrayRef<int64_t> lengths,
+                                                   int64_t pos) {
   MLIRContext *context = transformed.getContext();
   size_t numberOfIndices = lengths.size();
 
@@ -1741,7 +1742,7 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
   if (pos > underlyingShape.size()) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid position for addPassThroughIndices: "
                             << pos << "\n");
-    return nullptr;
+    return failure();
   }
   BottomUpTMBuilder addDimBuilder(b, underlyingShape, ret.getLoc());
   SmallVector<StringRef> underlyingNames;

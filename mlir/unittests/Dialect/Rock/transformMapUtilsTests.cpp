@@ -74,10 +74,10 @@ TEST(AddPassThroughIndicesTest, AddAtPositionZero) {
       createTransformedMemRef(b, loc, {16}, b.getF16Type(), privateSpace);
 
   // Add 2 dimensions at position 0 with sizes [2, 8]
-  Value result = addPassThroughIndices(b, transformed, {2, 8}, 0);
+  FailureOr<Value> result = addPassThroughIndices(b, transformed, {2, 8}, 0);
 
-  ASSERT_TRUE(result);
-  auto resultType = cast<MemRefType>(result.getType());
+  ASSERT_TRUE(succeeded(result));
+  auto resultType = cast<MemRefType>(result.value().getType());
 
   // Result should have shape [2, 8, 16] (new dims prepended)
   EXPECT_EQ(resultType.getRank(), 3);
@@ -100,10 +100,10 @@ TEST(AddPassThroughIndicesTest, AddAtPositionMiddle) {
       createTransformedMemRef(b, loc, {8, 2}, b.getF16Type(), privateSpace);
 
   // Add 1 dimension at position 1 with size [4]
-  Value result = addPassThroughIndices(b, transformed, {4}, 1);
+  FailureOr<Value> result = addPassThroughIndices(b, transformed, {4}, 1);
 
-  ASSERT_TRUE(result);
-  auto resultType = cast<MemRefType>(result.getType());
+  ASSERT_TRUE(succeeded(result));
+  auto resultType = cast<MemRefType>(result.value().getType());
 
   // Result should have shape [8, 4, 2] (new dim inserted in middle)
   EXPECT_EQ(resultType.getRank(), 3);
@@ -125,10 +125,10 @@ TEST(AddPassThroughIndicesTest, AddAtPositionEnd) {
       createTransformedMemRef(b, loc, {8, 2}, b.getF16Type(), privateSpace);
 
   // Add 2 dimensions at position 2 (end) with sizes [3, 4]
-  Value result = addPassThroughIndices(b, transformed, {3, 4}, 2);
+  FailureOr<Value> result = addPassThroughIndices(b, transformed, {3, 4}, 2);
 
-  ASSERT_TRUE(result);
-  auto resultType = cast<MemRefType>(result.getType());
+  ASSERT_TRUE(succeeded(result));
+  auto resultType = cast<MemRefType>(result.value().getType());
 
   // Result should have shape [8, 2, 3, 4] (new dims appended)
   EXPECT_EQ(resultType.getRank(), 4);
@@ -151,11 +151,11 @@ TEST(AddPassThroughIndicesTest, AddEmptyIndices) {
       createTransformedMemRef(b, loc, {16}, b.getF16Type(), privateSpace);
 
   // Add 0 dimensions - should return the original value
-  Value result = addPassThroughIndices(b, transformed, {}, 0);
+  FailureOr<Value> result = addPassThroughIndices(b, transformed, {}, 0);
 
-  ASSERT_TRUE(result);
+  ASSERT_TRUE(succeeded(result));
   // When no indices are added, it should return the original transformed value
-  EXPECT_EQ(result, transformed);
+  EXPECT_EQ(result.value(), transformed);
 }
 
 // Test: Multi-buffer case - add indices at position 0 for a 2D memref
@@ -171,10 +171,10 @@ TEST(AddPassThroughIndicesTest, MultiBufferAtPositionZero) {
       createTransformedMemRef(b, loc, {2, 16}, b.getF16Type(), privateSpace);
 
   // Add extra indices at position 0 with sizes [2]
-  Value result = addPassThroughIndices(b, transformed, {2}, 0);
+  FailureOr<Value> result = addPassThroughIndices(b, transformed, {2}, 0);
 
-  ASSERT_TRUE(result);
-  auto resultType = cast<MemRefType>(result.getType());
+  ASSERT_TRUE(succeeded(result));
+  auto resultType = cast<MemRefType>(result.value().getType());
 
   // Result should have shape [2, 2, 16]
   EXPECT_EQ(resultType.getRank(), 3);
@@ -194,10 +194,10 @@ TEST(AddPassThroughIndicesTest, MultipleDimensionsAtPositionZero) {
       createTransformedMemRef(b, loc, {8, 2, 4}, b.getF32Type());
 
   // Add 3 dimensions at position 0 with sizes [1, 2, 3]
-  Value result = addPassThroughIndices(b, transformed, {1, 2, 3}, 0);
+  FailureOr<Value> result = addPassThroughIndices(b, transformed, {1, 2, 3}, 0);
 
-  ASSERT_TRUE(result);
-  auto resultType = cast<MemRefType>(result.getType());
+  ASSERT_TRUE(succeeded(result));
+  auto resultType = cast<MemRefType>(result.value().getType());
 
   // Result should have shape [1, 2, 3, 8, 2, 4]
   EXPECT_EQ(resultType.getRank(), 6);
@@ -221,10 +221,10 @@ TEST(AddPassThroughIndicesTest, PreservesMemorySpace) {
   Value transformed =
       createTransformedMemRef(b, loc, {16}, b.getF16Type(), workgroupSpace);
 
-  Value result = addPassThroughIndices(b, transformed, {2, 8}, 0);
+  FailureOr<Value> result = addPassThroughIndices(b, transformed, {2, 8}, 0);
 
-  ASSERT_TRUE(result);
-  auto resultType = cast<MemRefType>(result.getType());
+  ASSERT_TRUE(succeeded(result));
+  auto resultType = cast<MemRefType>(result.value().getType());
   EXPECT_EQ(resultType.getMemorySpace(), workgroupSpace);
 }
 
@@ -237,10 +237,10 @@ TEST(AddPassThroughIndicesTest, SingleDimensionAtPositionZero) {
   Value transformed = createTransformedMemRef(b, loc, {16}, b.getF16Type());
 
   // Add just 1 dimension at position 0
-  Value result = addPassThroughIndices(b, transformed, {5}, 0);
+  FailureOr<Value> result = addPassThroughIndices(b, transformed, {5}, 0);
 
-  ASSERT_TRUE(result);
-  auto resultType = cast<MemRefType>(result.getType());
+  ASSERT_TRUE(succeeded(result));
+  auto resultType = cast<MemRefType>(result.value().getType());
 
   EXPECT_EQ(resultType.getRank(), 2);
   EXPECT_EQ(resultType.getShape()[0], 5);
@@ -256,12 +256,12 @@ TEST(AddPassThroughIndicesTest, ValidTransformStack) {
 
   Value transformed = createTransformedMemRef(b, loc, {16}, b.getF16Type());
 
-  Value result = addPassThroughIndices(b, transformed, {2, 8}, 0);
+  FailureOr<Value> result = addPassThroughIndices(b, transformed, {2, 8}, 0);
 
-  ASSERT_TRUE(result);
+  ASSERT_TRUE(succeeded(result));
 
   // The result should be a TransformOp
-  auto transformOp = result.getDefiningOp<TransformOp>();
+  auto transformOp = result.value().getDefiningOp<TransformOp>();
   ASSERT_TRUE(transformOp);
 
   // The transform should have proper bounds
@@ -296,9 +296,9 @@ TEST(AddPassThroughIndicesTest, InvalidPositionOutOfBounds) {
       createTransformedMemRef(b, loc, {8, 2}, b.getF16Type(), privateSpace);
 
   // Try to add dimensions at position 5, which is out of bounds (rank is 2)
-  Value result = addPassThroughIndices(b, transformed, {3, 4}, 5);
+  FailureOr<Value> result = addPassThroughIndices(b, transformed, {3, 4}, 5);
 
-  EXPECT_FALSE(result);
+  ASSERT_TRUE(failed(result));
 }
 
 } // end anonymous namespace
