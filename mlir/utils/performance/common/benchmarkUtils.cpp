@@ -311,7 +311,7 @@ size_t getByteSize(DataType dataType, size_t elems) {
   }
 }
 
-size_t getBitsPerElements(DataType dataType) {
+static size_t getBitsPerElements(DataType dataType) {
   switch (dataType) {
   case DataType::F32:
   case DataType::I32:

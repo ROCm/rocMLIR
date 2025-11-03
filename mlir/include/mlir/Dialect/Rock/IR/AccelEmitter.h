@@ -68,8 +68,6 @@ struct AccelEmitterParams {
 
   Type argTypeA;            // Type of the arguments (might be scalar or vector)
   Type argTypeB;            // Type of the arguments (might be scalar or vector)
-  std::optional<Type> argTypeScaleA; // Type of the scale argument for A
-  std::optional<Type> argTypeScaleB; // Type of the scale argument for B
   VectorType accVectorType; // Accumulator vector type (always vector type)
 
   // Each workitem invoking an accelerator receives as a result a given number
