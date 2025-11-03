@@ -23,6 +23,16 @@ values = ["f4E2M1FN"]
 prefix = "-t "
 
 [[axis]]
+name = "scaleA dtype"
+values = ["f8E8M0FNU", "f32"]
+prefix = "-scale_a_dtype "
+
+[[axis]]
+name = "scaleB dtype"
+values = ["f8E8M0FNU", "f32"]
+prefix =  "-scale_b_dtype "
+
+[[axis]]
 name = "schedule_version"
 values = ["1"]
 prefix = "--schedule_version  "
