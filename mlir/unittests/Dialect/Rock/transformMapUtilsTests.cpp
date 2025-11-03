@@ -283,4 +283,22 @@ TEST(AddPassThroughIndicesTest, ValidTransformStack) {
   EXPECT_EQ(lowerBounds[2], 16);
 }
 
+// Test: Invalid position - out of bounds
+TEST(AddPassThroughIndicesTest, InvalidPositionOutOfBounds) {
+  TestEnv env;
+  OpBuilder &b = env.builder;
+  Location loc = b.getUnknownLoc();
+
+  // Create a 2D memref<8x2xf16>
+  auto privateSpace =
+      gpu::AddressSpaceAttr::get(&env.ctx, gpu::AddressSpace::Private);
+  Value transformed =
+      createTransformedMemRef(b, loc, {8, 2}, b.getF16Type(), privateSpace);
+
+  // Try to add dimensions at position 5, which is out of bounds (rank is 2)
+  Value result = addPassThroughIndices(b, transformed, {3, 4}, 5);
+
+  EXPECT_FALSE(result);
+}
+
 } // end anonymous namespace

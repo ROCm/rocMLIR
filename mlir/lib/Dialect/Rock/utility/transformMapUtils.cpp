@@ -1730,7 +1730,6 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
   // No dimensions to add, return
   if (numberOfIndices == 0)
     return transformed;
-
   SmallVector<TransformOp> opsToWiden;
   Value ret;
   std::tie(ret, std::ignore) = untransform(transformed, opsToWiden);
@@ -1739,6 +1738,11 @@ Value mlir::rock::addPassThroughIndices(OpBuilder &b, Value transformed,
   /// shapes match up.
   ArrayRef<int64_t> underlyingShape =
       cast<ShapedType>(ret.getType()).getShape();
+  if (pos > underlyingShape.size()) {
+    LLVM_DEBUG(llvm::dbgs() << "Invalid position for addPassThroughIndices: "
+                            << pos << "\n");
+    return nullptr;
+  }
   BottomUpTMBuilder addDimBuilder(b, underlyingShape, ret.getLoc());
   SmallVector<StringRef> underlyingNames;
   addDimBuilder.getStartNames(underlyingNames);
