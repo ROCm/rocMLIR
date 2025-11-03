@@ -54,7 +54,7 @@
 // BINARY-NEXT:arith-emulate-unsupported-floats{source-types={f8E4M3FNUZ,
 // BINARY-NEXT:f8E5M2FNUZ,
 // BINARY-NEXT:f8E4M3FN,
-// BINARY-NEXT:f8E5M2, 
+// BINARY-NEXT:f8E5M2,
 // BINARY-NEXT:f8E8M0FNU} target-type=f32},
 // BINARY-NEXT:arith-expand{include-bf16=false include-f4e2m1=false include-f8e8m0=true},
 // BINARY-NEXT:convert-arith-to-amdgpu{allow-packed-f16-round-to-zero=false chipset=gfx90a saturate-fp8-truncf=true},
