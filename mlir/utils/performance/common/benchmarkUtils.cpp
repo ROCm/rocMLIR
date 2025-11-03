@@ -156,8 +156,7 @@ std::vector<uint8_t> getPattern(DataType dataType) {
     break;
   case DataType::F4:
     for (size_t i = 0; i < patternFp4.size(); i = i + 2) {
-      uint8_t packedF4 = (patternFp4[i] & 0x0F) | (patternFp4[i + 1] & 0x0F)
-                                                      << 4;
+      uint8_t packedF4 = (patternFp4[i] & 0x0F) | ((patternFp4[i + 1] & 0x0F) << 4);
       res.push_back(packedF4);
     }
     break;
