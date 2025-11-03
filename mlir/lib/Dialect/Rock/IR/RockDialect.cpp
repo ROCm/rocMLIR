@@ -2214,6 +2214,14 @@ LogicalResult BlockwiseLoadTileOp::verify() {
   GemmLoadTileType loadType = getLoadType();
   bool singleBuffer = loadType == GemmLoadTileType::Default ||
                       loadType == GemmLoadTileType::DirectToLDSDefault;
+  bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
+                     loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
+  bool paramsDirectToLDS = getIsA() ? getMatrixParamsA().getDirectToLDS()
+                                    : getMatrixParamsB().getDirectToLDS();
+
+  if (paramsDirectToLDS != directToLDS)
+    return emitOpError("Inconsistency between params and load type");
 
   if (!destLDS && loadType != GemmLoadTileType::BypassLDS)
     return emitOpError("destLDS must be set unless loadType is BypassLDS");
@@ -2261,20 +2269,17 @@ void BlockwiseGemmOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 LogicalResult BlockwiseGemmAccelOp::verify() {
-  bool loadAFromLDS = getLoadAfromLDS();
-  bool loadBFromLDS = getLoadBfromLDS();
   bool hasA = getMatrixA() != nullptr;
   bool hasB = getMatrixB() != nullptr;
+  bool directToLDS = getMatrixParamsA().getDirectToLDS() ||
+                     getMatrixParamsB().getDirectToLDS();
 
-  if (loadAFromLDS && !hasA)
-    return emitOpError("If loadAFromLDS is enabled, matrixA must be non-null.");
-  if (loadBFromLDS && !hasB)
-    return emitOpError("If loadBFromLDS is enabled, matrixB must be non-null.");
-
-  if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) != getElementTypeA())
+  if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) !=
+                  getMatrixParamsA().getElementType())
     return emitOpError("ElementTypeA and matrixA element type don't match");
 
-  if (hasB && getElementTypeOrSelfRecursive(getMatrixB()) != getElementTypeB())
+  if (hasB && getElementTypeOrSelfRecursive(getMatrixB()) !=
+                  getMatrixParamsB().getElementType())
     return emitOpError("ElementTypeA and matrixA element type don't match");
 
   bool hasScaleABuffer = getBufferScaleA() != nullptr;
@@ -2289,9 +2294,9 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   StringAttr archAttr = rock::getArch(*this).value_or(
       StringAttr::get(this->getContext(), "gfx00"));
 
-  if (loadAFromLDS && loadBFromLDS)
+  if (hasA && hasB)
     if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr, aType,
-                               bType, cType)))
+                               bType, directToLDS ? nullptr : cType)))
       return failure();
   auto verifyMatrixAndScale = [&](bool loadFromLds, Value matrix, Value lds,
                                   Value bufferScale, ShapedType bufferType,
@@ -2363,12 +2368,12 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   };
 
   // Verify matrix A and its scales
-  if (failed(verifyMatrixAndScale(loadAFromLDS, getMatrixA(), getScaleA(),
+  if (failed(verifyMatrixAndScale(hasA, getMatrixA(), getScaleA(),
                                   getBufferScaleA(), aBufferType, "A")))
     return failure();
 
   // Verify matrix B and its scales
-  if (failed(verifyMatrixAndScale(loadBFromLDS, getMatrixB(), getScaleB(),
+  if (failed(verifyMatrixAndScale(hasB, getMatrixB(), getScaleB(),
                                   getBufferScaleB(), bBufferType, "B")))
     return failure();
 
@@ -2380,7 +2385,7 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
 }
 
 SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
-  return {getMatrixA().getType()};
+  return {getMatrixParamsA().getElementType()};
 }
 
 void BlockwiseGemmAccelOp::getEffects(
@@ -2398,8 +2403,7 @@ void BlockwiseGemmAccelOp::getEffects(
     effects.emplace_back(read, &getBufferScaleBMutable()[0]);
   }
   // if we load from LDS, we need to write to registers
-  if (getLoadAfromLDS()) {
-    assert(getMatrixA() != nullptr);
+  if (getMatrixA() != nullptr) {
     effects.emplace_back(read, &getMatrixAMutable()[0]);
     effects.emplace_back(write, &getBufferAMutable());
     if (getScaleA()) {
@@ -2407,8 +2411,7 @@ void BlockwiseGemmAccelOp::getEffects(
       effects.emplace_back(write, &getBufferScaleAMutable()[0]);
     }
   }
-  if (getLoadBfromLDS()) {
-    assert(getMatrixB() != nullptr);
+  if (getMatrixB() != nullptr) {
     effects.emplace_back(read, &getMatrixBMutable()[0]);
     effects.emplace_back(write, &getBufferBMutable());
     if (getScaleB()) {
@@ -2443,13 +2446,13 @@ void ThreadwiseGemmOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// ThreadwiseAccelGemmOp
+// ThreadwiseGemmAccelOp
 //===----------------------------------------------------------------------===//
-SmallVector<mlir::Type> ThreadwiseAccelGemmOp::getTypesForFeature() {
+SmallVector<mlir::Type> ThreadwiseGemmAccelOp::getTypesForFeature() {
   return {getMatrixA().getType()};
 }
 
-LogicalResult ThreadwiseAccelGemmOp::verify() {
+LogicalResult ThreadwiseGemmAccelOp::verify() {
   ShapedType aType = cast<ShapedType>(getMatrixA().getType());
   ShapedType bType = cast<ShapedType>(getMatrixB().getType());
 
@@ -2489,7 +2492,7 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
   return success();
 }
 
-void ThreadwiseAccelGemmOp::getEffects(
+void ThreadwiseGemmAccelOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   if (getScaleA()) {
     auto *read = MemoryEffects::Read::get();

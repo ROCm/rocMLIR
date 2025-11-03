@@ -211,8 +211,8 @@ struct ThreadwiseGemmRewritePattern
 // AccelGemm lowering.
 //===----------------------------------------------------------------------===//
 struct ThreadwiseAccelGemmRewritePattern
-    : public OpConversionPattern<ThreadwiseAccelGemmOp> {
-  using OpConversionPattern<ThreadwiseAccelGemmOp>::OpConversionPattern;
+    : public OpConversionPattern<ThreadwiseGemmAccelOp> {
+  using OpConversionPattern<ThreadwiseGemmAccelOp>::OpConversionPattern;
 
   // Create a normalized view `[startShape, sizes]`. Then convert this to a
   // "real" view by ignoring some of the indices and letting the rest pass
@@ -236,8 +236,8 @@ struct ThreadwiseAccelGemmRewritePattern
     return td.get();
   }
 
-  LogicalResult matchAndRewrite(ThreadwiseAccelGemmOp op,
-                                ThreadwiseAccelGemmOpAdaptor adaptor,
+  LogicalResult matchAndRewrite(ThreadwiseGemmAccelOp op,
+                                ThreadwiseGemmAccelOpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const override {
     Location loc = op.getLoc();
 
@@ -365,9 +365,16 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
   // might loose invertibility. Note that the this will add an additional series
   // of AddDim{} operators below the existing transforms to protect against
   // shape mismatches.
-  sourceView = addPassThroughIndices(b, sourceView, extraIndicesDestShape,
-                                     extraIndicesSourceSize);
-  destView = addPassThroughIndices(b, destView, extraIndicesSourceShape, 0);
+  FailureOr<Value> sourceViewResult = addPassThroughIndices(
+      b, sourceView, extraIndicesDestShape, extraIndicesSourceSize);
+  if (failed(sourceViewResult))
+    return failure();
+  sourceView = sourceViewResult.value();
+  FailureOr<Value> destViewResult =
+      addPassThroughIndices(b, destView, extraIndicesSourceShape, 0);
+  if (failed(destViewResult))
+    return failure();
+  destView = destViewResult.value();
 
   // Almost certainly a noop, since adding extra indices creates fresh
   // IR, but we call it just in case.
@@ -1015,7 +1022,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   }
 
   ConversionTarget target(*ctx);
-  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseAccelGemmOp>();
+  target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseGemmAccelOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
                          memref::MemRefDialect, vector::VectorDialect>();

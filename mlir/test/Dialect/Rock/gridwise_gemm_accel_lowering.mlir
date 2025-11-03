@@ -33,10 +33,8 @@ func.func @fp8_bf8_xdlops(%arg0: memref<1x128x128xf8E4M3FNUZ>, %arg1: memref<1x1
   // CHECK: %[[viewBGemmMB:.+]] = rock.extract_multibuffer(%[[viewBGemm]])
 
   // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME: %[[viewAGemmMB]]
-  // CHECK-SAME: %[[viewBGemmMB]]
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-SAME: loadBfromLDS
+  // CHECK-SAME: from %[[viewAGemmMB]]
+  // CHECK-SAME: from %[[viewBGemmMB]]
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params1} : memref<1x128x128xf8E4M3FNUZ>, memref<1x128x115200xf8E5M2FNUZ>, memref<1x128x115200xf32>
   return
 }
@@ -76,10 +74,8 @@ func.func @fp8_bf8_xdlops_ocp(%arg0: memref<1x128x128xf8E4M3FN>, %arg1: memref<1
   // CHECK: %[[viewBGemmMB:.+]] = rock.extract_multibuffer(%[[viewBGemm]])
 
   // CHECK: rock.blockwise_gemm_accel
-  // CHECK-SAME: %[[viewAGemmMB]]
-  // CHECK-SAME: %[[viewBGemmMB]]
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-SAME: loadBfromLDS
+  // CHECK-SAME: from %[[viewAGemmMB]]
+  // CHECK-SAME: from %[[viewBGemmMB]]
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params1a} : memref<1x128x128xf8E4M3FN>, memref<1x128x115200xf8E5M2>, memref<1x128x115200xf32>
   return
 }
@@ -108,14 +104,6 @@ func.func @fp8_bf8_xdlops_ocp_double_buffer(%arg0: memref<1x128x128xf8E4M3FN>, %
   // The tuning testcase leads to padded buffers, we simplify here.
   // CHECK: %[[ldsA:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsB:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
-
-  // CHECK-DAG: %[[viewABlockwiseGemm:.+]] = memref.view %[[ldsA]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E4M3FN>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: %[[viewBBlockwiseGemm:.+]] = memref.view %[[ldsB]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E5M2>, #gpu.address_space<workgroup>>
-
-  // CHECK-DAG: %[[viewAGemm:.+]] = memref.view %[[ldsA]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E4M3FN>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: %[[viewBGemm:.+]] = memref.view %[[ldsB]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E5M2>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: %[[viewAStore:.+]] = memref.view %[[ldsA]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E4M3FN>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: %[[viewBStore:.+]] = memref.view %[[ldsB]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E5M2>, #gpu.address_space<workgroup>>
 
   // CHECK-DAG: %[[viewAStore2:.+]] = memref.view %[[ldsA]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E4M3FN>, #gpu.address_space<workgroup>>
   // CHECK: %[[viewAStoreMB:.+]] = rock.extract_multibuffer(%[[viewAStore2]])
@@ -150,15 +138,9 @@ func.func @fp8_bf8_xdlops_ocp_double_buffer(%arg0: memref<1x128x128xf8E4M3FN>, %
   // CHECK: %[[viewBGemmMBView3:.+]] = rock.transform %[[viewBGemmMBView2]]
   // CHECK: %[[viewBGemmMBView4:.+]] = rock.transform %[[viewBGemmMBView3]]
   // CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[viewBGemmMBView4]])
-
-  // CHECK: %[[extractABlockwiseGemm:.+]] = rock.extract_multibuffer(%[[viewABlockwiseGemm]])
-  // CHECK: %[[extractBBlockwiseGemm:.+]] = rock.extract_multibuffer(%[[viewBBlockwiseGemm]])
   
   // CHECK: rock.blockwise_gemm_accel 
-  // CHECK-SAME: from %[[extractABlockwiseGemm]] 
-  // CHECK-SAME: from %[[extractBBlockwiseGemm]] 
-  // CHECK-NOT: loadAfromLDS
-  // CHECK-NOT: loadBfromLDS
+  // CHECK-NOT: from
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params_double_buffer} : memref<1x128x128xf8E4M3FN>, memref<1x128x115200xf8E5M2>, memref<1x128x115200xf32>
   return
 }
