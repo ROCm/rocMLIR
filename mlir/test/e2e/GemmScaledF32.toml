@@ -1,3 +1,5 @@
+# these test need to be run with `-rand none`. It is using f32 scales. On the host side it doesnt' get quantized to f8E8M0FNU but on the GPU it does get quantized. 
+# therefore to avoid quantization errors, run with `-rand none`. 
 directory = "GemmScaledF32"
 prefix = "rocmlir-gen"
 suffix = "--operation gemm -out_dtype f32 --arch %arch %pv -rand none %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
@@ -44,7 +46,7 @@ prefix = "--schedule_version  "
 
 ## Gemm variants
 [[suite]]
-name = "gemm_scaled"
+name = "gemm_scaled_f32"
 
 [[suite.test]]
 config = "-g 3 -m 1024 -k 768 -n 1024"
