@@ -90,7 +90,7 @@ void collectCoverageData(String profdata, String cov, String cpath) {
     sh """
        rm -f *.profraw
        # Arbitrarily 150 GB;  we typically see 125 GB of *.profraw.
-       if [ `df --output=avail -k . | tail -1l` -lt 153600000 ]; then
+       if [ `df --output=avail -k . | tail -1` -lt 153600000 ]; then
           echo Not enough free disk space for profiling.
           exit 1
        fi
