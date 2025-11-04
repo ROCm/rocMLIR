@@ -1071,9 +1071,21 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   auto vectorC =
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
-  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, argA, argB, vectorC,
-                                     /*subwordOffset=*/0, /*unsignedA=*/false,
-                                     /*unsignedB=*/false, /*clamp=*/true);
+  // WMMAOp requires explicit m, n, k dimensions as IntegerAttrs
+  auto mAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
+  auto nAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
+  auto kAttr = b.getI32IntegerAttr(wmmaInsn.kDim);
+  auto subwordOffsetAttr = b.getI32IntegerAttr(0);
+
+  // Clamp flag is only valid for integer output types
+  Type elementType = vectorType.getElementType();
+  UnitAttr clampAttr =
+      isa<IntegerType>(elementType) ? b.getUnitAttr() : nullptr;
+
+  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, mAttr, nAttr, kAttr,
+                                     argA, argB, vectorC, subwordOffsetAttr,
+                                     /*unsignedA=*/nullptr,
+                                     /*unsignedB=*/nullptr, clampAttr);
   auto vectorD = mfma.getDestD();
 
   memref::StoreOp::create(b, loc, vectorD, bufferC, regCOffset);
@@ -1227,10 +1239,12 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
     return std::make_unique<MfmaEmitter>(*maybeMfmaInsnGroup, arch,
                                          tuningParams);
   } else if (isWmma) {
+    WmmaGemmParamsAttr wmmaParams = cast<WmmaGemmParamsAttr>(tuningParams);
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
-    auto maybeWmmaInsnGroup = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
-                                               arch, tuningParams.getMPerWave(),
-                                               tuningParams.getNPerWave());
+    auto maybeWmmaInsnGroup =
+        WmmaInsn::select(dataTypeA, dataTypeB, waveSize, arch,
+                         wmmaParams.getMPerWave(), wmmaParams.getNPerWave(),
+                         wmmaParams.getKpack(), wmmaParams.getKpackPerBlock());
     if (failed(maybeWmmaInsnGroup)) {
       return nullptr;
     }
