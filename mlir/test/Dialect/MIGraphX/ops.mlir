@@ -1,6 +1,6 @@
 // RUN: rocmlir-opt %s | FileCheck %s
 // RUN: rocmlir-opt %s | rocmlir-opt | FileCheck %s
-// Run: rocmlir-opt -mlir-print-op-generic %s | rocmlir-opt | FileCheck %s
+// RUN: rocmlir-opt -mlir-print-op-generic %s | rocmlir-opt | FileCheck %s
 
 // CHECK-LABEL: func.func @migraphx_dot
 // CHECK-NEXT: migraphx.dot 
