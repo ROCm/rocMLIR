@@ -418,7 +418,7 @@ LogicalResult QuantDotOp::verify() {
     Type bElemType = inBType.getElementType();
     if (aElemType != bElemType)
       return emitOpError("input types must have the same element type");
-    if (!isa<FloatType>(aElemType) || !isa<Float4E2M1FNType>(bElemType))
+    if (!isa<Float4E2M1FNType>(aElemType) || !isa<Float4E2M1FNType>(bElemType))
       return emitOpError(
           "Scaled quant dot ops only supports f4E2M1FN element type");
     if (!isa<FloatType>(resultType.getElementType()))
