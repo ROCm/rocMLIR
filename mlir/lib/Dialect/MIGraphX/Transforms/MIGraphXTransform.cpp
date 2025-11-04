@@ -42,53 +42,85 @@ public:
   LogicalResult matchAndRewrite(migraphx::QuantDotOp op,
                                 PatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
-    if (!op.getScaleA() || !op.getScaleB()) {
-      return failure();
-    }
+
     auto inA = op.getInA();
     auto inB = op.getInB();
-    auto inACvt = migraphx::ConvertOp::create(
-        rewriter, loc,
-        MIXRShapedType::get(inA.getType().getShape(),
-                            inA.getType().getStrides(), rewriter.getF32Type()),
-        inA);
-    auto inBCvt = migraphx::ConvertOp::create(
-        rewriter, loc,
-        MIXRShapedType::get(inB.getType().getShape(),
-                            inB.getType().getStrides(), rewriter.getF32Type()),
-        inB);
     auto scaleA = op.getScaleA();
     auto scaleB = op.getScaleB();
-    if (scaleA.getType().getElementType() != rewriter.getF32Type()) {
-      scaleA = migraphx::ConvertOp::create(
-          rewriter, loc,
-          MIXRShapedType::get(scaleA.getType().getShape(),
-                              scaleA.getType().getStrides(),
-                              rewriter.getF32Type()),
-          scaleA);
+
+    // Only decompose scaled GEMM operations (both scales must be present).
+    // The verifier ensures both scales are provided together or neither.
+    if (!scaleA && !scaleB) {
+      return failure();
     }
-    if (scaleB.getType().getElementType() != rewriter.getF32Type()) {
-      scaleB = migraphx::ConvertOp::create(
+
+    // Determine target output type
+    auto resultType = op.getResult().getType();
+
+    // For scaled operations, we always convert to F32 for proper computation
+    Type computeElemType = rewriter.getF32Type();
+
+    // Convert input A if needed
+    Value processedA = inA;
+    if (inA.getType().getElementType() != computeElemType) {
+      processedA = migraphx::ConvertOp::create(
           rewriter, loc,
-          MIXRShapedType::get(scaleB.getType().getShape(),
-                              scaleB.getType().getStrides(),
-                              rewriter.getF32Type()),
-          scaleB);
+          MIXRShapedType::get(inA.getType().getShape(),
+                              inA.getType().getStrides(), computeElemType),
+          inA);
     }
-    auto newA = migraphx::MulOp::create(
-        rewriter, loc,
-        MIXRShapedType::get(inACvt.getType().getShape(),
-                            inACvt.getType().getStrides(),
-                            rewriter.getF32Type()),
-        inACvt, scaleA);
-    auto newB = migraphx::MulOp::create(
-        rewriter, loc,
-        MIXRShapedType::get(inBCvt.getType().getShape(),
-                            inBCvt.getType().getStrides(),
-                            rewriter.getF32Type()),
-        inBCvt, scaleB);
-    auto dotOp = migraphx::DotOp::create(
-        rewriter, loc, op.getResult().getType(), newA, newB, nullptr, nullptr);
+
+    // Convert input B if needed
+    Value processedB = inB;
+    if (inB.getType().getElementType() != computeElemType) {
+      processedB = migraphx::ConvertOp::create(
+          rewriter, loc,
+          MIXRShapedType::get(inB.getType().getShape(),
+                              inB.getType().getStrides(), computeElemType),
+          inB);
+    }
+
+    // Apply scaleA if present
+    if (scaleA) {
+      Value convertedScaleA = scaleA;
+      if (scaleA.getType().getElementType() != computeElemType) {
+        convertedScaleA = migraphx::ConvertOp::create(
+            rewriter, loc,
+            MIXRShapedType::get(scaleA.getType().getShape(),
+                                scaleA.getType().getStrides(), computeElemType),
+            scaleA);
+      }
+      processedA = migraphx::MulOp::create(
+          rewriter, loc,
+          MIXRShapedType::get(
+              cast<MIXRShapedType>(processedA.getType()).getShape(),
+              cast<MIXRShapedType>(processedA.getType()).getStrides(),
+              computeElemType),
+          processedA, convertedScaleA);
+    }
+
+    // Apply scaleB if present
+    if (scaleB) {
+      Value convertedScaleB = scaleB;
+      if (scaleB.getType().getElementType() != computeElemType) {
+        convertedScaleB = migraphx::ConvertOp::create(
+            rewriter, loc,
+            MIXRShapedType::get(scaleB.getType().getShape(),
+                                scaleB.getType().getStrides(), computeElemType),
+            scaleB);
+      }
+      processedB = migraphx::MulOp::create(
+          rewriter, loc,
+          MIXRShapedType::get(
+              cast<MIXRShapedType>(processedB.getType()).getShape(),
+              cast<MIXRShapedType>(processedB.getType()).getStrides(),
+              computeElemType),
+          processedB, convertedScaleB);
+    }
+
+    // Create the dot operation with processed inputs
+    auto dotOp = migraphx::DotOp::create(rewriter, loc, resultType, processedA,
+                                         processedB, nullptr, nullptr);
     rewriter.replaceOp(op, dotOp->getResults()[0]);
     return success();
   }
