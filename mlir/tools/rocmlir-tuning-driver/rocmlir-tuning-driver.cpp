@@ -50,7 +50,6 @@
 #include <cassert>
 #include <chrono>
 #include <cstdlib>
-#include <future>
 #include <mutex>
 #include <thread>
 
@@ -179,8 +178,8 @@ static benchmark::DataType getDataType(Type inputType) {
     return failure();                                                          \
   }
 
-size_t flushSize = 0;
-void *flushBuffer = nullptr;
+static size_t flushSize = 0;
+static void *flushBuffer = nullptr;
 
 static LogicalResult flushL2Cache(hipStream_t stream) {
   if (flushBuffer == nullptr) {
@@ -682,6 +681,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     };
 
     std::vector<std::thread> threads;
+    threads.reserve(numThreads);
     for (unsigned i = 0; i < numThreads; ++i) {
       threads.emplace_back(worker);
     }
