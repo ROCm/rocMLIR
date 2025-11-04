@@ -523,13 +523,15 @@ def MIGraphX_MultiBroadcastOp :
   }];
 }
 
-class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> scaleTypes=[], list<Type> outputTypes=[]> :
-    MIGraphX_Op<mnemonic, [AttrSizedOperandSegments]>,
-    Arguments<(ins MIXRShapedOf<inputTypes>:$in_a,
-                   MIXRShapedOf<inputTypes>:$in_b,
-                   Optional<MIXRShapedOf<scaleTypes>>:$scaleA,
-                   Optional<MIXRShapedOf<scaleTypes>>:$scaleB)>,
-    Results<(outs MIXRShapedOf<outputTypes>:$output)> {
+class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes = [],
+                         list<Type> scaleTypes = [],
+                         list<Type> outputTypes = []>
+    : MIGraphX_Op<mnemonic, [AttrSizedOperandSegments]>,
+      Arguments<(ins MIXRShapedOf<inputTypes>:$in_a,
+          MIXRShapedOf<inputTypes>:$in_b,
+          Optional<MIXRShapedOf<scaleTypes>>:$scaleA,
+          Optional<MIXRShapedOf<scaleTypes>>:$scaleB)>,
+      Results<(outs MIXRShapedOf<outputTypes>:$output)> {
   let assemblyFormat = [{
     $in_a (`scaled` `by` $scaleA^)? `,` $in_b (`scaled` `by` $scaleB^)? attr-dict
     `:` type($in_a) (`scaled` `by` type($scaleA)^)? `,` type($in_b)
@@ -539,16 +541,20 @@ class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> s
   let hasVerifier = 1;
 }
 
-def MIGraphX_QuantDotOp :
-    MIGraphX_DotOpBase<"quant_dot", [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, F4E2M1FN, I8, SI8, F32], [F8E8M0FNU, F32], [F32, I32, SI32]>{
+def MIGraphX_QuantDotOp
+    : MIGraphX_DotOpBase<"quant_dot",
+                         [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, F4E2M1FN,
+                          I8, SI8, F32],
+                         [F8E8M0FNU, F32], [F32, I32, SI32]> {
   let summary = "Dot product of quantized tensors";
   let description = [{
     The `migraphx.quant_dot` op computes the dot product of two tensors.
   }];
 }
 
-def MIGraphX_DotOp :
-    MIGraphX_DotOpBase<"dot", [F32, F16, BF16, F4E2M1FN], [], [F32, F16, BF16]>{
+def MIGraphX_DotOp
+    : MIGraphX_DotOpBase<
+          "dot", [F32, F16, BF16, F4E2M1FN], [], [F32, F16, BF16]> {
   let summary = "Dot product of tensors";
   let description = [{
     The `migraphx.dot` op computes the dot product of two tensors.

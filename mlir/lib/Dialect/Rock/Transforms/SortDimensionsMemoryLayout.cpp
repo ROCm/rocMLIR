@@ -305,7 +305,8 @@ reorderBatch(Value tensor, const SmallVector<StringRef> &layout,
 
 // Helper function to process scale tensors for scaled GEMM operations.
 // Scales maintain logical GEMM dimensions (M x K for scaleA, K x N for scaleB).
-// When tensors are transposed, scales should NOT follow the transposed physical layout.
+// When tensors are transposed, scales should NOT follow the transposed physical
+// layout.
 static FailureOr<Value> processScaleTensor(Value scale, Value referenceTensor,
                                            bool tensorIsTransposed,
                                            PatternRewriter &b) {
@@ -349,9 +350,10 @@ static FailureOr<Value> processScaleTensor(Value scale, Value referenceTensor,
     return rock::transform(b, scale, b.getArrayAttr({reorderScale.get()}));
   }
 
-  // If tensor IS transposed, scale should have OPPOSITE non-batch dimension order
-  // to maintain logical GEMM dimensions
-  SmallVector<int64_t> expectedScaleShape(tensorShape.begin(), tensorShape.end());
+  // If tensor IS transposed, scale should have OPPOSITE non-batch dimension
+  // order to maintain logical GEMM dimensions
+  SmallVector<int64_t> expectedScaleShape(tensorShape.begin(),
+                                          tensorShape.end());
   if (expectedScaleShape.size() >= 3) {
     // Swap the last two dimensions (non-batch dimensions)
     std::swap(expectedScaleShape[expectedScaleShape.size() - 2],
@@ -623,10 +625,10 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
     auto finalLayoutB = std::get<2>(batchReorderB);
 
     // Process scale tensors if present
-    auto maybeScaleA = processScaleTensor(scaleA, newTensorA,
-                                          transposedA != nullptr, b);
-    auto maybeScaleB = processScaleTensor(scaleB, newTensorB,
-                                          transposedB != nullptr, b);
+    auto maybeScaleA =
+        processScaleTensor(scaleA, newTensorA, transposedA != nullptr, b);
+    auto maybeScaleB =
+        processScaleTensor(scaleB, newTensorB, transposedB != nullptr, b);
 
     if (failed(maybeScaleA))
       return op.emitOpError("failed to process scaleA");

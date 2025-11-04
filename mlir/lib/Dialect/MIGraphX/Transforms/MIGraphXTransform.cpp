@@ -144,32 +144,32 @@ public:
   }
 };
 
-  void populateMIGraphXSqrt(MLIRContext *context, RewritePatternSet &patterns) {
-    patterns.add<SqrtDecompose>(context);
-  }
+void populateMIGraphXSqrt(MLIRContext *context, RewritePatternSet &patterns) {
+  patterns.add<SqrtDecompose>(context);
+}
 
-  struct MIGraphXTransforms
-      : public migraphx::impl::MIGraphXTransformPassBase<MIGraphXTransforms> {
-    void runOnOperation() override {
-      auto &ctx = getContext();
-      RewritePatternSet patterns(&ctx);
-      ConversionTarget target(ctx);
-      target.addLegalDialect<migraphx::MIGraphXDialect, func::FuncDialect,
-                             tosa::TosaDialect, mhal::MHALDialect>();
-      target.addIllegalOp<migraphx::SqrtOp>();
-      auto func = getOperation();
+struct MIGraphXTransforms
+    : public migraphx::impl::MIGraphXTransformPassBase<MIGraphXTransforms> {
+  void runOnOperation() override {
+    auto &ctx = getContext();
+    RewritePatternSet patterns(&ctx);
+    ConversionTarget target(ctx);
+    target.addLegalDialect<migraphx::MIGraphXDialect, func::FuncDialect,
+                           tosa::TosaDialect, mhal::MHALDialect>();
+    target.addIllegalOp<migraphx::SqrtOp>();
+    auto func = getOperation();
 
-      populateMIGraphXSqrt(&ctx, patterns);
-      if (failed(applyFullConversion(func, target, std::move(patterns)))) {
-        signalPassFailure();
-      }
-      {
-        RewritePatternSet patterns(&ctx);
-        patterns.add<QuantDotDecompose>(&ctx);
-        if (failed(applyPatternsGreedily(func, std::move(patterns))))
-          signalPassFailure();
-      }
+    populateMIGraphXSqrt(&ctx, patterns);
+    if (failed(applyFullConversion(func, target, std::move(patterns)))) {
+      signalPassFailure();
     }
-  };
+    {
+      RewritePatternSet patterns(&ctx);
+      patterns.add<QuantDotDecompose>(&ctx);
+      if (failed(applyPatternsGreedily(func, std::move(patterns))))
+        signalPassFailure();
+    }
+  }
+};
 
 } // namespace
