@@ -56,6 +56,14 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 
+#include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
+#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
+#include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+
 namespace mlir {
 namespace rock {
 #define GEN_PASS_DEF_ROCKADDASYNCWAITPASS
@@ -78,8 +86,18 @@ struct RockAddAsyncWaitPass
 } // end anonymous namespace
 
 int getWaitCount(rock::LDSBarrierOp barrier) {
-  // Safe
-  return 0;
+  int waitCount = 0;
+  Operation* parent = barrier->getParentOp();
+
+  parent->walk([&](Operation *op) {
+    if (op->getBlock() == barrier->getBlock() && 
+        op->isBeforeInBlock(barrier) && 
+        isa<ThreadwiseReadIntoOp>(op)) {
+      waitCount++;
+    }    
+  });
+
+  return waitCount;
 }
 
 static LogicalResult addAsyncWait(func::FuncOp &func) {
