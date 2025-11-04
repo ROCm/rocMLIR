@@ -50,7 +50,6 @@
 #include <cassert>
 #include <chrono>
 #include <cstdlib>
-#include <future>
 #include <mutex>
 #include <thread>
 
@@ -179,8 +178,8 @@ static benchmark::DataType getDataType(Type inputType) {
     return failure();                                                          \
   }
 
-size_t flushSize = 0;
-void *flushBuffer = nullptr;
+static size_t flushSize = 0;
+static void *flushBuffer = nullptr;
 
 static LogicalResult flushL2Cache(hipStream_t stream) {
   if (flushBuffer == nullptr) {
@@ -474,13 +473,13 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
   // 2. Set up compilation options (shared across all threads)
   rock::KernelOptions applicabilityOpts;
-  applicabilityOpts.enableApplicability = true;
-  applicabilityOpts.enableFusion = true;
+  applicabilityOpts.applicabilityMode =
+      mlir::rock::ApplicabilityMode::Applicability;
   applicabilityOpts.tuningFallback = false;
 
   rock::KernelOptions compilationKernOpts;
-  compilationKernOpts.enableApplicability = false;
-  compilationKernOpts.enableFusion = true;
+  compilationKernOpts.applicabilityMode =
+      mlir::rock::ApplicabilityMode::NonApplicability;
   compilationKernOpts.tuningFallback = false;
 
   RocmDeviceName deviceName;
@@ -603,21 +602,21 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     };
 
     // Applicability check
-    OwningOpRef<ModuleOp> applicabilityCopy =
+    OwningOpRef<ModuleOp> sourceCopy =
         copyIRThread(threadSource.get(), perfConfigAttr);
-    if (!rock::isModuleFusible(applicabilityCopy.get(), result.perfConfig)) {
+    if (!rock::isModuleFusible(sourceCopy.get(), result.perfConfig)) {
       result.status = CompilationStatus::NotApplicable;
       return result;
     }
 
-    if (failed(threadApplicability.run(applicabilityCopy.get()))) {
+    if (failed(threadApplicability.run(sourceCopy.get()))) {
       result.status = CompilationStatus::NotApplicable;
       return result;
     }
 
     // Extract block and grid sizes
     for (auto &fnName : kernelFuncNames) {
-      auto tunedFunc = applicabilityCopy->lookupSymbol<func::FuncOp>(fnName);
+      auto tunedFunc = sourceCopy->lookupSymbol<func::FuncOp>(fnName);
       if (!tunedFunc) {
         result.status = CompilationStatus::CompilationFailed;
         compilationFailed.store(true, std::memory_order_relaxed);
@@ -630,9 +629,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
 
     // Compilation
-    OwningOpRef<ModuleOp> compileCopy =
-        copyIRThread(threadSource.get(), perfConfigAttr);
-    if (failed(threadCompilation.run(compileCopy.get()))) {
+    if (failed(threadCompilation.run(sourceCopy.get()))) {
       std::lock_guard<std::mutex> lock(outputMutex);
       llvm::errs() << "Backend pipeline failed for config: "
                    << result.perfConfig << "\n";
@@ -643,8 +640,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
     // Extract binaries
     for (const auto &fnName : kernelFuncNames) {
-      auto binary =
-          compileCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
+      auto binary = sourceCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
       if (!binary) {
         result.status = CompilationStatus::CompilationFailed;
         compilationFailed.store(true, std::memory_order_relaxed);
@@ -685,6 +681,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     };
 
     std::vector<std::thread> threads;
+    threads.reserve(numThreads);
     for (unsigned i = 0; i < numThreads; ++i) {
       threads.emplace_back(worker);
     }
