@@ -72,7 +72,7 @@ pipeline {
     stages {
         stage("Set System Property") {
             steps {
-                setHeartbeat()
+                ciLogic.setHeartbeat()
             }
         }
         stage("Kill old PR builds") {
@@ -81,7 +81,7 @@ pipeline {
                 equals expected: false, actual: params.nightly;
             }
             steps {
-                resetBuild()
+                ciLogic.resetBuild()
             }
         }
         stage('Build and Test') {
@@ -101,20 +101,20 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunBuildAndTest(CODEPATH) }
+                            expression { ciLogic.shouldRunBuildAndTest(CODEPATH) }
                         }
                         steps {
                             script {
                                 // Prepare node
-                                withHealthyNode(
-                                    getLabelFromCodepath(CODEPATH),
+                                nodeUtils.withHealthyNode(
+                                    ciLogic.getLabelFromCodepath(CODEPATH),
                                     {
                                         checkNodeHealth([doCleanWs: true])
                                     },
                                     {
                                         stage("SCM Checkout") {
                                             try {
-                                                robustScmCheckout()
+                                                scmUtils.robustScmCheckout()
                                             } catch (e) {
                                                 error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                             }
@@ -124,12 +124,12 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                dockerArgs()
+                                                nodeUtils.dockerArgs()
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
+                                                img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
@@ -143,10 +143,10 @@ pipeline {
                                                         stage('Shared Library: fixed E2E') {
                                                             echo "codepath is ${CODEPATH}"
                                                             echo "Container environment:"
-                                                            showEnv()
+                                                            nodeUtils.showEnv()
 
-                                                            build_fixedE2ETests("${CODEPATH}")
-                                                            preMergeCheck("${CODEPATH}")
+                                                            testUtils.build_fixedE2ETests("${CODEPATH}")
+                                                            testUtils.preMergeCheck("${CODEPATH}")
                                                             timeout(time: 60, activity: true, unit: 'MINUTES') {
                                                                 sh 'cd build; ninja check-mlir check-rocmlir'
                                                             }
@@ -155,13 +155,13 @@ pipeline {
                                                     
                                                     if (params.sharedLib && params.nightly) {
                                                         stage('Shared Library: random E2E') {
-                                                            check_randomE2ETests("${CODEPATH}")
+                                                            testUtils.check_randomE2ETests("${CODEPATH}")
                                                         }
                                                     }
 
                                                     if (params.sharedLib && !params.nightly) {
                                                         stage('Tune selected rocMLIR configs') {
-                                                            buildProject('ci-performance-scripts', '')
+                                                            buildUtils.buildProject('ci-performance-scripts', '')
                                                             // How to check out into specific directory, according to stackoverflow.
                                                             dir('MITuna') {
                                                                 git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
@@ -197,8 +197,8 @@ pipeline {
                                                     if (params.staticLib && !params.nightly) {
                                                         stage('Static Lib: build packages') {
                                                             sh 'rm -f build/CMakeCache.txt'
-                                                            buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
-                                                            preMergeCheckPackage("${CODEPATH}")
+                                                            buildUtils.buildProject('package', '-DBUILD_FAT_LIBROCKCOMPILER=ON')
+                                                            testUtils.preMergeCheckPackage("${CODEPATH}")
                                                             echo "Running tests on the newly-built static library"
                                                             dir ('build') {
                                                                 sh 'ninja check-rocmlir'
@@ -244,20 +244,20 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromCodepath(CODEPATH) }
+                            expression { ciLogic.shouldRunFromCodepath(CODEPATH) }
                         }
                         steps {
                             script {
                                 // Prepare node
-                                withHealthyNode(
-                                    getLabelFromCodepath(CODEPATH),
+                                nodeUtils.withHealthyNode(
+                                    ciLogic.getLabelFromCodepath(CODEPATH),
                                     {
                                         checkNodeHealth()
                                     },
                                     {
                                         stage("SCM Checkout") {
                                             try {
-                                                robustScmCheckout()
+                                                scmUtils.robustScmCheckout()
                                             } catch (e) {
                                                 error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                             }
@@ -267,12 +267,12 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                dockerArgs()
+                                                nodeUtils.dockerArgs()
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
+                                                img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
@@ -284,14 +284,14 @@ pipeline {
                                                     stage("Prepare Performance Scripts") {
                                                         echo "codepath is ${CODEPATH}"
                                                         echo "Container environment:"
-                                                        showEnv()
-                                                        setHeartbeat()
-                                                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                                        nodeUtils.showEnv()
+                                                        ciLogic.setHeartbeat()
+                                                        buildUtils.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                                     }
 
                                                     stage("Parameter Sweep") {
-                                                        parameterSweep("conv_structure", "${CODEPATH}")
-                                                        parameterSweep("perf_config", "${CODEPATH}")
+                                                        testUtils.parameterSweep("conv_structure", "${CODEPATH}")
+                                                        testUtils.parameterSweep("perf_config", "${CODEPATH}")
                                                     }
                                                 }
                                             }
@@ -332,20 +332,20 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromChip(CHIP) }
+                            expression { ciLogic.shouldRunFromChip(CHIP) }
                         }
                         steps {
                             script {
                                 // Prepare node
-                                withHealthyNode(
-                                    getLabelFromChip(CHIP),
+                                nodeUtils.withHealthyNode(
+                                    ciLogic.getLabelFromChip(CHIP),
                                     {
                                         checkNodeHealth()
                                     },
                                     {
                                         stage("SCM Checkout") {
                                             try {
-                                                robustScmCheckout()
+                                                scmUtils.robustScmCheckout()
                                             } catch (e) {
                                                 error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                             }
@@ -355,12 +355,12 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                dockerArgs()
+                                                nodeUtils.dockerArgs()
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
+                                                img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
@@ -372,13 +372,13 @@ pipeline {
                                                 ]) {   
                                                     if (CHIP == "gfx90a") {
                                                         stage("Set System Property on Lockhart nodes") {
-                                                            showEnv()
-                                                            setHeartbeat()
+                                                            nodeUtils.showEnv()
+                                                            ciLogic.setHeartbeat()
                                                         }
                                                     }
 
                                                     stage("Tune rocMLIR") {
-                                                        buildProject('check-rocmlir-build-only ci-performance-scripts', '')
+                                                        buildUtils.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                                         dir('MITuna') {
                                                             git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                                                         }
@@ -483,7 +483,7 @@ pipeline {
                 skipDefaultCheckout()
             }
             steps {
-                archivePerfDB()
+                reportUtils.archivePerfDB()
             }
             post {
                 always {
@@ -507,20 +507,20 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromChip(CHIP) }
+                            expression { ciLogic.shouldRunFromChip(CHIP) }
                         }
                         steps {
                             script {
                                 // Prepare node
-                                withHealthyNode(
-                                    getLabelFromChip(CHIP),
+                                nodeUtils.withHealthyNode(
+                                    ciLogic.getLabelFromChip(CHIP),
                                     {
                                         checkNodeHealth()
                                     },
                                     {
                                         stage("SCM Checkout") {
                                             try {
-                                                robustScmCheckout()
+                                                scmUtils.robustScmCheckout()
                                             } catch (e) {
                                                 error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                             }
@@ -530,12 +530,12 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                dockerArgs()
+                                                nodeUtils.dockerArgs()
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImage())
+                                                img = docker.image(nodeUtils.dockerImage())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
@@ -548,7 +548,7 @@ pipeline {
                                                     stage("Copy tuning database") {
                                                         echo "chip is ${CHIP}"
                                                         echo "Container environment:"
-                                                        showEnv()
+                                                        nodeUtils.showEnv()
                                                         copyArtifacts filter: 'build/perfDB/**',\
                                                             optional: true,\
                                                             flatten: true,\
@@ -561,7 +561,7 @@ pipeline {
 
                                                     stage("Build MLIR") {
                                                         // Clean up build settings to disable static library and allow ROCm testing
-                                                        buildProject(
+                                                        buildUtils.buildProject(
                                                             'check-rocmlir-build-only ci-performance-scripts',
                                                             '-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ ' +
                                                             '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang '
@@ -586,8 +586,8 @@ pipeline {
                                                             script {
                                                                 if (params.nightly) {
                                                                     def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                                    splitConfigFile(convInput, convToUse, runIndex)
-                                                                    splitConfigFile(gemmInput, gemmToUse, runIndex)
+                                                                    ciLogic.splitConfigFile(convInput, convToUse, runIndex)
+                                                                    ciLogic.splitConfigFile(gemmInput, gemmToUse, runIndex)
                                                                 }
                                                             }
                                                             sh 'date --utc +%Y-%m-%d > perf-run-date'
@@ -610,7 +610,7 @@ pipeline {
                                                         }
                                                     }
 
-                                                    if (isNotNavi3x(CHIP)) {
+                                                    if (ciLogic.isNotNavi3x(CHIP)) {
                                                         stage("Test Attention") {
                                                             dir('build') {
                                                                 def attnInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-attention-configs"
@@ -618,7 +618,7 @@ pipeline {
                                                                 script {
                                                                     if (params.nightly) {
                                                                         def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                                        splitConfigFile(attnInput, attnToUse, runIndex)
+                                                                        ciLogic.splitConfigFile(attnInput, attnToUse, runIndex)
                                                                     }
                                                                 }
                                                                 // Run attention benchmarks
@@ -629,12 +629,12 @@ pipeline {
                                                         }
                                                     }
 
-                                                    if (params.checkCK && isNotNavi3x(CHIP)) {
+                                                    if (params.checkCK && ciLogic.isNotNavi3x(CHIP)) {
                                                         stage("Test MLIR vs CK") {
                                                             catchError (buildResult: null) { // This is an optional stage
                                                                 dir('composable_kernel') {
                                                                     sh 'rm -rf composable_kernel'
-                                                                    getAndBuildCK('''
+                                                                    getAndbuildUtils.buildCK('''
                                                                         -DGPU_TARGETS=${CHIP}
                                                                         -DCMAKE_CXX_FLAGS="-O3"
                                                                         -DCMAKE_PREFIX_PATH="/opt/rocm"
@@ -645,7 +645,7 @@ pipeline {
                                                                     sh 'echo `git rev-parse HEAD`'
                                                                 }
                                                                 sh 'rm -f build/CMakeCache.txt'
-                                                                buildProject("ck-benchmark-driver",
+                                                                buildUtils.buildProject("ck-benchmark-driver",
                                                                             '''-DCMAKE_PREFIX_PATH=${WORKSPACE}/composable_kernel/build/CKInstallDir
                                                                                 -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                                                 -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang
@@ -658,7 +658,7 @@ pipeline {
                                                                     script {
                                                                         if (params.nightly) {
                                                                             def runIndex = ((env.BUILD_NUMBER as int) - 1) % 5 + 1
-                                                                            splitConfigFile(gemmInput, gemmToUse, runIndex)
+                                                                            ciLogic.splitConfigFile(gemmInput, gemmToUse, runIndex)
                                                                         }
                                                                     }
                                                                     sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
@@ -678,7 +678,7 @@ pipeline {
                                                             sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
                                                             sh 'mkdir -p reports && cp ./*.html reports'
                                                         }
-                                                        postProcessPerfRes("${CHIP}")
+                                                        reportUtils.postProcessPerfRes("${CHIP}")
                                                     }
                                                 }
                                             }
@@ -717,20 +717,20 @@ pipeline {
                 stages {
                     stage('Matrix row orchestration') {
                         when {
-                            expression { shouldRunFromCodepath(CODEPATH) }
+                            expression { ciLogic.shouldRunFromCodepath(CODEPATH) }
                         }
                         steps {
                             script {
                                 // Prepare node
-                                withHealthyNode(
-                                    getLabelFromCodepath(CODEPATH),
+                                nodeUtils.withHealthyNode(
+                                    ciLogic.getLabelFromCodepath(CODEPATH),
                                     {
                                         checkNodeHealth()
                                     },
                                     {
                                         stage("SCM Checkout") {
                                             try {
-                                                robustScmCheckout()
+                                                scmUtils.robustScmCheckout()
                                             } catch (e) {
                                                 error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                             }
@@ -740,12 +740,12 @@ pipeline {
                                             def img = null
                                             stage("Prepare Docker environment") {
                                                 // Fill in the docker args from the node
-                                                dockerArgs()
+                                                nodeUtils.dockerArgs()
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                img = docker.image(dockerImageCIMIGraphX())
+                                                img = docker.image(nodeUtils.dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
@@ -758,16 +758,16 @@ pipeline {
                                                     stage("Install MIGraphX Dependencies") {
                                                         echo "codepath is ${CODEPATH}"
                                                         echo "Container environment:"
-                                                        showEnv()
+                                                        nodeUtils.showEnv()
                                                         // Package and install current checkout of rocMLIR as MIGraphX dependency.
                                                         sh 'cget -p ${WORKSPACE}/MIGraphXDeps install ${WORKSPACE} -DBUILD_FAT_LIBROCKCOMPILER=On -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ -DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang'
                                                     }
 
                                                     stage("Build and Verify MIGraphX with MLIR") {
-                                                        def gpu_arch = get_gpu_architecture()
+                                                        def gpu_arch = nodeUtils.get_gpu_architecture()
                                                         sh 'rm -rf MIGraphX'
                                                         dir('MIGraphX') {
-                                                            getAndBuildMIGraphX("""
+                                                            getAndbuildUtils.buildMIGraphX("""
                                                                             -DCMAKE_PREFIX_PATH='${WORKSPACE}/MIGraphXDeps;/MIGraphXDeps;/opt/rocm'
                                                                             -DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++
                                                                             -DGPU_TARGETS="${gpu_arch}"
@@ -840,15 +840,15 @@ pipeline {
                             catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
                                 script {
                                     // Prepare node
-                                    withHealthyNode(
-                                        getLabelFromCodepath(CODEPATH),
+                                    nodeUtils.withHealthyNode(
+                                        ciLogic.getLabelFromCodepath(CODEPATH),
                                         {
                                             checkNodeHealth()
                                         },
                                         {
                                             stage("SCM Checkout") {
                                                 try {
-                                                    robustScmCheckout()
+                                                    scmUtils.robustScmCheckout()
                                                 } catch (e) {
                                                     error "[SCM] Checkout failed on ${env.NODE_NAME}: ${e}"
                                                 }
@@ -858,12 +858,12 @@ pipeline {
                                                 def img = null
                                                 stage("Prepare Docker environment") {
                                                     // Fill in the docker args from the node
-                                                    dockerArgs()
+                                                    nodeUtils.dockerArgs()
 
                                                     args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
                                                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                    img = docker.image(dockerImage())
+                                                    img = docker.image(nodeUtils.dockerImage())
                                                     img?.pull()
                                                 }
                                                 // Spin up ONE container and stay in it for all substages
@@ -879,17 +879,17 @@ pipeline {
                                                     ]) {   
                                                         stage ("body") {
                                                             echo "Container environment:"
-                                                            showEnv()
+                                                            nodeUtils.showEnv()
                                                             // Build with profiling on, and just code-generation tests.
                                                             try {
                                                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
                                                                     sh 'rm -f build/CMakeCache.txt'
                                                                     sh 'rm -f build/*.profraw'
-                                                                    buildProject('check-rocmlir-build-only',
+                                                                    buildUtils.buildProject('check-rocmlir-build-only',
                                                                                 '-DBUILD_FAT_LIBROCKCOMPILER=ON -DCMAKE_BUILD_TYPE=debug -DLLVM_BUILD_INSTRUMENTED_COVERAGE=ON')
                                                                     dir ('build') {
                                                                         // Run tests.
-                                                                        collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
+                                                                        testUtils.collectCoverageData("${LLVM_PROFDATA}", "${LLVM_COV}", "${CODEPATH}")
                                                                         // Upload to codecov.
                                                                         withCredentials([string(credentialsId: 'codecov-token-rocmlir',
                                                                                                 variable: 'CODECOV_TOKEN')]) {

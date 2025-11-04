@@ -107,9 +107,9 @@ Map<String,String> dockerArgs() {
         --group-add ${renderGid} --group-add ${videoGid}
     """.trim().replaceAll(/\s+/, ' ')
 
-    script.DOCKER_ARGS_BY_NODE[env.NODE_NAME] = args
+    DOCKER_ARGS_BY_NODE[env.NODE_NAME] = args
     echo "Received Docker args for ${env.NODE_NAME}: ${args}"
-    return script.DOCKER_ARGS_BY_NODE // ConcurrentHashMap
+    return DOCKER_ARGS_BY_NODE // ConcurrentHashMap
 }
 
 //Get the GPU name of architecture
