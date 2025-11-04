@@ -277,6 +277,19 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location,
       mlirStringRefCreateFromCString("migraphx.dot"), location);
   mlirOperationStateAddResults(&dotOpState, 1, &matCType);
   mlirOperationStateAddOperands(&dotOpState, 2, dotOperands);
+
+  // Set operandSegmentSizes attribute for AttrSizedOperandSegments trait
+  // [in_a, in_b, scaleA, scaleB] = [1, 1, 0, 0]
+  int32_t segmentSizes[] = {1, 1, 0, 0};
+  MlirAttribute operandSegmentSizesAttr =
+      mlirDenseI32ArrayGet(ctx, 4, segmentSizes);
+  MlirNamedAttribute operandSegmentSizesNamedAttr = mlirNamedAttributeGet(
+      mlirIdentifierGet(ctx,
+                        mlirStringRefCreateFromCString("operandSegmentSizes")),
+      operandSegmentSizesAttr);
+  mlirOperationStateAddAttributes(&dotOpState, 1,
+                                  &operandSegmentSizesNamedAttr);
+
   MlirOperation dotOp = mlirOperationCreate(&dotOpState);
   mlirBlockAppendOwnedOperation(funcBody, dotOp);
   MlirValue dotValue = mlirOperationGetResult(dotOp, 0);
