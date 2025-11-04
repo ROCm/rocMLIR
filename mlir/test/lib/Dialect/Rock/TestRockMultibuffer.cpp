@@ -65,8 +65,9 @@ static LogicalResult testMultiBuffering(func::FuncOp f) {
         rock::multiBuffer(rewriter, alloc.first, mbAllocs, alloc.second, true);
     if (newFactor && succeeded(mb)) {
       SmallVector<rock::GpuAllocOp> newAllocs;
-      (void)rock::updateMultiBuffer(rewriter, loc, mbAllocs, newAllocs,
-                                    newFactor);
+      if (failed(rock::updateMultiBuffer(rewriter, loc, mbAllocs, newAllocs,
+                                         newFactor)))
+        return failure();
     }
   }
 

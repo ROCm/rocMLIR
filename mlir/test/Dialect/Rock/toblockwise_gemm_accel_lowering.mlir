@@ -19,8 +19,6 @@ func.func @fp8_bf8_xdlops(%arg0: memref<1x128x128xf8E4M3FNUZ>, %arg1: memref<1x1
   // CHECK-SAME: loadType = #rock<GemmLoadTileType Default>
   // CHECK: rock.stage
   // CHECK: rock.blockwise_gemm_accel %{{.*}} += %[[regA]] from %[[viewAGemm]] * %[[regB]] from %[[viewBGemm]]
-  // CHECK-SAME: loadAfromLDS
-  // CHECK-SAME: loadBfromLDS
   // CHECK: rock.yield
   // CHECK: {name = "MMA"}
   // CHECK: {pipeline = #rock.pipeline<2>}
@@ -34,18 +32,14 @@ func.func @fp8_bf8_xdlops_schedulev2(%arg0: memref<1x128x128xf8E4M3FNUZ>, %arg1:
   // CHECK: %[[ldsA:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsB:.+]] = rock.alloc() : memref<8192xi8, #gpu.address_space<workgroup>>
 
-  // CHECK-DAG: %[[viewAGemm:.+]] = memref.view %[[ldsA]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E4M3FNUZ>, #gpu.address_space<workgroup>>
-  // CHECK-DAG: %[[viewBGemm:.+]] = memref.view %[[ldsB]][{{.*}}][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<1024xvector<8xf8E5M2FNUZ>, #gpu.address_space<workgroup>>
-
   // CHECK: scf.for
   // CHECK: rock.blockwise_load_tile %arg1{{.*}} LDS -> %[[ldsB]] -> %[[regB:[0-9]+]]
   // CHECK-SAME: loadType = #rock<GemmLoadTileType DoubleBuffer>
   // CHECK: rock.blockwise_load_tile %arg0{{.*}} LDS -> %[[ldsA]] -> %[[regA:[0-9]+]]
   // CHECK-SAME: loadType = #rock<GemmLoadTileType DoubleBuffer>
   // CHECK: rock.stage
-  // CHECK: rock.blockwise_gemm_accel %{{.*}} += %[[regA]] from %[[viewAGemm]] * %[[regB]] from %[[viewBGemm]]
-  // CHECK-NOT: loadAfromLDS
-  // CHECK-NOT: loadBfromLDS
+  // CHECK: rock.blockwise_gemm_accel %{{.*}} += %[[regA]] * %[[regB]]
+  // CHECK-NOT: from
   // CHECK: rock.yield
   // CHECK: {name = "MMA"}
   // CHECK: {pipeline = #rock.pipeline<1>}
