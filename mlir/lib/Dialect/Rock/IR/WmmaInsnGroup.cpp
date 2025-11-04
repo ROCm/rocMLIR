@@ -17,81 +17,282 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-static Type getRetType(Type inputType) {
+static Type getRetType(Type inputType, WmmaTypeId typeId) {
   Builder b(inputType.getContext());
-  if (inputType.isInteger(8))
+
+  // Integer types always output I32
+  if (typeId == WmmaTypeId::I8_To_I32_TyId ||
+      typeId == WmmaTypeId::I4_To_I32_TyId)
     return b.getI32Type();
 
+  // F16 output variants
+  if (typeId == WmmaTypeId::F16_To_F16_TyId ||
+      typeId == WmmaTypeId::Fp8Fp8_To_F16_TyId ||
+      typeId == WmmaTypeId::Fp8Bf8_To_F16_TyId ||
+      typeId == WmmaTypeId::Bf8Fp8_To_F16_TyId ||
+      typeId == WmmaTypeId::Bf8Bf8_To_F16_TyId)
+    return b.getF16Type();
+
+  // BF16 output variants
+  if (typeId == WmmaTypeId::Bf16_To_Bf16_TyId ||
+      typeId == WmmaTypeId::Bf16_To_Bf16F32_TyId)
+    return b.getBF16Type();
+
+  // Default: F32 output
   return b.getF32Type();
 }
 
-bool WmmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
-  int64_t inputVectorLen = argTypeA.getNumElements();
-  if (kPerBlock * kpack < inputVectorLen) {
+// Convert input types to type ID. This handles both same-type and mixed-type
+// inputs and always uses F32/I32 outputs
+static WmmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
+  // Same type inputs
+  if (dataTypeA == dataTypeB) {
+    if (dataTypeA.isF32())
+      return WmmaTypeId::F32_To_F32_TyId;
+    if (dataTypeA.isF16())
+      return WmmaTypeId::F16_To_F32_TyId;
+    if (dataTypeA.isBF16())
+      return WmmaTypeId::Bf16_To_F32_TyId;
+    if (dataTypeA.isInteger(8))
+      return WmmaTypeId::I8_To_I32_TyId;
+    if (dataTypeA.isInteger(4))
+      return WmmaTypeId::I4_To_I32_TyId;
+  }
+
+  // Mixed precision FP8/BF8 combinations
+  if (isa<Float8E4M3FNType>(dataTypeA) && isa<Float8E4M3FNType>(dataTypeB))
+    return WmmaTypeId::Fp8Fp8_To_F32_TyId;
+  if (isa<Float8E4M3FNType>(dataTypeA) && isa<Float8E5M2Type>(dataTypeB))
+    return WmmaTypeId::Fp8Bf8_To_F32_TyId;
+  if (isa<Float8E5M2Type>(dataTypeA) && isa<Float8E4M3FNType>(dataTypeB))
+    return WmmaTypeId::Bf8Fp8_To_F32_TyId;
+  if (isa<Float8E5M2Type>(dataTypeA) && isa<Float8E5M2Type>(dataTypeB))
+    return WmmaTypeId::Bf8Bf8_To_F32_TyId;
+
+  llvm_unreachable("Unsupported WMMA input type combination");
+}
+
+// WMMA instructions available on gfx11
+static const llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> &getWmmaInsnMapGfx11() {
+  static llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> insnMap{
+      {{WmmaTypeId::F16_To_F32_TyId, 16},
+       {ROCDL::wmma_f32_16x16x16_f16::getOperationName(), 16, 8, 16, 16}},
+      {{WmmaTypeId::Bf16_To_F32_TyId, 16},
+       {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 16, 8, 16, 16}},
+      {{WmmaTypeId::I8_To_I32_TyId, 16},
+       {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 16, 8, 16, 16}},
+  };
+  return insnMap;
+}
+
+// WMMA instructions available on gfx12
+static const llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> &getWmmaInsnMapGfx12() {
+  static llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> insnMap{
+      {{WmmaTypeId::F16_To_F32_TyId, 16},
+       {ROCDL::wmma_f32_16x16x16_f16::getOperationName(), 8, 8, 16, 16}},
+      {{WmmaTypeId::Bf16_To_F32_TyId, 16},
+       {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 8, 8, 16, 16}},
+      {{WmmaTypeId::I8_To_I32_TyId, 16},
+       {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 8, 8, 16, 16}},
+
+      // FP8/BF8
+      {{WmmaTypeId::Fp8Fp8_To_F32_TyId, 16},
+       {ROCDL::wmma_f32_16x16x16_fp8_fp8::getOperationName(), 8, 8, 16, 16}},
+      {{WmmaTypeId::Bf8Bf8_To_F32_TyId, 16},
+       {ROCDL::wmma_f32_16x16x16_bf8_bf8::getOperationName(), 8, 8, 16, 16}},
+  };
+  return insnMap;
+}
+
+// WMMA instructions available on gfx1250
+static const llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> &
+getWmmaInsnMapGfx1250() {
+  static llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> insnMap{
+      // F32
+      {{WmmaTypeId::F32_To_F32_TyId, 4},
+       {ROCDL::wmma_f32_16x16x4_f32::getOperationName(), 2, 8, 16, 16}},
+
+      // F16/BF16
+      {{WmmaTypeId::F16_To_F32_TyId, 32},
+       {ROCDL::wmma_f32_16x16x32_f16::getOperationName(), 16, 8, 16, 16}},
+      {{WmmaTypeId::Bf16_To_F32_TyId, 32},
+       {ROCDL::wmma_f32_16x16x32_bf16::getOperationName(), 16, 8, 16, 16}},
+
+      // FP8/BF8 (k=64)
+      {{WmmaTypeId::Fp8Fp8_To_F32_TyId, 64},
+       {ROCDL::wmma_f32_16x16x64_fp8_fp8::getOperationName(), 32, 8, 16, 16}},
+      {{WmmaTypeId::Fp8Bf8_To_F32_TyId, 64},
+       {ROCDL::wmma_f32_16x16x64_fp8_bf8::getOperationName(), 32, 8, 16, 16}},
+      {{WmmaTypeId::Bf8Fp8_To_F32_TyId, 64},
+       {ROCDL::wmma_f32_16x16x64_bf8_fp8::getOperationName(), 32, 8, 16, 16}},
+      {{WmmaTypeId::Bf8Bf8_To_F32_TyId, 64},
+       {ROCDL::wmma_f32_16x16x64_bf8_bf8::getOperationName(), 32, 8, 16, 16}},
+
+      // FP8/BF8 (k=128)
+      {{WmmaTypeId::Fp8Fp8_To_F32_TyId, 128},
+       {ROCDL::wmma_f32_16x16x128_fp8_fp8::getOperationName(), 64, 8, 16, 16}},
+      {{WmmaTypeId::Fp8Bf8_To_F32_TyId, 128},
+       {ROCDL::wmma_f32_16x16x128_fp8_bf8::getOperationName(), 64, 8, 16, 16}},
+      {{WmmaTypeId::Bf8Fp8_To_F32_TyId, 128},
+       {ROCDL::wmma_f32_16x16x128_bf8_fp8::getOperationName(), 64, 8, 16, 16}},
+      {{WmmaTypeId::Bf8Bf8_To_F32_TyId, 128},
+       {ROCDL::wmma_f32_16x16x128_bf8_bf8::getOperationName(), 64, 8, 16, 16}},
+
+      // I8
+      {{WmmaTypeId::I8_To_I32_TyId, 64},
+       {ROCDL::wmma_i32_16x16x64_iu8::getOperationName(), 32, 8, 16, 16}},
+  };
+  return insnMap;
+}
+
+// Helper function to validate K coherence
+// Returns true if kPerBlock * kPack is sufficient for the given inputVectorLen
+static bool isKCoherent(int64_t inputVectorLen, int64_t kPack,
+                        int64_t kPackPerBlock) {
+  if (((kPackPerBlock * kPack) % inputVectorLen) != 0) {
     LLVM_DEBUG(llvm::dbgs()
-               << "kPerBlock*kpack needs to be a multiple of inputLen "
-               << inputVectorLen << "\n");
+               << "kPerBlock*kpack needs to be a multiple of inputLen: "
+               << kPackPerBlock << " * " << kPack << " = "
+               << (kPackPerBlock * kPack) << " % " << inputVectorLen << "\n");
     return false;
   }
   return true;
 }
 
+bool WmmaInsn::isCoherentWithK(int64_t kpack, int64_t kPerBlock) {
+  int64_t inputVectorLen = argTypeA.getNumElements();
+  return isKCoherent(inputVectorLen, kpack, kPerBlock);
+}
+
 FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
                                      mlir::Type elementTypeB, int64_t waveSize,
                                      StringRef arch, int64_t mPerWave,
-                                     int64_t nPerWave) {
-  LLVM_DEBUG(llvm::dbgs() << "Invoke Wmma group selection:\n"
+                                     int64_t nPerWave, int64_t kPack,
+                                     int64_t kPackPerBlock) {
+  LLVM_DEBUG(llvm::dbgs() << "Invoke Wmma instruction selection:\n"
                           << "elementTypeA: " << elementTypeA << "\n"
                           << "elementTypeB: " << elementTypeB << "\n"
+                          << "arch: " << arch << "\n"
                           << "mPerWave: " << mPerWave << "\n"
-                          << "nPerWave: " << nPerWave << "\n");
+                          << "nPerWave: " << nPerWave << "\n"
+                          << "kPack: " << kPack << "\n"
+                          << "kPackPerBlock: " << kPackPerBlock << "\n");
 
-  if (elementTypeA != elementTypeB)
-    return failure();
-
+  // WMMA only supports wave32
   if (waveSize != 32)
     return failure();
 
-  // Length of the input vectors that need to be passed to the WMMA
-  int64_t inputVectorLen = 8;
-  // Length of the ouput vector that needs to be passed to the WMMA
-  int64_t outputVectorLen = 8;
-  // Number of rows/cols a given wmma instruction computes
-  int64_t dPerAccel = 16;
+  // Architecture detection
+  bool isGfx11 = arch.contains("gfx11");
+  bool isGfx1250 = arch.contains("gfx1250");
 
-  int64_t outStride = 2;
-  if (arch.contains("gfx11")) {
-    inputVectorLen = 16;
+  // Convert element types to ID for map lookup. Handles both same-type and
+  // mixed-type inputs
+  WmmaTypeId typeId = convertTypesToId(elementTypeA, elementTypeB);
+
+  // Select instruction based on architecture priority: gfx1250 > gfx12 > gfx11
+  const WmmaInsnInfo *insnInfo = nullptr;
+  int64_t selectedKDim = 0; // Track the selected K dimension from the map key
+
+  if (isGfx1250) {
+    auto &gfx1250Map = getWmmaInsnMapGfx1250();
+
+    // FP8/BF8 types have multiple K options and we need to select the best one.
+    // We will always try to select the largest K value that is coherent with
+    // the KPack and KPackPerBlock, and then fall back to the smaller values
+    // if need be.
+    if (typeId >= WmmaTypeId::Fp8Fp8_To_F32_TyId &&
+        typeId <= WmmaTypeId::Bf8Bf8_To_F32_TyId) {
+      for (int64_t k : {128, 64}) {
+        auto it = gfx1250Map.find({typeId, k});
+        if (it != gfx1250Map.end()) {
+          const WmmaInsnInfo *info = &it->second;
+          if (isKCoherent(info->inputVectorLen, kPack, kPackPerBlock)) {
+            insnInfo = info;
+            selectedKDim = k; // Extract K from the key
+            LLVM_DEBUG(llvm::dbgs() << "Selected gfx1250 instruction: "
+                                    << insnInfo->insn << "\n");
+            break;
+          }
+        }
+      }
+    } else {
+      // All other types have only one K value, so we can just directly look
+      // that up
+      int64_t k;
+      if (typeId == WmmaTypeId::F32_To_F32_TyId) {
+        k = 4;
+      } else if (typeId == WmmaTypeId::I8_To_I32_TyId) {
+        k = 64;
+      } else {
+        // F16/BF16 types
+        k = 32;
+      }
+
+      auto it = gfx1250Map.find({typeId, k});
+      if (it != gfx1250Map.end()) {
+        insnInfo = &it->second;
+        selectedKDim = k;
+        LLVM_DEBUG(llvm::dbgs() << "Selected gfx1250 instruction: "
+                                << insnInfo->insn << "\n");
+      }
+    }
   }
 
-  if (mPerWave % inputVectorLen != 0 || mPerWave % dPerAccel != 0)
-    return failure();
-  if (nPerWave % inputVectorLen != 0 || nPerWave % dPerAccel != 0)
+  // Use gfx12 only if we don't have a selected instruction and not gfx11
+  if (!insnInfo && !isGfx11) {
+    auto &gfx12Map = getWmmaInsnMapGfx12();
+    auto it = gfx12Map.find({typeId, 16});
+    if (it != gfx12Map.end()) {
+      insnInfo = &it->second;
+      selectedKDim = 16;
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Selected gfx12 instruction: " << insnInfo->insn << "\n");
+    }
+  }
+
+  // Fall back to gfx11 if we are using gfx12, or if we explicitly ask for gfx11
+  if (!insnInfo && (!isGfx1250 || isGfx11)) {
+    auto &gfx11Map = getWmmaInsnMapGfx11();
+    auto it = gfx11Map.find({typeId, 16});
+    if (it != gfx11Map.end()) {
+      insnInfo = &it->second;
+      selectedKDim = 16;
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Selected gfx11 instruction: " << insnInfo->insn << "\n");
+    }
+  }
+
+  if (!insnInfo)
     return failure();
 
-  int64_t mRepeats = mPerWave / dPerAccel;
-  int64_t nRepeats = nPerWave / dPerAccel;
+  // Extract instruction info
+  int64_t inputVectorLen = insnInfo->inputVectorLen;
+  int64_t outputVectorLen = insnInfo->outputVectorLen;
+  int64_t kDim = selectedKDim;
+  StringRef insn = insnInfo->insn;
+  int64_t mPerAccel = insnInfo->mPerAccel;
+  int64_t nPerAccel = insnInfo->nPerAccel;
+
+  // Architecture-specific outStride
+  // gfx11: full-wave K cooperation -> outStride=2
+  // gfx12/gfx1250: half-wave K cooperation -> outStride=outputVectorLen
+  int64_t outStride = isGfx11 ? 2 : outputVectorLen;
+
+  // Validate dimensions
+  if (mPerWave % inputVectorLen != 0 || mPerWave % mPerAccel != 0)
+    return failure();
+  if (nPerWave % inputVectorLen != 0 || nPerWave % nPerAccel != 0)
+    return failure();
+
+  int64_t mRepeats = mPerWave / mPerAccel;
+  int64_t nRepeats = nPerWave / nPerAccel;
 
   VectorType argTypeA = VectorType::get({inputVectorLen}, elementTypeA);
   VectorType argTypeB = VectorType::get({inputVectorLen}, elementTypeB);
   VectorType retType =
-      VectorType::get({outputVectorLen}, getRetType(elementTypeA));
+      VectorType::get({outputVectorLen}, getRetType(elementTypeA, typeId));
 
-  StringRef insn;
-  if (elementTypeA.isF16()) {
-    insn = ROCDL::wmma_f32_16x16x16_f16::getOperationName();
-  } else if (elementTypeA.isBF16()) {
-    insn = ROCDL::wmma_f32_16x16x16_bf16::getOperationName();
-  } else if (elementTypeA.isInteger(8)) {
-    insn = ROCDL::wmma_i32_16x16x16_iu8::getOperationName();
-  } else if (isa<Float8E4M3FNType>(elementTypeA)) {
-    insn = ROCDL::wmma_f32_16x16x16_fp8_fp8::getOperationName();
-  } else if (isa<Float8E5M2Type>(elementTypeA)) {
-    insn = ROCDL::wmma_f32_16x16x16_bf8_bf8::getOperationName();
-  } else {
-    return failure();
-  }
-
-  return WmmaInsn{insn,     dPerAccel, outStride, mRepeats,
-                  nRepeats, argTypeA,  argTypeB,  retType};
+  return WmmaInsn{insn,     mPerAccel, nPerAccel, kDim,     outStride,
+                  mRepeats, nRepeats,  argTypeA,  argTypeB, retType};
 }

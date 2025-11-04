@@ -519,8 +519,8 @@ def Rock_LDSTransposeConfigAttr : Rock_Attr<"LDSTransposeConfig", []> {
     rock.lds_transpose_load operations with the correct accelerator geometry
     and tiling parameters.
     
-    - mfmaDDim: Matrix-multiply accelerator instruction D dimension (M or N, typically 16 or 32)
-    - mfmaKDim: Matrix-multiply accelerator instruction K dimension (typically 8, 16, or 32)
+    - DDim: Matrix-multiply accelerator instruction D dimension (M or N, typically 16 or 32)
+    - KDim: Matrix-multiply accelerator instruction K dimension (typically 8, 16, or 32)
     - mPerBlock: M dimension size per block
     - nPerBlock: N dimension size per block
     - kPerBlock: K dimension size per block
@@ -529,10 +529,9 @@ def Rock_LDSTransposeConfigAttr : Rock_Attr<"LDSTransposeConfig", []> {
     - doubleBuffering: Whether double buffering is enabled
     - isOperandA: True if this is operand A, false if operand B
   }];
-  let parameters = (ins "int64_t":$mfmaDDim, "int64_t":$mfmaKDim,
-      "int64_t":$mPerBlock, "int64_t":$nPerBlock, "int64_t":$kPerBlock,
-      "int64_t":$mPerWave, "int64_t":$nPerWave, "bool":$doubleBuffering,
-      "bool":$isOperandA);
+  let parameters = (ins "int64_t":$dDim, "int64_t":$kDim, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kPerBlock, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "bool":$doubleBuffering, "bool":$isOperandA);
 
   let assemblyFormat = [{
     `<` struct(params) `>`
