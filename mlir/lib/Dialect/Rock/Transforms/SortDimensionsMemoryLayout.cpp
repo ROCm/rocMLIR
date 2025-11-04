@@ -303,6 +303,94 @@ reorderBatch(Value tensor, const SmallVector<StringRef> &layout,
   return std::make_tuple(newTensor, transposed, newLayout);
 }
 
+// Helper function to process scale tensors for scaled GEMM operations.
+// Scales maintain logical GEMM dimensions (M x K for scaleA, K x N for scaleB).
+// When tensors are transposed, scales should NOT follow the transposed physical layout.
+static FailureOr<Value> processScaleTensor(Value scale, Value referenceTensor,
+                                           bool tensorIsTransposed,
+                                           PatternRewriter &b) {
+  if (!scale)
+    return Value(nullptr);
+
+  auto scaleType = cast<ShapedType>(scale.getType());
+  auto referenceType = cast<ShapedType>(referenceTensor.getType());
+  auto scaleShape = scaleType.getShape();
+  auto tensorShape = referenceType.getShape();
+
+  // If tensor is NOT transposed, scale should match tensor shape
+  if (!tensorIsTransposed) {
+    if (scaleShape == tensorShape)
+      return scale;
+
+    // Create transform to match tensor shape
+    if (scaleShape.size() != tensorShape.size())
+      return failure();
+
+    rock::BottomUpTMBuilder reorderScale(b, scaleShape, scale.getLoc());
+    SmallVector<uint32_t> startIndices(scaleShape.size());
+    std::iota(startIndices.begin(), startIndices.end(), 0);
+    SmallVector<uint32_t> endIndices(scaleShape.size());
+
+    for (size_t i = 0; i < scaleShape.size(); i++) {
+      bool found = false;
+      for (size_t j = 0; j < tensorShape.size(); j++) {
+        if (scaleShape[i] == tensorShape[j] &&
+            llvm::find(endIndices, j) == endIndices.end()) {
+          endIndices[i] = j;
+          found = true;
+          break;
+        }
+      }
+      if (!found)
+        return failure();
+    }
+
+    reorderScale.passThrough(endIndices, startIndices);
+    return rock::transform(b, scale, b.getArrayAttr({reorderScale.get()}));
+  }
+
+  // If tensor IS transposed, scale should have OPPOSITE non-batch dimension order
+  // to maintain logical GEMM dimensions
+  SmallVector<int64_t> expectedScaleShape(tensorShape.begin(), tensorShape.end());
+  if (expectedScaleShape.size() >= 3) {
+    // Swap the last two dimensions (non-batch dimensions)
+    std::swap(expectedScaleShape[expectedScaleShape.size() - 2],
+              expectedScaleShape[expectedScaleShape.size() - 1]);
+  } else if (expectedScaleShape.size() == 2) {
+    // For rank-2, swap both dimensions
+    std::swap(expectedScaleShape[0], expectedScaleShape[1]);
+  }
+
+  if (scaleShape == llvm::ArrayRef<int64_t>(expectedScaleShape))
+    return scale;
+
+  // Create transform to match expected shape
+  if (scaleShape.size() != expectedScaleShape.size())
+    return failure();
+
+  rock::BottomUpTMBuilder reorderScale(b, scaleShape, scale.getLoc());
+  SmallVector<uint32_t> startIndices(scaleShape.size());
+  std::iota(startIndices.begin(), startIndices.end(), 0);
+  SmallVector<uint32_t> endIndices(scaleShape.size());
+
+  for (size_t i = 0; i < scaleShape.size(); i++) {
+    bool found = false;
+    for (size_t j = 0; j < expectedScaleShape.size(); j++) {
+      if (scaleShape[i] == expectedScaleShape[j] &&
+          llvm::find(endIndices, j) == endIndices.end()) {
+        endIndices[i] = j;
+        found = true;
+        break;
+      }
+    }
+    if (!found)
+      return failure();
+  }
+
+  reorderScale.passThrough(endIndices, startIndices);
+  return rock::transform(b, scale, b.getArrayAttr({reorderScale.get()}));
+}
+
 template <typename ContainerTy, typename ElementTy>
 static std::optional<size_t> findIndex(const ContainerTy &container,
                                        const ElementTy &element) {
@@ -492,6 +580,8 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
                                 PatternRewriter &b) const final {
     auto tensorA = op.getA();
     auto tensorB = op.getB();
+    auto scaleA = op.getScaleA();
+    auto scaleB = op.getScaleB();
 
     SmallVector<StringRef> layoutA{"G", "M", "K"};
     if (op.getATransposedAttr())
@@ -526,11 +616,25 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
 
     Value newTensorA = std::get<0>(batchReorderA);
     Value newTensorB = std::get<0>(batchReorderB);
+
     UnitAttr transposedA = std::get<1>(batchReorderA);
     UnitAttr transposedB = std::get<1>(batchReorderB);
     auto finalLayoutA = std::get<2>(batchReorderA);
     auto finalLayoutB = std::get<2>(batchReorderB);
 
+    // Process scale tensors if present
+    auto maybeScaleA = processScaleTensor(scaleA, newTensorA,
+                                          transposedA != nullptr, b);
+    auto maybeScaleB = processScaleTensor(scaleB, newTensorB,
+                                          transposedB != nullptr, b);
+
+    if (failed(maybeScaleA))
+      return op.emitOpError("failed to process scaleA");
+    if (failed(maybeScaleB))
+      return op.emitOpError("failed to process scaleB");
+
+    Value newScaleA = maybeScaleA.value();
+    Value newScaleB = maybeScaleB.value();
     LLVM_DEBUG(llvm::dbgs() << "newTensorA=" << newTensorA
                             << " newTensorB=" << newTensorB << "\n");
     LLVM_DEBUG(llvm::dbgs() << "transposedA=" << transposedA
@@ -541,13 +645,10 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
       return failure();
 
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
-        op, op->getResultTypes(), newTensorA, newTensorB, op.getC(),
-        /*aScale=*/nullptr,
-        /*bScale=*/nullptr, transposedA, transposedB, op.getCTransposedAttr(),
-        /*aScaleTransposed=*/nullptr,
-        /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
-        op.getStoreMethodAttr(), op.getDerivedBlockSizeAttr(),
-        op.getGridSizeAttr(),
+        op, op->getResultTypes(), newTensorA, newTensorB, op.getC(), newScaleA,
+        newScaleB, transposedA, transposedB, op.getCTransposedAttr(), nullptr,
+        nullptr, op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
 
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))

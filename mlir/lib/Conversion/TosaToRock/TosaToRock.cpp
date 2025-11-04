@@ -892,6 +892,53 @@ public:
     }
   }
 
+  // Helper to extract scale and matrix from a mul operation
+  std::pair<Value, Value> tryExtractScaleAndMatrix(Value mulInput1,
+                                                   Value mulInput2) const {
+    Value scale = nullptr;
+    Value matrix = nullptr;
+
+    // Check if input1 is a cast from Float4E2M1FN
+    if (tosa::CastOp castOp = mulInput1.getDefiningOp<tosa::CastOp>()) {
+      Value castInput = castOp.getInput();
+      if (isa<Float4E2M1FNType>(
+              cast<ShapedType>(castInput.getType()).getElementType())) {
+        matrix = castInput;
+        scale = mulInput2;
+      }
+    }
+    // Check if input2 is a cast from Float4E2M1FN
+    else if (tosa::CastOp castOp = mulInput2.getDefiningOp<tosa::CastOp>()) {
+      Value castInput = castOp.getInput();
+      if (isa<Float4E2M1FNType>(
+              cast<ShapedType>(castInput.getType()).getElementType())) {
+        matrix = castInput;
+        scale = mulInput1;
+      }
+    }
+
+    // Unwrap cast on scale if present
+    if (scale && scale.getDefiningOp<tosa::CastOp>()) {
+      scale = scale.getDefiningOp<tosa::CastOp>().getInput();
+    }
+
+    return {scale, matrix};
+  }
+
+  // Helper to reshape matrix and scale to match target shape
+  Value reshapeIfNeeded(Value val, ArrayRef<int64_t> targetShape, Location loc,
+                        ConversionPatternRewriter &rw) const {
+    auto valType = cast<RankedTensorType>(val.getType());
+    if (valType.getShape() == targetShape) {
+      return val;
+    }
+
+    RankedTensorType newType =
+        RankedTensorType::get(targetShape, valType.getElementType());
+    auto normalizedShapeValue = tosa::getTosaConstShape(rw, loc, targetShape);
+    return tosa::ReshapeOp::create(rw, loc, newType, val, normalizedShapeValue);
+  }
+
   LogicalResult matchAndRewrite(tosa::MatMulOp op,
                                 tosa::MatMulOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
@@ -903,97 +950,61 @@ public:
     Value matBBeforeCast = nullptr;
     DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
                                   tensor::ExpandShapeOp::getOperationName()};
+
+    // Try to extract scale and matrix for input A
+    Value scaleA = nullptr;
     FailureOr<tosa::MulOp> maybeMulA =
         getDefiningOpSkipping<tosa::MulOp>(matA, opsToSkip);
-    FailureOr<tosa::MulOp> maybeMulB =
-        getDefiningOpSkipping<tosa::MulOp>(matB, opsToSkip);
-    Value scaleA = nullptr, scaleB = nullptr;
-    if (succeeded(maybeMulA) && succeeded(maybeMulB)) {
-      // Both inputs are coming from a mul op, this is likely a quantized
-      // scaled matmul
+    if (succeeded(maybeMulA)) {
       tosa::MulOp mulOpA = maybeMulA.value();
-      tosa::MulOp mulOpB = maybeMulB.value();
-      auto mulAInputs1 = mulOpA.getInput1();
-      auto mulAInputs2 = mulOpA.getInput2();
-      if (tosa::CastOp mulACast = mulAInputs1.getDefiningOp<tosa::CastOp>()) {
-        Value castInput = mulACast.getInput();
-        if (isa<Float4E2M1FNType>(
-                cast<ShapedType>(castInput.getType()).getElementType())) {
-          matABeforeCast = castInput;
-          scaleA = mulAInputs2;
-        }
-      } else if (tosa::CastOp mulACast =
-                     mulAInputs2.getDefiningOp<tosa::CastOp>()) {
-        Value castInput = mulACast.getInput();
-        if (isa<Float4E2M1FNType>(
-                cast<ShapedType>(castInput.getType()).getElementType())) {
-          matABeforeCast = castInput;
-        }
-        scaleA = mulAInputs1;
+      auto [extractedScaleA, extractedMatrixA] =
+          tryExtractScaleAndMatrix(mulOpA.getInput1(), mulOpA.getInput2());
+      if (extractedScaleA && extractedMatrixA) {
+        scaleA = extractedScaleA;
+        matABeforeCast = extractedMatrixA;
       }
-      auto mulBInputs1 = mulOpB.getInput1();
-      auto mulBInputs2 = mulOpB.getInput2();
-      if (tosa::CastOp mulBCast = mulBInputs1.getDefiningOp<tosa::CastOp>()) {
-        Value castInput = mulBCast.getInput();
-        if (isa<Float4E2M1FNType>(
-                cast<ShapedType>(castInput.getType()).getElementType())) {
-          matBBeforeCast = castInput;
-          scaleB = mulBInputs2;
-        }
-      } else if (tosa::CastOp mulBCast =
-                     mulBInputs2.getDefiningOp<tosa::CastOp>()) {
-        Value castInput = mulBCast.getInput();
-        if (isa<Float4E2M1FNType>(
-                cast<ShapedType>(castInput.getType()).getElementType())) {
-          matBBeforeCast = castInput;
-          scaleB = mulBInputs1;
-        }
-      }
-      if (scaleA.getDefiningOp<tosa::CastOp>())
-        scaleA = scaleA.getDefiningOp<tosa::CastOp>().getInput();
-      if (scaleB.getDefiningOp<tosa::CastOp>())
-        scaleB = scaleB.getDefiningOp<tosa::CastOp>().getInput();
     }
 
-    if (matABeforeCast && matBBeforeCast) {
-      // check for rank to expand/collapse to same shape
-      if (matA.getType() != matABeforeCast.getType()) {
-        // expand matABeforeCast to match matA Shape
-        RankedTensorType matABeforeCastType =
-            cast<RankedTensorType>(matABeforeCast.getType());
-        RankedTensorType matAType =
-            RankedTensorType::get(cast<ShapedType>(matA.getType()).getShape(),
-                                  matABeforeCastType.getElementType());
-        auto normalizedShapeValue =
-            tosa::getTosaConstShape(rw, loc, matAType.getShape());
-        matABeforeCast = tosa::ReshapeOp::create(
-            rw, loc, matAType, matABeforeCast, normalizedShapeValue);
-        RankedTensorType scaleAType = RankedTensorType::get(
-            cast<ShapedType>(matA.getType()).getShape(),
-            cast<ShapedType>(scaleA.getType()).getElementType());
-        scaleA = tosa::ReshapeOp::create(rw, loc, scaleAType, scaleA,
-                                         normalizedShapeValue);
-      }
-      if (matB.getType() != matBBeforeCast.getType()) {
-        // expand matBBeforeCast to match matB Shape
-        RankedTensorType matBBeforeCastType =
-            cast<RankedTensorType>(matBBeforeCast.getType());
-        RankedTensorType matBType =
-            RankedTensorType::get(cast<ShapedType>(matB.getType()).getShape(),
-                                  matBBeforeCastType.getElementType());
-        auto normalizedShapeValue =
-            tosa::getTosaConstShape(rw, loc, matBType.getShape());
-        matBBeforeCast = tosa::ReshapeOp::create(
-            rw, loc, matBType, matBBeforeCast, normalizedShapeValue);
-        RankedTensorType scaleBType = RankedTensorType::get(
-            cast<ShapedType>(matB.getType()).getShape(),
-            cast<ShapedType>(scaleB.getType()).getElementType());
-        scaleB = tosa::ReshapeOp::create(rw, loc, scaleBType, scaleB,
-                                         normalizedShapeValue);
+    // Try to extract scale and matrix for input B
+    Value scaleB = nullptr;
+    FailureOr<tosa::MulOp> maybeMulB =
+        getDefiningOpSkipping<tosa::MulOp>(matB, opsToSkip);
+    if (succeeded(maybeMulB)) {
+      tosa::MulOp mulOpB = maybeMulB.value();
+      auto [extractedScaleB, extractedMatrixB] =
+          tryExtractScaleAndMatrix(mulOpB.getInput1(), mulOpB.getInput2());
+      if (extractedScaleB && extractedMatrixB) {
+        scaleB = extractedScaleB;
+        matBBeforeCast = extractedMatrixB;
       }
     }
-    if (matABeforeCast && matBBeforeCast) {
+
+    // rock.gemm requires both scaleA and scaleB to be provided, or neither
+    // If only one scale is present, fall back to normal matmul
+    bool hasScaleA = (scaleA != nullptr);
+    bool hasScaleB = (scaleB != nullptr);
+    if (hasScaleA != hasScaleB) {
+      // Only one scale present, clear both and don't use fp4 matrices
+      scaleA = nullptr;
+      scaleB = nullptr;
+      matABeforeCast = nullptr;
+      matBBeforeCast = nullptr;
+    }
+
+    // Reshape matrices and scales to match the expected shapes if needed
+    if (matABeforeCast && scaleA) {
+      ArrayRef<int64_t> targetShape =
+          cast<ShapedType>(matA.getType()).getShape();
+      matABeforeCast = reshapeIfNeeded(matABeforeCast, targetShape, loc, rw);
+      scaleA = reshapeIfNeeded(scaleA, targetShape, loc, rw);
       matA = cast<TypedValue<TensorType>>(matABeforeCast);
+    }
+
+    if (matBBeforeCast && scaleB) {
+      ArrayRef<int64_t> targetShape =
+          cast<ShapedType>(matB.getType()).getShape();
+      matBBeforeCast = reshapeIfNeeded(matBBeforeCast, targetShape, loc, rw);
+      scaleB = reshapeIfNeeded(scaleB, targetShape, loc, rw);
       matB = cast<TypedValue<TensorType>>(matBBeforeCast);
     }
     Value output =

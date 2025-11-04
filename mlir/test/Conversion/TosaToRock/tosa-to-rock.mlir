@@ -266,3 +266,245 @@ func.func @mlir_conv_transpose_add(%arg0: tensor<128x32x32x8xf32>, %arg1: tensor
 
   return %1, %8 : tensor<14745600xf32>, tensor<14745600xf32>
 }
+
+// -----
+
+// CHECK-LABEL: mlir_scaled_gemm_both_scales
+// CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by %{{.*}}
+
+func.func @mlir_scaled_gemm_both_scales(%arg0: tensor<1x128x256xf4E2M1FN>, %arg1: tensor<1x256x512xf4E2M1FN>, 
+                                        %scaleA: tensor<1x128x256xf8E8M0FNU>, %scaleB: tensor<1x256x512xf8E8M0FNU>) 
+                                        -> tensor<1x128x512xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  // Cast fp4 to f32
+  %0 = tosa.cast %arg0 : (tensor<1x128x256xf4E2M1FN>) -> tensor<1x128x256xf32>
+  %1 = tosa.cast %arg1 : (tensor<1x256x512xf4E2M1FN>) -> tensor<1x256x512xf32>
+  
+  // Cast scales to f32
+  %2 = tosa.cast %scaleA : (tensor<1x128x256xf8E8M0FNU>) -> tensor<1x128x256xf32>
+  %3 = tosa.cast %scaleB : (tensor<1x256x512xf8E8M0FNU>) -> tensor<1x256x512xf32>
+  
+  // Multiply by scales
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %4 = tosa.mul %0, %2, %shift : (tensor<1x128x256xf32>, tensor<1x128x256xf32>, tensor<1xi8>) -> tensor<1x128x256xf32>
+  %5 = tosa.mul %1, %3, %shift : (tensor<1x256x512xf32>, tensor<1x256x512xf32>, tensor<1xi8>) -> tensor<1x256x512xf32>
+  
+  // MatMul
+  %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %6 = tosa.matmul %4, %5, %a_zp, %b_zp : (tensor<1x128x256xf32>, tensor<1x256x512xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x128x512xf32>
+  
+  return %6 : tensor<1x128x512xf32>
+}
+
+// -----
+
+// CHECK-LABEL: mlir_scaled_gemm_with_different_shapes
+// CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by %{{.*}}
+
+func.func @mlir_scaled_gemm_with_different_shapes(%arg0: tensor<2x64x128xf4E2M1FN>, %arg1: tensor<2x128x256xf4E2M1FN>, 
+                                                   %scaleA: tensor<2x64x128xf8E8M0FNU>, %scaleB: tensor<2x128x256xf8E8M0FNU>) 
+                                                   -> tensor<2x64x256xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  // Cast fp4 to f32
+  %0 = tosa.cast %arg0 : (tensor<2x64x128xf4E2M1FN>) -> tensor<2x64x128xf32>
+  %1 = tosa.cast %arg1 : (tensor<2x128x256xf4E2M1FN>) -> tensor<2x128x256xf32>
+  
+  // Cast scales to f32
+  %2 = tosa.cast %scaleA : (tensor<2x64x128xf8E8M0FNU>) -> tensor<2x64x128xf32>
+  %3 = tosa.cast %scaleB : (tensor<2x128x256xf8E8M0FNU>) -> tensor<2x128x256xf32>
+  
+  // Multiply by scales
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %4 = tosa.mul %0, %2, %shift : (tensor<2x64x128xf32>, tensor<2x64x128xf32>, tensor<1xi8>) -> tensor<2x64x128xf32>
+  %5 = tosa.mul %1, %3, %shift : (tensor<2x128x256xf32>, tensor<2x128x256xf32>, tensor<1xi8>) -> tensor<2x128x256xf32>
+  
+  // MatMul
+  %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %6 = tosa.matmul %4, %5, %a_zp, %b_zp : (tensor<2x64x128xf32>, tensor<2x128x256xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<2x64x256xf32>
+  
+  return %6 : tensor<2x64x256xf32>
+}
+
+// -----
+
+// CHECK-LABEL: mlir_scaled_gemm_batched
+// CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by %{{.*}}
+
+func.func @mlir_scaled_gemm_batched(%arg0: tensor<4x128x256xf4E2M1FN>, %arg1: tensor<4x256x512xf4E2M1FN>, 
+                                    %scaleA: tensor<4x128x256xf8E8M0FNU>, %scaleB: tensor<4x256x512xf8E8M0FNU>) 
+                                    -> tensor<4x128x512xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  // Cast fp4 to f32
+  %0 = tosa.cast %arg0 : (tensor<4x128x256xf4E2M1FN>) -> tensor<4x128x256xf32>
+  %1 = tosa.cast %arg1 : (tensor<4x256x512xf4E2M1FN>) -> tensor<4x256x512xf32>
+  
+  // Cast scales to f32
+  %2 = tosa.cast %scaleA : (tensor<4x128x256xf8E8M0FNU>) -> tensor<4x128x256xf32>
+  %3 = tosa.cast %scaleB : (tensor<4x256x512xf8E8M0FNU>) -> tensor<4x256x512xf32>
+  
+  // Multiply by scales
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %4 = tosa.mul %0, %2, %shift : (tensor<4x128x256xf32>, tensor<4x128x256xf32>, tensor<1xi8>) -> tensor<4x128x256xf32>
+  %5 = tosa.mul %1, %3, %shift : (tensor<4x256x512xf32>, tensor<4x256x512xf32>, tensor<1xi8>) -> tensor<4x256x512xf32>
+  
+  // Batched MatMul
+  %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %6 = tosa.matmul %4, %5, %a_zp, %b_zp : (tensor<4x128x256xf32>, tensor<4x256x512xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<4x128x512xf32>
+  
+  return %6 : tensor<4x128x512xf32>
+}
+
+// -----
+
+// CHECK-LABEL: mlir_scaled_gemm_single_batch
+// CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by %{{.*}}
+
+func.func @mlir_scaled_gemm_single_batch(%arg0: tensor<1x128x256xf4E2M1FN>, %arg1: tensor<1x256x512xf4E2M1FN>, 
+                                         %scaleA: tensor<1x128x256xf8E8M0FNU>, %scaleB: tensor<1x256x512xf8E8M0FNU>) 
+                                         -> tensor<1x128x512xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  // Cast fp4 to f32
+  %0 = tosa.cast %arg0 : (tensor<1x128x256xf4E2M1FN>) -> tensor<1x128x256xf32>
+  %1 = tosa.cast %arg1 : (tensor<1x256x512xf4E2M1FN>) -> tensor<1x256x512xf32>
+  
+  // Cast scales to f32
+  %2 = tosa.cast %scaleA : (tensor<1x128x256xf8E8M0FNU>) -> tensor<1x128x256xf32>
+  %3 = tosa.cast %scaleB : (tensor<1x256x512xf8E8M0FNU>) -> tensor<1x256x512xf32>
+  
+  // Multiply by scales
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %4 = tosa.mul %0, %2, %shift : (tensor<1x128x256xf32>, tensor<1x128x256xf32>, tensor<1xi8>) -> tensor<1x128x256xf32>
+  %5 = tosa.mul %1, %3, %shift : (tensor<1x256x512xf32>, tensor<1x256x512xf32>, tensor<1xi8>) -> tensor<1x256x512xf32>
+  
+  // MatMul with single batch dimension
+  %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %6 = tosa.matmul %4, %5, %a_zp, %b_zp : (tensor<1x128x256xf32>, tensor<1x256x512xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x128x512xf32>
+  
+  return %6 : tensor<1x128x512xf32>
+}
+
+// -----
+
+// CHECK-LABEL: mlir_scaled_gemm_large_batch
+// CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by %{{.*}}
+
+func.func @mlir_scaled_gemm_large_batch(%arg0: tensor<8x64x128xf4E2M1FN>, %arg1: tensor<8x128x256xf4E2M1FN>, 
+                                        %scaleA: tensor<8x64x128xf8E8M0FNU>, %scaleB: tensor<8x128x256xf8E8M0FNU>) 
+                                        -> tensor<8x64x256xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  // Cast fp4 to f32
+  %0 = tosa.cast %arg0 : (tensor<8x64x128xf4E2M1FN>) -> tensor<8x64x128xf32>
+  %1 = tosa.cast %arg1 : (tensor<8x128x256xf4E2M1FN>) -> tensor<8x128x256xf32>
+  
+  // Cast scales to f32
+  %2 = tosa.cast %scaleA : (tensor<8x64x128xf8E8M0FNU>) -> tensor<8x64x128xf32>
+  %3 = tosa.cast %scaleB : (tensor<8x128x256xf8E8M0FNU>) -> tensor<8x128x256xf32>
+  
+  // Multiply by scales
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %4 = tosa.mul %0, %2, %shift : (tensor<8x64x128xf32>, tensor<8x64x128xf32>, tensor<1xi8>) -> tensor<8x64x128xf32>
+  %5 = tosa.mul %1, %3, %shift : (tensor<8x128x256xf32>, tensor<8x128x256xf32>, tensor<1xi8>) -> tensor<8x128x256xf32>
+  
+  // MatMul with batch=8
+  %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %6 = tosa.matmul %4, %5, %a_zp, %b_zp : (tensor<8x64x128xf32>, tensor<8x128x256xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<8x64x256xf32>
+  
+  return %6 : tensor<8x64x256xf32>
+}
+
+// -----
+
+// CHECK-LABEL: mlir_scaled_gemm_with_transpose_a
+// CHECK: rock.transform
+// CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by %{{.*}}
+
+func.func @mlir_scaled_gemm_with_transpose_a(%arg0: tensor<1x256x128xf4E2M1FN>, %arg1: tensor<1x256x512xf4E2M1FN>, 
+                                              %scaleA: tensor<1x256x128xf8E8M0FNU>, %scaleB: tensor<1x256x512xf8E8M0FNU>) 
+                                              -> tensor<1x128x512xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  // Transpose A from [1, 256, 128] to [1, 128, 256]
+  %transposed_a = tosa.transpose %arg0 {perms = array<i32: 0, 2, 1>} : (tensor<1x256x128xf4E2M1FN>) -> tensor<1x128x256xf4E2M1FN>
+  %transposed_scale_a = tosa.transpose %scaleA {perms = array<i32: 0, 2, 1>} : (tensor<1x256x128xf8E8M0FNU>) -> tensor<1x128x256xf8E8M0FNU>
+  
+  // Cast fp4 to f32
+  %0 = tosa.cast %transposed_a : (tensor<1x128x256xf4E2M1FN>) -> tensor<1x128x256xf32>
+  %1 = tosa.cast %arg1 : (tensor<1x256x512xf4E2M1FN>) -> tensor<1x256x512xf32>
+  
+  // Cast scales to f32
+  %2 = tosa.cast %transposed_scale_a : (tensor<1x128x256xf8E8M0FNU>) -> tensor<1x128x256xf32>
+  %3 = tosa.cast %scaleB : (tensor<1x256x512xf8E8M0FNU>) -> tensor<1x256x512xf32>
+  
+  // Multiply by scales
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %4 = tosa.mul %0, %2, %shift : (tensor<1x128x256xf32>, tensor<1x128x256xf32>, tensor<1xi8>) -> tensor<1x128x256xf32>
+  %5 = tosa.mul %1, %3, %shift : (tensor<1x256x512xf32>, tensor<1x256x512xf32>, tensor<1xi8>) -> tensor<1x256x512xf32>
+  
+  // MatMul
+  %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %6 = tosa.matmul %4, %5, %a_zp, %b_zp : (tensor<1x128x256xf32>, tensor<1x256x512xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x128x512xf32>
+  
+  return %6 : tensor<1x128x512xf32>
+}
+
+// -----
+
+// CHECK-LABEL: mlir_scaled_gemm_with_transpose_b
+// CHECK: rock.transform
+// CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by %{{.*}}
+
+func.func @mlir_scaled_gemm_with_transpose_b(%arg0: tensor<1x128x256xf4E2M1FN>, %arg1: tensor<1x512x256xf4E2M1FN>, 
+                                              %scaleA: tensor<1x128x256xf8E8M0FNU>, %scaleB: tensor<1x512x256xf8E8M0FNU>) 
+                                              -> tensor<1x128x512xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  // Transpose B from [1, 512, 256] to [1, 256, 512]
+  %transposed_b = tosa.transpose %arg1 {perms = array<i32: 0, 2, 1>} : (tensor<1x512x256xf4E2M1FN>) -> tensor<1x256x512xf4E2M1FN>
+  %transposed_scale_b = tosa.transpose %scaleB {perms = array<i32: 0, 2, 1>} : (tensor<1x512x256xf8E8M0FNU>) -> tensor<1x256x512xf8E8M0FNU>
+  
+  // Cast fp4 to f32
+  %0 = tosa.cast %arg0 : (tensor<1x128x256xf4E2M1FN>) -> tensor<1x128x256xf32>
+  %1 = tosa.cast %transposed_b : (tensor<1x256x512xf4E2M1FN>) -> tensor<1x256x512xf32>
+  
+  // Cast scales to f32
+  %2 = tosa.cast %scaleA : (tensor<1x128x256xf8E8M0FNU>) -> tensor<1x128x256xf32>
+  %3 = tosa.cast %transposed_scale_b : (tensor<1x256x512xf8E8M0FNU>) -> tensor<1x256x512xf32>
+  
+  // Multiply by scales
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %4 = tosa.mul %0, %2, %shift : (tensor<1x128x256xf32>, tensor<1x128x256xf32>, tensor<1xi8>) -> tensor<1x128x256xf32>
+  %5 = tosa.mul %1, %3, %shift : (tensor<1x256x512xf32>, tensor<1x256x512xf32>, tensor<1xi8>) -> tensor<1x256x512xf32>
+  
+  // MatMul
+  %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %6 = tosa.matmul %4, %5, %a_zp, %b_zp : (tensor<1x128x256xf32>, tensor<1x256x512xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x128x512xf32>
+  
+  return %6 : tensor<1x128x512xf32>
+}
+
+// -----
+
+// CHECK-LABEL: mlir_scaled_gemm_small_dimensions
+// CHECK: rock.gemm %{{.*}} = %{{.*}} scaled by %{{.*}} * %{{.*}} scaled by %{{.*}}
+
+func.func @mlir_scaled_gemm_small_dimensions(%arg0: tensor<2x32x64xf4E2M1FN>, %arg1: tensor<2x64x96xf4E2M1FN>, 
+                                             %scaleA: tensor<2x32x64xf8E8M0FNU>, %scaleB: tensor<2x64x96xf8E8M0FNU>) 
+                                             -> tensor<2x32x96xf32> attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  // Cast fp4 to f32
+  %0 = tosa.cast %arg0 : (tensor<2x32x64xf4E2M1FN>) -> tensor<2x32x64xf32>
+  %1 = tosa.cast %arg1 : (tensor<2x64x96xf4E2M1FN>) -> tensor<2x64x96xf32>
+  
+  // Cast scales to f32
+  %2 = tosa.cast %scaleA : (tensor<2x32x64xf8E8M0FNU>) -> tensor<2x32x64xf32>
+  %3 = tosa.cast %scaleB : (tensor<2x64x96xf8E8M0FNU>) -> tensor<2x64x96xf32>
+  
+  // Multiply by scales
+  %shift = "tosa.const"() <{values = dense<0> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %4 = tosa.mul %0, %2, %shift : (tensor<2x32x64xf32>, tensor<2x32x64xf32>, tensor<1xi8>) -> tensor<2x32x64xf32>
+  %5 = tosa.mul %1, %3, %shift : (tensor<2x64x96xf32>, tensor<2x64x96xf32>, tensor<1xi8>) -> tensor<2x64x96xf32>
+  
+  // MatMul with small dimensions
+  %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf32>}> : () -> tensor<1xf32>
+  %6 = tosa.matmul %4, %5, %a_zp, %b_zp : (tensor<2x32x64xf32>, tensor<2x64x96xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<2x32x96xf32>
+  
+  return %6 : tensor<2x32x96xf32>
+}
