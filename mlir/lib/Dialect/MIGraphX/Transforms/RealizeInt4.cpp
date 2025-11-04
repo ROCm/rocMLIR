@@ -90,6 +90,9 @@ static MIXRShapedType asInt4Tensor(const MIXRShapedType byteType,
 
 LogicalResult RewriteByteUnpackPattern::matchAndRewrite(
     UnpackOp op, OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const {
+  if (!op.getType().getElementType().isInteger())
+    return failure();
+
   MIXRShapedType outType = op.getOut().getType();
   if (!outType.getElementType().isInteger(8))
     return failure();
@@ -106,6 +109,8 @@ LogicalResult RewriteByteUnpackPattern::matchAndRewrite(
 
 LogicalResult TransposeUnpackInterchange::matchAndRewrite(
     UnpackOp op, OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const {
+  if (!op.getType().getElementType().isInteger())
+    return failure();
   auto trOp = adaptor.getIn().getDefiningOp<TransposeOp>();
   if (!trOp)
     return failure();
@@ -133,6 +138,9 @@ LogicalResult ReshapeUnpackInterchange::matchAndRewrite(
   auto reshapeOp = adaptor.getIn().getDefiningOp<ReshapeOp>();
   if (!reshapeOp)
     return failure();
+  if (!op.getType().getElementType().isInteger())
+    return failure();
+
   int64_t postReshapeAxis = op.getAxis();
   MIXRShapedType newShapeBytes = op.getIn().getType();
   MIXRShapedType oldShapeBytes = reshapeOp.getInput().getType();
@@ -164,6 +172,9 @@ LogicalResult MultiBroadcastUnpackInterchange::matchAndRewrite(
   auto broadcastOp = adaptor.getIn().getDefiningOp<MultiBroadcastOp>();
   if (!broadcastOp)
     return failure();
+  if (!op.getType().getElementType().isInteger())
+    return failure();
+
   int64_t unpackAxis = adaptor.getAxis();
   MIXRShapedType preBroadcastBytes = broadcastOp.getInput().getType();
   MIXRShapedType preBroadcastInt4 = asInt4Tensor(preBroadcastBytes, unpackAxis);
@@ -192,6 +203,8 @@ LogicalResult MultiBroadcastUnpackInterchange::matchAndRewrite(
 
 LogicalResult FuncArgUnpackElimination::matchAndRewrite(
     UnpackOp op, OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const {
+  if (!op.getType().getElementType().isInteger())
+    return failure();
   auto unpackArg = dyn_cast<BlockArgument>(adaptor.getIn());
   if (!unpackArg)
     return failure();
