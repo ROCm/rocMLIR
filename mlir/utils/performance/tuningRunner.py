@@ -455,7 +455,7 @@ def main(args=None):
 
     if parsed_args.debug:
         print(all_data, file=sys.stderr)
-        all_data.to_csv(f"{parsed_args.output}.debug", sep='\t')
+        all_data.to_csv(f"{parsed_args.output}.debug", sep='\t', index=False)
 
     # Note, appending results here to allow multiple config sets
     if parsed_args.output == '-':

@@ -23,6 +23,168 @@
 using namespace mlir;
 using namespace mlir::rock;
 
+namespace {
+
+template <typename ParamsType>
+class ParamLookupTable {
+public:
+  using ParamArray = std::pair<const ParamsType *, size_t>;
+
+  static ArrayRef<ParamsType> lookup(StringRef arch, KernelType op,
+                                     Type dataType) {
+    arch = getArchName(arch);
+    auto key = makeKey(arch, op, dataType);
+    LLVM_DEBUG(llvm::dbgs()
+               << "Lookup for tuning parameters with key " << key << "\n");
+
+    static const auto &table = getTable();
+    auto it = table.find(key);
+    if (it != table.end()) {
+      return ArrayRef<ParamsType>(it->second.first, it->second.second);
+    }
+
+    auto fallbackKey = findFallback(key);
+    if (!fallbackKey.empty()) {
+      LLVM_DEBUG(llvm::dbgs() << "Falling back to tuning parameters with key "
+                              << fallbackKey << "\n");
+      return ArrayRef<ParamsType>(table.at(fallbackKey).first,
+                                  table.at(fallbackKey).second);
+    }
+
+    auto msg = "Tuning parameters not found for key " + key;
+    llvm_unreachable(msg.c_str());
+  }
+
+private:
+  static constexpr auto separator = '_';
+  // For non-accel params, fall back to any gfx
+  static constexpr auto fallbackArchPrefixLen =
+      std::is_same_v<ParamsType, InitParamsNonAccel> ? 3 : 4;
+
+  static StringRef getArchName(StringRef arch) {
+    auto gfxPos = arch.find("gfx");
+    if (gfxPos == StringRef::npos) {
+      llvm_unreachable("Invalid architecture string");
+    }
+    auto remaining = arch.substr(gfxPos);
+    auto endPos =
+        remaining.find_if_not([](char c) { return llvm::isAlnum(c); }, 3);
+    return remaining.substr(0, endPos);
+  }
+
+  static std::string getDataTypeString(Type dataType) {
+    std::string dataTypeStr;
+    if constexpr (std::is_same_v<ParamsType, InitParamsNonAccel>) {
+      // For non-accel params, we only support f32
+      dataTypeStr = "f32";
+    } else if (dataType.getIntOrFloatBitWidth() == 8 &&
+               isa<FloatType>(dataType)) {
+      // There are several 8-bit float types, but we use "fp8" generically
+      dataTypeStr = "fp8";
+    } else if (dataType.getIntOrFloatBitWidth() == 16 &&
+               isa<FloatType>(dataType)) {
+      // We use "f16" for bf16 and f16 generically
+      dataTypeStr = "f16";
+    } else {
+      llvm::raw_string_ostream os(dataTypeStr);
+      os << dataType;
+      if (dataType.isInteger() &&
+          (dataTypeStr.at(0) == 's' || dataTypeStr.at(0) == 'u')) {
+        // Integer types can be printed as "sint" or "uint"
+        dataTypeStr = dataTypeStr.substr(1);
+      }
+    }
+    return dataTypeStr;
+  }
+
+  static std::string getKernelTypeString(KernelType kernelType) {
+    switch (kernelType) {
+    case KernelType::ConvBwdData:
+    case KernelType::ConvBwdWeight:
+      // We use the same suffix for all convolution types
+      return stringifyEnum(KernelType::Conv).lower();
+    default:
+      return stringifyEnum(kernelType).lower();
+    }
+  }
+
+  // Get all related entries sorted lexicographically
+  static std::vector<std::string> getRelatives(const std::string &target) {
+    const auto suffixLen = target.size() - target.find(separator);
+
+    std::vector<std::string> relatives;
+
+    static const auto &table = getTable();
+    for (const auto &entry : table) {
+      const auto &candidate = entry.first;
+      // If suffix and prefix match, then they are relatives
+      if (std::equal(target.rbegin(), target.rbegin() + suffixLen,
+                     candidate.rbegin()) &&
+          std::equal(target.begin(), target.begin() + fallbackArchPrefixLen,
+                     candidate.begin())) {
+        relatives.push_back(candidate);
+      }
+    }
+
+    return relatives;
+  }
+
+  // Finds the lexicographically closest architecture variant when the exact
+  // target key is not found in the lookup table.
+  //
+  // A "relative" entry must have:
+  // - Same suffix (operation + data type, e.g., "_gemm_f16")
+  // - Same architecture prefix (e.g., "gfx9" for gfx908, gfx90a, gfx942)
+  //
+  // Example: If target "gfx1151_gemm_f16" is missing but "gfx1101_gemm_f16"
+  // and "gfx1201_gemm_f16" exist, this picks the lexicographically closest one
+  // (gfx1101_gemm_f16). This enables graceful fallback between similar GPU
+  // architectures.
+  static std::string findFallback(const std::string &target) {
+    const auto relatives = getRelatives(target);
+    if (relatives.empty())
+      return "";
+
+    auto it = std::lower_bound(relatives.begin(), relatives.end(), target);
+    if (it == relatives.end())
+      return relatives.back();
+    else if (it == relatives.begin())
+      return relatives.front();
+    else {
+      auto mismatchNext = target.end();
+      std::tie(mismatchNext, std::ignore) =
+          std::mismatch(target.begin(), target.end(), it->begin());
+
+      auto mismatchPrev = target.end();
+      std::tie(mismatchPrev, std::ignore) =
+          std::mismatch(target.begin(), target.end(), std::prev(it)->begin());
+
+      if (mismatchNext < mismatchPrev)
+        return *std::prev(it);
+      else
+        // If the mismatches are equal, prefer the larger (newer) candidate
+        return *it;
+    }
+  }
+
+  static std::string makeSuffix(KernelType op, Type dataType) {
+    return getKernelTypeString(op) + separator + getDataTypeString(dataType);
+  }
+
+  static std::string makeKey(StringRef arch, KernelType op, Type dataType) {
+    return arch.str() + separator + makeSuffix(op, dataType);
+  }
+
+  static const std::map<std::string, ParamArray> &getTable() {
+    static const std::map<std::string, ParamArray> table = buildTable();
+    return table;
+  }
+
+  static std::map<std::string, ParamArray> buildTable();
+};
+
+} // anonymous namespace
+
 llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
                                           GemmDimension dim) {
   switch (dim) {
@@ -167,8 +329,8 @@ PopulateParams::populateDerived(const InitParamsNonAccel &params) {
   LogicalResult res = calculateBlockGemmPerformanceParameters(params);
 
   if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
-                            << " size.\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "Incoherent blockGemm tuning parameter " << " size.\n");
     return failure();
   }
 
@@ -281,22 +443,8 @@ PopulateParams::obtainTuningParameters(RockGemmWrapperInterface op,
 std::vector<InitParamsNonAccel>
 PopulateParams::getTuningParameters(KernelType opType, Type dataTypeA,
                                     Type dataTypeB, StringRef arch) const {
-  ArrayRef<InitParamsNonAccel> params;
-  if (opType == KernelType::Gemm) {
-    if (arch.contains("gfx10"))
-      params = {initParametersGemmGfx1000, nInitParametersGemmGfx1000};
-    else if (arch.contains("gfx11"))
-      params = {initParametersGemmGfx1100, nInitParametersGemmGfx1100};
-    else
-      params = {initParametersGemmGfx1200, nInitParametersGemmGfx1200};
-  } else {
-    if (arch.contains("gfx10"))
-      params = {initParametersConvGfx1000, nInitParametersConvGfx1000};
-    else if (arch.contains("gfx11"))
-      params = {initParametersConvGfx1100, nInitParametersConvGfx1100};
-    else
-      params = {initParametersConvGfx1200, nInitParametersConvGfx1200};
-  }
+  auto params =
+      ParamLookupTable<InitParamsNonAccel>::lookup(arch, opType, dataTypeA);
   return std::vector<InitParamsNonAccel>(params);
 }
 
@@ -562,102 +710,9 @@ LogicalResult PopulateParamsXDL::isValidBlockwiseGemm(
 std::vector<InitParamsAccel>
 PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
                                        Type dataTypeB, StringRef arch) const {
-  ArrayRef<InitParamsAccel> params;
-  if (opType == KernelType::Gemm) {
-    switch (dataTypeA.getIntOrFloatBitWidth()) {
-    case 8:
-      if (dataTypeA.isInteger()) {
-        if (arch.contains("gfx908"))
-          params = {initParametersI8GemmGfx908, nInitParametersI8GemmGfx908};
-        else if (arch.contains("gfx90a"))
-          params = {initParametersI8GemmGfx90a, nInitParametersI8GemmGfx90a};
-        else if (arch.contains("gfx942"))
-          params = {initParametersI8GemmGfx942, nInitParametersI8GemmGfx942};
-        else
-          params = {initParametersI8GemmGfx950, nInitParametersI8GemmGfx950};
-      } else {
-        if (arch.contains("gfx908"))
-          params = {initParametersFp8GemmGfx908, nInitParametersFp8GemmGfx908};
-        else if (arch.contains("gfx90a"))
-          params = {initParametersFp8GemmGfx90a, nInitParametersFp8GemmGfx90a};
-        else if (arch.contains("gfx942"))
-          params = {initParametersFp8GemmGfx942, nInitParametersFp8GemmGfx942};
-        else
-          params = {initParametersFp8GemmGfx950, nInitParametersFp8GemmGfx950};
-      }
-      break;
-    case 16:
-      if (arch.contains("gfx908"))
-        params = {initParametersFp16GemmGfx908, nInitParametersFp16GemmGfx908};
-      else if (arch.contains("gfx90a"))
-        params = {initParametersFp16GemmGfx90a, nInitParametersFp16GemmGfx90a};
-      else if (arch.contains("gfx942"))
-        params = {initParametersFp16GemmGfx942, nInitParametersFp16GemmGfx942};
-      else
-        params = {initParametersFp16GemmGfx950, nInitParametersFp16GemmGfx950};
-      break;
-    default:
-      if (arch.contains("gfx908"))
-        params = {initParametersGemmGfx908, nInitParametersGemmGfx908};
-      else if (arch.contains("gfx90a"))
-        params = {initParametersGemmGfx90a, nInitParametersGemmGfx90a};
-      else if (arch.contains("gfx942"))
-        params = {initParametersGemmGfx942, nInitParametersGemmGfx942};
-      else
-        params = {initParametersGemmGfx950, nInitParametersGemmGfx950};
-    }
-  } else {
-    switch (dataTypeA.getIntOrFloatBitWidth()) {
-    case 8:
-      if (dataTypeA.isInteger()) {
-        if (arch.contains("gfx908"))
-          params = {initParametersForwardI8ConvGfx908,
-                    nInitParametersForwardI8ConvGfx908};
-        else if (arch.contains("gfx90a"))
-          params = {initParametersForwardI8ConvGfx90a,
-                    nInitParametersForwardI8ConvGfx90a};
-        else if (arch.contains("gfx942"))
-          params = {initParametersForwardI8ConvGfx942,
-                    nInitParametersForwardI8ConvGfx942};
-        else
-          params = {initParametersForwardI8ConvGfx950,
-                    nInitParametersForwardI8ConvGfx950};
-      } else {
-        if (arch.contains("gfx908"))
-          params = {initParametersForwardFp8ConvGfx908,
-                    nInitParametersForwardFp8ConvGfx908};
-        else if (arch.contains("gfx90a"))
-          params = {initParametersForwardFp8ConvGfx90a,
-                    nInitParametersForwardFp8ConvGfx90a};
-        else if (arch.contains("gfx942"))
-          params = {initParametersForwardFp8ConvGfx942,
-                    nInitParametersForwardFp8ConvGfx942};
-        else
-          params = {initParametersForwardFp8ConvGfx950,
-                    nInitParametersForwardFp8ConvGfx950};
-      }
-      break;
-    case 16:
-      if (arch.contains("gfx908"))
-        params = {initParametersFp16ConvGfx908, nInitParametersFp16ConvGfx908};
-      else if (arch.contains("gfx90a"))
-        params = {initParametersFp16ConvGfx90a, nInitParametersFp16ConvGfx90a};
-      else if (arch.contains("gfx942"))
-        params = {initParametersFp16ConvGfx942, nInitParametersFp16ConvGfx942};
-      else
-        params = {initParametersFp16ConvGfx950, nInitParametersFp16ConvGfx950};
-      break;
-    default:
-      if (arch.contains("gfx908"))
-        params = {initParametersConvGfx908, nInitParametersConvGfx908};
-      else if (arch.contains("gfx90a"))
-        params = {initParametersConvGfx90a, nInitParametersConvGfx90a};
-      else if (arch.contains("gfx942"))
-        params = {initParametersConvGfx942, nInitParametersConvGfx942};
-      else
-        params = {initParametersConvGfx950, nInitParametersConvGfx950};
-    }
-  }
+  auto params =
+      ParamLookupTable<InitParamsAccel>::lookup(arch, opType, dataTypeA);
+
   std::vector<InitParamsAccel> res;
   // Only return valid XDLOp params
   std::copy_if(
@@ -800,84 +855,10 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
 std::vector<InitParamsAccel>
 PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
                                         Type dataTypeB, StringRef arch) const {
-  ArrayRef<InitParamsAccel> params;
+  auto params =
+      ParamLookupTable<InitParamsAccel>::lookup(arch, opType, dataTypeA);
+
   std::vector<InitParamsAccel> res;
-  if (opType == KernelType::Gemm) {
-    switch (dataTypeA.getIntOrFloatBitWidth()) {
-    case 8:
-      if (dataTypeA.isInteger()) {
-        if (arch.contains("gfx10"))
-          params = {initParametersI8GemmGfx1000, nInitParametersI8GemmGfx1000};
-        else if (arch.contains("gfx11"))
-          params = {initParametersI8GemmGfx1100, nInitParametersI8GemmGfx1100};
-        else
-          params = {initParametersI8GemmGfx1200, nInitParametersI8GemmGfx1200};
-      } else {
-        if (arch.contains("gfx10"))
-          params = {initParametersFp8GemmGfx1000,
-                    nInitParametersFp8GemmGfx1000};
-        else if (arch.contains("gfx11"))
-          params = {initParametersFp8GemmGfx1100,
-                    nInitParametersFp8GemmGfx1100};
-        else
-          params = {initParametersFp8GemmGfx1200,
-                    nInitParametersFp8GemmGfx1200};
-      }
-      break;
-    case 16:
-      if (arch.contains("gfx10"))
-        params = {initParametersFp16GemmGfx1000,
-                  nInitParametersFp16GemmGfx1000};
-      else if (arch.contains("gfx11"))
-        params = {initParametersFp16GemmGfx1100,
-                  nInitParametersFp16GemmGfx1100};
-      else
-        params = {initParametersFp16GemmGfx1200,
-                  nInitParametersFp16GemmGfx1200};
-      break;
-    default:
-      return res;
-    }
-  } else {
-    switch (dataTypeA.getIntOrFloatBitWidth()) {
-    case 8:
-      if (dataTypeA.isInteger()) {
-        if (arch.contains("gfx10"))
-          params = {initParametersForwardI8ConvGfx1000,
-                    nInitParametersForwardI8ConvGfx1000};
-        else if (arch.contains("gfx11"))
-          params = {initParametersForwardI8ConvGfx1100,
-                    nInitParametersForwardI8ConvGfx1100};
-        else
-          params = {initParametersForwardI8ConvGfx1200,
-                    nInitParametersForwardI8ConvGfx1200};
-      } else {
-        if (arch.contains("gfx10"))
-          params = {initParametersForwardFp8ConvGfx1000,
-                    nInitParametersForwardFp8ConvGfx1000};
-        else if (arch.contains("gfx11"))
-          params = {initParametersForwardFp8ConvGfx1100,
-                    nInitParametersForwardFp8ConvGfx1100};
-        else
-          params = {initParametersForwardFp8ConvGfx1200,
-                    nInitParametersForwardFp8ConvGfx1200};
-      }
-      break;
-    case 16:
-      if (arch.contains("gfx10"))
-        params = {initParametersFp16ConvGfx1000,
-                  nInitParametersFp16ConvGfx1000};
-      else if (arch.contains("gfx11"))
-        params = {initParametersFp16ConvGfx1100,
-                  nInitParametersFp16ConvGfx1100};
-      else
-        params = {initParametersFp16ConvGfx1200,
-                  nInitParametersFp16ConvGfx1200};
-      break;
-    default:
-      return res;
-    }
-  }
   // Only return valid Wmma params
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   std::copy_if(
@@ -914,3 +895,28 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.splitKFactor, validParams.gemmScheduleVersion,
       validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
 }
+
+namespace {
+
+template <>
+std::map<std::string, ParamLookupTable<InitParamsNonAccel>::ParamArray>
+ParamLookupTable<InitParamsNonAccel>::buildTable() {
+  return {
+#define NonAccel_LOOKUP_TABLE_GEN
+#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
+#undef NonAccel_LOOKUP_TABLE_GEN
+  };
+}
+
+// Specialization for Accel (XDL/WMMA) parameters
+template <>
+std::map<std::string, ParamLookupTable<InitParamsAccel>::ParamArray>
+ParamLookupTable<InitParamsAccel>::buildTable() {
+  return {
+#define Accel_LOOKUP_TABLE_GEN
+#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
+#undef Accel_LOOKUP_TABLE_GEN
+  };
+}
+
+} // anonymous namespace
