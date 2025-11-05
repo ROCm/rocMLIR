@@ -1048,7 +1048,8 @@ LogicalResult GemmOp::verify() {
       return failure();
     Type elemType = ty.getElementType();
     if (!isa<Float8E8M0FNUType>(elemType) && !elemType.isF32())
-      return emitOpError() << scaleName << " must be of type Float8E8M0FNUType or f32";
+      return emitOpError() << scaleName
+                           << " must be of type Float8E8M0FNUType or f32";
 
     bool transposed = isA ? getAScaleTransposed() : getBScaleTransposed();
     int64_t offset = dims.size() == 2 ? 0 : 1;
