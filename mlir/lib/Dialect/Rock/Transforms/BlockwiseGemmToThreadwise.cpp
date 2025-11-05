@@ -565,10 +565,10 @@ struct BlockwiseGemmAccelRewritePattern
           return failure();
         }
         Value bufferScaleA = adaptor.getBufferScaleA();
-        // TODO: fix argType
-        bufferScaleA = loadBuffer(bufferScaleA, wrappedLDSBufferForScaleA, i,
-                                  argTypeA, mRepeats, loadAFromLDS,
-                                  matrixParamsA.getDirectToLDS(), true);
+        bufferScaleA =
+            loadBuffer(bufferScaleA, wrappedLDSBufferForScaleA, i,
+                       getElementTypeOrSelf(scaleA), mRepeats, loadAFromLDS,
+                       matrixParamsA.getDirectToLDS(), true);
         viewScaleA = accelEmitterPtr->generateThreadwiseViewBufferA(
             b, loc, bufferScaleA);
       }
@@ -592,9 +592,10 @@ struct BlockwiseGemmAccelRewritePattern
           }
           Value bufferScaleB = adaptor.getBufferScaleB();
           // TODO: fix argType
-          bufferScaleB = loadBuffer(bufferScaleB, wrappedLDSBufferForScaleB, j,
-                                    argTypeB, nRepeats, loadBFromLDS,
-                                    matrixParamsB.getDirectToLDS(), false);
+          bufferScaleB =
+              loadBuffer(bufferScaleB, wrappedLDSBufferForScaleB, j,
+                         getElementTypeOrSelf(scaleB), nRepeats, loadBFromLDS,
+                         matrixParamsB.getDirectToLDS(), false);
           viewScaleB = accelEmitterPtr->generateThreadwiseViewBufferB(
               b, loc, bufferScaleB);
         }
