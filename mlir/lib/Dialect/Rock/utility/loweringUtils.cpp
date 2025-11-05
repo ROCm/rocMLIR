@@ -774,10 +774,6 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   assert(bufferBitWidth == totalBitWidthRequested &&
          "Can't evenly fit type into buffer");
 
-  int64_t length = bufferBitWidth / (elementBitWidth * vectorLength);
-  assert(length == numElements &&
-         "Provided dimensions don't match buffer size");
-
   auto newBufferType = MemRefType::get(dimensions, elementType, nullptr,
                                        bufferType.getMemorySpace());
   auto view =
