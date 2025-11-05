@@ -188,7 +188,7 @@ runKernelPipeline(StringRef arch, ModuleOp m,
   // Set up lowering pipeline.
   if (kernelPipelineSet.contains("applicability")) {
     rock::KernelOptions opts;
-    opts.enableApplicability = true;
+    opts.applicabilityMode = mlir::rock::ApplicabilityMode::Applicability;
     rock::buildKernelPipeline(pm, opts);
   }
   if (kernelPipelineSet.contains("gpu")) {
