@@ -591,7 +591,6 @@ struct BlockwiseGemmAccelRewritePattern
             return failure();
           }
           Value bufferScaleB = adaptor.getBufferScaleB();
-          // TODO: fix argType
           bufferScaleB =
               loadBuffer(bufferScaleB, wrappedLDSBufferForScaleB, j,
                          getElementTypeOrSelf(scaleB), nRepeats, loadBFromLDS,
