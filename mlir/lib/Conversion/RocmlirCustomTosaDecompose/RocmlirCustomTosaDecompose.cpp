@@ -739,13 +739,11 @@ public:
         rewriter, loc, UnrankedTensorType::get(resultETy), conv2d,
         convReshapeDims1Value);
 
-    // Effective pad = outPad + (k - 1) - (inPad * stride)
-    // Each input padded row/col expands to stride rows/cols in the upsampled
-    // domain.
-    int64_t effPadTop =
-        outPad[0] + (origWeightHeight - stride[0]) - inPadVals[0] * stride[0];
-    int64_t effPadLeft =
-        outPad[2] + (origWeightWidth - stride[1]) - inPadVals[2] * stride[1];
+    // Effective pad = outPad + (paddedK - stride - 1) - (inPad * stride)
+    int64_t effPadTop = outPad[0] + (origWeightHeight - stride[0] - 1) -
+                        inPadVals[0] * stride[0];
+    int64_t effPadLeft = outPad[2] + (origWeightWidth - stride[1] - 1) -
+                         inPadVals[2] * stride[1];
 
     // When we shrink from the orignal size to kPrime by grouping stride phases,
     // we discard some positions that existed in the conceptual upsampled view.
@@ -762,11 +760,24 @@ public:
 
     // If stride factoring compresses a dimension to a single spatial position,
     // i.e., kPrime == 1, then we dropped a ring of values around that position.
-    // To keep the result centered, update effPad by the half the lost distance.
-    if (kHPrime == 1 && lostH > 0)
-      effPadTop += lostH / 2;
-    if (kWPrime == 1 && lostW > 0)
-      effPadLeft += lostW / 2;
+    // The adjustment pattern depends on which dimension has asymmetric padding.
+
+    // Height dimension compressed (kHPrime==1)
+    if (kHPrime == 1 && lostH > 0) {
+      int64_t adjustment = lostH / 2;
+      bool hasAsymmetricWidth = (weightPadding[4] != weightPadding[5]);
+      if (hasAsymmetricWidth) {
+        effPadTop -= adjustment;
+        effPadLeft += adjustment;
+      } else {
+        effPadLeft += adjustment;
+      }
+    }
+
+    // Width dimension compressed (kWPrime==1)
+    if (kWPrime == 1 && lostW > 0) {
+      effPadTop += lostW / 2;
+    }
 
     int64_t resultSliceTop;
     int64_t resultSliceLeft;
