@@ -155,24 +155,19 @@ void rock::buildKernelPipeline(OpPassManager &pm,
    * --rock-blockwise-load-tile-to-threadwise
    */
   auto &funcPm = pm.nest<func::FuncOp>();
-  funcPm.addPass(rock::createRockAffixTuningParametersPass(
-      rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));
-  funcPm.addPass(rock::createRockConvToGemmPass());
-  funcPm.addPass(rock::createRockGemmLinalgSplitkNormalizationPass());
-  funcPm.addPass(rock::createRockGemmToGridwisePass());
-  funcPm.addPass(rock::createRockRegularizePass());
-  funcPm.addPass(rock::createRockShuffleGemmForReductions());
-  funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
-  funcPm.addPass(rock::createRockBlockwiseLoadTileToThreadwisePass());
 
-  // We want to delay blockwise lowering in the fusion cases
-  // until after linalg align pass because with reduction fusion
-  // it may introduce blockwise_reductions.
-  if (!options.enableFusion) {
-    funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
-  }
+  if (options.applicabilityMode == rock::ApplicabilityMode::Applicability ||
+      options.applicabilityMode == rock::ApplicabilityMode::Full) {
+    funcPm.addPass(rock::createRockAffixTuningParametersPass(
+        rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));
+    funcPm.addPass(rock::createRockConvToGemmPass());
+    funcPm.addPass(rock::createRockGemmLinalgSplitkNormalizationPass());
+    funcPm.addPass(rock::createRockGemmToGridwisePass());
+    funcPm.addPass(rock::createRockRegularizePass());
+    funcPm.addPass(rock::createRockShuffleGemmForReductions());
+    funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
+    funcPm.addPass(rock::createRockBlockwiseLoadTileToThreadwisePass());
 
-  if (options.enableFusion) {
     // align linalg tiling
     /* rocmlir-opt --rock-linalg-align --canonicalize
      * --convert-linalg-to-affine-loops
@@ -183,18 +178,21 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     funcPm.addPass(rock::createRockVectorizeFusionsPass());
-  }
-  // We run reuse LDS before the output swizzle pass because it uses a heuristic
-  // to determine whether to swizzle or not, and that heuristic needs the actual
-  // LDS usage. After running output swizzle, we'll create a new LDS buffer and
-  // we need to run reuse LDS again to be able to reuse LDS memory.
-  funcPm.addPass(rock::createRockAnnotateLivenessPass());
-  funcPm.addPass(rock::createRockReuseLDSPass());
-  funcPm.addPass(rock::createRockOutputSwizzlePass());
-  funcPm.addPass(rock::createRockAnnotateLivenessPass());
-  funcPm.addPass(rock::createRockReuseLDSPass());
 
-  if (!options.enableApplicability) {
+    // We run reuse LDS before the output swizzle pass because it uses a
+    // heuristic to determine whether to swizzle or not, and that heuristic
+    // needs the actual LDS usage. After running output swizzle, we'll create a
+    // new LDS buffer and we need to run reuse LDS again to be able to reuse LDS
+    // memory.
+    funcPm.addPass(rock::createRockAnnotateLivenessPass());
+    funcPm.addPass(rock::createRockReuseLDSPass());
+    funcPm.addPass(rock::createRockOutputSwizzlePass());
+    funcPm.addPass(rock::createRockAnnotateLivenessPass());
+    funcPm.addPass(rock::createRockReuseLDSPass());
+  }
+
+  if (options.applicabilityMode == rock::ApplicabilityMode::NonApplicability ||
+      options.applicabilityMode == rock::ApplicabilityMode::Full) {
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
      */
