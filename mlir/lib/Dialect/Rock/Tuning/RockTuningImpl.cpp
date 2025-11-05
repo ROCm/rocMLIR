@@ -82,20 +82,20 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
                                     bool isSplitKFusible,
                                     TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
-      /*gemm0MPerBlock=*/{32, 64, 128, 256},
-      /*gemm1MPerBlock=*/{32, 64, 128, 256},
-      /*gemm0NPerBlock=*/{32, 64, 128, 256},
+      /*gemm0MPerBlock=*/{16, 32, 64, 128, 256},
+      /*gemm1MPerBlock=*/{16, 32, 64, 128, 256},
+      /*gemm0NPerBlock=*/{16, 32, 64, 128, 256},
       /*kPackPerBlock=*/{8, 16, 32, 64},
-      /*mPerWave=*/{32, 64, 128, 256},
+      /*mPerWave=*/{16, 32, 64, 128, 256},
       /*mnPerXdl=*/{4, 16, 32},
       /*kPack=*/{4, 8, 16}};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
-      /*gemm0MPerBlock=*/{32, 64, 128},
-      /*gemm1MPerBlock=*/{32, 64, 128},
-      /*gemm0NPerBlock=*/{32, 64, 128, 256},
+      /*gemm0MPerBlock=*/{16, 32, 64, 128},
+      /*gemm1MPerBlock=*/{16, 32, 64, 128},
+      /*gemm0NPerBlock=*/{16, 32, 64, 128, 256},
       /*kPackPerBlock=*/{8, 16, 32, 64},
-      /*mPerWave=*/{32, 64},
-      /*nPerWave=*/{32, 64},
+      /*mPerWave=*/{16, 32, 64},
+      /*nPerWave=*/{16, 32, 64},
       /*kPack=*/{4, 8, 16}};
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
   int64_t numEUPerCU =
