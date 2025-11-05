@@ -1551,7 +1551,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // - In the select-based mask case, the upper triangular part that is all 1's
   //   is combined with the -inf/large negative values that are fed into the
   //   select op, resulting in the same type of mask pattern that we see in the
-  //   non-select based mask case.
+  //   non-select based mask case. In the non-select case the mask is added
+  //   directly to the result of the first gemm.
   bool isValidCausalMask(Operation *op, bool expectOnesInUpperTriangle) const {
     // Get the constant value
     DenseElementsAttr constAttr;
@@ -1571,9 +1572,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (shape.size() != 4 || shape[0] != 1 || shape[1] != 1)
       return false;
 
-    // Sanity check that this is either an integer/index type or a float type
+    // Sanity check that this is an integer when expectOnesInUpperTriangle is
+    // false (i.e., the select case), and a float when expectOnesInUpperTriangle
+    // is true (i.e., the add case).
     bool isInt = constAttr.getElementType().isIntOrIndex();
-    if (!isInt && !isa<FloatType>(constAttr.getElementType()))
+    bool isFloat = isa<FloatType>(constAttr.getElementType());
+    if ((!isInt && !isFloat) ||
+        (isInt && !expectOnesInUpperTriangle) ||
+        (isFloat && expectOnesInUpperTriangle))
       return false;
 
     int64_t seqLen = shape[2];
