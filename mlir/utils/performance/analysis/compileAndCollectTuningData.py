@@ -507,53 +507,64 @@ def compile_and_collect_data(config, operation, binaries):
     return results
 
 
-def write_results_to_tsv(results, configs):
+def create_tsv_writer(configs, output_file):
     """
-    Write the collected tuning data results to a tsv file.
+    Create and initialize a TSV writer with headers.
 
     Args:
-        results: List of tuning data dictionaries
-        configs: List of original configuration dictionaries
+        configs: Dictionary of original configuration dictionaries
+        output_file: Path to the output file
+
+    Returns:
+        tuple: (file_handle, csv.DictWriter) - caller must close file_handle
     """
-    if not results:
-        print("No results to write")
-        sys.exit(1)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = f"tuning_results_{timestamp}.tsv"
-
     # Get the original fieldnames from the first config entry
     first_config_data = next(iter(configs.values()))
     original_fieldnames = list(first_config_data.keys())
     tsv_fieldnames = original_fieldnames + NEW_DATA_FIELDNAMES
 
     try:
-        with open(output_file, 'w', newline='', encoding='utf-8') as tsvfile:
-            writer = csv.DictWriter(tsvfile, fieldnames=tsv_fieldnames, delimiter='\t')
-
-            # Write the header
-            writer.writeheader()
-
-            # Write each result row
-            config_keys = list(configs.keys())
-            for (config, result) in zip(config_keys, results):
-                # Start with the original config data
-                config_data = configs[config]
-                row = dict(config_data)  # Copy all original fields
-
-                # Add new tuning data
-                if result is None:
-                    row.update({field: None for field in NEW_DATA_FIELDNAMES})
-                else:
-                    result_dict = result.to_dict()
-                    row.update({field: result_dict.get(field, '') for field in NEW_DATA_FIELDNAMES})
-
-                writer.writerow(row)
-
-        print(f"\nResults written to {output_file}")
+        tsvfile = open(output_file, 'w', newline='', encoding='utf-8')
+        writer = csv.DictWriter(tsvfile, fieldnames=tsv_fieldnames, delimiter='\t')
+        
+        # Write the header
+        writer.writeheader()
+        tsvfile.flush()  # Ensure header is written immediately
+        
+        return tsvfile, writer
 
     except Exception as e:
-        print(f"\nError writing results to tsv: {e}")
+        print(f"\nError creating output file: {e}")
+        sys.exit(1)
+
+
+def write_result_to_tsv(writer, config, config_data, result, tsvfile):
+    """
+    Write a single result row to the TSV file.
+
+    Args:
+        writer: csv.DictWriter instance
+        config: Configuration tuple
+        config_data: Original configuration dictionary
+        result: TuningData result object (or None)
+        tsvfile: File handle for flushing
+    """
+    try:
+        # Start with the original config data
+        row = dict(config_data)  # Copy all original fields
+
+        # Add new tuning data
+        if result is None:
+            row.update({field: None for field in NEW_DATA_FIELDNAMES})
+        else:
+            result_dict = result.to_dict()
+            row.update({field: result_dict.get(field, '') for field in NEW_DATA_FIELDNAMES})
+
+        writer.writerow(row)
+        tsvfile.flush()  # Ensure row is written immediately
+
+    except Exception as e:
+        print(f"\nError writing result to tsv: {e}")
         sys.exit(1)
 
 
@@ -598,16 +609,35 @@ def main():
 
     print(f"Found {len(configs)} configurations to process")
 
-    # Process each configuration
-    results = []
-    total_configs = len(configs)
-    for i, config in enumerate(configs):
-        print_progress(i, total_configs)
-        metrics = compile_and_collect_data(config, args.op, paths)
-        results.append(metrics)
+    # Create output file and writer (streaming mode)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = f"tuning_results_{timestamp}.tsv"
+    tsvfile, writer = create_tsv_writer(configs, output_file)
 
-    # Write the results to a final tsv file
-    write_results_to_tsv(results, configs)
+    try:
+        # Process each configuration and write immediately (no accumulation)
+        config_keys = list(configs.keys())
+        total_configs = len(config_keys)
+        
+        for i, config in enumerate(config_keys):
+            print_progress(i, total_configs)
+            config_data = configs[config]
+            
+            # Compile and collect data for this config
+            metrics = compile_and_collect_data(config, args.op, paths)
+            
+            # Write result immediately
+            write_result_to_tsv(writer, config, config_data, metrics, tsvfile)
+
+        print_progress(total_configs, total_configs)
+        print(f"\nResults written to {output_file}")
+
+    except Exception as e:
+        print(f"\nError during processing: {e}")
+        return 1
+    finally:
+        # Always close the file
+        tsvfile.close()
 
     # If we have reached this point without crashing, it means that we have had
     # a successful run and we can return 0.
