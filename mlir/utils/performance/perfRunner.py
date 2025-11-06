@@ -1051,12 +1051,6 @@ class GemmConfiguration(PerfConfiguration):
         self.scale_b_dtype = scale_b_dtype
         self.trans_scale_a = trans_scale_a
         self.trans_scale_b = trans_scale_b
-        self.scaled_gemm = scaled_gemm
-        self.scale_a_dtype = scale_a_dtype
-        self.scale_b_dtype = scale_b_dtype
-        self.trans_scale_a = trans_scale_a
-        self.trans_scale_b = trans_scale_b
-
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
         self.num_cu = num_cu
