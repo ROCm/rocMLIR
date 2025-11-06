@@ -403,12 +403,11 @@ static int toKernelOrder(Attribute attr) {
   return -1;
 }
 
-static LogicalResult
-extractFuncOps(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
+static LogicalResult extractFuncOps(ModuleOp op,
+                                    SmallVectorImpl<func::FuncOp> &kernels) {
   if (!op->hasAttr("mhal.arch")) {
-     op->emitOpError(
-        "no architecture set, set mhal.arch on the input module");
-      return failure();
+    op->emitOpError("no architecture set, set mhal.arch on the input module");
+    return failure();
   }
   op.walk([&kernels](func::FuncOp f) {
     Attribute kernel = f->getAttr("kernel");

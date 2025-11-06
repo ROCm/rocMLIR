@@ -305,10 +305,8 @@ struct ThreadwiseGemmAccelRewritePattern
       auto argBVector = dyn_cast<VectorType>(argTypeB);
       if (argAVector && argBVector) {
         // clone shape of ArgTypeA but retain elementType of dataTypeScaleA
-        argTypeScaleA = VectorType::get(
-            argAVector.getShape(), dataTypeScaleA);
-        argTypeScaleB = VectorType::get(
-            argBVector.getShape(), dataTypeScaleB);
+        argTypeScaleA = VectorType::get(argAVector.getShape(), dataTypeScaleA);
+        argTypeScaleB = VectorType::get(argBVector.getShape(), dataTypeScaleB);
       }
     }
 
