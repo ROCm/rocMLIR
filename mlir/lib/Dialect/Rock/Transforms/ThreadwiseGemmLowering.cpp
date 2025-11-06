@@ -715,14 +715,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     int64_t elementBitWidth = elementType.getIntOrFloatBitWidth();
     if (hwDirectToLDS128b) {
       maxGlobalToLDSVectorLen = 128 / elementBitWidth;
-      LLVM_DEBUG(llvm::dbgs() << "Hardware supports 128-bit direct-to-LDS, "
-                              << "max vector length = "
-                              << maxGlobalToLDSVectorLen << "\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Hardware supports 128-bit direct-to-LDS, "
+                 << "max vector length = " << maxGlobalToLDSVectorLen << "\n");
     } else if (hwDirectToLDS32b) {
       maxGlobalToLDSVectorLen = 32 / elementBitWidth;
-      LLVM_DEBUG(llvm::dbgs() << "Hardware supports 32-bit direct-to-LDS, "
-                              << "max vector length = "
-                              << maxGlobalToLDSVectorLen << "\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Hardware supports 32-bit direct-to-LDS, "
+                 << "max vector length = " << maxGlobalToLDSVectorLen << "\n");
     }
   }
 
@@ -741,10 +741,10 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     vectorSrcLen = vectorSrcRes.max;
     // Constrain vectorization for Global-to-LDS based on hardware capabilities
     if (isGlobalToLDS && vectorSrcLen > maxGlobalToLDSVectorLen) {
-      LLVM_DEBUG(llvm::dbgs() << "Constraining vectorization from "
-                              << vectorSrcLen << " to " 
-                              << maxGlobalToLDSVectorLen
-                              << " for Global-to-LDS hardware limits\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Constraining vectorization from " << vectorSrcLen << " to "
+                 << maxGlobalToLDSVectorLen
+                 << " for Global-to-LDS hardware limits\n");
       vectorSrcLen = maxGlobalToLDSVectorLen;
     }
     // In the future, this might get merged into the vectorizer.
