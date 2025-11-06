@@ -300,13 +300,16 @@ struct ThreadwiseGemmAccelRewritePattern
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
     Type argTypeScaleA = dataTypeScaleA, argTypeScaleB = dataTypeScaleB;
-    if (isScaledGemm && dyn_cast<VectorType>(argTypeA) &&
-        dyn_cast<VectorType>(argTypeB)) {
-      // clone shape of ArgTypeA but retain elementType of dataTypeScaleA
-      argTypeScaleA = VectorType::get(
-          cast<VectorType>(params.argTypeA).getShape(), dataTypeScaleA);
-      argTypeScaleB = VectorType::get(
-          cast<VectorType>(params.argTypeB).getShape(), dataTypeScaleB);
+    if (isScaledGemm) {
+      auto argAVector = dyn_cast<VectorType>(argTypeA);
+      auto argBVector = dyn_cast<VectorType>(argTypeB);
+      if (argAVector && argBVector) {
+        // clone shape of ArgTypeA but retain elementType of dataTypeScaleA
+        argTypeScaleA = VectorType::get(
+            argAVector.getShape(), dataTypeScaleA);
+        argTypeScaleB = VectorType::get(
+            argBVector.getShape(), dataTypeScaleB);
+      }
     }
 
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
