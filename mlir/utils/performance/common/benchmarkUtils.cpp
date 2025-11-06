@@ -107,8 +107,8 @@ void printUsage(const std::string &name) {
 std::vector<uint8_t> getPattern(DataType dataType) {
   std::vector<float> patternFlt = {0.5f, -1.0f, 0.75f};
   // For the benchmarking we just use random data and don't really care about
-  // the values. Choose some random patterns of values that can be represened by
-  // FP4 and F8E8M0FNU.
+  // the values. Choose some random patterns of values that can be represented
+  // by FP4 and F8E8M0FNU.
   std::vector<uint8_t> patternFp4 = {2, 4, 8, 10};
   std::vector<uint8_t> patternF8E8M0FNU = {1, 2, 4, 8};
   std::vector<int> patternInt{1, -1, 2};
