@@ -1625,27 +1625,27 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   bool isUsedByExp(Value value) const {
     // Use iterative DFS with a worklist to search through the use chain
     SmallVector<Value, 8> worklist{value};
-    DenseSet<Operation*> visited;
-    
+    DenseSet<Operation *> visited;
+
     while (!worklist.empty()) {
       Value current = worklist.pop_back_val();
-      
+
       for (Operation *user : current.getUsers()) {
         // Insert the op into the visited set. Insert will return a pair where
         // .second is true if the insertion was successful.
         if (!visited.insert(user).second)
           continue;
-        
+
         // Check if this user is a tosa.exp op
         if (isa<tosa::ExpOp>(user))
           return true;
-        
+
         // Add all results of this operation to the worklist
         for (Value result : user->getResults())
           worklist.push_back(result);
       }
     }
-    
+
     return false;
   }
 
