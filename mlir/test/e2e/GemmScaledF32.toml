@@ -1,4 +1,4 @@
-# these test need to be run with `-rand none`. It is using f32 scales. On the host side it doesnt' get quantized to f8E8M0FNU but on the GPU it does get quantized. 
+# these test need to be run with `-rand none`. It is using f32 scales. On the host side it doesn't get quantized to f8E8M0FNU but on the GPU it does get quantized. 
 # therefore to avoid quantization errors, run with `-rand none`. 
 directory = "GemmScaledF32"
 prefix = "rocmlir-gen"
