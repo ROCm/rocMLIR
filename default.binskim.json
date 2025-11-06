@@ -1,0 +1,7 @@
+{
+    "targets": [ "all", "rocmlir-driver" ],
+    "cacheVariables": {
+        "BUILD_FAT_LIBROCKCOMPILER": "ON",
+        "ROCMLIR_USE_BINSKIM_COMPLIANT_COMPILE_FLAGS": "ON"
+    }
+}
