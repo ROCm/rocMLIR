@@ -72,7 +72,9 @@ pipeline {
     stages {
         stage("Set System Property") {
             steps {
-                ciLogic.setHeartbeat()
+                script {
+                    ciLogic.setHeartbeat()
+                }
             }
         }
         stage("Kill old PR builds") {
@@ -81,7 +83,9 @@ pipeline {
                 equals expected: false, actual: params.nightly;
             }
             steps {
-                ciLogic.resetBuild()
+                script {
+                    ciLogic.resetBuild()
+                }
             }
         }
         stage('Build and Test') {
@@ -285,7 +289,6 @@ pipeline {
                                                         echo "codepath is ${CODEPATH}"
                                                         echo "Container environment:"
                                                         nodeUtils.showEnv()
-                                                        ciLogic.setHeartbeat()
                                                         buildUtils.buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                                     }
 
@@ -483,7 +486,9 @@ pipeline {
                 skipDefaultCheckout()
             }
             steps {
-                reportUtils.archivePerfDB()
+                script {
+                    reportUtils.archivePerfDB()
+                }
             }
             post {
                 always {
