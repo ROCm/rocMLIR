@@ -991,14 +991,6 @@ class GemmConfiguration(PerfConfiguration):
                 trans_scale_a = (val.lower() in ["1", "true"])
             elif opt.endswith("-transScaleB"):
                 trans_scale_b = (val.lower() in ["1", "true"])
-            elif opt == '-scale_a_dtype':
-                scale_a_dtype = val
-            elif opt == '-scale_b_dtype':
-                scale_b_dtype = val
-            elif opt.endswith("-transScaleA"):
-                trans_scale_a = (val.lower() in ["1", "true"])
-            elif opt.endswith("-transScaleB"):
-                trans_scale_b = (val.lower() in ["1", "true"])
             else:
                 raise ValueError(f"Unknown GEMM config argument {opt} -> {val}")
             i += 2
