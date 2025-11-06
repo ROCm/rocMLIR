@@ -294,7 +294,7 @@ func.func @mlir_causal_attention_hardcoded_causal_mask2(%arg0: tensor<1xi32> {mh
 // CHECK: rock.attention
 // CHECK: qk = {{.*}} * {{.*}} : tensor<14x8x64xf16>, tensor<14x64x8xf16>
 // CHECK: causal
-func.func @mlir_causal_attention_no_select(%arg0: tensor<1024xf16>, %arg1: tensor<7168xf16>, %arg2: tensor<7168xf16>) -> tensor<7168xf16> attributes {arch = "", kernel = "mixr", num_cu = 0 : i64} {
+func.func @mlir_causal_attention_no_select(%arg0: tensor<1024xf16>, %arg1: tensor<7168xf16>, %arg2: tensor<7168xf16>) -> tensor<7168xf16> attributes {kernel} {
   %0 = tosa.const_shape  {values = dense<7168> : tensor<1xindex>} : () -> !tosa.shape<1>
   %1 = tosa.const_shape  {values = dense<[14, 8, 8]> : tensor<3xindex>} : () -> !tosa.shape<3>
   %2 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x14x8x8xf32>}> : () -> tensor<1x14x8x8xf32>
