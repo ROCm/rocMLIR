@@ -482,8 +482,8 @@ struct BlockwiseGemmAccelRewritePattern
     }
     Value wrappedLDSBufferForScaleA, wrappedLDSBufferForScaleB;
     if (isScaledGemm) {
-      assert(loadAFromLDS);
-      assert(loadBFromLDS);
+      assert(loadAFromLDS && "Scaled GEMM requires loading A from LDS");
+      assert(loadBFromLDS && "Scaled GEMM requires loading B from LDS");
       wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
           b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m");
       wrappedLDSBufferForScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
