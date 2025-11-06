@@ -365,9 +365,16 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
   // might loose invertibility. Note that the this will add an additional series
   // of AddDim{} operators below the existing transforms to protect against
   // shape mismatches.
-  sourceView = addPassThroughIndices(b, sourceView, extraIndicesDestShape,
-                                     extraIndicesSourceSize);
-  destView = addPassThroughIndices(b, destView, extraIndicesSourceShape, 0);
+  FailureOr<Value> sourceViewResult = addPassThroughIndices(
+      b, sourceView, extraIndicesDestShape, extraIndicesSourceSize);
+  if (failed(sourceViewResult))
+    return failure();
+  sourceView = sourceViewResult.value();
+  FailureOr<Value> destViewResult =
+      addPassThroughIndices(b, destView, extraIndicesSourceShape, 0);
+  if (failed(destViewResult))
+    return failure();
+  destView = destViewResult.value();
 
   // Almost certainly a noop, since adding extra indices creates fresh
   // IR, but we call it just in case.

@@ -142,11 +142,11 @@ def sample_attn_shape():
 # Keep in sync with RockTuningImpl.cpp
 perfconfig_space_mfma = list(
     itertools.product(  # MFMA perfConfig space
-        [32, 64, 128, 256],  # M/block G0
-        [32, 64, 128, 256],  # M/block G1
-        [32, 64, 128, 256],  # N/block G0
+        [16, 32, 64, 128, 256],  # M/block G0
+        [16, 32, 64, 128, 256],  # M/block G1
+        [16, 32, 64, 128, 256],  # N/block G0
         [8, 16, 32, 64],  # Kpack/Block
-        [32, 64, 128, 256],  # M/Wave
+        [16, 32, 64, 128, 256],  # M/Wave
         [4, 16, 32],  # MN/Xdl
         [4, 8, 16],  # kPack
         [1],  # splitKFactor
@@ -157,12 +157,12 @@ perfconfig_space_mfma = list(
 
 perfconfig_space_wmma = list(
     itertools.product(  # WMMA perfConfig space
-        [32, 64, 128],  # M/block G0
-        [32, 64, 128],  # M/block G1
-        [32, 64, 128, 256],  # N/block G0
+        [16, 32, 64, 128],  # M/block G0
+        [16, 32, 64, 128],  # M/block G1
+        [16, 32, 64, 128, 256],  # N/block G0
         [8, 16, 32, 64],  # Kpack/Block
-        [32, 64],  # M/Wave
-        [32, 64],  # N/Wave
+        [16, 32, 64],  # M/Wave
+        [16, 32, 64],  # N/Wave
         [4, 8, 16],  # kPack
         [1],  # splitKFactor
         [1],  # scheduleVersion
