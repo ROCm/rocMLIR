@@ -35,6 +35,7 @@ DATA_TYPES = ['conv', 'convfp16', 'convbfp16', 'convfp8', 'convint8']
 LAYOUTS = ['NHWC', 'NCHW']
 
 DATA_TYPES_GEMM = ['f32', 'f16', 'bf16', 'i8', 'fp8', 'f4E2M1FN']
+DATA_TYPES_GEMM_SCALES = ['f32', 'f8E8M0FNU']
 DATA_TYPES_ATTENTION_WMMA = ['i8', 'f16', 'bf16']
 DATA_TYPES_ATTENTION_MFMA = ['i8', 'f32', 'f16', 'bf16']
 DATA_TYPES_GEMM_GEMM = ['f32', 'f16', 'bf16']
@@ -1036,6 +1037,14 @@ class GemmConfiguration(PerfConfiguration):
                  trans_scale_b: bool = False):
         if dtype not in DATA_TYPES_GEMM:
             raise ValueError(f"Invalid datatype: {dtype}")
+
+        if scale_a_dtype is not None and scale_a_dtype not in DATA_TYPES_GEMM_SCALES:
+            raise ValueError(
+                f"Invalid scale_a_dtype: {scale_a_dtype}. Must be one of {DATA_TYPES_GEMM_SCALES}")
+
+        if scale_b_dtype is not None and scale_b_dtype not in DATA_TYPES_GEMM_SCALES:
+            raise ValueError(
+                f"Invalid scale_b_dtype: {scale_b_dtype}. Must be one of {DATA_TYPES_GEMM_SCALES}")
 
         self.datatype = dtype
         self.out_dtype = out_dtype
