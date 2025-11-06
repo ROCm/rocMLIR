@@ -1577,8 +1577,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // is true (i.e., the add case).
     bool isInt = constAttr.getElementType().isIntOrIndex();
     bool isFloat = isa<FloatType>(constAttr.getElementType());
-    if ((!isInt && !isFloat) ||
-        (isInt && !expectOnesInUpperTriangle) ||
+    if ((!isInt && !isFloat) || (isInt && !expectOnesInUpperTriangle) ||
         (isFloat && expectOnesInUpperTriangle))
       return false;
 
