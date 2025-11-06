@@ -18,16 +18,30 @@
 
 namespace benchmark {
 
-enum class DataType : uint32_t { F32, F16, BF16, I8, F8, I32, F4, UNKNOWN };
+enum class DataType : uint32_t {
+  F32,
+  F16,
+  BF16,
+  I8,
+  F8,
+  I32,
+  F4,
+  F8E8M0FNU,
+  UNKNOWN
+};
+
 struct BenchmarkArgs {
   uint64_t gemmG{0};
   uint64_t gemmM{0};
   uint64_t gemmK{0};
   uint64_t gemmN{0};
   DataType dataType{DataType::UNKNOWN};
+  DataType scaleDataType{DataType::UNKNOWN};
   DataType outDataType{DataType::UNKNOWN};
   bool transposeA{false};
   bool transposeB{false};
+  bool transScaleA{false};
+  bool transScaleB{false};
   std::string fusion{""};
   int kernelRepeats{1};
   int splitKFactor{1};
