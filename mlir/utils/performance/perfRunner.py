@@ -889,7 +889,9 @@ class GemmConfiguration(PerfConfiguration):
         result = OrderedDict()
         values = [
             self.datatype, self.out_dtype, self.chip, self.num_cu, self.trans_a, self.trans_b,
-            self.g, self.m, self.k, self.n, self.perfconfig, bank_conflict,
+            self.g, self.m, self.k, self.n, self.scaled_gemm, self.scale_a_dtype,
+            self.scale_b_dtype, self.trans_scale_a, self.trans_scale_b, self.perfconfig,
+            bank_conflict,
             self.compute_tflops(nanoseconds)
         ]
         assert (len(self.TABLE_COLUMNS) == len(values))
@@ -902,16 +904,32 @@ class GemmConfiguration(PerfConfiguration):
         self.perfconfig = perf_config
 
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
-        result = ' '.join([
+        cmd_parts = [
             '-operation', 'gemm', '-t', self.datatype, '-out_datatype', self.out_dtype, '--arch',
             self.arch, '--num_cu',
             str(self.num_cu), '-g',
             str(self.g), '-m',
             str(self.m), '-k',
             str(self.k), '-n',
-            str(self.n), f"-transA={self.trans_a}", f"-transB={self.trans_b}", '--kernel-repeats',
-            str(MLIR_N_REPEATS), f"--perf_config={self.perfconfig}"
-        ])
+            str(self.n), f"-transA={self.trans_a}", f"-transB={self.trans_b}"
+        ]
+
+        if self.scaled_gemm:
+            cmd_parts.append('-scaledGemm')
+        if self.scale_a_dtype:
+            cmd_parts.extend(['-scale_a_dtype', self.scale_a_dtype])
+        if self.scale_b_dtype:
+            cmd_parts.extend(['-scale_b_dtype', self.scale_b_dtype])
+        if self.trans_scale_a:
+            cmd_parts.append(f"-transScaleA={self.trans_scale_a}")
+        if self.trans_scale_b:
+            cmd_parts.append(f"-transScaleB={self.trans_scale_b}")
+
+        cmd_parts.extend(
+            ['--kernel-repeats',
+             str(MLIR_N_REPEATS), f"--perf_config={self.perfconfig}"])
+
+        result = ' '.join(cmd_parts)
 
         result += ' '
         if rocmlir_gen_flags != '':
@@ -930,8 +948,22 @@ class GemmConfiguration(PerfConfiguration):
         trans_b = None
         out_dtype = None
         perf_config = ''
-        for i in range(0, len(argv), 2):
+        scaled_gemm = False
+        scale_a_dtype = None
+        scale_b_dtype = None
+        trans_scale_a = False
+        trans_scale_b = False
+        i = 0
+        while i < len(argv):
             opt = argv[i]
+            # Handle flags without values
+            if opt == '-scaledGemm':
+                scaled_gemm = True
+                i += 1
+                continue
+            # Handle flags with values
+            if i + 1 >= len(argv):
+                raise ValueError(f"Missing value for argument {opt}")
             val = argv[i + 1]
             if opt == '-t':
                 dtype = val
@@ -951,18 +983,49 @@ class GemmConfiguration(PerfConfiguration):
                 out_dtype = val.lower()
             elif opt.endswith("-perf_config"):
                 perf_config = val
+            elif opt == '-scale_a_dtype':
+                scale_a_dtype = val
+            elif opt == '-scale_b_dtype':
+                scale_b_dtype = val
+            elif opt.endswith("-transScaleA"):
+                trans_scale_a = (val.lower() in ["1", "true"])
+            elif opt.endswith("-transScaleB"):
+                trans_scale_b = (val.lower() in ["1", "true"])
+            elif opt == '-scale_a_dtype':
+                scale_a_dtype = val
+            elif opt == '-scale_b_dtype':
+                scale_b_dtype = val
+            elif opt.endswith("-transScaleA"):
+                trans_scale_a = (val.lower() in ["1", "true"])
+            elif opt.endswith("-transScaleB"):
+                trans_scale_b = (val.lower() in ["1", "true"])
             else:
                 raise ValueError(f"Unknown GEMM config argument {opt} -> {val}")
+            i += 2
         for v in [dtype, out_dtype, g, m, k, n, trans_a, trans_b]:
             if v is None:
                 raise ValueError("Incomplete GEMM configuration")
 
-        return cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, arch, num_cu, perf_config)
+        return cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, arch, num_cu, perf_config,
+                   scaled_gemm, scale_a_dtype, scale_b_dtype, trans_scale_a, trans_scale_b)
+        return cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, arch, num_cu, perf_config,
+                   scaled_gemm, scale_a_dtype, scale_b_dtype, trans_scale_a, trans_scale_b)
 
     def to_command_line(self):
-        return (f"-t {self.datatype} -out_datatype {self.out_dtype} " +
-                f"-transA {str(self.trans_a).lower()} -transB {str(self.trans_b).lower()} " +
-                f"-g {self.g} -m {self.m} -n {self.n} -k {self.k}")
+        result = (f"-t {self.datatype} -out_datatype {self.out_dtype} " +
+                  f"-transA {str(self.trans_a).lower()} -transB {str(self.trans_b).lower()} " +
+                  f"-g {self.g} -m {self.m} -n {self.n} -k {self.k}")
+        if self.scaled_gemm:
+            result += " -scaledGemm"
+        if self.scale_a_dtype:
+            result += f" -scale_a_dtype {self.scale_a_dtype}"
+        if self.scale_b_dtype:
+            result += f" -scale_b_dtype {self.scale_b_dtype}"
+        if self.trans_scale_a:
+            result += f" -transScaleA {str(self.trans_scale_a).lower()}"
+        if self.trans_scale_b:
+            result += f" -transScaleB {str(self.trans_scale_b).lower()}"
+        return result
 
     def __init__(self,
                  dtype: str,
@@ -975,7 +1038,12 @@ class GemmConfiguration(PerfConfiguration):
                  trans_b: bool,
                  arch: str,
                  num_cu: int,
-                 perf_config: str = ''):
+                 perf_config: str = '',
+                 scaled_gemm: bool = False,
+                 scale_a_dtype: str = None,
+                 scale_b_dtype: str = None,
+                 trans_scale_a: bool = False,
+                 trans_scale_b: bool = False):
         if dtype not in DATA_TYPES_GEMM:
             raise ValueError(f"Invalid datatype: {dtype}")
 
@@ -988,6 +1056,16 @@ class GemmConfiguration(PerfConfiguration):
         self.trans_a = trans_a
         self.trans_b = trans_b
         self.perfconfig = perf_config
+        self.scaled_gemm = scaled_gemm
+        self.scale_a_dtype = scale_a_dtype
+        self.scale_b_dtype = scale_b_dtype
+        self.trans_scale_a = trans_scale_a
+        self.trans_scale_b = trans_scale_b
+        self.scaled_gemm = scaled_gemm
+        self.scale_a_dtype = scale_a_dtype
+        self.scale_b_dtype = scale_b_dtype
+        self.trans_scale_a = trans_scale_a
+        self.trans_scale_b = trans_scale_b
 
         self.arch = arch
         self.chip = GFX_CHIP_RE.search(arch).group(0)
