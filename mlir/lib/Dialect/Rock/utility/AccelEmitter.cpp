@@ -197,7 +197,6 @@ void MfmaEmitter::emitScaledThreadwiseLoop(OpBuilder &b, Location loc,
     outputOffset.back() = offset;
     auto vectorC =
         memref::LoadOp::create(b, loc, vectorType, bufferC, outputOffset);
-    // todo : emit scaling mfma
     auto mfma = amdgpu::ScaledMFMAOp::create(
         b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k, argA, argB,
         vectorC, scaleA, scaleB, 0, 0);
