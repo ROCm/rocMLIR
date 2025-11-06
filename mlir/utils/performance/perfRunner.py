@@ -999,8 +999,8 @@ class GemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete GEMM configuration")
 
-        return cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, arch, num_cu, perf_config,
-                   scaled_gemm, scale_a_dtype, scale_b_dtype, trans_scale_a, trans_scale_b)
+        return cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, scaled_gemm, scale_a_dtype,
+                   scale_b_dtype, trans_scale_a, trans_scale_b, arch, num_cu, perf_config)
 
     def to_command_line(self):
         result = (f"-t {self.datatype} -out_datatype {self.out_dtype} " +
@@ -1027,14 +1027,14 @@ class GemmConfiguration(PerfConfiguration):
                  n: int,
                  trans_a: bool,
                  trans_b: bool,
-                 arch: str,
-                 num_cu: int,
-                 perf_config: str = '',
                  scaled_gemm: bool = False,
                  scale_a_dtype: str = None,
                  scale_b_dtype: str = None,
                  trans_scale_a: bool = False,
-                 trans_scale_b: bool = False):
+                 trans_scale_b: bool = False,
+                 arch: str = '',
+                 num_cu: int = 0,
+                 perf_config: str = ''):
         if dtype not in DATA_TYPES_GEMM:
             raise ValueError(f"Invalid datatype: {dtype}")
 
