@@ -1621,6 +1621,34 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     }
   }
 
+  // Helper function to detect if a given value is used by a tosa.exp op.
+  bool isUsedByExp(Value value) const {
+    // Use iterative DFS with a worklist to search through the use chain
+    SmallVector<Value, 8> worklist{value};
+    DenseSet<Operation*> visited;
+    
+    while (!worklist.empty()) {
+      Value current = worklist.pop_back_val();
+      
+      for (Operation *user : current.getUsers()) {
+        // Insert the op into the visited set. Insert will return a pair where
+        // .second is true if the insertion was successful.
+        if (!visited.insert(user).second)
+          continue;
+        
+        // Check if this user is a tosa.exp op
+        if (isa<tosa::ExpOp>(user))
+          return true;
+        
+        // Add all results of this operation to the worklist
+        for (Value result : user->getResults())
+          worklist.push_back(result);
+      }
+    }
+    
+    return false;
+  }
+
   // Helper function to detect select-based causal mask pattern:
   //   - true branch is a splat -inf constant
   //   - false branch is the tensor value that we want to return
@@ -1744,6 +1772,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Detects a standard causal mask for attention ops.
   // Tries both select-based and add-based patterns.
   FailureOr<Value> getCausal(Value input) const {
+    // Check that the input that comes from the causal mask (verified to be
+    // either -inf or a large negative constant in getCausalFromSelect or
+    // getCausalFromAdd) is used by an exp op.
+    if (!isUsedByExp(input))
+      return failure();
+
     // Try select-based pattern first (most common)
     auto selectResult = getCausalFromSelect(input);
     if (succeeded(selectResult))
