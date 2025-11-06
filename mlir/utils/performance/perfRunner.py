@@ -675,7 +675,8 @@ class ConvConfiguration(PerfConfiguration):
 
 def get_gemm_configurations(filename,
                             datatypes=DATA_TYPES_GEMM,
-                            out_dtype_map=OUTPUT_DATA_TYPES_MAP):
+                            out_dtype_map=OUTPUT_DATA_TYPES_MAP,
+                            scale_types=DATA_TYPES_GEMM_SCALES):
     configs = []
 
     if filename:
@@ -695,6 +696,7 @@ def get_gemm_configurations(filename,
 
                 # Skip unsupported datatypes
                 if datatype == 'f4E2M1FN':
+                    ## TODO: use information from AMDArchDB when it becomes available to determine supported chips
                     supported_chips = {'gfx950'}
                     if not get_chip() in supported_chips:
                         continue
@@ -726,11 +728,30 @@ def get_gemm_configurations(filename,
                     out_dtype_string = "-out_datatype " + out_dtype_map.get(datatype,
                                                                             datatype) + " "
 
-                # Strip to avoid spurious spaces
-                one_config = f"{datatype_string}{out_dtype_string}{trans_a_string}{trans_b_string}{line}".strip(
-                )
-                if one_config not in configs:
-                    configs.append(one_config)
+                # Handle scale types for scaled GEMM
+                is_scaled_gemm = "-scaledGemm" in line
+                if is_scaled_gemm:
+                    # Generate all combinations of scale types for scaled GEMM
+                    for scale_a_dtype, scale_b_dtype in itertools.product(scale_types, scale_types):
+                        # Skip if scale types are already specified in the line
+                        scale_a_string = ""
+                        scale_b_string = ""
+                        if "-scale_a_dtype" not in line:
+                            scale_a_string = f"-scale_a_dtype {scale_a_dtype} "
+                        if "-scale_b_dtype" not in line:
+                            scale_b_string = f"-scale_b_dtype {scale_b_dtype} "
+
+                        # Strip to avoid spurious spaces
+                        one_config = f"{datatype_string}{out_dtype_string}{trans_a_string}{trans_b_string}{scale_a_string}{scale_b_string}{line}".strip(
+                        )
+                        if one_config not in configs:
+                            configs.append(one_config)
+                else:
+                    # Strip to avoid spurious spaces
+                    one_config = f"{datatype_string}{out_dtype_string}{trans_a_string}{trans_b_string}{line}".strip(
+                    )
+                    if one_config not in configs:
+                        configs.append(one_config)
     return configs
 
 
@@ -2285,6 +2306,15 @@ def main(args=None):
         help='Force a set of datatypes')
 
     parser.add_argument(
+        '--scale-type',
+        nargs='+',
+        choices=["f32", "f8E8M0FNU"],
+        default=None,
+        help=
+        'Force a set of scale types for scaled GEMM (only applicable when config includes -scaledGemm)'
+    )
+
+    parser.add_argument(
         '--use-rocprof',
         action="store_true",
         help="Use rocprof instead of rocmlir-tuning-driver to collect performance data")
@@ -2335,7 +2365,9 @@ def main(args=None):
         configs = get_conv_configurations(paths.configuration_file_path)
     elif optype == Operation.GEMM:
         datatypes, output_type_map = parse_data_types(parsed_args.data_type)
-        configs = get_gemm_configurations(paths.configuration_file_path, datatypes, output_type_map)
+        scale_types = parsed_args.scale_type if parsed_args.scale_type else None
+        configs = get_gemm_configurations(paths.configuration_file_path, datatypes, output_type_map,
+                                          scale_types)
     elif optype == Operation.ATTENTION:
         configs = get_attn_configurations(paths.configuration_file_path)
     elif optype == Operation.GEMM_GEMM:
