@@ -76,15 +76,24 @@ struct GemmRewritePattern : public OpConversionPattern<GemmOp> {
                      const BufferDependencyAnalysis &bufferDeps)
       : OpConversionPattern<GemmOp>(context), bufferDeps(bufferDeps) {}
 
+  struct SplitKTransformedOperands {
+    Value a;
+    Value b;
+    Value c;
+    Value scaleA;
+    Value scaleB;
+  };
+
   LogicalResult matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &rw) const override;
 
   LogicalResult computeGridSize(ConversionPatternRewriter &rw, GemmOp op,
                                 Value a, Value b) const;
 
-  FailureOr<std::tuple<Value, Value, Value>>
+  FailureOr<SplitKTransformedOperands>
   arrangeSplitKTransform(OpBuilder &builder, GemmOp op, Location loc,
-                         int64_t splitKFactor, Value a, Value b, Value c) const;
+                         int64_t splitKFactor, Value a, Value b, Value c,
+                         Value scaleA, Value scaleB) const;
 
   const BufferDependencyAnalysis &bufferDeps;
 };
@@ -701,14 +710,23 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   const int64_t splitKFactor = op.getParams()->getSplitKFactor();
   if (splitKFactor > 1) {
-    auto maybeSplitk =
-        arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);
+    auto maybeSplitk = arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b,
+                                              c, scaleA, scaleB);
     if (failed(maybeSplitk))
       return maybeSplitk;
 
-    std::tie(a, b, c) = maybeSplitk.value();
+    auto &transformed = maybeSplitk.value();
+    a = transformed.a;
+    b = transformed.b;
+    c = transformed.c;
+    scaleA = transformed.scaleA;
+    scaleB = transformed.scaleB;
     aShape = cast<MemRefType>(a.getType()).getShape();
     bShape = cast<MemRefType>(b.getType()).getShape();
+    if (scaleA && scaleB) {
+      scaleAShape = cast<MemRefType>(scaleA.getType()).getShape();
+      scaleBShape = cast<MemRefType>(scaleB.getType()).getShape();
+    }
   }
 
   // Note, matrix dimension correctness is handled in the verifier
@@ -802,10 +820,11 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   return success();
 }
 
-FailureOr<std::tuple<Value, Value, Value>>
+FailureOr<GemmRewritePattern::SplitKTransformedOperands>
 GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
                                            Location loc, int64_t splitKFactor,
-                                           Value a, Value b, Value c) const {
+                                           Value a, Value b, Value c,
+                                           Value scaleA, Value scaleB) const {
   // adjust the store method
   auto storeMethod =
       builder.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::AtomicAdd);
@@ -841,9 +860,14 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 
   a = padMatrix(a, builder, loc, "gemmK", kPad, "gemmM", 0);
   b = padMatrix(b, builder, loc, "gemmK", kPad, "gemmN", 0);
+  if (scaleA && scaleB) {
+    scaleA = padMatrix(scaleA, builder, loc, "gemmK", kPad, "gemmM", 0);
+    scaleB = padMatrix(scaleB, builder, loc, "gemmK", kPad, "gemmN", 0);
+  }
 
   // perform coordinate transformations
   Value aNew{nullptr}, bNew{nullptr}, cNew{nullptr};
+  Value scaleANew{nullptr}, scaleBNew{nullptr};
   ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
   ArrayRef<int64_t> bShape = cast<MemRefType>(b.getType()).getShape();
   ArrayRef<int64_t> cShape = cast<MemRefType>(c.getType()).getShape();
@@ -857,9 +881,19 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     ArrayRef<int64_t> inputShape;
   };
 
-  llvm::SmallVector<GemmOperandsData, 2> gemmOperands{
+  llvm::SmallVector<GemmOperandsData, 4> gemmOperands{
       {a, aNew, {"gemmG", "gemmK", "gemmM"}, aShape},
       {b, bNew, {"gemmG", "gemmK", "gemmN"}, bShape}};
+  if (scaleA && scaleB) {
+    ArrayRef<int64_t> scaleAShape =
+        cast<MemRefType>(scaleA.getType()).getShape();
+    ArrayRef<int64_t> scaleBShape =
+        cast<MemRefType>(scaleB.getType()).getShape();
+    gemmOperands.push_back(
+        {scaleA, scaleANew, {"gemmG", "gemmK", "gemmM"}, scaleAShape});
+    gemmOperands.push_back(
+        {scaleB, scaleBNew, {"gemmG", "gemmK", "gemmN"}, scaleBShape});
+  }
   for (auto &gemmOperand : gemmOperands) {
     // Prepare matrix A and B - i.e.,
     //    (gemmG, gemmK, gemmM) and (gemmG, gemmK, gemmN), respectively
@@ -937,7 +971,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     ArrayAttr arrayTransformAttrs = builder.getArrayAttr(transformAttrs);
     cNew = mlir::rock::transform(builder, c, arrayTransformAttrs);
   }
-  return std::make_tuple(aNew, bNew, cNew);
+  return SplitKTransformedOperands{aNew, bNew, cNew, scaleANew, scaleBNew};
 }
 
 LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
