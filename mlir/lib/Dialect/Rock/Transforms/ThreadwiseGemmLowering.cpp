@@ -553,11 +553,14 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
   SmallVector<int64_t> extendedStrides(
       extraIndicesSourceSize + extraIndicesDestSize, 1);
   llvm::append_range(extendedStrides, strides);
+  // do forceUnroll if the element type is f4.
+  // emulate-narrow-type is not able to handle f4 otherwise.
+  bool forceUnroll = isa<Float4E2M1FNType>(elemType);
   auto copyLoop = TransformingForOp::create(
       b, loc, ArrayRef<ValueRange>{extendedStart, extendedStart},
       ArrayRef<Attribute>{copyFromView, copyToView},
       /*bounds=*/extendedBounds,
-      /*strides=*/extendedStrides, /*forceUnroll=*/false,
+      /*strides=*/extendedStrides, /*forceUnroll=*/forceUnroll,
       /*useIndexDiffs=*/false);
   {
     PatternRewriter::InsertionGuard outerGuard(b);
