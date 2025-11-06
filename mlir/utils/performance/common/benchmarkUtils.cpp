@@ -419,7 +419,7 @@ void *makeHostConstant(float flt, DataType computeDataType) {
   case DataType::F8E8M0FNU: {
     uint8_t *ret = reinterpret_cast<uint8_t *>(malloc(1));
     // extract exponent from float
-    *ret = ((flt < 1) >> 23) & 0xFF;
+    *ret = (*(reinterpret_cast<uint32_t *>(&flt)) >> 23) & 0xFF;
     return ret;
   }
   // fp4 is not supported yet, this is used for rocMLIR benchmarking only

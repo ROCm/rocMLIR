@@ -752,7 +752,6 @@ int main(int argc, char **argv) {
     }
     return WalkResult::advance();
   });
-  llvm::dbgs() << "ModuleOp: " << module << "\n";
   if (!findModule.wasInterrupted()) {
     source->emitOpError(
         "no architecture set, set mhal.arch on the input module or func");
