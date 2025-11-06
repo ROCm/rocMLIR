@@ -178,36 +178,10 @@ AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
   return params;
 }
 
-void MfmaEmitter::emitScaledThreadwiseLoop(OpBuilder &b, Location loc,
-                                           Value argA, Value argB, Value scaleA,
-                                           Value scaleB, Value bufferC,
-                                           ValueRange regCOffset) {
-  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
-  int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
-  auto imms = mfmaGroup.getImms();
-  int64_t nResultVectors = imms.size();
-  Value nResultVectorsConst = ConstantIndexOp::create(b, loc, nResultVectors);
-  VectorType vectorType = mfmaGroup.getRetType();
-  auto outputOffset = llvm::to_vector(regCOffset);
-  for (int64_t i = 0; i < nResultVectors; ++i) {
-    Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
-    offset = AddIOp::create(
-        b, loc, offset,
-        MulIOp::create(b, loc, outputOffset.back(), nResultVectorsConst));
-    outputOffset.back() = offset;
-    auto vectorC =
-        memref::LoadOp::create(b, loc, vectorType, bufferC, outputOffset);
-    auto mfma = amdgpu::ScaledMFMAOp::create(
-        b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k, argA, argB,
-        vectorC, scaleA, scaleB, 0, 0);
-    auto vectorD = mfma.getDestD();
-    memref::StoreOp::create(b, loc, vectorD, bufferC, outputOffset);
-  }
-}
-
 void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
-                                     ValueRange regCOffset) {
+                                     ValueRange regCOffset, Value scaleA,
+                                     Value scaleB) {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
   auto imms = mfmaGroup.getImms();
@@ -215,6 +189,8 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   Value nResultVectorsConst = ConstantIndexOp::create(b, loc, nResultVectors);
   VectorType vectorType = mfmaGroup.getRetType();
   auto outputOffset = llvm::to_vector(regCOffset);
+  bool isScaled = scaleA && scaleB;
+
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
     offset = AddIOp::create(
@@ -223,13 +199,22 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
     outputOffset.back() = offset;
     auto vectorC =
         memref::LoadOp::create(b, loc, vectorType, bufferC, outputOffset);
-    auto mfma = amdgpu::MFMAOp::create(
-        b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
-        mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
-        /*abid=*/imms[i].abid,
-        /*blgp=*/imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
-        /*negateB=*/false, /*negateC=*/false);
-    auto vectorD = mfma.getDestD();
+
+    Value vectorD;
+    if (isScaled) {
+      auto mfma = amdgpu::ScaledMFMAOp::create(
+          b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k, argA, argB,
+          vectorC, scaleA, scaleB, /*scalesIdxA=*/0, /*scalesIdxB=*/0);
+      vectorD = mfma.getDestD();
+    } else {
+      auto mfma = amdgpu::MFMAOp::create(
+          b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
+          mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
+          /*abid=*/imms[i].abid, /*blgp=*/imms[i].blgp,
+          /*reducePrecision=*/false, /*negateA=*/false, /*negateB=*/false,
+          /*negateC=*/false);
+      vectorD = mfma.getDestD();
+    }
 
     memref::StoreOp::create(b, loc, vectorD, bufferC, outputOffset);
   }
@@ -1092,16 +1077,16 @@ WmmaEmitter::createAccelGemmOperandTransforms(
   return ret;
 }
 
-void WmmaEmitter::emitScaledThreadwiseLoop(OpBuilder &b, Location loc,
-                                           Value argA, Value argB, Value scaleA,
-                                           Value scaleB, Value bufferC,
-                                           ValueRange regCOffset) {
-  llvm::report_fatal_error("Not implemented");
-}
-
 void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
-                                     ValueRange regCOffset) {
+                                     ValueRange regCOffset, Value scaleA,
+                                     Value scaleB) {
+  bool isScaled = scaleA && scaleB;
+  if (isScaled) {
+    llvm::report_fatal_error(
+        "Scaled WMMA not implemented yet for WMMA Emitter");
+  }
+
   VectorType vectorType = wmmaInsn.retType;
   auto vectorC =
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);

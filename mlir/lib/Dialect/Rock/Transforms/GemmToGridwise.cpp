@@ -688,7 +688,9 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
     auto scaleBType = cast<MemRefType>(scaleB.getType());
     scaleAShape = scaleAType.getShape();
     scaleBShape = scaleBType.getShape();
-
+    // keep both scales in the same layout as the matrices
+    // do transpose as necessary to achieve this. This is required to align load
+    // and store layouts with matrices.
     bool transposeScaleA = (aShape != scaleAShape);
     scaleA =
         normalizeMatrix(scaleA, rw, loc, transposeScaleA, "gemmK", "gemmM");

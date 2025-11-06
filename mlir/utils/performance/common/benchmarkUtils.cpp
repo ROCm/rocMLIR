@@ -106,6 +106,9 @@ void printUsage(const std::string &name) {
 // testing things with random data or very simple patterns like all 0s or all 1s
 std::vector<uint8_t> getPattern(DataType dataType) {
   std::vector<float> patternFlt = {0.5f, -1.0f, 0.75f};
+  // For the benchmarking we just use random data and don't really care about
+  // the values. Choose some random patterns of values that can be represened by
+  // FP4 and F8E8M0FNU.
   std::vector<uint8_t> patternFp4 = {2, 4, 8, 10};
   std::vector<uint8_t> patternF8E8M0FNU = {1, 2, 4, 8};
   std::vector<int> patternInt{1, -1, 2};
@@ -161,6 +164,8 @@ std::vector<uint8_t> getPattern(DataType dataType) {
     }
     break;
   case DataType::F4:
+    // getPattern is used to fill GPU buffers. GPU buffers are allocated in
+    // terms of bytes. Therefore FP4 values need to be packed into 8-bit values.
     for (size_t i = 0; i < patternFp4.size(); i = i + 2) {
       uint8_t packedF4 =
           (patternFp4[i] & 0x0F) | ((patternFp4[i + 1] & 0x0F) << 4);
@@ -331,6 +336,10 @@ void printProblem(BenchmarkArgs args) {
             << "SplitK Factor: " << args.splitKFactor << std::endl;
 }
 
+/*
+Given a data type and the number of elements, return the number of bytes
+required to store the data.
+*/
 size_t getByteSize(DataType dataType, size_t elems) {
   switch (dataType) {
   case DataType::F32:

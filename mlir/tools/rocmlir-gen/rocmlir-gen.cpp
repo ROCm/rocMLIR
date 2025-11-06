@@ -2549,6 +2549,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                                     /*isA=*/false);
   }
   bool hasAccel = rock::isAccel(params.features);
+  // for the non-accel path, emulate Fp4 scaled GEMMs by multiplying the scale
+  // by the matrix. This is used when doing `-pv_with_gpu`
   if (!hasAccel && scaledGemm) {
     if (transposeA) {
       aVal = rock::normalizeMatrix(aVal, b, loc, true, kName, mName);

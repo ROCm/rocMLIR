@@ -344,77 +344,80 @@ struct ThreadwiseGemmAccelRewritePattern
     auto computeBounds = SmallVector<int64_t>(computeIndices, 1);
     auto computeStride = SmallVector<int64_t>(computeBounds.size(), 1);
     auto computeStart = llvm::to_vector(op.getComputeIndices());
+
+    // Prepare scale buffers if needed
+    Value rawBufferScaleA, rawBufferScaleB;
+    Attribute bufferViewScaleA, bufferViewScaleB;
     if (isScaledGemm) {
       TransformMapAttr normalizedViewScaleA = normalizeView(
           b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, true, {"j"});
       TransformMapAttr normalizedViewScaleB = normalizeView(
           b, loc, {"i", "j", "k"}, {iLen, jLen, kLen}, true, {"i"});
-      auto [rawBufferScaleA, bufferViewScaleA, sourceScaleANeeds64BitIdx] =
+      auto [rawBufScaleA, bufViewScaleA, sourceScaleANeeds64BitIdx] =
           untransform(b, bufferScaleA, normalizedViewScaleA);
-      auto [rawBufferScaleB, bufferViewScaleB, sourceScaleBNeeds64BitIdx] =
+      auto [rawBufScaleB, bufViewScaleB, sourceScaleBNeeds64BitIdx] =
           untransform(b, bufferScaleB, normalizedViewScaleB);
-      // Emit the loop
-      auto accelLoop = TransformingForOp::create(
-          b, loc,
-          ArrayRef<ValueRange>{computeStart, computeStart, computeStart,
-                               computeStart, computeStart},
-          ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewScaleA,
-                              bufferViewScaleB, bufferViewC},
-          /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
-          /*strides=*/ArrayRef<int64_t>{1, 1, 1},
-          /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-      {
-        OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPointToStart(accelLoop.getBody());
-        auto coordsA = accelLoop.getLowerCoords(/*domain=*/0);
-        auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
+      rawBufferScaleA = rawBufScaleA;
+      rawBufferScaleB = rawBufScaleB;
+      bufferViewScaleA = bufViewScaleA;
+      bufferViewScaleB = bufViewScaleB;
+    }
+
+    // Build domain parameters
+    SmallVector<ValueRange> domainStarts = {computeStart, computeStart,
+                                            computeStart};
+    SmallVector<Attribute> domainViews = {bufferViewA, bufferViewB,
+                                          bufferViewC};
+    if (isScaledGemm) {
+      domainStarts.insert(domainStarts.begin() + 2,
+                          {computeStart, computeStart});
+      domainViews.insert(domainViews.begin() + 2,
+                         {bufferViewScaleA, bufferViewScaleB});
+    }
+
+    // Emit the loop
+    auto accelLoop =
+        TransformingForOp::create(b, loc, domainStarts, domainViews,
+                                  /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
+                                  /*strides=*/ArrayRef<int64_t>{1, 1, 1},
+                                  /*forceUnroll=*/true, /*useIndexDiffs=*/true);
+    {
+      OpBuilder::InsertionGuard guard(b);
+      b.setInsertionPointToStart(accelLoop.getBody());
+      auto coordsA = accelLoop.getLowerCoords(/*domain=*/0);
+      auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
+
+      Value argA =
+          memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
+      Value argB =
+          memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
+
+      Value argScaleA, argScaleB;
+      ValueRange coordsC;
+      if (isScaledGemm) {
         auto coordsScaleA = accelLoop.getLowerCoords(/*domain=*/2);
         auto coordsScaleB = accelLoop.getLowerCoords(/*domain=*/3);
-        auto coordsC = accelLoop.getLowerCoords(/*domain=*/4);
+        coordsC = accelLoop.getLowerCoords(/*domain=*/4);
 
-        Value argA =
-            memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
-        Value argScaleA = memref::LoadOp::create(b, loc, argTypeScaleA,
-                                                 rawBufferScaleA, coordsScaleA);
-
+        argScaleA = memref::LoadOp::create(b, loc, argTypeScaleA,
+                                           rawBufferScaleA, coordsScaleA);
         if (dyn_cast<VectorType>(argScaleA.getType())) {
           argScaleA =
               vector::ExtractOp::create(b, loc, argScaleA, zeroConstantOp);
         }
 
-        Value argB =
-            memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
-        Value argScaleB = memref::LoadOp::create(b, loc, argTypeScaleB,
-                                                 rawBufferScaleB, coordsScaleB);
+        argScaleB = memref::LoadOp::create(b, loc, argTypeScaleB,
+                                           rawBufferScaleB, coordsScaleB);
         if (dyn_cast<VectorType>(argScaleB.getType())) {
           argScaleB =
               vector::ExtractOp::create(b, loc, argScaleB, zeroConstantOp);
         }
-        emitter->emitScaledThreadwiseLoop(b, loc, argA, argB, argScaleA,
-                                          argScaleB, rawBufferC, coordsC);
+      } else {
+        coordsC = accelLoop.getLowerCoords(/*domain=*/2);
       }
-    } else {
-      // Emit the loop
-      auto accelLoop = TransformingForOp::create(
-          b, loc,
-          ArrayRef<ValueRange>{computeStart, computeStart, computeStart},
-          ArrayRef<Attribute>{bufferViewA, bufferViewB, bufferViewC},
-          /*bounds=*/ArrayRef<int64_t>{1, 1, 1},
-          /*strides=*/ArrayRef<int64_t>{1, 1, 1},
-          /*forceUnroll=*/true, /*useIndexDiffs=*/true);
-      {
-        OpBuilder::InsertionGuard guard(b);
-        b.setInsertionPointToStart(accelLoop.getBody());
-        auto coordsA = accelLoop.getLowerCoords(/*domain=*/0);
-        auto coordsB = accelLoop.getLowerCoords(/*domain=*/1);
-        auto coordsC = accelLoop.getLowerCoords(/*domain=*/2);
-        Value argA =
-            memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
 
-        Value argB =
-            memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
-        emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC);
-      }
+      emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC,
+                                  argScaleA, argScaleB);
     }
 
     b.eraseOp(op);
@@ -550,12 +553,11 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
   SmallVector<int64_t> extendedStrides(
       extraIndicesSourceSize + extraIndicesDestSize, 1);
   llvm::append_range(extendedStrides, strides);
-  bool forceUnroll = isa<Float4E2M1FNType>(elemType);
   auto copyLoop = TransformingForOp::create(
       b, loc, ArrayRef<ValueRange>{extendedStart, extendedStart},
       ArrayRef<Attribute>{copyFromView, copyToView},
       /*bounds=*/extendedBounds,
-      /*strides=*/extendedStrides, /*forceUnroll=*/forceUnroll,
+      /*strides=*/extendedStrides, /*forceUnroll=*/false,
       /*useIndexDiffs=*/false);
   {
     PatternRewriter::InsertionGuard outerGuard(b);

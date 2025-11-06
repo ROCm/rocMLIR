@@ -607,10 +607,9 @@ struct BlockwiseGemmAccelRewritePattern
           Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();
-          ThreadwiseGemmAccelOp::create(
-              b, loc, viewA, viewB, viewC,
-              /*scaleA=*/viewScaleA, /*scaleB=*/viewScaleB, ValueRange{i, j, k},
-              op.getFeaturesAttr(), tuningParams);
+          ThreadwiseGemmAccelOp::create(b, loc, viewA, viewB, viewC, viewScaleA,
+                                        viewScaleB, ValueRange{i, j, k},
+                                        op.getFeaturesAttr(), tuningParams);
         }
       }
     }

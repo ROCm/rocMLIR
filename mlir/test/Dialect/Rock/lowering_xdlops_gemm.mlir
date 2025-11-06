@@ -567,9 +567,9 @@ func.func @accel_gemm_gfx950_f32_16x16x128_fp4_scaled(%matrixA : memref<1x1xvect
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
   // CHECK: [[a:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
+  // CHECK: [[b:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
   // CHECK: [[scaleA:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf8E8M0FNU>, 5>
   // CHECK: [[scaleAScalar:%.+]] = vector.extract [[scaleA]]
-  // CHECK: [[b:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
   // CHECK: [[scaleB:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf8E8M0FNU>, 5>
   // CHECK: [[scaleBScalar:%.+]] = vector.extract [[scaleB]]
   // CHECK: [[c:%.+]] = memref.load {{.+}} : memref<1x1xvector<4xf32>, 5>
@@ -604,9 +604,9 @@ func.func @accel_gemm_gfx950_f32_32x32x64_fp4_scaled(%matrixA : memref<1x1xvecto
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
   // CHECK: [[a:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
+  // CHECK: [[b:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
   // CHECK: [[scaleA:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf8E8M0FNU>, 5>
   // CHECK: [[scaleAScalar:%.+]] = vector.extract [[scaleA]]
-  // CHECK: [[b:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
   // CHECK: [[scaleB:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf8E8M0FNU>, 5>
   // CHECK: [[scaleBScalar:%.+]] = vector.extract [[scaleB]]
   // CHECK: [[c:%.+]] = memref.load {{.+}} : memref<1x1xvector<16xf32>, 5>
@@ -641,9 +641,9 @@ func.func @accel_gemm_gfx950_f32_16x16x512_fp4_scaled_multi(%matrixA : memref<1x
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
   // CHECK: [[a:%.+]] = memref.load {{.+}} : memref<1x4xvector<32xf4E2M1FN>, 5>
+  // CHECK: [[b:%.+]] = memref.load {{.+}} : memref<1x4xvector<32xf4E2M1FN>, 5>
   // CHECK: [[scaleA:%.+]] = memref.load {{.+}} : memref<1x4xvector<32xf8E8M0FNU>, 5>
   // CHECK: [[scaleAScalar:%.+]] = vector.extract [[scaleA]]
-  // CHECK: [[b:%.+]] = memref.load {{.+}} : memref<1x4xvector<32xf4E2M1FN>, 5>
   // CHECK: [[scaleB:%.+]] = memref.load {{.+}} : memref<1x4xvector<32xf8E8M0FNU>, 5>
   // CHECK: [[scaleBScalar:%.+]] = vector.extract [[scaleB]]
   // CHECK: [[c:%.+]] = memref.load {{.+}} : memref<1x1xvector<4xf32>, 5>

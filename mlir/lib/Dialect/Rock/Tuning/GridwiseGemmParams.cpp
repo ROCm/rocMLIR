@@ -564,11 +564,12 @@ std::vector<InitParamsAccel>
 PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
                                        Type dataTypeB, StringRef arch) const {
   ArrayRef<InitParamsAccel> params;
+  AmdArchInfo archInfo = lookupArchInfo(arch);
   if (opType == KernelType::Gemm) {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
     case 4:
       if (dataTypeA.isFloat()) {
-        if (arch.contains("gfx950")) {
+        if (archInfo.hasScaledGemm) {
           params = {initParametersF4GemmGfx950, nInitParametersF4GemmGfx950};
         } else {
           llvm::report_fatal_error("Unsupported arch for fp4 kernels");

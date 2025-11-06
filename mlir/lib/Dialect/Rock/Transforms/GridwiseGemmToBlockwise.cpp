@@ -2779,21 +2779,9 @@ struct GridwiseGemmAccelRewritePattern
     bool hasScaleB = scaleB != nullptr;
     bool isScaledGemm = hasScaleA && hasScaleB;
     auto elementTypeScaleA =
-        isScaledGemm ? scaleA.getType().getElementType() : elementTypeA;
+        isScaledGemm ? scaleA.getType().getElementType() : nullptr;
     auto elementTypeScaleB =
-        isScaledGemm ? scaleB.getType().getElementType() : elementTypeB;
-    auto elementTypeScaleALoad = elementTypeALoad;
-    auto elementTypeScaleBLoad = elementTypeBLoad;
-    if (isScaledGemm) {
-      auto maybeElementTypeScaleALoad = getInputFusionElementType(scaleA);
-      elementTypeScaleALoad = failed(maybeElementTypeScaleALoad)
-                                  ? elementTypeScaleA
-                                  : maybeElementTypeScaleALoad.value();
-      auto maybeElementTypeScaleBLoad = getInputFusionElementType(scaleB);
-      elementTypeScaleBLoad = failed(maybeElementTypeScaleBLoad)
-                                  ? elementTypeScaleB
-                                  : maybeElementTypeScaleBLoad.value();
-    }
+        isScaledGemm ? scaleB.getType().getElementType() : nullptr;
 
     // Get 'features' from the op
     auto features = rock::getFeatures(op);
@@ -3000,8 +2988,6 @@ struct GridwiseGemmAccelRewritePattern
             : nullptr;
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);
-    Type ldsReadTypeScaleA = vectorTypeOrSelf(elementTypeScaleA, kpack);
-    Type ldsReadTypeScaleB = vectorTypeOrSelf(elementTypeScaleB, kpack);
     Value ldsViewForGemmA, ldsViewForGemmB, ldsViewForGemmScaleA,
         ldsViewForGemmScaleB;
     if (directToLDS) {
@@ -3014,12 +3000,14 @@ struct GridwiseGemmAccelRewritePattern
     } else {
       ldsViewForGemmA = viewBufferAs(b, ldsByteBufferA, ldsReadTypeA);
       ldsViewForGemmB = viewBufferAs(b, ldsByteBufferB, ldsReadTypeB);
-      ldsViewForGemmScaleA =
-          hasScaleA ? viewBufferAs(b, ldsByteBufferScaleA, ldsReadTypeScaleA)
-                    : nullptr;
-      ldsViewForGemmScaleB =
-          hasScaleB ? viewBufferAs(b, ldsByteBufferScaleB, ldsReadTypeScaleB)
-                    : nullptr;
+      if (isScaledGemm) {
+        Type ldsReadTypeScaleA = vectorTypeOrSelf(elementTypeScaleA, kpack);
+        Type ldsReadTypeScaleB = vectorTypeOrSelf(elementTypeScaleB, kpack);
+        ldsViewForGemmScaleA =
+            viewBufferAs(b, ldsByteBufferScaleA, ldsReadTypeScaleA);
+        ldsViewForGemmScaleB =
+            viewBufferAs(b, ldsByteBufferScaleB, ldsReadTypeScaleB);
+      }
     }
 
     // TODO: add an heuristic to decide if the it should use scheduleV1 or V2.

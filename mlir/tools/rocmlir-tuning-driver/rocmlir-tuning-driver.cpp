@@ -406,8 +406,8 @@ static int toKernelOrder(Attribute attr) {
 static LogicalResult extractFuncOps(ModuleOp op,
                                     SmallVectorImpl<func::FuncOp> &kernels) {
   if (!op->hasAttr("mhal.arch")) {
-    op->emitOpError("no architecture set, set mhal.arch on the input module");
-    return failure();
+    return op->emitOpError(
+        "no architecture set, set mhal.arch on the input module");
   }
   op.walk([&kernels](func::FuncOp f) {
     Attribute kernel = f->getAttr("kernel");
@@ -448,7 +448,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
     int64_t sizeInBits =
         shapedTy.getNumElements() * shapedTy.getElementTypeBitWidth();
-    bufferLengths.push_back((sizeInBits + 7) / 8); // ceilDiv
+    bufferLengths.push_back(llvm::divideCeil(sizeInBits, 8));
   }
 
   // 2. Set up compilation options (shared across all threads)
@@ -480,11 +480,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   std::vector<void *> gpuBuffers;
   assert(argTypes.size() == bufferLengths.size() &&
          "number of arguments and buffer lengths must match");
-  for (size_t i = 0; i < argTypes.size(); i++) {
-    benchmark::DataType type = getDataType(getElementTypeOrSelf(argTypes[i]));
-    void *hostBuffer = benchmark::allocAndFill(type, bufferLengths[i]);
+  for (auto [argType, bufferLength] : llvm::zip(argTypes, bufferLengths)) {
+    benchmark::DataType type = getDataType(getElementTypeOrSelf(argType));
+    void *hostBuffer = benchmark::allocAndFill(type, bufferLength);
     void *gpuBuffer = nullptr;
-    HIPCHECK(hipMalloc(&gpuBuffer, bufferLengths[i]));
+    HIPCHECK(hipMalloc(&gpuBuffer, bufferLength));
     hostBuffers.push_back(hostBuffer);
     gpuBuffers.push_back(gpuBuffer);
   }

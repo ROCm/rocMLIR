@@ -101,6 +101,8 @@ void mhal::buildRunnerPipeline(OpPassManager &pm,
 
   auto &funcPm2 = pm.nest<func::FuncOp>();
   arith::ArithExpandOpsPassOptions arithExpandOpsOptions;
+  // Runner pipeline is used for host/runner code. Host may not have
+  // extf/truncf for f4 and f8E8M0FNU types. So we need to emulate them.
   arithExpandOpsOptions.includeF4E2M1 = true;
   arithExpandOpsOptions.includeF8E8M0 = true;
   funcPm2.addPass(arith::createArithExpandOpsPass(arithExpandOpsOptions));
