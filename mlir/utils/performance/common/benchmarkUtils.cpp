@@ -274,11 +274,11 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
     } else if (arg.rfind("-scale_a_dtype=", 0) == 0) {
       const int lenScaleADType = std::string("-scale_a_dtype=").length();
       std::string value = arg.substr(lenScaleADType);
-      res.scaleDataType = strToDataType(value);
+      res.scaleADataType = strToDataType(value);
     } else if (arg.rfind("-scale_b_dtype=", 0) == 0) {
       const int lenScaleBDType = std::string("-scale_b_dtype=").length();
       std::string value = arg.substr(lenScaleBDType);
-      res.scaleDataType = strToDataType(value);
+      res.scaleBDataType = strToDataType(value);
     } else if (arg == "--perf_config=" || arg == "--arch" ||
                arg == "--num_cu" || arg == "-operation" ||
                arg == "--scaledGemm") {
@@ -324,8 +324,8 @@ void printProblem(BenchmarkArgs args) {
             << "transB: " << (args.transposeB ? "true" : "false") << "\n"
             << "transScaleA: " << (args.transScaleA ? "true" : "false") << "\n"
             << "transScaleB: " << (args.transScaleB ? "true" : "false") << "\n"
-            << "scaleADataType: " << dataTypeToStr(args.scaleDataType) << "\n"
-            << "scaleBDataType: " << dataTypeToStr(args.scaleDataType) << "\n"
+            << "scaleADataType: " << dataTypeToStr(args.scaleADataType) << "\n"
+            << "scaleBDataType: " << dataTypeToStr(args.scaleBDataType) << "\n"
             << "DataType: " << dataTypeToStr(args.dataType) << "\n"
             << "OutDataType: " << dataTypeToStr(args.outDataType) << "\n"
             << "SplitK Factor: " << args.splitKFactor << std::endl;

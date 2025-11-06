@@ -36,7 +36,8 @@ struct BenchmarkArgs {
   uint64_t gemmK{0};
   uint64_t gemmN{0};
   DataType dataType{DataType::UNKNOWN};
-  DataType scaleDataType{DataType::UNKNOWN};
+  DataType scaleADataType{DataType::UNKNOWN};
+  DataType scaleBDataType{DataType::UNKNOWN};
   DataType outDataType{DataType::UNKNOWN};
   bool transposeA{false};
   bool transposeB{false};
