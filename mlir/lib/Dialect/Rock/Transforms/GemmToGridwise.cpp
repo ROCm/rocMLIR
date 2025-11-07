@@ -860,6 +860,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     // Hard code block size to 32 for now.
     // for the scaleGEMMs, split-K division needs to happen such that it doesn't
     // cut in the middle of the a block
+    // TODO: Use AmdArchDbInfo to populate blockSize
     int64_t blockSize = 32;
     int64_t lcm = math_util::lcm(splitKFactor, blockSize);
     kPad = lcm - math_util::mod_1_to_n(origK, lcm);
