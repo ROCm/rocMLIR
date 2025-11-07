@@ -12,6 +12,7 @@
 #include "mlir/Dialect/Rock/Tuning/GeneralGemmBlockStructure.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/Support/Debug.h"
@@ -563,8 +564,18 @@ std::vector<InitParamsAccel>
 PopulateParamsXDL::getTuningParameters(KernelType opType, Type dataTypeA,
                                        Type dataTypeB, StringRef arch) const {
   ArrayRef<InitParamsAccel> params;
+  AmdArchInfo archInfo = lookupArchInfo(arch);
   if (opType == KernelType::Gemm) {
     switch (dataTypeA.getIntOrFloatBitWidth()) {
+    case 4:
+      if (dataTypeA.isFloat()) {
+        if (archInfo.hasScaledGemm) {
+          params = {initParametersF4GemmGfx950, nInitParametersF4GemmGfx950};
+        } else {
+          llvm::report_fatal_error("Unsupported arch for fp4 kernels");
+        }
+      }
+      break;
     case 8:
       if (dataTypeA.isInteger()) {
         if (arch.contains("gfx908"))

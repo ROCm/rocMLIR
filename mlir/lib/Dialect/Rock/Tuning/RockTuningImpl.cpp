@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -82,20 +83,20 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
                                     bool isSplitKFusible,
                                     TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
-      /*gemm0MPerBlock=*/{32, 64, 128, 256},
-      /*gemm1MPerBlock=*/{32, 64, 128, 256},
-      /*gemm0NPerBlock=*/{32, 64, 128, 256},
+      /*gemm0MPerBlock=*/{16, 32, 64, 128, 256},
+      /*gemm1MPerBlock=*/{16, 32, 64, 128, 256},
+      /*gemm0NPerBlock=*/{16, 32, 64, 128, 256},
       /*kPackPerBlock=*/{8, 16, 32, 64},
-      /*mPerWave=*/{32, 64, 128, 256},
+      /*mPerWave=*/{16, 32, 64, 128, 256},
       /*mnPerXdl=*/{4, 16, 32},
       /*kPack=*/{4, 8, 16}};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
-      /*gemm0MPerBlock=*/{32, 64, 128},
-      /*gemm1MPerBlock=*/{32, 64, 128},
-      /*gemm0NPerBlock=*/{32, 64, 128, 256},
+      /*gemm0MPerBlock=*/{16, 32, 64, 128},
+      /*gemm1MPerBlock=*/{16, 32, 64, 128},
+      /*gemm0NPerBlock=*/{16, 32, 64, 128, 256},
       /*kPackPerBlock=*/{8, 16, 32, 64},
-      /*mPerWave=*/{32, 64},
-      /*nPerWave=*/{32, 64},
+      /*mPerWave=*/{16, 32, 64},
+      /*nPerWave=*/{16, 32, 64},
       /*kPack=*/{4, 8, 16}};
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
   int64_t numEUPerCU =
@@ -294,7 +295,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {1, 2, 4, 8},
       {4, 8, 16, 32, 64, 128},
       {4, 16, 32},
-      {1, 4, 8},
+      {1, 4, 8, 16, 32},
       getGemmSchedules(kind),
       {0, 1}};
 
@@ -1034,6 +1035,9 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
       problemOS << "bf16";
     } else if (elemTypeA.isInteger(8) && elemTypeB.isInteger(8)) {
       problemOS << "i8";
+    } else if (isa<Float4E2M1FNType>(elemTypeA) &&
+               isa<Float4E2M1FNType>(elemTypeB)) {
+      problemOS << "f4E2M1FN";
     } else {
       auto aString = f8TypeStr(elemTypeA);
       auto bString = f8TypeStr(elemTypeB);
