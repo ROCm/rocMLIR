@@ -25,8 +25,8 @@ TEST(FindFallbackTest, OldestRelative) {
 }
 
 TEST(FindFallbackTest, YoungestRelative) {
-  // gfx1200 is the youngest available relative for gfx1900
-  EXPECT_EQ("gfx1200_conv_f16", ParamLookupTable<InitParamsAccel>::findFallback(
+  // gfx1201 is the youngest available relative for gfx1900
+  EXPECT_EQ("gfx1201_conv_f16", ParamLookupTable<InitParamsAccel>::findFallback(
                                     "gfx1900_conv_f16"));
 }
 
@@ -63,6 +63,6 @@ TEST(FindFallbackTest, NoRelativesBySuffix) {
 TEST(FindFallbackTest, AnyGfxForNonAccel) {
   // Any gfx version is acceptable for non-accelerated operations
   EXPECT_EQ(
-      "gfx1200_gemm_f32",
+      "gfx1201_gemm_f32",
       ParamLookupTable<InitParamsNonAccel>::findFallback("gfx942_gemm_f32"));
 }
