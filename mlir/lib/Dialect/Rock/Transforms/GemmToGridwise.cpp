@@ -855,8 +855,17 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   }
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
-  const int64_t kPad =
-      splitKFactor - math_util::mod_1_to_n(origK, splitKFactor);
+  int64_t kPad = 0;
+  if (scaleA && scaleB) {
+    // Hard code block size to 32 for now.
+    // for the scaleGEMMs, split-K division needs to happen such that it doesn't
+    // cut in the middle of the a block
+    int64_t blockSize = 32;
+    int64_t lcm = math_util::lcm(splitKFactor, blockSize);
+    kPad = lcm - math_util::mod_1_to_n(origK, lcm);
+  } else {
+    kPad = splitKFactor - math_util::mod_1_to_n(origK, splitKFactor);
+  }
 
   a = padMatrix(a, builder, loc, "gemmK", kPad, "gemmM", 0);
   b = padMatrix(b, builder, loc, "gemmK", kPad, "gemmN", 0);

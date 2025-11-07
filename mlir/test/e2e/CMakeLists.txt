@@ -80,6 +80,7 @@ if (ROCK_E2E_TEST_ENABLED)
   gemm_split_k_f16
   gemm_split_k_bf16
   gemm_split_k_f32
+  gemm_scaled_split_k_f4
   )
   list(APPEND CONFIGS
   GemmDirectToLDS
