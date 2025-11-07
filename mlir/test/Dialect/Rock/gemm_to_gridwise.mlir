@@ -555,3 +555,179 @@ func.func @rock_attention_gqa(%arg0: memref<64x1x128xf16>, %arg1: memref<8x128x8
   } {features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, firstGemmIndices = array<i64: 0>, numHeadsKV = 8 : i32, numHeadsQ = 64 : i32, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, softmaxType = f32, splitKV = 4 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
+
+// -----
+
+// Tests for scaled GEMM 
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_already_f8e8m0
+// CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf4E2M1FN>, %[[b:.*]]: memref<1x72x512xf4E2M1FN>, %[[c:.*]]: memref<1x128x512xf32>, %[[scaleA:.*]]: memref<1x128x72xf8E8M0FNU>, %[[scaleB:.*]]: memref<1x72x512xf8E8M0FNU>)
+// CHECK-SAME: grid_size = 16 : i32
+func.func @gemm_scaled_fp4_already_f8e8m0(%a: memref<1x72x128xf4E2M1FN>, %b: memref<1x72x512xf4E2M1FN>, %c: memref<1x128x512xf32>, %scaleA: memref<1x128x72xf8E8M0FNU>, %scaleB: memref<1x72x512xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // CHECK: %[[normalizeScaleA:.*]] = rock.transform %[[scaleA]] by {{.*}} : memref<1x128x72xf8E8M0FNU> to memref<1x72x128xf8E8M0FNU{{.*}}>
+  // CHECK: rock.gridwise_gemm_accel(%[[a]], %[[b]], %[[c]], %[[normalizeScaleA]], %[[scaleB]])
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 16 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<1x128x512xf32> = memref<1x72x128xf4E2M1FN> scaled by memref<1x128x72xf8E8M0FNU> * memref<1x72x512xf4E2M1FN> scaled by memref<1x72x512xf8E8M0FNU>
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_with_padding
+// CHECK-SAME: (%[[a:.*]]: memref<1x1x1xf4E2M1FN>, %[[b:.*]]: memref<1x1x1xf4E2M1FN>, %[[c:.*]]: memref<1x1x1xf32>, %[[scaleA:.*]]: memref<1x1x1xf8E8M0FNU>, %[[scaleB:.*]]: memref<1x1x1xf8E8M0FNU>)
+// CHECK-SAME: grid_size = 1
+func.func @gemm_scaled_fp4_with_padding(%a: memref<1x1x1xf4E2M1FN>, %b: memref<1x1x1xf4E2M1FN>, %c: memref<1x1x1xf32>, %scaleA: memref<1x1x1xf8E8M0FNU>, %scaleB: memref<1x1x1xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // CHECK-DAG: %[[padA:.*]] = rock.transform %[[a]] by {{.*}} : memref<1x1x1xf4E2M1FN> to memref<1x8x64xf4E2M1FN{{.*}}>
+  // CHECK-DAG: %[[padB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x1x1xf4E2M1FN> to memref<1x8x64xf4E2M1FN{{.*}}>
+  // CHECK-DAG: %[[padC:.*]] = rock.transform %[[c]] by {{.*}} : memref<1x1x1xf32> to memref<1x64x64xf32{{.*}}>
+  // CHECK-DAG: %[[padScaleA:.*]] = rock.transform %[[scaleA]] by {{.*}} : memref<1x1x1xf8E8M0FNU> to memref<1x8x64xf8E8M0FNU{{.*}}>
+  // CHECK-DAG: %[[padScaleB:.*]] = rock.transform %[[scaleB]] by {{.*}} : memref<1x1x1xf8E8M0FNU> to memref<1x8x64xf8E8M0FNU{{.*}}>
+  // CHECK: rock.gridwise_gemm_accel(%[[padA]], %[[padB]], %[[padC]], %[[padScaleA]], %[[padScaleB]])
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 1 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<1x1x1xf32> = memref<1x1x1xf4E2M1FN> scaled by memref<1x1x1xf8E8M0FNU> * memref<1x1x1xf4E2M1FN> scaled by memref<1x1x1xf8E8M0FNU>
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_transposed
+// CHECK-SAME: (%[[a:.*]]: memref<1x128x72xf4E2M1FN>, %[[b:.*]]: memref<1x512x72xf4E2M1FN>, %[[c:.*]]: memref<1x512x128xf32>, %[[scaleA:.*]]: memref<1x72x128xf8E8M0FNU>, %[[scaleB:.*]]: memref<1x72x512xf8E8M0FNU>)
+// CHECK-SAME: grid_size = 16 : i32
+func.func @gemm_scaled_fp4_transposed(%a: memref<1x128x72xf4E2M1FN>, %b: memref<1x512x72xf4E2M1FN>, %c: memref<1x512x128xf32>, %scaleA: memref<1x72x128xf8E8M0FNU>, %scaleB: memref<1x72x512xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // CHECK-DAG: %[[normalizeA:.*]] = rock.transform %[[a]] {{.*}} : memref<1x128x72xf4E2M1FN> to memref<1x72x128xf4E2M1FN{{.*}}>
+  // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] {{.*}} : memref<1x512x72xf4E2M1FN> to memref<1x72x512xf4E2M1FN{{.*}}>
+  // CHECK-DAG: %[[normalizeC:.*]] = rock.transform %[[c]] {{.*}} : memref<1x512x128xf32> to memref<1x128x512xf32{{.*}}>
+  // CHECK: rock.gridwise_gemm_accel(%[[normalizeA]], %[[normalizeB]], %[[normalizeC]], %[[scaleA]], %[[scaleB]])
+  rock.gemm tr %c = %a scaled by tr %scaleA * tr %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 16 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<1x512x128xf32> = memref<1x128x72xf4E2M1FN> scaled by memref<1x72x128xf8E8M0FNU> * memref<1x512x72xf4E2M1FN> scaled by memref<1x72x512xf8E8M0FNU>
+  func.return
+}
+
+// -----
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_with_f32_scales
+// CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf4E2M1FN>, %[[b:.*]]: memref<1x72x512xf4E2M1FN>, %[[c:.*]]: memref<1x128x512xf32>, %[[scaleA:.*]]: memref<1x128x72xf32>, %[[scaleB:.*]]: memref<1x72x512xf32>)
+// CHECK-SAME: grid_size = 16 : i32
+func.func @gemm_scaled_fp4_with_f32_scales(%a: memref<1x72x128xf4E2M1FN>, %b: memref<1x72x512xf4E2M1FN>, %c: memref<1x128x512xf32>, %scaleA: memref<1x128x72xf32>, %scaleB: memref<1x72x512xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // CHECK: %[[normalizeScaleA:.*]] = rock.transform %[[scaleA]] by {{.*}} : memref<1x128x72xf32> to memref<1x72x128xf32{{.*}}>
+  // CHECK: %[[allocScaleA:.*]] = memref.alloc() : memref<1x72x128xf8E8M0FNU>
+  // CHECK: linalg.generic {{{.*}}} ins(%[[normalizeScaleA]] : memref<1x72x128xf32{{.*}}>) outs(%[[allocScaleA]] : memref<1x72x128xf8E8M0FNU>)
+  // CHECK: %[[allocScaleB:.*]] = memref.alloc() : memref<1x72x512xf8E8M0FNU>
+  // CHECK: linalg.generic {{{.*}}} ins(%[[scaleB]] : memref<1x72x512xf32>) outs(%[[allocScaleB]] : memref<1x72x512xf8E8M0FNU>)
+  // CHECK: rock.gridwise_gemm_accel(%[[a]], %[[b]], %[[c]], %[[allocScaleA]], %[[allocScaleB]])
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 16 : i32,
+    params = #xdlops_gemm_params0
+  } : memref<1x128x512xf32> = memref<1x72x128xf4E2M1FN> scaled by memref<1x128x72xf32> * memref<1x72x512xf4E2M1FN> scaled by memref<1x72x512xf32>
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_splitk
+// CHECK-SAME: (%[[a:.*]]: memref<1x72x128xf4E2M1FN>, %[[b:.*]]: memref<1x72x512xf4E2M1FN>, %[[c:.*]]: memref<1x128x512xf32> {rock.prefill = 0.000000e+00 : f32}, %[[scaleA:.*]]: memref<1x128x72xf8E8M0FNU>, %[[scaleB:.*]]: memref<1x72x512xf8E8M0FNU>)
+// CHECK-SAME: grid_size = 32 : i32
+func.func @gemm_scaled_fp4_splitk(%a: memref<1x72x128xf4E2M1FN>, %b: memref<1x72x512xf4E2M1FN>, %c: memref<1x128x512xf32>, %scaleA: memref<1x128x72xf8E8M0FNU>, %scaleB: memref<1x72x512xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // Transpose scaleA from MxK to KxM
+  // CHECK: rock.transform %[[scaleA]] by {{.*}} : memref<1x128x72xf8E8M0FNU> to memref<1x72x128xf8E8M0FNU>
+  
+  // Padding K from 72 to 96
+  // CHECK-DAG: rock.transform %[[a]] by {{.*}} : memref<1x72x128xf4E2M1FN> to memref<1x96x128xf4E2M1FN>
+  // CHECK-DAG: rock.transform %[[b]] by {{.*}} : memref<1x72x512xf4E2M1FN> to memref<1x96x512xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x72x128xf8E8M0FNU> to memref<1x96x128xf8E8M0FNU>
+  // CHECK-DAG: rock.transform %[[scaleB]] by {{.*}} : memref<1x72x512xf8E8M0FNU> to memref<1x96x512xf8E8M0FNU>
+  
+  // Split K into 2 parts (96/2 = 48 per split)
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x96x128xf4E2M1FN> to memref<1x2x48x128xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x2x48x128xf4E2M1FN> to memref<2x48x128xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x96x512xf4E2M1FN> to memref<1x2x48x512xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x2x48x512xf4E2M1FN> to memref<2x48x512xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x96x128xf8E8M0FNU> to memref<1x2x48x128xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x2x48x128xf8E8M0FNU> to memref<2x48x128xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x96x512xf8E8M0FNU> to memref<1x2x48x512xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x2x48x512xf8E8M0FNU> to memref<2x48x512xf8E8M0FNU>
+  
+  // Split and merge C
+  // CHECK-DAG: rock.transform %[[c]] by {{.*}} : memref<1x128x512xf32> to memref<1x2x128x512xf32>
+  // CHECK-DAG: rock.transform {{.*}} : memref<1x2x128x512xf32> to memref<2x128x512xf32>
+  
+  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod( atomic_add) features =  mfma {{.*}} : memref<2x48x128xf4E2M1FN>, memref<2x48x512xf4E2M1FN>, memref<2x128x512xf32>, memref<2x48x128xf8E8M0FNU>, memref<2x48x512xf8E8M0FNU>
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 16 : i32,
+    params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, forceUnroll = true, splitKFactor = 2, scheduleVersion = 1, outputSwizzle = 2>
+  } : memref<1x128x512xf32> = memref<1x72x128xf4E2M1FN> scaled by memref<1x128x72xf8E8M0FNU> * memref<1x72x512xf4E2M1FN> scaled by memref<1x72x512xf8E8M0FNU>
+  func.return
+}
+
+// CHECK-LABEL: func.func @gemm_scaled_fp4_splitk_odd
+// CHECK-SAME: (%[[aRaw:.*]]: memref<589824xf4E2M1FN>, %[[bRaw:.*]]: memref<589824xf4E2M1FN>, %[[cRaw:.*]]: memref<196608xf32> {rock.prefill = 0.000000e+00 : f32}, %[[scaleARaw:.*]]: memref<18432xf8E8M0FNU>, %[[scaleBRaw:.*]]: memref<18432xf8E8M0FNU>)
+// CHECK-SAME: grid_size = 240 : i32
+func.func @gemm_scaled_fp4_splitk_odd(%arg0: memref<589824xf4E2M1FN>, %arg1: memref<589824xf4E2M1FN>, %arg2: memref<196608xf32>, %arg3: memref<18432xf8E8M0FNU>, %arg4: memref<18432xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // CHECK-DAG: rock.transform %[[aRaw]] by {{.*}} : memref<589824xf4E2M1FN> to memref<3x256x768xf4E2M1FN>
+  // CHECK-DAG: rock.transform %[[bRaw]] by {{.*}} : memref<589824xf4E2M1FN> to memref<3x768x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform %[[cRaw]] by {{.*}} : memref<196608xf32> to memref<3x256x256xf32>
+  // CHECK-DAG: rock.transform %[[scaleARaw]] by {{.*}} : memref<18432xf8E8M0FNU> to memref<3x256x24xf8E8M0FNU>
+  // CHECK-DAG: rock.transform %[[scaleBRaw]] by {{.*}} : memref<18432xf8E8M0FNU> to memref<3x24x256xf8E8M0FNU>
+  
+  // Scale broadcasting through AddDim, Broadcast, and Merge transformations
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x256x24xf8E8M0FNU> to memref<3x256x24x1xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x256x24x1xf8E8M0FNU> to memref<3x256x24x32xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x256x24x32xf8E8M0FNU> to memref<3x256x768xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x24x256xf8E8M0FNU> to memref<3x24x1x256xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x24x1x256xf8E8M0FNU> to memref<3x24x32x256xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x24x32x256xf8E8M0FNU> to memref<3x768x256xf8E8M0FNU>
+  
+  // Transpose A and scaleA from MxK to KxM
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x256x768xf4E2M1FN> to memref<3x768x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x256x768xf8E8M0FNU> to memref<3x768x256xf8E8M0FNU>
+  
+  // Padding K from 768 to 800
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x768x256xf4E2M1FN> to memref<3x800x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x768x256xf4E2M1FN> to memref<3x800x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x768x256xf8E8M0FNU> to memref<3x800x256xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x768x256xf8E8M0FNU> to memref<3x800x256xf8E8M0FNU>
+  
+  // Split K into 5 parts (800/5 = 160 per split)
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x800x256xf4E2M1FN> to memref<3x5x160x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x5x160x256xf4E2M1FN> to memref<15x160x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x800x256xf4E2M1FN> to memref<3x5x160x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x5x160x256xf4E2M1FN> to memref<15x160x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x800x256xf8E8M0FNU> to memref<3x5x160x256xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x5x160x256xf8E8M0FNU> to memref<15x160x256xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x800x256xf8E8M0FNU> to memref<3x5x160x256xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x5x160x256xf8E8M0FNU> to memref<15x160x256xf8E8M0FNU>
+  
+  // Split and merge C
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x256x256xf32> to memref<3x5x256x256xf32>
+  // CHECK-DAG: rock.transform {{.*}} : memref<3x5x256x256xf32> to memref<15x256x256xf32>
+  
+  // Final padding K from 160 to 512
+  // CHECK-DAG: rock.transform {{.*}} : memref<15x160x256xf4E2M1FN> to memref<15x512x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<15x160x256xf4E2M1FN> to memref<15x512x256xf4E2M1FN>
+  // CHECK-DAG: rock.transform {{.*}} : memref<15x160x256xf8E8M0FNU> to memref<15x512x256xf8E8M0FNU>
+  // CHECK-DAG: rock.transform {{.*}} : memref<15x160x256xf8E8M0FNU> to memref<15x512x256xf8E8M0FNU>
+  
+  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod( atomic_add) features =  mfma {{.*}} : memref<15x512x256xf4E2M1FN>, memref<15x512x256xf4E2M1FN>, memref<15x256x256xf32>, memref<15x512x256xf8E8M0FNU>, memref<15x512x256xf8E8M0FNU>
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 256 + d1) * 768 + d2)> by [<Unmerge{3, 256, 768} ["g", "m", "k"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 256, 768] -> [589824]> : memref<589824xf4E2M1FN> to memref<3x256x768xf4E2M1FN>
+  %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 768 + d1) * 256 + d2)> by [<Unmerge{3, 768, 256} ["g", "k", "n"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 768, 256] -> [589824]> : memref<589824xf4E2M1FN> to memref<3x768x256xf4E2M1FN>
+  %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 256 + d1) * 256 + d2)> by [<Unmerge{3, 256, 256} ["g", "m", "n"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 256, 256] -> [196608]> : memref<196608xf32> to memref<3x256x256xf32>
+  %3 = rock.transform %arg3 by <affine_map<(d0, d1, d2) -> ((d0 * 256 + d1) * 24 + d2)> by [<Unmerge{3, 256, 24} ["g", "m", "k"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 256, 24] -> [18432]> : memref<18432xf8E8M0FNU> to memref<3x256x24xf8E8M0FNU>
+  %4 = rock.transform %arg4 by <affine_map<(d0, d1, d2) -> ((d0 * 24 + d1) * 256 + d2)> by [<Unmerge{3, 24, 256} ["g", "k", "n"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 24, 256] -> [18432]> : memref<18432xf8E8M0FNU> to memref<3x24x256xf8E8M0FNU>
+  %5 = rock.transform %3 by <affine_map<(d0, d1, d2, d3) -> (d0, d1, d2)> by [<AddDim{1} ["block"] at [3] -> [] at []>, <PassThrough ["g", "m", "kScale"] at [0, 1, 2] -> ["g", "m", "kScale"] at [0, 1, 2]>] bounds = [3, 256, 24, 1] -> [3, 256, 24]> : memref<3x256x24xf8E8M0FNU> to memref<3x256x24x1xf8E8M0FNU>
+  %6 = rock.transform %5 by <affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, 0)> by [<Broadcast{1} ["block"] at [3] -> ["block"] at [3]>, <PassThrough ["g", "m", "kScale"] at [0, 1, 2] -> ["g", "m", "kScale"] at [0, 1, 2]>] bounds = [3, 256, 24, 32] -> [3, 256, 24, 1]> : memref<3x256x24x1xf8E8M0FNU> to memref<3x256x24x32xf8E8M0FNU>
+  %7 = rock.transform %6 by <affine_map<(d0, d1, d2) -> (d0, d1, d2 floordiv 32, d2 mod 32)> by [<Merge{24, 32} ["k"] at [2] -> ["kScale", "block"] at [2, 3]>, <PassThrough ["g", "m"] at [0, 1] -> ["g", "m"] at [0, 1]>] bounds = [3, 256, 768] -> [3, 256, 24, 32]> : memref<3x256x24x32xf8E8M0FNU> to memref<3x256x768xf8E8M0FNU>
+  %8 = rock.transform %4 by <affine_map<(d0, d1, d2, d3) -> (d0, d1, d3)> by [<AddDim{1} ["block"] at [2] -> [] at []>, <PassThrough ["g", "kScale", "n"] at [0, 1, 3] -> ["g", "kScale", "n"] at [0, 1, 2]>] bounds = [3, 24, 1, 256] -> [3, 24, 256]> : memref<3x24x256xf8E8M0FNU> to memref<3x24x1x256xf8E8M0FNU>
+  %9 = rock.transform %8 by <affine_map<(d0, d1, d2, d3) -> (d0, d1, 0, d3)> by [<Broadcast{1} ["block"] at [2] -> ["block"] at [2]>, <PassThrough ["g", "kScale", "n"] at [0, 1, 3] -> ["g", "kScale", "n"] at [0, 1, 3]>] bounds = [3, 24, 32, 256] -> [3, 24, 1, 256]> : memref<3x24x1x256xf8E8M0FNU> to memref<3x24x32x256xf8E8M0FNU>
+  %10 = rock.transform %9 by <affine_map<(d0, d1, d2) -> (d0, d1 floordiv 32, d1 mod 32, d2)> by [<PassThrough ["g", "n"] at [0, 2] -> ["g", "n"] at [0, 3]>, <Merge{24, 32} ["k"] at [1] -> ["kScale", "block"] at [1, 2]>] bounds = [3, 768, 256] -> [3, 24, 32, 256]> : memref<3x24x32x256xf8E8M0FNU> to memref<3x768x256xf8E8M0FNU>
+  rock.gemm %2 = %0 scaled by %7 * %1 scaled by %10 features = mfma storeMethod = set {
+    derivedBlockSize = 256 : i32,
+    gridSize = 12 : i32,
+    params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, forceUnroll = true, splitKFactor = 5, scheduleVersion = 1, outputSwizzle = 2>
+  } : memref<3x256x256xf32> = memref<3x256x768xf4E2M1FN> scaled by memref<3x256x768xf8E8M0FNU> * memref<3x768x256xf4E2M1FN> scaled by memref<3x768x256xf8E8M0FNU>
+  func.return
+}

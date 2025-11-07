@@ -3,6 +3,8 @@
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm --transScaleA --transScaleB -pv | FileCheck %s --check-prefix=GEMM-SCALED-BOTHTRANS
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm --transScaleA -pv | FileCheck %s --check-prefix=GEMM-SCALED-TRANSA
 // RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm --transScaleB -pv | FileCheck %s --check-prefix=GEMM-SCALED-TRANSB
+// RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv -scale_a_dtype f32 -scale_b_dtype f32 | FileCheck %s --check-prefix=GEMM-SCALED-F32
+// RUN: rocmlir-gen -t f4E2M1FN -m 16 -n 16 -k 256 -out_dtype f32 --scaledGemm --arch gfx950 --operation gemm -pv -scale_a_dtype f32 -scale_b_dtype f32 -quantBlockSize 16 | FileCheck %s --check-prefix=GEMM-SCALED-F32-16
 
 // GEMM-SCALED: func.func @rock_gemm
 // GEMM-SCALED-SAME: (%[[ARG0:.*]]: memref<4096xf4E2M1FN>, %[[ARG1:.*]]: memref<4096xf4E2M1FN>, %[[ARG2:.*]]: memref<256xf32>, %[[ARG3:.*]]: memref<128xf8E8M0FNU>, %[[ARG4:.*]]: memref<128xf8E8M0FNU>)
@@ -254,3 +256,95 @@
 // GEMM-SCALED-TRANSB-NEXT: %[[MUL_OUT:.*]] = arith.mulf %[[A_MUL]], %[[B_MUL]] : f32
 // GEMM-SCALED-TRANSB-NEXT: arith.addf %[[MUL_OUT]], %[[C_OUT]] : f32
 // GEMM-SCALED-TRANSB-NEXT: linalg.yield
+
+// GEMM-SCALED-F32: func.func @rock_gemm
+// GEMM-SCALED-F32-SAME: (%[[ARG0:.*]]: memref<4096xf4E2M1FN>, %[[ARG1:.*]]: memref<4096xf4E2M1FN>, %[[ARG2:.*]]: memref<256xf32>, %[[ARG3:.*]]: memref<128xf32>, %[[ARG4:.*]]: memref<128xf32>)
+// GEMM-SCALED-F32: %[[SCALEA_EXPAND:.*]] = rock.transform %[[ARG3]]
+// GEMM-SCALED-F32-SAME: memref<128xf32> to memref<1x16x8xf32>
+// GEMM-SCALED-F32: %[[SCALEB_EXPAND:.*]] = rock.transform %[[ARG4]]
+// GEMM-SCALED-F32-SAME: memref<128xf32> to memref<1x8x16xf32>
+// GEMM-SCALED-F32: %[[SCALEA_ADDDIM:.*]] = rock.transform %[[SCALEA_EXPAND]] 
+// GEMM-SCALED-F32-SAME: memref<1x16x8xf32> to memref<1x16x8x1xf32>
+// GEMM-SCALED-F32: %[[SCALEA_BROADCAST:.*]] = rock.transform %[[SCALEA_ADDDIM]] 
+// GEMM-SCALED-F32-SAME: memref<1x16x8x1xf32> to memref<1x16x8x32xf32>
+// GEMM-SCALED-F32: %[[SCALEA_MERGE:.*]] = rock.transform %[[SCALEA_BROADCAST]] 
+// GEMM-SCALED-F32-SAME: memref<1x16x8x32xf32> to memref<1x16x256xf32>
+// GEMM-SCALED-F32: %[[SCALEB_ADDDIM:.*]] = rock.transform %[[SCALEB_EXPAND]] 
+// GEMM-SCALED-F32-SAME: memref<1x8x16xf32> to memref<1x8x1x16xf32>
+// GEMM-SCALED-F32: %[[SCALEB_BROADCAST:.*]] = rock.transform %[[SCALEB_ADDDIM]]
+// GEMM-SCALED-F32-SAME: memref<1x8x1x16xf32> to memref<1x8x32x16xf32>
+// GEMM-SCALED-F32: %[[SCALEB_MERGE:.*]] = rock.transform %[[SCALEB_BROADCAST]]
+// GEMM-SCALED-F32-SAME: memref<1x8x32x16xf32> to memref<1x256x16xf32>
+// GEMM-SCALED-F32: rock.gemm %{{.*}} = %{{.*}} scaled by %[[SCALEA_MERGE]] * %{{.*}} scaled by %[[SCALEB_MERGE]]  
+// GEMM-SCALED-F32-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x16x256xf32> * memref<1x256x16xf4E2M1FN> scaled by memref<1x256x16xf32>
+
+// GEMM-SCALED-F32: func.func @host_naive_gemm
+// GEMM-SCALED-F32-SAME: (%[[A:.*]]: memref<4096xf4E2M1FN>, %[[B:.*]]: memref<4096xf4E2M1FN>, %[[C:.*]]: memref<256xf32>, %[[SCALEA:.*]]: memref<128xf32>, %[[SCALEB:.*]]: memref<128xf32>)
+// GEMM-SCALED-F32: %[[A_ALLOC:.*]] = memref.alloc() : memref<4096xf32>
+// GEMM-SCALED-F32: call @_memcpy_f4E2M1FN_f32_4096(%[[A]], %[[A_ALLOC]]) : (memref<4096xf4E2M1FN>, memref<4096xf32>) -> ()
+// GEMM-SCALED-F32: %[[B_ALLOC:.*]] = memref.alloc() : memref<4096xf32>
+// GEMM-SCALED-F32: call @_memcpy_f4E2M1FN_f32_4096(%[[B]], %[[B_ALLOC]]) : (memref<4096xf4E2M1FN>, memref<4096xf32>) -> ()
+// GEMM-SCALED-F32: %[[A_EXPAND:.*]] = memref.expand_shape %[[A_ALLOC]]
+// GEMM-SCALED-F32-SAME: memref<4096xf32> into memref<16x256xf32>
+// GEMM-SCALED-F32: %[[B_EXPAND:.*]] = memref.expand_shape %[[B_ALLOC]] 
+// GEMM-SCALED-F32-SAME: memref<4096xf32> into memref<256x16xf32>
+// GEMM-SCALED-F32: %[[A_SCALE_EXPAND:.*]] = memref.expand_shape %[[SCALEA]] 
+// GEMM-SCALED-F32-SAME: memref<128xf32> into memref<16x8xf32>
+// GEMM-SCALED-F32: %[[B_SCALE_EXPAND:.*]] = memref.expand_shape %[[SCALEB]] 
+// GEMM-SCALED-F32-SAME: memref<128xf32> into memref<8x16xf32>
+// GEMM-SCALED-F32: %[[C_EXPAND:.*]] = memref.expand_shape %[[C]] 
+// GEMM-SCALED-F32-SAME: memref<256xf32> into memref<16x16xf32>
+// GEMM-SCALED-F32: linalg.generic
+// GEMM-SCALED-F32-SAME: ins(%[[A_EXPAND]], %[[B_EXPAND]], %[[A_SCALE_EXPAND]], %[[B_SCALE_EXPAND]] : memref<16x256xf32>, memref<256x16xf32>, memref<16x8xf32>, memref<8x16xf32>) outs(%[[C_EXPAND]] : memref<16x16xf32>) {
+// GEMM-SCALED-F32: (%[[A_IN:.*]]: f32, %[[B_IN:.*]]: f32, %[[A_SCALE_IN:.*]]: f32, %[[B_SCALE_IN:.*]]: f32, %[[C_OUT:.*]]: f32):
+// GEMM-SCALED-F32-NEXT: %[[A_MUL:.*]] = arith.mulf %[[A_IN]], %[[A_SCALE_IN]] : f32
+// GEMM-SCALED-F32-NEXT: %[[B_MUL:.*]] = arith.mulf %[[B_IN]], %[[B_SCALE_IN]] : f32
+// GEMM-SCALED-F32-NEXT: %[[MUL_OUT:.*]] = arith.mulf %[[A_MUL]], %[[B_MUL]] : f32
+// GEMM-SCALED-F32-NEXT: arith.addf %[[MUL_OUT]], %[[C_OUT]] : f32
+// GEMM-SCALED-F32-NEXT: linalg.yield
+
+// GEMM-SCALED-F32-16: func.func @rock_gemm
+// GEMM-SCALED-F32-16-SAME: (%[[ARG0:.*]]: memref<4096xf4E2M1FN>, %[[ARG1:.*]]: memref<4096xf4E2M1FN>, %[[ARG2:.*]]: memref<256xf32>, %[[ARG3:.*]]: memref<256xf32>, %[[ARG4:.*]]: memref<256xf32>)
+// GEMM-SCALED-F32-16: %[[SCALEA_EXPAND:.*]] = rock.transform %[[ARG3]]
+// GEMM-SCALED-F32-16-SAME: memref<256xf32> to memref<1x16x16xf32>
+// GEMM-SCALED-F32-16: %[[SCALEB_EXPAND:.*]] = rock.transform %[[ARG4]]
+// GEMM-SCALED-F32-16-SAME: memref<256xf32> to memref<1x16x16xf32>
+// GEMM-SCALED-F32-16: %[[SCALEA_ADDDIM:.*]] = rock.transform %[[SCALEA_EXPAND]]
+// GEMM-SCALED-F32-16-SAME: memref<1x16x16xf32> to memref<1x16x16x1xf32>
+// GEMM-SCALED-F32-16: %[[SCALEA_BROADCAST_BLOCK:.*]] = rock.transform %[[SCALEA_ADDDIM]]
+// GEMM-SCALED-F32-16-SAME: memref<1x16x16x1xf32> to memref<1x16x16x16xf32>
+// GEMM-SCALED-F32-16: %[[SCALEA_MERGE:.*]] = rock.transform %[[SCALEA_BROADCAST_BLOCK]]
+// GEMM-SCALED-F32-16-SAME: memref<1x16x16x16xf32> to memref<1x16x256xf32>
+// GEMM-SCALED-F32-16: %[[SCALEB_ADDDIM:.*]] = rock.transform %[[SCALEB_EXPAND]]
+// GEMM-SCALED-F32-16-SAME: memref<1x16x16xf32> to memref<1x16x1x16xf32>
+// GEMM-SCALED-F32-16: %[[SCALEB_BROADCAST_BLOCK:.*]] = rock.transform %[[SCALEB_ADDDIM]]
+// GEMM-SCALED-F32-16-SAME: memref<1x16x1x16xf32> to memref<1x16x16x16xf32>
+// GEMM-SCALED-F32-16: %[[SCALEB_MERGE:.*]] = rock.transform %[[SCALEB_BROADCAST_BLOCK]]
+// GEMM-SCALED-F32-16-SAME: memref<1x16x16x16xf32> to memref<1x256x16xf32>
+// GEMM-SCALED-F32-16: rock.gemm %{{.*}} = %{{.*}} scaled by %[[SCALEA_MERGE]] * %{{.*}} scaled by %[[SCALEB_MERGE]]
+// GEMM-SCALED-F32-16-SAME: memref<1x16x16xf32> = memref<1x16x256xf4E2M1FN> scaled by memref<1x16x256xf32> * memref<1x256x16xf4E2M1FN> scaled by memref<1x256x16xf32>
+
+// GEMM-SCALED-F32-16: func.func @host_naive_gemm
+// GEMM-SCALED-F32-16-SAME: (%[[A:.*]]: memref<4096xf4E2M1FN>, %[[B:.*]]: memref<4096xf4E2M1FN>, %[[C:.*]]: memref<256xf32>, %[[SCALEA:.*]]: memref<256xf32>, %[[SCALEB:.*]]: memref<256xf32>)
+// GEMM-SCALED-F32-16: %[[A_ALLOC:.*]] = memref.alloc() : memref<4096xf32>
+// GEMM-SCALED-F32-16: call @_memcpy_f4E2M1FN_f32_4096(%[[A]], %[[A_ALLOC]]) : (memref<4096xf4E2M1FN>, memref<4096xf32>) -> ()
+// GEMM-SCALED-F32-16: %[[B_ALLOC:.*]] = memref.alloc() : memref<4096xf32>
+// GEMM-SCALED-F32-16: call @_memcpy_f4E2M1FN_f32_4096(%[[B]], %[[B_ALLOC]]) : (memref<4096xf4E2M1FN>, memref<4096xf32>) -> ()
+// GEMM-SCALED-F32-16: %[[A_EXPAND:.*]] = memref.expand_shape %[[A_ALLOC]]
+// GEMM-SCALED-F32-16-SAME: memref<4096xf32> into memref<16x256xf32>
+// GEMM-SCALED-F32-16: %[[B_EXPAND:.*]] = memref.expand_shape %[[B_ALLOC]]
+// GEMM-SCALED-F32-16-SAME: memref<4096xf32> into memref<256x16xf32>
+// GEMM-SCALED-F32-16: %[[A_SCALE_EXPAND:.*]] = memref.expand_shape %[[SCALEA]]
+// GEMM-SCALED-F32-16-SAME: memref<256xf32> into memref<16x16xf32>
+// GEMM-SCALED-F32-16: %[[B_SCALE_EXPAND:.*]] = memref.expand_shape %[[SCALEB]]
+// GEMM-SCALED-F32-16-SAME: memref<256xf32> into memref<16x16xf32>
+// GEMM-SCALED-F32-16: %[[C_EXPAND:.*]] = memref.expand_shape %[[C]]
+// GEMM-SCALED-F32-16-SAME: memref<256xf32> into memref<16x16xf32>
+// GEMM-SCALED-F32-16: linalg.generic
+// GEMM-SCALED-F32-16-SAME: ins(%[[A_EXPAND]], %[[B_EXPAND]], %[[A_SCALE_EXPAND]], %[[B_SCALE_EXPAND]] : memref<16x256xf32>, memref<256x16xf32>, memref<16x16xf32>, memref<16x16xf32>) outs(%[[C_EXPAND]] : memref<16x16xf32>) {
+// GEMM-SCALED-F32-16: (%[[A_IN:.*]]: f32, %[[B_IN:.*]]: f32, %[[A_SCALE_IN:.*]]: f32, %[[B_SCALE_IN:.*]]: f32, %[[C_OUT:.*]]: f32):
+// GEMM-SCALED-F32-16-NEXT: %[[A_MUL:.*]] = arith.mulf %[[A_IN]], %[[A_SCALE_IN]] : f32
+// GEMM-SCALED-F32-16-NEXT: %[[B_MUL:.*]] = arith.mulf %[[B_IN]], %[[B_SCALE_IN]] : f32
+// GEMM-SCALED-F32-16-NEXT: %[[MUL_OUT:.*]] = arith.mulf %[[A_MUL]], %[[B_MUL]] : f32
+// GEMM-SCALED-F32-16-NEXT: arith.addf %[[MUL_OUT]], %[[C_OUT]] : f32
+// GEMM-SCALED-F32-16-NEXT: linalg.yield

@@ -245,9 +245,14 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
   arith::ArithEmulateUnsupportedFloatsOptions floatEmuOpts;
   floatEmuOpts.sourceTypeStrs.assign(
-      {"f8E4M3FNUZ", "f8E5M2FNUZ", "f8E4M3FN", "f8E5M2"});
+      {"f8E4M3FNUZ", "f8E5M2FNUZ", "f8E4M3FN", "f8E5M2", "f8E8M0FNU"});
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
+  arith::ArithExpandOpsPassOptions arithExpandOpsOptions;
+  // emulate truncf(f32)->f8E8M0FNU types. This is used when scales are passed
+  // in as f32 for the scaledGemms
+  arithExpandOpsOptions.includeF8E8M0 = true;
+  gpuPm.addPass(arith::createArithExpandOpsPass(arithExpandOpsOptions));
   ArithToAMDGPUConversionPassOptions arithOptions;
   arithOptions.chipset = options.chip;
   // disable packed truncation to fp16 with rtz (round towards zero) as it
