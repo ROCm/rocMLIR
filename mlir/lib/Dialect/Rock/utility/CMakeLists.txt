@@ -1,5 +1,6 @@
 add_rocmlir_dialect_library(MLIRRockUtility
   AccelEmitter.cpp
+  AliasUtils.cpp
   builderUtils.cpp
   loweringUtils.cpp
   transformMapUtils.cpp
@@ -20,4 +21,5 @@ add_rocmlir_dialect_library(MLIRRockUtility
   MLIRSupport
   MLIRRockAnalysis
   MLIRMHAL
+  MLIRLLVMDialect
 )
