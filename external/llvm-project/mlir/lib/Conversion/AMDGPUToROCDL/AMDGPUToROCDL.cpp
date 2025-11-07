@@ -1361,12 +1361,99 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
     loweredOp.addTypes(rawOutType);
 
     SmallVector<Value, 4> operands;
-    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedA(),
-                         adaptor.getSourceA(), op.getSourceA(), operands);
-    wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedB(),
-                         adaptor.getSourceB(), op.getSourceB(), operands);
-    wmmaPushOutputOperand(rewriter, loc, typeConverter, adaptor.getDestC(),
-                          op.getSubwordOffset(), op.getClamp(), operands);
+    
+    // gfx1250 has different intrinsic signatures with modifier arguments
+    bool isGfx1250 = (chipset == Chipset{12, 5, 0});
+    
+    if (isGfx1250) {
+      // gfx1250 has three different intrinsic signature patterns:
+      // 1. ModsAllReuse (f16/bf16/f32): (A_mod, A, B_mod, B, C_mod, C, A_reuse, B_reuse)
+      // 2. ModsC (fp8/bf8): (A, B, C_mod, C, A_reuse, B_reuse)
+      // 3. ModsAB (integers): (A_mod, A, B_mod, B, C, A_reuse, B_reuse)
+      
+      Value falseVal = createI1Constant(rewriter, loc, false);
+      Value zeroI16 = rewriter.create<LLVM::ConstantOp>(
+          loc, rewriter.getI16Type(), rewriter.getI16IntegerAttr(0));
+      
+      auto sourceAVecType = cast<VectorType>(op.getSourceA().getType());
+      Type elemSourceA = sourceAVecType.getElementType();
+      Type elemDestC = cast<VectorType>(op.getDestC().getType()).getElementType();
+      
+      using fp8 = Float8E4M3FNType;
+      using bf8 = Float8E5M2Type;
+      
+      bool isFp8Input = isa<fp8, bf8>(elemSourceA);
+      bool isIntOutput = elemDestC.isInteger(32);
+      
+      Value sourceA = adaptor.getSourceA();
+      Value sourceB = adaptor.getSourceB();
+      Value destC = adaptor.getDestC();
+      
+      // Handle BF16 and FP8/BF8 bitcasting
+      if (auto vecType = dyn_cast<VectorType>(sourceA.getType())) {
+        if (vecType.getElementType().isBF16()) {
+          sourceA = LLVM::BitcastOp::create(
+              rewriter, loc, vecType.clone(rewriter.getI16Type()), sourceA);
+        } else if (vecType.getElementType().getIntOrFloatBitWidth() == 8) {
+          // Pack 8-bit FP8/BF8 elements into 32-bit integers (v32i8 -> v8i32)
+          int64_t numBits = vecType.getNumElements() * 8;
+          Type i32 = rewriter.getI32Type();
+          Type packedType = VectorType::get(numBits / 32, i32);
+          sourceA = rewriter.createOrFold<LLVM::BitcastOp>(loc, packedType, sourceA);
+        }
+      }
+      if (auto vecType = dyn_cast<VectorType>(sourceB.getType())) {
+        if (vecType.getElementType().isBF16()) {
+          sourceB = LLVM::BitcastOp::create(
+              rewriter, loc, vecType.clone(rewriter.getI16Type()), sourceB);
+        } else if (vecType.getElementType().getIntOrFloatBitWidth() == 8) {
+          // Pack 8-bit FP8/BF8 elements into 32-bit integers (v32i8 -> v8i32)
+          int64_t numBits = vecType.getNumElements() * 8;
+          Type i32 = rewriter.getI32Type();
+          Type packedType = VectorType::get(numBits / 32, i32);
+          sourceB = rewriter.createOrFold<LLVM::BitcastOp>(loc, packedType, sourceB);
+        }
+      }
+      
+      if (isFp8Input) {
+        // FP8/BF8 path (ModsC): (A, B, C_mod, C, A_reuse, B_reuse)
+        operands.push_back(sourceA);
+        operands.push_back(sourceB);
+        operands.push_back(zeroI16);  // C_mod
+        operands.push_back(destC);
+        operands.push_back(falseVal);  // matrix_a_reuse
+        operands.push_back(falseVal);  // matrix_b_reuse
+      } else if (isIntOutput) {
+        // Integer path (ModsAB): (A_mod, A, B_mod, B, C, A_reuse, B_reuse)
+        operands.push_back(falseVal);  // A_mod
+        wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedA(),
+                             sourceA, op.getSourceA(), operands);
+        operands.push_back(falseVal);  // B_mod
+        wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedB(),
+                             sourceB, op.getSourceB(), operands);
+        operands.push_back(destC);
+        operands.push_back(falseVal);  // matrix_a_reuse
+        operands.push_back(falseVal);  // matrix_b_reuse
+      } else {
+        // Float path (ModsAllReuse): (A_mod, A, B_mod, B, C_mod, C, A_reuse, B_reuse)
+        operands.push_back(falseVal);  // A_mod
+        operands.push_back(sourceA);
+        operands.push_back(falseVal);  // B_mod
+        operands.push_back(sourceB);
+        operands.push_back(zeroI16);   // C_mod
+        operands.push_back(destC);
+        operands.push_back(falseVal);  // matrix_a_reuse
+        operands.push_back(falseVal);  // matrix_b_reuse
+      }
+    } else {
+      // Original gfx11/gfx12 path
+      wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedA(),
+                           adaptor.getSourceA(), op.getSourceA(), operands);
+      wmmaPushInputOperand(rewriter, loc, typeConverter, op.getUnsignedB(),
+                           adaptor.getSourceB(), op.getSourceB(), operands);
+      wmmaPushOutputOperand(rewriter, loc, typeConverter, adaptor.getDestC(),
+                            op.getSubwordOffset(), op.getClamp(), operands);
+    }
 
     loweredOp.addOperands(operands);
     Operation *lowered = rewriter.create(loweredOp);
