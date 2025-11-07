@@ -138,3 +138,17 @@ func.func @complex_cast_chain_multiple_uses(%arg0: tensor<4xf32>) -> (tensor<4xf
   %3 = tosa.abs %0 : (tensor<4xf16>) -> tensor<4xf16>
   return %2, %3: tensor<4xf32>, tensor<4xf16>
 }
+
+// ----
+
+// Test 11: Preserve cast chain involving Float8E8M0FNUType
+// CHECK-LABEL: @preserve_f8e8m0fnu_cast_chain
+// CHECK-SAME: (%[[ARG0:.*]]: tensor<4xf32>) -> tensor<4xf32>
+// CHECK: %[[CAST0:.*]] = tosa.cast %[[ARG0]] : (tensor<4xf32>) -> tensor<4xf8E8M0FNU>
+// CHECK: %[[CAST1:.*]] = tosa.cast %[[CAST0]] : (tensor<4xf8E8M0FNU>) -> tensor<4xf32>
+// CHECK: return %[[CAST1]] : tensor<4xf32>
+func.func @preserve_f8e8m0fnu_cast_chain(%arg0: tensor<4xf32>) -> tensor<4xf32> {
+  %0 = tosa.cast %arg0 : (tensor<4xf32>) -> tensor<4xf8E8M0FNU>
+  %1 = tosa.cast %0 : (tensor<4xf8E8M0FNU>) -> tensor<4xf32>
+  return %1 : tensor<4xf32>
+}
