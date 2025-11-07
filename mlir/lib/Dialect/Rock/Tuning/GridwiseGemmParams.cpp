@@ -23,168 +23,6 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-namespace {
-
-template <typename ParamsType>
-class ParamLookupTable {
-public:
-  using ParamArray = std::pair<const ParamsType *, size_t>;
-
-  static ArrayRef<ParamsType> lookup(StringRef arch, KernelType op,
-                                     Type dataType) {
-    arch = getArchName(arch);
-    auto key = makeKey(arch, op, dataType);
-    LLVM_DEBUG(llvm::dbgs()
-               << "Lookup for tuning parameters with key " << key << "\n");
-
-    static const auto &table = getTable();
-    auto it = table.find(key);
-    if (it != table.end()) {
-      return ArrayRef<ParamsType>(it->second.first, it->second.second);
-    }
-
-    auto fallbackKey = findFallback(key);
-    if (!fallbackKey.empty()) {
-      LLVM_DEBUG(llvm::dbgs() << "Falling back to tuning parameters with key "
-                              << fallbackKey << "\n");
-      return ArrayRef<ParamsType>(table.at(fallbackKey).first,
-                                  table.at(fallbackKey).second);
-    }
-
-    auto msg = "Tuning parameters not found for key " + key;
-    llvm_unreachable(msg.c_str());
-  }
-
-private:
-  static constexpr auto separator = '_';
-  // For non-accel params, fall back to any gfx
-  static constexpr auto fallbackArchPrefixLen =
-      std::is_same_v<ParamsType, InitParamsNonAccel> ? 3 : 4;
-
-  static StringRef getArchName(StringRef arch) {
-    auto gfxPos = arch.find("gfx");
-    if (gfxPos == StringRef::npos) {
-      llvm_unreachable("Invalid architecture string");
-    }
-    auto remaining = arch.substr(gfxPos);
-    auto endPos =
-        remaining.find_if_not([](char c) { return llvm::isAlnum(c); }, 3);
-    return remaining.substr(0, endPos);
-  }
-
-  static std::string getDataTypeString(Type dataType) {
-    std::string dataTypeStr;
-    if constexpr (std::is_same_v<ParamsType, InitParamsNonAccel>) {
-      // For non-accel params, we only support f32
-      dataTypeStr = "f32";
-    } else if (dataType.getIntOrFloatBitWidth() == 8 &&
-               isa<FloatType>(dataType)) {
-      // There are several 8-bit float types, but we use "fp8" generically
-      dataTypeStr = "fp8";
-    } else if (dataType.getIntOrFloatBitWidth() == 16 &&
-               isa<FloatType>(dataType)) {
-      // We use "f16" for bf16 and f16 generically
-      dataTypeStr = "f16";
-    } else {
-      llvm::raw_string_ostream os(dataTypeStr);
-      os << dataType;
-      if (dataType.isInteger() &&
-          (dataTypeStr.at(0) == 's' || dataTypeStr.at(0) == 'u')) {
-        // Integer types can be printed as "sint" or "uint"
-        dataTypeStr = dataTypeStr.substr(1);
-      }
-    }
-    return dataTypeStr;
-  }
-
-  static std::string getKernelTypeString(KernelType kernelType) {
-    switch (kernelType) {
-    case KernelType::ConvBwdData:
-    case KernelType::ConvBwdWeight:
-      // We use the same suffix for all convolution types
-      return stringifyEnum(KernelType::Conv).lower();
-    default:
-      return stringifyEnum(kernelType).lower();
-    }
-  }
-
-  // Get all related entries sorted lexicographically
-  static std::vector<std::string> getRelatives(const std::string &target) {
-    const auto suffixLen = target.size() - target.find(separator);
-
-    std::vector<std::string> relatives;
-
-    static const auto &table = getTable();
-    for (const auto &entry : table) {
-      const auto &candidate = entry.first;
-      // If suffix and prefix match, then they are relatives
-      if (std::equal(target.rbegin(), target.rbegin() + suffixLen,
-                     candidate.rbegin()) &&
-          std::equal(target.begin(), target.begin() + fallbackArchPrefixLen,
-                     candidate.begin())) {
-        relatives.push_back(candidate);
-      }
-    }
-
-    return relatives;
-  }
-
-  // Finds the lexicographically closest architecture variant when the exact
-  // target key is not found in the lookup table.
-  //
-  // A "relative" entry must have:
-  // - Same suffix (operation + data type, e.g., "_gemm_f16")
-  // - Same architecture prefix (e.g., "gfx9" for gfx908, gfx90a, gfx942)
-  //
-  // Example: If target "gfx1151_gemm_f16" is missing but "gfx1101_gemm_f16"
-  // and "gfx1201_gemm_f16" exist, this picks the lexicographically closest one
-  // (gfx1101_gemm_f16). This enables graceful fallback between similar GPU
-  // architectures.
-  static std::string findFallback(const std::string &target) {
-    const auto relatives = getRelatives(target);
-    if (relatives.empty())
-      return "";
-
-    auto it = std::lower_bound(relatives.begin(), relatives.end(), target);
-    if (it == relatives.end())
-      return relatives.back();
-    else if (it == relatives.begin())
-      return relatives.front();
-    else {
-      auto mismatchNext = target.end();
-      std::tie(mismatchNext, std::ignore) =
-          std::mismatch(target.begin(), target.end(), it->begin());
-
-      auto mismatchPrev = target.end();
-      std::tie(mismatchPrev, std::ignore) =
-          std::mismatch(target.begin(), target.end(), std::prev(it)->begin());
-
-      if (mismatchNext < mismatchPrev)
-        return *std::prev(it);
-      else
-        // If the mismatches are equal, prefer the larger (newer) candidate
-        return *it;
-    }
-  }
-
-  static std::string makeSuffix(KernelType op, Type dataType) {
-    return getKernelTypeString(op) + separator + getDataTypeString(dataType);
-  }
-
-  static std::string makeKey(StringRef arch, KernelType op, Type dataType) {
-    return arch.str() + separator + makeSuffix(op, dataType);
-  }
-
-  static const std::map<std::string, ParamArray> &getTable() {
-    static const std::map<std::string, ParamArray> table = buildTable();
-    return table;
-  }
-
-  static std::map<std::string, ParamArray> buildTable();
-};
-
-} // anonymous namespace
-
 llvm::raw_ostream &mlir::rock::operator<<(llvm::raw_ostream &os,
                                           GemmDimension dim) {
   switch (dim) {
@@ -329,8 +167,8 @@ PopulateParams::populateDerived(const InitParamsNonAccel &params) {
   LogicalResult res = calculateBlockGemmPerformanceParameters(params);
 
   if (failed(res)) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Incoherent blockGemm tuning parameter " << " size.\n");
+    LLVM_DEBUG(llvm::dbgs() << "Incoherent blockGemm tuning parameter "
+                            << " size.\n");
     return failure();
   }
 
@@ -896,7 +734,134 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
 }
 
-namespace {
+template <typename ParamsType>
+ArrayRef<ParamsType> ParamLookupTable<ParamsType>::lookup(StringRef arch,
+                                                          KernelType op,
+                                                          Type dataType) {
+  arch = getArchName(arch);
+  auto key = makeKey(arch, op, dataType);
+  LLVM_DEBUG(llvm::dbgs() << "Lookup for tuning parameters with key " << key
+                          << "\n");
+
+  static const auto &table = getTable();
+  auto it = table.find(key);
+  if (it != table.end()) {
+    return ArrayRef<ParamsType>(it->second.first, it->second.second);
+  }
+
+  auto fallbackKey = findFallback(key);
+  if (!fallbackKey.empty()) {
+    LLVM_DEBUG(llvm::dbgs() << "Falling back to tuning parameters with key "
+                            << fallbackKey << "\n");
+    return ArrayRef<ParamsType>(table.at(fallbackKey).first,
+                                table.at(fallbackKey).second);
+  }
+
+  auto msg = "Tuning parameters not found for key " + key;
+  llvm_unreachable(msg.c_str());
+}
+
+template <typename ParamsType>
+std::string
+ParamLookupTable<ParamsType>::findFallback(const std::string &target) {
+  const auto relatives = getRelatives(target);
+  if (relatives.empty())
+    return "";
+
+  auto it = std::lower_bound(relatives.begin(), relatives.end(), target);
+  if (it == relatives.end())
+    return relatives.back();
+  else if (it == relatives.begin())
+    return relatives.front();
+  else {
+    auto mismatchNext = target.end();
+    std::tie(mismatchNext, std::ignore) =
+        std::mismatch(target.begin(), target.end(), it->begin());
+
+    auto mismatchPrev = target.end();
+    std::tie(mismatchPrev, std::ignore) =
+        std::mismatch(target.begin(), target.end(), std::prev(it)->begin());
+
+    if (mismatchNext < mismatchPrev)
+      return *std::prev(it);
+    else
+      // If the mismatches are equal, prefer the larger (newer) candidate
+      return *it;
+  }
+}
+
+template <typename ParamsType>
+StringRef ParamLookupTable<ParamsType>::getArchName(StringRef arch) {
+  auto gfxPos = arch.find("gfx");
+  if (gfxPos == StringRef::npos) {
+    llvm_unreachable("Invalid architecture string");
+  }
+  auto remaining = arch.substr(gfxPos);
+  auto endPos =
+      remaining.find_if_not([](char c) { return llvm::isAlnum(c); }, 3);
+  return remaining.substr(0, endPos);
+}
+
+template <typename ParamsType>
+std::string
+ParamLookupTable<ParamsType>::getKernelTypeString(KernelType kernelType) {
+  switch (kernelType) {
+  case KernelType::ConvBwdData:
+  case KernelType::ConvBwdWeight:
+    // We use the same suffix for all convolution types
+    return stringifyEnum(KernelType::Conv).lower();
+  default:
+    return stringifyEnum(kernelType).lower();
+  }
+}
+
+template <typename ParamsType>
+std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
+  std::string dataTypeStr;
+  if constexpr (std::is_same_v<ParamsType, InitParamsNonAccel>) {
+    // For non-accel params, we only support f32
+    dataTypeStr = "f32";
+  } else if (dataType.getIntOrFloatBitWidth() == 8 &&
+             isa<FloatType>(dataType)) {
+    // There are several 8-bit float types, but we use "fp8" generically
+    dataTypeStr = "fp8";
+  } else if (dataType.getIntOrFloatBitWidth() == 16 &&
+             isa<FloatType>(dataType)) {
+    // We use "f16" for bf16 and f16 generically
+    dataTypeStr = "f16";
+  } else {
+    llvm::raw_string_ostream os(dataTypeStr);
+    os << dataType;
+    if (dataType.isInteger() &&
+        (dataTypeStr.at(0) == 's' || dataTypeStr.at(0) == 'u')) {
+      // Integer types can be printed as "sint" or "uint"
+      dataTypeStr = dataTypeStr.substr(1);
+    }
+  }
+  return dataTypeStr;
+}
+
+template <typename ParamsType>
+std::vector<std::string>
+ParamLookupTable<ParamsType>::getRelatives(const std::string &target) {
+  const auto suffixLen = target.size() - target.find(separator);
+
+  std::vector<std::string> relatives;
+
+  static const auto &table = getTable();
+  for (const auto &entry : table) {
+    const auto &candidate = entry.first;
+    // If suffix and prefix match, then they are relatives
+    if (std::equal(target.rbegin(), target.rbegin() + suffixLen,
+                   candidate.rbegin()) &&
+        std::equal(target.begin(), target.begin() + fallbackArchPrefixLen,
+                   candidate.begin())) {
+      relatives.push_back(candidate);
+    }
+  }
+
+  return relatives;
+}
 
 template <>
 std::map<std::string, ParamLookupTable<InitParamsNonAccel>::ParamArray>
@@ -918,5 +883,3 @@ ParamLookupTable<InitParamsAccel>::buildTable() {
 #undef Accel_LOOKUP_TABLE_GEN
   };
 }
-
-} // anonymous namespace
