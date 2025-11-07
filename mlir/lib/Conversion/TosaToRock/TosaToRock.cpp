@@ -2699,13 +2699,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       // sub(x, x) + x or log(exp(sub(x, x))) + x
       lse = getLSESeqLen1(cast<tosa::SubOp>(sub));
     }
-    // lse has three or four dimensions
+    // lse has three, four, or five dimensions
+    llvm::dbgs() << "lse = " << lse << "\n";
     if (lse) {
       auto type = cast<ShapedType>(lse.getType());
-      if (type.getRank() != 4 && type.getRank() != 3)
+      if (type.getRank() != 5 && type.getRank() != 4 && type.getRank() != 3)
         return failure();
-      // last dimension must be 1: {B, NUM_HEADS, SEQ_LEN_Q, 1}
-      if (type.getRank() == 4 && type.getDimSize(type.getRank() - 1) != 1)
+      // last dimension must be 1
+      if (type.getDimSize(type.getRank() - 1) != 1)
         return failure();
     }
 
@@ -2795,13 +2796,23 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     RankedTensorType lseType;
     Value lse = attentionMatcherValues.lse;
     Value lseOut, lseOrig;
+
+    // Default reassocIndicesLSE is for 4D tensors
     SmallVector<ReassociationIndices> reassocIndicesLSE = {{0, 1}, {2, 3}};
     if (lse) {
-      // {{0, 1}, {2, 3}} for 4D tensor, {{0}, {1, 2}} for 3D tensor
-      if (cast<ShapedType>(lse.getType()).getRank() == 3)
+      // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
+      // Rank 5 (flash decoding): {{0, 1, 2}, {3, 4}}
+      //                          collapses [B, H, C, S, 1] -> [B*H*C, S]
+      // Rank 4 (standard): {{0, 1}, {2, 3}}
+      //                    collapses [B, H, S, 1] -> [B*H, S]
+      // Rank 3: {{0}, {1, 2}}
+      //         collapses [B*H, S, 1] -> [B*H, S]
+      int rank = cast<ShapedType>(lse.getType()).getRank();
+      if (rank == 5)
+        reassocIndicesLSE = {{0, 1, 2}, {3, 4}};
+      else if (rank == 3)
         reassocIndicesLSE = {{0}, {1, 2}};
 
-      // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
       lseOrig = lse;
       lse = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), lse,
                                             reassocIndicesLSE);
