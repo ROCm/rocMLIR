@@ -1023,6 +1023,8 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
 
   } else if (opType == KernelType::Gemm) { // gemm case
     rock::GemmOp rGemmOp = dyn_cast<rock::GemmOp>(gemmOp);
+    bool isScaledGemm =
+        rGemmOp.getScaleA() != nullptr && rGemmOp.getScaleB() != nullptr;
     // Please keep these in sync with mlir/utils/performance/perfRunner.py
     // Data type
     problemOS << "-t ";
@@ -1070,6 +1072,44 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
       problemOS << "true ";
     else
       problemOS << "false ";
+
+    if (isScaledGemm) {
+      problemOS << "-scaledGemm" << sep;
+      auto scaleA = rGemmOp.getScaleA();
+      auto scaleB = rGemmOp.getScaleB();
+      problemOS << "-scale_a_dtype ";
+      auto scaleAElemType = scaleA.getType().getElementType();
+      auto scaleBElemType = scaleB.getType().getElementType();
+      if (scaleAElemType.isF32()) {
+        problemOS << "f32";
+      } else if (isa<Float8E8M0FNUType>(scaleAElemType)) {
+        problemOS << "f8E8M0FNU";
+      } else {
+        llvm_unreachable("Unsupported scale A element type");
+      }
+      problemOS << sep;
+      problemOS << "-scale_b_dtype ";
+      if (scaleBElemType.isF32()) {
+        problemOS << "f32";
+      } else if (isa<Float8E8M0FNUType>(scaleBElemType)) {
+        problemOS << "f8E8M0FNU";
+      } else {
+        llvm_unreachable("Unsupported scale B element type");
+      }
+      problemOS << sep;
+      problemOS << "-transScaleA" << sep;
+      if (rGemmOp.getAScaleTransposed()) {
+        problemOS << "true" << sep;
+      } else {
+        problemOS << "false" << sep;
+      }
+      problemOS << "-transScaleB" << sep;
+      if (rGemmOp.getBScaleTransposed()) {
+        problemOS << "true" << sep;
+      } else {
+        problemOS << "false" << sep;
+      }
+    }
 
     // Gemmsize G/M/N/K
     problemOS << "-g " << gemmIF.getGemmSize().g << sep;
