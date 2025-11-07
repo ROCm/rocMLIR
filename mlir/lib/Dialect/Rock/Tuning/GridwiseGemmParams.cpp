@@ -734,60 +734,25 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
 }
 
-template <typename ParamsType>
-ArrayRef<ParamsType> ParamLookupTable<ParamsType>::lookup(StringRef arch,
-                                                          KernelType op,
-                                                          Type dataType) {
-  arch = getArchName(arch);
-  auto key = makeKey(arch, op, dataType);
-  LLVM_DEBUG(llvm::dbgs() << "Lookup for tuning parameters with key " << key
-                          << "\n");
-
-  static const auto &table = getTable();
-  auto it = table.find(key);
-  if (it != table.end()) {
-    return ArrayRef<ParamsType>(it->second.first, it->second.second);
-  }
-
-  auto fallbackKey = findFallback(key);
-  if (!fallbackKey.empty()) {
-    LLVM_DEBUG(llvm::dbgs() << "Falling back to tuning parameters with key "
-                            << fallbackKey << "\n");
-    return ArrayRef<ParamsType>(table.at(fallbackKey).first,
-                                table.at(fallbackKey).second);
-  }
-
-  auto msg = "Tuning parameters not found for key " + key;
-  llvm_unreachable(msg.c_str());
+template <>
+std::map<std::string, ParamLookupTable<InitParamsNonAccel>::ParamArray>
+ParamLookupTable<InitParamsNonAccel>::buildTable() {
+  return {
+#define NonAccel_LOOKUP_TABLE_GEN
+#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
+#undef NonAccel_LOOKUP_TABLE_GEN
+  };
 }
 
-template <typename ParamsType>
-std::string
-ParamLookupTable<ParamsType>::findFallback(const std::string &target) {
-  const auto relatives = getRelatives(target);
-  if (relatives.empty())
-    return "";
-
-  auto it = std::lower_bound(relatives.begin(), relatives.end(), target);
-  if (it == relatives.end())
-    return relatives.back();
-  else if (it == relatives.begin())
-    return relatives.front();
-  else {
-    auto mismatchNext = target.end();
-    std::tie(mismatchNext, std::ignore) =
-        std::mismatch(target.begin(), target.end(), it->begin());
-
-    auto mismatchPrev = target.end();
-    std::tie(mismatchPrev, std::ignore) =
-        std::mismatch(target.begin(), target.end(), std::prev(it)->begin());
-
-    if (mismatchNext < mismatchPrev)
-      return *std::prev(it);
-    else
-      // If the mismatches are equal, prefer the larger (newer) candidate
-      return *it;
-  }
+// Specialization for Accel (XDL/WMMA) parameters
+template <>
+std::map<std::string, ParamLookupTable<InitParamsAccel>::ParamArray>
+ParamLookupTable<InitParamsAccel>::buildTable() {
+  return {
+#define Accel_LOOKUP_TABLE_GEN
+#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
+#undef Accel_LOOKUP_TABLE_GEN
+  };
 }
 
 template <typename ParamsType>
@@ -863,23 +828,58 @@ ParamLookupTable<ParamsType>::getRelatives(const std::string &target) {
   return relatives;
 }
 
-template <>
-std::map<std::string, ParamLookupTable<InitParamsNonAccel>::ParamArray>
-ParamLookupTable<InitParamsNonAccel>::buildTable() {
-  return {
-#define NonAccel_LOOKUP_TABLE_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef NonAccel_LOOKUP_TABLE_GEN
-  };
+template <typename ParamsType>
+std::string
+ParamLookupTable<ParamsType>::findFallback(const std::string &target) {
+  const auto relatives = getRelatives(target);
+  if (relatives.empty())
+    return "";
+
+  auto it = std::lower_bound(relatives.begin(), relatives.end(), target);
+  if (it == relatives.end())
+    return relatives.back();
+  else if (it == relatives.begin())
+    return relatives.front();
+  else {
+    auto mismatchNext = target.end();
+    std::tie(mismatchNext, std::ignore) =
+        std::mismatch(target.begin(), target.end(), it->begin());
+
+    auto mismatchPrev = target.end();
+    std::tie(mismatchPrev, std::ignore) =
+        std::mismatch(target.begin(), target.end(), std::prev(it)->begin());
+
+    if (mismatchNext < mismatchPrev)
+      return *std::prev(it);
+    else
+      // If the mismatches are equal, prefer the larger (newer) candidate
+      return *it;
+  }
 }
 
-// Specialization for Accel (XDL/WMMA) parameters
-template <>
-std::map<std::string, ParamLookupTable<InitParamsAccel>::ParamArray>
-ParamLookupTable<InitParamsAccel>::buildTable() {
-  return {
-#define Accel_LOOKUP_TABLE_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef Accel_LOOKUP_TABLE_GEN
-  };
+template <typename ParamsType>
+ArrayRef<ParamsType> ParamLookupTable<ParamsType>::lookup(StringRef arch,
+                                                          KernelType op,
+                                                          Type dataType) {
+  arch = getArchName(arch);
+  auto key = makeKey(arch, op, dataType);
+  LLVM_DEBUG(llvm::dbgs() << "Lookup for tuning parameters with key " << key
+                          << "\n");
+
+  static const auto &table = getTable();
+  auto it = table.find(key);
+  if (it != table.end()) {
+    return ArrayRef<ParamsType>(it->second.first, it->second.second);
+  }
+
+  auto fallbackKey = findFallback(key);
+  if (!fallbackKey.empty()) {
+    LLVM_DEBUG(llvm::dbgs() << "Falling back to tuning parameters with key "
+                            << fallbackKey << "\n");
+    return ArrayRef<ParamsType>(table.at(fallbackKey).first,
+                                table.at(fallbackKey).second);
+  }
+
+  llvm::report_fatal_error(llvm::Twine("Tuning parameters not found for key ") +
+                           key);
 }

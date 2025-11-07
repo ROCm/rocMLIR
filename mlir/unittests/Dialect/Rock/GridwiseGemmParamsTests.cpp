@@ -37,7 +37,7 @@ TEST(FindFallbackTest, OlderRelativeIsCloser) {
 }
 
 TEST(FindFallbackTest, YoungerRelativeIsCloser) {
-  // gfx940 is closer to gfx942 than gfx908
+  // gfx940 is closer to gfx942 than gfx90a
   EXPECT_EQ("gfx942_conv_f16",
             ParamLookupTable<InitParamsAccel>::findFallback("gfx940_conv_f16"));
 }
