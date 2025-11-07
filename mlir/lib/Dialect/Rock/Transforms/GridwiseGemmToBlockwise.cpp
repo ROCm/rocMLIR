@@ -142,10 +142,10 @@ static void loadAndStoreGemmInputTile(
 }
 
 static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
-                                 int64_t numElements, Type elemType) {
+                                 int64_t numElements, Type elementType) {
+  int64_t ldsBlockSize = getPackedByteSize(numElements, elementType);
   auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getWorkgroupAddressSpace());
-  int64_t ldsBlockSize = numElements * getByteWidth(elemType);
   auto ldsMemRefType =
       MemRefType::get({ldsBlockSize}, rewriter.getI8Type(), AffineMap{},
                       workgroupMemoryAddressSpace);
@@ -178,7 +178,7 @@ static std::tuple<Value, Value, Value, Value> createRegInterrimBufferForAccel(
       int64_t length = std::accumulate(shape.begin(), shape.end(), int64_t{1},
                                        std::multiplies<>());
 
-      Value arrayBase = gpuAlloc(b, loc, length * getByteWidth(argType),
+      Value arrayBase = gpuAlloc(b, loc, getPackedByteSize(length, argType),
                                  b.getI8Type(), gpu::AddressSpace::Private);
 
       SmallVector<int64_t> shapeForLoad(shape);
@@ -417,9 +417,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // Compute required LDS sizes.
     int64_t ldsBlockASize =
-        kpacksPerBlock * mPerBlock * kpack * getByteWidth(elementTypeA);
+        getPackedByteSize(kpacksPerBlock * mPerBlock * kpack, elementTypeA);
     int64_t ldsBlockBSize =
-        kpacksPerBlock * nPerBlock * kpack * getByteWidth(elementTypeB);
+        getPackedByteSize(kpacksPerBlock * nPerBlock * kpack, elementTypeB);
     LLVM_DEBUG(llvm::dbgs() << "LDS block size (in bytes):" << ldsBlockASize
                             << " " << ldsBlockBSize << "\n");
     if (failed(checkLDSSize(op, ldsBlockASize, ldsBlockBSize)))
@@ -2919,12 +2919,12 @@ struct GridwiseGemmAccelRewritePattern
     // Alocate LDS and create subviews.
 
     // Compute required LDS sizes.
-    int64_t ldsBlockASize = kpacksPerBlock * mPerBlock * kpack;
-    int64_t ldsBlockBSize = kpacksPerBlock * nPerBlock * kpack;
-    LLVM_DEBUG(llvm::dbgs()
-               << "LDS block sizes (bytes): "
-               << ldsBlockASize * getByteWidth(elementTypeA) << " "
-               << ldsBlockBSize * getByteWidth(elementTypeB) << "\n");
+    int64_t ldsBlockASize =
+        getPackedByteSize(kpacksPerBlock * mPerBlock * kpack, elementTypeA);
+    int64_t ldsBlockBSize =
+        getPackedByteSize(kpacksPerBlock * nPerBlock * kpack, elementTypeB);
+    LLVM_DEBUG(llvm::dbgs() << "LDS block sizes (bytes): " << ldsBlockASize
+                            << " " << ldsBlockBSize << "\n");
     if (failed(checkLDSSize(op, ldsBlockASize, ldsBlockBSize)))
       return op.emitOpError("requires too much LDS");
 
@@ -2942,10 +2942,10 @@ struct GridwiseGemmAccelRewritePattern
         directToLDS, /*splitKAcrossThreadsFirst=*/false, G, N, copyNPerThread);
 
     // Allocate LDS.
-    Value ldsByteBufferA =
-        createLDSByteBuffer(b, loc, ldsBlockASize, elementTypeA);
-    Value ldsByteBufferB =
-        createLDSByteBuffer(b, loc, ldsBlockBSize, elementTypeB);
+    Value ldsByteBufferA = createLDSByteBuffer(
+        b, loc, kpacksPerBlock * mPerBlock * kpack, elementTypeA);
+    Value ldsByteBufferB = createLDSByteBuffer(
+        b, loc, kpacksPerBlock * nPerBlock * kpack, elementTypeB);
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     Type ldsReadTypeB = vectorTypeOrSelf(elementTypeB, kpack);

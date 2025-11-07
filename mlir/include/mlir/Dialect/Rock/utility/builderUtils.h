@@ -46,7 +46,14 @@ void createTypeConversionFlatAndStore(PatternRewriter &rewriter, Location loc,
 Value createCollapseShapeOp(OpBuilder &b, Location loc, Value source);
 
 /// Utility function to get the number of bytes a value of type `type` takes up.
+/// For the sub-byte types like f4E2M1FN, it returns the number of packed Bytes
+/// with padding.
 int64_t getByteWidth(Type type);
+
+// For sub-byte types, like f4E2M1FN, we need to pack multiple elements into
+// bytes. Calculates the number of bytes required to store `numElements` of the
+// given `type`, packing as many elements as possible into each byte.
+int64_t getPackedByteSize(uint64_t numElements, Type type);
 
 // Get a 1-D version of the shaped type `type`, preserving memory space.
 Type getFlattenedType(Type type);

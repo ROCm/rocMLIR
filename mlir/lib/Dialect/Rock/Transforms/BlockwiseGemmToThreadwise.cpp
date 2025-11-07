@@ -490,13 +490,12 @@ struct BlockwiseGemmAccelRewritePattern
         auto memrefType = cast<MemRefType>(buffer.getType());
         assert(memrefType.getRank() == 1);
         assert(memrefType.getElementType() == b.getI8Type());
-        int64_t numBytes = getByteWidth(argType);
-        if (memrefType.getShape()[0] > kBasePerThread * numBytes) {
-          assert(memrefType.getShape()[0] ==
-                 kBasePerThread * repeats * numBytes);
+        int64_t numBytes = getPackedByteSize(kBasePerThread, argType);
+        if (memrefType.getShape()[0] > numBytes) {
+          assert(memrefType.getShape()[0] == numBytes * repeats);
           shape.insert(shape.begin(), repeats);
         } else {
-          assert(memrefType.getShape()[0] == kBasePerThread * numBytes);
+          assert(memrefType.getShape()[0] == numBytes);
         }
         // view for generateThreadwiseViewBuffer()
         buffer = viewBufferAs(b, buffer, argType, shape);
