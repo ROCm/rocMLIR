@@ -2802,7 +2802,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (lse) {
       // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
       // Rank 5 (flash decoding): {{0, 1, 2}, {3, 4}}
-      //                          collapses [B, H, C, S, 1] -> [B*H*C, S]
+      //                          collapses [B, H, G, S, 1] -> [B*H*G, S]
       // Rank 4 (standard): {{0, 1}, {2, 3}}
       //                    collapses [B, H, S, 1] -> [B*H, S]
       // Rank 3: {{0}, {1, 2}}
