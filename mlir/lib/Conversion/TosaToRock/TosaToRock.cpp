@@ -2801,12 +2801,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     SmallVector<ReassociationIndices> reassocIndicesLSE = {{0, 1}, {2, 3}};
     if (lse) {
       // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
-      // Rank 5 (flash decoding): {{0, 1, 2}, {3, 4}}
-      //                          collapses [B, H, G, S, 1] -> [B*H*G, S]
-      // Rank 4 (standard): {{0, 1}, {2, 3}}
-      //                    collapses [B, H, S, 1] -> [B*H, S]
-      // Rank 3: {{0}, {1, 2}}
-      //         collapses [B*H, S, 1] -> [B*H, S]
+      // Rank 5: {{0, 1, 2}, {3, 4}} collapses [B, H, G, S, 1] -> [B*H*G, S]
+      // Rank 4: {{0, 1}, {2, 3}} collapses [B, H, S, 1] -> [B*H, S]
+      // Rank 3: {{0}, {1, 2}} collapses [B*H, S, 1] -> [B*H, S]
       int rank = cast<ShapedType>(lse.getType()).getRank();
       if (rank == 5)
         reassocIndicesLSE = {{0, 1, 2}, {3, 4}};
