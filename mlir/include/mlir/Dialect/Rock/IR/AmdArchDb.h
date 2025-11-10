@@ -49,6 +49,9 @@ struct AmdArchInfo {
 
   /// Get the default features for the pair <arch, datatype>
   GemmFeatures getDefaultFeatures(Type dataType);
+
+  /// Get the maximum LDS vector length for the given architecture and data type
+  int64_t getMaxLDSVectorLength(int64_t elementBitWidth);
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);
