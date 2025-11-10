@@ -185,8 +185,6 @@ func.func @rock_conv_gkc01_n01gc_ngk01_0_schedulev1(%arg0: memref<1x32x32xf16>, 
   return
 }
 
-// -----
-
 // CHECK-LABEL: @rock_scaled_gemm_transA
 func.func @rock_scaled_gemm_transA(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memref<1x128x64xf4E2M1FN>, %arg2: memref<1x64x64xf32>, %arg3: memref<1x128x64xf8E8M0FNU>, %arg4: memref<1x128x64xf8E8M0FNU>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx950", num_cu = 256 : i64} {
     // CHECK-DAG: rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
@@ -202,7 +200,6 @@ func.func @rock_scaled_gemm_transA(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memr
     // CHECK: rock.alloc() : memref<2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
     // CHECK: rock.alloc() : memref<32xf8E8M0FNU, #gpu.address_space<private>>
     // CHECK: rock.alloc() : memref<32xf8E8M0FNU, #gpu.address_space<private>>
-    // CHECK: scf.for
     // CHECK: rock.stage
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f8E8M0FNU> -> memref<32xf8E8M0FNU, #gpu.address_space<private>>
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f8E8M0FNU> -> memref<32xf8E8M0FNU, #gpu.address_space<private>>
@@ -236,8 +233,6 @@ func.func @rock_scaled_gemm_transA(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memr
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
   return
 }
-
-// -----
 
 // CHECK-LABEL: @rock_scaled_gemm_transB
 func.func @rock_scaled_gemm_transB(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memref<1x128x64xf4E2M1FN>, %arg2: memref<1x64x64xf32>, %arg3: memref<1x128x64xf8E8M0FNU>, %arg4: memref<1x128x64xf8E8M0FNU>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx950", num_cu = 256 : i64} {
@@ -249,7 +244,6 @@ func.func @rock_scaled_gemm_transB(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memr
     // CHECK-DAG: memref.view {{.*}} : memref<8192xi8, #gpu.address_space<workgroup>> to memref<256xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
     // CHECK: rock.alloc() : memref<2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
     // CHECK: rock.alloc() : memref<2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
-    // CHECK: scf.for
     // CHECK: rock.stage
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f8E8M0FNU> -> memref<32xf8E8M0FNU, #gpu.address_space<private>>
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f8E8M0FNU> -> memref<32xf8E8M0FNU, #gpu.address_space<private>>
@@ -275,8 +269,6 @@ func.func @rock_scaled_gemm_transB(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memr
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
   return
 }
-
-// -----
 
 // CHECK-LABEL: @rock_scaled_gemm_transAB
 func.func @rock_scaled_gemm_transAB(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memref<1x128x64xf4E2M1FN>, %arg2: memref<1x64x64xf32>, %arg3: memref<1x128x64xf8E8M0FNU>, %arg4: memref<1x128x64xf8E8M0FNU>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx950", num_cu = 256 : i64} {
@@ -288,7 +280,6 @@ func.func @rock_scaled_gemm_transAB(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: mem
     // CHECK-DAG: memref.view {{.*}} : memref<8192xi8, #gpu.address_space<workgroup>> to memref<256xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
     // CHECK: rock.alloc() : memref<2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
     // CHECK: rock.alloc() : memref<2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
-    // CHECK: scf.for
     // CHECK: rock.stage
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f8E8M0FNU> -> memref<32xf8E8M0FNU, #gpu.address_space<private>>
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f8E8M0FNU> -> memref<32xf8E8M0FNU, #gpu.address_space<private>>
@@ -314,8 +305,6 @@ func.func @rock_scaled_gemm_transAB(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: mem
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
   return
 }
-
-// -----
 
 // CHECK-LABEL: @rock_scaled_gemm_no_transpose
 func.func @rock_scaled_gemm_no_transpose(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memref<1x128x64xf4E2M1FN>, %arg2: memref<1x64x64xf32>, %arg3: memref<1x128x64xf8E8M0FNU>, %arg4: memref<1x128x64xf8E8M0FNU>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx950", num_cu = 256 : i64} {
@@ -327,7 +316,6 @@ func.func @rock_scaled_gemm_no_transpose(%arg0: memref<1x128x64xf4E2M1FN>, %arg1
     // CHECK-DAG: memref.view {{.*}} : memref<8192xi8, #gpu.address_space<workgroup>> to memref<256xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
     // CHECK: rock.alloc() : memref<2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
     // CHECK: rock.alloc() : memref<2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
-    // CHECK: scf.for
     // CHECK: rock.stage
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f8E8M0FNU> -> memref<32xf8E8M0FNU, #gpu.address_space<private>>
     // CHECK: rock.threadwise_read_into {{.*}} memref<{{.*}}f8E8M0FNU> -> memref<32xf8E8M0FNU, #gpu.address_space<private>>
@@ -353,8 +341,6 @@ func.func @rock_scaled_gemm_no_transpose(%arg0: memref<1x128x64xf4E2M1FN>, %arg1
   rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.xdlops_gemm_derived_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
   return
 }
-
-// -----
 
 // CHECK-LABEL: @gridwise_attn_schedulev2
 func.func @gridwise_attn_schedulev2(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {

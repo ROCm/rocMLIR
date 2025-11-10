@@ -3087,13 +3087,15 @@ struct GridwiseGemmAccelRewritePattern
         argTypeScaleB =
             VectorType::get(argBVector.getNumElements(), elementTypeScaleB);
       }
-      
-      auto [arrayScaleAForLoad, arrayScaleA] = createRegInterrimBufferForAccel(
-          b, loc, argTypeScaleA, params.kBasePerThread,
-          doubleBuffering ? params.mRepeats : 1, directToLDS);
-      auto [arrayScaleBForLoad, arrayScaleB] = createRegInterrimBufferForAccel(
-          b, loc, argTypeScaleB, params.kBasePerThread,
-          doubleBuffering ? params.nRepeats : 1, directToLDS);
+
+      std::tie(arrayScaleAForLoad, arrayScaleA) =
+          createRegInterrimBufferForAccel(
+              b, loc, argTypeScaleA, params.kBasePerThread,
+              doubleBuffering ? params.mRepeats : 1, directToLDS);
+      std::tie(arrayScaleBForLoad, arrayScaleB) =
+          createRegInterrimBufferForAccel(
+              b, loc, argTypeScaleB, params.kBasePerThread,
+              doubleBuffering ? params.nRepeats : 1, directToLDS);
     }
 
     // Emit loop.
