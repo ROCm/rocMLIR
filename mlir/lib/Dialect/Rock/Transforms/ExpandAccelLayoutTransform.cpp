@@ -197,13 +197,13 @@ void RockExpandAccelLayoutTransformPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
 
+  target.addLegalDialect<rock::RockDialect>();
   target.addIllegalOp<rock::AccelLayoutTransformOp>();
-  target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
 
   RewritePatternSet patterns(ctx);
   patterns.add<ExpandAccelLayout>(ctx);
   if (failed(
-          applyFullConversion(getOperation(), target, std::move(patterns)))) {
+          applyPartialConversion(getOperation(), target, std::move(patterns)))) {
     signalPassFailure();
   }
 }
