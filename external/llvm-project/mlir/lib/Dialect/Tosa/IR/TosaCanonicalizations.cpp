@@ -133,10 +133,17 @@ struct ConvPadFoldAdaptor {
   }
   static void replaceOpWithNewPad(PatternRewriter &rewriter, OpTy op,
                                   Value padInput, ArrayRef<int64_t> newPad) {
-    rewriter.replaceOpWithNewOp<OpTy>(
-        op, op.getResult().getType(), padInput, op.getWeight(), op.getBias(),
-        op.getInputZp(), op.getWeightZp(), newPad, op.getStrideAttr(),
-        op.getDilationAttr(), op.getAccType(), op.getLocalBound());
+    if constexpr (std::is_same_v<OpTy, tosa::Conv2DOp>) {
+      rewriter.replaceOpWithNewOp<OpTy>(
+          op, op.getResult().getType(), padInput, op.getWeight(), op.getBias(),
+          op.getInputZp(), op.getWeightZp(), newPad, op.getStrideAttr(),
+          op.getDilationAttr(), op.getAccType(), /*group=*/nullptr, op.getLocalBound());
+    } else {
+      rewriter.replaceOpWithNewOp<OpTy>(
+          op, op.getResult().getType(), padInput, op.getWeight(), op.getBias(),
+          op.getInputZp(), op.getWeightZp(), newPad, op.getStrideAttr(),
+          op.getDilationAttr(), op.getAccType(), op.getLocalBound());
+    }
   }
 };
 

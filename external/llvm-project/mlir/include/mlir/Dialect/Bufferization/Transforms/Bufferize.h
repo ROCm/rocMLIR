@@ -66,6 +66,11 @@ LogicalResult bufferizeBlockSignature(Block *block, RewriterBase &rewriter,
                                       const BufferizationOptions &options,
                                       BufferizationState &state);
 
+/// Return `BufferizationOptions` such that the `bufferizeOp` behaves like the
+/// old (deprecated) partial, dialect conversion-based bufferization passes. A
+/// copy will be inserted before every buffer write.
+BufferizationOptions getPartialBufferizationOptions();
+
 } // namespace bufferization
 } // namespace mlir
 
