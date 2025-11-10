@@ -967,8 +967,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
       // arg 1 is going to be the input tensor.
       zeroInitArg(builder, func, 1);
     }
-    builder.create<ConvBwdDataOp>(builder.getUnknownLoc(), ArrayRef<Type>{},
-                                  args, attributes);
+    ConvBwdDataOp::create(builder, builder.getUnknownLoc(), ArrayRef<Type>{},
+                          args, attributes);
   } break;
   case ConvOpType::BwdWeight: {
     int kernelCount = 0;

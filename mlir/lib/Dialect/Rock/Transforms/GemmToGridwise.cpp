@@ -146,7 +146,7 @@ static Value moveNumHeadsToSeqLenQ(OpBuilder builder, Location loc,
   unmerge.passThrough({"seqLen", "headDim"}, {2, 1}, {"seqLen", "headDim"});
   auto unmergeAttr = unmerge.get();
   Value matrixUnmerge =
-      builder.create<rock::TransformOp>(loc, inputTensor, unmergeAttr);
+      rock::TransformOp::create(builder, loc, inputTensor, unmergeAttr);
 
   // (gemmG / numRepeats, headDim, seqLen, numRepeats) -> (gemmG / numRepeats,
   // headDim, seqLen * numRepeats)
@@ -154,7 +154,7 @@ static Value moveNumHeadsToSeqLenQ(OpBuilder builder, Location loc,
   merger.merge("seqLen", 2, {"seqLen", "numRepeats"});
   merger.passThrough(ArrayRef<uint32_t>{0, 1}, ArrayRef<uint32_t>{0, 1});
   auto mergerAttr = merger.get();
-  return builder.create<rock::TransformOp>(loc, matrixUnmerge, mergerAttr);
+  return rock::TransformOp::create(builder, loc, matrixUnmerge, mergerAttr);
 }
 
 // Same as moveNumHeadsToSeqLenQ() but for currSeqLen tensor (KV-Cache)
@@ -177,7 +177,7 @@ static Value moveNumHeadsToSeqLenCurrSeqLen(OpBuilder builder, Location loc,
                   {newGemmG, numRepeats});
   auto unmergeAttr = unmerge.get();
   Value matrixUnmerge =
-      builder.create<rock::TransformOp>(loc, inputTensor, unmergeAttr);
+      rock::TransformOp::create(builder, loc, inputTensor, unmergeAttr);
 
   // slice numRepeats to 1
   auto slicer = rock::BottomUpTMBuilder::above(unmerge, unmergeAttr);
@@ -185,14 +185,14 @@ static Value moveNumHeadsToSeqLenCurrSeqLen(OpBuilder builder, Location loc,
   slicer.passThrough(ArrayRef<uint32_t>{0}, ArrayRef<uint32_t>{0});
   auto slicerAttr = slicer.get();
   Value matrixSliced =
-      builder.create<rock::TransformOp>(loc, matrixUnmerge, slicerAttr);
+      rock::TransformOp::create(builder, loc, matrixUnmerge, slicerAttr);
 
   // (gemmG / numRepeats, headDim, seqLen, numRepeats) -> (gemmG / numRepeats,
   // headDim, seqLen * numRepeats)
   auto merger = rock::BottomUpTMBuilder::above(slicer, slicerAttr);
   merger.merge("seqLen", 0, {"gemmG", "numRepeats"});
   auto mergerAttr = merger.get();
-  return builder.create<rock::TransformOp>(loc, matrixSliced, mergerAttr);
+  return rock::TransformOp::create(builder, loc, matrixSliced, mergerAttr);
 }
 
 // Same as moveNumHeadsToSeqLenQ() but for the output tensor
@@ -227,7 +227,7 @@ static Value moveNumHeadsToSeqLenOut(OpBuilder builder, Location loc,
     unmerge.passThrough({"seqLen", "headDim"}, {2, 4}, {"seqLen", "headDim"});
   auto unmergeAttr = unmerge.get();
   Value matrixUnmerge =
-      builder.create<rock::TransformOp>(loc, inputTensor, unmergeAttr);
+      rock::TransformOp::create(builder, loc, inputTensor, unmergeAttr);
 
   // (gemmG / (splitKV*numRepeats), splitKV, seqLen, numRepeats, headDim) ->
   // (gemmG / numRepeats, seqLen * numRepeats, headDim)
@@ -237,7 +237,7 @@ static Value moveNumHeadsToSeqLenOut(OpBuilder builder, Location loc,
   if (!isLSE)
     merger.passThrough({"headDim"}, {2}, {"headDim"});
   auto mergerAttr = merger.get();
-  return builder.create<rock::TransformOp>(loc, matrixUnmerge, mergerAttr);
+  return rock::TransformOp::create(builder, loc, matrixUnmerge, mergerAttr);
 }
 
 // This function will implement GQA, moving numRepeat=num_heads_q/num_heads_kv

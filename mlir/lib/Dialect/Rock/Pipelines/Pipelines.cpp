@@ -44,6 +44,8 @@
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Tosa/IR/TargetEnv.h"
+#include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
@@ -71,13 +73,27 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
 
   funcPm.addPass(createRocmlirCustomTosaDecomposePass());
   funcPm.addPass(createRocmlirCustomTosaToLinalgPass());
+
+  tosa::TosaAttachTargetOptions tosaOptions;
+  tosaOptions.specificationVersion = tosa::SpecificationVersion::V_1_0;
+  tosaOptions.level = tosa::Level::none;
+  tosaOptions.profiles.push_back("pro_int");
+  tosaOptions.profiles.push_back("pro_fp");
+  tosaOptions.extensions.push_back("int4");
+  tosaOptions.extensions.push_back("bf16");
+  tosaOptions.extensions.push_back("fp8e4m3");
+  tosaOptions.extensions.push_back("fp8e5m2");
+  tosaOptions.extensions.push_back("mxfp");
+
+  tosa::createTosaAttachTarget(tosaOptions);
+
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
   TosaToLinalgOptions tosaToLinalgOptions;
   TosaToLinalgNamedOptions tosaToLinalgNamedOptions;
   tosa::TosaValidationOptions validationOptions;
-  validationOptions.level = tosa::TosaLevelEnum::None;
-  validationOptions.profile = {"pro_int", "pro_fp"};
+  // validationOptions.level = tosa::TosaLevelEnum::None;
+  // validationOptions.profile = {"pro_int", "pro_fp"};
   validationOptions.allowInvalidOpDatatypeCombinations = true;
   tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions,
                               validationOptions);

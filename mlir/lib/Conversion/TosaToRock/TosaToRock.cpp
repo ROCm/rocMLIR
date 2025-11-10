@@ -2307,14 +2307,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     SmallVector<int64_t, 2> expandedShape{origShape, 1};
     auto expandedType = RankedTensorType::get(expandedShape, elemTy);
     SmallVector<ReassociationIndices, 1> reassoc{{0, 1}};
-    Value expanded = rewriter.create<tensor::ExpandShapeOp>(
-        loc, expandedType, currentSeqLen, reassoc);
+    Value expanded = tensor::ExpandShapeOp::create(rewriter, loc, expandedType,
+                                                   currentSeqLen, reassoc);
 
     // Create a tosa.const that is all zeros, but in our desired shape of
     // batch x numHeads
     auto broadcastTy = RankedTensorType::get({batch, numHeads}, elemTy);
     auto oneElems = cast<ElementsAttr>(rewriter.getOneAttr(broadcastTy));
-    auto constOp = rewriter.create<tosa::ConstOp>(loc, broadcastTy, oneElems);
+    auto constOp = tosa::ConstOp::create(rewriter, loc, broadcastTy, oneElems);
 
     // Create a tosa.mul (broadcast) to our desired batch and numHeads values.
     auto mul =
