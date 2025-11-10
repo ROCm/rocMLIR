@@ -2700,7 +2700,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       lse = getLSESeqLen1(cast<tosa::SubOp>(sub));
     }
     // lse has three, four, or five dimensions
-    llvm::dbgs() << "lse = " << lse << "\n";
     if (lse) {
       auto type = cast<ShapedType>(lse.getType());
       if (type.getRank() != 5 && type.getRank() != 4 && type.getRank() != 3)
