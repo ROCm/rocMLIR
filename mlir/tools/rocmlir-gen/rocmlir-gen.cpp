@@ -1556,8 +1556,8 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
     }
 
     // split KV to batch
-    Value resultTensor = b.create<bufferization::ToTensorOp>(
-        loc,
+    Value resultTensor = bufferization::ToTensorOp::create(
+        b, loc,
         memref::getTensorTypeFromMemRefType(
             cpuMem[cpuMem.size() - 1].getType()),
         cpuMem[cpuMem.size() - 1], true, false);
@@ -2678,14 +2678,14 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
     bScale = nullptr;
   }
   if (accelLayoutA) {
-    aVal = b.create<rock::AccelLayoutTransformOp>(
-        loc, argTypes[0], func.getArgument(0), /*isA=*/b.getUnitAttr(),
+    aVal = rock::AccelLayoutTransformOp::create(
+        b, loc, argTypes[0], func.getArgument(0), /*isA=*/b.getUnitAttr(),
         /*transposed=*/transposeA ? b.getUnitAttr() : nullptr,
         /*params=*/nullptr);
   }
   if (accelLayoutB) {
-    bVal = b.create<rock::AccelLayoutTransformOp>(
-        loc, argTypes[1], func.getArgument(1), /*isA=*/nullptr,
+    bVal = rock::AccelLayoutTransformOp::create(
+        b, loc, argTypes[1], func.getArgument(1), /*isA=*/nullptr,
         /*transposed=*/transposeB ? b.getUnitAttr() : nullptr,
         /*params=*/nullptr);
   }
@@ -2694,7 +2694,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       transposeA, transposeB, transposeC, transposeScaleA, transposeScaleB,
       accelLayoutA, accelLayoutB,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
-      /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
+      /*derivedBlockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
 
   if (!params.perfConfig.empty())
     gemm->setAttr("perf_config", b.getStringAttr(params.perfConfig));
@@ -3749,10 +3749,10 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
 
       auto outputMemRefType = MemRefType::get(
           outputShape, cast<ShapedType>(arg.getType()).getElementType());
-      Value allocOp = b.create<memref::AllocOp>(loc, outputMemRefType);
+      Value allocOp = memref::AllocOp::create(b, loc, outputMemRefType);
 
       auto transposeOp =
-          b.create<linalg::TransposeOp>(loc, arg, allocOp, permutation);
+          linalg::TransposeOp::create(b, loc, arg, allocOp, permutation);
       Value transposedTensor = transposeOp.getDpsInitOperand(0)->get();
       auto transposedType = cast<MemRefType>(transposedTensor.getType());
       ArrayRef<int64_t> transposedShape = transposedType.getShape();
@@ -3772,18 +3772,18 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
       SmallVector<int64_t> targetShape = {transposedShape[0], dDim, kDim};
       auto targetType =
           MemRefType::get(targetShape, transposedType.getElementType());
-      Value result = b.create<memref::CollapseShapeOp>(
-          loc, targetType, transposedTensor, reassociation);
+      Value result = memref::CollapseShapeOp::create(
+          b, loc, targetType, transposedTensor, reassociation);
 
       if (!kBlockFirst) {
         SmallVector<int64_t, 3> outputShape = {targetShape[0], targetShape[2],
                                                targetShape[1]};
         auto outputMemRefType = MemRefType::get(
             outputShape, cast<ShapedType>(result.getType()).getElementType());
-        Value allocOp = b.create<memref::AllocOp>(loc, outputMemRefType);
+        Value allocOp = memref::AllocOp::create(b, loc, outputMemRefType);
         SmallVector<int64_t, 3> permutationTranpose = {0, 2, 1};
-        auto transposeOp = b.create<linalg::TransposeOp>(loc, result, allocOp,
-                                                         permutationTranpose);
+        auto transposeOp = linalg::TransposeOp::create(b, loc, result, allocOp,
+                                                       permutationTranpose);
         result = transposeOp.getDpsInitOperand(0)->get();
       }
 
@@ -3794,8 +3794,8 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
     if (accelLayoutB)
       bExpVal = accelLayoutConversion(bExpVal, "n", transposeB);
 
-    b.create<linalg::GenericOp>(
-        loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
+    linalg::GenericOp::create(
+        b, loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
         ArrayRef<AffineMap>{aMap, bMap, cMap},
         ArrayRef<utils::IteratorType>{
             utils::IteratorType::parallel, utils::IteratorType::parallel,
@@ -3807,13 +3807,13 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
           if (isa<IntegerType>(cType)) {
             Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
             Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
-            Value mul = builder.create<arith::MulIOp>(loc, aExt, bExt);
-            Value add = builder.create<arith::AddIOp>(loc, mul, c);
-            builder.create<linalg::YieldOp>(loc, add);
+            Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
+            Value add = arith::AddIOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
           } else {
-            Value mul = builder.create<arith::MulFOp>(loc, a, b);
-            Value add = builder.create<arith::AddFOp>(loc, mul, c);
-            builder.create<linalg::YieldOp>(loc, add);
+            Value mul = arith::MulFOp::create(builder, loc, a, b);
+            Value add = arith::AddFOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
           }
         });
   }
@@ -4622,7 +4622,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
       thr_relDiff = getF32Val(100.0f);
     Type boolType = b.getIntegerType(1);
     bool isFP32 = isa<Float32Type>(testElemType);
-    auto isFP32Val = b.create<arith::ConstantIntOp>(loc, boolType, isFP32);
+    auto isFP32Val = arith::ConstantIntOp::create(b, loc, boolType, isFP32);
 
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, floatType,

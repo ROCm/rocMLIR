@@ -34,4 +34,7 @@
 // CHECK_NUMCU: 304
 
 // RUN: rocmlir-gen --arch gfx950 --operation gemm --scaledGemm --transB --transScaleB -g 12 -m 256 -n 256 -k 64 -t f4E2M1FN -out_dtype f32 | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_SCALED_GEMM
-// CHECK_SCALED_GEMM: -t f4E2M1FN -out_datatype f32 -transA false -transB true -scaledGemm -scale_a_dtype f8E8M0FNU -scale_b_dtype f8E8M0FNU -transScaleA false -transScaleB true -g 12 -m 256 -n 256 -k 64
+// CHECK_SCALED_GEMM: -t f4E2M1FN -out_datatype f32 -transA false -transB true -scaledGemm -scale_a_dtype f8E8M0FNU -scale_b_dtype f8E8M0FNU -transScaleA false -transScaleB true -accelLayoutA false -accelLayoutB false -g 12 -m 256 -n 256 -k 64
+
+// RUN: rocmlir-gen --arch gfx950 --operation gemm --transB -g 12 -m 256 -n 256 -k 64 -t f16 --accelLayoutA --accelLayoutB | rocmlir-gen --emit-tuning-key - | FileCheck %s --check-prefixes=CHECK_ACCEL_LAYOUT
+// CHECK_ACCEL_LAYOUT: -t f16 -out_datatype f16 -transA false -transB true -accelLayoutA true -accelLayoutB true -g 12 -m 256 -n 256 -k 64

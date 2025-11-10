@@ -88,8 +88,8 @@ func.func @rock_blockwise_gemm_accel_one_result_f16(%matrixA : memref<8192xf16, 
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize = 256 : i32,
-    matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-    matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+    matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+    matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,
@@ -117,8 +117,8 @@ func.func @rock_blockwise_gemm_accel_two_results_f16(%matrixA : memref<8192xf16,
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize = 256 : i32,
-    matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-    matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+    matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+    matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
       nPerBlock = 256,

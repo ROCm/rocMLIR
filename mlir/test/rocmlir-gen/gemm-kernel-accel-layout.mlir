@@ -21,7 +21,6 @@
 // CHECK-SAME: %[[a]] *
 // CHECK-SAME:   tr %[[b]] features = {{.*}} storeMethod = set
 // CHECK-SAME: aAccelLayout
-// CHECK-SAME: arch = "[[$ARCH]]"
 // CHECK-SAME: bAccelLayout
 // CHECK-NEXT: return
 

@@ -449,8 +449,8 @@ func.func @blockwise_gemm_accel_scale_buffer_presence_a_only(
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
       blockSize = 256 : i32,
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>>
@@ -478,8 +478,8 @@ func.func @blockwise_gemm_accel_loadA_scaleA_lds_only(
     scaled by %bufferScaleB from %matrixScaleB
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
@@ -510,8 +510,8 @@ func.func @blockwise_gemm_accel_scaleA_lds_shape_mismatch(
     scaled by %bufferScaleB from %matrixScaleB
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
@@ -542,8 +542,8 @@ func.func @blockwise_gemm_accel_scaleA_lds_type_bad(
     scaled by %bufferScaleB from %matrixScaleB
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
@@ -574,8 +574,8 @@ func.func @blockwise_gemm_accel_matrixA_type_bad(
     scaled by %bufferScaleB from %matrixScaleB
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
@@ -607,8 +607,8 @@ func.func @blockwise_gemm_accel_scaleA_buffer_shape_bad(
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
       blockSize = 256 : i32,
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -638,8 +638,8 @@ func.func @blockwise_gemm_accel_scaleA_buffer_type_bad(
     scaled by %bufferScaleB from %matrixScaleB
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
@@ -671,8 +671,8 @@ func.func @blockwise_gemm_accel_bufferA_type_bad(
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
       blockSize = 256 : i32,
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf16, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -699,8 +699,8 @@ func.func @blockwise_gemm_accel_scale_buffer_presence_b_only(
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
       blockSize = 256 : i32,
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>>
@@ -729,8 +729,8 @@ func.func @blockwise_gemm_accel_scaleB_lds_shape_mismatch(
     scaled by %bufferScaleB from %matrixScaleB_bad
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
@@ -761,8 +761,8 @@ func.func @blockwise_gemm_accel_scaleB_lds_type_bad(
     scaled by %bufferScaleB from %matrixScaleB_bad
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
@@ -793,8 +793,8 @@ func.func @blockwise_gemm_accel_matrixB_type_bad(
     scaled by %bufferScaleB from %matrixScaleB
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       blockSize = 256 : i32,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
@@ -826,8 +826,8 @@ func.func @blockwise_gemm_accel_scaleB_buffer_shape_bad(
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
       blockSize = 256 : i32,
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -858,8 +858,8 @@ func.func @blockwise_gemm_accel_scaleB_buffer_type_bad(
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
       blockSize = 256 : i32,
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -890,8 +890,8 @@ func.func @blockwise_gemm_accel_bufferB_type_bad(
     features = mfma {
       arch = "amdgcn-amd-amdhsa:gfx950",
       blockSize = 256 : i32,
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       params = #blockwise_params
     } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>>  from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
@@ -924,8 +924,8 @@ func.func @blockwise_gemm_accel_invalid_arch(
       loadAfromLDS,
       loadBfromLDS,
       blockSize = 256 : i32,
-      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
-      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+      matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 64, inDPerThread = 2>, 
+      matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayout = KxDxkpack, directToLDS = false, splitKAcrossThreadsFirst = false, accelLayout = false, g = 1, d = 256, inDPerThread = 2>,
       params = #blockwise_params    
       } : memref<4xvector<16xf32>, #gpu.address_space<private>>
         += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>
