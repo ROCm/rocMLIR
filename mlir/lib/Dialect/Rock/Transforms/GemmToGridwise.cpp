@@ -783,9 +783,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   if (isAccel) {
     GridwiseGemmAccelOp::create(
         rw, loc, a, b, accumulator, scaleA, scaleB, op.getAAccelLayoutAttr(),
-        op.getBAccelLayoutAttr(), op.getFeaturesAttr(),
-        op.getStoreMethodAttr(), blockSize, gridSize,
-        cast<RockAccelTuningParamAttrInterface>(params));
+        op.getBAccelLayoutAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        blockSize, gridSize, cast<RockAccelTuningParamAttrInterface>(params));
   } else {
     assert(!scaleA && !scaleB &&
            "scaling not supported for non-accelerated gemm");
