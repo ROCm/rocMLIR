@@ -99,8 +99,7 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
     int64_t dPerThread, int64_t repeatKPerThread, int64_t kpack,
-    bool isKContiguousDim, bool doSwapThreadIterSubDimsForD = false,
-    bool accelLayout = false);
+    bool isKContiguousDim, bool doSwapThreadIterSubDimsForD, bool accelLayout);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
@@ -251,7 +250,7 @@ FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc, Value buffer,
                                        Type ldsReadType, int64_t kOuter,
                                        StringRef dName, int64_t d,
                                        int64_t kPerThread, int64_t dPerThread,
-                                       bool rotateDWithK = false);
+                                       bool rotateDWithK);
 
 FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
                                       int64_t blockSize, int64_t kPerBlock,

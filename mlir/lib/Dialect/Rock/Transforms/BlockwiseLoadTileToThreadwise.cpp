@@ -342,8 +342,9 @@ class LoweringBlockwiseLoadTileOp final
               getPackedRegsAsTileViews(
                   b, loc, source, dName, bidGridOrder, bidGridLengths,
                   blockSize, kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
-                  vecDimInfo.inDPerThread, kpack, isKContiguousDim,
-                  ldsLayoutConfig.doSwapThreadIterSubDims);
+                  vecDimInfo.inDPerThread, vecDimInfo.repeatKPerThread, kpack,
+                  isKContiguousDim, ldsLayoutConfig.doSwapThreadIterSubDims,
+                  accelLayout);
           if (failed(maybeLdsStoreViews))
             return failure();
 
