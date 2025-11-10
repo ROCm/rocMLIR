@@ -790,6 +790,74 @@ static Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape,
   return rock::TransformOp::create(b, loc, inp, broadcastDims.get());
 }
 
+static FailureOr<Value> mulBroadcast(Value val);
+
+static FailureOr<Value> getValueSkipping(Value val,
+                                         const DenseSet<StringRef> &opsToSkip) {
+  while (val.getDefiningOp() &&
+         opsToSkip.contains(val.getDefiningOp()->getName().getStringRef())) {
+    if (val.getDefiningOp<tosa::MulOp>()) {
+      auto maybeBroadcast = mulBroadcast(val);
+      if (failed(maybeBroadcast))
+        return failure();
+      val = maybeBroadcast.value();
+    } else
+      val = val.getDefiningOp()->getOperand(0);
+  }
+  return val;
+}
+
+template <typename TosaOp>
+static FailureOr<TosaOp>
+getDefiningOpSkipping(Value val, const DenseSet<StringRef> &opsToSkip) {
+  auto maybeResult = getValueSkipping(val, opsToSkip);
+  if (failed(maybeResult))
+    return failure();
+
+  TosaOp result = maybeResult.value().getDefiningOp<TosaOp>();
+  if (!result)
+    return failure();
+  return result;
+}
+
+static FailureOr<Value> mulBroadcast(Value val) {
+  DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                tensor::ExpandShapeOp::getOperationName()};
+  auto maybeMul = getDefiningOpSkipping<tosa::MulOp>(val, opsToSkip);
+  if (succeeded(maybeMul)) {
+    auto mul = maybeMul.value();
+    // this is a broadcast multiplication, one of the arguments is the actual
+    // value, the other is a constant one
+    Value nonOne;
+    auto maybeTosaConstIn1 =
+        getDefiningOpSkipping<tosa::ConstOp>(mul.getInput1(), opsToSkip);
+    auto maybeArithConstIn1 =
+        getDefiningOpSkipping<arith::ConstantOp>(mul.getInput1(), opsToSkip);
+    if (succeeded(maybeTosaConstIn1)) {
+      if (mlir::rock::isConstantOne(maybeTosaConstIn1.value().getResult()))
+        nonOne = mul.getInput2();
+    } else if (succeeded(maybeArithConstIn1)) {
+      if (mlir::rock::isConstantOne(maybeArithConstIn1.value().getResult()))
+        nonOne = mul.getInput2();
+    }
+
+    auto maybeTosaConstIn2 =
+        getDefiningOpSkipping<tosa::ConstOp>(mul.getInput2(), opsToSkip);
+    auto maybeArithConstIn2 =
+        getDefiningOpSkipping<arith::ConstantOp>(mul.getInput2(), opsToSkip);
+    if (succeeded(maybeTosaConstIn2)) {
+      if (mlir::rock::isConstantOne(maybeTosaConstIn2.value().getResult()))
+        nonOne = mul.getInput1();
+    } else if (succeeded(maybeArithConstIn2)) {
+      if (mlir::rock::isConstantOne(maybeArithConstIn2.value().getResult()))
+        nonOne = mul.getInput1();
+    }
+    if (nonOne)
+      return nonOne;
+  }
+  return failure();
+}
+
 class MatMulConverter final : public OpConversionPattern<tosa::MatMulOp> {
 public:
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
@@ -824,16 +892,135 @@ public:
     }
   }
 
+  // Helper to extract scale and matrix from a mul operation
+  FailureOr<std::pair<Value, Value>>
+  tryExtractScaleAndMatrix(Value mulInput1, Value mulInput2) const {
+    Value scale = nullptr;
+    Value matrix = nullptr;
+
+    // Check if input1 is a cast from Float4E2M1FN
+    if (tosa::CastOp castOp = mulInput1.getDefiningOp<tosa::CastOp>()) {
+      Value castInput = castOp.getInput();
+      if (isa<Float4E2M1FNType>(
+              cast<ShapedType>(castInput.getType()).getElementType())) {
+        matrix = castInput;
+        scale = mulInput2;
+      }
+    }
+    // Check if input2 is a cast from Float4E2M1FN
+    else if (tosa::CastOp castOp = mulInput2.getDefiningOp<tosa::CastOp>()) {
+      Value castInput = castOp.getInput();
+      if (isa<Float4E2M1FNType>(
+              cast<ShapedType>(castInput.getType()).getElementType())) {
+        matrix = castInput;
+        scale = mulInput1;
+      }
+    }
+
+    // Unwrap cast on scale if present
+    if (scale && scale.getDefiningOp<tosa::CastOp>()) {
+      scale = scale.getDefiningOp<tosa::CastOp>().getInput();
+    }
+    if (scale) {
+      RankedTensorType scaleType = cast<RankedTensorType>(scale.getType());
+      if (!isa<Float8E8M0FNUType>(scaleType.getElementType()) &&
+          !isa<Float32Type>(scaleType.getElementType())) {
+        return failure();
+      }
+    }
+
+    if (!scale || !matrix) {
+      return failure();
+    }
+
+    return std::make_pair(scale, matrix);
+  }
+
+  // Helper to reshape matrix and scale to match target shape
+  Value reshapeIfNeeded(Value val, ArrayRef<int64_t> targetShape, Location loc,
+                        ConversionPatternRewriter &rw) const {
+    auto valType = cast<RankedTensorType>(val.getType());
+    if (valType.getShape() == targetShape) {
+      return val;
+    }
+
+    RankedTensorType newType =
+        RankedTensorType::get(targetShape, valType.getElementType());
+    auto normalizedShapeValue = tosa::getTosaConstShape(rw, loc, targetShape);
+    return tosa::ReshapeOp::create(rw, loc, newType, val, normalizedShapeValue);
+  }
+
   LogicalResult matchAndRewrite(tosa::MatMulOp op,
                                 tosa::MatMulOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
     Location loc = op->getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
+    auto matA = op.getA();
+    auto matB = op.getB();
+    Value matABeforeCast = nullptr;
+    Value matBBeforeCast = nullptr;
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName()};
+
+    // Try to extract scale and matrix for input A
+    Value scaleA = nullptr;
+    FailureOr<tosa::MulOp> maybeMulA =
+        getDefiningOpSkipping<tosa::MulOp>(matA, opsToSkip);
+    if (succeeded(maybeMulA)) {
+      tosa::MulOp mulOpA = maybeMulA.value();
+      FailureOr<std::pair<Value, Value>> maybeScaleMatrixA =
+          tryExtractScaleAndMatrix(mulOpA.getInput1(), mulOpA.getInput2());
+      if (succeeded(maybeScaleMatrixA)) {
+        auto [extractedScaleA, extractedMatrixA] = maybeScaleMatrixA.value();
+        scaleA = extractedScaleA;
+        matABeforeCast = extractedMatrixA;
+      }
+    }
+
+    // Try to extract scale and matrix for input B
+    Value scaleB = nullptr;
+    FailureOr<tosa::MulOp> maybeMulB =
+        getDefiningOpSkipping<tosa::MulOp>(matB, opsToSkip);
+    if (succeeded(maybeMulB)) {
+      tosa::MulOp mulOpB = maybeMulB.value();
+      FailureOr<std::pair<Value, Value>> maybeScaleMatrixB =
+          tryExtractScaleAndMatrix(mulOpB.getInput1(), mulOpB.getInput2());
+      if (succeeded(maybeScaleMatrixB)) {
+        auto [extractedScaleB, extractedMatrixB] = maybeScaleMatrixB.value();
+        scaleB = extractedScaleB;
+        matBBeforeCast = extractedMatrixB;
+      }
+    }
+
+    // rock.gemm requires both scaleA and scaleB to be provided, or neither
+    // If only one scale is present, fall back to normal matmul
+    bool hasScaleA = (scaleA != nullptr);
+    bool hasScaleB = (scaleB != nullptr);
+    if (hasScaleA != hasScaleB) {
+      return op.emitError("Only one scale is present. For scaled GEMM, both "
+                          "scaleA and scaleB must be provided.");
+    }
+
+    // Reshape matrices and scales to match the expected shapes if needed
+    if (matABeforeCast && scaleA) {
+      ArrayRef<int64_t> targetShape =
+          cast<ShapedType>(matA.getType()).getShape();
+      matABeforeCast = reshapeIfNeeded(matABeforeCast, targetShape, loc, rw);
+      scaleA = reshapeIfNeeded(scaleA, targetShape, loc, rw);
+      matA = cast<TypedValue<TensorType>>(matABeforeCast);
+    }
+
+    if (matBBeforeCast && scaleB) {
+      ArrayRef<int64_t> targetShape =
+          cast<ShapedType>(matB.getType()).getShape();
+      matBBeforeCast = reshapeIfNeeded(matBBeforeCast, targetShape, loc, rw);
+      scaleB = reshapeIfNeeded(scaleB, targetShape, loc, rw);
+      matB = cast<TypedValue<TensorType>>(matBBeforeCast);
+    }
     Value output =
         bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
-    rock::GemmFeatures features =
-        getGemmFeaturesFromOp(op, op.getA().getType());
+    rock::GemmFeatures features = getGemmFeaturesFromOp(op, matA.getType());
 
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
@@ -846,26 +1033,45 @@ public:
 
     int64_t kDimOfA;
     std::tie(std::ignore, kDimOfA) =
-        getLastDims(transposeA, cast<RankedTensorType>(op.getA().getType()));
+        getLastDims(transposeA, cast<RankedTensorType>(matA.getType()));
     int64_t kDimOfB;
     std::tie(kDimOfB, std::ignore) =
-        getLastDims(transposeB, cast<RankedTensorType>(op.getB().getType()));
+        getLastDims(transposeB, cast<RankedTensorType>(matB.getType()));
     int kDim = (kDimOfA > kDimOfB) ? kDimOfA : kDimOfB;
 
-    SmallVector<int64_t, 3> aShape = llvm::to_vector<3>(
-        cast<RankedTensorType>(op.getA().getType()).getShape());
+    SmallVector<int64_t, 3> aShape =
+        llvm::to_vector<3>(cast<RankedTensorType>(matA.getType()).getShape());
     setLastDims(transposeA, aShape, {mDim, kDim});
-    Value brA = insertBroadcast(adaptor.getA(), aShape, loc, rw);
+    Value brA = insertBroadcast(matA, aShape, loc, rw);
+    Value brAScale = nullptr;
+    if (scaleA) {
+      SmallVector<int64_t, 3> aScaleShape = llvm::to_vector<3>(
+          cast<RankedTensorType>(scaleA.getType()).getShape());
+      // TODO: Handle transpose of scaleA, currently TransposeRewritePattern
+      // will not be able to match scaled_gemms. Update logic when we have
+      // scaled_gemm support in TOSA
+      setLastDims(nullptr, aScaleShape, {mDim, kDim});
+      brAScale = insertBroadcast(scaleA, aScaleShape, loc, rw);
+    }
 
     SmallVector<int64_t, 3> bShape = llvm::to_vector<3>(
         cast<RankedTensorType>(op.getB().getType()).getShape());
     setLastDims(transposeB, bShape, {kDim, nDim});
-    Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
+    Value brB = insertBroadcast(matB, bShape, loc, rw);
 
+    Value brBScale = nullptr;
+    if (scaleB) {
+      SmallVector<int64_t, 3> bScaleShape = llvm::to_vector<3>(
+          cast<RankedTensorType>(scaleB.getType()).getShape());
+      // TODO: Handle transpose of scaleB, currently TransposeRewritePattern
+      // will not be able to match scaled_gemms. Update logic when we have
+      // scaled_gemm support in TOSA
+      setLastDims(nullptr, bScaleShape, {kDim, nDim});
+      brBScale = insertBroadcast(scaleB, bScaleShape, loc, rw);
+    }
     auto rockGemm = rock::GemmOp::create(
-        rw, loc, outputType, brA, brB, output, /*scaleA=*/nullptr,
-        /*scaleB=*/nullptr, transposeA, transposeB, transposeC,
-        /*aScaleTransposed=*/nullptr, /*bScaleTransposed=*/nullptr,
+        rw, loc, outputType, brA, brB, output, brAScale, brBScale, transposeA,
+        transposeB, transposeC, nullptr, nullptr,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
@@ -1422,72 +1628,6 @@ struct AttentionMatcherValues {
 
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern::OpRewritePattern;
-
-  FailureOr<Value> getValueSkipping(Value val,
-                                    DenseSet<StringRef> opsToSkip) const {
-    while (val.getDefiningOp() &&
-           opsToSkip.contains(val.getDefiningOp()->getName().getStringRef())) {
-      if (val.getDefiningOp<tosa::MulOp>()) {
-        auto maybeBroadcast = mulBroadcast(val);
-        if (failed(maybeBroadcast))
-          return failure();
-        val = maybeBroadcast.value();
-      } else
-        val = val.getDefiningOp()->getOperand(0);
-    }
-    return val;
-  }
-
-  template <typename TosaOp>
-  FailureOr<TosaOp> getDefiningOpSkipping(Value val,
-                                          DenseSet<StringRef> opsToSkip) const {
-    auto maybeResult = getValueSkipping(val, opsToSkip);
-    if (failed(maybeResult))
-      return failure();
-
-    TosaOp result = maybeResult.value().getDefiningOp<TosaOp>();
-    if (!result)
-      return failure();
-    return result;
-  }
-
-  FailureOr<Value> mulBroadcast(Value val) const {
-    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
-                                  tensor::ExpandShapeOp::getOperationName()};
-    auto maybeMul = getDefiningOpSkipping<tosa::MulOp>(val, opsToSkip);
-    if (succeeded(maybeMul)) {
-      auto mul = maybeMul.value();
-      // this is a broadcast multiplication, one of the arguments is the actual
-      // value, the other is a constant one
-      Value nonOne;
-      auto maybeTosaConstIn1 =
-          getDefiningOpSkipping<tosa::ConstOp>(mul.getInput1(), opsToSkip);
-      auto maybeArithConstIn1 =
-          getDefiningOpSkipping<arith::ConstantOp>(mul.getInput1(), opsToSkip);
-      if (succeeded(maybeTosaConstIn1)) {
-        if (mlir::rock::isConstantOne(maybeTosaConstIn1.value().getResult()))
-          nonOne = mul.getInput2();
-      } else if (succeeded(maybeArithConstIn1)) {
-        if (mlir::rock::isConstantOne(maybeArithConstIn1.value().getResult()))
-          nonOne = mul.getInput2();
-      }
-
-      auto maybeTosaConstIn2 =
-          getDefiningOpSkipping<tosa::ConstOp>(mul.getInput2(), opsToSkip);
-      auto maybeArithConstIn2 =
-          getDefiningOpSkipping<arith::ConstantOp>(mul.getInput2(), opsToSkip);
-      if (succeeded(maybeTosaConstIn2)) {
-        if (mlir::rock::isConstantOne(maybeTosaConstIn2.value().getResult()))
-          nonOne = mul.getInput1();
-      } else if (succeeded(maybeArithConstIn2)) {
-        if (mlir::rock::isConstantOne(maybeArithConstIn2.value().getResult()))
-          nonOne = mul.getInput1();
-      }
-      if (nonOne)
-        return nonOne;
-    }
-    return failure();
-  }
 
   // This function checks if a given input is a constant range. There are two
   // possible cases that we can handle:
