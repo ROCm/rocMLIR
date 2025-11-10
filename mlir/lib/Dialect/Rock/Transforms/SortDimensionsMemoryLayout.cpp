@@ -579,15 +579,21 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
           (resultScaleB.finalLayout != resultScaleB.initialLayout);
     }
 
+    auto func = cast<func::FuncOp>(op->getParentOp());
+    bool accelLayout = func->hasAttr(rock::AccelLayoutAttr::getMnemonic());
+
+    UnitAttr isAccelLayoutA = accelLayout ? b.getUnitAttr() : nullptr;
+    UnitAttr isAccelLayoutB = accelLayout ? b.getUnitAttr() : nullptr;
+
     // if no change in layout, return failure
-    if (!changeInLayout)
+    if (!changeInLayout && accelLayout == op.getAAccelLayout() && accelLayout == op.getBAccelLayout())
       return failure();
 
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
         op, op->getResultTypes(), resultA.tensor, resultB.tensor, op.getC(),
         newTensorScaleA, newTensorScaleB, resultA.transposed,
         resultB.transposed, op.getCTransposedAttr(), transposedScaleA,
-        transposedScaleB, op.getAAccelLayoutAttr(), op.getBAccelLayoutAttr(),
+        transposedScaleB, isAccelLayoutA, isAccelLayoutB,
         op.getFeaturesAttr(), op.getStoreMethodAttr(),
         op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
