@@ -802,8 +802,8 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   params.nResultVectors = 1;
 
   params.kpackPerThread = kpackPerBlock;
-  params.mPerAccel = wmmaInsn.dPerAccel;
-  params.nPerAccel = wmmaInsn.dPerAccel;
+  params.mPerAccel = wmmaInsn.mPerAccel;
+  params.nPerAccel = wmmaInsn.nPerAccel;
   // Pre-gfx12 each thread in the wave is loading an entire groups
   // of Ks to reduce. So, if there are 32 threads in a wave and
   // and we want to do a(16x16) * b(16x16), 16 threads are loading a vector
@@ -816,7 +816,9 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
     // to reduce. For instance, with the previous example, each
     // thread is loading a vector of 8 Ks. The first 16 threads are
     // loading k=[0:8] the second 16 threads are loading k=[8:16] threads
-    int64_t numReductions = waveSize / wmmaInsn.dPerAccel;
+    assert(wmmaInsn.mPerAccel == wmmaInsn.nPerAccel &&
+           "Currently only supported for equal mPerAccel and nPerAccel");
+    int64_t numReductions = waveSize / wmmaInsn.mPerAccel;
     params.kpackPerThread /= numReductions;
   }
   params.kBasePerThread = (params.kpackPerThread * kPack) / params.kBase;
@@ -1099,8 +1101,8 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
   // WMMAOp requires explicit m, n, k dimensions as IntegerAttrs
-  auto mAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
-  auto nAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
+  auto mAttr = b.getI32IntegerAttr(wmmaInsn.mPerAccel);
+  auto nAttr = b.getI32IntegerAttr(wmmaInsn.nPerAccel);
   auto kAttr = b.getI32IntegerAttr(wmmaInsn.kDim);
   auto subwordOffsetAttr = b.getI32IntegerAttr(0);
 
@@ -1152,8 +1154,8 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
     dimNamesM.push_back(/*4=*/"item_i");
   }
   SmallVector<int64_t, 7> orderedDimStridesM{/*0=*/mPerBlock,
-                                             /*1=*/mWaves * wmmaInsn.dPerAccel,
-                                             /*2=*/wmmaInsn.dPerAccel};
+                                             /*1=*/mWaves * wmmaInsn.mPerAccel,
+                                             /*2=*/wmmaInsn.mPerAccel};
   if (isGfx11) {
     orderedDimStridesM.push_back(/*3=*/wmmaInsn.outputStride);
   } else {
@@ -1169,8 +1171,8 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
                                       /*2=*/"wave_n",
                                       /*3=*/"n_tid"};
   SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
-                                             /*1=*/nWaves * wmmaInsn.dPerAccel,
-                                             /*2=*/wmmaInsn.dPerAccel,
+                                             /*1=*/nWaves * wmmaInsn.nPerAccel,
+                                             /*2=*/wmmaInsn.nPerAccel,
                                              /*3=*/1};
   SmallVector<int64_t, 7> dimSizesN;
   convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizesN);
@@ -1184,9 +1186,11 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
          mRepeats * nRepeats * retNumElements},
         loc);
     splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
+    assert(wmmaInsn.mPerAccel == wmmaInsn.nPerAccel &&
+           "Currently only supported for equal mPerAccel and nPerAccel");
     splitMemoryCoords.merge(
         {"wave_m", "wave_n", "m_tid", "n_tid"}, {3, 4, 5, 6}, "tid",
-        {mWaves, nWaves, waveSize / wmmaInsn.dPerAccel, wmmaInsn.dPerAccel});
+        {mWaves, nWaves, waveSize / wmmaInsn.mPerAccel, wmmaInsn.mPerAccel});
     splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {7, 8, 9}, "item",
                             {mRepeats, nRepeats, retNumElements});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();

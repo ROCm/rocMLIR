@@ -55,6 +55,8 @@ struct WmmaInsnInfo {
   StringRef insn;
   int64_t inputVectorLen;
   int64_t outputVectorLen;
+  int64_t mPerAccel;
+  int64_t nPerAccel;
 };
 
 // Key type for WMMA instruction maps: (TypeId, K dimension)
@@ -62,7 +64,8 @@ using WmmaInsnKey = std::pair<WmmaTypeId, int64_t>;
 
 struct WmmaInsn {
   StringRef insn;
-  int64_t dPerAccel;
+  int64_t mPerAccel;
+  int64_t nPerAccel;
   int64_t kDim;
   int64_t outputStride;
   int64_t mRepeats;
