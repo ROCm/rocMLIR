@@ -474,10 +474,6 @@ traceToNonViewReaders(Operation *op, Value parentVal,
     if (hasEffect<MemoryEffects::Read>(memEffectOp, parentVal)) {
       nonViewReaders.push_back(op);
     }
-  } else if (auto copyOp = dyn_cast<CopyOpInterface>(op)) {
-    if (copyOp.getSource() == parentVal) {
-      nonViewReaders.push_back(op);
-    }
   } else {
     return op->emitError() << "Found an unsupported operator that needs to "
                               "be added reader checks \n"

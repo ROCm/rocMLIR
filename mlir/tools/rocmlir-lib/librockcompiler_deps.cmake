@@ -101,7 +101,6 @@ MLIRControlFlowInterfaces
 MLIRControlFlowToLLVM
 MLIRConvertToLLVMInterface
 MLIRConvertToLLVMPass
-MLIRCopyOpInterface
 MLIRDLTIDialect
 MLIRDataLayoutInterfaces
 MLIRDestinationStyleOpInterface
