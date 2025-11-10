@@ -419,7 +419,8 @@ bool mlir::rock::isDirectToLDSSupported(GemmFeatures features) {
          bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
 }
 
-int64_t mlir::rock::AmdArchInfo::getMaxLDSVectorLength(int64_t elementBitWidth) {
+int64_t
+mlir::rock::AmdArchInfo::getMaxLDSVectorLength(int64_t elementBitWidth) {
   int64_t maxGlobalToLDSVectorLen = std::numeric_limits<int64_t>::max();
   if (bitEnumContainsAll(defaultFeatures, GemmFeatures::direct_to_lds_128b)) {
     maxGlobalToLDSVectorLen = 128 / elementBitWidth;

@@ -713,7 +713,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   // Calculate maximum allowed vectorization for Global-to-LDS based on hardware
   int64_t elementBitWidth = elementType.getIntOrFloatBitWidth();
-  int64_t maxGlobalToLDSVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
+  int64_t maxGlobalToLDSVectorLen =
+      archInfo.getMaxLDSVectorLength(elementBitWidth);
 
   if (isSrcVectorBuffer) {
     loadType = elementType;
