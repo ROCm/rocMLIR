@@ -77,6 +77,7 @@ void AffixTuningParameters::runOnOperation() {
   func.walk(
       [&](RockGemmGemmWrapperInterface op) { affixTuningParametersImpl(op); });
   func.walk([&](AccelLayoutTransformOp op) {
+    assert(tuningParams.has_value());
     op.setParamsAttr(tuningParams.value());
   });
   func.walk([&](ReduceOp op) {

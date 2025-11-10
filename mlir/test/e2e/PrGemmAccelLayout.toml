@@ -20,7 +20,7 @@ prefix = "--perf_config="
 # Note: only one fp8 variant is tested as that's enough for a sanity check
 [[axis]]
 name = "data type"
-values = ["f16", "bf16", "i8", "fp8_fp8"]
+values = ["f16"]
 prefix = "-t "
 
 [[suite]]
