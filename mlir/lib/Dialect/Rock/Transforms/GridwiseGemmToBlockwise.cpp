@@ -2986,7 +2986,7 @@ struct GridwiseGemmAccelRewritePattern
       decision = hwtranspose::makeDecision(
           arch, elementTypeA, elementTypeB, directToLDS, shape,
           hwtranspose::OperandKind::A, hwtranspose::OperandKind::B, mPerBlock,
-          nPerBlock, kPerBlock);
+          nPerBlock, kPerBlock, mPerWave, nPerWave, doubleBuffering);
       // Store the computed decision globally for later use.
       hwtranspose::setDecisionLdsTranspose(decision);
     }

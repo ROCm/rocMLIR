@@ -106,12 +106,17 @@ DecisionLdsTransposeContext &getDecisionLdsTransposeContext() {
 Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
                       bool DirectToLds, const MfmaInstrShape &shape,
                       OperandKind operandA, OperandKind operandB,
-                      int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock) {
+                      int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
+                      int64_t mPerWave, int64_t nPerWave,
+                      bool doubleBuffering) {
   Decision dec;
   dec.operandA = operandA;
   dec.operandB = operandB;
   dec.mPerBlock = mPerBlock;
   dec.nPerBlock = nPerBlock;
+  dec.mPerWave = mPerWave;
+  dec.nPerWave = nPerWave;
+  dec.doubleBuffering = doubleBuffering;
 
   // Basic applicability checks
   if (!archSupported(arch) || !DirectToLds) {
@@ -170,28 +175,32 @@ void attachAttributes(Operation *readIntoOp, const Decision &dec,
   if (isA) {
     readIntoOp->setAttr("rock.hw_lds_transpose_operand",
                         rewriter.getStringAttr("A"));
-    if (dec.mPerBlock)
-      readIntoOp->setAttr("rock.hw_lds_transpose_mperblock",
-                          rewriter.getI64IntegerAttr(dec.mPerBlock));
-    if (dec.mPanels > 1)
-      readIntoOp->setAttr("rock.hw_lds_transpose_mpanels",
-                          rewriter.getI64IntegerAttr(dec.mPanels));
+    readIntoOp->setAttr("rock.hw_lds_transpose_mpanels",
+                        rewriter.getI64IntegerAttr(dec.mPanels));
   } else {
     readIntoOp->setAttr("rock.hw_lds_transpose_operand",
                         rewriter.getStringAttr("B"));
-    if (dec.nPerBlock)
-      readIntoOp->setAttr("rock.hw_lds_transpose_nperblock",
-                          rewriter.getI64IntegerAttr(dec.nPerBlock));
-    if (dec.nPanels > 1)
-      readIntoOp->setAttr("rock.hw_lds_transpose_npanels",
-                          rewriter.getI64IntegerAttr(dec.nPanels));
+    readIntoOp->setAttr("rock.hw_lds_transpose_npanels",
+                        rewriter.getI64IntegerAttr(dec.nPanels));
   }
-  if (dec.kPanels > 1)
-    readIntoOp->setAttr("rock.hw_lds_transpose_kpanels",
-                        rewriter.getI64IntegerAttr(dec.kPanels));
+  readIntoOp->setAttr("rock.hw_lds_transpose_kpanels",
+                      rewriter.getI64IntegerAttr(dec.kPanels));
+
+  readIntoOp->setAttr("rock.hw_lds_transpose_mperblock",
+                      rewriter.getI64IntegerAttr(dec.mPerBlock));
+  readIntoOp->setAttr("rock.hw_lds_transpose_mperwave",
+                      rewriter.getI64IntegerAttr(dec.mPerWave));
+  readIntoOp->setAttr("rock.hw_lds_transpose_nperblock",
+                      rewriter.getI64IntegerAttr(dec.nPerBlock));
+  readIntoOp->setAttr("rock.hw_lds_transpose_nperwave",
+                      rewriter.getI64IntegerAttr(dec.nPerWave));
+
+  readIntoOp->setAttr("rock.hw_lds_transpose_double_buffering",
+                      rewriter.getBoolAttr(dec.doubleBuffering));
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] attachAttributes: enabled layout="
-                          << layoutName(dec.layout) << "\n");
+                          << layoutName(dec.layout) << " doubleBuffering="
+                          << dec.doubleBuffering << "\n");
 }
 
 static LayoutKind layoutFromString(StringRef s) {
@@ -222,33 +231,45 @@ LoweringInfo deriveLoweringInfo(ThreadwiseReadIntoOp op, PatternRewriter &b) {
   Type elemType = destType.getElementType();
   info.elemType = elemType;
 
-  // Operand kind
+  // Read paneling info from attributes (common for both A and B)
+  if (auto kPanelsAttr =
+          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_kpanels"))
+    info.kPanels = kPanelsAttr.getInt();
+
+  // Read mPerBlock, nPerBlock, mPerWave, nPerWave (both operands need all
+  // dimensions)
+  if (auto mPerBlockAttr =
+          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_mperblock"))
+    info.mPerBlock = mPerBlockAttr.getInt();
+  if (auto nPerBlockAttr =
+          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_nperblock"))
+    info.nPerBlock = nPerBlockAttr.getInt();
+  if (auto mPerWaveAttr =
+          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_mperwave"))
+    info.mPerWave = mPerWaveAttr.getInt();
+  if (auto nPerWaveAttr =
+          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_nperwave"))
+    info.nPerWave = nPerWaveAttr.getInt();
+
+  // Read doubleBuffering flag
+  if (auto doubleBufferingAttr =
+          op->getAttrOfType<BoolAttr>("rock.hw_lds_transpose_double_buffering"))
+    info.doubleBuffering = doubleBufferingAttr.getValue();
+
+  // Operand-specific paneling (mPanels for A, nPanels for B)
   if (auto operandAttr =
           op->getAttrOfType<StringAttr>("rock.hw_lds_transpose_operand")) {
     StringRef val = operandAttr.getValue();
     if (val == "A") {
       info.operand = OperandKind::A;
-      if (auto mPerBlockAttr =
-              op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_mperblock"))
-        info.mPerBlock = mPerBlockAttr.getInt();
       if (auto mPanelsAttr =
               op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_mpanels"))
         info.mPanels = mPanelsAttr.getInt();
-      if (auto kPanelsAttr =
-              op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_kpanels"))
-        info.kPanels = kPanelsAttr.getInt();
-
     } else if (val == "B") {
       info.operand = OperandKind::B;
-      if (auto nPerBlockAttr =
-              op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_nperblock"))
-        info.nPerBlock = nPerBlockAttr.getInt();
       if (auto nPanelsAttr =
               op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_npanels"))
         info.nPanels = nPanelsAttr.getInt();
-      if (auto kPanelsAttr =
-              op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_kpanels"))
-        info.kPanels = kPanelsAttr.getInt();
     }
   }
 
@@ -337,7 +358,8 @@ static SmallVector<Value> getBasePanelOffsets(LayoutKind layout, Value lane,
 
 LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
                                         const LoweringInfo &info,
-                                        PatternRewriter &b) {
+                                        PatternRewriter &b, int64_t blockSize,
+                                        int64_t waveSize) {
   if (!info.usable)
     return failure();
 
@@ -353,7 +375,53 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
     return b.create<arith::ConstantIndexOp>(loc, v);
   };
   // Compute lane ID within the wavefront (0–63).
-  Value lane = b.create<arith::RemUIOp>(loc, tid, cst(64));
+  Value lane = b.create<arith::RemUIOp>(loc, tid, cst(waveSize));
+  Value waveId = b.create<arith::DivUIOp>(loc, tid, cst(waveSize));
+  int64_t physicalWaves = blockSize / waveSize;
+
+  int64_t mPerWave = info.mPerWave;
+  int64_t nPerWave = info.nPerWave;
+  int64_t mPerBlock = info.mPerBlock;
+  int64_t nPerBlock = info.nPerBlock;
+
+  // Calculate how many wave-sized tiles fit in the block dimensions
+  // These determine the wave grid, not accounting for outer loop repeats
+  int64_t waveTilesInM = (mPerBlock + mPerWave - 1) / mPerWave;
+  int64_t waveTilesInN = (nPerBlock + nPerWave - 1) / nPerWave;
+
+  // Determine wave grid layout based on physical waves and wave tiles
+  // This distributes waves spatially across M and N dimensions
+  int64_t wavesInM = 1;
+  int64_t wavesInN = 1;
+
+  if (physicalWaves >= 4) {
+    // Try to make a grid matching the wave tile layout
+    for (int64_t m = 1; m <= physicalWaves; ++m) {
+      if (physicalWaves % m == 0) {
+        int64_t n = physicalWaves / m;
+        // Prefer layouts where physical waves evenly divide wave tiles
+        if (m <= waveTilesInM && n <= waveTilesInN) {
+          wavesInM = m;
+          wavesInN = n;
+          break;
+        }
+      }
+    }
+    // Fallback: distribute waves based on which dimension has more tiles
+    if (wavesInM == 1 && wavesInN == 1) {
+      if (waveTilesInM <= waveTilesInN) {
+        wavesInM = (physicalWaves >= waveTilesInM) ? waveTilesInM : 1;
+        wavesInN = physicalWaves / wavesInM;
+      } else {
+        wavesInN = (physicalWaves >= waveTilesInN) ? waveTilesInN : 1;
+        wavesInM = physicalWaves / wavesInN;
+      }
+    }
+  }
+
+  // Decompose wave_id into 2D grid position (wave_m, wave_n)
+  Value waveM = b.create<arith::DivUIOp>(loc, waveId, cst(wavesInN));
+  Value waveN = b.create<arith::RemUIOp>(loc, waveId, cst(wavesInN));
 
   // Use mPerBlock as stride for operand A, nPerBlock for operand B
   int64_t ldsStride =
@@ -389,7 +457,6 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   // K stride per tile: KMfma (e.g., 8)
   int64_t mnStride = nonKDim;
   int64_t kTileStride = instrK;
-
   Value mnStrideVal = cst(mnStride);
   Value kTileStrideVal = cst(kTileStride);
   Value ldsStrideVal = cst(ldsStride);
@@ -404,22 +471,47 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
     mnTileIndex = extraIndices[1]; // Second index is the M/N tile iterator
   }
 
+  // Determine how many M/N tiles each wave covers vs total tiles needed
+  // Wave grid covers: wavesInM × mPerWave or wavesInN × nPerWave
+  // Outer loop should only iterate over tiles NOT covered by wave grid
+  int64_t waveCoverageM = wavesInM * mPerWave;
+  int64_t waveCoverageN = wavesInN * nPerWave;
+
+  // Calculate how many MFMA tiles (mnStride-sized) the wave grid covers
+  int64_t mfmaTilesCoveredByWavesM = waveCoverageM / mnStride;
+  int64_t mfmaTilesCoveredByWavesN = waveCoverageN / mnStride;
+
   // If we have an M/N tile index from the outer loop, use it
   // Otherwise, generate all M/N tiles (fallback for single-tile case)
+  // EXCEPTION: For double buffering, always generate ALL tiles at once
   int64_t startMnIdx = 0;
   int64_t endMnIdx = 1;
   bool useDynamicMnIndex = false;
 
-  if (mnTileIndex) {
-    // Outer loop handles M/N iteration, we load only ONE M/N tile per call
-    useDynamicMnIndex = true;
-    endMnIdx = 1;
-  } else {
-    // No outer loop, generate all M/N tiles statically
+  if (info.doubleBuffering) {
+    // Double buffering: load ALL M/N panels at once into the larger buffer
+    // This bypasses the outer loop and generates all loads
     if (info.operand == OperandKind::A) {
       endMnIdx = info.mPanels;
     } else if (info.operand == OperandKind::B) {
       endMnIdx = info.nPanels;
+    }
+    useDynamicMnIndex = false;
+  } else if (mnTileIndex) {
+    // Outer loop handles M/N iteration, we load only ONE M/N tile per call
+    useDynamicMnIndex = true;
+    endMnIdx = 1;
+  } else {
+    // No outer loop - check how many tiles we need to generate statically
+    // Only generate tiles that wave grid does NOT cover
+    if (info.operand == OperandKind::A) {
+      int64_t totalMfmaTilesM = info.mPanels;
+      endMnIdx =
+          std::max<int64_t>(1, totalMfmaTilesM - mfmaTilesCoveredByWavesM);
+    } else if (info.operand == OperandKind::B) {
+      int64_t totalMfmaTilesN = info.nPanels;
+      endMnIdx =
+          std::max<int64_t>(1, totalMfmaTilesN - mfmaTilesCoveredByWavesN);
     }
   }
 
@@ -451,13 +543,26 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
     for (int64_t kIdx = 0; kIdx < kPanels; ++kIdx) {
       // Calculate m_base for this M/N tile
       Value m_base = m_offset_base;
+
+      // Add mfma offset to distribute work across waves spatially
+      // For operand A: m_base += wave_m * mmfma
+      // For operand B: n_base (m_base) += wave_n * nmfma
+      if (info.operand == OperandKind::A) {
+        Value waveOffsetM = b.create<arith::MulIOp>(loc, waveM, mnStrideVal);
+        m_base = b.create<arith::AddIOp>(loc, m_base, waveOffsetM);
+      } else if (info.operand == OperandKind::B) {
+        Value waveOffsetN = b.create<arith::MulIOp>(loc, waveN, mnStrideVal);
+        m_base = b.create<arith::AddIOp>(loc, m_base, waveOffsetN);
+      }
+
+      // Add iteration offset from outer loop (if exists) or static tile index
       if (useDynamicMnIndex) {
-        // Use dynamic index from outer loop: m_base += mnTileIndex * mnStride
+        // Dynamic index from outer loop: m_base += mnTileIndex * mnStride
         Value mnOffsetAdd =
             b.create<arith::MulIOp>(loc, mnTileIndex, mnStrideVal);
         m_base = b.create<arith::AddIOp>(loc, m_base, mnOffsetAdd);
       } else if (mnIdxLocal > 0) {
-        // Use static index: m_base += mnIdxLocal * mnStride
+        // Static index: m_base += mnIdxLocal * mnStride
         Value mnOffsetAdd =
             b.create<arith::MulIOp>(loc, mnStrideVal, cst(mnIdxLocal));
         m_base = b.create<arith::AddIOp>(loc, m_base, mnOffsetAdd);
@@ -525,6 +630,8 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   }
 
   // Calculate expected number of loads
+  // - For double buffering: we generate ALL M/N panels → endMnIdx panels ×
+  // kPanels × (1 or 2 for rate)
   // - Single-rate: 1 load per K tile → actualMnTiles × kPanels loads
   // - Double-rate: 2 loads per K tile → actualMnTiles × kPanels × 2 loads
   int64_t actualMnTiles = endMnIdx - startMnIdx;

@@ -57,6 +57,9 @@ struct Decision {
   int64_t kPanels{1};
   int64_t mPerBlock{1};
   int64_t nPerBlock{1};
+  int64_t mPerWave{1};
+  int64_t nPerWave{1};
+  bool doubleBuffering{false};
 };
 
 struct DecisionLdsTransposeContext {
@@ -80,7 +83,8 @@ inline std::optional<Decision> getDecisionLdsTranspose() {
 Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
                       bool DirectToLds, const MfmaInstrShape &shape,
                       OperandKind operandA, OperandKind operandB,
-                      int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock);
+                      int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
+                      int64_t mPerWave, int64_t nPerWave, bool doubleBuffering);
 
 // A convenience wrapper around makeDecision to quickly check for applicability.
 inline bool isApplicable(const Decision &dec) { return dec.usable; }
@@ -105,6 +109,9 @@ struct LoweringInfo {
   int64_t kPanels{1};
   int64_t mPerBlock{1};
   int64_t nPerBlock{1};
+  int64_t mPerWave{1};
+  int64_t nPerWave{1};
+  bool doubleBuffering{false};
 };
 
 // Derives lowering information from the attributes of a ThreadwiseReadIntoOp.
@@ -113,7 +120,8 @@ LoweringInfo deriveLoweringInfo(ThreadwiseReadIntoOp op, PatternRewriter &b);
 // Emits the actual hardware transpose load sequence.
 LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
                                         const LoweringInfo &info,
-                                        PatternRewriter &b);
+                                        PatternRewriter &b, int64_t blockSize,
+                                        int64_t waveSize);
 
 // Utility to get the string name of a layout.
 StringRef layoutName(LayoutKind kind);

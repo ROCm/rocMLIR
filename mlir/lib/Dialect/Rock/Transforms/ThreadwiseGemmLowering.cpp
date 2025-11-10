@@ -611,21 +611,6 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     }
   }
 
-  // Check if the operation has the attribute for LDS Transpose Load
-  if (op->hasAttr("rock.hw_lds_transpose_enabled")) {
-    // Derive lowering info from attributes (layout, panel counts, operand).
-    auto info = mlir::rock::hwtranspose::deriveLoweringInfo(op, b);
-    if (info.usable) {
-      if (failed(rock::hwtranspose::emitThreadwiseHWTranspose(op, info, b))) {
-        return failure();
-      }
-    } else {
-      return op.emitOpError("LDS transpose load emission is not usable with "
-                            "the derived attributes");
-    }
-    return success();
-  }
-
   size_t extraIdxCount = op.getExtraIndices().size();
   // We are vectorizing in the iter dimension, not block ID or thread ID
   auto elementType = sourceViewType.getElementType();
@@ -704,6 +689,22 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     return b.notifyMatchFailure(loc, "failed to get global to LDS transform");
 
   auto globalToLDSTransform = maybeGlobalToLDSTransform.value();
+
+  // Check if the operation has the attribute for LDS Transpose Load
+  if (op->hasAttr("rock.hw_lds_transpose_enabled")) {
+    // Derive lowering info from attributes (layout, panel counts, operand).
+    auto info = mlir::rock::hwtranspose::deriveLoweringInfo(op, b);
+    if (info.usable) {
+      if (failed(rock::hwtranspose::emitThreadwiseHWTranspose(
+              op, info, b, blockSize, waveSize))) {
+        return failure();
+      }
+    } else {
+      return op.emitOpError("LDS transpose load emission is not usable with "
+                            "the derived attributes");
+    }
+    return success();
+  }
 
   bool recordsValidity =
       op.getValidityRecord() && !op.getValidityRecord().use_empty();
