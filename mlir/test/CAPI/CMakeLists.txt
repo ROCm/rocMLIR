@@ -1,102 +1,142 @@
-set(LLVM_OPTIONAL_SOURCES
-  mixrir.c
-  tosa_miir.cc
-  mixr_cobj.cc
-  mixr_split_k.cpp
-  mixr_full.c
-  reduce_fusible.cpp
+function(_add_capi_test_executable name)
+  cmake_parse_arguments(ARG
+    ""
+    ""
+    "LINK_LIBS"
+    ${ARGN})
+  set(LLVM_LINK_COMPONENTS
+    )
+  add_llvm_executable(${name}
+    PARTIAL_SOURCES_INTENDED
+    ${ARG_UNPARSED_ARGUMENTS})
+  set_target_properties(${name} PROPERTIES FOLDER "MLIR/Tests")
+  set_target_properties(${name} PROPERTIES EXCLUDE_FROM_ALL ON)
+
+  llvm_update_compile_flags(${name})
+  if(MLIR_BUILD_MLIR_C_DYLIB)
+    target_link_libraries(${name} PRIVATE
+      LLVMCore
+      MLIR-C)
+  else()
+    target_link_libraries(${name} PRIVATE
+      ${ARG_LINK_LIBS})
+  endif()
+endfunction(_add_capi_test_executable)
+
+if(MLIR_ENABLE_EXECUTION_ENGINE)
+  _add_capi_test_executable(mlir-capi-execution-engine-test
+    execution_engine.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIConversion
+    MLIRCAPIExecutionEngine
+    MLIRCAPIRegisterEverything
+)
+  _add_capi_test_executable(mlir-capi-global-constructors-test
+    global_constructors.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIConversion
+    MLIRCAPIExecutionEngine
+    MLIRCAPIRegisterEverything
+)
+endif()
+
+_add_capi_test_executable(mlir-capi-ir-test
+  ir.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPIFunc
+    MLIRCAPIRegisterEverything
 )
 
-set(LLVM_LINK_COMPONENTS ${LLVM_TARGETS_TO_BUILD})
-
-add_llvm_executable(mlir-mixr-capi-test
-  EXCLUDE_FROM_ALL
-  mixrir.c
-)
-llvm_update_compile_flags(mlir-mixr-capi-test)
-
-target_link_libraries(mlir-mixr-capi-test
-  PRIVATE
-  MLIRCAPIIR
-  MLIRCAPIMIGraphX
-  MLIRCAPIRegisterRocMLIR
+_add_capi_test_executable(mlir-capi-irdl-test
+  irdl.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPIIRDL
 )
 
-# NOTE: This test is being archived and it might be fully removed in the future.
-# add_llvm_executable(mlir-tosa-miir-test
-#   EXCLUDE_FROM_ALL
-#   tosa_miir.cc
-# )
-# llvm_update_compile_flags(mlir-tosa-miir-test)
-
-# target_link_libraries(mlir-tosa-miir-test
-#   PRIVATE
-#   MLIRCAPIIR
-#   MLIRCAPIRegisterRocMLIR
-#   MLIRRockPipeline
-# )
-
-# NOTE: This test is being archived and it might be fully removed in the future.
-# add_llvm_executable(mlir-mixr-full-test
-#   EXCLUDE_FROM_ALL
-#   mixr_cobj.cc
-#   )
-# llvm_update_compile_flags(mlir-mixr-full-test)
-
-# target_link_libraries(mlir-mixr-full-test
-#   PRIVATE
-#   MLIRCAPIIR
-#   MLIRCAPIRegisterRocMLIR
-#   MLIRCAPIMIGraphX
-#   MLIRCAPIGPU
-#   MLIRMIGraphXPipeline
-#   MLIRRockPipeline
-# )
-
-add_llvm_executable(mlir-mixr-fullc-test
-  EXCLUDE_FROM_ALL
-  mixr_full.c
-  )
-llvm_update_compile_flags(mlir-mixr-fullc-test)
-
-target_link_libraries(mlir-mixr-fullc-test
-  PRIVATE
-  MLIRCAPIIR
-  MLIRCAPIRegisterRocMLIR
-  MLIRCAPIMIGraphX
-  MLIRCAPIRock
-  MLIRCAPIGPU
+_add_capi_test_executable(mlir-capi-llvm-test
+  llvm.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPILLVM
+    MLIRCAPIRegisterEverything
 )
 
-add_llvm_executable(mlir-mixr-split-k-test
-  EXCLUDE_FROM_ALL
-  mixr_split_k.cpp
-  )
-llvm_update_compile_flags(mlir-mixr-split-k-test)
-
-target_link_libraries(mlir-mixr-split-k-test
-  PRIVATE
-  MLIRCAPIIR
-  MLIRCAPIRegisterRocMLIR
-  MLIRCAPIMIGraphX
-  MLIRCAPIRock
-  MLIRCAPIGPU
-  MLIRMIGraphXPipeline
-  MLIRRockPipeline
+_add_capi_test_executable(mlir-capi-pass-test
+  pass.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIFunc
+    MLIRCAPIIR
+    MLIRCAPIRegisterEverything
+    MLIRCAPITransforms
 )
 
-add_llvm_executable(mlir-reduce-fusible-test
-  EXCLUDE_FROM_ALL
-  reduce_fusible.cpp
-  )
-llvm_update_compile_flags(mlir-reduce-fusible-test)
-
-target_link_libraries(mlir-reduce-fusible-test
-  PRIVATE
-  MLIRCAPIIR
-  MLIRCAPIRegisterRocMLIR
-  MLIRCAPIRock
-  MLIRCAPIGPU
-  MLIRRockPipeline
+_add_capi_test_executable(mlir-capi-pdl-test
+  pdl.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPIRegisterEverything
+    MLIRCAPIPDL
 )
 
+_add_capi_test_executable(mlir-capi-sparse-tensor-test
+  sparse_tensor.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPIRegisterEverything
+    MLIRCAPISparseTensor
+)
+
+_add_capi_test_executable(mlir-capi-quant-test
+  quant.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPIRegisterEverything
+    MLIRCAPIQuant
+)
+
+_add_capi_test_executable(mlir-capi-rewrite-test
+  rewrite.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPIRegisterEverything
+    MLIRCAPITransforms
+)
+
+
+_add_capi_test_executable(mlir-capi-transform-test
+  transform.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPIRegisterEverything
+    MLIRCAPITransformDialect
+)
+
+_add_capi_test_executable(mlir-capi-transform-interpreter-test
+  transform_interpreter.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPIRegisterEverything
+    MLIRCAPITransformDialect
+    MLIRCAPITransformDialectTransforms
+)
+
+_add_capi_test_executable(mlir-capi-translation-test
+  translation.c
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPILLVM
+    MLIRCAPIRegisterEverything
+    MLIRCAPITarget
+)
+
+_add_capi_test_executable(mlir-capi-smt-test
+  smt.c
+
+  LINK_LIBS PRIVATE
+    MLIRCAPIIR
+    MLIRCAPIFunc
+    MLIRCAPISMT
+    MLIRCAPIExportSMTLIB
+)

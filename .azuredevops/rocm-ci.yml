@@ -13,23 +13,17 @@ trigger:
   batch: true
   branches:
     include:
-    - develop
-    - mainline
+    - amd-staging
+    - amd-mainline-open
   paths:
     exclude:
+    - .ci
     - .github
     - '*.md'
+    - '**/*.md'
+    - LICENSE.TXT
 
-pr:
-  autoCancel: true
-  branches:
-    include:
-    - develop
-  paths:
-    exclude:
-    - .github
-    - '*.md'
-  drafts: false
+pr: none
 
 jobs:
-  - template: ${{ variables.CI_COMPONENT_PATH }}/rocMLIR.yml@pipelines_repo
+  - template: ${{ variables.CI_COMPONENT_PATH }}/llvm-project.yml@pipelines_repo

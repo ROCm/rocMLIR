@@ -1,8 +1,0 @@
-# Reference: https://github.com/google/llvm-premerge-checks/blob/master/scripts/clang-tidy.ignore
-# Files to be ignored by clang-tidy. Will not appear in short report and inline comments.
-mlir/test
-mlir/utils/performance
-mlir/unittests
-mlir/lib/Dialect/Rock/utility
-build/
-
