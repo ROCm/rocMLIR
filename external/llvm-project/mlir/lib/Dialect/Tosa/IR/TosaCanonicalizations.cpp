@@ -38,7 +38,7 @@ using namespace mlir::tosa;
 //===----------------------------------------------------------------------===//
 
 // Check that the zero point of the tensor and padding operations are aligned.
-bool checkMatchingPadConstAndZp(Value padConst, Value zp) {
+static bool checkMatchingPadConstAndZp(Value padConst, Value zp) {
   // Check that padConst is a constant value and a scalar tensor
   DenseElementsAttr padConstAttr;
   if (!matchPattern(padConst, m_Constant(&padConstAttr)) ||
@@ -74,28 +74,6 @@ bool checkMatchingPadConstAndZp(Value padConst, Value zp) {
 namespace {
 template <typename OpTy>
 struct PoolPadFoldAdaptor;
-
-template <>
-struct PoolPadFoldAdaptor<tosa::AvgPool2dOp> {
-  using OpTy = tosa::AvgPool2dOp;
-  static bool checkKernelCompliance(OpTy op, const ArrayRef<int64_t> newPad) {
-    const llvm::ArrayRef<int64_t> kernel = op.getKernel();
-    if (newPad[2] >= kernel[1] || newPad[3] >= kernel[1] ||
-        newPad[0] >= kernel[0] || newPad[1] >= kernel[0])
-      return false;
-    return true;
-  }
-  static bool checkPadConstCompliance(OpTy op, Value padConst) {
-    return checkMatchingPadConstAndZp(padConst, op.getInputZp());
-  }
-  static void replaceOpWithNewPad(PatternRewriter &rewriter, OpTy op,
-                                  Value padInput, ArrayRef<int64_t> newPad) {
-    rewriter.replaceOpWithNewOp<tosa::AvgPool2dOp>(
-        op, op.getType(), padInput, op.getInputZp(), op.getOutputZp(),
-        op.getKernel(), op.getStride(), rewriter.getDenseI64ArrayAttr(newPad),
-        op.getAccType());
-  }
-};
 
 template <>
 struct PoolPadFoldAdaptor<tosa::MaxPool2dOp> {
@@ -155,23 +133,10 @@ struct ConvPadFoldAdaptor {
   }
   static void replaceOpWithNewPad(PatternRewriter &rewriter, OpTy op,
                                   Value padInput, ArrayRef<int64_t> newPad) {
-    // rocMLIR customization: DepthwiseConv2D does not have a group attribute,
-    // but we want to ensure that this is still being passed correctly on
-    // other conv operators.
-    if constexpr (std::is_same_v<OpTy, DepthwiseConv2DOp>) {
-      rewriter.replaceOpWithNewOp<OpTy>(
-          op, op.getResult().getType(), padInput, op.getWeight(), op.getBias(),
-          op.getInputZp(), op.getWeightZp(),
-          rewriter.getDenseI64ArrayAttr(newPad), op.getStrideAttr(),
-          op.getDilationAttr(), op.getAccTypeAttr(), op.getLocalBoundAttr());
-    } else {
-      rewriter.replaceOpWithNewOp<OpTy>(
-          op, op.getResult().getType(), padInput, op.getWeight(), op.getBias(),
-          op.getInputZp(), op.getWeightZp(),
-          rewriter.getDenseI64ArrayAttr(newPad), op.getStrideAttr(),
-          op.getDilationAttr(), op.getAccTypeAttr(), op.getGroupAttr(),
-          op.getLocalBoundAttr());
-    }
+    rewriter.replaceOpWithNewOp<OpTy>(
+        op, op.getResult().getType(), padInput, op.getWeight(), op.getBias(),
+        op.getInputZp(), op.getWeightZp(), newPad, op.getStrideAttr(),
+        op.getDilationAttr(), op.getAccType(), op.getLocalBound());
   }
 };
 
@@ -257,13 +222,6 @@ struct FoldPadToTensorOp : public OpRewritePattern<OpTy> {
   }
 };
 } // namespace
-
-void AvgPool2dOp::getCanonicalizationPatterns(RewritePatternSet &results,
-                                              MLIRContext *context) {
-  results.add<FoldPadToTensorOp<tosa::AvgPool2dOp,
-                                PoolPadFoldAdaptor<tosa::AvgPool2dOp>>>(
-      context);
-}
 
 void Conv2DOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                            MLIRContext *context) {
@@ -931,8 +889,9 @@ void SliceOp::getCanonicalizationPatterns(RewritePatternSet &results,
 //===----------------------------------------------------------------------===//
 
 template <typename IntFolder, typename FloatFolder>
-DenseElementsAttr binaryFolder(DenseElementsAttr lhs, DenseElementsAttr rhs,
-                               RankedTensorType returnTy) {
+static DenseElementsAttr binaryFolder(DenseElementsAttr lhs,
+                                      DenseElementsAttr rhs,
+                                      RankedTensorType returnTy) {
   if (rhs && lhs && rhs.isSplat() && lhs.isSplat()) {
     auto lETy = llvm::cast<ShapedType>(lhs.getType()).getElementType();
     auto rETy = llvm::cast<ShapedType>(rhs.getType()).getElementType();
@@ -1014,8 +973,12 @@ OpFoldResult ArgMaxOp::fold(FoldAdaptor adaptor) {
       !outputTy.hasStaticShape())
     return {};
 
-  if (inputTy.getDimSize(getAxis()) == 1)
-    return DenseElementsAttr::get(outputTy, 0);
+  const Type outputElementTy = getElementTypeOrSelf(outputTy);
+  if (inputTy.getDimSize(getAxis()) == 1 && outputElementTy.isInteger()) {
+    const auto outputElemIntTy = cast<IntegerType>(outputElementTy);
+    const APInt zero = APInt::getZero(outputElemIntTy.getWidth());
+    return DenseElementsAttr::get(outputTy, zero);
+  }
 
   return {};
 }

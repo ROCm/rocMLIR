@@ -830,6 +830,9 @@ static void addFloatingPointOptions(const Driver &D, const ArgList &Args,
                                          complexRangeKindToStr(Range)));
   }
 
+  if (Args.hasArg(options::OPT_fno_fast_real_mod))
+    CmdArgs.push_back("-fno-fast-real-mod");
+
   if (!HonorINFs && !HonorNaNs && AssociativeMath && ReciprocalMath &&
       ApproxFunc && !SignedZeros &&
       (FPContract == "fast" || FPContract.empty())) {
@@ -950,6 +953,13 @@ void Flang::ConstructJob(Compilation &C, const JobAction &JA,
     assert(false && "Unexpected action class for Flang tool.");
   }
 
+  // We support some options that are invalid for Fortran and have no effect.
+  // These are solely for compatibility with other compilers. Emit a warning if
+  // any such options are provided, then proceed normally.
+  for (options::ID Opt : {options::OPT_fbuiltin, options::OPT_fno_builtin})
+    if (const Arg *A = Args.getLastArg(Opt))
+      D.Diag(diag::warn_drv_invalid_argument_for_flang) << A->getSpelling();
+
   const InputInfo &Input = Inputs[0];
   types::ID InputType = Input.getType();
 
@@ -1053,6 +1063,9 @@ void Flang::ConstructJob(Compilation &C, const JobAction &JA,
     Args.AddLastArg(CmdArgs, options::OPT_fopenmp_simd,
                     options::OPT_fno_openmp_simd);
   }
+
+  if (Args.hasArg(options::OPT_famd_allow_threadprivate_equivalence))
+    CmdArgs.push_back("-famd-allow-threadprivate-equivalence");
 
   // Pass the path to compiler resource files.
   CmdArgs.push_back("-resource-dir");

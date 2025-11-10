@@ -2395,7 +2395,7 @@ public:
     /// runtime library for debugging
     Value *MapNamesArray = nullptr;
 
-    explicit TargetDataRTArgs() {}
+    explicit TargetDataRTArgs() = default;
     explicit TargetDataRTArgs(Value *BasePointersArray, Value *PointersArray,
                               Value *SizesArray, Value *MapTypesArray,
                               Value *MapTypesArrayEnd, Value *MappersArray,
@@ -2463,7 +2463,7 @@ public:
     bool HasNoWait = false;
 
     // Constructors for TargetKernelArgs.
-    TargetKernelArgs() {}
+    TargetKernelArgs() = default;
     TargetKernelArgs(unsigned NumTargetItems, TargetDataRTArgs RTArgs,
                      Value *TripCount, ArrayRef<Value *> NumTeams,
                      ArrayRef<Value *> NumThreads, Value *DynCGGroupMem,
@@ -2505,7 +2505,7 @@ public:
     /// Whether the `target ... data` directive has a `nowait` clause.
     bool HasNoWait = false;
 
-    explicit TargetDataInfo() {}
+    explicit TargetDataInfo() = default;
     explicit TargetDataInfo(bool RequiresDevicePointerInfo,
                             bool SeparateBeginEndCalls)
         : RequiresDevicePointerInfo(RequiresDevicePointerInfo),
@@ -4016,15 +4016,17 @@ public:
 
   /// Keeps track of value of iteration variable for input/scan loop to be
   /// used for Scan directive lowering
-  llvm::Value *IV;
+  llvm::Value *IV = nullptr;
 
   /// Stores the span of canonical loop being lowered to be used for temporary
   /// buffer allocation or Finalization.
-  llvm::Value *Span;
+  llvm::Value *Span = nullptr;
 
   ScanInfo() {
     ScanBuffPtrs = new llvm::SmallDenseMap<llvm::Value *, llvm::Value *>();
   }
+  ScanInfo(ScanInfo &) = delete;
+  ScanInfo &operator=(const ScanInfo &) = delete;
 
   ~ScanInfo() { delete (ScanBuffPtrs); }
 };

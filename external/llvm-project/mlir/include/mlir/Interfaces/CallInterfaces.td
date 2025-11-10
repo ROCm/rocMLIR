@@ -34,40 +34,34 @@ def ArgAndResultAttrsOpInterface : OpInterface<"ArgAndResultAttrsOpInterface"> {
         number to the number of arguments. Alternatively, the method can
         return null to indicate that there are no argument attributes.
       }],
-      "::mlir::ArrayAttr", "getArgAttrsAttr", (ins),
-      /*methodBody=*/[{}], /*defaultImplementation=*/[{ return nullptr; }]>,
+      "::mlir::ArrayAttr", "getArgAttrsAttr">,
     InterfaceMethod<[{
         Get the array of result attribute dictionaries. The method should return
         an array attribute containing only dictionary attributes equal in number
         to the number of results. Alternatively, the method can return
         null to indicate that there are no result attributes.
       }],
-      "::mlir::ArrayAttr", "getResAttrsAttr", (ins),
-      /*methodBody=*/[{}], /*defaultImplementation=*/[{ return nullptr; }]>,
+      "::mlir::ArrayAttr", "getResAttrsAttr">,
     InterfaceMethod<[{
       Set the array of argument attribute dictionaries.
     }],
-    "void", "setArgAttrsAttr", (ins "::mlir::ArrayAttr":$attrs),
-      /*methodBody=*/[{}], /*defaultImplementation=*/[{ return; }]>,
+    "void", "setArgAttrsAttr", (ins "::mlir::ArrayAttr":$attrs)>,
     InterfaceMethod<[{
       Set the array of result attribute dictionaries.
     }],
-    "void", "setResAttrsAttr", (ins "::mlir::ArrayAttr":$attrs),
-      /*methodBody=*/[{}], /*defaultImplementation=*/[{ return; }]>,
+    "void", "setResAttrsAttr", (ins "::mlir::ArrayAttr":$attrs)>,
     InterfaceMethod<[{
       Remove the array of argument attribute dictionaries. This is the same as
       setting all argument attributes to an empty dictionary. The method should
       return the removed attribute.
     }],
-    "::mlir::Attribute", "removeArgAttrsAttr", (ins),
-      /*methodBody=*/[{}], /*defaultImplementation=*/[{ return nullptr; }]>,
+    "::mlir::Attribute", "removeArgAttrsAttr">,
     InterfaceMethod<[{
       Remove the array of result attribute dictionaries. This is the same as
       setting all result attributes to an empty dictionary. The method should
       return the removed attribute.
     }],
-    "::mlir::Attribute", "removeResAttrsAttr", (ins),
-      /*methodBody=*/[{}], /*defaultImplementation=*/[{ return nullptr; }]>,
+    "::mlir::Attribute", "removeResAttrsAttr">
   ];
 }
 
@@ -87,29 +81,7 @@ def CallOpInterface : OpInterface<"CallOpInterface",
   let cppNamespace = "::mlir";
 
   let methods = [
-    InterfaceMethod<
-      /*desc=*/[{
-        Clone the current call-like operation with the given attributes but
-        re-assign operands and result-types. Used in bufferization for result
-        buffers.
-      }],
-      /*retTy=*/"Operation *",
-      /*methodName=*/"clone",
-      /*args=*/(ins "OpBuilder &":$b, "Location":$loc, "TypeRange":$resultTypes,
-                    "ValueRange":$operands),
-      /*methodBody=*/[{
-        IRMapping bvm;
-        OperationState state(
-          loc, ConcreteOp::getOperationName(), operands, resultTypes,
-          $_op->getAttrs());
-        auto op = b.create(state);
-        CallOpInterface callIF(op);
-        callIF.updateSegmentSizes(b.getContext());
-        return op;
-      }]
-    >,
-    InterfaceMethod<
-      /*desc*/[{
+    InterfaceMethod<[{
         Returns the callee of this call-like operation. A `callee` is either a
         reference to a symbol, via SymbolRefAttr, or a reference to a defined
         SSA value. If the reference is an SSA value, the SSA value corresponds
@@ -137,43 +109,6 @@ def CallOpInterface : OpInterface<"CallOpInterface",
         callee as a mutable range.
       }],
       "::mlir::MutableOperandRange", "getArgOperandsMutable"
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
-        Returns the results for this call that are returned by the callee.
-      }],
-      /*retTy=*/"::mlir::Operation::result_range",
-      /*methodName=*/"getCallResults",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        return $_op->getResults();
-      }]
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
-        Returns the result types for this call that are returned by the callee.
-      }],
-      /*retTy=*/"::mlir::Operation::result_type_range",
-      /*methodName=*/"getCallResultTypes",
-      /*args=*/(ins),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        return $_op->getResultTypes();
-      }]
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
-        Update the operand_segment_sizes attribute for changes to operands.
-      }],
-      /*retTy=*/"void",
-      /*methodName=*/"updateSegmentSizes",
-      /*args=*/(ins "::mlir::MLIRContext *":$context),
-      /*methodBody=*/"",
-      /*defaultImplementation=*/[{
-        assert(!$_op->hasAttr("operand_segment_sizes") &&
-               !$_op->hasAttr("result_segment_sizes"));
-      }]
     >,
     InterfaceMethod<[{
         Resolve the callable operation for given callee to a

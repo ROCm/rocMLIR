@@ -473,7 +473,6 @@ if(build_runtimes)
   if(LLVM_INCLUDE_TESTS)
     foreach(dep FileCheck
                 clang
-                clang-offload-packager
                 flang
                 count
                 lld
@@ -489,6 +488,7 @@ if(build_runtimes)
                 llvm-size
                 llvm-symbolizer
                 llvm-xray
+                llvm-offload-binary
                 not
                 obj2yaml
                 opt
@@ -512,6 +512,10 @@ if(build_runtimes)
   # with $<SEMICOLON>
   if(CMAKE_PREFIX_PATH)
     string(JOIN "$<SEMICOLON>" escaped_cmake_prefix_path ${CMAKE_PREFIX_PATH})
+    # Some projects require access to the LLVM lib/cmake directory
+    if (OFFLOAD_EXTERNAL_PROJECT_UNIFIED_ROCR OR DEFINED LIBOMPTARGET_EXTERNAL_PROJECT_ROCM_DEVICE_LIBS_PATH)
+      string(PREPEND escaped_cmake_prefix_path "${CMAKE_BINARY_DIR}/lib/cmake$<SEMICOLON>")
+    endif()
     list(APPEND extra_cmake_args "-DCMAKE_PREFIX_PATH=${escaped_cmake_prefix_path}")
   endif()
 
@@ -543,9 +547,6 @@ if(build_runtimes)
   if("openmp" IN_LIST LLVM_ENABLE_RUNTIMES OR "offload" IN_LIST LLVM_ENABLE_RUNTIMES)
     # With ROCm 6.3 the ROCr runtime and the thunk layer share a single repository.
     # No need to provide a separate path for ROCt.
-    if (OFFLOAD_EXTERNAL_PROJECT_UNIFIED_ROCR OR DEFINED LIBOMPTARGET_EXTERNAL_PROJECT_ROCM_DEVICE_LIBS_PATH)
-      list(APPEND extra_cmake_args "-DCMAKE_PREFIX_PATH=${CMAKE_BINARY_DIR}/lib/cmake$<SEMICOLON>${CMAKE_PREFIX_PATH}")
-    endif()
     if (OFFLOAD_EXTERNAL_PROJECT_UNIFIED_ROCR)
       if(NOT DEFINED LIBOMPTARGET_EXTERNAL_PROJECT_HSA_PATH)
         message(SEND_ERROR "External ROCr requires setting LIBOMPTARGET_EXTERNAL_PROJECT_HSA_PATH")
@@ -604,7 +605,7 @@ if(build_runtimes)
     if (${LIBOMPTARGET_BUILD_DEVICE_FORTRT})
       set(FORTRT_DEP FortranRuntime)
     endif()
-    foreach(dep opt llvm-link llvm-extract clang clang-offload-packager clang-nvlink-wrapper rocm-device-libs offload-arch ${HSA_DEP} ${AMDGPU_ARCH_DEP} ${FORTRT_DEP})
+    foreach(dep opt llvm-link llvm-extract clang llvm-offload-binary clang-nvlink-wrapper rocm-device-libs offload-arch ${HSA_DEP} ${AMDGPU_ARCH_DEP} ${FORTRT_DEP})
       if(TARGET ${dep} AND OPENMP_ENABLE_LIBOMPTARGET)
         list(APPEND extra_deps ${dep})
       endif()
@@ -612,8 +613,8 @@ if(build_runtimes)
   endif()
   if(LLVM_LIBC_GPU_BUILD)
     list(APPEND extra_cmake_args "-DLLVM_LIBC_GPU_BUILD=ON")
-    if(TARGET clang-offload-packager)
-      list(APPEND extra_deps clang-offload-packager)
+    if(TARGET llvm-offload-binary)
+      list(APPEND extra_deps llvm-offload-binary)
     endif()
     if(TARGET clang-nvlink-wrapper)
       list(APPEND extra_deps clang-nvlink-wrapper)
