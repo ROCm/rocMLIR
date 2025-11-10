@@ -1575,8 +1575,8 @@ struct LDSTransposeLoadRewritePattern
                                 PatternRewriter &b) const override {
 
     // Replace with amdgpu.transpose_load having identical semantics.
-    auto newOp = b.create<amdgpu::TransposeLoadOp>(
-        op.getLoc(), op.getResult().getType(), op.getSource(), op.getIndices());
+    auto newOp = amdgpu::TransposeLoadOp::create(
+        b, op.getLoc(), op.getResult().getType(), op.getSource(), op.getIndices());
     b.replaceOp(op, newOp.getResult());
     return success();
   }

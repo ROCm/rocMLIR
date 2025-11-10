@@ -300,30 +300,19 @@ static std::pair<int64_t, int64_t> getLayoutDims(LayoutKind kind) {
 static SmallVector<Value> getBasePanelOffsets(LayoutKind layout, Value lane,
                                               PatternRewriter &b,
                                               Location loc) {
-  auto cst = [&](int64_t v) {
-    return b.create<arith::ConstantIndexOp>(loc, v);
-  };
-
-  auto add = [&](Value a, Value m) {
-    return b.create<arith::AddIOp>(loc, a, m);
-  };
-  auto mul = [&](Value a, Value m) {
-    return b.create<arith::MulIOp>(loc, a, m);
-  };
-  auto div = [&](Value a, Value m) {
-    return b.create<arith::DivUIOp>(loc, a, m);
-  };
-  auto rem = [&](Value a, Value m) {
-    return b.create<arith::RemUIOp>(loc, a, m);
-  };
-  SmallVector<Value> panelOffsets;
-  Value c16 = cst(16), c4 = cst(4), c2 = cst(2);
-  Value blockId = div(lane, c16);
-  Value laneInBlock = rem(lane, c16);
+  Value c16 = arith::ConstantIndexOp::create(b, loc, 16);
+  Value c4 = arith::ConstantIndexOp::create(b, loc, 4);
+  Value c2 = arith::ConstantIndexOp::create(b, loc, 2);
+  
+  Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
+  Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
+  
   // Base offset calculations
-  Value mOffsetBase = mul(rem(laneInBlock, c4), c4);
-  Value kOffsetBase = div(laneInBlock, c4);
+  Value mOffsetBase = arith::MulIOp::create(
+      b, loc, arith::RemUIOp::create(b, loc, laneInBlock, c4), c4);
+  Value kOffsetBase = arith::DivUIOp::create(b, loc, laneInBlock, c4);
 
+  SmallVector<Value> panelOffsets;
   switch (layout) {
   case LayoutKind::L16x32: {
     panelOffsets = {kOffsetBase, mOffsetBase};
@@ -331,22 +320,31 @@ static SmallVector<Value> getBasePanelOffsets(LayoutKind layout, Value lane,
   }
   case LayoutKind::L16x16: {
     // kbase = kOffsetBase + (blockId * 4)
-    Value kBase = add(mul(blockId, c4), kOffsetBase);
+    Value kBase = arith::AddIOp::create(
+        b, loc, arith::MulIOp::create(b, loc, blockId, c4), kOffsetBase);
     panelOffsets = {kBase, mOffsetBase};
     break;
   }
   case LayoutKind::L32x16: {
     // mbase = mOffsetBase + (blockId % 2) * 16
-    Value mBase = add(mul(rem(blockId, c2), cst(16)), mOffsetBase);
+    Value c16_2 = arith::ConstantIndexOp::create(b, loc, 16);
+    Value mBase = arith::AddIOp::create(
+        b, loc, arith::MulIOp::create(b, loc, arith::RemUIOp::create(b, loc, blockId, c2), c16_2),
+        mOffsetBase);
     panelOffsets = {kOffsetBase, mBase};
     break;
   }
   case LayoutKind::L32x8: {
     // k_base_local = kOffsetBase + (blockId / 2) * 4
-    Value kBase = add(mul(div(blockId, c2), c4), kOffsetBase);
+    Value kBase = arith::AddIOp::create(
+        b, loc, arith::MulIOp::create(b, loc, arith::DivUIOp::create(b, loc, blockId, c2), c4),
+        kOffsetBase);
 
     // m_offset_base = mOffsetBase + (blockId % 2) * 16
-    Value mBase = add(mul(rem(blockId, c2), cst(16)), mOffsetBase);
+    Value c16_2 = arith::ConstantIndexOp::create(b, loc, 16);
+    Value mBase = arith::AddIOp::create(
+        b, loc, arith::MulIOp::create(b, loc, arith::RemUIOp::create(b, loc, blockId, c2), c16_2),
+        mOffsetBase);
     panelOffsets = {kBase, mBase};
     break;
   }
@@ -371,12 +369,11 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   auto [rawSrc, _, __] = untransform(b, sourceView);
 
   Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
-  auto cst = [&](int64_t v) {
-    return b.create<arith::ConstantIndexOp>(loc, v);
-  };
+  
   // Compute lane ID within the wavefront (0–63).
-  Value lane = b.create<arith::RemUIOp>(loc, tid, cst(waveSize));
-  Value waveId = b.create<arith::DivUIOp>(loc, tid, cst(waveSize));
+  Value waveSizeVal = arith::ConstantIndexOp::create(b, loc, waveSize);
+  Value lane = arith::RemUIOp::create(b, loc, tid, waveSizeVal);
+  Value waveId = arith::DivUIOp::create(b, loc, tid, waveSizeVal);
   int64_t physicalWaves = blockSize / waveSize;
 
   int64_t mPerWave = info.mPerWave;
@@ -420,8 +417,9 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   }
 
   // Decompose wave_id into 2D grid position (wave_m, wave_n)
-  Value waveM = b.create<arith::DivUIOp>(loc, waveId, cst(wavesInN));
-  Value waveN = b.create<arith::RemUIOp>(loc, waveId, cst(wavesInN));
+  Value wavesInNVal = arith::ConstantIndexOp::create(b, loc, wavesInN);
+  Value waveM = arith::DivUIOp::create(b, loc, waveId, wavesInNVal);
+  Value waveN = arith::RemUIOp::create(b, loc, waveId, wavesInNVal);
 
   // Use mPerBlock as stride for operand A, nPerBlock for operand B
   int64_t ldsStride =
@@ -457,9 +455,9 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   // K stride per tile: KMfma (e.g., 8)
   int64_t mnStride = nonKDim;
   int64_t kTileStride = instrK;
-  Value mnStrideVal = cst(mnStride);
-  Value kTileStrideVal = cst(kTileStride);
-  Value ldsStrideVal = cst(ldsStride);
+  Value mnStrideVal = arith::ConstantIndexOp::create(b, loc, mnStride);
+  Value kTileStrideVal = arith::ConstantIndexOp::create(b, loc, kTileStride);
+  Value ldsStrideVal = arith::ConstantIndexOp::create(b, loc, ldsStride);
 
   // The extra indices tell us WHICH M/N tile we're loading in this iteration.
   // Check if there's an extra index for M/N tile selection
@@ -524,16 +522,18 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   Value kOffsetBase = nullptr;
 
   if (isDoubleRate) {
-    Value c16 = cst(16), c2 = cst(2), c8 = cst(8);
-    blockId = b.create<arith::DivUIOp>(loc, lane, c16);
+    Value c16 = arith::ConstantIndexOp::create(b, loc, 16);
+    Value c2 = arith::ConstantIndexOp::create(b, loc, 2);
+    Value c8 = arith::ConstantIndexOp::create(b, loc, 8);
+    blockId = arith::DivUIOp::create(b, loc, lane, c16);
 
     if (info.layout == LayoutKind::L32x16) {
       // k_offset_base = (block_id / 2) * 8
-      kOffsetBase = b.create<arith::MulIOp>(
-          loc, b.create<arith::DivUIOp>(loc, blockId, c2), c8);
+      kOffsetBase = arith::MulIOp::create(
+          b, loc, arith::DivUIOp::create(b, loc, blockId, c2), c8);
     } else if (info.layout == LayoutKind::L16x32) {
       // k_offset_base = block_id * 8
-      kOffsetBase = b.create<arith::MulIOp>(loc, blockId, c8);
+      kOffsetBase = arith::MulIOp::create(b, loc, blockId, c8);
     }
   }
 
@@ -548,24 +548,23 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
       // For operand A: m_base += wave_m * mmfma
       // For operand B: n_base (m_base) += wave_n * nmfma
       if (info.operand == OperandKind::A) {
-        Value waveOffsetM = b.create<arith::MulIOp>(loc, waveM, mnStrideVal);
-        m_base = b.create<arith::AddIOp>(loc, m_base, waveOffsetM);
+        Value waveOffsetM = arith::MulIOp::create(b, loc, waveM, mnStrideVal);
+        m_base = arith::AddIOp::create(b, loc, m_base, waveOffsetM);
       } else if (info.operand == OperandKind::B) {
-        Value waveOffsetN = b.create<arith::MulIOp>(loc, waveN, mnStrideVal);
-        m_base = b.create<arith::AddIOp>(loc, m_base, waveOffsetN);
+        Value waveOffsetN = arith::MulIOp::create(b, loc, waveN, mnStrideVal);
+        m_base = arith::AddIOp::create(b, loc, m_base, waveOffsetN);
       }
 
       // Add iteration offset from outer loop (if exists) or static tile index
       if (useDynamicMnIndex) {
         // Dynamic index from outer loop: m_base += mnTileIndex * mnStride
-        Value mnOffsetAdd =
-            b.create<arith::MulIOp>(loc, mnTileIndex, mnStrideVal);
-        m_base = b.create<arith::AddIOp>(loc, m_base, mnOffsetAdd);
+        Value mnOffsetAdd = arith::MulIOp::create(b, loc, mnTileIndex, mnStrideVal);
+        m_base = arith::AddIOp::create(b, loc, m_base, mnOffsetAdd);
       } else if (mnIdxLocal > 0) {
         // Static index: m_base += mnIdxLocal * mnStride
-        Value mnOffsetAdd =
-            b.create<arith::MulIOp>(loc, mnStrideVal, cst(mnIdxLocal));
-        m_base = b.create<arith::AddIOp>(loc, m_base, mnOffsetAdd);
+        Value mnIdxLocalVal = arith::ConstantIndexOp::create(b, loc, mnIdxLocal);
+        Value mnOffsetAdd = arith::MulIOp::create(b, loc, mnStrideVal, mnIdxLocalVal);
+        m_base = arith::AddIOp::create(b, loc, m_base, mnOffsetAdd);
       }
 
       if (!isDoubleRate) {
@@ -573,19 +572,19 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
         // k_base = k_base_local + kIdx * kTileStride
         Value k_base = k_base_local;
         if (kIdx > 0) {
-          Value kOffsetAdd =
-              b.create<arith::MulIOp>(loc, kTileStrideVal, cst(kIdx));
-          k_base = b.create<arith::AddIOp>(loc, k_base, kOffsetAdd);
+          Value kIdxVal = arith::ConstantIndexOp::create(b, loc, kIdx);
+          Value kOffsetAdd = arith::MulIOp::create(b, loc, kTileStrideVal, kIdxVal);
+          k_base = arith::AddIOp::create(b, loc, k_base, kOffsetAdd);
         }
 
         // final_offset = k_base * ldsStride + m_base
-        Value final_offset = b.create<arith::AddIOp>(
-            loc, m_base, b.create<arith::MulIOp>(loc, k_base, ldsStrideVal));
+        Value final_offset = arith::AddIOp::create(
+            b, loc, m_base, arith::MulIOp::create(b, loc, k_base, ldsStrideVal));
 
         // Perform LDS transpose load (ds_read_tr16_b64) -> returns
         // vector<4xf16>
-        auto l = b.create<rock::LDSTransposeLoadOp>(loc, panelVecType, rawSrc,
-                                                    ValueRange{final_offset});
+        auto l = rock::LDSTransposeLoadOp::create(b, loc, panelVecType, rawSrc,
+                                                  ValueRange{final_offset});
         panelVectors.push_back(l.getFragment());
 
       } else {
@@ -594,36 +593,33 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
         // k_offset_low = k_offset_base + k_tile * KMfma
         // k_offset_high = k_offset_base + 4 + k_tile * KMfma
 
-        Value kTileOffset =
-            b.create<arith::MulIOp>(loc, kTileStrideVal, cst(kIdx));
-        Value k_offset_low =
-            b.create<arith::AddIOp>(loc, kOffsetBase, kTileOffset);
-        Value k_offset_high =
-            b.create<arith::AddIOp>(loc, k_offset_low, cst(4));
+        Value kIdxVal = arith::ConstantIndexOp::create(b, loc, kIdx);
+        Value kTileOffset = arith::MulIOp::create(b, loc, kTileStrideVal, kIdxVal);
+        Value k_offset_low = arith::AddIOp::create(b, loc, kOffsetBase, kTileOffset);
+        Value c4 = arith::ConstantIndexOp::create(b, loc, 4);
+        Value k_offset_high = arith::AddIOp::create(b, loc, k_offset_low, c4);
 
-        Value k_base_low =
-            b.create<arith::AddIOp>(loc, k_base_local, k_offset_low);
-        Value k_base_high =
-            b.create<arith::AddIOp>(loc, k_base_local, k_offset_high);
+        Value k_base_low = arith::AddIOp::create(b, loc, k_base_local, k_offset_low);
+        Value k_base_high = arith::AddIOp::create(b, loc, k_base_local, k_offset_high);
 
         // offset_low = k_base_low * ldsStride + m_base
-        Value offset_low = b.create<arith::AddIOp>(
-            loc, m_base,
-            b.create<arith::MulIOp>(loc, k_base_low, ldsStrideVal));
+        Value offset_low = arith::AddIOp::create(
+            b, loc, m_base,
+            arith::MulIOp::create(b, loc, k_base_low, ldsStrideVal));
 
         // offset_high = k_base_high * ldsStride + m_base
-        Value offset_high = b.create<arith::AddIOp>(
-            loc, m_base,
-            b.create<arith::MulIOp>(loc, k_base_high, ldsStrideVal));
+        Value offset_high = arith::AddIOp::create(
+            b, loc, m_base,
+            arith::MulIOp::create(b, loc, k_base_high, ldsStrideVal));
 
         // Load low half: returns vector<4xf16>
-        auto load_low = b.create<rock::LDSTransposeLoadOp>(
-            loc, panelVecType, rawSrc, ValueRange{offset_low});
+        auto load_low = rock::LDSTransposeLoadOp::create(
+            b, loc, panelVecType, rawSrc, ValueRange{offset_low});
         panelVectors.push_back(load_low.getFragment());
 
         // Load high half: returns vector<4xf16>
-        auto load_high = b.create<rock::LDSTransposeLoadOp>(
-            loc, panelVecType, rawSrc, ValueRange{offset_high});
+        auto load_high = rock::LDSTransposeLoadOp::create(
+            b, loc, panelVecType, rawSrc, ValueRange{offset_high});
         panelVectors.push_back(load_high.getFragment());
       }
     }
@@ -656,10 +652,10 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   // The destination is rank-1, meaning scalar sequential layout.
   for (Value pv : panelVectors) {
     for (int lane = 0; lane < 4 && produced < targetElems; ++lane) {
-      Value ciLane = cst(lane);
-      Value elem = b.create<vector::ExtractOp>(loc, pv, ciLane);
-      Value idx = cst(produced++);
-      b.create<InBoundsStoreOp>(loc, elem, dest, ValueRange{idx});
+      Value ciLane = arith::ConstantIndexOp::create(b, loc, lane);
+      Value elem = vector::ExtractOp::create(b, loc, pv, ciLane);
+      Value idx = arith::ConstantIndexOp::create(b, loc, produced++);
+      InBoundsStoreOp::create(b, loc, elem, dest, ValueRange{idx});
     }
     if (produced >= targetElems)
       break; // Stop once we have written all target elements
