@@ -76,11 +76,11 @@ static WmmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
 static const llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> &getWmmaInsnMapGfx11() {
   static llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> insnMap{
       {{WmmaTypeId::F16_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_f16::getOperationName(), 16, 8}},
+       {ROCDL::wmma_f32_16x16x16_f16::getOperationName(), 16, 8, 16, 16}},
       {{WmmaTypeId::Bf16_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 16, 8}},
+       {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 16, 8, 16, 16}},
       {{WmmaTypeId::I8_To_I32_TyId, 16},
-       {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 16, 8}},
+       {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 16, 8, 16, 16}},
   };
   return insnMap;
 }
@@ -89,17 +89,17 @@ static const llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> &getWmmaInsnMapGfx11() {
 static const llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> &getWmmaInsnMapGfx12() {
   static llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> insnMap{
       {{WmmaTypeId::F16_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_f16::getOperationName(), 8, 8}},
+       {ROCDL::wmma_f32_16x16x16_f16::getOperationName(), 8, 8, 16, 16}},
       {{WmmaTypeId::Bf16_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 8, 8}},
+       {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 8, 8, 16, 16}},
       {{WmmaTypeId::I8_To_I32_TyId, 16},
-       {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 8, 8}},
+       {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 8, 8, 16, 16}},
 
       // FP8/BF8
       {{WmmaTypeId::Fp8Fp8_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_fp8_fp8::getOperationName(), 8, 8}},
+       {ROCDL::wmma_f32_16x16x16_fp8_fp8::getOperationName(), 8, 8, 16, 16}},
       {{WmmaTypeId::Bf8Bf8_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_bf8_bf8::getOperationName(), 8, 8}},
+       {ROCDL::wmma_f32_16x16x16_bf8_bf8::getOperationName(), 8, 8, 16, 16}},
   };
   return insnMap;
 }
@@ -110,37 +110,37 @@ getWmmaInsnMapGfx1250() {
   static llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> insnMap{
       // F32
       {{WmmaTypeId::F32_To_F32_TyId, 4},
-       {ROCDL::wmma_f32_16x16x4_f32::getOperationName(), 2, 8}},
+       {ROCDL::wmma_f32_16x16x4_f32::getOperationName(), 2, 8, 16, 16}},
 
       // F16/BF16
       {{WmmaTypeId::F16_To_F32_TyId, 32},
-       {ROCDL::wmma_f32_16x16x32_f16::getOperationName(), 16, 8}},
+       {ROCDL::wmma_f32_16x16x32_f16::getOperationName(), 16, 8, 16, 16}},
       {{WmmaTypeId::Bf16_To_F32_TyId, 32},
-       {ROCDL::wmma_f32_16x16x32_bf16::getOperationName(), 16, 8}},
+       {ROCDL::wmma_f32_16x16x32_bf16::getOperationName(), 16, 8, 16, 16}},
 
       // FP8/BF8 (k=64)
       {{WmmaTypeId::Fp8Fp8_To_F32_TyId, 64},
-       {ROCDL::wmma_f32_16x16x64_fp8_fp8::getOperationName(), 32, 8}},
+       {ROCDL::wmma_f32_16x16x64_fp8_fp8::getOperationName(), 32, 8, 16, 16}},
       {{WmmaTypeId::Fp8Bf8_To_F32_TyId, 64},
-       {ROCDL::wmma_f32_16x16x64_fp8_bf8::getOperationName(), 32, 8}},
+       {ROCDL::wmma_f32_16x16x64_fp8_bf8::getOperationName(), 32, 8, 16, 16}},
       {{WmmaTypeId::Bf8Fp8_To_F32_TyId, 64},
-       {ROCDL::wmma_f32_16x16x64_bf8_fp8::getOperationName(), 32, 8}},
+       {ROCDL::wmma_f32_16x16x64_bf8_fp8::getOperationName(), 32, 8, 16, 16}},
       {{WmmaTypeId::Bf8Bf8_To_F32_TyId, 64},
-       {ROCDL::wmma_f32_16x16x64_bf8_bf8::getOperationName(), 32, 8}},
+       {ROCDL::wmma_f32_16x16x64_bf8_bf8::getOperationName(), 32, 8, 16, 16}},
 
       // FP8/BF8 (k=128)
       {{WmmaTypeId::Fp8Fp8_To_F32_TyId, 128},
-       {ROCDL::wmma_f32_16x16x128_fp8_fp8::getOperationName(), 64, 8}},
+       {ROCDL::wmma_f32_16x16x128_fp8_fp8::getOperationName(), 64, 8, 16, 16}},
       {{WmmaTypeId::Fp8Bf8_To_F32_TyId, 128},
-       {ROCDL::wmma_f32_16x16x128_fp8_bf8::getOperationName(), 64, 8}},
+       {ROCDL::wmma_f32_16x16x128_fp8_bf8::getOperationName(), 64, 8, 16, 16}},
       {{WmmaTypeId::Bf8Fp8_To_F32_TyId, 128},
-       {ROCDL::wmma_f32_16x16x128_bf8_fp8::getOperationName(), 64, 8}},
+       {ROCDL::wmma_f32_16x16x128_bf8_fp8::getOperationName(), 64, 8, 16, 16}},
       {{WmmaTypeId::Bf8Bf8_To_F32_TyId, 128},
-       {ROCDL::wmma_f32_16x16x128_bf8_bf8::getOperationName(), 64, 8}},
+       {ROCDL::wmma_f32_16x16x128_bf8_bf8::getOperationName(), 64, 8, 16, 16}},
 
       // I8
       {{WmmaTypeId::I8_To_I32_TyId, 64},
-       {ROCDL::wmma_i32_16x16x64_iu8::getOperationName(), 32, 8}},
+       {ROCDL::wmma_i32_16x16x64_iu8::getOperationName(), 32, 8, 16, 16}},
   };
   return insnMap;
 }
@@ -271,9 +271,8 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
   int64_t outputVectorLen = insnInfo->outputVectorLen;
   int64_t kDim = selectedKDim;
   StringRef insn = insnInfo->insn;
-
-  // WMMA constants
-  int64_t dPerAccel = 16; // M=N=16 for all WMMA
+  int64_t mPerAccel = insnInfo->mPerAccel;
+  int64_t nPerAccel = insnInfo->nPerAccel;
 
   // Architecture-specific outStride
   // gfx11: full-wave K cooperation -> outStride=2
@@ -281,19 +280,19 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
   int64_t outStride = isGfx11 ? 2 : outputVectorLen;
 
   // Validate dimensions
-  if (mPerWave % inputVectorLen != 0 || mPerWave % dPerAccel != 0)
+  if (mPerWave % inputVectorLen != 0 || mPerWave % mPerAccel != 0)
     return failure();
-  if (nPerWave % inputVectorLen != 0 || nPerWave % dPerAccel != 0)
+  if (nPerWave % inputVectorLen != 0 || nPerWave % nPerAccel != 0)
     return failure();
 
-  int64_t mRepeats = mPerWave / dPerAccel;
-  int64_t nRepeats = nPerWave / dPerAccel;
+  int64_t mRepeats = mPerWave / mPerAccel;
+  int64_t nRepeats = nPerWave / nPerAccel;
 
   VectorType argTypeA = VectorType::get({inputVectorLen}, elementTypeA);
   VectorType argTypeB = VectorType::get({inputVectorLen}, elementTypeB);
   VectorType retType =
       VectorType::get({outputVectorLen}, getRetType(elementTypeA, typeId));
 
-  return WmmaInsn{insn,     dPerAccel, kDim,     outStride, mRepeats,
-                  nRepeats, argTypeA,  argTypeB, retType};
+  return WmmaInsn{insn, mPerAccel, nPerAccel, kDim, outStride, mRepeats,
+                  nRepeats, argTypeA, argTypeB, retType};
 }
