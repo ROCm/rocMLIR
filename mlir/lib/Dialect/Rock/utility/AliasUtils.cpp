@@ -21,10 +21,10 @@
 namespace mlir {
 namespace rock {
 
-LLVM::AliasScopeDomainAttr getDirectToLDSScopeDomain(MLIRContext *ctx) {
+LLVM::AliasScopeDomainAttr getScopeDomain(MLIRContext *ctx) {
   Builder b(ctx);
   return b.getAttr<LLVM::AliasScopeDomainAttr>(
-      b.getStringAttr("amdgpu.DirectToLDSLoads"),
+      b.getStringAttr("amdgpu.LoadsScope"),
       b.getStringAttr(
           "Domain to hold alias scopes to specify aliasing information for "
           "operations that load directly from global memory to LDS"));
@@ -35,13 +35,33 @@ LLVM::AliasScopeAttr getDirectToLDSLoadScope(MLIRContext *ctx) {
   auto name = b.getStringAttr("amdgpu.DirectToLDSLoads");
   auto desc = b.getStringAttr(
       "Scope containing all operations that perform direct global-to-LDS loads");
-  return b.getAttr<LLVM::AliasScopeAttr>(name, getDirectToLDSScopeDomain(ctx), desc);
+  return b.getAttr<LLVM::AliasScopeAttr>(name, getScopeDomain(ctx), desc);
 }
 
+LLVM::AliasScopeAttr getLocalLoadScope(MLIRContext *ctx) {
+  Builder b(ctx);
+  auto name = b.getStringAttr("amdgpu.LocalLoads");
+  auto desc = b.getStringAttr("Scope containing all LocalLoad ops");
+  return b.getAttr<LLVM::AliasScopeAttr>(name, getScopeDomain(ctx), desc);
+}
+
+// Should be called for all DirectToLDS loads.
 void addDirectToLDSLoadAliasScope(LLVM::AliasAnalysisOpInterface op) {
   auto ctx = op->getContext();
   Builder b(ctx);
   op.setAliasScopes(b.getArrayAttr(getDirectToLDSLoadScope(ctx)));
+}
+
+// Should be called for all local loads.
+void addLocalLoadNoAliasScope(LLVM::AliasAnalysisOpInterface op) {
+  auto ctx = op->getContext();
+  Builder b(ctx);
+
+  // Do not alias with DirectToLDS loads.
+  op.setNoAliasScopes(b.getArrayAttr(getDirectToLDSLoadScope(ctx)));
+
+  // Add to different scope as ops without any scope alias with everything
+  op.setAliasScopes(b.getArrayAttr(getLocalLoadScope(ctx)));
 }
 
 } // namespace rock

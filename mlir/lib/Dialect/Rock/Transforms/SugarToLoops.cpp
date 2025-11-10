@@ -1347,7 +1347,7 @@ struct GlobalLoadToLDSRewritePattern
 
     auto gatherToLDS = amdgpu::GatherToLDSOp::create(
         b, loc, source, coords, dest, destCoords, op.getTransferType(), nullptr, nullptr, nullptr);
-    rock::addDirectToLDSLoadAliasScope(gatherToLDS);
+    // rock::addDirectToLDSLoadAliasScope(gatherToLDS);
     b.replaceOp(op, gatherToLDS);
     return success();
   }
