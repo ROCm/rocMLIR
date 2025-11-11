@@ -52,6 +52,7 @@ struct AmdArchInfo {
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);
+bool isDirectToLDSSupported(GemmFeatures features);
 } // namespace rock
 } // namespace mlir
 

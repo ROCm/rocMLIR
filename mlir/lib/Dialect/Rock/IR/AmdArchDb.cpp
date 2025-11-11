@@ -413,3 +413,8 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   }
   return theseFeatures;
 }
+
+bool mlir::rock::isDirectToLDSSupported(GemmFeatures features) {
+  return bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b) ||
+         bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
+}
