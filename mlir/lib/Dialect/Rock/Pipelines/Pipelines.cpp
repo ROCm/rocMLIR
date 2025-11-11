@@ -51,6 +51,7 @@
 #include "mlir/Transforms/Passes.h"
 
 #include "llvm/Support/TargetSelect.h"
+#include <optional>
 
 using namespace mlir;
 
@@ -85,18 +86,14 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   tosaOptions.extensions.push_back("fp8e5m2");
   tosaOptions.extensions.push_back("mxfp");
 
-  tosa::createTosaAttachTarget(tosaOptions);
+  funcPm.addPass(tosa::createTosaAttachTarget(tosaOptions));
 
   // use tosa conversion pipeline
   // (see mlir/lib/Conversion/TosaToLinalg/TosaToLinalgPass.cpp)
   TosaToLinalgOptions tosaToLinalgOptions;
   TosaToLinalgNamedOptions tosaToLinalgNamedOptions;
-  tosa::TosaValidationOptions validationOptions;
-  // validationOptions.level = tosa::TosaLevelEnum::None;
-  // validationOptions.profile = {"pro_int", "pro_fp"};
-  validationOptions.allowInvalidOpDatatypeCombinations = true;
-  tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions,
-                              validationOptions);
+  // pass std::nullopt as validation options to avoid running tosa-validate pass
+  tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions, /*validationOptions=*/std::nullopt);
 
   // for tosa control flow
   /* rocmlir-opt --tosa-to-tensor --tosa-to-scf --tosa-to-arith
