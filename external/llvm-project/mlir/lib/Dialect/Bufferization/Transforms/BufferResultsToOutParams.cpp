@@ -207,22 +207,28 @@ updateCalls(ModuleOp module, const AllocDynamicSizesMap &map,
             const bufferization::BufferResultsToOutParamsOpts &options) {
   bool didFail = false;
   SymbolTable symtab(module);
-  module.walk([&](func::CallOp op) {
-    auto callee = symtab.lookup<func::FuncOp>(op.getCallee());
-    if (!callee) {
-      op.emitError() << "cannot find callee '" << op.getCallee() << "' in "
-                     << "symbol table";
-      didFail = true;
-      return;
-    }
-    if (!options.filterFn(&callee))
-      return;
-    if (callee.isExternal() || callee.isPublic())
-      return;
+  module.walk([&](CallOpInterface op) {
+    // TODO(rocmlir) CallOpInterface does not have a getCallee() method.
+    // We should enable this back once we add this method.
+    //
+    // auto callee = symtab.lookup<func::FuncOp>(op.getCallee());
+    // if (!callee) {
+    //   op.emitError() << "cannot find callee '" << op.getCallee() << "' in "
+    //                  << "symbol table";
+    //   didFail = true;
+    //   return;
+    // }
+    // if (!options.filterFn(&callee))
+    //   return;
+    // if (callee.isPublic() && !options.modifyPublicFunctions)
+    //   return;
+    // if (callee.isExternal())
+    //   return;
+    // FIXME validate callee in the symbol table.
 
     SmallVector<Value, 6> replaceWithNewCallResults;
     SmallVector<Value, 6> replaceWithOutParams;
-    for (OpResult result : op.getResults()) {
+    for (OpResult result : op->getResults()) {
       if (isa<MemRefType>(result.getType()))
         replaceWithOutParams.push_back(result);
       else
@@ -230,14 +236,16 @@ updateCalls(ModuleOp module, const AllocDynamicSizesMap &map,
     }
     SmallVector<Value, 6> outParams;
     OpBuilder builder(op);
-    SmallVector<SmallVector<Value>> dynamicSizes = map.lookup(callee);
-    size_t dynamicSizesIndex = 0;
+    // SmallVector<SmallVector<Value>> dynamicSizes = map.lookup(callee);
+    // size_t dynamicSizesIndex = 0;
     for (Value memref : replaceWithOutParams) {
-      SmallVector<Value> dynamicSize = dynamicSizes.size() > dynamicSizesIndex
-                                           ? dynamicSizes[dynamicSizesIndex]
-                                           : SmallVector<Value>();
+      // SmallVector<Value> dynamicSize = dynamicSizes.size() > dynamicSizesIndex
+      //                                      ? dynamicSizes[dynamicSizesIndex]
+      //                                      : SmallVector<Value>();
+      SmallVector<Value> dynamicSize;
       bool memrefStaticShape =
           cast<MemRefType>(memref.getType()).hasStaticShape();
+      assert(memrefStaticShape && "we only support static shapes");
       if (!memrefStaticShape && dynamicSize.empty()) {
         op.emitError()
             << "cannot create out param for dynamically shaped result";
@@ -251,10 +259,11 @@ updateCalls(ModuleOp module, const AllocDynamicSizesMap &map,
 
       if (memrefStaticShape) {
         dynamicSize = {};
-      } else {
-        ++dynamicSizesIndex;
-        dynamicSize = mapDynamicSizeAtCaller(op, callee, dynamicSize);
       }
+      // } else {
+      //   ++dynamicSizesIndex;
+      //   dynamicSize = mapDynamicSizeAtCaller(op, callee, dynamicSize);
+      // }
       auto maybeOutParam =
           options.allocationFn(builder, op.getLoc(), allocType, dynamicSize);
       if (failed(maybeOutParam)) {
@@ -274,13 +283,13 @@ updateCalls(ModuleOp module, const AllocDynamicSizesMap &map,
       outParams.push_back(outParam);
     }
 
-    auto newOperands = llvm::to_vector<6>(op.getOperands());
+    auto newOperands = llvm::to_vector<6>(op->getOperands());
     newOperands.append(outParams.begin(), outParams.end());
     auto newResultTypes = llvm::to_vector<6>(llvm::map_range(
         replaceWithNewCallResults, [](Value v) { return v.getType(); }));
-    auto newCall = func::CallOp::create(
-        builder, op.getLoc(), op.getCalleeAttr(), newResultTypes, newOperands);
-    for (auto t : llvm::zip(replaceWithNewCallResults, newCall.getResults()))
+    auto *newCallOp =
+        op.clone(builder, op.getLoc(), newResultTypes, newOperands);
+    for (auto t : llvm::zip(replaceWithNewCallResults, newCallOp->getResults()))
       std::get<0>(t).replaceAllUsesWith(std::get<1>(t));
     op.erase();
   });
@@ -295,20 +304,27 @@ LogicalResult mlir::bufferization::promoteBufferResultsToOutParams(
   // function.
   AllocDynamicSizesMap map;
   for (auto func : module.getOps<func::FuncOp>()) {
-    if (func.isExternal() || func.isPublic())
+    if (func.isPublic() && !options.modifyPublicFunctions) {
       continue;
-    if (!options.filterFn(&func))
+    }
+    if (func.isExternal()) {
       continue;
+    }
+    if (!options.filterFn(&func)) {
+      continue;
+    }
     SmallVector<BlockArgument, 6> appendedEntryArgs;
     if (failed(
-            updateFuncOp(func, appendedEntryArgs, options.addResultAttribute)))
+            updateFuncOp(func, appendedEntryArgs, options.addResultAttribute))) {
       return failure();
+            }
     if (failed(updateReturnOps(func, appendedEntryArgs, map, options))) {
       return failure();
     }
   }
-  if (failed(updateCalls(module, map, options)))
+  if (failed(updateCalls(module, map, options))) {
     return failure();
+  }
   return success();
 }
 
@@ -326,6 +342,8 @@ struct BufferResultsToOutParamsPass
       options.hoistStaticAllocs = true;
     if (hoistDynamicAllocs)
       options.hoistDynamicAllocs = true;
+    if (modifyPublicFunctions)
+      options.modifyPublicFunctions = true;
 
     if (failed(bufferization::promoteBufferResultsToOutParams(getOperation(),
                                                               options)))

@@ -151,7 +151,10 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
       bufferization::LayoutMapOption::IdentityLayoutMap;
 
   pm.addPass(bufferization::createOneShotBufferizePass(bufOpts));
-  pm.addPass(bufferization::createBufferResultsToOutParamsPass());
+  bufferization::BufferResultsToOutParamsPassOptions bufferResultToOutOptions;
+  bufferResultToOutOptions.modifyPublicFunctions = true;
+  pm.addPass(bufferization::createBufferResultsToOutParamsPass(
+      bufferResultToOutOptions));
 
   // Sort dimensions according to the underlying memory layout strides
   if (!noRock) {
