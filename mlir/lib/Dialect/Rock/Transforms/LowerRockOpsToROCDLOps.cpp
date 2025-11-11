@@ -93,21 +93,22 @@ struct AsyncWaitOpConversion
     ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);
 
     // I think this should not be neccesary...
-    constexpr int32_t ldsOnlyBitsGfx6789 = ~(0x1f << 8);
-    constexpr int32_t ldsOnlyBitsGfx10 = ~(0x3f << 8);
-    constexpr int32_t ldsOnlyBitsGfx11 = ~(0x3f << 4);
-    int32_t ldsOnlyBits;
-    if (chipset.majorVersion == 11)
-      ldsOnlyBits = ldsOnlyBitsGfx11;
-    else if (chipset.majorVersion == 10)
-      ldsOnlyBits = ldsOnlyBitsGfx10;
-    else if (chipset.majorVersion <= 9)
-      ldsOnlyBits = ldsOnlyBitsGfx6789;
-    else
-      return op.emitOpError(
-                "don't know how to lower this for chipset major version")
-            << chipset.majorVersion;
-    ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
+    // constexpr int32_t ldsOnlyBitsGfx6789 = ~(0x1f << 8);
+    // constexpr int32_t ldsOnlyBitsGfx10 = ~(0x3f << 8);
+    // constexpr int32_t ldsOnlyBitsGfx11 = ~(0x3f << 4);
+    // int32_t ldsOnlyBits;
+    // if (chipset.majorVersion == 11)
+    //   ldsOnlyBits = ldsOnlyBitsGfx11;
+    // else if (chipset.majorVersion == 10)
+    //   ldsOnlyBits = ldsOnlyBitsGfx10;
+    // else if (chipset.majorVersion <= 9)
+    //   ldsOnlyBits = ldsOnlyBitsGfx6789;
+    // else
+    //   return op.emitOpError(
+    //             "don't know how to lower this for chipset major version")
+    //         << chipset.majorVersion;
+    // ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
+    //}
     rewriter.eraseOp(op);
 
     return success();
