@@ -138,34 +138,38 @@ size_t getBufferIndex(rock::ExtractMultiBufferOp extractMultiBuffer) {
 
 /// Recursively traverse through ExtractMultiBufferOp and ViewOp to find
 /// the underlying value and check if it's actually reading from LDS.
-bool readsFromLDSValue(Value value) {
+/// Returns a pair: (isReadingFromLDS, optionalValueToTrack)
+/// If optionalValueToTrack is present, it represents a value whose uses should
+/// also be checked (e.g., when traversing through ExtractMultiBufferOp or ViewOp).
+std::pair<bool, std::optional<Value>> readsFromLDSValue(Value value) {
   LLVM_DEBUG(llvm::dbgs() << "readsFromLDSValue:" << value << "\n");
   // If the value comes from an ExtractMultiBufferOp, extract the selected buffer
   if (auto extractMultiBuffer = value.getDefiningOp<rock::ExtractMultiBufferOp>()) {
-    return false;
-    
     size_t bufferIndex = getBufferIndex(extractMultiBuffer);
     auto buffers = extractMultiBuffer.getBuffers();
     if (bufferIndex < buffers.size()) {
       Value selectedBuffer = buffers[bufferIndex];
-      // Recursively check the selected buffer
+      // Return the selected buffer to track its uses
       if (selectedBuffer == value)
-        return readsFromLDSValue(selectedBuffer);
+        return {false, extractMultiBuffer.getResult()};
+      else
+        return {false, std::nullopt};
     }
-    return false;
+    return {false, std::nullopt};
   }
   
   // If the value comes from a ViewOp, extract the source and recurse
   if (auto viewOp = value.getDefiningOp<memref::ViewOp>()) {
-    Value source = viewOp.getSource();
-    // Recursively check the source
-    return readsFromLDSValue(source);
+    Value source = viewOp.getResult();
+    LLVM_DEBUG(llvm::dbgs() << "View op which result is: " << source << "\n");
+    // Return the source to track its uses
+    return {false, source};
   }
      
   LLVM_DEBUG(llvm::dbgs() << "Ok, this is reading from LDS\n");
   // TODO: Add actual check for LDS read operations here
   // For now, if we reach a non-ExtractMultiBufferOp/ViewOp user, consider it a read
-  return true;
+  return {true, std::nullopt};
 }
 
 /// Find the first use following the pattern:
@@ -200,41 +204,43 @@ Operation* findFirstUseAfter(ThreadwiseReadIntoOp readOp) {
   }
   
   // Get the input of the ViewOp (the actual value we want to track)
-  Value viewInput = viewOp.getSource();
-  Value viewResult = viewOp.getResult();
+  Value viewInput = viewOp.getSource();  
+  LLVM_DEBUG(llvm::dbgs() << "################## ViewOp input is: " << viewInput << "\n");
   
   // Find the first use of either the ViewOp's input or the ViewOp itself
   Operation* firstUse = nullptr;
   Block* block = readOp->getBlock();
   
-  // Check uses of the ViewOp's input
-  for (OpOperand &use : viewInput.getUses()) {
-    Operation* user = use.getOwner();
-    // Skip ExtractMultiBufferOp that will result in a different buffer being used.
-    if (auto userExtractMultiBuffer = dyn_cast<rock::ExtractMultiBufferOp>(user)) {
-      size_t userBufferIndex = getBufferIndex(userExtractMultiBuffer);
-      Value selectedBuffer2 = userExtractMultiBuffer.getBuffers()[userBufferIndex];
-      if (selectedBuffer2 != use.get()) {
-        LLVM_DEBUG(llvm::dbgs() << "1 - Skipping\n");
-        continue;
-      }
-      LLVM_DEBUG(llvm::dbgs() << "1 - NOT Skipping\n");
-    }
-    // Only consider uses in the same block that come after readOp
-    if (user->getBlock() == block && readOp->isBeforeInBlock(user)) {
-      if (!firstUse || user->isBeforeInBlock(firstUse)) {
-        firstUse = user;
-      }
-    }
+  // Track operations and the value they're using
+  SmallVector<Operation *> uses;
+  SmallVector<Value> values;
+  for (Operation *user : viewInput.getUsers()) {
+    LLVM_DEBUG(llvm::dbgs() << "################## User is: " << *user << "\n");
+    uses.push_back(user);
+    // values.push_back(viewInput);
   }
   
-  // Check uses of the ViewOp itself
-  for (OpOperand &use : viewResult.getUses()) {
-    Operation* user = use.getOwner();
-    if (!readsFromLDSValue(use.get())) {
+  // Check all uses. Use index-based loop since we may add more uses during iteration
+  for (size_t i = 0; i < uses.size(); ++i) {
+    Operation *user = uses[i];
+    Value value = user->getResult(0); //values[i];
+    
+    auto [isReading, optionalValue] = readsFromLDSValue(value);
+    
+    // If there's a value to track further, add its users to the vector
+    if (optionalValue.has_value()) {
+      for (Operation *nestedUser : optionalValue.value().getUsers()) {
+        uses.push_back(nestedUser);
+        // values.push_back(optionalValue.value());
+      }
       continue;
     }
-
+    
+    // If not reading from LDS, skip this use
+    if (!isReading) {
+      continue;
+    }
+    
     // Only consider uses in the same block that come after readOp
     if (user->getBlock() == block && readOp->isBeforeInBlock(user)) {
       if (!firstUse || user->isBeforeInBlock(firstUse)) {
