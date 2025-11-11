@@ -49,6 +49,10 @@ LLVM::AliasScopeAttr getLocalLoadScope(MLIRContext *ctx) {
 void addDirectToLDSLoadAliasScope(LLVM::AliasAnalysisOpInterface op) {
   auto ctx = op->getContext();
   Builder b(ctx);
+
+  // Do not alias with local loads.
+  op.setNoAliasScopes(b.getArrayAttr(getLocalLoadScope(ctx)));
+
   op.setAliasScopes(b.getArrayAttr(getDirectToLDSLoadScope(ctx)));
 }
 

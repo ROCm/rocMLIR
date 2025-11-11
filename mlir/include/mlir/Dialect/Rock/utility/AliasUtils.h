@@ -41,6 +41,11 @@ LLVM::AliasScopeAttr getDirectToLDSLoadScope(MLIRContext *ctx);
 /// This marks the operation as being part of the direct-to-LDS load scope.
 void addDirectToLDSLoadAliasScope(LLVM::AliasAnalysisOpInterface op);
 
+/// Add the local load no alias scope to the given operation.
+/// This marks the operation as being part of the local load scope and does not alias with direct-to-LDS loads.
+/// It also adds the operation to the different scope as ops without any scope alias with everything.
+void addLocalLoadNoAliasScope(LLVM::AliasAnalysisOpInterface op);
+
 } // namespace rock
 } // namespace mlir
 

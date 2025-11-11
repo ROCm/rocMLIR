@@ -59,13 +59,14 @@ struct RockAddAliasInfoPass
       
       func.walk([&](LLVM::AliasAnalysisOpInterface aliasIface) {
         Operation *aliasOp = aliasIface.getOperation();
+
         if (auto loadOp = dyn_cast<LLVM::LoadOp>(aliasOp)) {
           LLVM_DEBUG(llvm::dbgs() << "LLVM::LoadOp\n");
           Value addr = loadOp.getAddr();
           if (auto ptrType = dyn_cast<LLVM::LLVMPointerType>(addr.getType())) {
             if (ptrType.getAddressSpace() == 3) {
               LLVM_DEBUG(llvm::dbgs() << "LLVM::LoadOp with LDS address space!!!\n");
-              addDirectToLDSLoadAliasScope(loadOp);
+              addLocalLoadNoAliasScope(loadOp);
             }
           }
         }
@@ -75,7 +76,7 @@ struct RockAddAliasInfoPass
           if (auto ptrType = dyn_cast<LLVM::LLVMPointerType>(addr.getType())) {
             if (ptrType.getAddressSpace() == 3) {
               LLVM_DEBUG(llvm::dbgs() << "LLVM::StoreOp with LDS address space!!!\n");
-              addDirectToLDSLoadAliasScope(storeOp);
+              addLocalLoadNoAliasScope(storeOp);
             }
           }
         }
@@ -84,6 +85,10 @@ struct RockAddAliasInfoPass
           // so here its the right moment to add alias scope information.
           LLVM_DEBUG(llvm::dbgs() << "ROCDL::LoadToLDSOp!!!\n");
           addDirectToLDSLoadAliasScope(loadToLDSOp);
+        }
+        else if (auto rawPtrBufferLoadLdsOp = dyn_cast<ROCDL::RawPtrBufferLoadLdsOp>(aliasOp)) {
+          LLVM_DEBUG(llvm::dbgs() << "ROCDL::RawPtrBufferLoadLdsOp!!!\n");
+          addDirectToLDSLoadAliasScope(rawPtrBufferLoadLdsOp);
         }
         else {
           LLVM_DEBUG(llvm::dbgs()
