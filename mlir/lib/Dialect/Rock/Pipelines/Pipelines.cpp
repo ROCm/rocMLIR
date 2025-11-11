@@ -93,7 +93,8 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   TosaToLinalgOptions tosaToLinalgOptions;
   TosaToLinalgNamedOptions tosaToLinalgNamedOptions;
   // pass std::nullopt as validation options to avoid running tosa-validate pass
-  tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions, /*validationOptions=*/std::nullopt);
+  tosa::addTosaToLinalgPasses(pm, tosaToLinalgOptions, tosaToLinalgNamedOptions,
+                              /*validationOptions=*/std::nullopt);
 
   // for tosa control flow
   /* rocmlir-opt --tosa-to-tensor --tosa-to-scf --tosa-to-arith
