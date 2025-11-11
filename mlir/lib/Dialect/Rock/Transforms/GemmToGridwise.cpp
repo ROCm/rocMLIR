@@ -831,14 +831,13 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   op.setStoreMethodAttr(storeMethod);
 
   // set the prefill attribute
-  // For backward data convolution with multiple V4R1 kernels, only the first kernel
-  // (kernelId == 0) should set the prefill attribute. All kernels write to disjoint
-  // regions of the same output buffer, so only one initialization is needed.
-  // TODO: We should also add some additional verification that ensures that
-  // this is only happening for conv_bwd_data kernels
-  // Note: We don't need to do this for arrangeGemmGemmSplitKTransform since
-  // ConvToGemm will only ever lower to regular Gemm ops
+  // For backward data convolution with multiple V4R1 kernels, only the first
+  // kernel (kernelId == 0) should set the prefill attribute. All kernels write
+  // to disjoint regions of the same output buffer, so only one initialization
+  // is needed.
   bool shouldSetPrefill = true;
+  // Only Gemms that have been converted from conv_bwd_data ops will have the
+  // kernelId attribute.
   if (auto kernelIdAttr = op->getAttrOfType<IntegerAttr>("kernelId")) {
     if (kernelIdAttr.getInt() > 0) {
       shouldSetPrefill = false;
