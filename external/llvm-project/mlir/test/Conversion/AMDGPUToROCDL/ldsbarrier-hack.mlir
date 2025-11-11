@@ -26,4 +26,3 @@ func.func @lds_barrier_workaround(%mem: memref<192xf32, #amdgpu_fat_buffer_addrs
   amdgpu.lds_barrier
   func.return
 }
-

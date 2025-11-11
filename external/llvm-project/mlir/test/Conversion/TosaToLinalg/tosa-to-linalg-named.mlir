@@ -16,6 +16,20 @@ func.func @matmul(%arg0: tensor<1x5x3xf32>, %arg1: tensor<1x3x6xf32>) -> (tensor
 
 // -----
 
+// CHECK-LABEL: @matmul_acc
+func.func @matmul_acc(%arg0: tensor<1x5x3xf16>, %arg1: tensor<1x3x6xf16>) -> (tensor<1x5x6xf16>) {
+  // CHECK: [[C0:%.+]] = arith.constant 0
+  // CHECK: [[INIT:%.+]] = tensor.empty()
+  // CHECK: [[FILLED:%.+]] = linalg.fill ins([[C0]] : f32) outs([[INIT]] : tensor<1x5x6xf32>) -> tensor<1x5x6xf32>
+  // CHECK: [[BMM_RESULT:%.+]] = linalg.batch_matmul ins(%arg0, %arg1 : tensor<1x5x3xf16>, tensor<1x3x6xf16>) outs([[FILLED]] : tensor<1x5x6xf32>) -> tensor<1x5x6xf32>
+  // CHECK: [[CAST:%.+]] = tosa.cast [[BMM_RESULT]] : (tensor<1x5x6xf32>) -> tensor<1x5x6xf16>
+  %a_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf16>}> : () -> tensor<1xf16>
+  %b_zp = "tosa.const"() <{values = dense<0.0> : tensor<1xf16>}> : () -> tensor<1xf16>
+  %0 = tosa.matmul %arg0, %arg1, %a_zp, %b_zp {acc_type = f32} : (tensor<1x5x3xf16>, tensor<1x3x6xf16>, tensor<1xf16>, tensor<1xf16>)  -> tensor<1x5x6xf16>
+  return %0 : tensor<1x5x6xf16>
+}
+
+// -----
 
 // CHECK-LABEL: @matmul_quantized
 func.func @matmul_quantized(%arg0: tensor<1x5x3xi8>, %arg1: tensor<1x3x6xi8>) -> (tensor<1x5x6xi32>) {
@@ -28,6 +42,22 @@ func.func @matmul_quantized(%arg0: tensor<1x5x3xi8>, %arg1: tensor<1x3x6xi8>) ->
   %a_zp = "tosa.const"() <{values = dense<1> : tensor<1xi8>}> : () -> tensor<1xi8>
   %b_zp = "tosa.const"() <{values = dense<2> : tensor<1xi8>}> : () -> tensor<1xi8>
   %0 = tosa.matmul %arg0, %arg1, %a_zp, %b_zp : (tensor<1x5x3xi8>, tensor<1x3x6xi8>, tensor<1xi8>, tensor<1xi8>) -> tensor<1x5x6xi32>
+  return %0 : tensor<1x5x6xi32>
+}
+
+// -----
+
+// CHECK-LABEL: @matmul_quantized_acc
+func.func @matmul_quantized_acc(%arg0: tensor<1x5x3xi8>, %arg1: tensor<1x3x6xi8>) -> (tensor<1x5x6xi32>) {
+  // CHECK: [[C0:%.+]] = arith.constant 0
+  // CHECK: [[INIT:%.+]] = tensor.empty()
+  // CHECK: [[FILLED:%.+]] = linalg.fill ins([[C0]] : i32) outs([[INIT]] : tensor<1x5x6xi32>) -> tensor<1x5x6xi32>
+  // CHECK: [[ONE:%.+]] = arith.constant 1
+  // CHECK: [[TWO:%.+]] = arith.constant 2
+  // CHECK: linalg.quantized_batch_matmul ins(%arg0, %arg1, [[ONE]], [[TWO]] : tensor<1x5x3xi8>, tensor<1x3x6xi8>, i32, i32) outs([[FILLED]] : tensor<1x5x6xi32>) -> tensor<1x5x6xi32>
+  %a_zp = "tosa.const"() <{values = dense<1> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %b_zp = "tosa.const"() <{values = dense<2> : tensor<1xi8>}> : () -> tensor<1xi8>
+  %0 = tosa.matmul %arg0, %arg1, %a_zp, %b_zp {acc_type = i32} : (tensor<1x5x3xi8>, tensor<1x3x6xi8>, tensor<1xi8>, tensor<1xi8>) -> tensor<1x5x6xi32>
   return %0 : tensor<1x5x6xi32>
 }
 

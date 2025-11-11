@@ -13,6 +13,7 @@
 
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 
@@ -399,6 +400,11 @@ struct LowerGpuOpsToROCDLOpsPass final
 
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
                                             *maybeChipset, hackForDirectToLDS);
+    // TODO (rocmlir): remove hardcoded passes
+    // related PR: https://github.com/llvm/llvm-project/pull/124439
+    mlir::vector::populateVectorInsertExtractStridedSliceTransforms(
+        llvmPatterns);
+    // TODO: ends here
     populateGpuToROCDLConversionPatterns(converter, llvmPatterns, runtime,
                                          *maybeChipset);
     configureGpuToROCDLConversionLegality(target);
@@ -435,6 +441,9 @@ void mlir::configureGpuToROCDLConversionLegality(ConversionTarget &target) {
   target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
   target.addLegalDialect<ROCDL::ROCDLDialect>();
   target.addIllegalDialect<gpu::GPUDialect>();
+  // TODO (rocmlir): remove vector::VectorDialect
+  // related PR: https://github.com/llvm/llvm-project/pull/124439
+  target.addIllegalDialect<gpu::GPUDialect, vector::VectorDialect>();
   target.addIllegalOp<LLVM::CosOp, LLVM::ExpOp, LLVM::Exp2Op, LLVM::FCeilOp,
                       LLVM::FFloorOp, LLVM::FRemOp, LLVM::LogOp, LLVM::Log10Op,
                       LLVM::Log2Op, LLVM::PowOp, LLVM::SinOp>();

@@ -133,16 +133,22 @@ struct ConvPadFoldAdaptor {
   }
   static void replaceOpWithNewPad(PatternRewriter &rewriter, OpTy op,
                                   Value padInput, ArrayRef<int64_t> newPad) {
-    if constexpr (std::is_same_v<OpTy, tosa::Conv2DOp>) {
+    // rocMLIR customization: DepthwiseConv2D does not have a group attribute,
+    // but we want to ensure that this is still being passed correctly on
+    // other conv operators.
+    if constexpr (std::is_same_v<OpTy, DepthwiseConv2DOp>) {
       rewriter.replaceOpWithNewOp<OpTy>(
           op, op.getResult().getType(), padInput, op.getWeight(), op.getBias(),
-          op.getInputZp(), op.getWeightZp(), newPad, op.getStrideAttr(),
-          op.getDilationAttr(), op.getAccType(), /*group=*/nullptr, op.getLocalBound());
+          op.getInputZp(), op.getWeightZp(),
+          rewriter.getDenseI64ArrayAttr(newPad), op.getStrideAttr(),
+          op.getDilationAttr(), op.getAccTypeAttr(), op.getLocalBoundAttr());
     } else {
       rewriter.replaceOpWithNewOp<OpTy>(
           op, op.getResult().getType(), padInput, op.getWeight(), op.getBias(),
-          op.getInputZp(), op.getWeightZp(), newPad, op.getStrideAttr(),
-          op.getDilationAttr(), op.getAccType(), op.getLocalBound());
+          op.getInputZp(), op.getWeightZp(),
+          rewriter.getDenseI64ArrayAttr(newPad), op.getStrideAttr(),
+          op.getDilationAttr(), op.getAccTypeAttr(), op.getGroupAttr(),
+          op.getLocalBoundAttr());
     }
   }
 };
