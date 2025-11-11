@@ -1744,14 +1744,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (isInt) {
       auto intValues = constAttr.getValues<APInt>();
       return validateMask(
-          intValues, [](const APInt &v) { return v.getSExtValue() == 0; },
-          [](const APInt &v) { return v.getSExtValue() == 1; },
+          intValues, [](const APInt &v) { return v.isZero(); },
+          [](const APInt &v) { return v.isOne(); },
           [](const APInt &v) { return v.isMinSignedValue(); });
     } else {
       auto floatValues = constAttr.getValues<APFloat>();
       return validateMask(
           floatValues,
-          [](const APFloat &v) { return v.convertToDouble() == 0.0; },
+          [](const APFloat &v) { return v.isZero(); },
           [](const APFloat &v) { return v.convertToDouble() == 1.0; },
           [](const APFloat &v) { return v.isInfinity() && v.isNegative(); });
     }
@@ -1876,10 +1876,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value input2 = add.getInput2();
 
     // Try to find the causal mask constant in either input
-    DenseSet<StringRef> expandAndCollapse{
-        tensor::CollapseShapeOp::getOperationName(),
-        tensor::ExpandShapeOp::getOperationName()};
-
     // Check if input2 is a causal mask (broadcasted via mul)
     auto maybeNonOne2 = mulBroadcast(input2);
     if (succeeded(maybeNonOne2)) {
