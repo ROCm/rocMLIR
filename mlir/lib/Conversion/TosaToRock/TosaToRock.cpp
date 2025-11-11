@@ -1686,11 +1686,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   //   part)
   // - The upper triangular part (positions > i) depends on the pattern:
   //     * For select-based masks (expectOnesInUpperTriangle=true): 1's
-  //     * For non-select based masks (expectOnesInUpperTriangle=false): large
-  //       negative values
+  //     * For non-select based masks (expectOnesInUpperTriangle=false): -infs
   // - In the select-based mask case, the upper triangular part that is all 1's
-  //   is combined with the -inf/large negative values that are fed into the
-  //   select op, resulting in the same type of mask pattern that we see in the
+  //   is combined with the -inf values that are fed into the select op,
+  //   resulting in the same type of mask pattern that we see in the
   //   non-select based mask case. In the non-select case the mask is added
   //   directly to the result of the first gemm.
   bool isValidCausalMask(Operation *op, bool expectOnesInUpperTriangle) const {
@@ -1712,13 +1711,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (shape.size() != 4 || shape[0] != 1 || shape[1] != 1)
       return false;
 
-    // Sanity check that this is an integer when expectOnesInUpperTriangle is
-    // false (i.e., the select case), and a float when expectOnesInUpperTriangle
-    // is true (i.e., the add case).
+    // Sanity check that this is an integer or float
     bool isInt = constAttr.getElementType().isIntOrIndex();
     bool isFloat = isa<FloatType>(constAttr.getElementType());
-    if ((!isInt && !isFloat) || (isInt && !expectOnesInUpperTriangle) ||
-        (isFloat && expectOnesInUpperTriangle))
+    if (!isInt && !isFloat)
       return false;
 
     int64_t seqLen = shape[2];
@@ -1726,7 +1722,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     // Generic validation function that works with any value type
     auto validateMask = [&](auto values, auto isZero, auto isOne,
-                            auto isLargeNegative) -> bool {
+                            auto isNegInf) -> bool {
       for (int64_t row = 0; row < seqLen; ++row) {
         for (int64_t col = 0; col < maxSeqLen; ++col) {
           auto val = values[row * maxSeqLen + col];
@@ -1737,7 +1733,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
           // Check that the upper triangular portion is correct
           bool validUpperTriangleVal =
-              expectOnesInUpperTriangle ? isOne(val) : isLargeNegative(val);
+              expectOnesInUpperTriangle ? isOne(val) : isNegInf(val);
           if (col > row && !validUpperTriangleVal)
             return false;
         }
@@ -1750,14 +1746,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return validateMask(
           intValues, [](const APInt &v) { return v.getSExtValue() == 0; },
           [](const APInt &v) { return v.getSExtValue() == 1; },
-          [](const APInt &v) { return v.getSExtValue() <= -10000; });
+          [](const APInt &v) { return v.isMinSignedValue(); });
     } else {
       auto floatValues = constAttr.getValues<APFloat>();
       return validateMask(
           floatValues,
           [](const APFloat &v) { return v.convertToDouble() == 0.0; },
           [](const APFloat &v) { return v.convertToDouble() == 1.0; },
-          [](const APFloat &v) { return v.convertToDouble() <= -10000.0; });
+          [](const APFloat &v) { return v.isInfinity() && v.isNegative(); });
     }
   }
 
@@ -1866,7 +1862,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Helper function to detect add-based causal mask pattern:
   //   - Looks for tosa.add(scores, mask) where mask is a constant with:
   //     * 0s in lower triangle (allow attention)
-  //     * Large negative values in upper triangle (block attention)
+  //     * -inf values in upper triangle (block attention)
   FailureOr<Value> getCausalFromAdd(Value input) const {
     DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
                                   tensor::ExpandShapeOp::getOperationName(),
@@ -1890,7 +1886,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       Operation *defOp = maybeNonOne2.value().getDefiningOp();
       if (defOp && isValidCausalMask(defOp,
                                      /*expectOnesInUpperTriangle=*/false)) {
-        // input1 is the attention scores (what we want to return)
         return input1;
       }
     }
@@ -1901,7 +1896,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       Operation *defOp = maybeNonOne1.value().getDefiningOp();
       if (defOp && isValidCausalMask(defOp,
                                      /*expectOnesInUpperTriangle=*/false)) {
-        // input2 is the attention scores (what we want to return)
         return input2;
       }
     }
@@ -1913,8 +1907,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Tries both select-based and add-based patterns.
   FailureOr<Value> getCausal(Value input) const {
     // Check that the input that comes from the causal mask (verified to be
-    // either -inf or a large negative constant in getCausalFromSelect or
-    // getCausalFromAdd) is used by an exp op.
+    // -inf values in getCausalFromSelect or getCausalFromAdd) is used by an
+    // exp op.
     if (!isUsedByExp(input))
       return failure();
 
