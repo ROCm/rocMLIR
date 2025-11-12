@@ -51,7 +51,9 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -250,13 +252,173 @@ static Operation* findFirstUseAfter(ThreadwiseReadIntoOp writeOp, llvm::DenseSet
   return firstRead.getOperation();
 }
 
-int getWaitCount(Operation *insertionPoint, int i) {
-  int second = 0;
-  int third = 3;
-  int waits[6] = {3, 3, second, second, third, third};
-  return waits[i];
+/// Extract constant offset from an arithmetic operation.
+/// Returns the offset if the operation is of the form: loop_var + constant or constant + loop_var
+static std::optional<int64_t> extractOffset(Value value, Value loopVar) {
+  auto *defOp = value.getDefiningOp();
+  if (!defOp)
+    return std::nullopt;
 
-  // return 0;
+  // Check for arith.addi
+  if (auto addiOp = dyn_cast<arith::AddIOp>(defOp)) {
+    APInt constVal;
+
+    LLVM_DEBUG(llvm::dbgs() << "  extractOffset: addiOp: " << *addiOp << "\n");
+    
+    // Check if one operand is the loop variable and the other is a constant
+    if (addiOp.getLhs() == loopVar && matchPattern(addiOp.getRhs(), m_ConstantInt(&constVal))) {
+      return constVal.getSExtValue();
+    } else if (addiOp.getRhs() == loopVar && matchPattern(addiOp.getLhs(), m_ConstantInt(&constVal))) {
+      return constVal.getSExtValue();
+    }
+  }
+  
+  return std::nullopt;
+}
+
+/// Count ThreadwiseReadIntoOps in a block that write to LDS memory.
+static int countLDSWritesInBlock(Block *block) {
+  int count = 0;
+  for (auto &op : *block) {
+    if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
+      auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+          readOp.getDest().getType().getMemorySpace());
+      if (memSpace && memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
+/// The localLoadOp is the load that triggers the dependency, and the
+/// globalLoadOp is the load that is dependent on the localLoadOp.
+int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
+  LLVM_DEBUG(llvm::dbgs() << "getWaitCount: Starting\n");
+  LLVM_DEBUG(llvm::dbgs() << "  globalLoadOp: " << *globalLoadOp << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "  localLoadOp: " << *localLoadOp << "\n");
+
+  if (!localLoadOp || !globalLoadOp)
+    return -1;
+
+  auto localReadOp = dyn_cast<ThreadwiseReadIntoOp>(localLoadOp);
+  if (!localReadOp)
+    return -1;
+
+  auto globalReadOp = dyn_cast<ThreadwiseReadIntoOp>(globalLoadOp);
+  if (!globalReadOp)
+    return -1;
+
+  // Count ThreadwiseReadIntoOps between localLoadOp and globalLoadOp that write to LDS
+  int waitCount = 0;
+  
+  Block *localBlock = localLoadOp->getBlock();
+  Block *globalBlock = globalLoadOp->getBlock();
+  
+  // If both are in the same block, count operations between them
+  if (localBlock == globalBlock) {
+    for (Operation &op : *localBlock) {
+      if (&op == globalLoadOp) {
+        // Start counting after globalLoadOp
+        continue;
+      }
+      if (&op == localLoadOp) {
+        // Stop counting at localLoadOp
+        break;
+      }
+      
+      if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
+        llvm::errs() << "Yep\n";
+        // TODO: Also check that readOp.getSource() has no gpu address space (which means is a global load)
+        auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(readOp.getDest().getType().getMemorySpace());
+        if (memSpace && memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+          waitCount++;
+        }
+      }
+    }
+  }
+  // else {
+  //   // Different blocks - count from globalLoadOp to end of its block,
+  //   // and from start of localBlock to localLoadOp
+  //   bool counting = false;
+  //   for (Operation &op : *globalBlock) {
+  //     if (&op == globalLoadOp) {
+  //       counting = true;
+  //     }
+  //     if (counting) {
+  //       if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
+  //         auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+  //             readOp.getDest().getType().getMemorySpace());
+  //         if (memSpace && memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+  //           waitCount++;
+  //         }
+  //       }
+  //     }
+  //   }
+    
+  //   LLVM_DEBUG(llvm::dbgs() << "  Different blocks: " << waitCount << "\n");
+  //   for (Operation &op : *localBlock) {
+  //     if (&op == localLoadOp) {
+  //       break;
+  //     }
+  //     if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
+  //       auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+  //           readOp.getDest().getType().getMemorySpace());
+  //       if (memSpace && memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+  //         waitCount++;
+  //       }
+  //     }
+  //   }
+  // }
+
+  // Check if globalLoadOp is inside a loop and uses ExtractMultiBufferOp with offset
+  if (auto forOp = globalLoadOp->getParentOfType<scf::ForOp>()) {
+    LLVM_DEBUG(llvm::dbgs() << "  globalLoadOp is inside a loop\n");
+    Value dest = globalReadOp.getDest();
+    
+    // Trace back to find ExtractMultiBufferOp
+    Value current = dest;
+    while (current) {
+      auto *defOp = current.getDefiningOp();
+      if (!defOp)
+        break;
+        
+      if (auto extractOp = dyn_cast<rock::ExtractMultiBufferOp>(defOp)) {
+        Value selectIndex = extractOp.getSelectIndex();
+        Value loopVar = forOp.getInductionVar();
+        
+        // Check if selectIndex has an offset from the loop variable
+        auto offset = extractOffset(selectIndex, loopVar);
+        if (offset.has_value() && offset.value() != 0) {
+          // Count how many LDS writes are in the loop body per iteration
+          Block *loopBody = forOp.getBody();
+          int loadsPerIteration = countLDSWritesInBlock(loopBody);
+          
+          // Account for the offset: we're loading from offset iterations ahead,
+          // so we need to account for offset * loads_per_iteration
+          LLVM_DEBUG(llvm::dbgs() << "  offset: " << offset.value() << ", loadsPerIteration: " << loadsPerIteration << "\n");
+          waitCount += offset.value() * loadsPerIteration;
+        }
+        break;
+      }
+      
+      // Follow view-like operations
+      if (auto viewOp = dyn_cast<ViewLikeOpInterface>(defOp)) {
+        current = viewOp.getViewSource();
+      } else if (auto transformOp = dyn_cast<rock::TransformOp>(defOp)) {
+        current = transformOp.getInput();
+      } else {
+        break;
+      }
+    }
+
+    waitCount--;
+  }
+  
+  LLVM_DEBUG(llvm::dbgs() << "  waitCount: " << waitCount << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "getWaitCount: Ending\n");
+
+  return waitCount;
 
   // int waitCount = 0;
   // Operation* parent = insertionPoint->getParentOp();
@@ -301,7 +463,6 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
 
   // Track insertion points to avoid inserting multiple AsyncWaitOps at the same location
   llvm::DenseSet<Operation*> insertionPoints;
-  int i = 0;
 
   for (auto readOp : readOps) {
     Operation* firstUse = findFirstUseAfter(readOp, insertionPoints);
@@ -318,10 +479,12 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
     }
     insertionPoints.insert(firstUse);
 
-    int waitToken = getWaitCount(firstUse, i);
-    rewriter.setInsertionPoint(firstUse);
-    rock::AsyncWaitOp::create(rewriter, firstUse->getLoc(), waitToken);
-    i++;
+    int waitToken = getWaitCount(firstUse, readOp);
+    if (waitToken != -1) {
+      rewriter.setInsertionPoint(firstUse);
+      rock::AsyncWaitOp::create(rewriter, firstUse->getLoc(), waitToken);
+    }
+    LLVM_DEBUG(llvm::dbgs() << "\n");
   }
 
   return success();
