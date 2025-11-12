@@ -138,7 +138,7 @@ static SmallVector<rock::GpuAllocOp> traceToAllocs(Value value) {
 
 /// Traverse forward from a value to find ThreadwiseReadIntoOps that read from LDS.
 /// Returns the first one found in program order.
-static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp) {
+static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp, llvm::DenseSet<Operation*> &insertionPoints) {
   ThreadwiseReadIntoOp firstRead = nullptr;
   Operation *firstReadOp = nullptr;
 
@@ -167,14 +167,25 @@ static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp
         if (sourceMemSpace && 
             sourceMemSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
           // This reads FROM LDS, check if it's after startOp
-          if (!startOp || user->getBlock() != startOp->getBlock() || user->isBeforeInBlock(startOp) || user == startOp) {
-            continue; // Skip reads that are before or at startOp
+          // Skip if: no startOp, same as startOp, already has insertion point, or in same block and before startOp
+          if (!startOp || user == startOp || insertionPoints.contains(user)) {
+            continue;
+          }
+          // If in the same block, skip if before startOp
+          if (user->getBlock() == startOp->getBlock() && user->isBeforeInBlock(startOp)) {
+            continue;
           }
           // Found a read after startOp, track the first one in program order
-          if (!firstReadOp || user->isBeforeInBlock(firstReadOp)) {
+          if (!firstReadOp) {
+            firstRead = readOp;
+            firstReadOp = user;
+          } else if (user->getBlock() == firstReadOp->getBlock() && user->isBeforeInBlock(firstReadOp)) {
+            // Same block: use isBeforeInBlock for ordering
             firstRead = readOp;
             firstReadOp = user;
           }
+          // If in different blocks, keep the first one we found
+          // (You may want to refine this ordering logic if needed)
         }
       }
       // If this is a view-like operation, follow its result
@@ -198,7 +209,7 @@ static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp
 /// Find the first use after a ThreadwiseReadIntoOp that writes to LDS.
 /// The function traces back the dest value to the alloc, then finds the first
 /// ThreadwiseReadIntoOp that reads from that alloc.
-static Operation* findFirstUseAfter(ThreadwiseReadIntoOp writeOp) {
+static Operation* findFirstUseAfter(ThreadwiseReadIntoOp writeOp, llvm::DenseSet<Operation*> &insertionPoints) {
   // Get the destination value (what is written to)
   Value dest = writeOp.getDest();
 
@@ -217,7 +228,7 @@ static Operation* findFirstUseAfter(ThreadwiseReadIntoOp writeOp) {
 
   for (auto alloc : allocs) {
     LLVM_DEBUG(llvm::dbgs() << "Checking alloc: " << alloc << "\n");
-    ThreadwiseReadIntoOp read = findFirstReadFromLDS(alloc.getResult(), writeOp.getOperation());
+    ThreadwiseReadIntoOp read = findFirstReadFromLDS(alloc.getResult(), writeOp.getOperation(), insertionPoints);
     
     if (read) {
       Operation *readOp = read.getOperation();
@@ -240,8 +251,8 @@ static Operation* findFirstUseAfter(ThreadwiseReadIntoOp writeOp) {
 }
 
 int getWaitCount(Operation *insertionPoint, int i) {
-  int second = 5;
-  int third = 0;
+  int second = 0;
+  int third = 3;
   int waits[6] = {3, 3, second, second, third, third};
   return waits[i];
 
@@ -293,7 +304,7 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
   int i = 0;
 
   for (auto readOp : readOps) {
-    Operation* firstUse = findFirstUseAfter(readOp);
+    Operation* firstUse = findFirstUseAfter(readOp, insertionPoints);
     
     if (!firstUse) {
       // If pattern doesn't match or no use found, skip this readOp
