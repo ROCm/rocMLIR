@@ -596,8 +596,8 @@ static LogicalResult reuseLDS(func::FuncOp &func) {
     auto newViewType =
         MemRefType::get({numElements}, rewriter.getI8Type(), AffineMap{},
                         workgroupMemoryAddressSpace);
-    rewriter.replaceOpWithNewOp<memref::ViewOp>(alloc, newViewType, newAlloc,
-                                                byteOffset, ValueRange{});
+    rewriter.replaceOpWithNewOp<rock::NoAliasViewOp>(
+        alloc, newViewType, newAlloc, byteOffset, ValueRange{});
   }
 
   return success();

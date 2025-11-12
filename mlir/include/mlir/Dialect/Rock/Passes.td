@@ -225,4 +225,12 @@ def RockAnnotateLivenessPass
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
+def RockPropagateAliasPass
+    : Pass<"rock-propagate-alias", "::mlir::func::FuncOp"> {
+  let summary = "This pass propagates LDS rock.allocs into memref.load, "
+                "memref.store and other memory operations";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect",
+                           "LLVM::LLVMDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES
