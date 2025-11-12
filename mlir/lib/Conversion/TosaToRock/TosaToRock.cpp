@@ -29,6 +29,7 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/tosaUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
@@ -52,6 +53,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include <tuple>
 #include <utility>
 
 #define DEBUG_TYPE "convert-tosa-to-rock"
@@ -790,7 +792,7 @@ static Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape,
   return rock::TransformOp::create(b, loc, inp, broadcastDims.get());
 }
 
-static FailureOr<Value> mulBroadcast(Value val);
+static FailureOr<Value> mulBroadcast(Value val, bool skipCollapseExpand = true);
 
 static FailureOr<Value> getValueSkipping(Value val,
                                          const DenseSet<StringRef> &opsToSkip) {
@@ -820,9 +822,12 @@ getDefiningOpSkipping(Value val, const DenseSet<StringRef> &opsToSkip) {
   return result;
 }
 
-static FailureOr<Value> mulBroadcast(Value val) {
+static FailureOr<Value> mulBroadcast(Value val, bool skipCollapseExpand) {
   DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
                                 tensor::ExpandShapeOp::getOperationName()};
+  if (!skipCollapseExpand)
+    opsToSkip.clear();
+
   auto maybeMul = getDefiningOpSkipping<tosa::MulOp>(val, opsToSkip);
   if (succeeded(maybeMul)) {
     auto mul = maybeMul.value();
@@ -2441,6 +2446,216 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return mul.getOutput();
   }
 
+  FailureOr<std::pair<int64_t, int64_t>> getNumHeadsGQA(Value value,
+                                                        bool isQ) const {
+    // this size is = batch*numHeads
+    auto collapse = value.getDefiningOp<tensor::CollapseShapeOp>();
+    if (!collapse)
+      return failure();
+
+    auto reassociationIdx = collapse.getReassociationIndices();
+
+    // expected to reshape to three dimensions (input to tosa.matmul)
+    if (reassociationIdx.size() != 3)
+      return failure();
+    size_t expectedGroupSize = isQ ? 2 : 3;
+    if (reassociationIdx[0].size() != expectedGroupSize ||
+        reassociationIdx[1].size() != 1 || reassociationIdx[2].size() != 1)
+      return failure();
+
+    // group size must match groupSizeQ
+    int64_t count = 0;
+    for (const auto &reassociation : reassociationIdx) {
+      for (auto idx : reassociation) {
+        if (count != idx)
+          return failure();
+        count++;
+      }
+    }
+
+    auto reshapeInputShape =
+        cast<ShapedType>(collapse.getSrc().getType()).getShape();
+    // we expect the input to be batch x num_heads x D x K (or K x D)
+    size_t expectedSize = isQ ? 4 : 5;
+    if (reshapeInputShape.size() != expectedSize)
+      return failure();
+
+    int64_t batch = reshapeInputShape[0];
+    int64_t numHeads = reshapeInputShape[1];
+    return std::make_pair(batch, numHeads);
+  }
+
+  LogicalResult checkBroadcastGQA(Value value, int64_t expectedRepeat) const {
+    auto collapse = value.getDefiningOp<tensor::CollapseShapeOp>();
+    if (!collapse)
+      return failure();
+    Value collapseVal = collapse.getSrc();
+
+    auto maybeNonOne = mulBroadcast(collapseVal, /*skipCollapseExpand=*/false);
+    if (failed(maybeNonOne))
+      return failure();
+
+    // we should be doing batch x num_heads x 1 x D x K -> batch x num_heads x
+    // REPEAT x D x K
+    Value nonOne = maybeNonOne.value();
+    auto shapeBeforeBroadcast = cast<ShapedType>(nonOne.getType()).getShape();
+    auto shapeAfterBroadcast =
+        cast<ShapedType>(
+            collapseVal.getDefiningOp<tosa::MulOp>().getOutput().getType())
+            .getShape();
+    if (shapeBeforeBroadcast.size() != shapeAfterBroadcast.size())
+      return failure();
+
+    // we expect five dimensions
+    if (shapeBeforeBroadcast.size() != 5)
+      return failure();
+
+    // dimension we are broadcasting
+    if (shapeBeforeBroadcast[2] != 1 ||
+        shapeAfterBroadcast[2] != expectedRepeat)
+      return failure();
+
+    // rest of dimensions must be the same
+    for (size_t idx = 0; idx < shapeBeforeBroadcast.size(); idx++) {
+      if (idx != 2 && shapeBeforeBroadcast[idx] != shapeAfterBroadcast[idx])
+        return failure();
+    }
+
+    return success();
+  }
+
+  FailureOr<Value> sliceTensorGQA(PatternRewriter &rewriter, Value value,
+                                  int64_t batch, int64_t numHeads,
+                                  int64_t repeat) const {
+    Location loc = value.getLoc();
+    ArrayRef<int64_t> shape = cast<ShapedType>(value.getType()).getShape();
+    if (shape.size() != 3)
+      return failure();
+
+    if (shape[0] != (batch * numHeads * repeat))
+      return failure();
+
+    // reshape group x D x K -> batch x num_heads x repeat x D x K
+    rock::BottomUpTMBuilder unmergeDims(rewriter, {"group", "dim0", "dim1"},
+                                        shape, loc);
+    unmergeDims.unmerge({"batch", "num_heads", "repeat"}, {0, 1, 2}, "group",
+                        {batch, numHeads, repeat});
+    unmergeDims.passThrough({3, 4}, {1, 2});
+    rock::TransformMapAttr unmergeDimsAttr = unmergeDims.get();
+
+    // slice repeat to 1
+    auto sliceRepeat =
+        rock::BottomUpTMBuilder::above(unmergeDims, unmergeDimsAttr);
+    sliceRepeat.slice({"repeat"}, {"repeat"}, {0}, {1});
+    sliceRepeat.passThrough({"batch", "num_heads", "dim0", "dim1"});
+    rock::TransformMapAttr sliceRepeatAttr = sliceRepeat.get();
+
+    // reshape back to group/repeat x D x K
+    auto finalMerge =
+        rock::BottomUpTMBuilder::above(sliceRepeat, sliceRepeatAttr);
+    finalMerge.merge("group", 0, {"batch", "num_heads", "repeat"});
+    finalMerge.passThrough({"dim0", "dim1"}, {1, 2}, {"dim0", "dim1"});
+    rock::TransformMapAttr finalMergeAttr = finalMerge.get();
+
+    ArrayAttr transformsAttr = rewriter.getArrayAttr(
+        {finalMergeAttr, sliceRepeatAttr, unmergeDimsAttr});
+    return rock::transform(rewriter, value, transformsAttr);
+  }
+
+  /*
+  This tries to identify if GQA is used, and undoes the broadcast. The expected
+  IR is:
+
+  // clang-format off
+  ```
+  %q = tensor.collapse %q [[0, 1], [2], [3]] : tensor<1x32x1x128xf16> into
+  tensor<32x1x128xf16>
+
+  // broadcast from numHeadsK, 1 -> numHeadsK, repeat where
+  numHeadsQ=numHeadsK*repeat %k = tosa.mul %k, constant=1, constant=0 :
+  (tensor<1x8x1x128x64xf16>, tensor<1x8x4x128x64xf16>, tensor<1xi8>) ->
+  tensor<1x8x4x128x64xf16>
+  // collapse batch, numHeadsK and repeat into group dimension,
+  group=batch*numHeadsK*repeat %k = tensor.collapse_shape %k [[0, 1, 2], [3],
+  [4]] : tensor<1x8x4x128x64xf16> into tensor<32x128x64xf16>
+
+  %v = same transforms as %k
+  rock.attention(%q, %k, %v)
+  ```
+  // clang-format on
+
+  Note that if we identify the GQA pattern, we slice the K and V tensors
+  and pass numHeadsQ and numHeadsKV to rock.attention. Otherwise, K and V
+  tensors are left untouched and numHeadsQ=1, numHeadsKV=1.
+  */
+  std::tuple<Value, Value, Value, IntegerAttr, IntegerAttr>
+  getGQAValues(PatternRewriter &rewriter, Value queries, Value keys,
+               Value values) const {
+    // default values in case GQA is not pattern matched
+    IntegerAttr numHeadsQAttr = rewriter.getI32IntegerAttr(1);
+    IntegerAttr numHeadsKVAttr = rewriter.getI32IntegerAttr(1);
+    auto defaultValues =
+        std::make_tuple(queries, keys, values, numHeadsQAttr, numHeadsKVAttr);
+
+    FailureOr<std::pair<int64_t, int64_t>> reshapeQResults =
+        getNumHeadsGQA(queries, true);
+    if (failed(reshapeQResults))
+      return defaultValues;
+    int64_t batchQ = reshapeQResults->first;
+    int64_t numHeadsQ = reshapeQResults->second;
+
+    FailureOr<std::pair<int64_t, int64_t>> reshapeKResults =
+        getNumHeadsGQA(keys, false);
+    if (failed(reshapeKResults))
+      return defaultValues;
+    int64_t batchK = reshapeKResults->first;
+    int64_t numHeadsK = reshapeKResults->second;
+
+    FailureOr<std::pair<int64_t, int64_t>> reshapeVResults =
+        getNumHeadsGQA(values, false);
+    if (failed(reshapeVResults))
+      return defaultValues;
+    int64_t batchV = reshapeVResults->first;
+    int64_t numHeadsV = reshapeVResults->second;
+
+    // batch must be equal for all tensors
+    if (batchQ != batchK || batchQ != batchV)
+      return defaultValues;
+
+    // num heads of K and V must be equal
+    if (numHeadsK != numHeadsV)
+      return defaultValues;
+
+    // numHeadsQ must be divisible by numHeadsKV
+    if (numHeadsQ % numHeadsK != 0)
+      return defaultValues;
+
+    int64_t expectedRepeat = numHeadsQ / numHeadsK;
+    // check we are doing the expected broadcast for K and V
+    LogicalResult kCorrect = checkBroadcastGQA(keys, expectedRepeat);
+    LogicalResult vCorrect = checkBroadcastGQA(values, expectedRepeat);
+    if (failed(kCorrect) || failed(vCorrect))
+      return defaultValues;
+
+    // update keys and values (slicing the repeats)
+    auto maybeKeys =
+        sliceTensorGQA(rewriter, keys, batchK, numHeadsK, expectedRepeat);
+    auto maybeValues =
+        sliceTensorGQA(rewriter, values, batchV, numHeadsV, expectedRepeat);
+    if (failed(maybeKeys) || failed(maybeValues))
+      return defaultValues;
+
+    keys = maybeKeys.value();
+    values = maybeValues.value();
+
+    numHeadsQAttr = rewriter.getI32IntegerAttr(numHeadsQ);
+    numHeadsKVAttr = rewriter.getI32IntegerAttr(numHeadsK);
+    LLVM_DEBUG(llvm::dbgs() << "Found GQA pattern, numHeadsQ=" << numHeadsQ
+                            << " numHeadsKV=" << numHeadsK << "\n");
+    return std::make_tuple(queries, keys, values, numHeadsQAttr,
+                           numHeadsKVAttr);
+  }
+
   FailureOr<AttentionMatcherValues> match(tosa::MatMulOp op) const {
     Value softmaxOutput = op.getA();
     DenseSet<StringRef> expandAndCollapse{
@@ -2636,13 +2851,16 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         attentionMatcherValues.preSoftmaxElementwiseFinder;
     int64_t firstGemmBlockIndex = elemwiseRegion.getFirstGemmBlockIndex();
 
-    // TODO: numHeadsQ and numHeadsKV migraphx integration
+    IntegerAttr numHeadsQ, numHeadsKV;
+    Value queries, keys, values;
+    std::tie(queries, keys, values, numHeadsQ, numHeadsKV) = getGQAValues(
+        rewriter, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB());
+
     rock::AttentionOp attnOp = rock::AttentionOp::create(
-        rewriter, loc, outputType, lseType, firstMatMulOp.getA(),
-        firstMatMulOp.getB(), op.getB(), elementwiseOtherArgs, currentSeqLen,
-        output, lseOut,
-        /*numHeadsQ=*/rewriter.getI32IntegerAttr(1),
-        /*numHeadsKV=*/rewriter.getI32IntegerAttr(1),
+        rewriter, loc, outputType, lseType, queries, keys, values,
+        elementwiseOtherArgs, currentSeqLen, output, lseOut,
+        /*numHeadsQ=*/numHeadsQ,
+        /*numHeadsKV=*/numHeadsKV,
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
