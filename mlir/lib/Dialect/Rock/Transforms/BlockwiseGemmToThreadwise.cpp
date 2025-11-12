@@ -482,12 +482,14 @@ struct BlockwiseGemmAccelRewritePattern
     }
     Value wrappedLDSBufferForScaleA, wrappedLDSBufferForScaleB;
     if (isScaledGemm) {
-      assert(loadAFromLDS && "Scaled GEMM requires loading A from LDS");
-      assert(loadBFromLDS && "Scaled GEMM requires loading B from LDS");
-      wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m");
-      wrappedLDSBufferForScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getScaleB(), matrixParamsB, op.getBlockSize(), "n");
+      if (loadAFromLDS) {
+        wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
+            b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m");
+      }
+      if (loadBFromLDS) {
+        wrappedLDSBufferForScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
+            b, loc, op.getScaleB(), matrixParamsB, op.getBlockSize(), "n");
+      }
     }
 
     auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
@@ -1442,7 +1444,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          affine::AffineDialect, vector::VectorDialect,
-                         memref::MemRefDialect>();
+                         memref::MemRefDialect, scf::SCFDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);

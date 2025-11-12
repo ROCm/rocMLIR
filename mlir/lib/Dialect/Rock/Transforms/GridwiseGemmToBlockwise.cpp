@@ -128,9 +128,9 @@ static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
   Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
   Value start = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
   scf::ForOp loopOp = scf::ForOp::create(rewriter, loc, start, end, one);
-  loopOp->setAttr(
-      PipelineAttr::getMnemonic(),
-      rock::PipelineAttr::get(rewriter.getContext(), initiationInterval));
+  // loopOp->setAttr(
+  //     PipelineAttr::getMnemonic(),
+  //     rock::PipelineAttr::get(rewriter.getContext(), initiationInterval));
   return loopOp;
 }
 

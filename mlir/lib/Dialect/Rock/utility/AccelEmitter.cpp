@@ -23,11 +23,14 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "llvm/Support/ErrorHandling.h"
 
 using namespace mlir;
@@ -190,7 +193,7 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   VectorType vectorType = mfmaGroup.getRetType();
   auto outputOffset = llvm::to_vector(regCOffset);
   bool isScaled = scaleA && scaleB;
-
+  llvm::dbgs() << "nResultVectors: " << nResultVectors << "\n";
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
     offset = AddIOp::create(
@@ -199,7 +202,29 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
     outputOffset.back() = offset;
     auto vectorC =
         memref::LoadOp::create(b, loc, vectorType, bufferC, outputOffset);
-
+    // // print vectorC
+    // llvm::dbgs() << "vectorC: " << vectorC << "\n";
+    // // print only if it is tid=0
+    // Value zeroThread =
+    //     b.create<ConstantOp>(loc, b.getIndexType(), b.getIndexAttr(0));
+    // auto isThreadZero = b.create<arith::CmpIOp>(
+    //     loc, arith::CmpIPredicate::eq,
+    //     b.create<WorkitemIdOp>(loc, b.getIndexType()), zeroThread);
+    // scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
+    //                                          /*withElseRegion=*/false);
+    // {
+    //   OpBuilder thenb = ifthread.getThenBodyBuilder();
+    //   affine::AffineForOp affineForLoop = thenb.create<affine::AffineForOp>(
+    //       loc, 0, dyn_cast<VectorType>(vectorC.getType()).getNumElements(), 1);
+    //   {
+    //     OpBuilder::InsertionGuard guard(thenb);
+    //     thenb.setInsertionPointToStart(affineForLoop.getBody());
+    //     Value i = affineForLoop.getInductionVar();
+    //     Value tmp = thenb.create<vector::ExtractOp>(loc, vectorC, i);
+    //     thenb.create<gpu::PrintfOp>(loc, "vectorC[%d]=%f\n",
+    //                                 ValueRange{i, tmp});
+    //   }
+    // }
     Value vectorD;
     if (isScaled) {
       auto mfma = amdgpu::ScaledMFMAOp::create(
@@ -207,6 +232,7 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
           vectorC, scaleA, scaleB, /*scalesIdxA=*/0, /*scalesIdxB=*/0);
       vectorD = mfma.getDestD();
     } else {
+      llvm::dbgs() << "Emitting MFMAOp\n";
       auto mfma = amdgpu::MFMAOp::create(
           b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
           mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,

@@ -541,7 +541,7 @@ static llvm::cl::opt<std::string> dataTypeAlias(
         if (val == "i8")
           outputDataType = "i32";
         else if (val.starts_with("f8") || val.starts_with("fp8") ||
-                 val.starts_with("bf8"))
+                 val.starts_with("bf8") || val.starts_with("f4E2M1FN"))
           outputDataType = "f32";
         else if (filterDataType == inputDataType)
           outputDataType = v;
@@ -1659,7 +1659,7 @@ static llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType,
     // float4E2M1FN can only represent 8 values. Use a small set of values to
     // avoid quantization error
     else if (isa<Float4E2M1FNType>(elemType)) {
-      pattern = {1, -4, 0.5, 1.5};
+      pattern = {1.5};
       // Float8E8M0FNU is only supposed to represent values that are in powers
       // of 2 Use a small set of such values to avoid quantization error
     } else if (isa<Float8E8M0FNUType>(elemType)) {
