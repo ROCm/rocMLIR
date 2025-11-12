@@ -1717,6 +1717,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (!isInt && !isFloat)
       return false;
 
+    // If this is an integer type, and we don't expect all ones in the upper
+    // triangle portion, then we cannot match this as a causal mask.
+    if (isInt && !expectOnesInUpperTriangle)
+      return false;
+
     int64_t seqLen = shape[2];
     int64_t maxSeqLen = shape[3];
 
