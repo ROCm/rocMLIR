@@ -964,6 +964,9 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
       // (input tensor). To avoid multiple initializations when multiple V4R1
       // kernels are used only the first kernel (kernelId == 0) should set the
       // prefill attribute
+      // TODO: This is okay for right now since we are not doing any fusions.
+      // When we do handle fusions in the future there is no guarantee that
+      // arg 1 is going to be the input tensor.
       if (kernelId == 0) {
         zeroInitArg(builder, func, 1);
       }
