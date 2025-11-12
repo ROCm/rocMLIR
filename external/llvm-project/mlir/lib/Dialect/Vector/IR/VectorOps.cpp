@@ -487,7 +487,12 @@ void VectorDialect::initialize() {
   declarePromisedInterface<SubsetExtractionOpInterface, TransferReadOp>();
   declarePromisedInterface<SubsetInsertionOpInterface, TransferWriteOp>();
   declarePromisedInterface<ConvertToLLVMPatternInterface, VectorDialect>();
+  // declarePromisedInterfaces<LLVM::AliasAnalysisOpInterface, LoadOp, StoreOp>();
 }
+
+SmallVector<Value> LoadOp::getAccessedOperands() { return {getBase()}; }
+
+SmallVector<Value> StoreOp::getAccessedOperands() { return {getBase()}; }
 
 /// Materialize a single constant operation from a given attribute value with
 /// the desired resultant type.

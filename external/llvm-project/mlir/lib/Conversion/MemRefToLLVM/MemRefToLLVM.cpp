@@ -939,9 +939,17 @@ struct LoadOpLowering : public LoadStoreOpLowering<memref::LoadOp> {
     Value dataPtr = getStridedElementPtr(rewriter, loadOp.getLoc(), type,
                                          adaptor.getMemref(),
                                          adaptor.getIndices(), kNoWrapFlags);
-    rewriter.replaceOpWithNewOp<LLVM::LoadOp>(
-        loadOp, typeConverter->convertType(type.getElementType()), dataPtr,
-        loadOp.getAlignment().value_or(0), false, loadOp.getNontemporal());
+    // rewriter.replaceOpWithNewOp<LLVM::LoadOp>(
+    //     loadOp, typeConverter->convertType(type.getElementType()), dataPtr,
+    //     loadOp.getAlignment().value_or(0), false, loadOp.getNontemporal());
+    auto llvmLoadOp = rewriter.replaceOpWithNewOp<LLVM::LoadOp>(
+        loadOp, typeConverter->convertType(type.getElementType()), dataPtr, loadOp.getAlignment().value_or(0),
+        false, loadOp.getNontemporal());
+    llvmLoadOp.setAliasScopes(loadOp.getAliasScopesOrNull());
+    llvmLoadOp.setNoAliasScopes(loadOp.getNoAliasScopesOrNull());
+    llvmLoadOp.setTBAATags(loadOp.getTBAATagsOrNull());
+
+
     return success();
   }
 };
@@ -962,9 +970,14 @@ struct StoreOpLowering : public LoadStoreOpLowering<memref::StoreOp> {
     Value dataPtr =
         getStridedElementPtr(rewriter, op.getLoc(), type, adaptor.getMemref(),
                              adaptor.getIndices(), kNoWrapFlags);
-    rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptor.getValue(), dataPtr,
-                                               op.getAlignment().value_or(0),
-                                               false, op.getNontemporal());
+    // rewriter.replaceOpWithNewOp<LLVM::StoreOp>(op, adaptor.getValue(), dataPtr,
+    //                                            op.getAlignment().value_or(0),
+    //                                            false, op.getNontemporal());
+    auto llvmStoreOp = rewriter.replaceOpWithNewOp<LLVM::StoreOp>(
+        op, adaptor.getValue(), dataPtr, op.getAlignment().value_or(0), false, op.getNontemporal());
+    llvmStoreOp.setAliasScopes(op.getAliasScopesOrNull());
+    llvmStoreOp.setNoAliasScopes(op.getNoAliasScopesOrNull());
+    llvmStoreOp.setTBAATags(op.getTBAATagsOrNull());
     return success();
   }
 };

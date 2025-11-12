@@ -30,6 +30,8 @@ include "mlir/Interfaces/VectorInterfaces.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
 include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/EnumAttr.td"
+include "mlir/Dialect/LLVMIR/LLVMAttrDefs.td"
+include "mlir/Dialect/LLVMIR/LLVMInterfaces.td"
 
 // TODO: Add an attribute to specify a different algebra with operators other
 // than the current set: {*, +}.
@@ -1652,7 +1654,8 @@ def Vector_TransferWriteOp :
 
 def Vector_LoadOp : Vector_Op<"load", [
     DeclareOpInterfaceMethods<VectorUnrollOpInterface, ["getShapeForUnroll"]>,
-    DeclareOpInterfaceMethods<MemorySpaceCastConsumerOpInterface>
+    DeclareOpInterfaceMethods<MemorySpaceCastConsumerOpInterface>,
+    DeclareOpInterfaceMethods<AliasAnalysisOpInterface>
   ]> {
   let summary = "reads an n-D slice of memory into an n-D vector";
   let description = [{
@@ -1725,7 +1728,10 @@ def Vector_LoadOp : Vector_Op<"load", [
       [MemRead]>:$base,
       Variadic<Index>:$indices,
       DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal,
-      OptionalAttr<IntValidAlignment<I64Attr>>: $alignment);
+      OptionalAttr<IntValidAlignment<I64Attr>>: $alignment,
+      OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+      OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+      OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa);
 
   let builders = [
     OpBuilder<(ins "VectorType":$resultType,
@@ -1735,7 +1741,7 @@ def Vector_LoadOp : Vector_Op<"load", [
                    CArg<"llvm::MaybeAlign", "llvm::MaybeAlign()">:$alignment), [{
       return build($_builder, $_state, resultType, base, indices, nontemporal,
                    alignment.has_value() ? $_builder.getI64IntegerAttr(alignment->value()) :
-                                    nullptr);
+                                    nullptr, nullptr, nullptr, nullptr);
     }]>,
     OpBuilder<(ins "TypeRange":$resultTypes,
                    "Value":$base,
@@ -1744,7 +1750,7 @@ def Vector_LoadOp : Vector_Op<"load", [
                    CArg<"llvm::MaybeAlign", "llvm::MaybeAlign()">:$alignment), [{
       return build($_builder, $_state, resultTypes, base, indices, nontemporal,
                    alignment.has_value() ? $_builder.getI64IntegerAttr(alignment->value()) :
-                                    nullptr);
+                                    nullptr, nullptr, nullptr, nullptr);
     }]>
   ];
 
@@ -1769,7 +1775,8 @@ def Vector_LoadOp : Vector_Op<"load", [
 
 def Vector_StoreOp : Vector_Op<"store", [
     DeclareOpInterfaceMethods<VectorUnrollOpInterface, ["getShapeForUnroll"]>,
-    DeclareOpInterfaceMethods<MemorySpaceCastConsumerOpInterface>
+    DeclareOpInterfaceMethods<MemorySpaceCastConsumerOpInterface>,
+    DeclareOpInterfaceMethods<AliasAnalysisOpInterface>
   ]> {
   let summary = "writes an n-D vector to an n-D slice of memory";
   let description = [{
@@ -1842,7 +1849,10 @@ def Vector_StoreOp : Vector_Op<"store", [
       [MemWrite]>:$base,
       Variadic<Index>:$indices,
       DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal,
-      OptionalAttr<IntValidAlignment<I64Attr>>: $alignment);
+      OptionalAttr<IntValidAlignment<I64Attr>>: $alignment,
+      OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+      OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+      OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa);
 
   let builders = [
     OpBuilder<(ins "Value":$valueToStore,
@@ -1852,7 +1862,7 @@ def Vector_StoreOp : Vector_Op<"store", [
                    CArg<"llvm::MaybeAlign", "llvm::MaybeAlign()">:$alignment), [{
       return build($_builder, $_state, valueToStore, base, indices, nontemporal,
                    alignment.has_value() ? $_builder.getI64IntegerAttr(alignment->value()) :
-                                    nullptr);
+                                    nullptr, nullptr, nullptr, nullptr);
     }]>
   ];
 

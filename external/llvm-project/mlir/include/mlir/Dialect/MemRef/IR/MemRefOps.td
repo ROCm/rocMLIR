@@ -11,6 +11,8 @@
 
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/MemRef/IR/MemRefBase.td"
+include "mlir/Dialect/LLVMIR/LLVMAttrDefs.td"
+include "mlir/Dialect/LLVMIR/LLVMInterfaces.td"
 include "mlir/Interfaces/CastInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/CopyOpInterface.td"
@@ -1235,7 +1237,8 @@ def LoadOp : MemRef_Op<"load",
       MemRefsNormalizable,
       DeclareOpInterfaceMethods<MemorySpaceCastConsumerOpInterface>,
       DeclareOpInterfaceMethods<PromotableMemOpInterface>,
-      DeclareOpInterfaceMethods<DestructurableAccessorOpInterface>]> {
+      DeclareOpInterfaceMethods<DestructurableAccessorOpInterface>,
+      DeclareOpInterfaceMethods<AliasAnalysisOpInterface>]> {
   let summary = "load operation";
   let description = [{
     The `load` op reads an element from a memref at the specified indices.
@@ -1271,7 +1274,10 @@ def LoadOp : MemRef_Op<"load",
                            [MemRead]>:$memref,
                        Variadic<Index>:$indices,
                        DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal,
-                       OptionalAttr<IntValidAlignment<I64Attr>>:$alignment);
+                       OptionalAttr<IntValidAlignment<I64Attr>>:$alignment,
+                       OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+                       OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+                       OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa);
 
   let builders = [
     OpBuilder<(ins "Value":$memref,
@@ -1280,7 +1286,7 @@ def LoadOp : MemRef_Op<"load",
                    CArg<"llvm::MaybeAlign", "llvm::MaybeAlign()">:$alignment), [{
       return build($_builder, $_state, memref, indices, nontemporal,
                    alignment ? $_builder.getI64IntegerAttr(alignment->value()) :
-                               nullptr);
+                               nullptr, nullptr, nullptr, nullptr);
     }]>,
     OpBuilder<(ins "Type":$resultType,
                    "Value":$memref,
@@ -1289,7 +1295,7 @@ def LoadOp : MemRef_Op<"load",
                    CArg<"llvm::MaybeAlign", "llvm::MaybeAlign()">:$alignment), [{
       return build($_builder, $_state, resultType, memref, indices, nontemporal,
                    alignment ? $_builder.getI64IntegerAttr(alignment->value()) :
-                               nullptr);
+                               nullptr, nullptr, nullptr, nullptr);
     }]>,
     OpBuilder<(ins "TypeRange":$resultTypes,
                    "Value":$memref,
@@ -1298,7 +1304,7 @@ def LoadOp : MemRef_Op<"load",
                    CArg<"llvm::MaybeAlign", "llvm::MaybeAlign()">:$alignment), [{
       return build($_builder, $_state, resultTypes, memref, indices, nontemporal,
                    alignment ? $_builder.getI64IntegerAttr(alignment->value()) :
-                               nullptr);
+                               nullptr, nullptr, nullptr, nullptr);
     }]>
   ];
 
@@ -2002,7 +2008,8 @@ def MemRef_StoreOp : MemRef_Op<"store",
       MemRefsNormalizable,
       DeclareOpInterfaceMethods<MemorySpaceCastConsumerOpInterface>,
       DeclareOpInterfaceMethods<PromotableMemOpInterface>,
-      DeclareOpInterfaceMethods<DestructurableAccessorOpInterface>]> {
+      DeclareOpInterfaceMethods<DestructurableAccessorOpInterface>,
+      DeclareOpInterfaceMethods<AliasAnalysisOpInterface>]> {
   let summary = "store operation";
   let description = [{
     The `store` op stores an element into a memref at the specified indices.
@@ -2036,7 +2043,10 @@ def MemRef_StoreOp : MemRef_Op<"store",
                            [MemWrite]>:$memref,
                        Variadic<Index>:$indices,
                        DefaultValuedOptionalAttr<BoolAttr, "false">:$nontemporal,
-                       OptionalAttr<IntValidAlignment<I64Attr>>:$alignment);
+                       OptionalAttr<IntValidAlignment<I64Attr>>:$alignment,
+                       OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+                       OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+                       OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa);
 
   let builders = [
     OpBuilder<(ins "Value":$valueToStore,
@@ -2046,7 +2056,7 @@ def MemRef_StoreOp : MemRef_Op<"store",
                    CArg<"llvm::MaybeAlign", "llvm::MaybeAlign()">:$alignment), [{
       return build($_builder, $_state, valueToStore, memref, indices, nontemporal,
                    alignment ? $_builder.getI64IntegerAttr(alignment->value()) :
-                               nullptr);
+                               nullptr, nullptr, nullptr, nullptr);
     }]>,
     OpBuilder<(ins "Value":$valueToStore, "Value":$memref), [{
       $_state.addOperands(valueToStore);

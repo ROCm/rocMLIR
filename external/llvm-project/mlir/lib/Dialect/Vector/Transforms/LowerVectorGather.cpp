@@ -220,7 +220,7 @@ struct Gather1DToConditionalLoads : OpRewritePattern<vector::GatherOp> {
           // and extract the single result instead.
           Value load =
               vector::LoadOp::create(b, loc, elemVecTy, base, baseOffsets,
-                                     nontemporalAttr, alignmentAttr);
+                                     nontemporalAttr, alignmentAttr, nullptr, nullptr, nullptr);
           int64_t zeroIdx[1] = {0};
           extracted = vector::ExtractOp::create(b, loc, load, zeroIdx);
         } else {

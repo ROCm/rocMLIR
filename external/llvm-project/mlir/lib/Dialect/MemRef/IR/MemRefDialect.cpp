@@ -57,6 +57,7 @@ void mlir::memref::MemRefDialect::initialize() {
   declarePromisedInterfaces<ValueBoundsOpInterface, AllocOp, AllocaOp, CastOp,
                             DimOp, GetGlobalOp, RankOp, SubViewOp>();
   declarePromisedInterface<DestructurableTypeInterface, MemRefType>();
+  // declarePromisedInterfaces<LLVM::AliasAnalysisOpInterface, LoadOp, StoreOp>();
 }
 
 /// Finds the unique dealloc operation (if one exists) for `allocValue`.
@@ -75,3 +76,7 @@ std::optional<Operation *> mlir::memref::findDealloc(Value allocValue) {
   }
   return dealloc;
 }
+
+SmallVector<Value> LoadOp::getAccessedOperands() { return {getMemRef()}; }
+
+SmallVector<Value> StoreOp::getAccessedOperands() { return {getMemRef()}; }
