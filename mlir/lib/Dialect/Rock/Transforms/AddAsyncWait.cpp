@@ -87,8 +87,165 @@ struct RockAddAsyncWaitPass
 };
 } // end anonymous namespace
 
-int getWaitCount(Operation *insertionPoint) {
-  return 0;
+/// Trace back a value to find all GpuAllocOps it originates from.
+/// Handles views, extract_multibuffer, and transform operations.
+/// Returns all allocs that could be the source (for extract_multibuffer with multiple buffers).
+static SmallVector<rock::GpuAllocOp> traceToAllocs(Value value) {
+  SmallVector<rock::GpuAllocOp> allocs;
+  SmallVector<Value> worklist;
+  llvm::DenseSet<Value> visited;
+
+  auto addToWorklist = [&](Value v) {
+    if (visited.insert(v).second) {
+      worklist.push_back(v);
+    }
+  };
+
+  addToWorklist(value);
+
+  while (!worklist.empty()) {
+    Value current = worklist.pop_back_val();
+    auto *curOp = current.getDefiningOp();
+    
+    if (!curOp) {
+      // Value doesn't have a defining op (e.g., block argument), skip it
+      continue;
+    }
+    
+    if (auto allocOp = dyn_cast<rock::GpuAllocOp>(curOp)) {
+      allocs.push_back(allocOp);
+      continue;
+    }
+
+    // Keep going until the operation that defines the value is a
+    // view-like operation
+    if (auto viewOp = dyn_cast<ViewLikeOpInterface>(curOp)) {
+      addToWorklist(viewOp.getViewSource());
+    } else if (auto extractMultiBufferOp =
+                   dyn_cast<rock::ExtractMultiBufferOp>(curOp)) {
+      // For extract_multibuffer, check all buffers since reads might use any of them
+      auto buffers = extractMultiBufferOp.getBuffers();
+      for (auto buffer : buffers) {
+        addToWorklist(buffer);
+      }
+    } else if (auto transformOp = dyn_cast<rock::TransformOp>(curOp)) {
+      addToWorklist(transformOp.getInput());
+    }
+  }
+
+  return allocs;
+}
+
+/// Traverse forward from a value to find ThreadwiseReadIntoOps that read from LDS.
+/// Returns the first one found in program order.
+static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp) {
+  ThreadwiseReadIntoOp firstRead = nullptr;
+  Operation *firstReadOp = nullptr;
+
+  // Worklist to traverse forward through views/extract_multibuffer/transform
+  SmallVector<Value> worklist;
+  llvm::DenseSet<Value> visited;
+  
+  auto addToWorklist = [&](Value v) {
+    if (visited.insert(v).second) {
+      worklist.push_back(v);
+    }
+  };
+
+  addToWorklist(value);
+
+  while (!worklist.empty()) {
+    Value current = worklist.pop_back_val();
+
+    // Check all users of this value
+    for (Operation *user : current.getUsers()) {
+      // If this is a ThreadwiseReadIntoOp, check if it reads FROM LDS
+      if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(user)) {
+        // Check if source is LDS (workgroup address space)
+        auto sourceMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+            readOp.getSource().getType().getMemorySpace());
+        if (sourceMemSpace && 
+            sourceMemSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+          // This reads FROM LDS, check if it's after startOp
+          if (!startOp || user->getBlock() != startOp->getBlock() || user->isBeforeInBlock(startOp) || user == startOp) {
+            continue; // Skip reads that are before or at startOp
+          }
+          // Found a read after startOp, track the first one in program order
+          if (!firstReadOp || user->isBeforeInBlock(firstReadOp)) {
+            firstRead = readOp;
+            firstReadOp = user;
+          }
+        }
+      }
+      // If this is a view-like operation, follow its result
+      else if (auto viewOp = dyn_cast<ViewLikeOpInterface>(user)) {
+        addToWorklist(viewOp->getResult(0));
+      }
+      // If this is an extract_multibuffer, follow its result
+      else if (auto extractOp = dyn_cast<rock::ExtractMultiBufferOp>(user)) {
+        addToWorklist(extractOp.getResult());
+      }
+      // If this is a transform operation, follow its result
+      else if (auto transformOp = dyn_cast<rock::TransformOp>(user)) {
+        addToWorklist(transformOp.getResult());
+      }
+    }
+  }
+
+  return firstRead;
+}
+
+/// Find the first use after a ThreadwiseReadIntoOp that writes to LDS.
+/// The function traces back the dest value to the alloc, then finds the first
+/// ThreadwiseReadIntoOp that reads from that alloc.
+static Operation* findFirstUseAfter(ThreadwiseReadIntoOp writeOp) {
+  // Get the destination value (what is written to)
+  Value dest = writeOp.getDest();
+
+  // Trace back to find all possible allocs
+  SmallVector<rock::GpuAllocOp> allocs = traceToAllocs(dest);
+  if (allocs.empty()) {
+    LLVM_DEBUG(llvm::dbgs() << "Failed to trace dest to alloc\n");
+    return nullptr;
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "Found " << allocs.size() << " alloc(s)\n");
+
+  // Find the first read from LDS that uses any of these allocs
+  ThreadwiseReadIntoOp firstRead = nullptr;
+  Operation *firstReadOp = nullptr;
+
+  for (auto alloc : allocs) {
+    LLVM_DEBUG(llvm::dbgs() << "Checking alloc: " << alloc << "\n");
+    ThreadwiseReadIntoOp read = findFirstReadFromLDS(alloc.getResult(), writeOp.getOperation());
+    
+    if (read) {
+      Operation *readOp = read.getOperation();
+      // Track the first one in program order
+      if (!firstReadOp || readOp->isBeforeInBlock(firstReadOp)) {
+        firstRead = read;
+        firstReadOp = readOp;
+      }
+    }
+  }
+  
+  if (!firstRead) {
+    LLVM_DEBUG(llvm::dbgs() << "No read found after writeOp\n");
+    return nullptr;
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "After writeOp: " << *writeOp.getOperation() << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "-> Found first read: " << firstRead << "\n");
+  return firstRead.getOperation();
+}
+
+int getWaitCount(Operation *insertionPoint, int i) {
+  int second = 5;
+  int third = 0;
+  int waits[6] = {3, 3, second, second, third, third};
+  return waits[i];
+
+  // return 0;
 
   // int waitCount = 0;
   // Operation* parent = insertionPoint->getParentOp();
@@ -112,146 +269,12 @@ int getWaitCount(Operation *insertionPoint) {
   // return waitCount;
 }
 
-/// Get the buffer index from an ExtractMultiBufferOp.
-/// If the select index is a constant, returns that index (modulo buffer count).
-/// Otherwise, returns 0 as the default.
-size_t getBufferIndex(rock::ExtractMultiBufferOp extractMultiBuffer) {
-  auto buffers = extractMultiBuffer.getBuffers();
-  if (buffers.empty()) {
-    return 0;
-  }
-  
-  // Check if the select index is a constant
-  auto selectIndex = dyn_cast_or_null<arith::ConstantIndexOp>(
-      extractMultiBuffer.getSelectIndex().getDefiningOp());
-  
-  if (selectIndex) {
-    // Use the constant index value (modulo buffer count for safety)
-    int64_t index = selectIndex.value() % buffers.size();
-    LLVM_DEBUG(llvm::dbgs() << "MultiBufferOp select index is a constant: " << index << "\n");
-    return static_cast<size_t>(index);
-  }
-  
-  // Otherwise, default to index 0
-  return 0;
-}
-
-/// Recursively traverse through ExtractMultiBufferOp and ViewOp to find
-/// the underlying value and check if it's actually reading from LDS.
-/// Returns a pair: (isReadingFromLDS, optionalValueToTrack)
-/// If optionalValueToTrack is present, it represents a value whose uses should
-/// also be checked (e.g., when traversing through ExtractMultiBufferOp or ViewOp).
-std::pair<bool, std::optional<Value>> readsFromLDSValue(Value value) {
-  LLVM_DEBUG(llvm::dbgs() << "readsFromLDSValue:" << value << "\n");
-  // If the value comes from an ExtractMultiBufferOp, extract the selected buffer
-  if (auto extractMultiBuffer = value.getDefiningOp<rock::ExtractMultiBufferOp>()) {
-    size_t bufferIndex = getBufferIndex(extractMultiBuffer);
-    auto buffers = extractMultiBuffer.getBuffers();
-    if (bufferIndex < buffers.size()) {
-      Value selectedBuffer = buffers[bufferIndex];
-      // Return the selected buffer to track its uses
-      if (selectedBuffer == value)
-        return {false, extractMultiBuffer.getResult()};
-      else
-        return {false, std::nullopt};
-    }
-    return {false, std::nullopt};
-  }
-  
-  // If the value comes from a ViewOp, extract the source and recurse
-  if (auto viewOp = value.getDefiningOp<memref::ViewOp>()) {
-    Value source = viewOp.getResult();
-    LLVM_DEBUG(llvm::dbgs() << "View op which result is: " << source << "\n");
-    // Return the source to track its uses
-    return {false, source};
-  }
-     
-  LLVM_DEBUG(llvm::dbgs() << "Ok, this is reading from LDS\n");
-  // TODO: Add actual check for LDS read operations here
-  // For now, if we reach a non-ExtractMultiBufferOp/ViewOp user, consider it a read
-  return {true, std::nullopt};
-}
-
-/// Find the first use following the pattern:
-/// ThreadwiseReadIntoOp -> dest (ExtractMultiBufferOp) -> first operand -> ViewOp -> input
-/// Then find the first use of either the ViewOp's input or the ViewOp itself.
-/// Returns nullptr if the pattern doesn't match or no use is found.
-Operation* findFirstUseAfter(ThreadwiseReadIntoOp readOp) {
-  Value dest = readOp.getDest();
-  
-  // Pattern-match: dest must be an ExtractMultiBufferOp
-  auto extractMultiBuffer = dest.getDefiningOp<rock::ExtractMultiBufferOp>();
-  if (!extractMultiBuffer) {
-    LLVM_DEBUG(llvm::dbgs() << "ThreadwiseReadIntoOp dest is not an ExtractMultiBufferOp\n");
-    return nullptr;
-  }
-  
-  // Get the buffer based on the select index
-  auto buffers = extractMultiBuffer.getBuffers();
-  if (buffers.empty()) {
-    LLVM_DEBUG(llvm::dbgs() << "ExtractMultiBufferOp has no buffers\n");
-    return nullptr;
-  }
-  
-  size_t bufferIndex = getBufferIndex(extractMultiBuffer);
-  Value selectedBuffer = buffers[bufferIndex];
-  
-  // Pattern-match: selected buffer must come from a memref::ViewOp
-  auto viewOp = selectedBuffer.getDefiningOp<memref::ViewOp>();
-  if (!viewOp) {
-    LLVM_DEBUG(llvm::dbgs() << "Selected buffer is not a memref::ViewOp\n");
-    return nullptr;
-  }
-  
-  // Get the input of the ViewOp (the actual value we want to track)
-  Value viewInput = viewOp.getSource();  
-  LLVM_DEBUG(llvm::dbgs() << "################## ViewOp input is: " << viewInput << "\n");
-  
-  // Find the first use of either the ViewOp's input or the ViewOp itself
-  Operation* firstUse = nullptr;
-  Block* block = readOp->getBlock();
-  
-  // Track operations and the value they're using
-  SmallVector<Operation *> uses;
-  SmallVector<Value> values;
-  for (Operation *user : viewInput.getUsers()) {
-    LLVM_DEBUG(llvm::dbgs() << "################## User is: " << *user << "\n");
-    uses.push_back(user);
-    // values.push_back(viewInput);
-  }
-  
-  // Check all uses. Use index-based loop since we may add more uses during iteration
-  for (size_t i = 0; i < uses.size(); ++i) {
-    Operation *user = uses[i];
-    Value value = user->getResult(0); //values[i];
-    
-    auto [isReading, optionalValue] = readsFromLDSValue(value);
-    
-    // If there's a value to track further, add its users to the vector
-    if (optionalValue.has_value()) {
-      for (Operation *nestedUser : optionalValue.value().getUsers()) {
-        uses.push_back(nestedUser);
-        // values.push_back(optionalValue.value());
-      }
-      continue;
-    }
-    
-    // If not reading from LDS, skip this use
-    if (!isReading) {
-      continue;
-    }
-    
-    // Only consider uses in the same block that come after readOp
-    if (user->getBlock() == block && readOp->isBeforeInBlock(user)) {
-      if (!firstUse || user->isBeforeInBlock(firstUse)) {
-        firstUse = user;
-      }
-    }
-  }
-  
-  return firstUse;
-}
-
+/// Add AsyncWaitOps to the function. This function has two main steps:
+/// 1. Find all ThreadwiseReadIntoOp operations that write into LDS memory.
+///    Then, for each of them, call findFirstUseAfter, which will find the first op
+///    that uses the result of the ThreadwiseReadIntoOp.
+/// 2. Once we know where to insert the AsyncWaitOp, call getWaitCount, which will
+///    return the number of AsyncWaitOps to insert.
 static LogicalResult addAsyncWait(func::FuncOp &func) {
   IRRewriter rewriter(func->getContext());
 
@@ -284,9 +307,9 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
     }
     insertionPoints.insert(firstUse);
 
-    int waitToken = getWaitCount(firstUse);
+    int waitToken = getWaitCount(firstUse, i);
     rewriter.setInsertionPoint(firstUse);
-    rock::AsyncWaitOp::create(rewriter, firstUse->getLoc(), i);
+    rock::AsyncWaitOp::create(rewriter, firstUse->getLoc(), waitToken);
     i++;
   }
 
