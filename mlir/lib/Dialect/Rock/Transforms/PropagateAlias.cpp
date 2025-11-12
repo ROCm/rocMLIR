@@ -53,12 +53,12 @@ traceToNoAliasViewOrSelect(Value memref, DenseMap<Value, Operation *> &cache) {
   if (cached != cache.end())
     return cached->second;
   Operation *res = nullptr;
-  if (auto view = memref.getDefiningOp<ViewLikeOpInterface>())
-    res = traceToNoAliasViewOrSelect(view.getViewSource(), cache);
-  else if (auto select = memref.getDefiningOp<arith::SelectOp>()) {
-    res = select;
-  } else if (auto view = memref.getDefiningOp<rock::NoAliasViewOp>())
+  if (auto view = memref.getDefiningOp<rock::NoAliasViewOp>())
     res = view;
+  else if (auto view = memref.getDefiningOp<ViewLikeOpInterface>())
+    res = traceToNoAliasViewOrSelect(view.getViewSource(), cache);
+  else if (auto select = memref.getDefiningOp<arith::SelectOp>())
+    res = select;
 
   cache.insert({memref, res});
   return res;
