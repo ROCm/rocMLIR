@@ -149,8 +149,10 @@ static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp
   llvm::DenseSet<Value> visited;
   
   auto addToWorklist = [&](Value v) {
+    LLVM_DEBUG(llvm::dbgs() << "  -> Checking: " << *v.getDefiningOp() << "\n");
     if (visited.insert(v).second) {
       worklist.push_back(v);
+      LLVM_DEBUG(llvm::dbgs() << "  -> Added to worklist!\n");
     }
   };
 
@@ -158,6 +160,13 @@ static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp
 
   while (!worklist.empty()) {
     Value current = worklist.pop_back_val();
+
+    LLVM_DEBUG(llvm::dbgs() << "  -> Checking current: " << *current.getDefiningOp() << "\n");
+
+    if (current.getUsers().empty()) {
+      LLVM_DEBUG(llvm::dbgs() << "  -> No users found for current: " << *current.getDefiningOp() << "\n");
+      continue;
+    }
 
     // Check all users of this value
     for (Operation *user : current.getUsers()) {
@@ -171,23 +180,58 @@ static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp
           // This reads FROM LDS, check if it's after startOp
           // Skip if: no startOp, same as startOp, already has insertion point, or in same block and before startOp
           if (!startOp || user == startOp || insertionPoints.contains(user)) {
+            LLVM_DEBUG(llvm::dbgs() << "Skipping readOp because it's already been used: " << *readOp << "\n");
             continue;
           }
           // If in the same block, skip if before startOp
           if (user->getBlock() == startOp->getBlock() && user->isBeforeInBlock(startOp)) {
+            LLVM_DEBUG(llvm::dbgs() << "Skipping readOp because it's before startOp: " << *readOp << "\n");
             continue;
           }
+          LLVM_DEBUG(llvm::dbgs() << "Found something!\n");
           // Found a read after startOp, track the first one in program order
           if (!firstReadOp) {
             firstRead = readOp;
             firstReadOp = user;
-          } else if (user->getBlock() == firstReadOp->getBlock() && user->isBeforeInBlock(firstReadOp)) {
+          } else if (user->getBlock() == firstReadOp->getBlock()) {
             // Same block: use isBeforeInBlock for ordering
-            firstRead = readOp;
-            firstReadOp = user;
+            if (user->isBeforeInBlock(firstReadOp)) {
+              firstRead = readOp;
+              firstReadOp = user;
+            }
+          } 
+          else {
+            // Different blocks: check if one is nested inside the other
+            Block *userBlock = user->getBlock();
+            Block *firstReadBlock = firstReadOp->getBlock();
+            
+            // Check if firstReadBlock is nested inside userBlock's region
+            Operation *firstReadParentOp = firstReadBlock->getParentOp();
+            if (firstReadParentOp && firstReadParentOp->getBlock() == userBlock) {
+              // firstReadBlock is nested in userBlock, compare firstReadParentOp with user
+              if (firstReadParentOp->isBeforeInBlock(user)) {
+                // firstReadParentOp comes before user, so firstReadOp comes first
+                // Don't update, keep current firstRead
+              } else {
+                // user comes before firstReadParentOp, so user comes first
+                firstRead = readOp;
+                firstReadOp = user;
+              }
+            }
+            // Check if userBlock is nested inside firstReadBlock's region
+            else if (Operation *userParentOp = userBlock->getParentOp()) {
+              if (userParentOp->getBlock() == firstReadBlock) {
+                // userBlock is nested in firstReadBlock, compare userParentOp with firstReadOp
+                if (userParentOp->isBeforeInBlock(firstReadOp)) {
+                  // userParentOp comes before firstReadOp, so user comes first
+                  firstRead = readOp;
+                  firstReadOp = user;
+                }
+                // Otherwise firstReadOp comes first, don't update
+              }
+            }
+            // If neither is nested in the other, don't update firstRead
           }
-          // If in different blocks, keep the first one we found
-          // (You may want to refine this ordering logic if needed)
         }
       }
       // If this is a view-like operation, follow its result
@@ -276,14 +320,26 @@ static std::optional<int64_t> extractOffset(Value value, Value loopVar) {
   return std::nullopt;
 }
 
-/// Count ThreadwiseReadIntoOps in a block that write to LDS memory.
-static int countLDSWritesInBlock(Block *block) {
+/// Check if a ThreadwiseReadIntoOp reads from global memory (no GPU address space).
+static bool isGlobalLoad(ThreadwiseReadIntoOp readOp) {
+  auto sourceMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      readOp.getSource().getType().getMemorySpace());
+  // Global memory has no address space attribute (or it's null)
+  return !sourceMemSpace;
+}
+
+/// Count ThreadwiseReadIntoOps in a block that read from global memory and write to LDS.
+static int countGlobalLoadsInBlock(Block *block) {
   int count = 0;
   for (auto &op : *block) {
     if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
-      auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      // Check if it reads from global memory
+      if (!isGlobalLoad(readOp))
+        continue;
+      // Check if it writes to LDS
+      auto destMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
           readOp.getDest().getType().getMemorySpace());
-      if (memSpace && memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+      if (destMemSpace && destMemSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
         count++;
       }
     }
@@ -291,118 +347,87 @@ static int countLDSWritesInBlock(Block *block) {
   return count;
 }
 
-/// The localLoadOp is the load that triggers the dependency, and the
-/// globalLoadOp is the load that is dependent on the localLoadOp.
-int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
-  LLVM_DEBUG(llvm::dbgs() << "getWaitCount: Starting\n");
-  LLVM_DEBUG(llvm::dbgs() << "  globalLoadOp: " << *globalLoadOp << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "  localLoadOp: " << *localLoadOp << "\n");
-
-  if (!localLoadOp || !globalLoadOp)
-    return -1;
-
-  auto localReadOp = dyn_cast<ThreadwiseReadIntoOp>(localLoadOp);
-  if (!localReadOp)
-    return -1;
-
-  auto globalReadOp = dyn_cast<ThreadwiseReadIntoOp>(globalLoadOp);
-  if (!globalReadOp)
-    return -1;
-
-  // Count ThreadwiseReadIntoOps between localLoadOp and globalLoadOp that write to LDS
-  int waitCount = 0;
+/// Get the iteration interval from a for loop by checking the offset of the induction variable.
+/// Returns 1 if not pipelined (offset = 0), or the offset value if pipelined.
+static int getIterationInterval(scf::ForOp forOp) {
+  Value inductionVar = forOp.getInductionVar();
+  Block *body = forOp.getBody();
   
-  Block *localBlock = localLoadOp->getBlock();
-  Block *globalBlock = globalLoadOp->getBlock();
-  
-  // If both are in the same block, count operations between them
-  if (localBlock == globalBlock) {
-    for (Operation &op : *localBlock) {
-      if (&op == globalLoadOp) {
-        // Start counting after globalLoadOp
-        continue;
-      }
-      if (&op == localLoadOp) {
-        // Stop counting at localLoadOp
-        break;
-      }
-      
-      if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
-        llvm::errs() << "Yep\n";
-        // TODO: Also check that readOp.getSource() has no gpu address space (which means is a global load)
-        auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(readOp.getDest().getType().getMemorySpace());
-        if (memSpace && memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-          waitCount++;
-        }
+  // Look for uses of the induction variable with offsets in the loop body
+  // Check for ExtractMultiBufferOp that uses the induction variable with an offset
+  for (auto &op : *body) {
+    if (auto extractOp = dyn_cast<rock::ExtractMultiBufferOp>(&op)) {
+      Value selectIndex = extractOp.getSelectIndex();
+      auto offset = extractOffset(selectIndex, inductionVar);
+      if (offset.has_value()) {
+        // If offset is 0, not pipelined; if > 0, pipelined with that interval
+        return offset.value() == 0 ? 1 : offset.value();
       }
     }
   }
-  // else {
-  //   // Different blocks - count from globalLoadOp to end of its block,
-  //   // and from start of localBlock to localLoadOp
-  //   bool counting = false;
-  //   for (Operation &op : *globalBlock) {
-  //     if (&op == globalLoadOp) {
-  //       counting = true;
-  //     }
-  //     if (counting) {
-  //       if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
-  //         auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-  //             readOp.getDest().getType().getMemorySpace());
-  //         if (memSpace && memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-  //           waitCount++;
-  //         }
-  //       }
-  //     }
-  //   }
-    
-  //   LLVM_DEBUG(llvm::dbgs() << "  Different blocks: " << waitCount << "\n");
-  //   for (Operation &op : *localBlock) {
-  //     if (&op == localLoadOp) {
-  //       break;
-  //     }
-  //     if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
-  //       auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-  //           readOp.getDest().getType().getMemorySpace());
-  //       if (memSpace && memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-  //         waitCount++;
-  //       }
-  //     }
-  //   }
-  // }
+  
+  // Default: not pipelined
+  return 1;
+}
 
-  // Check if globalLoadOp is inside a loop and uses ExtractMultiBufferOp with offset
-  if (auto forOp = globalLoadOp->getParentOfType<scf::ForOp>()) {
-    LLVM_DEBUG(llvm::dbgs() << "  globalLoadOp is inside a loop\n");
-    Value dest = globalReadOp.getDest();
+/// Count how many globalLoadOps have the same source index as the given globalLoadOp.
+/// This is used when both operations are outside a loop.
+static int countGlobalLoadsWithSameIndex(ThreadwiseReadIntoOp globalLoadOp, func::FuncOp func) {
+  // Get the source of globalLoadOp and trace back to find the index used
+  Value globalSource = globalLoadOp.getSource();
+  
+  // Try to find ExtractMultiBufferOp to get the index
+  Value current = globalSource;
+  Value targetIndex = nullptr;
+  
+  while (current) {
+    auto *defOp = current.getDefiningOp();
+    if (!defOp)
+      break;
+      
+    if (auto extractOp = dyn_cast<rock::ExtractMultiBufferOp>(defOp)) {
+      targetIndex = extractOp.getSelectIndex();
+      break;
+    }
     
-    // Trace back to find ExtractMultiBufferOp
-    Value current = dest;
+    if (auto viewOp = dyn_cast<ViewLikeOpInterface>(defOp)) {
+      current = viewOp.getViewSource();
+    } else if (auto transformOp = dyn_cast<rock::TransformOp>(defOp)) {
+      current = transformOp.getInput();
+    } else {
+      break;
+    }
+  }
+  
+  if (!targetIndex)
+    return 1; // Can't determine, default to 1
+  
+  // Count all global loads with the same index
+  int count = 0;
+  func.walk([&](ThreadwiseReadIntoOp readOp) {
+    if (!isGlobalLoad(readOp))
+      return;
+    
+    // Check if it writes to LDS
+    auto destMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+        readOp.getDest().getType().getMemorySpace());
+    if (!destMemSpace || destMemSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace())
+      return;
+    
+    // Trace back to find the index
+    Value current = readOp.getSource();
     while (current) {
       auto *defOp = current.getDefiningOp();
       if (!defOp)
         break;
         
       if (auto extractOp = dyn_cast<rock::ExtractMultiBufferOp>(defOp)) {
-        Value selectIndex = extractOp.getSelectIndex();
-        Value loopVar = forOp.getInductionVar();
-        
-        // Check if selectIndex has an offset from the loop variable
-        auto offset = extractOffset(selectIndex, loopVar);
-        if (offset.has_value() && offset.value() != 0) {
-          // Count how many LDS writes are in the loop body per iteration
-          Block *loopBody = forOp.getBody();
-          int loadsPerIteration = countLDSWritesInBlock(loopBody);
-          
-          // Account for the offset: we're loading from offset iterations ahead,
-          // so we need to account for offset * loads_per_iteration
-          LLVM_DEBUG(llvm::dbgs() << "  offset: " << offset.value() << ", loadsPerIteration: " << loadsPerIteration << "\n");
-          waitCount += offset.value() * loadsPerIteration;
+        if (extractOp.getSelectIndex() == targetIndex) {
+          count++;
+          break;
         }
-        break;
       }
       
-      // Follow view-like operations
       if (auto viewOp = dyn_cast<ViewLikeOpInterface>(defOp)) {
         current = viewOp.getViewSource();
       } else if (auto transformOp = dyn_cast<rock::TransformOp>(defOp)) {
@@ -411,35 +436,76 @@ int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
         break;
       }
     }
+  });
+  
+  return count > 0 ? count : 1;
+}
 
-    waitCount--;
+/// The localLoadOp is the load that triggers the dependency, and the
+/// globalLoadOp is the load that is dependent on the localLoadOp.
+int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
+  if (!localLoadOp || !globalLoadOp)
+    return -1;
+
+  auto localReadOp = dyn_cast<ThreadwiseReadIntoOp>(localLoadOp);
+  auto globalReadOp = dyn_cast<ThreadwiseReadIntoOp>(globalLoadOp);
+  if (!localReadOp || !globalReadOp)
+    return -1;
+
+  // Get parent blocks and check for loops
+  Block *localBlock = localLoadOp->getBlock();
+  Block *globalBlock = globalLoadOp->getBlock();
+  
+  scf::ForOp localLoop = localLoadOp->getParentOfType<scf::ForOp>();
+  scf::ForOp globalLoop = globalLoadOp->getParentOfType<scf::ForOp>();
+  
+  int iterationInterval, numBuffers;
+
+  // Case 1: Both have the same parent block (function) - prologue
+  if (!localLoop && !globalLoop) {
+    LLVM_DEBUG(llvm::dbgs() << "Case 1: Both in function (prologue)\n");
+    // Count how many globalLoadOps have the same source index
+    numBuffers = 2;
+    iterationInterval = 2;
   }
+  // Case 2: localLoad in loop, globalLoad in function - body
+  else if (localLoop && !globalLoop) {
+    LLVM_DEBUG(llvm::dbgs() << "Case 2: localLoad in loop, globalLoad in function (body)\n");
+    // Get iteration interval from the loop
+    iterationInterval = getIterationInterval(localLoop);
+    // Count global loads in the loop body
+    Block *loopBody = localLoop.getBody();
+    numBuffers = countGlobalLoadsInBlock(loopBody);    
+  }
+  // Case 3: localLoad in function, globalLoad in loop - epilogue
+  else if (!localLoop && globalLoop) {
+    LLVM_DEBUG(llvm::dbgs() << "Case 3: localLoad in function, globalLoad in loop (epilogue)\n");
+    // Get iteration interval from the loop
+    iterationInterval = getIterationInterval(globalLoop);
+    // Count global loads in the loop body
+    Block *loopBody = globalLoop.getBody();
+    numBuffers = countGlobalLoadsInBlock(loopBody);
+    return 0;
+  }
+  else {
+    LLVM_DEBUG(llvm::dbgs() << "Case 4: both in loops\n");
+    // LLVM_DEBUG(llvm::dbgs() << "localLoadOp: " << *localLoadOp << "\n" << "globalLoadOp: " << *globalLoadOp << "\n");
+    // llvm_unreachable("Both in loops - should not happen in typical pipelining");
+    iterationInterval = getIterationInterval(globalLoop);
+    // Count global loads in the loop body
+    Block *loopBody = globalLoop.getBody();
+    numBuffers = countGlobalLoadsInBlock(loopBody);
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "  iterationInterval: " << iterationInterval << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "  numBuffers: " << numBuffers << "\n");
+
+  // Wait count = iteration_interval * number_of_buffers - 1
+  int waitCount = iterationInterval * numBuffers - 1;
   
   LLVM_DEBUG(llvm::dbgs() << "  waitCount: " << waitCount << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "getWaitCount: Ending\n");
-
-  return waitCount;
-
-  // int waitCount = 0;
-  // Operation* parent = insertionPoint->getParentOp();
-
-  // parent->walk([&](Operation *op) {
-  //   if (op->getBlock() == insertionPoint->getBlock() && 
-  //       op->isBeforeInBlock(insertionPoint) && 
-  //       isa<ThreadwiseReadIntoOp>(op)) {
-  //     waitCount++;
-  //   }    
-  // });
-
-  // if (waitCount == 0) waitCount = 63;  // best
-  // else if (waitCount == 2) waitCount = 1; // best
-  // else if (waitCount == 6) waitCount = 2; // best
-
-  // if (waitCount == 0) waitCount = 0;  // best
-  // else if (waitCount == 2) waitCount = 2; // best
-  // else if (waitCount == 6) waitCount = 0; // best
-
-  // return waitCount;
+  
+  return waitCount >= 0 ? waitCount : 0;
 }
 
 /// Add AsyncWaitOps to the function. This function has two main steps:
