@@ -444,11 +444,15 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
   bool isKReduction = mfmaAttr.isKReduction;
   int64_t kIter = kpackPerThread;
+  int64_t kVec = 1;
   // Note that when directToLDS is disabled, we are loading vector<kpackxdtype>
   // from LDS, so we load kpackPerThread. When directToLDS is enabled, we
   // load vector<1xdtype>, so each thread will load kpackPerThread * kPack.
   if (matrixParams.getDirectToLDS()) {
-    kIter *= kPack;
+    // kVec is kPack for directToLDS because as explained above, the
+    // non-directToLDS case, has a dtype=vector<kpackxdtype>. So, we need to
+    // handle both cases.
+    kVec = kPack;
     kPerBlock *= kPack;
     assert(!rotateDWithK && "rotateDWithK must not be enabled for directToLds");
   }
@@ -466,11 +470,12 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
   SmallVector<Attribute> transformAttrs;
   if (!isKReduction) {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                              {blockSize, dRepeats, kIter});
+                              {blockSize, dRepeats, kIter * kVec});
     splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
                    {blockSize / waveSize, waveSize});
+    splitTid.merge({"k_iter", "k_vec"}, {3, 4}, "k_iter", {kIter, kVec});
 
-    splitTid.passThrough({"d_iter", "k_iter"}, {2, 3}, {"d_iter", "k_iter"});
+    splitTid.passThrough({"d_iter"}, {2}, {"d_iter"});
     TransformMapAttr splitTidAttr = splitTid.get();
     transformAttrs.push_back(splitTidAttr);
 
@@ -478,8 +483,9 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
         TopDownTMBuilder::below(splitTid, splitTidAttr);
     splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id",
                       {mWaves, nWaves});
-    splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {2, 3, 4},
-                            {"lane_id", "d_iter", "k_iter"});
+    splitWaveId.passThrough({"lane_id", "d_iter", "k_iter", "k_vec"},
+                            {2, 3, 4, 5},
+                            {"lane_id", "d_iter", "k_iter", "k_vec"});
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
 
@@ -491,7 +497,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
                         {dRepeats, dWaves, dPerAccel});
 
     // k = k_i
-    toLDSRowCol.passThrough({"k"}, 1, {"k_iter"});
+    toLDSRowCol.unmerge("k", 1, {"k_iter", "k_vec"}, {kIter, kVec});
     toLDSRowCol.ignore(otherWaveDim);
 
     TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
@@ -513,12 +519,13 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
 
   } else {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                              {blockSize, dRepeats, kIter});
+                              {blockSize, dRepeats, kIter * kVec});
     splitTid.merge(
         {"wave_id", "blk_id", "blk_td"}, {0, 1, 2}, "tid",
         {blockSize / waveSize, waveSize / inputSpanLen, inputSpanLen});
+    splitTid.merge({"k_iter", "k_vec"}, {4, 5}, "k_iter", {kIter, kVec});
 
-    splitTid.passThrough({"d_iter", "k_iter"}, {3, 4}, {"d_iter", "k_iter"});
+    splitTid.passThrough({"d_iter"}, {3}, {"d_iter"});
     TransformMapAttr splitTidAttr = splitTid.get();
     transformAttrs.push_back(splitTidAttr);
 
@@ -526,9 +533,9 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
         TopDownTMBuilder::below(splitTid, splitTidAttr);
     splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id",
                       {mWaves, nWaves});
-    splitWaveId.passThrough({"blk_id", "blk_td", "d_iter", "k_iter"},
-                            {2, 3, 4, 5},
-                            {"blk_id", "blk_td", "d_iter", "k_iter"});
+    splitWaveId.passThrough({"blk_id", "blk_td", "d_iter", "k_iter", "k_vec"},
+                            {2, 3, 4, 5, 6},
+                            {"blk_id", "blk_td", "d_iter", "k_iter", "k_vec"});
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
 
@@ -540,12 +547,12 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
                         {dRepeats, dWaves, inputSpanLen});
     if (matrixParams.getSplitKAcrossThreadsFirst()) {
       // k = blk_id + (waveSize / inputSpanLen) * k_i
-      toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id"},
-                          {kIter, waveSize / inputSpanLen});
+      toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id", "k_vec"},
+                          {kIter, waveSize / inputSpanLen, kVec});
     } else {
       // k = k_i + kpackPerBlock * blk_id
-      toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter"},
-                          {waveSize / inputSpanLen, kIter});
+      toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter", "k_vec"},
+                          {waveSize / inputSpanLen, kIter, kVec});
     }
 
     toLDSRowCol.ignore(otherWaveDim);
