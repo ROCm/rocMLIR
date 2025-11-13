@@ -1760,8 +1760,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     } else {
       auto floatValues = constAttr.getValues<APFloat>();
       return validateMask(
-          floatValues,
-          [](const APFloat &v) { return v.isZero(); },
+          floatValues, [](const APFloat &v) { return v.isZero(); },
           [](const APFloat &v) { return v.convertToDouble() == 1.0; },
           [](const APFloat &v) { return v.isInfinity() && v.isNegative(); });
     }
