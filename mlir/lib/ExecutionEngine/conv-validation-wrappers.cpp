@@ -119,7 +119,7 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
   // Metric RMS
   float maxMag = 0.0f;
   double sumDiffSq = 0.0;
-  // histogram of relDiss metric
+  // histogram of relDiff metric
   // bucket index --> interval:
   //     0: 0
   //     1: 0 - 1e-6
@@ -177,8 +177,13 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
       // Update maxRelDiff only if cpuVal != 0
       double relDiff = 0.0;
       if (valNum != 0.0f) {
+        // Normalize relDiff by taking the max between valNum and epsilon to
+        // avoid large/inf relDiff results
+        constexpr float epsilon = 1e-8f;
+        double denominator = std::max(static_cast<double>(fabs(valNum)),
+                                      static_cast<double>(epsilon));
         relDiff =
-            static_cast<double>(absDiff) / (static_cast<double>(fabs(valNum)));
+            static_cast<double>(absDiff) / (static_cast<double>(denominator));
         hist_relDiff[findIdxHistRelDiff(relDiff, BUCKET_BOUNDARIES,
                                         NUM_BOUNDARIES)]++;
         if (relDiff > maxRelDiff) {
