@@ -839,23 +839,21 @@ ParamLookupTable<ParamsType>::findFallback(const std::string &target) {
   auto it = std::lower_bound(relatives.begin(), relatives.end(), target);
   if (it == relatives.end())
     return relatives.back();
-  else if (it == relatives.begin())
+  if (it == relatives.begin())
     return relatives.front();
-  else {
-    auto mismatchNext = target.end();
-    std::tie(mismatchNext, std::ignore) =
-        std::mismatch(target.begin(), target.end(), it->begin());
+  auto mismatchNext = target.end();
+  std::tie(mismatchNext, std::ignore) =
+      std::mismatch(target.begin(), target.end(), it->begin());
 
-    auto mismatchPrev = target.end();
-    std::tie(mismatchPrev, std::ignore) =
-        std::mismatch(target.begin(), target.end(), std::prev(it)->begin());
+  auto mismatchPrev = target.end();
+  std::tie(mismatchPrev, std::ignore) =
+      std::mismatch(target.begin(), target.end(), std::prev(it)->begin());
 
-    if (mismatchNext < mismatchPrev)
-      return *std::prev(it);
-    else
-      // If the mismatches are equal, prefer the larger (newer) candidate
-      return *it;
-  }
+  if (mismatchNext < mismatchPrev)
+    return *std::prev(it);
+
+  // If the mismatches are equal, prefer the larger (newer) candidate
+  return *it;
 }
 
 template <typename ParamsType>
