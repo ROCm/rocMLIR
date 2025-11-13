@@ -427,6 +427,8 @@ WMMA_PERF_CONFIG = itertools.product(
     range(2, 8),
     # NPerWave (exponent)
     range(2, 8),
+    # MNPerXdl (exponent)
+    range(4, 5), # 16 only
     # KPack (exponent)
     range(2, 5),
     # splitKFactor (exponent)
@@ -452,7 +454,7 @@ MFMA_PERF_CONFIG = itertools.product(
     # NPerWave (exponent)
     range(2, 8),
     # MNPerXdl (exponent)
-    range(2, 8),
+    range(4, 6),
     # KPack (exponent)
     range(1, 4),
     # splitKFactor (exponent)

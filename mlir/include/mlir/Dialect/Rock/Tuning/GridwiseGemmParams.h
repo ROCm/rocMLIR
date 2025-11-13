@@ -140,29 +140,7 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
   }
 };
 
-constexpr int64_t MIN(int64_t a, int64_t b) { return (a < b) ? a : b; }
-
-constexpr int64_t MAX(int64_t a, int64_t b) { return (a > b) ? a : b; }
-
 struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
-  // TODO: remove once quick tuning list has been updated
-  constexpr InitParamsAccel(int64_t mPerBlock, int64_t nPerBlock,
-                            int64_t kPerBlock, int64_t mPerWave,
-                            int64_t nPerWaveOrMnPerXdl, int64_t kPack,
-                            int64_t splitKFactor, int64_t scheduleVersion,
-                            int64_t outputSwizzle, bool aThreadCopyMoreGemmK,
-                            bool bThreadCopyMoreGemmKPack)
-      : InitParams{mPerBlock, nPerBlock, kPerBlock},
-        gemmMPerWave(mPerBlock / MIN(mPerBlock / mPerWave, 4)),
-        gemmNPerWave(MAX(nPerBlock / (4 / MIN(mPerBlock / mPerWave, 4)),
-                         nPerWaveOrMnPerXdl)),
-        gemmMnPerXdl(nPerWaveOrMnPerXdl),
-        gemmNPerWaveOrMnPerXdl(nPerWaveOrMnPerXdl), gemmKPack(kPack),
-        splitKFactor(splitKFactor), gemmScheduleVersion(scheduleVersion),
-        outputSwizzle(outputSwizzle),
-        gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
-        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
-
   constexpr InitParamsAccel(int64_t mPerBlock, int64_t nPerBlock,
                             int64_t kPerBlock, int64_t mPerWave,
                             int64_t nPerWave, int64_t mnPerXdl, int64_t kPack,
@@ -195,7 +173,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
         gemmMPerWave(attr.getMPerWave()), gemmNPerWave(attr.getNPerWave()),
-        gemmMnPerXdl(0), gemmNPerWaveOrMnPerXdl(0), gemmKPack(attr.getKpack()),
+        gemmMnPerXdl(attr.getMnPerXdl()), gemmNPerWaveOrMnPerXdl(0), gemmKPack(attr.getKpack()),
         splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),

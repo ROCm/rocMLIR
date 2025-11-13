@@ -122,7 +122,7 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
       /*kPackPerBlock=*/{8, 16, 32, 64},
       /*mPerWave=*/{16, 32, 64},
       /*nPerWave=*/{16, 32, 64},
-      /*mnPerXdl=*/{0},
+      /*mnPerXdl=*/{16},
       /*kPack=*/{4, 8, 16},
       getSchedules(gemmGemmOp, kind)};
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
@@ -318,7 +318,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                 getSchedules(gemmOp, kind),
                                                 {0, 1}};
 
-  // M/block N/block K/block M/wave N/wave kPack scheduleVersion
+  // M/block N/block K/block M/wave N/wave Mn/Xdl kPack scheduleVersion
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
@@ -326,6 +326,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {1, 2, 4, 8},
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16, 32, 64, 128},
+      {16},
       {4, 8, 16},
       getSchedules(gemmOp, kind),
       {0, 1}};
@@ -392,26 +393,28 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
         for (uint32_t gemmKPerBlock : wmmaParams[2]) {
           for (uint32_t gemmMPerWave : wmmaParams[3]) {
             for (uint32_t gemmNPerWave : wmmaParams[4]) {
-              for (uint32_t gemmKPack : wmmaParams[5]) {
-                auto optimalSplitKFactors = computeOptimalSplitKFactors(
-                    gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                    gemmKPack, isSplitKFusible);
-                for (auto splitKFactor : optimalSplitKFactors) {
-                  for (uint32_t gemmSchedule : wmmaParams[6]) {
-                    for (uint32_t forceUnroll : wmmaParams[7]) {
-                      // hardcode outputSwizzle to heuristics = 2
-                      InitParamsAccel gemmParams(
-                          gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                          gemmMPerWave, gemmNPerWave, 0, gemmKPack,
-                          splitKFactor, gemmSchedule, 2, forceUnroll, true);
-                      if (succeeded(tuningInfo.paramsProbablyValid(
-                              b, info, gemmParams)) &&
-                          (kind == TuningParamSetKind::Exhaustive ||
-                           succeeded(
-                               tuningInfo.couldBePerformant(info, gemmParams))))
-                        newSpace->tuningRange.push_back(
-                            cast<RockTuningParamAttrInterface>(
-                                tuningInfo.getGemmParamsAttr(b, gemmParams)));
+              for (uint32_t gemmMnPerXdl : wmmaParams[5]) {
+                for (uint32_t gemmKPack : wmmaParams[6]) {
+                  auto optimalSplitKFactors = computeOptimalSplitKFactors(
+                      gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                      gemmKPack, isSplitKFusible);
+                  for (auto splitKFactor : optimalSplitKFactors) {
+                    for (uint32_t gemmSchedule : wmmaParams[7]) {
+                      for (uint32_t forceUnroll : wmmaParams[8]) {
+                        // hardcode outputSwizzle to heuristics = 2
+                        InitParamsAccel gemmParams(
+                            gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                            gemmMPerWave, gemmNPerWave, gemmMnPerXdl, gemmKPack,
+                            splitKFactor, gemmSchedule, 2, forceUnroll, true);
+                        if (succeeded(tuningInfo.paramsProbablyValid(
+                                b, info, gemmParams)) &&
+                            (kind == TuningParamSetKind::Exhaustive ||
+                            succeeded(
+                                tuningInfo.couldBePerformant(info, gemmParams))))
+                          newSpace->tuningRange.push_back(
+                              cast<RockTuningParamAttrInterface>(
+                                  tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                      }
                     }
                   }
                 }
