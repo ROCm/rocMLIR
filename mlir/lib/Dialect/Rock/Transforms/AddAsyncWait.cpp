@@ -443,7 +443,11 @@ static int countGlobalLoadsWithSameIndex(ThreadwiseReadIntoOp globalLoadOp, func
 
 /// The localLoadOp is the load that triggers the dependency, and the
 /// globalLoadOp is the load that is dependent on the localLoadOp.
-int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
+int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp, int i) {  
+  // 3 3 3 3 0 0
+  // int hardcoded[6] = {6, 4, 6, 4, 0, 0};
+  // return hardcoded[i];
+
   if (!localLoadOp || !globalLoadOp)
     return -1;
 
@@ -500,8 +504,8 @@ int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
   LLVM_DEBUG(llvm::dbgs() << "  iterationInterval: " << iterationInterval << "\n");
   LLVM_DEBUG(llvm::dbgs() << "  numBuffers: " << numBuffers << "\n");
 
-  // Wait count = iteration_interval * number_of_buffers - 1
-  int waitCount = iterationInterval * numBuffers - 1;
+  int numLoadsPerReadInto = 2;
+  int waitCount = (iterationInterval * numBuffers * numLoadsPerReadInto) - numLoadsPerReadInto;
   
   LLVM_DEBUG(llvm::dbgs() << "  waitCount: " << waitCount << "\n");
   
@@ -529,7 +533,6 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
 
   // Track insertion points to avoid inserting multiple AsyncWaitOps at the same location
   llvm::DenseSet<Operation*> insertionPoints;
-
   for (auto readOp : readOps) {
     Operation* firstUse = findFirstUseAfter(readOp, insertionPoints);
     
