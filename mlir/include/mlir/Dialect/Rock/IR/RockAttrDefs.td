@@ -376,6 +376,7 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
+        + Twine(getMnPerXdl()) + ","
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
         + Twine(getScheduleVersion()) + ","

@@ -552,7 +552,7 @@ func.func @rock_attention_gqa(%arg0: memref<64x1x128xf16>, %arg1: memref<8x128x8
       rock.yield
     }
      %arg4 = softmax(qk) * %arg2 : memref<8x8192x128xf16> -> memref<256x1x128xf16>
-  } {features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, firstGemmIndices = array<i64: 0>, numHeadsKV = 8 : i32, numHeadsQ = 64 : i32, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, softmaxType = f32, splitKV = 4 : i32, storeMethod = #rock<StoreMethod set>}
+  } {features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, firstGemmIndices = array<i64: 0>, numHeadsKV = 8 : i32, numHeadsQ = 64 : i32, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll  = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll  = true>, softmaxType = f32, splitKV = 4 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 

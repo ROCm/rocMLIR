@@ -451,11 +451,9 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
   };
   // clang-format on
 
-  MfmaGemmParamsAttr xdlopsDerivedParams = cast<MfmaGemmParamsAttr>(param);
-  if (xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getMPerWave() ||
-      xdlopsDerivedParams.getMnPerXdl() > xdlopsDerivedParams.getNPerWave()) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "mnPerXdl is too large:" << xdlopsDerivedParams << "\n");
+  if (param.getMnPerXdl() > param.getMPerWave() ||
+      param.getMnPerXdl() > param.getNPerWave()) {
+    LLVM_DEBUG(llvm::dbgs() << "mnPerXdl is too large:" << param << "\n");
     return failure();
   }
 
@@ -740,6 +738,17 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
     std::make_tuple(16, 16, 2),
   };
   // clang-format on
+
+  if (param.getMnPerXdl() != 16) {
+    LLVM_DEBUG(llvm::dbgs() << "mnPerXdl must be 16\n");
+    return failure();
+  }
+
+  if (param.getMnPerXdl() > param.getMPerWave() ||
+      param.getMnPerXdl() > param.getNPerWave()) {
+    LLVM_DEBUG(llvm::dbgs() << "mnPerXdl is too large:" << param << "\n");
+    return failure();
+  }
 
   // Check for valid repeats and k distributions
   int64_t minDPerWave = std::min(param.getMPerWave(), param.getNPerWave());

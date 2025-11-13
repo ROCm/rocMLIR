@@ -3137,8 +3137,8 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
     mnPerXdl = params[lastIdx++];
     // the code below is for compatibility with < v3
   } else if (isWmma) {
-    mnPerXdl = params[lastIdx++];
-    nPerWave = mnPerXdl;
+    mnPerXdl = 16; // default value 16 because v3 had no mnPerXdl
+    nPerWave = params[lastIdx++];
   } else {
     mnPerXdl = params[lastIdx++];
     const int64_t maxWavesPerWG = 4;

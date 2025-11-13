@@ -409,8 +409,8 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                         if (succeeded(tuningInfo.paramsProbablyValid(
                                 b, info, gemmParams)) &&
                             (kind == TuningParamSetKind::Exhaustive ||
-                            succeeded(
-                                tuningInfo.couldBePerformant(info, gemmParams))))
+                             succeeded(tuningInfo.couldBePerformant(
+                                 info, gemmParams))))
                           newSpace->tuningRange.push_back(
                               cast<RockTuningParamAttrInterface>(
                                   tuningInfo.getGemmParamsAttr(b, gemmParams)));
@@ -547,14 +547,14 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
     }
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
     const SmallVector<PerfConfigVals, 7> attnQuickTuningListWMMA{
-        PerfConfigVals{64, 128, 128, 8, 32, 32, 0, 4},
-        PerfConfigVals{64, 64, 256, 8, 64, 32, 0, 8},
-        PerfConfigVals{64, 64, 256, 16, 32, 32, 0, 8},
-        PerfConfigVals{64, 64, 32, 8, 32, 32, 0, 4},
-        PerfConfigVals{32, 64, 128, 8, 32, 32, 0, 8},
-        PerfConfigVals{64, 64, 128, 8, 64, 32, 0, 8},
-        PerfConfigVals{32, 32, 128, 8, 32, 32, 0, 8},
-        PerfConfigVals{128, 128, 128, 8, 32, 32, 0, 8}};
+        PerfConfigVals{64, 128, 128, 8, 32, 32, 16, 4},
+        PerfConfigVals{64, 64, 256, 8, 64, 32, 16, 8},
+        PerfConfigVals{64, 64, 256, 16, 32, 32, 16, 8},
+        PerfConfigVals{64, 64, 32, 8, 32, 32, 16, 4},
+        PerfConfigVals{32, 64, 128, 8, 32, 32, 16, 8},
+        PerfConfigVals{64, 64, 128, 8, 64, 32, 16, 8},
+        PerfConfigVals{32, 32, 128, 8, 32, 32, 16, 8},
+        PerfConfigVals{128, 128, 128, 8, 32, 32, 16, 8}};
     for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
                nPerWave, mnPerXdl, kPack] : attnQuickTuningListWMMA) {
       auto params = AttnPerfConfigAttr::get(
