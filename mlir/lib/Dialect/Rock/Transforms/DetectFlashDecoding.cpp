@@ -15,12 +15,14 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/MathExtras.h"
 
 namespace mlir {
 namespace rock {
@@ -37,16 +39,17 @@ using namespace mlir::rock;
 namespace {
 
 // Helper to check if splitKV value is supported
-// Supported values are powers of 2: 2, 4, 8, 16, 32, 64, 128
+// Supported values are powers of 2: 1, 2, 4, 8, 16, 32, 64, 128, etc.
 static bool isSupportedSplitKV(int64_t splitKV) {
-  constexpr int64_t supportedValues[] = {2, 4, 8, 16, 32, 64, 128};
-  return llvm::is_contained(supportedValues, splitKV);
+  return splitKV > 0 && llvm::isPowerOf2_64(splitKV);
 }
 
 // Detect splitKV from Q tensor by finding the Broadcast operation
 // Q pattern: [B, H, 1, M, K] --Broadcast--> [B, H, SplitKV, M, K]
 //                            --Merge--> [B*H*SplitKV, M, K]
 // Returns the splitKV value if found, otherwise 1
+// Note, this detection logic only works if we find the broadcast operation and
+// it is not undone and merged into the batch dimension.
 static int64_t detectSplitKVFromQ(Value qTensor) {
   int64_t splitKV = 1;
   SmallVector<TransformMapAttr> transforms;
@@ -85,6 +88,10 @@ static int64_t detectSplitKVFromQ(Value qTensor) {
           LLVM_DEBUG(llvm::dbgs() << "\tQ: Found Broadcast at dim 2, "
                                   << "splitKV = " << splitKV << "\n");
           return splitKV;
+        } else {
+          LLVM_DEBUG(llvm::dbgs() << "\tQ: Found Broadcast at dim 2, but "
+                                  << "splitKV = " << potentialSplitKV
+                                  << " not supported (must be power of 2)\n");
         }
       }
     }
@@ -136,6 +143,12 @@ static int64_t detectSplitKVFromV(Value vTensor) {
                    << "," << params[2] << "," << params[3]
                    << "}, splitKV = " << splitKV << "\n");
         return splitKV;
+      } else {
+        LLVM_DEBUG(llvm::dbgs() << "\tV: Found Unmerge, but "
+                                << "splitKV = " << potentialSplitKV
+                                << " not supported (must be power of 2) or "
+                                << "does not match the dimension size at "
+                                << "position 3\n");
       }
     }
   }
@@ -147,8 +160,8 @@ static int64_t detectSplitKVFromV(Value vTensor) {
 // Helper function that validates tensor shape and unmerges batch dimension
 // Returns: (newBatch, intermediate 4D tensor with splitKV exposed)
 static FailureOr<std::pair<int64_t, Value>>
-unmergeBackForSplitKV(Value tensor, int64_t splitKV, PatternRewriter &rewriter,
-                      Location loc, StringRef tensorName,
+unmergeBackForSplitKV(PatternRewriter &rewriter, Location loc, Value tensor,
+                      int64_t splitKV, StringRef tensorName,
                       ArrayRef<StringRef> dimNames) {
   auto tensorType = cast<ShapedType>(tensor.getType());
   ArrayRef<int64_t> shape = tensorType.getShape();
@@ -161,42 +174,39 @@ unmergeBackForSplitKV(Value tensor, int64_t splitKV, PatternRewriter &rewriter,
 
   int64_t currentBatch = shape[0];
   if (currentBatch % splitKV != 0) {
-    LLVM_DEBUG(llvm::dbgs() << tensorName << ": Batch dimension "
-                            << currentBatch << " not divisible by splitKV "
-                            << splitKV << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << tensorName << ": Batch dimension " << currentBatch
+               << " not divisible by splitKV " << splitKV << "\n");
     return failure();
   }
 
   int64_t newBatch = currentBatch / splitKV;
-  
-  // Unmerge batch into [newBatch, splitKV] and PassThrough other dims
-  SmallVector<int64_t> unmergeParams = {newBatch, splitKV};
-  SmallVector<int64_t> intermediateShape = {newBatch, splitKV, shape[1], shape[2]};
-  SmallVector<int64_t> inputShape(shape.begin(), shape.end());
 
-  TransformAttr unmergeOp = TransformAttr::get(
-      rewriter.getContext(), rock::TransformType::Unmerge, unmergeParams,
-      {"batch", "splitKV"}, {0, 1}, {"batch_merged"}, {0});
+  // Start from [batch_merged, dim0, dim1] and unmerge to
+  // [batch, splitKV, dim0, dim1]
+  SmallVector<StringRef> lowerNames = {"batch_merged"};
+  lowerNames.append(dimNames.begin(), dimNames.end());
 
-  TransformAttr passThroughOp = TransformAttr::get(
-      rewriter.getContext(), rock::TransformType::PassThrough, {},
-      dimNames, {2, 3}, dimNames, {1, 2});
+  rock::BottomUpTMBuilder builder(rewriter, lowerNames, shape, loc);
+  builder.unmerge({"batch", "splitKV"}, {0, 1}, "batch_merged",
+                  {newBatch, splitKV});
+  builder.passThrough(dimNames, {2, 3}, dimNames);
 
-  TransformMapAttr step1Map = TransformMapAttr::get(
-      {unmergeOp, passThroughOp}, intermediateShape, inputShape);
-  Value intermediate = rewriter.create<rock::TransformOp>(loc, tensor, step1Map);
+  TransformMapAttr transformMap = builder.get();
+  Value intermediate =
+      rewriter.create<rock::TransformOp>(loc, tensor, transformMap);
 
   return std::make_pair(newBatch, intermediate);
 }
 
 // Add a transform on top of Q tensor to remove splitKV from batch dimension
 // Q: [B*H*SplitKV, M, K] -> [B*H, M, K]
-static FailureOr<Value> removeSplitKVFromQ(Value qTensor, int64_t splitKV,
-                                            PatternRewriter &rewriter,
-                                            Location loc) {
+static FailureOr<Value> removeSplitKVFromQ(PatternRewriter &rewriter,
+                                           Location loc, Value qTensor,
+                                           int64_t splitKV) {
   // Step 1: Validate and unmerge batch
-  auto maybeUnmerged = unmergeBackForSplitKV(qTensor, splitKV, rewriter, loc,
-                                             "Q", {"M", "K"});
+  auto maybeUnmerged =
+      unmergeBackForSplitKV(rewriter, loc, qTensor, splitKV, "Q", {"M", "K"});
   if (failed(maybeUnmerged))
     return failure();
 
@@ -206,7 +216,7 @@ static FailureOr<Value> removeSplitKVFromQ(Value qTensor, int64_t splitKV,
   int64_t K = shape[2];
 
   // Get the intermediate shape from the unmerged tensor
-  ArrayRef<int64_t> intermediateShape = 
+  ArrayRef<int64_t> intermediateShape =
       cast<ShapedType>(intermediate.getType()).getShape();
 
   // Step 2: Slice the splitKV dimension to take only index [0:1], then merge
@@ -214,7 +224,6 @@ static FailureOr<Value> removeSplitKVFromQ(Value qTensor, int64_t splitKV,
   // [newBatch, M, K]
   SmallVector<int64_t> outputShape = {newBatch, M, K};
 
-  // Use affine_map to directly drop dimension 1 by fixing it to 0
   // Output [d0, d1, d2] maps to Input [d0, 0, d1, d2]
   SmallVector<TransformAttr> step2Ops;
 
@@ -243,107 +252,68 @@ static FailureOr<Value> removeSplitKVFromQ(Value qTensor, int64_t splitKV,
   return result;
 }
 
-// Add a transform on top of K tensor to remove splitKV from batch and restore N
-// dimension K: [B*H*splitKV, K, N/splitKV] -> [B*H, K, N]
-static FailureOr<Value> removeSplitKVFromK(Value kTensor, int64_t splitKV,
-                                            PatternRewriter &rewriter,
-                                            Location loc) {
+// Helper function to remove splitKV from K or V tensors
+// K: [B*H*splitKV, K, seq_k/splitKV] -> [B*H, K, seq_k]
+// V: [B*H*splitKV, seq_k/splitKV, D] -> [B*H, seq_k, D]
+static FailureOr<Value>
+removeSplitKVWithMerge(PatternRewriter &rewriter, Location loc, Value tensor,
+                       int64_t splitKV, StringRef tensorName,
+                       StringRef featureDimName, bool featureFirst) {
   // Step 1: Validate and unmerge batch
-  auto maybeUnmerged = unmergeBackForSplitKV(kTensor, splitKV, rewriter, loc,
-                                             "K", {"K", "seqChunk"});
+  SmallVector<StringRef> dimNames =
+      featureFirst ? SmallVector<StringRef>{featureDimName, "seq_k_chunk"}
+                   : SmallVector<StringRef>{"seq_k_chunk", featureDimName};
+
+  auto maybeUnmerged = unmergeBackForSplitKV(rewriter, loc, tensor, splitKV,
+                                             tensorName, dimNames);
   if (failed(maybeUnmerged))
     return failure();
 
   auto [newBatch, intermediate] = maybeUnmerged.value();
-  auto shape = cast<ShapedType>(kTensor.getType()).getShape();
-  int64_t K = shape[1];
-  int64_t seqChunk = shape[2]; // N / splitKV
-  int64_t fullSeq = seqChunk * splitKV; // Restored N
+  auto shape = cast<ShapedType>(tensor.getType()).getShape();
+  int64_t featureDimSize = shape[1];
+  int64_t seqKChunk = shape[2];
+  int64_t seqK = seqKChunk * splitKV; // Restored seq_k
 
   // Get the intermediate shape from the unmerged tensor
-  ArrayRef<int64_t> intermediateShape = 
+  ArrayRef<int64_t> intermediateShape =
       cast<ShapedType>(intermediate.getType()).getShape();
 
   // Step 2: Use Merge to reconstruct the full sequence dimension
-  // Output: [newBatch, K, fullSeq]
-  // Merge combines splitKV and seqChunk: fullSeq = splitKV * seqChunk
-  SmallVector<int64_t> outputShape = {newBatch, K, fullSeq};
-  SmallVector<TransformAttr> step2Ops;
+  SmallVector<int64_t> outputShape;
+  SmallVector<StringRef> lowerDimNames;
 
-  // PassThrough for batch
-  step2Ops.push_back(TransformAttr::get(rewriter.getContext(),
-                                        rock::TransformType::PassThrough, {},
-                                        {"batch"}, {0}, {"batch"}, {0}));
+  Value result;
+  if (featureFirst) {
+    // K case: [batch, K, seq_k]
+    outputShape = {newBatch, featureDimSize, seqK};
+    lowerDimNames = {"batch", "splitKV", featureDimName, "seq_k_chunk"};
 
-  // PassThrough for K (upper dim 1 -> lower dim 2)
-  step2Ops.push_back(TransformAttr::get(rewriter.getContext(),
-                                        rock::TransformType::PassThrough, {},
-                                        {"K"}, {1}, {"K"}, {2}));
+    rock::BottomUpTMBuilder builder(rewriter, lowerDimNames, intermediateShape,
+                                    loc);
+    builder.passThrough({"batch"}, {0}, {"batch"});
+    builder.passThrough({featureDimName}, {1}, {featureDimName});
+    builder.merge("seq_k", 2, {"splitKV", "seq_k_chunk"});
 
-  // Merge splitKV (lower dim 1) and seqChunk (lower dim 3) into fullSeq (upper
-  // dim 2)
-  SmallVector<int64_t> mergeParams = {splitKV, seqChunk};
-  step2Ops.push_back(TransformAttr::get(
-      rewriter.getContext(), rock::TransformType::Merge, mergeParams,
-      {"fullSeq"}, {2}, {"splitKV", "seqChunk"}, {1, 3}));
+    TransformMapAttr transformMap = builder.get();
+    result =
+        rewriter.create<rock::TransformOp>(loc, intermediate, transformMap);
+  } else {
+    // V case: [batch, seq_k, D]
+    outputShape = {newBatch, seqK, featureDimSize};
+    lowerDimNames = {"batch", "splitKV", "seq_k_chunk", featureDimName};
 
-  TransformMapAttr step2Map =
-      TransformMapAttr::get(step2Ops, outputShape, intermediateShape);
+    rock::BottomUpTMBuilder builder(rewriter, lowerDimNames, intermediateShape,
+                                    loc);
+    builder.passThrough({"batch"}, {0}, {"batch"});
+    builder.merge("seq_k", 1, {"splitKV", "seq_k_chunk"});
+    builder.passThrough({featureDimName}, {2}, {featureDimName});
 
-  Value result =
-      rewriter.create<rock::TransformOp>(loc, intermediate, step2Map);
-  return result;
-}
+    TransformMapAttr transformMap = builder.get();
+    result =
+        rewriter.create<rock::TransformOp>(loc, intermediate, transformMap);
+  }
 
-// Add a transform on top of V tensor to remove splitKV from batch and restore N
-// dimension V: [B*H*splitKV, N/splitKV, D] -> [B*H, N, D]
-static FailureOr<Value> removeSplitKVFromV(Value vTensor, int64_t splitKV,
-                                            PatternRewriter &rewriter,
-                                            Location loc) {
-  // Step 1: Validate and unmerge batch
-  auto maybeUnmerged = unmergeBackForSplitKV(vTensor, splitKV, rewriter, loc,
-                                             "V", {"seqChunk", "D"});
-  if (failed(maybeUnmerged))
-    return failure();
-
-  auto [newBatch, intermediate] = maybeUnmerged.value();
-  auto shape = cast<ShapedType>(vTensor.getType()).getShape();
-  int64_t seqChunk = shape[1]; // N / splitKV
-  int64_t D = shape[2];
-  int64_t fullSeq = seqChunk * splitKV; // Restored N
-
-  // Get the intermediate shape from the unmerged tensor
-  ArrayRef<int64_t> intermediateShape = 
-      cast<ShapedType>(intermediate.getType()).getShape();
-
-  // Step 2: Use Merge to reconstruct the full sequence dimension
-  // Output: [newBatch, fullSeq, D]
-  // Merge combines splitKV and seqChunk: fullSeq = splitKV * seqChunk +
-  SmallVector<int64_t> outputShape = {newBatch, fullSeq, D};
-  SmallVector<TransformAttr> step2Ops;
-
-  // PassThrough for batch
-  step2Ops.push_back(TransformAttr::get(rewriter.getContext(),
-                                        rock::TransformType::PassThrough, {},
-                                        {"batch"}, {0}, {"batch"}, {0}));
-
-  // Merge splitKV (lower dim 1) and seqChunk (lower dim 2) into fullSeq (upper
-  // dim 1)
-  SmallVector<int64_t> mergeParams = {splitKV, seqChunk};
-  step2Ops.push_back(TransformAttr::get(
-      rewriter.getContext(), rock::TransformType::Merge, mergeParams,
-      {"fullSeq"}, {1}, {"splitKV", "seqChunk"}, {1, 2}));
-
-  // PassThrough for D (upper dim 2 -> lower dim 3)
-  step2Ops.push_back(TransformAttr::get(rewriter.getContext(),
-                                        rock::TransformType::PassThrough, {},
-                                        {"D"}, {2}, {"D"}, {3}));
-
-  TransformMapAttr step2Map =
-      TransformMapAttr::get(step2Ops, outputShape, intermediateShape);
-
-  Value result =
-      rewriter.create<rock::TransformOp>(loc, intermediate, step2Map);
   return result;
 }
 
@@ -372,8 +342,7 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
 
     // Both Q and V should agree on splitKV value
     if (splitKVFromQ != splitKVFromV) {
-      LLVM_DEBUG(llvm::dbgs() << "\tMismatch: Q and V have different splitKV "
-                              << "values\n");
+      op.emitError("Q and V have different splitKV values");
       return failure();
     }
 
@@ -390,15 +359,17 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     Value keys = op.getKeys();
 
     auto maybeNewQueries =
-        removeSplitKVFromQ(queries, splitKVFromQ, rewriter, op.getLoc());
+        removeSplitKVFromQ(rewriter, op.getLoc(), queries, splitKVFromQ);
     auto maybeNewKeys =
-        removeSplitKVFromK(keys, splitKVFromQ, rewriter, op.getLoc());
+        removeSplitKVWithMerge(rewriter, op.getLoc(), keys, splitKVFromQ, "K",
+                               "K", /*featureFirst=*/true);
     auto maybeNewValues =
-        removeSplitKVFromV(values, splitKVFromQ, rewriter, op.getLoc());
+        removeSplitKVWithMerge(rewriter, op.getLoc(), values, splitKVFromQ, "V",
+                               "D", /*featureFirst=*/false);
 
     if (failed(maybeNewQueries) || failed(maybeNewKeys) ||
         failed(maybeNewValues)) {
-      LLVM_DEBUG(llvm::dbgs() << "\tFailed to create new transforms\n");
+      op.emitError("Failed to create new transforms");
       return failure();
     }
 
@@ -406,8 +377,6 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     Value newKeys = maybeNewKeys.value();
     Value newValues = maybeNewValues.value();
 
-    // Extract result types - AttentionOp has optional result andlseOut. lseOut
-    // was already verified to be non-null.
     Type resultType = op.getResult() ? op.getResult().getType() : Type();
     Type lseOutType = op.getLseOut().getType();
 

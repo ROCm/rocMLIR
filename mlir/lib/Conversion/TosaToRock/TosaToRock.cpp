@@ -2699,7 +2699,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       // sub(x, x) + x or log(exp(sub(x, x))) + x
       lse = getLSESeqLen1(cast<tosa::SubOp>(sub));
     }
-    // lse has three, four, or five dimensions
+    // lse has three, four, or five dimensions depending on the attention type:
+    // - Rank 5: [batch, heads, splitKV, seq_q, 1]
+    // - Rank 4: [batch, heads, seq_q, 1]
+    // - Rank 3: [batch*heads, seq_q, 1]
     if (lse) {
       auto type = cast<ShapedType>(lse.getType());
       if (type.getRank() != 5 && type.getRank() != 4 && type.getRank() != 3)
@@ -2795,19 +2798,22 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     RankedTensorType lseType;
     Value lse = attentionMatcherValues.lse;
     Value lseOut, lseOrig;
+    SmallVector<ReassociationIndices> reassocIndicesLSE;
 
-    // Default reassocIndicesLSE is for 4D tensors
-    SmallVector<ReassociationIndices> reassocIndicesLSE = {{0, 1}, {2, 3}};
     if (lse) {
       // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
-      // Rank 5: {{0, 1, 2}, {3, 4}} collapses [B, H, G, S, 1] -> [B*H*G, S]
-      // Rank 4: {{0, 1}, {2, 3}} collapses [B, H, S, 1] -> [B*H, S]
-      // Rank 3: {{0}, {1, 2}} collapses [B*H, S, 1] -> [B*H, S]
+      // Collapse all leading dimensions into one, and last two dimensions
+      // into another
+      // Rank 5: [batch, heads, splitKV, seq_q, 1] ->
+      //         [batch*heads*splitKV, seq_q]
+      // Rank 4: [batch, heads, seq_q, 1] -> [batch*heads, seq_q]
+      // Rank 3: [batch*heads, seq_q, 1] -> [batch*heads, seq_q]
       int rank = cast<ShapedType>(lse.getType()).getRank();
-      if (rank == 5)
-        reassocIndicesLSE = {{0, 1, 2}, {3, 4}};
-      else if (rank == 3)
-        reassocIndicesLSE = {{0}, {1, 2}};
+      ReassociationIndices leadingDims, trailingDims;
+      for (int i = 0; i < rank - 2; ++i)
+        leadingDims.push_back(i);
+      trailingDims = {rank - 2, rank - 1};
+      reassocIndicesLSE = {leadingDims, trailingDims};
 
       lseOrig = lse;
       lse = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), lse,
