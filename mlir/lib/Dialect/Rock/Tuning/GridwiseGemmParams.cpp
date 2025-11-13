@@ -677,7 +677,7 @@ PopulateParamsXDL::specificCouldBePerformant(const InitParamsAccel &params,
 Attribute
 PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
                                      const InitParamsAccel &validParams) const {
-  if (validParams.getVersion() == InitParamsAccel::Version::V4) {
+  if (validParams.getVersion() >= InitParamsAccel::Version::V4) {
     // V4 and newer
     return builder.getAttr<MfmaGemmParamsAttr>(
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
@@ -896,13 +896,18 @@ PopulateParamsWmma::specificCouldBePerformant(const InitParamsAccel &params,
 
 Attribute PopulateParamsWmma::getGemmParamsAttr(
     OpBuilder &builder, const InitParamsAccel &validParams) const {
-  int64_t nPerWave = validParams.getVersion() == InitParamsAccel::Version::V4
+  int64_t nPerWave = validParams.getVersion() >= InitParamsAccel::Version::V4
                          ? validParams.gemmNPerWave
                          : validParams.gemmNPerWaveOrMnPerXdl;
+
+  int64_t mnPerXdl =
+      validParams.getVersion() >= InitParamsAccel::Version::V4
+          ? validParams.gemmMnPerXdl
+          : 16; // default value as mnPerXdl was not provided in V3
   return builder.getAttr<WmmaGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
-      validParams.gemmMPerWave, nPerWave, validParams.splitKFactor,
+      validParams.gemmMPerWave, nPerWave, mnPerXdl, validParams.splitKFactor,
       validParams.gemmScheduleVersion, validParams.outputSwizzle,
       validParams.gemmAThreadCopyMoreGemmK);
 }

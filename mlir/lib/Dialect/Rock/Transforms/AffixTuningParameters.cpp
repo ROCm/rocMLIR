@@ -314,8 +314,8 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
       gemm0TuningParams.getKpack(),
       gemm0TuningParams.getMPerWave() *
           (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
-      gemm0TuningParams.getNPerWave(), attnPerfConfig.getSplitKFactor(),
-      gemm0TuningParams.getScheduleVersion(),
+      gemm0TuningParams.getNPerWave(), gemm0TuningParams.getMnPerXdl(),
+      attnPerfConfig.getSplitKFactor(), gemm0TuningParams.getScheduleVersion(),
       gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getForceUnroll());
 }
 
@@ -379,8 +379,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
         builder.getContext(), attnPerfConfig.getKpackPerBlock(),
         attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getNPerWave(), 1, attnPerfConfig.getScheduleVersion(),
-        attnPerfConfig.getOutputSwizzle(), attnPerfConfig.getForceUnroll());
+        attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
+        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getForceUnroll());
   }
   op.setGemm0ParamsAttr(accelParams0);
   if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {
