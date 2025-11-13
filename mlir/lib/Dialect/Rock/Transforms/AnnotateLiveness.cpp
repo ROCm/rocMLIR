@@ -52,6 +52,9 @@ struct LiveRange {
 // will be chosen, so we trace back all of them.
 static SmallVector<GpuAllocOp> findAllocList(Value value) {
   SmallVector<GpuAllocOp> allocs;
+  if (!value) {
+    return allocs;
+  }
   SmallVector<Operation *> worklist{value.getDefiningOp()};
   while (!worklist.empty()) {
     Operation *curOp = worklist.pop_back_val();
@@ -87,6 +90,7 @@ static SmallVector<GpuAllocOp> findAllocList(Value value) {
 // Check if an operation writes to the given alloc
 static bool hasWriteEffect(Operation *op, GpuAllocOp buffer) {
   auto memEffectInterface = dyn_cast<MemoryEffectOpInterface>(op);
+
   if (!memEffectInterface)
     return false;
 
@@ -95,7 +99,7 @@ static bool hasWriteEffect(Operation *op, GpuAllocOp buffer) {
 
   for (const auto &effect : effects) {
     // Check if this is a Write effect on our alloc
-    if (isa<MemoryEffects::Write>(effect.getEffect())) {
+    if (isa<MemoryEffects::Write>(effect.getEffect()) && effect.getValue()) {
       SmallVector<GpuAllocOp> effectAllocs = findAllocList(effect.getValue());
       if (llvm::is_contained(effectAllocs, buffer)) {
         return true;

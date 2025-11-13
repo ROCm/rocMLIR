@@ -609,6 +609,44 @@ struct BlockwiseGemmAccelRewritePattern
           Value viewC = accelEmitterPtr->generateThreadwiseViewBufferC(
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();
+          // Value zeroThread =
+          //     b.create<ConstantOp>(loc, b.getIndexType(), b.getIndexAttr(0));
+          // auto isThreadZero = b.create<arith::CmpIOp>(
+          //     loc, arith::CmpIPredicate::eq,
+          //     b.create<WorkitemIdOp>(loc, b.getIndexType()), zeroThread);
+          // scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
+          //                                          /*withElseRegion=*/false);
+          // {
+          //   OpBuilder thenb = ifthread.getThenBodyBuilder();
+          //   // write loop to print argA and argB using rock.transforming_for
+          //   Value zero = thenb.create<arith::ConstantIndexOp>(loc, 0);
+          //   auto printLoop = TransformingForOp::create(
+          //       thenb, loc, ArrayRef<ValueRange>{{zero, zero}},
+          //       ArrayRef<Attribute>{thenb.getArrayAttr({})},
+          //       ArrayRef<int64_t>{4, 32},
+          //       /*strides=*/std::nullopt, /*forceUnroll=*/false,
+          //       /*useIndexDiffs=*/false);
+          //   {
+          //     OpBuilder::InsertionGuard guard(thenb);
+          //     thenb.setInsertionPointToStart(printLoop.getBody());
+          //     // Get loop coordinates (i, i2)
+          //     Value i = printLoop.getLowerCoords(/*domain=*/0)[0];
+          //     Value i2 = printLoop.getLowerCoords(/*domain=*/0)[1];
+          //     Value tmp = thenb.create<memref::LoadOp>(loc, bufferA, i);
+          //     Value tmp2 = thenb.create<memref::LoadOp>(loc, bufferB, i);
+
+          //     Value tmp3 = thenb.create<vector::ExtractOp>(loc, tmp, i2);
+          //     Value tmp4 = thenb.create<vector::ExtractOp>(loc, tmp2, i2);
+          //     Value tmp3Extf =
+          //         thenb.create<arith::ExtFOp>(loc, b.getF32Type(), tmp3);
+          //     Value tmp4Extf =
+          //         thenb.create<arith::ExtFOp>(loc, b.getF32Type(), tmp4);
+          //     thenb.create<gpu::PrintfOp>(loc, "tmp3[%d, %d] = %f\n",
+          //                                 ValueRange{i, i2, tmp3Extf});
+          //     thenb.create<gpu::PrintfOp>(loc, "tmp4[%d, %d] = %f\n",
+          //                                 ValueRange{i, i2, tmp4Extf});
+          //   }
+          // }
           ThreadwiseGemmAccelOp::create(b, loc, viewA, viewB, viewC, viewScaleA,
                                         viewScaleB, ValueRange{i, j, k},
                                         op.getFeaturesAttr(), tuningParams);

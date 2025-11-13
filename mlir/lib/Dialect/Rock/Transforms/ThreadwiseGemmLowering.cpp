@@ -401,20 +401,31 @@ struct ThreadwiseGemmAccelRewritePattern
       // {
       //   OpBuilder thenb = ifthread.getThenBodyBuilder();
       //   // write loop to print argA and argB
-      //   affine::AffineForOp affineForLoop = thenb.create<affine::AffineForOp>(
-      //       loc, 0, dyn_cast<VectorType>(argA.getType()).getNumElements(), 1);
+      //   affine::AffineForOp affineForLoop =
+      //       thenb.create<affine::AffineForOp>(loc, 0, 4, 1);
       //   {
       //     OpBuilder::InsertionGuard guard(thenb);
       //     thenb.setInsertionPointToStart(affineForLoop.getBody());
       //     Value i = affineForLoop.getInductionVar();
-      //     Value tmp = thenb.create<vector::ExtractOp>(loc, argA, i);
-      //     Value extf = thenb.create<arith::ExtFOp>(loc, b.getF32Type(), tmp);
-      //     Value tmp2 = thenb.create<vector::ExtractOp>(loc, argB, i);
-      //     Value extf2 = thenb.create<arith::ExtFOp>(loc, b.getF32Type(), tmp2);
-      //     thenb.create<gpu::PrintfOp>(loc, "reg0=%d argA=%f\n",
-      //                                 ValueRange{i, extf});
-      //     thenb.create<gpu::PrintfOp>(loc, "reg0=%d argB=%f\n",
-      //                                 ValueRange{i, extf2});
+      //     Value tmp = thenb.create<memref::LoadOp>(loc, rawBufferA, i);
+      //     Value tmp2 = thenb.create<memref::LoadOp>(loc, rawBufferB, i);
+      //     affine::AffineForOp affineForLoop2 =
+      //         thenb.create<affine::AffineForOp>(loc, 0, 32, 1);
+      //     {
+      //       OpBuilder::InsertionGuard guard(thenb);
+      //       thenb.setInsertionPointToStart(affineForLoop2.getBody());
+      //       Value i2 = affineForLoop2.getInductionVar();
+      //       Value tmp3 = thenb.create<vector::ExtractOp>(loc, tmp, i2);
+      //       Value tmp4 = thenb.create<vector::ExtractOp>(loc, tmp2, i2);
+      //       Value tmp3Extf =
+      //           thenb.create<arith::ExtFOp>(loc, b.getF32Type(), tmp3);
+      //       Value tmp4Extf =
+      //           thenb.create<arith::ExtFOp>(loc, b.getF32Type(), tmp4);
+      //       thenb.create<gpu::PrintfOp>(loc, "reg0=%d tmp3=%f\n",
+      //                                   ValueRange{i2, tmp3Extf});
+      //       thenb.create<gpu::PrintfOp>(loc, "reg0=%d tmp4=%f\n",
+      //                                   ValueRange{i2, tmp4Extf});
+      //     }
       //   }
       // }
 

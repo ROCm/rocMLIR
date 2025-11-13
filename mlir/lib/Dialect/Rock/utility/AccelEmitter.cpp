@@ -193,7 +193,6 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   VectorType vectorType = mfmaGroup.getRetType();
   auto outputOffset = llvm::to_vector(regCOffset);
   bool isScaled = scaleA && scaleB;
-  llvm::dbgs() << "nResultVectors: " << nResultVectors << "\n";
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
     offset = AddIOp::create(
@@ -232,7 +231,6 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
           vectorC, scaleA, scaleB, /*scalesIdxA=*/0, /*scalesIdxB=*/0);
       vectorD = mfma.getDestD();
     } else {
-      llvm::dbgs() << "Emitting MFMAOp\n";
       auto mfma = amdgpu::MFMAOp::create(
           b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
           mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
