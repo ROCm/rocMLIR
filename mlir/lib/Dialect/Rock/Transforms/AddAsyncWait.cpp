@@ -371,7 +371,10 @@ static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp, Block *
         auto destMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
             readOp.getDest().getType().getMemorySpace());
         if (destMemSpace && destMemSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-          count++;
+          auto maybeLoopCount = rock::predictThreadwiseReadIntoLoopCount(readOp);
+          if (failed(maybeLoopCount))
+            return -1;
+          count += maybeLoopCount.value();
         }
       }
     }
@@ -493,14 +496,12 @@ int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
   scf::ForOp globalLoop = globalLoadOp->getParentOfType<scf::ForOp>();
   
   int waitCount = 0;
-  // TODO: Figure out this:
-  int numLoadsPerReadInto = 2;
 
   // Case 1: Both have the same parent block (function) - prologue
   if (!localLoop && !globalLoop) {
     LLVM_DEBUG(llvm::dbgs() << "Case 1: Both in function (prologue)\n");
     // Count global loads between globalLoadOp and localLoadOp in the same block
-    waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock) * numLoadsPerReadInto;
+    waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock);
   }
   // Case 2: localLoad in loop, globalLoad in function - body
   else if (localLoop && !globalLoop) {
@@ -508,14 +509,14 @@ int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
     // Count from globalLoadOp to the loop operation (which marks the start of the loop block)
     Block *loopOpBlock = localLoop->getBlock();
     if (loopOpBlock == globalBlock) {
-      waitCount += countGlobalLoadsBetween(globalLoadOp, localLoop.getOperation(), globalBlock) * numLoadsPerReadInto;
+      waitCount += countGlobalLoadsBetween(globalLoadOp, localLoop.getOperation(), globalBlock);
     }
     // Note: If loopOpBlock != globalBlock, we'd need to handle cross-block counting,
     // but in typical cases they should be in the same block
     
     // Count from the start of the loop body block to localLoadOp
     Block *loopBody = localLoop.getBody();
-    waitCount += countGlobalLoadsBetween(nullptr, localLoadOp, loopBody) * numLoadsPerReadInto;
+    waitCount += countGlobalLoadsBetween(nullptr, localLoadOp, loopBody);
   }
   // Case 3: localLoad in function, globalLoad in loop - epilogue
   else if (!localLoop && globalLoop) {
@@ -523,10 +524,10 @@ int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
     // Always return 0 for epilogue
     return 0;
   }
+  // Case 4: no pipelining.
   else {
-    LLVM_DEBUG(llvm::dbgs() << "Case 4: both in loops\n");
-    // Keep existing logic for both in loops
-    llvm_unreachable("Should not happen - both in loops");    
+    LLVM_DEBUG(llvm::dbgs() << "Case 4: both in loops (no pipelining)\n");    
+    waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock);  
   }
 
   LLVM_DEBUG(llvm::dbgs() << "  waitCount: " << waitCount << "\n");
