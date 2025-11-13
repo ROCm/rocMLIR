@@ -34,6 +34,7 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrAttentionF16
     PrAttentionBF16
     PrAttentionI8
+    PrAttentionSchedule
     PrGemmSplitK
     PrGemmElementwiseGemmF32
     PrGemmElementwiseGemmF16
@@ -50,6 +51,7 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrGemmDirectToLDS
     PrLdsTransposeLoad
     PrConvDirectToLDS
+    PrAttentionDirectToLDS
   )
   set(GEN_MODE "")
 endif()
@@ -86,6 +88,12 @@ if (ROCK_E2E_TEST_ENABLED)
   list(APPEND CONFIGS
   GemmDirectToLDS
   ConvDirectToLDS
+  AttentionSchedule
+  GemmElementwiseGemmSchedule
+  ConvElementwiseGemmSchedule
+  AttentionDirectToLDS
+  GemmElementwiseGemmDirectToLDS
+  ConvElementwiseGemmDirectToLDS
   )
 endif()
 # Create a list for dummy files
