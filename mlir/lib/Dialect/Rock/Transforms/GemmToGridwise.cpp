@@ -843,7 +843,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
       shouldSetPrefill = false;
     }
   }
-  
+
   if (shouldSetPrefill) {
     Value matC = op.getC();
     auto func = llvm::cast<func::FuncOp>(op->getParentOp());
@@ -865,7 +865,8 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
       } else {
         return op->emitError("expecting `float` or `int` element type");
       }
-      func.setArgAttrs(arg.getArgNumber(), builder.getNamedAttr(attrName, zero));
+      func.setArgAttrs(arg.getArgNumber(),
+                       builder.getNamedAttr(attrName, zero));
     }
   }
 
