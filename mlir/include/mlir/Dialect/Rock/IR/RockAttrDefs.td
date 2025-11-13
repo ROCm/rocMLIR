@@ -297,6 +297,12 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
       + Twine(getOutputSwizzle()) + ","
       + Twine(getForceUnroll())).toVector(perfStr);
     }
+    AttnPerfConfigAttr withScheduleVersion(int64_t newScheduleVersion) const {
+    return AttnPerfConfigAttr::get(
+      getContext(), getMPerBlockG0(), getMPerBlockG1(), getNPerBlockG0(),
+      getKpackPerBlock(), getMPerWave(), getMnPerXdl(), getKpack(),
+      getSplitKFactor(), newScheduleVersion, getOutputSwizzle(), getForceUnroll());
+  }
   }];
 
   let builders = [
