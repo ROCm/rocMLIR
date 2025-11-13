@@ -347,6 +347,39 @@ static int countGlobalLoadsInBlock(Block *block) {
   return count;
 }
 
+/// Count global loads (ThreadwiseReadIntoOp from global to LDS) between two operations in a block.
+/// Counts operations from startOp (exclusive) to endOp (exclusive).
+/// If startOp is nullptr, counts from the beginning of the block.
+static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp, Block *block) {
+  int count = 0;
+  bool counting = (startOp == nullptr); // If startOp is nullptr, start counting immediately
+  
+  for (Operation &op : *block) {
+    if (startOp && &op == startOp) {
+      counting = true;
+      continue; // Start counting after startOp
+    }
+    if (endOp && &op == endOp) {
+      break; // Stop counting at endOp
+    }
+    if (counting) {
+      if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
+        // Check if it reads from global memory
+        if (!isGlobalLoad(readOp))
+          continue;
+        // Check if it writes to LDS
+        auto destMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+            readOp.getDest().getType().getMemorySpace());
+        if (destMemSpace && destMemSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+          count++;
+        }
+      }
+    }
+  }
+  
+  return count;
+}
+
 /// Get the iteration interval from a for loop by checking the offset of the induction variable.
 /// Returns 1 if not pipelined (offset = 0), or the offset value if pipelined.
 static int getIterationInterval(scf::ForOp forOp) {
@@ -443,11 +476,7 @@ static int countGlobalLoadsWithSameIndex(ThreadwiseReadIntoOp globalLoadOp, func
 
 /// The localLoadOp is the load that triggers the dependency, and the
 /// globalLoadOp is the load that is dependent on the localLoadOp.
-int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp, int i) {  
-  // 3 3 3 3 0 0
-  // int hardcoded[6] = {6, 4, 6, 4, 0, 0};
-  // return hardcoded[i];
-
+int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {  
   if (!localLoadOp || !globalLoadOp)
     return -1;
 
@@ -463,50 +492,43 @@ int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp, int i) {
   scf::ForOp localLoop = localLoadOp->getParentOfType<scf::ForOp>();
   scf::ForOp globalLoop = globalLoadOp->getParentOfType<scf::ForOp>();
   
-  int iterationInterval, numBuffers;
+  int waitCount = 0;
+  // TODO: Figure out this:
+  int numLoadsPerReadInto = 2;
 
   // Case 1: Both have the same parent block (function) - prologue
   if (!localLoop && !globalLoop) {
     LLVM_DEBUG(llvm::dbgs() << "Case 1: Both in function (prologue)\n");
-    // Count how many globalLoadOps have the same source index
-    numBuffers = 2;
-    iterationInterval = 2;
+    // Count global loads between globalLoadOp and localLoadOp in the same block
+    waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock) * numLoadsPerReadInto;
   }
   // Case 2: localLoad in loop, globalLoad in function - body
   else if (localLoop && !globalLoop) {
     LLVM_DEBUG(llvm::dbgs() << "Case 2: localLoad in loop, globalLoad in function (body)\n");
-    // Get iteration interval from the loop
-    iterationInterval = getIterationInterval(localLoop);
-    // Count global loads in the loop body
+    // Count from globalLoadOp to the loop operation (which marks the start of the loop block)
+    Block *loopOpBlock = localLoop->getBlock();
+    if (loopOpBlock == globalBlock) {
+      waitCount += countGlobalLoadsBetween(globalLoadOp, localLoop.getOperation(), globalBlock) * numLoadsPerReadInto;
+    }
+    // Note: If loopOpBlock != globalBlock, we'd need to handle cross-block counting,
+    // but in typical cases they should be in the same block
+    
+    // Count from the start of the loop body block to localLoadOp
     Block *loopBody = localLoop.getBody();
-    numBuffers = countGlobalLoadsInBlock(loopBody);    
+    waitCount += countGlobalLoadsBetween(nullptr, localLoadOp, loopBody) * numLoadsPerReadInto;
   }
   // Case 3: localLoad in function, globalLoad in loop - epilogue
   else if (!localLoop && globalLoop) {
     LLVM_DEBUG(llvm::dbgs() << "Case 3: localLoad in function, globalLoad in loop (epilogue)\n");
-    // Get iteration interval from the loop
-    iterationInterval = getIterationInterval(globalLoop);
-    // Count global loads in the loop body
-    Block *loopBody = globalLoop.getBody();
-    numBuffers = countGlobalLoadsInBlock(loopBody);
+    // Always return 0 for epilogue
     return 0;
   }
   else {
     LLVM_DEBUG(llvm::dbgs() << "Case 4: both in loops\n");
-    // LLVM_DEBUG(llvm::dbgs() << "localLoadOp: " << *localLoadOp << "\n" << "globalLoadOp: " << *globalLoadOp << "\n");
-    // llvm_unreachable("Both in loops - should not happen in typical pipelining");
-    iterationInterval = getIterationInterval(globalLoop);
-    // Count global loads in the loop body
-    Block *loopBody = globalLoop.getBody();
-    numBuffers = countGlobalLoadsInBlock(loopBody);
+    // Keep existing logic for both in loops
+    llvm_unreachable("Should not happen - both in loops");    
   }
 
-  LLVM_DEBUG(llvm::dbgs() << "  iterationInterval: " << iterationInterval << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "  numBuffers: " << numBuffers << "\n");
-
-  int numLoadsPerReadInto = 2;
-  int waitCount = (iterationInterval * numBuffers * numLoadsPerReadInto) - numLoadsPerReadInto;
-  
   LLVM_DEBUG(llvm::dbgs() << "  waitCount: " << waitCount << "\n");
   
   return waitCount >= 0 ? waitCount : 0;
