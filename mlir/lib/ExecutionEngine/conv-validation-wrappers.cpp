@@ -183,7 +183,7 @@ void mcpuVerify(T *gpuResults, T *validationResults, long long dataSize,
         double denominator = std::max(static_cast<double>(fabs(valNum)),
                                       static_cast<double>(epsilon));
         relDiff =
-            static_cast<double>(absDiff) / (static_cast<double>(denominator));
+            static_cast<double>(absDiff) / denominator;
         hist_relDiff[findIdxHistRelDiff(relDiff, BUCKET_BOUNDARIES,
                                         NUM_BOUNDARIES)]++;
         if (relDiff > maxRelDiff) {
