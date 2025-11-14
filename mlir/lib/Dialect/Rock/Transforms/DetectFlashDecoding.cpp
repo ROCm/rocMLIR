@@ -348,11 +348,11 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
 
     // No flash decoding detected
     if (splitKVFromQ == 1) {
-      LLVM_DEBUG(llvm::dbgs() << "\tNo flash decoding detected\n");
+      LLVM_DEBUG(llvm::dbgs() << "No flash decoding detected\n");
       return failure();
     }
 
-    LLVM_DEBUG(llvm::dbgs() << "\tFlash decoding detected: splitKV = "
+    LLVM_DEBUG(llvm::dbgs() << "Flash decoding detected: splitKV = "
                             << splitKVFromQ << "\n");
 
     // Add transforms to remove splitKV from batch dimension of inputs
