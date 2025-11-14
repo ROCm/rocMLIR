@@ -95,24 +95,24 @@ def analyze_gemm_file(file, n):
     list = pd.concat(top_list)
 
     df[[
-        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'AccelLayoutA', 'AccelLayoutA', 'g', 'm', 'k',
+        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'AccelLayoutA', 'AccelLayoutB', 'g', 'm', 'k',
         'n', 'PerfConfig', 'LDSBankConflict', 'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock',
         'MPerWave', 'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
         'ArithmeticIntensity', 'Occupancy', 'WorkImbalance'
     ]] = df[[
-        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'AccelLayoutA', 'AccelLayoutA', 'g', 'm', 'k',
+        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'AccelLayoutA', 'AccelLayoutB', 'g', 'm', 'k',
         'n', 'PerfConfig', 'LDSBankConflict', 'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock',
         'MPerWave', 'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
         'ArithmeticIntensity', 'Occupancy', 'WorkImbalance'
     ]].apply(pd.to_numeric, errors='coerce')
 
     list[[
-        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'AccelLayoutA', 'AccelLayoutA', 'g', 'm', 'k',
+        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'AccelLayoutA', 'AccelLayoutB', 'g', 'm', 'k',
         'n', 'PerfConfig', 'LDSBankConflict', 'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock',
         'MPerWave', 'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
         'ArithmeticIntensity', 'Occupancy', 'WorkImbalance'
     ]] = list[[
-        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'AccelLayoutA', 'AccelLayoutA', 'g', 'm', 'k',
+        'Unnamed: 0', 'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'AccelLayoutA', 'AccelLayoutB', 'g', 'm', 'k',
         'n', 'PerfConfig', 'LDSBankConflict', 'TFlops', 'm_per_block', 'n_per_block', 'KPerBlock',
         'MPerWave', 'NPerWave', 'kPack', 'split_k_factor', 'forceUnroll', 'ThreadCopyMore',
         'ArithmeticIntensity', 'Occupancy', 'WorkImbalance'

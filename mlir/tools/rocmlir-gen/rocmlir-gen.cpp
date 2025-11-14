@@ -368,7 +368,7 @@ static llvm::cl::opt<bool> accelLayoutA(
 
 static llvm::cl::opt<bool> accelLayoutB(
     "accelLayoutB",
-    llvm::cl::desc("whether matrix A is G x n x k x kpackperblock x nperblock "
+    llvm::cl::desc("whether matrix B is G x n x k x kpackperblock x nperblock "
                    "x kpack. Where k = K / kperblock, n = N / nperblock and "
                    "kperblock = kpackperblock * kpack"),
     llvm::cl::init(false));

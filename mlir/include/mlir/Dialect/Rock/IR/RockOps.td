@@ -1679,9 +1679,11 @@ def Rock_StageOp :
   }
 
   def Rock_AccelLayoutTransformOp
-      : Rock_Op<"accel_layout_transform", [Pure, ViewLikeOpInterface]>,
+      : Rock_Op<"accel_layout_transform", [Pure, ViewLikeOpInterface,
+                                           AllElementTypesMatch<["input",
+                                                                 "output"]>]>,
         Arguments<(ins AnyShaped:$input, UnitAttr:$isA, UnitAttr:$transposed,
-            OptionalAttr<RockTuningParamAttrInterface>:$params)>,
+            OptionalAttr<RockAccelTuningParamAttrInterface>:$params)>,
         Results<(outs AnyShaped:$output)> {
     let summary = "Tensor transformation";
     let description = [{
@@ -1695,6 +1697,7 @@ def Rock_StageOp :
     let extraClassDeclaration = [{
     Value getViewSource() { return getInput(); }
   }];
+    let hasVerifier = 1;
   }
 
 #endif // ROCK_OPS

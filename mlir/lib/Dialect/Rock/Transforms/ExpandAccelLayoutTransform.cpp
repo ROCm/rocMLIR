@@ -17,6 +17,11 @@
 //
 // This pass is needed in order to have a common MLIR representation for
 // tuning when using accel layout for tensors.
+// This op generates transforms to do:
+// 1D tensor -> B x dBlocks x kBlocks x kpackperblock x dperblock x kpack ->
+// B x (dBlocks x dperblock) x (kBlocks x kpackperblock x kpack) =  B x D x K
+// This is to avoid data swizzling in LDS and better access patterns for accel
+// operations (wmma/mfma).
 //
 //===----------------------------------------------------------------------===//
 
@@ -144,39 +149,22 @@ struct ExpandAccelLayout
     auto params = maybeParams.value();
     int64_t mPerBlock, nPerBlock, kPackPerBlock, kPack;
     kPack = params.getKpack();
-    if (auto xdlopsParams =
-            dyn_cast<rock::XdlopsGemmDerivedParamsAttr>(params)) {
-      mPerBlock = xdlopsParams.getMPerBlock();
-      nPerBlock = xdlopsParams.getNPerBlock();
-      kPackPerBlock = xdlopsParams.getKpackPerBlock();
-    } else if (auto wmmaParams = dyn_cast<rock::WmmaGemmParamsAttr>(params)) {
-      mPerBlock = wmmaParams.getMPerBlock();
-      nPerBlock = wmmaParams.getNPerBlock();
-      kPackPerBlock = wmmaParams.getKpackPerBlock();
-    } else if (auto generalParams =
-                   dyn_cast<rock::GeneralGemmParamsAttr>(params)) {
-      mPerBlock = generalParams.getMPerBlock();
-      nPerBlock = generalParams.getNPerBlock();
-      kPackPerBlock = generalParams.getKPerBlock();
-      assert(kPack == 1);
-    } else
-      return b.notifyMatchFailure(op, "unsupported tuning parameters");
+    mPerBlock = params.getMPerBlock();
+    nPerBlock = params.getNPerBlock();
+    kPackPerBlock = params.getKpackPerBlock();
 
     int64_t dPerBlock = op.getIsA() ? mPerBlock : nPerBlock;
     ShapedType outputType = cast<ShapedType>(op.getType());
-    if (outputType.getRank() != 3)
-      return b.notifyMatchFailure(op, "wrong output type rank");
 
+    // verifier checks the outputType rank
     int64_t g = outputType.getShape()[0];
     int64_t d =
         kBlockFirst ? outputType.getShape()[1] : outputType.getShape()[2];
     int64_t k =
         kBlockFirst ? outputType.getShape()[2] : outputType.getShape()[1];
     int64_t kPerBlock = kPackPerBlock * kPack;
-    if (d % dPerBlock != 0 || k % kPerBlock != 0)
-      return b.notifyMatchFailure(
-          op, "output shape is not compatible with accel layout");
 
+    // verifier checks that d is divisible by dPerBlock and k by kPerBlock
     int64_t dBlocks = d / dPerBlock;
     int64_t kBlocks = k / kPerBlock;
     int64_t dim1 = kBlockFirst ? dBlocks : kBlocks;
