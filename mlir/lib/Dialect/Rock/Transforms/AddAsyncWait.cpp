@@ -479,14 +479,14 @@ static int countGlobalLoadsWithSameIndex(ThreadwiseReadIntoOp globalLoadOp, func
 
 /// The localLoadOp is the load that triggers the dependency, and the
 /// globalLoadOp is the load that is dependent on the localLoadOp.
-int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {  
+std::pair<int, bool> getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {  
   if (!localLoadOp || !globalLoadOp)
-    return -1;
+    return {-1, false};
 
   auto localReadOp = dyn_cast<ThreadwiseReadIntoOp>(localLoadOp);
   auto globalReadOp = dyn_cast<ThreadwiseReadIntoOp>(globalLoadOp);
   if (!localReadOp || !globalReadOp)
-    return -1;
+    return {-1, false};
 
   // Get parent blocks and check for loops
   Block *localBlock = localLoadOp->getBlock();
@@ -496,12 +496,14 @@ int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
   scf::ForOp globalLoop = globalLoadOp->getParentOfType<scf::ForOp>();
   
   int waitCount = 0;
+  bool pipeliningEnabled = false;
 
   // Case 1: Both have the same parent block (function) - prologue
   if (!localLoop && !globalLoop) {
     LLVM_DEBUG(llvm::dbgs() << "Case 1: Both in function (prologue)\n");
     // Count global loads between globalLoadOp and localLoadOp in the same block
     waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock);
+    pipeliningEnabled = true;
   }
   // Case 2: localLoad in loop, globalLoad in function - body
   else if (localLoop && !globalLoop) {
@@ -517,22 +519,56 @@ int getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {
     // Count from the start of the loop body block to localLoadOp
     Block *loopBody = localLoop.getBody();
     waitCount += countGlobalLoadsBetween(nullptr, localLoadOp, loopBody);
+    pipeliningEnabled = true;
   }
   // Case 3: localLoad in function, globalLoad in loop - epilogue
   else if (!localLoop && globalLoop) {
     LLVM_DEBUG(llvm::dbgs() << "Case 3: localLoad in function, globalLoad in loop (epilogue)\n");
     // Always return 0 for epilogue
-    return 0;
+    return {0, true};
   }
   // Case 4: no pipelining.
   else {
     LLVM_DEBUG(llvm::dbgs() << "Case 4: both in loops (no pipelining)\n");    
-    waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock);  
+    return {0, false};
   }
 
   LLVM_DEBUG(llvm::dbgs() << "  waitCount: " << waitCount << "\n");
   
-  return waitCount >= 0 ? waitCount : 0;
+  return {waitCount >= 0 ? waitCount : 0, pipeliningEnabled};
+}
+
+static Operation* getInsertionPointForAsyncWait(IRRewriter &rewriter, Operation *op, bool pipeliningEnabled) {
+  if (pipeliningEnabled) {
+    // If pipelining is enabled, we always insert the AsyncWaitOp just before the local load.
+    return op;
+  } else {
+    // If pipelining is disabled, we have to insert the AsyncWaitOp just after the LDSBarrierOp.
+    // Find the first LDSBarrierOp with barrier_stage="backward" in the function
+    func::FuncOp func = op->getParentOfType<func::FuncOp>();
+    if (!func) {
+      LLVM_DEBUG(llvm::dbgs() << "No function found, inserting before op\n");
+      return nullptr;
+    }
+    
+    rock::LDSBarrierOp forwardBarrier = nullptr;
+    func.walk([&](rock::LDSBarrierOp barrier) {
+      if (!forwardBarrier) {
+        auto barrierStageAttr = barrier.getBarrierStageAttr();
+        if (barrierStageAttr && barrierStageAttr.getValue() == rock::BarrierStage::Forward) {
+          forwardBarrier = barrier;
+        }
+      }
+    });
+    
+    if (forwardBarrier) {
+      llvm::dbgs() << "Found forward barrier: " << forwardBarrier << "\n";
+      return forwardBarrier;
+    } else {
+      LLVM_DEBUG(llvm::dbgs() << "No forward barrier found, inserting before op\n");
+      return op;
+    }
+  }
 }
 
 /// Add AsyncWaitOps to the function. This function has two main steps:
@@ -564,18 +600,30 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
       LLVM_DEBUG(llvm::dbgs() << "Pattern doesn't match or no use found for ThreadwiseReadIntoOp\n");
       continue;
     }
-
-    // Only insert one AsyncWaitOp per insertion point
-    if (insertionPoints.contains(firstUse)) {
+    
+    auto [waitCount, pipeliningEnabled] = getWaitCount(firstUse, readOp);
+    if (waitCount == -1) {
+      LLVM_DEBUG(llvm::dbgs() << "Failed to get wait count for ThreadwiseReadIntoOp\n");
       continue;
     }
-    insertionPoints.insert(firstUse);
 
-    int waitToken = getWaitCount(firstUse, readOp);
-    if (waitToken != -1) {
-      rewriter.setInsertionPoint(firstUse);
-      rock::AsyncWaitOp::create(rewriter, firstUse->getLoc(), waitToken);
+    LLVM_DEBUG(llvm::dbgs() << "Looking for insertion point for AsyncWaitOp after " << firstUse << "\n");
+
+    Operation* insertionPoint = getInsertionPointForAsyncWait(rewriter, firstUse, pipeliningEnabled);      
+    
+    // Only insert one AsyncWaitOp per insertion point
+    if (insertionPoints.contains(insertionPoint)) {
+      LLVM_DEBUG(llvm::dbgs() << "Skipping insertion point because it already has an AsyncWaitOp\n");
+      continue;
     }
+    insertionPoints.insert(insertionPoint);
+    if (pipeliningEnabled)
+      rewriter.setInsertionPoint(insertionPoint);
+    else
+      rewriter.setInsertionPointAfter(insertionPoint);
+    
+    rock::AsyncWaitOp::create(rewriter, insertionPoint->getLoc(), waitCount);    
+
     LLVM_DEBUG(llvm::dbgs() << "\n");
   }
 
