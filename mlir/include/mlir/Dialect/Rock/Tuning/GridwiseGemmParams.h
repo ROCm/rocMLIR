@@ -128,7 +128,7 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
         gemmNPerThread(attr.getNPerThread()), blockSize(attr.getBlockSize()),
         splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
-        outputSwizzle(attr.getOutputSwizzle()){};
+        outputSwizzle(attr.getOutputSwizzle()) {};
 
   int64_t getKPack() { return 1; }
 
@@ -176,7 +176,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false){};
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   InitParamsAccel(WmmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -187,7 +187,7 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false){};
+        gemmBThreadCopyMoreGemmKPack(false) {};
 
   int64_t getKPack() { return gemmKPack; }
 
