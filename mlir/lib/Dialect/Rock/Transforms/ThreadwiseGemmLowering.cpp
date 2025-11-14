@@ -672,6 +672,11 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   bool isGlobalToLDS = srcAddrSpace == gpu::AddressSpace::Global &&
                        dstAddrSpace == gpu::AddressSpace::Workgroup;
 
+  auto arch = getArch(op);
+  if (failed(arch))
+    return emitError(loc) << "can't get arch\n";
+  auto archInfo = rock::lookupArchInfo(arch.value());
+
   int64_t numValues = dstBufferType.getNumElements();
   bool hwDirectToLDS128b, hwDirectToLDS32b;
   if (isGlobalToLDS) {
@@ -686,10 +691,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     assert(!isDstVectorBuffer &&
            "Global to LDS should not have vector buffers, not implemented yet");
 
-    auto arch = getArch(op);
-    if (failed(arch))
-      return emitError(loc) << "can't get arch\n";
-    auto features = rock::lookupArchInfo(arch.value()).defaultFeatures;
+    auto features = archInfo.defaultFeatures;
     hwDirectToLDS128b =
         bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b);
     hwDirectToLDS32b =
@@ -709,6 +711,12 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   int64_t srcStride;
   VectorType dstVectorType;
 
+  // Calculate maximum allowed vectorization for Global-to-LDS based on hardware
+  Type scalarElementType = getElementTypeOrSelf(elementType);
+  int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
+  int64_t maxGlobalToLDSVectorLen =
+      archInfo.getMaxLDSVectorLength(elementBitWidth);
+
   if (isSrcVectorBuffer) {
     loadType = elementType;
     vectorSrcLen = dyn_cast<VectorType>(elementType).getNumElements();
@@ -722,6 +730,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     VectorizationResult vectorSrcRes = getMaxVectorization(
         sourceView, extraIdxCount, /*inputDimLen=*/numValues);
     vectorSrcLen = vectorSrcRes.max;
+    // Vectorization constraint for Global-to-LDS based on hardware capabilities
+    if (isGlobalToLDS && vectorSrcLen > maxGlobalToLDSVectorLen) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Constraining vectorization from " << vectorSrcLen << " to "
+                 << maxGlobalToLDSVectorLen
+                 << " for Global-to-LDS hardware limits\n");
+      vectorSrcLen = maxGlobalToLDSVectorLen;
+    }
     // In the future, this might get merged into the vectorizer.
     collapseContiguousMerges(sourceView);
     srcStride = vectorSrcLen;
