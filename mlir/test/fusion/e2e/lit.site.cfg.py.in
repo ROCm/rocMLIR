@@ -35,7 +35,7 @@ config.rocmlir_common_python_tests_utils = "@ROCMLIR_COMMON_PYTHON_TESTS_UTILS@"
 
 # Add common python test utils
 sys.path.append(config.rocmlir_common_python_tests_utils)
-from common import get_agents
+from common import get_agents, get_arch_features
 
 # Support substitution of the tools_dir with user parameters. This is
 # used when we can't determine the tool dir at configuration time.
@@ -53,15 +53,19 @@ config.no_AMD_GPU = False
 config.arch = ""
 config.arch_support_mfma = False
 config.arch_support_wmma = False
+config.arch_f32_accel = False
 if config.rocm_path:
     try:
         agents = get_agents()
         config.arch = ','.join(agents)
         for x in agents:
-            if any([arch in x for arch in ["gfx908", "gfx90a", "gfx942", "gfx950"]]):
+            _, support_mfma, support_wmma, support_f32_accel = get_arch_features(x)
+            if support_mfma:
                 config.arch_support_mfma = True
-            elif "gfx11" in x or "gfx12" in x:
+            if support_wmma:
                 config.arch_support_wmma = True
+            if support_f32_accel:
+                config.arch_f32_accel = True
             # Check other features here
         if not config.arch:
             config.no_AMD_GPU = True
