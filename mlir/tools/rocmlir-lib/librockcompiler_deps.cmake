@@ -123,6 +123,7 @@ MLIRIndexToLLVM
 MLIRIndexingMapOpInterface
 MLIRInferIntRangeCommon
 MLIRInferIntRangeInterface
+MLIRInferStridedMetadataInterface
 MLIRInferTypeOpInterface
 MLIRLLVMCommonConversion
 MLIRLLVMDialect
@@ -149,6 +150,8 @@ MLIRNVGPUDialect
 MLIRNVVMDialect
 MLIRNVVMTarget
 MLIRNVVMToLLVMIRTranslation
+MLIROpenACCMPCommon
+MLIROpenMPDialect
 MLIRPDLDialect
 MLIRPDLInterpDialect
 MLIRPDLToPDLInterp
