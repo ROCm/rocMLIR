@@ -66,8 +66,8 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths, options: Opt
     ]
     profiler_command = [perfRunner.ROCPROF] + perfRunner.get_metric_args_for_rocprof(
         options.arch) + [
-            '--kernel-trace', '--stats', '-f', 'csv', '-o', perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--',
-            paths.mlir_paths.cpu_runner_path
+            '--kernel-trace', '--stats', '-f', 'csv', '-o',
+            perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--', paths.mlir_paths.cpu_runner_path
         ] + mlir_cpu_runner_args
 
     if options.debug:
@@ -370,12 +370,23 @@ def main(args=None):
                         type=str,
                         help="fusion E2E tests directory")
 
+    parser.add_argument('--data-type',
+                        nargs='+',
+                        choices=[
+                            "f32", "f16", "bf16", "i8", "i8_i32", "i8_i8", "fp8", "fp8_f32",
+                            "fp8_fp8", "f4E2M1FN"
+                        ],
+                        default=["f32", "f16", "i8"],
+                        help='Force a set of datatypes')
+
     parser.add_argument(
-        '--data-type',
+        '--scale-type',
         nargs='+',
-        choices=["f32", "f16", "bf16", "i8", "i8_i32", "i8_i8", "fp8", "fp8_f32", "fp8_fp8"],
-        default=["f32", "f16", "i8"],
-        help='Force a set of datatypes')
+        choices=["f32", "f8E8M0FNU"],
+        default=None,
+        help=
+        'Force a set of scale types for scaled GEMM (only applicable when config includes -scaledGemm)'
+    )
 
     parser.add_argument("--tflops",
                         action='store_true',
@@ -437,8 +448,9 @@ def main(args=None):
         configs = perfRunner.get_conv_configurations(paths.configuration_file_path)
     elif op_type == Operation.GEMM:
         datatypes, output_map = perfRunner.parse_data_types(parsed_args.data_type)
+        scale_types = parsed_args.scale_type if parsed_args.scale_type else None
         configs = perfRunner.get_gemm_configurations(paths.configuration_file_path, datatypes,
-                                                     output_map)
+                                                     output_map, scale_types)
     elif op_type == Operation.ATTENTION:
         configs = perfRunner.get_attn_configurations(paths.configuration_file_path)
     elif op_type == Operation.GEMM_GEMM:

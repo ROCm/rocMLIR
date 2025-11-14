@@ -277,6 +277,7 @@ MlirModule makeAndDumpMIXR(MlirContext ctx, MlirLocation location,
       mlirStringRefCreateFromCString("migraphx.dot"), location);
   mlirOperationStateAddResults(&dotOpState, 1, &matCType);
   mlirOperationStateAddOperands(&dotOpState, 2, dotOperands);
+
   MlirOperation dotOp = mlirOperationCreate(&dotOpState);
   mlirBlockAppendOwnedOperation(funcBody, dotOp);
   MlirValue dotValue = mlirOperationGetResult(dotOp, 0);

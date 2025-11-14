@@ -383,3 +383,53 @@ LogicalResult UnpackOp::verify() {
                        "along output axis");
   return success();
 }
+
+LogicalResult QuantDotOp::verify() {
+  MIXRShapedType inAType = getInA().getType();
+  MIXRShapedType inBType = getInB().getType();
+  Type aElemType = inAType.getElementType();
+  Type bElemType = inBType.getElementType();
+
+  MIXRShapedType resultType = getResult().getType();
+
+  bool hasScaleA = getScaleA() != nullptr;
+  bool hasScaleB = getScaleB() != nullptr;
+  if (hasScaleA ^ hasScaleB)
+    return emitOpError("both scaleA and scaleB must be provided or neither");
+  bool isScaledGemm = hasScaleA && hasScaleB;
+  if (isScaledGemm) {
+    ArrayRef<int64_t> scaleAShape = getScaleA().getType().getShape();
+    ArrayRef<int64_t> inAShape = inAType.getShape();
+    if (scaleAShape.size() != inAShape.size())
+      return emitOpError("scaleA shape must have the same number of dimensions "
+                         "as the input types");
+    for (auto [scaleADim, inADim] : llvm::zip(scaleAShape, inAShape)) {
+      if (scaleADim != inADim)
+        return emitOpError(
+            "scaleA shape must have the same dimensions as the input types");
+    }
+    ArrayRef<int64_t> scaleBShape = getScaleB().getType().getShape();
+    ArrayRef<int64_t> inBShape = inBType.getShape();
+    if (scaleBShape.size() != inBShape.size())
+      return emitOpError("scaleB shape must have the same number of dimensions "
+                         "as the input types");
+    for (auto [scaleBDim, inBDim] : llvm::zip(scaleBShape, inBShape)) {
+      if (scaleBDim != inBDim)
+        return emitOpError(
+            "scaleB shape must have the same dimensions as the input types");
+    }
+    if (aElemType != bElemType)
+      return emitOpError("input types must have the same element type");
+    if (!isa<Float4E2M1FNType>(aElemType) || !isa<Float4E2M1FNType>(bElemType))
+      return emitOpError(
+          "Scaled quant dot ops only support f4E2M1FN element type");
+    if (!isa<Float32Type>(resultType.getElementType()))
+      return emitOpError(
+          "result type must be a float32 type for scaled quant dot ops");
+  } else {
+    if (isa<Float4E2M1FNType>(aElemType) || isa<Float4E2M1FNType>(bElemType))
+      return emitOpError("Quant Dot ops requires scales to be provided to use "
+                         "f4E2M1FN element type");
+  }
+  return success();
+}

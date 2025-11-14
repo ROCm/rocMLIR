@@ -143,19 +143,18 @@ Value createTypeConversionOp(OpBuilder &b, Location loc, Value source,
   return result;
 }
 
-void createTypeConversionLaGeneric(PatternRewriter &rewriter, Location loc,
-                                   Value src, Value dst) {
+void createTypeConversionLaGeneric(OpBuilder &b, Location loc, Value src,
+                                   Value dst) {
   MemRefType dstType = cast<MemRefType>(dst.getType());
   SmallVector<AffineMap, 2> indexingMaps{
-      2, rewriter.getMultiDimIdentityMap(dstType.getRank())};
+      2, b.getMultiDimIdentityMap(dstType.getRank())};
   SmallVector<utils::IteratorType> iteratorTypes(dstType.getRank(),
                                                  utils::IteratorType::parallel);
   linalg::GenericOp::create(
-      rewriter, loc, ValueRange(src), ValueRange(dst), indexingMaps,
-      iteratorTypes,
+      b, loc, ValueRange(src), ValueRange(dst), indexingMaps, iteratorTypes,
       [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
-        Value cast = createTypeConversionOp(rewriter, loc, args[0],
-                                            dstType.getElementType());
+        Value cast =
+            createTypeConversionOp(b, loc, args[0], dstType.getElementType());
         linalg::YieldOp::create(nestedBuilder, nestedLoc, cast);
       });
 }
