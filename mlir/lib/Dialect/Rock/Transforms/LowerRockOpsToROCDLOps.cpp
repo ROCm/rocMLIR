@@ -109,6 +109,8 @@ struct AsyncWaitOpConversion
     //         << chipset.majorVersion;
     // ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
     //}
+    ROCDL::SBarrierOp::create(rewriter, loc);
+
     rewriter.eraseOp(op);
 
     return success();

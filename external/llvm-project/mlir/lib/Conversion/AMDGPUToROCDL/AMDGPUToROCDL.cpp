@@ -645,6 +645,7 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
       Location loc = op->getLoc();
       rewriter.create<ROCDL::SWaitcntOp>(loc, ldsOnlyBits);
       rewriter.replaceOpWithNewOp<ROCDL::SBarrierOp>(op);
+      // rewriter.replaceOpWithNewOp<ROCDL::SWaitcntOp>(op, ldsOnlyBits);
     } else {
       Location loc = op->getLoc();
       rewriter.create<ROCDL::WaitDscntOp>(loc, 0);
