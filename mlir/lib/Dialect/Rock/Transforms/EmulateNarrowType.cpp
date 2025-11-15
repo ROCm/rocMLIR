@@ -139,10 +139,35 @@ struct BufferLoadRewritePatttern
           op, "expected even buffer load in temp code");
     auto newType = VectorType::get(oldType.getNumElements() / scale,
                                    rewriter.getIntegerType(newWidth));
+    Value nibbleIndex = adaptor.getIndices()[0];
+    unsigned indexWidth = cast<IntegerType>(nibbleIndex.getType()).getWidth();
     Value scaleConst =
-        rewriter.createOrFold<arith::ConstantIntOp>(loc, scale, /*width=*/32);
-    Value newIndex = arith::DivUIOp::create(
-        rewriter, loc, adaptor.getIndices()[0], scaleConst);
+        rewriter.createOrFold<arith::ConstantIntOp>(loc, scale, indexWidth);
+    Value newIndex =
+        arith::DivUIOp::create(rewriter, loc, nibbleIndex, scaleConst);
+
+    auto convertedMemrefType =
+        dyn_cast<MemRefType>(adaptor.getMemref().getType());
+    auto origMemrefType = dyn_cast<MemRefType>(op.getMemref().getType());
+    if (convertedMemrefType && convertedMemrefType.hasStaticShape() &&
+        origMemrefType && origMemrefType.hasStaticShape()) {
+      int64_t numBytes = convertedMemrefType.getNumElements();
+      int64_t numNibbles = origMemrefType.getNumElements();
+      Value numBytesConst = rewriter.createOrFold<arith::ConstantIntOp>(
+          loc, numBytes, indexWidth);
+      Value nibbleBoundConst = rewriter.createOrFold<arith::ConstantIntOp>(
+          loc, numNibbles, indexWidth);
+
+      Value nibbleIsOob =
+          arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::uge,
+                                nibbleIndex, nibbleBoundConst);
+      Value byteIsOob = arith::CmpIOp::create(
+          rewriter, loc, arith::CmpIPredicate::uge, newIndex, numBytesConst);
+      Value shouldClamp =
+          arith::OrIOp::create(rewriter, loc, nibbleIsOob, byteIsOob);
+      newIndex = arith::SelectOp::create(rewriter, loc, shouldClamp,
+                                         numBytesConst, newIndex);
+    }
     // Note: if you're using sgpr offset for some reason, this won't work.
     Value newLoad = amdgpu::RawBufferLoadOp::create(
         rewriter, loc, newType, adaptor.getMemref(), newIndex,

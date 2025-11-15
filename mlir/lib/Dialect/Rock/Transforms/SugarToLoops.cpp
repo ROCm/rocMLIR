@@ -1172,37 +1172,6 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     Value source = op.getSource();
     Value valid = op.getValid();
 
-    // For odd-sized 4-bit buffers, widen the view to even size
-    // Pack4BitGpuOpsTo8BitPass (runs later) allocates ceiling(size/2) bytes,
-    // so the memory for padding exists - we just need to make the type match
-    MemRefType srcType = cast<MemRefType>(source.getType());
-    Type originalLoadedType = op.getResult().getType();
-    bool is4bitScalarLoad =
-        srcType.getElementType().getIntOrFloatBitWidth() == 4 &&
-        !isa<VectorType>(originalLoadedType);
-
-    if (is4bitScalarLoad) {
-      ArrayRef<int64_t> shape = srcType.getShape();
-      int64_t flatSize = 1;
-      for (auto s : shape)
-        flatSize *= s;
-
-      // If odd size, widen to even using unrealized_conversion_cast
-      // This is safe because Pack4BitGpuOpsTo8BitPass allocates ceiling(size/2)
-      // bytes, so the memory exists even if the type doesn't reflect it yet
-      if (flatSize % 2 != 0) {
-        SmallVector<int64_t> newShape(shape.begin(), shape.end());
-        newShape.back() = newShape.back() + 1;
-
-        auto widenedType =
-            MemRefType::get(newShape, srcType.getElementType(),
-                            srcType.getLayout(), srcType.getMemorySpace());
-        auto cast =
-            b.create<UnrealizedConversionCastOp>(loc, widenedType, source);
-        source = cast.getResult(0);
-      }
-    }
-
     Type loadedType;
     SmallVector<Value> coords;
     std::tie(coords, loadedType) = getCoordsAndType(b, op);
@@ -1236,6 +1205,8 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     // We need to copy these params here, because the next if might replace
     // "op". So, we can't safely access it after that.
     // TODO: refactor this code
+    MemRefType srcType = op.getSource().getType();
+    Type originalLoadedType = op.getResult().getType();
     SmallVector<Value> sourceCoords(op.getSourceCoord());
 
     PatternRewriter::InsertionGuard insertGuard(b);
