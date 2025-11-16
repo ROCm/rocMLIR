@@ -29,6 +29,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
+#include "llvm/Support/MathExtras.h"
 #include <algorithm>
 
 namespace mlir {
@@ -100,9 +101,16 @@ getSchedules(Operation *op, const TuningParamSetKind &tuningKind) {
 }
 
 static std::vector<uint32_t>
-getWavesPerEU(const TuningParamSetKind &tuningKind) {
+getWavesPerEU(Operation *op, const TuningParamSetKind &tuningKind) {
+  auto archInfo = rock::lookupArchInfo(rock::getArchValue(op));
+
   if (tuningKind == TuningParamSetKind::Exhaustive) {
-    return {1, 2, 4, 8, 16};
+    std::vector<uint32_t> wavesPerEUList;
+    for (int32_t wavesPerEU = 1; wavesPerEU <= archInfo.maxWavesPerEU;
+         wavesPerEU *= 2) {
+      wavesPerEUList.push_back(wavesPerEU);
+    }
+    return wavesPerEUList;
   }
   return {0};
 }
@@ -123,7 +131,7 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
       /*mnPerXdl=*/{4, 16, 32},
       /*kPack=*/{4, 8, 16},
       getSchedules(gemmGemmOp, kind),
-      /*wavesPerEU=*/getWavesPerEU(kind)};
+      /*wavesPerEU=*/getWavesPerEU(gemmGemmOp, kind)};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
       /*gemm0MPerBlock=*/{16, 32, 64, 128},
       /*gemm1MPerBlock=*/{16, 32, 64, 128},
@@ -134,7 +142,7 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
       /*mnPerXdl=*/{16},
       /*kPack=*/{4, 8, 16},
       getSchedules(gemmGemmOp, kind),
-      /*wavesPerEU=*/getWavesPerEU(kind)};
+      /*wavesPerEU=*/getWavesPerEU(gemmGemmOp, kind)};
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
   int64_t numEUPerCU =
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).numEUPerCU;
@@ -317,7 +325,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {4, 16, 32},
       {1, 4, 8, 16, 32},
       getSchedules(gemmOp, kind),
-      getWavesPerEU(kind),
+      getWavesPerEU(gemmOp, kind),
       {0, 1}};
 
   // M/block N/block K/block M/wave N/wave MnPerXdl kPack scheduleVersion
@@ -331,7 +339,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                 {16, 32},
                                                 {1, 4, 8, 16},
                                                 getSchedules(gemmOp, kind),
-                                                getWavesPerEU(kind),
+                                                getWavesPerEU(gemmOp, kind),
                                                 {0, 1}};
 
   // M/block N/block K/block M/wave N/wave Mn/Xdl kPack scheduleVersion
@@ -345,7 +353,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {16},
       {4, 8, 16},
       getSchedules(gemmOp, kind),
-      getWavesPerEU(kind),
+      getWavesPerEU(gemmOp, kind),
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());

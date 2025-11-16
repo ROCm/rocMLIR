@@ -119,6 +119,25 @@ struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
                                 ConversionPatternRewriter &rw) const override;
 };
 
+static bool isValidGridwise(Operation *op) {
+  auto archInfo = rock::lookupArchInfo(rock::getArchValue(op));
+  auto maybeWavesPerEU = rock::getWavesPerEU(op);
+  if (failed(maybeWavesPerEU))
+    return true;
+  int64_t wavesPerEU = maybeWavesPerEU.value().getWavesPerEU();
+
+  int64_t gridSize =
+      getParentFuncOp(op)->getAttrOfType<IntegerAttr>("grid_size").getInt();
+  int64_t blockSize =
+      getParentFuncOp(op)->getAttrOfType<IntegerAttr>("block_size").getInt();
+  auto numCU = rock::getNumCUValue(op);
+  int64_t numWaves = blockSize * gridSize / archInfo.waveSize;
+  int64_t numEUs = numCU * archInfo.numEUPerCU;
+  int64_t kernelWavesPerEU =
+      llvm::PowerOf2Ceil(llvm::divideCeil(numWaves, numEUs));
+  return kernelWavesPerEU >= wavesPerEU && wavesPerEU <= archInfo.maxWavesPerEU;
+}
+
 // Move num_heads dimension to sequence length dimension. This is useful for the
 // decoding phase, when batch=1, seq_len_q = 1 and GQA (example: num_heads_q=64,
 // num_heads_kv=8), we can move numRepeat=num_heads_q/num_heads_kv = 8, to the
@@ -294,6 +313,8 @@ computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
   IntegerAttr gridSizeAttr = rw.getI32IntegerAttr(gridSize);
   func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
   funcOp->setAttr("grid_size", gridSizeAttr);
+  if (!isValidGridwise(op))
+    return failure();
   return success();
 }
 
@@ -1031,6 +1052,8 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
 
   func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
   funcOp->setAttr("grid_size", rw.getI32IntegerAttr(gridSize));
+  if (!isValidGridwise(op))
+    return failure();
   return success();
 }
 
