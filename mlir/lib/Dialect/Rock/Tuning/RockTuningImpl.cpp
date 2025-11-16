@@ -107,7 +107,7 @@ static std::vector<uint32_t> getWavesPerEU(Operation *op,
   auto archInfo = rock::lookupArchInfo(rock::getArchValue(op));
 
   if (tuningKind == TuningParamSetKind::Exhaustive &&
-      (mPerBlock >= 128 || nPerBlock >= 128)) {
+      (mPerBlock >= 128 && nPerBlock >= 128)) {
     std::vector<uint32_t> wavesPerEUList;
     for (int32_t wavesPerEU = 1; wavesPerEU <= archInfo.maxWavesPerEU;
          wavesPerEU *= 2) {
