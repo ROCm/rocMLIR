@@ -1397,7 +1397,7 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
 static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
                                                     const GenParams &params) {
-  // default perfConfig is attn:v3:32,32,32,32,32,32,16,1,1,1,2,1
+  // default perfConfig is attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1
   // keep in sync with AffixTuningParameters.cpp
   if (params.perfConfig.empty())
     return {32, 32};

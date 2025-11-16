@@ -718,6 +718,11 @@ FailureOr<RetAttrType> getAttrFromOpOrParents(
   return attr;
 }
 
+FailureOr<WavesPerEUAttr> mlir::rock::getWavesPerEU(Operation *op) {
+  return getAttrFromOpOrParents<WavesPerEUAttr>(op,
+                                                WavesPerEUAttr::getMnemonic());
+}
+
 FailureOr<IntegerAttr> mlir::rock::getGridSize(Operation *op) {
   return getAttrFromOpOrParents<IntegerAttr>(op, "grid_size");
 }

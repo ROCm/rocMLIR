@@ -90,6 +90,16 @@ def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrI
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Return how many waves per EU.
+        }],
+        /*retType=*/"int64_t",
+        /*methodName=*/"getWavesPerEU",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
       >
 
     // TODO: more methods here as needed

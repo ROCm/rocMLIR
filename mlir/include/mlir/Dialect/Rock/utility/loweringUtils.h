@@ -193,6 +193,9 @@ FailureOr<rock::GpuAllocOp> findGpuAlloc(Value value);
 // `memref::AllocOp` or fails.
 FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
 
+// Get waves per EU defined for this kernel
+FailureOr<WavesPerEUAttr> getWavesPerEU(Operation *op);
+
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
 

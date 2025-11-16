@@ -208,6 +208,13 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     if (succeeded(maybeArch)) {
       gpuFunc->setAttr("arch", maybeArch.value());
     }
+    auto maybeNumCU = rock::getNumCU(theFunc);
+    if (succeeded(maybeNumCU)) {
+      gpuFunc->setAttr("num_cu", b.getI64IntegerAttr(maybeNumCU.value()));
+    }
+    if (auto wavesPerEu = rock::getWavesPerEU(theFunc).value_or(nullptr)) {
+      gpuFunc->setAttr(rock::WavesPerEUAttr::getMnemonic(), wavesPerEu);
+    }
 
     int32_t indexWidth = 32;
     if (theFunc->hasAttr("rock.64bitindex"))
@@ -432,7 +439,15 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       // analysis
       constexpr int64_t wavesPerEUUpperBound = 2;
       wavesPerEU = std::min(wavesPerEU, wavesPerEUUpperBound);
-      if (wavesPerEU > 1) {
+      if (gpuFunc->hasAttr(rock::WavesPerEUAttr::getMnemonic())) {
+        auto wavesPerEuAttr = gpuFunc->getAttrOfType<rock::WavesPerEUAttr>(
+            rock::WavesPerEUAttr::getMnemonic());
+        if(wavesPerEuAttr.getWavesPerEU() > 0) {
+          wavesPerEU = wavesPerEuAttr.getWavesPerEU();
+          LLVM_DEBUG(llvm::dbgs() << "using waves_per_eu from func attribute instead of heuristic\n");
+        }
+      }
+      if (wavesPerEU > 0) {
         LLVM_DEBUG(llvm::dbgs() << "waves_per_eu:" << wavesPerEU << "\n");
         gpuFunc->setAttr("rocdl.waves_per_eu", b.getI32IntegerAttr(wavesPerEU));
       } else {

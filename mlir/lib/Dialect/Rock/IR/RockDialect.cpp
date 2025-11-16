@@ -3110,10 +3110,10 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
     expectedNumTokens = 11;
     break;
   case 3:
-    expectedNumTokens = 12;
+    expectedNumTokens = 13;
     break;
   }
-  SmallVector<StringRef, 11> tokens;
+  SmallVector<StringRef, 13> tokens;
   rest.split(tokens, ',');
   if (tokens.size() != expectedNumTokens) {
     return {};
@@ -3152,11 +3152,12 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
   int64_t splitKFactor = version > 1 ? params[lastIdx++] : 1;
   int64_t scheduleVersion = version > 1 ? params[lastIdx++] : 1;
   int64_t outputSwizzle = version > 1 ? params[lastIdx++] : 2;
+  int64_t wavesPerEU = version >= 3 ? params[lastIdx++] : 0;
   int64_t forceUnroll = params[expectedNumTokens - 1] == 1;
   return AttnPerfConfigAttr::get(
       perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
       kpackPerBlock, mPerWave, nPerWave, mnPerXdl, kpack, splitKFactor,
-      scheduleVersion, outputSwizzle, forceUnroll);
+      scheduleVersion, outputSwizzle, wavesPerEU, forceUnroll);
 }
 
 //===-----------------------------------------------------===//

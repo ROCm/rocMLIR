@@ -114,7 +114,8 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
       /*nPerWave=*/{16, 32, 64, 128, 256},
       /*mnPerXdl=*/{4, 16, 32},
       /*kPack=*/{4, 8, 16},
-      getSchedules(gemmGemmOp, kind)};
+      getSchedules(gemmGemmOp, kind),
+      /*wavesPerEU=*/{1, 2, 4, 8, 16}};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
       /*gemm0MPerBlock=*/{16, 32, 64, 128},
       /*gemm1MPerBlock=*/{16, 32, 64, 128},
@@ -124,7 +125,8 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
       /*nPerWave=*/{16, 32, 64},
       /*mnPerXdl=*/{16},
       /*kPack=*/{4, 8, 16},
-      getSchedules(gemmGemmOp, kind)};
+      getSchedules(gemmGemmOp, kind),
+      /*wavesPerEU=*/{1, 2, 4, 8, 16}};
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
   int64_t numEUPerCU =
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).numEUPerCU;
@@ -154,24 +156,27 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
                 for (uint32_t gemmKPack : validRangeAttnParams[7]) {
                   for (int64_t splitKFactor : optimalSplitKFactors) {
                     for (uint32_t gemmSchedule : validRangeAttnParams[8]) {
-                      if (isWMMA) {
-                        int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
-                                            (gemm0NPerBlock / gemmNPerWave);
-                        if (rdnaWaves < numEUPerCU) {
-                          continue;
+                      for (uint32_t wavesPerEU : validRangeAttnParams[7]) {
+
+                        if (isWMMA) {
+                          int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
+                                              (gemm0NPerBlock / gemmNPerWave);
+                          if (rdnaWaves < numEUPerCU) {
+                            continue;
+                          }
                         }
-                      }
-                      if (gemm0MPerBlock >= gemmMPerWave &&
-                          gemm1MPerBlock >= gemmMPerWave &&
-                          gemm1MPerBlock >= gemm0MPerBlock &&
-                          gemm0NPerBlock >= gemmNPerWave) {
-                        auto params = AttnPerfConfigAttr::get(
-                            gemmGemmOp.getContext(), gemm0MPerBlock,
-                            gemm1MPerBlock, gemm0NPerBlock, gemmKPerBlock,
-                            gemmMPerWave, gemmNPerWave, gemmMnPerXdl, gemmKPack,
-                            splitKFactor, gemmSchedule, outputSwizzle, true);
-                        newSpace->tuningRange.push_back(
-                            cast<RockTuningParamAttrInterface>(params));
+                        if (gemm0MPerBlock >= gemmMPerWave &&
+                            gemm1MPerBlock >= gemmMPerWave &&
+                            gemm1MPerBlock >= gemm0MPerBlock &&
+                            gemm0NPerBlock >= gemmNPerWave) {
+                          auto params = AttnPerfConfigAttr::get(
+                              gemmGemmOp.getContext(), gemm0MPerBlock,
+                              gemm1MPerBlock, gemm0NPerBlock, gemmKPerBlock,
+                              gemmMPerWave, gemmNPerWave, gemmMnPerXdl, gemmKPack,
+                              splitKFactor, gemmSchedule, outputSwizzle, wavesPerEU, true);
+                          newSpace->tuningRange.push_back(
+                              cast<RockTuningParamAttrInterface>(params));
+                        }
                       }
                     }
                   }
@@ -292,7 +297,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   const std::vector<std::vector<uint32_t>> validRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
-  // M/block N/block K/block M/wave N/wave kPack scheduleVersion
+  // M/block N/block K/block M/wave N/wave kPack scheduleVersion wavesPerEU
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
@@ -303,9 +308,10 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {4, 16, 32},
       {1, 4, 8, 16, 32},
       getSchedules(gemmOp, kind),
+      {1, 2, 4, 8, 16},
       {0, 1}};
 
-  // M/block N/block K/block M/wave N/wave MnPerXdl kPack scheduleVersion
+  // M/block N/block K/block M/wave N/wave MnPerXdl kPack scheduleVersion wavesPerEU
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>>
       validRangeAccelGemmParams8BitReduction = {{4, 8, 16, 32, 64, 128, 256},
@@ -316,9 +322,10 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                 {16, 32},
                                                 {1, 4, 8, 16},
                                                 getSchedules(gemmOp, kind),
+                                                {1, 2, 4, 8, 16},
                                                 {0, 1}};
 
-  // M/block N/block K/block M/wave N/wave Mn/Xdl kPack scheduleVersion
+  // M/block N/block K/block M/wave N/wave Mn/Xdl kPack scheduleVersion wavesPerEU
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
       {4, 8, 16, 32, 64, 128, 256},
@@ -329,6 +336,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {16},
       {4, 8, 16},
       getSchedules(gemmOp, kind),
+      {1, 2, 4, 8, 16},
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
@@ -355,23 +363,25 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                       gemmKPack, isSplitKFusible);
                   for (int64_t splitKFactor : optimalSplitKFactors) {
                     for (int64_t gemmSchedule : xdlopsParams[7]) {
-                      for (uint32_t forceUnroll : xdlopsParams[8]) {
-                        // hardcode outputSwizzle to heuristics = 2
-                        InitParamsAccel gemmParams(
-                            gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                            gemmMPerWave, gemmNPerWave, gemmMnPerXdl, gemmKPack,
-                            splitKFactor, gemmSchedule, 2, forceUnroll, true);
-                        if (gemmMPerBlock >= gemmMPerWave &&
-                            gemmNPerBlock >= gemmMnPerXdl) {
-                          if (succeeded(tuningInfo.paramsProbablyValid(
-                                  b, info, gemmParams)) &&
-                              (kind == TuningParamSetKind::Exhaustive ||
-                               succeeded(tuningInfo.couldBePerformant(
-                                   info, gemmParams))))
-                            newSpace->tuningRange.push_back(
-                                cast<RockTuningParamAttrInterface>(
-                                    tuningInfo.getGemmParamsAttr(b,
-                                                                 gemmParams)));
+                      for (int64_t wavesPerEU : xdlopsParams[8]) {
+                        for (uint32_t forceUnroll : xdlopsParams[9]) {
+                          // hardcode outputSwizzle to heuristics = 2
+                          InitParamsAccel gemmParams(
+                              gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                              gemmMPerWave, gemmNPerWave, gemmMnPerXdl, gemmKPack,
+                              splitKFactor, gemmSchedule, 2, wavesPerEU, forceUnroll, true);
+                          if (gemmMPerBlock >= gemmMPerWave &&
+                              gemmNPerBlock >= gemmMnPerXdl) {
+                            if (succeeded(tuningInfo.paramsProbablyValid(
+                                    b, info, gemmParams)) &&
+                                (kind == TuningParamSetKind::Exhaustive ||
+                                succeeded(tuningInfo.couldBePerformant(
+                                    info, gemmParams))))
+                              newSpace->tuningRange.push_back(
+                                  cast<RockTuningParamAttrInterface>(
+                                      tuningInfo.getGemmParamsAttr(b,
+                                                                  gemmParams)));
+                          }
                         }
                       }
                     }
@@ -400,20 +410,22 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                       gemmKPack, isSplitKFusible);
                   for (auto splitKFactor : optimalSplitKFactors) {
                     for (uint32_t gemmSchedule : wmmaParams[7]) {
-                      for (uint32_t forceUnroll : wmmaParams[8]) {
-                        // hardcode outputSwizzle to heuristics = 2
-                        InitParamsAccel gemmParams(
-                            gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                            gemmMPerWave, gemmNPerWave, gemmMnPerXdl, gemmKPack,
-                            splitKFactor, gemmSchedule, 2, forceUnroll, true);
-                        if (succeeded(tuningInfo.paramsProbablyValid(
-                                b, info, gemmParams)) &&
-                            (kind == TuningParamSetKind::Exhaustive ||
-                             succeeded(tuningInfo.couldBePerformant(
-                                 info, gemmParams))))
-                          newSpace->tuningRange.push_back(
-                              cast<RockTuningParamAttrInterface>(
-                                  tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                      for (int64_t wavesPerEU : wmmaParams[8]) {
+                        for (uint32_t forceUnroll : wmmaParams[9]) {
+                          // hardcode outputSwizzle to heuristics = 2
+                          InitParamsAccel gemmParams(
+                              gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
+                              gemmMPerWave, gemmNPerWave, gemmMnPerXdl, gemmKPack,
+                              splitKFactor, gemmSchedule, 2, wavesPerEU, forceUnroll, true);
+                          if (succeeded(tuningInfo.paramsProbablyValid(
+                                  b, info, gemmParams)) &&
+                              (kind == TuningParamSetKind::Exhaustive ||
+                              succeeded(tuningInfo.couldBePerformant(
+                                  info, gemmParams))))
+                            newSpace->tuningRange.push_back(
+                                cast<RockTuningParamAttrInterface>(
+                                    tuningInfo.getGemmParamsAttr(b, gemmParams)));
+                          }
                       }
                     }
                   }
@@ -541,7 +553,7 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
       auto params = AttnPerfConfigAttr::get(
           attnOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
           kPackBerBlock, mPerWave, nPerWave, mnPerXdl, kPack, splitKFactor,
-          gemmSchedule, outputSwizzle, true);
+          gemmSchedule, outputSwizzle, /*wavesPerEU=*/0, true);
       newSpace->tuningRange.push_back(
           cast<RockTuningParamAttrInterface>(params));
     }
@@ -560,7 +572,7 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
       auto params = AttnPerfConfigAttr::get(
           attnOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
           kPackBerBlock, mPerWave, nPerWave, mnPerXdl, kPack, splitKFactor,
-          gemmSchedule, outputSwizzle, true);
+          gemmSchedule, outputSwizzle, /*wavesPerEU=*/0, true);
       newSpace->tuningRange.push_back(
           cast<RockTuningParamAttrInterface>(params));
     }

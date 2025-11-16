@@ -428,7 +428,6 @@ LogicalResult
 PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
                                         Type dataTypeA, Type dataTypeB,
                                         StringRef arch) {
-
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
   int64_t blockSize = obtainBlockSize(waveSize, param);
   if (blockSize > maxHardwareWorkgroupSize)
@@ -682,7 +681,7 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
         validParams.gemmNPerBlock, validParams.gemmKPack,
         validParams.gemmMPerWave, validParams.gemmNPerWave,
         validParams.gemmMnPerXdl, validParams.splitKFactor,
-        validParams.gemmScheduleVersion, validParams.outputSwizzle,
+        validParams.gemmScheduleVersion, validParams.outputSwizzle, validParams.wavesPerEU,
         validParams.gemmAThreadCopyMoreGemmK);
   } else {
     // V3 and older
@@ -695,12 +694,14 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
     int64_t nWaves = maxWaves / mWaves;
 
     mPerWave = mPerBlock / mWaves;
+    // use default heuristic
+    int64_t wavesPerEU = 0;
     int64_t nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
     return builder.getAttr<MfmaGemmParamsAttr>(
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, validParams.gemmKPack, mPerWave, nPerWave,
         mnPerXdl, validParams.splitKFactor, validParams.gemmScheduleVersion,
-        validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
+        validParams.outputSwizzle, wavesPerEU, validParams.gemmAThreadCopyMoreGemmK);
   }
 }
 
@@ -913,10 +914,11 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.getVersion() >= InitParamsAccel::Version::V4
           ? validParams.gemmMnPerXdl
           : 16; // default value as mnPerXdl was not provided in V3
+  int64_t wavesPerEU = validParams.getVersion() >= InitParamsAccel::Version::V4 ? validParams.wavesPerEU : 0;
   return builder.getAttr<WmmaGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,
       validParams.gemmMPerWave, nPerWave, mnPerXdl, validParams.splitKFactor,
-      validParams.gemmScheduleVersion, validParams.outputSwizzle,
+      validParams.gemmScheduleVersion, validParams.outputSwizzle, wavesPerEU,
       validParams.gemmAThreadCopyMoreGemmK);
 }
