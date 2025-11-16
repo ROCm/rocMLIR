@@ -227,10 +227,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
         return signalPassFailure();
       }
     }
-    
-    funcParent->setAttr(
-        WavesPerEUAttr::getMnemonic(),
-        b.getAttr<WavesPerEUAttr>(validParams.wavesPerEU));
+
+    funcParent->setAttr(WavesPerEUAttr::getMnemonic(),
+                        b.getAttr<WavesPerEUAttr>(validParams.wavesPerEU));
 
     auto origGemmSize = op.getGemmSize();
     auto paddedGemmSize = calculatePaddedGemmSize(validParams, origGemmSize,
@@ -309,7 +308,8 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
         gemm0XdlDerivedParams.getNPerWave(),
         gemm0XdlDerivedParams.getMnPerXdl(), attnPerfConfig.getSplitKFactor(),
         gemm0XdlDerivedParams.getScheduleVersion(),
-        gemm0XdlDerivedParams.getOutputSwizzle(), gemm0XdlDerivedParams.getWavesPerEU(),
+        gemm0XdlDerivedParams.getOutputSwizzle(),
+        gemm0XdlDerivedParams.getWavesPerEU(),
         gemm0XdlDerivedParams.getForceUnroll());
   }
   return WmmaGemmParamsAttr::get(
@@ -320,7 +320,8 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
           (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
       gemm0TuningParams.getNPerWave(), gemm0TuningParams.getMnPerXdl(),
       attnPerfConfig.getSplitKFactor(), gemm0TuningParams.getScheduleVersion(),
-      gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getWavesPerEU(), gemm0TuningParams.getForceUnroll());
+      gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getWavesPerEU(),
+      gemm0TuningParams.getForceUnroll());
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(
@@ -379,16 +380,16 @@ void AffixTuningParameters::affixTuningParametersImpl(
         attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
         attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
-        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(), attnPerfConfig.getWavesPerEU(),
-        attnPerfConfig.getForceUnroll());
+        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getWavesPerEU(), attnPerfConfig.getForceUnroll());
   } else {
     accelParams0 = WmmaGemmParamsAttr::get(
         builder.getContext(), attnPerfConfig.getKpackPerBlock(),
         attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
         attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
-        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(), attnPerfConfig.getWavesPerEU(),
-        attnPerfConfig.getForceUnroll());
+        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getWavesPerEU(), attnPerfConfig.getForceUnroll());
   }
   op.setGemm0ParamsAttr(accelParams0);
   if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {

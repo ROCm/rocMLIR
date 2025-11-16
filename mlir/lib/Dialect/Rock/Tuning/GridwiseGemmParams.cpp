@@ -681,8 +681,8 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
         validParams.gemmNPerBlock, validParams.gemmKPack,
         validParams.gemmMPerWave, validParams.gemmNPerWave,
         validParams.gemmMnPerXdl, validParams.splitKFactor,
-        validParams.gemmScheduleVersion, validParams.outputSwizzle, validParams.wavesPerEU,
-        validParams.gemmAThreadCopyMoreGemmK);
+        validParams.gemmScheduleVersion, validParams.outputSwizzle,
+        validParams.wavesPerEU, validParams.gemmAThreadCopyMoreGemmK);
   } else {
     // V3 and older
     int64_t mPerBlock = validParams.gemmMPerBlock;
@@ -701,7 +701,8 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, validParams.gemmKPack, mPerWave, nPerWave,
         mnPerXdl, validParams.splitKFactor, validParams.gemmScheduleVersion,
-        validParams.outputSwizzle, wavesPerEU, validParams.gemmAThreadCopyMoreGemmK);
+        validParams.outputSwizzle, wavesPerEU,
+        validParams.gemmAThreadCopyMoreGemmK);
   }
 }
 
@@ -914,7 +915,9 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.getVersion() >= InitParamsAccel::Version::V4
           ? validParams.gemmMnPerXdl
           : 16; // default value as mnPerXdl was not provided in V3
-  int64_t wavesPerEU = validParams.getVersion() >= InitParamsAccel::Version::V4 ? validParams.wavesPerEU : 0;
+  int64_t wavesPerEU = validParams.getVersion() >= InitParamsAccel::Version::V4
+                           ? validParams.wavesPerEU
+                           : 0;
   return builder.getAttr<WmmaGemmParamsAttr>(
       validParams.gemmKPerBlock, validParams.gemmMPerBlock,
       validParams.gemmNPerBlock, validParams.gemmKPack,

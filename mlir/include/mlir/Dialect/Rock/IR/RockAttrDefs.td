@@ -322,20 +322,11 @@ def Rock_MfmaGemmParamsAttr
   let description = [{
     The tuning parameters for an mfma-based matrix multiplication.
   }];
-  let parameters = (ins
-    "int64_t":$kpackPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kpack,
-    "int64_t":$mPerWave,
-    "int64_t":$nPerWave,
-    "int64_t":$mnPerXdl,
-    "int64_t":$splitKFactor,
-    "int64_t":$scheduleVersion,
-    "int64_t":$outputSwizzle,
-    "int64_t":$wavesPerEU,
-    "bool":$forceUnroll
-  );
+  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
+      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
+      "int64_t":$wavesPerEU, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -370,8 +361,7 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
       "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
       "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
       "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
-      "int64_t":$wavesPerEU,
-      "bool":$forceUnroll);
+      "int64_t":$wavesPerEU, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
@@ -474,9 +464,7 @@ def Rock_ScheduleVersionAttr : Rock_Attr<"ScheduleVersion"> {
 
 def Rock_WavesPerEU : Rock_Attr<"WavesPerEU"> {
   let mnemonic = "waves_per_eu";
-  let parameters = (ins
-    "int64_t":$wavesPerEU
-  );
+  let parameters = (ins "int64_t":$wavesPerEU);
   let assemblyFormat = "`<` params `>`";
   let description = [{
     An attribute to express explicitly defined waves_per_eu for the kernel

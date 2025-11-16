@@ -442,9 +442,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       if (gpuFunc->hasAttr(rock::WavesPerEUAttr::getMnemonic())) {
         auto wavesPerEuAttr = gpuFunc->getAttrOfType<rock::WavesPerEUAttr>(
             rock::WavesPerEUAttr::getMnemonic());
-        if(wavesPerEuAttr.getWavesPerEU() > 0) {
+        if (wavesPerEuAttr.getWavesPerEU() > 0) {
           wavesPerEU = wavesPerEuAttr.getWavesPerEU();
-          LLVM_DEBUG(llvm::dbgs() << "using waves_per_eu from func attribute instead of heuristic\n");
+          LLVM_DEBUG(llvm::dbgs() << "using waves_per_eu from func attribute "
+                                     "instead of heuristic\n");
         }
       }
       if (wavesPerEU > 0) {

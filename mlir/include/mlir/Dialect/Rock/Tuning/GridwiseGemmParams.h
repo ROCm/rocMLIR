@@ -145,18 +145,19 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
                             int64_t kPerBlock, int64_t mPerWave,
                             int64_t nPerWave, int64_t mnPerXdl, int64_t kPack,
                             int64_t splitKFactor, int64_t scheduleVersion,
-                            int64_t outputSwizzle, int64_t wavesPerEU, bool aThreadCopyMoreGemmK,
+                            int64_t outputSwizzle, int64_t wavesPerEU,
+                            bool aThreadCopyMoreGemmK,
                             bool bThreadCopyMoreGemmKPack)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
         gemmNPerWave(nPerWave), gemmMnPerXdl(mnPerXdl),
         gemmNPerWaveOrMnPerXdl(0), gemmKPack(kPack), splitKFactor(splitKFactor),
-        gemmScheduleVersion(scheduleVersion), outputSwizzle(outputSwizzle), wavesPerEU(wavesPerEU),
-        gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
+        gemmScheduleVersion(scheduleVersion), outputSwizzle(outputSwizzle),
+        wavesPerEU(wavesPerEU), gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
         gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
 
   constexpr InitParamsAccel()
-      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL, 0LL, false,
-                        false) {}
+      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL, 0LL,
+                        false, false) {}
 
   InitParamsAccel(MfmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
