@@ -292,32 +292,8 @@ static Operation* findFirstUseAfter(ThreadwiseReadIntoOp writeOp, llvm::DenseSet
   }
 
   LLVM_DEBUG(llvm::dbgs() << "After writeOp: " << *writeOp.getOperation() << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "-> Found first read: " << firstRead << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "->-> Found first read: " << firstRead << "\n");
   return firstRead.getOperation();
-}
-
-/// Extract constant offset from an arithmetic operation.
-/// Returns the offset if the operation is of the form: loop_var + constant or constant + loop_var
-static std::optional<int64_t> extractOffset(Value value, Value loopVar) {
-  auto *defOp = value.getDefiningOp();
-  if (!defOp)
-    return std::nullopt;
-
-  // Check for arith.addi
-  if (auto addiOp = dyn_cast<arith::AddIOp>(defOp)) {
-    APInt constVal;
-
-    LLVM_DEBUG(llvm::dbgs() << "  extractOffset: addiOp: " << *addiOp << "\n");
-    
-    // Check if one operand is the loop variable and the other is a constant
-    if (addiOp.getLhs() == loopVar && matchPattern(addiOp.getRhs(), m_ConstantInt(&constVal))) {
-      return constVal.getSExtValue();
-    } else if (addiOp.getRhs() == loopVar && matchPattern(addiOp.getLhs(), m_ConstantInt(&constVal))) {
-      return constVal.getSExtValue();
-    }
-  }
-  
-  return std::nullopt;
 }
 
 /// Check if a ThreadwiseReadIntoOp reads from global memory (no GPU address space).
@@ -326,25 +302,6 @@ static bool isGlobalLoad(ThreadwiseReadIntoOp readOp) {
       readOp.getSource().getType().getMemorySpace());
   // Global memory has no address space attribute (or it's null)
   return !sourceMemSpace;
-}
-
-/// Count ThreadwiseReadIntoOps in a block that read from global memory and write to LDS.
-static int countGlobalLoadsInBlock(Block *block) {
-  int count = 0;
-  for (auto &op : *block) {
-    if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
-      // Check if it reads from global memory
-      if (!isGlobalLoad(readOp))
-        continue;
-      // Check if it writes to LDS
-      auto destMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-          readOp.getDest().getType().getMemorySpace());
-      if (destMemSpace && destMemSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-        count++;
-      }
-    }
-  }
-  return count;
 }
 
 /// Count global loads (ThreadwiseReadIntoOp from global to LDS) between two operations in a block.
@@ -383,100 +340,6 @@ static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp, Block *
   return count;
 }
 
-/// Get the iteration interval from a for loop by checking the offset of the induction variable.
-/// Returns 1 if not pipelined (offset = 0), or the offset value if pipelined.
-static int getIterationInterval(scf::ForOp forOp) {
-  Value inductionVar = forOp.getInductionVar();
-  Block *body = forOp.getBody();
-  
-  // Look for uses of the induction variable with offsets in the loop body
-  // Check for ExtractMultiBufferOp that uses the induction variable with an offset
-  for (auto &op : *body) {
-    if (auto extractOp = dyn_cast<rock::ExtractMultiBufferOp>(&op)) {
-      Value selectIndex = extractOp.getSelectIndex();
-      auto offset = extractOffset(selectIndex, inductionVar);
-      if (offset.has_value()) {
-        // If offset is 0, not pipelined; if > 0, pipelined with that interval
-        return offset.value() == 0 ? 1 : offset.value();
-      }
-    }
-  }
-  
-  // Default: not pipelined
-  return 1;
-}
-
-/// Count how many globalLoadOps have the same source index as the given globalLoadOp.
-/// This is used when both operations are outside a loop.
-static int countGlobalLoadsWithSameIndex(ThreadwiseReadIntoOp globalLoadOp, func::FuncOp func) {
-  // Get the source of globalLoadOp and trace back to find the index used
-  Value globalSource = globalLoadOp.getSource();
-  
-  // Try to find ExtractMultiBufferOp to get the index
-  Value current = globalSource;
-  Value targetIndex = nullptr;
-  
-  while (current) {
-    auto *defOp = current.getDefiningOp();
-    if (!defOp)
-      break;
-      
-    if (auto extractOp = dyn_cast<rock::ExtractMultiBufferOp>(defOp)) {
-      targetIndex = extractOp.getSelectIndex();
-      break;
-    }
-    
-    if (auto viewOp = dyn_cast<ViewLikeOpInterface>(defOp)) {
-      current = viewOp.getViewSource();
-    } else if (auto transformOp = dyn_cast<rock::TransformOp>(defOp)) {
-      current = transformOp.getInput();
-    } else {
-      break;
-    }
-  }
-  
-  if (!targetIndex)
-    return 1; // Can't determine, default to 1
-  
-  // Count all global loads with the same index
-  int count = 0;
-  func.walk([&](ThreadwiseReadIntoOp readOp) {
-    if (!isGlobalLoad(readOp))
-      return;
-    
-    // Check if it writes to LDS
-    auto destMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-        readOp.getDest().getType().getMemorySpace());
-    if (!destMemSpace || destMemSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace())
-      return;
-    
-    // Trace back to find the index
-    Value current = readOp.getSource();
-    while (current) {
-      auto *defOp = current.getDefiningOp();
-      if (!defOp)
-        break;
-        
-      if (auto extractOp = dyn_cast<rock::ExtractMultiBufferOp>(defOp)) {
-        if (extractOp.getSelectIndex() == targetIndex) {
-          count++;
-          break;
-        }
-      }
-      
-      if (auto viewOp = dyn_cast<ViewLikeOpInterface>(defOp)) {
-        current = viewOp.getViewSource();
-      } else if (auto transformOp = dyn_cast<rock::TransformOp>(defOp)) {
-        current = transformOp.getInput();
-      } else {
-        break;
-      }
-    }
-  });
-  
-  return count > 0 ? count : 1;
-}
-
 /// The localLoadOp is the load that triggers the dependency, and the
 /// globalLoadOp is the load that is dependent on the localLoadOp.
 std::pair<int, bool> getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {  
@@ -489,7 +352,6 @@ std::pair<int, bool> getWaitCount(Operation *localLoadOp, Operation *globalLoadO
     return {-1, false};
 
   // Get parent blocks and check for loops
-  Block *localBlock = localLoadOp->getBlock();
   Block *globalBlock = globalLoadOp->getBlock();
   
   scf::ForOp localLoop = localLoadOp->getParentOfType<scf::ForOp>();

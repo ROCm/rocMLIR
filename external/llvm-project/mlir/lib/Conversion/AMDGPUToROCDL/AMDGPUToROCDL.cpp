@@ -542,62 +542,6 @@ struct MemoryCounterWaitOpLowering
   }
 };
 
-// struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
-//   LDSBarrierOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
-//       : ConvertOpToLLVMPattern<LDSBarrierOp>(converter), chipset(chipset) {}
-
-//   Chipset chipset;
-
-//   LogicalResult
-//   matchAndRewrite(LDSBarrierOp op, LDSBarrierOp::Adaptor adaptor,
-//                   ConversionPatternRewriter &rewriter) const override {
-//     Location loc = op.getLoc();
-//     // This ensures that waits on global memory aren't introduced on
-//     // chips that don't have the BackOffBarrier feature enabled in LLVM.
-//     bool requiresInlineAsm = chipset < kGfx90a;
-
-//     Attribute mmra =
-//         rewriter.getAttr<LLVM::MMRATagAttr>("amdgpu-synchronize-as", "local");
-//     // Note: while there *is* a workgroup-one-as scope, this, when combined with
-//     // the MMRA, will lead to the fence having no effect. This is because the
-//     // codepaths for an atomic load or store will observe that a
-//     // one-address-space atomic to LDS requires no synchronization because
-//     // operations on LDS are totally ordered with respect to each other, and so
-//     // will not emit the correct waitcnt operations that these fences are
-//     // intended to produce. Therefore, we use a broader type of fence and rely
-//     // on the MMRA to relax it to the semantics we want.
-//     StringRef scope = "workgroup";
-
-//     auto relFence = LLVM::FenceOp::create(rewriter, loc,
-//                                           LLVM::AtomicOrdering::release, scope);
-//     relFence->setDiscardableAttr(LLVM::LLVMDialect::getMmraAttrName(), mmra);
-//     if (requiresInlineAsm) {
-//       auto asmDialectAttr = LLVM::AsmDialectAttr::get(rewriter.getContext(),
-//                                                       LLVM::AsmDialect::AD_ATT);
-//       const char *asmStr = ";;;WARNING: BREAKS DEBUG WATCHES\ns_barrier";
-//       const char *constraints = "";
-//       LLVM::InlineAsmOp::create(
-//           rewriter, loc,
-//           /*resultTypes=*/TypeRange(), /*operands=*/ValueRange(),
-//           /*asm_string=*/asmStr, constraints, /*has_side_effects=*/true,
-//           /*is_align_stack=*/false, LLVM::TailCallKind::None,
-//           /*asm_dialect=*/asmDialectAttr,
-//           /*operand_attrs=*/ArrayAttr());
-//     } else if (chipset.majorVersion < 12) {
-//       ROCDL::SBarrierOp::create(rewriter, loc);
-//     } else {
-//       ROCDL::BarrierSignalOp::create(rewriter, loc, -1);
-//       ROCDL::BarrierWaitOp::create(rewriter, loc, -1);
-//     }
-
-//     auto acqFence = LLVM::FenceOp::create(rewriter, loc,
-//                                           LLVM::AtomicOrdering::acquire, scope);
-//     acqFence->setDiscardableAttr(LLVM::LLVMDialect::getMmraAttrName(), mmra);
-//     rewriter.replaceOp(op, acqFence);
-//     return success();
-//   }
-// };
-
 struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
   LDSBarrierOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
       : ConvertOpToLLVMPattern<LDSBarrierOp>(converter), chipset(chipset) {}

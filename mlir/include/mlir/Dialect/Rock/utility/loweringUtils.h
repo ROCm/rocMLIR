@@ -260,12 +260,11 @@ FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
 std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
 
 /// Predict the loop count for a ThreadwiseReadIntoOp by computing the bounds
-/// and strides that matchAndRewrite would create, then returning bound/stride.
-/// This function replicates the logic from matchAndRewrite to compute:
+/// and strides that matchAndRewrite would create. This function replicates
+/// the logic from matchAndRewrite to compute:
 /// - numValues: the bound for the iteration dimension
 /// - srcStride: the stride for the iteration dimension
 /// Returns: numValues / srcStride (the loop count)
-/// This is a pure analysis function that does not create any operations.
 FailureOr<int64_t> predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op);
 
 } // end namespace rock

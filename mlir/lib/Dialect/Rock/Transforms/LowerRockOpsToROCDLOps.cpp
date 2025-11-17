@@ -90,25 +90,7 @@ struct AsyncWaitOpConversion
     unsigned otherCnts = ~0xC00F; // C00F has bits 15:14 and 3:0 set
     unsigned waitValue = lowBits | highBits | otherCnts;
 
-    ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);
-
-    // I think this should not be neccesary...
-    // constexpr int32_t ldsOnlyBitsGfx6789 = ~(0x1f << 8);
-    // constexpr int32_t ldsOnlyBitsGfx10 = ~(0x3f << 8);
-    // constexpr int32_t ldsOnlyBitsGfx11 = ~(0x3f << 4);
-    // int32_t ldsOnlyBits;
-    // if (chipset.majorVersion == 11)
-    //   ldsOnlyBits = ldsOnlyBitsGfx11;
-    // else if (chipset.majorVersion == 10)
-    //   ldsOnlyBits = ldsOnlyBitsGfx10;
-    // else if (chipset.majorVersion <= 9)
-    //   ldsOnlyBits = ldsOnlyBitsGfx6789;
-    // else
-    //   return op.emitOpError(
-    //             "don't know how to lower this for chipset major version")
-    //         << chipset.majorVersion;
-    // ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
-    //}
+    ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);    
     ROCDL::SBarrierOp::create(rewriter, loc);
 
     rewriter.eraseOp(op);
