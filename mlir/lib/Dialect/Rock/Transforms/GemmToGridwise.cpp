@@ -831,27 +831,43 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
   op.setStoreMethodAttr(storeMethod);
 
   // set the prefill attribute
-  Value matC = op.getC();
-  auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-  FailureOr<SmallVector<BlockArgument>> args =
-      traceGemmOutputToArgs(matC, func, bufferDeps);
-  if (failed(args)) {
-    return op->emitError("can't trace gemm output to output argument");
+  // For backward data convolution with multiple V4R1 kernels, only the first
+  // kernel (kernelId == 0) should set the prefill attribute. All kernels write
+  // to disjoint regions of the same output buffer, so only one initialization
+  // is needed.
+  bool shouldSetPrefill = true;
+  // Only Gemms that have been converted from conv_bwd_data ops will have the
+  // kernelId attribute.
+  if (auto kernelIdAttr = op->getAttrOfType<IntegerAttr>("kernelId")) {
+    if (kernelIdAttr.getInt() > 0) {
+      shouldSetPrefill = false;
+    }
   }
 
-  auto attrName = rock::PrefillAttr::getMnemonic();
-  for (auto arg : args.value()) {
-    // initialize to zeros
-    auto elementType = cast<MemRefType>(arg.getType()).getElementType();
-    Attribute zero;
-    if (llvm::isa<FloatType>(elementType)) {
-      zero = builder.getFloatAttr(elementType, 0.0f);
-    } else if (llvm::isa<IntegerType>(elementType)) {
-      zero = builder.getIntegerAttr(elementType, 0);
-    } else {
-      return op->emitError("expecting `float` or `int` element type");
+  if (shouldSetPrefill) {
+    Value matC = op.getC();
+    auto func = llvm::cast<func::FuncOp>(op->getParentOp());
+    FailureOr<SmallVector<BlockArgument>> args =
+        traceGemmOutputToArgs(matC, func, bufferDeps);
+    if (failed(args)) {
+      return op->emitError("can't trace gemm output to output argument");
     }
-    func.setArgAttrs(arg.getArgNumber(), builder.getNamedAttr(attrName, zero));
+
+    auto attrName = rock::PrefillAttr::getMnemonic();
+    for (auto arg : args.value()) {
+      // initialize to zeros
+      auto elementType = cast<MemRefType>(arg.getType()).getElementType();
+      Attribute zero;
+      if (llvm::isa<FloatType>(elementType)) {
+        zero = builder.getFloatAttr(elementType, 0.0f);
+      } else if (llvm::isa<IntegerType>(elementType)) {
+        zero = builder.getIntegerAttr(elementType, 0);
+      } else {
+        return op->emitError("expecting `float` or `int` element type");
+      }
+      func.setArgAttrs(arg.getArgNumber(),
+                       builder.getNamedAttr(attrName, zero));
+    }
   }
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
