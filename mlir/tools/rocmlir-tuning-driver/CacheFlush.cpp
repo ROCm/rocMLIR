@@ -23,25 +23,25 @@ namespace rocmlir::tuningdriver {
 namespace {
 
 #define CHECK_HIP(expr)                                                        \
-  {                                                                            \
+  do {                                                                         \
     hipError_t _hip_status = (expr);                                           \
     if (_hip_status != hipSuccess) {                                           \
       llvm::errs() << "HIP error in " << #expr << ": "                         \
                    << hipGetErrorString(_hip_status) << "\n";                  \
       return failure();                                                        \
     }                                                                          \
-  }
+  } while(0)
 
 #if defined(__HIP_PLATFORM_AMD__)
 #define CHECK_HIPRTC(expr)                                                     \
-  {                                                                            \
+  do {                                                                         \
     hiprtcResult _hiprtc_status = (expr);                                      \
     if (_hiprtc_status != HIPRTC_SUCCESS) {                                    \
       llvm::errs() << "hiprtc error in " << #expr << ": "                      \
                    << hiprtcGetErrorString(_hiprtc_status) << "\n";            \
       return failure();                                                        \
     }                                                                          \
-  }
+  } while(0)
 
 class HipRtcKernel {
 public:
