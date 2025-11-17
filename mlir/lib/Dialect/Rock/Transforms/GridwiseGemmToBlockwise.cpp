@@ -1494,8 +1494,7 @@ struct GridwiseAttentionAccelRewritePattern
 
             // Check if shapes differ by exactly the splitKV factor
             bool needsTransform = false;
-            if (blockArgShape.size() == gridGemm0OutShape.size() &&
-                blockArgShape.size() >= 3) {
+            if (blockArgShape.size() == gridGemm0OutShape.size()) {
               bool batchMatches =
                   (blockArgShape[0] == gridGemm0OutShape[0] * splitKV);
               bool seqKMatches =

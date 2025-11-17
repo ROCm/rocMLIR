@@ -47,26 +47,22 @@ static bool isSupportedSplitKV(int64_t splitKV) {
 // Detect splitKV from Q tensor by finding the Broadcast operation
 // Q pattern: [B, H, 1, M, K] --Broadcast--> [B, H, SplitKV, M, K]
 //                            --Merge--> [B*H*SplitKV, M, K]
-// Returns the splitKV value if found, otherwise 1
+// Returns (splitKV, dimensionality), where dimensionality is 4 or 5
+// Returns (1, 0) if not found
 // Note, this detection logic only works if we find the broadcast operation and
 // it is not undone and merged into the batch dimension.
-static int64_t detectSplitKVFromQ(Value qTensor) {
-  int64_t splitKV = 1;
+static std::pair<int64_t, int64_t> detectSplitKVFromQ(Value qTensor) {
   SmallVector<TransformMapAttr> transforms;
   rock::untransform(qTensor, transforms);
 
   if (transforms.empty())
-    return splitKV;
+    return {1, 0};
 
   LLVM_DEBUG(llvm::dbgs() << "Analyzing Q tensor for splitKV:\n");
 
-  // Look for a Broadcast operation at dimension 2
+  // Look for a Broadcast operation at dimension 1 (4D) or 2 (5D)
   for (TransformMapAttr transformMap : transforms) {
     ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
-
-    // We're looking for a 5D intermediate shape [B, H, 1, M, K]
-    if (upperBounds.size() != 5)
-      continue;
 
     for (rock::TransformAttr op : transformMap.getOps()) {
       // Look for Broadcast operation
@@ -76,20 +72,36 @@ static int64_t detectSplitKVFromQ(Value qTensor) {
       ArrayRef<uint32_t> upperDims = op.getUpperDims();
       ArrayRef<int64_t> params = op.getParams();
 
-      // Check if broadcasting dimension 2 (splitKV position) and that
-      // params[0] is the size being broadcasted from (should be 1)
-      if (!upperDims.empty() && upperDims[0] == 2 && !params.empty() &&
-          params[0] == 1) {
-        // The upper bound at dimension 2 is the splitKV value
-        auto potentialSplitKV = upperBounds[2];
+      if (upperDims.empty() || params.empty() || params[0] != 1)
+        continue;
 
+      uint32_t broadcastDim = upperDims[0];
+
+      // Check for 5D pattern: broadcast at dimension 2, shape [B, H, splitKV,
+      // M, K]
+      if (broadcastDim == 2 && upperBounds.size() == 5) {
+        auto potentialSplitKV = upperBounds[2];
         if (isSupportedSplitKV(potentialSplitKV)) {
-          splitKV = potentialSplitKV;
-          LLVM_DEBUG(llvm::dbgs() << "\tQ: Found Broadcast at dim 2, "
-                                  << "splitKV = " << splitKV << "\n");
-          return splitKV;
+          LLVM_DEBUG(llvm::dbgs() << "\tQ: Found 5D Broadcast at dim 2, "
+                                  << "splitKV = " << potentialSplitKV << "\n");
+          return {potentialSplitKV, 5};
         } else {
-          LLVM_DEBUG(llvm::dbgs() << "\tQ: Found Broadcast at dim 2, but "
+          LLVM_DEBUG(llvm::dbgs() << "\tQ: Found 5D Broadcast at dim 2, but "
+                                  << "splitKV = " << potentialSplitKV
+                                  << " not supported (must be power of 2)\n");
+        }
+      }
+
+      // Check for 4D pattern: broadcast at dimension 1, shape [BH, splitKV, M,
+      // K]
+      if (broadcastDim == 1 && upperBounds.size() == 4) {
+        auto potentialSplitKV = upperBounds[1];
+        if (isSupportedSplitKV(potentialSplitKV)) {
+          LLVM_DEBUG(llvm::dbgs() << "\tQ: Found 4D Broadcast at dim 1, "
+                                  << "splitKV = " << potentialSplitKV << "\n");
+          return {potentialSplitKV, 4};
+        } else {
+          LLVM_DEBUG(llvm::dbgs() << "\tQ: Found 4D Broadcast at dim 1, but "
                                   << "splitKV = " << potentialSplitKV
                                   << " not supported (must be power of 2)\n");
         }
@@ -98,63 +110,80 @@ static int64_t detectSplitKVFromQ(Value qTensor) {
   }
 
   LLVM_DEBUG(llvm::dbgs() << "\tQ: No Broadcast pattern found\n");
-  return splitKV;
+  return {1, 0};
 }
 
 // Detect splitKV from V tensor by finding the Unmerge with splitKV dimension
-// V pattern: flat --Unmerge--> [B, D, SplitKV, N/SplitKV] ...
-// Returns the splitKV value if found, otherwise 1
-static int64_t detectSplitKVFromV(Value vTensor) {
-  int64_t splitKV = 1;
+// V patterns:
+//   5D: flat --Unmerge--> [B, H, D, SplitKV, N/SplitKV] (splitKV at position 3)
+//   4D: flat --Unmerge--> [BH, D, SplitKV, N/SplitKV] (splitKV at position 2)
+//   4D: flat --Unmerge--> [B, SplitKV, D, N/SplitKV] (splitKV at position 1)
+// Returns (splitKV, dimensionality), where dimensionality is 4 or 5
+// Returns (1, 0) if not found
+static std::pair<int64_t, int64_t> detectSplitKVFromV(Value vTensor) {
   SmallVector<TransformMapAttr> transforms;
   rock::untransform(vTensor, transforms);
 
   if (transforms.empty())
-    return splitKV;
+    return {1, 0};
 
   LLVM_DEBUG(llvm::dbgs() << "Analyzing V tensor for splitKV:\n");
 
-  // Look for an Unmerge operation that creates a 5D shape with splitKV
+  // Look for an Unmerge operation that creates a 4D or 5D shape with splitKV
   for (TransformMapAttr transformMap : transforms) {
     ArrayRef<int64_t> upperBounds = transformMap.getUpperBounds();
-
-    // We're looking for a 5D intermediate shape where G is the splitKV
-    // dimension at position 3
-    if (upperBounds.size() != 5)
-      continue;
 
     for (rock::TransformAttr op : transformMap.getOps()) {
       if (op.getType() != rock::TransformType::Unmerge)
         continue;
 
       ArrayRef<int64_t> params = op.getParams();
-      if (params.size() != 4)
-        continue;
 
-      auto potentialSplitKV = params[2];
+      // 5D case: Unmerge has 4 params, e.g., [B, H or D, splitKV, D or
+      // N/splitKV]
+      if (params.size() == 4) {
+        auto potentialSplitKV = params[2];
 
-      // Check if the splitKV value we extracted from the unmerge parameters
-      // match the actual dimension size at position 3
-      if (upperBounds[3] == potentialSplitKV &&
-          isSupportedSplitKV(potentialSplitKV)) {
-        splitKV = potentialSplitKV;
-        LLVM_DEBUG(llvm::dbgs()
-                   << "\tV: Found Unmerge{" << params[0] << "," << params[1]
-                   << "," << params[2] << "," << params[3]
-                   << "}, splitKV = " << splitKV << "\n");
-        return splitKV;
-      } else {
-        LLVM_DEBUG(llvm::dbgs() << "\tV: Found Unmerge, but "
-                                << "splitKV = " << potentialSplitKV
-                                << " not supported (must be power of 2) or "
-                                << "does not match the dimension size at "
-                                << "position 3\n");
+        // Check for 5D pattern: [B, H, D, splitKV, N/splitKV]
+        if (upperBounds.size() == 5 && upperBounds[3] == potentialSplitKV &&
+            isSupportedSplitKV(potentialSplitKV)) {
+          LLVM_DEBUG(llvm::dbgs() << "\tV: Found 5D Unmerge{" << params[0]
+                                  << "," << params[1] << "," << params[2] << ","
+                                  << params[3] << "}, splitKV = "
+                                  << potentialSplitKV << " at position 3\n");
+          return {potentialSplitKV, 5};
+        }
+      }
+
+      // 4D case: Unmerge has 3 params, e.g., [BH or D, splitKV, D or N/splitKV]
+      if (params.size() == 3) {
+        auto potentialSplitKV = params[1];
+
+        // Check for 4D pattern: [BH, D, splitKV, N/splitKV]
+        if (upperBounds.size() == 4 && upperBounds[2] == potentialSplitKV &&
+            isSupportedSplitKV(potentialSplitKV)) {
+          LLVM_DEBUG(llvm::dbgs() << "\tV: Found 4D Unmerge{" << params[0]
+                                  << "," << params[1] << "," << params[2]
+                                  << "}, splitKV = " << potentialSplitKV
+                                  << " at position 2\n");
+          return {potentialSplitKV, 4};
+        }
+
+        // Check for 4D pattern after transpose: [B, splitKV, D, N/splitKV]
+        if (upperBounds.size() == 4 && upperBounds[1] == potentialSplitKV &&
+            isSupportedSplitKV(potentialSplitKV)) {
+          LLVM_DEBUG(llvm::dbgs() << "\tV: Found 4D Unmerge{" << params[0]
+                                  << "," << params[1] << "," << params[2]
+                                  << "}, splitKV = " << potentialSplitKV
+                                  << " at position 1\n");
+          return {potentialSplitKV, 4};
+        }
       }
     }
   }
 
   LLVM_DEBUG(llvm::dbgs() << "\tV: No Unmerge pattern found\n");
-  return splitKV;
+  return {1, 0};
 }
 
 // Helper function that validates tensor shape and unmerges batch dimension
@@ -337,23 +366,33 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     // Try to detect splitKV from Q and V input tensors
     // Note: K's splitKV transformation is optimized away during MIGraphX->TOSA
     // conversion, so we rely on Q and V for detection
-    int64_t splitKVFromQ = detectSplitKVFromQ(queries);
-    int64_t splitKVFromV = detectSplitKVFromV(values);
-
-    // Both Q and V should agree on splitKV value
-    if (splitKVFromQ != splitKVFromV) {
-      op.emitError("Q and V have different splitKV values");
-      return failure();
-    }
+    auto [splitKVFromQ, qDim] = detectSplitKVFromQ(queries);
+    auto [splitKVFromV, vDim] = detectSplitKVFromV(values);
 
     // No flash decoding detected
-    if (splitKVFromQ == 1) {
+    if (splitKVFromQ == 1 || qDim == 0) {
       LLVM_DEBUG(llvm::dbgs() << "No flash decoding detected\n");
       return failure();
     }
 
-    LLVM_DEBUG(llvm::dbgs() << "Flash decoding detected: splitKV = "
-                            << splitKVFromQ << "\n");
+    // Both Q and V should agree on dimensionality (4D or 5D)
+    if (qDim != vDim) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Q and V have different dimensionalities: Q is " << qDim
+                 << "D but V is " << vDim << "D\n");
+      return failure();
+    }
+
+    // Both Q and V should agree on splitKV value
+    if (splitKVFromQ != splitKVFromV) {
+      op.emitError("Q and V have different splitKV values: Q has ")
+          << splitKVFromQ << " but V has " << splitKVFromV;
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs()
+               << "Flash decoding detected: splitKV = " << splitKVFromQ
+               << ", dimensionality = " << qDim << "D\n");
 
     // Add transforms to remove splitKV from batch dimension of inputs
     Value keys = op.getKeys();
