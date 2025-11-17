@@ -478,6 +478,22 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     hostBuffers.push_back(hostBuffer);
     gpuBuffers.push_back(gpuBuffer);
   }
+  auto bufferCleanup = llvm::make_scope_exit([&]() {
+    for (void *buffer : hostBuffers)
+      free(buffer);
+    for (void *buffer : gpuBuffers) {
+      if (!buffer)
+        continue;
+      hipError_t status = hipFree(buffer);
+      if (status != hipSuccess) {
+        llvm::errs() << "HIP error in hipFree(buffer): "
+                     << hipGetErrorString(status) << "\n";
+      }
+    }
+    if (failed(cleanupCacheFlushArtifacts())) {
+      llvm::errs() << "Failed to cleanup cache flush artifacts\n";
+    }
+  });
 
   // 4. Collect perf configs to compile
   std::vector<SmallString<64>> configs;
@@ -692,15 +708,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       return failure();
     }
     llvm::outs() << timing << "\n";
-  }
-  for (void *buffer : hostBuffers) {
-    free(buffer);
-  }
-  for (void *buffer : gpuBuffers) {
-    HIPCHECK(hipFree(buffer));
-  }
-  if (failed(cleanupCacheFlushArtifacts())) {
-    return failure();
   }
   return success();
 }
