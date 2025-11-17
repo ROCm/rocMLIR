@@ -239,7 +239,7 @@ int main(int argc, char **argv) {
   const int warmupRuns = 2;
   const int benchmarkRuns = args.kernelRepeats;
   float bestAvgTime = std::numeric_limits<float>::max();
-  int bestAlgoIndex = 0;
+  int bestAlgoIndex = -1;
 
   for (size_t algoTestIdx = 0; algoTestIdx < validIdx.size(); ++algoTestIdx) {
     int algoIdx = validIdx[algoTestIdx];
@@ -285,6 +285,11 @@ int main(int argc, char **argv) {
       bestAvgTime = algoAvgTime;
       bestAlgoIndex = algoIdx;
     }
+  }
+
+  if (bestAlgoIndex == -1) {
+    fprintf(stderr, "All algorithms failed during benchmark testing\n");
+    exit(1);
   }
 
   const hipblasLtMatmulHeuristicResult_t bestResult =
