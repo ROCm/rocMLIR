@@ -1391,27 +1391,33 @@ struct GridwiseAttentionAccelRewritePattern
   // expectations. The preSoftmaxBody was created with splitKV baked into the
   // shapes, but GEMM0 computes without splitKV. This transform expands the
   // shapes at the fusion boundary.
-  static ArrayAttr createSplitKVTransformsForGemm0Out(
-      OpBuilder &builder, Location loc, ArrayRef<int64_t> gemm0OutShape,
-      int64_t splitKV) {
+  static ArrayAttr
+  createSplitKVTransformsForGemm0Out(OpBuilder &builder, Location loc,
+                                     ArrayRef<int64_t> gemm0OutShape,
+                                     int64_t splitKV) {
     if (splitKV == 1)
       return nullptr;
 
     // GEMM0 output is [B*H, SeqQ, SeqK]
     // Need to transform to [B*H*splitKV, SeqQ, SeqK/splitKV] for fusion
     assert(gemm0OutShape.size() == 3 && "GEMM0 output must be 3D");
-    assert(gemm0OutShape[2] % splitKV == 0 && "SeqK must be divisible by splitKV");
+    assert(gemm0OutShape[2] % splitKV == 0 &&
+           "SeqK must be divisible by splitKV");
 
     int64_t seqK = gemm0OutShape[2];
     int64_t seqKChunk = seqK / splitKV;
 
-    // Step 1: Unmerge seqK: [B*H, SeqQ, SeqK] -> [B*H, SeqQ, splitKV, SeqK/splitKV]
-    rock::BottomUpTMBuilder unmergeSeqK(builder, {"batch", "seqQ", "seqK"}, gemm0OutShape, loc);
-    unmergeSeqK.unmerge({"splitKV", "seqK_chunk"}, {2, 3}, "seqK", {splitKV, seqKChunk});
+    // Step 1: Unmerge seqK: [B*H, SeqQ, SeqK] -> [B*H, SeqQ, splitKV,
+    // SeqK/splitKV]
+    rock::BottomUpTMBuilder unmergeSeqK(builder, {"batch", "seqQ", "seqK"},
+                                        gemm0OutShape, loc);
+    unmergeSeqK.unmerge({"splitKV", "seqK_chunk"}, {2, 3}, "seqK",
+                        {splitKV, seqKChunk});
     unmergeSeqK.passThrough({"batch", "seqQ"}, {0, 1}, {"batch", "seqQ"});
     auto unmergeSeqKAttr = unmergeSeqK.get();
 
-    // Step 2: Merge batch+splitKV: [B*H, SeqQ, splitKV, SeqK/splitKV] -> [B*H*splitKV, SeqQ, SeqK/splitKV]
+    // Step 2: Merge batch+splitKV: [B*H, SeqQ, splitKV, SeqK/splitKV] ->
+    // [B*H*splitKV, SeqQ, SeqK/splitKV]
     auto merge = rock::BottomUpTMBuilder::above(unmergeSeqK, unmergeSeqKAttr);
     merge.merge("batch", 0, {"batch", "splitKV"});
     merge.passThrough({"seqQ", "seqK_chunk"}, {1, 2}, {"seqQ", "seqK_chunk"});
@@ -1431,11 +1437,14 @@ struct GridwiseAttentionAccelRewritePattern
     MemRefType destBufType = cast<MemRefType>(destGemm0OutBuffer.getType());
     Value prevGemm0OutBuffer = srcGemm0OutBuffer;
     ArrayAttr linalgGridSubTileMaps = gemm0OutViews.gridSubTile;
-    
+
     // Get grid-level GEMM0 output shape from attention op inputs
-    ArrayRef<int64_t> qShape = cast<MemRefType>(op.getQueries().getType()).getShape();
-    ArrayRef<int64_t> kShape = cast<MemRefType>(op.getKeys().getType()).getShape();
-    SmallVector<int64_t, 3> gridGemm0OutShape = {qShape[0], qShape[1], kShape[1]};
+    ArrayRef<int64_t> qShape =
+        cast<MemRefType>(op.getQueries().getType()).getShape();
+    ArrayRef<int64_t> kShape =
+        cast<MemRefType>(op.getKeys().getType()).getShape();
+    SmallVector<int64_t, 3> gridGemm0OutShape = {qShape[0], qShape[1],
+                                                 kShape[1]};
     if (op.getPreSoftmaxBody().getBlocks().empty()) {
       // nothing to process
       return prevGemm0OutBuffer;
@@ -1475,21 +1484,25 @@ struct GridwiseAttentionAccelRewritePattern
         // trace it back to block input
         if (firstGemmBlockArg.getOwner() == &preSoftMaxBodyBlock) {
           firstGemmBlockArgNum = firstGemmBlockArg.getArgNumber();
-          
+
           // Apply splitKV transforms if needed (only checked once when first
           // gemm block arg is found)
           if (splitKV > 1) {
-            MemRefType blockArgType = cast<MemRefType>(firstGemmBlockArg.getType());
+            MemRefType blockArgType =
+                cast<MemRefType>(firstGemmBlockArg.getType());
             ArrayRef<int64_t> blockArgShape = blockArgType.getShape();
-            
+
             // Check if shapes differ by exactly the splitKV factor
             bool needsTransform = false;
-            if (blockArgShape.size() == gridGemm0OutShape.size() && blockArgShape.size() >= 3) {
-              bool batchMatches = (blockArgShape[0] == gridGemm0OutShape[0] * splitKV);
-              bool seqKMatches = (blockArgShape[2] * splitKV == gridGemm0OutShape[2]);
+            if (blockArgShape.size() == gridGemm0OutShape.size() &&
+                blockArgShape.size() >= 3) {
+              bool batchMatches =
+                  (blockArgShape[0] == gridGemm0OutShape[0] * splitKV);
+              bool seqKMatches =
+                  (blockArgShape[2] * splitKV == gridGemm0OutShape[2]);
               needsTransform = batchMatches && seqKMatches;
             }
-            
+
             if (needsTransform) {
               ArrayAttr splitKVTransforms = createSplitKVTransformsForGemm0Out(
                   rewriter, loc, gridGemm0OutShape, splitKV);
