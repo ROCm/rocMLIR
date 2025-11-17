@@ -284,9 +284,13 @@ static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp, Block *
             readOp.getDest().getType().getMemorySpace());
         if (destMemSpace && destMemSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
           auto maybeLoopCount = rock::predictThreadwiseReadIntoLoopCount(readOp);
-          if (failed(maybeLoopCount))
-            return -1;
-          count += maybeLoopCount.value();
+          if (failed(maybeLoopCount)) {
+            LLVM_DEBUG(llvm::dbgs() << "Failed to predict loop count for ThreadwiseReadIntoOp: " << *readOp << "\n");
+            count++;
+          }
+          else {
+            count += maybeLoopCount.value();
+          }
         }
       }
     }
