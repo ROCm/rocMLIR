@@ -15,8 +15,18 @@
 
 namespace rocmlir::tuningdriver {
 
+/// \brief Flushes the L2 cache by performing a memory write operation.
+/// \param stream The HIP stream to use for the flush operation.
+/// \return success() if the flush succeeds, failure() otherwise.
 mlir::LogicalResult flushL2Cache(hipStream_t stream);
+
+/// \brief Flushes the instruction cache to ensure that any modified code is visible to the device.
+/// \param stream The HIP stream to use for the flush operation.
+/// \return success() if the flush succeeds, failure() otherwise.
 mlir::LogicalResult flushInstructionCache(hipStream_t stream);
+
+/// \brief Cleans up any artifacts created during cache flush operations.
+/// \return success() if cleanup succeeds, failure() otherwise.
 mlir::LogicalResult cleanupCacheFlushArtifacts();
 
 } // namespace rocmlir::tuningdriver
