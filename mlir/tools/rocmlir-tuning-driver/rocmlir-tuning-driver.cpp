@@ -56,6 +56,9 @@
 
 // Utilities to allocate buffers
 #include "../utils/performance/common/benchmarkUtils.h"
+#include "CacheFlush.h"
+
+#include <hip/hip_runtime.h>
 
 #if !defined(_HIP_CLANG_ONLY__)
 // GCC complains if we don't do this
@@ -81,6 +84,7 @@ void pArgs(const std::tuple<Ts...> &formals, void **_vargs) {
 #include <hip/hip_ext.h>
 
 using namespace mlir;
+using namespace rocmlir::tuningdriver;
 
 llvm::cl::opt<std::string> inputFilename{
     llvm::cl::Positional, llvm::cl::desc("<input file>"), llvm::cl::init("-")};
@@ -183,24 +187,6 @@ static benchmark::DataType getDataType(Type inputType) {
   if (hipSuccess != (expr)) {                                                  \
     return failure();                                                          \
   }
-
-static size_t flushSize = 0;
-static void *flushBuffer = nullptr;
-
-static LogicalResult flushL2Cache(hipStream_t stream) {
-  if (flushBuffer == nullptr) {
-    hipDeviceProp_t props;
-    HIPCHECK(hipGetDeviceProperties(&props, 0));
-    size_t l2Size = props.l2CacheSize;
-
-    flushSize = l2Size + (l2Size / 5); // 20% margin
-    HIPCHECK(hipMalloc(&flushBuffer, flushSize));
-  }
-
-  HIPCHECK(hipMemsetAsync(flushBuffer, 0, flushSize, stream));
-
-  return success();
-}
 
 static float computeMedian(const std::vector<float> &values) {
   if (values.empty())
@@ -341,6 +327,9 @@ benchmarkKernels(ArrayRef<std::string> binaries,
 
   for (unsigned iter = 0; iter < params.numIterations; ++iter) {
     if (failed(flushL2Cache(stream))) {
+      return failure();
+    }
+    if (failed(invalidateInstructionCache(stream))) {
       return failure();
     }
 
@@ -709,9 +698,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   for (void *buffer : gpuBuffers) {
     HIPCHECK(hipFree(buffer));
   }
-  if (flushBuffer) {
-    HIPCHECK(hipFree(flushBuffer));
-    flushBuffer = nullptr;
+  if (failed(cleanupCacheFlushArtifacts())) {
+    return failure();
   }
   return success();
 }
