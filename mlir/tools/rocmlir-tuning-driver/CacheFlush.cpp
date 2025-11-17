@@ -78,6 +78,20 @@ struct HipModuleDeleter {
 using HipModuleHandle =
     std::unique_ptr<std::remove_pointer_t<hipModule_t>, HipModuleDeleter>;
 
+struct HipDeviceBufferDeleter {
+  void operator()(void *buffer) const {
+    if (!buffer)
+      return;
+    hipError_t status = hipFree(buffer);
+    if (status != hipSuccess) {
+      llvm::errs() << "HIP error in hipFree: " << hipGetErrorString(status)
+                   << "\n";
+    }
+  }
+};
+
+using HipDeviceBuffer = std::unique_ptr<void, HipDeviceBufferDeleter>;
+
 class HipRtcKernel {
 public:
   HipRtcKernel(const char *source, const char *kernelName)
@@ -165,7 +179,7 @@ public:
       return failure();
     if (skipL2Flush)
       return success();
-    CHECK_HIP(hipMemsetAsync(flushBuffer, 0, flushSize, stream));
+    CHECK_HIP(hipMemsetAsync(flushBuffer.get(), 0, flushSize, stream));
     return success();
   }
 
@@ -186,16 +200,12 @@ public:
   LogicalResult cleanup() {
     std::lock_guard<std::mutex> lock(stateMutex);
     LogicalResult result = success();
-    if (flushBuffer) {
-      hipError_t hipStatus = hipFree(flushBuffer);
-      if (hipStatus != hipSuccess) {
-        llvm::errs() << "HIP error in hipFree(flushBuffer): "
-                     << hipGetErrorString(hipStatus) << "\n";
-        result = failure();
-      }
-      flushBuffer = nullptr;
-      flushSize = 0;
+    flushBuffer.reset();
+    hipError_t status = hipGetLastError();
+    if (status != hipSuccess) {
+      result = failure();
     }
+    flushSize = 0;
     skipL2Flush = false;
 #if defined(__HIP_PLATFORM_AMD__)
     if (failed(icacheKernel.cleanup()))
@@ -218,7 +228,9 @@ private:
       return success();
     }
     flushSize = l2Size + (l2Size / 5); // 20% margin
-    CHECK_HIP(hipMalloc(&flushBuffer, flushSize));
+    void *rawBuffer = nullptr;
+    CHECK_HIP(hipMalloc(&rawBuffer, flushSize));
+    flushBuffer.reset(rawBuffer);
     return success();
   }
 
@@ -257,7 +269,7 @@ private:
   std::mutex stateMutex;
   hipDeviceProp_t deviceProps = {};
   size_t flushSize = 0;
-  void *flushBuffer = nullptr;
+  HipDeviceBuffer flushBuffer;
   bool skipL2Flush = false;
 #if defined(__HIP_PLATFORM_AMD__)
   static constexpr int32_t kDefaultWaveSize = 64;
