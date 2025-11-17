@@ -16,7 +16,7 @@
 namespace rocmlir::tuningdriver {
 
 mlir::LogicalResult flushL2Cache(hipStream_t stream);
-mlir::LogicalResult invalidateInstructionCache(hipStream_t stream);
+mlir::LogicalResult flushInstructionCache(hipStream_t stream);
 mlir::LogicalResult cleanupCacheFlushArtifacts();
 
 } // namespace rocmlir::tuningdriver

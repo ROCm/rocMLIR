@@ -130,9 +130,9 @@ public:
     return success();
   }
 
-  LogicalResult invalidateInstructionCache(hipStream_t stream) {
+  LogicalResult flushInstructionCache(hipStream_t stream) {
 #if defined(__HIP_PLATFORM_AMD__)
-    if (failed(buildInvalidateInstructionCacheKernel()))
+    if (failed(buildFlushInstructionCacheKernel()))
       return failure();
     if (failed(icacheKernel.launch(dim3(icacheGridDim, 1, 1), dim3(64, 1, 1),
                                    stream)))
@@ -170,7 +170,7 @@ private:
   }
 
 #if defined(__HIP_PLATFORM_AMD__)
-  LogicalResult buildInvalidateInstructionCacheKernel() {
+  LogicalResult buildFlushInstructionCacheKernel() {
     if (icacheKernel.isBuilt())
       return success();
 
@@ -188,8 +188,8 @@ private:
   size_t flushSize = 0;
   void *flushBuffer = nullptr;
 #if defined(__HIP_PLATFORM_AMD__)
-  static constexpr char invalidateInstructionCacheKernelSource[] = R"(
-extern "C" __global__ void invalidate_icache_kernel() {
+  static constexpr char flushInstructionCacheKernelSource[] = R"(
+extern "C" __global__ void flush_icache_kernel() {
   asm volatile("s_icache_inv \n\t"
                "s_nop 0 \n\t"
                "s_nop 0 \n\t"
@@ -210,8 +210,8 @@ extern "C" __global__ void invalidate_icache_kernel() {
                "s_nop 0 \n\t");
 }
 )";
-  HipRtcKernel icacheKernel{invalidateInstructionCacheKernelSource,
-                            "invalidate_icache_kernel"};
+  HipRtcKernel icacheKernel{flushInstructionCacheKernelSource,
+                            "flush_icache_kernel"};
   int32_t icacheGridDim = 0;
 #endif
 };
@@ -227,8 +227,8 @@ LogicalResult flushL2Cache(hipStream_t stream) {
   return getState().flushL2Cache(stream);
 }
 
-LogicalResult invalidateInstructionCache(hipStream_t stream) {
-  return getState().invalidateInstructionCache(stream);
+LogicalResult flushInstructionCache(hipStream_t stream) {
+  return getState().flushInstructionCache(stream);
 }
 
 LogicalResult cleanupCacheFlushArtifacts() { return getState().cleanup(); }

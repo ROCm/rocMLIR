@@ -326,10 +326,10 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   std::vector<float> measurements;
 
   for (unsigned iter = 0; iter < params.numIterations; ++iter) {
-    if (failed(flushL2Cache(stream))) {
+    if (failed(flushInstructionCache(stream))) {
       return failure();
     }
-    if (failed(invalidateInstructionCache(stream))) {
+    if (failed(flushL2Cache(stream))) {
       return failure();
     }
 
