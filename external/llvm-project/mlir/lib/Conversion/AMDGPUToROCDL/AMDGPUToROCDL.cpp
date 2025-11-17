@@ -1472,16 +1472,11 @@ struct GatherToLDSOpLowering : public ConvertOpToLLVMPattern<GatherToLDSOp> {
         getStridedElementPtr(rewriter, loc, dstMemRefType, adaptor.getDst(),
                              (adaptor.getDstIndices()));
 
-    // Preserve alias analysis attributes from the original operation
-    ArrayAttr aliasScopes = op.getAliasScopes().value_or(ArrayAttr{});
-    ArrayAttr noaliasScopes = op.getNoaliasScopes().value_or(ArrayAttr{});
-    ArrayAttr tbaa = op.getTbaa().value_or(ArrayAttr{});
-
     rewriter.replaceOpWithNewOp<ROCDL::LoadToLDSOp>(
         op, srcPtr, dstPtr, rewriter.getI32IntegerAttr(loadWidth),
         /*offset=*/rewriter.getI32IntegerAttr(0),
-        /*aux=*/rewriter.getI32IntegerAttr(0), 
-        aliasScopes, noaliasScopes, tbaa);
+        /*aux=*/rewriter.getI32IntegerAttr(0), ArrayAttr{}, ArrayAttr{},
+        ArrayAttr{});
 
     return success();
   }

@@ -295,7 +295,6 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   rocdlOpts.allowedDialects.assign(
       {"memref", "math", "cf", "func", "vector", "arith"});
   gpuPm.addPass(createConvertGpuOpsToROCDLOps(rocdlOpts));
-  gpuPm.addPass(rock::createRockAddAliasInfoPass());
   gpuPm.addPass(rock::createConvertRockOpsToROCDLOps());
   // Ensure we only run passes on LLVM functions inside GPU modules.
   auto &llvmFuncPm = gpuPm.nest<LLVM::LLVMFuncOp>();
