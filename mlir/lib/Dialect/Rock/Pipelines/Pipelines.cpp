@@ -230,6 +230,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
     funcPm.addPass(rock::createRockAnalyzeMemoryUsePass());
     funcPm.addPass(rock::createRockSugarToLoopsPass());
+    funcPm.addPass(rock::createRockScheduleInstructionsPass());
     funcPm.addPass(rock::createRockCleanMathPass());
     math::MathExtendToSupportedTypesOptions extendToLLVMTypesOptions;
     extendToLLVMTypesOptions.extraTypeStrs = {"f16"};
