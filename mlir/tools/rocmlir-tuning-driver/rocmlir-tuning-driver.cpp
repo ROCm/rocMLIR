@@ -332,6 +332,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     if (failed(flushL2Cache(stream))) {
       return failure();
     }
+    HIPCHECK(hipStreamSynchronize(stream));
 
     float totalMilliseconds = 0.0;
 
