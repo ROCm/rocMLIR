@@ -484,6 +484,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     for (void *buffer : hostBuffers)
       free(buffer);
     for (void *buffer : gpuBuffers) {
+      // hipFree does not allow nullptrs, so make sure to check for it first
       if (!buffer)
         continue;
       hipError_t status = hipFree(buffer);

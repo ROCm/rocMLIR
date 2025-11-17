@@ -63,33 +63,20 @@ struct HiprtcProgramDeleter {
 using HiprtcProgramHandle =
     std::unique_ptr<std::remove_pointer_t<hiprtcProgram>, HiprtcProgramDeleter>;
 
-class HipModuleHandle {
-public:
-  HipModuleHandle() = default;
-  ~HipModuleHandle() { (void)reset(); }
-
-  hipModule_t get() const { return module; }
-
-  LogicalResult reset(hipModule_t newModule = nullptr) {
-    if (module == newModule)
-      return success();
-    hipModule_t oldModule = module;
-    module = nullptr;
-    if (oldModule) {
-      hipError_t status = hipModuleUnload(oldModule);
-      if (status != hipSuccess) {
-        llvm::errs() << "HIP error in hipModuleUnload: "
-                     << hipGetErrorString(status) << "\n";
-        return failure();
-      }
+struct HipModuleDeleter {
+  void operator()(hipModule_t module) const {
+    if (!module)
+      return;
+    hipError_t status = hipModuleUnload(module);
+    if (status != hipSuccess) {
+      llvm::errs() << "HIP error in hipModuleUnload: "
+                   << hipGetErrorString(status) << "\n";
     }
-    module = newModule;
-    return success();
   }
-
-private:
-  hipModule_t module = nullptr;
 };
+
+using HipModuleHandle =
+    std::unique_ptr<std::remove_pointer_t<hipModule_t>, HipModuleDeleter>;
 
 class HipRtcKernel {
 public:
@@ -127,31 +114,12 @@ public:
 
     size_t codeSize = 0;
     CHECK_HIPRTC(hiprtcGetCodeSize(program.get(), &codeSize));
-
     std::vector<char> codeObject(codeSize);
     CHECK_HIPRTC(hiprtcGetCode(program.get(), codeObject.data()));
-    hiprtcProgram programHandle = program.release();
-    hiprtcResult destroyStatus = hiprtcDestroyProgram(&programHandle);
-    if (destroyStatus != HIPRTC_SUCCESS) {
-      program.reset(programHandle);
-      llvm::errs() << "hiprtc error in hiprtcDestroyProgram(&programHandle): "
-                   << hiprtcGetErrorString(destroyStatus) << "\n";
-      return failure();
-    }
-    programHandle = nullptr;
-
     hipModule_t rawModule = nullptr;
     CHECK_HIP(hipModuleLoadData(&rawModule, codeObject.data()));
-    if (failed(module.reset(rawModule))) {
-      hipError_t unloadStatus = hipModuleUnload(rawModule);
-      if (unloadStatus != hipSuccess) {
-        llvm::errs() << "HIP error in hipModuleUnload(rawModule): "
-                     << hipGetErrorString(unloadStatus) << "\n";
-      }
-      return failure();
-    }
+    module.reset(rawModule);
     CHECK_HIP(hipModuleGetFunction(&function, module.get(), kernelName));
-
     return success();
   }
 
@@ -169,11 +137,8 @@ public:
   }
 
   LogicalResult cleanup() {
-    hipFunction_t functionHandle = function;
     function = nullptr;
-    if (failed(module.reset()))
-      return failure();
-    (void)functionHandle;
+    module.reset();
     return success();
   }
 
@@ -187,6 +152,13 @@ private:
 
 class CacheFlushState {
 public:
+  CacheFlushState() {
+    if (failed(fetchDeviceProperties(deviceProps))) {
+      llvm::report_fatal_error("Failed to fetch device properties");
+      return;
+    }
+  };
+
   LogicalResult flushL2Cache(hipStream_t stream) {
     std::lock_guard<std::mutex> lock(stateMutex);
     if (failed(allocL2CacheFlushBuffer()))
@@ -238,12 +210,9 @@ private:
   LogicalResult allocL2CacheFlushBuffer() {
     if (flushBuffer || skipL2Flush)
       return success();
-    hipDeviceProp_t props;
-    if (failed(populateDeviceProperties(props)))
-      return failure();
-    size_t l2Size = props.l2CacheSize;
+    size_t l2Size = deviceProps.l2CacheSize;
     if (l2Size == 0) {
-      llvm::errs() << "Device '" << props.name
+      llvm::errs() << "Device '" << deviceProps.name
                    << "' reported zero-sized L2 cache; skipping L2 flush.\n";
       skipL2Flush = true;
       return success();
@@ -253,10 +222,14 @@ private:
     return success();
   }
 
-  LogicalResult populateDeviceProperties(hipDeviceProp_t &props) {
+  static LogicalResult fetchDeviceProperties(hipDeviceProp_t &props) {
     int deviceId = 0;
-    CHECK_HIP(hipGetDevice(&deviceId));
-    CHECK_HIP(hipGetDeviceProperties(&props, deviceId));
+    hipError_t status = hipGetDeviceProperties(&props, deviceId);
+    if (status != hipSuccess) {
+      llvm::errs() << "HIP error in hipGetDeviceProperties: "
+                   << hipGetErrorString(status) << "\n";
+      return failure();
+    }
     return success();
   }
 
@@ -265,16 +238,10 @@ private:
     if (icacheKernel.isBuilt())
       return success();
 
-    hipDeviceProp_t deviceProps;
-    if (failed(populateDeviceProperties(deviceProps)))
-      return failure();
-
     auto archInfo = rock::lookupArchInfo(deviceProps.gcnArchName);
     int64_t waveSize = archInfo.waveSize;
     if (waveSize <= 0)
       waveSize = kDefaultWaveSize;
-    if (waveSize > 1024)
-      waveSize = 1024;
     icacheBlockDim = static_cast<unsigned>(waveSize);
 
     static constexpr int32_t wavesPerComputeUnit = 60;
@@ -288,6 +255,7 @@ private:
 #endif
 
   std::mutex stateMutex;
+  hipDeviceProp_t deviceProps = {};
   size_t flushSize = 0;
   void *flushBuffer = nullptr;
   bool skipL2Flush = false;
