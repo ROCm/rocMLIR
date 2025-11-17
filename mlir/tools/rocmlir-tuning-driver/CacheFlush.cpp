@@ -55,8 +55,8 @@ public:
       return success();
 
     hiprtcProgram program;
-    CHECK_HIPRTC(hiprtcCreateProgram(&program, source, kernelName, 0, nullptr,
-                                     nullptr));
+    CHECK_HIPRTC(
+        hiprtcCreateProgram(&program, source, kernelName, 0, nullptr, nullptr));
 
     std::string archOption = std::string("--gpu-architecture=") + gcnArchName;
     const char *options[] = {archOption.c_str()};
@@ -91,8 +91,7 @@ public:
   }
 
   LogicalResult launch(dim3 gridDim, dim3 blockDim, hipStream_t stream,
-                       void **kernelParams = nullptr,
-                       void **extra = nullptr) {
+                       void **kernelParams = nullptr, void **extra = nullptr) {
     if (!isBuilt()) {
       llvm::errs() << "hiprtc kernel '" << kernelName
                    << "' launched before build\n";

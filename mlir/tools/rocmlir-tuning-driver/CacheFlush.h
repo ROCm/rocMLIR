@@ -22,4 +22,3 @@ mlir::LogicalResult cleanupCacheFlushArtifacts();
 } // namespace rocmlir::tuningdriver
 
 #endif // ROCMLIR_TUNING_DRIVER_CACHE_FLUSH_H
-
