@@ -1765,8 +1765,8 @@ struct GridwiseAttentionAccelRewritePattern
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
       start = arith::MulIOp::create(rewriter, loc, gridCoordsGemm0.split_block,
                                     gemm0MIterations);
-      Value splitPlusOne =
-          arith::AddIOp::create(rewriter, loc, gridCoordsGemm0.split_block, one);
+      Value splitPlusOne = arith::AddIOp::create(
+          rewriter, loc, gridCoordsGemm0.split_block, one);
       end =
           arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
     } else {
@@ -3098,6 +3098,10 @@ struct GridwiseGemmAccelRewritePattern
               doubleBuffering ? params.nRepeats : 1, directToLDS);
     }
 
+    // Clear any previous LDS transpose decision to avoid state leakage between
+    // different GEMM operations processed by this pattern.
+    hwtranspose::clearDecisionLdsTranspose();
+
     hwtranspose::Decision decision;
     auto *mfma = dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get());
     // Only compute a transpose decision if both layouts are DxK disabled.
@@ -3109,8 +3113,23 @@ struct GridwiseGemmAccelRewritePattern
           arch, elementTypeA, elementTypeB, directToLDS, shape,
           hwtranspose::OperandKind::A, hwtranspose::OperandKind::B, mPerBlock,
           nPerBlock, kPerBlock, mPerWave, nPerWave, doubleBuffering);
-      // Store the computed decision globally for later use.
-      hwtranspose::setDecisionLdsTranspose(decision);
+
+      // Only store the decision if the LDS transpose optimization is usable.
+      if (decision.usable) {
+        hwtranspose::setDecisionLdsTranspose(decision);
+        LLVM_DEBUG(llvm::dbgs()
+                   << "LDS transpose optimization enabled: layout="
+                   << hwtranspose::layoutName(decision.layout) << "\n");
+      } else {
+        LLVM_DEBUG(llvm::dbgs() << "LDS transpose optimization not applicable"
+                                << " (decision.usable=false)\n");
+      }
+    } else {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "LDS transpose skipped: "
+                 << "mfma=" << (mfma != nullptr)
+                 << ", DxK_A=" << ldsLayoutConfigA.ldsLayoutDxK
+                 << ", DxK_B=" << ldsLayoutConfigB.ldsLayoutDxK << "\n");
     }
 
     // Emit loop.

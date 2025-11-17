@@ -52,11 +52,9 @@ struct Decision {
   LayoutKind layout{LayoutKind::None};
   OperandKind operandA{OperandKind::A};
   OperandKind operandB{OperandKind::B};
-  int64_t mPanels{1};
-  int64_t nPanels{1};
-  int64_t kPanels{1};
   int64_t mPerBlock{1};
   int64_t nPerBlock{1};
+  int64_t kPerBlock{1};
   int64_t mPerWave{1};
   int64_t nPerWave{1};
   bool doubleBuffering{false};
@@ -75,6 +73,10 @@ inline void setDecisionLdsTranspose(const Decision &dec) {
 
 inline std::optional<Decision> getDecisionLdsTranspose() {
   return getDecisionLdsTransposeContext().currentDecision;
+}
+
+inline void clearDecisionLdsTranspose() {
+  getDecisionLdsTransposeContext().currentDecision = std::nullopt;
 }
 
 // The main decision-making function. It analyzes the GEMM parameters and
@@ -104,11 +106,9 @@ struct LoweringInfo {
   Type elemType;
   bool destIsVector{false};
   VectorType destVecType;
-  int64_t mPanels{1};
-  int64_t nPanels{1};
-  int64_t kPanels{1};
   int64_t mPerBlock{1};
   int64_t nPerBlock{1};
+  int64_t kPerBlock{1};
   int64_t mPerWave{1};
   int64_t nPerWave{1};
   bool doubleBuffering{false};
