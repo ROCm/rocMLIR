@@ -149,25 +149,21 @@ struct BufferLoadRewritePatttern
     auto convertedMemrefType =
         dyn_cast<MemRefType>(adaptor.getMemref().getType());
     auto origMemrefType = dyn_cast<MemRefType>(op.getMemref().getType());
-    if (convertedMemrefType && convertedMemrefType.hasStaticShape() &&
-        origMemrefType && origMemrefType.hasStaticShape()) {
-      int64_t numBytes = convertedMemrefType.getNumElements();
-      int64_t numNibbles = origMemrefType.getNumElements();
-      Value numBytesConst = rewriter.createOrFold<arith::ConstantIntOp>(
-          loc, numBytes, indexWidth);
-      Value nibbleBoundConst = rewriter.createOrFold<arith::ConstantIntOp>(
-          loc, numNibbles, indexWidth);
+    int64_t numBytes = convertedMemrefType.getNumElements();
+    // if the original out of bound index was odd then need to clamp to the next
+    // byte to make sure it stays out of bounds
+    int64_t numNibbles = origMemrefType.getNumElements();
+    Value numBytesConst =
+        rewriter.createOrFold<arith::ConstantIntOp>(loc, numBytes, indexWidth);
+    Value nibbleBoundConst = rewriter.createOrFold<arith::ConstantIntOp>(
+        loc, numNibbles, indexWidth);
 
-      Value nibbleIsOob =
-          arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::uge,
-                                nibbleIndex, nibbleBoundConst);
-      Value byteIsOob = arith::CmpIOp::create(
-          rewriter, loc, arith::CmpIPredicate::uge, newIndex, numBytesConst);
-      Value shouldClamp =
-          arith::OrIOp::create(rewriter, loc, nibbleIsOob, byteIsOob);
-      newIndex = arith::SelectOp::create(rewriter, loc, shouldClamp,
-                                         numBytesConst, newIndex);
-    }
+    Value nibbleIsOob =
+        arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::uge,
+                              nibbleIndex, nibbleBoundConst);
+    Value shouldClamp = nibbleIsOob;
+    newIndex = arith::SelectOp::create(rewriter, loc, shouldClamp,
+                                       numBytesConst, newIndex);
     // Note: if you're using sgpr offset for some reason, this won't work.
     Value newLoad = amdgpu::RawBufferLoadOp::create(
         rewriter, loc, newType, adaptor.getMemref(), newIndex,
