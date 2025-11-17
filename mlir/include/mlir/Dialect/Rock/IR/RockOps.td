@@ -616,12 +616,26 @@ def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
   let hasVerifier = 1;
 }
 
-// Annotate the start of lifetime of a memory allocation on GPU.
 def Rock_AsyncWaitOp : Rock_Op<"async_wait">, Arguments<(ins I32Attr:$num_inst)> {
   let summary =
-      "TODO";
+      "Wait for asynchronous global memory loads to LDS to complete";
   let description = [{
-    The `rock.async_wait` op....
+    The `rock.async_wait` operation waits for asynchronous global memory loads
+    to Local Data Share (LDS) instructions to complete before execution continues.
+    
+    This operation is lowered to two ROCDL instructions:
+    1. `s_waitcnt vmcnt(X)`: Waits for the specified number of outstanding
+       vector memory (VM) operations to complete. The `num_inst` attribute
+       specifies the X value, which represents how many async loads need to
+       complete before continuing. The value is clamped to 6 bits (maximum 63).
+    2. `s_barrier`: Ensures all workitems in the workgroup synchronize at
+       this point.
+        
+    Example:
+    ```mlir
+    // Wait for 4 outstanding async loads to complete and synchronize all workitems.
+    rock.async_wait {num_inst = 4 : i32}
+    ```
   }];
   let assemblyFormat = [{
     attr-dict
