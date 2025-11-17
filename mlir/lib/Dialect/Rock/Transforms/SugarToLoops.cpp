@@ -18,6 +18,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/utility/AliasUtils.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
@@ -1354,9 +1355,10 @@ struct GlobalLoadToLDSRewritePattern
           /*resetOffset=*/false);
     }
 
-    auto gaterToLDS = amdgpu::GatherToLDSOp::create(
-        b, loc, source, coords, dest, destCoords, op.getTransferType());
-    b.replaceOp(op, gaterToLDS);
+    auto gatherToLDS = amdgpu::GatherToLDSOp::create(
+        b, loc, source, coords, dest, destCoords, op.getTransferType(), nullptr, nullptr, nullptr);
+    // rock::addDirectToLDSLoadAliasScope(gatherToLDS);
+    b.replaceOp(op, gatherToLDS);
     return success();
   }
 };

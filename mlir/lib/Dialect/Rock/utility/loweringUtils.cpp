@@ -17,6 +17,7 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -1199,4 +1200,137 @@ std::optional<int64_t> mlir::rock::getWorkgroupMemorySize(MemRefType type) {
     return getPackedByteSize(type.getNumElements(), type.getElementType());
   }
   return std::nullopt;
+}
+
+FailureOr<int64_t>
+mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
+  Value sourceView = op.getSource();
+  Value dest = op.getDest();
+  
+  // Get types directly from the op
+  auto sourceViewType = dyn_cast<MemRefType>(sourceView.getType());
+  if (!sourceViewType) {
+    // LLVM_DEBUG(llvm::dbgs() << "Source must be a MemRefType\n");
+    return failure();
+  }
+  auto dstBufferType = dyn_cast<MemRefType>(dest.getType());
+  if (!dstBufferType) {
+    // LLVM_DEBUG(llvm::dbgs() << "Destination must be a MemRefType\n");
+    return failure();
+  }
+
+  bool isSrcVectorBuffer = isa<VectorType>(sourceViewType.getElementType());
+  bool isDstVectorBuffer = isa<VectorType>(dstBufferType.getElementType());
+
+  // Collect transforms from the source value without creating operations
+  SmallVector<TransformMapAttr> transforms;
+  Value buffer;
+  std::tie(buffer, std::ignore) = untransform(sourceView, transforms);
+  
+  // Get buffer type
+  auto srcBufferType = dyn_cast<MemRefType>(buffer.getType());
+  if (!srcBufferType) {
+    // LLVM_DEBUG(llvm::dbgs() << "Source buffer must be a MemRefType\n");
+    return failure();
+  }
+
+  // Determine address spaces
+  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
+  if (srcBufferType.getMemorySpace()) {
+    srcAddrSpace =
+        cast<gpu::AddressSpaceAttr>(srcBufferType.getMemorySpace()).getValue();
+  }
+  gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Private;
+  if (dstBufferType.getMemorySpace()) {
+    dstAddrSpace =
+        cast<gpu::AddressSpaceAttr>(dstBufferType.getMemorySpace()).getValue();
+  }
+  bool isGlobalToLDS = srcAddrSpace == gpu::AddressSpace::Global &&
+                       dstAddrSpace == gpu::AddressSpace::Workgroup;
+
+  int64_t numValues = dstBufferType.getNumElements();
+  
+  // For GlobalToLDS, get numValues from the transform maps
+  // We need to combine extraViews with existing transforms
+  ArrayAttr extraViews = op.getExtraViews();
+  if (isGlobalToLDS) {
+    // Combine extraViews with existing transforms to find the top map
+    SmallVector<TransformMapAttr> allTransforms;
+    if (extraViews) {
+      for (auto attr : extraViews.getAsRange<TransformMapAttr>()) {
+        allTransforms.push_back(attr);
+      }
+    }
+    allTransforms.append(transforms.begin(), transforms.end());
+    
+    if (allTransforms.empty()) {
+      // LLVM_DEBUG(llvm::dbgs() << "transforms is empty.\n");
+      return failure();
+    }
+    TransformMapAttr topMap = allTransforms[0];
+    numValues = topMap.getUpperBounds().asArrayRef().back();
+    if (isSrcVectorBuffer || isDstVectorBuffer) {
+      // LLVM_DEBUG(llvm::dbgs() << "Global to LDS should not have vector buffers, "
+                                  // "not implemented yet\n");
+      return failure();
+    }
+  }
+
+  size_t extraIdxCount = op.getExtraIndices().size();
+  auto elementType = sourceViewType.getElementType();
+  int64_t vectorSrcLen, vectorDstLen;
+  int64_t srcStride;
+
+  if (isSrcVectorBuffer) {
+    auto srcVecType = dyn_cast<VectorType>(elementType);
+    if (!srcVecType) {
+      // LLVM_DEBUG(llvm::dbgs() << "Expected VectorType for source vector buffer\n");
+      return failure();
+    }
+    vectorSrcLen = srcVecType.getNumElements();
+    elementType = srcVecType.getElementType();
+    srcStride = 1;
+    if (!isDstVectorBuffer) {
+      numValues = numValues / vectorSrcLen;
+    }
+  } else {
+    // For vectorization analysis, use the source value directly
+    // Note: In matchAndRewrite, extraViews are applied before calling
+    // getMaxVectorization, but since we can't apply them here, we use
+    // the source value as-is. The dimension index extraIdxCount corresponds
+    // to the iteration dimension after extraViews are applied.
+    // This approximation may not be exact but should be close for most cases.
+    VectorizationResult vectorSrcRes = getMaxVectorization(
+        sourceView, extraIdxCount, /*inputDimLen=*/numValues);
+    vectorSrcLen = vectorSrcRes.max;
+    srcStride = vectorSrcLen;
+  }
+
+  // Force the dynamic validity case down to a vectorization of 1
+  if (!op.getDynamicValidities().empty()) {
+    vectorSrcLen = 1;
+    srcStride = 1;
+  }
+
+  if (isDstVectorBuffer) {
+    auto dstVectorType = dyn_cast<VectorType>(dstBufferType.getElementType());
+    if (!dstVectorType) {
+      // LLVM_DEBUG(llvm::dbgs() << "Expected VectorType for destination vector buffer\n");
+      return failure();
+    }
+    vectorDstLen = dstVectorType.getNumElements();
+    numValues = numValues * vectorDstLen;
+    if (isSrcVectorBuffer) {
+      numValues = numValues / vectorSrcLen;
+    }
+  }
+
+  // The bounds and strides are:
+  // bounds = [1, 1, ..., 1, numValues]  (all 1s except last is numValues)
+  // strides = [1, 1, ..., 1, srcStride] (all 1s except last is srcStride)
+  // Loop count = numValues / srcStride
+  if (srcStride == 0) {
+    return failure();
+  }
+  return numValues / srcStride;
 }

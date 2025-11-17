@@ -1,5 +1,8 @@
 // RUN: mlir-translate -mlir-to-llvmir %s | FileCheck %s
 
+#alias_async_copy_domain = #llvm.alias_scope_domain<id = distinct[0]<>, description = "XXX">
+#alias_async_copy_scope = #llvm.alias_scope<id = "amdgpu.AsyncCopies", domain = #alias_async_copy_domain, description = "XXX">
+
 llvm.func @rocdl_special_regs() -> i32 {
   // CHECK-LABEL: rocdl_special_regs
   // CHECK: call i32 @llvm.amdgcn.workitem.id.x()
@@ -1030,7 +1033,7 @@ llvm.func @rocdl.ds.read.tr(%ptr : !llvm.ptr<3>) -> vector<4xf16> {
 
 llvm.func @rocdl.load.to.lds(%src : !llvm.ptr<7>, %dst: !llvm.ptr<3>) {
   //CHECK: call void @llvm.amdgcn.load.to.lds.p7
-  rocdl.load.to.lds %src, %dst, 4, 0, 0 : !llvm.ptr<7>
+  rocdl.load.to.lds %src, %dst, 4, 0, 0 {alias_scopes = #alias_async_copy_scope} : !llvm.ptr<7>
   llvm.return
 }
 

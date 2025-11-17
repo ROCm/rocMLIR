@@ -685,6 +685,10 @@ def Rock_LDSBarrierOp:
   let description = [{
     The `rock.lds_barrier` op sets up a workgroup-level barrier on LDS activities.
   }];
+  let arguments = (ins OptionalAttr<BarrierStageAttr>:$barrier_stage);
+  let builders = [
+    OpBuilder<(ins), [{build($_builder, $_state, {});}]>
+  ];
   let assemblyFormat = "attr-dict";
 }
 
