@@ -123,9 +123,8 @@ def get_winning_config(tuning_output, test_vector, config, all_data, paths: Path
     max_tflops = -np.inf
     min_ns = np.inf
     winning_config = "None"
-    decoded_output = tuning_output.decode('utf-8')
-
-    for i, result in enumerate(decoded_output.splitlines()):
+    for i, result in enumerate(tuning_output):
+        result = result.decode('utf-8').strip()
         if not options.quiet and not options.compact_print and i > 0 and i % 100 == 0:
             print(
                 f"Tested {i} configs, best perf {max_tflops} TFlops {min_ns} ns on perf_config {winning_config}",
@@ -198,9 +197,6 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                                            stdout=subprocess.PIPE,
                                            stderr=subprocess.PIPE)
             kernel_gen.stdout.close()
-
-            # Force tuning loop to finish and read its output.
-            tuning_loop_out, tuning_loop_err = tuning_loop.communicate()
         else:
             # pipe to rocmlir_gen --emit-tuning-key
             tuning_key = subprocess.Popen(
@@ -218,7 +214,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                                            stderr=subprocess.PIPE)
 
         # Tune, printing progress as we go to avoid CI timeouts
-        winning_config, max_tflops = get_winning_config(tuning_loop_out, test_vector, config,
+        winning_config, max_tflops = get_winning_config(tuning_loop.stdout, test_vector, config,
                                                         all_data, paths, options)
 
         if options.verify_mode != "none":
