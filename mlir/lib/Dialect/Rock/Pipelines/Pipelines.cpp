@@ -295,6 +295,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   rocdlOpts.allowedDialects.assign(
       {"memref", "math", "cf", "func", "vector", "arith"});
   gpuPm.addPass(createConvertGpuOpsToROCDLOps(rocdlOpts));
+  gpuPm.addPass(rock::createRockAddAliasInfoPass());
   ConvertRockOpsToROCDLOpsOptions rockToROCDLOpts;
   rockToROCDLOpts.chipset = options.chip;
   gpuPm.addPass(rock::createConvertRockOpsToROCDLOps(rockToROCDLOpts));
