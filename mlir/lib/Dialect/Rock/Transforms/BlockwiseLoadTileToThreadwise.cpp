@@ -263,33 +263,6 @@ class LoweringBlockwiseLoadTileOp final
                                    /*dynamicValidities=*/ValueRange{},
                                    /*extraViews=*/b.getArrayAttr({}),
                                    /*extraIndices=*/indices, forceUnroll, true);
-      // Value zeroThread =
-      //     b.create<ConstantOp>(loc, b.getIndexType(), b.getIndexAttr(49));
-      // auto isThreadZero = b.create<arith::CmpIOp>(
-      //     loc, arith::CmpIPredicate::eq,
-      //     b.create<WorkitemIdOp>(loc, b.getIndexType()), zeroThread);
-      // scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
-      //                                          /*withElseRegion=*/false);
-      // {
-      //   OpBuilder thenb = ifthread.getThenBodyBuilder();
-      //   // write loop to print argA and argB using rock.transforming_for
-      //   Value zero = thenb.create<arith::ConstantIndexOp>(loc, 0);
-      //   auto printLoop = TransformingForOp::create(
-      //       thenb, loc, ArrayRef<ValueRange>{{zero}},
-      //       ArrayRef<Attribute>{thenb.getArrayAttr({})}, ArrayRef<int64_t>{128},
-      //       /*strides=*/std::nullopt, /*forceUnroll=*/false,
-      //       /*useIndexDiffs=*/false);
-      //   {
-      //     OpBuilder::InsertionGuard guard(thenb);
-      //     thenb.setInsertionPointToStart(printLoop.getBody());
-      //     Value i = printLoop.getLowerCoords(/*domain=*/0)[0];
-      //     Value tmp =
-      //         thenb.create<memref::LoadOp>(loc, loadBuffer, ValueRange{i});
-      //     Value tmpExtf = thenb.create<arith::ExtFOp>(loc, b.getF32Type(), tmp);
-      //     thenb.create<gpu::PrintfOp>(loc, "loadBuffer[%d] = %f\n",
-      //                                 ValueRange{i, tmpExtf});
-      //   }
-      // }
       if (stageGlobalReadNew)
         rock::YieldOp::create(b, loc);
     }
@@ -393,35 +366,6 @@ class LoweringBlockwiseLoadTileOp final
           // to the memory from breaking software pipelining.
           ThreadwiseCopyOp::create(b, loc, viewLoadBuffer, ValueRange{},
                                    viewStoreBuffer, ValueRange{}, false, false);
-          // print viewStoreBuffer using rock.transforming_for
-          // Value zero = b.create<arith::ConstantIndexOp>(loc, 0);
-          // // print only for tid=0
-          // Value zeroThread =
-          //     b.create<ConstantOp>(loc, b.getIndexType(), b.getIndexAttr(49));
-          // auto isThreadZero = b.create<arith::CmpIOp>(
-          //     loc, arith::CmpIPredicate::eq,
-          //     b.create<WorkitemIdOp>(loc, b.getIndexType()), zeroThread);
-          // scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
-          //                                          /*withElseRegion=*/false);
-          // {
-          //   OpBuilder thenb = ifthread.getThenBodyBuilder();
-          //   auto printLoop = TransformingForOp::create(
-          //       thenb, loc, ArrayRef<ValueRange>{{zero}},
-          //       ArrayRef<Attribute>{b.getArrayAttr({})}, ArrayRef<int64_t>{128},
-          //       /*strides=*/std::nullopt, /*forceUnroll=*/false,
-          //       /*useIndexDiffs=*/false);
-          //   {
-          //     OpBuilder::InsertionGuard guard(thenb);
-          //     thenb.setInsertionPointToStart(printLoop.getBody());
-          //     Value i = printLoop.getLowerCoords(/*domain=*/0)[0];
-          //     Value tmp =
-          //         thenb.create<memref::LoadOp>(loc, storeBuffer, ValueRange{i});
-          //     Value tmpExtf =
-          //         thenb.create<arith::ExtFOp>(loc, thenb.getF32Type(), tmp);
-          //     thenb.create<gpu::PrintfOp>(loc, "storeBuffer[%d] = %f\n",
-          //                                 ValueRange{i, tmpExtf});
-          //   }
-          // }
           // Emit blockwise stores
           ThreadwiseWriteAllOp::create(b, loc, storeBuffer, wrappedLds,
                                        /*extraViews=*/b.getArrayAttr({}),
@@ -477,9 +421,7 @@ void RockBlockwiseLoadTileToThreadwisePass::runOnOperation() {
   ConversionTarget target(ctx);
 
   target.addLegalDialect<rock::RockDialect, affine::AffineDialect,
-                         arith::ArithDialect, memref::MemRefDialect,
-                         vector::VectorDialect, scf::SCFDialect>();
-  target.addLegalOp<gpu::PrintfOp>();
+                         arith::ArithDialect, memref::MemRefDialect>();
   target.addIllegalOp<rock::BlockwiseLoadTileOp>();
   auto func = getOperation();
 

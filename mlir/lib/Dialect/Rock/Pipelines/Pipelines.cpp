@@ -252,7 +252,6 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // emulate truncf(f32)->f8E8M0FNU types. This is used when scales are passed
   // in as f32 for the scaledGemms
   arithExpandOpsOptions.includeF8E8M0 = true;
-  arithExpandOpsOptions.includeF4E2M1 = true;
   gpuPm.addPass(arith::createArithExpandOpsPass(arithExpandOpsOptions));
   ArithToAMDGPUConversionPassOptions arithOptions;
   arithOptions.chipset = options.chip;

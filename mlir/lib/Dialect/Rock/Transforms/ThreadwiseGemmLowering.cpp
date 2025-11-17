@@ -391,43 +391,6 @@ struct ThreadwiseGemmAccelRewritePattern
           memref::LoadOp::create(b, loc, argTypeA, rawBufferA, coordsA);
       Value argB =
           memref::LoadOp::create(b, loc, argTypeB, rawBufferB, coordsB);
-      // Value zeroThread =
-      //     b.create<ConstantOp>(loc, b.getIndexType(), b.getIndexAttr(0));
-      // auto isThreadZero = b.create<arith::CmpIOp>(
-      //     loc, arith::CmpIPredicate::eq,
-      //     b.create<WorkitemIdOp>(loc, b.getIndexType()), zeroThread);
-      // scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
-      //                                          /*withElseRegion=*/false);
-      // {
-      //   OpBuilder thenb = ifthread.getThenBodyBuilder();
-      //   // write loop to print argA and argB
-      //   affine::AffineForOp affineForLoop =
-      //       thenb.create<affine::AffineForOp>(loc, 0, 4, 1);
-      //   {
-      //     OpBuilder::InsertionGuard guard(thenb);
-      //     thenb.setInsertionPointToStart(affineForLoop.getBody());
-      //     Value i = affineForLoop.getInductionVar();
-      //     Value tmp = thenb.create<memref::LoadOp>(loc, rawBufferA, i);
-      //     Value tmp2 = thenb.create<memref::LoadOp>(loc, rawBufferB, i);
-      //     affine::AffineForOp affineForLoop2 =
-      //         thenb.create<affine::AffineForOp>(loc, 0, 32, 1);
-      //     {
-      //       OpBuilder::InsertionGuard guard(thenb);
-      //       thenb.setInsertionPointToStart(affineForLoop2.getBody());
-      //       Value i2 = affineForLoop2.getInductionVar();
-      //       Value tmp3 = thenb.create<vector::ExtractOp>(loc, tmp, i2);
-      //       Value tmp4 = thenb.create<vector::ExtractOp>(loc, tmp2, i2);
-      //       Value tmp3Extf =
-      //           thenb.create<arith::ExtFOp>(loc, b.getF32Type(), tmp3);
-      //       Value tmp4Extf =
-      //           thenb.create<arith::ExtFOp>(loc, b.getF32Type(), tmp4);
-      //       thenb.create<gpu::PrintfOp>(loc, "reg0=%d tmp3=%f\n",
-      //                                   ValueRange{i2, tmp3Extf});
-      //       thenb.create<gpu::PrintfOp>(loc, "reg0=%d tmp4=%f\n",
-      //                                   ValueRange{i2, tmp4Extf});
-      //     }
-      //   }
-      // }
 
       Value argScaleA, argScaleB;
       ValueRange coordsC;
@@ -452,51 +415,10 @@ struct ThreadwiseGemmAccelRewritePattern
       } else {
         coordsC = accelLoop.getLowerCoords(/*domain=*/2);
       }
-      // Value loadOp = memref::LoadOp::create(b, loc, rawBufferC, coordsC);
-      // {
-      //   OpBuilder thenb = b.create<scf::IfOp>(loc, isThreadZero,
-      //                                         /*withElseRegion=*/false)
-      //                         .getThenBodyBuilder();
-      //   affine::AffineForOp affineForLoop = thenb.create<affine::AffineForOp>(
-      //       loc, 0, dyn_cast<VectorType>(loadOp.getType()).getNumElements(), 1);
-      //   {
-      //     OpBuilder::InsertionGuard guard(thenb);
-      //     thenb.setInsertionPointToStart(affineForLoop.getBody());
-      //     Value i = affineForLoop.getInductionVar();
-      //     Value tmp = thenb.create<vector::ExtractOp>(loc, loadOp, i);
-      //     thenb.create<gpu::PrintfOp>(loc, "reg0=%d rawBufferC=%f\n",
-      //                                 ValueRange{i, tmp});
-      //   }
-      // }
 
       emitter->emitThreadwiseLoop(b, loc, argA, argB, rawBufferC, coordsC,
                                   argScaleA, argScaleB);
     }
-
-    // Value zeroThread =
-    //     b.create<ConstantOp>(loc, b.getIndexType(), b.getIndexAttr(0));
-    // auto isThreadZero = b.create<arith::CmpIOp>(
-    //     loc, arith::CmpIPredicate::eq,
-    //     b.create<WorkitemIdOp>(loc, b.getIndexType()), zeroThread);
-    // llvm::dbgs() << "rawBufferC.getType(): " << rawBufferC.getType() << "\n";
-    // Value loadOp = memref::LoadOp::create(b, loc, rawBufferC, zeroConstantOp);
-    // llvm::dbgs() << "loadOp.getType(): " << loadOp.getType() << "\n";
-    // scf::IfOp ifthread = b.create<scf::IfOp>(loc, isThreadZero,
-    //                                          /*withElseRegion=*/false);
-    // {
-    //   OpBuilder thenb = ifthread.getThenBodyBuilder();
-    //   // write loop to print argA and argB
-    //   affine::AffineForOp affineForLoop = thenb.create<affine::AffineForOp>(
-    //       loc, 0, dyn_cast<VectorType>(loadOp.getType()).getNumElements(), 1);
-    //   {
-    //     OpBuilder::InsertionGuard guard(thenb);
-    //     thenb.setInsertionPointToStart(affineForLoop.getBody());
-    //     Value i = affineForLoop.getInductionVar();
-    //     Value tmp = thenb.create<vector::ExtractOp>(loc, loadOp, i);
-    //     thenb.create<gpu::PrintfOp>(loc, "reg0=%d rawBufferC=%f\n",
-    //                                 ValueRange{i, tmp});
-    //   }
-    // }
 
     b.eraseOp(op);
     return success();
@@ -1209,11 +1131,9 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   target.addIllegalOp<rock::ThreadwiseGemmOp, rock::ThreadwiseGemmAccelOp>();
   target.addLegalDialect<amdgpu::AMDGPUDialect, arith::ArithDialect,
                          rock::RockDialect, affine::AffineDialect,
-                         memref::MemRefDialect, vector::VectorDialect,
-                         scf::SCFDialect>();
+                         memref::MemRefDialect, vector::VectorDialect>();
   // vector::TransferReadOp constructor uses poison
-  target.addLegalOp<gpu::PrintfOp, ub::PoisonOp, vector::ExtractOp,
-                    arith::ExtFOp>();
+  target.addLegalOp<gpu::PrintfOp, ub::PoisonOp>();
 
   RewritePatternSet patterns(ctx);
   patterns.add<ThreadwiseGemmRewritePattern, ThreadwiseGemmAccelRewritePattern>(
