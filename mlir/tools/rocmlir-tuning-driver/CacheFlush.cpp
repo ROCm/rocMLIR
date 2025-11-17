@@ -169,7 +169,7 @@ public:
   CacheFlushState() {
     if (failed(fetchDeviceProperties(deviceProps))) {
       llvm::report_fatal_error("Failed to fetch device properties");
-      return;
+    }
     }
   };
 
