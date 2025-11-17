@@ -198,9 +198,9 @@ static float computeMedian(const std::vector<float> &values) {
   size_t n = values.size();
   if (n % 2 == 0) {
     return (values[n / 2 - 1] + values[n / 2]) / 2.0;
-  } else {
-    return values[n / 2];
   }
+  // else
+  return values[n / 2];
 }
 
 static float computeMean(const std::vector<float> &values) {
@@ -278,6 +278,13 @@ benchmarkKernels(ArrayRef<std::string> binaries,
                  ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream));
+  auto streamCleanup = llvm::make_scope_exit([&]() {
+    hipError_t destroyStatus = hipStreamDestroy(stream);
+    if (destroyStatus != hipSuccess) {
+      llvm::errs() << "HIP error in hipStreamDestroy: "
+                   << hipGetErrorString(destroyStatus) << "\n";
+    }
+  });
 
   // Initialize device buffers
   for (size_t i = 0; i < bufferSizes.size(); i++) {
@@ -294,6 +301,17 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   // Load all modules once to reduce overhead
   std::vector<hipModule_t> modules;
   std::vector<hipFunction_t> functions;
+  auto moduleCleanup = llvm::make_scope_exit([&]() {
+    for (hipModule_t mod : modules) {
+      if (!mod)
+        continue;
+      hipError_t status = hipModuleUnload(mod);
+      if (status != hipSuccess) {
+        llvm::errs() << "HIP error in hipModuleUnload: "
+                     << hipGetErrorString(status) << "\n";
+      }
+    }
+  });
 
   for (auto [binary, funcName] : llvm::zip(binaries, funcNames)) {
     hipModule_t mod;
@@ -360,12 +378,6 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     measurements.push_back(totalMilliseconds);
   }
 
-  for (hipModule_t mod : modules) {
-    HIPCHECK(hipModuleUnload(mod));
-  }
-
-  HIPCHECK(hipStreamDestroy(stream));
-
   std::sort(measurements.begin(), measurements.end());
 
   if (params.showStats && measurements.size() > 1) {
@@ -383,8 +395,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   auto msToNs = [](float ms) { return 1e6 * static_cast<double>(ms); };
   if (params.useMedian)
     return msToNs(computeMedian(measurements));
-  else
-    return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
+  // else
+  return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
 }
 
 static int toKernelOrder(Attribute attr) {
@@ -468,16 +480,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // 3. Initialize host buffers and allocate device buffers
   std::vector<void *> hostBuffers;
   std::vector<void *> gpuBuffers;
-  assert(argTypes.size() == bufferLengths.size() &&
-         "number of arguments and buffer lengths must match");
-  for (auto [argType, bufferLength] : llvm::zip(argTypes, bufferLengths)) {
-    benchmark::DataType type = getDataType(getElementTypeOrSelf(argType));
-    void *hostBuffer = benchmark::allocAndFill(type, bufferLength);
-    void *gpuBuffer = nullptr;
-    HIPCHECK(hipMalloc(&gpuBuffer, bufferLength));
-    hostBuffers.push_back(hostBuffer);
-    gpuBuffers.push_back(gpuBuffer);
-  }
   auto bufferCleanup = llvm::make_scope_exit([&]() {
     for (void *buffer : hostBuffers)
       free(buffer);
@@ -494,6 +496,22 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       llvm::errs() << "Failed to cleanup cache flush artifacts\n";
     }
   });
+  assert(argTypes.size() == bufferLengths.size() &&
+         "number of arguments and buffer lengths must match");
+  for (auto [argType, bufferLength] : llvm::zip(argTypes, bufferLengths)) {
+    benchmark::DataType type = getDataType(getElementTypeOrSelf(argType));
+    void *hostBuffer = benchmark::allocAndFill(type, bufferLength);
+    void *gpuBuffer = nullptr;
+    hipError_t hipStatus = hipMalloc(&gpuBuffer, bufferLength);
+    if (hipStatus != hipSuccess) {
+      free(hostBuffer);
+      llvm::errs() << "HIP error in hipMalloc(gpuBuffer): "
+                   << hipGetErrorString(hipStatus) << "\n";
+      return failure();
+    }
+    hostBuffers.push_back(hostBuffer);
+    gpuBuffers.push_back(gpuBuffer);
+  }
 
   // 4. Collect perf configs to compile
   std::vector<SmallString<64>> configs;

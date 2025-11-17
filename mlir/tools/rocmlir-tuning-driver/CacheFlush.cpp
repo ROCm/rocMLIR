@@ -131,12 +131,25 @@ public:
     std::vector<char> codeObject(codeSize);
     CHECK_HIPRTC(hiprtcGetCode(program.get(), codeObject.data()));
     hiprtcProgram programHandle = program.release();
-    CHECK_HIPRTC(hiprtcDestroyProgram(&programHandle));
+    hiprtcResult destroyStatus = hiprtcDestroyProgram(&programHandle);
+    if (destroyStatus != HIPRTC_SUCCESS) {
+      program.reset(programHandle);
+      llvm::errs() << "hiprtc error in hiprtcDestroyProgram(&programHandle): "
+                   << hiprtcGetErrorString(destroyStatus) << "\n";
+      return failure();
+    }
+    programHandle = nullptr;
 
     hipModule_t rawModule = nullptr;
     CHECK_HIP(hipModuleLoadData(&rawModule, codeObject.data()));
-    if (failed(module.reset(rawModule)))
+    if (failed(module.reset(rawModule))) {
+      hipError_t unloadStatus = hipModuleUnload(rawModule);
+      if (unloadStatus != hipSuccess) {
+        llvm::errs() << "HIP error in hipModuleUnload(rawModule): "
+                     << hipGetErrorString(unloadStatus) << "\n";
+      }
       return failure();
+    }
     CHECK_HIP(hipModuleGetFunction(&function, module.get(), kernelName));
 
     return success();
