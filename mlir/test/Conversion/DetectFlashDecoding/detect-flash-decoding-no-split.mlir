@@ -31,9 +31,9 @@
 #transform_map13 = #rock.transform_map<#map13 by [<Merge{12, 256, 256} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [786432] -> [12, 256, 256]>
 module {
   // CHECK-DEBUG: Analyzing Q tensor for splitKV:
-  // CHECK-DEBUG: Q: Found Broadcast at dim 2, splitKV = 1
+  // CHECK-DEBUG: Q: Found 5D Broadcast at dim 2, splitKV = 1
   // CHECK-DEBUG: Analyzing V tensor for splitKV:
-  // CHECK-DEBUG: V: Found Unmerge{12,256,1,128}, splitKV = 1
+  // CHECK-DEBUG: V: Found 5D Unmerge{12,256,1,128}, splitKV = 1
   // CHECK-DEBUG: No flash decoding detected
 
   // CHECK-IR-LABEL: @mlir_no_split_attention
