@@ -91,6 +91,17 @@ def TransformType : Rock_I32Enum<"TransformType",
     [PassThrough, Pad, Slice, Embed, Unmerge, Merge, AddDim, Broadcast,
      ConstDim]>;
 
+/// BarrierStage
+
+def BarrierStage_Forward : I32EnumAttrCase<"Forward", 0, "forward">;
+def BarrierStage_Backward : I32EnumAttrCase<"Backward", 1, "backward">;
+
+def BarrierStage : Rock_I32Enum<"BarrierStage",
+    "The stage of a barrier (forward or backward)",
+    [BarrierStage_Forward, BarrierStage_Backward]>;
+
+def BarrierStageAttr : EnumAttr<Rock_Dialect, BarrierStage, "BarrierStage">;
+
 /// StoreMethod
 
 def StoreMethod_Set : I32EnumAttrCase<"Set", 0, "set">;

@@ -9,6 +9,8 @@
 #ifndef AMDGPU
 #define AMDGPU
 
+include "mlir/Dialect/LLVMIR/LLVMAttrDefs.td"
+include "mlir/Dialect/LLVMIR/LLVMInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/ViewLikeInterface.td"
@@ -928,13 +930,17 @@ def AMDGPU_WMMAOp :
 }
 
 def AMDGPU_GatherToLDSOp :
-    AMDGPU_Op<"gather_to_lds", [AttrSizedOperandSegments]>,
+    AMDGPU_Op<"gather_to_lds", [AttrSizedOperandSegments,
+                                 DeclareOpInterfaceMethods<AliasAnalysisOpInterface>]>,
     Arguments<(ins
                    Arg<AnyMemRef, "buffer to gather from", [MemRead]>:$src,
                    Variadic<Index>:$srcIndices,
                    Arg<AnyMemRef, "buffer to write to", [MemWrite]>:$dst,
                    Variadic<Index>:$dstIndices,
-                   TypeAttr:$transferType
+                   TypeAttr:$transferType,
+                   OptionalAttr<LLVM_AliasScopeArrayAttr>:$alias_scopes,
+                   OptionalAttr<LLVM_AliasScopeArrayAttr>:$noalias_scopes,
+                   OptionalAttr<LLVM_TBAATagArrayAttr>:$tbaa
                    )>,
     Results<(outs)> {
   let summary = "MLIR wrapper for CDNA Gather to LDS instructions";
@@ -965,6 +971,12 @@ def AMDGPU_GatherToLDSOp :
   }];
   let hasVerifier = 1;
   let hasCanonicalizer = 1;
+  
+  let extraClassDefinition = [{
+    ::llvm::SmallVector<::mlir::Value> $cppClass::getAccessedOperands() {
+      return {getSrc(), getDst()};
+    }
+  }];
 }
 
 def AMDGPU_TransposeLoadOp :
