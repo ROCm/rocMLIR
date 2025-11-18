@@ -1,6 +1,6 @@
 directory = "PrGemmElementwiseGemmBF16SplitK"
 prefix = "rocmlir-gen"
-suffix = "--operation gemm_gemm -t bf16 --arch %arch -RMS_threshold 0.01 -pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+suffix = "--operation gemm_gemm -t bf16 --arch %arch -RMS_threshold 0.01 -pv %constrained_range_random_data -rand_type float  %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
 [[axis]]
 name = "transA"

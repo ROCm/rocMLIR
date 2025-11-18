@@ -4304,25 +4304,9 @@ static void emitPrintTensor(OpBuilder &b, Value var) {
   }
 }
 
-static void checkRandomInputsE2E() {
-  if (randomSeed != "none" && randomSeed != "fixed" &&
-      randomDataType == "float") {
-    int min = randMin.getValue();
-    int max = randMax.getValue();
-    if (min < 0 && max > 0) {
-      llvm::errs() << "WARNING: E2E tests with float random inputs within ";
-      llvm::errs() << "WARNING: E2E tests may fail with both positive and ";
-      llvm::errs() << "negative float random inputs\n";
-      llvm::errs() << "         Try range [1, 3] by setting ";
-      llvm::errs() << "\"-rand_min 1 -rand_max 3\"\n";
-    }
-  }
-}
-
 static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
                                        MemRefType testType, MemRefType valType,
                                        std::string funcName) {
-  checkRandomInputsE2E();
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
