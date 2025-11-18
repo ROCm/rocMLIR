@@ -161,8 +161,7 @@ struct BufferLoadRewritePatttern
     Value nibbleIsOob =
         arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::uge,
                               nibbleIndex, nibbleBoundConst);
-    Value shouldClamp = nibbleIsOob;
-    newIndex = arith::SelectOp::create(rewriter, loc, shouldClamp,
+    newIndex = arith::SelectOp::create(rewriter, loc, nibbleIsOob,
                                        numBytesConst, newIndex);
     // Note: if you're using sgpr offset for some reason, this won't work.
     Value newLoad = amdgpu::RawBufferLoadOp::create(
