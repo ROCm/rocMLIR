@@ -208,6 +208,10 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     if (succeeded(maybeArch)) {
       gpuFunc->setAttr("arch", maybeArch.value());
     }
+    FailureOr<int64_t> maybeNumCU = rock::getNumCU(theFunc);
+    if (succeeded(maybeNumCU)) {
+      gpuFunc->setAttr("num_cu", b.getI32IntegerAttr(maybeNumCU.value()));
+    }
 
     int32_t indexWidth = 32;
     if (theFunc->hasAttr("rock.64bitindex"))
