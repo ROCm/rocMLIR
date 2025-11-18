@@ -62,10 +62,23 @@ struct AsyncWaitOpConversion
     unsigned otherCnts = ~0xC00F; // C00F has bits 15:14 and 3:0 set
     unsigned waitValue = lowBits | highBits | otherCnts;
 
+    // NOTE: The fence op should not be neccesary, but without the
+    // alias analysis attributes, the backend will generate incorrect waitcnts.
+    // So we must use the fence op to ensure correct waitcnts.
+    Attribute mmra =
+        rewriter.getAttr<LLVM::MMRATagAttr>("amdgpu-synchronize-as", "local");
+    StringRef scope = "workgroup";
+    auto relFence = LLVM::FenceOp::create(rewriter, loc,
+                                          LLVM::AtomicOrdering::release, scope);
+    relFence->setDiscardableAttr(LLVM::LLVMDialect::getMmraAttrName(), mmra);
+
     ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);
     ROCDL::SBarrierOp::create(rewriter, loc);
 
-    rewriter.eraseOp(op);
+    auto acqFence = LLVM::FenceOp::create(rewriter, loc,
+                                          LLVM::AtomicOrdering::acquire, scope);
+    acqFence->setDiscardableAttr(LLVM::LLVMDialect::getMmraAttrName(), mmra);
+    rewriter.replaceOp(op, acqFence);
 
     return success();
   }
