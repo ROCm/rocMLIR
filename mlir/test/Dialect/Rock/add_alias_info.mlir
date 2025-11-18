@@ -4,7 +4,6 @@
 // CHECK-DAG: #[[$DOMAIN:.+]] = #llvm.alias_scope_domain<id = "amdgpu.LoadsScope", description = "Domain to hold alias scopes to specify aliasing information for operations that load directly from global memory to LDS">
 // CHECK-DAG: #[[$LOCAL_LOAD_SCOPE:.+]] = #llvm.alias_scope<id = "amdgpu.LocalLoads", domain = #[[$DOMAIN]], description = "Scope containing all LocalLoad ops">
 // CHECK-DAG: #[[$DIRECT_TO_LDS_SCOPE:.+]] = #llvm.alias_scope<id = "amdgpu.DirectToLDSLoads", domain = #[[$DOMAIN]], description = "Scope containing all operations that perform direct global-to-LDS loads">
-
 gpu.module @test_module {
   // Test function with local load and local store.
   llvm.func @test_local_load(%global_ptr: !llvm.ptr<1>, %lds_addr: !llvm.ptr<3>) -> i32 {
@@ -24,5 +23,34 @@ gpu.module @test_module {
     llvm.store %value, %lds_ptr : i32, !llvm.ptr<3>
     llvm.return
   }
-}
 
+  llvm.func @test_load_to_lds(%global_ptr: !llvm.ptr<1>, %lds_addr: !llvm.ptr<3>) {   
+    %c0 = llvm.mlir.constant(0 : i32) : i32
+    // CHECK: rocdl.load.to.lds %{{.*}}, %{{.*}} {alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LOCAL_LOAD_SCOPE]]]}
+    rocdl.load.to.lds %global_ptr, %lds_addr, 0, 0, 0 : !llvm.ptr<1>
+    llvm.return
+  }
+
+  llvm.func @test_flatbuffer_load_lds(%src: !llvm.ptr<8>, %lds_addr: !llvm.ptr<3>) {   
+    %size = llvm.mlir.constant(4 : i32) : i32
+    %voffset = llvm.mlir.constant(0 : i32) : i32
+    %soffset = llvm.mlir.constant(0 : i32) : i32
+    %offset = llvm.mlir.constant(128 : i32) : i32
+    %aux = llvm.mlir.constant(1 : i32) : i32
+    // CHECK: rocdl.raw.ptr.buffer.load.lds %{{.*}}, %{{.*}} {alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LOCAL_LOAD_SCOPE]]]}
+    rocdl.raw.ptr.buffer.load.lds %src, %lds_addr, %size, %voffset, %soffset, %offset, %aux
+    llvm.return
+  }
+
+  llvm.func @test_combined(%global_ptr: !llvm.ptr<1>, %lds_addr: !llvm.ptr<3>) {    
+    // First, load from LDS (local load) - should have LocalLoadScope and noalias with DirectToLDS
+    // CHECK: llvm.load %{{.*}} {alias_scopes = [#[[$LOCAL_LOAD_SCOPE]]], noalias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]]}
+    %local_val = llvm.load %lds_addr : !llvm.ptr<3> -> i32
+
+    // Then, perform a direct-to-LDS load - should have DirectToLDSLoadScope and noalias with LocalLoad    
+    // CHECK: rocdl.load.to.lds %{{.*}}, %{{.*}} {alias_scopes = [#[[$DIRECT_TO_LDS_SCOPE]]], noalias_scopes = [#[[$LOCAL_LOAD_SCOPE]]]}
+    rocdl.load.to.lds %global_ptr, %lds_addr, 0, 0, 0 : !llvm.ptr<1>
+
+    llvm.return
+  }
+}
