@@ -3112,7 +3112,7 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
   case 3:
     expectedNumTokens = 12;
     break;
-  default: 
+  default:
     llvm_unreachable("Unknown version of the perfConfig");
   }
   SmallVector<StringRef, 11> tokens;
