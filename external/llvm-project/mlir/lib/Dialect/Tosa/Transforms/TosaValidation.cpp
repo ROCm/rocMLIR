@@ -1254,7 +1254,8 @@ LogicalResult TosaValidation::applyErrorIfCheck(Operation *op) {
 bool TosaValidation::isValidElementType(Type type, const bool allowUnsigned) {
   if (isa<FloatType>(type)) {
     return isa<Float32Type, Float16Type, BFloat16Type, Float8E4M3FNType,
-               Float8E5M2Type, Float8E4M3FNUZType, Float8E5M2FNUZType>(type);
+               Float8E5M2Type, Float8E4M3FNUZType, Float8E5M2FNUZType,
+               Float4E2M1FNType, Float8E8M0FNUType>(type);
   }
   if (auto intTy = dyn_cast<IntegerType>(type)) {
     if (intTy.isSignless()) {

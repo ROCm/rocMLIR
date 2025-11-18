@@ -29,6 +29,7 @@
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/tosaUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Tosa/Utils/ConversionUtils.h"
@@ -52,6 +53,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include <tuple>
 #include <utility>
 
 #define DEBUG_TYPE "convert-tosa-to-rock"
@@ -790,6 +792,77 @@ static Value insertBroadcast(Value inp, ArrayRef<int64_t> outShape,
   return rock::TransformOp::create(b, loc, inp, broadcastDims.get());
 }
 
+static FailureOr<Value> mulBroadcast(Value val, bool skipCollapseExpand = true);
+
+static FailureOr<Value> getValueSkipping(Value val,
+                                         const DenseSet<StringRef> &opsToSkip) {
+  while (val.getDefiningOp() &&
+         opsToSkip.contains(val.getDefiningOp()->getName().getStringRef())) {
+    if (val.getDefiningOp<tosa::MulOp>()) {
+      auto maybeBroadcast = mulBroadcast(val);
+      if (failed(maybeBroadcast))
+        return failure();
+      val = maybeBroadcast.value();
+    } else
+      val = val.getDefiningOp()->getOperand(0);
+  }
+  return val;
+}
+
+template <typename TosaOp>
+static FailureOr<TosaOp>
+getDefiningOpSkipping(Value val, const DenseSet<StringRef> &opsToSkip) {
+  auto maybeResult = getValueSkipping(val, opsToSkip);
+  if (failed(maybeResult))
+    return failure();
+
+  TosaOp result = maybeResult.value().getDefiningOp<TosaOp>();
+  if (!result)
+    return failure();
+  return result;
+}
+
+static FailureOr<Value> mulBroadcast(Value val, bool skipCollapseExpand) {
+  DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                tensor::ExpandShapeOp::getOperationName()};
+  if (!skipCollapseExpand)
+    opsToSkip.clear();
+
+  auto maybeMul = getDefiningOpSkipping<tosa::MulOp>(val, opsToSkip);
+  if (succeeded(maybeMul)) {
+    auto mul = maybeMul.value();
+    // this is a broadcast multiplication, one of the arguments is the actual
+    // value, the other is a constant one
+    Value nonOne;
+    auto maybeTosaConstIn1 =
+        getDefiningOpSkipping<tosa::ConstOp>(mul.getInput1(), opsToSkip);
+    auto maybeArithConstIn1 =
+        getDefiningOpSkipping<arith::ConstantOp>(mul.getInput1(), opsToSkip);
+    if (succeeded(maybeTosaConstIn1)) {
+      if (mlir::rock::isConstantOne(maybeTosaConstIn1.value().getResult()))
+        nonOne = mul.getInput2();
+    } else if (succeeded(maybeArithConstIn1)) {
+      if (mlir::rock::isConstantOne(maybeArithConstIn1.value().getResult()))
+        nonOne = mul.getInput2();
+    }
+
+    auto maybeTosaConstIn2 =
+        getDefiningOpSkipping<tosa::ConstOp>(mul.getInput2(), opsToSkip);
+    auto maybeArithConstIn2 =
+        getDefiningOpSkipping<arith::ConstantOp>(mul.getInput2(), opsToSkip);
+    if (succeeded(maybeTosaConstIn2)) {
+      if (mlir::rock::isConstantOne(maybeTosaConstIn2.value().getResult()))
+        nonOne = mul.getInput1();
+    } else if (succeeded(maybeArithConstIn2)) {
+      if (mlir::rock::isConstantOne(maybeArithConstIn2.value().getResult()))
+        nonOne = mul.getInput1();
+    }
+    if (nonOne)
+      return nonOne;
+  }
+  return failure();
+}
+
 class MatMulConverter final : public OpConversionPattern<tosa::MatMulOp> {
 public:
   using OpConversionPattern<tosa::MatMulOp>::OpConversionPattern;
@@ -824,16 +897,135 @@ public:
     }
   }
 
+  // Helper to extract scale and matrix from a mul operation
+  FailureOr<std::pair<Value, Value>>
+  tryExtractScaleAndMatrix(Value mulInput1, Value mulInput2) const {
+    Value scale = nullptr;
+    Value matrix = nullptr;
+
+    // Check if input1 is a cast from Float4E2M1FN
+    if (tosa::CastOp castOp = mulInput1.getDefiningOp<tosa::CastOp>()) {
+      Value castInput = castOp.getInput();
+      if (isa<Float4E2M1FNType>(
+              cast<ShapedType>(castInput.getType()).getElementType())) {
+        matrix = castInput;
+        scale = mulInput2;
+      }
+    }
+    // Check if input2 is a cast from Float4E2M1FN
+    else if (tosa::CastOp castOp = mulInput2.getDefiningOp<tosa::CastOp>()) {
+      Value castInput = castOp.getInput();
+      if (isa<Float4E2M1FNType>(
+              cast<ShapedType>(castInput.getType()).getElementType())) {
+        matrix = castInput;
+        scale = mulInput1;
+      }
+    }
+
+    // Unwrap cast on scale if present
+    if (scale && scale.getDefiningOp<tosa::CastOp>()) {
+      scale = scale.getDefiningOp<tosa::CastOp>().getInput();
+    }
+    if (scale) {
+      RankedTensorType scaleType = cast<RankedTensorType>(scale.getType());
+      if (!isa<Float8E8M0FNUType>(scaleType.getElementType()) &&
+          !isa<Float32Type>(scaleType.getElementType())) {
+        return failure();
+      }
+    }
+
+    if (!scale || !matrix) {
+      return failure();
+    }
+
+    return std::make_pair(scale, matrix);
+  }
+
+  // Helper to reshape matrix and scale to match target shape
+  Value reshapeIfNeeded(Value val, ArrayRef<int64_t> targetShape, Location loc,
+                        ConversionPatternRewriter &rw) const {
+    auto valType = cast<RankedTensorType>(val.getType());
+    if (valType.getShape() == targetShape) {
+      return val;
+    }
+
+    RankedTensorType newType =
+        RankedTensorType::get(targetShape, valType.getElementType());
+    auto normalizedShapeValue = tosa::getTosaConstShape(rw, loc, targetShape);
+    return tosa::ReshapeOp::create(rw, loc, newType, val, normalizedShapeValue);
+  }
+
   LogicalResult matchAndRewrite(tosa::MatMulOp op,
                                 tosa::MatMulOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
     Location loc = op->getLoc();
     auto outputType = cast<RankedTensorType>(op.getType());
+    auto matA = op.getA();
+    auto matB = op.getB();
+    Value matABeforeCast = nullptr;
+    Value matBBeforeCast = nullptr;
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName()};
+
+    // Try to extract scale and matrix for input A
+    Value scaleA = nullptr;
+    FailureOr<tosa::MulOp> maybeMulA =
+        getDefiningOpSkipping<tosa::MulOp>(matA, opsToSkip);
+    if (succeeded(maybeMulA)) {
+      tosa::MulOp mulOpA = maybeMulA.value();
+      FailureOr<std::pair<Value, Value>> maybeScaleMatrixA =
+          tryExtractScaleAndMatrix(mulOpA.getInput1(), mulOpA.getInput2());
+      if (succeeded(maybeScaleMatrixA)) {
+        auto [extractedScaleA, extractedMatrixA] = maybeScaleMatrixA.value();
+        scaleA = extractedScaleA;
+        matABeforeCast = extractedMatrixA;
+      }
+    }
+
+    // Try to extract scale and matrix for input B
+    Value scaleB = nullptr;
+    FailureOr<tosa::MulOp> maybeMulB =
+        getDefiningOpSkipping<tosa::MulOp>(matB, opsToSkip);
+    if (succeeded(maybeMulB)) {
+      tosa::MulOp mulOpB = maybeMulB.value();
+      FailureOr<std::pair<Value, Value>> maybeScaleMatrixB =
+          tryExtractScaleAndMatrix(mulOpB.getInput1(), mulOpB.getInput2());
+      if (succeeded(maybeScaleMatrixB)) {
+        auto [extractedScaleB, extractedMatrixB] = maybeScaleMatrixB.value();
+        scaleB = extractedScaleB;
+        matBBeforeCast = extractedMatrixB;
+      }
+    }
+
+    // rock.gemm requires both scaleA and scaleB to be provided, or neither
+    // If only one scale is present, fall back to normal matmul
+    bool hasScaleA = (scaleA != nullptr);
+    bool hasScaleB = (scaleB != nullptr);
+    if (hasScaleA != hasScaleB) {
+      return op.emitError("Only one scale is present. For scaled GEMM, both "
+                          "scaleA and scaleB must be provided.");
+    }
+
+    // Reshape matrices and scales to match the expected shapes if needed
+    if (matABeforeCast && scaleA) {
+      ArrayRef<int64_t> targetShape =
+          cast<ShapedType>(matA.getType()).getShape();
+      matABeforeCast = reshapeIfNeeded(matABeforeCast, targetShape, loc, rw);
+      scaleA = reshapeIfNeeded(scaleA, targetShape, loc, rw);
+      matA = cast<TypedValue<TensorType>>(matABeforeCast);
+    }
+
+    if (matBBeforeCast && scaleB) {
+      ArrayRef<int64_t> targetShape =
+          cast<ShapedType>(matB.getType()).getShape();
+      matBBeforeCast = reshapeIfNeeded(matBBeforeCast, targetShape, loc, rw);
+      scaleB = reshapeIfNeeded(scaleB, targetShape, loc, rw);
+      matB = cast<TypedValue<TensorType>>(matBBeforeCast);
+    }
     Value output =
         bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
-    rock::GemmFeatures features =
-        getGemmFeaturesFromOp(op, op.getA().getType());
+    rock::GemmFeatures features = getGemmFeaturesFromOp(op, matA.getType());
 
     if (failed(setSplitKAttrs(op, features, rw)))
       return failure();
@@ -846,26 +1038,45 @@ public:
 
     int64_t kDimOfA;
     std::tie(std::ignore, kDimOfA) =
-        getLastDims(transposeA, cast<RankedTensorType>(op.getA().getType()));
+        getLastDims(transposeA, cast<RankedTensorType>(matA.getType()));
     int64_t kDimOfB;
     std::tie(kDimOfB, std::ignore) =
-        getLastDims(transposeB, cast<RankedTensorType>(op.getB().getType()));
+        getLastDims(transposeB, cast<RankedTensorType>(matB.getType()));
     int kDim = (kDimOfA > kDimOfB) ? kDimOfA : kDimOfB;
 
-    SmallVector<int64_t, 3> aShape = llvm::to_vector<3>(
-        cast<RankedTensorType>(op.getA().getType()).getShape());
+    SmallVector<int64_t, 3> aShape =
+        llvm::to_vector<3>(cast<RankedTensorType>(matA.getType()).getShape());
     setLastDims(transposeA, aShape, {mDim, kDim});
-    Value brA = insertBroadcast(adaptor.getA(), aShape, loc, rw);
+    Value brA = insertBroadcast(matA, aShape, loc, rw);
+    Value brAScale = nullptr;
+    if (scaleA) {
+      SmallVector<int64_t, 3> aScaleShape = llvm::to_vector<3>(
+          cast<RankedTensorType>(scaleA.getType()).getShape());
+      // TODO: Handle transpose of scaleA, currently TransposeRewritePattern
+      // will not be able to match scaled_gemms. Update logic when we have
+      // scaled_gemm support in TOSA
+      setLastDims(nullptr, aScaleShape, {mDim, kDim});
+      brAScale = insertBroadcast(scaleA, aScaleShape, loc, rw);
+    }
 
     SmallVector<int64_t, 3> bShape = llvm::to_vector<3>(
         cast<RankedTensorType>(op.getB().getType()).getShape());
     setLastDims(transposeB, bShape, {kDim, nDim});
-    Value brB = insertBroadcast(adaptor.getB(), bShape, loc, rw);
+    Value brB = insertBroadcast(matB, bShape, loc, rw);
 
+    Value brBScale = nullptr;
+    if (scaleB) {
+      SmallVector<int64_t, 3> bScaleShape = llvm::to_vector<3>(
+          cast<RankedTensorType>(scaleB.getType()).getShape());
+      // TODO: Handle transpose of scaleB, currently TransposeRewritePattern
+      // will not be able to match scaled_gemms. Update logic when we have
+      // scaled_gemm support in TOSA
+      setLastDims(nullptr, bScaleShape, {kDim, nDim});
+      brBScale = insertBroadcast(scaleB, bScaleShape, loc, rw);
+    }
     auto rockGemm = rock::GemmOp::create(
-        rw, loc, outputType, brA, brB, output, /*scaleA=*/nullptr,
-        /*scaleB=*/nullptr, transposeA, transposeB, transposeC,
-        /*aScaleTransposed=*/nullptr, /*bScaleTransposed=*/nullptr,
+        rw, loc, outputType, brA, brB, output, brAScale, brBScale, transposeA,
+        transposeB, transposeC, nullptr, nullptr,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
@@ -1423,72 +1634,6 @@ struct AttentionMatcherValues {
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  FailureOr<Value> getValueSkipping(Value val,
-                                    DenseSet<StringRef> opsToSkip) const {
-    while (val.getDefiningOp() &&
-           opsToSkip.contains(val.getDefiningOp()->getName().getStringRef())) {
-      if (val.getDefiningOp<tosa::MulOp>()) {
-        auto maybeBroadcast = mulBroadcast(val);
-        if (failed(maybeBroadcast))
-          return failure();
-        val = maybeBroadcast.value();
-      } else
-        val = val.getDefiningOp()->getOperand(0);
-    }
-    return val;
-  }
-
-  template <typename TosaOp>
-  FailureOr<TosaOp> getDefiningOpSkipping(Value val,
-                                          DenseSet<StringRef> opsToSkip) const {
-    auto maybeResult = getValueSkipping(val, opsToSkip);
-    if (failed(maybeResult))
-      return failure();
-
-    TosaOp result = maybeResult.value().getDefiningOp<TosaOp>();
-    if (!result)
-      return failure();
-    return result;
-  }
-
-  FailureOr<Value> mulBroadcast(Value val) const {
-    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
-                                  tensor::ExpandShapeOp::getOperationName()};
-    auto maybeMul = getDefiningOpSkipping<tosa::MulOp>(val, opsToSkip);
-    if (succeeded(maybeMul)) {
-      auto mul = maybeMul.value();
-      // this is a broadcast multiplication, one of the arguments is the actual
-      // value, the other is a constant one
-      Value nonOne;
-      auto maybeTosaConstIn1 =
-          getDefiningOpSkipping<tosa::ConstOp>(mul.getInput1(), opsToSkip);
-      auto maybeArithConstIn1 =
-          getDefiningOpSkipping<arith::ConstantOp>(mul.getInput1(), opsToSkip);
-      if (succeeded(maybeTosaConstIn1)) {
-        if (mlir::rock::isConstantOne(maybeTosaConstIn1.value().getResult()))
-          nonOne = mul.getInput2();
-      } else if (succeeded(maybeArithConstIn1)) {
-        if (mlir::rock::isConstantOne(maybeArithConstIn1.value().getResult()))
-          nonOne = mul.getInput2();
-      }
-
-      auto maybeTosaConstIn2 =
-          getDefiningOpSkipping<tosa::ConstOp>(mul.getInput2(), opsToSkip);
-      auto maybeArithConstIn2 =
-          getDefiningOpSkipping<arith::ConstantOp>(mul.getInput2(), opsToSkip);
-      if (succeeded(maybeTosaConstIn2)) {
-        if (mlir::rock::isConstantOne(maybeTosaConstIn2.value().getResult()))
-          nonOne = mul.getInput1();
-      } else if (succeeded(maybeArithConstIn2)) {
-        if (mlir::rock::isConstantOne(maybeArithConstIn2.value().getResult()))
-          nonOne = mul.getInput1();
-      }
-      if (nonOne)
-        return nonOne;
-    }
-    return failure();
-  }
-
   // This function checks if a given input is a constant range. There are two
   // possible cases that we can handle:
   // - The input is broadcasted -> we can then check the resulting broadcasted
@@ -1544,8 +1689,15 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Validates that a constant mask follows the causal mask pattern:
   // - Each row i should have zeros at positions 0 through i (lower triangular
   //   part)
-  // - The upper triangular part (positions > i) has to be all 1's
-  bool isValidCausalMask(Operation *op) const {
+  // - The upper triangular part (positions > i) depends on the pattern:
+  //     * For select-based masks (expectOnesInUpperTriangle=true): 1's
+  //     * For non-select based masks (expectOnesInUpperTriangle=false): -infs
+  // - In the select-based mask case, the upper triangular part that is all 1's
+  //   is combined with the -inf values that are fed into the select op,
+  //   resulting in the same type of mask pattern that we see in the
+  //   non-select based mask case. In the non-select case the mask is added
+  //   directly to the result of the first gemm.
+  bool isValidCausalMask(Operation *op, bool expectOnesInUpperTriangle) const {
     // Get the constant value
     DenseElementsAttr constAttr;
     if (auto tosaConst = dyn_cast<tosa::ConstOp>(op)) {
@@ -1564,106 +1716,217 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (shape.size() != 4 || shape[0] != 1 || shape[1] != 1)
       return false;
 
-    // Ensure that element type is integer
-    if (!constAttr.getElementType().isIntOrIndex())
+    // Sanity check that this is an integer or float
+    bool isInt = constAttr.getElementType().isIntOrIndex();
+    bool isFloat = isa<FloatType>(constAttr.getElementType());
+    if (!isInt && !isFloat)
+      return false;
+
+    // If this is an integer type, and we don't expect all ones in the upper
+    // triangle portion, then we cannot match this as a causal mask.
+    if (isInt && !expectOnesInUpperTriangle)
       return false;
 
     int64_t seqLen = shape[2];
     int64_t maxSeqLen = shape[3];
-    auto values = constAttr.getValues<APInt>();
-    for (int64_t row = 0; row < seqLen; ++row) {
-      for (int64_t col = 0; col < maxSeqLen; ++col) {
-        auto val = values[row * maxSeqLen + col].getSExtValue();
 
-        // Validate that the lower triangular portion is all zeros
-        if (col <= row && val != 0)
-          return false;
+    // Generic validation function that works with any value type
+    auto validateMask = [&](auto values, auto isZero, auto isOne,
+                            auto isNegInf) -> bool {
+      for (int64_t row = 0; row < seqLen; ++row) {
+        for (int64_t col = 0; col < maxSeqLen; ++col) {
+          auto val = values[row * maxSeqLen + col];
 
-        // Check that the rest is all just 0's and 1's
-        if (col > row && val != 1)
-          return false;
+          // Validate that the lower triangular portion is all zeros
+          if (col <= row && !isZero(val))
+            return false;
+
+          // Check that the upper triangular portion is correct
+          bool validUpperTriangleVal =
+              expectOnesInUpperTriangle ? isOne(val) : isNegInf(val);
+          if (col > row && !validUpperTriangleVal)
+            return false;
+        }
+      }
+      return true;
+    };
+
+    if (isInt) {
+      auto intValues = constAttr.getValues<APInt>();
+      return validateMask(
+          intValues, [](const APInt &v) { return v.isZero(); },
+          [](const APInt &v) { return v.isOne(); },
+          [](const APInt &v) { return v.isMinSignedValue(); });
+    } else {
+      auto floatValues = constAttr.getValues<APFloat>();
+      return validateMask(
+          floatValues, [](const APFloat &v) { return v.isZero(); },
+          [](const APFloat &v) { return v.convertToDouble() == 1.0; },
+          [](const APFloat &v) { return v.isInfinity() && v.isNegative(); });
+    }
+  }
+
+  // Helper function to detect if a given value is used by a tosa.exp op.
+  bool isUsedByExp(Value value) const {
+    // Use iterative DFS with a worklist to search through the use chain
+    SmallVector<Value, 8> worklist{value};
+    DenseSet<Operation *> visited;
+
+    while (!worklist.empty()) {
+      Value current = worklist.pop_back_val();
+
+      for (Operation *user : current.getUsers()) {
+        // Insert the op into the visited set. Insert will return a pair where
+        // .second is true if the insertion was successful.
+        if (!visited.insert(user).second)
+          continue;
+
+        // Check if this user is a tosa.exp op
+        if (isa<tosa::ExpOp>(user))
+          return true;
+
+        // Add all results of this operation to the worklist
+        for (Value result : user->getResults())
+          worklist.push_back(result);
       }
     }
 
-    return true;
+    return false;
   }
 
-  // Detects a standard causal mask for attention ops.
-  // The function will look for a select op with the following:
+  // Helper function to detect select-based causal mask pattern:
   //   - true branch is a splat -inf constant
   //   - false branch is the tensor value that we want to return
   //   - pred is either:
   //       (1) tosa.greater(const1, const2) comparing two constant 0..N range
-  //           tensors:
-  //             * const1: range 0..maxSeqLen
-  //             * const2 : range 0..seqLenQ
+  //           tensors
   //       (2) A pre-folded broadcasted constant 1 upper‑triangular mask tensor
-  //           representing the causal mask
-  FailureOr<Value> getCausal(Value input) const {
+  FailureOr<Value> getCausalFromSelect(Value input) const {
     DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
                                   tensor::ExpandShapeOp::getOperationName(),
                                   tosa::CastOp::getOperationName()};
     auto maybeSelect = getDefiningOpSkipping<tosa::SelectOp>(input, opsToSkip);
-    if (succeeded(maybeSelect)) {
-      auto select = maybeSelect.value();
-      // Check onTrue is -inf
-      auto onTrue = select.getInput2();
-      bool isConstNegInf = false;
-      DenseSet<StringRef> expandAndCollapse{
-          tensor::CollapseShapeOp::getOperationName(),
-          tensor::ExpandShapeOp::getOperationName()};
-      auto maybeTosaConst =
-          getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
-      auto maybeArithConst =
-          getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
-      if (succeeded(maybeTosaConst))
-        isConstNegInf = rock::isConstNegInf(maybeTosaConst.value().getResult());
-      else if (succeeded(maybeArithConst))
-        isConstNegInf =
-            rock::isConstNegInf(maybeArithConst.value().getResult());
+    if (failed(maybeSelect))
+      return failure();
 
-      if (!isConstNegInf)
+    auto select = maybeSelect.value();
+    // Check onTrue is -inf
+    auto onTrue = select.getInput2();
+    bool isConstNegInf = false;
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+    auto maybeTosaConst =
+        getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
+    auto maybeArithConst =
+        getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
+    if (succeeded(maybeTosaConst))
+      isConstNegInf = rock::isConstNegInf(maybeTosaConst.value().getResult());
+    else if (succeeded(maybeArithConst))
+      isConstNegInf = rock::isConstNegInf(maybeArithConst.value().getResult());
+
+    if (!isConstNegInf)
+      return failure();
+
+    auto pred = select.getInput1();
+    // There are two cases that we need to be able to handle for the pred:
+    // 1. We have a greater op that is doing a comparison between two
+    //    constants
+    // 2. The greater op has already been constant folded by MIGraphX, so we
+    //    find the broadcast input and then do the necessary constant checks
+    auto maybeBroadcast = getDefiningOpSkipping<tosa::MulOp>(pred, opsToSkip);
+    opsToSkip.insert(tosa::MulOp::getOperationName());
+    auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
+    if (succeeded(maybeGreater)) {
+      auto greater = maybeGreater.value();
+      // input1 is a constant with a range from 0 to maxSeqLen (KV)
+      if (failed(isConstantRange(greater.getInput1(), 0)))
         return failure();
 
-      auto pred = select.getInput1();
-      // There are two cases that we need to be able to handle for the pred:
-      // 1. We have a greater op that is doing a comparison between two
-      //    constants
-      // 2. The greater op has already been constant folded by MIGraphX, so we
-      //    find the broadcast input and then do the necessary constant checks
-      auto maybeBroadcast = getDefiningOpSkipping<tosa::MulOp>(pred, opsToSkip);
-      opsToSkip.insert(tosa::MulOp::getOperationName());
-      auto maybeGreater =
-          getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
-      if (succeeded(maybeGreater)) {
-        auto greater = maybeGreater.value();
-        // input1 is a constant with a range from 0 to maxSeqLen (KV)
-        if (failed(isConstantRange(greater.getInput1(), 0)))
-          return failure();
+      // input2 is a constant with a range from 0 to seqLenQ
+      if (failed(isConstantRange(greater.getInput2(), 1)))
+        return failure();
 
-        // input2 is a constant with a range from 0 to seqLenQ
-        if (failed(isConstantRange(greater.getInput2(), 1)))
-          return failure();
+      Value result = select.getInput3();
+      return result;
+    } else if (succeeded(maybeBroadcast)) {
+      // The input from MIGraphX will not be a constant range, so we cannot
+      // use the isConstantRange function. Instead we need to check that
+      // the constant is a valid causal mask pattern.
+      auto maybeNonOne = mulBroadcast(maybeBroadcast.value());
+      if (failed(maybeNonOne))
+        return failure();
 
-        Value result = select.getInput3();
-        return result;
-      } else if (succeeded(maybeBroadcast)) {
-        // The input from MIGraphX will not be a constant range, so we cannot
-        // use the isConstantRange function. Instead we need to check that
-        // the constant is a valid causal mask pattern.
-        auto maybeNonOne = mulBroadcast(maybeBroadcast.value());
-        if (failed(maybeNonOne))
-          return failure();
+      // Validate the causal mask pattern (select uses 1's in upper triangle)
+      Operation *defOp = maybeNonOne.value().getDefiningOp();
+      if (!isValidCausalMask(defOp, /*expectOnesInUpperTriangle=*/true))
+        return failure();
 
-        // Validate the causal mask pattern
-        Operation *defOp = maybeNonOne.value().getDefiningOp();
-        if (!isValidCausalMask(defOp))
-          return failure();
+      Value result = select.getInput3();
+      return result;
+    }
+    return failure();
+  }
 
-        Value result = select.getInput3();
-        return result;
+  // Helper function to detect add-based causal mask pattern:
+  //   - Looks for tosa.add(scores, mask) where mask is a constant with:
+  //     * 0s in lower triangle (allow attention)
+  //     * -inf values in upper triangle (block attention)
+  FailureOr<Value> getCausalFromAdd(Value input) const {
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName(),
+                                  tosa::CastOp::getOperationName()};
+    auto maybeAdd = getDefiningOpSkipping<tosa::AddOp>(input, opsToSkip);
+    if (failed(maybeAdd))
+      return failure();
+
+    auto add = maybeAdd.value();
+    Value input1 = add.getInput1();
+    Value input2 = add.getInput2();
+
+    // Try to find the causal mask constant in either input
+    // Check if input2 is a causal mask (broadcasted via mul)
+    auto maybeNonOne2 = mulBroadcast(input2);
+    if (succeeded(maybeNonOne2)) {
+      Operation *defOp = maybeNonOne2.value().getDefiningOp();
+      if (defOp && isValidCausalMask(defOp,
+                                     /*expectOnesInUpperTriangle=*/false)) {
+        return input1;
       }
     }
+
+    // Check if input1 is a causal mask (broadcasted via mul)
+    auto maybeNonOne1 = mulBroadcast(input1);
+    if (succeeded(maybeNonOne1)) {
+      Operation *defOp = maybeNonOne1.value().getDefiningOp();
+      if (defOp && isValidCausalMask(defOp,
+                                     /*expectOnesInUpperTriangle=*/false)) {
+        return input2;
+      }
+    }
+
+    return failure();
+  }
+
+  // Detects a standard causal mask for attention ops.
+  // Tries both select-based and add-based patterns.
+  FailureOr<Value> getCausal(Value input) const {
+    // Check that the input that comes from the causal mask (verified to be
+    // -inf values in getCausalFromSelect or getCausalFromAdd) is used by an
+    // exp op.
+    if (!isUsedByExp(input))
+      return failure();
+
+    // Try select-based pattern first (most common)
+    auto selectResult = getCausalFromSelect(input);
+    if (succeeded(selectResult))
+      return selectResult;
+
+    // Try add-based pattern
+    auto addResult = getCausalFromAdd(input);
+    if (succeeded(addResult))
+      return addResult;
+
     return failure();
   }
 
@@ -2182,6 +2445,216 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return mul.getOutput();
   }
 
+  FailureOr<std::pair<int64_t, int64_t>> getNumHeadsGQA(Value value,
+                                                        bool isQ) const {
+    // this size is = batch*numHeads
+    auto collapse = value.getDefiningOp<tensor::CollapseShapeOp>();
+    if (!collapse)
+      return failure();
+
+    auto reassociationIdx = collapse.getReassociationIndices();
+
+    // expected to reshape to three dimensions (input to tosa.matmul)
+    if (reassociationIdx.size() != 3)
+      return failure();
+    size_t expectedGroupSize = isQ ? 2 : 3;
+    if (reassociationIdx[0].size() != expectedGroupSize ||
+        reassociationIdx[1].size() != 1 || reassociationIdx[2].size() != 1)
+      return failure();
+
+    // group size must match groupSizeQ
+    int64_t count = 0;
+    for (const auto &reassociation : reassociationIdx) {
+      for (auto idx : reassociation) {
+        if (count != idx)
+          return failure();
+        count++;
+      }
+    }
+
+    auto reshapeInputShape =
+        cast<ShapedType>(collapse.getSrc().getType()).getShape();
+    // we expect the input to be batch x num_heads x D x K (or K x D)
+    size_t expectedSize = isQ ? 4 : 5;
+    if (reshapeInputShape.size() != expectedSize)
+      return failure();
+
+    int64_t batch = reshapeInputShape[0];
+    int64_t numHeads = reshapeInputShape[1];
+    return std::make_pair(batch, numHeads);
+  }
+
+  LogicalResult checkBroadcastGQA(Value value, int64_t expectedRepeat) const {
+    auto collapse = value.getDefiningOp<tensor::CollapseShapeOp>();
+    if (!collapse)
+      return failure();
+    Value collapseVal = collapse.getSrc();
+
+    auto maybeNonOne = mulBroadcast(collapseVal, /*skipCollapseExpand=*/false);
+    if (failed(maybeNonOne))
+      return failure();
+
+    // we should be doing batch x num_heads x 1 x D x K -> batch x num_heads x
+    // REPEAT x D x K
+    Value nonOne = maybeNonOne.value();
+    auto shapeBeforeBroadcast = cast<ShapedType>(nonOne.getType()).getShape();
+    auto shapeAfterBroadcast =
+        cast<ShapedType>(
+            collapseVal.getDefiningOp<tosa::MulOp>().getOutput().getType())
+            .getShape();
+    if (shapeBeforeBroadcast.size() != shapeAfterBroadcast.size())
+      return failure();
+
+    // we expect five dimensions
+    if (shapeBeforeBroadcast.size() != 5)
+      return failure();
+
+    // dimension we are broadcasting
+    if (shapeBeforeBroadcast[2] != 1 ||
+        shapeAfterBroadcast[2] != expectedRepeat)
+      return failure();
+
+    // rest of dimensions must be the same
+    for (size_t idx = 0; idx < shapeBeforeBroadcast.size(); idx++) {
+      if (idx != 2 && shapeBeforeBroadcast[idx] != shapeAfterBroadcast[idx])
+        return failure();
+    }
+
+    return success();
+  }
+
+  FailureOr<Value> sliceTensorGQA(PatternRewriter &rewriter, Value value,
+                                  int64_t batch, int64_t numHeads,
+                                  int64_t repeat) const {
+    Location loc = value.getLoc();
+    ArrayRef<int64_t> shape = cast<ShapedType>(value.getType()).getShape();
+    if (shape.size() != 3)
+      return failure();
+
+    if (shape[0] != (batch * numHeads * repeat))
+      return failure();
+
+    // reshape group x D x K -> batch x num_heads x repeat x D x K
+    rock::BottomUpTMBuilder unmergeDims(rewriter, {"group", "dim0", "dim1"},
+                                        shape, loc);
+    unmergeDims.unmerge({"batch", "num_heads", "repeat"}, {0, 1, 2}, "group",
+                        {batch, numHeads, repeat});
+    unmergeDims.passThrough({3, 4}, {1, 2});
+    rock::TransformMapAttr unmergeDimsAttr = unmergeDims.get();
+
+    // slice repeat to 1
+    auto sliceRepeat =
+        rock::BottomUpTMBuilder::above(unmergeDims, unmergeDimsAttr);
+    sliceRepeat.slice({"repeat"}, {"repeat"}, {0}, {1});
+    sliceRepeat.passThrough({"batch", "num_heads", "dim0", "dim1"});
+    rock::TransformMapAttr sliceRepeatAttr = sliceRepeat.get();
+
+    // reshape back to group/repeat x D x K
+    auto finalMerge =
+        rock::BottomUpTMBuilder::above(sliceRepeat, sliceRepeatAttr);
+    finalMerge.merge("group", 0, {"batch", "num_heads", "repeat"});
+    finalMerge.passThrough({"dim0", "dim1"}, {1, 2}, {"dim0", "dim1"});
+    rock::TransformMapAttr finalMergeAttr = finalMerge.get();
+
+    ArrayAttr transformsAttr = rewriter.getArrayAttr(
+        {finalMergeAttr, sliceRepeatAttr, unmergeDimsAttr});
+    return rock::transform(rewriter, value, transformsAttr);
+  }
+
+  /*
+  This tries to identify if GQA is used, and undoes the broadcast. The expected
+  IR is:
+
+  // clang-format off
+  ```
+  %q = tensor.collapse %q [[0, 1], [2], [3]] : tensor<1x32x1x128xf16> into
+  tensor<32x1x128xf16>
+
+  // broadcast from numHeadsK, 1 -> numHeadsK, repeat where
+  numHeadsQ=numHeadsK*repeat %k = tosa.mul %k, constant=1, constant=0 :
+  (tensor<1x8x1x128x64xf16>, tensor<1x8x4x128x64xf16>, tensor<1xi8>) ->
+  tensor<1x8x4x128x64xf16>
+  // collapse batch, numHeadsK and repeat into group dimension,
+  group=batch*numHeadsK*repeat %k = tensor.collapse_shape %k [[0, 1, 2], [3],
+  [4]] : tensor<1x8x4x128x64xf16> into tensor<32x128x64xf16>
+
+  %v = same transforms as %k
+  rock.attention(%q, %k, %v)
+  ```
+  // clang-format on
+
+  Note that if we identify the GQA pattern, we slice the K and V tensors
+  and pass numHeadsQ and numHeadsKV to rock.attention. Otherwise, K and V
+  tensors are left untouched and numHeadsQ=1, numHeadsKV=1.
+  */
+  std::tuple<Value, Value, Value, IntegerAttr, IntegerAttr>
+  getGQAValues(PatternRewriter &rewriter, Value queries, Value keys,
+               Value values) const {
+    // default values in case GQA is not pattern matched
+    IntegerAttr numHeadsQAttr = rewriter.getI32IntegerAttr(1);
+    IntegerAttr numHeadsKVAttr = rewriter.getI32IntegerAttr(1);
+    auto defaultValues =
+        std::make_tuple(queries, keys, values, numHeadsQAttr, numHeadsKVAttr);
+
+    FailureOr<std::pair<int64_t, int64_t>> reshapeQResults =
+        getNumHeadsGQA(queries, true);
+    if (failed(reshapeQResults))
+      return defaultValues;
+    int64_t batchQ = reshapeQResults->first;
+    int64_t numHeadsQ = reshapeQResults->second;
+
+    FailureOr<std::pair<int64_t, int64_t>> reshapeKResults =
+        getNumHeadsGQA(keys, false);
+    if (failed(reshapeKResults))
+      return defaultValues;
+    int64_t batchK = reshapeKResults->first;
+    int64_t numHeadsK = reshapeKResults->second;
+
+    FailureOr<std::pair<int64_t, int64_t>> reshapeVResults =
+        getNumHeadsGQA(values, false);
+    if (failed(reshapeVResults))
+      return defaultValues;
+    int64_t batchV = reshapeVResults->first;
+    int64_t numHeadsV = reshapeVResults->second;
+
+    // batch must be equal for all tensors
+    if (batchQ != batchK || batchQ != batchV)
+      return defaultValues;
+
+    // num heads of K and V must be equal
+    if (numHeadsK != numHeadsV)
+      return defaultValues;
+
+    // numHeadsQ must be divisible by numHeadsKV
+    if (numHeadsQ % numHeadsK != 0)
+      return defaultValues;
+
+    int64_t expectedRepeat = numHeadsQ / numHeadsK;
+    // check we are doing the expected broadcast for K and V
+    LogicalResult kCorrect = checkBroadcastGQA(keys, expectedRepeat);
+    LogicalResult vCorrect = checkBroadcastGQA(values, expectedRepeat);
+    if (failed(kCorrect) || failed(vCorrect))
+      return defaultValues;
+
+    // update keys and values (slicing the repeats)
+    auto maybeKeys =
+        sliceTensorGQA(rewriter, keys, batchK, numHeadsK, expectedRepeat);
+    auto maybeValues =
+        sliceTensorGQA(rewriter, values, batchV, numHeadsV, expectedRepeat);
+    if (failed(maybeKeys) || failed(maybeValues))
+      return defaultValues;
+
+    keys = maybeKeys.value();
+    values = maybeValues.value();
+
+    numHeadsQAttr = rewriter.getI32IntegerAttr(numHeadsQ);
+    numHeadsKVAttr = rewriter.getI32IntegerAttr(numHeadsK);
+    LLVM_DEBUG(llvm::dbgs() << "Found GQA pattern, numHeadsQ=" << numHeadsQ
+                            << " numHeadsKV=" << numHeadsK << "\n");
+    return std::make_tuple(queries, keys, values, numHeadsQAttr,
+                           numHeadsKVAttr);
+  }
+
   FailureOr<AttentionMatcherValues> match(tosa::MatMulOp op) const {
     Value softmaxOutput = op.getA();
     DenseSet<StringRef> expandAndCollapse{
@@ -2377,13 +2850,16 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         attentionMatcherValues.preSoftmaxElementwiseFinder;
     int64_t firstGemmBlockIndex = elemwiseRegion.getFirstGemmBlockIndex();
 
-    // TODO: numHeadsQ and numHeadsKV migraphx integration
+    IntegerAttr numHeadsQ, numHeadsKV;
+    Value queries, keys, values;
+    std::tie(queries, keys, values, numHeadsQ, numHeadsKV) = getGQAValues(
+        rewriter, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB());
+
     rock::AttentionOp attnOp = rock::AttentionOp::create(
-        rewriter, loc, outputType, lseType, firstMatMulOp.getA(),
-        firstMatMulOp.getB(), op.getB(), elementwiseOtherArgs, currentSeqLen,
-        output, lseOut,
-        /*numHeadsQ=*/rewriter.getI32IntegerAttr(1),
-        /*numHeadsKV=*/rewriter.getI32IntegerAttr(1),
+        rewriter, loc, outputType, lseType, queries, keys, values,
+        elementwiseOtherArgs, currentSeqLen, output, lseOut,
+        /*numHeadsQ=*/numHeadsQ,
+        /*numHeadsKV=*/numHeadsKV,
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,

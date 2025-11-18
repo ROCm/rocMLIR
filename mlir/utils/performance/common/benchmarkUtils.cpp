@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -105,6 +106,11 @@ void printUsage(const std::string &name) {
 // testing things with random data or very simple patterns like all 0s or all 1s
 std::vector<uint8_t> getPattern(DataType dataType) {
   std::vector<float> patternFlt = {0.5f, -1.0f, 0.75f};
+  // For the benchmarking we just use random data and don't really care about
+  // the values. Choose some random patterns of values that can be represented
+  // by FP4 and F8E8M0FNU.
+  std::vector<uint8_t> patternFp4 = {2, 4, 8, 10};
+  std::vector<uint8_t> patternF8E8M0FNU = {1, 2, 4, 8};
   std::vector<int> patternInt{1, -1, 2};
   std::vector<uint8_t> res;
   switch (dataType) {
@@ -146,10 +152,24 @@ std::vector<uint8_t> getPattern(DataType dataType) {
     for (auto flt : patternFlt)
       res.push_back(float_to_float8(flt));
     break;
+  case DataType::F8E8M0FNU:
+    for (auto flt : patternF8E8M0FNU) {
+      res.push_back(flt);
+    }
+    break;
   case DataType::I8:
     for (auto i : patternInt) {
       auto *p = reinterpret_cast<unsigned char const *>(&i);
       res.push_back(p[0]);
+    }
+    break;
+  case DataType::F4:
+    // getPattern is used to fill GPU buffers. GPU buffers are allocated in
+    // terms of bytes. Therefore FP4 values need to be packed into 8-bit values.
+    for (size_t i = 0; i < patternFp4.size(); i = i + 2) {
+      uint8_t packedF4 =
+          (patternFp4[i] & 0x0F) | ((patternFp4[i + 1] & 0x0F) << 4);
+      res.push_back(packedF4);
     }
     break;
   case DataType::UNKNOWN:
@@ -172,6 +192,10 @@ DataType strToDataType(const std::string &dataTypeStr) {
     return DataType::I8;
   } else if (dataTypeStr == "fp8") {
     return DataType::F8;
+  } else if (dataTypeStr == "f8E8M0FNU") {
+    return DataType::F8E8M0FNU;
+  } else if (dataTypeStr == "f4E2M1FN") {
+    return DataType::F4;
   } else {
     return DataType::UNKNOWN;
   }
@@ -192,6 +216,10 @@ std::string dataTypeToStr(DataType dataType) {
     return "i8";
   case DataType::F8:
     return "fp8";
+  case DataType::F8E8M0FNU:
+    return "f8E8M0FNU";
+  case DataType::F4:
+    return "f4E2M1FN";
   default:
     return "unknown";
   }
@@ -240,8 +268,25 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       const int lenTransB = std::string("-transB=").length();
       std::string value = arg.substr(lenTransB);
       res.transposeB = atob(value);
+    } else if (arg.rfind("-transScaleA=", 0) == 0) {
+      const int lenTransScaleA = std::string("-transScaleA=").length();
+      std::string value = arg.substr(lenTransScaleA);
+      res.transScaleA = atob(value);
+    } else if (arg.rfind("-transScaleB=", 0) == 0) {
+      const int lenTransScaleB = std::string("-transScaleB=").length();
+      std::string value = arg.substr(lenTransScaleB);
+      res.transScaleB = atob(value);
+    } else if (arg.rfind("-scale_a_dtype=", 0) == 0) {
+      const int lenScaleADType = std::string("-scale_a_dtype=").length();
+      std::string value = arg.substr(lenScaleADType);
+      res.scaleADataType = strToDataType(value);
+    } else if (arg.rfind("-scale_b_dtype=", 0) == 0) {
+      const int lenScaleBDType = std::string("-scale_b_dtype=").length();
+      std::string value = arg.substr(lenScaleBDType);
+      res.scaleBDataType = strToDataType(value);
     } else if (arg == "--perf_config=" || arg == "--arch" ||
-               arg == "--num_cu" || arg == "-operation") {
+               arg == "--num_cu" || arg == "-operation" ||
+               arg == "--scaledGemm") {
       i++;
     } else if (arg == "--kernel-repeats") {
       res.kernelRepeats = atoi(argv[++i]);
@@ -282,11 +327,19 @@ void printProblem(BenchmarkArgs args) {
             << "K: " << args.gemmK << "\n"
             << "transA: " << (args.transposeA ? "true" : "false") << "\n"
             << "transB: " << (args.transposeB ? "true" : "false") << "\n"
+            << "transScaleA: " << (args.transScaleA ? "true" : "false") << "\n"
+            << "transScaleB: " << (args.transScaleB ? "true" : "false") << "\n"
+            << "scaleADataType: " << dataTypeToStr(args.scaleADataType) << "\n"
+            << "scaleBDataType: " << dataTypeToStr(args.scaleBDataType) << "\n"
             << "DataType: " << dataTypeToStr(args.dataType) << "\n"
             << "OutDataType: " << dataTypeToStr(args.outDataType) << "\n"
             << "SplitK Factor: " << args.splitKFactor << std::endl;
 }
 
+/*
+Given a data type and the number of elements, return the number of bytes
+required to store the data.
+*/
 size_t getByteSize(DataType dataType, size_t elems) {
   switch (dataType) {
   case DataType::F32:
@@ -297,7 +350,10 @@ size_t getByteSize(DataType dataType, size_t elems) {
     return elems * 2;
   case DataType::I8:
   case DataType::F8:
+  case DataType::F8E8M0FNU:
     return elems;
+  case DataType::F4:
+    return (elems + 1) / 2; // ceilDiv
   default:
     return 0;
   }
@@ -313,6 +369,8 @@ size_t getBytesPerElement(DataType dataType) {
     return 2;
   case DataType::I8:
   case DataType::F8:
+  case DataType::F8E8M0FNU:
+  case DataType::F4:
     return 1;
   default:
     assert(0 && "Data type unknown");
@@ -322,6 +380,7 @@ size_t getBytesPerElement(DataType dataType) {
 void *allocAndFill(DataType dataType, size_t byteSize) {
   uint8_t *ret = reinterpret_cast<uint8_t *>(malloc(byteSize));
   std::vector<uint8_t> pattern = getPattern(dataType);
+  // note that fp4 dtype, getPattern returns vector of packed values
   size_t bytesPerElem = getBytesPerElement(dataType);
   size_t patternLen = (pattern.size() / bytesPerElem);
   size_t elems = byteSize / bytesPerElem;
@@ -366,6 +425,14 @@ void *makeHostConstant(float flt, DataType computeDataType) {
     *ret = float_to_float8(flt);
     return ret;
   }
+  case DataType::F8E8M0FNU: {
+    uint8_t *ret = reinterpret_cast<uint8_t *>(malloc(1));
+    // extract exponent from float
+    *ret = (*(reinterpret_cast<uint32_t *>(&flt)) >> 23) & 0xFF;
+    return ret;
+  }
+  // fp4 is not supported yet, this is used for rocMLIR benchmarking only
+  case DataType::F4:
   default:
     return nullptr;
   }
