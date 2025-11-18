@@ -170,8 +170,7 @@ public:
     if (failed(fetchDeviceProperties(deviceProps))) {
       llvm::report_fatal_error("Failed to fetch device properties");
     }
-    }
-  };
+  }
 
   LogicalResult flushL2Cache(hipStream_t stream) {
     std::lock_guard<std::mutex> lock(stateMutex);
@@ -235,13 +234,9 @@ private:
   }
 
   static LogicalResult fetchDeviceProperties(hipDeviceProp_t &props) {
-    int deviceId = 0;
-    hipError_t status = hipGetDeviceProperties(&props, deviceId);
-    if (status != hipSuccess) {
-      llvm::errs() << "HIP error in hipGetDeviceProperties: "
-                   << hipGetErrorString(status) << "\n";
-      return failure();
-    }
+    int deviceId = -1;
+    CHECK_HIP(hipGetDevice(&deviceId));
+    CHECK_HIP(hipGetDeviceProperties(&props, deviceId));
     return success();
   }
 
