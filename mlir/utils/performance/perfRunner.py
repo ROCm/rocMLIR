@@ -52,9 +52,9 @@ OUTPUT_DATA_TYPES_MAP = {
     'bf8_bf8': 'f32',
     'f4E2M1FN': 'f32'
 }
-MLIR_N_REPEATS = 10
-WARMUP_ITERATIONS = 1
-SLEEP_US = 100
+MLIR_N_REPEATS = 100
+WARMUP_ITERATIONS = 10
+SLEEP_US = 1000 # 1 ms
 
 FILTER_LAYOUT_MAP = {'N': 'k', 'C': 'c', 'H': 'y', 'W': 'x', 'G': 'g', '0': '0', '1': '1'}
 INPUT_LAYOUT_MAP = {'N': 'n', 'C': 'c', 'H': 'h', 'W': 'w', 'G': 'g', '0': '0', '1': '1'}
@@ -475,7 +475,7 @@ class ConvConfiguration(PerfConfiguration):
     def set_perfconfig(self, perf_config):
         self.perfconfig = perf_config
 
-    def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
         direction = {
             'fwd': '--operation conv',
             'bwd': '--operation conv_bwd_data',
@@ -500,7 +500,7 @@ class ConvConfiguration(PerfConfiguration):
             str(self.padding_h), '--padding_w',
             str(self.padding_w), '--groupsize',
             str(self.group), '--kernel-repeats',
-            str(MLIR_N_REPEATS), f"--perf_config={self.perfconfig}"
+            str(kernel_repeats), f"--perf_config={self.perfconfig}"
         ])
         result += ' '
         if rocmlir_gen_flags != '':
@@ -925,7 +925,7 @@ class GemmConfiguration(PerfConfiguration):
     def set_perfconfig(self, perf_config):
         self.perfconfig = perf_config
 
-    def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
         cmd_parts = [
             '-operation', 'gemm', '-t', self.datatype, '-out_datatype', self.out_dtype, '--arch',
             self.arch, '--num_cu',
@@ -949,7 +949,7 @@ class GemmConfiguration(PerfConfiguration):
 
         cmd_parts.extend(
             ['--kernel-repeats',
-             str(MLIR_N_REPEATS), f"--perf_config={self.perfconfig}"])
+             str(kernel_repeats), f"--perf_config={self.perfconfig}"])
 
         result = ' '.join(cmd_parts)
 
@@ -1183,7 +1183,7 @@ class ConvGemmConfiguration(PerfConfiguration):
     def set_perfconfig(self, perf_config):
         self.perfconfig = perf_config
 
-    def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
         result = ' '.join([
             '-operation', 'conv_gemm', '-t', self.datatype, '--arch', self.arch,
             f'--num_cu={self.num_cu}', f'--fil_layout={self.filter_layout}',
@@ -1194,7 +1194,7 @@ class ConvGemmConfiguration(PerfConfiguration):
             f'--dilation_w={self.dilation_w}', f'--conv_stride_h={self.conv_stride_h}',
             f'--conv_stride_w={self.conv_stride_w}', f'--padding_h={self.padding_h}',
             f'--padding_w={self.padding_w}', f'--groupsize={self.group}', f'--gemmO={self.o}',
-            f'--kernel-repeats={MLIR_N_REPEATS}', f"--perf_config={self.perfconfig}"
+            f'--kernel-repeats={kernel_repeats}', f"--perf_config={self.perfconfig}"
         ])
         result += ' '
         if rocmlir_gen_flags != '':
@@ -1354,7 +1354,7 @@ class GemmGemmConfiguration(PerfConfiguration):
     def set_perfconfig(self, perf_config):
         self.perfconfig = perf_config
 
-    def generate_mlir_driver_commandline(self, rocmlir_gen_flags):
+    def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
         result = ' '.join([
             '-operation', 'gemm_gemm', '-t', self.datatype, '--arch', self.arch, '--num_cu',
             str(self.num_cu), '-g',
@@ -1364,7 +1364,7 @@ class GemmGemmConfiguration(PerfConfiguration):
             str(self.n), '-gemmO',
             str(self.o), f"-transA={self.trans_a}", f"-transB={self.trans_b}",
             f"-transC={self.trans_c}", f"-transO={self.trans_o}", '--kernel-repeats',
-            str(MLIR_N_REPEATS), f"--perf_config={self.perfconfig}"
+            str(kernel_repeats), f"--perf_config={self.perfconfig}"
         ])
         result += ' '
         if rocmlir_gen_flags != '':
