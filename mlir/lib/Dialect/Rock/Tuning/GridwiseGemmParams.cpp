@@ -660,10 +660,10 @@ PopulateParamsXDL::specificCouldBePerformant(const InitParamsAccel &params,
 
   // to keep full tuning as it was, limit numWaves <= 4
   int64_t nPerWave = params.gemmNPerWave;
-  int64_t mBlocks = params.gemmMPerBlock / params.gemmMPerWave;
-  int64_t nBlocks = params.gemmNPerBlock / params.gemmNPerWave;
+  int64_t mWaves = params.gemmMPerBlock / params.gemmMPerWave;
+  int64_t nWaves = params.gemmNPerBlock / params.gemmNPerWave;
   int64_t mnPerXdl = params.gemmMnPerXdl;
-  int64_t numWaves = mBlocks * nBlocks;
+  int64_t numWaves = mWaves * nWaves;
   if ((numWaves == 4 && mnPerXdl <= nPerWave) ||
       (numWaves == 2 && mnPerXdl == nPerWave) ||
       (numWaves == 1 && mnPerXdl == nPerWave))

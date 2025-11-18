@@ -1102,7 +1102,7 @@ LogicalResult GemmOp::verify() {
   bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isMfma && !isa<MfmaGemmParamsAttr>(params))
-      return emitOpError("an mfma GEMM has non-mfma tuning parameters");
+      return emitOpError("a mfma GEMM has non-mfma tuning parameters");
     if (getFeatures() == GemmFeatures::none &&
         !isa<GeneralGemmParamsAttr>(params))
       return emitOpError("an all-hardware gemm must used the general gemm "
@@ -3099,7 +3099,7 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
     return {};
   }
   if (version != 1 && version != 2 && version != 3) {
-    return {};
+    llvm_unreachable("Unknown version of the perfConfig");
   }
   size_t expectedNumTokens = 0;
   switch (version) {
@@ -3112,6 +3112,8 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
   case 3:
     expectedNumTokens = 12;
     break;
+  default: 
+    llvm_unreachable("Unknown version of the perfConfig");
   }
   SmallVector<StringRef, 11> tokens;
   rest.split(tokens, ',');
@@ -3124,7 +3126,7 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
     llvm::to_integer(s, param);
     return param;
   });
-  bool isV3 = version == 3;
+  bool isV3 = (version == 3);
   int64_t mPerBlockG0 = params[0];
   int64_t mPerBlockG1 = params[1];
   int64_t nPerBlockG0 = params[2];
