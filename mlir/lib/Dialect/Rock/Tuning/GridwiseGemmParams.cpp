@@ -787,10 +787,14 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
   if constexpr (std::is_same_v<ParamsType, InitParamsNonAccel>) {
     // For non-accel params, we only support f32
     dataTypeStr = "f32";
+  } else if (dataType.getIntOrFloatBitWidth() == 4 &&
+             isa<FloatType>(dataType)) {
+    // We usa simplified "f4" for all 4-bit float types
+    dataTypeStr = "f4";
   } else if (dataType.getIntOrFloatBitWidth() == 8 &&
              isa<FloatType>(dataType)) {
-    // There are several 8-bit float types, but we use "fp8" generically
-    dataTypeStr = "fp8";
+    // There are several 8-bit float types, but we use "f8" generically
+    dataTypeStr = "f8";
   } else if (dataType.getIntOrFloatBitWidth() == 16 &&
              isa<FloatType>(dataType)) {
     // We use "f16" for bf16 and f16 generically
@@ -862,6 +866,10 @@ template <typename ParamsType>
 ArrayRef<ParamsType> ParamLookupTable<ParamsType>::lookup(StringRef arch,
                                                           KernelType op,
                                                           Type dataType) {
+  if (dataType.getIntOrFloatBitWidth() == 4 && isa<FloatType>(dataType) &&
+      op == KernelType::Gemm && !lookupArchInfo(arch).hasScaledGemm)
+    llvm::report_fatal_error("Unsupported arch for f4 kernels");
+
   arch = getArchName(arch);
   auto key = makeKey(arch, op, dataType);
   LLVM_DEBUG(llvm::dbgs() << "Lookup for tuning parameters with key " << key
