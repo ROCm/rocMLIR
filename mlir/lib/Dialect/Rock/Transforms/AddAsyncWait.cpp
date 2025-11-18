@@ -107,10 +107,8 @@ findFirstReadFromLDS(Value value, Operation *startOp,
   llvm::DenseSet<Value> visited;
 
   auto addToWorklist = [&](Value v) {
-    LLVM_DEBUG(llvm::dbgs() << "  -> Checking: " << *v.getDefiningOp() << "\n");
     if (visited.insert(v).second) {
       worklist.push_back(v);
-      LLVM_DEBUG(llvm::dbgs() << "  -> Added to worklist!\n");
     }
   };
 
@@ -119,12 +117,10 @@ findFirstReadFromLDS(Value value, Operation *startOp,
   while (!worklist.empty()) {
     Value current = worklist.pop_back_val();
 
-    LLVM_DEBUG(llvm::dbgs() << "  -> Checking current: "
+    LLVM_DEBUG(llvm::dbgs() << "Checking current value: "
                             << *current.getDefiningOp() << "\n");
 
     if (current.getUsers().empty()) {
-      LLVM_DEBUG(llvm::dbgs() << "  -> No users found for current: "
-                              << *current.getDefiningOp() << "\n");
       continue;
     }
 
@@ -154,7 +150,6 @@ findFirstReadFromLDS(Value value, Operation *startOp,
                        << *readOp << "\n");
             continue;
           }
-          LLVM_DEBUG(llvm::dbgs() << "Found something!\n");
           // Found a read after startOp, track the first one in program order
           if (!firstReadOp) {
             firstRead = readOp;
@@ -264,7 +259,8 @@ findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
 
   LLVM_DEBUG(llvm::dbgs() << "After writeOp: " << *writeOp.getOperation()
                           << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "->-> Found first read: " << firstRead << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "Found first read after writeOp: " << firstRead
+                          << "\n");
   return firstRead.getOperation();
 }
 
@@ -307,6 +303,9 @@ static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp,
           auto maybeLoopCount =
               rock::predictThreadwiseReadIntoLoopCount(readOp);
           if (failed(maybeLoopCount)) {
+            // If we failed to predict the loop count, we don't know how many
+            // global loads are between the two operations, so we count at least
+            // one.
             LLVM_DEBUG(
                 llvm::dbgs()
                 << "Failed to predict loop count for ThreadwiseReadIntoOp: "
@@ -428,13 +427,17 @@ static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
   }
 }
 
-/// Add AsyncWaitOps to the function. This function has two main steps:
+/// Add AsyncWaitOps to the function. This function has 3 main steps:
 /// 1. Find all ThreadwiseReadIntoOp operations that write into LDS memory.
 ///    Then, for each of them, call findFirstUseAfter, which will find the first
-///    op that uses the result of the ThreadwiseReadIntoOp.
-/// 2. Once we know where to insert the AsyncWaitOp, call getWaitCount, which
-/// will
+///    op that uses the result of the ThreadwiseReadIntoOp. In essence, this
+///    gives us the pair of global memory read and the local read that depends
+///    on it.
+///  2. For each pair of global and local reads, call getWaitCount, which will
 ///    return the number of AsyncWaitOps to insert.
+/// 3. Once we know the wait count and the pair of reads that depends on each
+/// other, figure out where to insert the waitcount, which mainly depends on
+/// wether we are running pipelined or not.
 static LogicalResult addAsyncWait(func::FuncOp &func) {
   IRRewriter rewriter(func->getContext());
 
