@@ -158,11 +158,10 @@ struct BufferLoadRewritePatttern
     Value nibbleBoundConst = rewriter.createOrFold<arith::ConstantIntOp>(
         loc, numNibbles, indexWidth);
 
-    Value nibbleIsOob =
-        arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::uge,
-                              nibbleIndex, nibbleBoundConst);
-    newIndex = arith::SelectOp::create(rewriter, loc, nibbleIsOob,
-                                       numBytesConst, newIndex);
+    Value nibbleIsOob = rewriter.createOrFold<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::uge, nibbleIndex, nibbleBoundConst);
+    newIndex = rewriter.createOrFold<arith::SelectOp>(loc, nibbleIsOob,
+                                                      numBytesConst, newIndex);
     // Note: if you're using sgpr offset for some reason, this won't work.
     Value newLoad = amdgpu::RawBufferLoadOp::create(
         rewriter, loc, newType, adaptor.getMemref(), newIndex,
