@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/Passes.h"
 
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
@@ -96,17 +97,23 @@ struct LowerRockOpsToROCDLOpsPass final
     LLVMTypeConverter converter(ctx);
     RewritePatternSet patterns(ctx);
 
-    FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse("gfx942");
+    FailureOr<amdgpu::Chipset> maybeChipset = amdgpu::Chipset::parse(chipset);
     if (failed(maybeChipset)) {
       emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
       return signalPassFailure();
     }
 
-    LLVMConversionTarget target(getContext());
-    target.addIllegalOp<rock::AsyncWaitOp>();
-    target.addLegalDialect<ROCDL::ROCDLDialect>();
+    // Check if the GPU supports DirectToLDS
+    AmdArchInfo archInfo = lookupArchInfo(chipset);
+    bool supportsDirectToLDS =
+        isDirectToLDSSupported(archInfo.defaultFeatures);
 
-    patterns.add<AsyncWaitOpConversion>(converter, *maybeChipset);
+    LLVMConversionTarget target(getContext());
+    if (supportsDirectToLDS) {
+      target.addIllegalOp<rock::AsyncWaitOp>();
+      patterns.add<AsyncWaitOpConversion>(converter, *maybeChipset);
+    }
+    target.addLegalDialect<ROCDL::ROCDLDialect>();
 
     if (failed(applyPartialConversion(op, target, std::move(patterns))))
       signalPassFailure();
