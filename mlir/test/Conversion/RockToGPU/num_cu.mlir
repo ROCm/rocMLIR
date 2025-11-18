@@ -10,7 +10,7 @@
 // CHECK-SAME: grid_size = 256 : i32
 // CHECK-SAME: known_block_size = array<i32: 128, 1, 1>
 // CHECK-SAME: known_grid_size = array<i32: 256, 1, 1>
-// CHECK-SAME: num_cu = 96 : i32
+// CHECK-SAME: num_cu = 96 : i64
 // CHECK-SAME: rocdl.unsafe_fp_atomics = true
 // CHECK-SAME: rocdl.waves_per_eu = 2 : i32
 // CHECK-SAME: rock.shared_buffer_size = 256 : i32
