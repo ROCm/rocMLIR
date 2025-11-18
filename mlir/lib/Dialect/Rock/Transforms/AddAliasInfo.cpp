@@ -56,9 +56,7 @@ struct RockAddAliasInfoPass
     gpu::GPUModuleOp module = getOperation();
     LLVM_DEBUG(llvm::dbgs() << "Running RockAddAliasInfoPass on GPU module\n");
 
-    // Walk through all LLVM functions in the module and process their operations
-    // TODO: Use LDSAddr instead of 3
-    // TODO: What about multibuffering?
+    // Walk through all LLVM functions in the module and process their operations.
     module.walk([&](LLVM::LLVMFuncOp func) {
       LLVM_DEBUG(llvm::dbgs() << "Processing function: " << func.getName() << "\n");
       
@@ -66,33 +64,31 @@ struct RockAddAliasInfoPass
         Operation *aliasOp = aliasIface.getOperation();
 
         if (auto loadOp = dyn_cast<LLVM::LoadOp>(aliasOp)) {
-          LLVM_DEBUG(llvm::dbgs() << "LLVM::LoadOp\n");
           Value addr = loadOp.getAddr();
           if (auto ptrType = dyn_cast<LLVM::LLVMPointerType>(addr.getType())) {
-            if (ptrType.getAddressSpace() == 3) {
-              LLVM_DEBUG(llvm::dbgs() << "LLVM::LoadOp with LDS address space!!!\n");
+            if (ptrType.getAddressSpace() == ROCDL::ROCDLDialect::kSharedMemoryAddressSpace) {
+              LLVM_DEBUG(llvm::dbgs() << "LLVM::LoadOp with LDS address space. Adding to noAliasScope\n");
               addLocalLoadNoAliasScope(loadOp);
             }
           }
         }
         else if (auto storeOp = dyn_cast<LLVM::StoreOp>(aliasOp)) {
-          LLVM_DEBUG(llvm::dbgs() << "LLVM::StoreOp\n");
           Value addr = storeOp.getAddr();
           if (auto ptrType = dyn_cast<LLVM::LLVMPointerType>(addr.getType())) {
-            if (ptrType.getAddressSpace() == 3) {
-              LLVM_DEBUG(llvm::dbgs() << "LLVM::StoreOp with LDS address space!!!\n");
+            if (ptrType.getAddressSpace() == ROCDL::ROCDLDialect::kSharedMemoryAddressSpace) {
+              LLVM_DEBUG(llvm::dbgs() << "LLVM::StoreOp with LDS address space. Adding to noAliasScope\n");
               addLocalLoadNoAliasScope(storeOp);
             }
           }
         }
         else if (auto loadToLDSOp = dyn_cast<ROCDL::LoadToLDSOp>(aliasOp)) {
-          // We generate GatherToLDSOp, which will be lowered to LoadToLDSOp at this point,
+          // We lower rock ops to GatherToLDS ops, which then are lowered to LoadToLDSOp at this point,
           // so here its the right moment to add alias scope information.
-          LLVM_DEBUG(llvm::dbgs() << "ROCDL::LoadToLDSOp!!!\n");
+          LLVM_DEBUG(llvm::dbgs() << "ROCDL::LoadToLDSOp. Adding to aliasScope\n");
           addDirectToLDSLoadAliasScope(loadToLDSOp);
         }
         else if (auto rawPtrBufferLoadLdsOp = dyn_cast<ROCDL::RawPtrBufferLoadLdsOp>(aliasOp)) {
-          LLVM_DEBUG(llvm::dbgs() << "ROCDL::RawPtrBufferLoadLdsOp!!!\n");
+          LLVM_DEBUG(llvm::dbgs() << "ROCDL::RawPtrBufferLoadLdsOp. Adding to aliasScope\n");
           addDirectToLDSLoadAliasScope(rawPtrBufferLoadLdsOp);
         }
         else {
