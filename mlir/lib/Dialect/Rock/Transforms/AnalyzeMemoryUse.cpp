@@ -126,10 +126,10 @@ void RockAnalyzeMemoryUsePass::runOnOperation() {
     // Anyone lying about the size of their input deserves exactly what they
     // get.
     if (type.hasStaticShape()) {
-      // Use ceiling division to handle sub-byte types correctly
+      // Use ceildiv to handle sub-byte types correctly
       int64_t sizeInBits =
           type.getNumElements() * type.getElementTypeBitWidth();
-      int64_t sizeInBytes = (sizeInBits + 7) / 8;
+      int64_t sizeInBytes = llvm::divideCeil(sizeInBits, 8);
       func.setArgAttr(idx, LLVM::LLVMDialect::getDereferenceableAttrName(),
                       b.getI64IntegerAttr(sizeInBytes));
     }
