@@ -1,6 +1,5 @@
 // RUN: rocmlir-opt -convert-rock-to-gpu -split-input-file %s | FileCheck %s
 
-
 // CHECK: module attributes {gpu.container_module}
 // CHECK-NEXT: gpu.module @misckernel_module
 // CHECK-NEXT: gpu.func @misckernel(%{{.*}}: memref<?xf32>, %{{.*}}: memref<?xf32>) 
