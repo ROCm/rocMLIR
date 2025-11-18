@@ -164,6 +164,7 @@ struct AgentInfo {
   // Output fields:
   uint32_t simdsPerCU;
   uint32_t maxWavesPerCU;
+  uint32_t numXCC;
 };
 
 AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
@@ -177,24 +178,12 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
   checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
                   prop.sharedMemPerBlock);
 
-  int maxNumXCC;
-  if (auto err = hipDeviceGetAttribute(
-          &maxNumXCC, hipDeviceAttributeNumberOfXccs, agent_info.deviceId);
-      err != hipSuccess) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "hipDeviceGetAttribute for hipDeviceAttributeNumberOfXccs "
-                  "failed with error: "
-               << hipGetErrorString(err)
-               << ". Proceeding with preset value...\n");
-  } else {
-    checkAndSetInfo("(HIP) maxNumXCC", ret.maxNumXCC, maxNumXCC);
-  }
-
 // We cannot get those values under Windows, since HSA is not supported.
 #ifndef _WIN32
   checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agentInfo.simdsPerCU);
   checkAndSetInfo("(HSA) maxWavesPerEU", ret.maxWavesPerEU,
                   agentInfo.maxWavesPerCU / agentInfo.simdsPerCU);
+  checkAndSetInfo("(HSA) maxNumXCC", ret.maxNumXCC, agentInfo.numXCC);
 #endif
 
   // TODO: Add missing fields:
@@ -253,6 +242,10 @@ static hsa_status_t acquireAgentInfo(hsa_agent_t agent, void *data) {
       err = hsa_agent_get_info(
           agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MAX_WAVES_PER_CU,
           &agentI->maxWavesPerCU);
+      RET_IF_HSA_ERR(err);
+
+      err = hsa_agent_get_info(
+          agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_NUM_XCC, &agentI->numXCC);
       RET_IF_HSA_ERR(err);
     }
   } else {
