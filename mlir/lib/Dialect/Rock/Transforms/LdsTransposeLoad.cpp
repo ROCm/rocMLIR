@@ -163,30 +163,27 @@ void attachAttributes(Operation *readIntoOp, const Decision &dec,
                       PatternRewriter &rewriter, bool isA) {
   if (!dec.usable)
     return;
-  readIntoOp->setAttr("rock.hw_lds_transpose_enabled", rewriter.getUnitAttr());
-  readIntoOp->setAttr("rock.hw_lds_transpose_layout",
+  readIntoOp->setAttr("rock.lds_transpose_enabled", rewriter.getUnitAttr());
+  readIntoOp->setAttr("rock.mfma_layout",
                       rewriter.getStringAttr(layoutName(dec.layout)));
 
   if (isA) {
-    readIntoOp->setAttr("rock.hw_lds_transpose_operand",
-                        rewriter.getStringAttr("A"));
+    readIntoOp->setAttr("rock.operand", rewriter.getStringAttr("A"));
   } else {
-    readIntoOp->setAttr("rock.hw_lds_transpose_operand",
-                        rewriter.getStringAttr("B"));
+    readIntoOp->setAttr("rock.operand", rewriter.getStringAttr("B"));
   }
 
-  readIntoOp->setAttr("rock.hw_lds_transpose_mperblock",
+  readIntoOp->setAttr("rock.mperblock",
                       rewriter.getI64IntegerAttr(dec.mPerBlock));
-  readIntoOp->setAttr("rock.hw_lds_transpose_mperwave",
+  readIntoOp->setAttr("rock.mperwave",
                       rewriter.getI64IntegerAttr(dec.mPerWave));
-  readIntoOp->setAttr("rock.hw_lds_transpose_nperblock",
+  readIntoOp->setAttr("rock.nperblock",
                       rewriter.getI64IntegerAttr(dec.nPerBlock));
-  readIntoOp->setAttr("rock.hw_lds_transpose_nperwave",
+  readIntoOp->setAttr("rock.nperwave",
                       rewriter.getI64IntegerAttr(dec.nPerWave));
-  readIntoOp->setAttr("rock.hw_lds_transpose_kperblock",
+  readIntoOp->setAttr("rock.kperblock",
                       rewriter.getI64IntegerAttr(dec.kPerBlock));
-
-  readIntoOp->setAttr("rock.hw_lds_transpose_double_buffering",
+  readIntoOp->setAttr("rock.double_buffering",
                       rewriter.getBoolAttr(dec.doubleBuffering));
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] attachAttributes: enabled layout="
@@ -207,8 +204,7 @@ static LayoutKind layoutFromString(StringRef s) {
 // Used to drive emission of LDS transpose load instructions.
 LoweringInfo deriveLoweringInfo(ThreadwiseReadIntoOp op, PatternRewriter &b) {
   LoweringInfo info;
-  auto layoutAttr =
-      op->getAttrOfType<StringAttr>("rock.hw_lds_transpose_layout");
+  auto layoutAttr = op->getAttrOfType<StringAttr>("rock.mfma_layout");
   if (!layoutAttr)
     return info;
 
@@ -223,30 +219,24 @@ LoweringInfo deriveLoweringInfo(ThreadwiseReadIntoOp op, PatternRewriter &b) {
   info.elemType = elemType;
 
   // Read mPerBlock, nPerBlock, kPerBlock, mPerWave, nPerWave
-  if (auto mPerBlockAttr =
-          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_mperblock"))
+  if (auto mPerBlockAttr = op->getAttrOfType<IntegerAttr>("rock.mperblock"))
     info.mPerBlock = mPerBlockAttr.getInt();
-  if (auto nPerBlockAttr =
-          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_nperblock"))
+  if (auto nPerBlockAttr = op->getAttrOfType<IntegerAttr>("rock.nperblock"))
     info.nPerBlock = nPerBlockAttr.getInt();
-  if (auto kPerBlockAttr =
-          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_kperblock"))
+  if (auto kPerBlockAttr = op->getAttrOfType<IntegerAttr>("rock.kperblock"))
     info.kPerBlock = kPerBlockAttr.getInt();
-  if (auto mPerWaveAttr =
-          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_mperwave"))
+  if (auto mPerWaveAttr = op->getAttrOfType<IntegerAttr>("rock.mperwave"))
     info.mPerWave = mPerWaveAttr.getInt();
-  if (auto nPerWaveAttr =
-          op->getAttrOfType<IntegerAttr>("rock.hw_lds_transpose_nperwave"))
+  if (auto nPerWaveAttr = op->getAttrOfType<IntegerAttr>("rock.nperwave"))
     info.nPerWave = nPerWaveAttr.getInt();
 
   // Read doubleBuffering flag
   if (auto doubleBufferingAttr =
-          op->getAttrOfType<BoolAttr>("rock.hw_lds_transpose_double_buffering"))
+          op->getAttrOfType<BoolAttr>("rock.double_buffering"))
     info.doubleBuffering = doubleBufferingAttr.getValue();
 
   // Operand-specific identification (A or B)
-  if (auto operandAttr =
-          op->getAttrOfType<StringAttr>("rock.hw_lds_transpose_operand")) {
+  if (auto operandAttr = op->getAttrOfType<StringAttr>("rock.operand")) {
     StringRef val = operandAttr.getValue();
     if (val == "A") {
       info.operand = OperandKind::A;
@@ -274,8 +264,8 @@ static std::pair<int64_t, int64_t> getLayoutDims(LayoutKind kind) {
 // Encapsulates the iteration bounds for M/N tile generation loops.
 //===----------------------------------------------------------------------===//
 struct MNTileBounds {
-  int64_t startIdx;     // Start index (always 0)
-  int64_t endIdx;       // End index (exclusive)
+  int64_t startIdx;     // Start index
+  int64_t endIdx;       // End index
   bool useDynamicIndex; // Whether to use runtime tile index from outer loop
 };
 

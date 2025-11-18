@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt --rock-sugar-to-loops %s | FileCheck %s 
 
 // CHECK-LABEL: func @test_load_transpose_fp16
-module {
+module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   func.func @test_load_transpose_fp16(%src: memref<128x256xf16, 3>, %i: index, %j: index) -> vector<4xf16> {
     // CHECK: amdgpu.transpose_load %arg0[%arg1, %arg2] : memref<128x256xf16, 3> -> vector<4xf16> 
     %v = rock.lds_transpose_load %src[%i, %j] : memref<128x256xf16, 3> -> vector<4xf16>

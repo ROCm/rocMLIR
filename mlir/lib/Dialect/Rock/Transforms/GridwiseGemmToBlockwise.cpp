@@ -3098,10 +3098,6 @@ struct GridwiseGemmAccelRewritePattern
               doubleBuffering ? params.nRepeats : 1, directToLDS);
     }
 
-    // Clear any previous LDS transpose decision to avoid state leakage between
-    // different GEMM operations processed by this pattern.
-    hwtranspose::clearDecisionLdsTranspose();
-
     hwtranspose::Decision decision;
     auto *mfma = dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get());
     // Only compute a transpose decision if both layouts are DxK disabled.

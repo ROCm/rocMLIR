@@ -40,3 +40,18 @@ config = "-g 256 -m 32 -k 32 -n 32 --perf_config v3:32,32,32,32,32,1,1,3,2,1,1"
 
 [[suite.test]]
 config = "-g 256 -m 16 -k 64 -n 16 --perf_config v3:16,16,64,16,16,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --perf_config v3:64,64,8,16,16,8,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 64 -n 128 --perf_config v3:128,128,8,32,32,8,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 144 -k 1280 -n 3840 --perf_config v3:32,32,8,32,32,16,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 4096 -k 256 -n 384 --perf_config v3:64,64,8,32,32,8,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 256 -m 900 -k 1280 -n 3840 --perf_config v3:128,64,8,32,32,8,1,3,2,1,1"

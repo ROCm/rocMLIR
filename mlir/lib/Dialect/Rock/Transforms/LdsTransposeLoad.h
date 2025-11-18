@@ -75,10 +75,6 @@ inline std::optional<Decision> getDecisionLdsTranspose() {
   return getDecisionLdsTransposeContext().currentDecision;
 }
 
-inline void clearDecisionLdsTranspose() {
-  getDecisionLdsTransposeContext().currentDecision = std::nullopt;
-}
-
 // The main decision-making function. It analyzes the GEMM parameters and
 // returns a Decision struct indicating if the optimization is applicable and
 // with which paneling configuration.
