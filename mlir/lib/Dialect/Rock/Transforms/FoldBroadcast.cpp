@@ -189,23 +189,45 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
       return failure();
 
     Value newA, newB, newC;
+    Value newScaleA = nullptr, newScaleB = nullptr;
+
+    // Check if we have scales
+    Value scaleA = op.getScaleA();
+    Value scaleB = op.getScaleB();
+
     if (isBBatchBroadcast) {
       newA = mergeBatch(rw, loc, op.getA(), op.getATransposed());
       newB = unbroadcastBatch(rw, loc, op.getB());
       newC = mergeBatch(rw, loc, op.getC(), op.getCTransposed());
+
+      // Transform scales the same way as their corresponding matrices
+      if (scaleA)
+        newScaleA = mergeBatch(rw, loc, cast<TypedValue<ShapedType>>(scaleA),
+                               op.getAScaleTransposed());
+      if (scaleB)
+        newScaleB =
+            unbroadcastBatch(rw, loc, cast<TypedValue<ShapedType>>(scaleB));
     } else { // isABatchBroadcast
       // When the broadcasted batch is on A, matrix B and C need
       // to be considered as if they were transposed
       newA = unbroadcastBatch(rw, loc, op.getA());
       newB = mergeBatch(rw, loc, op.getB(), !op.getBTransposed());
       newC = mergeBatch(rw, loc, op.getC(), !op.getCTransposed());
+
+      // Transform scales the same way as their corresponding matrices
+      if (scaleA)
+        newScaleA =
+            unbroadcastBatch(rw, loc, cast<TypedValue<ShapedType>>(scaleA));
+      if (scaleB)
+        newScaleB = mergeBatch(rw, loc, cast<TypedValue<ShapedType>>(scaleB),
+                               !op.getBScaleTransposed());
     }
 
     // Create the new GemmOp
     auto gemm = rock::GemmOp::create(
-        rw, op.getLoc(), newC.getType(), newA, newB, newC, /*scaleA=*/nullptr,
-        /*scaleB=*/nullptr, op.getATransposed(), op.getBTransposed(),
-        op.getCTransposed(), op.getAScaleTransposed(), op.getBScaleTransposed(),
+        rw, op.getLoc(), newC.getType(), newA, newB, newC, newScaleA, newScaleB,
+        op.getATransposed(), op.getBTransposed(), op.getCTransposed(),
+        op.getAScaleTransposed(), op.getBScaleTransposed(),
         op.getFeaturesAttr(), op.getStoreMethod(), op.getDerivedBlockSizeAttr(),
         op.getGridSizeAttr(), op.getParamsAttr());
 

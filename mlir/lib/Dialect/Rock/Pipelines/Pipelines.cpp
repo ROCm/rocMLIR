@@ -155,24 +155,19 @@ void rock::buildKernelPipeline(OpPassManager &pm,
    * --rock-blockwise-load-tile-to-threadwise
    */
   auto &funcPm = pm.nest<func::FuncOp>();
-  funcPm.addPass(rock::createRockAffixTuningParametersPass(
-      rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));
-  funcPm.addPass(rock::createRockConvToGemmPass());
-  funcPm.addPass(rock::createRockGemmLinalgSplitkNormalizationPass());
-  funcPm.addPass(rock::createRockGemmToGridwisePass());
-  funcPm.addPass(rock::createRockRegularizePass());
-  funcPm.addPass(rock::createRockShuffleGemmForReductions());
-  funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
-  funcPm.addPass(rock::createRockBlockwiseLoadTileToThreadwisePass());
 
-  // We want to delay blockwise lowering in the fusion cases
-  // until after linalg align pass because with reduction fusion
-  // it may introduce blockwise_reductions.
-  if (!options.enableFusion) {
-    funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
-  }
+  if (options.applicabilityMode == rock::ApplicabilityMode::Applicability ||
+      options.applicabilityMode == rock::ApplicabilityMode::Full) {
+    funcPm.addPass(rock::createRockAffixTuningParametersPass(
+        rock::RockAffixTuningParametersPassOptions{options.tuningFallback}));
+    funcPm.addPass(rock::createRockConvToGemmPass());
+    funcPm.addPass(rock::createRockGemmLinalgSplitkNormalizationPass());
+    funcPm.addPass(rock::createRockGemmToGridwisePass());
+    funcPm.addPass(rock::createRockRegularizePass());
+    funcPm.addPass(rock::createRockShuffleGemmForReductions());
+    funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
+    funcPm.addPass(rock::createRockBlockwiseLoadTileToThreadwisePass());
 
-  if (options.enableFusion) {
     // align linalg tiling
     /* rocmlir-opt --rock-linalg-align --canonicalize
      * --convert-linalg-to-affine-loops
@@ -183,18 +178,21 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     funcPm.addPass(rock::createRockVectorizeFusionsPass());
-  }
-  // We run reuse LDS before the output swizzle pass because it uses a heuristic
-  // to determine whether to swizzle or not, and that heuristic needs the actual
-  // LDS usage. After running output swizzle, we'll create a new LDS buffer and
-  // we need to run reuse LDS again to be able to reuse LDS memory.
-  funcPm.addPass(rock::createRockAnnotateLivenessPass());
-  funcPm.addPass(rock::createRockReuseLDSPass());
-  funcPm.addPass(rock::createRockOutputSwizzlePass());
-  funcPm.addPass(rock::createRockAnnotateLivenessPass());
-  funcPm.addPass(rock::createRockReuseLDSPass());
 
-  if (!options.enableApplicability) {
+    // We run reuse LDS before the output swizzle pass because it uses a
+    // heuristic to determine whether to swizzle or not, and that heuristic
+    // needs the actual LDS usage. After running output swizzle, we'll create a
+    // new LDS buffer and we need to run reuse LDS again to be able to reuse LDS
+    // memory.
+    funcPm.addPass(rock::createRockAnnotateLivenessPass());
+    funcPm.addPass(rock::createRockReuseLDSPass());
+    funcPm.addPass(rock::createRockOutputSwizzlePass());
+    funcPm.addPass(rock::createRockAnnotateLivenessPass());
+    funcPm.addPass(rock::createRockReuseLDSPass());
+  }
+
+  if (options.applicabilityMode == rock::ApplicabilityMode::NonApplicability ||
+      options.applicabilityMode == rock::ApplicabilityMode::Full) {
     // rock lowering for reductions
     /* rocmlir-opt --rock-lower-reduce
      */
@@ -207,7 +205,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      *   --math-extend-to-supported-types="source-types=f64,f32,f16
      * target-type=f32"
      *   --rock-buffer-load-merge --rock-transform-to-memref
-     *   --rock-emulate-narrow-type --rock-loops-to-cf
+     *   --rock-emulate-narrow-type --rock-pack-4bit-gpu-ops-to-8bit
+     * --rock-loops-to-cf
      *    --convert-rock-to-gpu
      */
     funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
@@ -222,6 +221,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockBufferLoadMergePass());
     funcPm.addPass(rock::createRockTransformToMemrefPass());
     funcPm.addPass(rock::createRockEmulateNarrowTypePass());
+    funcPm.addPass(rock::createRockPack4BitGpuOpsTo8BitPass());
     funcPm.addPass(rock::createRockLoopsToCfPass());
     pm.addPass(createConvertRockToGPUPass());
   }
@@ -245,9 +245,14 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   gpuPm.addPass(amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
   arith::ArithEmulateUnsupportedFloatsOptions floatEmuOpts;
   floatEmuOpts.sourceTypeStrs.assign(
-      {"f8E4M3FNUZ", "f8E5M2FNUZ", "f8E4M3FN", "f8E5M2"});
+      {"f8E4M3FNUZ", "f8E5M2FNUZ", "f8E4M3FN", "f8E5M2", "f8E8M0FNU"});
   floatEmuOpts.targetTypeStr = "f32";
   gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
+  arith::ArithExpandOpsPassOptions arithExpandOpsOptions;
+  // emulate truncf(f32)->f8E8M0FNU types. This is used when scales are passed
+  // in as f32 for the scaledGemms
+  arithExpandOpsOptions.includeF8E8M0 = true;
+  gpuPm.addPass(arith::createArithExpandOpsPass(arithExpandOpsOptions));
   ArithToAMDGPUConversionPassOptions arithOptions;
   arithOptions.chipset = options.chip;
   // disable packed truncation to fp16 with rtz (round towards zero) as it

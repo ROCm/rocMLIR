@@ -137,3 +137,43 @@ func.func @mlir_dot_broadcastA_addDim(%arg0: tensor<6xf16>, %arg1: tensor<3x3x4x
   %3 = rock.gemm %2 = %1 * %arg1 features =  none storeMethod =  set : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
   return %3 : tensor<3x2x4xf16>
 }
+
+// Scaled GEMM test: broadcast on B, so fold A and its scale, unbroadcast B and its scale
+func.func @mlir_dot_scaled_broadcastB(%arg0: tensor<4x8x16xf4E2M1FN>, %arg1: tensor<1x16x32xf4E2M1FN>, 
+                                       %scaleA: tensor<4x8x16xf8E8M0FNU>, %scaleB: tensor<1x16x32xf8E8M0FNU>) 
+                                       -> tensor<4x8x32xf16> attributes {arch = "gfx1100", kernel} {
+  // CHECK: %[[alloc:.*]] = bufferization.alloc_tensor()
+  // CHECK: %[[foldA:.*]] = rock.transform %arg0 by {{.*}} : tensor<4x8x16xf4E2M1FN> to tensor<32x16xf4E2M1FN>
+  // CHECK: %[[unbroadcastB:.*]] = rock.transform {{.*}} by {{.*}} : tensor<4x16x32xf4E2M1FN> to tensor<16x32xf4E2M1FN>
+  // CHECK: %[[foldC:.*]] = rock.transform %[[alloc]] by {{.*}} : tensor<4x8x32xf16> to tensor<32x32xf16>
+  // CHECK: %[[foldScaleA:.*]] = rock.transform %arg2 by {{.*}} : tensor<4x8x16xf8E8M0FNU> to tensor<32x16xf8E8M0FNU>
+  // CHECK: %[[unbroadcastScaleB:.*]] = rock.transform {{.*}} by {{.*}} : tensor<4x16x32xf8E8M0FNU> to tensor<16x32xf8E8M0FNU>
+  // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] scaled by %[[foldScaleA]] * %[[unbroadcastB]] scaled by %[[unbroadcastScaleB]] {{.*}} : tensor<32x32xf16> = tensor<32x16xf4E2M1FN> scaled by tensor<32x16xf8E8M0FNU> * tensor<16x32xf4E2M1FN> scaled by tensor<16x32xf8E8M0FNU>
+  %0 = rock.transform %arg1 by #transform_map3 : tensor<1x16x32xf4E2M1FN> to tensor<4x16x32xf4E2M1FN>
+  %1 = rock.transform %scaleB by #transform_map3 : tensor<1x16x32xf8E8M0FNU> to tensor<4x16x32xf8E8M0FNU>
+  %2 = bufferization.alloc_tensor() : tensor<4x8x32xf16>
+  %3 = rock.gemm %2 = %arg0 scaled by %scaleA * %0 scaled by %1 features =  none storeMethod =  set : 
+       tensor<4x8x32xf16> = tensor<4x8x16xf4E2M1FN> scaled by tensor<4x8x16xf8E8M0FNU> * tensor<4x16x32xf4E2M1FN> scaled by tensor<4x16x32xf8E8M0FNU> -> tensor<4x8x32xf16>
+  return %3 : tensor<4x8x32xf16>
+}
+
+// Scaled GEMM test: broadcast on A, so unbroadcast A and its scale, fold B and its scale
+func.func @mlir_dot_scaled_broadcastA(%arg0: tensor<1x2x3xf4E2M1FN>, %arg1: tensor<3x3x4xf4E2M1FN>,
+                                       %scaleA: tensor<1x2x3xf8E8M0FNU>, %scaleB: tensor<3x3x4xf8E8M0FNU>) 
+                                       -> tensor<3x2x4xf16> attributes {arch = "gfx1100", kernel} {
+  // CHECK: %[[broadcastA:.*]] = rock.transform %arg0 by {{.*}} : tensor<1x2x3xf4E2M1FN> to tensor<3x2x3xf4E2M1FN>
+  // CHECK: %[[broadcastScaleA:.*]] = rock.transform %arg2 by {{.*}} : tensor<1x2x3xf8E8M0FNU> to tensor<3x2x3xf8E8M0FNU>
+  // CHECK: %[[alloc:.*]] = bufferization.alloc_tensor()
+  // CHECK: %[[unbroadcastA:.*]] = rock.transform %[[broadcastA]] by {{.*}} : tensor<3x2x3xf4E2M1FN> to tensor<2x3xf4E2M1FN>
+  // CHECK: %[[foldB:.*]] = rock.transform %arg1 by {{.*}} : tensor<3x3x4xf4E2M1FN> to tensor<3x12xf4E2M1FN>
+  // CHECK: %[[foldC:.*]] = rock.transform %[[alloc]] by {{.*}} : tensor<3x2x4xf16> to tensor<2x12xf16>
+  // CHECK: %[[unbroadcastScaleA:.*]] = rock.transform %[[broadcastScaleA]] by {{.*}} : tensor<3x2x3xf8E8M0FNU> to tensor<2x3xf8E8M0FNU>
+  // CHECK: %[[foldScaleB:.*]] = rock.transform %arg3 by {{.*}} : tensor<3x3x4xf8E8M0FNU> to tensor<3x12xf8E8M0FNU>
+  // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[unbroadcastA]] scaled by %[[unbroadcastScaleA]] * %[[foldB]] scaled by %[[foldScaleB]] {{.*}} : tensor<2x12xf16> = tensor<2x3xf4E2M1FN> scaled by tensor<2x3xf8E8M0FNU> * tensor<3x12xf4E2M1FN> scaled by tensor<3x12xf8E8M0FNU>
+  %0 = rock.transform %arg0 by #transform_map10 : tensor<1x2x3xf4E2M1FN> to tensor<3x2x3xf4E2M1FN>
+  %1 = rock.transform %scaleA by #transform_map10 : tensor<1x2x3xf8E8M0FNU> to tensor<3x2x3xf8E8M0FNU>
+  %2 = bufferization.alloc_tensor() : tensor<3x2x4xf16>
+  %3 = rock.gemm %2 = %0 scaled by %1 * %arg1 scaled by %scaleB features =  none storeMethod =  set : 
+       tensor<3x2x4xf16> = tensor<3x2x3xf4E2M1FN> scaled by tensor<3x2x3xf8E8M0FNU> * tensor<3x3x4xf4E2M1FN> scaled by tensor<3x3x4xf8E8M0FNU> -> tensor<3x2x4xf16>
+  return %3 : tensor<3x2x4xf16>
+}

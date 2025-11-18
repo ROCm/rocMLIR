@@ -273,13 +273,9 @@ func.func @rock_blockwise_gemm_accel_scaled(%matrixA : memref<256xvector<2xf4E2M
                                                 %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA scaled by %bufferScaleA from %matrixScaleA * %bufferB from %matrixB scaled by %bufferScaleB from %matrixScaleB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950",
-    blockSize= 256 : i32,
-    inMPerThread = 2 : i32,
-    inNPerThread = 2 : i32,
-    loadAfromLDS,
-    loadBfromLDS,
-    elementTypeA = f4E2M1FN,
-    elementTypeB = f4E2M1FN,
+    blockSize = 256 : i32,
+    matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
+    matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
     params = #rock.xdlops_gemm_derived_params<
       kpackPerBlock = 2,
       kpack = 2,
@@ -305,7 +301,7 @@ func.func @rock_threadwise_gemm_accel_scaled(%matrixA : memref<1x4xvector<4xf4E2
                                                 %matrixB : memref<1x4xvector<4xf4E2M1FN>, 5>,
                                                 %matrixC : memref<1x1xvector<32xf32>, 5>, %scaleA : memref<1x4xvector<4xf8E8M0FNU>, 5>, %scaleB : memref<1x4xvector<4xf8E8M0FNU>, 5>) {
   %c0 = arith.constant 0 : index
-    rock.threadwise_accel_gemm %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma{
+    rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma{
     arch = "amdgcn-amd-amdhsa:gfx950",
     params = #rock.xdlops_gemm_derived_params<
       mPerBlock = 256,
@@ -323,7 +319,7 @@ func.func @rock_threadwise_gemm_accel_scaled(%matrixA : memref<1x4xvector<4xf4E2
   return
 }
 // CHECK-LABEL: func.func @rock_threadwise_gemm_accel_scaled
-// CHECK: rock.threadwise_accel_gemm
+// CHECK: rock.threadwise_gemm_accel
 
 // ----
 

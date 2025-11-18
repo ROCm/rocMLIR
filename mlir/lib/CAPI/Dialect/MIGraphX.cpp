@@ -148,7 +148,7 @@ mlirMIGraphXAddApplicabilityPipeline(MlirPassManager pm) {
   auto *passMan = unwrap(pm);
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::rock::KernelOptions opts;
-  opts.enableApplicability = true;
+  opts.applicabilityMode = mlir::rock::ApplicabilityMode::Applicability;
   // This is the default, but we set it paranoidly.
   opts.tuningFallback = false;
   mlir::rock::buildKernelPipeline(*passMan, opts);
@@ -161,6 +161,7 @@ MLIR_CAPI_EXPORTED bool mlirMIGraphXAddBackendPipeline(MlirPassManager pm,
     return false;
   passMan->setNesting(mlir::PassManager::Nesting::Implicit);
   mlir::rock::KernelOptions kOpts;
+  kOpts.applicabilityMode = mlir::rock::ApplicabilityMode::Full;
   kOpts.tuningFallback = false;
   mlir::rock::buildKernelPipeline(*passMan, kOpts);
   llvm::StringRef archStr(arch);

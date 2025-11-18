@@ -297,6 +297,12 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
       + Twine(getOutputSwizzle()) + ","
       + Twine(getForceUnroll())).toVector(perfStr);
     }
+    AttnPerfConfigAttr withScheduleVersion(int64_t newScheduleVersion) const {
+    return AttnPerfConfigAttr::get(
+      getContext(), getMPerBlockG0(), getMPerBlockG1(), getNPerBlockG0(),
+      getKpackPerBlock(), getMPerWave(), getMnPerXdl(), getKpack(),
+      getSplitKFactor(), newScheduleVersion, getOutputSwizzle(), getForceUnroll());
+  }
   }];
 
   let builders = [
@@ -554,6 +560,31 @@ def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
     "TypedAttr":$initValue
   );
   let assemblyFormat = "`<` params `>`";
+}
+
+def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
+  let mnemonic = "blockwise_matrix_params";
+  let description = [{
+    Encapsulates rock.blockwise_load_tile and rock.blockwise_gemm_accel parameters.
+    - elementType: Element type of the matrix operation.
+    - elementTypeLoad: Element type of that was actually loaded from memory (before any input fusion).
+    - rotateDWithK: Trick to reduce LDS bank conflicts (see more info here: https://github.com/ROCm/rocMLIR/pull/1209)
+    - swapThreadIterSubDims: Trick to reduce LDS bank conflicts (see more info here: https://github.com/ROCm/rocMLIR/pull/1209)
+    - LDSLayoutDxK: Wheter the layout in LDS is DxK
+    - directToLDS: Wheter direct to LDS is enabled
+    - splitKAcrossThreadsFirst: Used for attention, when bypassing LDS for the result of the first GEMM, explanation here: https://github.com/ROCm/rocMLIR-internal/issues/1201#issuecomment-1898925539
+    - g: gemm parameter G
+    - d: gemm parameter D (could be M or N)
+    - inDPerThread: How many elements of D (M or N) each thread is going to load from memory.
+  }];
+  let parameters = (ins "Type":$elementType, "Type":$elementTypeLoad,
+      "bool":$rotateDWithK, "bool":$swapThreadIterSubDims, "bool":$LDSLayoutDxK,
+      "bool":$directToLDS, "bool":$splitKAcrossThreadsFirst, "int64_t":$g,
+      "int64_t":$d, "int64_t":$inDPerThread);
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
 }
 
 #endif
