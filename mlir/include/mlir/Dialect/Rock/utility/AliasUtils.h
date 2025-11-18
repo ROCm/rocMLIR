@@ -15,8 +15,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 //
-// Utility functions to work with alias analysis attributes in the lowering from
-// rock dialect to amdgpu dialect.
+// Utility functions to work with alias analysis attributes
 //
 //===----------------------------------------------------------------------===//
 
@@ -27,18 +26,9 @@
 
 namespace mlir {
 namespace rock {
-
-/// Get the alias scope domain for direct-to-LDS load operations.
-/// This domain is used to hold alias scopes that specify aliasing information
-/// for operations that load directly from global memory to LDS.
-LLVM::AliasScopeDomainAttr getDirectToLDSScopeDomain(MLIRContext *ctx);
-
-/// Get the alias scope for direct-to-LDS load operations.
-/// This scope contains all operations that perform direct global-to-LDS loads.
-LLVM::AliasScopeAttr getDirectToLDSLoadScope(MLIRContext *ctx);
-
 /// Add the direct-to-LDS load alias scope to the given operation.
 /// This marks the operation as being part of the direct-to-LDS load scope.
+/// It also marks the operation as not aliasing with local loads.
 void addDirectToLDSLoadAliasScope(LLVM::AliasAnalysisOpInterface op);
 
 /// Add the local load no alias scope to the given operation.

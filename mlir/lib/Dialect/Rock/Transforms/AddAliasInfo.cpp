@@ -15,8 +15,13 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 //
-// This pass adds alias scope information to operations that perform direct
-// loads to LDS memory.
+// This pass adds alias scope information to operations that perform direct-to-LDS
+// loads or stores and local loads or stores.
+// 
+// This includes:
+// - rocdl.load_to_lds operations (direct loads to LDS)
+// - llvm.load operations from global memory to LDS  (local loads)
+// - llvm.store operations to LDS from global memory (local stores)
 //
 //===----------------------------------------------------------------------===//
 
