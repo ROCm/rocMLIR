@@ -177,6 +177,19 @@ AmdArchInfo fetchNativeArchInfo(const hipDeviceProp_t &prop,
   checkAndSetInfo("(HIP) maxSharedMemPerWG", ret.maxSharedMemPerWG,
                   prop.sharedMemPerBlock);
 
+  int maxNumXCC;
+  if (auto err = hipDeviceGetAttribute(
+          &maxNumXCC, hipDeviceAttributeNumberOfXccs, agent_info.deviceId);
+      err != hipSuccess) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "hipDeviceGetAttribute for hipDeviceAttributeNumberOfXccs "
+                  "failed with error: "
+               << hipGetErrorString(err)
+               << ". Proceeding with preset value...\n");
+  } else {
+    checkAndSetInfo("(HIP) maxNumXCC", ret.maxNumXCC, maxNumXCC);
+  }
+
 // We cannot get those values under Windows, since HSA is not supported.
 #ifndef _WIN32
   checkAndSetInfo("(HSA) numEUPerCU", ret.numEUPerCU, agentInfo.simdsPerCU);
