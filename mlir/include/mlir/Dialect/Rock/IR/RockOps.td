@@ -616,9 +616,9 @@ def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
   let hasVerifier = 1;
 }
 
-def Rock_AsyncWaitOp : Rock_Op<"async_wait">, Arguments<(ins I32Attr:$num_inst)> {
-  let summary =
-      "Wait for asynchronous global memory loads to LDS to complete";
+def Rock_AsyncWaitOp : Rock_Op<"async_wait">,
+                       Arguments<(ins I32Attr:$num_inst)> {
+  let summary = "Wait for asynchronous global memory loads to LDS to complete";
   let description = [{
     The `rock.async_wait` operation waits for asynchronous global memory loads
     to Local Data Share (LDS) instructions to complete before execution continues.
@@ -693,16 +693,13 @@ def Rock_WorkgroupBarrierOp:
   let assemblyFormat = "attr-dict";
 }
 
-def Rock_LDSBarrierOp:
-    Rock_Op<"lds_barrier"> {
+def Rock_LDSBarrierOp : Rock_Op<"lds_barrier"> {
   let summary = "Setup an LDS barrier";
   let description = [{
     The `rock.lds_barrier` op sets up a workgroup-level barrier on LDS activities.
   }];
   let arguments = (ins OptionalAttr<BarrierStageAttr>:$barrier_stage);
-  let builders = [
-    OpBuilder<(ins), [{build($_builder, $_state, {});}]>
-  ];
+  let builders = [OpBuilder<(ins), [{build($_builder, $_state, {});}]>];
   let assemblyFormat = "attr-dict";
 }
 

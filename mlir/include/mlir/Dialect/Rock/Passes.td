@@ -239,20 +239,20 @@ def RockAnnotateLivenessPass
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
 }
 
-def RockAddAsyncWaitPass
-    : Pass<"rock-add-async-wait", "::mlir::func::FuncOp"> {
+def RockAddAsyncWaitPass : Pass<"rock-add-async-wait", "::mlir::func::FuncOp"> {
   let summary = "This pass adds async wait operations for LDS memory";
   let dependentDialects = ["rock::RockDialect"];
 }
 
-def ConvertRockOpsToROCDLOps : Pass<"rock-to-rocdl", "::mlir::LLVM::LLVMFuncOp"> {
+def ConvertRockOpsToROCDLOps
+    : Pass<"rock-to-rocdl", "::mlir::LLVM::LLVMFuncOp"> {
   let summary = "This pass lowers async wait operations to ROCDL";
-  let options = [
-    Option<"chipset", "chipset", "std::string",
-            /*default=*/"\"gfx000\"",
-            "Chipset that these operations will run on">,
+  let options = [Option<"chipset", "chipset", "std::string",
+                        /*default=*/"\"gfx000\"",
+                        "Chipset that these operations will run on">,
   ];
-  let dependentDialects = ["rock::RockDialect", "ROCDL::ROCDLDialect", "LLVM::LLVMDialect"];
+  let dependentDialects = ["rock::RockDialect", "ROCDL::ROCDLDialect",
+                           "LLVM::LLVMDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES

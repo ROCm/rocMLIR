@@ -97,8 +97,8 @@ def BarrierStage_Forward : I32EnumAttrCase<"Forward", 0, "forward">;
 def BarrierStage_Backward : I32EnumAttrCase<"Backward", 1, "backward">;
 
 def BarrierStage : Rock_I32Enum<"BarrierStage",
-    "The stage of a barrier (forward or backward)",
-    [BarrierStage_Forward, BarrierStage_Backward]>;
+                                "The stage of a barrier (forward or backward)",
+                                [BarrierStage_Forward, BarrierStage_Backward]>;
 
 def BarrierStageAttr : EnumAttr<Rock_Dialect, BarrierStage, "BarrierStage">;
 
