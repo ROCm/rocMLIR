@@ -101,7 +101,7 @@ struct FoldMemRefOpsIntoGatherToLDSOp final : OpRewritePattern<GatherToLDSOp> {
 
     rewriter.replaceOpWithNewOp<GatherToLDSOp>(op, memrefSource, sourceIndices,
                                                memrefDest, destIndices,
-                                               op.getTransferType(), nullptr, nullptr, nullptr);
+                                               op.getTransferType());
 
     return success();
   }
