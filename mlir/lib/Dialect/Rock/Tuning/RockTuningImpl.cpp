@@ -23,6 +23,7 @@
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
@@ -75,6 +76,29 @@ computeOptimalSplitKFactors(RockGemmGemmWrapperInterface gemmGemmOp,
   return {1, 3, 4};
 }
 
+// only enable tuning over gemm schedules when doing exhaustive tuning
+static std::vector<uint32_t>
+getSchedules(Operation *op, const TuningParamSetKind &tuningKind) {
+  auto features = rock::lookupArchInfo(rock::getArchValue(op)).defaultFeatures;
+  bool directToLDS = isDirectToLDSSupported(features);
+
+  std::vector<GemmLoadTileType> loadTypes{GemmLoadTileType::Default};
+  if (tuningKind == TuningParamSetKind::Exhaustive) {
+    loadTypes.push_back(GemmLoadTileType::DoubleBuffer);
+    if (directToLDS) {
+      loadTypes.push_back(GemmLoadTileType::DirectToLDSDefault);
+      loadTypes.push_back(GemmLoadTileType::DirectToLDSDoubleBuffer);
+    }
+  }
+  std::vector<uint32_t> schedules;
+  schedules.reserve(loadTypes.size());
+
+  for (auto loadType : loadTypes)
+    schedules.push_back(static_cast<uint32_t>(loadType));
+
+  return schedules;
+}
+
 // Keep in sync with attentionSweeps.py
 // The full space is a brute-force search for attention kernels
 static void createAttnTuningRangeBF(TuningParamSet *newSpace,
@@ -82,21 +106,23 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
                                     bool isSplitKFusible,
                                     TuningParamSetKind kind) {
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
-      /*gemm0MPerBlock=*/{32, 64, 128, 256},
-      /*gemm1MPerBlock=*/{32, 64, 128, 256},
-      /*gemm0NPerBlock=*/{32, 64, 128, 256},
-      /*kPackPerBlock=*/{8, 16, 32, 64},
-      /*mPerWave=*/{32, 64, 128, 256},
+      /*gemm0MPerBlock=*/{16, 32, 64, 128, 256},
+      /*gemm1MPerBlock=*/{16, 32, 64, 128, 256},
+      /*gemm0NPerBlock=*/{16, 32, 64, 128, 256},
+      /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
+      /*mPerWave=*/{16, 32, 64, 128, 256},
       /*mnPerXdl=*/{4, 16, 32},
-      /*kPack=*/{4, 8, 16}};
+      /*kPack=*/{4, 8, 16},
+      getSchedules(gemmGemmOp, kind)};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
-      /*gemm0MPerBlock=*/{32, 64, 128},
-      /*gemm1MPerBlock=*/{32, 64, 128},
-      /*gemm0NPerBlock=*/{32, 64, 128, 256},
-      /*kPackPerBlock=*/{8, 16, 32, 64},
-      /*mPerWave=*/{32, 64},
-      /*nPerWave=*/{32, 64},
-      /*kPack=*/{4, 8, 16}};
+      /*gemm0MPerBlock=*/{16, 32, 64, 128},
+      /*gemm1MPerBlock=*/{16, 32, 64, 128},
+      /*gemm0NPerBlock=*/{16, 32, 64, 128, 256},
+      /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
+      /*mPerWave=*/{16, 32, 64},
+      /*nPerWave=*/{16, 32, 64},
+      /*kPack=*/{4, 8, 16},
+      getSchedules(gemmGemmOp, kind)};
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
   int64_t numEUPerCU =
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).numEUPerCU;
@@ -111,7 +137,7 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
     // We only support GPUs with matrix accelerator extentions
     return;
   }
-  int64_t gemmSchedule{1}, outputSwizzle{2};
+  int64_t outputSwizzle{2};
   OpBuilder b(gemmGemmOp.getContext());
   for (uint32_t gemm0MPerBlock : validRangeAttnParams[0]) {
     for (uint32_t gemm1MPerBlock : validRangeAttnParams[1]) {
@@ -124,25 +150,27 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
             for (uint32_t gemmMnPerXdlOrNPerWave : validRangeAttnParams[5]) {
               for (uint32_t gemmKPack : validRangeAttnParams[6]) {
                 for (int64_t splitKFactor : optimalSplitKFactors) {
-                  if (isWMMA) {
-                    int64_t nPerWave = gemmMnPerXdlOrNPerWave;
-                    int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
-                                        (gemm0NPerBlock / nPerWave);
-                    if (rdnaWaves < numEUPerCU) {
-                      continue;
+                  for (uint32_t gemmSchedule : validRangeAttnParams[7]) {
+                    if (isWMMA) {
+                      int64_t nPerWave = gemmMnPerXdlOrNPerWave;
+                      int64_t rdnaWaves = (gemm0MPerBlock / gemmMPerWave) *
+                                          (gemm0NPerBlock / nPerWave);
+                      if (rdnaWaves < numEUPerCU) {
+                        continue;
+                      }
                     }
-                  }
-                  if (gemm0MPerBlock >= gemmMPerWave &&
-                      gemm1MPerBlock >= gemmMPerWave &&
-                      gemm1MPerBlock >= gemm0MPerBlock &&
-                      gemm0NPerBlock >= gemmMnPerXdlOrNPerWave) {
-                    auto params = AttnPerfConfigAttr::get(
-                        gemmGemmOp.getContext(), gemm0MPerBlock, gemm1MPerBlock,
-                        gemm0NPerBlock, gemmKPerBlock, gemmMPerWave,
-                        gemmMnPerXdlOrNPerWave, gemmKPack, splitKFactor,
-                        gemmSchedule, outputSwizzle, true);
-                    newSpace->tuningRange.push_back(
-                        cast<RockTuningParamAttrInterface>(params));
+                    if (gemm0MPerBlock >= gemmMPerWave &&
+                        gemm1MPerBlock >= gemmMPerWave &&
+                        gemm1MPerBlock >= gemm0MPerBlock &&
+                        gemm0NPerBlock >= gemmMnPerXdlOrNPerWave) {
+                      auto params = AttnPerfConfigAttr::get(
+                          gemmGemmOp.getContext(), gemm0MPerBlock,
+                          gemm1MPerBlock, gemm0NPerBlock, gemmKPerBlock,
+                          gemmMPerWave, gemmMnPerXdlOrNPerWave, gemmKPack,
+                          splitKFactor, gemmSchedule, outputSwizzle, true);
+                      newSpace->tuningRange.push_back(
+                          cast<RockTuningParamAttrInterface>(params));
+                    }
                   }
                 }
               }
@@ -261,31 +289,6 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   const std::vector<std::vector<uint32_t>> validRangeGeneralGemmParams = {
       {64, 128, 256}, {32, 64, 128}, {32, 64, 128}, {4, 8, 16}, {2, 4}, {2, 4}};
 
-  // only enable tuning over gemm schedules when doing exhaustive tuning
-  auto getGemmSchedules = [&gemmOp](const TuningParamSetKind &tuningKind) {
-    auto features =
-        rock::lookupArchInfo(rock::getArchValue(gemmOp)).defaultFeatures;
-    bool directToLDS =
-        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b) ||
-        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
-
-    std::vector<GemmLoadTileType> loadTypes{GemmLoadTileType::Default};
-    if (tuningKind == TuningParamSetKind::Exhaustive) {
-      loadTypes.push_back(GemmLoadTileType::DoubleBuffer);
-      if (directToLDS) {
-        loadTypes.push_back(GemmLoadTileType::DirectToLDSDefault);
-        loadTypes.push_back(GemmLoadTileType::DirectToLDSDoubleBuffer);
-      }
-    }
-    std::vector<uint32_t> schedules;
-    schedules.reserve(loadTypes.size());
-
-    for (auto loadType : loadTypes)
-      schedules.push_back(static_cast<uint32_t>(loadType));
-
-    return schedules;
-  };
-
   // M/block N/block K/block M/wave N/wave kPack scheduleVersion
   // aCopyMore/forceUnroll
   const std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
@@ -294,8 +297,8 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {1, 2, 4, 8},
       {4, 8, 16, 32, 64, 128},
       {4, 16, 32},
-      {1, 4, 8},
-      getGemmSchedules(kind),
+      {1, 4, 8, 16, 32},
+      getSchedules(gemmOp, kind),
       {0, 1}};
 
   // M/block N/block K/block M/wave N/wave kPack scheduleVersion
@@ -307,7 +310,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                                 {4, 8, 16, 32, 64, 128},
                                                 {4, 8, 16, 32, 64, 128},
                                                 {1, 4, 8, 16},
-                                                getGemmSchedules(kind),
+                                                getSchedules(gemmOp, kind),
                                                 {0, 1}};
 
   // M/block N/block K/block M/wave N/wave kPack scheduleVersion
@@ -319,7 +322,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16, 32, 64, 128},
       {4, 8, 16},
-      getGemmSchedules(kind),
+      getSchedules(gemmOp, kind),
       {0, 1}};
 
   OpBuilder b(gemmOp.getContext());
@@ -1022,6 +1025,8 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
 
   } else if (opType == KernelType::Gemm) { // gemm case
     rock::GemmOp rGemmOp = dyn_cast<rock::GemmOp>(gemmOp);
+    bool isScaledGemm =
+        rGemmOp.getScaleA() != nullptr && rGemmOp.getScaleB() != nullptr;
     // Please keep these in sync with mlir/utils/performance/perfRunner.py
     // Data type
     problemOS << "-t ";
@@ -1034,6 +1039,9 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
       problemOS << "bf16";
     } else if (elemTypeA.isInteger(8) && elemTypeB.isInteger(8)) {
       problemOS << "i8";
+    } else if (isa<Float4E2M1FNType>(elemTypeA) &&
+               isa<Float4E2M1FNType>(elemTypeB)) {
+      problemOS << "f4E2M1FN";
     } else {
       auto aString = f8TypeStr(elemTypeA);
       auto bString = f8TypeStr(elemTypeB);
@@ -1066,6 +1074,44 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
       problemOS << "true ";
     else
       problemOS << "false ";
+
+    if (isScaledGemm) {
+      problemOS << "-scaledGemm" << sep;
+      auto scaleA = rGemmOp.getScaleA();
+      auto scaleB = rGemmOp.getScaleB();
+      problemOS << "-scale_a_dtype ";
+      auto scaleAElemType = scaleA.getType().getElementType();
+      auto scaleBElemType = scaleB.getType().getElementType();
+      if (scaleAElemType.isF32()) {
+        problemOS << "f32";
+      } else if (isa<Float8E8M0FNUType>(scaleAElemType)) {
+        problemOS << "f8E8M0FNU";
+      } else {
+        llvm_unreachable("Unsupported scale A element type");
+      }
+      problemOS << sep;
+      problemOS << "-scale_b_dtype ";
+      if (scaleBElemType.isF32()) {
+        problemOS << "f32";
+      } else if (isa<Float8E8M0FNUType>(scaleBElemType)) {
+        problemOS << "f8E8M0FNU";
+      } else {
+        llvm_unreachable("Unsupported scale B element type");
+      }
+      problemOS << sep;
+      problemOS << "-transScaleA" << sep;
+      if (rGemmOp.getAScaleTransposed()) {
+        problemOS << "true" << sep;
+      } else {
+        problemOS << "false" << sep;
+      }
+      problemOS << "-transScaleB" << sep;
+      if (rGemmOp.getBScaleTransposed()) {
+        problemOS << "true" << sep;
+      } else {
+        problemOS << "false" << sep;
+      }
+    }
 
     // Gemmsize G/M/N/K
     problemOS << "-g " << gemmIF.getGemmSize().g << sep;

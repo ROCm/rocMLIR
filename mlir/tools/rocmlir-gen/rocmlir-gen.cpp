@@ -493,6 +493,14 @@ static llvm::cl::alias inTypeAliasShortI("ti",
                                          llvm::cl::aliasopt(inputDataType));
 static llvm::cl::alias inTypeAliasShortB("tb",
                                          llvm::cl::aliasopt(inputDataType));
+static llvm::cl::opt<std::string>
+    scaleADataType("scale_a_dtype",
+                   llvm::cl::desc("Data type for scale tensor or matrix A"),
+                   llvm::cl::init("f8E8M0FNU"));
+static llvm::cl::opt<std::string>
+    scaleBDataType("scale_b_dtype",
+                   llvm::cl::desc("Data type for scale tensor or matrix B"),
+                   llvm::cl::init("f8E8M0FNU"));
 
 // Note that this is defaulted to blank so we can implement `-t` easily
 // and know if we should use default i8 input -> i32 output behavior.
@@ -1581,6 +1589,7 @@ static Type typeFromString(StringRef name, MLIRContext *ctx) {
           .Case("f8E4M3FN", Float8E4M3FNType::get(ctx))
           .Case("f8E5M2FNUZ", Float8E5M2FNUZType::get(ctx))
           .Case("f8E4M3FNUZ", Float8E4M3FNUZType::get(ctx))
+          .Case("f8E8M0FNU", Float8E8M0FNUType::get(ctx))
           .Default(std::nullopt);
   if (!result) {
     llvm::errs() << "Unknown data type: " << name << "\n";
@@ -2377,8 +2386,8 @@ static void getGemmTypes(ArrayRef<Type> elemTypes,
   MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
              bType = MemRefType::get(bDims, elemTypes[1]),
              cType = MemRefType::get(cDims, cElemType),
-             aScaleType = MemRefType::get(aScale, b.getF8E8M0Type()),
-             bScaleType = MemRefType::get(bScale, b.getF8E8M0Type());
+             aScaleType = MemRefType::get(aScale, elemTypes[3]),
+             bScaleType = MemRefType::get(bScale, elemTypes[4]);
   result.push_back(aType);
   result.push_back(bType);
   result.push_back(cType);
@@ -2485,7 +2494,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (!module->hasAttr("mhal.arch"))
     module->setAttr("mhal.arch", archAttr);
 
-  SmallVector<Type, 3> argTypes;
+  SmallVector<Type, 5> argTypes;
   getGemmTypes(params.types, argTypes,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
@@ -2502,7 +2511,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (numCUAttr)
     funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
 
-  SmallVector<Type, 3> flatTypes =
+  SmallVector<Type, 5> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
   auto func =
       func::FuncOp::create(b, loc, isVerifier ? kernelNameVerifier : kernelName,
@@ -2534,11 +2543,67 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
   Value aScale = nullptr, bScale = nullptr;
   if (scaledGemm) {
-
     aScale = buildBroadcastedScales(b, loc, expandedArgs[3], transposeScaleA,
                                     /*isA=*/true);
     bScale = buildBroadcastedScales(b, loc, expandedArgs[4], transposeScaleB,
                                     /*isA=*/false);
+  }
+  bool hasAccel = rock::isAccel(params.features);
+  // for the non-accel path, emulate Fp4 scaled GEMMs by multiplying the scale
+  // by the matrix. This is used when doing `-pv_with_gpu`
+  if (!hasAccel && scaledGemm) {
+    if (transposeA) {
+      aVal = rock::normalizeMatrix(aVal, b, loc, true, kName, mName);
+      transposeA = false;
+    }
+    if (transposeB) {
+      bVal = rock::normalizeMatrix(bVal, b, loc, true, nName, kName);
+      transposeB = false;
+    }
+    if (transposeScaleB) {
+      bScale = rock::normalizeMatrix(bScale, b, loc, true, nName, kName);
+      transposeScaleB = false;
+    }
+    if (transposeScaleA) {
+      aScale = rock::normalizeMatrix(aScale, b, loc, true, mName, kName);
+      transposeScaleA = false;
+    }
+    uint64_t rankA = cast<ShapedType>(aVal.getType()).getRank();
+    uint64_t rankB = cast<ShapedType>(bVal.getType()).getRank();
+    auto aMap = AffineMap::getMultiDimIdentityMap(rankA, ctx);
+    auto bMap = AffineMap::getMultiDimIdentityMap(rankB, ctx);
+    auto multipledValA =
+        memref::AllocOp::create(b, loc, llvm::cast<MemRefType>(aVal.getType()));
+    auto multipledValB =
+        memref::AllocOp::create(b, loc, llvm::cast<MemRefType>(bVal.getType()));
+    linalg::GenericOp::create(
+        b, loc, ValueRange{aVal, aScale}, ValueRange{multipledValA},
+        ArrayRef<AffineMap>{aMap, aMap, aMap},
+        ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
+                                      utils::IteratorType::parallel,
+                                      utils::IteratorType::parallel},
+        /*doc=*/"", /*libraryCall=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value a = elems[0], scale = elems[1];
+          Value mul = arith::MulFOp::create(builder, loc, a, scale);
+          linalg::YieldOp::create(builder, loc, mul);
+        });
+    linalg::GenericOp::create(
+        b, loc, ValueRange{bVal, bScale}, ValueRange{multipledValB},
+        ArrayRef<AffineMap>{bMap, bMap, bMap},
+        ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
+                                      utils::IteratorType::parallel,
+                                      utils::IteratorType::parallel},
+        /*doc=*/"", /*libraryCall=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value b = elems[0], scale = elems[1];
+          Value mul = arith::MulFOp::create(builder, loc, b, scale);
+          linalg::YieldOp::create(builder, loc, mul);
+        });
+    aVal = multipledValA;
+    bVal = multipledValB;
+    aScale = nullptr;
+    bScale = nullptr;
   }
   auto gemm = rock::GemmOp::create(
       b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, aScale, bScale,
@@ -3115,6 +3180,13 @@ static Value broadcastKVCacheRock(OpBuilder builder, Location loc,
   return rock::TransformOp::create(builder, loc, tensorBroadcast, mergerAttr);
 }
 
+static void setScheduleVersion(MLIRContext *ctx, func::FuncOp func) {
+  if (gemmScheduleVersion.getValue() != GEMMScheduleVersion::V1)
+    func->setAttr(rock::ScheduleVersionAttr::getMnemonic(),
+                  rock::ScheduleVersionAttr::get(
+                      ctx, int(gemmScheduleVersion.getValue())));
+}
+
 static func::FuncOp createGpuAttentionKernel(ModuleOp module,
                                              const GenParams &params) {
   MLIRContext *ctx = module.getContext();
@@ -3260,6 +3332,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   if (!params.perfConfig.empty())
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
+  setScheduleVersion(ctx, func);
+
   func::ReturnOp::create(builder, loc);
   module.push_back(func);
   return func;
@@ -3374,6 +3448,8 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   builder.getUnitAttr());
 
+  setScheduleVersion(ctx, func);
+
   module.push_back(func);
   return func;
 }
@@ -3462,6 +3538,8 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   builder.getUnitAttr());
+
+  setScheduleVersion(ctx, func);
 
   module.push_back(func);
   return func;
@@ -4611,11 +4689,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                               mlir::rock::GemmFeatures::wmma);
 
       if (!((heuristicValidation || hasAccel) &&
-            genParams.types[0].isInteger(8)))
+            genParams.types[0].isInteger(8))) {
         // use f32 data type to verify non-f32 or xdlops f32 kernels
         // except that i8 xdops is verified with i8 non-xdolps and tuned i8 is
         // verified with itself in heuristic mode.
-        newParams.types = SmallVector<Type>(3, b.getF32Type());
+        newParams.types = SmallVector<Type>(5, b.getF32Type());
+      }
 
       KernelIF kernel(
           createGpuGemmKernel(module, newParams, /*isVerifier=*/true));
@@ -5150,7 +5229,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     if (isGemm) {
       for (const auto &arg :
            {filterDataType.getValue(), inputDataType.getValue(),
-            outputDataType.getValue()})
+            outputDataType.getValue(), scaleADataType.getValue(),
+            scaleBDataType.getValue()})
         genParams.types.push_back(typeFromString(arg, context));
       genParams.convConfig = std::nullopt;
       (void)createGpuGemmKernel(module, genParams);

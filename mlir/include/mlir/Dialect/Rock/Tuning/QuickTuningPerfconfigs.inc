@@ -811,6 +811,25 @@ const InitParamsAccel PopulateParamsXDL::initParametersI8GemmGfx950[PopulatePara
 };
 // END_GEMM_XDL_i8_gfx950_DEFS
 
+// BEGIN_GEMM_XDL_f4_gfx950_DEFS
+const InitParamsAccel PopulateParamsXDL::initParametersF4GemmGfx950[PopulateParamsXDL::nInitParametersF4GemmGfx950] = {
+    {64,64,16,32,32,32,1,1,2,true,true},
+    {32,64,16,32,16,32,1,1,2,true,true},
+    {32,16,16,16,16,32,1,1,2,true,true},
+    {64,64,32,32,32,32,1,1,2,true,true},
+    {128,64,16,32,32,32,1,1,2,true,true},
+    {64,64,4,32,32,32,1,1,2,true,true},
+    {128,128,8,128,16,32,1,1,2,true,true},
+    {32,16,16,16,16,32,1,1,2,true,true},
+    {128,128,8,32,16,32,1,1,2,true,true},
+    {64,16,32,16,16,32,1,1,2,true,true},
+    {64,16,8,16,16,32,1,1,2,true,true},
+    {16,16,16,16,16,32,1,1,2,true,true},
+    {32,32,32,16,16,32,1,1,2,true,true},
+    {16,16,32,16,16,32,1,1,2,true,true}
+};
+// END_GEMM_XDL_f4_gfx950_DEFS
+
 // BEGIN_CONV_XDL_i8_gfx908_DEFS
 const InitParamsAccel PopulateParamsXDL::initParametersForwardI8ConvGfx908[PopulateParamsXDL::nInitParametersForwardI8ConvGfx908] = {
     {32,32,8,16,16,16,1,1,2,true,true},
@@ -1023,6 +1042,12 @@ static const InitParamsAccel initParametersI8GemmGfx942[nInitParametersI8GemmGfx
 static constexpr size_t nInitParametersI8GemmGfx950 = 14;
 static const InitParamsAccel initParametersI8GemmGfx950[nInitParametersI8GemmGfx950];
 // END_GEMM_XDL_i8_gfx950_DECS
+
+// BEGIN_GEMM_XDL_F4_gfx950_DECS
+static constexpr size_t nInitParametersF4GemmGfx950 = 14;
+static const InitParamsAccel initParametersF4GemmGfx950[nInitParametersF4GemmGfx950];
+// END_GEMM_XDL_F4_gfx950_DECS
+
 
 // BEGIN_CONV_XDL_i8_gfx908_DECS
 static constexpr size_t nInitParametersForwardI8ConvGfx908 = 8;

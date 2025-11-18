@@ -559,7 +559,7 @@ Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
 }
 
 template <typename AllocType>
-FailureOr<AllocType> findAlloc(Value value) {
+static FailureOr<AllocType> findAlloc(Value value) {
   auto *curOp = value.getDefiningOp();
   auto maybeAllocOp = dyn_cast_or_null<AllocType>(curOp);
   while (!maybeAllocOp) {
@@ -579,7 +579,7 @@ FailureOr<AllocType> findAlloc(Value value) {
       } else if (buffers.size() == 1) {
         curOp = buffers.back().getDefiningOp();
       } else {
-        int64_t index = selectIndex.value();
+        int64_t index = selectIndex.value() % buffers.size();
         curOp = buffers[index].getDefiningOp();
       }
     } else {
@@ -616,16 +616,6 @@ FailureOr<BlockArgument> mlir::rock::findBlockArgument(Value value) {
   }
 
   return maybeBlockArg;
-}
-
-std::optional<int64_t> mlir::rock::computeConstDiff(Value l, Value u) {
-  IntegerAttr clb, cub;
-  if (matchPattern(l, m_Constant(&clb)) && matchPattern(u, m_Constant(&cub))) {
-    llvm::APInt lbValue = clb.getValue();
-    llvm::APInt ubValue = cub.getValue();
-    return (ubValue - lbValue).getSExtValue();
-  }
-  return std::nullopt;
 }
 
 // The rows and columns of subtile view needs to
@@ -766,7 +756,6 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   Location loc = buffer.getLoc();
   Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   auto bufferType = cast<MemRefType>(buffer.getType());
-  int64_t byteWidth = getByteWidth(elementType);
   assert(bufferType.getRank() == 1 &&
          "Buffer type must be a 1D memref for viewBufferAs");
   assert(bufferType.getElementType() == b.getI8Type() &&
@@ -775,9 +764,15 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   int64_t numBytes = bufferType.getShape()[0];
   int64_t numElements = std::accumulate(dimensions.begin(), dimensions.end(),
                                         int64_t{1}, std::multiplies<>());
-  assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
-  assert(numBytes / byteWidth == numElements &&
-         "Provided dimensions don't match buffer size");
+  int64_t elementBitWidth =
+      getElementTypeOrSelf(elementType).getIntOrFloatBitWidth();
+  int64_t vectorLength = isa<VectorType>(elementType)
+                             ? cast<VectorType>(elementType).getNumElements()
+                             : 1;
+  int64_t totalBitWidthRequested = elementBitWidth * numElements * vectorLength;
+  int64_t bufferBitWidth = numBytes * 8;
+  assert(bufferBitWidth == totalBitWidthRequested &&
+         "Can't evenly fit type into buffer");
 
   auto newBufferType = MemRefType::get(dimensions, elementType, nullptr,
                                        bufferType.getMemorySpace());
@@ -794,10 +789,16 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
          "Buffer type must be a 1D memref for viewBufferAs");
   assert(bufferType.getElementType() == b.getI8Type() &&
          "Buffer type must be a i8 memref for viewBufferAs");
-  int64_t byteWidth = getByteWidth(elementType);
   int64_t numBytes = bufferType.getShape()[0];
-  assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
-  int64_t length = numBytes / byteWidth;
+  int64_t bufferBitWidth = numBytes * 8;
+  int64_t elementBitWidth =
+      getElementTypeOrSelf(elementType).getIntOrFloatBitWidth();
+  int64_t vectorLength = isa<VectorType>(elementType)
+                             ? cast<VectorType>(elementType).getNumElements()
+                             : 1;
+  assert(bufferBitWidth % (elementBitWidth * vectorLength) == 0 &&
+         "Can't evenly fit type into buffer");
+  int64_t length = bufferBitWidth / (elementBitWidth * vectorLength);
   return viewBufferAs(b, buffer, elementType, {length});
 }
 
@@ -816,8 +817,8 @@ Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim,
     return GpuAllocOp::create(b, loc, memType);
   }
   auto rawMemType =
-      MemRefType::get({bufferDim * getByteWidth(elementType)}, b.getI8Type(),
-                      AffineMap{}, memoryAddressSpaceAttr);
+      MemRefType::get({getPackedByteSize(bufferDim, elementType)},
+                      b.getI8Type(), AffineMap{}, memoryAddressSpaceAttr);
   auto buffer = GpuAllocOp::create(b, loc, rawMemType);
 
   return viewBufferAs(b, buffer, elementType);
@@ -1063,10 +1064,9 @@ FailureOr<Value> mlir::rock::wrapLDSBufferForStore(
     kpack = vectorDataType.getNumElements();
     dataType = vectorDataType.getElementType();
   }
-
-  if (bufferShape[0] != kOuter * d * kpack * getByteWidth(dataType)) {
+  if (bufferShape[0] != getPackedByteSize(kOuter * d * kpack, dataType)) {
     return emitError(loc, "LDS buffer should have ")
-           << kOuter * d * kpack * getByteWidth(dataType)
+           << getPackedByteSize(kOuter * d * kpack, dataType)
            << " elements but has " << bufferShape[0];
   }
   int64_t kpackPerThread = std::min(kPerThread, kpack);
@@ -1178,7 +1178,7 @@ std::optional<int64_t> mlir::rock::getWorkgroupMemorySize(MemRefType type) {
   auto memSpaceValue =
       dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace()).getValue();
   if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-    return type.getNumElements() * getByteWidth(type.getElementType());
+    return getPackedByteSize(type.getNumElements(), type.getElementType());
   }
   return std::nullopt;
 }

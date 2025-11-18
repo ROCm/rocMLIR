@@ -49,9 +49,14 @@ struct AmdArchInfo {
 
   /// Get the default features for the pair <arch, datatype>
   GemmFeatures getDefaultFeatures(Type dataType);
+
+  /// Get the maximum LDS vector length for the given architecture and element
+  /// bit width
+  int64_t getMaxLDSVectorLength(int64_t elementBitWidth);
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);
+bool isDirectToLDSSupported(GemmFeatures features);
 } // namespace rock
 } // namespace mlir
 

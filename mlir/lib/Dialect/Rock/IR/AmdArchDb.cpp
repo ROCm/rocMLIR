@@ -413,3 +413,22 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   }
   return theseFeatures;
 }
+
+bool mlir::rock::isDirectToLDSSupported(GemmFeatures features) {
+  return bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b) ||
+         bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
+}
+
+int64_t
+mlir::rock::AmdArchInfo::getMaxLDSVectorLength(int64_t elementBitWidth) {
+  int64_t maxGlobalToLDSVectorLen = std::numeric_limits<int64_t>::max();
+  assert(elementBitWidth > 0 && "elementBitWidth must be greater than 0");
+  if (bitEnumContainsAll(defaultFeatures, GemmFeatures::direct_to_lds_128b)) {
+    maxGlobalToLDSVectorLen = 128 / elementBitWidth;
+  } else if (bitEnumContainsAll(defaultFeatures,
+                                GemmFeatures::direct_to_lds_32b)) {
+    maxGlobalToLDSVectorLen = 32 / elementBitWidth;
+  }
+
+  return maxGlobalToLDSVectorLen;
+}
