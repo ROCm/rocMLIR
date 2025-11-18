@@ -184,7 +184,8 @@ struct PushBarrierDownRewritePattern
 
     if (moveDown) {
       rw.setInsertionPointAfter(nextOp);
-      rock::LDSBarrierOp::create(rw, nextOp->getLoc(), op.getBarrierStageAttr());
+      rock::LDSBarrierOp::create(rw, nextOp->getLoc(),
+                                 op.getBarrierStageAttr());
       rw.eraseOp(op);
       return success();
     }
@@ -440,16 +441,15 @@ rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
     // Set barrier_stage attribute based on name
     rock::BarrierStageAttr barrierStageAttr;
     if (name == FWD_BARRIER_NAME) {
-      barrierStageAttr = rock::BarrierStageAttr::get(rewriter.getContext(), 
-      rock::BarrierStage::Forward);
+      barrierStageAttr = rock::BarrierStageAttr::get(
+          rewriter.getContext(), rock::BarrierStage::Forward);
     } else if (name == BWD_BARRIER_NAME) {
-      barrierStageAttr = rock::BarrierStageAttr::get(rewriter.getContext(), 
-      rock::BarrierStage::Backward);
-    }
-    else {
+      barrierStageAttr = rock::BarrierStageAttr::get(
+          rewriter.getContext(), rock::BarrierStage::Backward);
+    } else {
       llvm_unreachable("Invalid barrier name");
     }
-    rock::LDSBarrierOp::create(rewriter, loc, barrierStageAttr);    
+    rock::LDSBarrierOp::create(rewriter, loc, barrierStageAttr);
   }
   rock::YieldOp::create(rewriter, loc);
   return barrierStage;

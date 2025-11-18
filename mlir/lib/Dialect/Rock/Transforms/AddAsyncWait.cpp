@@ -38,15 +38,15 @@ using namespace mlir::rock;
 
 namespace {
 struct RockAddAsyncWaitPass
-    : public rock::impl::RockAddAsyncWaitPassBase<
-          RockAddAsyncWaitPass> {
+    : public rock::impl::RockAddAsyncWaitPassBase<RockAddAsyncWaitPass> {
   void runOnOperation() override;
 };
 } // end anonymous namespace
 
 /// Trace back a value to find all GpuAllocOps it originates from.
 /// Handles views, extract_multibuffer, and transform operations.
-/// Returns all allocs that could be the source (for extract_multibuffer with multiple buffers).
+/// Returns all allocs that could be the source (for extract_multibuffer with
+/// multiple buffers).
 static SmallVector<rock::GpuAllocOp> traceToAllocs(Value value) {
   SmallVector<rock::GpuAllocOp> allocs;
   SmallVector<Value> worklist;
@@ -63,12 +63,12 @@ static SmallVector<rock::GpuAllocOp> traceToAllocs(Value value) {
   while (!worklist.empty()) {
     Value current = worklist.pop_back_val();
     auto *curOp = current.getDefiningOp();
-    
+
     if (!curOp) {
       // Value doesn't have a defining op (e.g., block argument), skip it
       continue;
     }
-    
+
     if (auto allocOp = dyn_cast<rock::GpuAllocOp>(curOp)) {
       allocs.push_back(allocOp);
       continue;
@@ -80,7 +80,8 @@ static SmallVector<rock::GpuAllocOp> traceToAllocs(Value value) {
       addToWorklist(viewOp.getViewSource());
     } else if (auto extractMultiBufferOp =
                    dyn_cast<rock::ExtractMultiBufferOp>(curOp)) {
-      // For extract_multibuffer, check all buffers since reads might use any of them
+      // For extract_multibuffer, check all buffers since reads might use any of
+      // them
       auto buffers = extractMultiBufferOp.getBuffers();
       for (auto buffer : buffers) {
         addToWorklist(buffer);
@@ -93,16 +94,18 @@ static SmallVector<rock::GpuAllocOp> traceToAllocs(Value value) {
   return allocs;
 }
 
-/// Traverse forward from a value to find ThreadwiseReadIntoOps that read from LDS.
-/// Returns the first one found in program order.
-static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp, llvm::DenseSet<Operation*> &insertionPoints) {
+/// Traverse forward from a value to find ThreadwiseReadIntoOps that read from
+/// LDS. Returns the first one found in program order.
+static ThreadwiseReadIntoOp
+findFirstReadFromLDS(Value value, Operation *startOp,
+                     llvm::DenseSet<Operation *> &insertionPoints) {
   ThreadwiseReadIntoOp firstRead = nullptr;
   Operation *firstReadOp = nullptr;
 
   // Worklist to traverse forward through views/extract_multibuffer/transform
   SmallVector<Value> worklist;
   llvm::DenseSet<Value> visited;
-  
+
   auto addToWorklist = [&](Value v) {
     LLVM_DEBUG(llvm::dbgs() << "  -> Checking: " << *v.getDefiningOp() << "\n");
     if (visited.insert(v).second) {
@@ -116,10 +119,12 @@ static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp
   while (!worklist.empty()) {
     Value current = worklist.pop_back_val();
 
-    LLVM_DEBUG(llvm::dbgs() << "  -> Checking current: " << *current.getDefiningOp() << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "  -> Checking current: "
+                            << *current.getDefiningOp() << "\n");
 
     if (current.getUsers().empty()) {
-      LLVM_DEBUG(llvm::dbgs() << "  -> No users found for current: " << *current.getDefiningOp() << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  -> No users found for current: "
+                              << *current.getDefiningOp() << "\n");
       continue;
     }
 
@@ -130,17 +135,23 @@ static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp
         // Check if source is LDS (workgroup address space)
         auto sourceMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
             readOp.getSource().getType().getMemorySpace());
-        if (sourceMemSpace && 
-            sourceMemSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+        if (sourceMemSpace && sourceMemSpace.getValue() ==
+                                  gpu::GPUDialect::getWorkgroupAddressSpace()) {
           // This reads FROM LDS, check if it's after startOp
-          // Skip if: no startOp, same as startOp, already has insertion point, or in same block and before startOp
+          // Skip if: no startOp, same as startOp, already has insertion point,
+          // or in same block and before startOp
           if (!startOp || user == startOp || insertionPoints.contains(user)) {
-            LLVM_DEBUG(llvm::dbgs() << "Skipping readOp because it's already been used: " << *readOp << "\n");
+            LLVM_DEBUG(llvm::dbgs()
+                       << "Skipping readOp because it's already been used: "
+                       << *readOp << "\n");
             continue;
           }
           // If in the same block, skip if before startOp
-          if (user->getBlock() == startOp->getBlock() && user->isBeforeInBlock(startOp)) {
-            LLVM_DEBUG(llvm::dbgs() << "Skipping readOp because it's before startOp: " << *readOp << "\n");
+          if (user->getBlock() == startOp->getBlock() &&
+              user->isBeforeInBlock(startOp)) {
+            LLVM_DEBUG(llvm::dbgs()
+                       << "Skipping readOp because it's before startOp: "
+                       << *readOp << "\n");
             continue;
           }
           LLVM_DEBUG(llvm::dbgs() << "Found something!\n");
@@ -154,19 +165,20 @@ static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp
               firstRead = readOp;
               firstReadOp = user;
             }
-          } 
-          else {
+          } else {
             // Different blocks: check if one is nested inside the other
             Block *userBlock = user->getBlock();
             Block *firstReadBlock = firstReadOp->getBlock();
-            
+
             // Check if firstReadBlock is nested inside userBlock's region
             Operation *firstReadParentOp = firstReadBlock->getParentOp();
-            if (firstReadParentOp && firstReadParentOp->getBlock() == userBlock) {
-              // firstReadBlock is nested in userBlock, compare firstReadParentOp with user
+            if (firstReadParentOp &&
+                firstReadParentOp->getBlock() == userBlock) {
+              // firstReadBlock is nested in userBlock, compare
+              // firstReadParentOp with user
               if (firstReadParentOp->isBeforeInBlock(user)) {
-                // firstReadParentOp comes before user, so firstReadOp comes first
-                // Don't update, keep current firstRead
+                // firstReadParentOp comes before user, so firstReadOp comes
+                // first Don't update, keep current firstRead
               } else {
                 // user comes before firstReadParentOp, so user comes first
                 firstRead = readOp;
@@ -176,7 +188,8 @@ static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp
             // Check if userBlock is nested inside firstReadBlock's region
             else if (Operation *userParentOp = userBlock->getParentOp()) {
               if (userParentOp->getBlock() == firstReadBlock) {
-                // userBlock is nested in firstReadBlock, compare userParentOp with firstReadOp
+                // userBlock is nested in firstReadBlock, compare userParentOp
+                // with firstReadOp
                 if (userParentOp->isBeforeInBlock(firstReadOp)) {
                   // userParentOp comes before firstReadOp, so user comes first
                   firstRead = readOp;
@@ -210,7 +223,9 @@ static ThreadwiseReadIntoOp findFirstReadFromLDS(Value value, Operation *startOp
 /// Find the first use after a ThreadwiseReadIntoOp that writes to LDS.
 /// The function traces back the dest value to the alloc, then finds the first
 /// ThreadwiseReadIntoOp that reads from that alloc.
-static Operation* findFirstUseAfter(ThreadwiseReadIntoOp writeOp, llvm::DenseSet<Operation*> &insertionPoints) {
+static Operation *
+findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
+                  llvm::DenseSet<Operation *> &insertionPoints) {
   // Get the destination value (what is written to)
   Value dest = writeOp.getDest();
 
@@ -229,8 +244,9 @@ static Operation* findFirstUseAfter(ThreadwiseReadIntoOp writeOp, llvm::DenseSet
 
   for (auto alloc : allocs) {
     LLVM_DEBUG(llvm::dbgs() << "Checking alloc: " << alloc << "\n");
-    ThreadwiseReadIntoOp read = findFirstReadFromLDS(alloc.getResult(), writeOp.getOperation(), insertionPoints);
-    
+    ThreadwiseReadIntoOp read = findFirstReadFromLDS(
+        alloc.getResult(), writeOp.getOperation(), insertionPoints);
+
     if (read) {
       Operation *readOp = read.getOperation();
       // Track the first one in program order
@@ -240,18 +256,20 @@ static Operation* findFirstUseAfter(ThreadwiseReadIntoOp writeOp, llvm::DenseSet
       }
     }
   }
-  
+
   if (!firstRead) {
     LLVM_DEBUG(llvm::dbgs() << "No read found after writeOp\n");
     return nullptr;
   }
 
-  LLVM_DEBUG(llvm::dbgs() << "After writeOp: " << *writeOp.getOperation() << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "After writeOp: " << *writeOp.getOperation()
+                          << "\n");
   LLVM_DEBUG(llvm::dbgs() << "->-> Found first read: " << firstRead << "\n");
   return firstRead.getOperation();
 }
 
-/// Check if a ThreadwiseReadIntoOp reads from global memory (no GPU address space).
+/// Check if a ThreadwiseReadIntoOp reads from global memory (no GPU address
+/// space).
 static bool isGlobalLoad(ThreadwiseReadIntoOp readOp) {
   auto sourceMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
       readOp.getSource().getType().getMemorySpace());
@@ -259,13 +277,15 @@ static bool isGlobalLoad(ThreadwiseReadIntoOp readOp) {
   return !sourceMemSpace;
 }
 
-/// Count global loads (ThreadwiseReadIntoOp from global to LDS) between two operations in a block.
-/// Counts operations from startOp (exclusive) to endOp (exclusive).
-/// If startOp is nullptr, counts from the beginning of the block.
-static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp, Block *block) {
+/// Count global loads (ThreadwiseReadIntoOp from global to LDS) between two
+/// operations in a block. Counts operations from startOp (exclusive) to endOp
+/// (exclusive). If startOp is nullptr, counts from the beginning of the block.
+static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp,
+                                   Block *block) {
   int count = 0;
-  bool counting = (startOp == nullptr); // If startOp is nullptr, start counting immediately
-  
+  bool counting =
+      (startOp == nullptr); // If startOp is nullptr, start counting immediately
+
   for (Operation &op : *block) {
     if (startOp && &op == startOp) {
       counting = true;
@@ -282,26 +302,31 @@ static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp, Block *
         // Check if it writes to LDS
         auto destMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
             readOp.getDest().getType().getMemorySpace());
-        if (destMemSpace && destMemSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-          auto maybeLoopCount = rock::predictThreadwiseReadIntoLoopCount(readOp);
+        if (destMemSpace && destMemSpace.getValue() ==
+                                gpu::GPUDialect::getWorkgroupAddressSpace()) {
+          auto maybeLoopCount =
+              rock::predictThreadwiseReadIntoLoopCount(readOp);
           if (failed(maybeLoopCount)) {
-            LLVM_DEBUG(llvm::dbgs() << "Failed to predict loop count for ThreadwiseReadIntoOp: " << *readOp << "\n");
+            LLVM_DEBUG(
+                llvm::dbgs()
+                << "Failed to predict loop count for ThreadwiseReadIntoOp: "
+                << *readOp << "\n");
             count++;
-          }
-          else {
+          } else {
             count += maybeLoopCount.value();
           }
         }
       }
     }
   }
-  
+
   return count;
 }
 
 /// The localLoadOp is the load that triggers the dependency, and the
 /// globalLoadOp is the load that is dependent on the localLoadOp.
-std::pair<int, bool> getWaitCount(Operation *localLoadOp, Operation *globalLoadOp) {  
+std::pair<int, bool> getWaitCount(Operation *localLoadOp,
+                                  Operation *globalLoadOp) {
   if (!localLoadOp || !globalLoadOp)
     return {-1, false};
 
@@ -312,10 +337,10 @@ std::pair<int, bool> getWaitCount(Operation *localLoadOp, Operation *globalLoadO
 
   // Get parent blocks and check for loops
   Block *globalBlock = globalLoadOp->getBlock();
-  
+
   scf::ForOp localLoop = localLoadOp->getParentOfType<scf::ForOp>();
   scf::ForOp globalLoop = globalLoadOp->getParentOfType<scf::ForOp>();
-  
+
   int waitCount = 0;
   bool pipeliningEnabled = false;
 
@@ -328,15 +353,18 @@ std::pair<int, bool> getWaitCount(Operation *localLoadOp, Operation *globalLoadO
   }
   // Case 2: localLoad in loop, globalLoad in function - body
   else if (localLoop && !globalLoop) {
-    LLVM_DEBUG(llvm::dbgs() << "Case 2: localLoad in loop, globalLoad in function (body)\n");
-    // Count from globalLoadOp to the loop operation (which marks the start of the loop block)
+    LLVM_DEBUG(llvm::dbgs()
+               << "Case 2: localLoad in loop, globalLoad in function (body)\n");
+    // Count from globalLoadOp to the loop operation (which marks the start of
+    // the loop block)
     Block *loopOpBlock = localLoop->getBlock();
     if (loopOpBlock == globalBlock) {
-      waitCount += countGlobalLoadsBetween(globalLoadOp, localLoop.getOperation(), globalBlock);
+      waitCount += countGlobalLoadsBetween(
+          globalLoadOp, localLoop.getOperation(), globalBlock);
     }
-    // Note: If loopOpBlock != globalBlock, we'd need to handle cross-block counting,
-    // but in typical cases they should be in the same block
-    
+    // Note: If loopOpBlock != globalBlock, we'd need to handle cross-block
+    // counting, but in typical cases they should be in the same block
+
     // Count from the start of the loop body block to localLoadOp
     Block *loopBody = localLoop.getBody();
     waitCount += countGlobalLoadsBetween(nullptr, localLoadOp, loopBody);
@@ -344,49 +372,57 @@ std::pair<int, bool> getWaitCount(Operation *localLoadOp, Operation *globalLoadO
   }
   // Case 3: localLoad in function, globalLoad in loop - epilogue
   else if (!localLoop && globalLoop) {
-    LLVM_DEBUG(llvm::dbgs() << "Case 3: localLoad in function, globalLoad in loop (epilogue)\n");
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "Case 3: localLoad in function, globalLoad in loop (epilogue)\n");
     // Always return 0 for epilogue
     return {0, true};
   }
   // Case 4: no pipelining.
   else {
-    LLVM_DEBUG(llvm::dbgs() << "Case 4: both in loops (no pipelining)\n");    
+    LLVM_DEBUG(llvm::dbgs() << "Case 4: both in loops (no pipelining)\n");
     return {0, false};
   }
 
   LLVM_DEBUG(llvm::dbgs() << "  waitCount: " << waitCount << "\n");
-  
+
   return {waitCount >= 0 ? waitCount : 0, pipeliningEnabled};
 }
 
-static Operation* getInsertionPointForAsyncWait(IRRewriter &rewriter, Operation *op, bool pipeliningEnabled) {
+static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
+                                                Operation *op,
+                                                bool pipeliningEnabled) {
   if (pipeliningEnabled) {
-    // If pipelining is enabled, we always insert the AsyncWaitOp just before the local load.
+    // If pipelining is enabled, we always insert the AsyncWaitOp just before
+    // the local load.
     return op;
   } else {
-    // If pipelining is disabled, we have to insert the AsyncWaitOp just after the LDSBarrierOp.
-    // Find the first LDSBarrierOp with barrier_stage="backward" in the function
+    // If pipelining is disabled, we have to insert the AsyncWaitOp just after
+    // the LDSBarrierOp. Find the first LDSBarrierOp with
+    // barrier_stage="backward" in the function
     func::FuncOp func = op->getParentOfType<func::FuncOp>();
     if (!func) {
       LLVM_DEBUG(llvm::dbgs() << "No function found, inserting before op\n");
       return nullptr;
     }
-    
+
     rock::LDSBarrierOp forwardBarrier = nullptr;
     func.walk([&](rock::LDSBarrierOp barrier) {
       if (!forwardBarrier) {
         auto barrierStageAttr = barrier.getBarrierStageAttr();
-        if (barrierStageAttr && barrierStageAttr.getValue() == rock::BarrierStage::Forward) {
+        if (barrierStageAttr &&
+            barrierStageAttr.getValue() == rock::BarrierStage::Forward) {
           forwardBarrier = barrier;
         }
       }
     });
-    
+
     if (forwardBarrier) {
       llvm::dbgs() << "Found forward barrier: " << forwardBarrier << "\n";
       return forwardBarrier;
     } else {
-      LLVM_DEBUG(llvm::dbgs() << "No forward barrier found, inserting before op\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "No forward barrier found, inserting before op\n");
       return op;
     }
   }
@@ -394,9 +430,10 @@ static Operation* getInsertionPointForAsyncWait(IRRewriter &rewriter, Operation 
 
 /// Add AsyncWaitOps to the function. This function has two main steps:
 /// 1. Find all ThreadwiseReadIntoOp operations that write into LDS memory.
-///    Then, for each of them, call findFirstUseAfter, which will find the first op
-///    that uses the result of the ThreadwiseReadIntoOp.
-/// 2. Once we know where to insert the AsyncWaitOp, call getWaitCount, which will
+///    Then, for each of them, call findFirstUseAfter, which will find the first
+///    op that uses the result of the ThreadwiseReadIntoOp.
+/// 2. Once we know where to insert the AsyncWaitOp, call getWaitCount, which
+/// will
 ///    return the number of AsyncWaitOps to insert.
 static LogicalResult addAsyncWait(func::FuncOp &func) {
   IRRewriter rewriter(func->getContext());
@@ -405,36 +442,45 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
   SmallVector<rock::ThreadwiseReadIntoOp> readOps;
   func.walk([&](rock::ThreadwiseReadIntoOp op) {
     // Only add reads that write into LDS memory
-    auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(op.getDest().getType().getMemorySpace());
-    if (memSpace && memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+    auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+        op.getDest().getType().getMemorySpace());
+    if (memSpace &&
+        memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
       readOps.push_back(op);
-    }    
+    }
   });
 
-  // Track insertion points to avoid inserting multiple AsyncWaitOps at the same location
-  llvm::DenseSet<Operation*> insertionPoints;
+  // Track insertion points to avoid inserting multiple AsyncWaitOps at the same
+  // location
+  llvm::DenseSet<Operation *> insertionPoints;
   for (auto readOp : readOps) {
-    Operation* firstUse = findFirstUseAfter(readOp, insertionPoints);
-    
+    Operation *firstUse = findFirstUseAfter(readOp, insertionPoints);
+
     if (!firstUse) {
       // If pattern doesn't match or no use found, skip this readOp
-      LLVM_DEBUG(llvm::dbgs() << "Pattern doesn't match or no use found for ThreadwiseReadIntoOp\n");
+      LLVM_DEBUG(llvm::dbgs() << "Pattern doesn't match or no use found for "
+                                 "ThreadwiseReadIntoOp\n");
       continue;
     }
-    
+
     auto [waitCount, pipeliningEnabled] = getWaitCount(firstUse, readOp);
     if (waitCount == -1) {
-      LLVM_DEBUG(llvm::dbgs() << "Failed to get wait count for ThreadwiseReadIntoOp\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Failed to get wait count for ThreadwiseReadIntoOp\n");
       continue;
     }
 
-    LLVM_DEBUG(llvm::dbgs() << "Looking for insertion point for AsyncWaitOp after " << firstUse << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "Looking for insertion point for AsyncWaitOp after "
+               << firstUse << "\n");
 
-    Operation* insertionPoint = getInsertionPointForAsyncWait(rewriter, firstUse, pipeliningEnabled);      
-    
+    Operation *insertionPoint =
+        getInsertionPointForAsyncWait(rewriter, firstUse, pipeliningEnabled);
+
     // Only insert one AsyncWaitOp per insertion point
     if (insertionPoints.contains(insertionPoint)) {
-      LLVM_DEBUG(llvm::dbgs() << "Skipping insertion point because it already has an AsyncWaitOp\n");
+      LLVM_DEBUG(llvm::dbgs() << "Skipping insertion point because it already "
+                                 "has an AsyncWaitOp\n");
       continue;
     }
     insertionPoints.insert(insertionPoint);
@@ -442,8 +488,8 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
       rewriter.setInsertionPoint(insertionPoint);
     else
       rewriter.setInsertionPointAfter(insertionPoint);
-    
-    rock::AsyncWaitOp::create(rewriter, insertionPoint->getLoc(), waitCount);    
+
+    rock::AsyncWaitOp::create(rewriter, insertionPoint->getLoc(), waitCount);
 
     LLVM_DEBUG(llvm::dbgs() << "\n");
   }

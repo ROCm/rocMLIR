@@ -18,10 +18,10 @@
 #include "mlir/Conversion/LLVMCommon/Pattern.h"
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
+#include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Dialect/GPU/Transforms/Passes.h"
 
 namespace mlir {
 namespace rock {
@@ -39,13 +39,12 @@ namespace {
 
 struct AsyncWaitOpConversion
     : public ConvertOpToLLVMPattern<rock::AsyncWaitOp> {
-  using ConvertOpToLLVMPattern<
-      rock::AsyncWaitOp>::ConvertOpToLLVMPattern;
+  using ConvertOpToLLVMPattern<rock::AsyncWaitOp>::ConvertOpToLLVMPattern;
 
   AsyncWaitOpConversion(const LLVMTypeConverter &converter,
-                           amdgpu::Chipset chipset)
-      : ConvertOpToLLVMPattern<rock::AsyncWaitOp>(converter),
-        chipset(chipset) {}
+                        amdgpu::Chipset chipset)
+      : ConvertOpToLLVMPattern<rock::AsyncWaitOp>(converter), chipset(chipset) {
+  }
 
   mlir::amdgpu::Chipset chipset;
 
@@ -53,7 +52,7 @@ struct AsyncWaitOpConversion
   matchAndRewrite(rock::AsyncWaitOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto loc = op->getLoc();
-    
+
     // Clamp vmcnt to 6bits; a lower vmcnt will produce a conservative wait
     unsigned vmCnt = std::min(63u, op.getNumInst());
 
@@ -63,7 +62,7 @@ struct AsyncWaitOpConversion
     unsigned otherCnts = ~0xC00F; // C00F has bits 15:14 and 3:0 set
     unsigned waitValue = lowBits | highBits | otherCnts;
 
-    ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);    
+    ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);
     ROCDL::SBarrierOp::create(rewriter, loc);
 
     rewriter.eraseOp(op);
@@ -73,7 +72,8 @@ struct AsyncWaitOpConversion
 };
 
 struct LowerRockOpsToROCDLOpsPass final
-    : public rock::impl::ConvertRockOpsToROCDLOpsBase<LowerRockOpsToROCDLOpsPass> {
+    : public rock::impl::ConvertRockOpsToROCDLOpsBase<
+          LowerRockOpsToROCDLOpsPass> {
   using Base::Base;
 
   void runOnOperation() override {

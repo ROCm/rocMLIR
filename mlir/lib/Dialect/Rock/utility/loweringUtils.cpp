@@ -17,9 +17,9 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
-#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Value.h"
@@ -1206,7 +1206,7 @@ FailureOr<int64_t>
 mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
   Value sourceView = op.getSource();
   Value dest = op.getDest();
-  
+
   // Get types directly from the op
   auto sourceViewType = dyn_cast<MemRefType>(sourceView.getType());
   if (!sourceViewType) {
@@ -1226,7 +1226,7 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
   SmallVector<TransformMapAttr> transforms;
   Value buffer;
   std::tie(buffer, std::ignore) = untransform(sourceView, transforms);
-  
+
   // Get buffer type
   auto srcBufferType = dyn_cast<MemRefType>(buffer.getType());
   if (!srcBufferType) {
@@ -1249,7 +1249,7 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
                        dstAddrSpace == gpu::AddressSpace::Workgroup;
 
   int64_t numValues = dstBufferType.getNumElements();
-  
+
   // For GlobalToLDS, get numValues from the transform maps
   // We need to combine extraViews with existing transforms
   ArrayAttr extraViews = op.getExtraViews();
@@ -1262,7 +1262,7 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
       }
     }
     allTransforms.append(transforms.begin(), transforms.end());
-    
+
     if (allTransforms.empty()) {
       // LLVM_DEBUG(llvm::dbgs() << "transforms is empty.\n");
       return failure();
@@ -1270,8 +1270,8 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
     TransformMapAttr topMap = allTransforms[0];
     numValues = topMap.getUpperBounds().asArrayRef().back();
     if (isSrcVectorBuffer || isDstVectorBuffer) {
-      // LLVM_DEBUG(llvm::dbgs() << "Global to LDS should not have vector buffers, "
-                                  // "not implemented yet\n");
+      // LLVM_DEBUG(llvm::dbgs() << "Global to LDS should not have vector
+      // buffers, " "not implemented yet\n");
       return failure();
     }
   }
@@ -1284,7 +1284,8 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
   if (isSrcVectorBuffer) {
     auto srcVecType = dyn_cast<VectorType>(elementType);
     if (!srcVecType) {
-      // LLVM_DEBUG(llvm::dbgs() << "Expected VectorType for source vector buffer\n");
+      // LLVM_DEBUG(llvm::dbgs() << "Expected VectorType for source vector
+      // buffer\n");
       return failure();
     }
     vectorSrcLen = srcVecType.getNumElements();
@@ -1315,7 +1316,8 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
   if (isDstVectorBuffer) {
     auto dstVectorType = dyn_cast<VectorType>(dstBufferType.getElementType());
     if (!dstVectorType) {
-      // LLVM_DEBUG(llvm::dbgs() << "Expected VectorType for destination vector buffer\n");
+      // LLVM_DEBUG(llvm::dbgs() << "Expected VectorType for destination vector
+      // buffer\n");
       return failure();
     }
     vectorDstLen = dstVectorType.getNumElements();
