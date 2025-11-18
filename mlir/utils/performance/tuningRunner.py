@@ -25,7 +25,8 @@ import pandas as pd
 
 MLIR_N_REPEATS = 10
 WARMUP_ITERATIONS = 1
-SLEEP_US = 100 # 0.1 ms
+SLEEP_US = 100  # 0.1 ms
+
 
 @dataclass(frozen=True)
 class Options:
