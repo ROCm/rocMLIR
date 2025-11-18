@@ -527,6 +527,8 @@ struct BlockwiseGemmAccelRewritePattern
           viewForReadInto = viewBufferAs(
               b, inputBuffer, getElementTypeOrSelf(argType), shapeForLoad);
         }
+        assert(wrappedLDSBufferForLoad != Value{} &&
+               "Wrapped LDS buffer for load is empty");
         // regs = read from LDS
         ThreadwiseReadIntoOp::create(
             b, loc, wrappedLDSBufferForLoad, viewForReadInto,
