@@ -157,15 +157,15 @@ func.func @rock_blockwise_gemm_accel_scaled_schedule_v2(
   // CHECK: affine.for
   // CHECK-NOT: rock.threadwise_read_into
   // CHECK: affine.for
-  // CHECK: rock.threadwise_gemm_accel {{.*}} scaled by {{.*}} * {{.*}} scaled by {{.*}} {{.*}} scheduleVersion = 2
-  // CHECK: memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x8xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x8xvector<32xf8E8M0FNU>, #gpu.address_space<private>> * memref<1x8xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x8xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
+  // CHECK: rock.threadwise_gemm_accel {{.*}} += {{.*}} scaled by {{.*}} * {{.*}} scaled by {{.*}} features = {{.*}} : 
+  // CHECK-SAME: memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x8xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x8xvector<32xf8E8M0FNU>, #gpu.address_space<private>> * memref<1x8xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x8xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
   rock.blockwise_gemm_accel %matrixC += %bufferA scaled by %bufferScaleA from %matrixScaleA
                                       * %bufferB scaled by %bufferScaleB from %matrixScaleB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = true, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 32, inDPerThread = 2>, 
     matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = true, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 32, inDPerThread = 2>,
-    params = #rock.xdlops_gemm_derived_params<
+    params = #rock.mfma_gemm_params<
       kpackPerBlock = 16,
       kpack = 32,
       mPerBlock = 32,
