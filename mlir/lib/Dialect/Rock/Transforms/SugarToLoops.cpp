@@ -1186,9 +1186,13 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     bool emitOobChecks =
         !isStaticSize || !isAlwaysValid || (hasI64Idx && op.getCanReadOffEnd());
 
-    APInt numBytes =
-        numElemsConst *
-        (cast<ShapedType>(source.getType()).getElementTypeBitWidth() / 8);
+    unsigned bitWidth =
+        cast<ShapedType>(source.getType()).getElementTypeBitWidth();
+    APInt numBits = numElemsConst * bitWidth;
+    // ceilDiv with APInt
+    APInt numBytes = numBits.udiv(8);
+    if (numBits.urem(8) != 0)
+      numBytes += 1;
     // In cases where we need more than 2 GB of offset to index but are still
     // using 32-bit indexing, we'll need to use buffer operations. In the
     // dymanic shape case, we'll already be in the i64 case, so we don't set
@@ -1303,9 +1307,49 @@ struct GlobalLoadToLDSRewritePattern
     bool emitOobChecks =
         !isStaticSize || !isAlwaysValid || (hasI64Idx && op.getCanReadOffEnd());
 
-    APInt numBytes =
-        numElemsConst *
-        (cast<ShapedType>(source.getType()).getElementTypeBitWidth() / 8);
+    unsigned bitWidth =
+        cast<ShapedType>(source.getType()).getElementTypeBitWidth();
+    unsigned destBitWidth =
+        cast<ShapedType>(dest.getType()).getElementTypeBitWidth();
+    // Check that transferType is f128 or f32 as currently only 128bit or 32 bit
+    // DirectToLDS is supported.
+    Type transferType = op.getTransferType();
+    if (!transferType.isF128() && !transferType.isF32()) {
+      return op->emitError("Transfer type must be f128 or f32 for DirectToLDS");
+    }
+    // For 4-bit source types (f4, i4), add validation checks as GPU can not do
+    // sub-byte addressing
+    if (bitWidth == 4) {
+      // Check that last source coordinate is even
+      APInt coordConst(64, 0);
+      // It is possible that this is not a compile time constant and it cannot
+      // be matched. Doing runtime checks is very expensive. Given directToLDS
+      // transfers 128 bit or 32 bits, it should be safe to assume that last
+      // co-ord will be even at runtime.
+      if (matchPattern(coords.back(), m_ConstantInt(&coordConst))) {
+        if (coordConst.urem(2) != 0) { // Check if number is odd
+          return op->emitError(
+              "For 4-bit source types, last source coordinate must be even");
+        }
+      }
+    }
+
+    // For 4-bit dest types, check that last dest coordinate is even
+    if (destBitWidth == 4) {
+      APInt destCoordConst(64, 0);
+      if (matchPattern(destCoords.back(), m_ConstantInt(&destCoordConst))) {
+        if (destCoordConst.urem(2) != 0) { // Check if number is odd
+          return op->emitError(
+              "For 4-bit destination types, last dest coordinate must be even");
+        }
+      }
+    }
+
+    APInt numBits = numElemsConst * bitWidth;
+    // ceilDiv with APInt
+    APInt numBytes = numBits.udiv(8);
+    if (numBits.urem(8) != 0)
+      numBytes += 1;
     // In cases where we need more than 2 GB of offset to index but are still
     // using 32-bit indexing, we'll need to use buffer operations. In the
     // dynamic shape case, we'll already be in the i64 case, so we don't set

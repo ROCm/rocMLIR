@@ -32,6 +32,7 @@
 #include "mlir/Dialect/Vector/Transforms/LoweringPatterns.h"
 #include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/TypeUtilities.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -66,8 +67,8 @@ struct RockGpuAllocRewritePattern
     MemRefType oldType = op.getResult().getType();
     Type newType = getTypeConverter()->convertType(oldType);
     if (!newType)
-      return rewriter.notifyMatchFailure(
-          op, Twine("couldn't convert allocation type"));
+      return rewriter.notifyMatchFailure(op,
+                                         "couldn't convert allocation type");
     if (oldType.getRank() != 1)
       return rewriter.notifyMatchFailure(
           op, "expected 1-D int4 tiles in our internals");
@@ -108,6 +109,96 @@ struct ExtractStridedMetadataOpRockGpuAllocFolder
         makeConst(gpuAlloc.getResult().getType().getNumElements()),
         makeConst(1)};
     rewriter.replaceOp(op, results);
+    return success();
+  }
+};
+
+struct ExtractStridedMetadataOpMemRefViewFolder
+    : public OpRewritePattern<memref::ExtractStridedMetadataOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(memref::ExtractStridedMetadataOp op,
+                                PatternRewriter &rewriter) const override {
+    auto viewOp = op.getSource().getDefiningOp<memref::ViewOp>();
+    if (!viewOp)
+      return failure();
+
+    Location loc = op.getLoc();
+    auto makeConst = [&](int64_t value) -> Value {
+      return rewriter.create<arith::ConstantIndexOp>(loc, value);
+    };
+
+    // For memref.view, the base buffer is the source memref
+    Value baseBuffer = viewOp.getSource();
+
+    // The offset is the byte shift from the view operation
+    Value offset = viewOp.getByteShift();
+
+    // For a 1D view (which Rock uses), size is the number of elements
+    MemRefType viewType = viewOp.getType();
+    if (viewType.getRank() != 1)
+      return failure(); // Only handle 1D views for now
+
+    Value size = makeConst(viewType.getNumElements());
+    Value stride = makeConst(1); // Contiguous layout
+
+    // If the base buffer is needed, reinterpret cast it to the expected type
+    if (!op.getBaseBuffer().use_empty()) {
+      baseBuffer = rewriter.create<memref::ReinterpretCastOp>(
+          loc, cast<MemRefType>(op.getBaseBuffer().getType()), baseBuffer, 0,
+          ArrayRef<int64_t>(), ArrayRef<int64_t>());
+    }
+
+    SmallVector<Value, 4> results = {baseBuffer, offset, size, stride};
+    rewriter.replaceOp(op, results);
+    return success();
+  }
+};
+
+struct FatRawBufferCastRewritePattern
+    : public OpConversionPattern<amdgpu::FatRawBufferCastOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(amdgpu::FatRawBufferCastOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    MemRefType oldType = op.getResult().getType();
+    Type newType = getTypeConverter()->convertType(oldType);
+    if (!newType)
+      return rewriter.notifyMatchFailure(op, "failed to convert type");
+    if (oldType == newType)
+      return rewriter.notifyMatchFailure(
+          op, "type unchanged, no conversion needed");
+
+    rewriter.replaceOpWithNewOp<amdgpu::FatRawBufferCastOp>(
+        op, newType, adaptor.getSource(), adaptor.getValidBytes(),
+        adaptor.getCacheSwizzleStride(), adaptor.getBoundsCheckAttr(),
+        adaptor.getResetOffsetAttr());
+    return success();
+  }
+};
+
+struct MemRefViewRewritePattern : public OpConversionPattern<memref::ViewOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(memref::ViewOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    MemRefType oldType = op.getResult().getType();
+
+    // Convert the type through the type converter
+    Type newType = getTypeConverter()->convertType(oldType);
+    if (!newType)
+      return rewriter.notifyMatchFailure(op,
+                                         Twine("couldn't convert view type"));
+    if (oldType == newType)
+      return failure();
+
+    // Create a new view with the converted type
+    // The source buffer should already be converted by other patterns
+    rewriter.replaceOpWithNewOp<memref::ViewOp>(
+        op, newType, adaptor.getSource(), adaptor.getByteShift(),
+        adaptor.getSizes());
     return success();
   }
 };
@@ -208,6 +299,129 @@ struct BufferStoreRewritePatttern
     return success();
   }
 };
+
+struct GatherToLDSRewritePattern
+    : public OpConversionPattern<amdgpu::GatherToLDSOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(amdgpu::GatherToLDSOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto *converter = getTypeConverter<arith::NarrowTypeEmulationConverter>();
+
+    auto origSrcMemrefType = dyn_cast<MemRefType>(op.getSrc().getType());
+    auto origDstMemrefType = dyn_cast<MemRefType>(op.getDst().getType());
+
+    if (!origSrcMemrefType || !origDstMemrefType)
+      return rewriter.notifyMatchFailure(op, "expected memref types");
+
+    // Check if we're dealing with narrow types
+    unsigned oldWidthSrc = origSrcMemrefType.getElementTypeBitWidth();
+    unsigned oldWidthDst = origDstMemrefType.getElementTypeBitWidth();
+    if (oldWidthSrc != 4 || oldWidthDst != 4)
+      return rewriter.notifyMatchFailure(
+          op, "expected 4-bit element types for source and destination for "
+              "GatherToLDS emulation");
+
+    unsigned newWidth = converter->getLoadStoreBitwidth();
+    unsigned scale = newWidth / oldWidthSrc;
+
+    auto convertedSrcMemrefType =
+        dyn_cast<MemRefType>(adaptor.getSrc().getType());
+    auto convertedDstMemrefType =
+        dyn_cast<MemRefType>(adaptor.getDst().getType());
+    assert(newWidth == 8 &&
+           "expected 8-bit element types for narrow type emulation");
+    int64_t numSrcBytes = convertedSrcMemrefType.getNumElements();
+    int64_t numDstBytes = convertedDstMemrefType.getNumElements();
+    int64_t numSrcNibbles = origSrcMemrefType.getNumElements();
+    int64_t numDstNibbles = origDstMemrefType.getNumElements();
+    // Check that transferType is f128 or f32 as currently only 128bit or 32 bit
+    // DirectToLDS is supported.
+    Type transferType = op.getTransferType();
+    if (!transferType.isF128() && !transferType.isF32()) {
+      return op->emitError("Transfer type must be f128 or f32 for GatherToLDS");
+    }
+    // Helper lambda to scale indices for 4-bit type emulation
+    auto scaleIndexForNarrowType = [&](Value lastIndex, int64_t numBytes,
+                                       int64_t numNibbles,
+                                       StringRef errorMsg) -> FailureOr<Value> {
+      // Check if the last index is even (divisible by 2)
+      // It is possible that this is not a compile time constant and it cannot
+      // be matched. Doing runtime checks is very expensive. Given directToLDS
+      // transfers 128 bit or 32 bits, it should be safe to assume that last
+      // co-ord will be even at runtime.
+      APInt indexConst(64, 0);
+      if (matchPattern(lastIndex, m_ConstantInt(&indexConst))) {
+        if (indexConst.urem(2) != 0) {
+          return rewriter.notifyMatchFailure(op, errorMsg);
+        }
+      }
+
+      Type indexType = lastIndex.getType();
+      bool isIndexType = isa<IndexType>(indexType);
+      Value scaleConst;
+      Value numBytesConst;
+      Value nibbleBoundConst;
+
+      if (isIndexType) {
+        scaleConst = rewriter.create<arith::ConstantIndexOp>(loc, scale);
+        numBytesConst = rewriter.create<arith::ConstantIndexOp>(loc, numBytes);
+        nibbleBoundConst =
+            rewriter.create<arith::ConstantIndexOp>(loc, numNibbles);
+      } else {
+        unsigned indexWidth = cast<IntegerType>(indexType).getWidth();
+        scaleConst =
+            rewriter.createOrFold<arith::ConstantIntOp>(loc, scale, indexWidth);
+        numBytesConst = rewriter.createOrFold<arith::ConstantIntOp>(
+            loc, numBytes, indexWidth);
+        nibbleBoundConst = rewriter.createOrFold<arith::ConstantIntOp>(
+            loc, numNibbles, indexWidth);
+      }
+      Value scaledIndex =
+          arith::DivUIOp::create(rewriter, loc, lastIndex, scaleConst);
+
+      // Handle OOB: if the original nibble index was odd and OOB, clamp to next
+      // byte to ensure it stays out of bounds
+      Value nibbleIsOob = rewriter.createOrFold<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::uge, lastIndex, nibbleBoundConst);
+      scaledIndex = rewriter.createOrFold<arith::SelectOp>(
+          loc, nibbleIsOob, numBytesConst, scaledIndex);
+
+      return scaledIndex;
+    };
+
+    // Scale source indices (last index)
+    SmallVector<Value> newSrcIndices(adaptor.getSrcIndices());
+    if (!newSrcIndices.empty()) {
+      auto scaledIndexOrFailure = scaleIndexForNarrowType(
+          newSrcIndices.back(), numSrcBytes, numSrcNibbles,
+          "last source index must be even for 4-bit type emulation");
+      if (failed(scaledIndexOrFailure))
+        return failure();
+      newSrcIndices.back() = scaledIndexOrFailure.value();
+    }
+
+    // Scale destination indices (last index)
+    SmallVector<Value> newDstIndices(adaptor.getDstIndices());
+    if (!newDstIndices.empty()) {
+      auto scaledIndexOrFailure = scaleIndexForNarrowType(
+          newDstIndices.back(), numDstBytes, numDstNibbles,
+          "last destination index must be even for 4-bit type emulation");
+      if (failed(scaledIndexOrFailure))
+        return failure();
+      newDstIndices.back() = scaledIndexOrFailure.value();
+    }
+
+    // Create new GatherToLDSOp with scaled indices
+    rewriter.replaceOpWithNewOp<amdgpu::GatherToLDSOp>(
+        op, adaptor.getSrc(), newSrcIndices, adaptor.getDst(), newDstIndices,
+        op.getTransferTypeAttr());
+
+    return success();
+  }
+};
 } // end namespace
 
 void RockEmulateNarrowTypePass::runOnOperation() {
@@ -262,8 +476,11 @@ void RockEmulateNarrowTypePass::runOnOperation() {
   vector::populateVectorNarrowTypeEmulationPatterns(typeConverter, patterns);
   mhal::populateMHalNarrowTypeEmulationPatterns(typeConverter, patterns);
   patterns.add<RockGpuAllocRewritePattern, BufferLoadRewritePatttern,
-               BufferStoreRewritePatttern>(typeConverter, ctx);
-  patterns.add<ExtractStridedMetadataOpRockGpuAllocFolder>(ctx);
+               BufferStoreRewritePatttern, GatherToLDSRewritePattern,
+               FatRawBufferCastRewritePattern, MemRefViewRewritePattern>(
+      typeConverter, ctx);
+  patterns.add<ExtractStridedMetadataOpRockGpuAllocFolder,
+               ExtractStridedMetadataOpMemRefViewFolder>(ctx);
 
   if (failed(applyPartialConversion(op, target, std::move(patterns))))
     return signalPassFailure();
