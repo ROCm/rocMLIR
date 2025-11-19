@@ -544,13 +544,10 @@ struct MemoryCounterWaitOpLowering
 };
 
 struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
-  LDSBarrierOpLowering(const LLVMTypeConverter &converter, Chipset chipset,
-                       bool hackForDirectToLDS)
-      : ConvertOpToLLVMPattern<LDSBarrierOp>(converter), chipset(chipset),
-        hackForDirectToLDS(hackForDirectToLDS) {}
+  LDSBarrierOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<LDSBarrierOp>(converter), chipset(chipset) {}
 
   Chipset chipset;
-  bool hackForDirectToLDS;
 
   LogicalResult
   matchAndRewrite(LDSBarrierOp op, LDSBarrierOp::Adaptor adaptor,
@@ -588,35 +585,6 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
           /*asm_dialect=*/asmDialectAttr,
           /*operand_attrs=*/ArrayAttr());
     } else if (chipset.majorVersion < 12) {
-      // HACK for direct to LDS
-      if (hackForDirectToLDS) {
-        unsigned vmCnt = 0;
-
-        // Extract low and high bits and combine while setting all other bits to
-        // 1
-        unsigned lowBits = vmCnt & 0xF;
-        unsigned highBits = vmCnt >> 4 << 14;
-        unsigned otherCnts = ~0xC00F; // C00F has bits 15:14 and 3:0 set
-        unsigned waitValue = lowBits | highBits | otherCnts;
-
-        ROCDL::SWaitcntOp::create(rewriter,loc, waitValue);
-
-        constexpr int32_t ldsOnlyBitsGfx6789 = ~(0x1f << 8);
-        constexpr int32_t ldsOnlyBitsGfx10 = ~(0x3f << 8);
-        constexpr int32_t ldsOnlyBitsGfx11 = ~(0x3f << 4);
-        int32_t ldsOnlyBits;
-        if (chipset.majorVersion == 11)
-          ldsOnlyBits = ldsOnlyBitsGfx11;
-        else if (chipset.majorVersion == 10)
-          ldsOnlyBits = ldsOnlyBitsGfx10;
-        else if (chipset.majorVersion <= 9)
-          ldsOnlyBits = ldsOnlyBitsGfx6789;
-        else
-          return op.emitOpError(
-                    "don't know how to lower this for chipset major version")
-                << chipset.majorVersion;
-        ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
-      }
       ROCDL::SBarrierOp::create(rewriter, loc);
     } else {
       ROCDL::BarrierSignalOp::create(rewriter, loc, -1);
@@ -2116,17 +2084,10 @@ struct ConvertAMDGPUToROCDLPass
       emitError(UnknownLoc::get(ctx), "Invalid chipset name: " + chipset);
       return signalPassFailure();
     }
-    // workaround for https://ontrack-internal.amd.com/browse/SWDEV-514726
-    WalkResult walkResult =
-        getOperation()->walk([](amdgpu::GatherToLDSOp) -> WalkResult {
-          return WalkResult::interrupt();
-        });
-    bool hackForDirectToLDS = walkResult.wasInterrupted();
 
     RewritePatternSet patterns(ctx);
     LLVMTypeConverter converter(ctx);
-    populateAMDGPUToROCDLConversionPatterns(converter, patterns, *maybeChipset,
-                                            hackForDirectToLDS);
+    populateAMDGPUToROCDLConversionPatterns(converter, patterns, *maybeChipset);
     LLVMConversionTarget target(getContext());
     target.addIllegalDialect<::mlir::amdgpu::AMDGPUDialect>();
     target.addLegalDialect<::mlir::LLVM::LLVMDialect>();
@@ -2159,8 +2120,7 @@ void mlir::populateAMDGPUMemorySpaceAttributeConversions(
 
 void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                                    RewritePatternSet &patterns,
-                                                   Chipset chipset,
-                                                   bool hackForDirectToLDS) {
+                                                   Chipset chipset) {
   populateAMDGPUMemorySpaceAttributeConversions(converter);
   patterns
       .add<FatRawBufferCastLowering,
@@ -2176,12 +2136,11 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                ROCDL::RawPtrBufferAtomicUminOp>,
            RawBufferOpLowering<RawBufferAtomicCmpswapOp,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
-           AMDGPUDPPLowering, MemoryCounterWaitOpLowering,
+           AMDGPUDPPLowering, MemoryCounterWaitOpLowering, LDSBarrierOpLowering,
            SchedBarrierOpLowering, MFMAOpLowering, ScaledMFMAOpLowering,
            WMMAOpLowering, ExtPackedFp8OpLowering, ScaledExtPackedOpLowering,
            PackedScaledTruncOpLowering, PackedTrunc2xFp8OpLowering,
            PackedStochRoundFp8OpLowering, GatherToLDSOpLowering,
            TransposeLoadOpLowering, AMDGPUPermlaneLowering>(converter, chipset);
-  patterns.add<LDSBarrierOpLowering>(converter, chipset, hackForDirectToLDS);
   patterns.add<AMDGPUSwizzleBitModeLowering>(converter);
 }
