@@ -273,15 +273,15 @@ static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp,
 
 /// The localLoadOp is the load that triggers the dependency, and the
 /// globalLoadOp is the load that is dependent on the localLoadOp.
-std::pair<int, bool> getWaitCount(Operation *localLoadOp,
-                                  Operation *globalLoadOp) {
+FailureOr<std::pair<int, bool>> getWaitCount(Operation *localLoadOp,
+                                             Operation *globalLoadOp) {
   if (!localLoadOp || !globalLoadOp)
-    return {-1, false};
+    return failure();
 
   auto localReadOp = dyn_cast<ThreadwiseReadIntoOp>(localLoadOp);
   auto globalReadOp = dyn_cast<ThreadwiseReadIntoOp>(globalLoadOp);
   if (!localReadOp || !globalReadOp)
-    return {-1, false};
+    return failure();
 
   // Get parent blocks and check for loops
   Block *globalBlock = globalLoadOp->getBlock();
@@ -334,17 +334,18 @@ std::pair<int, bool> getWaitCount(Operation *localLoadOp,
         llvm::dbgs()
         << "Case 3: localLoad in function, globalLoad in loop (epilogue)\n");
     // Always return 0 for epilogue
-    return {0, true};
+    return success(std::make_pair(0, true));
   }
   // Case 4: no pipelining.
   else {
     LLVM_DEBUG(llvm::dbgs() << "Case 4: both in loops (no pipelining)\n");
-    return {0, false};
+    return success(std::make_pair(0, false));
   }
 
   LLVM_DEBUG(llvm::dbgs() << "  waitCount: " << waitCount << "\n");
+  assert(waitCount >= 0 && "Expected waitCount to be non-negative");
 
-  return {waitCount >= 0 ? waitCount : 0, pipeliningEnabled};
+  return success(std::make_pair(waitCount, pipeliningEnabled));
 }
 
 static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
@@ -376,7 +377,8 @@ static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
     });
 
     if (forwardBarrier) {
-      llvm::dbgs() << "Found forward barrier: " << forwardBarrier << "\n";
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Found forward barrier: " << forwardBarrier << "\n");
       return forwardBarrier;
     } else {
       LLVM_DEBUG(llvm::dbgs()
@@ -386,18 +388,18 @@ static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
   }
 }
 
-/// Add AsyncWaitOps to the function. This function has 3 main steps:
+/// Add AsyncWait ops to the function. This function has 3 main steps:
 /// 1. Find all ThreadwiseReadIntoOp operations that write into LDS memory.
 ///    Then, for each of them, call findFirstUseAfter, which will find the first
 ///    op that uses the result of the ThreadwiseReadIntoOp. In essence, this
 ///    gives us the pair of global memory read and the LDS load that depends
 ///    on it.
 /// 2. For each pair of global and local reads, call getWaitCount, which will
-///    return the number of AsyncWaitOps to insert.
+///    return the number of AsyncWait ops to insert.
 /// 3. Once we know the wait count and the pair of reads that depends on each
 ///    other, figure out where to insert the waitcount, which mainly depends on
 ///    whether we are running pipelined or not.
-static LogicalResult addAsyncWait(func::FuncOp &func) {
+static LogicalResult addAsyncWaitOps(func::FuncOp &func) {
   IRRewriter rewriter(func->getContext());
 
   // Find all ThreadwiseReadIntoOp operations
@@ -409,8 +411,8 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
     }
   });
 
-  // Track insertion points to avoid inserting multiple AsyncWaitOps at the same
-  // location
+  // Track insertion points to avoid inserting multiple AsyncWait ops at the
+  // same location
   llvm::DenseSet<Operation *> insertionPoints;
   for (auto readOp : readOps) {
     auto firstUseOr = findFirstUseAfter(readOp, insertionPoints);
@@ -425,16 +427,16 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
 
     Operation *firstUse = *firstUseOr;
 
-    auto [waitCount, pipeliningEnabled] = getWaitCount(firstUse, readOp);
-    if (waitCount == -1) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Failed to get wait count for ThreadwiseReadIntoOp\n");
-      continue;
+    auto waitCountOr = getWaitCount(firstUse, readOp);
+    if (failed(waitCountOr)) {
+      return emitError(readOp.getLoc(),
+                       "Failed to get wait count for ThreadwiseReadIntoOp");
     }
 
+    auto [waitCount, pipeliningEnabled] = *waitCountOr;
     LLVM_DEBUG(llvm::dbgs()
                << "Looking for insertion point for AsyncWaitOp after "
-               << firstUse << "\n");
+               << *firstUse << "\n");
 
     Operation *insertionPoint =
         getInsertionPointForAsyncWait(rewriter, firstUse, pipeliningEnabled);
@@ -469,7 +471,7 @@ void RockAddAsyncWaitPass::runOnOperation() {
     return;
   }
 
-  if (failed(addAsyncWait(func))) {
+  if (failed(addAsyncWaitOps(func))) {
     return signalPassFailure();
   }
 }
