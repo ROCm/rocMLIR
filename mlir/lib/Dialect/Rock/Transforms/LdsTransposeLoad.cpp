@@ -63,37 +63,17 @@ static constexpr LayoutConfig kLayoutConfigs[] = {
 
 // Validates that the block dimensions evenly divide into panels based on the
 // MFMA instruction shape. Returns `true` if valid, otherwise `false`.
-bool validatePaneling(const MfmaInstrShape &shape, OperandKind operandA,
-                      OperandKind operandB, int64_t mPerBlock,
-                      int64_t nPerBlock, int64_t kPerBlock) {
+bool validatePaneling(const MfmaInstrShape &shape, OperandKind operand,
+                      int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock) {
 
   if (kPerBlock % shape.kMfma != 0) {
     return false;
   }
 
-  if (operandA == OperandKind::A && operandB == OperandKind::B) {
-    if (mPerBlock % shape.mnMfma != 0)
-      return false;
-    if (nPerBlock % shape.mnMfma != 0)
-      return false;
-    return true;
-  }
+  int64_t dPerBlock = operand == OperandKind::A ? mPerBlock : nPerBlock;
+  if (dPerBlock % shape.mnMfma != 0)
+    return false;
   return true;
-}
-
-LayoutKind selectLayout(int64_t mnDim, int64_t kDim) {
-  for (const auto &config : kLayoutConfigs) {
-    if (config.mnDim == mnDim && config.kDim == kDim) {
-      return config.kind;
-    }
-  }
-  return LayoutKind::None;
-}
-
-static DecisionLdsTransposeContext LdsTransposeDecison;
-
-DecisionLdsTransposeContext &getDecisionLdsTransposeContext() {
-  return LdsTransposeDecison;
 }
 
 // Analyzes GEMM tiling and MFMA instruction parameters to determine
@@ -101,13 +81,11 @@ DecisionLdsTransposeContext &getDecisionLdsTransposeContext() {
 // Returns a `Decision` struct indicating applicability and layout details.
 Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
                       bool DirectToLds, const MfmaInstrShape &shape,
-                      OperandKind operandA, OperandKind operandB,
-                      int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
-                      int64_t mPerWave, int64_t nPerWave,
+                      OperandKind operand, int64_t mPerBlock, int64_t nPerBlock,
+                      int64_t kPerBlock, int64_t mPerWave, int64_t nPerWave,
                       bool doubleBuffering) {
   Decision dec;
-  dec.operandA = operandA;
-  dec.operandB = operandB;
+  dec.operand = operand;
   dec.mPerBlock = mPerBlock;
   dec.nPerBlock = nPerBlock;
   dec.kPerBlock = kPerBlock;
@@ -140,14 +118,22 @@ Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
     return dec;
   }
 
-  if (!validatePaneling(shape, dec.operandA, dec.operandB, mPerBlock, nPerBlock,
-                        kPerBlock)) {
+  if (!validatePaneling(shape, operand, mPerBlock, nPerBlock, kPerBlock)) {
     return dec;
   }
 
   // If all checks pass, the decision is usable
   dec.usable = true;
   return dec;
+}
+
+LayoutKind selectLayout(int64_t mnDim, int64_t kDim) {
+  for (const auto &config : kLayoutConfigs) {
+    if (config.mnDim == mnDim && config.kDim == kDim) {
+      return config.kind;
+    }
+  }
+  return LayoutKind::None;
 }
 
 StringRef layoutName(LayoutKind kind) {
@@ -157,40 +143,6 @@ StringRef layoutName(LayoutKind kind) {
   return "none";
 }
 
-// Attaches attributes to a `ThreadwiseReadIntoOp` to encode the chosen
-// LDS transpose configuration for later lowering.
-void attachAttributes(Operation *readIntoOp, const Decision &dec,
-                      PatternRewriter &rewriter, bool isA) {
-  if (!dec.usable)
-    return;
-  readIntoOp->setAttr("rock.lds_transpose_enabled", rewriter.getUnitAttr());
-  readIntoOp->setAttr("rock.mfma_layout",
-                      rewriter.getStringAttr(layoutName(dec.layout)));
-
-  if (isA) {
-    readIntoOp->setAttr("rock.operand", rewriter.getStringAttr("A"));
-  } else {
-    readIntoOp->setAttr("rock.operand", rewriter.getStringAttr("B"));
-  }
-
-  readIntoOp->setAttr("rock.mperblock",
-                      rewriter.getI64IntegerAttr(dec.mPerBlock));
-  readIntoOp->setAttr("rock.mperwave",
-                      rewriter.getI64IntegerAttr(dec.mPerWave));
-  readIntoOp->setAttr("rock.nperblock",
-                      rewriter.getI64IntegerAttr(dec.nPerBlock));
-  readIntoOp->setAttr("rock.nperwave",
-                      rewriter.getI64IntegerAttr(dec.nPerWave));
-  readIntoOp->setAttr("rock.kperblock",
-                      rewriter.getI64IntegerAttr(dec.kPerBlock));
-  readIntoOp->setAttr("rock.double_buffering",
-                      rewriter.getBoolAttr(dec.doubleBuffering));
-
-  LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] attachAttributes: enabled layout="
-                          << layoutName(dec.layout) << " doubleBuffering="
-                          << dec.doubleBuffering << "\n");
-}
-
 static LayoutKind layoutFromString(StringRef s) {
   for (const auto &config : kLayoutConfigs) {
     if (config.name == s) {
@@ -198,6 +150,37 @@ static LayoutKind layoutFromString(StringRef s) {
     }
   }
   return LayoutKind::None;
+}
+
+// Helper to get layout dimensions consistently
+static std::pair<int64_t, int64_t> getLayoutDims(LayoutKind kind) {
+  for (const auto &config : kLayoutConfigs) {
+    if (config.kind == kind)
+      return {config.mnDim, config.kDim};
+  }
+  return {0, 0};
+}
+
+// Attaches attributes to a `ThreadwiseReadIntoOp` to encode the chosen
+// LDS transpose configuration for later lowering.
+DictionaryAttr buildTransposeAttr(const Decision &dec, bool isOperandA,
+                                  PatternRewriter &rewriter) {
+  if (!dec.usable)
+    return nullptr;
+
+  NamedAttrList attrs;
+  attrs.append("rock.lds_transpose_enabled", rewriter.getUnitAttr());
+  attrs.append("rock.mfma_layout",
+               rewriter.getStringAttr(layoutName(dec.layout)));
+  attrs.append("rock.operand", rewriter.getStringAttr(isOperandA ? "A" : "B"));
+  attrs.append("rock.mperblock", rewriter.getI64IntegerAttr(dec.mPerBlock));
+  attrs.append("rock.nperblock", rewriter.getI64IntegerAttr(dec.nPerBlock));
+  attrs.append("rock.kperblock", rewriter.getI64IntegerAttr(dec.kPerBlock));
+  attrs.append("rock.mperwave", rewriter.getI64IntegerAttr(dec.mPerWave));
+  attrs.append("rock.nperwave", rewriter.getI64IntegerAttr(dec.nPerWave));
+  attrs.append("rock.double_buffering",
+               rewriter.getBoolAttr(dec.doubleBuffering));
+  return rewriter.getDictionaryAttr(attrs);
 }
 
 // Derived lowering-time configuration extracted from operation attributes.
@@ -247,15 +230,6 @@ LoweringInfo deriveLoweringInfo(ThreadwiseReadIntoOp op, PatternRewriter &b) {
 
   info.usable = true;
   return info;
-}
-
-// Helper to get layout dimensions consistently
-static std::pair<int64_t, int64_t> getLayoutDims(LayoutKind kind) {
-  for (const auto &config : kLayoutConfigs) {
-    if (config.kind == kind)
-      return {config.mnDim, config.kDim};
-  }
-  return {0, 0};
 }
 
 //===----------------------------------------------------------------------===//

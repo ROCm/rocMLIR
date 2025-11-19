@@ -411,12 +411,18 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
+    int64_t mPerBlock = tuningParams.getMPerBlock();
+    int64_t nPerBlock = tuningParams.getNPerBlock();
     bool loadAFromLDS = adaptor.getMatrixA() != nullptr;
     bool loadBFromLDS = adaptor.getMatrixB() != nullptr;
     BlockwiseMatrixParamsAttr matrixParamsA = op.getMatrixParamsA();
     BlockwiseMatrixParamsAttr matrixParamsB = op.getMatrixParamsB();
     Value scaleA = adaptor.getBufferScaleA();
     Value scaleB = adaptor.getBufferScaleB();
+
+    bool allowHWTranspose = op->hasAttr("rock.gemm");
+    if (allowHWTranspose)
+      op->removeAttr("rock.gemm");
     bool isScaledGemm = (scaleA != Value{} && scaleB != Value{});
     Type dataTypeA = matrixParamsA.getElementType();
     Type dataTypeB = matrixParamsB.getElementType();
@@ -436,10 +442,34 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t nRepeats = params.nRepeats;
     int64_t kBase = params.kBase;
     int64_t kBasePerThread = params.kBasePerThread;
+    int64_t kPerBlock = kpackPerBlock * tuningParams.getKpack();
 
     auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
-    // Retrieve the stored lds transpose load decision.
-    auto globalDecisionOpt = hwtranspose::getDecisionLdsTranspose();
+    // Build LDS-transpose attributes for the specific operand (A or B).
+    auto buildTransposeAttr = [&](bool isOperandA) -> DictionaryAttr {
+      if (!allowHWTranspose)
+        return nullptr;
+      const auto &matrixParams = isOperandA ? matrixParamsA : matrixParamsB;
+      bool loadFromLDS = isOperandA ? loadAFromLDS : loadBFromLDS;
+      if (!loadFromLDS || matrixParams.getLDSLayoutDxK())
+        return nullptr;
+      if (auto *mfma =
+              dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get())) {
+        hwtranspose::MfmaInstrShape shape{mfma->getMfmaNonKDim(),
+                                          mfma->getMfmaK()};
+        hwtranspose::Decision decision = hwtranspose::makeDecision(
+            arch, dataTypeA, dataTypeB, matrixParams.getDirectToLDS(), shape,
+            isOperandA ? hwtranspose::OperandKind::A
+                       : hwtranspose::OperandKind::B,
+            mPerBlock, nPerBlock, kPerBlock, mPerWave, nPerWave,
+            /*doubleBuffering=*/false);
+        if (decision.usable)
+          return hwtranspose::buildTransposeAttr(decision, isOperandA, b);
+      }
+      return nullptr;
+    };
+    DictionaryAttr transposeAttrA = buildTransposeAttr(/*isOperandA=*/true);
+    DictionaryAttr transposeAttrB = buildTransposeAttr(/*isOperandA=*/false);
 
     LLVM_DEBUG(llvm::dbgs()
                << "argVectorType A: " << argTypeA << "\n"
@@ -494,8 +524,8 @@ struct BlockwiseGemmAccelRewritePattern
 
     auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
                           Value loopVar, Type argType, int64_t repeats,
-                          bool loadFromLDS, bool directToLDS,
-                          bool isA) -> Value {
+                          bool loadFromLDS, bool directToLDS, bool isA,
+                          DictionaryAttr transposeAttr = nullptr) -> Value {
       Value inputBuffer = buffer;
       SmallVector<int64_t> shape;
       if (directToLDS) {
@@ -532,10 +562,9 @@ struct BlockwiseGemmAccelRewritePattern
             b, loc, wrappedLDSBufferForLoad, viewForReadInto,
             b.getArrayAttr({}), ValueRange{tid, loopVar}, /*forceUnroll=*/true,
             /*useIndexDiffs=*/true);
-        // Apply stored transpose attributes if a valid decision exists.
-        if (globalDecisionOpt &&
-            hwtranspose::isApplicable(*globalDecisionOpt)) {
-          hwtranspose::attachAttributes(twr, *globalDecisionOpt, b, isA);
+        if (transposeAttr) {
+          for (auto namedAttr : transposeAttr)
+            twr->setAttr(namedAttr.getName(), namedAttr.getValue());
         }
       } else {
         if (cast<ShapedType>(buffer.getType()).getRank() == 1) {
@@ -560,9 +589,9 @@ struct BlockwiseGemmAccelRewritePattern
       Value i = mLoop.getInductionVar();
 
       Value bufferA = adaptor.getBufferA();
-      bufferA =
-          loadBuffer(bufferA, wrappedLDSBufferForLoadA, i, argTypeA, mRepeats,
-                     loadAFromLDS, matrixParamsA.getDirectToLDS(), true);
+      bufferA = loadBuffer(
+          bufferA, wrappedLDSBufferForLoadA, i, argTypeA, mRepeats,
+          loadAFromLDS, matrixParamsA.getDirectToLDS(), true, transposeAttrA);
       Value viewA =
           accelEmitterPtr->generateThreadwiseViewBufferA(b, loc, bufferA);
       Value viewScaleA = nullptr, viewScaleB = nullptr;
@@ -575,7 +604,7 @@ struct BlockwiseGemmAccelRewritePattern
         bufferScaleA =
             loadBuffer(bufferScaleA, wrappedLDSBufferForScaleA, i,
                        getElementTypeOrSelf(scaleA), mRepeats, loadAFromLDS,
-                       matrixParamsA.getDirectToLDS(), true);
+                       matrixParamsA.getDirectToLDS(), true, nullptr);
         viewScaleA = accelEmitterPtr->generateThreadwiseViewBufferA(
             b, loc, bufferScaleA);
       }
@@ -589,7 +618,8 @@ struct BlockwiseGemmAccelRewritePattern
         Value bufferB = adaptor.getBufferB();
         bufferB =
             loadBuffer(bufferB, wrappedLDSBufferForLoadB, j, argTypeB, nRepeats,
-                       loadBFromLDS, matrixParamsB.getDirectToLDS(), false);
+                       loadBFromLDS, matrixParamsB.getDirectToLDS(), false,
+                       transposeAttrB);
         Value viewB =
             accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
         if (isScaledGemm) {
@@ -601,7 +631,7 @@ struct BlockwiseGemmAccelRewritePattern
           bufferScaleB =
               loadBuffer(bufferScaleB, wrappedLDSBufferForScaleB, j,
                          getElementTypeOrSelf(scaleB), nRepeats, loadBFromLDS,
-                         matrixParamsB.getDirectToLDS(), false);
+                         matrixParamsB.getDirectToLDS(), false, nullptr);
           viewScaleB = accelEmitterPtr->generateThreadwiseViewBufferB(
               b, loc, bufferScaleB);
         }

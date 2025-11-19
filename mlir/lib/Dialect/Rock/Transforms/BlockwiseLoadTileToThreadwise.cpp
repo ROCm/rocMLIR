@@ -77,7 +77,7 @@ class LoweringBlockwiseLoadTileOp final
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
       bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams,
-      bool isA) const {
+      DictionaryAttr transposeAttr = nullptr) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
@@ -113,14 +113,13 @@ class LoweringBlockwiseLoadTileOp final
       regs = rock::transform(b, regs, b.getArrayAttr({mkRegBuilder.get()}));
     }
 
-    auto globalDecisionOpt = hwtranspose::getDecisionLdsTranspose();
     auto twr = ThreadwiseReadIntoOp::create(b, loc, ldsViewForLoad, regs,
                                             b.getArrayAttr({}), ValueRange{tid},
                                             /*forceUnroll=*/forceUnroll,
                                             /*useIndexDiffs=*/true);
-    // Apply the global decision if it exists and is marked as usable.
-    if (globalDecisionOpt && hwtranspose::isApplicable(*globalDecisionOpt)) {
-      hwtranspose::attachAttributes(twr, *globalDecisionOpt, b, isA);
+    if (transposeAttr) {
+      for (auto namedAttr : transposeAttr)
+        twr->setAttr(namedAttr.getName(), namedAttr.getValue());
     }
   }
 
@@ -164,6 +163,10 @@ class LoweringBlockwiseLoadTileOp final
     bool isA = op.getIsA();
     StringRef dName = isA ? "m" : "n";
 
+    bool allowHWTranspose = op->hasAttr("rock.gemm");
+    if (allowHWTranspose)
+      op->removeAttr("rock.gemm");
+
     bool doRotateWithK = matrixParams.getRotateDWithK();
     bool doSwapThreadIterSubDims = matrixParams.getSwapThreadIterSubDims();
     bool ldsLayoutDxK = matrixParams.getLDSLayoutDxK();
@@ -200,6 +203,29 @@ class LoweringBlockwiseLoadTileOp final
                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
     bool doubleBuffer = loadType == GemmLoadTileType::DoubleBuffer ||
                         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
+    // Decide per operand whether LDS transpose can be applied. We do this
+    // locally so that each lowered ThreadwiseReadIntoOp carries only its own
+    // attributes.
+    DictionaryAttr transposeAttr = nullptr;
+    if (allowHWTranspose) {
+      if (auto *mfma =
+              dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get())) {
+        if (!matrixParams.getLDSLayoutDxK()) {
+          hwtranspose::MfmaInstrShape shape{mfma->getMfmaNonKDim(),
+                                            mfma->getMfmaK()};
+          hwtranspose::Decision decision = hwtranspose::makeDecision(
+              arch, elementTypeA, elementTypeB, matrixParams.getDirectToLDS(),
+              shape,
+              isA ? hwtranspose::OperandKind::A : hwtranspose::OperandKind::B,
+              mPerBlock, nPerBlock, kPerBlock, tuningParams.getMPerWave(),
+              tuningParams.getNPerWave(), doubleBuffer);
+          if (decision.usable)
+            transposeAttr = hwtranspose::buildTransposeAttr(decision, isA, b);
+        }
+      }
+    }
+
     FailureOr<VectorDimInfo> maybeVecDimInfo =
         getVectorDim(loc, source, elementTypeLoad, blockSize, kPerBlock,
                      dPerBlock, kpack, directToLDS);
@@ -412,7 +438,7 @@ class LoweringBlockwiseLoadTileOp final
 
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
                            destRegisters, blockSize, forceUnroll, matrixParams,
-                           isA);
+                           transposeAttr);
           if (stageLDSReadNew)
             rock::YieldOp::create(b, loc);
         }

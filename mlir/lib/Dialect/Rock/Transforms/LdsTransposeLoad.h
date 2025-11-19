@@ -50,8 +50,7 @@ struct MfmaInstrShape {
 struct Decision {
   bool usable{false};
   LayoutKind layout{LayoutKind::None};
-  OperandKind operandA{OperandKind::A};
-  OperandKind operandB{OperandKind::B};
+  OperandKind operand{OperandKind::A};
   int64_t mPerBlock{1};
   int64_t nPerBlock{1};
   int64_t kPerBlock{1};
@@ -60,39 +59,21 @@ struct Decision {
   bool doubleBuffering{false};
 };
 
-struct DecisionLdsTransposeContext {
-  std::optional<Decision> currentDecision;
-};
-
-// Global accessor for shared decision state during codegen.
-DecisionLdsTransposeContext &getDecisionLdsTransposeContext();
-
-inline void setDecisionLdsTranspose(const Decision &dec) {
-  getDecisionLdsTransposeContext().currentDecision = dec;
-}
-
-inline std::optional<Decision> getDecisionLdsTranspose() {
-  return getDecisionLdsTransposeContext().currentDecision;
-}
-
 // The main decision-making function. It analyzes the GEMM parameters and
 // returns a Decision struct indicating if the optimization is applicable and
 // with which paneling configuration.
 Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
                       bool DirectToLds, const MfmaInstrShape &shape,
-                      OperandKind operandA, OperandKind operandB,
-                      int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
-                      int64_t mPerWave, int64_t nPerWave, bool doubleBuffering);
-
-// A convenience wrapper around makeDecision to quickly check for applicability.
-inline bool isApplicable(const Decision &dec) { return dec.usable; }
+                      OperandKind operand, int64_t mPerBlock, int64_t nPerBlock,
+                      int64_t kPerBlock, int64_t mPerWave, int64_t nPerWave,
+                      bool doubleBuffering);
 
 // Select a layout kind based on the MFMA instruction shape.
 LayoutKind selectLayout(int64_t nonKDim, int64_t instrK);
 
 // Attach attributes to the ThreadwiseReadIntoOp based on the decision.
-void attachAttributes(Operation *readIntoOp, const Decision &dec,
-                      PatternRewriter &rewriter, bool isA);
+DictionaryAttr buildTransposeAttr(const Decision &dec, bool isOperandA,
+                                  PatternRewriter &rewriter);
 
 // Lowering-time description.
 struct LoweringInfo {

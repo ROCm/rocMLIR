@@ -33,8 +33,6 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
-#include "GridLayoutEmitter.h"
-#include "LdsTransposeLoad.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -42,7 +40,6 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Transforms.h"
 #include "mlir/Dialect/Utils/IndexingUtils.h"
@@ -57,6 +54,9 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/RegionUtils.h"
+
+#include "GridLayoutEmitter.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -87,14 +87,15 @@ struct RockGridwiseGemmToBlockwisePass
 
 } // end anonymous namespace
 
-static void blockwiseGemmAccel(
+static BlockwiseGemmAccelOp blockwiseGemmAccel(
     PatternRewriter &rewriter, Location loc, GemmLoadTileType loadTypeA,
     GemmLoadTileType loadTypeB, Value bufferA, Value bufferB, Value matrixC,
     const BlockwiseMatrixParamsAttr &matrixParamsA,
     const BlockwiseMatrixParamsAttr &matrixParamsB, Value matrixAInput,
     Value matrixBInput, Value scaleA, Value scaleB, Value bufferScaleA,
     Value bufferScaleB, GemmFeaturesAttr &features, IntegerAttr blockSize,
-    const RockAccelTuningParamAttrInterface &params) {
+    const RockAccelTuningParamAttrInterface &params,
+    bool enableHWTranspose = false) {
   // only pass LDS if BlockwiseGemmAccelOp will load from LDS
   Value matrixA = nullptr;
   if (loadTypeA == GemmLoadTileType::Default ||
@@ -109,11 +110,13 @@ static void blockwiseGemmAccel(
     assert(matrixB != nullptr);
   }
 
-  BlockwiseGemmAccelOp::create(rewriter, loc, bufferA, bufferB, matrixC,
-                               matrixParamsA, matrixParamsB, matrixA, matrixB,
-
-                               scaleA, scaleB, bufferScaleA, bufferScaleB,
-                               features, blockSize, params);
+  auto gemmOp = BlockwiseGemmAccelOp::create(
+      rewriter, loc, bufferA, bufferB, matrixC, matrixParamsA, matrixParamsB,
+      matrixA, matrixB, scaleA, scaleB, bufferScaleA, bufferScaleB, features,
+      blockSize, params);
+  if (enableHWTranspose)
+    gemmOp->setAttr("rock.gemm", rewriter.getUnitAttr());
+  return gemmOp;
 }
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
@@ -144,19 +147,22 @@ static void loadAndStoreGemmInputTile(
     const RockAccelTuningParamAttrInterface &gemmTuningParams,
     const GemmFeaturesAttr &featuresAttr,
     const BlockwiseMatrixParamsAttr &matrixParamsA,
-    const BlockwiseMatrixParamsAttr &matrixParamsB) {
+    const BlockwiseMatrixParamsAttr &matrixParamsB,
+    bool enableHWTranspose = false) {
   UnitAttr isA = nonKDimName == "m" ? rewriter.getUnitAttr() : nullptr;
   auto loadTypeAttr =
       GemmLoadTileTypeAttr::get(rewriter.getContext(), loadType);
 
   // Load from global memory to LDS or register buffer.
-  BlockwiseLoadTileOp::create(
+  auto blockwiseLoad = BlockwiseLoadTileOp::create(
       rewriter, loc, in, destLDS, destRegs, loadTypeAttr,
       TypeAttr::get(elementType), TypeAttr::get(elementLoadType), matrixParamsA,
       matrixParamsB, isA,
       ValueRange{kIter, gridCoords.g_block, gridCoords.m_block,
                  gridCoords.n_block, tid},
       featuresAttr, rewriter.getI32IntegerAttr(blockSize), gemmTuningParams);
+  if (enableHWTranspose)
+    blockwiseLoad->setAttr("rock.gemm", rewriter.getUnitAttr());
 }
 
 static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
@@ -2369,7 +2375,7 @@ struct GridwiseAttentionAccelRewritePattern
             }
           }
 
-          blockwiseGemmAccel(
+          (void)blockwiseGemmAccel(
               rewriter, loc, loadType, loadTypeQ, preAccelRegBufferK,
               preAccelRegBuffersQ, accRegBufferGemm0, matrixParamsK,
               matrixParamsQ, ldsTileBufferK, ldsTileBufferQ,
@@ -2644,7 +2650,7 @@ struct GridwiseAttentionAccelRewritePattern
             auto loadTypeKxD = doBypassLDSSecondGemm
                                    ? GemmLoadTileType::BypassLDS
                                    : GemmLoadTileType::Default;
-            blockwiseGemmAccel(
+            (void)blockwiseGemmAccel(
                 rewriter, loc, loadType, loadTypeKxD, preAccelRegBufferV,
                 preAccelRegBufferQxK, matrixC, matrixParamsV, matrixParamsKxQ,
                 ldsTileBufferV, gemm1LDSBufferB,
@@ -3098,36 +3104,6 @@ struct GridwiseGemmAccelRewritePattern
               doubleBuffering ? params.nRepeats : 1, directToLDS);
     }
 
-    hwtranspose::Decision decision;
-    auto *mfma = dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get());
-    // Only compute a transpose decision if both layouts are DxK disabled.
-    if (mfma && !ldsLayoutConfigA.ldsLayoutDxK &&
-        !ldsLayoutConfigB.ldsLayoutDxK) {
-      hwtranspose::MfmaInstrShape shape{mfma->getMfmaNonKDim(),
-                                        mfma->getMfmaK()};
-      decision = hwtranspose::makeDecision(
-          arch, elementTypeA, elementTypeB, directToLDS, shape,
-          hwtranspose::OperandKind::A, hwtranspose::OperandKind::B, mPerBlock,
-          nPerBlock, kPerBlock, mPerWave, nPerWave, doubleBuffering);
-
-      // Only store the decision if the LDS transpose optimization is usable.
-      if (decision.usable) {
-        hwtranspose::setDecisionLdsTranspose(decision);
-        LLVM_DEBUG(llvm::dbgs()
-                   << "LDS transpose optimization enabled: layout="
-                   << hwtranspose::layoutName(decision.layout) << "\n");
-      } else {
-        LLVM_DEBUG(llvm::dbgs() << "LDS transpose optimization not applicable"
-                                << " (decision.usable=false)\n");
-      }
-    } else {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "LDS transpose skipped: "
-                 << "mfma=" << (mfma != nullptr)
-                 << ", DxK_A=" << ldsLayoutConfigA.ldsLayoutDxK
-                 << ", DxK_B=" << ldsLayoutConfigB.ldsLayoutDxK << "\n");
-    }
-
     // Emit loop.
     Value nIterations = ConstantIndexOp::create(b, loc, K / kPerBlock);
 
@@ -3142,12 +3118,12 @@ struct GridwiseGemmAccelRewritePattern
                                 ldsByteBufferB, arrayBForLoad, loadType, "n",
                                 blockSize, elementTypeB, elementTypeBLoad,
                                 op.getParamsAttr(), featuresAttr, matrixParamsA,
-                                matrixParamsB);
+                                matrixParamsB, /*enableHWTranspose=*/true);
       loadAndStoreGemmInputTile(b, loc, matA, /*kiter=*/iv, tid, gridCoords,
                                 ldsByteBufferA, arrayAForLoad, loadType, "m",
                                 blockSize, elementTypeA, elementTypeALoad,
                                 op.getParamsAttr(), featuresAttr, matrixParamsA,
-                                matrixParamsB);
+                                matrixParamsB, /*enableHWTranspose=*/true);
       if (isScaledGemm) {
         loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, tid, gridCoords,
                                   ldsByteBufferScaleB, arrayScaleBForLoad,
@@ -3172,7 +3148,8 @@ struct GridwiseGemmAccelRewritePattern
             matrixParamsA, matrixParamsB, ldsViewForGemmA, ldsViewForGemmB,
             /*scaleA=*/ldsViewForGemmScaleA, /*scaleB=*/ldsViewForGemmScaleB,
             /*bufferScaleA=*/arrayScaleA, /*bufferScaleB=*/arrayScaleB,
-            featuresAttr, op.getBlockSizeAttr(), op.getParamsAttr());
+            featuresAttr, op.getBlockSizeAttr(), op.getParamsAttr(),
+            /*enableHWTranspose=*/true);
         YieldOp::create(b, loc);
       }
     }
