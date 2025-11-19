@@ -411,10 +411,11 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
     auto firstUseOr = findFirstUseAfter(readOp, insertionPoints);
 
     if (failed(firstUseOr)) {
-      // If pattern doesn't match or no use found, skip this readOp
-      LLVM_DEBUG(llvm::dbgs() << "Pattern doesn't match or no use found for "
-                                 "ThreadwiseReadIntoOp\n");
-      continue;
+      // If pattern doesn't match or no use found, fail.
+      return emitError(readOp.getLoc(),
+                       "No use found for ThreadwiseReadIntoOp. Is there a "
+                       "ThreadwiseReadIntoOp that writes to LDS but none is "
+                       "reading from it?");
     }
 
     Operation *firstUse = *firstUseOr;
