@@ -43,6 +43,81 @@ struct RockAddAsyncWaitPass
 };
 } // end anonymous namespace
 
+/// Check if a ThreadwiseReadIntoOp reads from global memory (no GPU address
+/// space).
+static bool isGlobalLoad(ThreadwiseReadIntoOp readOp) {
+  auto sourceMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      readOp.getSource().getType().getMemorySpace());
+  return !sourceMemSpace;
+}
+
+static bool hasLDSAddressSpace(gpu::AddressSpaceAttr spaceAttr) {
+  return spaceAttr &&
+         spaceAttr.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace();
+}
+
+/// Check if a ThreadwiseReadIntoOp reads from LDS (workgroup address space).
+static bool isLDSLoad(ThreadwiseReadIntoOp readOp) {
+  auto sourceMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      readOp.getSource().getType().getMemorySpace());
+  return hasLDSAddressSpace(sourceMemSpace);
+}
+
+// Check if a ThreadwiseReadIntoOp writes to LDS (workgroup address space).
+static bool isLDSWrite(ThreadwiseReadIntoOp readOp) {
+  auto destMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
+      readOp.getDest().getType().getMemorySpace());
+  return hasLDSAddressSpace(destMemSpace);
+}
+
+/// Check if an operation should be skipped when looking for reads after
+/// startOp.
+static bool shouldSkipOperation(Operation *op, Operation *startOp,
+                                llvm::DenseSet<Operation *> &insertionPoints) {
+  // Skip if it's thesame as startOp, or already has insertion point
+  if (op == startOp || insertionPoints.contains(op)) {
+    LLVM_DEBUG(llvm::dbgs() << "Skipping op because it's already been used: "
+                            << *op << "\n");
+    return true;
+  }
+  // If in the same block, skip if before startOp
+  if (op->getBlock() == startOp->getBlock() && op->isBeforeInBlock(startOp)) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Skipping op because it's before startOp: " << *op << "\n");
+    return true;
+  }
+  return false;
+}
+
+/// Compare two operations to determine which comes first in program order.
+/// Returns true if op1 comes before op2, false otherwise.
+static bool comesBeforeInProgramOrder(Operation *op1, Operation *op2) {
+  Block *block1 = op1->getBlock();
+  Block *block2 = op2->getBlock();
+
+  // Same block: use isBeforeInBlock for ordering
+  if (block1 == block2) {
+    return op1->isBeforeInBlock(op2);
+  }
+
+  // Different blocks: check if one is nested inside the other
+  Operation *parent1 = block1->getParentOp();
+  Operation *parent2 = block2->getParentOp();
+
+  // Check if block1 is nested inside block2's region
+  if (parent1 && parent1->getBlock() == block2) {
+    return parent1->isBeforeInBlock(op2);
+  }
+
+  // Check if block2 is nested inside block1's region
+  if (parent2 && parent2->getBlock() == block1) {
+    return op1->isBeforeInBlock(parent2);
+  }
+
+  // If neither is nested in the other, we can't determine ordering
+  return false;
+}
+
 /// Traverse forward from a value to find ThreadwiseReadIntoOps that read from
 /// LDS. Returns the first one found in program order.
 static ThreadwiseReadIntoOp
@@ -75,75 +150,22 @@ findFirstReadFromLDS(Value value, Operation *startOp,
 
     // Check all users of this value
     for (Operation *user : current.getUsers()) {
-      // If this is a ThreadwiseReadIntoOp, check if it reads FROM LDS
       if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(user)) {
-        // Check if source is LDS (workgroup address space)
-        auto sourceMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-            readOp.getSource().getType().getMemorySpace());
-        if (sourceMemSpace && sourceMemSpace.getValue() ==
-                                  gpu::GPUDialect::getWorkgroupAddressSpace()) {
-          // This reads FROM LDS, check if it's after startOp
-          // Skip if: no startOp, same as startOp, already has insertion point,
-          // or in same block and before startOp
-          if (!startOp || user == startOp || insertionPoints.contains(user)) {
-            LLVM_DEBUG(llvm::dbgs()
-                       << "Skipping readOp because it's already been used: "
-                       << *readOp << "\n");
-            continue;
-          }
-          // If in the same block, skip if before startOp
-          if (user->getBlock() == startOp->getBlock() &&
-              user->isBeforeInBlock(startOp)) {
-            LLVM_DEBUG(llvm::dbgs()
-                       << "Skipping readOp because it's before startOp: "
-                       << *readOp << "\n");
-            continue;
-          }
-          // Found a read after startOp, track the first one in program order
-          if (!firstReadOp) {
-            firstRead = readOp;
-            firstReadOp = user;
-          } else if (user->getBlock() == firstReadOp->getBlock()) {
-            // Same block: use isBeforeInBlock for ordering
-            if (user->isBeforeInBlock(firstReadOp)) {
-              firstRead = readOp;
-              firstReadOp = user;
-            }
-          } else {
-            // Different blocks: check if one is nested inside the other
-            Block *userBlock = user->getBlock();
-            Block *firstReadBlock = firstReadOp->getBlock();
+        // Only consider reads from LDS.
+        if (!isLDSLoad(readOp)) {
+          continue;
+        }
 
-            // Check if firstReadBlock is nested inside userBlock's region
-            Operation *firstReadParentOp = firstReadBlock->getParentOp();
-            if (firstReadParentOp &&
-                firstReadParentOp->getBlock() == userBlock) {
-              // firstReadBlock is nested in userBlock, compare
-              // firstReadParentOp with user
-              if (firstReadParentOp->isBeforeInBlock(user)) {
-                // firstReadParentOp comes before user, so firstReadOp comes
-                // first Don't update, keep current firstRead
-              } else {
-                // user comes before firstReadParentOp, so user comes first
-                firstRead = readOp;
-                firstReadOp = user;
-              }
-            }
-            // Check if userBlock is nested inside firstReadBlock's region
-            else if (Operation *userParentOp = userBlock->getParentOp()) {
-              if (userParentOp->getBlock() == firstReadBlock) {
-                // userBlock is nested in firstReadBlock, compare userParentOp
-                // with firstReadOp
-                if (userParentOp->isBeforeInBlock(firstReadOp)) {
-                  // userParentOp comes before firstReadOp, so user comes first
-                  firstRead = readOp;
-                  firstReadOp = user;
-                }
-                // Otherwise firstReadOp comes first, don't update
-              }
-            }
-            // If neither is nested in the other, don't update firstRead
-          }
+        // We may want to skip an op if its after the startOp, or if it has
+        // already been used before.
+        if (shouldSkipOperation(user, startOp, insertionPoints)) {
+          continue;
+        }
+
+        // Found a read after startOp, track the first one in program order
+        if (!firstReadOp || comesBeforeInProgramOrder(user, firstReadOp)) {
+          firstRead = readOp;
+          firstReadOp = user;
         }
       }
       // If this is a view-like operation, follow its result
@@ -153,10 +175,6 @@ findFirstReadFromLDS(Value value, Operation *startOp,
       // If this is an extract_multibuffer, follow its result
       else if (auto extractOp = dyn_cast<rock::ExtractMultiBufferOp>(user)) {
         addToWorklist(extractOp.getResult());
-      }
-      // If this is a transform operation, follow its result
-      else if (auto transformOp = dyn_cast<rock::TransformOp>(user)) {
-        addToWorklist(transformOp.getResult());
       }
     }
   }
@@ -213,15 +231,6 @@ findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
   return firstRead.getOperation();
 }
 
-/// Check if a ThreadwiseReadIntoOp reads from global memory (no GPU address
-/// space).
-static bool isGlobalLoad(ThreadwiseReadIntoOp readOp) {
-  auto sourceMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-      readOp.getSource().getType().getMemorySpace());
-  // Global memory has no address space attribute (or it's null)
-  return !sourceMemSpace;
-}
-
 /// Count global loads (ThreadwiseReadIntoOp from global to LDS) between two
 /// operations in a block. Counts operations from startOp (exclusive) to endOp
 /// (exclusive). If startOp is nullptr, counts from the beginning of the block.
@@ -244,11 +253,8 @@ static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp,
         // Check if it reads from global memory
         if (!isGlobalLoad(readOp))
           continue;
-        // Check if it writes to LDS
-        auto destMemSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-            readOp.getDest().getType().getMemorySpace());
-        if (destMemSpace && destMemSpace.getValue() ==
-                                gpu::GPUDialect::getWorkgroupAddressSpace()) {
+
+        if (isLDSWrite(readOp)) {
           auto maybeLoopCount =
               rock::predictThreadwiseReadIntoLoopCount(readOp);
           if (failed(maybeLoopCount)) {
@@ -394,10 +400,7 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
   SmallVector<rock::ThreadwiseReadIntoOp> readOps;
   func.walk([&](rock::ThreadwiseReadIntoOp op) {
     // Only add reads that write into LDS memory
-    auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-        op.getDest().getType().getMemorySpace());
-    if (memSpace &&
-        memSpace.getValue() == gpu::GPUDialect::getWorkgroupAddressSpace()) {
+    if (isLDSWrite(op)) {
       readOps.push_back(op);
     }
   });
