@@ -236,8 +236,7 @@ findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
 static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp,
                                    Block *block) {
   int count = 0;
-  bool counting =
-      (startOp == nullptr); // If startOp is nullptr, start counting immediately
+  bool counting = false;
 
   for (Operation &op : *block) {
     if (startOp && &op == startOp) {
@@ -247,28 +246,23 @@ static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp,
     if (endOp && &op == endOp) {
       break; // Stop counting at endOp
     }
-    if (counting) {
-      if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
-        // Check if it reads from global memory
-        if (!isGlobalLoad(readOp))
-          continue;
-
-        if (isLDSWrite(readOp)) {
-          auto maybeLoopCount =
-              rock::predictThreadwiseReadIntoLoopCount(readOp);
-          if (failed(maybeLoopCount)) {
-            // If we failed to predict the loop count, we don't know how many
-            // global loads are between the two operations, so we count at least
-            // one.
-            LLVM_DEBUG(
-                llvm::dbgs()
-                << "Failed to predict loop count for ThreadwiseReadIntoOp: "
-                << *readOp << "\n");
-            count++;
-          } else {
-            count += maybeLoopCount.value();
-          }
+    if (!counting) {
+      continue;
+    }
+    if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
+      // Check if it reads from global memory
+      if (isGlobalLoad(readOp) && isLDSWrite(readOp)) {
+        auto maybeLoopCount = rock::predictThreadwiseReadIntoLoopCount(readOp);
+        if (failed(maybeLoopCount)) {
+          // If we failed to predict the loop count, we don't know how many
+          // global loads are between the two operations, so we will be
+          // conservative and assume it will lower to just one global load.
+          LLVM_DEBUG(
+              llvm::dbgs()
+              << "Failed to predict loop count for ThreadwiseReadIntoOp: "
+              << *readOp << "\n");
         }
+        count += maybeLoopCount.value_or(1);
       }
     }
   }
@@ -290,6 +284,7 @@ std::pair<int, bool> getWaitCount(Operation *localLoadOp,
 
   // Get parent blocks and check for loops
   Block *globalBlock = globalLoadOp->getBlock();
+  assert(globalBlock && "Expected global load op to be in a block");
 
   scf::ForOp localLoop = localLoadOp->getParentOfType<scf::ForOp>();
   scf::ForOp globalLoop = globalLoadOp->getParentOfType<scf::ForOp>();
