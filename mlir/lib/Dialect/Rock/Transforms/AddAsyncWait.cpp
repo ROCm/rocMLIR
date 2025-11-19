@@ -232,14 +232,15 @@ findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
 
 /// Count global loads (ThreadwiseReadIntoOp from global to LDS) between two
 /// operations in a block. Counts operations from startOp (exclusive) to endOp
-/// (exclusive). If startOp is nullptr, counts from the beginning of the block.
+/// (exclusive). If countFromStart is true, counts from the beginning of the
+/// block, ignoring startOp (which would be nullptr).
 static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp,
-                                   Block *block) {
+                                   Block *block, bool countFromStart) {
   int count = 0;
-  bool counting = false;
+  bool counting = countFromStart;
 
   for (Operation &op : *block) {
-    if (startOp && &op == startOp) {
+    if (!countFromStart && startOp && &op == startOp) {
       counting = true;
       continue; // Start counting after startOp
     }
@@ -302,7 +303,8 @@ std::pair<int, bool> getWaitCount(Operation *localLoadOp,
            "Expected global and local load ops to be in the same block");
     LLVM_DEBUG(llvm::dbgs() << "Case 1: Both in function (prologue)\n");
     // Count global loads between globalLoadOp and localLoadOp in the same block
-    waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock);
+    waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock,
+                                        /*countFromStart=*/false);
     pipeliningEnabled = true;
   }
   // Case 2: localLoad in loop, globalLoad in function - body
@@ -314,14 +316,16 @@ std::pair<int, bool> getWaitCount(Operation *localLoadOp,
     Block *loopOpBlock = localLoop->getBlock();
     if (loopOpBlock == globalBlock) {
       waitCount += countGlobalLoadsBetween(
-          globalLoadOp, localLoop.getOperation(), globalBlock);
+          globalLoadOp, localLoop.getOperation(), globalBlock,
+          /*countFromStart=*/false);
     }
 
     // Count from the start of the loop body block to localLoadOp
     assert(localLoop.getLoopRegions().size() == 1 &&
            "Expected local loop to have exactly one region");
     Block *loopBody = &localLoop.getLoopRegions().front()->front();
-    waitCount += countGlobalLoadsBetween(nullptr, localLoadOp, loopBody);
+    waitCount += countGlobalLoadsBetween(nullptr, localLoadOp, loopBody,
+                                         /*countFromStart=*/true);
     pipeliningEnabled = true;
   }
   // Case 3: localLoad in function, globalLoad in loop - epilogue
