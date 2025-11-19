@@ -1,5 +1,5 @@
-// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --rock-add-async-wait --split-input-file --verify-diagnostics | FileCheck %s
-func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf16>, %arg2: memref<3145728xbf16>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 768 : i32, kernel, arch = "##TOKEN_ARCH##", num_cu = 256 : i64} {
+// RUN: rocmlir-opt --rock-add-async-wait --split-input-file --verify-diagnostics %s | FileCheck %s
+func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf16>, %arg2: memref<3145728xbf16>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 768 : i32, kernel, arch = "gfx950:sramecc+:xnack-", num_cu = 256 : i64} {
   %c11 = arith.constant 11 : index
   %c2 = arith.constant 2 : index
   %c10 = arith.constant 10 : index
@@ -221,7 +221,7 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
 
 // -----
 
-func.func @gemm_no_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf16>, %arg2: memref<3145728xbf16>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 768 : i32, kernel, arch = "##TOKEN_ARCH##", num_cu = 256 : i64} {
+func.func @gemm_no_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf16>, %arg2: memref<3145728xbf16>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 768 : i32, kernel, arch = "gfx950:sramecc+:xnack-", num_cu = 256 : i64} {
   %c1 = arith.constant 1 : index
   %c12 = arith.constant 12 : index
   %cst = arith.constant dense<0.000000e+00> : vector<16xf32>
@@ -316,7 +316,7 @@ func.func @gemm_no_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296
 
 // -----
 
-func.func @async_wait_simple_test(%arg0: memref<4x256xf32>, %arg1: memref<4x256xf32>, %arg2: memref<4x256xf32>, %arg3: memref<4x256xf32>) attributes {arch = "##TOKEN_ARCH##", block_size = 256 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 1 : i32, kernel, num_cu = 256 : i64} {
+func.func @async_wait_simple_test(%arg0: memref<4x256xf32>, %arg1: memref<4x256xf32>, %arg2: memref<4x256xf32>, %arg3: memref<4x256xf32>) attributes {arch = "gfx950:sramecc+:xnack-", block_size = 256 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 1 : i32, kernel, num_cu = 256 : i64} {
   %tid = rock.workitem_id : index
   %1 = rock.alloc() : memref<1x256xf32, #gpu.address_space<workgroup>>
   %2 = rock.alloc() : memref<1x256xf32, #gpu.address_space<workgroup>>
@@ -348,7 +348,7 @@ func.func @async_wait_simple_test(%arg0: memref<4x256xf32>, %arg1: memref<4x256x
 
 // -----
 
-func.func @async_wait_error(%arg0: memref<4x256xf32>, %arg1: memref<4x256xf32>, %arg2: memref<4x256xf32>, %arg3: memref<4x256xf32>) attributes {arch = "##TOKEN_ARCH##", block_size = 256 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 1 : i32, kernel, num_cu = 256 : i64} {
+func.func @async_wait_error(%arg0: memref<4x256xf32>, %arg1: memref<4x256xf32>, %arg2: memref<4x256xf32>, %arg3: memref<4x256xf32>) attributes {arch = "gfx950:sramecc+:xnack-", block_size = 256 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 1 : i32, kernel, num_cu = 256 : i64} {
   %tid = rock.workitem_id : index
   %1 = rock.alloc() : memref<1x256xf32, #gpu.address_space<workgroup>>
   
