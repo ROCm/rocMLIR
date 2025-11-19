@@ -22,12 +22,12 @@ class FileWriter():
         """
         Parses a perfconfigs in expected input format
         """
-        perfconfig_str = perfconfig_str.replace('v3:', '')
+        perfconfig_str = perfconfig_str.replace('v4:', '')
         config_values = perfconfig_str.split(',')
         total_values = len(config_values)
         converted_values = []
         for idx, value in enumerate(config_values):
-            if idx > total_values - 3 and total_values == 11:
+            if idx > total_values - 3 and total_values == 12:
                 if value == '1':
                     converted_values.append('true')
                 else:
