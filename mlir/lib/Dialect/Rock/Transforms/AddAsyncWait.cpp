@@ -284,16 +284,22 @@ std::pair<int, bool> getWaitCount(Operation *localLoadOp,
 
   // Get parent blocks and check for loops
   Block *globalBlock = globalLoadOp->getBlock();
+  Block *localBlock = localLoadOp->getBlock();
   assert(globalBlock && "Expected global load op to be in a block");
+  assert(localBlock && "Expected local load op to be in a block");
 
-  scf::ForOp localLoop = localLoadOp->getParentOfType<scf::ForOp>();
-  scf::ForOp globalLoop = globalLoadOp->getParentOfType<scf::ForOp>();
+  LoopLikeOpInterface localLoop =
+      localLoadOp->getParentOfType<LoopLikeOpInterface>();
+  LoopLikeOpInterface globalLoop =
+      globalLoadOp->getParentOfType<LoopLikeOpInterface>();
 
   int waitCount = 0;
   bool pipeliningEnabled = false;
 
   // Case 1: Both have the same parent block (function) - prologue
   if (!localLoop && !globalLoop) {
+    assert(globalBlock == localBlock &&
+           "Expected global and local load ops to be in the same block");
     LLVM_DEBUG(llvm::dbgs() << "Case 1: Both in function (prologue)\n");
     // Count global loads between globalLoadOp and localLoadOp in the same block
     waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock);
@@ -310,11 +316,11 @@ std::pair<int, bool> getWaitCount(Operation *localLoadOp,
       waitCount += countGlobalLoadsBetween(
           globalLoadOp, localLoop.getOperation(), globalBlock);
     }
-    // Note: If loopOpBlock != globalBlock, we'd need to handle cross-block
-    // counting, but in typical cases they should be in the same block
 
     // Count from the start of the loop body block to localLoadOp
-    Block *loopBody = localLoop.getBody();
+    assert(localLoop.getLoopRegions().size() == 1 &&
+           "Expected local loop to have exactly one region");
+    Block *loopBody = &localLoop.getLoopRegions().front()->front();
     waitCount += countGlobalLoadsBetween(nullptr, localLoadOp, loopBody);
     pipeliningEnabled = true;
   }
