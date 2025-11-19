@@ -199,6 +199,12 @@ FailureOr<rock::GpuAllocOp> findGpuAlloc(Value value);
 // `memref::AllocOp` or fails.
 FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
 
+/// Trace back a value to find all GpuAllocOps it originates from.
+/// Handles views, extract_multibuffer, and transform operations.
+/// Returns all allocs that could be the source (for extract_multibuffer with
+/// multiple buffers).
+SmallVector<rock::GpuAllocOp> findAllGpuAllocs(Value value);
+
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
 

@@ -43,57 +43,6 @@ struct RockAddAsyncWaitPass
 };
 } // end anonymous namespace
 
-/// Trace back a value to find all GpuAllocOps it originates from.
-/// Handles views, extract_multibuffer, and transform operations.
-/// Returns all allocs that could be the source (for extract_multibuffer with
-/// multiple buffers).
-static SmallVector<rock::GpuAllocOp> traceToAllocs(Value value) {
-  SmallVector<rock::GpuAllocOp> allocs;
-  SmallVector<Value> worklist;
-  llvm::DenseSet<Value> visited;
-
-  auto addToWorklist = [&](Value v) {
-    if (visited.insert(v).second) {
-      worklist.push_back(v);
-    }
-  };
-
-  addToWorklist(value);
-
-  while (!worklist.empty()) {
-    Value current = worklist.pop_back_val();
-    auto *curOp = current.getDefiningOp();
-
-    if (!curOp) {
-      // Value doesn't have a defining op (e.g., block argument), skip it
-      continue;
-    }
-
-    if (auto allocOp = dyn_cast<rock::GpuAllocOp>(curOp)) {
-      allocs.push_back(allocOp);
-      continue;
-    }
-
-    // Keep going until the operation that defines the value is a
-    // view-like operation
-    if (auto viewOp = dyn_cast<ViewLikeOpInterface>(curOp)) {
-      addToWorklist(viewOp.getViewSource());
-    } else if (auto extractMultiBufferOp =
-                   dyn_cast<rock::ExtractMultiBufferOp>(curOp)) {
-      // For extract_multibuffer, check all buffers since reads might use any of
-      // them
-      auto buffers = extractMultiBufferOp.getBuffers();
-      for (auto buffer : buffers) {
-        addToWorklist(buffer);
-      }
-    } else if (auto transformOp = dyn_cast<rock::TransformOp>(curOp)) {
-      addToWorklist(transformOp.getInput());
-    }
-  }
-
-  return allocs;
-}
-
 /// Traverse forward from a value to find ThreadwiseReadIntoOps that read from
 /// LDS. Returns the first one found in program order.
 static ThreadwiseReadIntoOp
@@ -225,7 +174,7 @@ findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
   Value dest = writeOp.getDest();
 
   // Trace back to find all possible allocs
-  SmallVector<rock::GpuAllocOp> allocs = traceToAllocs(dest);
+  SmallVector<rock::GpuAllocOp> allocs = rock::findAllGpuAllocs(dest);
   if (allocs.empty()) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to trace dest to alloc\n");
     return nullptr;

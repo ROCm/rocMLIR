@@ -620,6 +620,44 @@ FailureOr<memref::AllocOp> mlir::rock::findMemrefAlloc(Value value) {
   return findAlloc<memref::AllocOp>(value);
 }
 
+// This is similar to findAlloc(), but this function gives you a
+// list of allocs. The reason why it's a list is because if we find a
+// ExtractMultiBufferOp and the index is non-static, we can't know which one
+// will be chosen, so we trace back all of them.
+SmallVector<rock::GpuAllocOp> mlir::rock::findAllGpuAllocs(Value value) {
+  SmallVector<rock::GpuAllocOp> allocs;
+  SmallVector<Operation *> worklist{value.getDefiningOp()};
+  while (!worklist.empty()) {
+    Operation *curOp = worklist.pop_back_val();
+    auto maybeAllocOp = dyn_cast_or_null<rock::GpuAllocOp>(curOp);
+    if (maybeAllocOp) {
+      allocs.push_back(maybeAllocOp);
+    } else {
+      // Keep going until the operation that defines the value is a
+      // view-like operation
+      if (auto viewOp = dyn_cast_or_null<ViewLikeOpInterface>(curOp)) {
+        worklist.push_back(viewOp.getViewSource().getDefiningOp());
+      } else if (auto extractMultiBufferOp =
+                     dyn_cast_or_null<rock::ExtractMultiBufferOp>(curOp)) {
+        auto buffers = extractMultiBufferOp.getBuffers();
+        auto selectIndex = dyn_cast_or_null<arith::ConstantIndexOp>(
+            extractMultiBufferOp.getSelectIndex().getDefiningOp());
+        if (buffers.size() > 1 && !selectIndex) {
+          for (auto buffer : buffers)
+            worklist.push_back(buffer.getDefiningOp());
+        } else if (buffers.size() == 1) {
+          worklist.push_back(buffers.back().getDefiningOp());
+        } else {
+          int64_t index = selectIndex.value() % buffers.size();
+          worklist.push_back(buffers[index].getDefiningOp());
+        }
+      }
+    }
+  }
+
+  return allocs;
+}
+
 FailureOr<BlockArgument> mlir::rock::findBlockArgument(Value value) {
   auto maybeBlockArg = dyn_cast_or_null<BlockArgument>(value);
   while (!maybeBlockArg) {
