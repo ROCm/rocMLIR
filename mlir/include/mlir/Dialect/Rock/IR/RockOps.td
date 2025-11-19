@@ -224,7 +224,8 @@ def Rock_AttentionOp
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
           DenseI64ArrayAttr:$firstGemmIndices,
-          DefaultValuedOptionalAttr<BoolAttr, "false">:$preSoftmaxHasSplitKVTransforms)>,
+          DefaultValuedOptionalAttr<BoolAttr,
+                                    "false">:$preSoftmaxHasSplitKVTransforms)>,
       Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result,
           Optional<TensorOf<[F32, F16, BF16]>>:$lseOut)> {
   let summary = "Attention operation of transformer models";

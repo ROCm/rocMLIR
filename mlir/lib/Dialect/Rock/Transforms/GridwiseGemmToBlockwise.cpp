@@ -2465,15 +2465,13 @@ struct GridwiseAttentionAccelRewritePattern
       // [B*H*splitKV, SeqQ, SeqK/splitKV] to match the preSoftmax inputs.
       int64_t splitKV = op.getSplitKV();
       if (splitKV > 1 && op.getPreSoftmaxHasSplitKVTransforms()) {
-        ArrayAttr splitKVTransforms =
-            createSplitKVTransformsForGemm0Out(rewriter, loc, unpaddedShape,
-                                               splitKV);
+        ArrayAttr splitKVTransforms = createSplitKVTransformsForGemm0Out(
+            rewriter, loc, unpaddedShape, splitKV);
         if (splitKVTransforms) {
           ArrayAttr linalgGridSubTileMaps =
               gemm0OutSubTileViewsTrUnPadded.gridSubTile;
-          linalgGridSubTileMaps = prependUpperViews(rewriter,
-                                                    linalgGridSubTileMaps,
-                                                    splitKVTransforms);
+          linalgGridSubTileMaps = prependUpperViews(
+              rewriter, linalgGridSubTileMaps, splitKVTransforms);
           gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
         }
       }

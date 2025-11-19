@@ -146,9 +146,9 @@ static std::pair<int64_t, int64_t> detectSplitKVFromV(Value vTensor) {
       ArrayRef<int64_t> params = op.getParams();
 
       // Helper lambda to check unmerge pattern and return splitKV if found
-      auto checkUnmergePattern =
-          [&](unsigned expectedDimensionality, unsigned splitKVPosition,
-              int64_t potentialSplitKV)
+      auto checkUnmergePattern = [&](unsigned expectedDimensionality,
+                                     unsigned splitKVPosition,
+                                     int64_t potentialSplitKV)
           -> std::optional<std::pair<int64_t, int64_t>> {
         if (upperBounds.size() == expectedDimensionality &&
             upperBounds[splitKVPosition] == potentialSplitKV &&
@@ -156,9 +156,9 @@ static std::pair<int64_t, int64_t> detectSplitKVFromV(Value vTensor) {
           LLVM_DEBUG(llvm::dbgs() << "\tV: Found " << expectedDimensionality
                                   << "D Unmerge{";
                      llvm::interleaveComma(params, llvm::dbgs());
-                     llvm::dbgs() << "}, splitKV = " << potentialSplitKV
-                                  << " at position " << splitKVPosition
-                                  << "\n");
+                     llvm::dbgs()
+                     << "}, splitKV = " << potentialSplitKV << " at position "
+                     << splitKVPosition << "\n");
           return std::make_pair(potentialSplitKV, expectedDimensionality);
         }
         return std::nullopt;
@@ -381,8 +381,8 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
 
     // Both Q and V should agree on dimensionality (4D or 5D)
     if (qDim != vDim) {
-      op.emitError("Q and V have different dimensionalities: Q is ") << qDim
-                   << "D but V is " << vDim << "D\n";
+      op.emitError("Q and V have different dimensionalities: Q is ")
+          << qDim << "D but V is " << vDim << "D\n";
       return failure();
     }
 
