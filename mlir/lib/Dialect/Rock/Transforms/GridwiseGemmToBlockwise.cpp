@@ -1450,7 +1450,6 @@ struct GridwiseAttentionAccelRewritePattern
       return prevGemm0OutBuffer;
     }
 
-    int64_t splitKV = op.getSplitKV();
     int64_t firstGemmBlockArgNum = -1;
     Block &preSoftMaxBodyBlock = op.getPreSoftmaxBody().getBlocks().front();
     WalkResult res = op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
@@ -1484,33 +1483,6 @@ struct GridwiseAttentionAccelRewritePattern
         // trace it back to block input
         if (firstGemmBlockArg.getOwner() == &preSoftMaxBodyBlock) {
           firstGemmBlockArgNum = firstGemmBlockArg.getArgNumber();
-
-          // Apply splitKV transforms if needed (only checked once when first
-          // gemm block arg is found)
-          if (splitKV > 1) {
-            MemRefType blockArgType =
-                cast<MemRefType>(firstGemmBlockArg.getType());
-            ArrayRef<int64_t> blockArgShape = blockArgType.getShape();
-
-            // Check if shapes differ by exactly the splitKV factor
-            bool needsTransform = false;
-            if (blockArgShape.size() == gridGemm0OutShape.size()) {
-              bool batchMatches =
-                  (blockArgShape[0] == gridGemm0OutShape[0] * splitKV);
-              bool seqKMatches =
-                  (blockArgShape[2] * splitKV == gridGemm0OutShape[2]);
-              needsTransform = batchMatches && seqKMatches;
-            }
-
-            if (needsTransform) {
-              ArrayAttr splitKVTransforms = createSplitKVTransformsForGemm0Out(
-                  rewriter, loc, gridGemm0OutShape, splitKV);
-              if (splitKVTransforms) {
-                linalgGridSubTileMaps = prependUpperViews(
-                    rewriter, linalgGridSubTileMaps, splitKVTransforms);
-              }
-            }
-          }
         } else {
           llvm::report_fatal_error("first gemm block argument does not belong "
                                    "to block of preSoftBody\n");
@@ -2486,6 +2458,24 @@ struct GridwiseAttentionAccelRewritePattern
         linalgGridSubTileMaps =
             prependUpperViews(rewriter, linalgGridSubTileMaps, undoGQA);
         gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
+      }
+
+      // Apply splitKV transforms if needed
+      // This transforms the GEMM0 output from [B*H, SeqQ, SeqK] to
+      // [B*H*splitKV, SeqQ, SeqK/splitKV] to match the preSoftmax inputs
+      int64_t splitKV = op.getSplitKV();
+      if (splitKV > 1) {
+        ArrayAttr splitKVTransforms =
+            createSplitKVTransformsForGemm0Out(rewriter, loc, unpaddedShape,
+                                               splitKV);
+        if (splitKVTransforms) {
+          ArrayAttr linalgGridSubTileMaps =
+              gemm0OutSubTileViewsTrUnPadded.gridSubTile;
+          linalgGridSubTileMaps = prependUpperViews(rewriter,
+                                                    linalgGridSubTileMaps,
+                                                    splitKVTransforms);
+          gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
+        }
       }
 
       // Align the preSoftmaxElementWise (if any) linalg.generic to

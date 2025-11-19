@@ -7,7 +7,8 @@ module {
     %0 = migraphx.reshape %arg0 {dims = [1, 1, 256, 256]} : <1x256x256xf32, 65536x256x1> -> <1x1x256x256xf32, 65536x65536x256x1>
     %1 = migraphx.multibroadcast %0 {out_dyn_dims = [], out_lens = [1, 2, 256, 256]} : <1x1x256x256xf32, 65536x65536x256x1> -> <1x2x256x256xf32, 65536x0x256x1>
     %2 = migraphx.reshape %arg1 {dims = [1, 2, 128, 256]} : <1x256x256xf32, 65536x256x1> -> <1x2x128x256xf32, 65536x32768x256x1>
-    %3 = migraphx.transpose %2 {permutation = [0, 1, 3, 2]} : <1x2x128x256xf32, 65536x32768x256x1> -> <1x2x256x128xf32, 65536x32768x1x256>    %4 = migraphx.reshape %arg2 {dims = [1, 256, 2, 128]} : <1x256x256xf32, 65536x256x1> -> <1x256x2x128xf32, 65536x256x128x1>
+    %3 = migraphx.transpose %2 {permutation = [0, 1, 3, 2]} : <1x2x128x256xf32, 65536x32768x256x1> -> <1x2x256x128xf32, 65536x32768x1x256>
+    %4 = migraphx.reshape %arg2 {dims = [1, 256, 2, 128]} : <1x256x256xf32, 65536x256x1> -> <1x256x2x128xf32, 65536x256x128x1>
     %5 = migraphx.transpose %4 {permutation = [0, 2, 3, 1]} : <1x256x2x128xf32, 65536x256x128x1> -> <1x2x128x256xf32, 65536x128x1x256>
     %6 = migraphx.dot %1, %3 : <1x2x256x256xf32, 65536x0x256x1>, <1x2x256x128xf32, 65536x32768x1x256> -> <1x2x256x128xf32, 65536x32768x128x1>
     %7 = migraphx.reshape %6 {dims = [1, 2, 256, 128]} : <1x2x256x128xf32, 65536x32768x128x1> -> <1x2x256x128xf32, 65536x32768x128x1>
@@ -27,3 +28,4 @@ module {
     return %18, %20 : !migraphx.shaped<1x2x256x256xf32, 131072x65536x256x1>, !migraphx.shaped<1x2x256x1xf32, 512x256x1x1>
   }
 }
+

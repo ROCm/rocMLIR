@@ -46,6 +46,7 @@ module {
     // CHECK-NEXT: qk = %{{.*}} * %{{.*}} : tensor<12x256x256xf16>, tensor<12x256x256xf16>
     // CHECK-NEXT: lse = %11 : tensor<24x256xf32>
     // CHECK: softmax(qk) * %{{.*}} : tensor<12x256x256xf16> -> tensor<24x256x256xf16>
+    // CHECK: perf_config = "attn:v2:64,64,64,32,32,32,4,1,1,2,1"
     // CHECK: splitKV = 2
 
     %result, %lseOut = rock.attention{
@@ -61,7 +62,7 @@ module {
       rock.yield
     }
      %10 = softmax(qk) * %9 : tensor<24x128x256xf16> -> tensor<24x256x256xf16>
-    } {firstGemmIndices = array<i64: 0>, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} -> tensor<24x256x256xf16>, tensor<24x256xf32>
+    } {firstGemmIndices = array<i64: 0>, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, perf_config = "attn:v2:64,64,64,32,32,32,4,1,1,2,1", softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} -> tensor<24x256x256xf16>, tensor<24x256xf32>
     %12 = rock.transform %lseOut by #transform_map11 : tensor<24x256xf32> to tensor<1x12x2x256x1xf32>
     %13 = rock.transform %12 by #transform_map12 : tensor<1x12x2x256x1xf32> to tensor<6144xf32>
     %14 = rock.transform %result by #transform_map13 : tensor<24x256x256xf16> to tensor<1572864xf16>
