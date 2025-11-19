@@ -623,13 +623,10 @@ def Rock_AsyncWaitOp : Rock_Op<"async_wait">,
     The `rock.async_wait` operation waits for asynchronous global memory loads
     to Local Data Share (LDS) instructions to complete before execution continues.
     
-    This operation is lowered to two ROCDL instructions:
-    1. `s_waitcnt vmcnt(X)`: Waits for the specified number of outstanding
-       vector memory (VM) operations to complete. The `num_inst` attribute
-       specifies the X value, which represents how many async loads need to
-       complete before continuing. The value is clamped to 6 bits (maximum 63).
-    2. `s_barrier`: Ensures all workitems in the workgroup synchronize at
-       this point.
+    The `num_inst` attribute specifies how many async loads need to
+    complete before continuing. The value is clamped to 6 bits (maximum 63). It also
+    introduces a barrier to ensure all workitems in the workgroup synchronize at
+    this point.
         
     Example:
     ```mlir

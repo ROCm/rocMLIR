@@ -246,7 +246,7 @@ def RockAddAsyncWaitPass : Pass<"rock-add-async-wait", "::mlir::func::FuncOp"> {
 
 def ConvertRockOpsToROCDLOps
     : Pass<"rock-to-rocdl", "::mlir::LLVM::LLVMFuncOp"> {
-  let summary = "This pass lowers async wait operations to ROCDL";
+  let summary = "This pass lowers specific rock ops to ROCDL";
   let options = [Option<"chipset", "chipset", "std::string",
                         /*default=*/"\"gfx000\"",
                         "Chipset that these operations will run on">,

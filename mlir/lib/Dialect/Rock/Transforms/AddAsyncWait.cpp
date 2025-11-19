@@ -431,13 +431,13 @@ static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
 /// 1. Find all ThreadwiseReadIntoOp operations that write into LDS memory.
 ///    Then, for each of them, call findFirstUseAfter, which will find the first
 ///    op that uses the result of the ThreadwiseReadIntoOp. In essence, this
-///    gives us the pair of global memory read and the local read that depends
+///    gives us the pair of global memory read and the LDS load that depends
 ///    on it.
-///  2. For each pair of global and local reads, call getWaitCount, which will
+/// 2. For each pair of global and local reads, call getWaitCount, which will
 ///    return the number of AsyncWaitOps to insert.
 /// 3. Once we know the wait count and the pair of reads that depends on each
-/// other, figure out where to insert the waitcount, which mainly depends on
-/// wether we are running pipelined or not.
+///    other, figure out where to insert the waitcount, which mainly depends on
+///    whether we are running pipelined or not.
 static LogicalResult addAsyncWait(func::FuncOp &func) {
   IRRewriter rewriter(func->getContext());
 
