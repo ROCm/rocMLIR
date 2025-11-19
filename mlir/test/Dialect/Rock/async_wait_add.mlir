@@ -1,4 +1,4 @@
-// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --rock-add-async-wait --split-input-file | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --rock-add-async-wait --split-input-file --verify-diagnostics | FileCheck %s
 func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf16>, %arg2: memref<3145728xbf16>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 768 : i32, kernel, arch = "##TOKEN_ARCH##", num_cu = 256 : i64} {
   %c11 = arith.constant 11 : index
   %c2 = arith.constant 2 : index
@@ -343,5 +343,16 @@ func.func @async_wait_simple_test(%arg0: memref<4x256xf32>, %arg1: memref<4x256x
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%3) [%tid] -> %7 : memref<1x256xf32, #gpu.address_space<workgroup>> -> memref<64xf32, #gpu.address_space<private>>
   // CHECK: rock.async_wait {num_inst = 0 : i32}
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%4) [%tid] -> %8 : memref<1x256xf32, #gpu.address_space<workgroup>> -> memref<64xf32, #gpu.address_space<private>>
+  return
+}
+
+// -----
+
+func.func @async_wait_error(%arg0: memref<4x256xf32>, %arg1: memref<4x256xf32>, %arg2: memref<4x256xf32>, %arg3: memref<4x256xf32>) attributes {arch = "##TOKEN_ARCH##", block_size = 256 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 1 : i32, kernel, num_cu = 256 : i64} {
+  %tid = rock.workitem_id : index
+  %1 = rock.alloc() : memref<1x256xf32, #gpu.address_space<workgroup>>
+  
+  // expected-error @+1 {{No use found for ThreadwiseReadIntoOp. Is there a ThreadwiseReadIntoOp that writes to LDS but none is reading from it?}}
+  rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%arg0) [%tid] -> %1 : memref<4x256xf32> -> memref<1x256xf32, #gpu.address_space<workgroup>>  
   return
 }
