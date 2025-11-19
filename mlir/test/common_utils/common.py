@@ -11,6 +11,7 @@ def get_arch_features(arch: str):
     arch_features = None
     support_mfma = False
     support_wmma = False
+    support_f32_accel = False
     major = chip_name[:-2]
     minor = chip_name[-2:]
     if major == 'gfx9':
@@ -37,11 +38,15 @@ def get_arch_features(arch: str):
         arch_features = 'dot|atomic_add|atomic_add_f16|atomic_add_bf16|atomic_fmax_f32|wmma'
     if arch_features and 'mfma' in arch_features:
         support_mfma = True
+        support_f32_accel = True
         pass
     elif arch_features and 'wmma' in arch_features:
         support_wmma = True
+        # Only gfx1250 wmma supports f32
+        if major == 'gfx12' and minor == '50':
+            support_f32_accel = True
         pass
-    return arch_features, support_mfma, support_wmma
+    return arch_features, support_mfma, support_wmma, support_f32_accel
 
 
 def hip_check(call_result):

@@ -46,12 +46,13 @@ config.arch = ""
 config.features = None
 config.arch_support_mfma = False
 config.arch_support_wmma = False
+config.arch_f32_accel = False
 if config.rocm_path:
     try:
         agents = get_agents()
         config.arch = ','.join(agents)
         for x in agents:
-            config.features, config.arch_support_mfma, config.arch_support_wmma = get_arch_features(x)
+            config.features, config.arch_support_mfma, config.arch_support_wmma, config.arch_f32_accel = get_arch_features(x)
             config.substitutions.append(('%features', config.features))
 
         # Check other features here

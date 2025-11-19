@@ -710,20 +710,44 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
   bool isGfx11 = arch.contains("gfx11");
+  bool isGfx1250 = arch.contains("gfx1250");
   if (isa<Float8E8M0FNUType>(elemTypeA) || isa<Float8E8M0FNUType>(elemTypeB)) {
     return op->emitOpError(
         "Matrix A or B is not allowed to have Float8E8M0FNU types");
   }
   if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
-    if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
+    // Validate input data types based on architecture
+    bool isValidTypeA = elemTypeA.isF16() || elemTypeA.isBF16() ||
+                        elemTypeA.isInteger(8) || isFloat8Type(elemTypeA);
+
+    // gfx1250 additionally supports F32
+    if (isGfx1250)
+      isValidTypeA = isValidTypeA || elemTypeA.isF32();
+
+    // gfx11 doesn't support float8 types
+    if (isGfx11 && isFloat8Type(elemTypeA))
+      isValidTypeA = false;
+
+    if (!isValidTypeA) {
       if (isGfx11)
         return op->emitOpError("Wmma supports only F16/BF16/int8 data types");
-      if (!isFloat8Type(elemTypeA))
+      if (isGfx1250)
         return op->emitOpError(
-            "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
+            "Wmma supports only F32/F16/BF16/int8/E4M3/E5M2 data types");
+      return op->emitOpError(
+          "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
-    if (elemTypeA != elemTypeB)
-      return op->emitOpError("Wmma does not support mixed types");
+
+    // Validate mixed types
+    if (elemTypeA != elemTypeB) {
+      // gfx1250 allows mixed precision for float8 types only
+      bool allowMixed =
+          isGfx1250 && isFloat8Type(elemTypeA) && isFloat8Type(elemTypeB);
+      if (!allowMixed)
+        return op->emitOpError(isGfx1250 ? "Wmma on gfx1250 supports mixed "
+                                           "types only for FP8/BF8 combinations"
+                                         : "Wmma does not support mixed types");
+    }
   }
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     bool isGfx95 = arch.contains("gfx95");
