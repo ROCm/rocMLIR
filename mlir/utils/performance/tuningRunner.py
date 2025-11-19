@@ -18,11 +18,14 @@ from perfRunner import AttentionConfiguration
 from perfRunner import GemmGemmConfiguration
 from perfRunner import ConvGemmConfiguration
 from perfRunner import Paths
-from perfRunner import MLIR_N_REPEATS, WARMUP_ITERATIONS, SLEEP_US
 from perfCommonUtils import CORRECT_RESULT_RE
 
 import numpy as np
 import pandas as pd
+
+MLIR_N_REPEATS = 10
+WARMUP_ITERATIONS = 1
+SLEEP_US = 100  # 0.1 ms
 
 
 @dataclass(frozen=True)
@@ -57,7 +60,7 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths, options: Opt
     rocmlir_gen_command = paths.mlir_paths.rocmlir_gen_path + \
         verify_mode_flags(options.verify_mode) + \
         ' -print-verify-results=summary ' + \
-        config.generate_mlir_driver_commandline(options.rocmlir_gen_flags)
+        config.generate_mlir_driver_commandline(options.rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS)
     rocmlir_driver_command = [paths.mlir_paths.rocmlir_driver_path, '-c']
     mlir_cpu_runner_args = [
         '-O2',
@@ -180,7 +183,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
             test_vector = config.to_command_line()
             print("Tuning:", test_vector, file=sys.stderr)
             command_line_options = config.generate_mlir_driver_commandline(
-                options.rocmlir_gen_flags)
+                options.rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS)
             # Note, we don't need the -ph, this goes to the tuning driver
             kernel_gen_command = paths.mlir_paths.rocmlir_gen_path + ' ' + command_line_options
             kernel_gen = subprocess.Popen(kernel_gen_command.split(),
