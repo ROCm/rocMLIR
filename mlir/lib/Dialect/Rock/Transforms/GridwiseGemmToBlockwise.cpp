@@ -2462,9 +2462,9 @@ struct GridwiseAttentionAccelRewritePattern
 
       // Apply splitKV transforms if needed
       // This transforms the GEMM0 output from [B*H, SeqQ, SeqK] to
-      // [B*H*splitKV, SeqQ, SeqK/splitKV] to match the preSoftmax inputs
+      // [B*H*splitKV, SeqQ, SeqK/splitKV] to match the preSoftmax inputs.
       int64_t splitKV = op.getSplitKV();
-      if (splitKV > 1) {
+      if (splitKV > 1 && op.getPreSoftmaxHasSplitKVTransforms()) {
         ArrayAttr splitKVTransforms =
             createSplitKVTransformsForGemm0Out(rewriter, loc, unpaddedShape,
                                                splitKV);

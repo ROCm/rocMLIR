@@ -223,7 +223,8 @@ def Rock_AttentionOp
           StoreMethodAttr:$storeMethod, OptionalAttr<TypeAttr>:$softmaxType,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
-          DenseI64ArrayAttr:$firstGemmIndices)>,
+          DenseI64ArrayAttr:$firstGemmIndices,
+          DefaultValuedOptionalAttr<BoolAttr, "false">:$preSoftmaxHasSplitKVTransforms)>,
       Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result,
           Optional<TensorOf<[F32, F16, BF16]>>:$lseOut)> {
   let summary = "Attention operation of transformer models";
@@ -550,7 +551,9 @@ def Rock_GridwiseAttentionAccelOp
           RockAccelTuningParamAttrInterface:$params0,
           RockAccelTuningParamAttrInterface:$params1,
           DenseI64ArrayAttr:$firstGemmIndices,
-          DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax)> {
+          DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax,
+          DefaultValuedOptionalAttr<BoolAttr,
+                                    "false">:$preSoftmaxHasSplitKVTransforms)> {
   let summary = "Gridwise attention accelerated version";
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
