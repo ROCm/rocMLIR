@@ -72,8 +72,9 @@ static bool isLDSWrite(ThreadwiseReadIntoOp readOp) {
 
 /// Check if an operation should be skipped when looking for reads after
 /// startOp.
-static bool shouldSkipOperation(Operation *op, Operation *startOp,
-                                llvm::DenseSet<Operation *> &insertionPoints) {
+static bool
+shouldSkipOperation(Operation *op, Operation *startOp,
+                    const llvm::DenseSet<Operation *> insertionPoints) {
   // Skip if it's thesame as startOp, or already has insertion point
   if (op == startOp || insertionPoints.contains(op)) {
     LLVM_DEBUG(llvm::dbgs() << "Skipping op because it's already been used: "
@@ -122,9 +123,8 @@ static bool comesBeforeInProgramOrder(Operation *op1, Operation *op2) {
 /// LDS. Returns the first one found in program order.
 static ThreadwiseReadIntoOp
 findFirstReadFromLDS(Value value, Operation *startOp,
-                     llvm::DenseSet<Operation *> &insertionPoints) {
+                     const llvm::DenseSet<Operation *> insertionPoints) {
   ThreadwiseReadIntoOp firstRead = nullptr;
-  Operation *firstReadOp = nullptr;
 
   // Worklist to traverse forward through views/extract_multibuffer/transform
   SmallVector<Value> worklist;
@@ -141,8 +141,7 @@ findFirstReadFromLDS(Value value, Operation *startOp,
   while (!worklist.empty()) {
     Value current = worklist.pop_back_val();
 
-    LLVM_DEBUG(llvm::dbgs() << "Checking current value: "
-                            << *current.getDefiningOp() << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "Checking current value: " << current << "\n");
 
     if (current.getUsers().empty()) {
       continue;
@@ -163,9 +162,9 @@ findFirstReadFromLDS(Value value, Operation *startOp,
         }
 
         // Found a read after startOp, track the first one in program order
-        if (!firstReadOp || comesBeforeInProgramOrder(user, firstReadOp)) {
+        if (!firstRead ||
+            comesBeforeInProgramOrder(user, firstRead.getOperation())) {
           firstRead = readOp;
-          firstReadOp = user;
         }
       }
       // If this is a view-like operation, follow its result
@@ -185,9 +184,9 @@ findFirstReadFromLDS(Value value, Operation *startOp,
 /// Find the first use after a ThreadwiseReadIntoOp that writes to LDS.
 /// The function traces back the dest value to the alloc, then finds the first
 /// ThreadwiseReadIntoOp that reads from that alloc.
-static Operation *
+static FailureOr<Operation *>
 findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
-                  llvm::DenseSet<Operation *> &insertionPoints) {
+                  const llvm::DenseSet<Operation *> insertionPoints) {
   // Get the destination value (what is written to)
   Value dest = writeOp.getDest();
 
@@ -195,7 +194,7 @@ findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
   SmallVector<rock::GpuAllocOp> allocs = rock::findAllGpuAllocs(dest);
   if (allocs.empty()) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to trace dest to alloc\n");
-    return nullptr;
+    return failure();
   }
 
   LLVM_DEBUG(llvm::dbgs() << "Found " << allocs.size() << " alloc(s)\n");
@@ -221,7 +220,7 @@ findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
 
   if (!firstRead) {
     LLVM_DEBUG(llvm::dbgs() << "No read found after writeOp\n");
-    return nullptr;
+    return failure();
   }
 
   LLVM_DEBUG(llvm::dbgs() << "After writeOp: " << *writeOp.getOperation()
@@ -409,14 +408,16 @@ static LogicalResult addAsyncWait(func::FuncOp &func) {
   // location
   llvm::DenseSet<Operation *> insertionPoints;
   for (auto readOp : readOps) {
-    Operation *firstUse = findFirstUseAfter(readOp, insertionPoints);
+    auto firstUseOr = findFirstUseAfter(readOp, insertionPoints);
 
-    if (!firstUse) {
+    if (failed(firstUseOr)) {
       // If pattern doesn't match or no use found, skip this readOp
       LLVM_DEBUG(llvm::dbgs() << "Pattern doesn't match or no use found for "
                                  "ThreadwiseReadIntoOp\n");
       continue;
     }
+
+    Operation *firstUse = *firstUseOr;
 
     auto [waitCount, pipeliningEnabled] = getWaitCount(firstUse, readOp);
     if (waitCount == -1) {
