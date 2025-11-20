@@ -1240,20 +1240,74 @@ std::optional<int64_t> mlir::rock::getWorkgroupMemorySize(MemRefType type) {
   return std::nullopt;
 }
 
+FailureOr<ThreadwiseReadIntoLoopInfo> mlir::rock::getThreadwiseReadIntoLoopInfo(
+    const ThreadwiseReadIntoLoopConfigInput &input) {
+  ThreadwiseReadIntoLoopInfo info;
+  info.numValues = input.numValues;
+  info.vectorDstLen = 1;
+  info.vectorSrcLen = 1;
+  info.srcStride = 1;
+  info.dstVectorType = nullptr;
+
+  Type elementType = input.elementType;
+  Type loadType;
+
+  if (input.isSrcVectorBuffer) {
+    loadType = elementType;
+    info.vectorSrcLen = dyn_cast<VectorType>(elementType).getNumElements();
+    elementType = dyn_cast<VectorType>(elementType).getElementType();
+    // Here we would call collapseContiguousMerges
+    info.srcStride = 1;
+    if (!input.isDstVectorBuffer)
+      info.numValues = info.numValues / info.vectorSrcLen;
+  } else {
+    VectorizationResult vectorSrcRes = getMaxVectorization(
+        input.sourceView, input.extraIdxCount, /*inputDimLen=*/info.numValues);
+    info.vectorSrcLen = vectorSrcRes.max;
+    if (input.isGlobalToLDS &&
+        info.vectorSrcLen > input.maxGlobalToLDSVectorLen) {
+      // LLVM_DEBUG(llvm::dbgs()
+      //            << "Constraining vectorization from " << vectorSrcLen << "
+      //            to "
+      //            << maxGlobalToLDSVectorLen
+      //            << " for Global-to-LDS hardware limits\n");
+      info.vectorSrcLen = input.maxGlobalToLDSVectorLen.value();
+    }
+    // Here we would call collapseContiguousMerges
+    info.srcStride = info.vectorSrcLen;
+    loadType = vectorTypeOrSelf(elementType, info.vectorSrcLen);
+  }
+
+  // Force the dynamic validity case down to a vectorization of 1
+  if (input.hasDynamicValidities) {
+    info.vectorSrcLen = 1;
+    info.srcStride = 1;
+    loadType = elementType;
+  }
+
+  if (input.isDstVectorBuffer) {
+    info.dstVectorType =
+        dyn_cast<VectorType>(input.dstBufferType.getElementType());
+    info.vectorDstLen =
+        dyn_cast<VectorType>(info.dstVectorType).getNumElements();
+    info.numValues = info.numValues * info.vectorDstLen;
+    if (input.isSrcVectorBuffer) {
+      info.numValues = info.numValues / info.vectorSrcLen;
+    }
+  }
+
+  info.elementType = elementType;
+  info.loadType = loadType;
+  return info;
+}
+
 FailureOr<int64_t>
 mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
   Value sourceView = op.getSource();
   Value dest = op.getDest();
 
-  // Get types directly from the op
-  auto sourceViewType = dyn_cast<MemRefType>(sourceView.getType());
-  if (!sourceViewType) {
-    return failure();
-  }
-  auto dstBufferType = dyn_cast<MemRefType>(dest.getType());
-  if (!dstBufferType) {
-    return failure();
-  }
+  auto sourceViewType = cast<MemRefType>(sourceView.getType());
+  MemRefType dstBufferType = cast<MemRefType>(dest.getType());
 
   bool isSrcVectorBuffer = isa<VectorType>(sourceViewType.getElementType());
   bool isDstVectorBuffer = isa<VectorType>(dstBufferType.getElementType());
@@ -1310,57 +1364,30 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
 
   size_t extraIdxCount = op.getExtraIndices().size();
   auto elementType = sourceViewType.getElementType();
-  int64_t vectorSrcLen, vectorDstLen;
-  int64_t srcStride;
 
-  if (isSrcVectorBuffer) {
-    auto srcVecType = dyn_cast<VectorType>(elementType);
-    if (!srcVecType) {
+  std::optional<int64_t> maxGlobalToLDSVectorLen;
+  if (isGlobalToLDS) {
+    auto arch = rock::getArch(op);
+    if (failed(arch))
       return failure();
-    }
-    vectorSrcLen = srcVecType.getNumElements();
-    elementType = srcVecType.getElementType();
-    srcStride = 1;
-    if (!isDstVectorBuffer) {
-      numValues = numValues / vectorSrcLen;
-    }
-  } else {
-    // For vectorization analysis, use the source value directly
-    // Note: In matchAndRewrite, extraViews are applied before calling
-    // getMaxVectorization, but since we can't apply them here, we use
-    // the source value as-is. The dimension index extraIdxCount corresponds
-    // to the iteration dimension after extraViews are applied.
-    // This approximation may not be exact but should be close for most cases.
-    VectorizationResult vectorSrcRes = getMaxVectorization(
-        sourceView, extraIdxCount, /*inputDimLen=*/numValues);
-    vectorSrcLen = vectorSrcRes.max;
-    srcStride = vectorSrcLen;
+    auto archInfo = rock::lookupArchInfo(arch.value());
+    Type scalarElementType = getElementTypeOrSelf(elementType);
+    int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
+    maxGlobalToLDSVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
   }
 
-  // Force the dynamic validity case down to a vectorization of 1
-  if (!op.getDynamicValidities().empty()) {
-    vectorSrcLen = 1;
-    srcStride = 1;
-  }
-
-  if (isDstVectorBuffer) {
-    auto dstVectorType = dyn_cast<VectorType>(dstBufferType.getElementType());
-    if (!dstVectorType) {
-      return failure();
-    }
-    vectorDstLen = dstVectorType.getNumElements();
-    numValues = numValues * vectorDstLen;
-    if (isSrcVectorBuffer) {
-      numValues = numValues / vectorSrcLen;
-    }
-  }
-
-  // The bounds and strides are:
-  // bounds = [1, 1, ..., 1, numValues]  (all 1s except last is numValues)
-  // strides = [1, 1, ..., 1, srcStride] (all 1s except last is srcStride)
-  // Loop count = numValues / srcStride
-  if (srcStride == 0) {
+  ThreadwiseReadIntoLoopConfigInput loopInput{
+      sourceView,        dstBufferType,
+      extraIdxCount,     elementType,
+      numValues,         isSrcVectorBuffer,
+      isDstVectorBuffer, !op.getDynamicValidities().empty(),
+      isGlobalToLDS,     maxGlobalToLDSVectorLen};
+  auto maybeLoopInfo = getThreadwiseReadIntoLoopInfo(loopInput);
+  if (failed(maybeLoopInfo))
     return failure();
-  }
-  return numValues / srcStride;
+
+  ThreadwiseReadIntoLoopInfo info = maybeLoopInfo.value();
+  if (info.srcStride == 0)
+    return failure();
+  return info.numValues / info.srcStride;
 }

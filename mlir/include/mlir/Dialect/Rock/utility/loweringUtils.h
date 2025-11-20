@@ -15,8 +15,11 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/Support/LogicalResult.h"
+
+#include <optional>
 
 namespace mlir {
 class Operation;
@@ -72,6 +75,29 @@ struct VectorDimInfo {
   int64_t inKPerThread;
   int64_t inDPerThread;
   GemmDimension vectorTiebreaker;
+};
+
+struct ThreadwiseReadIntoLoopConfigInput {
+  Value sourceView;
+  MemRefType dstBufferType;
+  size_t extraIdxCount;
+  Type elementType;
+  int64_t numValues;
+  bool isSrcVectorBuffer;
+  bool isDstVectorBuffer;
+  bool hasDynamicValidities;
+  bool isGlobalToLDS;
+  std::optional<int64_t> maxGlobalToLDSVectorLen;
+};
+
+struct ThreadwiseReadIntoLoopInfo {
+  int64_t numValues;
+  int64_t srcStride;
+  int64_t vectorSrcLen;
+  int64_t vectorDstLen;
+  Type elementType;
+  Type loadType;
+  VectorType dstVectorType;
 };
 
 // The rows and columns of subtile view needs to
@@ -276,6 +302,9 @@ std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
 /// - numValues: the bound for the iteration dimension
 /// - srcStride: the stride for the iteration dimension
 /// Returns: numValues / srcStride (the loop count)
+FailureOr<ThreadwiseReadIntoLoopInfo>
+getThreadwiseReadIntoLoopInfo(const ThreadwiseReadIntoLoopConfigInput &input);
+
 FailureOr<int64_t> predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op);
 
 } // end namespace rock
