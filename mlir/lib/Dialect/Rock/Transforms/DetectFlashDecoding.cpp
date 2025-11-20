@@ -164,10 +164,15 @@ static std::pair<int64_t, int64_t> detectSplitKVFromV(Value vTensor) {
         return std::nullopt;
       };
 
-      // 5D case: Unmerge has 4 params, e.g., [B, H, D, splitKV, N/splitKV]
+      // 5D case: Unmerge has 4 params
       if (params.size() == 4) {
         auto potentialSplitKV = params[2];
+        // Check for 5D pattern: [B, H, D, splitKV, N/splitKV]
         if (auto result = checkUnmergePattern(5, 3, potentialSplitKV))
+          return *result;
+
+        // Check for 5D pattern after transpose: [B, H, splitKV, D, N/splitKV]
+        if (auto result = checkUnmergePattern(5, 2, potentialSplitKV))
           return *result;
       }
 
@@ -315,37 +320,31 @@ removeSplitKVWithMerge(PatternRewriter &rewriter, Location loc, Value tensor,
   // Step 2: Use Merge to reconstruct the full sequence dimension
   SmallVector<int64_t> outputShape;
   SmallVector<StringRef> lowerDimNames;
+  unsigned mergeDim;
+  unsigned passThroughDim;
 
-  Value result;
   if (featureFirst) {
     // K case: [batch, K, seq_k]
     outputShape = {newBatch, featureDimSize, seqK};
     lowerDimNames = {"batch", "splitKV", featureDimName, "seq_k_chunk"};
-
-    rock::BottomUpTMBuilder builder(rewriter, lowerDimNames, intermediateShape,
-                                    loc);
-    builder.passThrough({"batch"}, {0}, {"batch"});
-    builder.passThrough({featureDimName}, {1}, {featureDimName});
-    builder.merge("seq_k", 2, {"splitKV", "seq_k_chunk"});
-
-    TransformMapAttr transformMap = builder.get();
-    result =
-        rewriter.create<rock::TransformOp>(loc, intermediate, transformMap);
+    mergeDim = 2;
+    passThroughDim = 1;
   } else {
-    // V case: [batch, seq_k, D]
     outputShape = {newBatch, seqK, featureDimSize};
     lowerDimNames = {"batch", "splitKV", "seq_k_chunk", featureDimName};
-
-    rock::BottomUpTMBuilder builder(rewriter, lowerDimNames, intermediateShape,
-                                    loc);
-    builder.passThrough({"batch"}, {0}, {"batch"});
-    builder.merge("seq_k", 1, {"splitKV", "seq_k_chunk"});
-    builder.passThrough({featureDimName}, {2}, {featureDimName});
-
-    TransformMapAttr transformMap = builder.get();
-    result =
-        rewriter.create<rock::TransformOp>(loc, intermediate, transformMap);
+    mergeDim = 1;
+    passThroughDim = 2;
   }
+
+  rock::BottomUpTMBuilder builder(rewriter, lowerDimNames, intermediateShape,
+                                  loc);
+  builder.passThrough({"batch"}, {0}, {"batch"});
+  builder.merge("seq_k", mergeDim, {"splitKV", "seq_k_chunk"});
+  builder.passThrough({featureDimName}, {passThroughDim}, {featureDimName});
+
+  TransformMapAttr transformMap = builder.get();
+  Value result =
+        rewriter.create<rock::TransformOp>(loc, intermediate, transformMap);
 
   return result;
 }
@@ -461,8 +460,7 @@ struct RockDetectFlashDecodingPass
     RewritePatternSet patterns(ctx);
     patterns.add<DetectFlashDecodingPattern>(ctx);
 
-    GreedyRewriteConfig config;
-    if (failed(applyPatternsGreedily(func, std::move(patterns), config))) {
+    if (failed(applyPatternsGreedily(func, std::move(patterns)))) {
       signalPassFailure();
     }
   }

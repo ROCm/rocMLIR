@@ -2467,13 +2467,12 @@ struct GridwiseAttentionAccelRewritePattern
       if (splitKV > 1 && op.getPreSoftmaxHasSplitKVTransforms()) {
         ArrayAttr splitKVTransforms = createSplitKVTransformsForGemm0Out(
             rewriter, loc, unpaddedShape, splitKV);
-        if (splitKVTransforms) {
-          ArrayAttr linalgGridSubTileMaps =
-              gemm0OutSubTileViewsTrUnPadded.gridSubTile;
-          linalgGridSubTileMaps = prependUpperViews(
-              rewriter, linalgGridSubTileMaps, splitKVTransforms);
-          gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
-        }
+        assert(splitKVTransforms && "splitKV transforms should be non-null");
+        ArrayAttr linalgGridSubTileMaps =
+            gemm0OutSubTileViewsTrUnPadded.gridSubTile;
+        linalgGridSubTileMaps = prependUpperViews(
+            rewriter, linalgGridSubTileMaps, splitKVTransforms);
+        gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
       }
 
       // Align the preSoftmaxElementWise (if any) linalg.generic to
