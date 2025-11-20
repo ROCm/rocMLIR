@@ -104,7 +104,7 @@ static bool comesBeforeInProgramOrder(Operation *op1, Operation *op2) {
 static bool isBlockAncestor(Block *ancestor, Block *descendant) {
   if (!ancestor || !descendant)
     return false;
-  for (Block *ptr = descendant; ptr; ) {
+  for (Block *ptr = descendant; ptr;) {
     if (ptr == ancestor)
       return true;
     Operation *parentOp = ptr->getParentOp();
@@ -126,8 +126,8 @@ shouldSkipOperation(Operation *op, Operation *startOp,
                             << *op << "\n");
     return true;
   }
-  // Skip if op occurs earlier than startOp in program order (even if they are in
-  // different blocks/regions).
+  // Skip if op occurs earlier than startOp in program order (even if they are
+  // in different blocks/regions).
   if (comesBeforeInProgramOrder(op, startOp)) {
     LLVM_DEBUG(llvm::dbgs() << "Skipping op because it comes before startOp: "
                             << *op << "\n");
@@ -322,7 +322,8 @@ FailureOr<std::pair<int, bool>> getWaitCount(Operation *localLoadOp,
 
   // Case 1: Both have the same parent block (prologue).
   if (sameBlock) {
-    LLVM_DEBUG(llvm::dbgs() << "Case 1: Both ops in the same block (prologue)\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "Case 1: Both ops in the same block (prologue)\n");
     waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock,
                                         /*countFromStart=*/false);
     pipeliningEnabled = true;
@@ -403,9 +404,8 @@ static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
   (void)walkResult;
 
   if (barrierBeforeOp) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Found forward barrier before op: " << barrierBeforeOp
-               << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "Found forward barrier before op: "
+                            << barrierBeforeOp << "\n");
     return barrierBeforeOp;
   }
 
@@ -441,7 +441,8 @@ static LogicalResult addAsyncWaitOps(func::FuncOp &func) {
   // same location
   llvm::DenseSet<Operation *> insertionPoints;
   for (auto readOp : readOps) {
-    LLVM_DEBUG(llvm::dbgs() << "Processing ThreadwiseReadIntoOp: " << *readOp << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "Processing ThreadwiseReadIntoOp: " << *readOp << "\n");
     auto firstUseOr = findFirstUseAfter(readOp, insertionPoints);
 
     if (failed(firstUseOr)) {
