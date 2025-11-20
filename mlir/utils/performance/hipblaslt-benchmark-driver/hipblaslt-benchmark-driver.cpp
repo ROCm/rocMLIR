@@ -36,6 +36,8 @@ static hipDataType toHipDataType(benchmark::DataType dataType) {
     return HIP_R_8F_E4M3;
   case benchmark::DataType::I32:
     return HIP_R_32I;
+  case benchmark::DataType::F4:
+  case benchmark::DataType::F8E8M0FNU:
   case benchmark::DataType::UNKNOWN:
     fprintf(stderr, "Unsupported data type\n");
     exit(1);
@@ -108,8 +110,9 @@ int main(int argc, char **argv) {
       args.transposeB ? HIPBLAS_OP_T : HIPBLAS_OP_N;
   const hipblasOperation_t trans_b =
       args.transposeA ? HIPBLAS_OP_T : HIPBLAS_OP_N;
-  const int64_t lda = args.transposeB ? k : n;
-  const int64_t ldb = args.transposeA ? m : k;
+ 
+  const int64_t lda = args.transposeA ? m : k;
+  const int64_t ldb = args.transposeB ? k : n;
   const int64_t ldc = n;
   const int64_t ldd = n;
 
@@ -122,7 +125,7 @@ int main(int argc, char **argv) {
 
   void *alpha = benchmark::makeHostConstant(1.0, computeDataType);
   void *beta = benchmark::makeHostConstant(0.0, computeDataType);
-
+  
   const size_t strideA = m * k, strideB = k * n, strideC = m * n;
   const size_t aBytes =
       benchmark::getBytesPerElement(args.dataType) * strideA * batch_count;
@@ -182,17 +185,17 @@ int main(int argc, char **argv) {
 
   hipblasLtMatrixLayout_t matA, matB, matC, matD;
   HIPBLASLT_ABORT_IF_FAIL(
-      hipblasLtMatrixLayoutCreate(&matA, inputType, n, k, lda));
+      hipblasLtMatrixLayoutCreate(&matA, inputType, n, k, ldb));
   HIPBLASLT_ABORT_IF_FAIL(
-      hipblasLtMatrixLayoutCreate(&matB, inputType, k, m, ldb));
+      hipblasLtMatrixLayoutCreate(&matB, inputType, k, m, lda));
   HIPBLASLT_ABORT_IF_FAIL(
       hipblasLtMatrixLayoutCreate(&matC, outputType, n, m, ldc));
   HIPBLASLT_ABORT_IF_FAIL(
       hipblasLtMatrixLayoutCreate(&matD, outputType, n, m, ldd));
 
   if (batch_count > 1) {
-    setBatchAttributes(matA, batch_count, strideA);
-    setBatchAttributes(matB, batch_count, strideB);
+    setBatchAttributes(matA, batch_count, strideB);
+    setBatchAttributes(matB, batch_count, strideA);
     setBatchAttributes(matC, batch_count, strideC);
     setBatchAttributes(matD, batch_count, strideC);
   }
@@ -202,6 +205,28 @@ int main(int argc, char **argv) {
       handle, hipblaslt_ext::GemmType::HIPBLASLT_GEMM, trans_a, trans_b,
       inputType, inputType, outputType, outputType, computeType,
       heuristicResults));
+
+  // If user specified a algorithm index, use it directly
+  if (args.algoIndex >= 0) {
+    printf("Using user-specified algorithm index: %d\n", args.algoIndex);
+    
+    std::vector<int> requestedIndices = {args.algoIndex};
+    std::vector<hipblasLtMatmulHeuristicResult_t> selectedAlgos;
+    
+    hipblasStatus_t status = hipblaslt_ext::getAlgosFromIndex(
+        handle,
+        requestedIndices,
+        selectedAlgos);
+    
+    if (status != HIPBLAS_STATUS_SUCCESS || selectedAlgos.empty()) {
+      fprintf(stderr, "Error: Algorithm index %d is not available\n", 
+              args.algoIndex);
+      exit(1);
+    }
+    
+    heuristicResults = selectedAlgos;
+    printf("Successfully loaded algorithm index %d\n", args.algoIndex);
+  }
 
   if (heuristicResults.empty()) {
     fprintf(stderr, "No algorithms found\n");
@@ -290,6 +315,14 @@ int main(int argc, char **argv) {
   if (bestAlgoIndex == -1) {
     fprintf(stderr, "All algorithms failed during benchmark testing\n");
     exit(1);
+  }
+
+  int algoIndex = hipblaslt_ext::getIndexFromAlgo(
+    heuristicResults[bestAlgoIndex].algo);
+
+  if (algoIndex >= 0) {
+    std::cout << "Best algorithm index: " << algoIndex << "\n";
+    std::cout << "To reuse this algorithm: --algo-index " << algoIndex << "\n";
   }
 
   const hipblasLtMatmulHeuristicResult_t bestResult =

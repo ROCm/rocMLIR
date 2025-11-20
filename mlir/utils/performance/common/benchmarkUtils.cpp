@@ -99,6 +99,7 @@ void printUsage(const std::string &name) {
                "[--kernel-repeats numKernelRepeats]\n"
                "[--fusion=(fastgelu_add_add)]\n"
                "[-split-k-factor]\n"
+               "[--algo-index algoIndex]\n"
                "[-v]\n";
 }
 
@@ -305,6 +306,8 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       }
     } else if (arg.rfind("-v", 0) == 0) {
       res.verbose = true;
+    } else if (arg == "--algo-index") {
+      res.algoIndex = atoi(argv[++i]);
     } else {
       std::cerr << "Invalid argument!\n";
       printUsage(name);
