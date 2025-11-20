@@ -362,6 +362,11 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     if (!lse.has_value())
       return failure();
 
+    // Flash decoding detection only supports non-transposed inputs
+    if (op.getQTransposed() || op.getKTransposed() || op.getVTransposed()) {
+      return failure();
+    }
+
     Value queries = op.getQueries();
     Value values = op.getValues();
 
@@ -398,16 +403,13 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     // Add transforms to remove splitKV from batch dimension of inputs
     Value keys = op.getKeys();
 
-    assert(!op.getQTransposed() && "Q should not be transposed");
     auto maybeNewQueries =
         removeSplitKVFromQ(rewriter, op.getLoc(), queries, splitKVFromQ);
 
-    assert(!op.getKTransposed() && "K should not be transposed");
     auto maybeNewKeys =
         removeSplitKVWithMerge(rewriter, op.getLoc(), keys, splitKVFromQ, "K",
                                "K", /*featureFirst=*/true);
 
-    assert(!op.getVTransposed() && "V should not be transposed");
     auto maybeNewValues =
         removeSplitKVWithMerge(rewriter, op.getLoc(), values, splitKVFromQ, "V",
                                "D", /*featureFirst=*/false);
