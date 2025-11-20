@@ -70,26 +70,6 @@ static bool isLDSWrite(ThreadwiseReadIntoOp readOp) {
   return hasLDSAddressSpace(destMemSpace);
 }
 
-/// Check if an operation should be skipped when looking for reads after
-/// startOp.
-static bool
-shouldSkipOperation(Operation *op, Operation *startOp,
-                    const llvm::DenseSet<Operation *> insertionPoints) {
-  // Skip if it's thesame as startOp, or already has insertion point
-  if (op == startOp || insertionPoints.contains(op)) {
-    LLVM_DEBUG(llvm::dbgs() << "Skipping op because it's already been used: "
-                            << *op << "\n");
-    return true;
-  }
-  // If in the same block, skip if before startOp
-  if (op->getBlock() == startOp->getBlock() && op->isBeforeInBlock(startOp)) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Skipping op because it's before startOp: " << *op << "\n");
-    return true;
-  }
-  return false;
-}
-
 /// Compare two operations to determine which comes first in program order.
 /// Returns true if op1 comes before op2, false otherwise.
 static bool comesBeforeInProgramOrder(Operation *op1, Operation *op2) {
@@ -116,6 +96,27 @@ static bool comesBeforeInProgramOrder(Operation *op1, Operation *op2) {
   }
 
   // If neither is nested in the other, we can't determine ordering
+  return false;
+}
+
+/// Check if an operation should be skipped when looking for reads after
+/// startOp.
+static bool
+shouldSkipOperation(Operation *op, Operation *startOp,
+                    const llvm::DenseSet<Operation *> insertionPoints) {
+  // Skip if it's thesame as startOp, or already has insertion point
+  if (op == startOp || insertionPoints.contains(op)) {
+    LLVM_DEBUG(llvm::dbgs() << "Skipping op because it's already been used: "
+                            << *op << "\n");
+    return true;
+  }
+  // Skip if op occurs earlier than startOp in program order (even if they are in
+  // different blocks/regions).
+  if (comesBeforeInProgramOrder(op, startOp)) {
+    LLVM_DEBUG(llvm::dbgs() << "Skipping op because it comes before startOp: "
+                            << *op << "\n");
+    return true;
+  }
   return false;
 }
 
