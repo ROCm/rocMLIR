@@ -351,7 +351,7 @@ FailureOr<std::pair<int, bool>> getWaitCount(Operation *localLoadOp,
   // Case 3: globalLoad executes before localLoad and its block is nested within
   // the localLoad block. This corresponds to the epilogue portion of the
   // pipeline.
-  else if (globalAfterLocal && localContainsGlobal) {
+  else if (localAfterGlobal && localContainsGlobal) {
     LLVM_DEBUG(llvm::dbgs()
                << "Case 3: globalLoad nested inside localLoad block "
                   "(epilogue)\n");
