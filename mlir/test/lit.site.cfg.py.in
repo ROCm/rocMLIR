@@ -51,7 +51,7 @@ if config.enable_rock_driver_any_e2e_test:
     config.available_features.add('rock-any-e2e')
 config.enable_bindings_python = @MLIR_BINDINGS_PYTHON_ENABLED@
 config.random_data = "@MLIR_RANDOM_DATA@"
-config.constrained_range_random_data = "@MLIR_RANDOM_DATA_CONSTRAINED_RANGE@"
+config.constrained_float_range_random_data = "@MLIR_RANDOM_DATA_CONSTRAINED_RANGE_FLOAT@"
 config.rocmlir_gen_flags = "@ROCMLIR_GEN_FLAGS@"
 config.populate_validation = "@MLIR_POPULATE_VALIDATION@"
 config.rocm_path = "@ROCM_PATH@"

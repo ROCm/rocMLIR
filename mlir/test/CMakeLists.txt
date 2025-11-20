@@ -61,9 +61,9 @@ endif()
 # Passed to lit.site.cfg.py.in to set the -rand_min and -rand_max flags
 # for the mlir E2E tests. Only populated when ROCMLIR_DRIVER_RANDOM_DATA_SEED
 # is set (not "none"). Uses hardcoded range [-1, 1] for constrained random data.
-set(MLIR_RANDOM_DATA_CONSTRAINED_RANGE "")
+set(MLIR_RANDOM_DATA_CONSTRAINED_RANGE_FLOAT "")
 if(NOT ROCMLIR_DRIVER_RANDOM_DATA_SEED STREQUAL "none")
-  set(MLIR_RANDOM_DATA_CONSTRAINED_RANGE "${MLIR_RANDOM_DATA} -rand_min -1 -rand_max 1 ")
+  set(MLIR_RANDOM_DATA_CONSTRAINED_RANGE_FLOAT "${MLIR_RANDOM_DATA} -rand_min -1 -rand_max 1 -rand_type float")
 endif()
 
 # Passed to lit.site.cfg.py.in to set the -pv or -pv_with_gpu flag for the mlir E2E tests.
