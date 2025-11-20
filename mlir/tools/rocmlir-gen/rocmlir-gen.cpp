@@ -541,7 +541,7 @@ static llvm::cl::opt<std::string> dataTypeAlias(
         if (val == "i8")
           outputDataType = "i32";
         else if (val.starts_with("f8") || val.starts_with("fp8") ||
-                 val.starts_with("bf8"))
+                 val.starts_with("bf8") || val.starts_with("f4E2M1FN"))
           outputDataType = "f32";
         else if (filterDataType == inputDataType)
           outputDataType = v;
