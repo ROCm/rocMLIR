@@ -19,6 +19,7 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/Visitors.h"
 #include "mlir/Transforms/DialectConversion.h"
 
 #include "llvm/ADT/DenseSet.h"
@@ -356,37 +357,43 @@ static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
     // If pipelining is enabled, we always insert the AsyncWaitOp just before
     // the local load.
     return op;
-  } else {
-    // If pipelining is disabled, we have to insert the AsyncWaitOp just after
-    // the LDSBarrierOp. Find the first LDSBarrierOp with
-    // barrier_stage="backward" in the function
-    func::FuncOp func = op->getParentOfType<func::FuncOp>();
-    if (!func) {
-      LLVM_DEBUG(llvm::dbgs() << "No function found, inserting before op\n");
-      return nullptr;
-    }
-
-    rock::LDSBarrierOp forwardBarrier = nullptr;
-    func.walk([&](rock::LDSBarrierOp barrier) {
-      if (!forwardBarrier) {
-        auto barrierStageAttr = barrier.getBarrierStageAttr();
-        if (barrierStageAttr &&
-            barrierStageAttr.getValue() == rock::BarrierStage::Forward) {
-          forwardBarrier = barrier;
-        }
-      }
-    });
-
-    if (forwardBarrier) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Found forward barrier: " << forwardBarrier << "\n");
-      return forwardBarrier;
-    } else {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "No forward barrier found, inserting before op\n");
-      return op;
-    }
   }
+
+  // If pipelining is disabled, insert the AsyncWaitOp right after the closest
+  // preceding Forward-stage LDS barrier.
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  if (!func) {
+    LLVM_DEBUG(llvm::dbgs() << "No function found, inserting before op\n");
+    return nullptr;
+  }
+
+  rock::LDSBarrierOp barrierBeforeOp = nullptr;
+  WalkResult walkResult = func.walk([&](Operation *walkOp) {
+    if (walkOp == op) {
+      return WalkResult::interrupt();
+    }
+    if (auto barrier = dyn_cast<rock::LDSBarrierOp>(walkOp)) {
+      auto barrierStageAttr = barrier.getBarrierStageAttr();
+      if (barrierStageAttr &&
+          barrierStageAttr.getValue() == rock::BarrierStage::Forward) {
+        barrierBeforeOp = barrier;
+      }
+    }
+    return WalkResult::advance();
+  });
+
+  (void)walkResult;
+
+  if (barrierBeforeOp) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Found forward barrier before op: " << barrierBeforeOp
+               << "\n");
+    return barrierBeforeOp;
+  }
+
+  LLVM_DEBUG(llvm::dbgs()
+             << "No forward barrier found before op, inserting before op\n");
+  return op;
 }
 
 /// Add AsyncWait ops to the function. This function has 3 main steps:
