@@ -77,6 +77,9 @@ struct VectorDimInfo {
   GemmDimension vectorTiebreaker;
 };
 
+/// Helper struct to encapsulate the data needed by
+/// `ThreadwiseReadIntoOp` to perform the lowering (vectorization choices,
+/// bounds, etc.).
 struct ThreadwiseReadIntoLoopConfigInput {
   Value sourceView;
   MemRefType dstBufferType;
@@ -90,6 +93,10 @@ struct ThreadwiseReadIntoLoopConfigInput {
   std::optional<int64_t> maxGlobalToLDSVectorLen;
 };
 
+/// Summary of the loop parameters computed from
+/// `ThreadwiseReadIntoLoopConfigInput`, containing the
+/// bound (`numValues`), stride (`srcStride`), and the vectorization layout
+/// (`vectorSrcLen`, `vectorDstLen`, `loadType`, etc.).
 struct ThreadwiseReadIntoLoopInfo {
   int64_t numValues;
   int64_t srcStride;
@@ -296,15 +303,20 @@ FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
 // Get the LDS size of the memref
 std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
 
+/// Replicates the loop-shape analysis performed by
+/// `ThreadwiseReadIntoRewritePattern`. Returns a ThreadwiseReadIntoLoopInfo
+/// struct, representingthe iteration bounds, strides, and vectorization details
+/// so other passes (e.g. add-async-wait) can reason about how many iterations a
+/// `rock.threadwise_read_into` executes without duplicating lowering logic.
+FailureOr<ThreadwiseReadIntoLoopInfo>
+getThreadwiseReadIntoLoopInfo(const ThreadwiseReadIntoLoopConfigInput &input);
+
 /// Predict the loop count for a ThreadwiseReadIntoOp by computing the bounds
 /// and strides that ThreadwiseReadIntoRewritePattern::matchAndRewrite would
 /// create. This function replicates the logic from matchAndRewrite to compute:
 /// - numValues: the bound for the iteration dimension
 /// - srcStride: the stride for the iteration dimension
 /// Returns: numValues / srcStride (the loop count)
-FailureOr<ThreadwiseReadIntoLoopInfo>
-getThreadwiseReadIntoLoopInfo(const ThreadwiseReadIntoLoopConfigInput &input);
-
 FailureOr<int64_t> predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op);
 
 } // end namespace rock
