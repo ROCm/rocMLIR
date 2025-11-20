@@ -441,6 +441,7 @@ static LogicalResult addAsyncWaitOps(func::FuncOp &func) {
   // same location
   llvm::DenseSet<Operation *> insertionPoints;
   for (auto readOp : readOps) {
+    LLVM_DEBUG(llvm::dbgs() << "Processing ThreadwiseReadIntoOp: " << *readOp << "\n");
     auto firstUseOr = findFirstUseAfter(readOp, insertionPoints);
 
     if (failed(firstUseOr)) {
@@ -470,7 +471,7 @@ static LogicalResult addAsyncWaitOps(func::FuncOp &func) {
     // Only insert one AsyncWaitOp per insertion point
     if (insertionPoints.contains(insertionPoint)) {
       LLVM_DEBUG(llvm::dbgs() << "Skipping insertion point because it already "
-                                 "has an AsyncWaitOp\n");
+                                 "has an AsyncWaitOp\n\n");
       continue;
     }
     insertionPoints.insert(insertionPoint);
