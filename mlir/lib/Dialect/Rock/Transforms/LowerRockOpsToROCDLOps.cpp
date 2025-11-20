@@ -11,8 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Passes.h"
 
 #include "mlir/Conversion/LLVMCommon/ConversionTarget.h"
@@ -105,8 +105,7 @@ struct LowerRockOpsToROCDLOpsPass final
 
     // Check if the GPU supports DirectToLDS
     AmdArchInfo archInfo = lookupArchInfo(chipset);
-    bool supportsDirectToLDS =
-        isDirectToLDSSupported(archInfo.defaultFeatures);
+    bool supportsDirectToLDS = isDirectToLDSSupported(archInfo.defaultFeatures);
 
     LLVMConversionTarget target(getContext());
     if (supportsDirectToLDS) {

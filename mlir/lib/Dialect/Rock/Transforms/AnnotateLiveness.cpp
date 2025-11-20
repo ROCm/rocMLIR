@@ -58,7 +58,8 @@ static bool hasWriteEffect(Operation *op, GpuAllocOp buffer) {
   for (const auto &effect : effects) {
     // Check if this is a Write effect on our alloc
     if (isa<MemoryEffects::Write>(effect.getEffect())) {
-      SmallVector<GpuAllocOp> effectAllocs = rock::findAllGpuAllocs(effect.getValue());
+      SmallVector<GpuAllocOp> effectAllocs =
+          rock::findAllGpuAllocs(effect.getValue());
       if (llvm::is_contained(effectAllocs, buffer)) {
         return true;
       }
@@ -79,7 +80,8 @@ static bool hasReadEffect(Operation *op, GpuAllocOp buffer) {
   for (const auto &effect : effects) {
     // Check if this is a Read effect on our alloc
     if (isa<MemoryEffects::Read>(effect.getEffect())) {
-      SmallVector<GpuAllocOp> effectAllocs = rock::findAllGpuAllocs(effect.getValue());
+      SmallVector<GpuAllocOp> effectAllocs =
+          rock::findAllGpuAllocs(effect.getValue());
       if (llvm::is_contained(effectAllocs, buffer)) {
         return true;
       }
