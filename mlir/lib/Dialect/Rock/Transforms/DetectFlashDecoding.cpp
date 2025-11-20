@@ -290,8 +290,10 @@ static FailureOr<Value> removeSplitKVFromQ(PatternRewriter &rewriter,
 }
 
 // Helper function to remove splitKV from K or V tensors
-// K: [B*H*splitKV, K, seq_k/splitKV] -> [B*H, K, seq_k]
-// V: [B*H*splitKV, seq_k/splitKV, D] -> [B*H, seq_k, D]
+// K non-transposed: [B*H*splitKV, K, seq_k/splitKV] -> [B*H, K, seq_k]
+// K transposed: [B*H*splitKV, seq_k/splitKV, K] -> [B*H, seq_k, K]
+// V non-transposed: [B*H*splitKV, seq_k/splitKV, D] -> [B*H, seq_k, D]
+// V transposed: [B*H*splitKV, D, seq_k/splitKV] -> [B*H, D, seq_k]
 static FailureOr<Value>
 removeSplitKVWithMerge(PatternRewriter &rewriter, Location loc, Value tensor,
                        int64_t splitKV, StringRef tensorName,
@@ -400,12 +402,22 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
 
     auto maybeNewQueries =
         removeSplitKVFromQ(rewriter, op.getLoc(), queries, splitKVFromQ);
+    
+    // K is featureFirst when not transposed
+    // K non-transposed: [B*H*splitKV, K, seq_k/splitKV]
+    // K transposed: [B*H*splitKV, seq_k/splitKV, K]
+    bool kFeatureFirst = !op.getKTransposed();
     auto maybeNewKeys =
         removeSplitKVWithMerge(rewriter, op.getLoc(), keys, splitKVFromQ, "K",
-                               "K", /*featureFirst=*/true);
+                               "K", kFeatureFirst);
+    
+    // V is not featureFirst when not transposed
+    // V non-transposed: [B*H*splitKV, seq_k/splitKV, D]
+    // V transposed: [B*H*splitKV, D, seq_k/splitKV]
+    bool vFeatureFirst = op.getVTransposed();
     auto maybeNewValues =
         removeSplitKVWithMerge(rewriter, op.getLoc(), values, splitKVFromQ, "V",
-                               "D", /*featureFirst=*/false);
+                               "D", vFeatureFirst);
 
     if (failed(maybeNewQueries) || failed(maybeNewKeys) ||
         failed(maybeNewValues)) {
