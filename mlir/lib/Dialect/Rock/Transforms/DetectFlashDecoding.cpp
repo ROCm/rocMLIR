@@ -48,11 +48,10 @@ static bool isSupportedSplitKV(int64_t splitKV) {
 
 // Detect splitKV from Q tensor by finding the Broadcast operation
 // Q pattern: [B, H, 1, M, K] --Broadcast--> [B, H, SplitKV, M, K]
-//                            --Merge--> [B*H*SplitKV, M, K]
 // Returns (splitKV, dimensionality), where dimensionality is 4 or 5
 // Returns (1, 0) if not found
 // Note, this detection logic only works if we find the broadcast operation and
-// it is not undone and merged into the batch dimension.
+// it is has not been optimized away by one of the earlier passes.
 static std::pair<int64_t, int64_t> detectSplitKVFromQ(Value qTensor) {
   SmallVector<TransformMapAttr> transforms;
   rock::untransform(qTensor, transforms);
