@@ -100,6 +100,21 @@ static bool comesBeforeInProgramOrder(Operation *op1, Operation *op2) {
   return false;
 }
 
+/// Returns true if `ancestor` is an ancestor of `descendant`.
+static bool isBlockAncestor(Block *ancestor, Block *descendant) {
+  if (!ancestor || !descendant)
+    return false;
+  for (Block *ptr = descendant; ptr; ) {
+    if (ptr == ancestor)
+      return true;
+    Operation *parentOp = ptr->getParentOp();
+    if (!parentOp)
+      break;
+    ptr = parentOp->getBlock();
+  }
+  return false;
+}
+
 /// Check if an operation should be skipped when looking for reads after
 /// startOp.
 static bool
@@ -299,22 +314,24 @@ FailureOr<std::pair<int, bool>> getWaitCount(Operation *localLoadOp,
   int waitCount = 0;
   bool pipeliningEnabled = false;
 
-  // Case 1: Both have the same parent block (function) - prologue
-  if (!localLoop && !globalLoop) {
-    assert(globalBlock == localBlock &&
-           "Expected global and local load ops to be in the same block");
-    LLVM_DEBUG(llvm::dbgs() << "Case 1: Both in function (prologue)\n");
-    // Count global loads between globalLoadOp and localLoadOp in the same block
+  bool sameBlock = globalBlock == localBlock;
+  bool globalContainsLocal = isBlockAncestor(globalBlock, localBlock);
+  bool localContainsGlobal = isBlockAncestor(localBlock, globalBlock);
+  bool localAfterGlobal = comesBeforeInProgramOrder(globalLoadOp, localLoadOp);
+  bool globalAfterLocal = comesBeforeInProgramOrder(localLoadOp, globalLoadOp);
+
+  // Case 1: Both have the same parent block (prologue).
+  if (sameBlock) {
+    LLVM_DEBUG(llvm::dbgs() << "Case 1: Both ops in the same block (prologue)\n");
     waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock,
                                         /*countFromStart=*/false);
     pipeliningEnabled = true;
   }
-  // Case 2: localLoad in loop, globalLoad in function - body
-  else if (localLoop && !globalLoop) {
+  // Case 2: localLoad block is nested within (and executes after) globalLoad's
+  // block (pipelining body).
+  else if (globalContainsLocal && localAfterGlobal) {
     LLVM_DEBUG(llvm::dbgs()
-               << "Case 2: localLoad in loop, globalLoad in function (body)\n");
-    // Count from globalLoadOp to the loop operation (which marks the start of
-    // the loop block)
+               << "Case 2: localLoad nested inside globalLoad block (body)\n");
     Block *loopOpBlock = localLoop->getBlock();
     if (loopOpBlock == globalBlock) {
       waitCount += countGlobalLoadsBetween(
@@ -330,12 +347,13 @@ FailureOr<std::pair<int, bool>> getWaitCount(Operation *localLoadOp,
                                          /*countFromStart=*/true);
     pipeliningEnabled = true;
   }
-  // Case 3: localLoad in function, globalLoad in loop - epilogue
-  else if (!localLoop && globalLoop) {
-    LLVM_DEBUG(
-        llvm::dbgs()
-        << "Case 3: localLoad in function, globalLoad in loop (epilogue)\n");
-    // Always return 0 for epilogue
+  // Case 3: globalLoad executes before localLoad and its block is nested within
+  // the localLoad block. This corresponds to the epilogue portion of the
+  // pipeline.
+  else if (globalAfterLocal && localContainsGlobal) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Case 3: globalLoad nested inside localLoad block "
+                  "(epilogue)\n");
     return success(std::make_pair(0, true));
   }
   // Case 4: no pipelining.
