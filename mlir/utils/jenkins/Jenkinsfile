@@ -471,8 +471,6 @@ int setLitWorkerCount() {
         limit_lit_workers = 20
     } else if (gpu_arch.contains('gfx942')) {
         limit_lit_workers = 64
-    } else if (gpu_arch.contains('gfx95')) {
-        limit_lit_workers = 2
     }
     return limit_lit_workers
 }
@@ -485,7 +483,7 @@ void build_fixedE2ETests(String codepath) {
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
-              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 -j ${limit_lit_workers}'
+              -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
 }
