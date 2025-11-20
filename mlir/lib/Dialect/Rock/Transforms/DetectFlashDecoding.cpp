@@ -343,7 +343,7 @@ removeSplitKVWithMerge(PatternRewriter &rewriter, Location loc, Value tensor,
 
   TransformMapAttr transformMap = builder.get();
   Value result =
-        rewriter.create<rock::TransformOp>(loc, intermediate, transformMap);
+      rewriter.create<rock::TransformOp>(loc, intermediate, transformMap);
 
   return result;
 }
