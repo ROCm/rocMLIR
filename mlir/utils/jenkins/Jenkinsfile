@@ -1094,7 +1094,7 @@ pipeline {
                                                             if (CHIP.startsWith("gfx1")) {
                                                                 attnConfigToUse = "tier1-attention-configs-nofp32"
                                                                 sh """
-                                                                    grep -v '-t f32' ${attnConfig} > ${attnConfigToUse}
+                                                                    grep -v '\\-t f32' ${attnConfig} > ${attnConfigToUse}
                                                                 """
                                                             }
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o attention \
