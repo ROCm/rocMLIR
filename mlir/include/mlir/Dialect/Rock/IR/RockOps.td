@@ -250,6 +250,12 @@ def Rock_AttentionOp
     Flash decoding multiplies the number of blocks by splitKV. Note that "lse" has to be non-null for splitKV > 1. 
     However, "lse" can be non-null even if splitKV = 1.
 
+    The `preSoftmaxHasSplitKVTransforms` attribute indicates whether the preSoftmaxBody inputs 
+    have splitKV transforms applied. It is set to true by DetectFlashDecoding when it detects 
+    and removes splitKV patterns. This prevents GridwiseGemmToBlockwise from unnecessarily 
+    re-applying splitKV transforms when the IR is generated directly (e.g., via rocmlir-gen) 
+    without flash decoding detection.
+
     The parameters `gridSize`, and `blockSize` are optional as they can be
     inferred by a tuning process or a heuristic, but they must be set before
     the `attention` is lowered into the `gridwise_attention_accel` stage of the
