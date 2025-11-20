@@ -39,7 +39,7 @@ prefix =  "-scale_b_dtype "
 
 [[axis]]
 name = "schedule_version"
-values = ["1"]
+values = ["1", "2"]
 prefix = "--schedule_version  "
 
 ## Gemm variants

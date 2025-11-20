@@ -139,10 +139,29 @@ struct BufferLoadRewritePatttern
           op, "expected even buffer load in temp code");
     auto newType = VectorType::get(oldType.getNumElements() / scale,
                                    rewriter.getIntegerType(newWidth));
+    Value nibbleIndex = adaptor.getIndices()[0];
+    unsigned indexWidth = cast<IntegerType>(nibbleIndex.getType()).getWidth();
     Value scaleConst =
-        rewriter.createOrFold<arith::ConstantIntOp>(loc, scale, /*width=*/32);
-    Value newIndex = arith::DivUIOp::create(
-        rewriter, loc, adaptor.getIndices()[0], scaleConst);
+        rewriter.createOrFold<arith::ConstantIntOp>(loc, scale, indexWidth);
+    Value newIndex =
+        arith::DivUIOp::create(rewriter, loc, nibbleIndex, scaleConst);
+
+    auto convertedMemrefType =
+        dyn_cast<MemRefType>(adaptor.getMemref().getType());
+    auto origMemrefType = dyn_cast<MemRefType>(op.getMemref().getType());
+    int64_t numBytes = convertedMemrefType.getNumElements();
+    // if the original out of bound index was odd then need to clamp to the next
+    // byte to make sure it stays out of bounds
+    int64_t numNibbles = origMemrefType.getNumElements();
+    Value numBytesConst =
+        rewriter.createOrFold<arith::ConstantIntOp>(loc, numBytes, indexWidth);
+    Value nibbleBoundConst = rewriter.createOrFold<arith::ConstantIntOp>(
+        loc, numNibbles, indexWidth);
+
+    Value nibbleIsOob = rewriter.createOrFold<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::uge, nibbleIndex, nibbleBoundConst);
+    newIndex = rewriter.createOrFold<arith::SelectOp>(loc, nibbleIsOob,
+                                                      numBytesConst, newIndex);
     // Note: if you're using sgpr offset for some reason, this won't work.
     Value newLoad = amdgpu::RawBufferLoadOp::create(
         rewriter, loc, newType, adaptor.getMemref(), newIndex,

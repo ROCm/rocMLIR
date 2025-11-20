@@ -71,21 +71,12 @@ struct Serializable {
   }
 
   bool checkVersionFormat(const std::string &s) {
-    int32_t maxNumTokens;
-    switch (version) {
-    case Version::V1:
-      maxNumTokens = 8;
-      break;
-    case Version::V2:
-      maxNumTokens = 9;
-      break;
-    case Version::V3:
-      maxNumTokens = 11;
-      break;
-    default:
+    const int32_t maxNumTokensArray[] = {0, 8, 9, 11, 12};
+    const int32_t versionIdx = static_cast<int32_t>(version);
+    if (versionIdx < 1 || versionIdx >= static_cast<int32_t>(Version::Count)) {
       llvm_unreachable("Unknown version of the perfConfig");
-      break;
-    };
+    }
+    const int32_t maxNumTokens = maxNumTokensArray[versionIdx];
     const int32_t maxNumSeperators = maxNumTokens - 1;
     const int32_t minNumSeperators = maxNumSeperators - 2;
     const auto numFoundSeperators = std::count_if(
@@ -138,11 +129,11 @@ struct Serializable {
     return os;
   }
 
-  enum class Version : int32_t { V1 = 1, V2, V3, Count };
-  Version getVersion() { return version; }
+  enum class Version : int32_t { V1 = 1, V2, V3, V4, Count };
+  Version getVersion() const { return version; }
 
 protected:
-  Version version{Version::V3};
+  Version version{Version::V4};
 };
 
 template <class Strings>
