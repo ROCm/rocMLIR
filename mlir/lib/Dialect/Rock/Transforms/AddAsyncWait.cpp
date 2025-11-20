@@ -306,11 +306,6 @@ FailureOr<std::pair<int, bool>> getWaitCount(Operation *localLoadOp,
   assert(globalBlock && "Expected global load op to be in a block");
   assert(localBlock && "Expected local load op to be in a block");
 
-  LoopLikeOpInterface localLoop =
-      localLoadOp->getParentOfType<LoopLikeOpInterface>();
-  LoopLikeOpInterface globalLoop =
-      globalLoadOp->getParentOfType<LoopLikeOpInterface>();
-
   int waitCount = 0;
   bool pipeliningEnabled = false;
 
@@ -318,7 +313,6 @@ FailureOr<std::pair<int, bool>> getWaitCount(Operation *localLoadOp,
   bool globalContainsLocal = isBlockAncestor(globalBlock, localBlock);
   bool localContainsGlobal = isBlockAncestor(localBlock, globalBlock);
   bool localAfterGlobal = comesBeforeInProgramOrder(globalLoadOp, localLoadOp);
-  bool globalAfterLocal = comesBeforeInProgramOrder(localLoadOp, globalLoadOp);
 
   // Case 1: Both have the same parent block (prologue).
   if (sameBlock) {
@@ -333,6 +327,9 @@ FailureOr<std::pair<int, bool>> getWaitCount(Operation *localLoadOp,
   else if (globalContainsLocal && localAfterGlobal) {
     LLVM_DEBUG(llvm::dbgs()
                << "Case 2: localLoad nested inside globalLoad block (body)\n");
+    // Count from the start of the loop body block to localLoadOp.
+    LoopLikeOpInterface localLoop =
+        localLoadOp->getParentOfType<LoopLikeOpInterface>();
     Block *loopOpBlock = localLoop->getBlock();
     if (loopOpBlock == globalBlock) {
       waitCount += countGlobalLoadsBetween(
