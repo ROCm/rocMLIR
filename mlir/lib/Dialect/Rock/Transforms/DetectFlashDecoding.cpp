@@ -398,6 +398,7 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     // Add transforms to remove splitKV from batch dimension of inputs
     Value keys = op.getKeys();
 
+    assert(!op.getQTransposed() && "Q should not be transposed");
     auto maybeNewQueries =
         removeSplitKVFromQ(rewriter, op.getLoc(), queries, splitKVFromQ);
 
