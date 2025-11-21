@@ -204,7 +204,7 @@ struct MemRefViewRewritePattern : public OpConversionPattern<memref::ViewOp> {
     Type newType = getTypeConverter()->convertType(oldType);
     if (!newType)
       return rewriter.notifyMatchFailure(op,
-                                         Twine("couldn't convert view type"));
+                                         "couldn't convert view type");
     if (oldType == newType)
       return failure();
 
@@ -374,7 +374,7 @@ struct GatherToLDSRewritePattern
       // It is possible that this is not a compile time constant and it cannot
       // be matched. Doing runtime checks is very expensive. Given directToLDS
       // transfers bits are multiple of 8, it should be safe to assume that last
-      // co-ord will be even at runtime.
+      // coord will be even at runtime.
       APInt indexConst(64, 0);
       if (matchPattern(lastIndex, m_ConstantInt(&indexConst))) {
         if (indexConst.urem(2) != 0) {
@@ -402,6 +402,8 @@ struct GatherToLDSRewritePattern
         nibbleBoundConst = rewriter.createOrFold<arith::ConstantIntOp>(
             loc, numNibbles, indexWidth);
       }
+      // Use DivUIOp here because indices are always unsigned, and this performs
+      // the division by 2 to convert nibble indices to byte indices.
       Value scaledIndex =
           arith::DivUIOp::create(rewriter, loc, lastIndex, scaleConst);
 
