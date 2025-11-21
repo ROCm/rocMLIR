@@ -56,6 +56,9 @@
 
 // Utilities to allocate buffers
 #include "../utils/performance/common/benchmarkUtils.h"
+#include "CacheFlush.h"
+
+#include <hip/hip_runtime.h>
 
 #if !defined(_HIP_CLANG_ONLY__)
 // GCC complains if we don't do this
@@ -81,6 +84,7 @@ void pArgs(const std::tuple<Ts...> &formals, void **_vargs) {
 #include <hip/hip_ext.h>
 
 using namespace mlir;
+using namespace rocmlir::tuningdriver;
 
 llvm::cl::opt<std::string> inputFilename{
     llvm::cl::Positional, llvm::cl::desc("<input file>"), llvm::cl::init("-")};
@@ -184,24 +188,6 @@ static benchmark::DataType getDataType(Type inputType) {
     return failure();                                                          \
   }
 
-static size_t flushSize = 0;
-static void *flushBuffer = nullptr;
-
-static LogicalResult flushL2Cache(hipStream_t stream) {
-  if (flushBuffer == nullptr) {
-    hipDeviceProp_t props;
-    HIPCHECK(hipGetDeviceProperties(&props, 0));
-    size_t l2Size = props.l2CacheSize;
-
-    flushSize = l2Size + (l2Size / 5); // 20% margin
-    HIPCHECK(hipMalloc(&flushBuffer, flushSize));
-  }
-
-  HIPCHECK(hipMemsetAsync(flushBuffer, 0, flushSize, stream));
-
-  return success();
-}
-
 static float computeMedian(const std::vector<float> &values) {
   if (values.empty())
     return 0.0;
@@ -212,9 +198,9 @@ static float computeMedian(const std::vector<float> &values) {
   size_t n = values.size();
   if (n % 2 == 0) {
     return (values[n / 2 - 1] + values[n / 2]) / 2.0;
-  } else {
-    return values[n / 2];
   }
+  // else
+  return values[n / 2];
 }
 
 static float computeMean(const std::vector<float> &values) {
@@ -292,6 +278,13 @@ benchmarkKernels(ArrayRef<std::string> binaries,
                  ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream));
+  auto streamCleanup = llvm::make_scope_exit([&]() {
+    hipError_t destroyStatus = hipStreamDestroy(stream);
+    if (destroyStatus != hipSuccess) {
+      llvm::errs() << "HIP error in hipStreamDestroy: "
+                   << hipGetErrorString(destroyStatus) << "\n";
+    }
+  });
 
   // Initialize device buffers
   for (size_t i = 0; i < bufferSizes.size(); i++) {
@@ -308,6 +301,17 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   // Load all modules once to reduce overhead
   std::vector<hipModule_t> modules;
   std::vector<hipFunction_t> functions;
+  auto moduleCleanup = llvm::make_scope_exit([&]() {
+    for (hipModule_t mod : modules) {
+      if (!mod)
+        continue;
+      hipError_t status = hipModuleUnload(mod);
+      if (status != hipSuccess) {
+        llvm::errs() << "HIP error in hipModuleUnload: "
+                     << hipGetErrorString(status) << "\n";
+      }
+    }
+  });
 
   for (auto [binary, funcName] : llvm::zip(binaries, funcNames)) {
     hipModule_t mod;
@@ -340,9 +344,13 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   std::vector<float> measurements;
 
   for (unsigned iter = 0; iter < params.numIterations; ++iter) {
+    if (failed(flushInstructionCache(stream))) {
+      return failure();
+    }
     if (failed(flushL2Cache(stream))) {
       return failure();
     }
+    HIPCHECK(hipStreamSynchronize(stream));
 
     float totalMilliseconds = 0.0;
 
@@ -370,12 +378,6 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     measurements.push_back(totalMilliseconds);
   }
 
-  for (hipModule_t mod : modules) {
-    HIPCHECK(hipModuleUnload(mod));
-  }
-
-  HIPCHECK(hipStreamDestroy(stream));
-
   std::sort(measurements.begin(), measurements.end());
 
   if (params.showStats && measurements.size() > 1) {
@@ -393,8 +395,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   auto msToNs = [](float ms) { return 1e6 * static_cast<double>(ms); };
   if (params.useMedian)
     return msToNs(computeMedian(measurements));
-  else
-    return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
+  // else
+  return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
 }
 
 static int toKernelOrder(Attribute attr) {
@@ -478,13 +480,36 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // 3. Initialize host buffers and allocate device buffers
   std::vector<void *> hostBuffers;
   std::vector<void *> gpuBuffers;
+  auto bufferCleanup = llvm::make_scope_exit([&]() {
+    for (void *buffer : hostBuffers)
+      free(buffer);
+    for (void *buffer : gpuBuffers) {
+      // hipFree does not allow nullptrs, so make sure to check for it first
+      if (!buffer)
+        continue;
+      hipError_t status = hipFree(buffer);
+      if (status != hipSuccess) {
+        llvm::errs() << "HIP error in hipFree(buffer): "
+                     << hipGetErrorString(status) << "\n";
+      }
+    }
+    if (failed(cleanupCacheFlushArtifacts())) {
+      llvm::errs() << "Failed to cleanup cache flush artifacts\n";
+    }
+  });
   assert(argTypes.size() == bufferLengths.size() &&
          "number of arguments and buffer lengths must match");
   for (auto [argType, bufferLength] : llvm::zip(argTypes, bufferLengths)) {
     benchmark::DataType type = getDataType(getElementTypeOrSelf(argType));
     void *hostBuffer = benchmark::allocAndFill(type, bufferLength);
     void *gpuBuffer = nullptr;
-    HIPCHECK(hipMalloc(&gpuBuffer, bufferLength));
+    hipError_t hipStatus = hipMalloc(&gpuBuffer, bufferLength);
+    if (hipStatus != hipSuccess) {
+      free(hostBuffer);
+      llvm::errs() << "HIP error in hipMalloc(gpuBuffer): "
+                   << hipGetErrorString(hipStatus) << "\n";
+      return failure();
+    }
     hostBuffers.push_back(hostBuffer);
     gpuBuffers.push_back(gpuBuffer);
   }
@@ -702,16 +727,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       return failure();
     }
     llvm::outs() << timing << "\n";
-  }
-  for (void *buffer : hostBuffers) {
-    free(buffer);
-  }
-  for (void *buffer : gpuBuffers) {
-    HIPCHECK(hipFree(buffer));
-  }
-  if (flushBuffer) {
-    HIPCHECK(hipFree(flushBuffer));
-    flushBuffer = nullptr;
   }
   return success();
 }
