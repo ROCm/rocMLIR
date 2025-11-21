@@ -32,6 +32,20 @@ def RockViewToTransformPass : Pass<"rock-view-to-transform", "::mlir::func::Func
     "tosa::TosaDialect"];
 }
 
+def RockDetectFlashDecodingPass
+    : Pass<"rock-detect-flash-decoding", "::mlir::func::FuncOp"> {
+  let summary = "Detect flash decoding (splitKV > 1) from rock.transform "
+                "operations and update AttentionOps";
+  let description = [{
+    This pass analyzes rock.transform operations to detect when flash decoding
+    (splitKV > 1) is being used. It identifies broadcast patterns in input
+    tensors that indicate the splitKV factor, removes those broadcasts (since
+    the attention implementation handles splitting internally), and updates the
+    AttentionOp's splitKV attribute accordingly.
+  }];
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+}
+
 def RockConvToGemmPass : Pass<"rock-conv-to-gemm", "::mlir::func::FuncOp"> {
   let summary = "expand convolution into coordinate transformations and gemm. "
                 "Additionally, it also convert rock.conv_elementwise_gemm into "
