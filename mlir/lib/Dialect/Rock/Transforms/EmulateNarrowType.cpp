@@ -203,8 +203,7 @@ struct MemRefViewRewritePattern : public OpConversionPattern<memref::ViewOp> {
     // Convert the type through the type converter
     Type newType = getTypeConverter()->convertType(oldType);
     if (!newType)
-      return rewriter.notifyMatchFailure(op,
-                                         "couldn't convert view type");
+      return rewriter.notifyMatchFailure(op, "couldn't convert view type");
     if (oldType == newType)
       return failure();
 
