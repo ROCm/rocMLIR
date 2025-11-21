@@ -15,9 +15,9 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 //
-// This pass adds alias scope information to operations that perform direct-to-LDS
-// loads or stores and local loads or stores.
-// 
+// This pass adds alias scope information to operations that perform
+// direct-to-LDS loads or stores and local loads or stores.
+//
 // This includes:
 // - rocdl.load_to_lds operations (direct loads to LDS)
 // - llvm.load operations from global memory to LDS  (local loads)
@@ -56,42 +56,37 @@ struct RockAddAliasInfoPass
     gpu::GPUModuleOp module = getOperation();
     LLVM_DEBUG(llvm::dbgs() << "Running RockAddAliasInfoPass on GPU module\n");
 
-    // Walk through all LLVM functions in the module and process their operations.
+    // Walk through all LLVM functions in the module.
     module.walk([&](LLVM::LLVMFuncOp func) {
-      LLVM_DEBUG(llvm::dbgs() << "Processing function: " << func.getName() << "\n");
-      
+      LLVM_DEBUG(llvm::dbgs() << "Processing: " << func.getName() << "\n");
+
       func.walk([&](LLVM::AliasAnalysisOpInterface aliasIface) {
         Operation *aliasOp = aliasIface.getOperation();
 
-        if (auto loadOp = dyn_cast<LLVM::LoadOp>(aliasOp)) {
-          Value addr = loadOp.getAddr();
+        // Add LDS loads and stores to noAliasScope.
+        if (isa<LLVM::LoadOp, LLVM::StoreOp>(aliasOp)) {
+          assert(aliasIface.getAccessedOperands().size() == 1 &&
+                 "Expected only one accessed operand");
+          Value addr = aliasIface.getAccessedOperands()[0];
           if (auto ptrType = dyn_cast<LLVM::LLVMPointerType>(addr.getType())) {
-            if (ptrType.getAddressSpace() == ROCDL::ROCDLDialect::kSharedMemoryAddressSpace) {
-              LLVM_DEBUG(llvm::dbgs() << "LLVM::LoadOp with LDS address space. Adding to noAliasScope\n");
-              addLocalLoadNoAliasScope(loadOp);
+            if (ptrType.getAddressSpace() ==
+                ROCDL::ROCDLDialect::kSharedMemoryAddressSpace) {
+
+              LLVM_DEBUG(llvm::dbgs() << aliasOp->getName()
+                                      << " with LDS address space: Adding to "
+                                         "noAliasScope\n");
+              addLocalLoadNoAliasScope(aliasIface);
             }
           }
-        }
-        else if (auto storeOp = dyn_cast<LLVM::StoreOp>(aliasOp)) {
-          Value addr = storeOp.getAddr();
-          if (auto ptrType = dyn_cast<LLVM::LLVMPointerType>(addr.getType())) {
-            if (ptrType.getAddressSpace() == ROCDL::ROCDLDialect::kSharedMemoryAddressSpace) {
-              LLVM_DEBUG(llvm::dbgs() << "LLVM::StoreOp with LDS address space. Adding to noAliasScope\n");
-              addLocalLoadNoAliasScope(storeOp);
-            }
-          }
-        }
-        else if (auto loadToLDSOp = dyn_cast<ROCDL::LoadToLDSOp>(aliasOp)) {
-          // We lower rock ops to GatherToLDS ops, which then are lowered to LoadToLDSOp at this point,
-          // so here its the right moment to add alias scope information.
-          LLVM_DEBUG(llvm::dbgs() << "ROCDL::LoadToLDSOp. Adding to aliasScope\n");
-          addDirectToLDSLoadAliasScope(loadToLDSOp);
-        }
-        else if (auto rawPtrBufferLoadLdsOp = dyn_cast<ROCDL::RawPtrBufferLoadLdsOp>(aliasOp)) {
-          LLVM_DEBUG(llvm::dbgs() << "ROCDL::RawPtrBufferLoadLdsOp. Adding to aliasScope\n");
-          addDirectToLDSLoadAliasScope(rawPtrBufferLoadLdsOp);
-        }
-        else {
+        } else if (isa<ROCDL::LoadToLDSOp, ROCDL::RawPtrBufferLoadLdsOp>(
+                       aliasOp)) {
+          // We lower rock ops to GatherToLDS ops, which then are lowered to
+          // LoadToLDSOp at this point, so here its the right moment to add
+          // alias scope information.
+          LLVM_DEBUG(llvm::dbgs()
+                     << aliasOp->getName() << ": Adding to aliasScope\n");
+          addDirectToLDSLoadAliasScope(aliasIface);
+        } else {
           LLVM_DEBUG(llvm::dbgs()
                      << "Operation not supported  : " << *aliasOp << "\n");
         }
@@ -100,4 +95,3 @@ struct RockAddAliasInfoPass
   }
 };
 } // namespace
-
