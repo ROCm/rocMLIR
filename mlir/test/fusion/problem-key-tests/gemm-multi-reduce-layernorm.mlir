@@ -1,6 +1,6 @@
 // RUN: rocmlir-gen --emit-tuning-key %s | FileCheck %s
 
-// CHECK: gfx942  120     -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 128 -n 256 -k 64
+// CHECK: gfx942  120     -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 128 -n 256 -k 64 -fusion_reduce count=2 sum:axis2 sum:axis2:hasPointwise
 
 #map = affine_map<(d0, d1, d2) -> (d1 * 256 + d2)>
 #map1 = affine_map<(d0, d1, d2) -> (d1 * 64 + d2)>
@@ -35,7 +35,8 @@ module {
     %alloc_1 = memref.alloc() {alignment = 64 : i64} : memref<128x256xf32>
     linalg.generic {indexing_maps = [#map5, #map5], iterator_types = ["parallel", "parallel"]} ins(%7 : memref<128x256xf32>) outs(%alloc_1 : memref<128x256xf32>) {
     ^bb0(%in: f32, %out: f32):
-      %10 = arith.mulf %in, %in : f32
+      %cst = arith.constant 2.0 : f32
+      %10 = arith.mulf %in, %cst : f32
       linalg.yield %10 : f32
     }
     %8 = rock.transform %alloc_1 by #transform_map8 : memref<128x256xf32> to memref<1x128x256xf32>

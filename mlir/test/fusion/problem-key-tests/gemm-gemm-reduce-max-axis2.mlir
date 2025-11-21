@@ -1,6 +1,6 @@
 // RUN: rocmlir-gen --emit-tuning-key %s | FileCheck %s
 
-// CHECK: gfx942  120     -t f32 -transA false -transB false -transC false -transO false -g 1 -m 128 -n 256 -k 64 -gemmO 128
+// CHECK: gfx942  120     -t f32 -transA false -transB false -transC false -transO false -g 1 -m 128 -n 256 -k 64 -gemmO 128 -fusion_reduce count=1 max:axis
 
 
 #map = affine_map<(d0, d1, d2) -> (d1 * 128 + d2)>
