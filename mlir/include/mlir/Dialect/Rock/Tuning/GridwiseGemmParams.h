@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/Tuning/ParamLookupTable.h"
 #include "mlir/Dialect/Rock/Tuning/Serializable.h"
 #include <optional>
 
@@ -227,58 +228,6 @@ std::string genDebugForParams(T params) {
   os << "\n";
   return os.str();
 }
-
-template <typename ParamsType>
-class ParamLookupTable {
-public:
-  using ParamArray = std::pair<const ParamsType *, size_t>;
-
-  static ArrayRef<ParamsType> lookup(StringRef arch, KernelType op,
-                                     Type dataType);
-
-  // Finds the lexicographically closest architecture variant when the exact
-  // target key is not found in the lookup table.
-  //
-  // A "relative" entry must have:
-  // - Same suffix (operation + data type, e.g., "_gemm_f16")
-  // - Same architecture prefix (e.g., "gfx9" for gfx908, gfx90a, gfx942)
-  //
-  // Example: If target "gfx1151_gemm_f16" is missing but "gfx1101_gemm_f16"
-  // and "gfx1201_gemm_f16" exist, this picks the lexicographically closest one
-  // (gfx1101_gemm_f16). This enables graceful fallback between similar GPU
-  // architectures.
-  static std::string findFallback(const std::string &target);
-
-private:
-  static constexpr auto separator = '_';
-  // For non-accel params, fall back to any gfx
-  static constexpr auto fallbackArchPrefixLen =
-      std::is_same_v<ParamsType, InitParamsNonAccel> ? 3 : 4;
-
-  static std::string makeSuffix(KernelType op, Type dataType) {
-    return getKernelTypeString(op) + separator + getDataTypeString(dataType);
-  }
-
-  static std::string makeKey(StringRef arch, KernelType op, Type dataType) {
-    return arch.str() + separator + makeSuffix(op, dataType);
-  }
-
-  static const std::map<std::string, ParamArray> &getTable() {
-    static const std::map<std::string, ParamArray> table = buildTable();
-    return table;
-  }
-
-  static std::map<std::string, ParamArray> buildTable();
-
-  static StringRef getArchName(StringRef arch);
-
-  static std::string getKernelTypeString(KernelType kernelType);
-
-  static std::string getDataTypeString(Type dataType);
-
-  // Get all related entries sorted lexicographically
-  static std::vector<std::string> getRelatives(const std::string &target);
-};
 
 template <typename InitParamType>
 class BasePopulateParams {

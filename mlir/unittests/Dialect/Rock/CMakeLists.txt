@@ -3,7 +3,7 @@ set(ROCK_UNITTEST_SOURCES
   TosaUtilsTests.cpp
   loweringUtilsTests.cpp
   transformMapUtilsTests.cpp
-  GridwiseGemmParamsTests.cpp
+  ParamLookupTableTests.cpp
 )
 
 if(NOT WIN32)
