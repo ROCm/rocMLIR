@@ -1078,7 +1078,7 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
         "destination capacity");
   }
 
-  b.replaceOp(op, ValueRange{});
+  b.eraseOp(op);
   return success();
 }
 
