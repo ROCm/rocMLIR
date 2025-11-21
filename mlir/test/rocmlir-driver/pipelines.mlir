@@ -142,6 +142,7 @@
 // HIGHLEVEL-NEXT:builtin.module(func.func(tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-rock,
 // HIGHLEVEL-NEXT:rock-view-to-transform,
+// HIGHLEVEL-NEXT:rock-detect-flash-decoding,
 // HIGHLEVEL-NEXT:rocmlir-custom-tosa-decompose,
 // HIGHLEVEL-NEXT:rocmlir-custom-tosa-to-linalg),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
