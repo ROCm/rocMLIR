@@ -255,14 +255,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
     int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
-    RockAccelTuningParamAttrInterface gemmParams;
     Attribute gemmParamsAttr =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
-    if (auto xdlopsParams = dyn_cast<XdlopsGemmParamsAttr>(gemmParamsAttr)) {
-      gemmParams = XdlopsGemmDerivedParamsAttr::get(xdlopsParams);
-    } else {
-      gemmParams = cast<RockAccelTuningParamAttrInterface>(gemmParamsAttr);
-    }
+    RockAccelTuningParamAttrInterface gemmParams =
+        cast<RockAccelTuningParamAttrInterface>(gemmParamsAttr);
     int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op.setGemmParamsAttr(gemmParams);
@@ -298,11 +294,9 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
   auto gemm0TuningParams =
       cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
-  int64_t gemmNPerWaveOrMnPerXdl = gemm0TuningParams.getNPerWave();
   if (auto gemm0XdlDerivedParams =
-          dyn_cast<XdlopsGemmDerivedParamsAttr>(op.getGemm0Params().value())) {
-    gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl();
-    return XdlopsGemmDerivedParamsAttr::get(
+          dyn_cast<MfmaGemmParamsAttr>(op.getGemm0Params().value())) {
+    return MfmaGemmParamsAttr::get(
         builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
         attnPerfConfig.getMPerBlockG1(), gemm0XdlDerivedParams.getNPerBlock(),
         gemm0TuningParams.getKpack(),
@@ -320,8 +314,8 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
       gemm0TuningParams.getKpack(),
       gemm0TuningParams.getMPerWave() *
           (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
-      gemmNPerWaveOrMnPerXdl, attnPerfConfig.getSplitKFactor(),
-      gemm0TuningParams.getScheduleVersion(),
+      gemm0TuningParams.getNPerWave(), gemm0TuningParams.getMnPerXdl(),
+      attnPerfConfig.getSplitKFactor(), gemm0TuningParams.getScheduleVersion(),
       gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getForceUnroll());
 }
 
@@ -346,14 +340,15 @@ void AffixTuningParameters::affixTuningParametersImpl(
   Attribute params0 = op.getGemm0Params().value_or(nullptr);
   // set a default one if params is not provided
   StringAttr perfConfigStrAttr =
-      builder.getStringAttr("attn:v2:32,32,32,32,32,32,1,1,1,2,1");
+      builder.getStringAttr("attn:v3:32,32,32,32,32,32,16,1,1,1,2,1");
   if (!params0) {
     if (StringAttr mayBePerfConfigStrAttr =
             dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
       perfConfigStrAttr = mayBePerfConfigStrAttr;
     }
   }
-  auto attnPerfConfig = AttnPerfConfigAttr::get(perfConfigStrAttr);
+  bool isWmma = bitEnumContainsAny(rock::getFeatures(op), GemmFeatures::wmma);
+  auto attnPerfConfig = AttnPerfConfigAttr::get(perfConfigStrAttr, isWmma);
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
     return signalPassFailure();
@@ -372,20 +367,21 @@ void AffixTuningParameters::affixTuningParametersImpl(
   GemmFeatures features = rock::getFeatures(op);
   RockAccelTuningParamAttrInterface accelParams0;
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
-    auto xdlopsParams0 = XdlopsGemmParamsAttr::get(
+    accelParams0 = MfmaGemmParamsAttr::get(
         builder.getContext(), attnPerfConfig.getKpackPerBlock(),
         attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(),
-        attnPerfConfig.getOutputSwizzle(), attnPerfConfig.getForceUnroll());
-    accelParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
+        attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
+        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getForceUnroll());
   } else {
     accelParams0 = WmmaGemmParamsAttr::get(
         builder.getContext(), attnPerfConfig.getKpackPerBlock(),
         attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(),
-        attnPerfConfig.getOutputSwizzle(), attnPerfConfig.getForceUnroll());
+        attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
+        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getForceUnroll());
   }
   op.setGemm0ParamsAttr(accelParams0);
   if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {
@@ -407,16 +403,12 @@ void AffixTuningParameters::affixTuningParametersImpl(
       populateParamsAccelPtr->isValidBlockwiseGemm(
           accelParams0, cast<MemRefType>(op.getAType()).getElementType(),
           cast<MemRefType>(op.getBType()).getElementType(),
-          rock::getArchValue(op),
-          /*enableBlockSizeUpperLimit=*/false,
-          /*enableDPerWaveFiltering=*/false);
+          rock::getArchValue(op));
   LogicalResult isValidBlockwiseGemm1 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
           accelParams1, cast<MemRefType>(op.getCType()).getElementType(),
           cast<MemRefType>(op.getCType()).getElementType(),
-          rock::getArchValue(op),
-          /*enableBlockSizeUpperLimit=*/false,
-          /*enableDPerWaveFiltering=*/false);
+          rock::getArchValue(op));
   if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {
     op.emitError("The provided perf config is not valid");
     return signalPassFailure();
