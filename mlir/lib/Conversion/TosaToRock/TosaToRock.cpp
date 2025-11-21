@@ -2699,13 +2699,16 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       // sub(x, x) + x or log(exp(sub(x, x))) + x
       lse = getLSESeqLen1(cast<tosa::SubOp>(sub));
     }
-    // lse has three or four dimensions
+    // lse has three, four, or five dimensions depending on the attention type:
+    // - Rank 5: [batch, heads, splitKV, seq_q, 1]
+    // - Rank 4: [batch, heads, seq_q, 1]
+    // - Rank 3: [batch*heads, seq_q, 1]
     if (lse) {
       auto type = cast<ShapedType>(lse.getType());
-      if (type.getRank() != 4 && type.getRank() != 3)
+      if (type.getRank() != 5 && type.getRank() != 4 && type.getRank() != 3)
         return failure();
-      // last dimension must be 1: {B, NUM_HEADS, SEQ_LEN_Q, 1}
-      if (type.getRank() == 4 && type.getDimSize(type.getRank() - 1) != 1)
+      // last dimension must be 1
+      if (type.getDimSize(type.getRank() - 1) != 1)
         return failure();
     }
 
@@ -2795,13 +2798,23 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     RankedTensorType lseType;
     Value lse = attentionMatcherValues.lse;
     Value lseOut, lseOrig;
-    SmallVector<ReassociationIndices> reassocIndicesLSE = {{0, 1}, {2, 3}};
-    if (lse) {
-      // {{0, 1}, {2, 3}} for 4D tensor, {{0}, {1, 2}} for 3D tensor
-      if (cast<ShapedType>(lse.getType()).getRank() == 3)
-        reassocIndicesLSE = {{0}, {1, 2}};
+    SmallVector<ReassociationIndices> reassocIndicesLSE;
 
+    if (lse) {
       // rock.attention expects lse to have the shape = {B, SEQ_LEN_Q}
+      // Collapse all leading dimensions into one, and last two dimensions
+      // into another
+      // Rank 5: [batch, heads, splitKV, seq_q, 1] ->
+      //         [batch*heads*splitKV, seq_q]
+      // Rank 4: [batch, heads, seq_q, 1] -> [batch*heads, seq_q]
+      // Rank 3: [batch*heads, seq_q, 1] -> [batch*heads, seq_q]
+      int rank = cast<ShapedType>(lse.getType()).getRank();
+      ReassociationIndices leadingDims, trailingDims;
+      for (int i = 0; i < rank - 2; ++i)
+        leadingDims.push_back(i);
+      trailingDims = {rank - 2, rank - 1};
+      reassocIndicesLSE = {leadingDims, trailingDims};
+
       lseOrig = lse;
       lse = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), lse,
                                             reassocIndicesLSE);
