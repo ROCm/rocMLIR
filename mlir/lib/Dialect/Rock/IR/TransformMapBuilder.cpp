@@ -480,7 +480,8 @@ void TopDownTMBuilder::addTransform(TransformType type,
       getTransformAttrChecked(emitError, b.getContext(), type, params,
                               startNames, startDims, endNames, endDims);
   if (!attr) {
-    return;
+    emitError().report();
+    llvm::report_fatal_error(Twine("Failed to add transform "));
   }
   result.push_back(attr);
 }
@@ -695,7 +696,8 @@ void BottomUpTMBuilder::addTransform(TransformType type,
       getTransformAttrChecked(emitError, b.getContext(), type, params, endNames,
                               endDims, startNames, startDims);
   if (!attr) {
-    return;
+    emitError().report();
+    llvm::report_fatal_error(Twine("Failed to add transform "));
   }
   result.push_back(attr);
 }
