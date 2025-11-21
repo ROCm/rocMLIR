@@ -113,6 +113,20 @@ struct ExtractStridedMetadataOpRockGpuAllocFolder
   }
 };
 
+// memref.view is used to change types of the buffer (similar to C++'s
+// reinterpret_cast). While MemRefViewRewritePattern converts the memref.view's
+// type, upstream's vector narrow type emulation patterns require constant
+// metadata from ExtractStridedMetadataOp to function correctly. Without this
+// folder:
+// 1. ExtractStridedMetadataOp on memref.view returns dynamic values
+// 2. ConvertVectorLoad calls getConstantIntValue() on dynamic values, getting
+// nullopt
+// 3. The pattern fails to correctly calculate sizes/offsets for linearization
+// 4. Vector operations remain unconverted and illegal, causing
+//    "failed to legalize operation" errors
+// Upstream's ExpandStridedMetadata.cpp has folders for many memref operations
+// but not for memref.view, so we provide one here to supply the required
+// constants.
 struct ExtractStridedMetadataOpMemRefViewFolder
     : public OpRewritePattern<memref::ExtractStridedMetadataOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -337,20 +351,29 @@ struct GatherToLDSRewritePattern
     int64_t numDstBytes = convertedDstMemrefType.getNumElements();
     int64_t numSrcNibbles = origSrcMemrefType.getNumElements();
     int64_t numDstNibbles = origDstMemrefType.getNumElements();
-    // Check that transferType is f128 or f32 as currently only 128bit or 32 bit
-    // DirectToLDS is supported.
-    Type transferType = op.getTransferType();
-    if (!transferType.isF128() && !transferType.isF32()) {
-      return op->emitError("Transfer type must be f128 or f32 for GatherToLDS");
+
+    // Check if source memref uses FatRawBuffer address space (7)
+    // FatRawBuffer will lower to buffer_load_to_lds which has hardware bounds
+    // checking Non-FatRawBuffer will use global_load_to_lds without bounds
+    // checking
+    bool isFatRawBuffer = false;
+    if (Attribute srcMemSpace = origSrcMemrefType.getMemorySpace()) {
+      if (auto intMemSpace = dyn_cast<IntegerAttr>(srcMemSpace)) {
+        isFatRawBuffer = (intMemSpace.getInt() == 7);
+      } else if (auto amdgpuMemSpace =
+                     dyn_cast<amdgpu::AddressSpaceAttr>(srcMemSpace)) {
+        isFatRawBuffer =
+            (amdgpuMemSpace.getValue() == amdgpu::AddressSpace::FatRawBuffer);
+      }
     }
     // Helper lambda to scale indices for 4-bit type emulation
-    auto scaleIndexForNarrowType = [&](Value lastIndex, int64_t numBytes,
-                                       int64_t numNibbles,
-                                       StringRef errorMsg) -> FailureOr<Value> {
+    auto scaleIndexForNarrowType =
+        [&](Value lastIndex, int64_t numBytes, int64_t numNibbles,
+            StringRef errorMsg, bool doOOBAdjustment) -> FailureOr<Value> {
       // Check if the last index is even (divisible by 2)
       // It is possible that this is not a compile time constant and it cannot
       // be matched. Doing runtime checks is very expensive. Given directToLDS
-      // transfers 128 bit or 32 bits, it should be safe to assume that last
+      // transfers bits in powers of 2, it should be safe to assume that last
       // co-ord will be even at runtime.
       APInt indexConst(64, 0);
       if (matchPattern(lastIndex, m_ConstantInt(&indexConst))) {
@@ -382,12 +405,19 @@ struct GatherToLDSRewritePattern
       Value scaledIndex =
           arith::DivUIOp::create(rewriter, loc, lastIndex, scaleConst);
 
-      // Handle OOB: if the original nibble index was odd and OOB, clamp to next
-      // byte to ensure it stays out of bounds
-      Value nibbleIsOob = rewriter.createOrFold<arith::CmpIOp>(
-          loc, arith::CmpIPredicate::uge, lastIndex, nibbleBoundConst);
-      scaledIndex = rewriter.createOrFold<arith::SelectOp>(
-          loc, nibbleIsOob, numBytesConst, scaledIndex);
+      // Only apply OOB adjustment for FatRawBuffer sources
+      // FatRawBuffer (address space 7) will lower to buffer_load_to_lds which
+      // has hardware bounds checking. Non-FatRawBuffer sources use
+      // global_load_to_lds without bounds checking, so OOB adjustments are not
+      // needed.
+      if (doOOBAdjustment) {
+        // Handle OOB: if the original nibble index was odd and OOB, clamp to
+        // next byte to ensure it stays out of bounds
+        Value nibbleIsOob = rewriter.createOrFold<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::uge, lastIndex, nibbleBoundConst);
+        scaledIndex = rewriter.createOrFold<arith::SelectOp>(
+            loc, nibbleIsOob, numBytesConst, scaledIndex);
+      }
 
       return scaledIndex;
     };
@@ -397,18 +427,21 @@ struct GatherToLDSRewritePattern
     if (!newSrcIndices.empty()) {
       auto scaledIndexOrFailure = scaleIndexForNarrowType(
           newSrcIndices.back(), numSrcBytes, numSrcNibbles,
-          "last source index must be even for 4-bit type emulation");
+          "last source index must be even for 4-bit type emulation",
+          isFatRawBuffer);
       if (failed(scaledIndexOrFailure))
         return failure();
       newSrcIndices.back() = scaledIndexOrFailure.value();
     }
 
     // Scale destination indices (last index)
+    // Destination is always LDS (local data store), so no OOB adjustment needed
     SmallVector<Value> newDstIndices(adaptor.getDstIndices());
     if (!newDstIndices.empty()) {
       auto scaledIndexOrFailure = scaleIndexForNarrowType(
           newDstIndices.back(), numDstBytes, numDstNibbles,
-          "last destination index must be even for 4-bit type emulation");
+          "last destination index must be even for 4-bit type emulation",
+          false); // LDS destinations don't need OOB adjustments
       if (failed(scaledIndexOrFailure))
         return failure();
       newDstIndices.back() = scaledIndexOrFailure.value();

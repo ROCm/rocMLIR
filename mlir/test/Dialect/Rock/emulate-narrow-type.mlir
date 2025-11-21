@@ -120,7 +120,7 @@ func.func @memref_view_i4(%arg0: memref<132xi8>) -> memref<256xi4> {
 // -----
 
 // CHECK-LABEL: func.func @gather_i4
-// CHECK-SAME: (%[[SRC:.*]]: memref<16xi8, #gpu.address_space<global>>, %[[DST:.*]]: memref<16xi8, #gpu.address_space<workgroup>>, %[[IDX:.*]]: index)
+// CHECK-SAME: (%[[SRC:.*]]: memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>, %[[DST:.*]]: memref<16xi8, #gpu.address_space<workgroup>>, %[[IDX:.*]]: index)
 // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
 // CHECK-DAG: %[[C16:.*]] = arith.constant 16 : index
 // CHECK-DAG: %[[C32:.*]] = arith.constant 32 : index
@@ -128,10 +128,8 @@ func.func @memref_view_i4(%arg0: memref<132xi8>) -> memref<256xi4> {
 // CHECK: %[[OOB:.*]] = arith.cmpi uge, %[[IDX]], %[[C32]] : index
 // CHECK: %[[SEL:.*]] = arith.select %[[OOB]], %[[C16]], %[[DIV]] : index
 // CHECK: %[[DIV_DST:.*]] = arith.divui %[[IDX]], %[[C2]] : index
-// CHECK: %[[OOB_DST:.*]] = arith.cmpi uge, %[[IDX]], %[[C32]] : index
-// CHECK: %[[SEL_DST:.*]] = arith.select %[[OOB_DST]], %[[C16]], %[[DIV_DST]] : index
-// CHECK: amdgpu.gather_to_lds %[[SRC]][%[[SEL]]], %[[DST]][%[[SEL_DST]]] : f32, memref<16xi8, #gpu.address_space<global>>, memref<16xi8, #gpu.address_space<workgroup>>
-!tGlobal = memref<32xi4, #gpu.address_space<global>>
+// CHECK: amdgpu.gather_to_lds %[[SRC]][%[[SEL]]], %[[DST]][%[[DIV_DST]]] : f32, memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>, memref<16xi8, #gpu.address_space<workgroup>>
+!tGlobal = memref<32xi4, #amdgpu.address_space<fat_raw_buffer>>
 !tShared = memref<32xi4, #gpu.address_space<workgroup>>
 func.func @gather_i4(%src: !tGlobal, %dst: !tShared, %idx: index) {
   amdgpu.gather_to_lds %src[%idx], %dst[%idx] : f32, !tGlobal, !tShared
@@ -184,7 +182,7 @@ func.func @memref_view_f4(%arg0: memref<132xi8>) -> memref<256xf4E2M1FN> {
 // -----
 
 // CHECK-LABEL: func.func @gather_f4
-// CHECK-SAME: (%[[SRC:.*]]: memref<16xi8, #gpu.address_space<global>>, %[[DST:.*]]: memref<16xi8, #gpu.address_space<workgroup>>, %[[IDX:.*]]: index)
+// CHECK-SAME: (%[[SRC:.*]]: memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>, %[[DST:.*]]: memref<16xi8, #gpu.address_space<workgroup>>, %[[IDX:.*]]: index)
 // CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
 // CHECK-DAG: %[[C16:.*]] = arith.constant 16 : index
 // CHECK-DAG: %[[C32:.*]] = arith.constant 32 : index
@@ -192,12 +190,42 @@ func.func @memref_view_f4(%arg0: memref<132xi8>) -> memref<256xf4E2M1FN> {
 // CHECK: %[[OOB:.*]] = arith.cmpi uge, %[[IDX]], %[[C32]] : index
 // CHECK: %[[SEL:.*]] = arith.select %[[OOB]], %[[C16]], %[[DIV]] : index
 // CHECK: %[[DIV_DST:.*]] = arith.divui %[[IDX]], %[[C2]] : index
-// CHECK: %[[OOB_DST:.*]] = arith.cmpi uge, %[[IDX]], %[[C32]] : index
-// CHECK: %[[SEL_DST:.*]] = arith.select %[[OOB_DST]], %[[C16]], %[[DIV_DST]] : index
-// CHECK: amdgpu.gather_to_lds %[[SRC]][%[[SEL]]], %[[DST]][%[[SEL_DST]]] : f32, memref<16xi8, #gpu.address_space<global>>, memref<16xi8, #gpu.address_space<workgroup>>
-!tGlobalF4 = memref<32xf4E2M1FN, #gpu.address_space<global>>
+// CHECK: amdgpu.gather_to_lds %[[SRC]][%[[SEL]]], %[[DST]][%[[DIV_DST]]] : f32, memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>, memref<16xi8, #gpu.address_space<workgroup>>
+!tGlobalF4 = memref<32xf4E2M1FN, #amdgpu.address_space<fat_raw_buffer>>
 !tSharedF4 = memref<32xf4E2M1FN, #gpu.address_space<workgroup>>
 func.func @gather_f4(%src: !tGlobalF4, %dst: !tSharedF4, %idx: index) {
   amdgpu.gather_to_lds %src[%idx], %dst[%idx] : f32, !tGlobalF4, !tSharedF4
+  func.return
+}
+
+// Test for integer address space 1 (global) - no OOB adjustments should be applied
+// CHECK-LABEL: func.func @gather_i4_addr_space_1
+// CHECK-SAME: (%[[SRC:.*]]: memref<16xi8, 1>, %[[DST:.*]]: memref<16xi8, 3>, %[[IDX:.*]]: index)
+// CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
+// CHECK: %[[DIV_SRC:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK-NOT: arith.cmpi uge, %[[IDX]]
+// CHECK-NOT: arith.select
+// CHECK: %[[DIV_DST:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK: amdgpu.gather_to_lds %[[SRC]][%[[DIV_SRC]]], %[[DST]][%[[DIV_DST]]] : f32, memref<16xi8, 1>, memref<16xi8, 3>
+!tAddr1 = memref<32xi4, 1>
+!tAddr3 = memref<32xi4, 3>
+func.func @gather_i4_addr_space_1(%src: !tAddr1, %dst: !tAddr3, %idx: index) {
+  amdgpu.gather_to_lds %src[%idx], %dst[%idx] : f32, !tAddr1, !tAddr3
+  func.return
+}
+
+// Test for global memory - no OOB adjustments should be applied
+// CHECK-LABEL: func.func @gather_f4_global
+// CHECK-SAME: (%[[SRC:.*]]: memref<16xi8, #gpu.address_space<global>>, %[[DST:.*]]: memref<16xi8, #gpu.address_space<workgroup>>, %[[IDX:.*]]: index)
+// CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
+// CHECK: %[[DIV_SRC:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK-NOT: arith.cmpi uge, %[[IDX]]
+// CHECK-NOT: arith.select
+// CHECK: %[[DIV_DST:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK: amdgpu.gather_to_lds %[[SRC]][%[[DIV_SRC]]], %[[DST]][%[[DIV_DST]]] : f32, memref<16xi8, #gpu.address_space<global>>, memref<16xi8, #gpu.address_space<workgroup>>
+!tGlobal = memref<32xf4E2M1FN, #gpu.address_space<global>>
+!tShared = memref<32xf4E2M1FN, #gpu.address_space<workgroup>>
+func.func @gather_f4_global(%src: !tGlobal, %dst: !tShared, %idx: index) {
+  amdgpu.gather_to_lds %src[%idx], %dst[%idx] : f32, !tGlobal, !tShared
   func.return
 }
