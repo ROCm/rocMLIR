@@ -182,8 +182,20 @@ void RockPrepareLLVMPass::runOnOperation() {
   }
   llvm::DenseMap<Value, BlockArgument> toArgCache;
 
-  // The alias analysis interface will pick up ROCDL buffer ops and the native
-  // LLVM ops.
+  // This helper function merges two ArrayAttr instances, returning a new
+  // ArrayAttr instance with the merged scopes. If both are null, returns null.
+  auto mergeScopes = [&](ArrayAttr existing,
+                         ArrayAttr additional) -> ArrayAttr {
+    SmallVector<Attribute> mergedScopes;
+    if (existing)
+      mergedScopes.append(existing.begin(), existing.end());
+    if (additional)
+      mergedScopes.append(additional.begin(), additional.end());
+    if (mergedScopes.empty())
+      return nullptr;
+    return b.getArrayAttr(mergedScopes);
+  };
+
   func.walk([&](LLVM::AliasAnalysisOpInterface aliasIface) {
     // We will make the simplyfying assumption that the first pointer-valued
     // operand to the operation is the pointer being accessed.
@@ -207,34 +219,15 @@ void RockPrepareLLVMPass::runOnOperation() {
     unsigned argNo = funcArg.getArgNumber();
     if (auto load = dyn_cast<LLVM::LoadOp>(aliasOp))
       load.setInvariant(isReadonly[argNo]);
-    
-    // Merge existing alias scopes with new ones instead of overwriting
-    ArrayAttr existingAliasScopes = aliasIface.getAliasScopesOrNull();
-    ArrayAttr newAliasScopes = aliasScopes[argNo];
-    if (existingAliasScopes && newAliasScopes) {
-      SmallVector<Attribute> mergedAliasScopes;
-      mergedAliasScopes.append(existingAliasScopes.begin(), existingAliasScopes.end());
-      mergedAliasScopes.append(newAliasScopes.begin(), newAliasScopes.end());
-      aliasIface.setAliasScopes(b.getArrayAttr(mergedAliasScopes));
-    } else if (existingAliasScopes) {
-      aliasIface.setAliasScopes(existingAliasScopes);
-    } else if (newAliasScopes) {
-      aliasIface.setAliasScopes(newAliasScopes);
-    }
-    
-    // Merge existing noalias scopes with new ones instead of overwriting
-    ArrayAttr existingNoAliasScopes = aliasIface.getNoAliasScopesOrNull();
-    ArrayAttr newNoAliasScopes = noaliasScopes[argNo];
-    if (existingNoAliasScopes && newNoAliasScopes) {
-      SmallVector<Attribute> mergedNoAliasScopes;
-      mergedNoAliasScopes.append(existingNoAliasScopes.begin(), existingNoAliasScopes.end());
-      mergedNoAliasScopes.append(newNoAliasScopes.begin(), newNoAliasScopes.end());
-      aliasIface.setNoAliasScopes(b.getArrayAttr(mergedNoAliasScopes));
-    } else if (existingNoAliasScopes) {
-      aliasIface.setNoAliasScopes(existingNoAliasScopes);
-    } else if (newNoAliasScopes) {
-      aliasIface.setNoAliasScopes(newNoAliasScopes);
-    }
+
+    // Merge existing alias scopes (if any) with the new scopes we just created.
+    if (ArrayAttr mergedAliasScopes =
+            mergeScopes(aliasIface.getAliasScopesOrNull(), aliasScopes[argNo]))
+      aliasIface.setAliasScopes(mergedAliasScopes);
+
+    if (ArrayAttr mergedNoAliasScopes = mergeScopes(
+            aliasIface.getNoAliasScopesOrNull(), noaliasScopes[argNo]))
+      aliasIface.setNoAliasScopes(mergedNoAliasScopes);
   });
 
   // 3. Relax atomics. We set the atomic order on read-modify-write
