@@ -276,8 +276,8 @@ protected:
                     ArrayRef<uint32_t> startDims, ArrayRef<StringRef> endNames,
                     ArrayRef<uint32_t> endDims) final;
   void extractBounds(SmallVectorImpl<int64_t> &upperDims,
-                     SmallVectorImpl<int64_t> &lowerDims) override final;
-  int64_t paddingSign() const override final;
+                     SmallVectorImpl<int64_t> &lowerDims) final;
+  int64_t paddingSign() const final;
 };
 
 /// A wrapper around a BottomUpTMBuilder that looks up end dimensions in a
