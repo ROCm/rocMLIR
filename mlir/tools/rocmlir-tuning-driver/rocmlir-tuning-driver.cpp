@@ -331,30 +331,12 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   });
 
+  llvm::errs() << "Hey\n";
+
   // Warmup run
+  float totalMillisecondsWarmup = 0.0;
+  HIPCHECK(hipStreamSynchronize(stream));
   for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
-    for (auto [func, blockSize, gridSize] :
-         llvm::zip(functions, blockSizes, gridSizes)) {
-      HIPCHECK(hipExtModuleLaunchKernel(
-          func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-          argPointers.data(), nullptr, nullptr, nullptr));
-    }
-  }
-
-  // Measure runs
-  std::vector<float> measurements;
-
-  for (unsigned iter = 0; iter < params.numIterations; ++iter) {
-    if (failed(flushInstructionCache(stream))) {
-      return failure();
-    }
-    if (failed(flushL2Cache(stream))) {
-      return failure();
-    }
-    HIPCHECK(hipStreamSynchronize(stream));
-
-    float totalMilliseconds = 0.0;
-
     for (auto [func, blockSize, gridSize] :
          llvm::zip(functions, blockSizes, gridSizes)) {
       hipEvent_t startEvent, stopEvent;
@@ -363,7 +345,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
 
       HIPCHECK(hipExtModuleLaunchKernel(
           func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-          argPointers.data(), nullptr, startEvent, stopEvent));
+          argPointers.data(), nullptr, nullptr, nullptr));
+
       HIPCHECK(hipStreamSynchronize(stream));
 
       float currentMilliseconds = 0.0;
@@ -373,13 +356,79 @@ benchmarkKernels(ArrayRef<std::string> binaries,
       HIPCHECK(hipEventDestroy(stopEvent));
       HIPCHECK(hipEventDestroy(startEvent));
 
-      totalMilliseconds += currentMilliseconds;
+      totalMillisecondsWarmup += currentMilliseconds;
+    }
+  }
+  totalMillisecondsWarmup /= params.warmupIterations;
+
+  llvm::errs() << "Hey 2\n";
+
+  // Measure runs
+  std::vector<float> measurements;
+
+  // Depending on the runtime of the kernel (small kernel or normal kernel), 
+  // we use a different approach to measure the runs.
+  // We consider a small kernel if it takes less than 1ms to run.
+  constexpr float smallKernelThreshold = 1.0;
+
+  if (totalMillisecondsWarmup < smallKernelThreshold) {
+    // Special case for small kernels, where we launch all kernels
+    // asynchronously and measure the total host time.
+    auto iterationStart = std::chrono::steady_clock::now();
+    for (unsigned iter = 0; iter < params.numIterations; ++iter) {    
+      for (auto [func, blockSize, gridSize] :
+           llvm::zip(functions, blockSizes, gridSizes)) {
+        HIPCHECK(hipExtModuleLaunchKernel(
+            func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
+            argPointers.data(), nullptr, nullptr, nullptr));
+      }
+    }
+  
+    HIPCHECK(hipStreamSynchronize(stream));
+    float totalMilliseconds =
+        std::chrono::duration<float, std::milli>(
+            std::chrono::steady_clock::now() - iterationStart)
+            .count();
+    measurements.push_back(totalMilliseconds / params.numIterations);
+  } else {
+    // Measure runs normally.    
+    for (unsigned iter = 0; iter < params.numIterations; ++iter) {
+      if (failed(flushInstructionCache(stream))) {
+        return failure();
+      }
+      if (failed(flushL2Cache(stream))) {
+        return failure();
+      }
+      HIPCHECK(hipStreamSynchronize(stream));
+
+      float totalMilliseconds = 0.0;
+
+      for (auto [func, blockSize, gridSize] :
+          llvm::zip(functions, blockSizes, gridSizes)) {
+        hipEvent_t startEvent, stopEvent;
+        HIPCHECK(hipEventCreate(&startEvent));
+        HIPCHECK(hipEventCreate(&stopEvent));
+
+        HIPCHECK(hipExtModuleLaunchKernel(
+            func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
+            argPointers.data(), nullptr, startEvent, stopEvent));
+        HIPCHECK(hipStreamSynchronize(stream));
+
+        float currentMilliseconds = 0.0;
+        HIPCHECK(
+            hipEventElapsedTime(&currentMilliseconds, startEvent, stopEvent));
+
+        HIPCHECK(hipEventDestroy(stopEvent));
+        HIPCHECK(hipEventDestroy(startEvent));
+
+        totalMilliseconds += currentMilliseconds;
+      }
+
+      measurements.push_back(totalMilliseconds);
     }
 
-    measurements.push_back(totalMilliseconds);
+    std::sort(measurements.begin(), measurements.end());
   }
-
-  std::sort(measurements.begin(), measurements.end());
 
   if (params.showStats && measurements.size() > 1) {
     float median = computeMedian(measurements);
