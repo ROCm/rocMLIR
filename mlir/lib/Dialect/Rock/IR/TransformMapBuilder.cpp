@@ -481,8 +481,8 @@ void TopDownTMBuilder::addTransform(TransformType type,
                               startNames, startDims, endNames, endDims);
   if (!attr) {
     emitError().report();
-    llvm::report_fatal_error(
-        Twine("Failed to add transform of type ") + getNameForTransformType(type));
+    llvm::report_fatal_error(Twine("Failed to add transform of type ") +
+                             getNameForTransformType(type));
   }
   result.push_back(attr);
 }
@@ -698,8 +698,8 @@ void BottomUpTMBuilder::addTransform(TransformType type,
                               endDims, startNames, startDims);
   if (!attr) {
     emitError().report();
-    llvm::report_fatal_error(
-        Twine("Failed to add transform of type ") + getNameForTransformType(type));
+    llvm::report_fatal_error(Twine("Failed to add transform of type ") +
+                             getNameForTransformType(type));
   }
   result.push_back(attr);
 }
