@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -22,7 +23,6 @@
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -749,16 +749,16 @@ struct ReductionInfo {
   ReduceMethod method;
   int64_t axis;
   bool hasPointwiseBefore;
-  
+
   bool operator<(const ReductionInfo &other) const {
     // Sort by method first, then axis for consistent ordering
     if (method != other.method)
       return method < other.method;
     return axis < other.axis;
   }
-  
+
   bool operator==(const ReductionInfo &other) const {
-    return method == other.method && axis == other.axis && 
+    return method == other.method && axis == other.axis &&
            hasPointwiseBefore == other.hasPointwiseBefore;
   }
 };
@@ -766,7 +766,7 @@ struct ReductionInfo {
 // Structure to hold fusion information for problem key generation
 struct FusionInfo {
   SmallVector<ReductionInfo> reductions;
-  
+
   bool hasReduction() const { return !reductions.empty(); }
   bool hasMultipleReductions() const { return reductions.size() > 1; }
   int numReductionOutputs() const { return reductions.size(); }
@@ -778,17 +778,17 @@ static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
   // Worklist: <Value, bool: has pointwise operation before it>
   SmallVector<std::pair<Value, bool>> worklist;
   worklist.push_back({originalGemmResult, false});
-  
+
   // Track visited values to avoid cycles
   DenseSet<Value> visited;
-  
+
   while (!worklist.empty()) {
     auto [value, hasPointwiseSoFar] = worklist.pop_back_val();
-    
+
     if (!visited.insert(value).second) {
       continue; // Already visited
     }
-    
+
     for (Operation *user : value.getUsers()) {
       // Check for direct reduction
       if (auto reduceOp = dyn_cast<rock::ReduceOp>(user)) {
@@ -799,13 +799,13 @@ static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
         info.reductions.push_back(redInfo);
         continue;
       }
-      
+
       // Follow through rock.transform operations
       if (auto transformOp = dyn_cast<rock::TransformOp>(user)) {
         worklist.push_back({transformOp.getResult(), hasPointwiseSoFar});
         continue;
       }
-      
+
       // Check for linalg.generic (i.e., pointwise operations)
       if (auto genericOp = dyn_cast<linalg::GenericOp>(user)) {
         // For memref-based linalg.generic, we need to check if this is reading
@@ -818,14 +818,14 @@ static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
             break;
           }
         }
-        
+
         if (!isInput) {
           continue;
         }
-        
+
         // Validate the output fusion
         SmallVector<std::tuple<Operation *, int>> adds;
-        if (failed(rock::checkValidOutputFusion(genericOp, originalGemmResult, 
+        if (failed(rock::checkValidOutputFusion(genericOp, originalGemmResult,
                                                 features, adds))) {
           continue;
         }
@@ -842,32 +842,32 @@ static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
 }
 
 // Analyze fusion patterns for a GEMM operation's output
-static FusionInfo analyzeOuputFusionPattern(Value gemmResult, 
+static FusionInfo analyzeOuputFusionPattern(Value gemmResult,
                                             GemmFeatures features) {
   FusionInfo info;
   analyzeUsers(gemmResult, features, info);
-  
+
   // Sort reductions for consistent ordering in problem key
   std::sort(info.reductions.begin(), info.reductions.end());
-  
+
   return info;
 }
 
 // Append fusion information to the problem key string
-static void appendOutputFusionInfo(llvm::raw_svector_ostream &problemOS, 
-                             const FusionInfo &fusionInfo) {
+static void appendOutputFusionInfo(llvm::raw_svector_ostream &problemOS,
+                                   const FusionInfo &fusionInfo) {
   constexpr char sep = ' ';
-  
+
   if (!fusionInfo.hasReduction())
     return;
-  
-  problemOS << sep << "-fusion_reduce" << sep << "count=" 
-            << fusionInfo.numReductionOutputs();
-  
+
+  problemOS << sep << "-fusion_reduce" << sep
+            << "count=" << fusionInfo.numReductionOutputs();
+
   // Encode each reduction in format: method:axis[:hasPointwise]
   for (const auto &reduction : fusionInfo.reductions) {
     problemOS << sep;
-    
+
     // Add reduction method
     switch (reduction.method) {
     case ReduceMethod::Sum:
@@ -877,10 +877,10 @@ static void appendOutputFusionInfo(llvm::raw_svector_ostream &problemOS,
       problemOS << "max";
       break;
     }
-    
+
     // Add reduction axis with colon separator
     problemOS << ":axis" << reduction.axis;
-    
+
     // Add pointwise flag for this specific reduction
     if (reduction.hasPointwiseBefore) {
       problemOS << ":hasPointwise";
@@ -1063,13 +1063,13 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
     problemOS << "-k " << headDimQK << sep;
     problemOS << "-gemmO " << headDimV;
   }
-  
+
   // Analyze and append fusion information
   Value gemmGemmOutput = gemmGemmOp.getOutArgument()->get();
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
   FusionInfo fusionInfo = analyzeOuputFusionPattern(gemmGemmOutput, features);
   appendOutputFusionInfo(problemOS, fusionInfo);
-  
+
   return success();
 }
 
