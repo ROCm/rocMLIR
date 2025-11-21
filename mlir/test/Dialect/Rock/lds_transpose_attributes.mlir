@@ -1,7 +1,6 @@
-// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise \
-// RUN:   -rock-blockwise-load-tile-to-threadwise -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
+// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
 
-#params = #rock.xdlops_gemm_derived_params<
+#params = #rock.mfma_gemm_params<
   kpackPerBlock = 16, mPerBlock = 64, nPerBlock = 64,
   kpack = 1, mPerWave = 32, nPerWave = 32,
   mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 3,
@@ -34,15 +33,15 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
 
 // -----
 
-#params_double = #rock.xdlops_gemm_derived_params<
+#params_double = #rock.mfma_gemm_params<
   kpackPerBlock = 32, mPerBlock = 64, nPerBlock = 64,
   kpack = 1, mPerWave = 16, nPerWave = 64,
   mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 4,
   outputSwizzle = 2, forceUnroll = true>
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
-  // CHECK-LABEL: func.func @test_lds_transpose_attributes_double
-  func.func @test_lds_transpose_attributes_double(
+  // CHECK-LABEL: func.func @test_lds_transpose_attributes_double_buffering
+  func.func @test_lds_transpose_attributes_double_buffering(
       %arg0: memref<2048xf16>,
       %arg1: memref<2048xf16>,
       %arg2: memref<4096xf16>)

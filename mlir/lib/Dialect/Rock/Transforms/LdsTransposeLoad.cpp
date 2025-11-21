@@ -646,33 +646,40 @@ struct WaveGridLayout {
 //===----------------------------------------------------------------------===//
 // computeWaveGridLayout()
 //===----------------------------------------------------------------------===//
-// Determines how to distribute physical waves across M and N dimensions,
-// and decomposes the given wave ID into a 2D grid position.
 //
-// The wave grid layout determines spatial parallelism:
-// - If we have 4 physical waves and a 2x2 grid fits the workload,
-//   we use a 2x2 grid → each wave handles a different spatial region.
-// - This is crucial for LDS transpose loads because each wave needs to know
-//   which M/N spatial region it's responsible for.
+// Computes how physical waves are spatially distributed across the M and N
+// dimensions, and decomposes the wave ID into a 2D grid position.
 //
-// Algorithm:
-// 1. Calculate how many wave-sized tiles fit in M and N dimensions
-// 2. Try to find a grid layout that evenly divides physical waves
-// 3. Prefer layouts where grid dimensions ≤ number of tiles in each dimension
-// 4. Fallback: distribute waves based on which dimension has more tiles
+// This version uses a deterministic layout selection based solely on the number
+// of physical waves (1, 2, 3, or 4). The goal is to match the wave grid to the
+// number of available wave tiles (waveTilesInM, waveTilesInN) while choosing a
+// stable and predictable layout.
+//
+// Key principles:
+//  - physicalWaves ∈ {1, 2, 3, 4} (corresponding to 64–256 threads)
+//  - Prefer balanced or natural layouts when possible:
+//        1 wave  → 1×1
+//        2 waves → prefer 1×2
+//        3 waves → prefer 1×3
+//        4 waves → prefer 2×2
+//  - If a preferred layout does not fit the available tiles, fallback logic
+//    selects the best possible layout while maintaining determinism.
+//  - The result defines which spatial tile each wave is responsible for,
+//    which is essential when performing LDS transpose loads.
 //
 // Usage:
-//   WaveGridLayout waveGrid = computeWaveGridLayout(...);
-//   // Use waveGrid.wavesInM, waveGrid.wavesInN, waveGrid.waveM, waveGrid.waveN
+//   WaveGridLayout grid = computeWaveGridLayout(...);
+//   // grid.wavesInM, grid.wavesInN are compile-time constants
+//   // grid.waveM,    grid.waveN    are runtime indices
 //
 // Parameters:
-//   waveId        - This thread's wave ID (runtime value)
-//   physicalWaves - Total number of waves in the workgroup (compile-time)
+//   waveId        - Runtime wave ID inside the workgroup.
+//   physicalWaves - Total number of waves (compile-time).
 //
 // Returns:
 //   WaveGridLayout containing:
-//     - wavesInM, wavesInN: Grid dimensions (compile-time constants)
-//     - waveM, waveN: This thread's position in the grid (runtime values)
+//     - wavesInM, wavesInN: Grid dimensions.
+//     - waveM, waveN:      This wave's assigned 2D grid coordinates.
 //===----------------------------------------------------------------------===//
 static WaveGridLayout computeWaveGridLayout(Value waveId, int64_t physicalWaves,
                                             int64_t mPerWave, int64_t nPerWave,
@@ -686,32 +693,73 @@ static WaveGridLayout computeWaveGridLayout(Value waveId, int64_t physicalWaves,
 
   // Determine wave grid layout based on physical waves and wave tiles
   // This distributes waves spatially across M and N dimensions
+  // Note: physicalWaves can only be 1, 2, 3, or 4 (for 64, 128, 192, 256
+  // threads)
   int64_t wavesInM = 1;
   int64_t wavesInN = 1;
 
-  if (physicalWaves >= 4) {
-    // Try to make a grid matching the wave tile layout
-    for (int64_t m = 1; m <= physicalWaves; ++m) {
-      if (physicalWaves % m == 0) {
-        int64_t n = physicalWaves / m;
-        // Prefer layouts where physical waves evenly divide wave tiles
-        if (m <= waveTilesInM && n <= waveTilesInN) {
-          wavesInM = m;
-          wavesInN = n;
-          break;
-        }
-      }
+  switch (physicalWaves) {
+  case 1:
+    // Single wave: always 1×1
+    wavesInM = 1;
+    wavesInN = 1;
+    break;
+
+  case 2:
+    // Two waves: prefer 1×2, fallback to 2×1 if needed
+    if (waveTilesInN >= 2) {
+      wavesInM = 1;
+      wavesInN = 2;
+    } else if (waveTilesInM >= 2) {
+      wavesInM = 2;
+      wavesInN = 1;
+    } else {
+      // Rare: both tiles < 2, use 1×2 (outer loop handles overflow)
+      wavesInM = 1;
+      wavesInN = 2;
     }
-    // Fallback: distribute waves based on which dimension has more tiles
-    if (wavesInM == 1 && wavesInN == 1) {
-      if (waveTilesInM <= waveTilesInN) {
-        wavesInM = (physicalWaves >= waveTilesInM) ? waveTilesInM : 1;
-        wavesInN = physicalWaves / wavesInM;
+    break;
+
+  case 3:
+    // Three waves: prefer 1×3, fallback to 3×1 or dimension-based
+    if (waveTilesInN >= 3) {
+      wavesInM = 1;
+      wavesInN = 3;
+    } else if (waveTilesInM >= 3) {
+      wavesInM = 3;
+      wavesInN = 1;
+    } else {
+      // Fallback: choose dimension with more tiles (outer loop handles rest)
+      wavesInM = (waveTilesInN >= waveTilesInM) ? 1 : 3;
+      wavesInN = (waveTilesInN >= waveTilesInM) ? 3 : 1;
+    }
+    break;
+
+  case 4:
+    // Four waves: prefer 2×2 (balanced), then 1×4, 4×1, or fallback
+    if (waveTilesInM >= 2 && waveTilesInN >= 2) {
+      wavesInM = 2;
+      wavesInN = 2;
+    } else if (waveTilesInN >= 4) {
+      wavesInM = 1;
+      wavesInN = 4;
+    } else if (waveTilesInM >= 4) {
+      wavesInM = 4;
+      wavesInN = 1;
+    } else {
+      // Fallback: prefer 2×2 if at least one dimension >= 2
+      if (waveTilesInN >= 2 || waveTilesInM >= 2) {
+        wavesInM = 2;
+        wavesInN = 2;
       } else {
-        wavesInN = (physicalWaves >= waveTilesInN) ? waveTilesInN : 1;
-        wavesInM = physicalWaves / wavesInN;
+        // Edge case: very small tiles, default to 1×4 (outer loop iterates)
+        wavesInM = 1;
+        wavesInN = 4;
       }
     }
+    break;
+  default:
+    llvm_unreachable("Invalid physicalWaves: blockSize / waveSize");
   }
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Wave grid layout: " << wavesInM
