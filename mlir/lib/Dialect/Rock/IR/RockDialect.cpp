@@ -1903,7 +1903,7 @@ LogicalResult GlobalLoadToLDSOp::verify() {
     APInt coordConst(64, 0);
     // It is possible that this is not a compile time constant and it cannot
     // be matched. Doing runtime checks is very expensive. Given directToLDS
-    // transfers bits in powers of 2, it should be safe to assume that last
+    // transfers bits are multiple of 8, it should be safe to assume that last
     // co-ord will be even at runtime.
     if (matchPattern(coords.back(), m_ConstantInt(&coordConst))) {
       if (coordConst.urem(2) != 0) { // Check if number is odd

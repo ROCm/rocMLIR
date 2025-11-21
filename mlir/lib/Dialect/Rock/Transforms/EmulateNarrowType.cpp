@@ -373,7 +373,7 @@ struct GatherToLDSRewritePattern
       // Check if the last index is even (divisible by 2)
       // It is possible that this is not a compile time constant and it cannot
       // be matched. Doing runtime checks is very expensive. Given directToLDS
-      // transfers bits in powers of 2, it should be safe to assume that last
+      // transfers bits are multiple of 8, it should be safe to assume that last
       // co-ord will be even at runtime.
       APInt indexConst(64, 0);
       if (matchPattern(lastIndex, m_ConstantInt(&indexConst))) {
