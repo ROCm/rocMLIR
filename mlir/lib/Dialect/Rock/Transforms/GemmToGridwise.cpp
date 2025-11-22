@@ -475,7 +475,8 @@ static LogicalResult commonAttentionGemmElmtGemm(
     Region &preSecondOpRegion, bool enableSoftmax, TypeAttr softmaxType,
     int64_t numHeadsQ, int64_t numHeadsKV,
     std::optional<std::reference_wrapper<const BufferDependencyAnalysis>>
-        bufferDeps) {
+        bufferDeps,
+    BoolAttr preSoftmaxHasSplitKVTransforms) {
   Location loc = op->getLoc();
 
   if (!isa<MemRefType>(op.getAType()))
@@ -588,7 +589,7 @@ static LogicalResult commonAttentionGemmElmtGemm(
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
       numRepeatsGQA, softmaxType, params0, params1,
       rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
-      rw.getBoolAttr(enableSoftmax));
+      rw.getBoolAttr(enableSoftmax), preSoftmaxHasSplitKVTransforms);
   bool linalgOpFound = false;
   preSecondOpRegion.walk(
       [&](linalg::GenericOp genOp) { linalgOpFound = true; });
@@ -1045,7 +1046,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
       /*enableSoftmax=*/true, op.getSoftmaxTypeAttr(), adaptor.getNumHeadsQ(),
       adaptor.getNumHeadsKV(),
-      /*bufferDeps=*/std::nullopt);
+      /*bufferDeps=*/std::nullopt,
+      adaptor.getPreSoftmaxHasSplitKVTransformsAttr());
 }
 
 LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
@@ -1058,7 +1060,8 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
       /*currentSeqLen=*/nullptr, /*causal=*/nullptr, splitKV,
       adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
       /*enableSoftmax=*/false, /*softmaxType=*/nullptr, /*numHeadsQ=*/1,
-      /*numHeadsKV=*/1, std::cref(bufferDeps));
+      /*numHeadsKV=*/1, std::cref(bufferDeps),
+      /*preSoftmaxHasSplitKVTransforms=*/rw.getBoolAttr(false));
 }
 
 void RockGemmToGridwisePass::runOnOperation() {

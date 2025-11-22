@@ -70,6 +70,7 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
     funcPm.addPass(createTosaToTensorPass());
     funcPm.addPass(createTosaToRockPass());
     funcPm.addPass(rock::createRockViewToTransformPass());
+    funcPm.addPass(rock::createRockDetectFlashDecodingPass());
   }
 
   funcPm.addPass(createRocmlirCustomTosaDecomposePass());
