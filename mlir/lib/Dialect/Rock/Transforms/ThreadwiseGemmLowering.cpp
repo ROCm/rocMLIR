@@ -798,7 +798,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   // Check if the operation has the attribute for LDS Transpose Load
   if (op->hasAttr("rock.lds_transpose_enabled")) {
-    // Derive lowering info from attributes (layout, panel counts, operand).
+    // Derive lowering info from attributes (layout, attributes, operand).
     auto info = mlir::rock::hwtranspose::deriveLoweringInfo(op, b);
     if (info.usable) {
       if (failed(rock::hwtranspose::emitThreadwiseHWTranspose(

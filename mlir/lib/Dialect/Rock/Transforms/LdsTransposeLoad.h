@@ -76,6 +76,7 @@ DictionaryAttr buildTransposeAttr(const Decision &dec, bool isOperandA,
                                   PatternRewriter &rewriter);
 
 // Lowering-time description.
+// Set to true once all required attributes are present so lowering may proceed.
 struct LoweringInfo {
   bool usable{false};
   LayoutKind layout{LayoutKind::None};

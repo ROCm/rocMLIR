@@ -98,9 +98,8 @@ Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
     return dec;
   }
 
-  if (elemTypeA != elemTypeB) {
+  if (elemTypeA != elemTypeB || !(elemTypeA.isF16() || elemTypeA.isBF16()))
     return dec;
-  }
 
   // Check MFMA instruction shape and select a layout
   bool geomOk = ((shape.mnMfma == 16 || shape.mnMfma == 32) &&
@@ -919,7 +918,8 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   auto destType = cast<MemRefType>(dest.getType());
   Type elemType = info.elemType;
   Value sourceView = op.getSource();
-  auto [rawSrc, _, __] = untransform(b, sourceView);
+  auto [rawSrc, /*transformStack*/ _, /*needs64BitIndices*/ __] =
+      untransform(b, sourceView);
 
   Value tid = b.createOrFold<rock::WorkitemIdOp>(loc, b.getIndexType());
 
