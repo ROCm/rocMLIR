@@ -81,7 +81,7 @@ struct LoweringInfo {
   bool usable{false};
   LayoutKind layout{LayoutKind::None};
   OperandKind operand{OperandKind::A};
-  Type elemType;
+  Type elemType{};
   int64_t mPerBlock{1};
   int64_t nPerBlock{1};
   int64_t kPerBlock{1};
