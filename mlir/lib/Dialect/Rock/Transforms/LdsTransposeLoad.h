@@ -81,8 +81,6 @@ struct LoweringInfo {
   LayoutKind layout{LayoutKind::None};
   OperandKind operand{OperandKind::A};
   Type elemType;
-  bool destIsVector{false};
-  VectorType destVecType;
   int64_t mPerBlock{1};
   int64_t nPerBlock{1};
   int64_t kPerBlock{1};

@@ -101,10 +101,6 @@ Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
   if (elemTypeA != elemTypeB) {
     return dec;
   }
-  if (!(elemTypeA.isF16() || elemTypeA.isBF16()) ||
-      !(elemTypeB.isF16() || elemTypeB.isBF16())) {
-    return dec;
-  }
 
   // Check MFMA instruction shape and select a layout
   bool geomOk = ((shape.mnMfma == 16 || shape.mnMfma == 32) &&
@@ -137,9 +133,10 @@ LayoutKind selectLayout(int64_t mnDim, int64_t kDim) {
 }
 
 StringRef layoutName(LayoutKind kind) {
-  for (const auto &config : kLayoutConfigs)
+  for (const auto &config : kLayoutConfigs) {
     if (config.kind == kind)
       return config.name;
+  }
   return "none";
 }
 
@@ -556,11 +553,10 @@ static SmallVector<Value> getBasePanelOffsets(LayoutKind layout, Value lane,
   }
   case LayoutKind::L32x16: {
     // mbase = mOffsetBase + (blockId % 2) * 16
-    Value c16_2 = arith::ConstantIndexOp::create(b, loc, 16);
     Value mBase = arith::AddIOp::create(
         b, loc,
-        arith::MulIOp::create(
-            b, loc, arith::RemUIOp::create(b, loc, blockId, c2), c16_2),
+        arith::MulIOp::create(b, loc,
+                              arith::RemUIOp::create(b, loc, blockId, c2), c16),
         mOffsetBase);
     panelOffsets = {kOffsetBase, mBase};
     break;
@@ -574,11 +570,10 @@ static SmallVector<Value> getBasePanelOffsets(LayoutKind layout, Value lane,
         kOffsetBase);
 
     // m_offset_base = mOffsetBase + (blockId % 2) * 16
-    Value c16_2 = arith::ConstantIndexOp::create(b, loc, 16);
     Value mBase = arith::AddIOp::create(
         b, loc,
-        arith::MulIOp::create(
-            b, loc, arith::RemUIOp::create(b, loc, blockId, c2), c16_2),
+        arith::MulIOp::create(b, loc,
+                              arith::RemUIOp::create(b, loc, blockId, c2), c16),
         mOffsetBase);
     panelOffsets = {kBase, mBase};
     break;

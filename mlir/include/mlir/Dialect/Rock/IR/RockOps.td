@@ -1154,7 +1154,7 @@ def Rock_LDSTransposeLoadOp :
     LDS transpose panel load (vector<4 x F16/BF16>) for MFMA-friendly ordering.
     Loads a single panel (4 elements) from LDS memory using AMD ds.read.tr16.* instructions.
     The returned fragment ($fragment) is always a vector<4 x elementType>. 
-    Helps to reduced bank conflict. Only supported for gfx950.
+    Helps to reduce bank conflict. Only supported for gfx950.
   }];
 
   let assemblyFormat = [{
