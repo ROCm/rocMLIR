@@ -74,6 +74,20 @@ using namespace mlir::rock;
 // Utility Functions
 //===----------------------------------------------------------------------===//
 
+bool mlir::rock::hasWorkgroupMemorySpace(Attribute memorySpace) {
+  if (!memorySpace)
+    return false;
+
+  if (auto gpuMemSpace = dyn_cast<gpu::AddressSpaceAttr>(memorySpace))
+    return gpuMemSpace.getValue() == gpu::AddressSpace::Workgroup;
+
+  if (auto intMemSpace = dyn_cast<IntegerAttr>(memorySpace))
+    return intMemSpace.getInt() ==
+           static_cast<int64_t>(gpu::GPUDialect::getWorkgroupAddressSpace());
+
+  return false;
+}
+
 static Type getElementTypeOrSelfRecursive(Type type) {
   while (auto shapedType = dyn_cast<ShapedType>(type)) {
     type = shapedType.getElementType();
@@ -1330,12 +1344,8 @@ LogicalResult LiveInOp::verify() {
     return emitError("The operand of rock.live_in must be the result of a "
                      "rock.alloc operation.");
 
-  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-      getMemref().getType().getMemorySpace());
-  if (!memSpace ||
-      (memSpace &&
-       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
-    return emitError("The operand of rock.live_in must a LDS memref");
+  if (!hasWorkgroupMemorySpace(getMemref().getType().getMemorySpace()))
+    return emitError("The operand of rock.live_in must be an LDS memref");
 
   return success();
 }
@@ -1350,12 +1360,8 @@ LogicalResult LiveOutOp::verify() {
     return emitError("The operand of rock.live_out must be the result of a "
                      "rock.alloc operation.");
 
-  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-      getMemref().getType().getMemorySpace());
-  if (!memSpace ||
-      (memSpace &&
-       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
-    return emitError("The operand of rock.live_out must a LDS memref");
+  if (!hasWorkgroupMemorySpace(getMemref().getType().getMemorySpace()))
+    return emitError("The operand of rock.live_out must be an LDS memref");
 
   return success();
 }
@@ -1878,12 +1884,7 @@ LogicalResult GlobalLoadToLDSOp::verify() {
     return res;
 
   MemRefType destType = getDest().getType();
-  Attribute destMemSpaceAttr = destType.getMemorySpace();
-  auto destGpuMemSpaceAttr =
-      dyn_cast_or_null<gpu::AddressSpaceAttr>(destMemSpaceAttr);
-  if (destMemSpaceAttr &&
-      (!destGpuMemSpaceAttr ||
-       destGpuMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup))
+  if (!hasWorkgroupMemorySpace(destType.getMemorySpace()))
     return emitOpError("Destination memref must live in workgroup memory");
 
   int64_t numBits = getTransferType().getIntOrFloatBitWidth();
@@ -1970,22 +1971,8 @@ void LDSTransposeLoadOp::getEffects(
 LogicalResult LDSTransposeLoadOp::verify() {
   // Source must be memref in workgroup (LDS) address space
   MemRefType srcType = getSource().getType();
-  Attribute memSpaceAttr = srcType.getMemorySpace();
-  if (!memSpaceAttr)
-    return emitOpError(
-        "source memref must have an address space (workgroup/LDS)");
-  auto gpuMemSpaceAttr = dyn_cast<gpu::AddressSpaceAttr>(memSpaceAttr);
-  bool isWorkgroup = false;
-  if (gpuMemSpaceAttr &&
-      gpuMemSpaceAttr.getValue() == gpu::AddressSpace::Workgroup)
-    isWorkgroup = true;
-  else if (auto intAttr = dyn_cast<IntegerAttr>(memSpaceAttr)) {
-    // Accept raw integer 3 as LDS (common textual form memref<... , 3>)
-    if (intAttr.getInt() == 3)
-      isWorkgroup = true;
-  }
-  if (!isWorkgroup)
-    return emitOpError("source must reside in workgroup (LDS) memory");
+  if (!hasWorkgroupMemorySpace(srcType.getMemorySpace()))
+    return emitOpError("source memory address space must be workgroup (LDS)");
 
   // Indices size must match rank
   if (getIndices().size() != srcType.getRank())
@@ -2751,14 +2738,8 @@ LogicalResult BlockwiseFillOp::verify() {
   if (memrefType.getRank() != 1) {
     return emitError("Blockwise fill expects a flat memref");
   }
-  if (gpu::AddressSpaceAttr memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-          memrefType.getMemorySpace())) {
-    if (memSpace.getValue() != gpu::AddressSpace::Workgroup) {
-      return emitError("Memory space is expected to be workgroup");
-    }
-  } else {
+  if (!hasWorkgroupMemorySpace(memrefType.getMemorySpace()))
     return emitError("Memory space is expected to be workgroup");
-  }
   int64_t numElements = getMemref().getType().getNumElements();
   if (VectorType vecType = dyn_cast<VectorType>(getValue().getType())) {
     if (numElements % vecType.getNumElements() != 0) {
