@@ -79,6 +79,12 @@ func.func @dead_arg(%arg0 : memref<16xf32>) attributes {kernel} {
   return
 }
 
+// CHECK-LABEL: @f4_odd_length
+// CHECK-SAME: (%{{.*}}: memref<3xf4E2M1FN> {llvm.align = 16 : i64, llvm.dereferenceable = 2 : i64, llvm.inreg, llvm.noalias, llvm.nocapture, llvm.nofree, llvm.nonnull, llvm.noundef, llvm.readnone})
+func.func @f4_odd_length(%arg0 : memref<3xf4E2M1FN>) attributes {kernel} {
+  return
+}
+
 // CHECK-LABEL: @dynamic_shape
 // CHECK-NOT: llvm.dereferencable
 func.func @dynamic_shape(%arg0: memref<?xf32>) attributes {kernel} {

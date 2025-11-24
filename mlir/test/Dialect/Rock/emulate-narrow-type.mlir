@@ -37,6 +37,22 @@ func.func @buffer(%arg0: !tFlat, %arg1: !tFlat) {
 
 // -----
 
+// CHECK-LABEL: func.func @odd_nibble_clamp
+// CHECK-SAME: ([[arg0:%.+]]: memref<2xi8>, [[arg1:%.+]]: memref<2xi8>, [[idx:%.+]]: i32)
+// CHECK-DAG: %[[C2:.*]] = arith.constant 2 : i32
+// CHECK-DAG: %[[C3:.*]] = arith.constant 3 : i32
+// CHECK: %[[DIV:.*]] = arith.divui [[idx]], %[[C2]]
+// CHECK: %[[CMP:.*]] = arith.cmpi uge, [[idx]], %[[C3]]
+// CHECK: %[[SEL:.*]] = arith.select %[[CMP]], %[[C2]], %[[DIV]]
+// CHECK: %[[LOAD:.*]] = amdgpu.raw_buffer_load [[arg0]][%[[SEL]]] : memref<2xi8>, i32 -> vector<1xi8>
+func.func @odd_nibble_clamp(%arg0: memref<3xi4>, %arg1: memref<3xi4>, %idx: i32) {
+  %val = amdgpu.raw_buffer_load %arg0[%idx] : memref<3xi4>, i32 -> vector<2xi4>
+  amdgpu.raw_buffer_store %val -> %arg1[%idx] : vector<2xi4> -> memref<3xi4>, i32
+  func.return
+}
+
+// -----
+
 // CHECK-LABEL: func.func @extui
 // CHECK-SAME: ([[arg0:%.+]]: memref<16xi8>, [[arg1:%.+]]: memref<32xi8>)
 // CHECK-DAG: [[shiftLen:%.+]] = arith.constant dense<4> : vector<8xi8>

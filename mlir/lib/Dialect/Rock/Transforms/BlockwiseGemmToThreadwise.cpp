@@ -482,12 +482,14 @@ struct BlockwiseGemmAccelRewritePattern
     }
     Value wrappedLDSBufferForScaleA, wrappedLDSBufferForScaleB;
     if (isScaledGemm) {
-      assert(loadAFromLDS && "Scaled GEMM requires loading A from LDS");
-      assert(loadBFromLDS && "Scaled GEMM requires loading B from LDS");
-      wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m");
-      wrappedLDSBufferForScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
-          b, loc, op.getScaleB(), matrixParamsB, op.getBlockSize(), "n");
+      if (loadAFromLDS) {
+        wrappedLDSBufferForScaleA = accelEmitterPtr->wrapLDSBufferForLoad(
+            b, loc, op.getScaleA(), matrixParamsA, op.getBlockSize(), "m");
+      }
+      if (loadBFromLDS) {
+        wrappedLDSBufferForScaleB = accelEmitterPtr->wrapLDSBufferForLoad(
+            b, loc, op.getScaleB(), matrixParamsB, op.getBlockSize(), "n");
+      }
     }
 
     auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
@@ -525,6 +527,8 @@ struct BlockwiseGemmAccelRewritePattern
           viewForReadInto = viewBufferAs(
               b, inputBuffer, getElementTypeOrSelf(argType), shapeForLoad);
         }
+        assert(wrappedLDSBufferForLoad != Value{} &&
+               "Wrapped LDS buffer for load is empty");
         // regs = read from LDS
         ThreadwiseReadIntoOp::create(
             b, loc, wrappedLDSBufferForLoad, viewForReadInto,
