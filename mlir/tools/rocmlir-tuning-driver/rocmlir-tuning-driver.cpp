@@ -344,7 +344,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
 
       HIPCHECK(hipExtModuleLaunchKernel(
           func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-          argPointers.data(), nullptr, nullptr, nullptr));
+          argPointers.data(), nullptr, startEvent, stopEvent));
 
       HIPCHECK(hipStreamSynchronize(stream));
 
