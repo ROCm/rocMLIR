@@ -3165,8 +3165,41 @@ bool SIRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
                   : RS->scavengeRegisterBackwards(AMDGPU::SReg_32_XM0RegClass,
                                                   MI, false, 0, !UseSGPR);
 
-      // TODO: for flat scratch another attempt can be made with a VGPR index
-      //       if no SGPRs can be scavenged.
+      // Fallback: If we need an SGPR but cannot scavenge one and there is no
+      // frame register, try to convert the flat-scratch instruction to use a
+      // VGPR index (SS -> SV) and materialize the offset in a VGPR.
+      unsigned Opc = MI->getOpcode();
+      int NewOpc = AMDGPU::getFlatScratchInstSVfromSS(Opc);
+      if (!TmpSReg && !FrameReg && TII->isFLATScratch(*MI) && NewOpc != -1) {
+        // Reuse an existing VGPR temp if available, otherwise scavenge one.
+        Register VTmp = (!UseSGPR && TmpReg)
+                            ? TmpReg
+                            : RS->scavengeRegisterBackwards(
+                                  AMDGPU::VGPR_32RegClass, MI,
+                                  /*RestoreAfter=*/false, /*SPAdj=*/0);
+        if (VTmp) {
+          // Put the large offset into a VGPR and zero the immediate offset.
+          BuildMI(*MBB, MI, DL, TII->get(AMDGPU::V_MOV_B32_e32), VTmp)
+              .addImm(Offset);
+
+          int OldSAddrIdx =
+              AMDGPU::getNamedOperandIdx(Opc, AMDGPU::OpName::saddr);
+          int NewVAddrIdx =
+              AMDGPU::getNamedOperandIdx(NewOpc, AMDGPU::OpName::vaddr);
+
+          assert(OldSAddrIdx >= 0 && NewVAddrIdx >= 0 &&
+                 "Invalid address operand indexes");
+          MI->setDesc(TII->get(NewOpc));
+          MI->getOperand(NewVAddrIdx).ChangeToRegister(VTmp, false);
+          MachineOperand *OffOp =
+              TII->getNamedOperand(*MI, AMDGPU::OpName::offset);
+
+          assert(OffOp && "Flat scratch SV form must have offset operand");
+          OffOp->setImm(0);
+          return false;
+        }
+      }
+
       if ((!TmpSReg && !FrameReg) || (!TmpReg && !UseSGPR))
         report_fatal_error("Cannot scavenge register in FI elimination!");
 

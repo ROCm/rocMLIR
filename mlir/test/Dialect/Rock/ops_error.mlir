@@ -7,8 +7,8 @@ func.func @gridwise_attn_atomic_add_fail(%arg0: memref<1x384x64xf32>, %arg1: mem
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
     storeMethod = #rock<StoreMethod atomic_add>,
     splitKV = 1 : i32,
@@ -294,7 +294,7 @@ func.func @gemm_scaled_inputs_not_float4e2m1(%a: memref<2x64x128xf16>,
 // Gridwise gemm accel tests 
 // -----------------------------------------------------------------------------
 
-#common_params = #rock.xdlops_gemm_derived_params<
+#common_params = #rock.mfma_gemm_params<
   kpackPerBlock = 4,
   kpack = 4,
   mPerBlock = 64,
@@ -419,7 +419,7 @@ func.func @rock_gridwise_gemm_accel_invalid_out_dtype(%A: memref<2x1024x1024xf4E
 // -----------------------------------------------------------------------------
 // Blockwise gemm accel tests 
 // -----------------------------------------------------------------------------
-#blockwise_params = #rock.xdlops_gemm_derived_params<
+#blockwise_params = #rock.mfma_gemm_params<
   kpackPerBlock = 2,
   kpack = 2,
   mPerBlock = 128,
@@ -939,7 +939,7 @@ func.func @blockwise_gemm_accel_invalid_arch(
 // Test cases for rock.threadwise_gemm_accel
 //===----------------------------------------------------------------------===//
 
-#params = #rock.xdlops_gemm_derived_params<
+#params = #rock.mfma_gemm_params<
   mPerBlock = 256,
   nPerBlock = 256,
   kpackPerBlock = 16,
@@ -1118,5 +1118,47 @@ func.func @threadwise_gemm_accel_unsupported_arch(
       arch = "amdgcn-amd-amdhsa:gfx942", // Unsupported architecture for Float4E2M1FN
       params = #params
     } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> scaled by memref<2x4xf8E8M0FNU, 5> * memref<3x4xf4E2M1FN, 5> scaled by memref<3x4xf8E8M0FNU, 5>
+  return
+}
+
+// Error case: 4-bit source type (i4) with odd last source coordinate
+func.func @global_load_to_lds_i4_source_odd_coord(
+  %source: memref<64xi4>,
+  %dest: memref<64xi4, #gpu.address_space<workgroup>>
+) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c1 = arith.constant 1 : index  // Odd coordinate
+  %c0 = arith.constant 0 : index
+  %true = arith.constant true
+  // expected-error @+1 {{For 4-bit source types, last source coordinate must be even}}
+  rock.global_load_to_lds %source[%c1] -> %dest[%c0] if %true {transferType = f32}
+    : memref<64xi4> -> memref<64xi4, #gpu.address_space<workgroup>>
+  return
+}
+
+// Error case: 4-bit source type (f4E2M1FN) with multi-dimensional odd last coordinate
+func.func @global_load_to_lds_f4_source_multidim_odd_coord(
+  %source: memref<16x32xf4E2M1FN>,
+  %dest: memref<16x32xf4E2M1FN, #gpu.address_space<workgroup>>
+) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c5 = arith.constant 5 : index  // Odd last coordinate
+  %true = arith.constant true
+  // expected-error @+1 {{For 4-bit source types, last source coordinate must be even}}
+  rock.global_load_to_lds %source[%c0, %c5] -> %dest[%c0, %c0] if %true {transferType = f32}
+    : memref<16x32xf4E2M1FN> -> memref<16x32xf4E2M1FN, #gpu.address_space<workgroup>>
+  return
+}
+
+// Error case: 4-bit destination type (f4E2M1FN) with odd last destination coordinate
+func.func @global_load_to_lds_f4_dest_odd_coord(
+  %source: memref<128xf4E2M1FN>,
+  %dest: memref<128xf4E2M1FN, #gpu.address_space<workgroup>>
+) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c7 = arith.constant 7 : index  // Odd coordinate for destination
+  %true = arith.constant true
+  // expected-error @+1 {{For 4-bit destination types, last dest coordinate must be even}}
+  rock.global_load_to_lds %source[%c0] -> %dest[%c7] if %true {transferType = f32}
+    : memref<128xf4E2M1FN> -> memref<128xf4E2M1FN, #gpu.address_space<workgroup>>
   return
 }

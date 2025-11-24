@@ -245,8 +245,8 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "general_gemm_params";
       return AliasResult::OverridableAlias;
     }
-    if (isa<XdlopsGemmParamsAttr>(attr)) {
-      os << "xldops_gemm_params";
+    if (isa<MfmaGemmParamsAttr>(attr)) {
+      os << "mfma_gemm_params";
       return AliasResult::OverridableAlias;
     }
     return AliasResult::NoAlias;
@@ -1098,12 +1098,11 @@ LogicalResult GemmOp::verify() {
     }
   }
   auto features = rock::getFeatures(this->getOperation());
-  bool isXdlops = bitEnumContainsAll(features, GemmFeatures::mfma);
+  bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
-    if (isXdlops &&
-        !isa<XdlopsGemmParamsAttr, XdlopsGemmDerivedParamsAttr>(params))
-      return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
+    if (isMfma && !isa<MfmaGemmParamsAttr>(params))
+      return emitOpError("a mfma GEMM has non-mfma tuning parameters");
     if (getFeatures() == GemmFeatures::none &&
         !isa<GeneralGemmParamsAttr>(params))
       return emitOpError("an all-hardware gemm must used the general gemm "
@@ -1115,7 +1114,7 @@ LogicalResult GemmOp::verify() {
     }
   }
 
-  if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
+  if (getDerivedBlockSize().has_value() && !isMfma && !isWmma) {
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
   }
@@ -1877,8 +1876,12 @@ LogicalResult GlobalLoadToLDSOp::verify() {
   LogicalResult res = verifyGlobalLoad(*this);
   if (failed(res))
     return res;
-
-  MemRefType destType = getDest().getType();
+  Value source = getSource();
+  Value dest = getDest();
+  SmallVector<Value> coords(getSourceCoord());
+  SmallVector<Value> destCoords(getDestCoord());
+  MemRefType sourceType = cast<MemRefType>(source.getType());
+  MemRefType destType = cast<MemRefType>(dest.getType());
   Attribute destMemSpaceAttr = destType.getMemorySpace();
   auto destGpuMemSpaceAttr =
       dyn_cast_or_null<gpu::AddressSpaceAttr>(destMemSpaceAttr);
@@ -1891,6 +1894,35 @@ LogicalResult GlobalLoadToLDSOp::verify() {
   if (numBits != 128 && numBits != 32)
     return emitOpError(
         "Direct to LDS is implemented for 128bit and 32bit loads only");
+  unsigned bitWidth = cast<ShapedType>(sourceType).getElementTypeBitWidth();
+  unsigned destBitWidth = cast<ShapedType>(destType).getElementTypeBitWidth();
+  // For 4-bit source types (f4, i4), add validation checks as GPU can not do
+  // sub-byte addressing
+  if (bitWidth == 4) {
+    // Check that last source coordinate is even
+    APInt coordConst(64, 0);
+    // It is possible that this is not a compile time constant and it cannot
+    // be matched. Doing runtime checks is very expensive. Given directToLDS
+    // transfers bits are multiple of 8, it should be safe to assume that last
+    // coord will be even at runtime.
+    if (matchPattern(coords.back(), m_ConstantInt(&coordConst))) {
+      if (coordConst.urem(2) != 0) { // Check if number is odd
+        return emitOpError(
+            "For 4-bit source types, last source coordinate must be even");
+      }
+    }
+  }
+
+  // For 4-bit dest types, check that last dest coordinate is even
+  if (destBitWidth == 4) {
+    APInt destCoordConst(64, 0);
+    if (matchPattern(destCoords.back(), m_ConstantInt(&destCoordConst))) {
+      if (destCoordConst.urem(2) != 0) { // Check if number is odd
+        return emitOpError(
+            "For 4-bit destination types, last dest coordinate must be even");
+      }
+    }
+  }
   return success();
 }
 
@@ -3079,7 +3111,8 @@ void AttentionOp::getEffects(
 // AttentionPerfConfig Attr
 //===-----------------------------------------------------===//
 
-AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
+AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
+                                           bool isWmma) {
   // Here a conventional c++ string split is being
   // done because MLIR lacks parseSourceString() method
   // to parse Attributes and its only there for Ops.
@@ -3098,10 +3131,23 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
   if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
     return {};
   }
-  if (version != 1 && version != 2) {
-    return {};
+  if (version != 1 && version != 2 && version != 3) {
+    llvm_unreachable("Unknown version of the perfConfig");
   }
-  size_t expectedNumTokens = version == 1 ? 8 : 11;
+  size_t expectedNumTokens = 0;
+  switch (version) {
+  case 1:
+    expectedNumTokens = 8;
+    break;
+  case 2:
+    expectedNumTokens = 11;
+    break;
+  case 3:
+    expectedNumTokens = 12;
+    break;
+  default:
+    llvm_unreachable("Unknown version of the perfConfig");
+  }
   SmallVector<StringRef, 11> tokens;
   rest.split(tokens, ',');
   if (tokens.size() != expectedNumTokens) {
@@ -3113,21 +3159,39 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
     llvm::to_integer(s, param);
     return param;
   });
+  bool isV3 = (version == 3);
   int64_t mPerBlockG0 = params[0];
   int64_t mPerBlockG1 = params[1];
   int64_t nPerBlockG0 = params[2];
   int64_t kpackPerBlock = params[3];
   int64_t mPerWave = params[4];
-  int64_t mnPerXdl = params[5];
-  int64_t kpack = params[6];
-  int64_t splitKFactor = version == 2 ? params[7] : 1;
-  int64_t scheduleVersion = version == 2 ? params[8] : 1;
-  int64_t outputSwizzle = version == 2 ? params[9] : 2;
+  int64_t nPerWave, mnPerXdl;
+  int64_t lastIdx = 5;
+  if (isV3) {
+    nPerWave = params[lastIdx++];
+    mnPerXdl = params[lastIdx++];
+    // the code below is for compatibility with < v3
+  } else if (isWmma) {
+    mnPerXdl = 16; // default value 16 because v3 had no mnPerXdl
+    nPerWave = params[lastIdx++];
+  } else {
+    mnPerXdl = params[lastIdx++];
+    const int64_t maxWavesPerWG = 4;
+    int64_t mWaves = std::min(mPerBlockG0 / mPerWave, maxWavesPerWG);
+    int64_t nWaves = maxWavesPerWG / mWaves;
+
+    mPerWave = mPerBlockG0 / mWaves;
+    nPerWave = std::max(nPerBlockG0 / nWaves, mnPerXdl);
+  }
+  int64_t kpack = params[lastIdx++];
+  int64_t splitKFactor = version > 1 ? params[lastIdx++] : 1;
+  int64_t scheduleVersion = version > 1 ? params[lastIdx++] : 1;
+  int64_t outputSwizzle = version > 1 ? params[lastIdx++] : 2;
   int64_t forceUnroll = params[expectedNumTokens - 1] == 1;
-  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(), mPerBlockG0,
-                                 mPerBlockG1, nPerBlockG0, kpackPerBlock,
-                                 mPerWave, mnPerXdl, kpack, splitKFactor,
-                                 scheduleVersion, outputSwizzle, forceUnroll);
+  return AttnPerfConfigAttr::get(
+      perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
+      kpackPerBlock, mPerWave, nPerWave, mnPerXdl, kpack, splitKFactor,
+      scheduleVersion, outputSwizzle, forceUnroll);
 }
 
 //===-----------------------------------------------------===//

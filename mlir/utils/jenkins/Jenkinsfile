@@ -410,7 +410,7 @@ String getLabelFromCodepath(String codepath) {
     if (codepath == "mfma") {
         label = 'mlir && (gfx942 || gfx908 || gfx90a)'
     } else if (codepath == "gfx950") {
-        if (params.weekly || params.nightly) {
+        if (params.weekly) {
             label = 'mlir && linux-mi355-8'
         } else {
             label = 'mlir && linux-mi355-1'
@@ -452,7 +452,7 @@ String getLabelFromChip(String chip) {
         case "gfx942":
             return "mlir && gfx942"
         case "gfx950":
-            if (params.nightly || params.weekly) {
+            if (params.weekly) {
                 return "mlir && linux-mi355-8"
             } else {
                 return "mlir && linux-mi355-1"
@@ -709,98 +709,6 @@ def withHealthyNode(String baseLabel, Closure<?> healthChecks, Closure<?> body, 
     }
 }
 
-// We should remove this func once the problem with docker pull on gfx950/mfma is fixed
-// Handles Docker image retrieval with a stash-based workaround for gfx950 and mfma
-def getDockerImage(String imageName, String matrixKey) {
-    // Pre-calculate the sanitized image name to avoid GString parsing issues
-    def sanitizedImageName = imageName.replace('/', '-').replace(':', '-')
-
-    // Create a unique stash name per build and image type
-    // 'CIMIGRAPHX-' prefix added for the migraphx-ci image stash
-    def stashNamePrefix = (imageName == dockerImageCIMIGraphX()) ? 'CIMIGRAPHX-' : ''
-    def stashName = "${env.BUILD_ID}-${stashNamePrefix}img-${sanitizedImageName}"
-    def img = docker.image(imageName)
-    boolean isPrimaryPuller = (params.canXdlops && (matrixKey == 'navi3x' || matrixKey == 'gfx908')) || 
-                              (!params.canXdlops && (matrixKey == 'vanilla'))
-
-    // The failing branches (gfx950, mfma) are "Waiters"
-    if (matrixKey == 'gfx950' || matrixKey == 'mfma') {
-        stage("Wait/Load Image (${imageName}) from Stash") {
-            echo "Branch '${matrixKey}' is WAITER. First, attempting normal docker pull..."
-
-            try {
-                echo "Attempting to pull ${imageName}..."
-                img.pull()
-                echo "Docker pull succeeded on ${matrixKey}"
-            } catch (Exception pullError) {
-                echo "Docker pull failed on ${matrixKey}: ${pullError.message}"
-                echo "Falling back to loading from stash '${stashName}'..."
-
-                try {
-                    timeout(time: 20, unit: 'MINUTES') {
-                        retry(120) { // Poll every 10 seconds for 20 minutes
-                            try {
-                                echo "Attempting to unstash ${stashName}..."
-                                unstash stashName
-                                echo "Unstash successful."
-                            } catch (e) {
-                                echo "Stash not ready. Waiting 10 seconds..."
-                                sleep(10)
-                                throw new Exception("Stash not found, retrying.")
-                            }
-                        }
-                    }
-                } catch (Exception unstashError) {
-                    // Timeout or all retries failed
-                    echo "Failed to unstash image after 20 minutes."
-                    error "Failed to pull OR unstash image '${imageName}' from stash '${stashName}'. Aborting '${matrixKey}' leg."
-                }
-            
-                echo "Loading ${imageName} from tarball..."
-                sh "docker load -i rocm-mlir-image.tar"
-                sh "rm -f rocm-mlir-image.tar"
-                echo "Image load complete"
-            }
-        }
-    } 
-    // The "Puller" branch pulls AND stashes
-    else if (isPrimaryPuller) {
-        stage("Pull and Stash Image (${imageName})") {
-            echo "Branch '${matrixKey}' is PRIMARY PULLER."
-            retry(3) {
-                try {
-                    echo "Attempting to pull ${imageName}..."
-                    img.pull()
-                    echo "Pull successful."
-                } catch (Exception e) {
-                    echo "Docker pull failed. Retrying... Error: ${e.message}"
-                    sleep(time: 30, unit: 'SECONDS')
-                    throw e
-                }
-            }
-            
-            echo "Saving ${imageName} to tarball..."
-            sh "docker save -o rocm-mlir-image.tar ${imageName}"
-            echo "Stashing tarball as ${stashName}..."
-            // Only waiters should unstash it
-            stash name: stashName, includes: 'rocm-mlir-image.tar'
-            sh "rm -f rocm-mlir-image.tar" // Clean up workspace
-            echo "Stash complete."
-        }
-    }
-    // Other branches should do a normal pull
-    else {
-        stage("Pull Image (${imageName})") {
-            echo "Branch '${matrixKey}' pulling image normally"
-            echo "Attempting to pull ${imageName}..."
-            img.pull()
-            echo "Pull successful"
-        }
-    }
-    
-    return img
-}
-
 pipeline {
     agent none
     options { parallelsAlwaysFailFast() }
@@ -922,9 +830,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-                                                
-                                                // Workaround for gfx950 issue with docker pull
-                                                img = getDockerImage(dockerImage(), CODEPATH)
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1066,9 +973,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-
-                                                // Workaround for gfx950 issue with docker pull
-                                                img = getDockerImage(dockerImage(), CODEPATH)
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1155,9 +1061,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
-
-                                                // Workaround for gfx950 issue with docker pull
-                                                img = getDockerImage(dockerImage(), CHIP)
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1331,9 +1236,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
-
-                                                // Workaround for gfx950 issue with docker pull
-                                                img = getDockerImage(dockerImage(), CHIP)
+                                                img = docker.image(dockerImage())
+                                                img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1550,9 +1454,8 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-
-                                                // Workaround for gfx950 issue with docker pull
-                                                img = getDockerImage(dockerImageCIMIGraphX(), CODEPATH)
+                                                img = docker.image(dockerImageCIMIGraphX())
+                                                img?.pull()
                                             }
                                             // Spin up ONE container and stay in it for all substages
                                             img.inside(args) {
@@ -1669,9 +1572,8 @@ pipeline {
                                                     args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                     // Check these args
                                                     echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
-
-                                                    // Workaround for gfx950 issue with docker pull
-                                                    img = getDockerImage(dockerImage(), CODEPATH)
+                                                    img = docker.image(dockerImage())
+                                                    img?.pull()
                                                 }
                                                 // Spin up ONE container and stay in it for all substages
                                                 img.inside(args) {
