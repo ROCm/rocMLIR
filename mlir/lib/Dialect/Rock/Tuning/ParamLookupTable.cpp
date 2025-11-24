@@ -131,8 +131,8 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
     dataTypeStr = "f4";
   } else if (dataType.getIntOrFloatBitWidth() == 8 &&
              isa<FloatType>(dataType)) {
-    // There are several 8-bit float types, but we use "f8" generically
-    dataTypeStr = "f8";
+    // There are several 8-bit float types, but we use "fp8" generically
+    dataTypeStr = "fp8";
   } else if (dataType.getIntOrFloatBitWidth() == 16 &&
              isa<FloatType>(dataType)) {
     // We use "f16" for bf16 and f16 generically
