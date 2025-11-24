@@ -331,7 +331,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   });
 
-  // Warmup run
+  // Warmup run. We measure the warmup to get an estimate of the kernel runtime.
+  // We will use this estimate to determine if the kernel is small or not.
   float totalMillisecondsWarmup = 0.0;
   HIPCHECK(hipStreamSynchronize(stream));
   for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
