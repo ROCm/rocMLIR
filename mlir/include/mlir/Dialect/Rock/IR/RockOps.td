@@ -223,7 +223,9 @@ def Rock_AttentionOp
           StoreMethodAttr:$storeMethod, OptionalAttr<TypeAttr>:$softmaxType,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
-          DenseI64ArrayAttr:$firstGemmIndices)>,
+          DenseI64ArrayAttr:$firstGemmIndices,
+          DefaultValuedOptionalAttr<BoolAttr,
+                                    "false">:$preSoftmaxHasSplitKVTransforms)>,
       Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result,
           Optional<TensorOf<[F32, F16, BF16]>>:$lseOut)> {
   let summary = "Attention operation of transformer models";
@@ -247,6 +249,12 @@ def Rock_AttentionOp
     For flash decoding, you can pass splitKV > 1, the default value is 1, which means flash decoding is disabled. 
     Flash decoding multiplies the number of blocks by splitKV. Note that "lse" has to be non-null for splitKV > 1. 
     However, "lse" can be non-null even if splitKV = 1.
+
+    The `preSoftmaxHasSplitKVTransforms` attribute indicates whether the preSoftmaxBody inputs 
+    have splitKV transforms applied. It is set to true by DetectFlashDecoding when it detects 
+    and removes splitKV patterns. This prevents GridwiseGemmToBlockwise from unnecessarily 
+    re-applying splitKV transforms when the IR is generated directly (e.g., via rocmlir-gen) 
+    without flash decoding detection.
 
     The parameters `gridSize`, and `blockSize` are optional as they can be
     inferred by a tuning process or a heuristic, but they must be set before
@@ -550,7 +558,9 @@ def Rock_GridwiseAttentionAccelOp
           RockAccelTuningParamAttrInterface:$params0,
           RockAccelTuningParamAttrInterface:$params1,
           DenseI64ArrayAttr:$firstGemmIndices,
-          DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax)> {
+          DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax,
+          DefaultValuedOptionalAttr<BoolAttr,
+                                    "false">:$preSoftmaxHasSplitKVTransforms)> {
   let summary = "Gridwise attention accelerated version";
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
