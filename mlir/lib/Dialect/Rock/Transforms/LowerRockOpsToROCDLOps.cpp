@@ -7,7 +7,7 @@
 // Copyright (c) 2025 Advanced Micro Devices Inc.
 //===----------------------------------------------------------------------===//
 //
-// This pass adds async wait operations for LDS memory
+// This pass lowers specific rock ops to ROCDL ops.
 //
 //===----------------------------------------------------------------------===//
 
@@ -43,15 +43,23 @@ struct AsyncWaitOpConversion
   using ConvertOpToLLVMPattern<rock::AsyncWaitOp>::ConvertOpToLLVMPattern;
 
   AsyncWaitOpConversion(const LLVMTypeConverter &converter,
-                        amdgpu::Chipset chipset)
-      : ConvertOpToLLVMPattern<rock::AsyncWaitOp>(converter), chipset(chipset) {
+                        amdgpu::Chipset chipset, bool supportsDirectToLDS)
+      : ConvertOpToLLVMPattern<rock::AsyncWaitOp>(converter), chipset(chipset),
+        supportsDirectToLDS(supportsDirectToLDS) {
   }
 
   mlir::amdgpu::Chipset chipset;
+  bool supportsDirectToLDS;
 
   LogicalResult
   matchAndRewrite(rock::AsyncWaitOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Erase the op when DirectToLDS is not supported
+    if (!supportsDirectToLDS) {
+      rewriter.eraseOp(op);
+      return success();
+    }
+
     auto loc = op->getLoc();
 
     // Clamp vmcnt to 6bits; a lower vmcnt will produce a conservative wait
@@ -108,10 +116,9 @@ struct LowerRockOpsToROCDLOpsPass final
     bool supportsDirectToLDS = isDirectToLDSSupported(archInfo.defaultFeatures);
 
     LLVMConversionTarget target(getContext());
-    if (supportsDirectToLDS) {
-      target.addIllegalOp<rock::AsyncWaitOp>();
-      patterns.add<AsyncWaitOpConversion>(converter, *maybeChipset);
-    }
+    target.addIllegalOp<rock::AsyncWaitOp>();
+    patterns.add<AsyncWaitOpConversion>(converter, *maybeChipset,
+                                        supportsDirectToLDS);
     target.addLegalDialect<ROCDL::ROCDLDialect>();
 
     if (failed(applyPartialConversion(op, target, std::move(patterns))))

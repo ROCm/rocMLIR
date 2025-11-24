@@ -58,7 +58,7 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
   %33 = rock.transform %32 by <affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4 floordiv 8, d4 mod 8, d5 floordiv 8, d5 mod 8)> by [<PassThrough ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3] -> ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3]>, <Merge{32, 8} ["tid"] at [4] -> ["k_thread", "n_thread"] at [4, 5]>, <Merge{2, 8} ["iter"] at [5] -> ["k_iter", "n_iter"] at [6, 7]>] bounds = [12, 3, 16, 16, 256, 16] -> [12, 3, 16, 16, 32, 8, 2, 8]> : memref<12x3x16x16x32x8x2x8xbf16> to memref<12x3x16x16x256x16xbf16>
   %34 = rock.extract_multibuffer(%view_1, %view_2) [%c0](memref<4096xbf16, #gpu.address_space<workgroup>>, memref<4096xbf16, #gpu.address_space<workgroup>>) : memref<4096xbf16, #gpu.address_space<workgroup>>
   %35 = rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%33) [%c0, %11, %18, %20, %4] -> %34 : memref<12x3x16x16x256x16xbf16> -> memref<4096xbf16, #gpu.address_space<workgroup>>, vector<4096xi1>
-  rock.lds_barrier {barrier_stage = #rock<BarrierStage forward>}
+  rock.lds_barrier {barrierStage =  #rock<BarrierStage forward>}
   %36 = rock.transform %0 by <affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, (d0 * 2 + d6) * 32 + d4, (d2 * 8 + d5) * 8 + d7)> by [<PassThrough ["g_block"] at [1] -> ["g"] at [0]>, <Unmerge{12, 2, 32} ["k_loop", "k_iter", "k_thread"] at [0, 6, 4] -> ["k"] at [1]>, <Unmerge{16, 8, 8} ["m_block", "m_thread", "m_iter"] at [2, 5, 7] -> ["m"] at [2]>, <AddDim{16} ["n_block"] at [3] -> [] at []>] bounds = [12, 3, 16, 16, 32, 8, 2, 8] -> [3, 768, 1024]> : memref<3x768x1024xbf16> to memref<12x3x16x16x32x8x2x8xbf16>
   %37 = rock.transform %36 by <affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4 floordiv 8, d4 mod 8, d5 floordiv 8, d5 mod 8)> by [<PassThrough ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3] -> ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3]>, <Merge{32, 8} ["tid"] at [4] -> ["k_thread", "m_thread"] at [4, 5]>, <Merge{2, 8} ["iter"] at [5] -> ["k_iter", "m_iter"] at [6, 7]>] bounds = [12, 3, 16, 16, 256, 16] -> [12, 3, 16, 16, 32, 8, 2, 8]> : memref<12x3x16x16x32x8x2x8xbf16> to memref<12x3x16x16x256x16xbf16>
   %38 = rock.extract_multibuffer(%view_3, %view_4) [%c1](memref<4096xbf16, #gpu.address_space<workgroup>>, memref<4096xbf16, #gpu.address_space<workgroup>>) : memref<4096xbf16, #gpu.address_space<workgroup>>
@@ -78,7 +78,7 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
   %50 = rock.transform %49 by <affine_map<(d0, d1) -> (d0, 0, d1)> by [<PassThrough ["tid"] at [0] -> ["tid"] at [0]>, <Merge{1, 32} ["mk"] at [1] -> ["m", "k"] at [1, 2]>] bounds = [256, 32] -> [256, 1, 32]> : memref<256x1x32xbf16, #gpu.address_space<workgroup>> to memref<256x32xbf16, #gpu.address_space<workgroup>>
   %51 = rock.extract_multibuffer(%view) [%c0](memref<32xbf16, #gpu.address_space<private>>) : memref<32xbf16, #gpu.address_space<private>>
   // This will wait for the first 2 rock.threadwise_read_into
-  // CHECK: rock.async_wait {num_inst = 6 : i32}
+  // CHECK: rock.async_wait {numInst =  6 : i32}
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%50) [%44] -> %51 : memref<256x32xbf16, #gpu.address_space<workgroup>> -> memref<32xbf16, #gpu.address_space<private>>
   %52 = rock.workitem_id : index
   %view_7 = memref.view %23[%c0][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<4096xbf16, #gpu.address_space<workgroup>>
@@ -91,10 +91,10 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
   %58 = rock.transform %57 by <affine_map<(d0, d1) -> (d0, 0, d1)> by [<PassThrough ["tid"] at [0] -> ["tid"] at [0]>, <Merge{1, 32} ["nk"] at [1] -> ["n", "k"] at [1, 2]>] bounds = [256, 32] -> [256, 1, 32]> : memref<256x1x32xbf16, #gpu.address_space<workgroup>> to memref<256x32xbf16, #gpu.address_space<workgroup>>
   %59 = rock.extract_multibuffer(%view_0) [%c0](memref<32xbf16, #gpu.address_space<private>>) : memref<32xbf16, #gpu.address_space<private>>
   // This will wait for the last 4 rock.threadwise_read_into
-  // CHECK: rock.async_wait {num_inst = 4 : i32}
+  // CHECK: rock.async_wait {numInst =  4 : i32}
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%58) [%52] -> %59 : memref<256x32xbf16, #gpu.address_space<workgroup>> -> memref<32xbf16, #gpu.address_space<private>>
   scf.for %arg3 = %c0 to %c10 step %c1 {
-    rock.lds_barrier {barrier_stage = #rock<BarrierStage forward>}
+    rock.lds_barrier {barrierStage =  #rock<BarrierStage forward>}
     %78 = arith.addi %arg3, %c2 : index
     %79 = arith.addi %arg3, %c2 : index
     %80 = arith.addi %arg3, %c2 : index
@@ -139,7 +139,7 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
     %99 = rock.transform %98 by <affine_map<(d0, d1, d2) -> (d0 floordiv 64, (d0 mod 64) floordiv 32, d0 mod 32, d1, d2 floordiv 8, d2 mod 8)> by [<Merge{4, 2, 32} ["tid"] at [0] -> ["wave_id", "blk_id", "blk_td"] at [0, 1, 2]>, <Merge{4, 8} ["k_iter"] at [2] -> ["k_iter", "k_vec"] at [4, 5]>, <PassThrough ["d_iter"] at [1] -> ["d_iter"] at [3]>] bounds = [256, 1, 32] -> [4, 2, 32, 1, 4, 8]> : memref<4x2x32x1x4x8xbf16, #gpu.address_space<workgroup>> to memref<256x1x32xbf16, #gpu.address_space<workgroup>>
     %100 = rock.transform %99 by <affine_map<(d0, d1) -> (d0, 0, d1)> by [<PassThrough ["tid"] at [0] -> ["tid"] at [0]>, <Merge{1, 32} ["mk"] at [1] -> ["m", "k"] at [1, 2]>] bounds = [256, 32] -> [256, 1, 32]> : memref<256x1x32xbf16, #gpu.address_space<workgroup>> to memref<256x32xbf16, #gpu.address_space<workgroup>>
     %101 = rock.extract_multibuffer(%view) [%91](memref<32xbf16, #gpu.address_space<private>>) : memref<32xbf16, #gpu.address_space<private>>
-    // CHECK: rock.async_wait {num_inst = 6 : i32}
+    // CHECK: rock.async_wait {numInst =  6 : i32}
     rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%100) [%94] -> %101 : memref<256x32xbf16, #gpu.address_space<workgroup>> -> memref<32xbf16, #gpu.address_space<private>>
     %102 = rock.workitem_id : index
     %view_15 = memref.view %23[%c0][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<4096xbf16, #gpu.address_space<workgroup>>
@@ -151,10 +151,10 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
     %107 = rock.transform %106 by <affine_map<(d0, d1, d2) -> (d0 floordiv 64, (d0 mod 64) floordiv 32, d0 mod 32, d1, d2 floordiv 8, d2 mod 8)> by [<Merge{4, 2, 32} ["tid"] at [0] -> ["wave_id", "blk_id", "blk_td"] at [0, 1, 2]>, <Merge{4, 8} ["k_iter"] at [2] -> ["k_iter", "k_vec"] at [4, 5]>, <PassThrough ["d_iter"] at [1] -> ["d_iter"] at [3]>] bounds = [256, 1, 32] -> [4, 2, 32, 1, 4, 8]> : memref<4x2x32x1x4x8xbf16, #gpu.address_space<workgroup>> to memref<256x1x32xbf16, #gpu.address_space<workgroup>>
     %108 = rock.transform %107 by <affine_map<(d0, d1) -> (d0, 0, d1)> by [<PassThrough ["tid"] at [0] -> ["tid"] at [0]>, <Merge{1, 32} ["nk"] at [1] -> ["n", "k"] at [1, 2]>] bounds = [256, 32] -> [256, 1, 32]> : memref<256x1x32xbf16, #gpu.address_space<workgroup>> to memref<256x32xbf16, #gpu.address_space<workgroup>>
     %109 = rock.extract_multibuffer(%view_0) [%93](memref<32xbf16, #gpu.address_space<private>>) : memref<32xbf16, #gpu.address_space<private>>
-    // CHECK: rock.async_wait {num_inst = 4 : i32}
+    // CHECK: rock.async_wait {numInst =  4 : i32}
     rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%108) [%102] -> %109 : memref<256x32xbf16, #gpu.address_space<workgroup>> -> memref<32xbf16, #gpu.address_space<private>>
   }
-  rock.lds_barrier {barrier_stage = #rock<BarrierStage forward>}
+  rock.lds_barrier {barrierStage =  #rock<BarrierStage forward>}
   affine.for %arg3 = 0 to 1 {
     %view_13 = memref.view %25[%c0][] : memref<64xi8, #gpu.address_space<private>> to memref<4xvector<8xbf16>, #gpu.address_space<private>>
     %78 = rock.extract_multibuffer(%view_13) [%c10](memref<4xvector<8xbf16>, #gpu.address_space<private>>) : memref<4xvector<8xbf16>, #gpu.address_space<private>>
@@ -183,7 +183,7 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
   %65 = rock.transform %64 by <affine_map<(d0, d1, d2) -> (d0 floordiv 64, (d0 mod 64) floordiv 32, d0 mod 32, d1, d2 floordiv 8, d2 mod 8)> by [<Merge{4, 2, 32} ["tid"] at [0] -> ["wave_id", "blk_id", "blk_td"] at [0, 1, 2]>, <Merge{4, 8} ["k_iter"] at [2] -> ["k_iter", "k_vec"] at [4, 5]>, <PassThrough ["d_iter"] at [1] -> ["d_iter"] at [3]>] bounds = [256, 1, 32] -> [4, 2, 32, 1, 4, 8]> : memref<4x2x32x1x4x8xbf16, #gpu.address_space<workgroup>> to memref<256x1x32xbf16, #gpu.address_space<workgroup>>
   %66 = rock.transform %65 by <affine_map<(d0, d1) -> (d0, 0, d1)> by [<PassThrough ["tid"] at [0] -> ["tid"] at [0]>, <Merge{1, 32} ["mk"] at [1] -> ["m", "k"] at [1, 2]>] bounds = [256, 32] -> [256, 1, 32]> : memref<256x1x32xbf16, #gpu.address_space<workgroup>> to memref<256x32xbf16, #gpu.address_space<workgroup>>
   %67 = rock.extract_multibuffer(%view) [%c11](memref<32xbf16, #gpu.address_space<private>>) : memref<32xbf16, #gpu.address_space<private>>
-  // CHECK: rock.async_wait {num_inst = 0 : i32}
+  // CHECK: rock.async_wait {numInst =  0 : i32}
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%66) [%60] -> %67 : memref<256x32xbf16, #gpu.address_space<workgroup>> -> memref<32xbf16, #gpu.address_space<private>>
   %68 = rock.workitem_id : index
   %view_11 = memref.view %23[%c0][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<4096xbf16, #gpu.address_space<workgroup>>
@@ -195,7 +195,7 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
   %73 = rock.transform %72 by <affine_map<(d0, d1, d2) -> (d0 floordiv 64, (d0 mod 64) floordiv 32, d0 mod 32, d1, d2 floordiv 8, d2 mod 8)> by [<Merge{4, 2, 32} ["tid"] at [0] -> ["wave_id", "blk_id", "blk_td"] at [0, 1, 2]>, <Merge{4, 8} ["k_iter"] at [2] -> ["k_iter", "k_vec"] at [4, 5]>, <PassThrough ["d_iter"] at [1] -> ["d_iter"] at [3]>] bounds = [256, 1, 32] -> [4, 2, 32, 1, 4, 8]> : memref<4x2x32x1x4x8xbf16, #gpu.address_space<workgroup>> to memref<256x1x32xbf16, #gpu.address_space<workgroup>>
   %74 = rock.transform %73 by <affine_map<(d0, d1) -> (d0, 0, d1)> by [<PassThrough ["tid"] at [0] -> ["tid"] at [0]>, <Merge{1, 32} ["nk"] at [1] -> ["n", "k"] at [1, 2]>] bounds = [256, 32] -> [256, 1, 32]> : memref<256x1x32xbf16, #gpu.address_space<workgroup>> to memref<256x32xbf16, #gpu.address_space<workgroup>>
   %75 = rock.extract_multibuffer(%view_0) [%c11](memref<32xbf16, #gpu.address_space<private>>) : memref<32xbf16, #gpu.address_space<private>>
-  // CHECK: rock.async_wait {num_inst = 0 : i32}
+  // CHECK: rock.async_wait {numInst =  0 : i32}
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%74) [%68] -> %75 : memref<256x32xbf16, #gpu.address_space<workgroup>> -> memref<32xbf16, #gpu.address_space<private>>
   affine.for %arg3 = 0 to 1 {
     %view_13 = memref.view %25[%c0][] : memref<64xi8, #gpu.address_space<private>> to memref<4xvector<8xbf16>, #gpu.address_space<private>>
@@ -267,7 +267,7 @@ func.func @gemm_no_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296
   %view_1 = memref.view %22[%c0][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<4096xbf16, #gpu.address_space<workgroup>>
   %view_2 = memref.view %21[%c0][] : memref<8192xi8, #gpu.address_space<workgroup>> to memref<4096xbf16, #gpu.address_space<workgroup>>
   scf.for %arg3 = %c0 to %c12 step %c1 {
-    rock.lds_barrier {barrier_stage = #rock<BarrierStage backward>}
+    rock.lds_barrier {barrierStage =  #rock<BarrierStage backward>}
     %28 = rock.transform %0 by <affine_map<(d0, d1, d2, d3, d4, d5, d6, d7) -> (d1, (d0 * 2 + d6) * 32 + d4, (d2 * 8 + d5) * 8 + d7)> by [<PassThrough ["g_block"] at [1] -> ["g"] at [0]>, <Unmerge{12, 2, 32} ["k_loop", "k_iter", "k_thread"] at [0, 6, 4] -> ["k"] at [1]>, <Unmerge{16, 8, 8} ["m_block", "m_thread", "m_iter"] at [2, 5, 7] -> ["m"] at [2]>, <AddDim{16} ["n_block"] at [3] -> [] at []>] bounds = [12, 3, 16, 16, 32, 8, 2, 8] -> [3, 768, 1024]> : memref<3x768x1024xbf16> to memref<12x3x16x16x32x8x2x8xbf16>
     %29 = rock.transform %28 by <affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4 floordiv 8, d4 mod 8, d5 floordiv 8, d5 mod 8)> by [<PassThrough ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3] -> ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3]>, <Merge{32, 8} ["tid"] at [4] -> ["k_thread", "m_thread"] at [4, 5]>, <Merge{2, 8} ["iter"] at [5] -> ["k_iter", "m_iter"] at [6, 7]>] bounds = [12, 3, 16, 16, 256, 16] -> [12, 3, 16, 16, 32, 8, 2, 8]> : memref<12x3x16x16x32x8x2x8xbf16> to memref<12x3x16x16x256x16xbf16>
     %30 = rock.extract_multibuffer(%view_2) [%arg3](memref<4096xbf16, #gpu.address_space<workgroup>>) : memref<4096xbf16, #gpu.address_space<workgroup>>
@@ -276,8 +276,8 @@ func.func @gemm_no_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296
     %33 = rock.transform %32 by <affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4 floordiv 8, d4 mod 8, d5 floordiv 8, d5 mod 8)> by [<PassThrough ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3] -> ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3]>, <Merge{32, 8} ["tid"] at [4] -> ["k_thread", "n_thread"] at [4, 5]>, <Merge{2, 8} ["iter"] at [5] -> ["k_iter", "n_iter"] at [6, 7]>] bounds = [12, 3, 16, 16, 256, 16] -> [12, 3, 16, 16, 32, 8, 2, 8]> : memref<12x3x16x16x32x8x2x8xbf16> to memref<12x3x16x16x256x16xbf16>
     %34 = rock.extract_multibuffer(%view_1) [%arg3](memref<4096xbf16, #gpu.address_space<workgroup>>) : memref<4096xbf16, #gpu.address_space<workgroup>>
     %35 = rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%33) [%arg3, %11, %18, %20, %4] -> %34 : memref<12x3x16x16x256x16xbf16> -> memref<4096xbf16, #gpu.address_space<workgroup>>, vector<4096xi1>
-    rock.lds_barrier {barrier_stage = #rock<BarrierStage forward>}
-    // CHECK: rock.async_wait {num_inst = 0 : i32}
+    rock.lds_barrier {barrierStage =  #rock<BarrierStage forward>}
+    // CHECK: rock.async_wait {numInst =  0 : i32}
     %36 = rock.workitem_id : index
     affine.for %arg4 = 0 to 1 {
       %view_3 = memref.view %23[%c0][] : memref<64xi8, #gpu.address_space<private>> to memref<4xvector<8xbf16>, #gpu.address_space<private>>
@@ -335,13 +335,13 @@ func.func @async_wait_simple_test(%arg0: memref<4x256xf32>, %arg1: memref<4x256x
   
   // Local loads (LDS -> registers)
   // 
-  // CHECK: rock.async_wait {num_inst = 3 : i32}
+  // CHECK: rock.async_wait {numInst =  3 : i32}
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%1) [%tid] -> %5 : memref<1x256xf32, #gpu.address_space<workgroup>> -> memref<64xf32, #gpu.address_space<private>>
-  // CHECK: rock.async_wait {num_inst = 2 : i32}
+  // CHECK: rock.async_wait {numInst =  2 : i32}
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%2) [%tid] -> %6 : memref<1x256xf32, #gpu.address_space<workgroup>> -> memref<64xf32, #gpu.address_space<private>>
-  // CHECK: rock.async_wait {num_inst = 1 : i32}
+  // CHECK: rock.async_wait {numInst =  1 : i32}
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%3) [%tid] -> %7 : memref<1x256xf32, #gpu.address_space<workgroup>> -> memref<64xf32, #gpu.address_space<private>>
-  // CHECK: rock.async_wait {num_inst = 0 : i32}
+  // CHECK: rock.async_wait {numInst =  0 : i32}
   rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%4) [%tid] -> %8 : memref<1x256xf32, #gpu.address_space<workgroup>> -> memref<64xf32, #gpu.address_space<private>>
   return
 }

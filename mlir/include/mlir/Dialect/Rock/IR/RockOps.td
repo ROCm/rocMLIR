@@ -617,13 +617,13 @@ def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
 }
 
 def Rock_AsyncWaitOp : Rock_Op<"async_wait">,
-                       Arguments<(ins I32Attr:$num_inst)> {
+                       Arguments<(ins I32Attr:$numInst)> {
   let summary = "Wait for asynchronous global memory loads to LDS to complete";
   let description = [{
     The `rock.async_wait` operation waits for asynchronous global memory loads
     to Local Data Share (LDS) instructions to complete before execution continues.
     
-    The `num_inst` attribute specifies how many async loads need to
+    The `numInst` attribute specifies how many async loads need to
     complete before continuing. The value is clamped to 6 bits (maximum 63). It also
     introduces a barrier to ensure all workitems in the workgroup synchronize at
     this point.
@@ -631,7 +631,7 @@ def Rock_AsyncWaitOp : Rock_Op<"async_wait">,
     Example:
     ```mlir
     // Wait for 4 outstanding async loads to complete and synchronize all workitems.
-    rock.async_wait {num_inst = 4 : i32}
+    rock.async_wait {numInst = 4 : i32}
     ```
   }];
   let assemblyFormat = [{
@@ -695,7 +695,7 @@ def Rock_LDSBarrierOp : Rock_Op<"lds_barrier"> {
   let description = [{
     The `rock.lds_barrier` op sets up a workgroup-level barrier on LDS activities.
   }];
-  let arguments = (ins OptionalAttr<BarrierStageAttr>:$barrier_stage);
+  let arguments = (ins OptionalAttr<BarrierStageAttr>:$barrierStage);
   let builders = [OpBuilder<(ins), [{build($_builder, $_state, {});}]>];
   let assemblyFormat = "attr-dict";
 }
