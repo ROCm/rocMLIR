@@ -29,15 +29,6 @@ namespace rock {
 enum class GemmDimension : uint32_t { G = 0, K = 1, MorN = 2 };
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, GemmDimension dim);
 
-// Remove this enum after both accelerated and non-accelerated are converted to
-// new gridwise gemm form. 0 : gemmG dimension. 1 : gemmK dimension. 2 : gemmM
-// or gemmN dimension.
-enum GemmDimensions { GemmG = 0, GemmK = 1, GemmMorN = 2 };
-
-// Remove after old swizzle detector is removed.
-constexpr int64_t gemmCDimM = 1;
-constexpr int64_t gemmCDimN = 2;
-
 struct InitParams {
   int64_t gemmMPerBlock;
   int64_t gemmNPerBlock;
@@ -152,27 +143,27 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
 struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   constexpr InitParamsAccel(int64_t mPerBlock, int64_t nPerBlock,
                             int64_t kPerBlock, int64_t mPerWave,
-                            int64_t nPerWaveOrMnPerXdl, int64_t kPack,
+                            int64_t nPerWave, int64_t mnPerXdl, int64_t kPack,
                             int64_t splitKFactor, int64_t scheduleVersion,
                             int64_t outputSwizzle, bool aThreadCopyMoreGemmK,
                             bool bThreadCopyMoreGemmKPack)
       : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
-        gemmNPerWaveOrMnPerXdl(nPerWaveOrMnPerXdl), gemmKPack(kPack),
-        splitKFactor(splitKFactor), gemmScheduleVersion(scheduleVersion),
-        outputSwizzle(outputSwizzle),
+        gemmNPerWave(nPerWave), gemmMnPerXdl(mnPerXdl),
+        gemmNPerWaveOrMnPerXdl(0), gemmKPack(kPack), splitKFactor(splitKFactor),
+        gemmScheduleVersion(scheduleVersion), outputSwizzle(outputSwizzle),
         gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
         gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
 
   constexpr InitParamsAccel()
-      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL, false,
+      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL, false,
                         false) {}
 
-  InitParamsAccel(XdlopsGemmParamsAttr attr)
+  InitParamsAccel(MfmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
-        gemmMPerWave(attr.getMPerWave()),
-        gemmNPerWaveOrMnPerXdl(attr.getMnPerXdl()), gemmKPack(attr.getKpack()),
-        splitKFactor(attr.getSplitKFactor()),
+        gemmMPerWave(attr.getMPerWave()), gemmNPerWave(attr.getNPerWave()),
+        gemmMnPerXdl(attr.getMnPerXdl()), gemmNPerWaveOrMnPerXdl(0),
+        gemmKPack(attr.getKpack()), splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
@@ -181,9 +172,9 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   InitParamsAccel(WmmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
                    attr.getKpackPerBlock()},
-        gemmMPerWave(attr.getMPerWave()),
-        gemmNPerWaveOrMnPerXdl(attr.getNPerWave()), gemmKPack(attr.getKpack()),
-        splitKFactor(attr.getSplitKFactor()),
+        gemmMPerWave(attr.getMPerWave()), gemmNPerWave(attr.getNPerWave()),
+        gemmMnPerXdl(attr.getMnPerXdl()), gemmNPerWaveOrMnPerXdl(0),
+        gemmKPack(attr.getKpack()), splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
@@ -192,6 +183,8 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   int64_t getKPack() { return gemmKPack; }
 
   int64_t gemmMPerWave;
+  int64_t gemmNPerWave;
+  int64_t gemmMnPerXdl;
   int64_t gemmNPerWaveOrMnPerXdl;
   int64_t gemmKPack;
   int64_t splitKFactor;
@@ -206,7 +199,12 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
     f(self.gemmNPerBlock);
     f(self.gemmKPerBlock);
     f(self.gemmMPerWave);
-    f(self.gemmNPerWaveOrMnPerXdl);
+    if (self.version >= Version::V4) {
+      f(self.gemmNPerWave);
+      f(self.gemmMnPerXdl);
+    } else {
+      f(self.gemmNPerWaveOrMnPerXdl);
+    }
     f(self.gemmKPack);
     if (self.version >= Version::V2) {
       f(self.splitKFactor);
@@ -395,9 +393,7 @@ public:
 
   virtual LogicalResult
   isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param, Type dataTypeA,
-                       Type dataTypeB, StringRef arch,
-                       bool enableBlockSizeUpperLimit = true,
-                       bool enableDPerWaveFiltering = true) = 0;
+                       Type dataTypeB, StringRef arch) = 0;
 
 protected:
   LogicalResult populatePaddingKernelDerived(RockGemmWrapperInterface op,
@@ -429,11 +425,9 @@ public:
   Attribute
   getGemmParamsAttr(OpBuilder &builder,
                     const InitParamsAccel &validParams) const override;
-  LogicalResult
-  isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param, Type dataTypeA,
-                       Type dataTypeB, StringRef arch,
-                       bool enableBlockSizeUpperLimit = true,
-                       bool enableDPerWaveFiltering = true) override;
+  LogicalResult isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
+                                     Type dataTypeA, Type dataTypeB,
+                                     StringRef arch) override;
 
 protected:
   LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
@@ -459,11 +453,9 @@ public:
   getGemmParamsAttr(OpBuilder &builder,
                     const InitParamsAccel &validParams) const override;
 
-  LogicalResult
-  isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param, Type dataTypeA,
-                       Type dataTypeB, StringRef arch,
-                       bool enableBlockSizeUpperLimit = true,
-                       bool enableDPerWaveFiltering = true) override;
+  LogicalResult isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
+                                     Type dataTypeA, Type dataTypeB,
+                                     StringRef arch) override;
 
 protected:
   LogicalResult specificCouldBePerformant(const InitParamsAccel &params,

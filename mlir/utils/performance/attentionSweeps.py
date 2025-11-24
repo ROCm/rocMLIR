@@ -44,7 +44,7 @@ def to_attn_config(params, options: Options) -> AttentionConfiguration:
     shape, perf = params
     *shape_params, current_seqlen = shape
     dtype, g, slq, slk, nhq, nhkv, hdqk, hdv, scale, bias, tq, tk, tv, to, causal, rlse, split_kv = shape_params
-    perf_str = f"attn:v2:{','.join(str(x) for x in perf)}"
+    perf_str = f"attn:v3:{','.join(str(x) for x in perf)}"
     attn_config = AttentionConfiguration(dtype=dtype,
                                          g=g,
                                          seq_len_q=slq,
@@ -147,6 +147,7 @@ perfconfig_space_mfma = list(
         [16, 32, 64, 128, 256],  # N/block G0
         [8, 16, 32, 64],  # Kpack/Block
         [16, 32, 64, 128, 256],  # M/Wave
+        [16, 32, 64, 128, 256],  # N/Wave
         [4, 16, 32],  # MN/Xdl
         [4, 8, 16],  # kPack
         [1],  # splitKFactor
@@ -163,6 +164,7 @@ perfconfig_space_wmma = list(
         [8, 16, 32, 64],  # Kpack/Block
         [16, 32, 64],  # M/Wave
         [16, 32, 64],  # N/Wave
+        [0],  # MN/Xdl
         [4, 8, 16],  # kPack
         [1],  # splitKFactor
         [1, 2, 3, 4],  # scheduleVersion

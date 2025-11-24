@@ -541,7 +541,7 @@ static llvm::cl::opt<std::string> dataTypeAlias(
         if (val == "i8")
           outputDataType = "i32";
         else if (val.starts_with("f8") || val.starts_with("fp8") ||
-                 val.starts_with("bf8"))
+                 val.starts_with("bf8") || val.starts_with("f4E2M1FN"))
           outputDataType = "f32";
         else if (filterDataType == inputDataType)
           outputDataType = v;
@@ -1397,13 +1397,14 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
 static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
                                                     const GenParams &params) {
-  // default perfConfig is attn:v2:32,32,32,32,32,32,1,1,1,2,1
+  // default perfConfig is attn:v3:32,32,32,32,32,32,16,1,1,1,2,1
   // keep in sync with AffixTuningParameters.cpp
   if (params.perfConfig.empty())
     return {32, 32};
 
+  bool isWmma = bitEnumContainsAny(params.features, rock::GemmFeatures::wmma);
   auto attnPerfConfig = mlir::rock::AttnPerfConfigAttr::get(
-      builder.getStringAttr(params.perfConfig));
+      builder.getStringAttr(params.perfConfig), isWmma);
   return {attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0()};
 }
 
@@ -4304,25 +4305,9 @@ static void emitPrintTensor(OpBuilder &b, Value var) {
   }
 }
 
-static void checkRandomInputsE2E() {
-  if (randomSeed != "none" && randomSeed != "fixed" &&
-      randomDataType == "float") {
-    int min = randMin.getValue();
-    int max = randMax.getValue();
-    if (min < 0 && max > 0) {
-      llvm::errs() << "WARNING: E2E tests with float random inputs within ";
-      llvm::errs() << "WARNING: E2E tests may fail with both positive and ";
-      llvm::errs() << "negative float random inputs\n";
-      llvm::errs() << "         Try range [1, 3] by setting ";
-      llvm::errs() << "\"-rand_min 1 -rand_max 3\"\n";
-    }
-  }
-}
-
 static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
                                        MemRefType testType, MemRefType valType,
                                        std::string funcName) {
-  checkRandomInputsE2E();
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
