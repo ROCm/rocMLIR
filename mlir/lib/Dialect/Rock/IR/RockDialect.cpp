@@ -1876,8 +1876,12 @@ LogicalResult GlobalLoadToLDSOp::verify() {
   LogicalResult res = verifyGlobalLoad(*this);
   if (failed(res))
     return res;
-
-  MemRefType destType = getDest().getType();
+  Value source = getSource();
+  Value dest = getDest();
+  SmallVector<Value> coords(getSourceCoord());
+  SmallVector<Value> destCoords(getDestCoord());
+  MemRefType sourceType = cast<MemRefType>(source.getType());
+  MemRefType destType = cast<MemRefType>(dest.getType());
   Attribute destMemSpaceAttr = destType.getMemorySpace();
   auto destGpuMemSpaceAttr =
       dyn_cast_or_null<gpu::AddressSpaceAttr>(destMemSpaceAttr);
@@ -1890,6 +1894,35 @@ LogicalResult GlobalLoadToLDSOp::verify() {
   if (numBits != 128 && numBits != 32)
     return emitOpError(
         "Direct to LDS is implemented for 128bit and 32bit loads only");
+  unsigned bitWidth = cast<ShapedType>(sourceType).getElementTypeBitWidth();
+  unsigned destBitWidth = cast<ShapedType>(destType).getElementTypeBitWidth();
+  // For 4-bit source types (f4, i4), add validation checks as GPU can not do
+  // sub-byte addressing
+  if (bitWidth == 4) {
+    // Check that last source coordinate is even
+    APInt coordConst(64, 0);
+    // It is possible that this is not a compile time constant and it cannot
+    // be matched. Doing runtime checks is very expensive. Given directToLDS
+    // transfers bits are multiple of 8, it should be safe to assume that last
+    // coord will be even at runtime.
+    if (matchPattern(coords.back(), m_ConstantInt(&coordConst))) {
+      if (coordConst.urem(2) != 0) { // Check if number is odd
+        return emitOpError(
+            "For 4-bit source types, last source coordinate must be even");
+      }
+    }
+  }
+
+  // For 4-bit dest types, check that last dest coordinate is even
+  if (destBitWidth == 4) {
+    APInt destCoordConst(64, 0);
+    if (matchPattern(destCoords.back(), m_ConstantInt(&destCoordConst))) {
+      if (destCoordConst.urem(2) != 0) { // Check if number is odd
+        return emitOpError(
+            "For 4-bit destination types, last dest coordinate must be even");
+      }
+    }
+  }
   return success();
 }
 
