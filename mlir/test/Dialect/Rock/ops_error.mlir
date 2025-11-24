@@ -1120,3 +1120,45 @@ func.func @threadwise_gemm_accel_unsupported_arch(
     } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> scaled by memref<2x4xf8E8M0FNU, 5> * memref<3x4xf4E2M1FN, 5> scaled by memref<3x4xf8E8M0FNU, 5>
   return
 }
+
+// Error case: 4-bit source type (i4) with odd last source coordinate
+func.func @global_load_to_lds_i4_source_odd_coord(
+  %source: memref<64xi4>,
+  %dest: memref<64xi4, #gpu.address_space<workgroup>>
+) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c1 = arith.constant 1 : index  // Odd coordinate
+  %c0 = arith.constant 0 : index
+  %true = arith.constant true
+  // expected-error @+1 {{For 4-bit source types, last source coordinate must be even}}
+  rock.global_load_to_lds %source[%c1] -> %dest[%c0] if %true {transferType = f32}
+    : memref<64xi4> -> memref<64xi4, #gpu.address_space<workgroup>>
+  return
+}
+
+// Error case: 4-bit source type (f4E2M1FN) with multi-dimensional odd last coordinate
+func.func @global_load_to_lds_f4_source_multidim_odd_coord(
+  %source: memref<16x32xf4E2M1FN>,
+  %dest: memref<16x32xf4E2M1FN, #gpu.address_space<workgroup>>
+) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c5 = arith.constant 5 : index  // Odd last coordinate
+  %true = arith.constant true
+  // expected-error @+1 {{For 4-bit source types, last source coordinate must be even}}
+  rock.global_load_to_lds %source[%c0, %c5] -> %dest[%c0, %c0] if %true {transferType = f32}
+    : memref<16x32xf4E2M1FN> -> memref<16x32xf4E2M1FN, #gpu.address_space<workgroup>>
+  return
+}
+
+// Error case: 4-bit destination type (f4E2M1FN) with odd last destination coordinate
+func.func @global_load_to_lds_f4_dest_odd_coord(
+  %source: memref<128xf4E2M1FN>,
+  %dest: memref<128xf4E2M1FN, #gpu.address_space<workgroup>>
+) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c7 = arith.constant 7 : index  // Odd coordinate for destination
+  %true = arith.constant true
+  // expected-error @+1 {{For 4-bit destination types, last dest coordinate must be even}}
+  rock.global_load_to_lds %source[%c0] -> %dest[%c7] if %true {transferType = f32}
+    : memref<128xf4E2M1FN> -> memref<128xf4E2M1FN, #gpu.address_space<workgroup>>
+  return
+}
