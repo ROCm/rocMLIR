@@ -553,25 +553,8 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
   matchAndRewrite(LDSBarrierOp op, LDSBarrierOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    // This ensures that waits on global memory aren't introduced on
-    // chips that don't have the BackOffBarrier feature enabled in LLVM.
-    bool requiresInlineAsm = chipset < kGfx90a;
+    bool requiresInlineAsm = chipset < kGfx90a || chipset.majorVersion == 11;
 
-    Attribute mmra =
-        rewriter.getAttr<LLVM::MMRATagAttr>("amdgpu-synchronize-as", "local");
-    // Note: while there *is* a workgroup-one-as scope, this, when combined with
-    // the MMRA, will lead to the fence having no effect. This is because the
-    // codepaths for an atomic load or store will observe that a
-    // one-address-space atomic to LDS requires no synchronization because
-    // operations on LDS are totally ordered with respect to each other, and so
-    // will not emit the correct waitcnt operations that these fences are
-    // intended to produce. Therefore, we use a broader type of fence and rely
-    // on the MMRA to relax it to the semantics we want.
-    StringRef scope = "workgroup";
-
-    auto relFence = LLVM::FenceOp::create(rewriter, loc,
-                                          LLVM::AtomicOrdering::release, scope);
-    relFence->setDiscardableAttr(LLVM::LLVMDialect::getMmraAttrName(), mmra);
     if (requiresInlineAsm) {
       auto asmDialectAttr = LLVM::AsmDialectAttr::get(rewriter.getContext(),
                                                       LLVM::AsmDialect::AD_ATT);
@@ -584,17 +567,37 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
           /*is_align_stack=*/false, LLVM::TailCallKind::None,
           /*asm_dialect=*/asmDialectAttr,
           /*operand_attrs=*/ArrayAttr());
-    } else if (chipset.majorVersion < 12) {
-      ROCDL::SBarrierOp::create(rewriter, loc);
+      return success();
+    }
+    if (chipset.majorVersion < 12) {
+      constexpr int32_t ldsOnlyBitsGfx6789 = ~(0x1f << 8);
+      constexpr int32_t ldsOnlyBitsGfx10 = ~(0x3f << 8);
+      // Left in place in case someone disables the inline ASM path or future
+      // chipsets use the same bit pattern.
+      constexpr int32_t ldsOnlyBitsGfx11 = ~(0x3f << 4);
+
+      int32_t ldsOnlyBits;
+      if (chipset.majorVersion == 11)
+        ldsOnlyBits = ldsOnlyBitsGfx11;
+      else if (chipset.majorVersion == 10)
+        ldsOnlyBits = ldsOnlyBitsGfx10;
+      else if (chipset.majorVersion <= 9)
+        ldsOnlyBits = ldsOnlyBitsGfx6789;
+      else
+        return op.emitOpError(
+                   "don't know how to lower this for chipset major version")
+               << chipset.majorVersion;
+
+      Location loc = op->getLoc();
+      rewriter.create<ROCDL::SWaitcntOp>(loc, ldsOnlyBits);
+      rewriter.replaceOpWithNewOp<ROCDL::SBarrierOp>(op);
     } else {
-      ROCDL::BarrierSignalOp::create(rewriter, loc, -1);
-      ROCDL::BarrierWaitOp::create(rewriter, loc, -1);
+      Location loc = op->getLoc();
+      rewriter.create<ROCDL::WaitDscntOp>(loc, 0);
+      rewriter.create<ROCDL::BarrierSignalOp>(loc, -1);
+      rewriter.replaceOpWithNewOp<ROCDL::BarrierWaitOp>(op, -1);
     }
 
-    auto acqFence = LLVM::FenceOp::create(rewriter, loc,
-                                          LLVM::AtomicOrdering::acquire, scope);
-    acqFence->setDiscardableAttr(LLVM::LLVMDialect::getMmraAttrName(), mmra);
-    rewriter.replaceOp(op, acqFence);
     return success();
   }
 };
