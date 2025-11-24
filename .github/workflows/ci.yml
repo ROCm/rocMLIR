@@ -41,30 +41,40 @@ jobs:
         id: changes
         shell: bash
         run: |
+          echo "Determining merge base..."
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            BASE_REF="origin/${{ github.base_ref }}"
           else
-            BASE_SHA="${{ github.event.before }}"
+            BASE_REF="origin/${{ github.ref_name }}"
           fi
-          HEAD_SHA="${{ github.sha }}"
-          # list added/modified files, restrict to mlir/**/*.py
-          files=$(git diff --name-only --diff-filter=AM "$BASE_SHA" "$HEAD_SHA" \
+
+          echo "BASE_REF=$BASE_REF"
+          git fetch origin ${{ github.base_ref }} --depth=1 || true
+
+          BASE_SHA=$(git merge-base HEAD "$BASE_REF")
+          echo "BASE_SHA=$BASE_SHA"
+
+          # Get added/modified Python files under mlir/
+          files=$(git diff --name-only --diff-filter=AM "$BASE_SHA"...HEAD \
                     | grep -E '^mlir/.*\.py$' || true)
+
           echo "files<<EOF" >> $GITHUB_OUTPUT
           echo "$files" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          echo "Changed files:"
+
+          echo "Changed Python files:"
           echo "$files"
 
       - name: Run flake8
         if: steps.changes.outputs.files != ''
         run: |
-          flake8 --ignore=E501,E251,E124,W605,W504,E131,E126,W503 ${{ steps.changes.outputs.files }}
+          flake8 --ignore=E501,E251,E124,W605,W504,E131,E126,W503 \
+            ${{ steps.changes.outputs.files }}
 
       - name: Run YAPF check
         if: steps.changes.outputs.files != ''
         run: |
-          # --diff prints a unified diff and returns non-zero if changes would be made
           yapf --diff ${{ steps.changes.outputs.files }} \
             || (echo "Format issues found. Fix locally with: yapf -i <files>"; exit 1)
 
