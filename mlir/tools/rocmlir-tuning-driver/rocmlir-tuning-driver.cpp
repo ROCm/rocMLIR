@@ -331,8 +331,6 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   });
 
-  llvm::errs() << "Hey\n";
-
   // Warmup run
   float totalMillisecondsWarmup = 0.0;
   HIPCHECK(hipStreamSynchronize(stream));
@@ -361,21 +359,20 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   }
   totalMillisecondsWarmup /= params.warmupIterations;
 
-  llvm::errs() << "Hey 2\n";
-
   // Measure runs
   std::vector<float> measurements;
 
-  // Depending on the runtime of the kernel (small kernel or normal kernel), 
+  // Depending on the runtime of the kernel
   // we use a different approach to measure the runs.
-  // We consider a small kernel if it takes less than 1ms to run.
+  // We consider a kernel to be small if it takes less than 1ms to run.
   constexpr float smallKernelThreshold = 1.0;
+  bool isSmallKernel = totalMillisecondsWarmup < smallKernelThreshold;
 
-  if (totalMillisecondsWarmup < smallKernelThreshold) {
-    // Special case for small kernels, where we launch all kernels
-    // asynchronously and measure the total host time.
+  if (isSmallKernel) {
+    // Special case for small kernels, where we measure the time for all kernels
+    // at once, using CPU timers.
     auto iterationStart = std::chrono::steady_clock::now();
-    for (unsigned iter = 0; iter < params.numIterations; ++iter) {    
+    for (unsigned iter = 0; iter < params.numIterations; ++iter) {
       for (auto [func, blockSize, gridSize] :
            llvm::zip(functions, blockSizes, gridSizes)) {
         HIPCHECK(hipExtModuleLaunchKernel(
@@ -383,7 +380,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
             argPointers.data(), nullptr, nullptr, nullptr));
       }
     }
-  
+
     HIPCHECK(hipStreamSynchronize(stream));
     float totalMilliseconds =
         std::chrono::duration<float, std::milli>(
@@ -391,7 +388,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
             .count();
     measurements.push_back(totalMilliseconds / params.numIterations);
   } else {
-    // Measure runs normally.    
+    // Measure runs normally.
     for (unsigned iter = 0; iter < params.numIterations; ++iter) {
       if (failed(flushInstructionCache(stream))) {
         return failure();
@@ -404,7 +401,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
       float totalMilliseconds = 0.0;
 
       for (auto [func, blockSize, gridSize] :
-          llvm::zip(functions, blockSizes, gridSizes)) {
+           llvm::zip(functions, blockSizes, gridSizes)) {
         hipEvent_t startEvent, stopEvent;
         HIPCHECK(hipEventCreate(&startEvent));
         HIPCHECK(hipEventCreate(&stopEvent));
@@ -430,16 +427,21 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     std::sort(measurements.begin(), measurements.end());
   }
 
-  if (params.showStats && measurements.size() > 1) {
-    float median = computeMedian(measurements);
-    float min = measurements.front();
-    float max = measurements.back();
-    float mean = computeMean(measurements);
-    float stdDev = computeStdDev(measurements, mean);
-    float coefficientOfVariation = (mean > 0) ? (stdDev / mean * 100) : 0;
-    llvm::outs() << "[min: " << min << ", median: " << median
-                 << ", max: " << max << ", stddev: " << stdDev
-                 << ", cv: " << coefficientOfVariation << "%]\t";
+  if (params.showStats) {
+    if (isSmallKernel) {
+      llvm::outs() << "show-stats not avaiable for small kernels\t";
+    }
+    if (measurements.size() > 1) {
+      float median = computeMedian(measurements);
+      float min = measurements.front();
+      float max = measurements.back();
+      float mean = computeMean(measurements);
+      float stdDev = computeStdDev(measurements, mean);
+      float coefficientOfVariation = (mean > 0) ? (stdDev / mean * 100) : 0;
+      llvm::outs() << "[min: " << min << ", median: " << median
+                   << ", max: " << max << ", stddev: " << stdDev
+                   << ", cv: " << coefficientOfVariation << "%]\t";
+    }
   }
 
   auto msToNs = [](float ms) { return 1e6 * static_cast<double>(ms); };
