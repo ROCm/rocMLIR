@@ -1739,7 +1739,7 @@ FailureOr<Value> mlir::rock::addPassThroughIndices(OpBuilder &b,
   /// shapes match up.
   ArrayRef<int64_t> underlyingShape =
       cast<ShapedType>(ret.getType()).getShape();
-  if (pos > underlyingShape.size()) {
+  if (static_cast<size_t>(pos) > underlyingShape.size()) {
     LLVM_DEBUG(llvm::dbgs() << "Invalid position for addPassThroughIndices: "
                             << pos << "\n");
     return failure();
