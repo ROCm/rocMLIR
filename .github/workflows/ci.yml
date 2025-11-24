@@ -50,7 +50,7 @@ jobs:
           fi
 
           echo "BASE_REF=$BASE_REF"
-          git fetch origin ${{ github.base_ref }} --depth=1 || true
+          git fetch origin ${BASE_REF#origin/} --depth=1 || true
 
           # Verify that BASE_REF exists locally
           if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
