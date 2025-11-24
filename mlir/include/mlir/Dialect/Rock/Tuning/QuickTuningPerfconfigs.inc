@@ -584,7 +584,7 @@ const InitParamsAccel PopulateParamsXDL::initParametersForwardF8ConvGfx900[Popul
     {32,32,32,32,16,16,16,1,1,2,true,true},
     {128,64,4,32,64,32,16,1,1,2,true,true}
 };
-// END_CONV_XDL_f8_gfx908_DEFS
+// END_CONV_XDL_f8_gfx900_DEFS
 
 // BEGIN_GEMM_XDL_i8_gfx908_DEFS
 const InitParamsAccel PopulateParamsXDL::initParametersI8GemmGfx908[PopulateParamsXDL::nInitParametersI8GemmGfx908] = {
