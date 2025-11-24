@@ -51,6 +51,7 @@
 #include <atomic>
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <mutex>
 #include <thread>
@@ -359,6 +360,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   }
   totalMillisecondsWarmup /= params.warmupIterations;
+  assert(totalMillisecondsWarmup >= 0.0f &&
+         "totalMillisecondsWarmup must be greater than 0");
 
   // Measure runs
   std::vector<float> measurements;
@@ -368,12 +371,21 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   // We consider a kernel to be small if it takes less than 1ms to run.
   constexpr float smallKernelThreshold = 1.0;
   bool isSmallKernel = totalMillisecondsWarmup < smallKernelThreshold;
+  unsigned iterations = params.numIterations;
+
+  // We want to get at least 10ms of kernel execution time
+  // (counting all iterations), so increase the number of iterations
+  // if necessary.
+  constexpr float minTotalMilliseconds = 10.0f;
+  iterations = std::max<unsigned>(
+      iterations, static_cast<unsigned>(std::ceil(minTotalMilliseconds /
+                                                  totalMillisecondsWarmup)));
 
   if (isSmallKernel) {
     // Special case for small kernels, where we measure the time for all kernels
     // at once, using CPU timers.
     auto iterationStart = std::chrono::steady_clock::now();
-    for (unsigned iter = 0; iter < params.numIterations; ++iter) {
+    for (unsigned iter = 0; iter < iterations; ++iter) {
       for (auto [func, blockSize, gridSize] :
            llvm::zip(functions, blockSizes, gridSizes)) {
         HIPCHECK(hipExtModuleLaunchKernel(
@@ -387,10 +399,10 @@ benchmarkKernels(ArrayRef<std::string> binaries,
         std::chrono::duration<float, std::milli>(
             std::chrono::steady_clock::now() - iterationStart)
             .count();
-    measurements.push_back(totalMilliseconds / params.numIterations);
+    measurements.push_back(totalMilliseconds / iterations);
   } else {
     // Measure runs normally.
-    for (unsigned iter = 0; iter < params.numIterations; ++iter) {
+    for (unsigned iter = 0; iter < iterations; ++iter) {
       if (failed(flushInstructionCache(stream))) {
         return failure();
       }
