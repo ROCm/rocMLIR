@@ -502,7 +502,7 @@ void check_randomE2ETests(String codepath) {
              """)
 }
 
-void parameterSweep(String CONFIG, String codepath) {
+void parameterSweep(String CONFIG, String sweepType = "default") {
     int limit_lit_workers = setLitWorkerCount()
     timeout(time: 300, activity: true, unit: 'MINUTES') {
         dir('build') {
