@@ -76,15 +76,24 @@ struct GemmRewritePattern : public OpConversionPattern<GemmOp> {
                      const BufferDependencyAnalysis &bufferDeps)
       : OpConversionPattern<GemmOp>(context), bufferDeps(bufferDeps) {}
 
+  struct SplitKTransformedOperands {
+    Value a;
+    Value b;
+    Value c;
+    Value scaleA;
+    Value scaleB;
+  };
+
   LogicalResult matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
                                 ConversionPatternRewriter &rw) const override;
 
   LogicalResult computeGridSize(ConversionPatternRewriter &rw, GemmOp op,
                                 Value a, Value b) const;
 
-  FailureOr<std::tuple<Value, Value, Value>>
+  FailureOr<SplitKTransformedOperands>
   arrangeSplitKTransform(OpBuilder &builder, GemmOp op, Location loc,
-                         int64_t splitKFactor, Value a, Value b, Value c) const;
+                         int64_t splitKFactor, Value a, Value b, Value c,
+                         Value scaleA, Value scaleB) const;
 
   const BufferDependencyAnalysis &bufferDeps;
 };
@@ -466,7 +475,8 @@ static LogicalResult commonAttentionGemmElmtGemm(
     Region &preSecondOpRegion, bool enableSoftmax, TypeAttr softmaxType,
     int64_t numHeadsQ, int64_t numHeadsKV,
     std::optional<std::reference_wrapper<const BufferDependencyAnalysis>>
-        bufferDeps) {
+        bufferDeps,
+    BoolAttr preSoftmaxHasSplitKVTransforms) {
   Location loc = op->getLoc();
 
   if (!isa<MemRefType>(op.getAType()))
@@ -579,7 +589,7 @@ static LogicalResult commonAttentionGemmElmtGemm(
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
       numRepeatsGQA, softmaxType, params0, params1,
       rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
-      rw.getBoolAttr(enableSoftmax));
+      rw.getBoolAttr(enableSoftmax), preSoftmaxHasSplitKVTransforms);
   bool linalgOpFound = false;
   preSecondOpRegion.walk(
       [&](linalg::GenericOp genOp) { linalgOpFound = true; });
@@ -647,6 +657,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
 
   Value a = adaptor.getA(), b = adaptor.getB(), c = adaptor.getC();
+  Value scaleA = adaptor.getScaleA(), scaleB = adaptor.getScaleB();
 
   MemRefType typeA = cast<MemRefType>(a.getType());
   MemRefType typeB = cast<MemRefType>(b.getType());
@@ -673,25 +684,51 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
       a = newA;
     }
   }
+  ArrayRef<int64_t> scaleAShape, scaleBShape;
 
   // Note: the gridwise ops take K x M and K x N, so A must be transposed if
   // it's in the natural M x K form
   a = normalizeMatrix(a, rw, loc, !op.getATransposed(), "gemmK", "gemmM");
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
   c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
+  aShape = cast<MemRefType>(a.getType()).getShape();
+  bShape = cast<MemRefType>(b.getType()).getShape();
+  if (scaleA && scaleB) {
+    auto scaleAType = cast<MemRefType>(scaleA.getType());
+    auto scaleBType = cast<MemRefType>(scaleB.getType());
+    scaleAShape = scaleAType.getShape();
+    scaleBShape = scaleBType.getShape();
+    // keep both scales in the same layout as the matrices
+    // do transpose as necessary to achieve this. This is required to align load
+    // and store layouts with matrices.
+    bool transposeScaleA = (aShape != scaleAShape);
+    scaleA =
+        normalizeMatrix(scaleA, rw, loc, transposeScaleA, "gemmK", "gemmM");
+    bool transposeScaleB = (bShape != scaleBShape);
+    scaleB =
+        normalizeMatrix(scaleB, rw, loc, transposeScaleB, "gemmK", "gemmN");
+  }
 
   const int64_t splitKFactor = op.getParams()->getSplitKFactor();
   if (splitKFactor > 1) {
-    auto maybeSplitk =
-        arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b, c);
+    auto maybeSplitk = arrangeSplitKTransform(rw, op, loc, splitKFactor, a, b,
+                                              c, scaleA, scaleB);
     if (failed(maybeSplitk))
       return maybeSplitk;
 
-    std::tie(a, b, c) = maybeSplitk.value();
+    auto &transformed = maybeSplitk.value();
+    a = transformed.a;
+    b = transformed.b;
+    c = transformed.c;
+    scaleA = transformed.scaleA;
+    scaleB = transformed.scaleB;
+    aShape = cast<MemRefType>(a.getType()).getShape();
+    bShape = cast<MemRefType>(b.getType()).getShape();
+    if (scaleA && scaleB) {
+      scaleAShape = cast<MemRefType>(scaleA.getType()).getShape();
+      scaleBShape = cast<MemRefType>(scaleB.getType()).getShape();
+    }
   }
-
-  aShape = cast<MemRefType>(a.getType()).getShape();
-  bShape = cast<MemRefType>(b.getType()).getShape();
 
   // Note, matrix dimension correctness is handled in the verifier
   GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
@@ -703,6 +740,31 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
+  if (scaleA && scaleB) {
+    scaleA =
+        padMatrix(scaleA, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
+    scaleB =
+        padMatrix(scaleB, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
+    auto scaleAType = cast<MemRefType>(scaleA.getType());
+    auto scaleBType = cast<MemRefType>(scaleB.getType());
+    scaleAShape = scaleAType.getShape();
+    scaleBShape = scaleBType.getShape();
+    Type f8e8m0Type = rw.getF8E8M0Type();
+    if (scaleAType.getElementType() != f8e8m0Type) {
+      MemRefType newScaleAType = MemRefType::get(scaleAShape, f8e8m0Type);
+      memref::AllocOp newScaleA =
+          memref::AllocOp::create(rw, loc, newScaleAType);
+      createTypeConversionLaGeneric(rw, loc, scaleA, newScaleA);
+      scaleA = newScaleA;
+    }
+    if (scaleBType.getElementType() != f8e8m0Type) {
+      MemRefType newScaleBType = MemRefType::get(scaleBShape, f8e8m0Type);
+      memref::AllocOp newScaleB =
+          memref::AllocOp::create(rw, loc, newScaleBType);
+      createTypeConversionLaGeneric(rw, loc, scaleB, newScaleB);
+      scaleB = newScaleB;
+    }
+  }
 
   if (failed(computeGridSize(rw, op, a, b))) {
     return op.emitError("failed to compute the grid size of `GemmOp`");
@@ -721,10 +783,12 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   auto accumulator = getAccumulator(a, b, c, rw, loc);
   if (isAccel) {
     GridwiseGemmAccelOp::create(
-        rw, loc, a, b, accumulator, /*aScale=*/nullptr, /*bScale=*/nullptr,
-        op.getFeaturesAttr(), op.getStoreMethodAttr(), blockSize, gridSize,
+        rw, loc, a, b, accumulator, scaleA, scaleB, op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), blockSize, gridSize,
         cast<RockAccelTuningParamAttrInterface>(params));
   } else {
+    assert(!scaleA && !scaleB &&
+           "scaling not supported for non-accelerated gemm");
     GridwiseGemmOp::create(rw, loc, a, b, accumulator, op.getFeaturesAttr(),
                            op.getStoreMethodAttr(), gridSize,
                            cast<GeneralGemmParamsAttr>(params));
@@ -738,7 +802,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
         ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
                                       utils::IteratorType::parallel,
                                       utils::IteratorType::parallel},
-        /*doc=*/"", /*library_call=*/"",
+        /*doc=*/"", /*libraryCall=*/"",
         [](OpBuilder &builder, Location loc, ValueRange elems) {
           Value accumulator = elems[0], c = elems[1];
           Type cType = c.getType();
@@ -757,48 +821,80 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   return success();
 }
 
-FailureOr<std::tuple<Value, Value, Value>>
+FailureOr<GemmRewritePattern::SplitKTransformedOperands>
 GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
                                            Location loc, int64_t splitKFactor,
-                                           Value a, Value b, Value c) const {
+                                           Value a, Value b, Value c,
+                                           Value scaleA, Value scaleB) const {
   // adjust the store method
   auto storeMethod =
       builder.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::AtomicAdd);
   op.setStoreMethodAttr(storeMethod);
 
   // set the prefill attribute
-  Value matC = op.getC();
-  auto func = llvm::cast<func::FuncOp>(op->getParentOp());
-  FailureOr<SmallVector<BlockArgument>> args =
-      traceGemmOutputToArgs(matC, func, bufferDeps);
-  if (failed(args)) {
-    return op->emitError("can't trace gemm output to output argument");
+  // For backward data convolution with multiple V4R1 kernels, only the first
+  // kernel (kernelId == 0) should set the prefill attribute. All kernels write
+  // to disjoint regions of the same output buffer, so only one initialization
+  // is needed.
+  bool shouldSetPrefill = true;
+  // Only Gemms that have been converted from conv_bwd_data ops will have the
+  // kernelId attribute.
+  if (auto kernelIdAttr = op->getAttrOfType<IntegerAttr>("kernelId")) {
+    if (kernelIdAttr.getInt() > 0) {
+      shouldSetPrefill = false;
+    }
   }
 
-  auto attrName = rock::PrefillAttr::getMnemonic();
-  for (auto arg : args.value()) {
-    // initialize to zeros
-    auto elementType = cast<MemRefType>(arg.getType()).getElementType();
-    Attribute zero;
-    if (llvm::isa<FloatType>(elementType)) {
-      zero = builder.getFloatAttr(elementType, 0.0f);
-    } else if (llvm::isa<IntegerType>(elementType)) {
-      zero = builder.getIntegerAttr(elementType, 0);
-    } else {
-      return op->emitError("expecting `float` or `int` element type");
+  if (shouldSetPrefill) {
+    Value matC = op.getC();
+    auto func = llvm::cast<func::FuncOp>(op->getParentOp());
+    FailureOr<SmallVector<BlockArgument>> args =
+        traceGemmOutputToArgs(matC, func, bufferDeps);
+    if (failed(args)) {
+      return op->emitError("can't trace gemm output to output argument");
     }
-    func.setArgAttrs(arg.getArgNumber(), builder.getNamedAttr(attrName, zero));
+
+    auto attrName = rock::PrefillAttr::getMnemonic();
+    for (auto arg : args.value()) {
+      // initialize to zeros
+      auto elementType = cast<MemRefType>(arg.getType()).getElementType();
+      Attribute zero;
+      if (llvm::isa<FloatType>(elementType)) {
+        zero = builder.getFloatAttr(elementType, 0.0f);
+      } else if (llvm::isa<IntegerType>(elementType)) {
+        zero = builder.getIntegerAttr(elementType, 0);
+      } else {
+        return op->emitError("expecting `float` or `int` element type");
+      }
+      func.setArgAttrs(arg.getArgNumber(),
+                       builder.getNamedAttr(attrName, zero));
+    }
   }
 
   const int64_t origK = cast<MemRefType>(a.getType()).getShape()[1];
-  const int64_t kPad =
-      splitKFactor - math_util::mod_1_to_n(origK, splitKFactor);
+  int64_t kPad = 0;
+  if (scaleA && scaleB) {
+    // Hard code block size to 32 for now.
+    // for the scaleGEMMs, split-K division needs to happen such that it doesn't
+    // cut in the middle of the a block
+    // TODO: Use AmdArchDbInfo to populate blockSize
+    int64_t blockSize = 32;
+    int64_t lcm = math_util::lcm(splitKFactor, blockSize);
+    kPad = lcm - math_util::mod_1_to_n(origK, lcm);
+  } else {
+    kPad = splitKFactor - math_util::mod_1_to_n(origK, splitKFactor);
+  }
 
   a = padMatrix(a, builder, loc, "gemmK", kPad, "gemmM", 0);
   b = padMatrix(b, builder, loc, "gemmK", kPad, "gemmN", 0);
+  if (scaleA && scaleB) {
+    scaleA = padMatrix(scaleA, builder, loc, "gemmK", kPad, "gemmM", 0);
+    scaleB = padMatrix(scaleB, builder, loc, "gemmK", kPad, "gemmN", 0);
+  }
 
   // perform coordinate transformations
   Value aNew{nullptr}, bNew{nullptr}, cNew{nullptr};
+  Value scaleANew{nullptr}, scaleBNew{nullptr};
   ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
   ArrayRef<int64_t> bShape = cast<MemRefType>(b.getType()).getShape();
   ArrayRef<int64_t> cShape = cast<MemRefType>(c.getType()).getShape();
@@ -812,9 +908,19 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     ArrayRef<int64_t> inputShape;
   };
 
-  llvm::SmallVector<GemmOperandsData, 2> gemmOperands{
+  llvm::SmallVector<GemmOperandsData, 4> gemmOperands{
       {a, aNew, {"gemmG", "gemmK", "gemmM"}, aShape},
       {b, bNew, {"gemmG", "gemmK", "gemmN"}, bShape}};
+  if (scaleA && scaleB) {
+    ArrayRef<int64_t> scaleAShape =
+        cast<MemRefType>(scaleA.getType()).getShape();
+    ArrayRef<int64_t> scaleBShape =
+        cast<MemRefType>(scaleB.getType()).getShape();
+    gemmOperands.push_back(
+        {scaleA, scaleANew, {"gemmG", "gemmK", "gemmM"}, scaleAShape});
+    gemmOperands.push_back(
+        {scaleB, scaleBNew, {"gemmG", "gemmK", "gemmN"}, scaleBShape});
+  }
   for (auto &gemmOperand : gemmOperands) {
     // Prepare matrix A and B - i.e.,
     //    (gemmG, gemmK, gemmM) and (gemmG, gemmK, gemmN), respectively
@@ -892,7 +998,7 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
     ArrayAttr arrayTransformAttrs = builder.getArrayAttr(transformAttrs);
     cNew = mlir::rock::transform(builder, c, arrayTransformAttrs);
   }
-  return std::make_tuple(aNew, bNew, cNew);
+  return SplitKTransformedOperands{aNew, bNew, cNew, scaleANew, scaleBNew};
 }
 
 LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
@@ -940,7 +1046,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
       /*enableSoftmax=*/true, op.getSoftmaxTypeAttr(), adaptor.getNumHeadsQ(),
       adaptor.getNumHeadsKV(),
-      /*bufferDeps=*/std::nullopt);
+      /*bufferDeps=*/std::nullopt,
+      adaptor.getPreSoftmaxHasSplitKVTransformsAttr());
 }
 
 LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
@@ -953,7 +1060,8 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
       /*currentSeqLen=*/nullptr, /*causal=*/nullptr, splitKV,
       adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
       /*enableSoftmax=*/false, /*softmaxType=*/nullptr, /*numHeadsQ=*/1,
-      /*numHeadsKV=*/1, std::cref(bufferDeps));
+      /*numHeadsKV=*/1, std::cref(bufferDeps),
+      /*preSoftmaxHasSplitKVTransforms=*/rw.getBoolAttr(false));
 }
 
 void RockGemmToGridwisePass::runOnOperation() {

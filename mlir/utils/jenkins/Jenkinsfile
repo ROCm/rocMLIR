@@ -402,7 +402,7 @@ String getLabelFromCodepath(String codepath) {
     if (codepath == "mfma") {
         label = 'mlir && (gfx942 || gfx908 || gfx90a)'
     } else if (codepath == "gfx950") {
-        if (params.weekly || params.nightly) {
+        if (params.weekly) {
             label = 'mlir && linux-mi355-8'
         } else {
             label = 'mlir && linux-mi355-1'
@@ -444,7 +444,7 @@ String getLabelFromChip(String chip) {
         case "gfx942":
             return "mlir && gfx942"
         case "gfx950":
-            if (params.nightly || params.weekly) {
+            if (params.weekly) {
                 return "mlir && linux-mi355-8"
             } else {
                 return "mlir && linux-mi355-1"
@@ -1052,7 +1052,7 @@ pipeline {
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
-                                                echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }
@@ -1227,7 +1227,7 @@ pipeline {
 
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
-                                                echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+                                                echo "Running ${CHIP} on ${env.NODE_NAME} with: ${args}"
                                                 img = docker.image(dockerImage())
                                                 img?.pull()
                                             }

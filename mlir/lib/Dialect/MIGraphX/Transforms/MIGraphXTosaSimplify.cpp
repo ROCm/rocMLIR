@@ -20,6 +20,7 @@
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MIGraphX/Passes.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
@@ -48,6 +49,13 @@ public:
     Value input = op.getInput();
     Type inputType = input.getType();
     Type outputType = op.getOutput().getType();
+    // avoid eliminating cast between float8e8m0fnu types
+    // this is required to preserve getting realistic quantized results when
+    // running on host and comparing them with GPU results
+    if (isa<Float8E8M0FNUType>(cast<ShapedType>(inputType).getElementType()) ||
+        isa<Float8E8M0FNUType>(cast<ShapedType>(outputType).getElementType())) {
+      return failure();
+    }
     if (inputType == outputType) {
       // If we find a cast that leads to the same type, we can eliminate it.
       b.replaceOp(op, input);

@@ -251,7 +251,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      ("v3:" + Twine(getBlockSize()) + ","
+      ("v4:" + Twine(getBlockSize()) + ","
       + Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
       + Twine(getKPerBlock()) + ","
@@ -278,18 +278,19 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
 
   let parameters = (ins "int64_t":$mPerBlockG0, "int64_t":$mPerBlockG1,
       "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$mPerWave,
-      "int64_t":$mnPerXdl, "int64_t":$kpack, "int64_t":$splitKFactor,
-      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
-      "bool":$forceUnroll);
+      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$kpack,
+      "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
+      "int64_t":$outputSwizzle, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      ("attn:v2:"
+      ("attn:v3:"
       + Twine(getMPerBlockG0()) + ","
       + Twine(getMPerBlockG1()) + ","
       + Twine(getNPerBlockG0()) + ","
       + Twine(getKpackPerBlock()) + ","
       + Twine(getMPerWave()) + ","
+      + Twine(getNPerWave()) + ","
       + Twine(getMnPerXdl()) + ","
       + Twine(getKpack()) + ","
       + Twine(getSplitKFactor()) + ","
@@ -297,21 +298,28 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
       + Twine(getOutputSwizzle()) + ","
       + Twine(getForceUnroll())).toVector(perfStr);
     }
+    AttnPerfConfigAttr withScheduleVersion(int64_t newScheduleVersion) const {
+    return AttnPerfConfigAttr::get(
+      getContext(), getMPerBlockG0(), getMPerBlockG1(), getNPerBlockG0(),
+      getKpackPerBlock(), getMPerWave(), getNPerWave(), getMnPerXdl(), getKpack(),
+      getSplitKFactor(), newScheduleVersion, getOutputSwizzle(), getForceUnroll());
+  }
   }];
 
-  let builders = [
-      AttrBuilderWithInferredContext<(ins  "StringAttr":$perfConfigStr)>
-  ];
+  let builders = [AttrBuilderWithInferredContext<(
+      ins "StringAttr":$perfConfigStr, "bool":$isWmma)>];
 
   let assemblyFormat = [{
     `<` struct(params) `>`
   }];
 }
 
-def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAttrInterface]> {
-  let mnemonic = "xdlops_gemm_params";
+def Rock_MfmaGemmParamsAttr
+    : Rock_Attr<"MfmaGemmParams", [RockTuningParamAttrInterface,
+                                   RockAccelTuningParamAttrInterface]> {
+  let mnemonic = "mfma_gemm_params";
   let description = [{
-    The tuning parameters for an xdlops-based matrix multiplication.
+    The tuning parameters for an mfma-based matrix multiplication.
   }];
   let parameters = (ins
     "int64_t":$kpackPerBlock,
@@ -319,6 +327,7 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
     "int64_t":$nPerBlock,
     "int64_t":$kpack,
     "int64_t":$mPerWave,
+    "int64_t":$nPerWave,
     "int64_t":$mnPerXdl,
     "int64_t":$splitKFactor,
     "int64_t":$scheduleVersion,
@@ -328,10 +337,11 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-        ("v3:" + Twine(getMPerBlock()) + ","
+        ("v4:" + Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
+        + Twine(getNPerWave()) + ","
         + Twine(getMnPerXdl()) + ","
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
@@ -348,100 +358,25 @@ def Rock_XdlopsGemmParamsAttr : Rock_Attr<"XdlopsGemmParams", [RockTuningParamAt
   }];
 }
 
-def Rock_XdlopsGemmDerivedParamsAttr : Rock_Attr<"XdlopsGemmDerivedParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
-  let mnemonic = "xdlops_gemm_derived_params";
-  let description = [{
-    The tuning parameters for an xdlops-based matrix multiplication.
-  }];
-  let parameters = (ins
-    "int64_t":$kpackPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kpack,
-    "int64_t":$mPerWave,
-    "int64_t":$nPerWave,
-    "int64_t":$mnPerXdl,
-    "int64_t":$splitKFactor,
-    "int64_t":$scheduleVersion,
-    "int64_t":$outputSwizzle,
-    "bool":$forceUnroll
-  );
-
-  let extraClassDeclaration = [{
-    void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-        ("v3:" + Twine(getMPerBlock()) + ","
-        + Twine(getNPerBlock()) + ","
-        + Twine(getKpackPerBlock()) + ","
-        + Twine(getMPerWave()) + ","
-        + Twine(getNPerWave()) + ","
-        + Twine(getKpack()) + ","
-        + Twine(getSplitKFactor()) + ","
-        + Twine(getScheduleVersion()) + ","
-        + Twine(getOutputSwizzle()) + ","
-        + Twine(getForceUnroll()) + ","
-          + "1") /* *ThreadCopyMore* */
-        .toVector(perfStr);
-    }
-  }];
-
-  let builders = [
-      AttrBuilderWithInferredContext<(ins  "XdlopsGemmParamsAttr":$params), [{
-      int64_t mPerWave = params.getMPerWave();
-      int64_t mPerBlock = params.getMPerBlock();
-      int64_t nPerBlock = params.getNPerBlock();
-      int64_t mnPerXdl = params.getMnPerXdl();
-      int64_t mWaves = std::min(mPerBlock / mPerWave, mlir::rock::maxWavesPerWG);
-      int64_t nWaves = mlir::rock::maxWavesPerWG / mWaves;
-
-      mPerWave = mPerBlock / mWaves;
-      int64_t nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
-      return $_get(
-        params.getContext(),
-        params.getKpackPerBlock(),
-        mPerBlock,
-        nPerBlock,
-        params.getKpack(),
-        mPerWave,
-        nPerWave,
-        mnPerXdl,
-        params.getSplitKFactor(),
-        params.getScheduleVersion(),
-        params.getOutputSwizzle(),
-        params.getForceUnroll()
-      );
-    }]>
-  ];
-
-  let assemblyFormat = [{
-    `<` struct(params) `>`
-  }];
-}
-
 def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
   let mnemonic = "wmma_gemm_params";
   let description = [{
     The tuning parameters for an wmma-based matrix multiplication.
   }];
-  let parameters = (ins
-    "int64_t":$kpackPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kpack,
-    "int64_t":$mPerWave,
-    "int64_t":$nPerWave,
-    "int64_t":$splitKFactor,
-    "int64_t":$scheduleVersion,
-    "int64_t":$outputSwizzle,
-    "bool":$forceUnroll
-  );
+  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
+      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
+      "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
-        ("v3:" +  Twine(getMPerBlock()) + ","
+        ("v4:" + Twine(getMPerBlock()) + ","
         + Twine(getNPerBlock()) + ","
         + Twine(getKpackPerBlock()) + ","
         + Twine(getMPerWave()) + ","
         + Twine(getNPerWave()) + ","
+        + Twine(getMnPerXdl()) + ","
         + Twine(getKpack()) + ","
         + Twine(getSplitKFactor()) + ","
         + Twine(getScheduleVersion()) + ","

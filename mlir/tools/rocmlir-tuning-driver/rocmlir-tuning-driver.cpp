@@ -32,6 +32,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/OwningOpRef.h"
+#include "mlir/IR/TypeUtilities.h"
 #include "mlir/InitRocMLIRCLOptions.h"
 #include "mlir/InitRocMLIRDialects.h"
 #include "mlir/InitRocMLIRPasses.h"
@@ -55,6 +56,9 @@
 
 // Utilities to allocate buffers
 #include "../utils/performance/common/benchmarkUtils.h"
+#include "CacheFlush.h"
+
+#include <hip/hip_runtime.h>
 
 #if !defined(_HIP_CLANG_ONLY__)
 // GCC complains if we don't do this
@@ -80,6 +84,7 @@ void pArgs(const std::tuple<Ts...> &formals, void **_vargs) {
 #include <hip/hip_ext.h>
 
 using namespace mlir;
+using namespace rocmlir::tuningdriver;
 
 llvm::cl::opt<std::string> inputFilename{
     llvm::cl::Positional, llvm::cl::desc("<input file>"), llvm::cl::init("-")};
@@ -167,7 +172,12 @@ static benchmark::DataType getDataType(Type inputType) {
   } else if (isa<Float8E4M3FNUZType, Float8E4M3FNType, Float8E5M2Type,
                  Float8E5M2FNUZType>(inputType)) {
     return benchmark::DataType::F8;
+  } else if (isa<Float8E8M0FNUType>(inputType)) {
+    return benchmark::DataType::F8E8M0FNU;
+  } else if (isa<Float4E2M1FNType>(inputType)) {
+    return benchmark::DataType::F4;
   } else {
+    llvm::errs() << "Unknown data type: " << inputType << "\n";
     llvm_unreachable("Kernels only accept ints or floats");
   }
 }
@@ -177,24 +187,6 @@ static benchmark::DataType getDataType(Type inputType) {
   if (hipSuccess != (expr)) {                                                  \
     return failure();                                                          \
   }
-
-static size_t flushSize = 0;
-static void *flushBuffer = nullptr;
-
-static LogicalResult flushL2Cache(hipStream_t stream) {
-  if (flushBuffer == nullptr) {
-    hipDeviceProp_t props;
-    HIPCHECK(hipGetDeviceProperties(&props, 0));
-    size_t l2Size = props.l2CacheSize;
-
-    flushSize = l2Size + (l2Size / 5); // 20% margin
-    HIPCHECK(hipMalloc(&flushBuffer, flushSize));
-  }
-
-  HIPCHECK(hipMemsetAsync(flushBuffer, 0, flushSize, stream));
-
-  return success();
-}
 
 static float computeMedian(const std::vector<float> &values) {
   if (values.empty())
@@ -206,9 +198,9 @@ static float computeMedian(const std::vector<float> &values) {
   size_t n = values.size();
   if (n % 2 == 0) {
     return (values[n / 2 - 1] + values[n / 2]) / 2.0;
-  } else {
-    return values[n / 2];
   }
+  // else
+  return values[n / 2];
 }
 
 static float computeMean(const std::vector<float> &values) {
@@ -281,12 +273,18 @@ struct CompilationResult {
 static FailureOr<double>
 benchmarkKernels(ArrayRef<std::string> binaries,
                  ArrayRef<std::string> funcNames, ArrayRef<uint32_t> blockSizes,
-                 ArrayRef<uint32_t> gridSizes, benchmark::DataType dataType,
-                 ArrayRef<void *> hostBuffers,
+                 ArrayRef<uint32_t> gridSizes, ArrayRef<void *> hostBuffers,
                  MutableArrayRef<void *> gpuBuffers,
                  ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream));
+  auto streamCleanup = llvm::make_scope_exit([&]() {
+    hipError_t destroyStatus = hipStreamDestroy(stream);
+    if (destroyStatus != hipSuccess) {
+      llvm::errs() << "HIP error in hipStreamDestroy: "
+                   << hipGetErrorString(destroyStatus) << "\n";
+    }
+  });
 
   // Initialize device buffers
   for (size_t i = 0; i < bufferSizes.size(); i++) {
@@ -303,6 +301,17 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   // Load all modules once to reduce overhead
   std::vector<hipModule_t> modules;
   std::vector<hipFunction_t> functions;
+  auto moduleCleanup = llvm::make_scope_exit([&]() {
+    for (hipModule_t mod : modules) {
+      if (!mod)
+        continue;
+      hipError_t status = hipModuleUnload(mod);
+      if (status != hipSuccess) {
+        llvm::errs() << "HIP error in hipModuleUnload: "
+                     << hipGetErrorString(status) << "\n";
+      }
+    }
+  });
 
   for (auto [binary, funcName] : llvm::zip(binaries, funcNames)) {
     hipModule_t mod;
@@ -335,9 +344,13 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   std::vector<float> measurements;
 
   for (unsigned iter = 0; iter < params.numIterations; ++iter) {
+    if (failed(flushInstructionCache(stream))) {
+      return failure();
+    }
     if (failed(flushL2Cache(stream))) {
       return failure();
     }
+    HIPCHECK(hipStreamSynchronize(stream));
 
     float totalMilliseconds = 0.0;
 
@@ -365,12 +378,6 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     measurements.push_back(totalMilliseconds);
   }
 
-  for (hipModule_t mod : modules) {
-    HIPCHECK(hipModuleUnload(mod));
-  }
-
-  HIPCHECK(hipStreamDestroy(stream));
-
   std::sort(measurements.begin(), measurements.end());
 
   if (params.showStats && measurements.size() > 1) {
@@ -388,8 +395,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   auto msToNs = [](float ms) { return 1e6 * static_cast<double>(ms); };
   if (params.useMedian)
     return msToNs(computeMedian(measurements));
-  else
-    return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
+  // else
+  return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
 }
 
 static int toKernelOrder(Attribute attr) {
@@ -398,31 +405,17 @@ static int toKernelOrder(Attribute attr) {
   return -1;
 }
 
-static FailureOr<std::pair<Type, Type>>
-extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
+static LogicalResult extractFuncOps(ModuleOp op,
+                                    SmallVectorImpl<func::FuncOp> &kernels) {
   if (!op->hasAttr("mhal.arch")) {
     return op->emitOpError(
         "no architecture set, set mhal.arch on the input module");
   }
-  Type toTuneType;
-  Type outputType;
-  op.walk([&toTuneType, &outputType, &kernels](func::FuncOp f) {
+  op.walk([&kernels](func::FuncOp f) {
     Attribute kernel = f->getAttr("kernel");
     if (!kernel)
       return;
     kernels.push_back(f);
-    if (!toTuneType) {
-      f.walk(
-          [&toTuneType, &outputType](rock::RockGemmWrapperInterface gemmLike) {
-            toTuneType = gemmLike.getAType();
-            outputType = gemmLike.getCType();
-          });
-      f.walk([&toTuneType,
-              &outputType](rock::RockGemmGemmWrapperInterface attnLike) {
-        toTuneType = cast<MemRefType>(attnLike.getAType()).getElementType();
-        outputType = cast<MemRefType>(attnLike.getOutType()).getElementType();
-      });
-    }
   });
 
   std::sort(kernels.begin(), kernels.end(),
@@ -431,33 +424,22 @@ extractKernelDataType(ModuleOp op, SmallVectorImpl<func::FuncOp> &kernels) {
               int kernelB = toKernelOrder(b->getAttr("kernel"));
               return kernelA < kernelB;
             });
-
-  if (!toTuneType) {
-    return op.emitError("could not find a tunable kernel in the input");
-  }
-  return std::make_pair(toTuneType, outputType);
+  return success();
 }
 
 static LogicalResult runTuningLoop(ModuleOp source) {
   // Verify prerequisites
   SmallVector<func::FuncOp> funcs;
-  auto maybeInOutTypes = extractKernelDataType(source, funcs);
-  if (failed(maybeInOutTypes))
+  if (failed(extractFuncOps(source, funcs)))
     return failure();
-  Type toTuneType = maybeInOutTypes.value().first;
-  Type outType = maybeInOutTypes.value().second;
-  // Provisionally use the type of input A to set up the init value - this
-  // should be a per-buffer value in the futurue.
-  benchmark::DataType dataType = getDataType(toTuneType);
-  benchmark::DataType outDataType = getDataType(outType);
-
   // We need a copy since HIP'll want a C string
   SmallVector<std::string> kernelFuncNames;
   SmallVector<size_t> bufferLengths;
   for (func::FuncOp &funcOp : funcs) {
     kernelFuncNames.push_back(funcOp.getSymName().str());
   }
-  for (Type argType : funcs[0].getArgumentTypes()) {
+  ArrayRef<Type> argTypes = funcs[0].getArgumentTypes();
+  for (Type argType : argTypes) {
     auto shapedTy = dyn_cast<ShapedType>(argType);
     if (!shapedTy) {
       return funcs[0].emitOpError("all kernel inputs must be shaped types");
@@ -468,7 +450,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
     int64_t sizeInBits =
         shapedTy.getNumElements() * shapedTy.getElementTypeBitWidth();
-    bufferLengths.push_back(sizeInBits / 8);
+    bufferLengths.push_back(llvm::divideCeil(sizeInBits, 8));
   }
 
   // 2. Set up compilation options (shared across all threads)
@@ -498,12 +480,36 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // 3. Initialize host buffers and allocate device buffers
   std::vector<void *> hostBuffers;
   std::vector<void *> gpuBuffers;
-  for (size_t i = 0; i < bufferLengths.size(); i++) {
-    benchmark::DataType type =
-        (i == bufferLengths.size() - 1 ? dataType : outDataType);
-    void *hostBuffer = benchmark::allocAndFill(type, bufferLengths[i]);
+  auto bufferCleanup = llvm::make_scope_exit([&]() {
+    for (void *buffer : hostBuffers)
+      free(buffer);
+    for (void *buffer : gpuBuffers) {
+      // hipFree does not allow nullptrs, so make sure to check for it first
+      if (!buffer)
+        continue;
+      hipError_t status = hipFree(buffer);
+      if (status != hipSuccess) {
+        llvm::errs() << "HIP error in hipFree(buffer): "
+                     << hipGetErrorString(status) << "\n";
+      }
+    }
+    if (failed(cleanupCacheFlushArtifacts())) {
+      llvm::errs() << "Failed to cleanup cache flush artifacts\n";
+    }
+  });
+  assert(argTypes.size() == bufferLengths.size() &&
+         "number of arguments and buffer lengths must match");
+  for (auto [argType, bufferLength] : llvm::zip(argTypes, bufferLengths)) {
+    benchmark::DataType type = getDataType(getElementTypeOrSelf(argType));
+    void *hostBuffer = benchmark::allocAndFill(type, bufferLength);
     void *gpuBuffer = nullptr;
-    HIPCHECK(hipMalloc(&gpuBuffer, bufferLengths[i]));
+    hipError_t hipStatus = hipMalloc(&gpuBuffer, bufferLength);
+    if (hipStatus != hipSuccess) {
+      free(hostBuffer);
+      llvm::errs() << "HIP error in hipMalloc(gpuBuffer): "
+                   << hipGetErrorString(hipStatus) << "\n";
+      return failure();
+    }
     hostBuffers.push_back(hostBuffer);
     gpuBuffers.push_back(gpuBuffer);
   }
@@ -562,7 +568,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   auto compileConfig = [&](size_t idx) -> CompilationResult {
     CompilationResult result;
     result.perfConfig = configs[idx];
-
     // Each thread needs its own context and pass managers for thread-safety
     DialectRegistry threadRegistry;
     registerRocMLIRDialects(threadRegistry);
@@ -715,23 +720,13 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
     FailureOr<double> timing = benchmarkKernels(
         result.hipModules, kernelFuncNames, result.blockSizes, result.gridSizes,
-        dataType, hostBuffers, gpuBuffers, bufferLengths, benchmarkParams);
+        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams);
 
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
       return failure();
     }
     llvm::outs() << timing << "\n";
-  }
-  for (void *buffer : hostBuffers) {
-    free(buffer);
-  }
-  for (void *buffer : gpuBuffers) {
-    HIPCHECK(hipFree(buffer));
-  }
-  if (flushBuffer) {
-    HIPCHECK(hipFree(flushBuffer));
-    flushBuffer = nullptr;
   }
   return success();
 }
