@@ -193,11 +193,11 @@ DATA_TYPES_ATTENTION = None
 
 def initialize_dtypes_attn():
     global DATA_TYPES_ATTENTION
-    if get_chip().startswith('gfx9'):
-        DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_MFMA
-    else:
+    if get_chip().startswith('gfx1'):
         DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
-
+    else:
+        DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_MFMA
+    
     return DATA_TYPES_ATTENTION  # For modules that import this function
 
 
