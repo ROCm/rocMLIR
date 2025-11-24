@@ -1,19 +1,10 @@
-// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-driver -kernel-pipeline migraphx,highlevel | rocmlir-gen -ph -print-results -rand none - | rocmlir-driver -arch %arch -c  | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void
-
-// The CPU lowering pipeline is currently broken for backwards data convolution
-// ops (lowering tosa.transpose_conv2d). As such, we do not currently have a way
-// of verifying the GPU results against the CPU results. For the time being, we
-// want to check that the GPU lowering pipeline can successfully lower the op
-// and produce results (the first RUN command), and then for verification
-// we can use rocmlir-gen to create and test a backwards data convolution op
-// with the exact same shape and attributes as the one in the MIXR example below
-// RUN: rocmlir-gen --operation conv_bwd_data --arch %arch -t f32 --fil_layout gkcyx --in_layout ngchw --out_layout ngkhw --batchsize 1 --groupsize 1 --in_channels 384 --out_channels 512 --in_h 64 --in_w 64 --fil_h 4 --fil_w 4 --dilation_h 1 --dilation_w 1 --conv_stride_h 2 --conv_stride_w 2 --padding_h 1 --padding_w 1 -v4r1 0 -pv | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix=GEN
+// RUN: rocmlir-gen -fut mlir_bwd_data_conv --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx,highlevel -host-pipeline=migraphx,highlevel -targets %arch | rocmlir-gen -ph -rand 1 -rand_type float -fut mlir_bwd_data_conv_wrapper --verifier clone -relDiff_threshold 0.00001 - | rocmlir-driver -host-pipeline mhal,runner -kernel-pipeline full -targets %arch  | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 
 module {
   func.func @mlir_bwd_data_conv(%arg0: !migraphx.shaped<1x512x32x32xf32, 524288x1024x32x1>,
                                 %arg1: !migraphx.shaped<512x384x4x4xf32, 6144x16x4x1>
-                               ) -> !migraphx.shaped<1x384x64x64xf32, 1572864x4096x64x1> attributes {arch = "##TOKEN_ARCH##", kernel} {
-    // GEN: [1 1 1]
+                               ) -> !migraphx.shaped<1x384x64x64xf32, 1572864x4096x64x1> {
+    // CHECK: [1 1 1]
     %0 = migraphx.backwards_data_convolution %arg0, %arg1 {
       dilation = [1, 1],
       group = 1 : i64,

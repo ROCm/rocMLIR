@@ -241,6 +241,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   Operation *cop;
   Type new1DOutTy;
   Value inputZp, weightZp;
+  int lastDim = newShape.size() - 1;
   switch (dims) {
   case 1:
     // Expand to do a conv2d, because there's no 1d version of
@@ -256,20 +257,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
 
-    if (isBwdDataConvOp) {
-      cop = tosa::CustomOp::create(
-          rewriter, loc, new1DOutTy,
-          /* operator_name */ ROCK_CUSTOMOP_CONV_BWD_DATA,
-          /* domain_name  */ ROCK_CUSTOMOP_DOMAIN_NAME,
-          /* implementation_attrs  */ "",
-          ValueRange{input, filter,
-                     rock::tosa::getZeroTensor(
-                         rewriter, loc,
-                         RankedTensorType::get(
-                             cast<ShapedType>(new1DOutTy).getShape()[3],
-                             newOutElementTy)),
-                     inputZp, weightZp});
-    } else {
+    if (!isBwdDataConvOp) {
       cop = tosa::Conv2DOp::create(
           rewriter, loc, new1DOutTy,
           ValueRange{input, filter,
@@ -287,20 +275,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
-    if (isBwdDataConvOp) {
-      cop = tosa::CustomOp::create(
-          rewriter, loc, newOutTy,
-          /* operator_name */ ROCK_CUSTOMOP_CONV_BWD_DATA,
-          /* domain_name  */ ROCK_CUSTOMOP_DOMAIN_NAME,
-          /* implementation_attrs  */ "",
-          ValueRange{input, filter,
-                     rock::tosa::getZeroTensor(
-                         rewriter, loc,
-                         RankedTensorType::get(
-                             cast<ShapedType>(newOutTy).getShape()[3],
-                             newOutElementTy)),
-                     inputZp, weightZp});
-    } else {
+    if (!isBwdDataConvOp) {
       cop = tosa::Conv2DOp::create(
           rewriter, loc, newOutTy,
           ValueRange{input, filter,
@@ -313,27 +288,49 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
     }
     break;
   case 3:
-    if (isBwdDataConvOp)
-      return op->emitError("Only 1-D and 2-D backwards convolution ops are "
-                           "supported");
-
     inputZp =
         tosa::createZeroPointTensor(rewriter, loc, input.getType(), 0).value();
     weightZp =
         tosa::createZeroPointTensor(rewriter, loc, filter.getType(), 0).value();
-    cop = tosa::Conv3DOp::create(
-        rewriter, loc, newOutTy,
-        ValueRange{input, filter,
-                   rock::tosa::getZeroTensor(
-                       rewriter, loc,
-                       RankedTensorType::get(
-                           cast<ShapedType>(filter.getType()).getShape()[0],
-                           newOutElementTy)),
-                   inputZp, weightZp});
+
+    if (!isBwdDataConvOp) {
+      cop = tosa::Conv3DOp::create(
+          rewriter, loc, newOutTy,
+          ValueRange{input, filter,
+                     rock::tosa::getZeroTensor(
+                         rewriter, loc,
+                         RankedTensorType::get(
+                             cast<ShapedType>(filter.getType()).getShape()[0],
+                             newOutElementTy)),
+                     inputZp, weightZp});
+    }
+
     break;
   default:
     return op->emitError("Only 1-D, 2-D, and 3-D have been implemented.");
     break;
+  }
+
+  // Create backward conv op now if required.
+  if (isBwdDataConvOp) {
+    cop = tosa::CustomOp::create(
+        rewriter, loc, dims == 1 ? new1DOutTy : newOutTy,
+        /*operator_name=*/ROCK_CUSTOMOP_CONV_BWD_DATA,
+        /*domain_name=*/ROCK_CUSTOMOP_DOMAIN_NAME,
+        /*implementation_attrs=*/"",
+        ValueRange{
+            input, filter,
+            rock::tosa::getZeroTensor(
+                rewriter, loc,
+                dims == 3
+                    ? RankedTensorType::get(cast<ShapedType>(filter.getType())
+                                                .getShape()[lastDim],
+                                            newOutElementTy)
+                    : RankedTensorType::get(
+                          cast<ShapedType>(dims == 1 ? new1DOutTy : newOutTy)
+                              .getShape()[lastDim],
+                          newOutElementTy)),
+            inputZp, weightZp});
   }
 
   // translate attributes
@@ -587,7 +584,7 @@ BroadcastConverter::matchAndRewrite(migraphx::BroadcastOp op, OpAdaptor adaptor,
   // because tosa does not have an explicit broadcast op
   auto oneTensor = rock::tosa::getOneTensor(rewriter, loc, outType);
   auto mulWithOne = rock::tosa::getMulOp(rewriter, loc, sameRankReshapedOp,
-                                         oneTensor, elemType);
+                                         oneTensor, newOutElementTy);
   rewriter.replaceOp(op, mulWithOne);
   return success();
 }
@@ -1176,11 +1173,13 @@ struct WhereConverter final : public OpConversionPattern<migraphx::WhereOp> {
                   ConversionPatternRewriter &rewriter) const final;
 };
 
-struct GreaterConverter final : public OpConversionPattern<migraphx::Greater> {
-  using OpConversionPattern<migraphx::Greater>::OpConversionPattern;
+template <typename MIGraphXOp, typename TosaOp>
+struct ComparisonConverter final : public OpConversionPattern<MIGraphXOp> {
+  using OpConversionPattern<MIGraphXOp>::OpConversionPattern;
+  using OpAdaptor = typename OpConversionPattern<MIGraphXOp>::OpAdaptor;
 
   LogicalResult
-  matchAndRewrite(migraphx::Greater op, OpAdaptor adaptor,
+  matchAndRewrite(MIGraphXOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
 } // namespace
@@ -1274,19 +1273,20 @@ WhereConverter::matchAndRewrite(migraphx::WhereOp op, OpAdaptor adaptor,
   return success();
 }
 
-LogicalResult
-GreaterConverter::matchAndRewrite(migraphx::Greater op, OpAdaptor adaptor,
-                                  ConversionPatternRewriter &rewriter) const {
+template <typename MIGraphXOp, typename TosaOp>
+LogicalResult ComparisonConverter<MIGraphXOp, TosaOp>::matchAndRewrite(
+    MIGraphXOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
   Value inA = adaptor.getInA();
   Value inB = adaptor.getInB();
 
   // Create a new tensor type with I1 element type
   auto newType =
       RankedTensorType::get(op.getType().getShape(), rewriter.getI1Type());
-  auto goe =
-      rewriter.createOrFold<tosa::GreaterOp>(op->getLoc(), newType, inA, inB);
+  auto comparisonResult =
+      rewriter.createOrFold<TosaOp>(op->getLoc(), newType, inA, inB);
   rewriter.replaceOpWithNewOp<tosa::CastOp>(op, adaptor.getInA().getType(),
-                                            goe);
+                                            comparisonResult);
 
   return success();
 }
@@ -1481,8 +1481,9 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                TrivialConverter<TanhOp, tosa::TanhOp>, QuantizeLinearConverter,
                DeQuantizeLinearConverter, ConvertConverter, NegConverter,
                ReluConverter, SoftmaxConverter, LiteralConverter, ClipConverter,
-               WhereConverter, GreaterConverter>(typeConverter,
-                                                 patterns.getContext());
+               WhereConverter, ComparisonConverter<Greater, tosa::GreaterOp>,
+               ComparisonConverter<Equal, tosa::EqualOp>>(
+      typeConverter, patterns.getContext());
 }
 
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(

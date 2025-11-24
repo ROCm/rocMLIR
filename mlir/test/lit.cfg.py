@@ -33,19 +33,20 @@ config.substitutions.append(('%PATH%', config.environment['PATH']))
 config.substitutions.append(('%shlibext', config.llvm_shlib_ext))
 config.substitutions.append(("%mlir_src_root", config.mlir_src_root))
 config.substitutions.append(('%random_data', config.random_data))
+config.substitutions.append(('%constrained_float_range_random_data',
+                             config.constrained_float_range_random_data))
 config.substitutions.append(('%rocmlir_gen_flags', config.rocmlir_gen_flags))
 config.substitutions.append(('%arch', config.arch))
 config.substitutions.append(('%pv', config.populate_validation))
 
-llvm_config.with_system_environment(
-    ['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])
+llvm_config.with_system_environment(['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])
 
 ##############
 # FIXME: adding a path to the environment isn't appearing to work as
 #  expected, so below is a tmp workaround that inlines
 #  use_default_substitutions() and subs in the path for FileCheck.
-#llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
-#llvm_config.use_default_substitutions()
+# llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
+# llvm_config.use_default_substitutions()
 ##############
 config.filecheck_executable = os.path.join(config.lit_tools_dir, 'FileCheck')
 config.not_executable = os.path.join(config.lit_tools_dir, 'not')
@@ -53,17 +54,19 @@ config.count_executable = os.path.join(config.lit_tools_dir, 'count')
 tool_patterns = [
     ToolSubst('FileCheck', config.filecheck_executable, unresolved='fatal'),
     ToolSubst('not', config.not_executable, unresolved='fatal'),
-    ToolSubst('count', config.count_executable, unresolved='fatal'),]
+    ToolSubst('count', config.count_executable, unresolved='fatal'),
+]
 config.substitutions.append(('%python', '"%s"' % (sys.executable)))
-llvm_config.add_tool_substitutions(
-   tool_patterns, [config.llvm_tools_dir])
+llvm_config.add_tool_substitutions(tool_patterns, [config.llvm_tools_dir])
 ##############
 
 # excludes: A list of directories to exclude from the testsuite. The 'Inputs'
 # subdirectories contain auxiliary inputs for various tests in their parent
 # directories.
-config.excludes = ['Inputs', 'CMakeLists.txt', 'README.txt', 'LICENSE.txt',
-                   'lit.cfg.py', 'lit.site.cfg.py', 'common_utils']
+config.excludes = [
+    'Inputs', 'CMakeLists.txt', 'README.txt', 'LICENSE.txt', 'lit.cfg.py', 'lit.site.cfg.py',
+    'common_utils'
+]
 
 # test_source_root: The root path where tests are located.
 config.test_source_root = os.path.dirname(__file__)
@@ -77,27 +80,24 @@ llvm_config.with_environment('PATH', config.lit_tools_dir, append_path=True)
 llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
 
 tool_dirs = [config.mlir_rock_tools_dir, config.mlir_tools_dir, config.llvm_tools_dir]
-tools = [
-    'rocmlir-opt',
-    'rocmlir-translate'
-]
+tools = ['rocmlir-opt', 'rocmlir-translate']
 
 # The following tools are optional
 tools.extend([
     ToolSubst('%PYTHON', config.python_executable, unresolved='ignore'),
     ToolSubst('%linalg_test_lib_dir', config.linalg_test_lib_dir, unresolved='ignore'),
     ToolSubst('%mlir_runner_utils_dir', config.mlir_runner_utils_dir, unresolved='ignore'),
-    ToolSubst('%conv_validation_wrapper_library_dir', config.conv_validation_wrapper_library_dir, unresolved='fatal'),
+    ToolSubst('%conv_validation_wrapper_library_dir',
+              config.conv_validation_wrapper_library_dir,
+              unresolved='fatal'),
 ])
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
-
 
 # FileCheck -enable-var-scope is enabled by default in MLIR test
 # This option avoids to accidentally reuse variable across -LABEL match,
 # it can be explicitly opted-in by prefixing the variable name with $
 config.environment['FILECHECK_OPTS'] = "-enable-var-scope --allow-unused-prefixes=false"
-
 
 # LLVM can be configured with an empty default triple
 # by passing ` -DLLVM_DEFAULT_TARGET_TRIPLE="" `.
@@ -111,12 +111,15 @@ if config.target_triple:
 # binaries come from the build tree. This should be unified to the build tree
 # by copying/linking sources to build.
 if config.enable_bindings_python:
-    llvm_config.with_environment('PYTHONPATH', [
-        # TODO: Don't reference the llvm_obj_root here: the invariant is that
-        # the python/ must be at the same level of the lib directory
-        # where libMLIR.so is installed. This is presently not optimal from a
-        # project separation perspective and a discussion on how to better
-        # segment MLIR libraries needs to happen. See also
-        # lib/Bindings/Python/CMakeLists.txt for where this is set up.
-        os.path.join(config.llvm_obj_root, 'python'),
-    ], append_path=True)
+    llvm_config.with_environment(
+        'PYTHONPATH',
+        [
+            # TODO: Don't reference the llvm_obj_root here: the invariant is that
+            # the python/ must be at the same level of the lib directory
+            # where libMLIR.so is installed. This is presently not optimal from a
+            # project separation perspective and a discussion on how to better
+            # segment MLIR libraries needs to happen. See also
+            # lib/Bindings/Python/CMakeLists.txt for where this is set up.
+            os.path.join(config.llvm_obj_root, 'python'),
+        ],
+        append_path=True)

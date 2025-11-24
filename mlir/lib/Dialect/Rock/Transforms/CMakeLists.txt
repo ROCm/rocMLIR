@@ -8,6 +8,8 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   CheckResidency.cpp
   CleanMath.cpp
   ConvToGemm.cpp
+  DetectFlashDecoding.cpp
+  Pack4BitGpuOpsTo8Bit.cpp
   EmulateNarrowType.cpp
   FoldBroadcast.cpp
   GemmToGridwise.cpp

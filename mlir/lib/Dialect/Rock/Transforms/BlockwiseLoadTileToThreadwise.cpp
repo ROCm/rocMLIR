@@ -75,14 +75,12 @@ class LoweringBlockwiseLoadTileOp final
       Location loc, PatternRewriter &b,
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
-      int64_t inDPerThread, bool rotateDWithK, bool forceUnroll,
-      bool directToLDS, bool ldsLayoutDxK) const {
+      bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
     Value ldsViewForLoad = accelEmitterPtr->wrapLDSBufferForLoad(
-        b, loc, ldsView, blockSize, inDPerThread, dName, rotateDWithK,
-        directToLDS, ldsLayoutDxK);
+        b, loc, ldsView, matrixParams, blockSize, dName);
 
     // We enhance the transformation from wrapLDSBufferForLoad using a builder
     // that, given a single index, splits it into "m"("n") and "k" and lets
@@ -149,23 +147,26 @@ class LoweringBlockwiseLoadTileOp final
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     uint32_t blockSize = op.getBlockSize();
 
-    int64_t G = op.getG();
-    int64_t M = op.getM();
-    int64_t N = op.getN();
+    BlockwiseMatrixParamsAttr matrixParamsA = op.getMatrixParamsA();
+    BlockwiseMatrixParamsAttr matrixParamsB = op.getMatrixParamsB();
+    BlockwiseMatrixParamsAttr matrixParams =
+        op.getIsA() ? matrixParamsA : matrixParamsB;
+    int64_t G = matrixParamsA.getG();
+    int64_t M = matrixParamsA.getD();
+    int64_t N = matrixParamsB.getD();
     bool isA = op.getIsA();
     StringRef dName = isA ? "m" : "n";
 
-    bool doRotateWithK = op.getRotateWithK();
-    bool doSwapThreadIterSubDims = op.getSwapThreadIterSubDims();
-    bool ldsLayoutDxK = op.getLDSLayoutDxK();
+    bool doRotateWithK = matrixParams.getRotateDWithK();
+    bool doSwapThreadIterSubDims = matrixParams.getSwapThreadIterSubDims();
+    bool ldsLayoutDxK = matrixParams.getLDSLayoutDxK();
     LDSLayoutConfigDim ldsLayoutConfig{doRotateWithK, doSwapThreadIterSubDims,
                                        ldsLayoutDxK};
 
-    Type elementTypeA = op.getElementTypeA();
-    Type elementTypeB = op.getElementTypeB();
-    Type elementTypeLoad =
-        isA ? op.getElementTypeALoad() : op.getElementTypeBLoad();
-    Type elementType = isA ? elementTypeA : elementTypeB;
+    Type elementTypeA = matrixParamsA.getElementType();
+    Type elementTypeB = matrixParamsB.getElementType();
+    Type elementTypeLoad = op.getElementLoadType();
+    Type elementType = op.getElementType();
 
     auto accelEmitterPtr = accel::AccelEmitter::select(
         features, elementTypeA, elementTypeB, arch, tuningParams);
@@ -402,11 +403,8 @@ class LoweringBlockwiseLoadTileOp final
             ldsViewForGemm = viewBufferAs(b, ldsByteBuffer, ldsReadType);
           }
 
-          auto copyDPerThread = vecDimInfo.inDPerThread;
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
-                           destRegisters, blockSize, copyDPerThread,
-                           ldsLayoutConfig.doRotateWithK, forceUnroll,
-                           directToLDS, ldsLayoutConfig.ldsLayoutDxK);
+                           destRegisters, blockSize, forceUnroll, matrixParams);
           if (stageLDSReadNew)
             rock::YieldOp::create(b, loc);
         }

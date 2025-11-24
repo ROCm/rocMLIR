@@ -9,14 +9,12 @@ func.func @rock_blockwise_gemm_accel_wmma(%matrixA : memref<16xvector<8xf16>, #w
   // CHECK: rock.threadwise_read_into
   // CHECK: affine.for {{.*}} = 0 to 1
   // CHECK: rock.threadwise_read_into
-  // CHECK: rock.threadwise_accel_gemm
+  // CHECK: rock.threadwise_gemm_accel
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB  from %matrixB features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 32 : i32,
-    inMPerThread = 2 : i32,
-    inNPerThread = 2 : i32,
-    loadAfromLDS,
-    loadBfromLDS,
+    matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
+    matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
     params = #rock.wmma_gemm_params<
       kpackPerBlock = 4,
       kpack = 8,
@@ -24,6 +22,7 @@ func.func @rock_blockwise_gemm_accel_wmma(%matrixA : memref<16xvector<8xf16>, #w
       mPerWave = 16,
       nPerBlock = 16,
       nPerWave = 16,
+      mnPerXdl = 16,
       splitKFactor = 1, 
       scheduleVersion = 1, 
       outputSwizzle = 2,
@@ -39,20 +38,19 @@ func.func @rock_blockwise_gemm_accel_wmma_largekpack(%matrixA : memref<32xvector
   // CHECK: rock.threadwise_read_into
   // CHECK: affine.for {{.*}} = 0 to 1
   // CHECK: rock.threadwise_read_into
-  // CHECK:  rock.threadwise_accel_gemm
+  // CHECK:  rock.threadwise_gemm_accel
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 128 : i32,
-    inMPerThread = 2 : i32,
-    inNPerThread = 2 : i32,
-    loadAfromLDS,
-    loadBfromLDS,
+    matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
+    matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
     params = #rock.wmma_gemm_params<
       mPerBlock = 32,
       nPerBlock = 32,
       kpackPerBlock = 4,
       mPerWave = 16,
       nPerWave = 16,
+      mnPerXdl = 16,
       kpack = 8,
       splitKFactor = 1, 
       scheduleVersion = 1, 
@@ -69,20 +67,19 @@ func.func @rock_blockwise_gemm_accel_wmma_int8(%matrixA : memref<32xvector<16xi8
   // CHECK: rock.threadwise_read_into
   // CHECK: affine.for {{.*}} = 0 to 2
   // CHECK: rock.threadwise_read_into
-  // CHECK:  rock.threadwise_accel_gemm
+  // CHECK:  rock.threadwise_gemm_accel
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 128 : i32,
-    inMPerThread = 2 : i32,
-    inNPerThread = 2 : i32,
-    loadAfromLDS,
-    loadBfromLDS,
+    matrixParamsA = #rock.blockwise_matrix_params<elementType = i8, elementTypeLoad = i8, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
+    matrixParamsB = #rock.blockwise_matrix_params<elementType = i8, elementTypeLoad = i8, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
     params = #rock.wmma_gemm_params<
       mPerBlock = 64,
       nPerBlock = 64,
       kpackPerBlock = 4,
       mPerWave = 32,
       nPerWave = 32,
+      mnPerXdl = 16,
       kpack = 16,
       splitKFactor = 1, 
       scheduleVersion = 1, 
@@ -92,19 +89,18 @@ func.func @rock_blockwise_gemm_accel_wmma_int8(%matrixA : memref<32xvector<16xi8
   return
 }
 
-func.func @rock_blockwise_gemm_accel_wmma_double_buffer(%matrixA : memref<16xvector<8xf16>, #wg>, %matrixB : memref<16xvector<8xf16>, #wg>,
-                                          %bufferA : memref<1xvector<16xf16>, #priv>, %bufferB : memref<1xvector<16xf16>, #priv>,
+func.func @rock_blockwise_gemm_accel_wmma_double_buffer(%bufferA : memref<1xvector<16xf16>, #priv>, %bufferB : memref<1xvector<16xf16>, #priv>,
                                           %matrixC : memref<1xvector<8xf32>, #priv>) {
   // CHECK: affine.for {{.*}} = 0 to 1
   // CHECK-NOT: rock.threadwise_read_into
   // CHECK: affine.for {{.*}} = 0 to 1
   // CHECK-NOT: rock.threadwise_read_into
-  // CHECK: rock.threadwise_accel_gemm
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = wmma{
+  // CHECK: rock.threadwise_gemm_accel
+  rock.blockwise_gemm_accel %matrixC += %bufferA * %bufferB features = wmma{
     arch = "amdgcn-amd-amdhsa:gfx1100",
     blockSize = 32 : i32,
-    inMPerThread = 2 : i32,
-    inNPerThread = 2 : i32,
+    matrixParamsA = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
+    matrixParamsB = #rock.blockwise_matrix_params<elementType = f16, elementTypeLoad = f16, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
     params = #rock.wmma_gemm_params<
       kpackPerBlock = 4,
       kpack = 8,
@@ -112,10 +108,11 @@ func.func @rock_blockwise_gemm_accel_wmma_double_buffer(%matrixA : memref<16xvec
       mPerWave = 16,
       nPerBlock = 16,
       nPerWave = 16,
+      mnPerXdl = 16,
       splitKFactor = 1, 
       scheduleVersion = 2, 
       outputSwizzle = 2,
       forceUnroll = true>
-  } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv> from memref<16xvector<8xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<16xvector<8xf16>, #wg>
+  } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv> * memref<1xvector<16xf16>, #priv>
   return
 }

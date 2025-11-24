@@ -19,7 +19,6 @@ on:
       - "!external/llvm-project/**"
 jobs:
   py-checks:
-    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +34,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install flake8 yapf pep8-naming
+          pip3 install -r pip_requirements.txt
+          pip3 install --index-url https://test.pypi.org/simple/ hip-python
 
       - name: Get changed Python files under mlir/
         id: changes
@@ -58,7 +59,7 @@ jobs:
       - name: Run flake8
         if: steps.changes.outputs.files != ''
         run: |
-          flake8 --ignore=E501 ${{ steps.changes.outputs.files }}
+          flake8 --ignore=E501,E251,E124,W605,W504,E131,E126,W503 ${{ steps.changes.outputs.files }}
 
       - name: Run YAPF check
         if: steps.changes.outputs.files != ''

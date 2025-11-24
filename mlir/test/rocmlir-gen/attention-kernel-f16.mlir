@@ -1,6 +1,18 @@
 // RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 32 -head_dim_v 32 --with-attn-scale -t f16 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 32 -head_dim_v 32 --with-attn-scale -t f16 -pv --apply-bufferization-pipeline=false --schedule_version 2 | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=SCHEDV2
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 32 -head_dim_v 32 --with-attn-scale -t f16 -pv --apply-bufferization-pipeline=false --schedule_version 3 | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=SCHEDV3
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -seq_len_q 1024 -seq_len_k 1024 -head_dim_qk 32 -head_dim_v 32 --with-attn-scale -t f16 -pv --apply-bufferization-pipeline=false --schedule_version 4 | rocmlir-opt | FileCheck %s --enable-var-scope --check-prefixes=SCHEDV4
 
 // CHECK: module attributes {mhal.arch = "[[$ARCH:.*]]"}
+
+// SCHEDV2-LABEL: func.func @rock_attention
+// SCHEDV2-SAME: schedule_version = #rock.schedule_version<2>
+
+// SCHEDV3-LABEL: func.func @rock_attention
+// SCHEDV3-SAME: schedule_version = #rock.schedule_version<3>
+
+// SCHEDV4-LABEL: func.func @rock_attention
+// SCHEDV4-SAME: schedule_version = #rock.schedule_version<4>
 
 // CHECK-LABEL: func.func @rock_attention
 // CHECK-SAME: (%[[queriesRaw:.*0]]: memref<32768xf16>,

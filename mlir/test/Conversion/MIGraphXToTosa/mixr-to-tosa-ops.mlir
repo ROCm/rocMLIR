@@ -666,6 +666,26 @@ module  {
     %1 = migraphx.greater %arg0, %0 : <1x36x384x64xsi32, 884736x24576x64x1>, <1x36x384x64xsi32, 884736x24576x64x1> -> <1x36x384x64xsi32, 884736x24576x64x1>
     return %1 : !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>
   }
+
+  // CHECK-LABEL: func.func @func_equal
+  // CHECK: %[[eq:.+]] = tosa.equal {{.*}} : (tensor<1x36x384x64xi32>, tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi1>
+  // CHECK-NEXT: tosa.cast %[[eq]] : (tensor<1x36x384x64xi1>) -> tensor<1x36x384x64xi32>
+  func.func @func_equal(%arg0: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %cst = migraphx.literal (dense<1> : tensor<1x36x384x64xi32>) : <1x36x384x64xi32, 884736x24576x64x1>
+    %0 = migraphx.add %arg0, %cst : <1x36x384x64xi32, 884736x24576x64x1>, <1x36x384x64xi32, 884736x24576x64x1> -> <1x36x384x64xi32, 884736x24576x64x1>
+    %1 = migraphx.equal %arg0, %0 : <1x36x384x64xi32, 884736x24576x64x1>, <1x36x384x64xi32, 884736x24576x64x1> -> <1x36x384x64xi32, 884736x24576x64x1>
+    return %1 : !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>
+  }
+
+  // CHECK-LABEL: func.func @func_equal_si32
+  // CHECK: %[[eq:.+]] = tosa.equal {{.*}} : (tensor<1x36x384x64xi32>, tensor<1x36x384x64xi32>) -> tensor<1x36x384x64xi1>
+  // CHECK-NEXT: tosa.cast %[[eq]] : (tensor<1x36x384x64xi1>) -> tensor<1x36x384x64xi32>
+  func.func @func_equal_si32(%arg0: !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+    %cst = migraphx.literal (dense<1> : tensor<1x36x384x64xsi32>) : <1x36x384x64xsi32, 884736x24576x64x1>
+    %0 = migraphx.add %arg0, %cst : <1x36x384x64xsi32, 884736x24576x64x1>, <1x36x384x64xsi32, 884736x24576x64x1> -> <1x36x384x64xsi32, 884736x24576x64x1>
+    %1 = migraphx.equal %arg0, %0 : <1x36x384x64xsi32, 884736x24576x64x1>, <1x36x384x64xsi32, 884736x24576x64x1> -> <1x36x384x64xsi32, 884736x24576x64x1>
+    return %1 : !migraphx.shaped<1x36x384x64xsi32, 884736x24576x64x1>
+  }
 }
 
 // -----
