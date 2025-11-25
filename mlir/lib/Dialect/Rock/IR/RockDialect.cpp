@@ -216,6 +216,14 @@ getCommonEffects(OpType &op,
   effects.emplace_back(write, &op.getDestMutable());
 }
 
+/// Check if a type is valid for scaled GEMM matrix operands.
+/// Currently supports FP4 (Float4E2M1FN) and FP8 (Float8E4M3FN, Float8E5M2).
+/// TODO: Add support for FP6 types (Float6E2M3FN, Float6E3M2FN) when
+/// rocMLIR gains FP6 support.
+static bool isValidScaledGemmMatrixType(Type elemType) {
+  return isa<Float4E2M1FNType, Float8E4M3FNType, Float8E5M2Type>(elemType);
+}
+
 template <typename OpType>
 static LogicalResult verifyScales(OpType op, Value matrix, Value scale,
                                   StringRef matrixName) {
@@ -229,10 +237,10 @@ static LogicalResult verifyScales(OpType op, Value matrix, Value scale,
       return op.emitError(
           llvm::formatv("Scale{0} must be of type Float8E8M0FNU.", matrixName));
     }
-    if (!isa<Float4E2M1FNType>(matrixElemType)) {
+    if (!isValidScaledGemmMatrixType(matrixElemType)) {
       return op.emitError(
-          llvm::formatv("For the scaled GEMMs, matrix{0} must be of "
-                        "type Float4E2M1FNType.",
+          llvm::formatv("For scaled GEMMs, matrix{0} must be of type "
+                        "Float4E2M1FN, Float8E4M3FN, or Float8E5M2.",
                         matrixName));
     }
     if (matrixType.getShape() != scaleType.getShape()) {
@@ -774,9 +782,11 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
     bool isValidTypeA = elemTypeA.isF16() || elemTypeA.isBF16() ||
                         elemTypeA.isInteger(8) || isFloat8Type(elemTypeA);
 
-    // gfx1250 additionally supports F32
-    if (isGfx1250)
-      isValidTypeA = isValidTypeA || elemTypeA.isF32();
+    // gfx1250 additionally supports F32, and FP4
+    if (isGfx1250) {
+      isValidTypeA =
+          isValidTypeA || elemTypeA.isF32() || isa<Float4E2M1FNType>(elemTypeA);
+    }
 
     // gfx11 doesn't support float8 types
     if (isGfx11 && isFloat8Type(elemTypeA))
@@ -787,20 +797,27 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
         return op->emitOpError("Wmma supports only F16/BF16/int8 data types");
       if (isGfx1250)
         return op->emitOpError(
-            "Wmma supports only F32/F16/BF16/int8/E4M3/E5M2 data types");
+            "Wmma supports only F32/F16/BF16/int8/FP8/BF8/FP4 data types");
       return op->emitOpError(
           "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
 
+    // Helper to check if type is a small float (FP8, BF8, FP4)
+    auto isSmallFloat = [](Type ty) {
+      return isFloat8Type(ty) || isa<Float4E2M1FNType>(ty) ||
+             isa<Float6E2M3FNType, Float6E3M2FNType>(ty);
+    };
+
     // Validate mixed types
     if (elemTypeA != elemTypeB) {
-      // gfx1250 allows mixed precision for float8 types only
+      // gfx1250 allows mixed precision for small float types
       bool allowMixed =
-          isGfx1250 && isFloat8Type(elemTypeA) && isFloat8Type(elemTypeB);
+          isGfx1250 && isSmallFloat(elemTypeA) && isSmallFloat(elemTypeB);
       if (!allowMixed)
-        return op->emitOpError(isGfx1250 ? "Wmma on gfx1250 supports mixed "
-                                           "types only for FP8/BF8 combinations"
-                                         : "Wmma does not support mixed types");
+        return op->emitOpError(isGfx1250
+                                   ? "Wmma on gfx1250 supports mixed "
+                                     "types only for small float combinations"
+                                   : "Wmma does not support mixed types");
     }
   }
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
@@ -1170,9 +1187,10 @@ LogicalResult GemmOp::verify() {
       failed(verifyScale(getScaleB(), /*isA=*/false)))
     return failure();
   if (hasScaleA && hasScaleB) {
-    if (!isa<Float4E2M1FNType>(inElems)) {
+    if (!isValidScaledGemmMatrixType(inElems)) {
       return emitOpError(
-          "Scaled GEMMs are only supported for Float4E2M1FN input type");
+          "Scaled GEMMs are only supported for Float4E2M1FN, Float8E4M3FN, "
+          "or Float8E5M2 input types");
     }
   }
   auto features = rock::getFeatures(this->getOperation());
@@ -2586,10 +2604,10 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
               "Scale{0} must be of type Float8E8M0FNU.", matrixName));
         }
         Type ldsElemType = getElementTypeOrSelfRecursive(ldsType);
-        if (!isa<Float4E2M1FNType>(ldsElemType)) {
+        if (!isValidScaledGemmMatrixType(ldsElemType)) {
           return emitOpError(
-              llvm::formatv("For the scaled GEMMs, matrix{0} must be of "
-                            "type Float4E2M1FNType.",
+              llvm::formatv("For scaled GEMMs, matrix{0} must be of type "
+                            "Float4E2M1FN, Float8E4M3FN, or Float8E5M2.",
                             matrixName));
         }
       }
@@ -2609,10 +2627,10 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
             "Scale{0} buffer must be of type Float8E8M0FNU.", matrixName));
       }
       Type bufferElemType = getElementTypeOrSelfRecursive(bufferType);
-      if (!isa<Float4E2M1FNType>(bufferElemType)) {
+      if (!isValidScaledGemmMatrixType(bufferElemType)) {
         return emitOpError(
-            llvm::formatv("For the scaled GEMMs, buffer{0} must be of "
-                          "type Float4E2M1FNType.",
+            llvm::formatv("For scaled GEMMs, buffer{0} must be of type "
+                          "Float4E2M1FN, Float8E4M3FN, or Float8E5M2.",
                           matrixName));
       }
     }

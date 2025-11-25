@@ -47,7 +47,11 @@ enum class WmmaTypeId : uint32_t {
 
   // Integer output
   I8_To_I32_TyId, // I8 x I8 -> I32
-  I4_To_I32_TyId  // I4 x I4 -> I32
+  I4_To_I32_TyId, // I4 x I4 -> I32
+
+  // Small float scaled WMMA. All combinations map to wmma_scale_f32_*_f8f6f4
+  // with appropriate format codes
+  SmallFloat_To_F32_TyId
 };
 
 // Information needed to create a WMMA instruction
@@ -57,6 +61,7 @@ struct WmmaInsnInfo {
   int64_t outputVectorLen;
   int64_t mPerAccel;
   int64_t nPerAccel;
+  bool isScaled;
 };
 
 // Key type for WMMA instruction maps: (TypeId, K dimension)
@@ -73,13 +78,16 @@ struct WmmaInsn {
   VectorType argTypeA;
   VectorType argTypeB;
   VectorType retType;
+  bool isScaled;
 
 public:
   bool isCoherentWithK(int64_t kpack, int64_t kPerBlock);
+  /// Select a WMMA instruction based on element types and architecture.
   static FailureOr<WmmaInsn> select(Type elementTypeA, Type elementTypeB,
                                     int64_t waveSize, StringRef arch,
                                     int64_t mPerWave, int64_t nPerWave,
-                                    int64_t kPack, int64_t kPackPerBlock);
+                                    int64_t kPack, int64_t kPackPerBlock,
+                                    bool forScaledOp = false);
 };
 } // namespace rock
 } // namespace mlir

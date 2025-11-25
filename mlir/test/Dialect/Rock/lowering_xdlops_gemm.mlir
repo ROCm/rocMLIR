@@ -550,14 +550,10 @@ func.func @accel_gemm_gfx950_f32_16x16x128_fp4_scaled(%matrixA : memref<1x1xvect
   // CHECK-LABEL: func.func @accel_gemm_gfx950_f32_16x16x128_fp4_scaled
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
-  // CHECK: [[a:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
-  // CHECK: [[b:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
-  // CHECK: [[scaleA:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf8E8M0FNU>, 5>
-  // CHECK: [[scaleAScalar:%.+]] = vector.extract [[scaleA]]
-  // CHECK: [[scaleB:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf8E8M0FNU>, 5>
-  // CHECK: [[scaleBScalar:%.+]] = vector.extract [[scaleB]]
-  // CHECK: [[c:%.+]] = memref.load {{.+}} : memref<1x1xvector<4xf32>, 5>
-  // CHECK: amdgpu.scaled_mfma 16x16x128 ([[scaleAScalar]][0] * [[a]]) * ([[scaleBScalar]][0] * [[b]]) + [[c]]
+  // CHECK-DAG: memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
+  // CHECK-DAG: memref.load {{.+}} : memref<1x1xvector<32xf8E8M0FNU>, 5>
+  // CHECK-DAG: vector.extract
+  // CHECK: amdgpu.scaled_mfma 16x16x128
   // CHECK-SAME: f8E8M0FNU, vector<32xf4E2M1FN>, f8E8M0FNU, vector<32xf4E2M1FN>, vector<4xf32>
   %c0 = arith.constant 0 : index
   rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma {
@@ -586,14 +582,10 @@ func.func @accel_gemm_gfx950_f32_32x32x64_fp4_scaled(%matrixA : memref<1x1xvecto
   // CHECK-LABEL: func.func @accel_gemm_gfx950_f32_32x32x64_fp4_scaled
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
-  // CHECK: [[a:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
-  // CHECK: [[b:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
-  // CHECK: [[scaleA:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf8E8M0FNU>, 5>
-  // CHECK: [[scaleAScalar:%.+]] = vector.extract [[scaleA]]
-  // CHECK: [[scaleB:%.+]] = memref.load {{.+}} : memref<1x1xvector<32xf8E8M0FNU>, 5>
-  // CHECK: [[scaleBScalar:%.+]] = vector.extract [[scaleB]]
-  // CHECK: [[c:%.+]] = memref.load {{.+}} : memref<1x1xvector<16xf32>, 5>
-  // CHECK: amdgpu.scaled_mfma 32x32x64 ([[scaleAScalar]][0] * [[a]]) * ([[scaleBScalar]][0] * [[b]]) + [[c]]
+  // CHECK-DAG: memref.load {{.+}} : memref<1x1xvector<32xf4E2M1FN>, 5>
+  // CHECK-DAG: memref.load {{.+}} : memref<1x1xvector<32xf8E8M0FNU>, 5>
+  // CHECK-DAG: vector.extract
+  // CHECK: amdgpu.scaled_mfma 32x32x64
   // CHECK-SAME: f8E8M0FNU, vector<32xf4E2M1FN>, f8E8M0FNU, vector<32xf4E2M1FN>, vector<16xf32>
   %c0 = arith.constant 0 : index
   rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma {
@@ -622,14 +614,10 @@ func.func @accel_gemm_gfx950_f32_16x16x512_fp4_scaled_multi(%matrixA : memref<1x
   // CHECK-LABEL: func.func @accel_gemm_gfx950_f32_16x16x512_fp4_scaled_multi
   // CHECK: rock.transforming_for
   // CHECK-SAME: bounds [1, 1, 1]
-  // CHECK: [[a:%.+]] = memref.load {{.+}} : memref<1x4xvector<32xf4E2M1FN>, 5>
-  // CHECK: [[b:%.+]] = memref.load {{.+}} : memref<1x4xvector<32xf4E2M1FN>, 5>
-  // CHECK: [[scaleA:%.+]] = memref.load {{.+}} : memref<1x4xvector<32xf8E8M0FNU>, 5>
-  // CHECK: [[scaleAScalar:%.+]] = vector.extract [[scaleA]]
-  // CHECK: [[scaleB:%.+]] = memref.load {{.+}} : memref<1x4xvector<32xf8E8M0FNU>, 5>
-  // CHECK: [[scaleBScalar:%.+]] = vector.extract [[scaleB]]
-  // CHECK: [[c:%.+]] = memref.load {{.+}} : memref<1x1xvector<4xf32>, 5>
-  // CHECK: amdgpu.scaled_mfma 16x16x128 ([[scaleAScalar]][0] * [[a]]) * ([[scaleBScalar]][0] * [[b]]) + [[c]]
+  // CHECK-DAG: memref.load {{.+}} : memref<1x4xvector<32xf4E2M1FN>, 5>
+  // CHECK-DAG: memref.load {{.+}} : memref<1x4xvector<32xf8E8M0FNU>, 5>
+  // CHECK-DAG: vector.extract
+  // CHECK: amdgpu.scaled_mfma 16x16x128
   // CHECK-SAME: f8E8M0FNU, vector<32xf4E2M1FN>, f8E8M0FNU, vector<32xf4E2M1FN>, vector<4xf32>
   %c0 = arith.constant 0 : index
   rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma {

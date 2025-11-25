@@ -3233,7 +3233,7 @@ struct GridwiseGemmAccelRewritePattern
     int64_t nPerWave = tuningParams.getNPerWave();
 
     auto accelEmitterPtr = accel::AccelEmitter::select(
-        features, elementTypeA, elementTypeB, arch, tuningParams);
+        features, elementTypeA, elementTypeB, arch, tuningParams, isScaledGemm);
 
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");

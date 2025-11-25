@@ -546,3 +546,139 @@ func.func @rock_accel_gemm_wmma_gfx1250_k_selection(%matrixA : memref<4x8xvector
      } : memref<4x4xvector<8xf32>, 5> += memref<4x8xvector<64xf8E4M3FN>, 5> * memref<4x8xvector<64xf8E5M2>, 5>
   return
 }
+
+
+// CHECK-LABEL: @rock_accel_gemm_wmma_gfx1250_scaled_fp4_fp4
+func.func @rock_accel_gemm_wmma_gfx1250_scaled_fp4_fp4(
+    %matrixA : memref<4x8xvector<64xf4E2M1FN>, 5>,
+    %matrixB : memref<4x8xvector<64xf4E2M1FN>, 5>,
+    %matrixC : memref<4x4xvector<8xf32>, 5>,
+    %scaleA : memref<4x8xvector<4xf8E8M0FNU>, 5>,
+    %scaleB : memref<4x8xvector<4xf8E8M0FNU>, 5>) {
+  %c0 = arith.constant 0 : index
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK-DAG: memref.load {{.*}} : memref<4x8xvector<64xf4E2M1FN>, 5>
+  // CHECK-DAG: memref.load {{.*}} : memref<4x8xvector<64xf4E2M1FN>, 5>
+  // CHECK-DAG: memref.load {{.*}} : memref<4x4xvector<8xf32>, 5>
+  // CHECK-DAG: memref.load {{.*}} : memref<4x8xvector<4xf8E8M0FNU>, 5>
+  // CHECK-DAG: memref.load {{.*}} : memref<4x8xvector<4xf8E8M0FNU>, 5>
+  // CHECK: amdgpu.scaled_wmma 16x16x128
+  // CHECK-SAME: vector<4xf8E8M0FNU>, vector<64xf4E2M1FN>, vector<4xf8E8M0FNU>, vector<64xf4E2M1FN>, vector<8xf32>
+  // CHECK: memref.store {{.*}}, {{.*}} : memref<4x4xvector<8xf32>, 5>
+  rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = wmma {
+    arch = "amdgcn-amd-amdhsa:gfx1250",
+    params = #rock.wmma_gemm_params<
+       mPerBlock = 64,
+       nPerBlock = 64,
+       kpackPerBlock = 8,
+       mPerWave = 64,
+       nPerWave = 64,
+       mnPerXdl = 16,
+       kpack = 16,
+       splitKFactor = 1,
+       scheduleVersion = 1,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
+       forceUnroll = true>
+     } : memref<4x4xvector<8xf32>, 5> += memref<4x8xvector<64xf4E2M1FN>, 5> scaled by memref<4x8xvector<4xf8E8M0FNU>, 5> * memref<4x8xvector<64xf4E2M1FN>, 5> scaled by memref<4x8xvector<4xf8E8M0FNU>, 5>
+  return
+}
+
+// CHECK-LABEL: @rock_accel_gemm_wmma_gfx1250_scaled_fp4_fp4_k4
+func.func @rock_accel_gemm_wmma_gfx1250_scaled_fp4_fp4_k4(
+    %matrixA : memref<4x4xvector<64xf4E2M1FN>, 5>,
+    %matrixB : memref<4x4xvector<64xf4E2M1FN>, 5>,
+    %matrixC : memref<4x4xvector<8xf32>, 5>,
+    %scaleA : memref<4x4xvector<4xf8E8M0FNU>, 5>,
+    %scaleB : memref<4x4xvector<4xf8E8M0FNU>, 5>) {
+  %c0 = arith.constant 0 : index
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK-DAG: memref.load {{.*}} : memref<4x4xvector<64xf4E2M1FN>, 5>
+  // CHECK-DAG: memref.load {{.*}} : memref<4x4xvector<4xf8E8M0FNU>, 5>
+  // CHECK: amdgpu.scaled_wmma 16x16x128
+  // CHECK-SAME: vector<4xf8E8M0FNU>, vector<64xf4E2M1FN>, vector<4xf8E8M0FNU>, vector<64xf4E2M1FN>, vector<8xf32>
+  rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = wmma {
+    arch = "amdgcn-amd-amdhsa:gfx1250",
+    params = #rock.wmma_gemm_params<
+       mPerBlock = 64,
+       nPerBlock = 64,
+       kpackPerBlock = 4,
+       mPerWave = 64,
+       nPerWave = 64,
+       mnPerXdl = 16,
+       kpack = 16,
+       splitKFactor = 1,
+       scheduleVersion = 1,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
+       forceUnroll = true>
+     } : memref<4x4xvector<8xf32>, 5> += memref<4x4xvector<64xf4E2M1FN>, 5> scaled by memref<4x4xvector<4xf8E8M0FNU>, 5> * memref<4x4xvector<64xf4E2M1FN>, 5> scaled by memref<4x4xvector<4xf8E8M0FNU>, 5>
+  return
+}
+
+// CHECK-LABEL: @rock_accel_gemm_wmma_gfx1250_scaled_fp4_fp4_large
+func.func @rock_accel_gemm_wmma_gfx1250_scaled_fp4_fp4_large(
+    %matrixA : memref<8x8xvector<64xf4E2M1FN>, 5>,
+    %matrixB : memref<8x8xvector<64xf4E2M1FN>, 5>,
+    %matrixC : memref<8x8xvector<8xf32>, 5>,
+    %scaleA : memref<8x8xvector<4xf8E8M0FNU>, 5>,
+    %scaleB : memref<8x8xvector<4xf8E8M0FNU>, 5>) {
+  %c0 = arith.constant 0 : index
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK-DAG: memref.load {{.*}} : memref<8x8xvector<64xf4E2M1FN>, 5>
+  // CHECK-DAG: memref.load {{.*}} : memref<8x8xvector<4xf8E8M0FNU>, 5>
+  // CHECK: amdgpu.scaled_wmma 16x16x128
+  // CHECK-SAME: vector<4xf8E8M0FNU>, vector<64xf4E2M1FN>, vector<4xf8E8M0FNU>, vector<64xf4E2M1FN>, vector<8xf32>
+  rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = wmma {
+    arch = "amdgcn-amd-amdhsa:gfx1250",
+    params = #rock.wmma_gemm_params<
+       mPerBlock = 128,
+       nPerBlock = 128,
+       kpackPerBlock = 8,
+       mPerWave = 128,
+       nPerWave = 128,
+       mnPerXdl = 16,
+       kpack = 16,
+       splitKFactor = 1,
+       scheduleVersion = 1,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
+       forceUnroll = true>
+     } : memref<8x8xvector<8xf32>, 5> += memref<8x8xvector<64xf4E2M1FN>, 5> scaled by memref<8x8xvector<4xf8E8M0FNU>, 5> * memref<8x8xvector<64xf4E2M1FN>, 5> scaled by memref<8x8xvector<4xf8E8M0FNU>, 5>
+  return
+}
+
+// CHECK-LABEL: @rock_accel_gemm_wmma_gfx1250_scaled_fp4_fp4_asymmetric
+func.func @rock_accel_gemm_wmma_gfx1250_scaled_fp4_fp4_asymmetric(
+    %matrixA : memref<8x8xvector<64xf4E2M1FN>, 5>,
+    %matrixB : memref<4x8xvector<64xf4E2M1FN>, 5>,
+    %matrixC : memref<8x4xvector<8xf32>, 5>,
+    %scaleA : memref<8x8xvector<4xf8E8M0FNU>, 5>,
+    %scaleB : memref<4x8xvector<4xf8E8M0FNU>, 5>) {
+  %c0 = arith.constant 0 : index
+  // CHECK: rock.transforming_for
+  // CHECK-SAME: bounds [1, 1, 1]
+  // CHECK-DAG: memref.load {{.*}} : memref<8x8xvector<64xf4E2M1FN>, 5>
+  // CHECK-DAG: memref.load {{.*}} : memref<4x8xvector<64xf4E2M1FN>, 5>
+  // CHECK-DAG: memref.load {{.*}} : memref<8x8xvector<4xf8E8M0FNU>, 5>
+  // CHECK-DAG: memref.load {{.*}} : memref<4x8xvector<4xf8E8M0FNU>, 5>
+  // CHECK: amdgpu.scaled_wmma 16x16x128
+  // CHECK-SAME: vector<4xf8E8M0FNU>, vector<64xf4E2M1FN>, vector<4xf8E8M0FNU>, vector<64xf4E2M1FN>, vector<8xf32>
+  rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = wmma {
+    arch = "amdgcn-amd-amdhsa:gfx1250",
+    params = #rock.wmma_gemm_params<
+       mPerBlock = 128,
+       nPerBlock = 64,
+       kpackPerBlock = 8,
+       mPerWave = 128,
+       nPerWave = 64,
+       mnPerXdl = 16,
+       kpack = 16,
+       splitKFactor = 1,
+       scheduleVersion = 1,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
+       forceUnroll = true>
+     } : memref<8x4xvector<8xf32>, 5> += memref<8x8xvector<64xf4E2M1FN>, 5> scaled by memref<8x8xvector<4xf8E8M0FNU>, 5> * memref<4x8xvector<64xf4E2M1FN>, 5> scaled by memref<4x8xvector<4xf8E8M0FNU>, 5>
+  return
+}
+
