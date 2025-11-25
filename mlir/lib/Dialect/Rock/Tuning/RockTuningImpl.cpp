@@ -23,8 +23,10 @@
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -772,18 +774,57 @@ struct FusionInfo {
   int numReductionOutputs() const { return reductions.size(); }
 };
 
+// Helper to collect all values that are views of the same underlying allocation
+static void collectAllViewsOfAlloc(Value value, SmallVectorImpl<Value> &views,
+                                   DenseSet<Value> &visited) {
+  if (!visited.insert(value).second) {
+    return; // Already visited
+  }
+
+  views.push_back(value);
+
+  // Traverse through all users to find view-like operations
+  for (Operation *user : value.getUsers()) {
+    if (isa<ViewLikeOpInterface>(user)) {
+      // For view-like operations, recursively collect their results
+      for (Value result : user->getResults()) {
+        collectAllViewsOfAlloc(result, views, visited);
+      }
+    }
+  }
+}
+
 // Helper to analyze users, following through rock.transform operations
 static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
                          FusionInfo &info) {
-  // Worklist: <Value, bool: has pointwise operation before it>
-  SmallVector<std::pair<Value, bool>> worklist;
-  worklist.push_back({originalGemmResult, false});
+  OpBuilder b(originalGemmResult.getContext());
+  
+  // First, untransform to get the underlying allocation
+  Value underlyingAlloc;
+  ArrayAttr transforms;
+  bool needs64Bit;
+  std::tie(underlyingAlloc, transforms, needs64Bit) = 
+      rock::untransform(b, originalGemmResult);
 
-  // Track visited values to avoid cycles
+  // Collect all views (transforms) of this underlying allocation
+  SmallVector<Value> allViews;
+  DenseSet<Value> viewVisited;
+  collectAllViewsOfAlloc(underlyingAlloc, allViews, viewVisited);
+
+  // Now analyze users of all these views
+  // Worklist: <Value, bool: has pointwise operation before it,
+  //            Value: underlying allocation for this value>
+  SmallVector<std::tuple<Value, bool, Value>> worklist;
+  for (Value view : allViews) {
+    worklist.push_back({view, false, underlyingAlloc});
+  }
+
+  // Track visited values to avoid processing cycles
   DenseSet<Value> visited;
 
   while (!worklist.empty()) {
-    auto [value, hasPointwiseSoFar] = worklist.pop_back_val();
+    auto [value, hasPointwiseSoFar, currentUnderlyingAlloc] =
+                                                      worklist.pop_back_val();
 
     if (!visited.insert(value).second) {
       continue; // Already visited
@@ -802,7 +843,8 @@ static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
 
       // Follow through rock.transform operations
       if (auto transformOp = dyn_cast<rock::TransformOp>(user)) {
-        worklist.push_back({transformOp.getResult(), hasPointwiseSoFar});
+        worklist.push_back({transformOp.getResult(), hasPointwiseSoFar,
+                            currentUnderlyingAlloc});
         continue;
       }
 
@@ -825,7 +867,8 @@ static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
 
         // Validate the output fusion
         SmallVector<std::tuple<Operation *, int>> adds;
-        if (failed(rock::checkValidOutputFusion(genericOp, originalGemmResult,
+        if (failed(rock::checkValidOutputFusion(genericOp,
+                                                currentUnderlyingAlloc,
                                                 features, adds))) {
           continue;
         }
@@ -833,7 +876,26 @@ static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
         // We need to follow users of the output memref
         auto outputs = genericOp.getOutputs();
         if (!outputs.empty() && outputs[0]) {
-          worklist.push_back({outputs[0], /*hasPointwiseSoFar=*/true});
+          Value outputValue = outputs[0];
+          
+          // Get the underlying allocation for this output
+          Value outputUnderlyingAlloc;
+          ArrayAttr outputTransforms;
+          bool outputNeeds64Bit;
+          std::tie(outputUnderlyingAlloc, outputTransforms, outputNeeds64Bit) = 
+              rock::untransform(b, outputValue);
+          
+          // Collect all views of the output allocation
+          SmallVector<Value> outputViews;
+          DenseSet<Value> outputViewVisited;
+          collectAllViewsOfAlloc(outputUnderlyingAlloc, outputViews,
+                                 outputViewVisited);
+          
+          // Add all views of the output to the worklist
+          for (Value outputView : outputViews) {
+            worklist.push_back({outputView, /*hasPointwiseSoFar=*/true,
+                                outputUnderlyingAlloc});
+          }
         }
         continue;
       }
