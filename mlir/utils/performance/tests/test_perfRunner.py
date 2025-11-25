@@ -96,7 +96,7 @@ def test_gemm_configuration_command_generation():
     assert "-scale_a_dtype f32" in command
     assert "-scale_b_dtype f8E8M0FNU" in command
     assert "-transScaleA=True" in command
-    assert "-transScaleB" not in command  # only emitted when True
+    assert "-transScaleB" not in command  # only omitted when False
     assert "--kernel-repeats 7" in command
     assert "--perf_config=best" in command
 
