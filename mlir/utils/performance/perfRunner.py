@@ -1702,10 +1702,10 @@ def run_config_with_mlir(config: PerfConfiguration,
     if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME)):
         os.remove(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
     use_tuning_driver = (not use_rocprof) and bool(config.perfconfig)
-    use_host_verification = not use_tuning_driver
+    use_host_harness = not use_tuning_driver
 
-    rocmlir_gen_flags = rocmlir_gen_flags + ' -ph' if use_host_verification else ''
-    kernel_repeats = MLIR_N_REPEATS if use_host_verification else None
+    rocmlir_gen_flags = rocmlir_gen_flags + ' -ph' if use_host_harness else ''
+    kernel_repeats = MLIR_N_REPEATS if use_host_harness else None
 
     commandline_options = config.generate_mlir_driver_commandline(rocmlir_gen_flags, kernel_repeats)
     rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
