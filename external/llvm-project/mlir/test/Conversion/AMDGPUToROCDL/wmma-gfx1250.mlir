@@ -87,3 +87,76 @@ func.func @wmma_k128(%arg0 : vector<64xf8E4M3FN>, %arg1 : vector<64xf8E5M2>,
 
   func.return
 }
+
+// CHECK-LABEL: @wmma_scale_16x16x128_fp8
+func.func @wmma_scale_16x16x128_fp8(%arg0 : vector<64xf8E4M3FN>, %arg1 : vector<64xf8E5M2>,
+                                    %arg2 : vector<8xf32>, %arg3 : i32, %arg4 : i32) {
+  // CHECK: rocdl.wmma.scale.f32.16x16x128.f8f6f4 {{.*}}, {{.*}}, %arg2, %arg3, %arg4 : (vector<16xi32>, vector<16xi32>, vector<8xf32>, i32, i32) -> vector<8xf32>
+  %0 = amdgpu.scaled_wmma (%arg3 * %arg0) * (%arg4 * %arg0) + %arg2
+    { m = 16 : i32, n = 16 : i32, k = 128 : i32 } : i32, vector<64xf8E4M3FN>, i32, vector<64xf8E4M3FN>, vector<8xf32>
+
+  // CHECK: rocdl.wmma.scale.f32.16x16x128.f8f6f4 {{.*}}, {{.*}}, %arg2, %arg3, %arg4 {fmtA = 1 : i32, fmtB = 1 : i32} : (vector<16xi32>, vector<16xi32>, vector<8xf32>, i32, i32) -> vector<8xf32>
+  %1 = amdgpu.scaled_wmma (%arg3 * %arg1) * (%arg4 * %arg1) + %arg2
+    { m = 16 : i32, n = 16 : i32, k = 128 : i32 } : i32, vector<64xf8E5M2>, i32, vector<64xf8E5M2>, vector<8xf32>
+
+  func.return
+}
+
+// CHECK-LABEL: @wmma_scale_16x16x128_fp6
+func.func @wmma_scale_16x16x128_fp6(%arg0 : vector<96xf6E2M3FN>, %arg1 : vector<96xf6E3M2FN>,
+                                    %arg2 : vector<8xf32>, %arg3 : i32, %arg4 : i32) {
+  // CHECK: rocdl.wmma.scale.f32.16x16x128.f8f6f4 {{.*}}, {{.*}}, %arg2, %arg3, %arg4 {fmtA = 2 : i32, fmtB = 2 : i32} : (vector<18xi32>, vector<18xi32>, vector<8xf32>, i32, i32) -> vector<8xf32>
+  %0 = amdgpu.scaled_wmma (%arg3 * %arg0) * (%arg4 * %arg0) + %arg2
+    { m = 16 : i32, n = 16 : i32, k = 128 : i32 } : i32, vector<96xf6E2M3FN>, i32, vector<96xf6E2M3FN>, vector<8xf32>
+
+  // CHECK: rocdl.wmma.scale.f32.16x16x128.f8f6f4 {{.*}}, {{.*}}, %arg2, %arg3, %arg4 {fmtA = 3 : i32, fmtB = 3 : i32} : (vector<18xi32>, vector<18xi32>, vector<8xf32>, i32, i32) -> vector<8xf32>
+  %1 = amdgpu.scaled_wmma (%arg3 * %arg1) * (%arg4 * %arg1) + %arg2
+    { m = 16 : i32, n = 16 : i32, k = 128 : i32 } : i32, vector<96xf6E3M2FN>, i32, vector<96xf6E3M2FN>, vector<8xf32>
+
+  func.return
+}
+
+// CHECK-LABEL: @wmma_scale_16x16x128_mixed
+func.func @wmma_scale_16x16x128_mixed(%arg0 : vector<64xf8E4M3FN>, %arg1 : vector<96xf6E2M3FN>,
+                                      %arg2 : vector<128xf4E2M1FN>, %arg3 : vector<8xf32>,
+                                      %arg4 : i32, %arg5 : i32) {
+  // CHECK: rocdl.wmma.scale.f32.16x16x128.f8f6f4 {{.*}}, {{.*}}, %arg3, %arg4, %arg5 {fmtB = 2 : i32} : (vector<16xi32>, vector<18xi32>, vector<8xf32>, i32, i32) -> vector<8xf32>
+  %0 = amdgpu.scaled_wmma (%arg4 * %arg0) * (%arg5 * %arg1) + %arg3
+    { m = 16 : i32, n = 16 : i32, k = 128 : i32 } : i32, vector<64xf8E4M3FN>, i32, vector<96xf6E2M3FN>, vector<8xf32>
+
+  // CHECK: rocdl.wmma.scale.f32.16x16x128.f8f6f4 {{.*}}, {{.*}}, %arg3, %arg4, %arg5 {fmtA = 2 : i32, fmtB = 4 : i32} : (vector<18xi32>, vector<16xi32>, vector<8xf32>, i32, i32) -> vector<8xf32>
+  %1 = amdgpu.scaled_wmma (%arg4 * %arg1) * (%arg5 * %arg2) + %arg3
+    { m = 16 : i32, n = 16 : i32, k = 128 : i32 } : i32, vector<96xf6E2M3FN>, i32, vector<128xf4E2M1FN>, vector<8xf32>
+
+  func.return
+}
+
+// CHECK-LABEL: @wmma_scale16_16x16x128_fp8
+func.func @wmma_scale16_16x16x128_fp8(%arg0 : vector<64xf8E4M3FN>, %arg1 : vector<64xf8E5M2>,
+                                      %arg2 : vector<8xf32>, %arg3 : i64, %arg4 : i64) {
+  // CHECK: rocdl.wmma.scale16.f32.16x16x128.f8f6f4 {{.*}}, {{.*}}, %arg2, %arg3, %arg4 : (vector<16xi32>, vector<16xi32>, vector<8xf32>, i64, i64) -> vector<8xf32>
+  %0 = amdgpu.scaled_wmma (%arg3 * %arg0) * (%arg4 * %arg0) + %arg2
+    { m = 16 : i32, n = 16 : i32, k = 128 : i32 } : i64, vector<64xf8E4M3FN>, i64, vector<64xf8E4M3FN>, vector<8xf32>
+
+  func.return
+}
+
+// CHECK-LABEL: @wmma_scale_32x16x128_fp4
+func.func @wmma_scale_32x16x128_fp4(%arg0 : vector<128xf4E2M1FN>, %arg1 : vector<16xf32>,
+                                    %arg2 : i32, %arg3 : i32) {
+  // CHECK: rocdl.wmma.scale.f32.32x16x128.f4 {{.*}}, {{.*}}, %arg1, %arg2, %arg3 {fmtA = 4 : i32, fmtB = 4 : i32} : (vector<16xi32>, vector<16xi32>, vector<16xf32>, i32, i32) -> vector<16xf32>
+  %0 = amdgpu.scaled_wmma (%arg2 * %arg0) * (%arg3 * %arg0) + %arg1
+    { m = 32 : i32, n = 16 : i32, k = 128 : i32 } : i32, vector<128xf4E2M1FN>, i32, vector<128xf4E2M1FN>, vector<16xf32>
+
+  func.return
+}
+
+// CHECK-LABEL: @wmma_scale16_32x16x128_fp4
+func.func @wmma_scale16_32x16x128_fp4(%arg0 : vector<128xf4E2M1FN>, %arg1 : vector<16xf32>,
+                                      %arg2 : i64, %arg3 : i64) {
+  // CHECK: rocdl.wmma.scale16.f32.32x16x128.f4 {{.*}}, {{.*}}, %arg1, %arg2, %arg3 {fmtA = 4 : i32, fmtB = 4 : i32} : (vector<16xi32>, vector<16xi32>, vector<16xf32>, i64, i64) -> vector<16xf32>
+  %0 = amdgpu.scaled_wmma (%arg2 * %arg0) * (%arg3 * %arg0) + %arg1
+    { m = 32 : i32, n = 16 : i32, k = 128 : i32 } : i64, vector<128xf4E2M1FN>, i64, vector<128xf4E2M1FN>, vector<16xf32>
+
+  func.return
+}

@@ -383,6 +383,69 @@ LogicalResult WMMAOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ScaledWMMAOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ScaledWMMAOp::verify() {
+  auto sourceAType = cast<VectorType>(getSourceA().getType());
+  auto sourceBType = cast<VectorType>(getSourceB().getType());
+  auto destType = cast<VectorType>(getDestC().getType());
+
+  // Validate dimensions
+  int64_t m = getM();
+  int64_t n = getN();
+  int64_t k = getK();
+
+  if (n != 16)
+    return emitOpError("N dimension must be 16");
+  if (k != 128)
+    return emitOpError("K dimension must be 128");
+  if (m != 16 && m != 32)
+    return emitOpError("M dimension must be 16 or 32");
+
+  // Validate output type is F32
+  if (!destType.getElementType().isF32())
+    return emitOpError("destination must have f32 element type");
+
+  // Validate source element types are small floats (fp4/fp6/fp8)
+  Type aElemType = sourceAType.getElementType();
+  Type bElemType = sourceBType.getElementType();
+
+  bool aIsSmallFloat = aElemType.isFloat(4) || aElemType.isFloat(6) ||
+                       aElemType.isFloat(8);
+  bool bIsSmallFloat = bElemType.isFloat(4) || bElemType.isFloat(6) ||
+                       bElemType.isFloat(8);
+
+  if (!aIsSmallFloat || !bIsSmallFloat)
+    return emitOpError("source operands must have small float element types "
+                       "(fp4/fp6/fp8)");
+
+  // Validate scale types match (both i32 or both i64)
+  Type scaleAType = getScaleA().getType();
+  Type scaleBType = getScaleB().getType();
+  if (scaleAType != scaleBType)
+    return emitOpError("scaleA and scaleB must have the same type");
+  if (!scaleAType.isInteger(32) && !scaleAType.isInteger(64))
+    return emitOpError("scale operands must be i32 or i64");
+
+  // Validate vector lengths based on dimensions
+  // For scaled_wmma, the output is always vector<8xf32> for 16x16x128 and
+  // vector<16xf32> for 32x16x128
+  int64_t expectedOutLen = (m == 16) ? 8 : 16;
+  if (destType.getNumElements() != expectedOutLen)
+    return emitOpError("expected output vector of length ")
+           << expectedOutLen << " but got " << destType.getNumElements();
+
+  // For 32x16x128, only fp4 is supported
+  if (m == 32) {
+    if (!aElemType.isFloat(4) || !bElemType.isFloat(4))
+      return emitOpError("32x16x128 only supports fp4 element types");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // MFMAOp
 //===----------------------------------------------------------------------===//
 LogicalResult MFMAOp::verify() {

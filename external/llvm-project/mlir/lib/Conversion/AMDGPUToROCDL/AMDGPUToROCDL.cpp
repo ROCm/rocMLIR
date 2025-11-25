@@ -1394,6 +1394,82 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
   }
 };
 
+struct ScaledWMMAOpLowering : public ConvertOpToLLVMPattern<ScaledWMMAOp> {
+  ScaledWMMAOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
+      : ConvertOpToLLVMPattern<ScaledWMMAOp>(converter), chipset(chipset) {}
+
+  Chipset chipset;
+
+  LogicalResult
+  matchAndRewrite(ScaledWMMAOp op, ScaledWMMAOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    auto outType =
+        typeConverter->convertType<VectorType>(op.getDestD().getType());
+    if (!outType)
+      return rewriter.notifyMatchFailure(op, "type conversion failed");
+
+    if (chipset < Chipset(12, 5, 0))
+      return op->emitOpError("WMMA scale only supported on gfx1250+");
+
+    int64_t m = op.getM();
+    int64_t n = op.getN();
+    int64_t k = op.getK();
+
+    Type aElemType = getElementTypeOrSelf(op.getSourceA().getType());
+    Type bElemType = getElementTypeOrSelf(op.getSourceB().getType());
+  
+    std::optional<uint32_t> aFmtCode = mfmaTypeSelectCode(aElemType);
+    std::optional<uint32_t> bFmtCode = mfmaTypeSelectCode(bElemType);
+  
+    if (!aFmtCode || !bFmtCode)
+      return op.emitOpError("unsupported element types for scaled_wmma");
+  
+    // Determine which intrinsic to use based on dimensions and scale type
+    StringRef intrinsicName;
+    bool isScale16 = adaptor.getScaleA().getType().isInteger(64);
+  
+    if (m == 16 && n == 16 && k == 128) {
+      intrinsicName = isScale16
+                ? ROCDL::wmma_scale16_f32_16x16x128_f8f6f4::getOperationName()
+                : ROCDL::wmma_scale_f32_16x16x128_f8f6f4::getOperationName();
+    } else if (m == 32 && n == 16 && k == 128) {
+      intrinsicName = isScale16
+                ? ROCDL::wmma_scale16_f32_32x16x128_f4::getOperationName()
+                : ROCDL::wmma_scale_f32_32x16x128_f4::getOperationName();
+    } else {
+      return op.emitOpError("unsupported scaled_wmma dimensions: ")
+             << m << "x" << n << "x" << k;
+    }
+
+    SmallVector<NamedAttribute, 8> attrs;
+
+    // Add format parameters as attributes (derived from original types)
+    attrs.push_back(rewriter.getNamedAttr(
+        "fmtA", rewriter.getI32IntegerAttr(*aFmtCode)));
+    attrs.push_back(rewriter.getNamedAttr(
+        "fmtB", rewriter.getI32IntegerAttr(*bFmtCode)));
+
+    // Convert typed float vectors to packed i32 format if needed
+    Value sourceA = convertMFMAVectorOperand(rewriter, loc,
+                                             adaptor.getSourceA());
+    Value sourceB = convertMFMAVectorOperand(rewriter, loc,
+                                             adaptor.getSourceB());
+
+    // Create the intrinsic call
+    OperationState loweredOp(loc, intrinsicName);
+    loweredOp.addTypes(outType);
+    loweredOp.addOperands({sourceA, sourceB, adaptor.getDestC(),
+                           adaptor.getScaleA(), adaptor.getScaleB()});
+    loweredOp.addAttributes(attrs);
+
+    Operation *lowered = rewriter.create(loweredOp);
+    rewriter.replaceOp(op, lowered->getResults());
+
+    return success();
+  }
+};
+
 struct TransposeLoadOpLowering
     : public ConvertOpToLLVMPattern<TransposeLoadOp> {
   TransposeLoadOpLowering(const LLVMTypeConverter &converter, Chipset chipset)
@@ -2191,10 +2267,11 @@ void mlir::populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                ROCDL::RawPtrBufferAtomicCmpSwap>,
            AMDGPUDPPLowering, MemoryCounterWaitOpLowering,
            SchedBarrierOpLowering, MFMAOpLowering, ScaledMFMAOpLowering,
-           WMMAOpLowering, ExtPackedFp8OpLowering, ScaledExtPackedOpLowering,
-           PackedScaledTruncOpLowering, PackedTrunc2xFp8OpLowering,
-           PackedStochRoundFp8OpLowering, GatherToLDSOpLowering,
-           TransposeLoadOpLowering, AMDGPUPermlaneLowering>(converter, chipset);
+           WMMAOpLowering, ScaledWMMAOpLowering, ExtPackedFp8OpLowering,
+           ScaledExtPackedOpLowering, PackedScaledTruncOpLowering,
+           PackedTrunc2xFp8OpLowering, PackedStochRoundFp8OpLowering,
+           GatherToLDSOpLowering, TransposeLoadOpLowering,
+           AMDGPUPermlaneLowering>(converter, chipset);
   patterns.add<LDSBarrierOpLowering>(converter, chipset, hackForDirectToLDS);
   patterns.add<AMDGPUSwizzleBitModeLowering>(converter);
 }

@@ -1076,4 +1076,62 @@ def AMDGPU_ScaledMFMAOp :
   }];
   let hasCanonicalizer = 1;
 }
+
+// scaled_wmma
+def ScaledWMMAInTypes : AnyTypeOf<[VectorOfLengthAndType<[32, 48, 64], [F8E5M2, F8E4M3FN]>,
+                                   VectorOfLengthAndType<[48, 64, 96], [F6E2M3FN, F6E3M2FN]>,
+                                   VectorOfLengthAndType<[64, 96, 128], [F4E2M1FN]>]>;
+def ScaledWMMAOutTypes : AnyTypeOf<[VectorOfLengthAndType<[8, 16], [F32]>]>;
+
+def AMDGPU_ScaledWMMAOp :
+    AMDGPU_Op<"scaled_wmma", [AllTypesMatch<["destC", "destD"]>,
+                              Pure]>,
+    Arguments<(ins
+                   I32Attr:$m,
+                   I32Attr:$n,
+                   I32Attr:$k,
+                   ScaledWMMAInTypes:$sourceA,
+                   ScaledWMMAInTypes:$sourceB,
+                   ScaledWMMAOutTypes:$destC,
+                   AnyTypeOf<[I32, I64]>:$scaleA,
+                   AnyTypeOf<[I32, I64]>:$scaleB
+                   )>,
+    Results<(outs ScaledWMMAOutTypes: $destD)> {
+  let summary = "MLIR wrapper for gfx1250 scaled wmma instructions";
+  let description = [{
+    The `amdgpu.scaled_wmma` op is an MLIR wrapper around intrinsics for scaled
+    `wmma` instructions in the gfx1250 architecture. These instructions perform
+    matrix multiplication with per-block scaling of inputs, supporting fp4, fp6,
+    and fp8 data formats.
+
+    The scale instructions support two tile sizes:
+    - 16x16x128 with mixed f8/f6/f4 formats (output: vector<8xf32>)
+    - 32x16x128 with f4 format only (output: vector<16xf32>)
+
+    The data format is determined by the element type of sourceA and sourceB:
+    - f8E4M3FN -> format 0
+    - f8E5M2   -> format 1
+    - f6E2M3FN -> format 2
+    - f6E3M2FN -> format 3
+    - f4E2M1FN -> format 4
+
+    The `scaleA` and `scaleB` parameters are scale exponents that can be either
+    i32 (for wmma.scale) or i64 (for wmma.scale16) to support per-block scaling.
+
+    Example:
+    ```mlir
+      %0 = amdgpu.scaled_wmma (%sa * %matA) * (%sb * %matB) + %matC
+        { m = 16, n = 16, k = 128 } : i32, vector<64xf8E4M3FN>, i32, vector<64xf8E4M3FN>, vector<8xf32>
+
+      %1 = amdgpu.scaled_wmma (%sc * %matD) * (%sd * %matE) + %matF
+        { m = 32, n = 16, k = 128 } : i32, vector<128xf4E2M1FN>, i32, vector<128xf4E2M1FN>, vector<16xf32>
+    ```
+  }];
+  let assemblyFormat = [{
+    `(` $scaleA `*` $sourceA `)` `*` `(` $scaleB `*` $sourceB `)` `+` $destC
+    attr-dict
+    `:` type($scaleA) `,` type($sourceA) `,` type($scaleB) `,` type($sourceB) `,` type($destC)
+  }];
+  let hasVerifier = 1;
+}
 #endif // AMDGPU
