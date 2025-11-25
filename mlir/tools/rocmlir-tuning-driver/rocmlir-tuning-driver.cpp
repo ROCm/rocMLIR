@@ -441,6 +441,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   }
 
   if (params.showStats) {
+    // We cannot show stats because the small kernel case uses one timer
+    // only, so we cannot actually compute the min, max, etc.
     if (isSmallKernel) {
       llvm::outs() << "show-stats not avaiable for small kernels\t";
     }
