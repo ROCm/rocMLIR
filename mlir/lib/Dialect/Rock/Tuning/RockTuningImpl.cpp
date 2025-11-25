@@ -865,11 +865,19 @@ static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
           continue;
         }
 
-        // Validate the output fusion
-        SmallVector<std::tuple<Operation *, int>> adds;
-        if (failed(rock::checkValidOutputFusion(genericOp,
-                                                currentUnderlyingAlloc,
-                                                features, adds))) {
+        // For reduction fusion detection, we just need to validate that this is
+        // an elementwise operation.
+        bool isValidElementwise = true;
+        Block &body = genericOp.getRegion().front();
+        for (Operation &nestedOp : body.without_terminator()) {
+          if (!rock::validOperationGemmOut(nestedOp) &&
+              !isa<arith::ConstantOp>(nestedOp)) {
+            isValidElementwise = false;
+            break;
+          }
+        }
+        
+        if (!isValidElementwise) {
           continue;
         }
 
@@ -889,12 +897,12 @@ static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
           SmallVector<Value> outputViews;
           DenseSet<Value> outputViewVisited;
           collectAllViewsOfAlloc(outputUnderlyingAlloc, outputViews,
-                                 outputViewVisited);
+                                  outputViewVisited);
           
           // Add all views of the output to the worklist
           for (Value outputView : outputViews) {
             worklist.push_back({outputView, /*hasPointwiseSoFar=*/true,
-                                outputUnderlyingAlloc});
+                                 outputUnderlyingAlloc});
           }
         }
         continue;
