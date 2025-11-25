@@ -15,7 +15,6 @@ from typing import Iterable, Optional
 from perfRunner import get_arch, get_chip, get_num_cu
 from perfCommonUtils import Operation
 
-
 # Global variables
 
 # Set default paths to configuration files
@@ -169,7 +168,8 @@ def resolve_paths(args):
 
 def main(argv=None):
     args = parse_args(argv)
-    new_configs, conv_configs, gemm_configs, gemm_gemm_configs, conv_gemm_configs, attn_configs = resolve_paths(args)
+    new_configs, conv_configs, gemm_configs, gemm_gemm_configs, conv_gemm_configs, attn_configs = resolve_paths(
+        args)
 
     # Load existing configs
     existing_conv = load_existing_configs(conv_configs)
