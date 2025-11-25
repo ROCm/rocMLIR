@@ -1,4 +1,5 @@
 // RUN: mlir-opt %s \
+// RUN: | mlir-opt -convert-scf-to-cf \
 // RUN: | mlir-opt -gpu-kernel-outlining \
 // RUN: | mlir-opt -pass-pipeline='builtin.module(gpu.module(strip-debuginfo,convert-gpu-to-rocdl),rocdl-attach-target{chip=%chip})' \
 // RUN: | mlir-opt -gpu-to-llvm -reconcile-unrealized-casts -gpu-module-to-binary \
@@ -27,6 +28,13 @@ func.func @main() {
   %22 = memref.cast %arg0 : memref<5xf32> to memref<?xf32>
   %cast = memref.cast %22 : memref<?xf32> to memref<*xf32>
   gpu.host_register %cast : memref<*xf32>
+  %zero = arith.constant 0.0 : f32
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c5 = arith.constant 5 : index
+  scf.for %i = %c0 to %c5 step %c1 {
+    memref.store %zero, %22[%i] : memref<?xf32>
+  }
   %23 = memref.cast %22 : memref<?xf32> to memref<*xf32>
   call @printMemrefF32(%23) : (memref<*xf32>) -> ()
   %24 = arith.constant 1.0 : f32
