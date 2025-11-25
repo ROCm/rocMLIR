@@ -722,8 +722,8 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
 
     // gfx1250 additionally supports F32, and FP4
     if (isGfx1250) {
-      isValidTypeA = isValidTypeA || elemTypeA.isF32() ||
-                     isa<Float4E2M1FNType>(elemTypeA);
+      isValidTypeA =
+          isValidTypeA || elemTypeA.isF32() || isa<Float4E2M1FNType>(elemTypeA);
     }
 
     // gfx11 doesn't support float8 types
@@ -749,12 +749,13 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
     // Validate mixed types
     if (elemTypeA != elemTypeB) {
       // gfx1250 allows mixed precision for small float types
-      bool allowMixed = isGfx1250 && isSmallFloat(elemTypeA) && 
-                        isSmallFloat(elemTypeB);
+      bool allowMixed =
+          isGfx1250 && isSmallFloat(elemTypeA) && isSmallFloat(elemTypeB);
       if (!allowMixed)
-        return op->emitOpError(isGfx1250 ? "Wmma on gfx1250 supports mixed "
-                                           "types only for small float combinations"
-                                         : "Wmma does not support mixed types");
+        return op->emitOpError(isGfx1250
+                                   ? "Wmma on gfx1250 supports mixed "
+                                     "types only for small float combinations"
+                                   : "Wmma does not support mixed types");
     }
   }
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {

@@ -1095,20 +1095,20 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
   Value vectorD;
-  
+
   if (wmmaInsn.isScaled) {
     // Scaled WMMA intrinsic selected
     // Use provided scales if available, otherwise use default (0 = identity)
     Value scaleAVal = scaleA;
     Value scaleBVal = scaleB;
-    
+
     if (!scaleAVal || !scaleBVal) {
       // No scales provided - use default scale value 0 (identity/no scaling)
       Value defaultScale = b.create<arith::ConstantIntOp>(loc, 0, 32);
       scaleAVal = scaleAVal ? scaleAVal : defaultScale;
       scaleBVal = scaleBVal ? scaleBVal : defaultScale;
     }
-    
+
     auto wmma = amdgpu::ScaledWMMAOp::create(
         b, loc, vectorType, wmmaInsn.mPerAccel, wmmaInsn.nPerAccel,
         wmmaInsn.kDim, argA, argB, vectorC, scaleAVal, scaleBVal);
