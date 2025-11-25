@@ -5507,6 +5507,14 @@ int main(int argc, char **argv) {
     module = ModuleOp::create(UnknownLoc::get(&context));
   }
 
+  if (kernelRepeats.getNumOccurrences() > 0 && !genCPUValidation &&
+      !genHostHarness) {
+    llvm::errs()
+        << "--kernel-repeats is only supported with host harness (-ph) or "
+           "CPU validation (-pv).\n";
+    return EXIT_FAILURE;
+  }
+
   if (genCloneHarness.getValue()) {
     populateCloneHarnessLogic(*module);
   } else if (!hasUserKernel) {
