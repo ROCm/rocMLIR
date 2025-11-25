@@ -700,7 +700,7 @@ def get_gemm_configurations(filename,
 
                 # Skip unsupported datatypes
                 if datatype == 'f4E2M1FN':
-                    ## TODO: use information from AMDArchDB when it becomes available to determine supported chips
+                    # TODO: use information from AMDArchDB when it becomes available to determine supported chips
                     supported_chips = {'gfx950'}
                     if get_chip() not in supported_chips:
                         continue
