@@ -365,6 +365,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
 
   // Measure runs
   std::vector<float> measurements;
+  float smallKernelCpuMs = 0.0f;
 
   // Depending on the runtime of the kernel
   // we use a different approach to measure the runs.
@@ -395,11 +396,10 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
 
     HIPCHECK(hipStreamSynchronize(stream));
-    float totalMilliseconds =
-        std::chrono::duration<float, std::milli>(
-            std::chrono::steady_clock::now() - iterationStart)
-            .count();
-    measurements.push_back(totalMilliseconds / iterations);
+    smallKernelCpuMs = std::chrono::duration<float, std::milli>(
+                           std::chrono::steady_clock::now() - iterationStart)
+                           .count();
+    measurements.push_back(smallKernelCpuMs / iterations);
   } else {
     // Measure runs normally.
     for (unsigned iter = 0; iter < iterations; ++iter) {
@@ -441,10 +441,11 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   }
 
   if (params.showStats) {
-    // We cannot show stats because the small kernel case uses one timer
-    // only, so we cannot actually compute the min, max, etc.
+    // We cannot show the rest of the stats because the small kernel case uses
+    // one timer only, so we cannot actually compute the min, max, etc.
     if (isSmallKernel) {
-      llvm::outs() << "show-stats not avaiable for small kernels\t";
+      llvm::outs() << "[total CPUTime: " << smallKernelCpuMs
+                   << "iterations: " << iterations << "]\t";
     }
     if (measurements.size() > 1) {
       float median = computeMedian(measurements);
