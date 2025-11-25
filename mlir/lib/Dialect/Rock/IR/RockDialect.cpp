@@ -720,9 +720,11 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
     bool isValidTypeA = elemTypeA.isF16() || elemTypeA.isBF16() ||
                         elemTypeA.isInteger(8) || isFloat8Type(elemTypeA);
 
-    // gfx1250 additionally supports F32
-    if (isGfx1250)
-      isValidTypeA = isValidTypeA || elemTypeA.isF32();
+    // gfx1250 additionally supports F32, and FP4
+    if (isGfx1250) {
+      isValidTypeA = isValidTypeA || elemTypeA.isF32() ||
+                     isa<Float4E2M1FNType>(elemTypeA);
+    }
 
     // gfx11 doesn't support float8 types
     if (isGfx11 && isFloat8Type(elemTypeA))
@@ -733,19 +735,25 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
         return op->emitOpError("Wmma supports only F16/BF16/int8 data types");
       if (isGfx1250)
         return op->emitOpError(
-            "Wmma supports only F32/F16/BF16/int8/E4M3/E5M2 data types");
+            "Wmma supports only F32/F16/BF16/int8/FP8/BF8/FP4 data types");
       return op->emitOpError(
           "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
 
+    // Helper to check if type is a small float (FP8, BF8, FP4)
+    auto isSmallFloat = [](Type ty) {
+      return isFloat8Type(ty) || isa<Float4E2M1FNType>(ty) ||
+             isa<Float6E2M3FNType, Float6E3M2FNType>(ty);
+    };
+
     // Validate mixed types
     if (elemTypeA != elemTypeB) {
-      // gfx1250 allows mixed precision for float8 types only
-      bool allowMixed =
-          isGfx1250 && isFloat8Type(elemTypeA) && isFloat8Type(elemTypeB);
+      // gfx1250 allows mixed precision for small float types
+      bool allowMixed = isGfx1250 && isSmallFloat(elemTypeA) && 
+                        isSmallFloat(elemTypeB);
       if (!allowMixed)
         return op->emitOpError(isGfx1250 ? "Wmma on gfx1250 supports mixed "
-                                           "types only for FP8/BF8 combinations"
+                                           "types only for small float combinations"
                                          : "Wmma does not support mixed types");
     }
   }

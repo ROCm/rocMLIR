@@ -385,12 +385,21 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
   }
 
   if (isWmma) {
-    if (!(isa<Float16Type, BFloat16Type>(elementType) ||
-          elementType.isInteger(8) ||
-          (hasFp8ConversionInstrs &&
-           isa<Float8E5M2FNUZType, Float8E4M3FNUZType>(elementType)) ||
-          (hasOcpFp8ConversionInstrs &&
-           isa<Float8E5M2Type, Float8E4M3FNType>(elementType)))) {
+    bool isValidWmmaType = 
+        isa<Float16Type, BFloat16Type>(elementType) ||
+        elementType.isInteger(8) ||
+        (hasFp8ConversionInstrs &&
+         isa<Float8E5M2FNUZType, Float8E4M3FNUZType>(elementType)) ||
+        (hasOcpFp8ConversionInstrs &&
+         isa<Float8E5M2Type, Float8E4M3FNType>(elementType));
+
+    if (hasScaledGemm) {
+      isValidWmmaType = isValidWmmaType ||
+                        isa<Float4E2M1FNType>(elementType) ||
+                        isa<Float6E2M3FNType, Float6E3M2FNType>(elementType);
+    }
+    
+    if (!isValidWmmaType) {
       theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::wmma);
     }
   }

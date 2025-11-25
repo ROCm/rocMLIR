@@ -68,10 +68,6 @@ static WmmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
   bool aIsBf8 = isa<Float8E5M2Type>(dataTypeA);
   bool bIsFp8 = isa<Float8E4M3FNType>(dataTypeB);
   bool bIsBf8 = isa<Float8E5M2Type>(dataTypeB);
-  bool aIsFp6 = isa<Float6E2M3FNType>(dataTypeA) ||
-                isa<Float6E3M2FNType>(dataTypeA);
-  bool bIsFp6 = isa<Float6E2M3FNType>(dataTypeB) ||
-                isa<Float6E3M2FNType>(dataTypeB);
   bool aIsFp4 = dataTypeA.isFloat(4);
   bool bIsFp4 = dataTypeB.isFloat(4);
   
@@ -87,9 +83,9 @@ static WmmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
       return WmmaTypeId::Bf8Bf8_To_F32_TyId;
   }
   
-  // Any combination involving FP4 or FP6 (with or without FP8/BF8)
+  // Any combination involving FP4 (with or without FP8/BF8)
   // These REQUIRE the scaled f8f6f4 intrinsic (no regular version exists)
-  if (aIsFp4 || bIsFp4 || aIsFp6 || bIsFp6)
+  if (aIsFp4 || bIsFp4)
     return WmmaTypeId::SmallFloat_To_F32_TyId;
 
   llvm_unreachable("Unsupported WMMA input type combination");
@@ -162,7 +158,7 @@ getWmmaInsnMapGfx1250() {
        {ROCDL::wmma_f32_16x16x128_bf8_bf8::getOperationName(), 64, 8, 16, 16, /*isScaled=*/false}},
 
       // Small float scaled WMMA (k=128)
-      // This covers FP4, FP6, and mixed combinations (FP8+FP6, FP8+FP4, FP6+FP4, etc.)
+      // This covers FP4, and mixed combinations (FP8+FP4, etc.)
       {{WmmaTypeId::SmallFloat_To_F32_TyId, 128},
        {ROCDL::wmma_scale_f32_16x16x128_f8f6f4::getOperationName(), 64, 8, 16, 16, /*isScaled=*/true}},
 
