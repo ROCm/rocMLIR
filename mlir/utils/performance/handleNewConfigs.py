@@ -142,7 +142,7 @@ def resolve_paths(args):
         gemm_path = os.path.join(args.configs_dir, f"{GEMM_FILE_NAME}")
     else:
         gemm_path = GEMM_CONFIGS_DEFAULT
-    
+
     if args.gemm_gemm:
         gemm_gemm_path = args.gemm_gemm
     elif args.configs_dir:
@@ -156,7 +156,7 @@ def resolve_paths(args):
         conv_gemm_path = os.path.join(args.configs_dir, f"{CONV_GEMM_FILE_NAME}")
     else:
         conv_gemm_path = CONV_GEMM_CONFIGS_DEFAULT
-    
+
     if args.attn:
         attn_path = args.attn
     elif args.configs_dir:
@@ -222,13 +222,13 @@ def main(argv=None):
     _append_configs(conv_gemm_configs, new_conv_gemm)
     _append_configs(attn_configs, new_attn)
 
-    print(f"Added:")
+    print("Added:")
     print(f"    {len(new_conv)} conv configs.")
     print(f"    {len(new_gemm)} gemm configs.")
     print(f"    {len(new_attn)} attention configs.")
     print(f"    {len(new_gemm_gemm)} gemm+gemm configs.")
     print(f"    {len(new_conv_gemm)} conv+gemm configs.")
-    
+
     if unrecognized_configs:
         print(f"\nWarning: {len(unrecognized_configs)} unrecognized config(s) were skipped.")
         print("Unrecognized configs:")
