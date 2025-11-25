@@ -387,6 +387,12 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     // at once, using CPU timers.
     auto iterationStart = std::chrono::steady_clock::now();
     for (unsigned iter = 0; iter < iterations; ++iter) {
+      if (failed(flushInstructionCache(stream))) {
+        return failure();
+      }
+      if (failed(flushL2Cache(stream))) {
+        return failure();
+      }
       for (auto [func, blockSize, gridSize] :
            llvm::zip(functions, blockSizes, gridSizes)) {
         HIPCHECK(hipExtModuleLaunchKernel(
