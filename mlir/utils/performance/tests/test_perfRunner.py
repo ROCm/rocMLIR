@@ -109,7 +109,7 @@ def test_gemm_configuration_command_generation():
     assert "-scale_a_dtype f32" in round_trip
     assert "-scale_b_dtype f8E8M0FNU" in round_trip
     assert "-transScaleA true" in round_trip
-    assert "-transScaleB" not in round_trip
+    assert "-transScaleB" not in round_trip  # only emitted when True
 
 
 def test_attention_configuration_command_generation(monkeypatch):
