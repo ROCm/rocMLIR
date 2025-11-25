@@ -946,9 +946,9 @@ class GemmConfiguration(PerfConfiguration):
         if self.scale_b_dtype:
             result += f' -scale_b_dtype {self.scale_b_dtype}'
         if self.trans_scale_a:
-            result += f' -transScaleA {str(self.trans_scale_a).lower()}'
+            result += f' -transScaleA {str(self.trans_scale_a)}'
         if self.trans_scale_b:
-            result += f' -transScaleB {str(self.trans_scale_b).lower()}'
+            result += f' -transScaleB {str(self.trans_scale_b)}'
 
         result += ' '
         if rocmlir_gen_flags != '':
@@ -1195,8 +1195,8 @@ class ConvGemmConfiguration(PerfConfiguration):
             f"--perf_config={self.perfconfig}"
         ])
         result += ' '
-        if rocmlir_gen_flags:
-            result += ' '.join(rocmlir_gen_flags.split()) + ' '
+        if rocmlir_gen_flags != '':
+            result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
@@ -1366,8 +1366,8 @@ class GemmGemmConfiguration(PerfConfiguration):
             f"--perf_config={self.perfconfig}"
         ])
         result += ' '
-        if rocmlir_gen_flags:
-            result += ' '.join(rocmlir_gen_flags.split()) + ' '
+        if rocmlir_gen_flags != '':
+            result += ' '.join(rocmlir_gen_flags.split())
         return result
 
     @classmethod
