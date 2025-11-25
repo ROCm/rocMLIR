@@ -32,9 +32,11 @@ enum class TuningParamSetKind : uint32_t {
   // configurations that have been shown not to yield good performance.
   // (Note: this filtering is currently unimplemented).
   Full = 1,
+  // A greedy approach that explores exhaustive tuning space.
+  Greedy = 2,
   // A tuning space consisting of all possible sets of tuning parameters,
   // excluding those that could not be applicable to the given problem.
-  Exhaustive = 2,
+  Exhaustive = 3,
 };
 
 // Parameter container holding a parameter and serialized string
@@ -49,7 +51,13 @@ struct TuningParamSet {
   KernelType primaryOpType;
 };
 
-TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind);
+// Get the number of iterations needed for a given tuning kind
+unsigned getNumberOfIterations(TuningParamSetKind kind);
+
+// Modified function signature to support multiple iterations
+TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
+                                        unsigned iteration = 0,
+                                        StringRef winningConfig = "");
 // Get a parameters from the set of tunable parameters.
 bool tuningGetParam(TuningParamSet *tuningSpace, unsigned pos,
                     ParamEntry *paramEntry);
