@@ -1708,6 +1708,7 @@ def run_config_with_mlir(config: PerfConfiguration,
     kernel_repeats = MLIR_N_REPEATS if use_host_verification else None
 
     commandline_options = config.generate_mlir_driver_commandline(rocmlir_gen_flags, kernel_repeats)
+    rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
 
@@ -1717,7 +1718,6 @@ def run_config_with_mlir(config: PerfConfiguration,
     if use_tuning_driver:
         if debug:
             print("Using HIP timing for benchmarking")
-        rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
         tuning_driver_command = [
             paths.mlir_paths.rocmlir_tuning_driver_path, f'--benchmark-config={config.perfconfig}',
             f'--num-iterations={MLIR_N_REPEATS}', f'--warmup-iterations={WARMUP_ITERATIONS}',
@@ -1735,7 +1735,6 @@ def run_config_with_mlir(config: PerfConfiguration,
     else:
         if debug:
             print("Using rocprof for benchmarking")
-        rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
         rocmlir_driver_cmd = [paths.mlir_paths.rocmlir_driver_path, '-c']
         mlir_cpu_runner_args = [
             f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}',
