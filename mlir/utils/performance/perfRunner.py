@@ -482,7 +482,7 @@ class ConvConfiguration(PerfConfiguration):
             'wrw': '--operation conv_bwd_weight'
         }[self.direction]
 
-        parts = [
+        result = ' '.join([
             direction, '-t', self.datatype, '--arch', self.arch, '--num_cu',
             str(self.num_cu), '--fil_layout', self.filter_layout, '--in_layout', self.input_layout,
             '--out_layout', self.output_layout, '--batchsize',
@@ -499,13 +499,10 @@ class ConvConfiguration(PerfConfiguration):
             str(self.conv_stride_w), '--padding_h',
             str(self.padding_h), '--padding_w',
             str(self.padding_w), '--groupsize',
-            str(self.group)
-        ]
-        if kernel_repeats is not None:
-            parts.append(f"--kernel-repeats={kernel_repeats}")
-        parts.append(f"--perf_config={self.perfconfig}")
-
-        result = ' '.join(parts)
+            str(self.group),
+            *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
+            f"--perf_config={self.perfconfig}"
+        ])
         result += ' '
         if rocmlir_gen_flags != '':
             result += ' '.join(rocmlir_gen_flags.split())
@@ -930,32 +927,28 @@ class GemmConfiguration(PerfConfiguration):
         self.perfconfig = perf_config
 
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
-        cmd_parts = [
+        result = ' '.join([
             '-operation', 'gemm', '-t', self.datatype, '-out_datatype', self.out_dtype, '--arch',
             self.arch, '--num_cu',
             str(self.num_cu), '-g',
             str(self.g), '-m',
             str(self.m), '-k',
             str(self.k), '-n',
-            str(self.n), f"-transA={self.trans_a}", f"-transB={self.trans_b}"
-        ]
+            str(self.n), f"-transA={self.trans_a}", f"-transB={self.trans_b}",
+            *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
+            f"--perf_config={self.perfconfig}"
+        ])
 
         if self.scaled_gemm:
-            cmd_parts.append('-scaledGemm')
+            result += ' -scaledGemm'
         if self.scale_a_dtype:
-            cmd_parts.extend(['-scale_a_dtype', self.scale_a_dtype])
+            result += f' -scale_a_dtype {self.scale_a_dtype}'
         if self.scale_b_dtype:
-            cmd_parts.extend(['-scale_b_dtype', self.scale_b_dtype])
+            result += f' -scale_b_dtype {self.scale_b_dtype}'
         if self.trans_scale_a:
-            cmd_parts.append(f"-transScaleA={self.trans_scale_a}")
+            result += f' -transScaleA {str(self.trans_scale_a).lower()}'
         if self.trans_scale_b:
-            cmd_parts.append(f"-transScaleB={self.trans_scale_b}")
-
-        if kernel_repeats is not None:
-            cmd_parts.append(f"--kernel-repeats={kernel_repeats}")
-        cmd_parts.append(f"--perf_config={self.perfconfig}")
-
-        result = ' '.join(cmd_parts)
+            result += f' -transScaleB {str(self.trans_scale_b).lower()}'
 
         result += ' '
         if rocmlir_gen_flags != '':
@@ -1188,7 +1181,7 @@ class ConvGemmConfiguration(PerfConfiguration):
         self.perfconfig = perf_config
 
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
-        parts = [
+        result = ' '.join([
             '-operation', 'conv_gemm', '-t', self.datatype, '--arch', self.arch,
             f'--num_cu={self.num_cu}', f'--fil_layout={self.filter_layout}',
             f'--in_layout={self.input_layout}', f'--transC={self.trans_c}',
@@ -1197,15 +1190,13 @@ class ConvGemmConfiguration(PerfConfiguration):
             f'--fil_h={self.y}', f'--fil_w={self.x}', f'--dilation_h={self.dilation_h}',
             f'--dilation_w={self.dilation_w}', f'--conv_stride_h={self.conv_stride_h}',
             f'--conv_stride_w={self.conv_stride_w}', f'--padding_h={self.padding_h}',
-            f'--padding_w={self.padding_w}', f'--groupsize={self.group}', f'--gemmO={self.o}'
-        ]
-        if kernel_repeats is not None:
-            parts.append(f'--kernel-repeats={kernel_repeats}')
-        parts.append(f"--perf_config={self.perfconfig}")
-        result = ' '.join(parts)
+            f'--padding_w={self.padding_w}', f'--groupsize={self.group}', f'--gemmO={self.o}',
+            *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
+            f"--perf_config={self.perfconfig}"
+        ])
         result += ' '
-        if rocmlir_gen_flags != '':
-            result += ' '.join(rocmlir_gen_flags.split())
+        if rocmlir_gen_flags:
+            result += ' '.join(rocmlir_gen_flags.split()) + ' '
         return result
 
     @classmethod
@@ -1362,7 +1353,7 @@ class GemmGemmConfiguration(PerfConfiguration):
         self.perfconfig = perf_config
 
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
-        parts = [
+        result = ' '.join([
             '-operation', 'gemm_gemm', '-t', self.datatype, '--arch', self.arch, '--num_cu',
             str(self.num_cu), '-g',
             str(self.g), '-m',
@@ -1370,15 +1361,13 @@ class GemmGemmConfiguration(PerfConfiguration):
             str(self.k), '-n',
             str(self.n), '-gemmO',
             str(self.o), f"-transA={self.trans_a}", f"-transB={self.trans_b}",
-            f"-transC={self.trans_c}", f"-transO={self.trans_o}"
-        ]
-        if kernel_repeats is not None:
-            parts.append(f"--kernel-repeats={kernel_repeats}")
-        parts.append(f"--perf_config={self.perfconfig}")
-        result = ' '.join(parts)
+            f"-transC={self.trans_c}", f"-transO={self.trans_o}",
+            *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
+            f"--perf_config={self.perfconfig}"
+        ])
         result += ' '
-        if rocmlir_gen_flags != '':
-            result += ' '.join(rocmlir_gen_flags.split())
+        if rocmlir_gen_flags:
+            result += ' '.join(rocmlir_gen_flags.split()) + ' '
         return result
 
     @classmethod
@@ -1532,7 +1521,7 @@ class AttentionConfiguration(PerfConfiguration):
         self.perfconfig = perf_config
 
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
-        parts = [
+        result = ' '.join([
             '-operation', 'attention', '-t', self.datatype, '--arch', self.arch, '--num_cu',
             str(self.num_cu), '-g',
             str(self.g), '-seq_len_q',
