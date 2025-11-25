@@ -1090,32 +1090,47 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
                                      ValueRange regCOffset, Value scaleA,
                                      Value scaleB) {
-  bool isScaled = scaleA && scaleB;
-  if (isScaled) {
-    llvm::report_fatal_error(
-        "Scaled WMMA not implemented yet for WMMA Emitter");
-  }
-
   VectorType vectorType = wmmaInsn.retType;
   auto vectorC =
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
-  // WMMAOp requires explicit m, n, k dimensions as IntegerAttrs
-  auto mAttr = b.getI32IntegerAttr(wmmaInsn.mPerAccel);
-  auto nAttr = b.getI32IntegerAttr(wmmaInsn.nPerAccel);
-  auto kAttr = b.getI32IntegerAttr(wmmaInsn.kDim);
-  auto subwordOffsetAttr = b.getI32IntegerAttr(0);
+  Value vectorD;
+  
+  if (wmmaInsn.isScaled) {
+    // Scaled WMMA intrinsic selected
+    // Use provided scales if available, otherwise use default (0 = identity)
+    Value scaleAVal = scaleA;
+    Value scaleBVal = scaleB;
+    
+    if (!scaleAVal || !scaleBVal) {
+      // No scales provided - use default scale value 0 (identity/no scaling)
+      Value defaultScale = b.create<arith::ConstantIntOp>(loc, 0, 32);
+      scaleAVal = scaleAVal ? scaleAVal : defaultScale;
+      scaleBVal = scaleBVal ? scaleBVal : defaultScale;
+    }
+    
+    auto wmma = amdgpu::ScaledWMMAOp::create(
+        b, loc, vectorType, wmmaInsn.mPerAccel, wmmaInsn.nPerAccel,
+        wmmaInsn.kDim, argA, argB, vectorC, scaleAVal, scaleBVal);
+    vectorD = wmma.getDestD();
+  } else {
+    // Regular (non-scaled) WMMA operation
+    auto mAttr = b.getI32IntegerAttr(wmmaInsn.mPerAccel);
+    auto nAttr = b.getI32IntegerAttr(wmmaInsn.nPerAccel);
+    auto kAttr = b.getI32IntegerAttr(wmmaInsn.kDim);
+    auto subwordOffsetAttr = b.getI32IntegerAttr(0);
 
-  // Clamp flag is only valid for integer output types
-  Type elementType = vectorType.getElementType();
-  UnitAttr clampAttr =
-      isa<IntegerType>(elementType) ? b.getUnitAttr() : nullptr;
+    // Clamp flag is only valid for integer output types
+    Type elementType = vectorType.getElementType();
+    UnitAttr clampAttr =
+        isa<IntegerType>(elementType) ? b.getUnitAttr() : nullptr;
 
-  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, mAttr, nAttr, kAttr,
-                                     argA, argB, vectorC, subwordOffsetAttr,
-                                     /*unsignedA=*/nullptr,
-                                     /*unsignedB=*/nullptr, clampAttr);
-  auto vectorD = mfma.getDestD();
+    auto wmma = amdgpu::WMMAOp::create(b, loc, vectorType, mAttr, nAttr, kAttr,
+                                       argA, argB, vectorC, subwordOffsetAttr,
+                                       /*unsignedA=*/nullptr,
+                                       /*unsignedB=*/nullptr, clampAttr);
+    vectorD = wmma.getDestD();
+  }
 
   memref::StoreOp::create(b, loc, vectorD, bufferC, regCOffset);
 }

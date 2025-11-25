@@ -38,6 +38,10 @@ static Type getRetType(Type inputType, WmmaTypeId typeId) {
       typeId == WmmaTypeId::Bf16_To_Bf16F32_TyId)
     return b.getBF16Type();
 
+  // Small float scaled WMMA always outputs F32
+  if (typeId == WmmaTypeId::SmallFloat_To_F32_TyId)
+    return b.getF32Type();
+
   // Default: F32 output
   return b.getF32Type();
 }
@@ -59,15 +63,34 @@ static WmmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
       return WmmaTypeId::I4_To_I32_TyId;
   }
 
-  // Mixed precision FP8/BF8 combinations
-  if (isa<Float8E4M3FNType>(dataTypeA) && isa<Float8E4M3FNType>(dataTypeB))
-    return WmmaTypeId::Fp8Fp8_To_F32_TyId;
-  if (isa<Float8E4M3FNType>(dataTypeA) && isa<Float8E5M2Type>(dataTypeB))
-    return WmmaTypeId::Fp8Bf8_To_F32_TyId;
-  if (isa<Float8E5M2Type>(dataTypeA) && isa<Float8E4M3FNType>(dataTypeB))
-    return WmmaTypeId::Bf8Fp8_To_F32_TyId;
-  if (isa<Float8E5M2Type>(dataTypeA) && isa<Float8E5M2Type>(dataTypeB))
-    return WmmaTypeId::Bf8Bf8_To_F32_TyId;
+  // Check for small float types
+  bool aIsFp8 = isa<Float8E4M3FNType>(dataTypeA);
+  bool aIsBf8 = isa<Float8E5M2Type>(dataTypeA);
+  bool bIsFp8 = isa<Float8E4M3FNType>(dataTypeB);
+  bool bIsBf8 = isa<Float8E5M2Type>(dataTypeB);
+  bool aIsFp6 = isa<Float6E2M3FNType>(dataTypeA) ||
+                isa<Float6E3M2FNType>(dataTypeA);
+  bool bIsFp6 = isa<Float6E2M3FNType>(dataTypeB) ||
+                isa<Float6E3M2FNType>(dataTypeB);
+  bool aIsFp4 = dataTypeA.isFloat(4);
+  bool bIsFp4 = dataTypeB.isFloat(4);
+  
+  // Pure FP8/BF8 combinations (prefer regular intrinsics when available)
+  if ((aIsFp8 || aIsBf8) && (bIsFp8 || bIsBf8)) {
+    if (aIsFp8 && bIsFp8)
+      return WmmaTypeId::Fp8Fp8_To_F32_TyId;
+    if (aIsFp8 && bIsBf8)
+      return WmmaTypeId::Fp8Bf8_To_F32_TyId;
+    if (aIsBf8 && bIsFp8)
+      return WmmaTypeId::Bf8Fp8_To_F32_TyId;
+    if (aIsBf8 && bIsBf8)
+      return WmmaTypeId::Bf8Bf8_To_F32_TyId;
+  }
+  
+  // Any combination involving FP4 or FP6 (with or without FP8/BF8)
+  // These REQUIRE the scaled f8f6f4 intrinsic (no regular version exists)
+  if (aIsFp4 || bIsFp4 || aIsFp6 || bIsFp6)
+    return WmmaTypeId::SmallFloat_To_F32_TyId;
 
   llvm_unreachable("Unsupported WMMA input type combination");
 }
@@ -76,11 +99,11 @@ static WmmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
 static const llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> &getWmmaInsnMapGfx11() {
   static llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> insnMap{
       {{WmmaTypeId::F16_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_f16::getOperationName(), 16, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x16_f16::getOperationName(), 16, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::Bf16_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 16, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 16, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::I8_To_I32_TyId, 16},
-       {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 16, 8, 16, 16}},
+       {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 16, 8, 16, 16, /*isScaled=*/false}},
   };
   return insnMap;
 }
@@ -89,17 +112,17 @@ static const llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> &getWmmaInsnMapGfx11() {
 static const llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> &getWmmaInsnMapGfx12() {
   static llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> insnMap{
       {{WmmaTypeId::F16_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_f16::getOperationName(), 8, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x16_f16::getOperationName(), 8, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::Bf16_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 8, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x16_bf16::getOperationName(), 8, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::I8_To_I32_TyId, 16},
-       {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 8, 8, 16, 16}},
+       {ROCDL::wmma_i32_16x16x16_iu8::getOperationName(), 8, 8, 16, 16, /*isScaled=*/false}},
 
       // FP8/BF8
       {{WmmaTypeId::Fp8Fp8_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_fp8_fp8::getOperationName(), 8, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x16_fp8_fp8::getOperationName(), 8, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::Bf8Bf8_To_F32_TyId, 16},
-       {ROCDL::wmma_f32_16x16x16_bf8_bf8::getOperationName(), 8, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x16_bf8_bf8::getOperationName(), 8, 8, 16, 16, /*isScaled=*/false}},
   };
   return insnMap;
 }
@@ -110,37 +133,42 @@ getWmmaInsnMapGfx1250() {
   static llvm::DenseMap<WmmaInsnKey, WmmaInsnInfo> insnMap{
       // F32
       {{WmmaTypeId::F32_To_F32_TyId, 4},
-       {ROCDL::wmma_f32_16x16x4_f32::getOperationName(), 2, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x4_f32::getOperationName(), 2, 8, 16, 16, /*isScaled=*/false}},
 
       // F16/BF16
       {{WmmaTypeId::F16_To_F32_TyId, 32},
-       {ROCDL::wmma_f32_16x16x32_f16::getOperationName(), 16, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x32_f16::getOperationName(), 16, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::Bf16_To_F32_TyId, 32},
-       {ROCDL::wmma_f32_16x16x32_bf16::getOperationName(), 16, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x32_bf16::getOperationName(), 16, 8, 16, 16, /*isScaled=*/false}},
 
       // FP8/BF8 (k=64)
       {{WmmaTypeId::Fp8Fp8_To_F32_TyId, 64},
-       {ROCDL::wmma_f32_16x16x64_fp8_fp8::getOperationName(), 32, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x64_fp8_fp8::getOperationName(), 32, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::Fp8Bf8_To_F32_TyId, 64},
-       {ROCDL::wmma_f32_16x16x64_fp8_bf8::getOperationName(), 32, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x64_fp8_bf8::getOperationName(), 32, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::Bf8Fp8_To_F32_TyId, 64},
-       {ROCDL::wmma_f32_16x16x64_bf8_fp8::getOperationName(), 32, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x64_bf8_fp8::getOperationName(), 32, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::Bf8Bf8_To_F32_TyId, 64},
-       {ROCDL::wmma_f32_16x16x64_bf8_bf8::getOperationName(), 32, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x64_bf8_bf8::getOperationName(), 32, 8, 16, 16, /*isScaled=*/false}},
 
       // FP8/BF8 (k=128)
       {{WmmaTypeId::Fp8Fp8_To_F32_TyId, 128},
-       {ROCDL::wmma_f32_16x16x128_fp8_fp8::getOperationName(), 64, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x128_fp8_fp8::getOperationName(), 64, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::Fp8Bf8_To_F32_TyId, 128},
-       {ROCDL::wmma_f32_16x16x128_fp8_bf8::getOperationName(), 64, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x128_fp8_bf8::getOperationName(), 64, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::Bf8Fp8_To_F32_TyId, 128},
-       {ROCDL::wmma_f32_16x16x128_bf8_fp8::getOperationName(), 64, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x128_bf8_fp8::getOperationName(), 64, 8, 16, 16, /*isScaled=*/false}},
       {{WmmaTypeId::Bf8Bf8_To_F32_TyId, 128},
-       {ROCDL::wmma_f32_16x16x128_bf8_bf8::getOperationName(), 64, 8, 16, 16}},
+       {ROCDL::wmma_f32_16x16x128_bf8_bf8::getOperationName(), 64, 8, 16, 16, /*isScaled=*/false}},
+
+      // Small float scaled WMMA (k=128)
+      // This covers FP4, FP6, and mixed combinations (FP8+FP6, FP8+FP4, FP6+FP4, etc.)
+      {{WmmaTypeId::SmallFloat_To_F32_TyId, 128},
+       {ROCDL::wmma_scale_f32_16x16x128_f8f6f4::getOperationName(), 64, 8, 16, 16, /*isScaled=*/true}},
 
       // I8
       {{WmmaTypeId::I8_To_I32_TyId, 64},
-       {ROCDL::wmma_i32_16x16x64_iu8::getOperationName(), 32, 8, 16, 16}},
+       {ROCDL::wmma_i32_16x16x64_iu8::getOperationName(), 32, 8, 16, 16, /*isScaled=*/false}},
   };
   return insnMap;
 }
@@ -224,6 +252,8 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
         k = 4;
       } else if (typeId == WmmaTypeId::I8_To_I32_TyId) {
         k = 64;
+      } else if (typeId == WmmaTypeId::SmallFloat_To_F32_TyId) {
+        k = 128;
       } else {
         // F16/BF16 types
         k = 32;
@@ -273,6 +303,7 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
   StringRef insn = insnInfo->insn;
   int64_t mPerAccel = insnInfo->mPerAccel;
   int64_t nPerAccel = insnInfo->nPerAccel;
+  bool isScaled = insnInfo->isScaled;
 
   // Architecture-specific outStride
   // gfx11: full-wave K cooperation -> outStride=2
@@ -294,5 +325,5 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
       VectorType::get({outputVectorLen}, getRetType(elementTypeA, typeId));
 
   return WmmaInsn{insn, mPerAccel, nPerAccel, kDim, outStride, mRepeats,
-                  nRepeats, argTypeA, argTypeB, retType};
+                  nRepeats, argTypeA, argTypeB, retType, isScaled};
 }
