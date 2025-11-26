@@ -753,10 +753,12 @@ struct ReductionInfo {
   bool hasPointwiseBefore;
 
   bool operator<(const ReductionInfo &other) const {
-    // Sort by method first, then axis for consistent ordering
+    // Sort by method first, then axis, then hasPointwiseBefore
     if (method != other.method)
       return method < other.method;
-    return axis < other.axis;
+    if (axis != other.axis)
+      return axis < other.axis;
+    return hasPointwiseBefore < other.hasPointwiseBefore;
   }
 
   bool operator==(const ReductionInfo &other) const {
@@ -912,8 +914,8 @@ static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
 }
 
 // Analyze fusion patterns for a GEMM operation's output
-static FusionInfo analyzeOuputFusionPattern(Value gemmResult,
-                                            GemmFeatures features) {
+static FusionInfo analyzeOutputFusionPattern(Value gemmResult,
+                                             GemmFeatures features) {
   FusionInfo info;
   analyzeUsers(gemmResult, features, info);
 
@@ -1137,7 +1139,7 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
   // Analyze and append fusion information
   Value gemmGemmOutput = gemmGemmOp.getOutArgument()->get();
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
-  FusionInfo fusionInfo = analyzeOuputFusionPattern(gemmGemmOutput, features);
+  FusionInfo fusionInfo = analyzeOutputFusionPattern(gemmGemmOutput, features);
   appendOutputFusionInfo(problemOS, fusionInfo);
 
   return success();
@@ -1360,7 +1362,7 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   // Analyze and append fusion information
   Value gemmOutput = gemmIF.getOutArgument()->get();
   GemmFeatures features = rock::getFeatures(gemmIF);
-  FusionInfo fusionInfo = analyzeOuputFusionPattern(gemmOutput, features);
+  FusionInfo fusionInfo = analyzeOutputFusionPattern(gemmOutput, features);
   appendOutputFusionInfo(problemOS, fusionInfo);
 
   while (out.back() == sep) {
