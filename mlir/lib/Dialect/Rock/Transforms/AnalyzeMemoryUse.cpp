@@ -125,9 +125,13 @@ void RockAnalyzeMemoryUsePass::runOnOperation() {
                     b.getI64IntegerAttr(16));
     // Anyone lying about the size of their input deserves exactly what they
     // get.
-    if (type.hasStaticShape())
+    if (type.hasStaticShape()) {
+      // Use ceildiv to handle sub-byte types correctly
+      int64_t sizeInBits =
+          type.getNumElements() * type.getElementTypeBitWidth();
+      int64_t sizeInBytes = llvm::divideCeil(sizeInBits, 8);
       func.setArgAttr(idx, LLVM::LLVMDialect::getDereferenceableAttrName(),
-                      b.getI64IntegerAttr(type.getNumElements() *
-                                          type.getElementTypeBitWidth() / 8));
+                      b.getI64IntegerAttr(sizeInBytes));
+    }
   }
 }

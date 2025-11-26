@@ -80,11 +80,20 @@ def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrI
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Return how many M and N dimension per XDL.
+        }],
+        /*retType=*/"int64_t",
+        /*methodName=*/"getMnPerXdl",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
       >
 
     // TODO: more methods here as needed
   ];
-
 }
 
 #endif // ROCK_ACCEL_TUNING_PARAM_INTERFACE
