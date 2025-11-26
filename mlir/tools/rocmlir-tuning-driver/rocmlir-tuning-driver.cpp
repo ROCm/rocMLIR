@@ -374,10 +374,10 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   bool isSmallKernel = totalMillisecondsWarmup < smallKernelThreshold;
   unsigned iterations = params.numIterations;
 
-  // We want to get at least 10ms of kernel execution time
+  // We want to get at least 1ms of kernel execution time
   // (counting all iterations), so increase the number of iterations
   // if necessary.
-  constexpr float minTotalMilliseconds = 10.0f;
+  constexpr float minTotalMilliseconds = 1.0f;
   iterations = std::max<unsigned>(
       iterations, static_cast<unsigned>(std::ceil(minTotalMilliseconds /
                                                   totalMillisecondsWarmup)));
