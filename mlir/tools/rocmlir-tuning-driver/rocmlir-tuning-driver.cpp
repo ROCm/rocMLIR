@@ -276,7 +276,7 @@ static LogicalResult
 measureSmallKernel(unsigned iterations, hipStream_t stream,
                    const std::vector<hipFunction_t> &functions,
                    ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-                   std::vector<void *> &argPointers,
+                   const std::vector<void *> &argPointers,
                    std::vector<double> &measurements, double &smallKernelCpuMs,
                    bool benchmarkMode) {
   // Special case for small kernels, where we measure the time for all kernels
@@ -313,7 +313,7 @@ static LogicalResult
 measureLargeKernel(unsigned iterations, hipStream_t stream,
                    const std::vector<hipFunction_t> &functions,
                    ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-                   std::vector<void *> &argPointers,
+                   const std::vector<void *> &argPointers,
                    std::vector<double> &measurements) {
   // Measure runs normally.
   for (unsigned iter = 0; iter < iterations; ++iter) {
@@ -639,12 +639,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   }
 
   // 4. Collect perf configs to compile
-  bool benchmarkMode = false;
+  bool benchmarkMode = !benchmarkConfig.empty();
   std::vector<SmallString<64>> configs;
-  if (!benchmarkConfig.empty()) {
+  if (benchmarkMode) {
     // Benchmark mode - just one config
     configs.emplace_back(benchmarkConfig);
-    benchmarkMode = true;
   } else {
     // Tuning mode - all configs from tuning space
     std::unique_ptr<rock::TuningParamSet> tuningSpace(
