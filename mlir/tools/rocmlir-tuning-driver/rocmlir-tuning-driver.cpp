@@ -410,10 +410,6 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   });
 
-  // Depending on the runtime of the kernel,
-  // we will use a different approach to measure the runs.
-  // We consider a kernel to be small if it takes less than 1ms to run.
-  constexpr float smallKernelThreshold = 1.0f;
   bool isSmallKernel = false;
   unsigned iterations = params.numIterations;
 
@@ -458,6 +454,11 @@ benchmarkKernels(ArrayRef<std::string> binaries,
         iterations, static_cast<unsigned>(std::ceil(minTotalMilliseconds /
                                                     totalMillisecondsWarmup)));
 
+    // Depending on the runtime of the kernel,
+    // we will use a different approach to measure the runs.
+    // We consider a kernel to be small if a single iteration takes less than
+    // 1ms to run.
+    constexpr float smallKernelThreshold = 1.0f;
     isSmallKernel = totalMillisecondsWarmup < smallKernelThreshold;
   }
 
