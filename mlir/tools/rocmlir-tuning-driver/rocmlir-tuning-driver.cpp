@@ -272,20 +272,26 @@ struct CompilationResult {
   SmallVector<uint32_t> gridSizes;
 };
 
-static LogicalResult measureSmallKernel(
-    unsigned iterations, hipStream_t stream,
-    const std::vector<hipFunction_t> &functions, ArrayRef<uint32_t> blockSizes,
-    ArrayRef<uint32_t> gridSizes, std::vector<void *> &argPointers,
-    std::vector<double> &measurements, double &smallKernelCpuMs) {
+static LogicalResult
+measureSmallKernel(unsigned iterations, hipStream_t stream,
+                   const std::vector<hipFunction_t> &functions,
+                   ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
+                   std::vector<void *> &argPointers,
+                   std::vector<double> &measurements, double &smallKernelCpuMs,
+                   bool benchmarkMode) {
   // Special case for small kernels, where we measure the time for all kernels
   // at once, using CPU timers.
   auto iterationStart = std::chrono::steady_clock::now();
   for (unsigned iter = 0; iter < iterations; ++iter) {
-    if (failed(flushInstructionCache(stream))) {
-      return failure();
-    }
-    if (failed(flushL2Cache(stream))) {
-      return failure();
+    // Do not flush caches in benchmark mode, as we do not want to
+    // time the cache flush (it's okay if we are running in tuning mode).
+    if (!benchmarkMode) {
+      if (failed(flushInstructionCache(stream))) {
+        return failure();
+      }
+      if (failed(flushL2Cache(stream))) {
+        return failure();
+      }
     }
     for (auto [func, blockSize, gridSize] :
          llvm::zip(functions, blockSizes, gridSizes)) {
@@ -354,7 +360,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
                  ArrayRef<std::string> funcNames, ArrayRef<uint32_t> blockSizes,
                  ArrayRef<uint32_t> gridSizes, ArrayRef<void *> hostBuffers,
                  MutableArrayRef<void *> gpuBuffers,
-                 ArrayRef<size_t> bufferSizes, const BenchmarkParams &params) {
+                 ArrayRef<size_t> bufferSizes, const BenchmarkParams &params,
+                 bool benchmarkMode) {
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream));
   auto streamCleanup = llvm::make_scope_exit([&]() {
@@ -467,7 +474,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   if (isSmallKernel) {
     if (failed(measureSmallKernel(iterations, stream, functions, blockSizes,
                                   gridSizes, argPointers, measurements,
-                                  smallKernelCpuMs)))
+                                  smallKernelCpuMs, benchmarkMode)))
       return failure();
   } else {
     if (failed(measureLargeKernel(iterations, stream, functions, blockSizes,
@@ -630,10 +637,12 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   }
 
   // 4. Collect perf configs to compile
+  bool benchmarkMode = false;
   std::vector<SmallString<64>> configs;
   if (!benchmarkConfig.empty()) {
     // Benchmark mode - just one config
     configs.emplace_back(benchmarkConfig);
+    benchmarkMode = true;
   } else {
     // Tuning mode - all configs from tuning space
     std::unique_ptr<rock::TuningParamSet> tuningSpace(
@@ -836,7 +845,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
     FailureOr<double> timing = benchmarkKernels(
         result.hipModules, kernelFuncNames, result.blockSizes, result.gridSizes,
-        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams);
+        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams, benchmarkMode);
 
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
