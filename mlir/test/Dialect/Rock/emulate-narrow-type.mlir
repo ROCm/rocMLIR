@@ -73,3 +73,159 @@ func.func @extui(%arg0: !tIn, %arg1: !tOut) {
   vector.transfer_write %ext, %arg1[%c0] : vector<16xi8>, !tOut
   func.return
 }
+
+// -----
+
+// CHECK-LABEL: func.func @extract_metadata_view
+// CHECK-SAME: (%[[ARG0:.*]]: memref<128xi8>)
+// CHECK-DAG: %[[C256:.*]] = arith.constant 256 : index
+// CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
+// CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+// CHECK: %[[BASE:.*]] = memref.reinterpret_cast %[[ARG0]] to offset: [0], sizes: [], strides: [] : memref<128xi8> to memref<i8>
+// CHECK: return %[[BASE]], %[[C0]], %[[C256]], %[[C1]]
+func.func @extract_metadata_view(%arg0: memref<128xi8>) -> (memref<i4>, index, index, index) {
+  %c4 = arith.constant 4 : index
+  %view = memref.view %arg0[%c4][] : memref<128xi8> to memref<256xi4>
+  %base, %off, %size, %stride = memref.extract_strided_metadata %view : memref<256xi4> -> memref<i4>, index, index, index
+  return %base, %off, %size, %stride : memref<i4>, index, index, index
+}
+
+// -----
+
+// CHECK-LABEL: func.func @fat_buffer_cast
+// CHECK-SAME: (%[[ARG0:.*]]: memref<16xi8, #gpu.address_space<global>>) -> memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>
+// CHECK: %[[RET:.*]] = amdgpu.fat_raw_buffer_cast %[[ARG0]] : memref<16xi8, #gpu.address_space<global>> to memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>
+// CHECK: return %[[RET]]
+!tGlobal = memref<32xi4, #gpu.address_space<global>>
+!tFat = memref<32xi4, #amdgpu.address_space<fat_raw_buffer>>
+
+func.func @fat_buffer_cast(%arg0: !tGlobal) -> !tFat {
+  %0 = amdgpu.fat_raw_buffer_cast %arg0 : !tGlobal to !tFat
+  return %0 : !tFat
+}
+
+// -----
+
+// CHECK-LABEL: func.func @memref_view_i4
+// CHECK-SAME: (%[[ARG0:.*]]: memref<132xi8>) -> memref<128xi8>
+// CHECK: %[[C4:.*]] = arith.constant 4 : index
+// CHECK: %[[VIEW:.*]] = memref.view %[[ARG0]][%[[C4]]][] : memref<132xi8> to memref<128xi8>
+// CHECK: return %[[VIEW]] : memref<128xi8>
+func.func @memref_view_i4(%arg0: memref<132xi8>) -> memref<256xi4> {
+  %c4 = arith.constant 4 : index
+  %view = memref.view %arg0[%c4][] : memref<132xi8> to memref<256xi4>
+  return %view : memref<256xi4>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @gather_i4
+// CHECK-SAME: (%[[SRC:.*]]: memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>, %[[DST:.*]]: memref<16xi8, #gpu.address_space<workgroup>>, %[[IDX:.*]]: index)
+// CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
+// CHECK-DAG: %[[C16:.*]] = arith.constant 16 : index
+// CHECK-DAG: %[[C32:.*]] = arith.constant 32 : index
+// CHECK: %[[DIV:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK: %[[OOB:.*]] = arith.cmpi uge, %[[IDX]], %[[C32]] : index
+// CHECK: %[[SEL:.*]] = arith.select %[[OOB]], %[[C16]], %[[DIV]] : index
+// CHECK: %[[DIV_DST:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK: amdgpu.gather_to_lds %[[SRC]][%[[SEL]]], %[[DST]][%[[DIV_DST]]] : f32, memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>, memref<16xi8, #gpu.address_space<workgroup>>
+!tGlobal = memref<32xi4, #amdgpu.address_space<fat_raw_buffer>>
+!tShared = memref<32xi4, #gpu.address_space<workgroup>>
+func.func @gather_i4(%src: !tGlobal, %dst: !tShared, %idx: index) {
+  amdgpu.gather_to_lds %src[%idx], %dst[%idx] : f32, !tGlobal, !tShared
+  func.return
+}
+
+// -----
+
+// CHECK-LABEL: func.func @extract_metadata_view_f4
+// CHECK-SAME: (%[[ARG0:.*]]: memref<128xi8>)
+// CHECK-DAG: %[[C256:.*]] = arith.constant 256 : index
+// CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
+// CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+// CHECK: %[[BASE:.*]] = memref.reinterpret_cast %[[ARG0]] to offset: [0], sizes: [], strides: [] : memref<128xi8> to memref<i8>
+// CHECK: return %[[BASE]], %[[C0]], %[[C256]], %[[C1]]
+func.func @extract_metadata_view_f4(%arg0: memref<128xi8>) -> (memref<f4E2M1FN>, index, index, index) {
+  %c4 = arith.constant 4 : index
+  %view = memref.view %arg0[%c4][] : memref<128xi8> to memref<256xf4E2M1FN>
+  %base, %off, %size, %stride = memref.extract_strided_metadata %view : memref<256xf4E2M1FN> -> memref<f4E2M1FN>, index, index, index
+  return %base, %off, %size, %stride : memref<f4E2M1FN>, index, index, index
+}
+
+// -----
+
+// CHECK-LABEL: func.func @fat_buffer_cast_f4
+// CHECK-SAME: (%[[ARG0:.*]]: memref<16xi8, #gpu.address_space<global>>) -> memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>
+// CHECK: %[[RET:.*]] = amdgpu.fat_raw_buffer_cast %[[ARG0]] : memref<16xi8, #gpu.address_space<global>> to memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>
+// CHECK: return %[[RET]]
+!tGlobalF4 = memref<32xf4E2M1FN, #gpu.address_space<global>>
+!tFatF4 = memref<32xf4E2M1FN, #amdgpu.address_space<fat_raw_buffer>>
+
+func.func @fat_buffer_cast_f4(%arg0: !tGlobalF4) -> !tFatF4 {
+  %0 = amdgpu.fat_raw_buffer_cast %arg0 : !tGlobalF4 to !tFatF4
+  return %0 : !tFatF4
+}
+
+// -----
+
+// CHECK-LABEL: func.func @memref_view_f4
+// CHECK-SAME: (%[[ARG0:.*]]: memref<132xi8>) -> memref<128xi8>
+// CHECK: %[[C4:.*]] = arith.constant 4 : index
+// CHECK: %[[VIEW:.*]] = memref.view %[[ARG0]][%[[C4]]][] : memref<132xi8> to memref<128xi8>
+// CHECK: return %[[VIEW]] : memref<128xi8>
+func.func @memref_view_f4(%arg0: memref<132xi8>) -> memref<256xf4E2M1FN> {
+  %c4 = arith.constant 4 : index
+  %view = memref.view %arg0[%c4][] : memref<132xi8> to memref<256xf4E2M1FN>
+  return %view : memref<256xf4E2M1FN>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @gather_f4
+// CHECK-SAME: (%[[SRC:.*]]: memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>, %[[DST:.*]]: memref<16xi8, #gpu.address_space<workgroup>>, %[[IDX:.*]]: index)
+// CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
+// CHECK-DAG: %[[C16:.*]] = arith.constant 16 : index
+// CHECK-DAG: %[[C32:.*]] = arith.constant 32 : index
+// CHECK: %[[DIV:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK: %[[OOB:.*]] = arith.cmpi uge, %[[IDX]], %[[C32]] : index
+// CHECK: %[[SEL:.*]] = arith.select %[[OOB]], %[[C16]], %[[DIV]] : index
+// CHECK: %[[DIV_DST:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK: amdgpu.gather_to_lds %[[SRC]][%[[SEL]]], %[[DST]][%[[DIV_DST]]] : f32, memref<16xi8, #amdgpu.address_space<fat_raw_buffer>>, memref<16xi8, #gpu.address_space<workgroup>>
+!tGlobalF4 = memref<32xf4E2M1FN, #amdgpu.address_space<fat_raw_buffer>>
+!tSharedF4 = memref<32xf4E2M1FN, #gpu.address_space<workgroup>>
+func.func @gather_f4(%src: !tGlobalF4, %dst: !tSharedF4, %idx: index) {
+  amdgpu.gather_to_lds %src[%idx], %dst[%idx] : f32, !tGlobalF4, !tSharedF4
+  func.return
+}
+
+// Test for integer address space 1 (global) - no OOB adjustments should be applied
+// CHECK-LABEL: func.func @gather_i4_addr_space_1
+// CHECK-SAME: (%[[SRC:.*]]: memref<16xi8, 1>, %[[DST:.*]]: memref<16xi8, 3>, %[[IDX:.*]]: index)
+// CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
+// CHECK: %[[DIV_SRC:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK-NOT: arith.cmpi uge, %[[IDX]]
+// CHECK-NOT: arith.select
+// CHECK: %[[DIV_DST:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK: amdgpu.gather_to_lds %[[SRC]][%[[DIV_SRC]]], %[[DST]][%[[DIV_DST]]] : f32, memref<16xi8, 1>, memref<16xi8, 3>
+!tAddr1 = memref<32xi4, 1>
+!tAddr3 = memref<32xi4, 3>
+func.func @gather_i4_addr_space_1(%src: !tAddr1, %dst: !tAddr3, %idx: index) {
+  amdgpu.gather_to_lds %src[%idx], %dst[%idx] : f32, !tAddr1, !tAddr3
+  func.return
+}
+
+// Test for global memory - no OOB adjustments should be applied
+// CHECK-LABEL: func.func @gather_f4_global
+// CHECK-SAME: (%[[SRC:.*]]: memref<16xi8, #gpu.address_space<global>>, %[[DST:.*]]: memref<16xi8, #gpu.address_space<workgroup>>, %[[IDX:.*]]: index)
+// CHECK-DAG: %[[C2:.*]] = arith.constant 2 : index
+// CHECK: %[[DIV_SRC:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK-NOT: arith.cmpi uge, %[[IDX]]
+// CHECK-NOT: arith.select
+// CHECK: %[[DIV_DST:.*]] = arith.divui %[[IDX]], %[[C2]] : index
+// CHECK: amdgpu.gather_to_lds %[[SRC]][%[[DIV_SRC]]], %[[DST]][%[[DIV_DST]]] : f32, memref<16xi8, #gpu.address_space<global>>, memref<16xi8, #gpu.address_space<workgroup>>
+!tGlobal = memref<32xf4E2M1FN, #gpu.address_space<global>>
+!tShared = memref<32xf4E2M1FN, #gpu.address_space<workgroup>>
+func.func @gather_f4_global(%src: !tGlobal, %dst: !tShared, %idx: index) {
+  amdgpu.gather_to_lds %src[%idx], %dst[%idx] : f32, !tGlobal, !tShared
+  func.return
+}
