@@ -271,6 +271,84 @@ struct CompilationResult {
   SmallVector<uint32_t> gridSizes;
 };
 
+static LogicalResult
+measureSmallKernel(unsigned iterations, hipStream_t stream,
+                   const std::vector<hipFunction_t> &functions,
+                   ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
+                   std::vector<void *> &argPointers,
+                   std::vector<float> &measurements, float &smallKernelCpuMs) {
+  // Special case for small kernels, where we measure the time for all kernels
+  // at once, using CPU timers.
+  auto iterationStart = std::chrono::steady_clock::now();
+  for (unsigned iter = 0; iter < iterations; ++iter) {
+    if (failed(flushInstructionCache(stream))) {
+      return failure();
+    }
+    if (failed(flushL2Cache(stream))) {
+      return failure();
+    }
+    for (auto [func, blockSize, gridSize] :
+         llvm::zip(functions, blockSizes, gridSizes)) {
+      HIPCHECK(hipExtModuleLaunchKernel(
+          func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
+          argPointers.data(), nullptr, nullptr, nullptr));
+    }
+  }
+
+  HIPCHECK(hipStreamSynchronize(stream));
+  smallKernelCpuMs = std::chrono::duration<float, std::milli>(
+                         std::chrono::steady_clock::now() - iterationStart)
+                         .count();
+  measurements.push_back(smallKernelCpuMs / iterations);
+  return success();
+}
+
+static LogicalResult
+measureLargeKernel(unsigned iterations, hipStream_t stream,
+                   const std::vector<hipFunction_t> &functions,
+                   ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
+                   std::vector<void *> &argPointers,
+                   std::vector<float> &measurements) {
+  // Measure runs normally.
+  for (unsigned iter = 0; iter < iterations; ++iter) {
+    if (failed(flushInstructionCache(stream))) {
+      return failure();
+    }
+    if (failed(flushL2Cache(stream))) {
+      return failure();
+    }
+    HIPCHECK(hipStreamSynchronize(stream));
+
+    float totalMilliseconds = 0.0;
+
+    for (auto [func, blockSize, gridSize] :
+         llvm::zip(functions, blockSizes, gridSizes)) {
+      hipEvent_t startEvent, stopEvent;
+      HIPCHECK(hipEventCreate(&startEvent));
+      HIPCHECK(hipEventCreate(&stopEvent));
+
+      HIPCHECK(hipExtModuleLaunchKernel(
+          func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
+          argPointers.data(), nullptr, startEvent, stopEvent));
+      HIPCHECK(hipStreamSynchronize(stream));
+
+      float currentMilliseconds = 0.0;
+      HIPCHECK(
+          hipEventElapsedTime(&currentMilliseconds, startEvent, stopEvent));
+
+      HIPCHECK(hipEventDestroy(stopEvent));
+      HIPCHECK(hipEventDestroy(startEvent));
+
+      totalMilliseconds += currentMilliseconds;
+    }
+
+    measurements.push_back(totalMilliseconds);
+  }
+
+  std::sort(measurements.begin(), measurements.end());
+  return success();
+}
+
 // In order to match rocprof, returns time in nanoseconds
 static FailureOr<double>
 benchmarkKernels(ArrayRef<std::string> binaries,
@@ -370,7 +448,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   // Depending on the runtime of the kernel
   // we use a different approach to measure the runs.
   // We consider a kernel to be small if it takes less than 1ms to run.
-  constexpr float smallKernelThreshold = 1.0;
+  constexpr float smallKernelThreshold = 1.0f;
   bool isSmallKernel = totalMillisecondsWarmup < smallKernelThreshold;
   unsigned iterations = params.numIterations;
 
@@ -383,67 +461,14 @@ benchmarkKernels(ArrayRef<std::string> binaries,
                                                   totalMillisecondsWarmup)));
 
   if (isSmallKernel) {
-    // Special case for small kernels, where we measure the time for all kernels
-    // at once, using CPU timers.
-    auto iterationStart = std::chrono::steady_clock::now();
-    for (unsigned iter = 0; iter < iterations; ++iter) {
-      if (failed(flushInstructionCache(stream))) {
-        return failure();
-      }
-      if (failed(flushL2Cache(stream))) {
-        return failure();
-      }
-      for (auto [func, blockSize, gridSize] :
-           llvm::zip(functions, blockSizes, gridSizes)) {
-        HIPCHECK(hipExtModuleLaunchKernel(
-            func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-            argPointers.data(), nullptr, nullptr, nullptr));
-      }
-    }
-
-    HIPCHECK(hipStreamSynchronize(stream));
-    smallKernelCpuMs = std::chrono::duration<float, std::milli>(
-                           std::chrono::steady_clock::now() - iterationStart)
-                           .count();
-    measurements.push_back(smallKernelCpuMs / iterations);
+    if (failed(measureSmallKernel(iterations, stream, functions, blockSizes,
+                                  gridSizes, argPointers, measurements,
+                                  smallKernelCpuMs)))
+      return failure();
   } else {
-    // Measure runs normally.
-    for (unsigned iter = 0; iter < iterations; ++iter) {
-      if (failed(flushInstructionCache(stream))) {
-        return failure();
-      }
-      if (failed(flushL2Cache(stream))) {
-        return failure();
-      }
-      HIPCHECK(hipStreamSynchronize(stream));
-
-      float totalMilliseconds = 0.0;
-
-      for (auto [func, blockSize, gridSize] :
-           llvm::zip(functions, blockSizes, gridSizes)) {
-        hipEvent_t startEvent, stopEvent;
-        HIPCHECK(hipEventCreate(&startEvent));
-        HIPCHECK(hipEventCreate(&stopEvent));
-
-        HIPCHECK(hipExtModuleLaunchKernel(
-            func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-            argPointers.data(), nullptr, startEvent, stopEvent));
-        HIPCHECK(hipStreamSynchronize(stream));
-
-        float currentMilliseconds = 0.0;
-        HIPCHECK(
-            hipEventElapsedTime(&currentMilliseconds, startEvent, stopEvent));
-
-        HIPCHECK(hipEventDestroy(stopEvent));
-        HIPCHECK(hipEventDestroy(startEvent));
-
-        totalMilliseconds += currentMilliseconds;
-      }
-
-      measurements.push_back(totalMilliseconds);
-    }
-
-    std::sort(measurements.begin(), measurements.end());
+    if (failed(measureLargeKernel(iterations, stream, functions, blockSizes,
+                                  gridSizes, argPointers, measurements)))
+      return failure();
   }
 
   if (params.showStats) {
