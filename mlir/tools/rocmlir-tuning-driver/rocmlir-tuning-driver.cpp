@@ -190,7 +190,7 @@ static benchmark::DataType getDataType(Type inputType) {
     return failure();                                                          \
   }
 
-static float computeMedian(const std::vector<float> &values) {
+static double computeMedian(const std::vector<double> &values) {
   if (values.empty())
     return 0.0;
 
@@ -205,11 +205,11 @@ static float computeMedian(const std::vector<float> &values) {
   return values[n / 2];
 }
 
-static float computeMean(const std::vector<float> &values) {
+static double computeMean(const std::vector<double> &values) {
   if (values.empty())
     return 0.0;
 
-  float sum = 0.0;
+  double sum = 0.0;
   for (size_t i = 0; i < values.size(); ++i) {
     sum += values[i];
   }
@@ -217,21 +217,21 @@ static float computeMean(const std::vector<float> &values) {
   return sum / values.size();
 }
 
-static float computeStdDev(const std::vector<float> &values, float mean) {
+static double computeStdDev(const std::vector<double> &values, double mean) {
   if (values.size() < 2)
     return 0.0;
 
-  float sumSquares = 0.0;
+  double sumSquares = 0.0;
   for (float val : values) {
-    float diff = val - mean;
+    double diff = val - mean;
     sumSquares += diff * diff;
   }
 
   return std::sqrt(sumSquares / values.size());
 }
 
-static std::vector<float> trimValues(const std::vector<float> &values,
-                                     unsigned trimPct) {
+static std::vector<double> trimValues(const std::vector<double> &values,
+                                      unsigned trimPct) {
   if (values.empty() || trimPct == 0)
     return values;
 
@@ -245,7 +245,8 @@ static std::vector<float> trimValues(const std::vector<float> &values,
   size_t startIdx = trimCount;
   size_t endIdx = values.size() - trimCount;
 
-  return std::vector<float>(values.begin() + startIdx, values.begin() + endIdx);
+  return std::vector<double>(values.begin() + startIdx,
+                             values.begin() + endIdx);
 }
 
 struct BenchmarkParams {
@@ -271,12 +272,11 @@ struct CompilationResult {
   SmallVector<uint32_t> gridSizes;
 };
 
-static LogicalResult
-measureSmallKernel(unsigned iterations, hipStream_t stream,
-                   const std::vector<hipFunction_t> &functions,
-                   ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-                   std::vector<void *> &argPointers,
-                   std::vector<float> &measurements, float &smallKernelCpuMs) {
+static LogicalResult measureSmallKernel(
+    unsigned iterations, hipStream_t stream,
+    const std::vector<hipFunction_t> &functions, ArrayRef<uint32_t> blockSizes,
+    ArrayRef<uint32_t> gridSizes, std::vector<void *> &argPointers,
+    std::vector<double> &measurements, double &smallKernelCpuMs) {
   // Special case for small kernels, where we measure the time for all kernels
   // at once, using CPU timers.
   auto iterationStart = std::chrono::steady_clock::now();
@@ -296,7 +296,7 @@ measureSmallKernel(unsigned iterations, hipStream_t stream,
   }
 
   HIPCHECK(hipStreamSynchronize(stream));
-  smallKernelCpuMs = std::chrono::duration<float, std::milli>(
+  smallKernelCpuMs = std::chrono::duration<double, std::milli>(
                          std::chrono::steady_clock::now() - iterationStart)
                          .count();
   measurements.push_back(smallKernelCpuMs / iterations);
@@ -308,7 +308,7 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
                    const std::vector<hipFunction_t> &functions,
                    ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
                    std::vector<void *> &argPointers,
-                   std::vector<float> &measurements) {
+                   std::vector<double> &measurements) {
   // Measure runs normally.
   for (unsigned iter = 0; iter < iterations; ++iter) {
     if (failed(flushInstructionCache(stream))) {
@@ -319,7 +319,7 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
     }
     HIPCHECK(hipStreamSynchronize(stream));
 
-    float totalMilliseconds = 0.0;
+    double totalMilliseconds = 0.0;
 
     for (auto [func, blockSize, gridSize] :
          llvm::zip(functions, blockSizes, gridSizes)) {
@@ -339,7 +339,7 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
       HIPCHECK(hipEventDestroy(stopEvent));
       HIPCHECK(hipEventDestroy(startEvent));
 
-      totalMilliseconds += currentMilliseconds;
+      totalMilliseconds += static_cast<double>(currentMilliseconds);
     }
 
     measurements.push_back(totalMilliseconds);
@@ -417,7 +417,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     // Warmup run. We measure the warmup to get an estimate of the kernel
     // runtime. We will use this estimate to determine if the kernel is small or
     // not.
-    float totalMillisecondsWarmup = 0.0;
+    double totalMillisecondsWarmup = 0.0;
     HIPCHECK(hipStreamSynchronize(stream));
     for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
       for (auto [func, blockSize, gridSize] :
@@ -439,7 +439,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
         HIPCHECK(hipEventDestroy(stopEvent));
         HIPCHECK(hipEventDestroy(startEvent));
 
-        totalMillisecondsWarmup += currentMilliseconds;
+        totalMillisecondsWarmup += static_cast<double>(currentMilliseconds);
       }
     }
     totalMillisecondsWarmup /= params.warmupIterations;
@@ -463,8 +463,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   }
 
   // Measure runs
-  std::vector<float> measurements;
-  float smallKernelCpuMs = 0.0f;
+  std::vector<double> measurements;
+  double smallKernelCpuMs = 0.0;
 
   if (isSmallKernel) {
     if (failed(measureSmallKernel(iterations, stream, functions, blockSizes,
@@ -497,7 +497,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   }
 
-  auto msToNs = [](float ms) { return 1e6 * static_cast<double>(ms); };
+  auto msToNs = [](double ms) { return 1e6 * ms; };
   if (params.useMedian)
     return msToNs(computeMedian(measurements));
   // else
