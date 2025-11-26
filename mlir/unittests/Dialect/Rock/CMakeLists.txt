@@ -4,6 +4,7 @@ set(ROCK_UNITTEST_SOURCES
   loweringUtilsTests.cpp
   transformMapUtilsTests.cpp
   InitParamsAccelTests.cpp
+  InitParamsNonAccelTests.cpp
 )
 
 if(NOT WIN32)
