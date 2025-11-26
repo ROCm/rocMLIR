@@ -317,7 +317,6 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
     if (failed(flushL2Cache(stream))) {
       return failure();
     }
-    HIPCHECK(hipStreamSynchronize(stream));
 
     double totalMilliseconds = 0.0;
 
@@ -418,7 +417,6 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     // runtime. We will use this estimate to determine if the kernel is small or
     // not.
     double totalMillisecondsWarmup = 0.0;
-    HIPCHECK(hipStreamSynchronize(stream));
     for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
       for (auto [func, blockSize, gridSize] :
            llvm::zip(functions, blockSizes, gridSizes)) {
