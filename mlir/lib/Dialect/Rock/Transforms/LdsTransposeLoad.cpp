@@ -638,6 +638,20 @@ struct WaveGridLayout {
 };
 
 //===----------------------------------------------------------------------===//
+// StrideConfig - Result structure for stride computation
+//
+// Encapsulates the computed stride values for wave offset and tile offset.
+//
+// Fields:
+//   waveOffsetStride - Stride for spatial wave separation (always nonKDim)
+//   tileOffsetStride - Stride for outer loop tile iteration
+//===----------------------------------------------------------------------===//
+struct StrideConfig {
+  int64_t waveOffsetStride; // Stride for spatial wave separation
+  int64_t tileOffsetStride; // Stride for outer loop tile iteration
+};
+
+//===----------------------------------------------------------------------===//
 // computeWaveGridLayout()
 //===----------------------------------------------------------------------===//
 //
@@ -770,6 +784,77 @@ static WaveGridLayout computeWaveGridLayout(Value waveId, int64_t physicalWaves,
 }
 
 //===----------------------------------------------------------------------===//
+// computeStrideConfiguration()
+//===----------------------------------------------------------------------===//
+// Computes stride values for LDS transpose load offset calculations.
+//
+// Two types of strides are computed:
+// 1. waveOffsetStride - Spatial separation between different waves in the grid
+// 2. tileOffsetStride - Step size for outer loop iterations through tiles
+//
+// KEY INSIGHT:
+// - waveOffsetStride is ALWAYS nonKDim (one MFMA tile)
+// - tileOffsetStride depends on wave grid layout:
+//   * Single wave: nonKDim (sequential tiles)
+//   * Multiple waves: wavesInDim × nonKDim (interleaved tiles)
+//
+// EXAMPLE (2×2 grid, nonKDim=16):
+//   Wave 0 iterates: tiles [0, 2, 4, 6] → step = 2×16 = 32
+//   Wave 1 iterates: tiles [1, 3, 5, 7] → step = 2×16 = 32
+//
+// Parameters:
+//   operand   - Whether this is operand A (M dimension) or B (N dimension)
+//   waveGrid  - Wave grid layout containing wavesInM and wavesInN
+//   nonKDim   - Size of MFMA tile in M/N dimension (e.g., 16 or 32)
+//
+// Returns:
+//   StrideConfig containing waveOffsetStride and tileOffsetStride
+//===----------------------------------------------------------------------===//
+static StrideConfig computeStrideConfiguration(OperandKind operand,
+                                               const WaveGridLayout &waveGrid,
+                                               int64_t nonKDim) {
+  StrideConfig config;
+
+  // Wave offset stride: ALWAYS nonKDim for spatial wave separation
+  // This ensures each wave accesses a different spatial region (one MFMA tile
+  // apart)
+  config.waveOffsetStride = nonKDim;
+
+  // Tile offset stride: step size for outer loop (accounts for wave
+  // interleaving)
+  if (operand == OperandKind::A) {
+    // Operand A (M dimension)
+    if (waveGrid.wavesInM >= 2) {
+      // Multiple waves in M dimension → tiles are interleaved
+      // Each wave skips wavesInM tiles to reach its next tile
+      config.tileOffsetStride = waveGrid.wavesInM * nonKDim;
+    } else {
+      // Single wave in M dimension → tiles are sequential
+      config.tileOffsetStride = nonKDim;
+    }
+  } else {
+    // Operand B (N dimension)
+    if (waveGrid.wavesInN >= 2 && waveGrid.wavesInN == waveGrid.wavesInM) {
+      // BALANCED GRID (2×2, 3×3, 4×4) → tiles are interleaved in N dimension
+      // Special case: balanced grids require interleaved tile access
+      config.tileOffsetStride = waveGrid.wavesInN * nonKDim;
+    } else {
+      // UNBALANCED GRID (1×N, N×1) or single wave → tiles are sequential
+      config.tileOffsetStride = nonKDim;
+    }
+  }
+
+  LLVM_DEBUG(
+      llvm::dbgs() << "[lds_transpose] Computed stride configuration for "
+                   << (operand == OperandKind::A ? "A" : "B") << ":\n"
+                   << "  waveOffsetStride = " << config.waveOffsetStride << "\n"
+                   << "  tileOffsetStride = " << config.tileOffsetStride
+                   << "\n");
+
+  return config;
+}
+
+//===----------------------------------------------------------------------===//
 // computeWaveOffset()
 //===----------------------------------------------------------------------===//
 // Computes the spatial offset for wave-level work distribution.
@@ -778,27 +863,28 @@ static WaveGridLayout computeWaveGridLayout(Value waveId, int64_t physicalWaves,
 // dimension. This function calculates the base offset for the current wave's
 // region.
 //
-// For operand A (M dimension): offset = waveM * mnStride
-// For operand B (N dimension): offset = waveN * mnStride
+// For operand A (M dimension): offset = waveM * waveOffsetStride
+// For operand B (N dimension): offset = waveN * waveOffsetStride
 //
 // Parameters:
 //   operand   - Whether this is operand A or B
 //   waveM     - Wave's M position in the wave grid
 //   waveN     - Wave's N position in the wave grid
-//   mnStride  - Stride for one MFMA tile in M/N dimension (e.g., 32)
+//   waveOffsetStride  - Stride for wave separation (depends on wave grid
+//   layout)
 //
 // Returns:
 //   Value representing the wave offset (runtime value)
 //===----------------------------------------------------------------------===//
 static Value computeWaveOffset(OperandKind operand, Value waveM, Value waveN,
-                               Value mnStride, PatternRewriter &b,
+                               Value waveOffsetStride, PatternRewriter &b,
                                Location loc) {
   Value wavePos = (operand == OperandKind::A) ? waveM : waveN;
-  Value waveOffset = arith::MulIOp::create(b, loc, wavePos, mnStride);
+  Value waveOffset = arith::MulIOp::create(b, loc, wavePos, waveOffsetStride);
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Wave offset for operand "
                           << (operand == OperandKind::A ? "A" : "B")
-                          << ": wave_pos * mnStride\n");
+                          << ": wave_pos * waveOffsetStride\n");
 
   return waveOffset;
 }
@@ -814,41 +900,45 @@ static Value computeWaveOffset(OperandKind operand, Value waveM, Value waveN,
 // 1. Dynamic mode (useDynamicIndex=true):
 //    - The tile index comes from an outer loop iterator
 //    - Used when single buffering with outer loop
-//    - offset = mnTileIndex * mnStride
+//    - offset = mnTileIndex * tileOffsetStride
 //
 // 2. Static mode (useDynamicIndex=false):
 //    - The tile index is a compile-time constant
 //    - Used when double buffering (loading all tiles at once)
-//    - offset = mnIdxLocal * mnStride
+//    - offset = mnIdxLocal * tileOffsetStride
 //
 // Parameters:
-//   useDynamicIndex - Whether to use runtime tile index (from outer loop)
-//   mnTileIndex     - Runtime tile index from outer loop (nullptr if static)
-//   mnIdxLocal      - Compile-time tile index
-//   mnStride        - Stride for one MFMA tile in M/N dimension
-//   b, loc          - MLIR builder and location
+//   useDynamicIndex   - Whether to use runtime tile index (from outer loop)
+//   mnTileIndex       - Runtime tile index from outer loop (nullptr if static)
+//   mnIdxLocal        - Compile-time tile index
+//   tileOffsetStride  - Stride for tile iteration (depends on wave grid layout)
+//   b, loc            - MLIR builder and location
 //
 // Returns:
 //   Value representing the tile iteration offset
 //===----------------------------------------------------------------------===//
 static Value computeTileIterationOffset(bool useDynamicIndex, Value mnTileIndex,
-                                        int64_t mnIdxLocal, Value mnStride,
+                                        int64_t mnIdxLocal,
+                                        Value tileOffsetStride,
                                         PatternRewriter &b, Location loc) {
   if (useDynamicIndex) {
-    // Dynamic mode: offset = mnTileIndex * mnStride
-    Value tileOffset = arith::MulIOp::create(b, loc, mnTileIndex, mnStride);
+    // Dynamic mode: offset = mnTileIndex * tileOffsetStride
+    Value tileOffset =
+        arith::MulIOp::create(b, loc, mnTileIndex, tileOffsetStride);
 
     LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Dynamic tile offset: "
-                            << "mnTileIndex * mnStride\n");
+                            << "mnTileIndex * tileOffsetStride\n");
 
     return tileOffset;
   } else if (mnIdxLocal > 0) {
-    // Static mode: offset = mnIdxLocal * mnStride (only if mnIdxLocal > 0)
+    // Static mode: offset = mnIdxLocal * tileOffsetStride (only if mnIdxLocal >
+    // 0)
     Value mnIdxLocalVal = arith::ConstantIndexOp::create(b, loc, mnIdxLocal);
-    Value tileOffset = arith::MulIOp::create(b, loc, mnIdxLocalVal, mnStride);
+    Value tileOffset =
+        arith::MulIOp::create(b, loc, mnIdxLocalVal, tileOffsetStride);
 
     LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Static tile offset: "
-                            << mnIdxLocal << " * mnStride\n");
+                            << mnIdxLocal << " * tileOffsetStride\n");
 
     return tileOffset;
   } else {
@@ -877,7 +967,8 @@ static Value computeTileIterationOffset(bool useDynamicIndex, Value mnTileIndex,
 //   mnTileIndex       - Runtime tile index (nullptr if static mode)
 //   mnIdxLocal        - Compile-time tile index
 //   useDynamicIndex   - Whether to use runtime tile index
-//   mnStride          - Stride for one MFMA tile in M/N dimension
+//   waveOffsetStride  - Stride for wave offset (depends on wave grid layout)
+//   tileOffsetStride  - Stride for tile iteration offset (depends on wave grid)
 //   b, loc            - MLIR builder and location
 //
 // Returns:
@@ -886,18 +977,20 @@ static Value computeTileIterationOffset(bool useDynamicIndex, Value mnTileIndex,
 static Value computeFinalMNOffset(Value baseOffset, OperandKind operand,
                                   Value waveM, Value waveN, Value mnTileIndex,
                                   int64_t mnIdxLocal, bool useDynamicIndex,
-                                  Value mnStride, PatternRewriter &b,
+                                  Value waveOffsetStride,
+                                  Value tileOffsetStride, PatternRewriter &b,
                                   Location loc) {
   // Start with base offset
   Value finalOffset = baseOffset;
 
   // Add wave offset for spatial distribution
-  Value waveOffset = computeWaveOffset(operand, waveM, waveN, mnStride, b, loc);
+  Value waveOffset =
+      computeWaveOffset(operand, waveM, waveN, waveOffsetStride, b, loc);
   finalOffset = arith::AddIOp::create(b, loc, finalOffset, waveOffset);
 
   // Add tile iteration offset
-  Value tileOffset = computeTileIterationOffset(useDynamicIndex, mnTileIndex,
-                                                mnIdxLocal, mnStride, b, loc);
+  Value tileOffset = computeTileIterationOffset(
+      useDynamicIndex, mnTileIndex, mnIdxLocal, tileOffsetStride, b, loc);
   finalOffset = arith::AddIOp::create(b, loc, finalOffset, tileOffset);
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Final M/N offset: "
@@ -965,11 +1058,8 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   auto [k_base_local, m_offset_base] =
       computeLDSBaseOffsets(info.layout, lane, b, loc);
 
-  // M/N stride: MNMfma (e.g., 32)
   // K stride per tile: KMfma (e.g., 8)
-  int64_t mnStride = nonKDim;
   int64_t kTileStride = instrK;
-  Value mnStrideVal = arith::ConstantIndexOp::create(b, loc, mnStride);
   Value kTileStrideVal = arith::ConstantIndexOp::create(b, loc, kTileStride);
   Value ldsStrideVal = arith::ConstantIndexOp::create(b, loc, ldsStride);
 
@@ -999,14 +1089,26 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
   Value kOffsetBase =
       getDoubleRateKOffsetBase(b, loc, isDoubleRate, info.layout, lane);
 
+  // Compute stride configuration for offset calculations
+  StrideConfig strideConfig =
+      computeStrideConfiguration(info.operand, waveGrid, nonKDim);
+
+  Value waveOffsetStrideVal =
+      arith::ConstantIndexOp::create(b, loc, strideConfig.waveOffsetStride);
+  Value tileOffsetStrideVal =
+      arith::ConstantIndexOp::create(b, loc, strideConfig.tileOffsetStride);
+
   // Generate loads: If outer loop exists, load one M/N tile with all K tiles
   //                 Otherwise, load all M/N tiles with all K tiles
   for (int64_t mnIdxLocal = startMnIdx; mnIdxLocal < endMnIdx; ++mnIdxLocal) {
     for (int64_t kIdx = 0; kIdx < kPanels; ++kIdx) {
       // Compute final M/N base offset combining:
+      // - Base offset (lane-level addressing)
+      // - Wave offset (spatial separation between waves)
+      // - Tile offset (outer loop iteration through MFMA tiles)
       Value m_base = computeFinalMNOffset(
           m_offset_base, info.operand, waveM, waveN, mnTileIndex, mnIdxLocal,
-          useDynamicMnIndex, mnStrideVal, b, loc);
+          useDynamicMnIndex, waveOffsetStrideVal, tileOffsetStrideVal, b, loc);
 
       if (!isDoubleRate) {
         // SINGLE-RATE (L32x8, L16x16): One load per K tile
