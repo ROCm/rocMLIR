@@ -132,27 +132,23 @@ getSchedules(Operation *op, const TuningParamSetKind &tuningKind) {
 
 static std::vector<std::vector<uint32_t>>
 getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
-  // M/block N/block K/block MnPerXdl kPack scheduleVersion
-  // aCopyMore/forceUnroll
   std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-      {16, 32, 64, 128, 256},
-      {16, 32, 64, 128, 256},
-      {1, 2, 4, 8},
-      {16, 32},
-      {1, 4, 8, 16, 32},
-      getSchedules(gemmOp, kind),
-      {0, 1}};
+      {16, 32, 64, 128, 256},     // M/block
+      {16, 32, 64, 128, 256},     // N/block
+      {1, 2, 4, 8},               // K/block
+      {16, 32},                   // MnPerXdl
+      {1, 4, 8, 16, 32},          // kPack
+      getSchedules(gemmOp, kind), // scheduleVersion
+      {0, 1}};                    // forceUnroll
 
-  // M/block N/block K/block MnPerXdl kPack scheduleVersion
-  // aCopyMore/forceUnroll
   std::vector<std::vector<uint32_t>> validRangeAccelGemmParams8BitReduction = {
-      {16, 32, 64, 128, 256},
-      {16, 32, 64, 128, 256},
-      {4, 8, 16, 32},
-      {16, 32},
-      {1, 4, 8, 16},
-      getSchedules(gemmOp, TuningParamSetKind::Greedy),
-      {0, 1}};
+      {16, 32, 64, 128, 256},     // M/block
+      {16, 32, 64, 128, 256},     // N/block
+      {4, 8, 16, 32},             // K/block
+      {16, 32},                   // MnPerXdl
+      {1, 4, 8, 16},              // kPack
+      getSchedules(gemmOp, kind), // scheduleVersion
+      {0, 1}};                    // forceUnroll
 
   Type inTypeA = gemmOp.getAType();
   bool is8BitReduction =
@@ -162,16 +158,14 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
       is8BitReduction ? validRangeAccelGemmParams8BitReduction
                       : validRangeAccelGemmParams;
 
-  // M/block N/block K/block Mn/Xdl kPack scheduleVersion
-  // aCopyMore/forceUnroll
   std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
-      {16, 32, 64, 128, 256},
-      {16, 32, 64, 128, 256},
-      {1, 2, 4, 8},
-      {16},
-      {4, 8, 16},
-      getSchedules(gemmOp, TuningParamSetKind::Greedy),
-      {0, 1}};
+      {16, 32, 64, 128, 256},     // M/block
+      {16, 32, 64, 128, 256},     // N/block
+      {1, 2, 4, 8},               // K/block
+      {16},                       // MnPerXdl
+      {4, 8, 16},                 // kPack
+      getSchedules(gemmOp, kind), // scheduleVersion
+      {0, 1}};                    // forceUnroll
 
   GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma))
