@@ -329,13 +329,15 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
     for (auto [func, blockSize, gridSize] :
          llvm::zip(functions, blockSizes, gridSizes)) {
       hipEvent_t startEvent, stopEvent;
-      HIPCHECK(hipEventCreate(&startEvent));
-      HIPCHECK(hipEventCreate(&stopEvent));
+      HIPCHECK(hipEventCreateWithFlags(
+          &startEvent, hipEventDisableSystemFence | hipEventReleaseToDevice));
+      HIPCHECK(hipEventCreateWithFlags(
+          &stopEvent, hipEventDisableSystemFence | hipEventReleaseToDevice));
 
       HIPCHECK(hipExtModuleLaunchKernel(
           func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
           argPointers.data(), nullptr, startEvent, stopEvent));
-      HIPCHECK(hipStreamSynchronize(stream));
+      HIPCHECK(hipEventSynchronize(stopEvent));
 
       float currentMilliseconds = 0.0;
       HIPCHECK(
