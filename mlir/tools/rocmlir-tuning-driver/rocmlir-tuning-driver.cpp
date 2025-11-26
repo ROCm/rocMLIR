@@ -410,55 +410,60 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   });
 
-  // Warmup run. We measure the warmup to get an estimate of the kernel runtime.
-  // We will use this estimate to determine if the kernel is small or not.
-  float totalMillisecondsWarmup = 0.0;
-  HIPCHECK(hipStreamSynchronize(stream));
-  for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
-    for (auto [func, blockSize, gridSize] :
-         llvm::zip(functions, blockSizes, gridSizes)) {
-      hipEvent_t startEvent, stopEvent;
-      HIPCHECK(hipEventCreate(&startEvent));
-      HIPCHECK(hipEventCreate(&stopEvent));
+  // Depending on the runtime of the kernel,
+  // we will use a different approach to measure the runs.
+  // We consider a kernel to be small if it takes less than 1ms to run.
+  constexpr float smallKernelThreshold = 1.0f;
+  bool isSmallKernel = false;
+  unsigned iterations = params.numIterations;
 
-      HIPCHECK(hipExtModuleLaunchKernel(
-          func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-          argPointers.data(), nullptr, startEvent, stopEvent));
+  if (params.warmupIterations > 0) {
+    // Warmup run. We measure the warmup to get an estimate of the kernel
+    // runtime. We will use this estimate to determine if the kernel is small or
+    // not.
+    float totalMillisecondsWarmup = 0.0;
+    HIPCHECK(hipStreamSynchronize(stream));
+    for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
+      for (auto [func, blockSize, gridSize] :
+           llvm::zip(functions, blockSizes, gridSizes)) {
+        hipEvent_t startEvent, stopEvent;
+        HIPCHECK(hipEventCreate(&startEvent));
+        HIPCHECK(hipEventCreate(&stopEvent));
 
-      HIPCHECK(hipStreamSynchronize(stream));
+        HIPCHECK(hipExtModuleLaunchKernel(
+            func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
+            argPointers.data(), nullptr, startEvent, stopEvent));
 
-      float currentMilliseconds = 0.0;
-      HIPCHECK(
-          hipEventElapsedTime(&currentMilliseconds, startEvent, stopEvent));
+        HIPCHECK(hipStreamSynchronize(stream));
 
-      HIPCHECK(hipEventDestroy(stopEvent));
-      HIPCHECK(hipEventDestroy(startEvent));
+        float currentMilliseconds = 0.0;
+        HIPCHECK(
+            hipEventElapsedTime(&currentMilliseconds, startEvent, stopEvent));
 
-      totalMillisecondsWarmup += currentMilliseconds;
+        HIPCHECK(hipEventDestroy(stopEvent));
+        HIPCHECK(hipEventDestroy(startEvent));
+
+        totalMillisecondsWarmup += currentMilliseconds;
+      }
     }
+    totalMillisecondsWarmup /= params.warmupIterations;
+    assert(totalMillisecondsWarmup >= 0.0f &&
+           "totalMillisecondsWarmup must be greater than 0");
+
+    // We want to get at least 1ms of kernel execution time
+    // (counting all iterations), so increase the number of iterations
+    // if necessary.
+    constexpr float minTotalMilliseconds = 1.0f;
+    iterations = std::max<unsigned>(
+        iterations, static_cast<unsigned>(std::ceil(minTotalMilliseconds /
+                                                    totalMillisecondsWarmup)));
+
+    isSmallKernel = totalMillisecondsWarmup < smallKernelThreshold;
   }
-  totalMillisecondsWarmup /= params.warmupIterations;
-  assert(totalMillisecondsWarmup >= 0.0f &&
-         "totalMillisecondsWarmup must be greater than 0");
 
   // Measure runs
   std::vector<float> measurements;
   float smallKernelCpuMs = 0.0f;
-
-  // Depending on the runtime of the kernel
-  // we use a different approach to measure the runs.
-  // We consider a kernel to be small if it takes less than 1ms to run.
-  constexpr float smallKernelThreshold = 1.0f;
-  bool isSmallKernel = totalMillisecondsWarmup < smallKernelThreshold;
-  unsigned iterations = params.numIterations;
-
-  // We want to get at least 1ms of kernel execution time
-  // (counting all iterations), so increase the number of iterations
-  // if necessary.
-  constexpr float minTotalMilliseconds = 1.0f;
-  iterations = std::max<unsigned>(
-      iterations, static_cast<unsigned>(std::ceil(minTotalMilliseconds /
-                                                  totalMillisecondsWarmup)));
 
   if (isSmallKernel) {
     if (failed(measureSmallKernel(iterations, stream, functions, blockSizes,
