@@ -3,55 +3,143 @@ prefix = "rocmlir-gen"
 suffix = "--operation gemm --arch %arch %pv %constrained_float_range_random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
 
 [[axis]]
-name = "transA"
-values = ["true"]
-prefix = "--transA="
-
-[[axis]]
-name = "transB"
-values = ["false"]
-prefix = "--transB="
-
-[[axis]]
 name = "data type"
 values = ["f16", "bf16"]
 prefix = "-t "
 
+# ============================================================================
+# Suite 1: BOTH A and B use LDS transpose (transA=true, transB=false)
+# ============================================================================
 [[suite]]
-name = "lds_transpose_load"
+name = "lds_transpose_both_A_and_B"
 
 [[suite.test]]
-config = "-g 1 -m 16 -k 16 -n 16 --perf_config v3:16,16,16,16,16,1,1,3,2,1,1"
+config = "-g 1 -m 16 -k 16 -n 16 --transA=true --transB=false --perf_config v3:16,16,16,16,16,1,1,3,2,1,1"
 
 [[suite.test]]
-config = "-g 1 -m 32 -k 8 -n 32 --perf_config v3:32,32,8,32,32,1,1,4,2,1,1"
+config = "-g 1 -m 32 -k 8 -n 32 --transA=true --transB=false --perf_config v3:32,32,8,32,32,1,1,4,2,1,1"
 
 [[suite.test]]
-config = "-g 1 -m 16 -k 64 -n 16 --perf_config v3:16,16,64,16,16,1,1,4,2,1,1"
+config = "-g 1 -m 16 -k 64 -n 16 --transA=true --transB=false --perf_config v3:16,16,64,16,16,1,1,4,2,1,1"
 
 [[suite.test]]
-config = "-g 1 -m 32 -k 128 -n 32 --perf_config v3:32,32,32,32,32,4,1,3,2,1,1"
+config = "-g 1 -m 32 -k 128 -n 32 --transA=true --transB=false --perf_config v3:32,32,32,32,32,4,1,3,2,1,1"
 
 [[suite.test]]
-config = "-g 1 -m 32 -k 256 -n 32 --perf_config v3:32,32,256,32,32,1,1,4,2,1,1"
+config = "-g 1 -m 32 -k 256 -n 32 --transA=true --transB=false --perf_config v3:32,32,256,32,32,1,1,4,2,1,1"
 
 [[suite.test]]
-config = "-g 256 -m 32 -k 32 -n 32 --perf_config v3:32,32,32,32,32,1,1,3,2,1,1"
+config = "-g 256 -m 32 -k 32 -n 32 --transA=true --transB=false --perf_config v3:32,32,32,32,32,1,1,3,2,1,1"
 
 [[suite.test]]
-config = "-g 256 -m 16 -k 64 -n 16 --perf_config v3:16,16,64,16,16,1,1,4,2,1,1"
+config = "-g 256 -m 16 -k 64 -n 16 --transA=true --transB=false --perf_config v3:16,16,64,16,16,1,1,4,2,1,1"
 
 [[suite.test]]
-config = "-g 1 -m 64 -k 64 -n 64 --perf_config v3:64,64,8,16,16,8,1,3,2,1,1"
+config = "-g 1 -m 64 -k 64 -n 64 --transA=true --transB=false --perf_config v3:64,64,8,16,16,8,1,3,2,1,1"
 
 [[suite.test]]
-config = "-g 1 -m 128 -k 64 -n 128 --perf_config v3:128,128,8,32,32,8,1,4,2,1,1"
+config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v3:32,128,32,16,16,1,1,3,2,1,1"
 
 [[suite.test]]
-config = "-g 1 -m 144 -k 1280 -n 3840 --perf_config v3:32,32,8,32,32,16,1,3,2,1,1"
+config = "-g 1 -m 128 -k 64 -n 128 --transA=true --transB=false --perf_config v3:128,128,8,32,32,8,1,4,2,1,1"
 
 [[suite.test]]
-config = "-g 1 -m 4096 -k 256 -n 384 --perf_config v3:64,64,8,32,32,8,1,4,2,1,1"
+config = "-g 1 -m 144 -k 1280 -n 3840 --transA=true --transB=false --perf_config v3:32,32,8,32,32,16,1,3,2,1,1"
 
 [[suite.test]]
-config = "-g 256 -m 900 -k 1280 -n 3840 --perf_config v3:128,64,8,32,32,8,1,3,2,1,1"
+config = "-g 1 -m 4096 -k 256 -n 384 --transA=true --transB=false --perf_config v3:64,64,8,32,32,8,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 256 -m 900 -k 1280 -n 3840 --transA=true --transB=false --perf_config v3:128,32,8,32,16,8,1,3,2,1,1"
+
+# ============================================================================
+# Suite 2: ONLY A uses LDS transpose (transA=true, transB=true)
+# kpack=1 (single operand constraint), scheduleVersion swapped (3<->4)
+# ============================================================================
+[[suite]]
+name = "lds_transpose_A_only"
+
+[[suite.test]]
+config = "-g 1 -m 16 -k 16 -n 16 --transA=true --transB=true --perf_config v3:16,16,16,16,16,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 32 -k 8 -n 32 --transA=true --transB=true --perf_config v3:32,32,8,32,32,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 16 -k 64 -n 16 --transA=true --transB=true --perf_config v3:16,16,64,16,16,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 32 -k 128 -n 32 --transA=true --transB=true --perf_config v3:64,32,32,32,32,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 32 -k 256 -n 32 --transA=true --transB=true --perf_config v3:32,64,16,32,32,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 256 -m 32 -k 32 -n 32 --transA=true --transB=true --perf_config v3:32,32,32,32,16,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 256 -m 16 -k 64 -n 16 --transA=true --transB=true --perf_config v3:32,16,32,16,16,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=true --transB=true --perf_config v3:64,64,8,32,16,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=true --perf_config v3:64,128,32,64,16,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 64 -n 128 --transA=true --transB=true --perf_config v3:128,128,8,32,32,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 144 -k 1280 -n 3840 --transA=true --transB=true --perf_config v3:32,128,8,32,32,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 4096 -k 256 -n 384 --transA=true --transB=true --perf_config v3:64,64,8,32,16,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 256 -m 900 -k 1280 -n 3840 --transA=true --transB=true --perf_config v3:128,64,8,32,32,1,1,4,2,1,1"
+
+# ============================================================================
+# Suite 3: ONLY B uses LDS transpose (transA=false, transB=false)
+# kpack=1 (single operand constraint), scheduleVersion same as Suite 1
+# ============================================================================
+[[suite]]
+name = "lds_transpose_B_only"
+
+[[suite.test]]
+config = "-g 1 -m 16 -k 16 -n 16 --transA=false --transB=false --perf_config v3:16,16,16,16,16,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 32 -k 8 -n 32 --transA=false --transB=false --perf_config v3:32,32,8,32,32,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 16 -k 64 -n 16 --transA=false --transB=false --perf_config v3:16,16,32,16,16,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 32 -k 128 -n 32 --transA=false --transB=false --perf_config v3:32,32,32,32,32,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 32 -k 256 -n 32 --transA=false --transB=false --perf_config v3:32,64,16,32,32,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 256 -m 32 -k 32 -n 32 --transA=false --transB=false --perf_config v3:64,32,32,32,16,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 256 -m 16 -k 64 -n 16 --transA=false --transB=false --perf_config v3:16,16,32,16,16,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v3:64,64,8,32,16,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 128 -n 64 --transA=false --transB=false --perf_config v3:32,128,32,16,16,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 64 -n 128 --transA=false --transB=false --perf_config v3:128,128,8,64,32,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 144 -k 1280 -n 3840 --transA=false --transB=false --perf_config v3:32,32,8,32,32,1,1,3,2,1,1"
+
+[[suite.test]]
+config = "-g 1 -m 4096 -k 256 -n 384 --transA=false --transB=false --perf_config v3:64,64,8,32,16,1,1,4,2,1,1"
+
+[[suite.test]]
+config = "-g 256 -m 900 -k 1280 -n 3840 --transA=false --transB=false --perf_config v3:128,64,8,64,16,1,1,3,2,1,1"
