@@ -220,7 +220,8 @@ void RockPrepareLLVMPass::runOnOperation() {
     if (auto load = dyn_cast<LLVM::LoadOp>(aliasOp))
       load.setInvariant(isReadonly[argNo]);
 
-    // Merge existing alias scopes (if any) with the new scopes we just created.
+    // Merge existing alias scopes (which could come from the AddAliasInfo pass)
+    // with the new scopes we just created.
     if (ArrayAttr mergedAliasScopes =
             mergeScopes(aliasIface.getAliasScopesOrNull(), aliasScopes[argNo]))
       aliasIface.setAliasScopes(mergedAliasScopes);
