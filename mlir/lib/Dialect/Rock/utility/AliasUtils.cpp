@@ -33,15 +33,15 @@ LLVM::AliasScopeDomainAttr getScopeDomain(MLIRContext *ctx) {
 LLVM::AliasScopeAttr getDirectToLDSLoadScope(MLIRContext *ctx) {
   Builder b(ctx);
   auto name = b.getStringAttr("amdgpu.DirectToLDSLoads");
-  auto desc = b.getStringAttr(
-      "Scope containing all operations that perform direct global-to-LDS loads");
+  auto desc = b.getStringAttr("Scope containing all operations that perform "
+                              "direct global-to-LDS loads");
   return b.getAttr<LLVM::AliasScopeAttr>(name, getScopeDomain(ctx), desc);
 }
 
-LLVM::AliasScopeAttr getLocalLoadScope(MLIRContext *ctx) {
+LLVM::AliasScopeAttr getLDSLoadScope(MLIRContext *ctx) {
   Builder b(ctx);
-  auto name = b.getStringAttr("amdgpu.LocalLoads");
-  auto desc = b.getStringAttr("Scope containing all LocalLoad ops");
+  auto name = b.getStringAttr("amdgpu.LDSLoads");
+  auto desc = b.getStringAttr("Scope containing all LDS load ops");
   return b.getAttr<LLVM::AliasScopeAttr>(name, getScopeDomain(ctx), desc);
 }
 
@@ -50,14 +50,14 @@ void addDirectToLDSLoadAliasScope(LLVM::AliasAnalysisOpInterface op) {
   auto ctx = op->getContext();
   Builder b(ctx);
 
-  // Do not alias with local loads.
-  op.setNoAliasScopes(b.getArrayAttr(getLocalLoadScope(ctx)));
+  // Do not alias with LDS loads.
+  op.setNoAliasScopes(b.getArrayAttr(getLDSLoadScope(ctx)));
 
   op.setAliasScopes(b.getArrayAttr(getDirectToLDSLoadScope(ctx)));
 }
 
-// Should be called for all local loads.
-void addLocalLoadNoAliasScope(LLVM::AliasAnalysisOpInterface op) {
+// Should be called for all LDS loads.
+void addLDSLoadNoAliasScope(LLVM::AliasAnalysisOpInterface op) {
   auto ctx = op->getContext();
   Builder b(ctx);
 
@@ -65,9 +65,8 @@ void addLocalLoadNoAliasScope(LLVM::AliasAnalysisOpInterface op) {
   op.setNoAliasScopes(b.getArrayAttr(getDirectToLDSLoadScope(ctx)));
 
   // Add to different scope as ops without any scope alias with everything
-  op.setAliasScopes(b.getArrayAttr(getLocalLoadScope(ctx)));
+  op.setAliasScopes(b.getArrayAttr(getLDSLoadScope(ctx)));
 }
 
 } // namespace rock
 } // namespace mlir
-

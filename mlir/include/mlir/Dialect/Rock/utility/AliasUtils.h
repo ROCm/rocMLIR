@@ -28,16 +28,16 @@ namespace mlir {
 namespace rock {
 /// Add the direct-to-LDS load alias scope to the given operation.
 /// This marks the operation as being part of the direct-to-LDS load scope.
-/// It also marks the operation as not aliasing with local loads.
+/// It also marks the operation as not aliasing with LDS loads.
 void addDirectToLDSLoadAliasScope(LLVM::AliasAnalysisOpInterface op);
 
-/// Add the local load no alias scope to the given operation.
-/// This marks the operation as being part of the local load scope and does not alias with direct-to-LDS loads.
-/// It also adds the operation to the different scope as ops without any scope alias with everything.
-void addLocalLoadNoAliasScope(LLVM::AliasAnalysisOpInterface op);
+/// Add the LDS load no alias scope to the given operation.
+/// This marks the operation as being part of the LDS load scope and does not
+/// alias with direct-to-LDS loads. It also adds the operation to the different
+/// scope as ops without any scope alias with everything.
+void addLDSLoadNoAliasScope(LLVM::AliasAnalysisOpInterface op);
 
 } // namespace rock
 } // namespace mlir
 
 #endif // MLIR_DIALECT_ROCK_UTILITY_ALIASUTILS_H
-

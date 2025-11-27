@@ -75,7 +75,7 @@ struct RockAddAliasInfoPass
               LLVM_DEBUG(llvm::dbgs() << aliasOp->getName()
                                       << " with LDS address space: Adding to "
                                          "noAliasScope\n");
-              addLocalLoadNoAliasScope(aliasIface);
+              addLDSLoadNoAliasScope(aliasIface);
             }
           }
         } else if (isa<ROCDL::LoadToLDSOp, ROCDL::RawPtrBufferLoadLdsOp>(
