@@ -464,7 +464,7 @@ struct BlockwiseGemmAccelRewritePattern
             mPerBlock, nPerBlock, kPerBlock, mPerWave, nPerWave,
             /*doubleBuffering=*/false);
         if (decision.usable)
-          return hwtranspose::buildTransposeAttr(decision, isOperandA, b);
+          return hwtranspose::buildTransposeAttr(b, decision, isOperandA);
       }
       return nullptr;
     };

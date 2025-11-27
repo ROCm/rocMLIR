@@ -73,8 +73,8 @@ Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
 LayoutKind selectLayout(int64_t nonKDim, int64_t instrK);
 
 // Attach attributes to the ThreadwiseReadIntoOp based on the decision.
-DictionaryAttr buildTransposeAttr(const Decision &dec, bool isOperandA,
-                                  PatternRewriter &rewriter);
+DictionaryAttr buildTransposeAttr(PatternRewriter &rewriter, const Decision &dec,
+                                  bool isOperandA);
 
 // Lowering-time description.
 // Set to true once all required attributes are present so lowering may proceed.
@@ -92,13 +92,13 @@ struct LoweringInfo {
 };
 
 // Derives lowering information from the attributes of a ThreadwiseReadIntoOp.
-LoweringInfo deriveLoweringInfo(ThreadwiseReadIntoOp op, PatternRewriter &b);
+LoweringInfo deriveLoweringInfo(PatternRewriter &b, ThreadwiseReadIntoOp op);
 
 // Emits the actual hardware transpose load sequence.
-LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
+LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
+                                        ThreadwiseReadIntoOp op,
                                         const LoweringInfo &info,
-                                        PatternRewriter &b, int64_t blockSize,
-                                        int64_t waveSize);
+                                        int64_t blockSize, int64_t waveSize);
 
 // Utility to get the string name of a layout.
 StringRef layoutName(LayoutKind kind);

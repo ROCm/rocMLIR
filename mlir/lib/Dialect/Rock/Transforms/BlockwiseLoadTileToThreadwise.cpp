@@ -221,7 +221,7 @@ class LoweringBlockwiseLoadTileOp final
               mPerBlock, nPerBlock, kPerBlock, tuningParams.getMPerWave(),
               tuningParams.getNPerWave(), doubleBuffer);
           if (decision.usable)
-            transposeAttr = hwtranspose::buildTransposeAttr(decision, isA, b);
+            transposeAttr = hwtranspose::buildTransposeAttr(b, decision, isA);
         }
       }
     }

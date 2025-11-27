@@ -159,8 +159,8 @@ static std::pair<int64_t, int64_t> getLayoutDims(LayoutKind kind) {
 
 // Attaches attributes to a `ThreadwiseReadIntoOp` to encode the chosen
 // LDS transpose configuration for later lowering.
-DictionaryAttr buildTransposeAttr(const Decision &dec, bool isOperandA,
-                                  PatternRewriter &rewriter) {
+DictionaryAttr buildTransposeAttr(PatternRewriter &rewriter, const Decision &dec,
+                                  bool isOperandA) {
   if (!dec.usable)
     return nullptr;
 
@@ -181,7 +181,7 @@ DictionaryAttr buildTransposeAttr(const Decision &dec, bool isOperandA,
 
 // Derived lowering-time configuration extracted from operation attributes.
 // Used to drive emission of LDS transpose load instructions.
-LoweringInfo deriveLoweringInfo(ThreadwiseReadIntoOp op, PatternRewriter &b) {
+LoweringInfo deriveLoweringInfo(PatternRewriter &b, ThreadwiseReadIntoOp op) {
   LoweringInfo info;
   auto layoutAttr = op->getAttrOfType<StringAttr>("rock.mfma_layout");
   if (!layoutAttr)
@@ -522,9 +522,8 @@ writePanelVectorsToDestination(PatternRewriter &b, Location loc,
 // Note: This is an internal helper function. Use computeLDSBaseOffsets()
 // instead for better readability.
 //===----------------------------------------------------------------------===//
-static SmallVector<Value> getBasePanelOffsets(LayoutKind layout, Value lane,
-                                              PatternRewriter &b,
-                                              Location loc) {
+static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
+                                              LayoutKind layout, Value lane) {
   Value c16 = arith::ConstantIndexOp::create(b, loc, 16);
   Value c4 = arith::ConstantIndexOp::create(b, loc, 4);
   Value c2 = arith::ConstantIndexOp::create(b, loc, 2);
@@ -606,11 +605,11 @@ static SmallVector<Value> getBasePanelOffsets(LayoutKind layout, Value lane,
 //     - first:  K dimension base offset (k_base_local)
 //     - second: M/N dimension base offset (m_offset_base)
 //===----------------------------------------------------------------------===//
-static std::pair<Value, Value> computeLDSBaseOffsets(LayoutKind layout,
-                                                     Value lane,
-                                                     PatternRewriter &b,
-                                                     Location loc) {
-  SmallVector<Value> offsets = getBasePanelOffsets(layout, lane, b, loc);
+static std::pair<Value, Value> computeLDSBaseOffsets(PatternRewriter &b,
+                                                     Location loc,
+                                                     LayoutKind layout,
+                                                     Value lane) {
+  SmallVector<Value> offsets = getBasePanelOffsets(b, loc, layout, lane);
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Computed LDS base offsets: "
                           << "k_base_local=offsets[0], "
@@ -689,11 +688,11 @@ struct StrideConfig {
 //     - wavesInM, wavesInN: Grid dimensions.
 //     - waveM, waveN:      This wave's assigned 2D grid coordinates.
 //===----------------------------------------------------------------------===//
-static WaveGridLayout computeWaveGridLayout(Value waveId, int64_t physicalWaves,
+static WaveGridLayout computeWaveGridLayout(PatternRewriter &b, Location loc,
+                                            Value waveId, int64_t physicalWaves,
                                             int64_t mPerWave, int64_t nPerWave,
                                             int64_t mPerBlock,
-                                            int64_t nPerBlock,
-                                            PatternRewriter &b, Location loc) {
+                                            int64_t nPerBlock) {
   // Calculate how many wave-sized tiles fit in the block dimensions
   // These determine the wave grid, not accounting for outer loop repeats
   int64_t waveTilesInM = mPerBlock / mPerWave;
@@ -876,9 +875,9 @@ static StrideConfig computeStrideConfiguration(OperandKind operand,
 // Returns:
 //   Value representing the wave offset (runtime value)
 //===----------------------------------------------------------------------===//
-static Value computeWaveOffset(OperandKind operand, Value waveM, Value waveN,
-                               Value waveOffsetStride, PatternRewriter &b,
-                               Location loc) {
+static Value computeWaveOffset(PatternRewriter &b, Location loc,
+                               OperandKind operand, Value waveM, Value waveN,
+                               Value waveOffsetStride) {
   Value wavePos = (operand == OperandKind::A) ? waveM : waveN;
   Value waveOffset = arith::MulIOp::create(b, loc, wavePos, waveOffsetStride);
 
@@ -917,10 +916,10 @@ static Value computeWaveOffset(OperandKind operand, Value waveM, Value waveN,
 // Returns:
 //   Value representing the tile iteration offset
 //===----------------------------------------------------------------------===//
-static Value computeTileIterationOffset(bool useDynamicIndex, Value mnTileIndex,
+static Value computeTileIterationOffset(PatternRewriter &b, Location loc,
+                                        bool useDynamicIndex, Value mnTileIndex,
                                         int64_t mnIdxLocal,
-                                        Value tileOffsetStride,
-                                        PatternRewriter &b, Location loc) {
+                                        Value tileOffsetStride) {
   if (useDynamicIndex) {
     // Dynamic mode: offset = mnTileIndex * tileOffsetStride
     Value tileOffset =
@@ -974,23 +973,23 @@ static Value computeTileIterationOffset(bool useDynamicIndex, Value mnTileIndex,
 // Returns:
 //   Value representing the final M/N base offset
 //===----------------------------------------------------------------------===//
-static Value computeFinalMNOffset(Value baseOffset, OperandKind operand,
+static Value computeFinalMNOffset(PatternRewriter &b, Location loc,
+                                  Value baseOffset, OperandKind operand,
                                   Value waveM, Value waveN, Value mnTileIndex,
                                   int64_t mnIdxLocal, bool useDynamicIndex,
                                   Value waveOffsetStride,
-                                  Value tileOffsetStride, PatternRewriter &b,
-                                  Location loc) {
+                                  Value tileOffsetStride) {
   // Start with base offset
   Value finalOffset = baseOffset;
 
   // Add wave offset for spatial distribution
   Value waveOffset =
-      computeWaveOffset(operand, waveM, waveN, waveOffsetStride, b, loc);
+      computeWaveOffset(b, loc, operand, waveM, waveN, waveOffsetStride);
   finalOffset = arith::AddIOp::create(b, loc, finalOffset, waveOffset);
 
   // Add tile iteration offset
   Value tileOffset = computeTileIterationOffset(
-      useDynamicIndex, mnTileIndex, mnIdxLocal, tileOffsetStride, b, loc);
+      b, loc, useDynamicIndex, mnTileIndex, mnIdxLocal, tileOffsetStride);
   finalOffset = arith::AddIOp::create(b, loc, finalOffset, tileOffset);
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Final M/N offset: "
@@ -999,10 +998,10 @@ static Value computeFinalMNOffset(Value baseOffset, OperandKind operand,
   return finalOffset;
 }
 
-LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
+LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
+                                        ThreadwiseReadIntoOp op,
                                         const LoweringInfo &info,
-                                        PatternRewriter &b, int64_t blockSize,
-                                        int64_t waveSize) {
+                                        int64_t blockSize, int64_t waveSize) {
   if (!info.usable)
     return failure();
 
@@ -1029,7 +1028,7 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
 
   // Compute wave grid layout and decompose wave ID into 2D position
   WaveGridLayout waveGrid = computeWaveGridLayout(
-      waveId, physicalWaves, mPerWave, nPerWave, mPerBlock, nPerBlock, b, loc);
+      b, loc, waveId, physicalWaves, mPerWave, nPerWave, mPerBlock, nPerBlock);
   Value waveM = waveGrid.waveM;
   Value waveN = waveGrid.waveN;
 
@@ -1056,7 +1055,7 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
 
   // Get base offsets using computeLDSBaseOffsets helper
   auto [k_base_local, m_offset_base] =
-      computeLDSBaseOffsets(info.layout, lane, b, loc);
+      computeLDSBaseOffsets(b, loc, info.layout, lane);
 
   // K stride per tile: KMfma (e.g., 8)
   int64_t kTileStride = instrK;
@@ -1107,8 +1106,9 @@ LogicalResult emitThreadwiseHWTranspose(ThreadwiseReadIntoOp op,
       // - Wave offset (spatial separation between waves)
       // - Tile offset (outer loop iteration through MFMA tiles)
       Value m_base = computeFinalMNOffset(
-          m_offset_base, info.operand, waveM, waveN, mnTileIndex, mnIdxLocal,
-          useDynamicMnIndex, waveOffsetStrideVal, tileOffsetStrideVal, b, loc);
+          b, loc, m_offset_base, info.operand, waveM, waveN, mnTileIndex,
+          mnIdxLocal, useDynamicMnIndex, waveOffsetStrideVal,
+          tileOffsetStrideVal);
 
       if (!isDoubleRate) {
         // SINGLE-RATE (L32x8, L16x16): One load per K tile
