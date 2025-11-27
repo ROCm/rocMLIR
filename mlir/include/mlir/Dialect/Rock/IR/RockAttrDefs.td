@@ -321,21 +321,12 @@ def Rock_MfmaGemmParamsAttr
   let description = [{
     The tuning parameters for an mfma-based matrix multiplication.
   }];
-  let parameters = (ins
-    "int64_t":$kpackPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kpack,
-    "int64_t":$mPerWave,
-    "int64_t":$nPerWave,
-    "int64_t":$mnPerXdl,
-    "int64_t":$splitKFactor,
-    "int64_t":$scheduleVersion,
-    "int64_t":$outputSwizzle,
-    "bool":$forceUnroll,
-    OptionalParameter<"::std::optional<int64_t>">:$mfmaNonKDim,
-    OptionalParameter<"::std::optional<int64_t>">:$mfmaKDim
-  );
+  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
+      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle, "bool":$forceUnroll,
+      OptionalParameter<"::std::optional<int64_t>">:$mfmaNonKDim,
+      OptionalParameter<"::std::optional<int64_t>">:$mfmaKDim);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -538,16 +529,10 @@ def Rock_LdsTransposeConfigAttr : Rock_Attr<"LdsTransposeConfig", []> {
     - isOperandA: True if this is operand A, false if operand B
   }];
   
-  let parameters = (ins
-    "int64_t":$mfmaNonKDim,
-    "int64_t":$mfmaKDim,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kPerBlock,
-    "int64_t":$mPerWave,
-    "int64_t":$nPerWave,
-    "bool":$doubleBuffering,
-    "bool":$isOperandA
+  let parameters = (ins "int64_t":$mfmaNonKDim, "int64_t":$mfmaKDim,
+      "int64_t":$mPerBlock, "int64_t":$nPerBlock, "int64_t":$kPerBlock,
+      "int64_t":$mPerWave, "int64_t":$nPerWave, "bool":$doubleBuffering,
+      "bool":$isOperandA
   );
 
   let assemblyFormat = [{

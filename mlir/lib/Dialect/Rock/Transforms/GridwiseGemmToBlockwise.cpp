@@ -130,10 +130,10 @@ static void blockwiseGemmAccel(
     assert(matrixB != nullptr);
   }
 
-  BlockwiseGemmAccelOp::create(
-      rewriter, loc, bufferA, bufferB, matrixC, matrixParamsA, matrixParamsB,
-      matrixA, matrixB, scaleA, scaleB, bufferScaleA, bufferScaleB, features,
-      blockSize, params);
+  BlockwiseGemmAccelOp::create(rewriter, loc, bufferA, bufferB, matrixC,
+                               matrixParamsA, matrixParamsB, matrixA, matrixB,
+                               scaleA, scaleB, bufferScaleA, bufferScaleB,
+                               features, blockSize, params);
 }
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
