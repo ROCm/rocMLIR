@@ -228,7 +228,7 @@ findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
     if (read) {
       Operation *readOp = read.getOperation();
       // Track the first one in program order
-      if (!firstReadOp || readOp->isBeforeInBlock(firstReadOp)) {
+      if (!firstReadOp || comesBeforeInProgramOrder(readOp, firstReadOp)) {
         firstRead = read;
         firstReadOp = readOp;
       }
