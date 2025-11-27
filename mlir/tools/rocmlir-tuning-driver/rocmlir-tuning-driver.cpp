@@ -434,7 +434,7 @@ static bool doesModuleHaveFusions(ModuleOp module) {
     if (isa<linalg::GenericOp>(op) || isa<rock::ReduceOp>(op)) {
       return WalkResult::interrupt();
     }
-    
+
     return WalkResult::advance();
   });
   return result.wasInterrupted();
