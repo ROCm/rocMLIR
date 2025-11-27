@@ -59,9 +59,10 @@ struct Decision {
   bool doubleBuffering{false};
 };
 
-// The main decision-making function. It analyzes the GEMM parameters and
-// returns a Decision struct indicating if the optimization is applicable and
-// with which paneling configuration.
+// Determines whether hardware-assisted LDS transpose optimization can be
+// applied for the given GEMM configuration. Checks architecture support,
+// data types, MFMA instruction shape, and buffer layout compatibility.
+// Returns a Decision struct indicating applicability and selected layout.
 Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
                       bool DirectToLds, const MfmaInstrShape &shape,
                       OperandKind operand, int64_t mPerBlock, int64_t nPerBlock,

@@ -36,7 +36,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Debug.h"
 
-#define DEBUG_TYPE "rock-hw-transpose-support"
+#define DEBUG_TYPE "rock-lds-transposed-load"
 
 using namespace mlir;
 using namespace mlir::rock;
