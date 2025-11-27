@@ -28,8 +28,8 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   }
 }
 
-// CHECK: rock.threadwise_read_into {forceUnroll, rock.double_buffering = false, rock.kperblock = 16 : i64, rock.lds_transpose_enabled, rock.mfma_layout = "32x16", rock.mperblock = 64 : i64, rock.mperwave = 32 : i64, rock.nperblock = 64 : i64, rock.nperwave = 32 : i64, rock.operand = "A", useIndexDiffs} [](%{{.*}}) [%{{.*}}, %{{.*}}] -> %{{.*}} : memref<256x1x8xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
-// CHECK: rock.threadwise_read_into {forceUnroll, rock.double_buffering = false, rock.kperblock = 16 : i64, rock.lds_transpose_enabled, rock.mfma_layout = "32x16", rock.mperblock = 64 : i64, rock.mperwave = 32 : i64, rock.nperblock = 64 : i64, rock.nperwave = 32 : i64, rock.operand = "B", useIndexDiffs} [](%{{.*}}) [%{{.*}}, %{{.*}}] -> %{{.*}} : memref<256x1x8xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<mfmaNonKDim = 32, mfmaKDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = true>, useIndexDiffs} [](%{{.*}}) [%{{.*}}, %{{.*}}] -> %{{.*}} : memref<256x1x8xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<mfmaNonKDim = 32, mfmaKDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = false>, useIndexDiffs} [](%{{.*}}) [%{{.*}}, %{{.*}}] -> %{{.*}} : memref<256x1x8xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
 
 // -----
 
@@ -61,7 +61,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   }
 }
 
-// CHECK: rock.threadwise_read_into {forceUnroll, rock.double_buffering = true, rock.kperblock = 32 : i64, rock.lds_transpose_enabled, rock.mfma_layout = "16x32", rock.mperblock = 64 : i64, rock.mperwave = 16 : i64, rock.nperblock = 64 : i64, rock.nperwave = 64 : i64, rock.operand = "A", useIndexDiffs}
+// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<mfmaNonKDim = 16, mfmaKDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = true>, useIndexDiffs}
 // CHECK-SAME: memref<256x8xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
-// CHECK: rock.threadwise_read_into {forceUnroll, rock.double_buffering = true, rock.kperblock = 32 : i64, rock.lds_transpose_enabled, rock.mfma_layout = "16x32", rock.mperblock = 64 : i64, rock.mperwave = 16 : i64, rock.nperblock = 64 : i64, rock.nperwave = 64 : i64, rock.operand = "B", useIndexDiffs}
+// CHECK: rock.threadwise_read_into {forceUnroll, ldsTransposeConfig = #rock.lds_transpose_config<mfmaNonKDim = 16, mfmaKDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = false>, useIndexDiffs}
 // CHECK-SAME: memref<256x32xf16, #gpu.address_space<workgroup>> -> memref<32xf16, #gpu.address_space<private>>

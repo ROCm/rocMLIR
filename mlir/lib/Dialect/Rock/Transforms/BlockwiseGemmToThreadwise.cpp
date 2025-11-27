@@ -420,9 +420,6 @@ struct BlockwiseGemmAccelRewritePattern
     Value scaleA = adaptor.getBufferScaleA();
     Value scaleB = adaptor.getBufferScaleB();
 
-    bool allowHWTranspose = op->hasAttr("rock.gemm");
-    if (allowHWTranspose)
-      op->removeAttr("rock.gemm");
     bool isScaledGemm = (scaleA != Value{} && scaleB != Value{});
     Type dataTypeA = matrixParamsA.getElementType();
     Type dataTypeB = matrixParamsB.getElementType();
@@ -445,31 +442,40 @@ struct BlockwiseGemmAccelRewritePattern
     int64_t kPerBlock = kpackPerBlock * tuningParams.getKpack();
 
     auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
-    // Build LDS-transpose attributes for the specific operand (A or B).
-    auto buildTransposeAttr = [&](bool isOperandA) -> DictionaryAttr {
-      if (!allowHWTranspose)
-        return nullptr;
+
+    // Build LDS-transpose config attribute using decision from
+    // GridwiseGemmToBlockwise
+    auto buildTransposeAttr = [&](bool isOperandA) -> LdsTransposeConfigAttr {
       const auto &matrixParams = isOperandA ? matrixParamsA : matrixParamsB;
       bool loadFromLDS = isOperandA ? loadAFromLDS : loadBFromLDS;
-      if (!loadFromLDS || matrixParams.getLDSLayoutDxK())
+
+      // Check if LDS transpose is enabled for this operand
+      if (!loadFromLDS || !matrixParams.getLdsTransposeEnabled())
         return nullptr;
-      if (auto *mfma =
-              dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get())) {
-        hwtranspose::MfmaInstrShape shape{mfma->getMfmaNonKDim(),
-                                          mfma->getMfmaK()};
-        hwtranspose::Decision decision = hwtranspose::makeDecision(
-            arch, dataTypeA, dataTypeB, matrixParams.getDirectToLDS(), shape,
-            isOperandA ? hwtranspose::OperandKind::A
-                       : hwtranspose::OperandKind::B,
-            mPerBlock, nPerBlock, kPerBlock, mPerWave, nPerWave,
-            /*doubleBuffering=*/false);
-        if (decision.usable)
-          return hwtranspose::buildTransposeAttr(b, decision, isOperandA);
-      }
-      return nullptr;
+
+      // Extract MFMA geometry from tuning params (set by
+      // GridwiseGemmToBlockwise)
+      auto mfmaParams = dyn_cast<MfmaGemmParamsAttr>(tuningParams);
+      if (!mfmaParams)
+        return nullptr;
+
+      auto mfmaNonKDim = mfmaParams.getMfmaNonKDim();
+      auto mfmaKDim = mfmaParams.getMfmaKDim();
+
+      if (!mfmaNonKDim.has_value() || !mfmaKDim.has_value())
+        return nullptr;
+
+      // Build transpose config attribute using precomputed MFMA geometry
+      return hwtranspose::buildTransposeAttrFromParams(
+          b, mfmaNonKDim.value(), mfmaKDim.value(), mPerBlock, nPerBlock,
+          kPerBlock, mPerWave, nPerWave,
+          /*doubleBuffering=*/false, isOperandA);
     };
-    DictionaryAttr transposeAttrA = buildTransposeAttr(/*isOperandA=*/true);
-    DictionaryAttr transposeAttrB = buildTransposeAttr(/*isOperandA=*/false);
+
+    LdsTransposeConfigAttr transposeAttrA =
+        buildTransposeAttr(/*isOperandA=*/true);
+    LdsTransposeConfigAttr transposeAttrB =
+        buildTransposeAttr(/*isOperandA=*/false);
 
     LLVM_DEBUG(llvm::dbgs()
                << "argVectorType A: " << argTypeA << "\n"
@@ -524,10 +530,10 @@ struct BlockwiseGemmAccelRewritePattern
       }
     }
 
-    auto loadBuffer = [&](Value buffer, Value wrappedLDSBufferForLoad,
-                          Value loopVar, Type argType, int64_t repeats,
-                          bool loadFromLDS, bool directToLDS, bool isA,
-                          DictionaryAttr transposeAttr = nullptr) -> Value {
+    auto loadBuffer =
+        [&](Value buffer, Value wrappedLDSBufferForLoad, Value loopVar,
+            Type argType, int64_t repeats, bool loadFromLDS, bool directToLDS,
+            bool isA, LdsTransposeConfigAttr transposeAttr = nullptr) -> Value {
       Value inputBuffer = buffer;
       SmallVector<int64_t> shape;
       if (directToLDS) {
@@ -562,14 +568,11 @@ struct BlockwiseGemmAccelRewritePattern
         assert(wrappedLDSBufferForLoad != Value{} &&
                "Wrapped LDS buffer for load is empty");
         // regs = read from LDS
-        auto twr = ThreadwiseReadIntoOp::create(
+        ThreadwiseReadIntoOp::create(
             b, loc, wrappedLDSBufferForLoad, viewForReadInto,
             b.getArrayAttr({}), ValueRange{tid, loopVar}, /*forceUnroll=*/true,
-            /*useIndexDiffs=*/true);
-        if (transposeAttr) {
-          for (auto namedAttr : transposeAttr)
-            twr->setAttr(namedAttr.getName(), namedAttr.getValue());
-        }
+            /*useIndexDiffs=*/true,
+            /*ldsTransposeConfig=*/transposeAttr);
       } else {
         if (cast<ShapedType>(buffer.getType()).getRank() == 1) {
           StringRef dk = isA ? "mk" : "nk";
@@ -1279,7 +1282,8 @@ struct BlockwiseReduceRewritePattern
         ThreadwiseReadIntoOp::create(rewriter, loc, workspaceLDSBuffer,
                                      outputReg, reducedldsViewArrayAttr,
                                      /*extraIndices=*/ValueRange{tid}, true,
-                                     false);
+                                     false,
+                                     /*ldsTransposeConfig=*/nullptr);
         if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
           ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
               loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true,
@@ -1287,7 +1291,8 @@ struct BlockwiseReduceRewritePattern
           ThreadwiseReadIntoOp::create(
               rewriter, loc, workspaceLDSBuffer, op.getExtraOut(),
               reducedldsViewArrayAttr2,
-              /*extraIndices=*/ValueRange{tid}, true, false);
+              /*extraIndices=*/ValueRange{tid}, true, false,
+              /*ldsTransposeConfig=*/nullptr);
         }
       } else {
         // This means there are more threads than elements to be reduced.
@@ -1444,7 +1449,8 @@ struct BlockwiseReduceRewritePattern
           ThreadwiseReadIntoOp::create(rewriter, loc, workspaceLDSBuffer,
                                        outputReg, reducedldsViewArrayAttr,
                                        /*extraIndices=*/ValueRange{tid}, true,
-                                       false);
+                                       false,
+                                       /*ldsTransposeConfig=*/nullptr);
           if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
             ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
                 loc, rewriter, outputViewArrayAttr, axis,
@@ -1452,7 +1458,8 @@ struct BlockwiseReduceRewritePattern
             ThreadwiseReadIntoOp::create(
                 rewriter, loc, workspaceLDSBuffer, op.getExtraOut(),
                 reducedldsViewArrayAttr2,
-                /*extraIndices=*/ValueRange{tid}, true, false);
+                /*extraIndices=*/ValueRange{tid}, true, false,
+                /*ldsTransposeConfig=*/nullptr);
           }
         }
       }

@@ -796,18 +796,12 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   auto globalToLDSTransform = maybeGlobalToLDSTransform.value();
 
-  // Check if the operation has the attribute for LDS Transpose Load
-  if (op->hasAttr("rock.lds_transpose_enabled")) {
-    // Derive lowering info from attributes (layout, attributes, operand).
-    auto info = mlir::rock::hwtranspose::deriveLoweringInfo(b, op);
-    if (info.usable) {
-      if (failed(rock::hwtranspose::emitThreadwiseHWTranspose(
-              b, op, info, blockSize, waveSize))) {
-        return failure();
-      }
-    } else {
-      return op.emitOpError("LDS transpose load emission is not usable with "
-                            "the derived attributes");
+  // Check if the operation has the LDS transpose config dictionary
+  if (op.getLdsTransposeConfigAttr()) {
+    // Emit hardware transpose load sequence directly from config
+    if (failed(rock::hwtranspose::emitThreadwiseHWTranspose(b, op, blockSize,
+                                                            waveSize))) {
+      return op.emitOpError("LDS transpose load emission failed");
     }
     return success();
   }

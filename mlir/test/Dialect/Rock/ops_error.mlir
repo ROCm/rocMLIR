@@ -1163,7 +1163,6 @@ func.func @global_load_to_lds_f4_dest_odd_coord(
   return
 }
 
-
 // Error case: Wrong memory space (not workgroup)
 func.func @lds_transpose_load_wrong_memory_space(%buffer: memref<128x64xf16>) 
     attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {

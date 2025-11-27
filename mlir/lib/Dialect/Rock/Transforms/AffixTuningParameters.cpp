@@ -306,7 +306,7 @@ deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
         gemm0XdlDerivedParams.getMnPerXdl(), attnPerfConfig.getSplitKFactor(),
         gemm0XdlDerivedParams.getScheduleVersion(),
         gemm0XdlDerivedParams.getOutputSwizzle(),
-        gemm0XdlDerivedParams.getForceUnroll());
+        gemm0XdlDerivedParams.getForceUnroll(), std::nullopt, std::nullopt);
   }
   return WmmaGemmParamsAttr::get(
       builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
@@ -373,7 +373,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
         attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
         attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
-        attnPerfConfig.getForceUnroll());
+        attnPerfConfig.getForceUnroll(), std::nullopt, std::nullopt);
   } else {
     accelParams0 = WmmaGemmParamsAttr::get(
         builder.getContext(), attnPerfConfig.getKpackPerBlock(),

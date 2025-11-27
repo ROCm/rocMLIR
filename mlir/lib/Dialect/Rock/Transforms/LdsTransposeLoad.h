@@ -28,8 +28,10 @@
 #ifndef MLIR_LIB_DIALECT_ROCK_TRANSFORMS_LDS_TRANSPOSE_LOAD_H
 #define MLIR_LIB_DIALECT_ROCK_TRANSFORMS_LDS_TRANSPOSE_LOAD_H
 
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/IR/PatternMatch.h"
 
 namespace mlir::rock::hwtranspose {
@@ -37,71 +39,38 @@ namespace mlir::rock::hwtranspose {
 // Operand selector (A or B matrix)
 enum class OperandKind { A, B };
 
-// Simplified layout kinds
-enum class LayoutKind { None, L16x32, L32x16, L16x16, L32x8 };
-
-// Shape of a single MFMA instruction this load cooperates with.
-struct MfmaInstrShape {
-  int64_t mnMfma;
-  int64_t kMfma;
-};
-
-// Structure to hold the outcome of the hardware transpose analysis.
-struct Decision {
-  bool usable{false};
-  LayoutKind layout{LayoutKind::None};
-  OperandKind operand{OperandKind::A};
-  int64_t mPerBlock{1};
-  int64_t nPerBlock{1};
-  int64_t kPerBlock{1};
-  int64_t mPerWave{1};
-  int64_t nPerWave{1};
-  bool doubleBuffering{false};
-};
-
-// Determines whether hardware-assisted LDS transpose optimization can be
-// applied for the given GEMM configuration. Checks architecture support,
-// data types, MFMA instruction shape, and buffer layout compatibility.
-// Returns a Decision struct indicating applicability and selected layout.
-Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
-                      bool DirectToLds, const MfmaInstrShape &shape,
-                      OperandKind operand, int64_t mPerBlock, int64_t nPerBlock,
-                      int64_t kPerBlock, int64_t mPerWave, int64_t nPerWave,
-                      bool doubleBuffering);
-
-// Select a layout kind based on the MFMA instruction shape.
-LayoutKind selectLayout(int64_t nonKDim, int64_t instrK);
-
-// Attach attributes to the ThreadwiseReadIntoOp based on the decision.
-DictionaryAttr buildTransposeAttr(PatternRewriter &rewriter, const Decision &dec,
-                                  bool isOperandA);
-
-// Lowering-time description.
-// Set to true once all required attributes are present so lowering may proceed.
-struct LoweringInfo {
-  bool usable{false};
-  LayoutKind layout{LayoutKind::None};
-  OperandKind operand{OperandKind::A};
-  Type elemType{};
-  int64_t mPerBlock{1};
-  int64_t nPerBlock{1};
-  int64_t kPerBlock{1};
-  int64_t mPerWave{1};
-  int64_t nPerWave{1};
-  bool doubleBuffering{false};
-};
-
-// Derives lowering information from the attributes of a ThreadwiseReadIntoOp.
-LoweringInfo deriveLoweringInfo(PatternRewriter &b, ThreadwiseReadIntoOp op);
+// Build LDS transpose config attribute from already-computed MFMA params.
+// Used in BlockwiseLoadTileToThreadwise when decision was made upstream.
+// Requires mfmaNonKDim > 0 and mfmaKDim > 0 (asserted).
+// Valid combinations: (16,16), (16,32), (32,8), (32,16)
+LdsTransposeConfigAttr buildTransposeAttrFromParams(
+    PatternRewriter &rewriter, int64_t mfmaNonKDim, int64_t mfmaKDim,
+    int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
+    int64_t nPerWave, bool doubleBuffering, bool isOperandA);
 
 // Emits the actual hardware transpose load sequence.
+// Reads configuration directly from the op's LdsTransposeConfigAttr.
 LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
                                         ThreadwiseReadIntoOp op,
-                                        const LoweringInfo &info,
                                         int64_t blockSize, int64_t waveSize);
 
-// Utility to get the string name of a layout.
-StringRef layoutName(LayoutKind kind);
+// Result of LDS transpose decision making for both operands
+struct LdsTransposeDecision {
+  bool enableA{false};    // Enable for operand A
+  bool enableB{false};    // Enable for operand B
+  int64_t mfmaNonKDim{0}; // MFMA non-K dimension (e.g., 16 or 32)
+  int64_t mfmaKDim{0};    // MFMA K dimension (e.g., 8, 16, or 32)
+};
+
+// Decides whether to enable LDS transpose for operands A and B
+// based on architecture, MFMA geometry, kpack constraints, and layout config.
+LdsTransposeDecision decideLdsTransposeForOperands(
+    const rock::accel::AccelEmitter *accelEmitter, StringRef arch,
+    Type elementTypeA, Type elementTypeB, bool directToLDS,
+    const LDSLayoutConfigDim &ldsLayoutConfigA,
+    const LDSLayoutConfigDim &ldsLayoutConfigB, int64_t mPerBlock,
+    int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave, int64_t nPerWave,
+    int64_t kpack, bool doubleBuffering);
 
 } // namespace mlir::rock::hwtranspose
 

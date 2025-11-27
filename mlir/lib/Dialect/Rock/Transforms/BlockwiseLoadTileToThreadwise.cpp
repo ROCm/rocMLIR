@@ -77,7 +77,7 @@ class LoweringBlockwiseLoadTileOp final
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
       bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams,
-      DictionaryAttr transposeAttr = nullptr) const {
+      LdsTransposeConfigAttr transposeAttr = nullptr) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
@@ -113,14 +113,11 @@ class LoweringBlockwiseLoadTileOp final
       regs = rock::transform(b, regs, b.getArrayAttr({mkRegBuilder.get()}));
     }
 
-    auto twr = ThreadwiseReadIntoOp::create(b, loc, ldsViewForLoad, regs,
-                                            b.getArrayAttr({}), ValueRange{tid},
-                                            /*forceUnroll=*/forceUnroll,
-                                            /*useIndexDiffs=*/true);
-    if (transposeAttr) {
-      for (auto namedAttr : transposeAttr)
-        twr->setAttr(namedAttr.getName(), namedAttr.getValue());
-    }
+    ThreadwiseReadIntoOp::create(b, loc, ldsViewForLoad, regs,
+                                 b.getArrayAttr({}), ValueRange{tid},
+                                 /*forceUnroll=*/forceUnroll,
+                                 /*useIndexDiffs=*/true,
+                                 /*ldsTransposeConfig=*/transposeAttr);
   }
 
   std::pair<StageOp, bool> createOrGetStage(PatternRewriter &b, Location loc,
@@ -163,9 +160,8 @@ class LoweringBlockwiseLoadTileOp final
     bool isA = op.getIsA();
     StringRef dName = isA ? "m" : "n";
 
-    bool allowHWTranspose = op->hasAttr("rock.gemm");
-    if (allowHWTranspose)
-      op->removeAttr("rock.gemm");
+    // Check if LDS transpose is enabled for this operand
+    bool ldsTransposeEnabled = matrixParams.getLdsTransposeEnabled();
 
     bool doRotateWithK = matrixParams.getRotateDWithK();
     bool doSwapThreadIterSubDims = matrixParams.getSwapThreadIterSubDims();
@@ -204,26 +200,29 @@ class LoweringBlockwiseLoadTileOp final
     bool doubleBuffer = loadType == GemmLoadTileType::DoubleBuffer ||
                         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
-    // Decide per operand whether LDS transpose can be applied. We do this
-    // locally so that each lowered ThreadwiseReadIntoOp carries only its own
-    // attributes.
-    DictionaryAttr transposeAttr = nullptr;
-    if (allowHWTranspose) {
-      if (auto *mfma =
-              dyn_cast<rock::accel::MfmaEmitter>(accelEmitterPtr.get())) {
-        if (!matrixParams.getLDSLayoutDxK()) {
-          hwtranspose::MfmaInstrShape shape{mfma->getMfmaNonKDim(),
-                                            mfma->getMfmaK()};
-          hwtranspose::Decision decision = hwtranspose::makeDecision(
-              arch, elementTypeA, elementTypeB, matrixParams.getDirectToLDS(),
-              shape,
-              isA ? hwtranspose::OperandKind::A : hwtranspose::OperandKind::B,
-              mPerBlock, nPerBlock, kPerBlock, tuningParams.getMPerWave(),
-              tuningParams.getNPerWave(), doubleBuffer);
-          if (decision.usable)
-            transposeAttr = hwtranspose::buildTransposeAttr(b, decision, isA);
-        }
-      }
+    // Build LDS transpose config attribute if enabled
+    // The decision was already made in GridwiseGemmToBlockwise pass
+    LdsTransposeConfigAttr transposeAttr = nullptr;
+    if (ldsTransposeEnabled) {
+      // INVARIANT: If ldsTranspose=true, then tuningParams MUST be
+      // MfmaGemmParamsAttr with MFMA geometry set
+      auto mfmaParams = dyn_cast<MfmaGemmParamsAttr>(tuningParams);
+      assert(mfmaParams && "ldsTranspose=true requires MfmaGemmParamsAttr");
+
+      auto mfmaNonKDim = mfmaParams.getMfmaNonKDim();
+      auto mfmaKDim = mfmaParams.getMfmaKDim();
+      assert(mfmaNonKDim.has_value() && mfmaKDim.has_value() &&
+             "ldsTranspose=true requires MFMA geometry in params");
+
+      // Build transpose config attribute using helper
+      transposeAttr = hwtranspose::buildTransposeAttrFromParams(
+          b, mfmaNonKDim.value(), mfmaKDim.value(), mPerBlock, nPerBlock,
+          kPerBlock, tuningParams.getMPerWave(), tuningParams.getNPerWave(),
+          doubleBuffer, isA);
+
+      LLVM_DEBUG(llvm::dbgs()
+                 << "[lds_transpose] Built transpose config for operand "
+                 << (isA ? "A" : "B") << "\n");
     }
 
     FailureOr<VectorDimInfo> maybeVecDimInfo =
@@ -295,7 +294,8 @@ class LoweringBlockwiseLoadTileOp final
                                    wrappedSource, loadBuffer,
                                    /*dynamicValidities=*/ValueRange{},
                                    /*extraViews=*/b.getArrayAttr({}),
-                                   /*extraIndices=*/indices, forceUnroll, true);
+                                   /*extraIndices=*/indices, forceUnroll, true,
+                                   /*ldsTransposeConfig=*/nullptr);
       if (stageGlobalReadNew)
         rock::YieldOp::create(b, loc);
     }
@@ -337,7 +337,8 @@ class LoweringBlockwiseLoadTileOp final
               invertTransforms(b, loc, inBufferViewsTr.threadSubTile));
           ThreadwiseReadIntoOp::create(b, loc, viewLoadedBuffer, subview,
                                        b.getArrayAttr({}), ValueRange{di},
-                                       forceUnroll, true);
+                                       forceUnroll, true,
+                                       /*ldsTransposeConfig=*/nullptr);
         }
 
         if (stageRegTransposeNew)

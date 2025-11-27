@@ -306,7 +306,8 @@ struct ThreadwiseWriteAllRewritePattern
 
     ThreadwiseReadIntoOp::create(b, loc, ldsBufferForLoad, finalC,
                                  b.getArrayAttr({}), ValueRange{tid},
-                                 forceUnroll, useIndexDiffs);
+                                 forceUnroll, useIndexDiffs,
+                                 /*ldsTransposeConfig=*/nullptr);
 
     SmallVector<int64_t, 5> bidGridLengths;
     SmallVector<StringRef, 5> bidGridOrder;

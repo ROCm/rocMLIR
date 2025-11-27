@@ -1188,7 +1188,8 @@ def Rock_ThreadwiseReadIntoOp
           Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
           Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
           TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
-          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs)>,
+          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs,
+          OptionalAttr<Rock_LdsTransposeConfigAttr>:$ldsTransposeConfig)>,
       Results<(outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord)> {
   let summary = "Read values from transformed source into destination";
 
@@ -1256,7 +1257,15 @@ def Rock_ThreadwiseReadIntoOp
                    "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
                    "bool":$forceUnroll, "bool":$useIndexDiffs),
       [{
-        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs);
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+      }]>,
+    // Builder with explicit ldsTransposeConfig support
+    OpBuilder<(ins "Value":$source, "Value":$dest,
+                   "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
+                   "bool":$forceUnroll, "bool":$useIndexDiffs,
+                   "LdsTransposeConfigAttr":$ldsTransposeConfig),
+      [{
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig);
       }]>
   ];
 

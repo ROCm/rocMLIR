@@ -332,7 +332,9 @@ def Rock_MfmaGemmParamsAttr
     "int64_t":$splitKFactor,
     "int64_t":$scheduleVersion,
     "int64_t":$outputSwizzle,
-    "bool":$forceUnroll
+    "bool":$forceUnroll,
+    OptionalParameter<"::std::optional<int64_t>">:$mfmaNonKDim,
+    OptionalParameter<"::std::optional<int64_t>">:$mfmaKDim
   );
 
   let extraClassDeclaration = [{
@@ -509,7 +511,44 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
   let parameters = (ins "Type":$elementType, "Type":$elementTypeLoad,
       "bool":$rotateDWithK, "bool":$swapThreadIterSubDims, "bool":$LDSLayoutDxK,
       "bool":$directToLDS, "bool":$splitKAcrossThreadsFirst, "int64_t":$g,
-      "int64_t":$d, "int64_t":$inDPerThread);
+      "int64_t":$d, "int64_t":$inDPerThread,
+      DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled);
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+}
+
+def Rock_LdsTransposeConfigAttr : Rock_Attr<"LdsTransposeConfig", []> {
+  let mnemonic = "lds_transpose_config";
+  let description = [{
+    Configuration parameters for hardware-assisted LDS transpose loads.
+    This attribute encapsulates all the necessary information to emit
+    rock.lds_transpose_load operations with the correct MFMA geometry
+    and tiling parameters.
+    
+    - mfmaNonKDim: MFMA instruction non-K dimension (16 or 32)
+    - mfmaKDim: MFMA instruction K dimension (8, 16, or 32)
+    - mPerBlock: M dimension size per block
+    - nPerBlock: N dimension size per block
+    - kPerBlock: K dimension size per block
+    - mPerWave: M dimension size per wave
+    - nPerWave: N dimension size per wave
+    - doubleBuffering: Whether double buffering is enabled
+    - isOperandA: True if this is operand A, false if operand B
+  }];
+  
+  let parameters = (ins
+    "int64_t":$mfmaNonKDim,
+    "int64_t":$mfmaKDim,
+    "int64_t":$mPerBlock,
+    "int64_t":$nPerBlock,
+    "int64_t":$kPerBlock,
+    "int64_t":$mPerWave,
+    "int64_t":$nPerWave,
+    "bool":$doubleBuffering,
+    "bool":$isOperandA
+  );
 
   let assemblyFormat = [{
     `<` struct(params) `>`
