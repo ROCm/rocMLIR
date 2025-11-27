@@ -3,6 +3,7 @@ add_rocmlir_dialect_library(MLIRRockTuning
   ConvContext.cpp
   GridwiseGemmParams.cpp
   RockTuningImpl.cpp
+  ParamLookupTable.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock/Tuning
