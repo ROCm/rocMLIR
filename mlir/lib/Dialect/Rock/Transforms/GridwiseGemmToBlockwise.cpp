@@ -108,7 +108,7 @@ static RockAccelTuningParamAttrInterface createEnhancedTuningParams(
 
 } // end anonymous namespace
 
-static BlockwiseGemmAccelOp blockwiseGemmAccel(
+static void blockwiseGemmAccel(
     PatternRewriter &rewriter, Location loc, GemmLoadTileType loadTypeA,
     GemmLoadTileType loadTypeB, Value bufferA, Value bufferB, Value matrixC,
     const BlockwiseMatrixParamsAttr &matrixParamsA,
@@ -130,11 +130,10 @@ static BlockwiseGemmAccelOp blockwiseGemmAccel(
     assert(matrixB != nullptr);
   }
 
-  auto gemmOp = BlockwiseGemmAccelOp::create(
+  BlockwiseGemmAccelOp::create(
       rewriter, loc, bufferA, bufferB, matrixC, matrixParamsA, matrixParamsB,
       matrixA, matrixB, scaleA, scaleB, bufferScaleA, bufferScaleB, features,
       blockSize, params);
-  return gemmOp;
 }
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
@@ -2445,7 +2444,7 @@ struct GridwiseAttentionAccelRewritePattern
             }
           }
 
-          (void)blockwiseGemmAccel(
+          blockwiseGemmAccel(
               rewriter, loc, loadType, loadTypeQ, preAccelRegBufferK,
               preAccelRegBuffersQ, accRegBufferGemm0, matrixParamsK,
               matrixParamsQ, ldsTileBufferK, ldsTileBufferQ,
@@ -2736,7 +2735,7 @@ struct GridwiseAttentionAccelRewritePattern
             auto loadTypeKxD = doBypassLDSSecondGemm
                                    ? GemmLoadTileType::BypassLDS
                                    : GemmLoadTileType::Default;
-            (void)blockwiseGemmAccel(
+            blockwiseGemmAccel(
                 rewriter, loc, loadType, loadTypeKxD, preAccelRegBufferV,
                 preAccelRegBufferQxK, matrixC, matrixParamsV, matrixParamsKxQ,
                 ldsTileBufferV, gemm1LDSBufferB,
