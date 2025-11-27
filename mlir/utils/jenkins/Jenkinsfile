@@ -297,7 +297,7 @@ void explicitDockerLogin() {
     withCredentials([usernamePassword(credentialsId: DOCKER_HUB_CREDS,
                                       usernameVariable: 'D_USER', 
                                       passwordVariable: 'D_PASS')]) {
-        sh "docker login -u $D_USER -p $D_PASS"
+        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
     }
 }
 
