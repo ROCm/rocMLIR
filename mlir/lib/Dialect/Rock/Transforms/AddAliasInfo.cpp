@@ -31,7 +31,7 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
-#include "mlir/Dialect/Rock/utility/AliasUtils.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 
@@ -50,6 +50,53 @@ using namespace mlir;
 using namespace mlir::rock;
 
 namespace {
+LLVM::AliasScopeDomainAttr getScopeDomain(MLIRContext *ctx) {
+  Builder b(ctx);
+  return b.getAttr<LLVM::AliasScopeDomainAttr>(
+      b.getStringAttr("amdgpu.LoadsScope"),
+      b.getStringAttr(
+          "Domain to hold alias scopes to specify aliasing information for "
+          "operations that load directly from global memory to LDS"));
+}
+
+LLVM::AliasScopeAttr getDirectToLDSLoadScope(MLIRContext *ctx) {
+  Builder b(ctx);
+  auto name = b.getStringAttr("amdgpu.DirectToLDSLoads");
+  auto desc = b.getStringAttr("Scope containing all operations that perform "
+                              "direct global-to-LDS loads");
+  return b.getAttr<LLVM::AliasScopeAttr>(name, getScopeDomain(ctx), desc);
+}
+
+LLVM::AliasScopeAttr getLDSLoadScope(MLIRContext *ctx) {
+  Builder b(ctx);
+  auto name = b.getStringAttr("amdgpu.LDSLoads");
+  auto desc = b.getStringAttr("Scope containing all LDS load ops");
+  return b.getAttr<LLVM::AliasScopeAttr>(name, getScopeDomain(ctx), desc);
+}
+
+// Should be called for all DirectToLDS loads.
+void addDirectToLDSLoadAliasScope(LLVM::AliasAnalysisOpInterface op) {
+  auto ctx = op->getContext();
+  Builder b(ctx);
+
+  // Do not alias with LDS loads.
+  op.setNoAliasScopes(b.getArrayAttr(getLDSLoadScope(ctx)));
+
+  op.setAliasScopes(b.getArrayAttr(getDirectToLDSLoadScope(ctx)));
+}
+
+// Should be called for all LDS loads.
+void addLDSLoadNoAliasScope(LLVM::AliasAnalysisOpInterface op) {
+  auto ctx = op->getContext();
+  Builder b(ctx);
+
+  // Do not alias with DirectToLDS loads.
+  op.setNoAliasScopes(b.getArrayAttr(getDirectToLDSLoadScope(ctx)));
+
+  // Add to different scope as ops without any scope alias with everything
+  op.setAliasScopes(b.getArrayAttr(getLDSLoadScope(ctx)));
+}
+
 struct RockAddAliasInfoPass
     : public rock::impl::RockAddAliasInfoPassBase<RockAddAliasInfoPass> {
   void runOnOperation() override {
