@@ -329,13 +329,8 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
     for (auto [func, blockSize, gridSize] :
          llvm::zip(functions, blockSizes, gridSizes)) {
       hipEvent_t startEvent, stopEvent;
-      // We use hipEventDisableSystemFence and hipEventReleaseToDevice to try
-      // to improve accuracy of the measurements. More details here:
-      // https://github.com/ROCm/rocMLIR/pull/2119#discussion_r2564849591
-      HIPCHECK(hipEventCreateWithFlags(
-          &startEvent, hipEventDisableSystemFence | hipEventReleaseToDevice));
-      HIPCHECK(hipEventCreateWithFlags(
-          &stopEvent, hipEventDisableSystemFence | hipEventReleaseToDevice));
+      HIPCHECK(hipEventCreate(&startEvent));
+      HIPCHECK(hipEventCreate(&stopEvent));
 
       HIPCHECK(hipExtModuleLaunchKernel(
           func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
