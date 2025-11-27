@@ -63,10 +63,6 @@ ArrayAttr noTransformsArray(Builder &b, size_t n);
 
 ArrayAttr getIndexArrayAttr(Builder &b, ArrayRef<int64_t> values);
 
-// Returns true if the provided memory space attribute encodes GPU workgroup
-// memory.
-bool hasWorkgroupMemorySpace(Attribute memorySpace);
-
 // The largest workgroup size ("block size") that LLVM and the runtime
 // support.
 constexpr int64_t maxHardwareWorkgroupSize = 1024;

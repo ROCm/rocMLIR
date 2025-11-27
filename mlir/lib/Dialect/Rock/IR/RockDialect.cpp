@@ -74,7 +74,7 @@ using namespace mlir::rock;
 // Utility Functions
 //===----------------------------------------------------------------------===//
 
-bool mlir::rock::hasWorkgroupMemorySpace(Attribute memorySpace) {
+bool mlir::rock::isWorkgroupMemorySpace(Attribute memorySpace) {
   if (!memorySpace)
     return false;
 
@@ -1344,7 +1344,7 @@ LogicalResult LiveInOp::verify() {
     return emitError("The operand of rock.live_in must be the result of a "
                      "rock.alloc operation.");
 
-  if (!hasWorkgroupMemorySpace(getMemref().getType().getMemorySpace()))
+  if (!isWorkgroupMemorySpace(getMemref().getType().getMemorySpace()))
     return emitError("The operand of rock.live_in must be an LDS memref");
 
   return success();
@@ -1360,7 +1360,7 @@ LogicalResult LiveOutOp::verify() {
     return emitError("The operand of rock.live_out must be the result of a "
                      "rock.alloc operation.");
 
-  if (!hasWorkgroupMemorySpace(getMemref().getType().getMemorySpace()))
+  if (!isWorkgroupMemorySpace(getMemref().getType().getMemorySpace()))
     return emitError("The operand of rock.live_out must be an LDS memref");
 
   return success();
@@ -1889,7 +1889,7 @@ LogicalResult GlobalLoadToLDSOp::verify() {
   MemRefType sourceType = cast<MemRefType>(source.getType());
   MemRefType destType = cast<MemRefType>(dest.getType());
 
-  if (!hasWorkgroupMemorySpace(destType.getMemorySpace()))
+  if (!isWorkgroupMemorySpace(destType.getMemorySpace()))
     return emitOpError("Destination memref must live in workgroup memory");
 
   int64_t numBits = getTransferType().getIntOrFloatBitWidth();
@@ -1998,18 +1998,30 @@ LogicalResult InBoundsStoreOp::verify() {
 void LDSTransposeLoadOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   // This op only reads from LDS (workgroup) memory
-  auto *read = MemoryEffects::Read::get();
-  effects.emplace_back(read, &getSourceMutable());
+  effects.emplace_back(MemoryEffects::Read::get(), &getSourceMutable());
+
+  // Writes transposed result to destination (VGPRs)
+  effects.emplace_back(MemoryEffects::Write::get());
 }
 
 LogicalResult LDSTransposeLoadOp::verify() {
   // Source must be memref in workgroup (LDS) address space
   MemRefType srcType = getSource().getType();
-  if (!hasWorkgroupMemorySpace(srcType.getMemorySpace()))
+  if (!isWorkgroupMemorySpace(srcType.getMemorySpace()))
     return emitOpError("source memory address space must be workgroup (LDS)");
 
+  // Check hardware support - only gfx950
+  StringAttr archAttr =
+      rock::getArch(*this).value_or(StringAttr::get(getContext(), "gfx00"));
+  StringRef arch = archAttr.getValue();
+  if (!arch.contains("gfx950")) {
+    return emitOpError("LDS transpose load is only supported on gfx950, but "
+                       "target architecture is ")
+           << arch;
+  }
+
   // Indices size must match rank
-  if (getIndices().size() != srcType.getRank())
+  if (static_cast<int64_t>(getIndices().size()) != srcType.getRank())
     return emitOpError("expected " + Twine(srcType.getRank()) + " indices");
   for (Value idx : getIndices()) {
     if (!idx.getType().isIndex())
@@ -2772,7 +2784,7 @@ LogicalResult BlockwiseFillOp::verify() {
   if (memrefType.getRank() != 1) {
     return emitError("Blockwise fill expects a flat memref");
   }
-  if (!hasWorkgroupMemorySpace(memrefType.getMemorySpace()))
+  if (!isWorkgroupMemorySpace(memrefType.getMemorySpace()))
     return emitError("Memory space is expected to be workgroup");
   int64_t numElements = getMemref().getType().getNumElements();
   if (VectorType vecType = dyn_cast<VectorType>(getValue().getType())) {
