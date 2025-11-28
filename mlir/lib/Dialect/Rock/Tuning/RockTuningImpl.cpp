@@ -751,20 +751,23 @@ extractLayouts(Operation *op, llvm::StringMap<unsigned> &fLayoutMap,
 struct ReductionInfo {
   ReduceMethod method;
   int64_t axis;
+  int64_t rank;
   bool hasPointwiseBefore;
 
   bool operator<(const ReductionInfo &other) const {
-    // Sort by method first, then axis, then hasPointwiseBefore
+    // Sort by method first, then rank, then axis, then hasPointwiseBefore
     if (method != other.method)
       return method < other.method;
+    if (rank != other.rank)
+      return rank < other.rank;
     if (axis != other.axis)
       return axis < other.axis;
-    return hasPointwiseBefore < other.hasPointwiseBefore;
+    return hasPointwiseBefore > other.hasPointwiseBefore;
   }
 
   bool operator==(const ReductionInfo &other) const {
     return method == other.method && axis == other.axis &&
-           hasPointwiseBefore == other.hasPointwiseBefore;
+           rank == other.rank && hasPointwiseBefore == other.hasPointwiseBefore;
   }
 };
 
@@ -861,6 +864,7 @@ static FusionInfo getFusionInfo(Value gemmResult, GemmFeatures features) {
       ReductionInfo redInfo;
       redInfo.method = reduceOp.getReduceMethod();
       redInfo.axis = reduceOp.getAxis().getSExtValue();
+      redInfo.rank = cast<ShapedType>(reduceOp.getIn().getType()).getRank();
       redInfo.hasPointwiseBefore = hasPointwise;
       info.reductions.push_back(redInfo);
     }
@@ -891,7 +895,7 @@ static void appendOutputFusionInfo(llvm::raw_svector_ostream &problemOS,
   problemOS << sep << "-fusion_reduce" << sep
             << "count=" << fusionInfo.numReductionOutputs();
 
-  // Encode each reduction in format: method:axis[:hasPointwise]
+  // Encode each reduction in format: method:rank:axis[:hasPointwise]
   for (const auto &reduction : fusionInfo.reductions) {
     problemOS << sep;
 
@@ -905,7 +909,8 @@ static void appendOutputFusionInfo(llvm::raw_svector_ostream &problemOS,
       break;
     }
 
-    // Add reduction axis with colon separator
+    // Add rank and axis with colon separators
+    problemOS << ":rank" << reduction.rank;
     problemOS << ":axis" << reduction.axis;
 
     // Add pointwise flag for this specific reduction
