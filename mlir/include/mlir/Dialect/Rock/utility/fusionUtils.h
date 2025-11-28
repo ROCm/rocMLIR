@@ -54,10 +54,6 @@ checkValidOutputFusion(linalg::GenericOp genericOp, Value gemmResult,
                        GemmFeatures features,
                        SmallVector<std::tuple<Operation *, int>> &adds);
 
-// Checks whether an operation is a valid elementwise operation for GEMM output
-// fusion (used for both split-K and reduction fusion analysis).
-bool validOperationGemmOut(Operation &op);
-
 } // end namespace rock
 } // end namespace mlir
 

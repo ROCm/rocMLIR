@@ -33,7 +33,7 @@ using namespace mlir;
 using namespace mlir::rock;
 using namespace arith;
 
-bool mlir::rock::validOperationGemmOut(Operation &op) {
+bool validOperationGemmOut(Operation &op) {
   return isa<MulFOp, DivFOp, AddFOp, SubFOp, SIToFPOp, UIToFPOp, NegFOp,
              ExtUIOp, ExtSIOp, ExtFOp, TruncFOp, TruncIOp>(op);
 }
