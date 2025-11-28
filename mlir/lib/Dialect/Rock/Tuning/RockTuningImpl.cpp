@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
@@ -772,152 +773,106 @@ struct FusionInfo {
   SmallVector<ReductionInfo> reductions;
 
   bool hasReduction() const { return !reductions.empty(); }
-  bool hasMultipleReductions() const { return reductions.size() > 1; }
   int numReductionOutputs() const { return reductions.size(); }
 };
 
-// Helper to collect all values that are views of the same underlying allocation
-static void collectAllViewsOfAlloc(Value value, SmallVectorImpl<Value> &views,
-                                   DenseSet<Value> &visited) {
-  if (!visited.insert(value).second) {
-    return; // Already visited
+// Helper to get the base value (allocation or block argument) from a value
+static FailureOr<Value> getBaseValue(Value v) {
+  FailureOr<memref::AllocOp> maybeAlloc = rock::findMemrefAlloc(v);
+  if (succeeded(maybeAlloc)) {
+    return maybeAlloc.value().getResult();
   }
 
-  views.push_back(value);
-
-  // Traverse through all users to find view-like operations
-  for (Operation *user : value.getUsers()) {
-    if (isa<ViewLikeOpInterface>(user)) {
-      // For view-like operations, recursively collect their results
-      for (Value result : user->getResults()) {
-        collectAllViewsOfAlloc(result, views, visited);
-      }
-    }
+  FailureOr<BlockArgument> maybeBlockArg = rock::findBlockArgument(v);
+  if (succeeded(maybeBlockArg)) {
+    return maybeBlockArg.value();
   }
+
+  return failure();
 }
 
-// Helper to analyze users, following through rock.transform operations
-static void analyzeUsers(Value originalGemmResult, GemmFeatures features,
-                         FusionInfo &info) {
-  OpBuilder b(originalGemmResult.getContext());
-  
-  // First, untransform to get the underlying allocation
-  Value underlyingAlloc;
-  ArrayAttr transforms;
-  bool needs64Bit;
-  std::tie(underlyingAlloc, transforms, needs64Bit) = 
-      rock::untransform(b, originalGemmResult);
-
-  // Collect all views (transforms) of this underlying allocation
-  SmallVector<Value> allViews;
-  DenseSet<Value> viewVisited;
-  collectAllViewsOfAlloc(underlyingAlloc, allViews, viewVisited);
-
-  // Now analyze users of all these views
-  // Worklist: <Value, bool: has pointwise operation before it,
-  //            Value: underlying allocation for this value>
-  SmallVector<std::tuple<Value, bool, Value>> worklist;
-  for (Value view : allViews) {
-    worklist.push_back({view, false, underlyingAlloc});
+// Helper to trace backwards from a value to see if it reaches the target
+static std::pair<bool, bool>
+tracesToTarget(Value start, Value target, const BufferDependencyAnalysis &deps,
+               DenseSet<Value> &visited) {
+  if (!visited.insert(start).second) {
+    return {false, false}; // Avoid cycles
   }
 
-  // Track visited values to avoid processing cycles
-  DenseSet<Value> visited;
+  FailureOr<Value> baseValue = getBaseValue(start);
+  if (failed(baseValue))
+    return {false, false}; // Could not find base value
 
-  while (!worklist.empty()) {
-    auto [value, hasPointwiseSoFar, currentUnderlyingAlloc] =
-                                                      worklist.pop_back_val();
+  if (*baseValue == target) {
+    return {true, false}; // Found target, with no pointwise inbetween
+  }
 
-    if (!visited.insert(value).second) {
-      continue; // Already visited
-    }
+  // For allocations, use BufferDependencyAnalysis to find writers
+  if (auto allocOp = baseValue->getDefiningOp<memref::AllocOp>()) {
+    std::optional<SmallVector<OpOperand *>> writers = deps.getWriters(allocOp);
+    if (writers) {
+      for (OpOperand *writerOperand : *writers) {
+        auto genericOp = dyn_cast<linalg::GenericOp>(writerOperand->getOwner());
+        if (!genericOp) {
+          continue;
+        }
 
-    for (Operation *user : value.getUsers()) {
-      // Check for direct reduction
-      if (auto reduceOp = dyn_cast<rock::ReduceOp>(user)) {
-        ReductionInfo redInfo;
-        redInfo.method = reduceOp.getReduceMethod();
-        redInfo.axis = reduceOp.getAxis().getSExtValue();
-        redInfo.hasPointwiseBefore = hasPointwiseSoFar;
-        info.reductions.push_back(redInfo);
-        continue;
-      }
-
-      // Follow through rock.transform operations
-      if (auto transformOp = dyn_cast<rock::TransformOp>(user)) {
-        worklist.push_back({transformOp.getResult(), hasPointwiseSoFar,
-                            currentUnderlyingAlloc});
-        continue;
-      }
-
-      // Check for linalg.generic (i.e., pointwise operations)
-      if (auto genericOp = dyn_cast<linalg::GenericOp>(user)) {
-        // For memref-based linalg.generic, we need to check if this is reading
-        // from our value. We only care about cases where our value is an input
-        // to the pointwise operation.
-        bool isInput = false;
+        // Trace through inputs of the linalg.generic (assumed to be pointwise)
         for (Value input : genericOp.getInputs()) {
-          if (input == value) {
-            isInput = true;
-            break;
+          auto [reachesTarget, hasPointwise] =
+              tracesToTarget(input, target, deps, visited);
+          if (reachesTarget) {
+            return {true, true}; // Found target through pointwise
           }
         }
-
-        if (!isInput) {
-          continue;
-        }
-
-        // For reduction fusion detection, we just need to validate that this is
-        // an elementwise operation.
-        bool isValidElementwise = true;
-        Block &body = genericOp.getRegion().front();
-        for (Operation &nestedOp : body.without_terminator()) {
-          if (!rock::validOperationGemmOut(nestedOp) &&
-              !isa<arith::ConstantOp>(nestedOp)) {
-            isValidElementwise = false;
-            break;
-          }
-        }
-        
-        if (!isValidElementwise) {
-          continue;
-        }
-
-        // We need to follow users of the output memref
-        auto outputs = genericOp.getOutputs();
-        if (!outputs.empty() && outputs[0]) {
-          Value outputValue = outputs[0];
-          
-          // Get the underlying allocation for this output
-          Value outputUnderlyingAlloc;
-          ArrayAttr outputTransforms;
-          bool outputNeeds64Bit;
-          std::tie(outputUnderlyingAlloc, outputTransforms, outputNeeds64Bit) = 
-              rock::untransform(b, outputValue);
-          
-          // Collect all views of the output allocation
-          SmallVector<Value> outputViews;
-          DenseSet<Value> outputViewVisited;
-          collectAllViewsOfAlloc(outputUnderlyingAlloc, outputViews,
-                                  outputViewVisited);
-          
-          // Add all views of the output to the worklist
-          for (Value outputView : outputViews) {
-            worklist.push_back({outputView, /*hasPointwiseSoFar=*/true,
-                                 outputUnderlyingAlloc});
-          }
-        }
-        continue;
       }
     }
   }
+
+  return {false, false};
+}
+
+// Find all reductions and check if they trace back to our GEMM output
+static FusionInfo getFusionInfo(Value gemmResult, GemmFeatures features) {
+  FusionInfo info;
+
+  // Find the target (allocation or block argument)
+  FailureOr<Value> maybeTarget = getBaseValue(gemmResult);
+  if (failed(maybeTarget))
+    return info; // None found
+
+  Value target = *maybeTarget;
+
+  // Get the parent function
+  auto defOp = gemmResult.getDefiningOp();
+  auto funcOp = defOp ? rock::getParentFuncOp(defOp) : nullptr;
+  if (!funcOp) {
+    return info;
+  }
+
+  // Walk all reduce operations and check if they trace back to our GEMM
+  BufferDependencyAnalysis deps(funcOp);
+  funcOp->walk([&](rock::ReduceOp reduceOp) {
+    DenseSet<Value> visited;
+    auto [reachesTarget, hasPointwise] =
+        tracesToTarget(reduceOp.getIn(), target, deps, visited);
+
+    if (reachesTarget) {
+      ReductionInfo redInfo;
+      redInfo.method = reduceOp.getReduceMethod();
+      redInfo.axis = reduceOp.getAxis().getSExtValue();
+      redInfo.hasPointwiseBefore = hasPointwise;
+      info.reductions.push_back(redInfo);
+    }
+  });
+
+  return info;
 }
 
 // Analyze fusion patterns for a GEMM operation's output
 static FusionInfo analyzeOutputFusionPattern(Value gemmResult,
                                              GemmFeatures features) {
-  FusionInfo info;
-  analyzeUsers(gemmResult, features, info);
+  FusionInfo info = getFusionInfo(gemmResult, features);
 
   // Sort reductions for consistent ordering in problem key
   std::sort(info.reductions.begin(), info.reductions.end());
