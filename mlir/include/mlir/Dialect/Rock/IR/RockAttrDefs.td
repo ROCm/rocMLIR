@@ -536,6 +536,7 @@ def Rock_LdsTransposeConfigAttr : Rock_Attr<"LdsTransposeConfig", []> {
   let assemblyFormat = [{
     `<` struct(params) `>`
   }];
+  let genVerifyDecl = 1;
 }
 
 #endif

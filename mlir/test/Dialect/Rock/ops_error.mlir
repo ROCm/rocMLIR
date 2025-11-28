@@ -1212,3 +1212,14 @@ func.func @lds_transpose_load_too_many_indices(%buffer: memref<128x64xf16, #gpu.
     : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
   return
 }
+
+// Error case: Mismatched element types (source f16, result bf16)
+func.func @lds_transpose_load_mismatched_types(%buffer: memref<128x32xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  // expected-error @+1 {{result element type ('bf16') must match source element type ('f16')}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c1]
+    : memref<128x32xf16, #gpu.address_space<workgroup>> -> vector<4xbf16>
+  return
+}

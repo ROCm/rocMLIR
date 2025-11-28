@@ -92,10 +92,11 @@ static bool validatePaneling(const MfmaInstrShape &shape, OperandKind operand,
 // Returns a `Decision` struct indicating applicability.
 static Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
                              bool DirectToLds, const MfmaInstrShape &shape,
-                             OperandKind operand, int64_t mPerBlock,
-                             int64_t nPerBlock, int64_t kPerBlock,
-                             int64_t mPerWave, int64_t nPerWave,
-                             bool doubleBuffering) {
+                             OperandKind operand,
+                             const LDSLayoutConfigDim &ldsLayoutConfig,
+                             int64_t mPerBlock, int64_t nPerBlock,
+                             int64_t kPerBlock, int64_t mPerWave,
+                             int64_t nPerWave, bool doubleBuffering) {
   Decision dec;
   dec.operand = operand;
   dec.mPerBlock = mPerBlock;
@@ -107,6 +108,13 @@ static Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
 
   // Basic applicability checks
   if (!archSupported(arch) || !DirectToLds) {
+    return dec;
+  }
+
+  // Layout must be KxD (not DxK) for transpose load to work
+  // This is a fundamental constraint - DxK layout cannot benefit from
+  // hardware transpose instructions
+  if (ldsLayoutConfig.ldsLayoutDxK) {
     return dec;
   }
 
@@ -211,41 +219,27 @@ LdsTransposeDecision decideLdsTransposeForOperands(
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] MFMA geometry: " << mfmaDDim
                           << "x" << mfmaKDim << "\n");
 
-  // Check basic constraints for LDS transpose applicability
-  // - directToLDS must be enabled
-  // - Layout must be KxD (not DxK)
-  bool canUseForA = directToLDS && !ldsLayoutConfigA.ldsLayoutDxK;
-  bool canUseForB = directToLDS && !ldsLayoutConfigB.ldsLayoutDxK;
-
-  if (!canUseForA && !canUseForB) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "[lds_transpose] Neither operand meets basic constraints\n");
-    return result;
-  }
-
   MfmaInstrShape shape{mfmaDDim, mfmaKDim};
 
   // Make decision for operand A
-  Decision decA;
-  if (canUseForA) {
-    decA = makeDecision(arch, elementTypeA, elementTypeB, directToLDS, shape,
-                        OperandKind::A, mPerBlock, nPerBlock, kPerBlock,
-                        mPerWave, nPerWave, doubleBuffering);
+  // All basic constraints (directToLDS, layout, arch, etc.) are checked inside
+  // makeDecision()
+  Decision decA =
+      makeDecision(arch, elementTypeA, elementTypeB, directToLDS, shape,
+                   OperandKind::A, ldsLayoutConfigA, mPerBlock, nPerBlock,
+                   kPerBlock, mPerWave, nPerWave, doubleBuffering);
 
-    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Decision for operand A: "
-                            << (decA.usable ? "USABLE" : "NOT USABLE") << "\n");
-  }
+  LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Decision for operand A: "
+                          << (decA.usable ? "USABLE" : "NOT USABLE") << "\n");
 
   // Make decision for operand B
-  Decision decB;
-  if (canUseForB) {
-    decB = makeDecision(arch, elementTypeA, elementTypeB, directToLDS, shape,
-                        OperandKind::B, mPerBlock, nPerBlock, kPerBlock,
-                        mPerWave, nPerWave, doubleBuffering);
+  Decision decB =
+      makeDecision(arch, elementTypeA, elementTypeB, directToLDS, shape,
+                   OperandKind::B, ldsLayoutConfigB, mPerBlock, nPerBlock,
+                   kPerBlock, mPerWave, nPerWave, doubleBuffering);
 
-    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Decision for operand B: "
-                            << (decB.usable ? "USABLE" : "NOT USABLE") << "\n");
-  }
+  LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Decision for operand B: "
+                          << (decB.usable ? "USABLE" : "NOT USABLE") << "\n");
 
   // ========================================
   // KPACK CONSTRAINT LOGIC
@@ -257,36 +251,31 @@ LdsTransposeDecision decideLdsTransposeForOperands(
     // Case 1: Both operands can use LDS transpose - always enable
     result.enableA = true;
     result.enableB = true;
-    LLVM_DEBUG(llvm::dbgs()
-               << "[lds_transpose] Enabled for BOTH operands (A and B)\n");
-  } else if (onlyOneUsable) {
-    // Case 2: Only one operand can use it - check kpack constraint
-    if (kpack == 1) {
-      // kpack == 1: Safe to enable for single operand
-      result.enableA = decA.usable;
-      result.enableB = decB.usable;
-      LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Enabled for "
-                              << (decA.usable ? "operand A" : "operand B")
-                              << " only (kpack=1)\n");
-    } else {
-      // kpack > 1 with asymmetric support - disable both (current limitation)
-      result.enableA = false;
-      result.enableB = false;
-      LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] DISABLED: only one "
-                                 "operand eligible but kpack="
-                              << kpack << " > 1 (current limitation)\n");
-    }
-  }
-
-  // IMPORTANT: Only set MFMA geometry if at least one operand will use it
-  // This avoids polluting tuning params with unnecessary data
-  if (result.enableA || result.enableB) {
     result.mfmaDDim = mfmaDDim;
     result.mfmaKDim = mfmaKDim;
     LLVM_DEBUG(llvm::dbgs()
-               << "[lds_transpose] Geometry saved for propagation: " << mfmaDDim
-               << "x" << mfmaKDim << "\n");
+               << "[lds_transpose] Enabled for BOTH operands (A and B)\n");
+  } else if (onlyOneUsable && kpack == 1) {
+    // Case 2: Only one operand can use it with kpack == 1
+    // kpack == 1: Safe to enable for single operand
+    result.enableA = decA.usable;
+    result.enableB = decB.usable;
+    result.mfmaDDim = mfmaDDim;
+    result.mfmaKDim = mfmaKDim;
+    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Enabled for "
+                            << (decA.usable ? "operand A" : "operand B")
+                            << " only (kpack=1)\n");
+  } else if (onlyOneUsable) {
+    // Case 3: Only one operand usable but kpack > 1
+    // kpack > 1 with asymmetric support - disable both (current limitation)
+    result.enableA = false;
+    result.enableB = false;
+    // Geometry NOT set - avoids polluting tuning params with unused data
+    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] DISABLED: only one "
+                               "operand eligible but kpack="
+                            << kpack << " > 1 (current limitation)\n");
   }
+  // else - implicitly: neither operand usable, enableA/enableB remain false.
 
   return result;
 }
@@ -407,7 +396,7 @@ static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
     // 16x32 layout
     kOffsetBase = arith::MulIOp::create(b, loc, blockId, c8);
   } else {
-    return nullptr; // Should not happen for double-rate
+    llvm_unreachable("Invalid double-rate geometry - must be 32x16 or 16x32");
   }
 
   return kOffsetBase;
@@ -542,13 +531,21 @@ writePanelVectorsToDestination(PatternRewriter &b, Location loc,
 
   int64_t produced = 0;
 
+  // Extract elements per vector from the actual vector type
+  // Hardware instruction ds_read_tr16_b64 always returns vector<4xf16>
+  assert(!panelVectors.empty() && "Panel vectors array must not be empty");
+  auto panelVecType = cast<VectorType>(panelVectors[0].getType());
+  int64_t elementsPerVector = panelVecType.getShape()[0];
+
+  // Verify hardware constraint: ds_read_tr16_b64 returns exactly 4 elements
+  assert(elementsPerVector == 4 &&
+         "LDS transpose load must produce vector<4xf16> per panel");
+
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Writing " << panelVectors.size()
-                          << " panel vectors (" << (panelVectors.size() * 4)
+                          << " panel vectors ("
+                          << (panelVectors.size() * elementsPerVector)
                           << " elements) to destination, target=" << targetElems
                           << "\n");
-
-  // Each panel vector contains 4 elements (ds_read_tr16_b64 → vector<4xf16>)
-  constexpr int64_t elementsPerVector = 4;
 
   for (Value panelVec : panelVectors) {
     for (int64_t laneIdx = 0; laneIdx < elementsPerVector; ++laneIdx) {
@@ -1039,6 +1036,31 @@ static Value computeFinalMNOffset(PatternRewriter &b, Location loc,
   return finalOffset;
 }
 
+//===----------------------------------------------------------------------===//
+// emitThreadwiseHWTranspose - Lower threadwise_read_into to HW transpose loads
+//===----------------------------------------------------------------------===//
+// Lowers threadwise_read_into with LDS transpose config into hardware transpose
+// load instructions (ds_read_tr16_b64) that read from LDS in MFMA-friendly
+// order.
+//
+// Algorithm:
+// 1. Extract config: MFMA geometry (dDim, kDim), tiling params, operand kind
+// 2. Decompose wave ID into 2D grid position (waveM, waveN) for spatial work
+//    distribution
+// 3. Compute per-lane base LDS offsets (k_base_local, m_offset_base) based on
+//    lane ID within the wavefront
+// 4. Compute stride configuration for wave offsets and tile iteration
+// 5. Generate nested loops:
+//    - Outer: M/N tiles (all at once for double-buffering, one at a time
+//    otherwise)
+//    - Inner: K tiles (1 load for single-rate, 2 loads for double-rate layouts)
+// 6. For each iteration: compute final LDS offset, emit ds_read_tr16_b64
+//    instruction (returns vector<4xf16>)
+// 7. Extract elements from panel vectors and write sequentially to destination
+//
+// Example: 16x32 layout, 1 M-tile, 2 K-tiles → 2 ds_read_tr16_b64 calls → 8
+// f16 elems
+//===----------------------------------------------------------------------===//
 LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
                                         ThreadwiseReadIntoOp op,
                                         int64_t blockSize, int64_t waveSize) {

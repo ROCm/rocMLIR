@@ -558,6 +558,48 @@ LogicalResult TransformMapAttr::verify(
   return success();
 }
 
+// Helper function to check valid MFMA geometry for LDS transpose
+static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && (kDim == 16 || kDim == 32)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16));
+}
+
+LogicalResult LdsTransposeConfigAttr::verify(
+    function_ref<InFlightDiagnostic()> emitError, int64_t mfmaDDim,
+    int64_t mfmaKDim, int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
+    int64_t mPerWave, int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
+
+  // Validate MFMA geometry
+  if (!isValidLdsTransposeMfmaGeometry(mfmaDDim, mfmaKDim)) {
+    return emitError() << "invalid MFMA geometry (" << mfmaDDim << "x"
+                       << mfmaKDim
+                       << ") for LDS transpose - valid combinations: "
+                          "(16,16), (16,32), (32,8), (32,16)";
+  }
+
+  // Validate positive dimensions
+  if (mfmaDDim <= 0 || mfmaKDim <= 0 || mPerBlock <= 0 || nPerBlock <= 0 ||
+      kPerBlock <= 0 || mPerWave <= 0 || nPerWave <= 0) {
+    return emitError() << "all dimensions must be positive";
+  }
+
+  // Validate that block dimensions are divisible by MFMA dimensions
+  int64_t dPerBlock = isOperandA ? mPerBlock : nPerBlock;
+  if (dPerBlock % mfmaDDim != 0) {
+    return emitError() << (isOperandA ? "mPerBlock" : "nPerBlock") << " ("
+                       << dPerBlock << ") must be divisible by mfmaDDim ("
+                       << mfmaDDim << ")";
+  }
+
+  if (kPerBlock % mfmaKDim != 0) {
+    return emitError() << "kPerBlock (" << kPerBlock
+                       << ") must be divisible by mfmaKDim (" << mfmaKDim
+                       << ")";
+  }
+
+  return success();
+}
+
 } // namespace rock
 } // namespace mlir
 //===----------------------------------------------------------------------===//
@@ -2009,6 +2051,17 @@ LogicalResult LDSTransposeLoadOp::verify() {
   MemRefType srcType = getSource().getType();
   if (!isWorkgroupMemorySpace(srcType.getMemorySpace()))
     return emitOpError("source memory address space must be workgroup (LDS)");
+
+  // Result element type must match source element type
+  Type srcElemType = srcType.getElementType();
+  VectorType resultType = getFragment().getType();
+  Type resultElemType = resultType.getElementType();
+
+  if (resultElemType != srcElemType) {
+    return emitOpError("result element type (")
+           << resultElemType << ") must match source element type ("
+           << srcElemType << ")";
+  }
 
   // Check hardware support - only gfx950
   StringAttr archAttr =
