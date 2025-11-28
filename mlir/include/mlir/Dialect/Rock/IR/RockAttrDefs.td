@@ -528,12 +528,10 @@ def Rock_LdsTransposeConfigAttr : Rock_Attr<"LdsTransposeConfig", []> {
     - doubleBuffering: Whether double buffering is enabled
     - isOperandA: True if this is operand A, false if operand B
   }];
-  
   let parameters = (ins "int64_t":$mfmaNonKDim, "int64_t":$mfmaKDim,
       "int64_t":$mPerBlock, "int64_t":$nPerBlock, "int64_t":$kPerBlock,
       "int64_t":$mPerWave, "int64_t":$nPerWave, "bool":$doubleBuffering,
-      "bool":$isOperandA
-  );
+      "bool":$isOperandA);
 
   let assemblyFormat = [{
     `<` struct(params) `>`

@@ -1142,12 +1142,12 @@ defvar SameShapeVectorOfI1 = [{
 }];
 
 // lds_transpose_load
-def Rock_LDSTransposeLoadOp 
-  : Rock_Op<"lds_transpose_load", [DeclareOpInterfaceMethods<
-                                  MemoryEffectsOpInterface>]>,
-    Arguments<(ins Arg<MemRefOf<[F16, BF16]>, "LDS source buffer">:$source,
-        Variadic<Index>:$indices)>,
-    Results<(outs VectorOfLengthAndType<[4], [F16, BF16]>:$fragment)> {
+def Rock_LDSTransposeLoadOp
+    : Rock_Op<"lds_transpose_load", [DeclareOpInterfaceMethods<
+                                        MemoryEffectsOpInterface>]>,
+      Arguments<(ins Arg<MemRefOf<[F16, BF16]>, "LDS source buffer">:$source,
+          Variadic<Index>:$indices)>,
+      Results<(outs VectorOfLengthAndType<[4], [F16, BF16]>:$fragment)> {
   let summary = "Hardware-assisted LDS transpose panel load (v4 fragment)";
   let description = [{
     LDS transpose panel load for MFMA-friendly ordering.
@@ -1251,19 +1251,20 @@ def Rock_ThreadwiseReadIntoOp
   }];
 
   let builders = [
-    // Alias for the common case where we aren't filling a buffer of validity checks
-    OpBuilder<(ins "Value":$source, "Value":$dest,
-                   "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
-                   "bool":$forceUnroll, "bool":$useIndexDiffs),
-      [{
+      // Alias for the common case where we aren't filling a buffer of validity
+      // checks
+      OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
+                    "ValueRange":$extraIndices, "bool":$forceUnroll,
+                    "bool":$useIndexDiffs),
+                [{
         build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
       }]>,
       // Builder with explicit ldsTransposeConfig support
       OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
-                     "ValueRange":$extraIndices, "bool":$forceUnroll,
-                     "bool":$useIndexDiffs,
-                     "LdsTransposeConfigAttr":$ldsTransposeConfig),
-      [{
+                    "ValueRange":$extraIndices, "bool":$forceUnroll,
+                    "bool":$useIndexDiffs,
+                    "LdsTransposeConfigAttr":$ldsTransposeConfig),
+                [{
         build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig);
       }]>];
 
