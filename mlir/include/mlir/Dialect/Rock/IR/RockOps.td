@@ -1266,6 +1266,14 @@ def Rock_ThreadwiseReadIntoOp
                     "LdsTransposeConfigAttr":$ldsTransposeConfig),
                 [{
         build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig);
+      }]>,
+      // Builder with validityRecord but without ldsTransposeConfig
+      OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
+                    "Value":$dest, "ValueRange":$dynamicValidities,
+                    "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
+                    "bool":$forceUnroll, "bool":$useIndexDiffs),
+                [{
+        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
       }]>];
 
   let assemblyFormat = [{

@@ -447,10 +447,9 @@ struct BlockwiseGemmAccelRewritePattern
     // GridwiseGemmToBlockwise
     auto buildTransposeAttr = [&](bool isOperandA) -> LdsTransposeConfigAttr {
       const auto &matrixParams = isOperandA ? matrixParamsA : matrixParamsB;
-      bool loadFromLDS = isOperandA ? loadAFromLDS : loadBFromLDS;
 
       // Check if LDS transpose is enabled for this operand
-      if (!loadFromLDS || !matrixParams.getLdsTransposeEnabled())
+      if (!matrixParams.getLdsTransposeEnabled())
         return nullptr;
 
       // Extract MFMA geometry from tuning params (set by
@@ -459,15 +458,15 @@ struct BlockwiseGemmAccelRewritePattern
       if (!mfmaParams)
         return nullptr;
 
-      auto mfmaNonKDim = mfmaParams.getMfmaNonKDim();
+      auto mfmaDDim = mfmaParams.getMfmaDDim();
       auto mfmaKDim = mfmaParams.getMfmaKDim();
 
-      if (!mfmaNonKDim.has_value() || !mfmaKDim.has_value())
+      if (!mfmaDDim.has_value() || !mfmaKDim.has_value())
         return nullptr;
 
       // Build transpose config attribute using precomputed MFMA geometry
       return hwtranspose::buildTransposeAttrFromParams(
-          b, mfmaNonKDim.value(), mfmaKDim.value(), mPerBlock, nPerBlock,
+          b, mfmaDDim.value(), mfmaKDim.value(), mPerBlock, nPerBlock,
           kPerBlock, mPerWave, nPerWave,
           /*doubleBuffering=*/false, isOperandA);
     };
@@ -1282,8 +1281,7 @@ struct BlockwiseReduceRewritePattern
         ThreadwiseReadIntoOp::create(rewriter, loc, workspaceLDSBuffer,
                                      outputReg, reducedldsViewArrayAttr,
                                      /*extraIndices=*/ValueRange{tid}, true,
-                                     false,
-                                     /*ldsTransposeConfig=*/nullptr);
+                                     false);
         if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
           ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
               loc, rewriter, outputViewArrayAttr, axis, /*makeRDimZero-*/ true,
@@ -1291,8 +1289,7 @@ struct BlockwiseReduceRewritePattern
           ThreadwiseReadIntoOp::create(
               rewriter, loc, workspaceLDSBuffer, op.getExtraOut(),
               reducedldsViewArrayAttr2,
-              /*extraIndices=*/ValueRange{tid}, true, false,
-              /*ldsTransposeConfig=*/nullptr);
+              /*extraIndices=*/ValueRange{tid}, true, false);
         }
       } else {
         // This means there are more threads than elements to be reduced.
@@ -1449,8 +1446,7 @@ struct BlockwiseReduceRewritePattern
           ThreadwiseReadIntoOp::create(rewriter, loc, workspaceLDSBuffer,
                                        outputReg, reducedldsViewArrayAttr,
                                        /*extraIndices=*/ValueRange{tid}, true,
-                                       false,
-                                       /*ldsTransposeConfig=*/nullptr);
+                                       false);
           if (ArrayAttr outputViewArrayAttr = op.getExtraOutViewAttr()) {
             ArrayAttr reducedldsViewArrayAttr2 = createLDSWorkspaceView(
                 loc, rewriter, outputViewArrayAttr, axis,
@@ -1458,8 +1454,7 @@ struct BlockwiseReduceRewritePattern
             ThreadwiseReadIntoOp::create(
                 rewriter, loc, workspaceLDSBuffer, op.getExtraOut(),
                 reducedldsViewArrayAttr2,
-                /*extraIndices=*/ValueRange{tid}, true, false,
-                /*ldsTransposeConfig=*/nullptr);
+                /*extraIndices=*/ValueRange{tid}, true, false);
           }
         }
       }

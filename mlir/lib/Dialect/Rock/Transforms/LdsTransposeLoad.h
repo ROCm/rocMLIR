@@ -41,10 +41,10 @@ enum class OperandKind { A, B };
 
 // Build LDS transpose config attribute from already-computed MFMA params.
 // Used in BlockwiseLoadTileToThreadwise when decision was made upstream.
-// Requires mfmaNonKDim > 0 and mfmaKDim > 0 (asserted).
+// Requires mfmaDDim > 0 and mfmaKDim > 0 (asserted).
 // Valid combinations: (16,16), (16,32), (32,8), (32,16)
 LdsTransposeConfigAttr buildTransposeAttrFromParams(
-    PatternRewriter &rewriter, int64_t mfmaNonKDim, int64_t mfmaKDim,
+    PatternRewriter &rewriter, int64_t mfmaDDim, int64_t mfmaKDim,
     int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
     int64_t nPerWave, bool doubleBuffering, bool isOperandA);
 
@@ -56,10 +56,10 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
 
 // Result of LDS transpose decision making for both operands
 struct LdsTransposeDecision {
-  bool enableA{false};    // Enable for operand A
-  bool enableB{false};    // Enable for operand B
-  int64_t mfmaNonKDim{0}; // MFMA non-K dimension (e.g., 16 or 32)
-  int64_t mfmaKDim{0};    // MFMA K dimension (e.g., 8, 16, or 32)
+  bool enableA{false}; // Enable for operand A
+  bool enableB{false}; // Enable for operand B
+  int64_t mfmaDDim{0}; // MFMA D dimension (M or N, 16 or 32)
+  int64_t mfmaKDim{0}; // MFMA K dimension (8, 16, or 32)
 };
 
 // Decides whether to enable LDS transpose for operands A and B

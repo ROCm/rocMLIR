@@ -86,26 +86,6 @@ struct RockGridwiseGemmToBlockwisePass
   void runOnOperation() override;
 };
 
-// Creates enhanced tuning params with MFMA geometry info.
-// Only adds geometry if at least one operand can use LDS transpose.
-static RockAccelTuningParamAttrInterface createEnhancedTuningParams(
-    OpBuilder &builder, const RockAccelTuningParamAttrInterface &tuningParams,
-    const hwtranspose::LdsTransposeDecision &ldsDecision) {
-  // Only add MFMA geometry if at least one operand can use LDS transpose
-  bool anyEnabled = ldsDecision.enableA || ldsDecision.enableB;
-  if (!anyEnabled || ldsDecision.mfmaNonKDim <= 0 || ldsDecision.mfmaKDim <= 0)
-    return tuningParams;
-
-  return MfmaGemmParamsAttr::get(
-      builder.getContext(), tuningParams.getKpackPerBlock(),
-      tuningParams.getMPerBlock(), tuningParams.getNPerBlock(),
-      tuningParams.getKpack(), tuningParams.getMPerWave(),
-      tuningParams.getNPerWave(), tuningParams.getMnPerXdl(),
-      tuningParams.getSplitKFactor(), tuningParams.getScheduleVersion(),
-      tuningParams.getOutputSwizzle(), tuningParams.getForceUnroll(),
-      ldsDecision.mfmaNonKDim, ldsDecision.mfmaKDim);
-}
-
 } // end anonymous namespace
 
 static void blockwiseGemmAccel(
@@ -664,8 +644,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
             /*extraIndices=*/
             ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
                        gridCoords.n_block, tid},
-            true, true,
-            /*ldsTransposeConfig=*/nullptr);
+            true, true);
         ThreadwiseReadIntoOp::create(
             b, loc, vectorOfBoolShapedLike(loadBufferB), wrappedB, loadBufferB,
             /*dynamicValidities=*/ValueRange{},
@@ -673,8 +652,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
             /*extraIndices=*/
             ValueRange{/*kIter=*/iv, gridCoords.g_block, gridCoords.m_block,
                        gridCoords.n_block, tid},
-            true, true,
-            /*ldsTransposeConfig=*/nullptr);
+            true, true);
         rock::YieldOp::create(b, loc);
       }
 
@@ -1579,8 +1557,7 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, loc, otherInput, tileBuffer, gemmOutToOtherInputMaps,
             ValueRange{gridCoords.g_block, gridCoords.m_block,
                        gridCoords.n_block, tid},
-            true, true,
-            /*ldsTransposeConfig=*/nullptr);
+            true, true);
         inputTileBuffers.push_back(tileBuffer);
       }
       // Insert the first gemm output buffer according to which input
@@ -1755,8 +1732,7 @@ struct GridwiseAttentionAccelRewritePattern
             /*dynamicValidities=*/ValueRange{},
             /*extraViews=*/rewriter.getArrayAttr({}),
             /*extraIndices=*/
-            ValueRange{gridCoordsGemm0.g_block}, true, true,
-            /*ldsTransposeConfig=*/nullptr);
+            ValueRange{gridCoordsGemm0.g_block}, true, true);
 
         // load from registers
         Value currentSeqLenValue =
@@ -2712,8 +2688,7 @@ struct GridwiseAttentionAccelRewritePattern
                 }
                 ThreadwiseReadIntoOp::create(
                     rewriter, loc, gemm1BDxKThreadwiseView, subview,
-                    rewriter.getArrayAttr({}), ValueRange{ni}, true, true,
-                    /*ldsTransposeConfig=*/nullptr);
+                    rewriter.getArrayAttr({}), ValueRange{ni}, true, true);
               }
             }
 
@@ -3077,8 +3052,18 @@ struct GridwiseGemmAccelRewritePattern
 
     // Create enhanced params with MFMA geometry (only if at least one operand
     // can use it)
-    RockAccelTuningParamAttrInterface enhancedParams =
-        createEnhancedTuningParams(b, tuningParams, ldsDecision);
+    RockAccelTuningParamAttrInterface enhancedParams = tuningParams;
+    bool anyEnabled = ldsDecision.enableA || ldsDecision.enableB;
+    if (anyEnabled && ldsDecision.mfmaDDim > 0 && ldsDecision.mfmaKDim > 0) {
+      enhancedParams = MfmaGemmParamsAttr::get(
+          b.getContext(), tuningParams.getKpackPerBlock(),
+          tuningParams.getMPerBlock(), tuningParams.getNPerBlock(),
+          tuningParams.getKpack(), tuningParams.getMPerWave(),
+          tuningParams.getNPerWave(), tuningParams.getMnPerXdl(),
+          tuningParams.getSplitKFactor(), tuningParams.getScheduleVersion(),
+          tuningParams.getOutputSwizzle(), tuningParams.getForceUnroll(),
+          ldsDecision.mfmaDDim, ldsDecision.mfmaKDim);
+    }
 
     LLVM_DEBUG(llvm::dbgs()
                << "M: " << M << "\n"

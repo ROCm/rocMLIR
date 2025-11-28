@@ -325,7 +325,7 @@ def Rock_MfmaGemmParamsAttr
       "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
       "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
       "int64_t":$scheduleVersion, "int64_t":$outputSwizzle, "bool":$forceUnroll,
-      OptionalParameter<"::std::optional<int64_t>">:$mfmaNonKDim,
+      OptionalParameter<"::std::optional<int64_t>">:$mfmaDDim,
       OptionalParameter<"::std::optional<int64_t>">:$mfmaKDim);
 
   let extraClassDeclaration = [{
@@ -518,7 +518,7 @@ def Rock_LdsTransposeConfigAttr : Rock_Attr<"LdsTransposeConfig", []> {
     rock.lds_transpose_load operations with the correct MFMA geometry
     and tiling parameters.
     
-    - mfmaNonKDim: MFMA instruction non-K dimension (16 or 32)
+    - mfmaDDim: MFMA instruction D dimension (M or N, 16 or 32)
     - mfmaKDim: MFMA instruction K dimension (8, 16, or 32)
     - mPerBlock: M dimension size per block
     - nPerBlock: N dimension size per block
@@ -528,7 +528,7 @@ def Rock_LdsTransposeConfigAttr : Rock_Attr<"LdsTransposeConfig", []> {
     - doubleBuffering: Whether double buffering is enabled
     - isOperandA: True if this is operand A, false if operand B
   }];
-  let parameters = (ins "int64_t":$mfmaNonKDim, "int64_t":$mfmaKDim,
+  let parameters = (ins "int64_t":$mfmaDDim, "int64_t":$mfmaKDim,
       "int64_t":$mPerBlock, "int64_t":$nPerBlock, "int64_t":$kPerBlock,
       "int64_t":$mPerWave, "int64_t":$nPerWave, "bool":$doubleBuffering,
       "bool":$isOperandA);

@@ -209,14 +209,14 @@ class LoweringBlockwiseLoadTileOp final
       auto mfmaParams = dyn_cast<MfmaGemmParamsAttr>(tuningParams);
       assert(mfmaParams && "ldsTranspose=true requires MfmaGemmParamsAttr");
 
-      auto mfmaNonKDim = mfmaParams.getMfmaNonKDim();
+      auto mfmaDDim = mfmaParams.getMfmaDDim();
       auto mfmaKDim = mfmaParams.getMfmaKDim();
-      assert(mfmaNonKDim.has_value() && mfmaKDim.has_value() &&
+      assert(mfmaDDim.has_value() && mfmaKDim.has_value() &&
              "ldsTranspose=true requires MFMA geometry in params");
 
       // Build transpose config attribute using helper
       transposeAttr = hwtranspose::buildTransposeAttrFromParams(
-          b, mfmaNonKDim.value(), mfmaKDim.value(), mPerBlock, nPerBlock,
+          b, mfmaDDim.value(), mfmaKDim.value(), mPerBlock, nPerBlock,
           kPerBlock, tuningParams.getMPerWave(), tuningParams.getNPerWave(),
           doubleBuffer, isA);
 
@@ -337,8 +337,7 @@ class LoweringBlockwiseLoadTileOp final
               invertTransforms(b, loc, inBufferViewsTr.threadSubTile));
           ThreadwiseReadIntoOp::create(b, loc, viewLoadedBuffer, subview,
                                        b.getArrayAttr({}), ValueRange{di},
-                                       forceUnroll, true,
-                                       /*ldsTransposeConfig=*/nullptr);
+                                       forceUnroll, true);
         }
 
         if (stageRegTransposeNew)

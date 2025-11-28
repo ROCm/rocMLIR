@@ -183,7 +183,7 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      ValueRange regCOffset, Value scaleA,
                                      Value scaleB) {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
-  int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
+  int64_t mfmaDDim = mfmaAttr.mfmaDDim;
   auto imms = mfmaGroup.getImms();
   int64_t nResultVectors = imms.size();
   Value nResultVectorsConst = ConstantIndexOp::create(b, loc, nResultVectors);
@@ -203,12 +203,12 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
     Value vectorD;
     if (isScaled) {
       auto mfma = amdgpu::ScaledMFMAOp::create(
-          b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k, argA, argB,
+          b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k, argA, argB,
           vectorC, scaleA, scaleB, /*scalesIdxA=*/0, /*scalesIdxB=*/0);
       vectorD = mfma.getDestD();
     } else {
       auto mfma = amdgpu::MFMAOp::create(
-          b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
+          b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k,
           mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
           /*abid=*/imms[i].abid, /*blgp=*/imms[i].blgp,
           /*reducePrecision=*/false, /*negateA=*/false, /*negateB=*/false,
@@ -283,7 +283,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
   int64_t rowGroupSize = mfmaAttr.rowGroupSize;
   int64_t rowGroupsPerBlock = mfmaAttr.rowGroupsPerBlock;
   int64_t inputSpanLen = mfmaAttr.inputSpanLen;
-  int64_t m = mfmaAttr.mfmaNonKDim;
+  int64_t m = mfmaAttr.mfmaDDim;
 
   // Note n has the 4x4 => 4x64 behavior that necessitated
   // inputSpansPerMfmaIn
@@ -595,7 +595,7 @@ int64_t MfmaEmitter::getMfmaK() const {
 
 int64_t MfmaEmitter::getMfmaNonKDim() const {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
-  return mfmaAttr.mfmaNonKDim;
+  return mfmaAttr.mfmaDDim;
 }
 
 llvm::FailureOr<RegsAsMatrixSubTiles>

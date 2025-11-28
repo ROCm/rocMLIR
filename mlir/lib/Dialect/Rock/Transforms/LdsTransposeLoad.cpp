@@ -48,9 +48,9 @@ bool archSupported(StringRef arch) { return arch.contains("gfx950"); }
 
 // Validates MFMA geometry for LDS transpose support.
 // Only specific combinations are supported: (16,16), (16,32), (32,8), (32,16)
-static bool isValidMfmaGeometry(int64_t nonKDim, int64_t kDim) {
-  return (nonKDim == 16 && (kDim == 16 || kDim == 32)) ||
-         (nonKDim == 32 && (kDim == 8 || kDim == 16));
+static bool isValidMfmaGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && (kDim == 16 || kDim == 32)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16));
 }
 
 // Shape of a single MFMA instruction (internal use only).
@@ -162,7 +162,7 @@ struct WaveGridLayout {
 // Encapsulates the computed stride values for wave offset and tile offset.
 //
 // Fields:
-//   waveOffsetStride - Stride for spatial wave separation (always nonKDim)
+//   waveOffsetStride - Stride for spatial wave separation (always dDim)
 //   tileOffsetStride - Stride for outer loop tile iteration
 //===----------------------------------------------------------------------===//
 struct StrideConfig {
@@ -181,10 +181,10 @@ struct StrideConfig {
 // Returns LdsTransposeDecision with:
 //   - enableA, enableB: Flags indicating which operands should use LDS
 //   transpose
-//   - mfmaNonKDim, mfmaKDim: MFMA geometry (only set if at least one operand is
+//   - mfmaDDim, mfmaKDim: MFMA geometry (only set if at least one operand is
 //   eligible)
 //
-// IMPORTANT: mfmaNonKDim and mfmaKDim are ONLY populated if at least one
+// IMPORTANT: mfmaDDim and mfmaKDim are ONLY populated if at least one
 // operand can use LDS transpose. This avoids polluting tuning params with
 // unnecessary data.
 LdsTransposeDecision decideLdsTransposeForOperands(
@@ -205,10 +205,10 @@ LdsTransposeDecision decideLdsTransposeForOperands(
   }
 
   // Extract MFMA geometry temporarily for decision making
-  int64_t mfmaNonKDim = mfmaEmitter->getMfmaNonKDim();
+  int64_t mfmaDDim = mfmaEmitter->getMfmaNonKDim();
   int64_t mfmaKDim = mfmaEmitter->getMfmaK();
 
-  LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] MFMA geometry: " << mfmaNonKDim
+  LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] MFMA geometry: " << mfmaDDim
                           << "x" << mfmaKDim << "\n");
 
   // Check basic constraints for LDS transpose applicability
@@ -223,7 +223,7 @@ LdsTransposeDecision decideLdsTransposeForOperands(
     return result;
   }
 
-  MfmaInstrShape shape{mfmaNonKDim, mfmaKDim};
+  MfmaInstrShape shape{mfmaDDim, mfmaKDim};
 
   // Make decision for operand A
   Decision decA;
@@ -281,11 +281,11 @@ LdsTransposeDecision decideLdsTransposeForOperands(
   // IMPORTANT: Only set MFMA geometry if at least one operand will use it
   // This avoids polluting tuning params with unnecessary data
   if (result.enableA || result.enableB) {
-    result.mfmaNonKDim = mfmaNonKDim;
+    result.mfmaDDim = mfmaDDim;
     result.mfmaKDim = mfmaKDim;
     LLVM_DEBUG(llvm::dbgs()
-               << "[lds_transpose] Geometry saved for propagation: "
-               << mfmaNonKDim << "x" << mfmaKDim << "\n");
+               << "[lds_transpose] Geometry saved for propagation: " << mfmaDDim
+               << "x" << mfmaKDim << "\n");
   }
 
   return result;
@@ -294,21 +294,21 @@ LdsTransposeDecision decideLdsTransposeForOperands(
 // Build LDS transpose config attribute from already-computed MFMA params.
 // Used when decision was made upstream and MFMA geometry is available.
 LdsTransposeConfigAttr buildTransposeAttrFromParams(
-    PatternRewriter &rewriter, int64_t mfmaNonKDim, int64_t mfmaKDim,
+    PatternRewriter &rewriter, int64_t mfmaDDim, int64_t mfmaKDim,
     int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
     int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
 
   // INVARIANT: MFMA geometry must be valid
-  assert(mfmaNonKDim > 0 && mfmaKDim > 0 &&
+  assert(mfmaDDim > 0 && mfmaKDim > 0 &&
          "MFMA geometry must be set when building transpose attributes");
-  assert(isValidMfmaGeometry(mfmaNonKDim, mfmaKDim) &&
+  assert(isValidMfmaGeometry(mfmaDDim, mfmaKDim) &&
          "Invalid MFMA geometry for LDS transpose - valid: (16,16), (16,32), "
          "(32,8), (32,16)");
 
   // Create structured attribute with all parameters
-  return LdsTransposeConfigAttr::get(
-      rewriter.getContext(), mfmaNonKDim, mfmaKDim, mPerBlock, nPerBlock,
-      kPerBlock, mPerWave, nPerWave, doubleBuffering, isOperandA);
+  return LdsTransposeConfigAttr::get(rewriter.getContext(), mfmaDDim, mfmaKDim,
+                                     mPerBlock, nPerBlock, kPerBlock, mPerWave,
+                                     nPerWave, doubleBuffering, isOperandA);
 }
 
 //===----------------------------------------------------------------------===//
@@ -388,7 +388,7 @@ static MNTileBounds computeMNTileIterationBounds(bool doubleBuffering,
 //   K offset base value for double-rate layouts, or nullptr for single-rate
 //===----------------------------------------------------------------------===//
 static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
-                                      bool isDoubleRate, int64_t nonKDim,
+                                      bool isDoubleRate, int64_t dDim,
                                       int64_t kDim, Value lane) {
   if (!isDoubleRate)
     return nullptr;
@@ -399,11 +399,11 @@ static Value getDoubleRateKOffsetBase(PatternRewriter &b, Location loc,
   Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
 
   Value kOffsetBase;
-  if (nonKDim == 32 && kDim == 16) {
+  if (dDim == 32 && kDim == 16) {
     // 32x16 layout
     kOffsetBase = arith::MulIOp::create(
         b, loc, arith::DivUIOp::create(b, loc, blockId, c2), c8);
-  } else if (nonKDim == 16 && kDim == 32) {
+  } else if (dDim == 16 && kDim == 32) {
     // 16x32 layout
     kOffsetBase = arith::MulIOp::create(b, loc, blockId, c8);
   } else {
@@ -597,7 +597,7 @@ writePanelVectorsToDestination(PatternRewriter &b, Location loc,
 // instead for better readability.
 //===----------------------------------------------------------------------===//
 static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
-                                              int64_t nonKDim, int64_t kDim,
+                                              int64_t dDim, int64_t kDim,
                                               Value lane) {
   Value c16 = arith::ConstantIndexOp::create(b, loc, 16);
   Value c4 = arith::ConstantIndexOp::create(b, loc, 4);
@@ -613,16 +613,16 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
 
   SmallVector<Value> panelOffsets;
 
-  if (nonKDim == 16 && kDim == 32) {
+  if (dDim == 16 && kDim == 32) {
     // 16x32 layout
     panelOffsets = {kOffsetBase, mOffsetBase};
-  } else if (nonKDim == 16 && kDim == 16) {
+  } else if (dDim == 16 && kDim == 16) {
     // 16x16 layout
     // kbase = kOffsetBase + (blockId * 4)
     Value kBase = arith::AddIOp::create(
         b, loc, arith::MulIOp::create(b, loc, blockId, c4), kOffsetBase);
     panelOffsets = {kBase, mOffsetBase};
-  } else if (nonKDim == 32 && kDim == 16) {
+  } else if (dDim == 32 && kDim == 16) {
     // 32x16 layout
     // mbase = mOffsetBase + (blockId % 2) * 16
     Value mBase = arith::AddIOp::create(
@@ -631,7 +631,7 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
                               arith::RemUIOp::create(b, loc, blockId, c2), c16),
         mOffsetBase);
     panelOffsets = {kOffsetBase, mBase};
-  } else if (nonKDim == 32 && kDim == 8) {
+  } else if (dDim == 32 && kDim == 8) {
     // 32x8 layout
     // k_base_local = kOffsetBase + (blockId / 2) * 4
     Value kBase = arith::AddIOp::create(
@@ -669,9 +669,9 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
 //   auto [k_base_local, m_offset_base] = computeLDSBaseOffsets(...);
 //
 // Parameters:
-//   nonKDim - MFMA non-K dimension (16 or 32)
-//   kDim    - MFMA K dimension (8, 16, or 32)
-//   lane    - Thread's lane ID within the workgroup
+//   dDim - MFMA D dimension (M or N, 16 or 32)
+//   kDim - MFMA K dimension (8, 16, or 32)
+//   lane - Thread's lane ID within the workgroup
 //
 // Returns:
 //   std::pair<Value, Value>:
@@ -679,13 +679,12 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
 //     - second: M/N dimension base offset (m_offset_base)
 //===----------------------------------------------------------------------===//
 static std::pair<Value, Value> computeLDSBaseOffsets(PatternRewriter &b,
-                                                     Location loc,
-                                                     int64_t nonKDim,
+                                                     Location loc, int64_t dDim,
                                                      int64_t kDim, Value lane) {
-  SmallVector<Value> offsets = getBasePanelOffsets(b, loc, nonKDim, kDim, lane);
+  SmallVector<Value> offsets = getBasePanelOffsets(b, loc, dDim, kDim, lane);
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Computed LDS base offsets for "
-                          << nonKDim << "x" << kDim << ": "
+                          << dDim << "x" << kDim << ": "
                           << "k_base_local=offsets[0], "
                           << "m_offset_base=offsets[1]\n");
 
@@ -834,32 +833,32 @@ static WaveGridLayout computeWaveGridLayout(PatternRewriter &b, Location loc,
 // 2. tileOffsetStride - Step size for outer loop iterations through tiles
 //
 // KEY INSIGHT:
-// - waveOffsetStride is ALWAYS nonKDim (one MFMA tile)
+// - waveOffsetStride is ALWAYS dDim (one MFMA tile)
 // - tileOffsetStride depends on wave grid layout:
-//   * Single wave: nonKDim (sequential tiles)
-//   * Multiple waves: wavesInDim × nonKDim (interleaved tiles)
+//   * Single wave: dDim (sequential tiles)
+//   * Multiple waves: wavesInDim × dDim (interleaved tiles)
 //
-// EXAMPLE (2×2 grid, nonKDim=16):
+// EXAMPLE (2×2 grid, dDim=16):
 //   Wave 0 iterates: tiles [0, 2, 4, 6] → step = 2×16 = 32
 //   Wave 1 iterates: tiles [1, 3, 5, 7] → step = 2×16 = 32
 //
 // Parameters:
-//   operand   - Whether this is operand A (M dimension) or B (N dimension)
-//   waveGrid  - Wave grid layout containing wavesInM and wavesInN
-//   nonKDim   - Size of MFMA tile in M/N dimension (e.g., 16 or 32)
+//   operand  - Whether this is operand A (M dimension) or B (N dimension)
+//   waveGrid - Wave grid layout containing wavesInM and wavesInN
+//   dDim     - Size of MFMA tile in M/N dimension (16 or 32)
 //
 // Returns:
 //   StrideConfig containing waveOffsetStride and tileOffsetStride
 //===----------------------------------------------------------------------===//
 static StrideConfig computeStrideConfiguration(OperandKind operand,
                                                const WaveGridLayout &waveGrid,
-                                               int64_t nonKDim) {
+                                               int64_t dDim) {
   StrideConfig config;
 
-  // Wave offset stride: ALWAYS nonKDim for spatial wave separation
+  // Wave offset stride: ALWAYS dDim for spatial wave separation
   // This ensures each wave accesses a different spatial region (one MFMA tile
   // apart)
-  config.waveOffsetStride = nonKDim;
+  config.waveOffsetStride = dDim;
 
   // Tile offset stride: step size for outer loop (accounts for wave
   // interleaving)
@@ -868,20 +867,20 @@ static StrideConfig computeStrideConfiguration(OperandKind operand,
     if (waveGrid.wavesInM >= 2) {
       // Multiple waves in M dimension → tiles are interleaved
       // Each wave skips wavesInM tiles to reach its next tile
-      config.tileOffsetStride = waveGrid.wavesInM * nonKDim;
+      config.tileOffsetStride = waveGrid.wavesInM * dDim;
     } else {
       // Single wave in M dimension → tiles are sequential
-      config.tileOffsetStride = nonKDim;
+      config.tileOffsetStride = dDim;
     }
   } else {
     // Operand B (N dimension)
     if (waveGrid.wavesInN >= 2 && waveGrid.wavesInN == waveGrid.wavesInM) {
       // BALANCED GRID (2×2, 3×3, 4×4) → tiles are interleaved in N dimension
       // Special case: balanced grids require interleaved tile access
-      config.tileOffsetStride = waveGrid.wavesInN * nonKDim;
+      config.tileOffsetStride = waveGrid.wavesInN * dDim;
     } else {
       // UNBALANCED GRID (1×N, N×1) or single wave → tiles are sequential
-      config.tileOffsetStride = nonKDim;
+      config.tileOffsetStride = dDim;
     }
   }
 
@@ -1065,7 +1064,7 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   int64_t physicalWaves = blockSize / waveSize;
 
   // Read parameters directly from config
-  int64_t nonKDim = config.getMfmaNonKDim();
+  int64_t dDim = config.getMfmaDDim();
   int64_t instrK = config.getMfmaKDim();
   int64_t mPerWave = config.getMPerWave();
   int64_t nPerWave = config.getNPerWave();
@@ -1089,7 +1088,7 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   // Double-rate ONLY for (32,16) and (16,32) MFMA
   // (16,16) and (32,8) are SINGLE-RATE
   bool isDoubleRate =
-      (nonKDim == 32 && instrK == 16) || (nonKDim == 16 && instrK == 32);
+      (dDim == 32 && instrK == 16) || (dDim == 16 && instrK == 32);
 
   // Each ds_read_tr16_b64 call ALWAYS returns vector<4xf16>
   // For double-rate, we make 2 calls and store all 8 elements separately
@@ -1102,7 +1101,7 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
 
   // Get base offsets using computeLDSBaseOffsets helper
   auto [k_base_local, m_offset_base] =
-      computeLDSBaseOffsets(b, loc, nonKDim, instrK, lane);
+      computeLDSBaseOffsets(b, loc, dDim, instrK, lane);
 
   // K stride per tile: KMfma (e.g., 8)
   int64_t kTileStride = instrK;
@@ -1120,8 +1119,8 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   }
 
   // Compute panels from MFMA geometry
-  int64_t mPanels = mPerBlock / nonKDim;
-  int64_t nPanels = nPerBlock / nonKDim;
+  int64_t mPanels = mPerBlock / dDim;
+  int64_t nPanels = nPerBlock / dDim;
   int64_t kPanels = kPerBlock / instrK;
 
   // Compute M/N tile iteration bounds
@@ -1133,11 +1132,11 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
 
   // For double-rate layouts ONLY, compute k_offset_base
   Value kOffsetBase =
-      getDoubleRateKOffsetBase(b, loc, isDoubleRate, nonKDim, instrK, lane);
+      getDoubleRateKOffsetBase(b, loc, isDoubleRate, dDim, instrK, lane);
 
   // Compute stride configuration for offset calculations
   StrideConfig strideConfig =
-      computeStrideConfiguration(operand, waveGrid, nonKDim);
+      computeStrideConfiguration(operand, waveGrid, dDim);
 
   Value waveOffsetStrideVal =
       arith::ConstantIndexOp::create(b, loc, strideConfig.waveOffsetStride);
