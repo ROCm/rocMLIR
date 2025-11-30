@@ -76,8 +76,8 @@ void robustScmCheckout() {
                 return
             } catch (err) {
                 def msg = "${err}".toLowerCase()
-                if (!msg.contains("reference is not a tree")) {
-                    // If it's not the "reference is not a tree" error, re-throw it to be caught by the outer block
+                if (!msg.contains("reference is not a tree") && !msg.contains("could not checkout")) {
+                    // If it's not a known transient error, re-throw it to be caught by the outer block
                     throw err
                 }
 
