@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/Tuning/ParamLookupTable.h"
 #include "mlir/Dialect/Rock/Tuning/Serializable.h"
 #include <optional>
 
@@ -323,6 +324,8 @@ private:
 
   LogicalResult populateDerived(const InitParamsNonAccel &validParams);
 
+  friend class ParamLookupTable<InitParamsNonAccel>;
+
 public:
   LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
                                        const StringRef perfConfig,
@@ -418,6 +421,8 @@ class PopulateParamsXDL : public PopulateParamsAccel {
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef XDL_DECLARATIONS_GEN
 
+  friend class ParamLookupTable<InitParamsAccel>;
+
 public:
   std::vector<InitParamsAccel>
   getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
@@ -443,6 +448,8 @@ private:
 #define Wmma_DECLARATIONS_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Wmma_DECLARATIONS_GEN
+
+  friend class ParamLookupTable<InitParamsAccel>;
 
 public:
   std::vector<InitParamsAccel>
