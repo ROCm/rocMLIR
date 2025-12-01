@@ -1,5 +1,5 @@
 add_rocmlir_dialect_library(MLIRRockTransforms
-  AddAliasInfo.cpp
+  AddDirectToLDSAliasInfo.cpp
   AffixTuningParameters.cpp
   AlignTiling.cpp
   AnalyzeMemoryUse.cpp

@@ -39,12 +39,12 @@
 
 namespace mlir {
 namespace rock {
-#define GEN_PASS_DEF_ROCKADDALIASINFOPASS
+#define GEN_PASS_DEF_ROCKADDDIRECTTOLDSALIASINFOPASS
 #include "mlir/Dialect/Rock/Passes.h.inc"
 } // namespace rock
 } // namespace mlir
 
-#define DEBUG_TYPE "add-alias-info"
+#define DEBUG_TYPE "add-direct-to-lds-alias-info"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -97,11 +97,11 @@ void addLDSLoadNoAliasScope(LLVM::AliasAnalysisOpInterface op) {
   op.setAliasScopes(b.getArrayAttr(getLDSLoadScope(ctx)));
 }
 
-struct RockAddAliasInfoPass
-    : public rock::impl::RockAddAliasInfoPassBase<RockAddAliasInfoPass> {
+struct RockAddDirectToLDSAliasInfoPass
+    : public rock::impl::RockAddDirectToLDSAliasInfoPassBase<RockAddDirectToLDSAliasInfoPass> {
   void runOnOperation() override {
     gpu::GPUModuleOp module = getOperation();
-    LLVM_DEBUG(llvm::dbgs() << "Running RockAddAliasInfoPass on GPU module\n");
+    LLVM_DEBUG(llvm::dbgs() << "Running RockAddDirectToLDSAliasInfoPass on GPU module\n");
 
     // Walk through all LLVM functions in the module.
     module.walk([&](LLVM::LLVMFuncOp func) {

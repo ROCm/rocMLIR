@@ -244,7 +244,7 @@ def RockAddAsyncWaitPass : Pass<"rock-add-async-wait", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect"];
 }
 
-def RockAddAliasInfoPass : Pass<"rock-add-alias-info", "::mlir::gpu::GPUModuleOp"> {
+def RockAddDirectToLDSAliasInfoPass : Pass<"rock-add-direct-to-lds-alias-info", "::mlir::gpu::GPUModuleOp"> {
   let summary = "This pass adds alias information to direct-to-LDS load/store and local load/store operations";
   let description = [{
     This pass annotates operations that perform direct loads or stores to LDS and local loads or stores with
