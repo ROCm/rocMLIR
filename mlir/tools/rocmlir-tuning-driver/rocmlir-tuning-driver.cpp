@@ -789,13 +789,13 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   bool skipSmallKernels = true;
   double smallKernelThresholdMs = 0.006f;
   if (!benchmarkMode && skipSmallKernels) {
-    llvm::errs() << "Skipping small kernels?\n";
     // Measure the first config to determine if it's a small kernel
-    CompilationResult result = compileConfig(0);    
+    CompilationResult result = compileConfig(0);
     if (result.status == CompilationStatus::Success) {
       FailureOr<double> timing = benchmarkKernels(
-        result.hipModules, kernelFuncNames, result.blockSizes, result.gridSizes,
-        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams, benchmarkMode, iterations);
+          result.hipModules, kernelFuncNames, result.blockSizes,
+          result.gridSizes, hostBuffers, gpuBuffers, bufferLengths,
+          benchmarkParams, benchmarkMode, iterations);
 
       if (failed(timing)) {
         llvm::errs() << "Kernel execution failed\n";
@@ -813,8 +813,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         return success();
       }
     } else {
-      // TODO: What to do here?
-      llvm::outs() << "N/A\n";
+      llvm::errs() << "Kernel compilation failed\n";
+      return failure();
     }
   }
 
@@ -877,7 +877,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
     FailureOr<double> timing = benchmarkKernels(
         result.hipModules, kernelFuncNames, result.blockSizes, result.gridSizes,
-        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams, benchmarkMode, iterations);
+        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams, benchmarkMode,
+        iterations);
 
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
