@@ -809,6 +809,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         // This is a small kernel which is not worth tuning, so just print
         // what we measured and return.
         llvm::outs() << result.perfConfig << "\t";
+        llvm::outs() << "skipped" << "\t";
         llvm::outs() << timing << "\n";
         return success();
       }
@@ -865,6 +866,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // Success statuses are possible here.
   for (const auto &result : compilationResults) {
     llvm::outs() << result.perfConfig << "\t";
+    llvm::outs() << "notskipped" << "\t";
 
     if (result.status == CompilationStatus::NotApplicable) {
       llvm::outs() << "N/A\n";

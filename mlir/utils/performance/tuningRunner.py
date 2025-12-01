@@ -132,7 +132,7 @@ def get_winning_config(tuning_output, test_vector, config, all_data, paths: Path
         if options.debug:
             print(result, file=sys.stderr)
         # Time is in ns
-        perfconfig, time = result.split('\t')
+        perfconfig, skipped, time = result.split('\t')
         if time == "N/A":
             nano_seconds = np.nan
         else:
@@ -165,7 +165,7 @@ def get_winning_config(tuning_output, test_vector, config, all_data, paths: Path
                     f"Tested {i} configs, best perf {max_tflops} TFlops {min_ns} ns on perf_config {winning_config}",
                     file=sys.stderr)
 
-    return winning_config, max_tflops
+    return winning_config, skipped, max_tflops
 
 
 # Tune MLIR Gemm or Convolution kernels
@@ -212,7 +212,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                                            stderr=subprocess.PIPE)
 
         # Tune, printing progress as we go to avoid CI timeouts
-        winning_config, max_tflops = get_winning_config(tuning_loop.stdout, test_vector, config,
+        winning_config, skipped, max_tflops = get_winning_config(tuning_loop.stdout, test_vector, config,
                                                         all_data, paths, options)
 
         if options.verify_mode != "none":
@@ -230,9 +230,9 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
             print(f"Tuned : {test_vector} : {winning_config} with {max_tflops} TFlops",
                   file=sys.stderr)
         if options.tflops:
-            winners[test_vector] = (winning_config, max_tflops)
+            winners[test_vector] = (winning_config, skipped, max_tflops)
         else:
-            winners[test_vector] = winning_config
+            winners[test_vector] = (winning_config, skipped)
     all_data = pd.DataFrame(all_data)
     return winners, all_data
 
@@ -482,19 +482,19 @@ def main(args=None):
         if parsed_args.tflops:
             print(f"# arch\tnumCUs\ttestVector\tperfConfig\tTFlops ({options.tuning_space_kind})",
                   file=outfile)
-            for test_vector, (perfconfig, tflops) in winners.items():
+            for test_vector, (perfconfig, skipped, tflops) in winners.items():
                 print(f"Arch = {arch}({num_cu} CUs), vector = '{test_vector}', \
-perfConfig = {perfconfig}, TFlops = {tflops}",
+perfConfig = {perfconfig}, skipped = {skipped}, TFlops = {tflops}",
                       file=sys.stderr)
-                print(f"{arch}\t{num_cu}\t{test_vector}\t{perfconfig}\t{tflops}", file=outfile)
+                print(f"{arch}\t{num_cu}\t{test_vector}\t{perfconfig}\t{skipped}\t{tflops}", file=outfile)
         else:
             print(f"# arch\tnumCUs\ttestVector\tperfConfig ({options.tuning_space_kind})",
                   file=outfile)
-            for test_vector, perfconfig in winners.items():
+            for test_vector, (perfconfig, skipped) in winners.items():
                 print(
-                    f"Arch = {arch}({num_cu} CUs), vector = '{test_vector}', perfConfig = {perfconfig}",
+                    f"Arch = {arch}({num_cu} CUs), vector = '{test_vector}', perfConfig = {perfconfig}, skipped = {skipped}",
                     file=sys.stderr)
-                print(f"{arch}\t{num_cu}\t{test_vector}\t{perfconfig}", file=outfile)
+                print(f"{arch}\t{num_cu}\t{test_vector}\t{perfconfig}\t{skipped}", file=outfile)
 
 
 if __name__ == '__main__':
