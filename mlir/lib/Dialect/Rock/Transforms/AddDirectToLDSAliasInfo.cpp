@@ -33,6 +33,7 @@
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Pass/Pass.h"
 
 #include "llvm/Support/Debug.h"
@@ -98,10 +99,21 @@ void addLDSLoadNoAliasScope(LLVM::AliasAnalysisOpInterface op) {
 }
 
 struct RockAddDirectToLDSAliasInfoPass
-    : public rock::impl::RockAddDirectToLDSAliasInfoPassBase<RockAddDirectToLDSAliasInfoPass> {
+    : public rock::impl::RockAddDirectToLDSAliasInfoPassBase<
+          RockAddDirectToLDSAliasInfoPass> {
   void runOnOperation() override {
     gpu::GPUModuleOp module = getOperation();
-    LLVM_DEBUG(llvm::dbgs() << "Running RockAddDirectToLDSAliasInfoPass on GPU module\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "Running RockAddDirectToLDSAliasInfoPass on GPU module\n");
+
+    // Lambda to check if a value is a pointer to LDS (shared memory).
+    auto isLDSPointer = [](Value value) -> bool {
+      if (auto ptrType = dyn_cast<LLVM::LLVMPointerType>(value.getType())) {
+        return ptrType.getAddressSpace() ==
+               ROCDL::ROCDLDialect::kSharedMemoryAddressSpace;
+      }
+      return false;
+    };
 
     // Walk through all LLVM functions in the module.
     module.walk([&](LLVM::LLVMFuncOp func) {
@@ -115,24 +127,36 @@ struct RockAddDirectToLDSAliasInfoPass
           assert(aliasIface.getAccessedOperands().size() == 1 &&
                  "Expected only one accessed operand");
           Value addr = aliasIface.getAccessedOperands()[0];
-          if (auto ptrType = dyn_cast<LLVM::LLVMPointerType>(addr.getType())) {
-            if (ptrType.getAddressSpace() ==
-                ROCDL::ROCDLDialect::kSharedMemoryAddressSpace) {
+          if (isLDSPointer(addr)) {
+            LLVM_DEBUG(llvm::dbgs() << aliasOp->getName()
+                                    << " with LDS address space: Adding to "
+                                       "noAliasScope\n");
+            addLDSLoadNoAliasScope(aliasIface);
+          }
+        } else if (auto memEffectInterface =
+                       dyn_cast<MemoryEffectOpInterface>(aliasOp)) {
+          // Check if this operation has write effects to LDS memory.
+          SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>>
+              effects;
+          memEffectInterface.getEffects(effects);
 
-              LLVM_DEBUG(llvm::dbgs() << aliasOp->getName()
-                                      << " with LDS address space: Adding to "
-                                         "noAliasScope\n");
-              addLDSLoadNoAliasScope(aliasIface);
+          for (const auto &effect : effects) {
+            if (!isa<MemoryEffects::Write>(effect.getEffect())) {
+              continue;
+            }
+            Value effectValue = effect.getValue();
+            assert(effectValue && "Effect value is null");
+
+            if (isLDSPointer(effectValue)) {
+              // We lower rock ops to GatherToLDS ops, which then are lowered to
+              // operations that write to LDS at this point, so here its the
+              // right moment to add alias scope information.
+              LLVM_DEBUG(llvm::dbgs()
+                         << aliasOp->getName() << ": Adding to aliasScope\n");
+              addDirectToLDSLoadAliasScope(aliasIface);
+              break;
             }
           }
-        } else if (isa<ROCDL::LoadToLDSOp, ROCDL::RawPtrBufferLoadLdsOp>(
-                       aliasOp)) {
-          // We lower rock ops to GatherToLDS ops, which then are lowered to
-          // LoadToLDSOp at this point, so here its the right moment to add
-          // alias scope information.
-          LLVM_DEBUG(llvm::dbgs()
-                     << aliasOp->getName() << ": Adding to aliasScope\n");
-          addDirectToLDSLoadAliasScope(aliasIface);
         } else {
           LLVM_DEBUG(llvm::dbgs()
                      << "Operation not supported  : " << *aliasOp << "\n");
