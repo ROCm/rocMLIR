@@ -88,7 +88,10 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths, options: Opt
         ] + mlir_cpu_runner_args
 
     if options.debug:
+        print('Running commands:', file=sys.stderr)
         print(rocmlir_gen_command, file=sys.stderr)
+        print(rocmlir_driver_command, file=sys.stderr)
+        print(profiler_command, file=sys.stderr)
 
     prevdir = os.getcwd()
     with tempfile.TemporaryDirectory() as tmpdir:
