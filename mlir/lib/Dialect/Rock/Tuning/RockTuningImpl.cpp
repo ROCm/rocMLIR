@@ -324,8 +324,10 @@ static void createAttnTuningRangeGreedyPhase2(
                     gemm0NPerBlock, gemmKPerBlock, gemmMPerWave, gemmNPerWave,
                     gemmMnPerXdl, gemmKPack, splitKFactor, gemmSchedule,
                     outputSwizzle, true);
-                newSpace->tuningRange.push_back(
-                    cast<RockTuningParamAttrInterface>(params));
+                if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, params))) {
+                  newSpace->tuningRange.push_back(
+                      cast<RockTuningParamAttrInterface>(params));
+                }
               }
             }
           }
@@ -385,8 +387,11 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
                           gemm1MPerBlock, gemm0NPerBlock, gemmKPerBlock,
                           gemmMPerWave, gemmNPerWave, gemmMnPerXdl, gemmKPack,
                           splitKFactor, gemmSchedule, outputSwizzle, true);
-                      newSpace->tuningRange.push_back(
-                          cast<RockTuningParamAttrInterface>(params));
+                      if (succeeded(
+                              paramsAttnProbablyValid(b, gemmGemmOp, params))) {
+                        newSpace->tuningRange.push_back(
+                            cast<RockTuningParamAttrInterface>(params));
+                      }
                     }
                   }
                 }
@@ -647,10 +652,10 @@ static void createQuickTuningRange(TuningParamSet *newSpace,
 // This is temporary workaround to make MIGraphX integration
 // work until the tuning is setup for attention ops properly.
 template <typename Op>
-static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
+static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op gemmGemmOp,
                                        Type elemType) {
-  OpBuilder b(attnOp.getContext());
-  GemmFeatures currentFeatures = rock::getFeatures(attnOp);
+  OpBuilder b(gemmGemmOp.getContext());
+  GemmFeatures currentFeatures = rock::getFeatures(gemmGemmOp);
   int64_t splitKFactor{1}, gemmSchedule{1}, outputSwizzle{2};
   // g0Mpb, g1Mpb, g0Npb, Kpb, mPw, mnPxdl, kpack
   using PerfConfigVals = std::tuple<int64_t, int64_t, int64_t, int64_t, int64_t,
@@ -679,11 +684,13 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
     for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
                nPerWave, mnPerXdl, kPack] : attnQuickTuningListMFMA) {
       auto params = AttnPerfConfigAttr::get(
-          attnOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
+          gemmGemmOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
           kPackBerBlock, mPerWave, nPerWave, mnPerXdl, kPack, splitKFactor,
           gemmSchedule, outputSwizzle, true);
-      newSpace->tuningRange.push_back(
-          cast<RockTuningParamAttrInterface>(params));
+      if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, params))) {
+        newSpace->tuningRange.push_back(
+            cast<RockTuningParamAttrInterface>(params));
+      }
     }
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
     const SmallVector<PerfConfigVals, 7> attnQuickTuningListWMMA{
@@ -698,11 +705,13 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op attnOp,
     for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
                nPerWave, mnPerXdl, kPack] : attnQuickTuningListWMMA) {
       auto params = AttnPerfConfigAttr::get(
-          attnOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
+          gemmGemmOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
           kPackBerBlock, mPerWave, nPerWave, mnPerXdl, kPack, splitKFactor,
           gemmSchedule, outputSwizzle, true);
-      newSpace->tuningRange.push_back(
-          cast<RockTuningParamAttrInterface>(params));
+      if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, params))) {
+        newSpace->tuningRange.push_back(
+            cast<RockTuningParamAttrInterface>(params));
+      }
     }
   }
   // We only support GPUs with matrix accelerator extensions
