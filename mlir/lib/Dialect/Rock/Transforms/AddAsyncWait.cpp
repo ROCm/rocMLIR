@@ -120,7 +120,7 @@ static bool isBlockAncestor(Block *ancestor, Block *descendant) {
 static bool
 shouldSkipOperation(Operation *op, Operation *startOp,
                     const llvm::DenseSet<Operation *> insertionPoints) {
-  // Skip if it's thesame as startOp, or already has insertion point
+  // Skip if it's the same as startOp, or already has insertion point
   if (op == startOp || insertionPoints.contains(op)) {
     LLVM_DEBUG(llvm::dbgs() << "Skipping op because it's already been used: "
                             << *op << "\n");
@@ -217,7 +217,6 @@ findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
   LLVM_DEBUG(llvm::dbgs() << "Found " << allocs.size() << " alloc(s)\n");
 
   // Find the first read from LDS that uses any of these allocs
-  ThreadwiseReadIntoOp firstRead = nullptr;
   Operation *firstReadOp = nullptr;
 
   for (auto alloc : allocs) {
@@ -229,22 +228,21 @@ findFirstUseAfter(ThreadwiseReadIntoOp writeOp,
       Operation *readOp = read.getOperation();
       // Track the first one in program order
       if (!firstReadOp || comesBeforeInProgramOrder(readOp, firstReadOp)) {
-        firstRead = read;
         firstReadOp = readOp;
       }
     }
   }
 
-  if (!firstRead) {
+  if (!firstReadOp) {
     LLVM_DEBUG(llvm::dbgs() << "No read found after writeOp\n");
     return failure();
   }
 
   LLVM_DEBUG(llvm::dbgs() << "After writeOp: " << *writeOp.getOperation()
                           << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "Found first read after writeOp: " << firstRead
+  LLVM_DEBUG(llvm::dbgs() << "Found first read after writeOp: " << *firstReadOp
                           << "\n");
-  return firstRead.getOperation();
+  return firstReadOp;
 }
 
 /// Count global loads (ThreadwiseReadIntoOp from global to LDS) between two
@@ -268,7 +266,7 @@ static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp,
       continue;
     }
     if (auto readOp = dyn_cast<ThreadwiseReadIntoOp>(&op)) {
-      // Check if it reads from global memory
+      // Check if it reads from global memory and writes to LDS
       if (isGlobalLoad(readOp) && isLDSWrite(readOp)) {
         auto maybeLoopCount = rock::predictThreadwiseReadIntoLoopCount(readOp);
         if (failed(maybeLoopCount)) {
@@ -288,70 +286,73 @@ static int countGlobalLoadsBetween(Operation *startOp, Operation *endOp,
   return count;
 }
 
-/// The localLoadOp is the load that triggers the dependency, and the
-/// globalLoadOp is the load that is dependent on the localLoadOp.
-FailureOr<std::pair<int, bool>> getWaitCount(Operation *localLoadOp,
+/// The ldsLoadOp is the load that triggers the dependency, and the
+/// globalLoadOp is the load that is dependent on the ldsLoadOp.
+FailureOr<std::pair<int, bool>> getWaitCount(Operation *ldsLoadOp,
                                              Operation *globalLoadOp) {
-  if (!localLoadOp || !globalLoadOp)
+  if (!ldsLoadOp || !globalLoadOp)
     return failure();
 
-  auto localReadOp = dyn_cast<ThreadwiseReadIntoOp>(localLoadOp);
-  auto globalReadOp = dyn_cast<ThreadwiseReadIntoOp>(globalLoadOp);
-  if (!localReadOp || !globalReadOp)
+  auto ldsLoadReadOp = dyn_cast<ThreadwiseReadIntoOp>(ldsLoadOp);
+  auto globalLoadReadOp = dyn_cast<ThreadwiseReadIntoOp>(globalLoadOp);
+  if (!ldsLoadReadOp || !globalLoadReadOp)
     return failure();
 
   // Get parent blocks and check for loops
-  Block *globalBlock = globalLoadOp->getBlock();
-  Block *localBlock = localLoadOp->getBlock();
-  assert(globalBlock && "Expected global load op to be in a block");
-  assert(localBlock && "Expected local load op to be in a block");
+  Block *globalLoadBlock = globalLoadOp->getBlock();
+  Block *ldsLoadBlock = ldsLoadReadOp->getBlock();
+  assert(globalLoadBlock && "Expected global load op to be in a block");
+  assert(ldsLoadBlock && "Expected LDS load op to be in a block");
 
   int waitCount = 0;
   bool pipeliningEnabled = false;
 
-  bool sameBlock = globalBlock == localBlock;
-  bool globalContainsLocal = isBlockAncestor(globalBlock, localBlock);
-  bool localContainsGlobal = isBlockAncestor(localBlock, globalBlock);
-  bool localAfterGlobal = comesBeforeInProgramOrder(globalLoadOp, localLoadOp);
+  bool sameBlock = globalLoadBlock == ldsLoadBlock;
+  bool globalLoadContainsLDSLoad =
+      isBlockAncestor(globalLoadBlock, ldsLoadBlock);
+  bool ldsLoadContainsGlobalLoad =
+      isBlockAncestor(ldsLoadBlock, globalLoadBlock);
+  bool ldsLoadAfterGlobalLoad =
+      comesBeforeInProgramOrder(globalLoadOp, ldsLoadReadOp);
 
   // Case 1: Both have the same parent block (prologue).
   if (sameBlock) {
     LLVM_DEBUG(llvm::dbgs()
                << "Case 1: Both ops in the same block (prologue)\n");
-    waitCount = countGlobalLoadsBetween(globalLoadOp, localLoadOp, globalBlock,
-                                        /*countFromStart=*/false);
+    waitCount =
+        countGlobalLoadsBetween(globalLoadOp, ldsLoadReadOp, globalLoadBlock,
+                                /*countFromStart=*/false);
     pipeliningEnabled = true;
   }
-  // Case 2: localLoad block is nested within (and executes after) globalLoad's
+  // Case 2: ldsLoad block is nested within (and executes after) globalLoad's
   // block (pipelining body).
-  else if (globalContainsLocal && localAfterGlobal) {
+  else if (globalLoadContainsLDSLoad && ldsLoadAfterGlobalLoad) {
     LLVM_DEBUG(llvm::dbgs()
-               << "Case 2: localLoad nested inside globalLoad block (body)\n");
-    // Count from the start of the loop body block to localLoadOp.
-    LoopLikeOpInterface localLoop =
-        localLoadOp->getParentOfType<LoopLikeOpInterface>();
-    Block *loopOpBlock = localLoop->getBlock();
-    if (loopOpBlock == globalBlock) {
+               << "Case 2: ldsLoad nested inside globalLoad block (body)\n");
+    // Count from the start of the loop body block to ldsLoadOp.
+    LoopLikeOpInterface ldsLoadLoop =
+        ldsLoadOp->getParentOfType<LoopLikeOpInterface>();
+    Block *loopOpBlock = ldsLoadLoop->getBlock();
+    if (loopOpBlock == globalLoadBlock) {
       waitCount += countGlobalLoadsBetween(
-          globalLoadOp, localLoop.getOperation(), globalBlock,
+          globalLoadReadOp, ldsLoadLoop.getOperation(), globalLoadBlock,
           /*countFromStart=*/false);
     }
 
-    // Count from the start of the loop body block to localLoadOp
-    assert(localLoop.getLoopRegions().size() == 1 &&
-           "Expected local loop to have exactly one region");
-    Block *loopBody = &localLoop.getLoopRegions().front()->front();
-    waitCount += countGlobalLoadsBetween(nullptr, localLoadOp, loopBody,
+    // Count from the start of the loop body block to ldsLoadOp
+    assert(ldsLoadLoop.getLoopRegions().size() == 1 &&
+           "Expected LDS load loop to have exactly one region");
+    Block *loopBody = &ldsLoadLoop.getLoopRegions().front()->front();
+    waitCount += countGlobalLoadsBetween(nullptr, ldsLoadReadOp, loopBody,
                                          /*countFromStart=*/true);
     pipeliningEnabled = true;
   }
-  // Case 3: globalLoad executes before localLoad and its block is nested within
-  // the localLoad block. This corresponds to the epilogue portion of the
+  // Case 3: globalLoad executes before ldsLoad and its block is nested within
+  // the ldsLoad block. This corresponds to the epilogue portion of the
   // pipeline.
-  else if (localAfterGlobal && localContainsGlobal) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Case 3: globalLoad nested inside localLoad block "
-                  "(epilogue)\n");
+  else if (ldsLoadAfterGlobalLoad && ldsLoadContainsGlobalLoad) {
+    LLVM_DEBUG(llvm::dbgs() << "Case 3: globalLoad nested inside ldsLoad block "
+                               "(epilogue)\n");
     return success(std::make_pair(0, true));
   }
   // Case 4: no pipelining.
@@ -371,7 +372,7 @@ static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
                                                 bool pipeliningEnabled) {
   if (pipeliningEnabled) {
     // If pipelining is enabled, we always insert the AsyncWaitOp just before
-    // the local load.
+    // the ldsLoad.
     return op;
   }
 
@@ -417,7 +418,7 @@ static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
 ///    op that uses the result of the ThreadwiseReadIntoOp. In essence, this
 ///    gives us the pair of global memory read and the LDS load that depends
 ///    on it.
-/// 2. For each pair of global and local reads, call getWaitCount, which will
+/// 2. For each pair of global and ldsLoad reads, call getWaitCount, which will
 ///    return the number of AsyncWait ops to insert.
 /// 3. Once we know the wait count and the pair of reads that depends on each
 ///    other, figure out where to insert the waitcount, which mainly depends on
@@ -440,7 +441,8 @@ static LogicalResult addAsyncWaitOps(func::FuncOp &func) {
   for (auto readOp : readOps) {
     LLVM_DEBUG(llvm::dbgs()
                << "Processing ThreadwiseReadIntoOp: " << *readOp << "\n");
-    auto firstUseOr = findFirstUseAfter(readOp, insertionPoints);
+    FailureOr<Operation *> firstUseOr =
+        findFirstUseAfter(readOp, insertionPoints);
 
     if (failed(firstUseOr)) {
       // If pattern doesn't match or no use found, fail.
@@ -452,7 +454,8 @@ static LogicalResult addAsyncWaitOps(func::FuncOp &func) {
 
     Operation *firstUse = *firstUseOr;
 
-    auto waitCountOr = getWaitCount(firstUse, readOp);
+    FailureOr<std::pair<int, bool>> waitCountOr =
+        getWaitCount(firstUse, readOp);
     if (failed(waitCountOr)) {
       return emitError(readOp.getLoc(),
                        "Failed to get wait count for ThreadwiseReadIntoOp");
