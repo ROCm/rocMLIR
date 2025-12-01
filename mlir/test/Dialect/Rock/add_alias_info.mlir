@@ -1,8 +1,8 @@
-// RUN: rocmlir-opt %s --rock-add-alias-info -split-input-file | FileCheck %s
+// RUN: rocmlir-opt %s --rock-add-direct-to-lds-alias-info -split-input-file | FileCheck %s
 
 // Test that llvm.load operations with LDS address space get the appropriate alias scope
 // CHECK-DAG: #[[$DOMAIN:.+]] = #llvm.alias_scope_domain<id = "amdgpu.LoadsScope", description = "{{.*}}">
-// CHECK-DAG: #[[$LOCAL_LOAD_SCOPE:.+]] = #llvm.alias_scope<id = "amdgpu.LocalLoads", domain = #[[$DOMAIN]], description = "{{.*}}">
+// CHECK-DAG: #[[$LOCAL_LOAD_SCOPE:.+]] = #llvm.alias_scope<id = "amdgpu.LDSLoads", domain = #[[$DOMAIN]], description = "{{.*}}">
 // CHECK-DAG: #[[$DIRECT_TO_LDS_SCOPE:.+]] = #llvm.alias_scope<id = "amdgpu.DirectToLDSLoads", domain = #[[$DOMAIN]], description = "{{.*}}">
 gpu.module @test_module {
   // Test function with local load and local store.
