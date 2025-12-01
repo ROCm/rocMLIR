@@ -227,7 +227,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
             if options.verify_mode == "gpu":
                 print("Note: Verify tflops counts verification kernel", file=sys.stderr)
         else:
-            print(f"Tuned : {test_vector} : {winning_config} with {max_tflops} TFlops",
+            print(f"Tuned : {test_vector} : {winning_config} with {max_tflops} TFlops (skipped = {skipped})",
                   file=sys.stderr)
         if options.tflops:
             winners[test_vector] = (winning_config, skipped, max_tflops)
