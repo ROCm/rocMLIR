@@ -766,8 +766,8 @@ struct ReductionInfo {
   }
 
   bool operator==(const ReductionInfo &other) const {
-    return method == other.method && axis == other.axis &&
-           rank == other.rank && hasPointwiseBefore == other.hasPointwiseBefore;
+    return method == other.method && axis == other.axis && rank == other.rank &&
+           hasPointwiseBefore == other.hasPointwiseBefore;
   }
 };
 
@@ -796,9 +796,9 @@ static FailureOr<Value> getBaseValue(Value v) {
 
 // Helper to trace backwards from a value to see if it reaches the target
 // Returns success(hasPointwise) if target is reached, failure otherwise
-static FailureOr<bool>
-tracesToTarget(Value start, Value target, const BufferDependencyAnalysis &deps,
-               DenseSet<Value> &visited) {
+static FailureOr<bool> tracesToTarget(Value start, Value target,
+                                      const BufferDependencyAnalysis &deps,
+                                      DenseSet<Value> &visited) {
   if (!visited.insert(start).second) {
     return failure(); // Avoid cycles
   }
