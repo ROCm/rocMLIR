@@ -32,7 +32,9 @@ enum class TuningParamSetKind : uint32_t {
   // configurations that have been shown not to yield good performance.
   // (Note: this filtering is currently unimplemented).
   Full = 1,
-  // A greedy approach that explores exhaustive tuning space.
+  // Tune all possible tile sizes and try N random configurations for each tile
+  // size. Then, greedily select the best tile size, and brute force tune the
+  // rest of params
   Greedy = 2,
   // A tuning space consisting of all possible sets of tuning parameters,
   // excluding those that could not be applicable to the given problem.
@@ -51,13 +53,17 @@ struct TuningParamSet {
   KernelType primaryOpType;
 };
 
+struct TuningParamSpaceSettings {
+  unsigned iteration = 0;
+  StringRef winningConfig = "";
+};
+
 // Get the number of iterations needed for a given tuning kind
 unsigned getNumberOfIterations(TuningParamSetKind kind);
 
 // Modified function signature to support multiple iterations
 TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
-                                        unsigned iteration = 0,
-                                        StringRef winningConfig = "");
+                                        TuningParamSpaceSettings &settings);
 // Get a parameters from the set of tunable parameters.
 bool tuningGetParam(TuningParamSet *tuningSpace, unsigned pos,
                     ParamEntry *paramEntry);

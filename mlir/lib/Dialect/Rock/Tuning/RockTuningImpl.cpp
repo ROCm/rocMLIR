@@ -27,6 +27,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 #include <algorithm>
@@ -706,10 +707,11 @@ unsigned getNumberOfIterations(TuningParamSetKind kind) {
   case TuningParamSetKind::Greedy:
     return 2;
   }
-  return 1;
+  llvm_unreachable("invalid tuning kind");
 }
 
-// Generate random configs for greedy first iteration (Phase 1)
+// Tune MperBlock and NPerBlock only, generating random configs for the rest of
+// parameters (greedy tuning, phase 1)
 static void createGemmTuningRangeGreedyPhase1(TuningParamSet *newSpace,
                                               RockGemmWrapperInterface gemmOp,
                                               bool isSplitKFusible,
@@ -769,7 +771,8 @@ static void createGemmTuningRangeGreedyPhase1(TuningParamSet *newSpace,
   }
 }
 
-// Generate brute force configs for greedy second iteration (Phase 2)
+// With MperBlock and NPerBlock already set, tune for the rest of parameters by
+// brute force (greedy tuning, phase 2)
 static void createGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
                                               RockGemmWrapperInterface gemmOp,
                                               bool isSplitKFusible,
@@ -835,9 +838,9 @@ static void createGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
   }
 }
 
-TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
-                                        unsigned iteration,
-                                        StringRef winningConfig) {
+TuningParamSet *
+createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
+                        rock::TuningParamSpaceSettings &settings) {
   struct TuningParamSet *newSpace;
   newSpace = new TuningParamSet();
 
@@ -858,7 +861,7 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
           createGemmTuningRangeBF(newSpace, op, isSplitKFusible, kind);
           break;
         case TuningParamSetKind::Greedy:
-          if (iteration == 0) {
+          if (settings.iteration == 0) {
             // First iteration: random configs per tile size
             createGemmTuningRangeGreedyPhase1(newSpace, op, isSplitKFusible,
                                               NUM_RANDOM_PER_TILE_SIZE,
@@ -866,7 +869,7 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
           } else {
             // Second iteration: brute force with winning tile sizes
             createGemmTuningRangeGreedyPhase2(newSpace, op, isSplitKFusible,
-                                              winningConfig);
+                                              settings.winningConfig);
           }
           break;
         case TuningParamSetKind::Quick:
@@ -885,7 +888,7 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
           createAttnTuningRangeBF(newSpace, op, isSplitKFusible, kind);
           break;
         case TuningParamSetKind::Greedy:
-          if (iteration == 0) {
+          if (settings.iteration == 0) {
             // First iteration: random configs per tile size
             createAttnTuningRangeGreedyPhase1(newSpace, op, isSplitKFusible,
                                               NUM_RANDOM_PER_TILE_SIZE,
@@ -893,7 +896,7 @@ TuningParamSet *createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
           } else {
             // Second iteration: brute force with winning tile sizes
             createAttnTuningRangeGreedyPhase2(newSpace, op, isSplitKFusible,
-                                              winningConfig);
+                                              settings.winningConfig);
           }
           break;
         case TuningParamSetKind::Quick:

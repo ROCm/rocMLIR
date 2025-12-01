@@ -674,9 +674,10 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       configs.emplace_back(benchmarkParams.benchmarkConfig);
     } else {
       // Tuning mode - get configs from tuning space
+      rock::TuningParamSpaceSettings settings{iterIdx, bestConfigOverall};
       std::unique_ptr<rock::TuningParamSet> tuningSpace(
           rock::createTunableParamSpace(source, benchmarkParams.tuningSpaceKind,
-                                        iterIdx, bestConfigOverall));
+                                        settings));
 
       if (tuningSpace->tuningRange.empty()) {
         llvm::errs() << "Tuning range is empty for iteration " << iterIdx

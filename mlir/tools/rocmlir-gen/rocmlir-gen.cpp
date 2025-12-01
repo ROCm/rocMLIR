@@ -5546,8 +5546,9 @@ int main(int argc, char **argv) {
   }
 
   if (emitTuningSpace.getNumOccurrences() > 0) {
+    rock::TuningParamSpaceSettings settings;
     std::unique_ptr<rock::TuningParamSet> tunableParams(
-        rock::createTunableParamSpace(*module, emitTuningSpace));
+        rock::createTunableParamSpace(*module, emitTuningSpace, settings));
     SmallString<64> perfConfig;
     for (auto param : tunableParams->tuningRange) {
       param.getPerfConfigStr(perfConfig);
