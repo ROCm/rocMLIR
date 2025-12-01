@@ -898,7 +898,7 @@ def get_attn_configurations(filename):
                     # Filter out unsupported datatypes
                     if dtype not in DATA_TYPES_ATTENTION:
                         continue
-                    # Additional safety check: filter f32 on non-MFMA chips (Navi/gfx11*, etc.)
+                    # Additional safety check: filter f32 on non-MFMA chips (Navi/gfx1*, etc.)
                     if dtype == 'f32' and not chip.startswith('gfx9'):
                         continue
                     if one_config not in configs:
