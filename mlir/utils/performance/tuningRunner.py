@@ -278,7 +278,15 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                                                    stdin=kernel_gen.stdout,
                                                    stdout=subprocess.PIPE,
                                                    stderr=subprocess.PIPE)
-                    kernel_gen.stdout.close()
+                    # Wait for both processes to finish.
+                    tuning_loop_stdout, _ = tuning_loop.communicate()
+                    kernel_gen.communicate()
+
+                    # Make sure both processes finished successfully.
+                    if kernel_gen.returncode != 0:
+                        raise RuntimeError(f'rocmlir-gen command failed: {kernel_gen_command}')
+                    if tuning_loop.returncode != 0:
+                        raise RuntimeError(f'rocmlir-tuning-driver command failed: {paths.mlir_paths.rocmlir_tuning_driver_path} {tuning_driver_args}')
                 else:
                     # pipe to rocmlir_gen --emit-tuning-key
                     tuning_key = subprocess.Popen(
@@ -295,10 +303,14 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                                                    tuning_driver_args + [test_vector],
                                                    stdout=subprocess.PIPE,
                                                    stderr=subprocess.PIPE)
+                    # Wait and make sure the process finished successfully.
+                    tuning_loop_stdout, _ = tuning_loop.communicate()
+                    if tuning_loop.returncode != 0:
+                        raise RuntimeError(f'rocmlir-tuning-driver command failed: {paths.mlir_paths.rocmlir_tuning_driver_path} {tuning_driver_args}')
 
                 # Tune, printing progress as we go to avoid CI timeouts
                 winning_config, max_tflops, entries = get_winning_config(
-                    tuning_loop.stdout, config, paths, options)
+                    tuning_loop_stdout, config, paths, options)
 
             except TuningError as e:
                 log_error(error_title, str(e), outfile)
