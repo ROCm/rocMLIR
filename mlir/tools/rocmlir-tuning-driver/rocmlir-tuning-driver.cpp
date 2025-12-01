@@ -361,7 +361,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
                  ArrayRef<uint32_t> gridSizes, ArrayRef<void *> hostBuffers,
                  MutableArrayRef<void *> gpuBuffers,
                  ArrayRef<size_t> bufferSizes, const BenchmarkParams &params,
-                 bool benchmarkMode) {
+                 bool benchmarkMode, unsigned &iterations) {
   hipStream_t stream;
   HIPCHECK(hipStreamCreate(&stream));
   auto streamCleanup = llvm::make_scope_exit([&]() {
@@ -417,7 +417,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   });
 
   bool isSmallKernel = false;
-  unsigned iterations = params.numIterations;
+  iterations = params.numIterations;
 
   if (params.warmupIterations > 0) {
     // Warmup run. We measure the warmup to get an estimate of the kernel
@@ -785,8 +785,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     return result;
   };
 
+  unsigned iterations = 0;
   bool skipSmallKernels = true;
-  float smallKernelThreshold = 0.006f; // TODO: Refactor with the other variable.
+  double smallKernelThresholdMs = 0.006f;
   if (!benchmarkMode && skipSmallKernels) {
     llvm::errs() << "Skipping small kernels?\n";
     // Measure the first config to determine if it's a small kernel
@@ -794,14 +795,17 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     if (result.status == CompilationStatus::Success) {
       FailureOr<double> timing = benchmarkKernels(
         result.hipModules, kernelFuncNames, result.blockSizes, result.gridSizes,
-        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams, benchmarkMode);
+        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams, benchmarkMode, iterations);
 
       if (failed(timing)) {
         llvm::errs() << "Kernel execution failed\n";
         return failure();
       }
 
-      if (timing.value() < smallKernelThreshold) {
+      auto nsToMs = [](double ns) { return ns / 1e6; };
+      double timingSingleIterationMs = nsToMs(timing.value() / iterations);
+
+      if (timingSingleIterationMs < smallKernelThresholdMs) {
         // This is a small kernel which is not worth tuning, so just print
         // what we measured and return.
         llvm::outs() << result.perfConfig << "\t";
@@ -873,7 +877,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
     FailureOr<double> timing = benchmarkKernels(
         result.hipModules, kernelFuncNames, result.blockSizes, result.gridSizes,
-        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams, benchmarkMode);
+        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams, benchmarkMode, iterations);
 
     if (failed(timing)) {
       llvm::errs() << "Kernel execution failed\n";
