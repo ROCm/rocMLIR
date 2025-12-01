@@ -756,7 +756,8 @@ struct ReductionInfo {
   bool hasPointwiseBefore;
 
   bool operator<(const ReductionInfo &other) const {
-    // Sort by method first, then rank, then axis, then stride, then hasPointwiseBefore
+    // Sort by method first, then rank, then axis, then stride, then
+    // hasPointwiseBefore
     if (method != other.method)
       return method < other.method;
     if (rank != other.rank)
@@ -770,7 +771,8 @@ struct ReductionInfo {
 
   bool operator==(const ReductionInfo &other) const {
     return method == other.method && axis == other.axis && rank == other.rank &&
-           stride == other.stride && hasPointwiseBefore == other.hasPointwiseBefore;
+           stride == other.stride &&
+           hasPointwiseBefore == other.hasPointwiseBefore;
   }
 };
 
@@ -871,7 +873,7 @@ static FusionInfo getFusionInfo(Value gemmResult, GemmFeatures features) {
       redInfo.axis = reduceOp.getAxis().getSExtValue();
       auto memrefType = cast<MemRefType>(reduceOp.getIn().getType());
       redInfo.rank = memrefType.getRank();
-      
+
       // Extract stride for the reduction dimension
       SmallVector<int64_t> strides;
       int64_t offset;
@@ -881,7 +883,7 @@ static FusionInfo getFusionInfo(Value gemmResult, GemmFeatures features) {
         // If we can't determine stride, use dynamic sentinel
         redInfo.stride = ShapedType::kDynamic;
       }
-      
+
       redInfo.hasPointwiseBefore = *maybeHasPointwise;
       info.reductions.push_back(redInfo);
     }
@@ -921,7 +923,7 @@ static void appendOutputFusionInfo(llvm::raw_svector_ostream &problemOS,
     // Add rank, axis, and stride with colon separators
     problemOS << ":rank" << reduction.rank;
     problemOS << ":axis" << reduction.axis;
-    
+
     // Add stride (use '?' for dynamic/unknown strides)
     if (reduction.stride == ShapedType::kDynamic) {
       problemOS << ":stride?";
