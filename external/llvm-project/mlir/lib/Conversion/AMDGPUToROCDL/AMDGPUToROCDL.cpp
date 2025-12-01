@@ -552,6 +552,9 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
   LogicalResult
   matchAndRewrite(LDSBarrierOp op, LDSBarrierOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // We don't use the upstream version because otherwise the backend still inserts unwanted waits.
+    // This might be due to the backend not using the correct waitcnt value.
+    // More background: https://github.com/ROCm/rocMLIR/pull/2109#discussion_r2568253237
     Location loc = op.getLoc();
     bool requiresInlineAsm = chipset < kGfx90a || chipset.majorVersion == 11;
 
