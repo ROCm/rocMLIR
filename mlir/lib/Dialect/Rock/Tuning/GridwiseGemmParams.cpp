@@ -731,13 +731,12 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
 }
 
 static RockAccelTuningParamAttrInterface
-deriveGemm1TuningParams(OpBuilder &b, RockGemmGemmWrapperInterface op,
+deriveGemm1TuningParams(OpBuilder &b,
+                        RockAccelTuningParamAttrInterface gemm0TuningParams,
                         AttnPerfConfigAttr attnPerfConfig) {
-  auto gemm0TuningParams =
-      cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
   int64_t gemm1KPack = gemm0TuningParams.getKpack();
   if (auto gemm0XdlDerivedParams =
-          dyn_cast<MfmaGemmParamsAttr>(op.getGemm0Params().value())) {
+          dyn_cast<MfmaGemmParamsAttr>(gemm0TuningParams)) {
     return MfmaGemmParamsAttr::get(
         b.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
         attnPerfConfig.getMPerBlockG1(), gemm0XdlDerivedParams.getNPerBlock(),
@@ -792,7 +791,7 @@ mlir::rock::getAttentionTuningParams(OpBuilder &b,
     return failure();
   }
   RockAccelTuningParamAttrInterface accelParams1 =
-      deriveGemm1TuningParams(b, op, attnPerfConfig);
+      deriveGemm1TuningParams(b, accelParams0, attnPerfConfig);
   auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
   LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
