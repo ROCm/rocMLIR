@@ -34,6 +34,8 @@
 using namespace mlir;
 using namespace mlir::rock;
 
+#define DEBUG_TYPE "rock-lowering-utils"
+
 bool mlir::rock::isValidBlockSize(int64_t blockSize, int64_t kPerBlock,
                                   int64_t mPerBlock, int64_t nPerBlock) {
   int64_t aCopyPerThread = (kPerBlock * mPerBlock) / blockSize;
@@ -1266,11 +1268,11 @@ FailureOr<ThreadwiseReadIntoLoopInfo> mlir::rock::getThreadwiseReadIntoLoopInfo(
     info.vectorSrcLen = vectorSrcRes.max;
     if (input.isGlobalToLDS &&
         info.vectorSrcLen > input.maxGlobalToLDSVectorLen) {
-      // LLVM_DEBUG(llvm::dbgs()
-      //            << "Constraining vectorization from " << vectorSrcLen << "
-      //            to "
-      //            << maxGlobalToLDSVectorLen
-      //            << " for Global-to-LDS hardware limits\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "getThreadwiseReadIntoLoopInfo:"
+                 << "Constraining vectorization from " << info.vectorSrcLen
+                 << " to " << input.maxGlobalToLDSVectorLen.value()
+                 << " for Global-to-LDS hardware limits\n");
       info.vectorSrcLen = input.maxGlobalToLDSVectorLen.value();
     }
     // Here we would call collapseContiguousMerges
