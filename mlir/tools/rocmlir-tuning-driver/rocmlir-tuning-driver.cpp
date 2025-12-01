@@ -785,6 +785,35 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     return result;
   };
 
+  bool skipSmallKernels = true;
+  float smallKernelThreshold = 0.006f; // TODO: Refactor with the other variable.
+  if (!benchmarkMode && skipSmallKernels) {
+    llvm::errs() << "Skipping small kernels?\n";
+    // Measure the first config to determine if it's a small kernel
+    CompilationResult result = compileConfig(0);    
+    if (result.status == CompilationStatus::Success) {
+      FailureOr<double> timing = benchmarkKernels(
+        result.hipModules, kernelFuncNames, result.blockSizes, result.gridSizes,
+        hostBuffers, gpuBuffers, bufferLengths, benchmarkParams, benchmarkMode);
+
+      if (failed(timing)) {
+        llvm::errs() << "Kernel execution failed\n";
+        return failure();
+      }
+
+      if (timing.value() < smallKernelThreshold) {
+        // This is a small kernel which is not worth tuning, so just print
+        // what we measured and return.
+        llvm::outs() << result.perfConfig << "\t";
+        llvm::outs() << timing << "\n";
+        return success();
+      }
+    } else {
+      // TODO: What to do here?
+      llvm::outs() << "N/A\n";
+    }
+  }
+
   // Launch parallel compilation tasks with dynamic work stealing
   // Note: We use atomic counter instead of static partitioning because
   // compilation times vary dramatically between configs (NotApplicable is fast,
