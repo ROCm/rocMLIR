@@ -193,11 +193,12 @@ DATA_TYPES_ATTENTION = None
 
 def initialize_dtypes_attn():
     global DATA_TYPES_ATTENTION
-    if get_chip().startswith('gfx1'):
-        DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
-    else:
+    chip = get_chip()
+    if chip.startswith('gfx9'):
         DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_MFMA
-    
+    else:
+        DATA_TYPES_ATTENTION = DATA_TYPES_ATTENTION_WMMA
+
     return DATA_TYPES_ATTENTION  # For modules that import this function
 
 
@@ -842,6 +843,10 @@ def get_gemm_gemm_configurations(filename):
 def get_attn_configurations(filename):
     if DATA_TYPES_ATTENTION is None:
         initialize_dtypes_attn()
+    
+    # Get chip info for validation
+    chip = get_chip()
+
     bool_space = ['false', 'true']
     default_test_space = {
         "-t": DATA_TYPES_ATTENTION,
@@ -887,9 +892,15 @@ def get_attn_configurations(filename):
 
                     # Check for valid dtypes
                     found_dtype = re.search(r"-t\s+(\w+)", one_config)
-                    if not found_dtype or found_dtype.group(1) not in DATA_TYPES_ATTENTION:
+                    if not found_dtype:
                         continue
-
+                    dtype = found_dtype.group(1)
+                    # Filter out unsupported datatypes
+                    if dtype not in DATA_TYPES_ATTENTION:
+                        continue
+                    # Additional safety check: filter f32 on non-MFMA chips (Navi/gfx11*, etc.)
+                    if dtype == 'f32' and not chip.startswith('gfx9'):
+                        continue
                     if one_config not in configs:
                         configs.append(one_config)
 

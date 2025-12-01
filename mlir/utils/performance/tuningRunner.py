@@ -291,6 +291,7 @@ def main(args=None):
 
     arch = perfRunner.get_arch()
     num_cu = perfRunner.get_num_cu(perfRunner.get_chip())
+    perfRunner.initialize_dtypes_attn()
     root_dir = str(
         subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
     default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
