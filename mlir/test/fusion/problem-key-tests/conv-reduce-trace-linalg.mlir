@@ -1,6 +1,6 @@
 // RUN: rocmlir-gen --emit-tuning-key %s | FileCheck %s
 
-// CHECK: 256	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 32 -W 32 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1  -fusion_reduce count=2 sum:rank3:axis2:hasPointwise sum:rank3:axis2:hasPointwise
+// CHECK: 256	convfp16 -F 1 -f GNC01 -I NGC01 -O NGC01 -n 1 -c 128 -H 32 -W 32 -k 256 -y 3 -x 3 -p 1 -q 1 -u 1 -v 1 -l 1 -j 1 -g 1  -fusion_reduce count=2 sum:rank3:axis2:stride1:hasPointwise sum:rank3:axis2:stride1:hasPointwise
 
 #map = affine_map<(d0, d1, d2, d3) -> (((d0 * 128 + d1) * 3 + d2) * 3 + d3)>
 #map1 = affine_map<(d0, d1, d2, d3) -> ((d1 * 32 + d2) * 32 + d3)>

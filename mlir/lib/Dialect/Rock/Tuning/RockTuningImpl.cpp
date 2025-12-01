@@ -752,22 +752,25 @@ struct ReductionInfo {
   ReduceMethod method;
   int64_t axis;
   int64_t rank;
+  int64_t stride; // Stride of the reduction dimension
   bool hasPointwiseBefore;
 
   bool operator<(const ReductionInfo &other) const {
-    // Sort by method first, then rank, then axis, then hasPointwiseBefore
+    // Sort by method first, then rank, then axis, then stride, then hasPointwiseBefore
     if (method != other.method)
       return method < other.method;
     if (rank != other.rank)
       return rank < other.rank;
     if (axis != other.axis)
       return axis < other.axis;
+    if (stride != other.stride)
+      return stride < other.stride;
     return hasPointwiseBefore > other.hasPointwiseBefore;
   }
 
   bool operator==(const ReductionInfo &other) const {
     return method == other.method && axis == other.axis && rank == other.rank &&
-           hasPointwiseBefore == other.hasPointwiseBefore;
+           stride == other.stride && hasPointwiseBefore == other.hasPointwiseBefore;
   }
 };
 
@@ -866,7 +869,19 @@ static FusionInfo getFusionInfo(Value gemmResult, GemmFeatures features) {
       ReductionInfo redInfo;
       redInfo.method = reduceOp.getReduceMethod();
       redInfo.axis = reduceOp.getAxis().getSExtValue();
-      redInfo.rank = cast<ShapedType>(reduceOp.getIn().getType()).getRank();
+      auto memrefType = cast<MemRefType>(reduceOp.getIn().getType());
+      redInfo.rank = memrefType.getRank();
+      
+      // Extract stride for the reduction dimension
+      SmallVector<int64_t> strides;
+      int64_t offset;
+      if (succeeded(memrefType.getStridesAndOffset(strides, offset))) {
+        redInfo.stride = strides[redInfo.axis];
+      } else {
+        // If we can't determine stride, use dynamic sentinel
+        redInfo.stride = ShapedType::kDynamic;
+      }
+      
       redInfo.hasPointwiseBefore = *maybeHasPointwise;
       info.reductions.push_back(redInfo);
     }
@@ -889,7 +904,7 @@ static void appendOutputFusionInfo(llvm::raw_svector_ostream &problemOS,
   problemOS << sep << "-fusion_reduce" << sep
             << "count=" << fusionInfo.numReductionOutputs();
 
-  // Encode each reduction in format: method:rank:axis[:hasPointwise]
+  // Encode each reduction in format: method:rank:axis:stride[:hasPointwise]
   for (const auto &reduction : fusionInfo.reductions) {
     problemOS << sep;
 
@@ -903,9 +918,16 @@ static void appendOutputFusionInfo(llvm::raw_svector_ostream &problemOS,
       break;
     }
 
-    // Add rank and axis with colon separators
+    // Add rank, axis, and stride with colon separators
     problemOS << ":rank" << reduction.rank;
     problemOS << ":axis" << reduction.axis;
+    
+    // Add stride (use '?' for dynamic/unknown strides)
+    if (reduction.stride == ShapedType::kDynamic) {
+      problemOS << ":stride?";
+    } else {
+      problemOS << ":stride" << reduction.stride;
+    }
 
     // Add pointwise flag for this specific reduction
     if (reduction.hasPointwiseBefore) {

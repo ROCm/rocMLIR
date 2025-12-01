@@ -1,6 +1,6 @@
 // RUN: rocmlir-gen --emit-tuning-key %s | FileCheck %s
 
-// CHECK: gfx942  120     -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 128 -n 256 -k 64 -fusion_reduce count=2 sum:rank3:axis2:hasPointwise sum:rank3:axis2
+// CHECK: gfx942  120     -t f32 -out_datatype f32 -transA false -transB false -g 1 -m 128 -n 256 -k 64 -fusion_reduce count=2 sum:rank3:axis2:stride1:hasPointwise sum:rank3:axis2:stride1
 
 #map = affine_map<(d0, d1, d2) -> (d1 * 256 + d2)>
 #map1 = affine_map<(d0, d1, d2) -> (d1 * 64 + d2)>
