@@ -729,3 +729,83 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.gemmScheduleVersion, validParams.outputSwizzle,
       validParams.gemmAThreadCopyMoreGemmK);
 }
+
+static RockAccelTuningParamAttrInterface
+deriveGemm1TuningParams(OpBuilder &b, RockGemmGemmWrapperInterface op,
+                        AttnPerfConfigAttr attnPerfConfig) {
+  auto gemm0TuningParams =
+      cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
+  int64_t gemm1KPack = gemm0TuningParams.getKpack();
+  if (auto gemm0XdlDerivedParams =
+          dyn_cast<MfmaGemmParamsAttr>(op.getGemm0Params().value())) {
+    return MfmaGemmParamsAttr::get(
+        b.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
+        attnPerfConfig.getMPerBlockG1(), gemm0XdlDerivedParams.getNPerBlock(),
+        gemm0TuningParams.getKpack(),
+        gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() /
+                                           gemm0TuningParams.getMPerBlock()),
+        gemm0XdlDerivedParams.getNPerWave(),
+        gemm0XdlDerivedParams.getMnPerXdl(), attnPerfConfig.getSplitKFactor(),
+        gemm0XdlDerivedParams.getScheduleVersion(),
+        gemm0XdlDerivedParams.getOutputSwizzle(),
+        gemm0XdlDerivedParams.getForceUnroll());
+  }
+  return WmmaGemmParamsAttr::get(
+      b.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
+      attnPerfConfig.getMPerBlockG1(), attnPerfConfig.getNPerBlockG0(),
+      gemm0TuningParams.getKpack(),
+      gemm0TuningParams.getMPerWave() *
+          (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
+      gemm0TuningParams.getNPerWave(), gemm0TuningParams.getMnPerXdl(),
+      attnPerfConfig.getSplitKFactor(), gemm0TuningParams.getScheduleVersion(),
+      gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getForceUnroll());
+}
+
+FailureOr<std::pair<RockAccelTuningParamAttrInterface,
+                    RockAccelTuningParamAttrInterface>>
+mlir::rock::getAttentionTuningParams(OpBuilder &b,
+                                     RockGemmGemmWrapperInterface op,
+                                     AttnPerfConfigAttr attnPerfConfig) {
+  GemmFeatures features = rock::getFeatures(op);
+  RockAccelTuningParamAttrInterface accelParams0;
+  if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
+    accelParams0 = MfmaGemmParamsAttr::get(
+        b.getContext(), attnPerfConfig.getKpackPerBlock(),
+        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
+        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
+        attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
+        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getForceUnroll());
+  } else {
+    accelParams0 = WmmaGemmParamsAttr::get(
+        b.getContext(), attnPerfConfig.getKpackPerBlock(),
+        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
+        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
+        attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
+        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getForceUnroll());
+  }
+  if (attnPerfConfig.getMPerBlockG1() % attnPerfConfig.getMPerBlockG0() != 0) {
+    return failure();
+  }
+  if (attnPerfConfig.getMPerBlockG0() % attnPerfConfig.getKpack() != 0) {
+    return failure();
+  }
+  RockAccelTuningParamAttrInterface accelParams1 =
+      deriveGemm1TuningParams(b, op, attnPerfConfig);
+  auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
+  LogicalResult isValidBlockwiseGemm0 =
+      populateParamsAccelPtr->isValidBlockwiseGemm(
+          accelParams0, cast<MemRefType>(op.getAType()).getElementType(),
+          cast<MemRefType>(op.getBType()).getElementType(),
+          rock::getArchValue(op));
+  LogicalResult isValidBlockwiseGemm1 =
+      populateParamsAccelPtr->isValidBlockwiseGemm(
+          accelParams1, cast<MemRefType>(op.getCType()).getElementType(),
+          cast<MemRefType>(op.getCType()).getElementType(),
+          rock::getArchValue(op));
+  if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {
+    return failure();
+  }
+  return std::make_pair(accelParams0, accelParams1);
+}

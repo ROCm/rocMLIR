@@ -211,6 +211,13 @@ getAccelRangeAttn(RockGemmGemmWrapperInterface gemmGemmOp,
   return validRangeAttnParams;
 }
 
+static LogicalResult
+paramsAttnProbablyValid(OpBuilder &b, RockGemmGemmWrapperInterface gemmGemmOp,
+                        AttnPerfConfigAttr &params) {
+  auto accelParams = getAttentionTuningParams(b, gemmGemmOp, params);
+  return succeeded(accelParams) ? success() : failure();
+}
+
 // Generate random configs for greedy first iteration (Phase 1)
 static void createAttnTuningRangeGreedyPhase1(
     TuningParamSet *newSpace, RockGemmGemmWrapperInterface gemmGemmOp,
@@ -247,7 +254,7 @@ static void createAttnTuningRangeGreedyPhase1(
         uint32_t numRandomIterations =
             std::min(numRandomPerTileSize, totalIterations);
         for (uint32_t randomIteration = 0;
-             randomIteration < numRandomIterations; randomIteration++) {
+             randomIteration < numRandomIterations;) {
           uint32_t gemmKPerBlock = params[2][rng() % params[2].size()];
           uint32_t gemmMPerWave = mPerWaveRange[rng() % mPerWaveRange.size()];
           uint32_t gemmNPerWave = nPerWaveRange[rng() % nPerWaveRange.size()];
@@ -262,8 +269,11 @@ static void createAttnTuningRangeGreedyPhase1(
               gemm0NPerBlock, gemmKPerBlock, gemmMPerWave, gemmNPerWave,
               gemmMnPerXdl, gemmKPack, splitKFactor, gemmSchedule,
               outputSwizzle, true);
-          newSpace->tuningRange.push_back(
-              cast<RockTuningParamAttrInterface>(params));
+          if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, params))) {
+            newSpace->tuningRange.push_back(
+                cast<RockTuningParamAttrInterface>(params));
+            randomIteration++;
+          }
         }
       }
     }
