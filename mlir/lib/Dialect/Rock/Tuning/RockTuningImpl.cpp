@@ -177,7 +177,7 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
 
 static SmallVector<uint32_t> compute1MPerBlock(uint32_t gemm0MPerBlock) {
   SmallVector<uint32_t> mPerBlockList;
-  for (uint32_t mPerBlock = gemm0MPerBlock; mPerBlock < 512; mPerBlock *= 2) {
+  for (uint32_t mPerBlock = gemm0MPerBlock; mPerBlock <= 256; mPerBlock *= 2) {
     mPerBlockList.push_back(mPerBlock);
   }
   return mPerBlockList;
