@@ -34,7 +34,9 @@
 #include <cstdint>
 #include <random>
 
-#define NUM_RANDOM_PER_TILE_SIZE 50
+// Found experimentally, might need to change it if we add more params to the
+// tuning space
+#define NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE 50
 #define RND_SEED 42
 
 namespace mlir {
@@ -718,6 +720,18 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op gemmGemmOp,
   // We only support GPUs with matrix accelerator extensions
 }
 
+bool needToUpdateBest(TuningParamSetKind kind) {
+  switch (kind) {
+  case TuningParamSetKind::Quick:
+  case TuningParamSetKind::Full:
+  case TuningParamSetKind::Exhaustive:
+    return false;
+  case TuningParamSetKind::Greedy:
+    return true;
+  }
+  llvm_unreachable("invalid tuning kind");
+}
+
 unsigned getNumberOfIterations(TuningParamSetKind kind) {
   switch (kind) {
   case TuningParamSetKind::Quick:
@@ -874,6 +888,9 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         if (!rock::isAccel(currentFeatures) &&
             kind == TuningParamSetKind::Greedy) {
           kind = TuningParamSetKind::Exhaustive;
+          // TODO: tuningRunner hides this warning
+          llvm::errs() << "Greedy tuning not implemented for non-accel, using "
+                          "Exhaustive instead\n";
         }
         switch (kind) {
         case TuningParamSetKind::Full:
@@ -883,9 +900,9 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         case TuningParamSetKind::Greedy:
           if (settings.iteration == 0) {
             // First iteration: random configs per tile size
-            createGemmTuningRangeGreedyPhase1(newSpace, op, isSplitKFusible,
-                                              NUM_RANDOM_PER_TILE_SIZE,
-                                              RND_SEED);
+            createGemmTuningRangeGreedyPhase1(
+                newSpace, op, isSplitKFusible,
+                NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
           } else {
             // Second iteration: brute force with winning tile sizes
             createGemmTuningRangeGreedyPhase2(newSpace, op, isSplitKFusible,
@@ -910,9 +927,9 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         case TuningParamSetKind::Greedy:
           if (settings.iteration == 0) {
             // First iteration: random configs per tile size
-            createAttnTuningRangeGreedyPhase1(newSpace, op, isSplitKFusible,
-                                              NUM_RANDOM_PER_TILE_SIZE,
-                                              RND_SEED);
+            createAttnTuningRangeGreedyPhase1(
+                newSpace, op, isSplitKFusible,
+                NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
           } else {
             // Second iteration: brute force with winning tile sizes
             createAttnTuningRangeGreedyPhase2(newSpace, op, isSplitKFusible,

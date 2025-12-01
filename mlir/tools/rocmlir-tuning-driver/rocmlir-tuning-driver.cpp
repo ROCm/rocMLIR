@@ -883,7 +883,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
       validResults++;
       // Find best config
-      if (numTuningIterations > 1) {
+      if (rock::needToUpdateBest(benchmarkParams.tuningSpaceKind)) {
         if (timing.value() < bestTimeOverall) {
           bestTimeOverall = timing.value();
           bestConfigOverall = result.perfConfig;
