@@ -795,19 +795,20 @@ static FailureOr<Value> getBaseValue(Value v) {
 }
 
 // Helper to trace backwards from a value to see if it reaches the target
-static std::pair<bool, bool>
+// Returns success(hasPointwise) if target is reached, failure otherwise
+static FailureOr<bool>
 tracesToTarget(Value start, Value target, const BufferDependencyAnalysis &deps,
                DenseSet<Value> &visited) {
   if (!visited.insert(start).second) {
-    return {false, false}; // Avoid cycles
+    return failure(); // Avoid cycles
   }
 
   FailureOr<Value> baseValue = getBaseValue(start);
   if (failed(baseValue))
-    return {false, false}; // Could not find base value
+    return failure(); // Could not find base value
 
   if (*baseValue == target) {
-    return {true, false}; // Found target, with no pointwise inbetween
+    return false; // Found target, no pointwise
   }
 
   // For allocations, use BufferDependencyAnalysis to find writers
@@ -822,17 +823,17 @@ tracesToTarget(Value start, Value target, const BufferDependencyAnalysis &deps,
 
         // Trace through inputs of the linalg.generic (assumed to be pointwise)
         for (Value input : genericOp.getInputs()) {
-          auto [reachesTarget, hasPointwise] =
+          FailureOr<bool> maybeHasPointwise =
               tracesToTarget(input, target, deps, visited);
-          if (reachesTarget) {
-            return {true, true}; // Found target through pointwise
+          if (succeeded(maybeHasPointwise)) {
+            return true; // Found target through pointwise
           }
         }
       }
     }
   }
 
-  return {false, false};
+  return failure();
 }
 
 // Find all reductions and check if they trace back to our GEMM output
@@ -853,30 +854,23 @@ static FusionInfo getFusionInfo(Value gemmResult, GemmFeatures features) {
     return info;
   }
 
-  // Walk all reduce operations and check if they trace back to our GEMM
+  // Walk all reduce operations and check if they trace back to our GEMM.
+  // Note, we are assuming that all reduce operations are returned here.
   BufferDependencyAnalysis deps(funcOp);
   funcOp->walk([&](rock::ReduceOp reduceOp) {
     DenseSet<Value> visited;
-    auto [reachesTarget, hasPointwise] =
+    FailureOr<bool> maybeHasPointwise =
         tracesToTarget(reduceOp.getIn(), target, deps, visited);
 
-    if (reachesTarget) {
+    if (succeeded(maybeHasPointwise)) {
       ReductionInfo redInfo;
       redInfo.method = reduceOp.getReduceMethod();
       redInfo.axis = reduceOp.getAxis().getSExtValue();
       redInfo.rank = cast<ShapedType>(reduceOp.getIn().getType()).getRank();
-      redInfo.hasPointwiseBefore = hasPointwise;
+      redInfo.hasPointwiseBefore = *maybeHasPointwise;
       info.reductions.push_back(redInfo);
     }
   });
-
-  return info;
-}
-
-// Analyze fusion patterns for a GEMM operation's output
-static FusionInfo analyzeOutputFusionPattern(Value gemmResult,
-                                             GemmFeatures features) {
-  FusionInfo info = getFusionInfo(gemmResult, features);
 
   // Sort reductions for consistent ordering in problem key
   std::sort(info.reductions.begin(), info.reductions.end());
@@ -1099,7 +1093,7 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
   // Analyze and append fusion information
   Value gemmGemmOutput = gemmGemmOp.getOutArgument()->get();
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
-  FusionInfo fusionInfo = analyzeOutputFusionPattern(gemmGemmOutput, features);
+  FusionInfo fusionInfo = getFusionInfo(gemmGemmOutput, features);
   appendOutputFusionInfo(problemOS, fusionInfo);
 
   return success();
@@ -1322,7 +1316,7 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
   // Analyze and append fusion information
   Value gemmOutput = gemmIF.getOutArgument()->get();
   GemmFeatures features = rock::getFeatures(gemmIF);
-  FusionInfo fusionInfo = analyzeOutputFusionPattern(gemmOutput, features);
+  FusionInfo fusionInfo = getFusionInfo(gemmOutput, features);
   appendOutputFusionInfo(problemOS, fusionInfo);
 
   while (out.back() == sep) {
