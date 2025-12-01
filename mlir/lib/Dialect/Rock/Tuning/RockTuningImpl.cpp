@@ -264,14 +264,14 @@ static void createAttnTuningRangeGreedyPhase1(
           uint32_t splitKFactor =
               optimalSplitKFactors[rng() % optimalSplitKFactors.size()];
 
-          auto params = AttnPerfConfigAttr::get(
+          auto attnParams = AttnPerfConfigAttr::get(
               gemmGemmOp.getContext(), gemm0MPerBlock, gemm1MPerBlock,
               gemm0NPerBlock, gemmKPerBlock, gemmMPerWave, gemmNPerWave,
               gemmMnPerXdl, gemmKPack, splitKFactor, gemmSchedule,
               outputSwizzle, true);
-          if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, params))) {
+          if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, attnParams))) {
             newSpace->tuningRange.push_back(
-                cast<RockTuningParamAttrInterface>(params));
+                cast<RockTuningParamAttrInterface>(attnParams));
             randomIteration++;
           }
         }
@@ -319,14 +319,15 @@ static void createAttnTuningRangeGreedyPhase2(
           for (uint32_t gemmKPack : validRangeAttnParams[4]) {
             for (int64_t splitKFactor : optimalSplitKFactors) {
               for (uint32_t gemmSchedule : validRangeAttnParams[5]) {
-                auto params = AttnPerfConfigAttr::get(
+                auto attnParams = AttnPerfConfigAttr::get(
                     gemmGemmOp.getContext(), gemm0MPerBlock, gemm1MPerBlock,
                     gemm0NPerBlock, gemmKPerBlock, gemmMPerWave, gemmNPerWave,
                     gemmMnPerXdl, gemmKPack, splitKFactor, gemmSchedule,
                     outputSwizzle, true);
-                if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, params))) {
+                if (succeeded(
+                        paramsAttnProbablyValid(b, gemmGemmOp, attnParams))) {
                   newSpace->tuningRange.push_back(
-                      cast<RockTuningParamAttrInterface>(params));
+                      cast<RockTuningParamAttrInterface>(attnParams));
                 }
               }
             }
@@ -382,15 +383,15 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
                           continue;
                         }
                       }
-                      auto params = AttnPerfConfigAttr::get(
+                      auto attnParams = AttnPerfConfigAttr::get(
                           gemmGemmOp.getContext(), gemm0MPerBlock,
                           gemm1MPerBlock, gemm0NPerBlock, gemmKPerBlock,
                           gemmMPerWave, gemmNPerWave, gemmMnPerXdl, gemmKPack,
                           splitKFactor, gemmSchedule, outputSwizzle, true);
-                      if (succeeded(
-                              paramsAttnProbablyValid(b, gemmGemmOp, params))) {
+                      if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp,
+                                                            attnParams))) {
                         newSpace->tuningRange.push_back(
-                            cast<RockTuningParamAttrInterface>(params));
+                            cast<RockTuningParamAttrInterface>(attnParams));
                       }
                     }
                   }
@@ -683,13 +684,13 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op gemmGemmOp,
     }
     for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
                nPerWave, mnPerXdl, kPack] : attnQuickTuningListMFMA) {
-      auto params = AttnPerfConfigAttr::get(
+      auto attnParams = AttnPerfConfigAttr::get(
           gemmGemmOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
           kPackBerBlock, mPerWave, nPerWave, mnPerXdl, kPack, splitKFactor,
           gemmSchedule, outputSwizzle, true);
-      if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, params))) {
+      if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, attnParams))) {
         newSpace->tuningRange.push_back(
-            cast<RockTuningParamAttrInterface>(params));
+            cast<RockTuningParamAttrInterface>(attnParams));
       }
     }
   } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
@@ -704,13 +705,13 @@ static void createAttnTuningRangeQuick(TuningParamSet *newSpace, Op gemmGemmOp,
         PerfConfigVals{128, 128, 128, 8, 32, 32, 16, 8}};
     for (auto [mPerBlockG0, mPerBlockG1, nPerBlockG0, kPackBerBlock, mPerWave,
                nPerWave, mnPerXdl, kPack] : attnQuickTuningListWMMA) {
-      auto params = AttnPerfConfigAttr::get(
+      auto attnParams = AttnPerfConfigAttr::get(
           gemmGemmOp.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
           kPackBerBlock, mPerWave, nPerWave, mnPerXdl, kPack, splitKFactor,
           gemmSchedule, outputSwizzle, true);
-      if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, params))) {
+      if (succeeded(paramsAttnProbablyValid(b, gemmGemmOp, attnParams))) {
         newSpace->tuningRange.push_back(
-            cast<RockTuningParamAttrInterface>(params));
+            cast<RockTuningParamAttrInterface>(attnParams));
       }
     }
   }

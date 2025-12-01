@@ -758,14 +758,15 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         return copy;
       };
 
-      // Applicability check
-      OwningOpRef<ModuleOp> sourceCopy =
-          copyIRThread(threadSource.get(), perfConfigAttr);
-      if (!rock::isModuleFusible(sourceCopy.get(), result.perfConfig)) {
+      if (doesModuleHaveFusions(threadSource.get()) &&
+          !rock::isModuleFusible(threadSource.get(), result.perfConfig)) {
         result.status = CompilationStatus::NotApplicable;
         return result;
       }
 
+      // Applicability check
+      OwningOpRef<ModuleOp> sourceCopy =
+          copyIRThread(threadSource.get(), perfConfigAttr);
       if (failed(threadApplicability.run(sourceCopy.get()))) {
         result.status = CompilationStatus::NotApplicable;
         return result;
@@ -855,6 +856,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
 
     int64_t validResults = 0;
+    // Sequential benchmarking phase (must be sequential for accurate timing)
+    // Note: Due to early exit on compilation failures, only NotApplicable and
+    // Success statuses are possible here.
     for (const auto &result : compilationResults) {
       llvm::outs() << result.perfConfig << "\t";
 
