@@ -17,7 +17,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "GridLayoutEmitter.h"
-#include "LdsTransposeLoad.h"
+#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
