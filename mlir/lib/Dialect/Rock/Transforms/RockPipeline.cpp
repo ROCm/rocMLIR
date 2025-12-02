@@ -541,7 +541,18 @@ SmallVector<scf::ForOp> collectLoopLevels(mlir::func::FuncOp func) {
 
   unsigned curLevelLen = 0;
   func.walk([&](scf::ForOp forOp) {
-    if (forOp->getParentOp() == func) {
+    Operation *parentOp = forOp->getParentOp();
+    // A loop is top-level if:
+    // 1. Its immediate parent is the function
+    // 2. Its parent is an scf.if, and the scf.if's parent is the function.
+    //    Note: This will be the case when we have early exit.
+    bool isTopLevel = (parentOp == func);
+    if (!isTopLevel) {
+      if (auto ifOp = dyn_cast<scf::IfOp>(parentOp))
+        isTopLevel = (ifOp->getParentOp() == func);
+    }
+
+    if (isTopLevel) {
       loops.push_back(forOp);
       curLevelLen++;
     }
