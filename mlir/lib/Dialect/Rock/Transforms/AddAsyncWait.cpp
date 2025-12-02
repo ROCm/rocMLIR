@@ -367,51 +367,6 @@ FailureOr<std::pair<int, bool>> getWaitCount(Operation *ldsLoadOp,
   return success(std::make_pair(waitCount, pipeliningEnabled));
 }
 
-static Operation *getInsertionPointForAsyncWait(IRRewriter &rewriter,
-                                                Operation *op,
-                                                bool pipeliningEnabled) {
-  if (pipeliningEnabled) {
-    // If pipelining is enabled, we always insert the AsyncWaitOp just before
-    // the ldsLoad.
-    return op;
-  }
-
-  // If pipelining is disabled, insert the AsyncWaitOp right after the closest
-  // preceding Forward-stage LDS barrier.
-  func::FuncOp func = op->getParentOfType<func::FuncOp>();
-  if (!func) {
-    LLVM_DEBUG(llvm::dbgs() << "No function found, inserting before op\n");
-    return nullptr;
-  }
-
-  rock::LDSBarrierOp barrierBeforeOp = nullptr;
-  WalkResult walkResult = func.walk([&](Operation *walkOp) {
-    if (walkOp == op) {
-      return WalkResult::interrupt();
-    }
-    if (auto barrier = dyn_cast<rock::LDSBarrierOp>(walkOp)) {
-      auto barrierStageAttr = barrier.getBarrierStageAttr();
-      if (barrierStageAttr &&
-          barrierStageAttr.getValue() == rock::BarrierStage::Forward) {
-        barrierBeforeOp = barrier;
-      }
-    }
-    return WalkResult::advance();
-  });
-
-  (void)walkResult;
-
-  if (barrierBeforeOp) {
-    LLVM_DEBUG(llvm::dbgs() << "Found forward barrier before op: "
-                            << barrierBeforeOp << "\n");
-    return barrierBeforeOp;
-  }
-
-  LLVM_DEBUG(llvm::dbgs()
-             << "No forward barrier found before op, inserting before op\n");
-  return op;
-}
-
 /// Add AsyncWait ops to the function. This function has 3 main steps:
 /// 1. Find all ThreadwiseReadIntoOp operations that write into LDS memory.
 ///    Then, for each of them, call findFirstUseAfter, which will find the first
@@ -466,22 +421,18 @@ static LogicalResult addAsyncWaitOps(func::FuncOp &func) {
                << "Looking for insertion point for AsyncWaitOp after "
                << *firstUse << "\n");
 
-    Operation *insertionPoint =
-        getInsertionPointForAsyncWait(rewriter, firstUse, pipeliningEnabled);
-
     // Only insert one AsyncWaitOp per insertion point
-    if (insertionPoints.contains(insertionPoint)) {
+    if (insertionPoints.contains(firstUse)) {
       LLVM_DEBUG(llvm::dbgs() << "Skipping insertion point because it already "
                                  "has an AsyncWaitOp\n\n");
       continue;
     }
-    insertionPoints.insert(insertionPoint);
-    if (pipeliningEnabled)
-      rewriter.setInsertionPoint(insertionPoint);
-    else
-      rewriter.setInsertionPointAfter(insertionPoint);
+    insertionPoints.insert(firstUse);
 
-    rock::AsyncWaitOp::create(rewriter, insertionPoint->getLoc(), waitCount);
+    // We insert the AsyncWaitOp right before the first use of the
+    // ThreadwiseReadIntoOp.
+    rewriter.setInsertionPoint(firstUse);
+    rock::AsyncWaitOp::create(rewriter, firstUse->getLoc(), waitCount);
 
     LLVM_DEBUG(llvm::dbgs() << "\n");
   }

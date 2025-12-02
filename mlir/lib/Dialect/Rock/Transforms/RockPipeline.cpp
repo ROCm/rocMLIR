@@ -48,12 +48,6 @@ namespace rock {
 #define DBGS() (llvm::dbgs() << "[" DEBUG_TYPE "]: ")
 
 using namespace mlir;
-
-namespace {
-// Constants for barrier stage names
-constexpr const char *FWD_BARRIER_NAME = "__fwd_barrier__";
-constexpr const char *BWD_BARRIER_NAME = "__bwd_barrier__";
-} // anonymous namespace
 using mlir::gpu::AddressSpace;
 
 enum class MemoryAccessType : uint32_t { READ = 1, WRITE = 2, UNKNOWN = 3 };
@@ -184,8 +178,7 @@ struct PushBarrierDownRewritePattern
 
     if (moveDown) {
       rw.setInsertionPointAfter(nextOp);
-      rock::LDSBarrierOp::create(rw, nextOp->getLoc(),
-                                 op.getBarrierStageAttr());
+      rock::LDSBarrierOp::create(rw, nextOp->getLoc());
       rw.eraseOp(op);
       return success();
     }
@@ -438,18 +431,7 @@ rock::StageOp placeEmptyStage(IRRewriter &rewriter, Location loc,
   auto barrierStage = rock::StageOp::create(rewriter, loc, name);
   rewriter.setInsertionPointToStart(&barrierStage.getRegion().emplaceBlock());
   if (isBarrier) {
-    // Set barrier_stage attribute based on name
-    rock::BarrierStageAttr barrierStageAttr;
-    if (name == FWD_BARRIER_NAME) {
-      barrierStageAttr = rock::BarrierStageAttr::get(
-          rewriter.getContext(), rock::BarrierStage::Forward);
-    } else if (name == BWD_BARRIER_NAME) {
-      barrierStageAttr = rock::BarrierStageAttr::get(
-          rewriter.getContext(), rock::BarrierStage::Backward);
-    } else {
-      llvm_unreachable("Invalid barrier name");
-    }
-    rock::LDSBarrierOp::create(rewriter, loc, barrierStageAttr);
+    rock::LDSBarrierOp::create(rewriter, loc);
   }
   rock::YieldOp::create(rewriter, loc);
   return barrierStage;
@@ -525,10 +507,10 @@ void placeBarriers(IRRewriter &rewriter, Location loc, scf::ForOp forOp,
     rock::StageOp additionalStage;
     if (forwardStages.contains(stage)) {
       additionalStage = placeEmptyStage(rewriter, loc, stage,
-                                        /**isBarrier=*/true, FWD_BARRIER_NAME);
+                                        /**isBarrier=*/true, "__fwd_barrier__");
     } else if (backwardStage == stage) {
       additionalStage = placeEmptyStage(rewriter, loc, stage,
-                                        /**isBarrier=*/true, BWD_BARRIER_NAME);
+                                        /**isBarrier=*/true, "__bwd_barrier__");
     } else {
       additionalStage = placeEmptyStage(
           rewriter, loc, stage, /**isBarrier=*/false, "__empty_stage__");
