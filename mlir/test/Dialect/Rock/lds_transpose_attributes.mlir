@@ -4,7 +4,7 @@
   kpackPerBlock = 16, mPerBlock = 64, nPerBlock = 64,
   kpack = 1, mPerWave = 32, nPerWave = 32,
   mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 3,
-  outputSwizzle = 2, forceUnroll = true>
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   // CHECK-LABEL: func.func @test_lds_transpose_attributes
@@ -37,7 +37,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   kpackPerBlock = 32, mPerBlock = 64, nPerBlock = 64,
   kpack = 1, mPerWave = 16, nPerWave = 64,
   mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 4,
-  outputSwizzle = 2, forceUnroll = true>
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   // CHECK-LABEL: func.func @test_lds_transpose_attributes_double_buffering

@@ -3254,17 +3254,19 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
     expectedNumTokens = 11;
     break;
   case 3:
-    expectedNumTokens = 12;
+    expectedNumTokens = 13;
     break;
   default:
     llvm_unreachable("Unknown version of the perfConfig");
   }
-  SmallVector<StringRef, 11> tokens;
+  SmallVector<StringRef> tokens;
+  SmallVector<int64_t> params;
+  tokens.reserve(expectedNumTokens);
+  params.reserve(expectedNumTokens);
   rest.split(tokens, ',');
   if (tokens.size() != expectedNumTokens) {
     return {};
   }
-  SmallVector<int64_t, 11> params;
   llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
     int param;
     llvm::to_integer(s, param);
@@ -3298,11 +3300,12 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
   int64_t splitKFactor = version > 1 ? params[lastIdx++] : 1;
   int64_t scheduleVersion = version > 1 ? params[lastIdx++] : 1;
   int64_t outputSwizzle = version > 1 ? params[lastIdx++] : 2;
+  int64_t wavesPerEU = isV3 ? params[lastIdx++] : 0; // 0 -> use heuristic
   int64_t forceUnroll = params[expectedNumTokens - 1] == 1;
   return AttnPerfConfigAttr::get(
       perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
       kpackPerBlock, mPerWave, nPerWave, mnPerXdl, kpack, splitKFactor,
-      scheduleVersion, outputSwizzle, forceUnroll);
+      scheduleVersion, outputSwizzle, wavesPerEU, forceUnroll);
 }
 
 //===-----------------------------------------------------===//

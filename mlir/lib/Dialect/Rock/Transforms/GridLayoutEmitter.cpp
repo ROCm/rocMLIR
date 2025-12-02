@@ -93,6 +93,15 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
   int64_t bitWidthOut = info.outputType.getIntOrFloatBitWidth();
   int64_t groupSize =
       std::ceil(std::sqrt(info.numCU)) * (bitWidthOut / bitWidthIn);
+  // use gridGroupSize if it's not zero
+  if (info.gridGroupSize != 0) {
+    groupSize = info.gridGroupSize;
+    LLVM_DEBUG(llvm::dbgs() << "Setting groupSize by using tuning params to "
+                            << groupSize << "\n");
+  } else {
+    LLVM_DEBUG(llvm::dbgs()
+               << "Using heuristic to set groupSize to " << groupSize << "\n");
+  }
 
   Value mBlocksPerGroup = b.createOrFold<ConstantIndexOp>(loc, groupSize);
   Value blocksPerGroup =

@@ -532,9 +532,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (failed(maybeArch)) {
       return op.emitError("arch needs to be set.");
     }
+    // always use heuristic for non-accel path
+    int64_t gridGroupSize = 0;
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType},
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType,
+         gridGroupSize},
         maybeArch->getValue());
 
     Value storeBufferA = GpuAllocOp::create(b, loc, loadBufferA.getType());
@@ -1980,6 +1983,20 @@ struct GridwiseAttentionAccelRewritePattern
     rock::accel::AccelEmitterParams accelParamsGemm1 =
         accelEmitterPtrGemm1->getParams();
 
+    // wavesPerEU is needed in RockToGPU pass and OutputSwizzle for the
+    // OutputSwizzle pass. We add them as func attributes.
+    assert(gemm0TuningParams.getWavesPerEU() ==
+           gemm1TuningParams.getWavesPerEU());
+    assert(gemm0TuningParams.getOutputSwizzle() ==
+           gemm1TuningParams.getOutputSwizzle());
+    IntegerAttr wavesPerEUAttr =
+        rewriter.getI64IntegerAttr(gemm0TuningParams.getWavesPerEU());
+    IntegerAttr outputSwizzleAttr =
+        rewriter.getI64IntegerAttr(gemm0TuningParams.getOutputSwizzle());
+    func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
+    funcOp->setAttr(rock::WavesPerEUAttr::getMnemonic(), wavesPerEUAttr);
+    funcOp->setAttr(rock::OutputSwizzleAttr::getMnemonic(), outputSwizzleAttr);
+
     // Get current workgroup ID.
     auto bid = WorkgroupIdOp::create(rewriter, loc, rewriter.getIndexType());
     // Get current workitem ID.
@@ -3037,10 +3054,22 @@ struct GridwiseGemmAccelRewritePattern
     auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
 
     // Compute grid coordinates
+    int64_t gridGroupSize = tuningParams.getGridGroupSize();
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType},
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType,
+         gridGroupSize},
         arch);
+
+    // wavesPerEU is needed in RockToGPU pass and OutputSwizzle for the
+    // OutputSwizzle pass. We add them as func attributes.
+    IntegerAttr wavesPerEUAttr =
+        b.getI64IntegerAttr(tuningParams.getWavesPerEU());
+    IntegerAttr outputSwizzleAttr =
+        b.getI64IntegerAttr(tuningParams.getOutputSwizzle());
+    func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
+    funcOp->setAttr(rock::WavesPerEUAttr::getMnemonic(), wavesPerEUAttr);
+    funcOp->setAttr(rock::OutputSwizzleAttr::getMnemonic(), outputSwizzleAttr);
 
     LDSLayoutConfigDim ldsLayoutConfigA = getLDSLayoutConfigDim(
         elementTypeA, kpack, maybeVecDimInfoA.value(), directToLDS);

@@ -577,6 +577,7 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
         validParams.gemmMPerWave, validParams.gemmNPerWave,
         validParams.gemmMnPerXdl, validParams.splitKFactor,
         validParams.gemmScheduleVersion, validParams.outputSwizzle,
+        validParams.wavesPerEU, validParams.gridGroupSize,
         validParams.gemmAThreadCopyMoreGemmK);
   } else {
     // V3 and older
@@ -590,11 +591,13 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
 
     mPerWave = mPerBlock / mWaves;
     int64_t nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
+
     return builder.getAttr<MfmaGemmParamsAttr>(
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, validParams.gemmKPack, mPerWave, nPerWave,
         mnPerXdl, validParams.splitKFactor, validParams.gemmScheduleVersion,
-        validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
+        validParams.outputSwizzle, validParams.wavesPerEU,
+        validParams.gridGroupSize, validParams.gemmAThreadCopyMoreGemmK);
   }
 }
 
@@ -748,6 +751,7 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.gemmNPerBlock, validParams.gemmKPack,
       validParams.gemmMPerWave, nPerWave, mnPerXdl, validParams.splitKFactor,
       validParams.gemmScheduleVersion, validParams.outputSwizzle,
+      validParams.wavesPerEU, validParams.gridGroupSize,
       validParams.gemmAThreadCopyMoreGemmK);
 }
 
@@ -768,6 +772,8 @@ deriveGemm1TuningParams(OpBuilder &b,
         gemm0XdlDerivedParams.getMnPerXdl(), attnPerfConfig.getSplitKFactor(),
         gemm0XdlDerivedParams.getScheduleVersion(),
         gemm0XdlDerivedParams.getOutputSwizzle(),
+        gemm0XdlDerivedParams.getWavesPerEU(),
+        gemm0XdlDerivedParams.getGridGroupSize(),
         gemm0XdlDerivedParams.getForceUnroll());
   }
   return WmmaGemmParamsAttr::get(
@@ -778,7 +784,8 @@ deriveGemm1TuningParams(OpBuilder &b,
           (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
       gemm0TuningParams.getNPerWave(), gemm0TuningParams.getMnPerXdl(),
       attnPerfConfig.getSplitKFactor(), gemm0TuningParams.getScheduleVersion(),
-      gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getForceUnroll());
+      gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getWavesPerEU(),
+      gemm0TuningParams.getGridGroupSize(), gemm0TuningParams.getForceUnroll());
 }
 
 FailureOr<std::pair<RockAccelTuningParamAttrInterface,
@@ -788,6 +795,8 @@ mlir::rock::getAttentionTuningParams(OpBuilder &b,
                                      AttnPerfConfigAttr attnPerfConfig) {
   GemmFeatures features = rock::getFeatures(op);
   RockAccelTuningParamAttrInterface accelParams0;
+  // gridGroupSize makes no sense for attention, set default to zero (heuristic)
+  int64_t gridGroupSize{0};
   if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
     accelParams0 = MfmaGemmParamsAttr::get(
         b.getContext(), attnPerfConfig.getKpackPerBlock(),
@@ -795,6 +804,7 @@ mlir::rock::getAttentionTuningParams(OpBuilder &b,
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
         attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
         attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getWavesPerEU(), gridGroupSize,
         attnPerfConfig.getForceUnroll());
   } else {
     accelParams0 = WmmaGemmParamsAttr::get(
@@ -803,6 +813,7 @@ mlir::rock::getAttentionTuningParams(OpBuilder &b,
         attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
         attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
         attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getWavesPerEU(), gridGroupSize,
         attnPerfConfig.getForceUnroll());
   }
   if (attnPerfConfig.getMPerBlockG1() % attnPerfConfig.getMPerBlockG0() != 0) {
