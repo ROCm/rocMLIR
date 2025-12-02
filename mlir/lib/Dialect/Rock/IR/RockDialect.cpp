@@ -74,9 +74,9 @@ using namespace mlir::rock;
 // Utility Functions
 //===----------------------------------------------------------------------===//
 
-bool mlir::rock::isWorkgroupMemorySpace(Attribute memorySpace) {
+FailureOr<bool> mlir::rock::isWorkgroupMemorySpace(Attribute memorySpace) {
   if (!memorySpace)
-    return false;
+    return failure();
 
   if (auto gpuMemSpace = dyn_cast<gpu::AddressSpaceAttr>(memorySpace))
     return gpuMemSpace.getValue() == gpu::AddressSpace::Workgroup;
@@ -1386,7 +1386,12 @@ LogicalResult LiveInOp::verify() {
     return emitError("The operand of rock.live_in must be the result of a "
                      "rock.alloc operation.");
 
-  if (!isWorkgroupMemorySpace(getMemref().getType().getMemorySpace()))
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(getMemref().getType().getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("The operand of rock.live_in must have a specified "
+                     "memory space");
+  if (!*memSpaceCheck)
     return emitError("The operand of rock.live_in must be an LDS memref");
 
   return success();
@@ -1402,7 +1407,12 @@ LogicalResult LiveOutOp::verify() {
     return emitError("The operand of rock.live_out must be the result of a "
                      "rock.alloc operation.");
 
-  if (!isWorkgroupMemorySpace(getMemref().getType().getMemorySpace()))
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(getMemref().getType().getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("The operand of rock.live_out must have a specified "
+                     "memory space");
+  if (!*memSpaceCheck)
     return emitError("The operand of rock.live_out must be an LDS memref");
 
   return success();
@@ -1931,7 +1941,11 @@ LogicalResult GlobalLoadToLDSOp::verify() {
   MemRefType sourceType = cast<MemRefType>(source.getType());
   MemRefType destType = cast<MemRefType>(dest.getType());
 
-  if (!isWorkgroupMemorySpace(destType.getMemorySpace()))
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(destType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitOpError("Destination memref must have a specified memory space");
+  if (!*memSpaceCheck)
     return emitOpError("Destination memref must live in workgroup memory");
 
   int64_t numBits = getTransferType().getIntOrFloatBitWidth();
@@ -2049,7 +2063,11 @@ void LDSTransposeLoadOp::getEffects(
 LogicalResult LDSTransposeLoadOp::verify() {
   // Source must be memref in workgroup (LDS) address space
   MemRefType srcType = getSource().getType();
-  if (!isWorkgroupMemorySpace(srcType.getMemorySpace()))
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(srcType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitOpError("source memref must have a specified memory space");
+  if (!*memSpaceCheck)
     return emitOpError("source memory address space must be workgroup (LDS)");
 
   // Result element type must match source element type
@@ -2837,7 +2855,11 @@ LogicalResult BlockwiseFillOp::verify() {
   if (memrefType.getRank() != 1) {
     return emitError("Blockwise fill expects a flat memref");
   }
-  if (!isWorkgroupMemorySpace(memrefType.getMemorySpace()))
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(memrefType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("Memref must have a specified memory space");
+  if (!*memSpaceCheck)
     return emitError("Memory space is expected to be workgroup");
   int64_t numElements = getMemref().getType().getNumElements();
   if (VectorType vecType = dyn_cast<VectorType>(getValue().getType())) {

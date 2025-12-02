@@ -1163,11 +1163,11 @@ func.func @global_load_to_lds_f4_dest_odd_coord(
   return
 }
 
-// Error case: Wrong memory space (not workgroup)
+// Error case: Wrong memory space (not specified)
 func.func @lds_transpose_load_wrong_memory_space(%buffer: memref<128x64xf16>) 
     attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
   %c0 = arith.constant 0 : index
-  // expected-error @+1 {{source memory address space must be workgroup (LDS)}}
+  // expected-error @+1 {{source memref must have a specified memory space}}
   %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
     : memref<128x64xf16> -> vector<4xf16>
   return

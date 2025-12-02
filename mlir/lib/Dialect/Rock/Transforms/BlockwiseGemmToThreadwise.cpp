@@ -464,7 +464,9 @@ struct BlockwiseGemmAccelRewritePattern
       if (!mfmaDDim.has_value() || !mfmaKDim.has_value())
         return nullptr;
 
-      // Build transpose config attribute using precomputed MFMA geometry
+      // Build transpose config attribute using precomputed accelerator geometry
+      // Note: doubleBuffering=false because this lowering pass operates in
+      // single-buffer mode.
       return hwtranspose::buildTransposeAttrFromParams(
           b, mfmaDDim.value(), mfmaKDim.value(), mPerBlock, nPerBlock,
           kPerBlock, mPerWave, nPerWave,
