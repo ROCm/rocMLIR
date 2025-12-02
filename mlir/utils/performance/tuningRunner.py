@@ -91,6 +91,9 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths, options: Opt
 
     prevdir = os.getcwd()
     with tempfile.TemporaryDirectory() as tmpdir:
+        p1 = None
+        p2 = None
+        p3 = None
         try:
             os.chdir(tmpdir)
             # invoke rocmlir-gen.
@@ -125,7 +128,6 @@ stdout:
 {outs}
 stderr:
 {errs.decode('utf-8')}""")
-
             except subprocess.TimeoutExpired:
                 p3.kill()
                 outs, errs = p3.communicate()
@@ -141,10 +143,19 @@ stderr:
                                                     perfRunner.BENCHMARKING_STATS_FILE_NAME))
         finally:
             os.chdir(prevdir)
+            if p1:
+                p1.terminate()
+                p1.wait()
+            if p2:
+                p2.terminate()
+                p2.wait()
+            if p3:
+                p3.terminate()
+                p3.wait()
     return nano_seconds
 
 
-def get_winning_config(tuning_output, test_vector, config, paths: Paths, options: Options):
+def get_winning_config(tuning_output, config, paths: Paths, options: Options):
     max_tflops = -np.inf
     min_ns = np.inf
     winning_config = "None"
@@ -196,15 +207,17 @@ def get_winning_config(tuning_output, test_vector, config, paths: Paths, options
 
 # Tune MLIR Gemm or Convolution kernels
 def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
-    if options.output == '-':
-        outfile = sys.stdout
-    else:
-        outfile = open(options.output, 'a')
-
-    if options.debug:
-        debugfile = open(f"{options.output}.debug", 'a')
-
+    outfile = None
+    debugfile = None
     try:
+        if options.output == '-':
+            outfile = sys.stdout
+        else:
+            outfile = open(options.output, 'a')
+
+        if options.debug:
+            debugfile = open(f"{options.output}.debug", 'a')
+
         result_data_template = {
             'arch': options.arch,
             'numCUs': options.num_cu,
@@ -233,53 +246,66 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
         ]
 
         for test_vector in configs:
-            if not test_vector.endswith(".mlir"):
-                command_line = test_vector.split(sep=' ')
-                config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
-                test_vector = config.to_command_line()
-                print("Tuning:", test_vector, file=sys.stderr)
-                command_line_options = config.generate_mlir_driver_commandline(
-                    options.rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS)
-                # Note, we don't need the -ph, this goes to the tuning driver
-                kernel_gen_command = paths.mlir_paths.rocmlir_gen_path + ' ' + command_line_options
-                kernel_gen = subprocess.Popen(kernel_gen_command.split(),
-                                              stdout=subprocess.PIPE,
-                                              stderr=subprocess.DEVNULL)
-                tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
-                                               tuning_driver_args,
-                                               stdin=kernel_gen.stdout,
-                                               stdout=subprocess.PIPE,
-                                               stderr=subprocess.PIPE)
-                kernel_gen.stdout.close()
-            else:
-                # pipe to rocmlir_gen --emit-tuning-key
-                tuning_key = subprocess.Popen(
-                    [paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', test_vector],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE)
-                output, _ = tuning_key.communicate()
-                result = output.decode('utf-8').strip().split('\t')
-                print(f"Tuning:{result[2]} from {test_vector}", file=sys.stderr)
-                command_line = result[2].split(sep=' ')
-                config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
-                tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
-                                               tuning_driver_args + [test_vector],
-                                               stdout=subprocess.PIPE,
-                                               stderr=subprocess.PIPE)
-
             error_title = f"Error tuning test vector: {test_vector}"
+            kernel_gen = None
+            tuning_loop = None
             try:
+                if not test_vector.endswith(".mlir"):
+                    command_line = test_vector.split(sep=' ')
+                    config = conf_class.from_command_line(command_line, options.arch,
+                                                          options.num_cu)
+                    test_vector = config.to_command_line()
+                    print("Tuning:", test_vector, file=sys.stderr)
+                    command_line_options = config.generate_mlir_driver_commandline(
+                        options.rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS)
+                    # Note, we don't need the -ph, this goes to the tuning driver
+                    kernel_gen_command = paths.mlir_paths.rocmlir_gen_path + ' ' + command_line_options
+                    kernel_gen = subprocess.Popen(kernel_gen_command.split(),
+                                                  stdout=subprocess.PIPE,
+                                                  stderr=subprocess.DEVNULL)
+                    tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
+                                                   tuning_driver_args,
+                                                   stdin=kernel_gen.stdout,
+                                                   stdout=subprocess.PIPE,
+                                                   stderr=subprocess.PIPE)
+                    kernel_gen.stdout.close()
+                else:
+                    # pipe to rocmlir_gen --emit-tuning-key
+                    tuning_key = subprocess.Popen(
+                        [paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', test_vector],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE)
+                    output, _ = tuning_key.communicate()
+                    result = output.decode('utf-8').strip().split('\t')
+                    print(f"Tuning:{result[2]} from {test_vector}", file=sys.stderr)
+                    command_line = result[2].split(sep=' ')
+                    config = conf_class.from_command_line(command_line, options.arch,
+                                                          options.num_cu)
+                    tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
+                                                   tuning_driver_args + [test_vector],
+                                                   stdout=subprocess.PIPE,
+                                                   stderr=subprocess.PIPE)
+
                 # Tune, printing progress as we go to avoid CI timeouts
                 winning_config, max_tflops, entries = get_winning_config(
-                    tuning_loop.stdout, test_vector, config, paths, options)
+                    tuning_loop.stdout, config, paths, options)
+
             except TuningError as e:
                 log_error(error_title, str(e), outfile)
                 if options.abort_on_error:
                     return False
                 else:
                     continue
+            finally:
+                if kernel_gen:
+                    if kernel_gen.poll() is None:
+                        kernel_gen.terminate()
+                    kernel_gen.wait()
+                if tuning_loop:
+                    if tuning_loop.poll() is None:
+                        tuning_loop.terminate()
+                    tuning_loop.wait()
 
-            tuning_loop.wait()
             if tuning_loop.returncode != 0:
                 error_msg = f"rocmlir-tuning-driver failed with return code {tuning_loop.returncode}"
                 stderr_content = tuning_loop.stderr.read().decode('utf-8').strip()
@@ -347,14 +373,14 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                 debug_header_written = True
         return True
     finally:
-        if outfile != sys.stdout:
+        if outfile and outfile != sys.stdout:
             outfile.close()
         if debugfile:
             debugfile.close()
 
 
 # Extract gemm or conv configurations from fusion tests
-def extract_fusion_configs(test_dir, paths: Paths, options: Options):
+def extract_fusion_configs(test_dir, paths: Paths):
     all_configs = []
     op_type = Operation.FUSION
     for filename in glob.glob(test_dir + '/*mlir'):
@@ -558,7 +584,7 @@ def main(args=None):
                       abort_on_error=parsed_args.abort_on_error)
 
     if op_type == Operation.FUSION:
-        op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
+        op_type = extract_fusion_configs(parsed_args.test_dir, paths)
 
     conf_class = PerfConfiguration
     if op_type == Operation.CONV:
