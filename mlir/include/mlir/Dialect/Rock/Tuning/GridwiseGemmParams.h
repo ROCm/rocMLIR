@@ -470,6 +470,11 @@ protected:
                                           Type dataTypeB) override;
 };
 
+FailureOr<std::pair<RockAccelTuningParamAttrInterface,
+                    RockAccelTuningParamAttrInterface>>
+getAttentionTuningParams(OpBuilder &b, RockGemmGemmWrapperInterface gemmGemmOp,
+                         AttnPerfConfigAttr attnPerfConfig);
+
 } // namespace rock
 } // namespace mlir
 #endif // MLIR_DIALECT_ROCK_GRIDWISE_GEMM_PARAMS_H

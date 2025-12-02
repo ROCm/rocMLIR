@@ -344,7 +344,7 @@ def main(args=None):
 
     parser.add_argument("--tuning-space",
                         default="full",
-                        choices=["quick", "full", "exhaustive"],
+                        choices=["quick", "full", "greedy", "exhaustive"],
                         help="Which space of tuning configs should be used while tuning")
     parser.add_argument("--quiet",
                         "-q",
