@@ -2081,13 +2081,14 @@ LogicalResult LDSTransposeLoadOp::verify() {
            << srcElemType << ")";
   }
 
-  // Check hardware support - only gfx950
+  // Check hardware support using AmdArchDb
   StringAttr archAttr =
       rock::getArch(*this).value_or(StringAttr::get(getContext(), "gfx00"));
   StringRef arch = archAttr.getValue();
-  if (!arch.contains("gfx950")) {
-    return emitOpError("LDS transpose load is only supported on gfx950, but "
-                       "target architecture is ")
+  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (!archInfo.hasLdsTransposeLoad) {
+    return emitOpError(
+               "LDS transpose load is not supported on this architecture: ")
            << arch;
   }
 

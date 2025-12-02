@@ -324,9 +324,8 @@ def Rock_MfmaGemmParamsAttr
   let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
       "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
       "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
-      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle, "bool":$forceUnroll,
-      OptionalParameter<"::std::optional<int64_t>">:$mfmaDDim,
-      OptionalParameter<"::std::optional<int64_t>">:$mfmaKDim);
+      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
+      "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -498,12 +497,14 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
     - g: gemm parameter G
     - d: gemm parameter D (could be M or N)
     - inDPerThread: How many elements of D (M or N) each thread is going to load from memory.
+    - accelKDim: Accelerator instruction K dimension (for LDS transpose support).
   }];
   let parameters = (ins "Type":$elementType, "Type":$elementTypeLoad,
       "bool":$rotateDWithK, "bool":$swapThreadIterSubDims, "bool":$LDSLayoutDxK,
       "bool":$directToLDS, "bool":$splitKAcrossThreadsFirst, "int64_t":$g,
       "int64_t":$d, "int64_t":$inDPerThread,
-      DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled);
+      DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled,
+      DefaultValuedParameter<"int64_t", "0">:$accelKDim);
 
   let assemblyFormat = [{
     `<` struct(params) `>`

@@ -1187,7 +1187,7 @@ func.func @lds_transpose_load_private_memory(%buffer: memref<128x64xf16, #gpu.ad
 func.func @lds_transpose_load_old_arch(%buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
     attributes {arch = "amdgcn-amd-amdhsa:gfx908"} {
   %c0 = arith.constant 0 : index
-  // expected-error @+1 {{LDS transpose load is only supported on gfx950}}
+  // expected-error @+1 {{LDS transpose load is not supported on this architecture}}
   %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
     : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
   return

@@ -32,11 +32,11 @@
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
-#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -452,24 +452,21 @@ struct BlockwiseGemmAccelRewritePattern
       if (!matrixParams.getLdsTransposeEnabled())
         return nullptr;
 
-      // Extract MFMA geometry from tuning params (set by
-      // GridwiseGemmToBlockwise)
-      auto mfmaParams = dyn_cast<MfmaGemmParamsAttr>(tuningParams);
-      if (!mfmaParams)
-        return nullptr;
+      // Get accelerator dimensions from matrix params and tuning params
+      // accelDDim = mnPerXdl (for MFMA instructions with blocksMfma=1)
+      // accelKDim = accelKDim from BlockwiseMatrixParamsAttr
+      int64_t accelDDim = tuningParams.getMnPerXdl();
+      int64_t accelKDim = matrixParams.getAccelKDim();
 
-      auto mfmaDDim = mfmaParams.getMfmaDDim();
-      auto mfmaKDim = mfmaParams.getMfmaKDim();
-
-      if (!mfmaDDim.has_value() || !mfmaKDim.has_value())
+      if (accelDDim <= 0 || accelKDim <= 0)
         return nullptr;
 
       // Build transpose config attribute using precomputed accelerator geometry
       // Note: doubleBuffering=false because this lowering pass operates in
       // single-buffer mode.
       return hwtranspose::buildTransposeAttrFromParams(
-          b, mfmaDDim.value(), mfmaKDim.value(), mPerBlock, nPerBlock,
-          kPerBlock, mPerWave, nPerWave,
+          b, accelDDim, accelKDim, mPerBlock, nPerBlock, kPerBlock, mPerWave,
+          nPerWave,
           /*doubleBuffering=*/false, isOperandA);
     };
 

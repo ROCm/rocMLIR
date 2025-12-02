@@ -566,7 +566,7 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
         validParams.gemmMPerWave, validParams.gemmNPerWave,
         validParams.gemmMnPerXdl, validParams.splitKFactor,
         validParams.gemmScheduleVersion, validParams.outputSwizzle,
-        validParams.gemmAThreadCopyMoreGemmK, std::nullopt, std::nullopt);
+        validParams.gemmAThreadCopyMoreGemmK);
   } else {
     // V3 and older
     int64_t mPerBlock = validParams.gemmMPerBlock;
@@ -583,8 +583,7 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, validParams.gemmKPack, mPerWave, nPerWave,
         mnPerXdl, validParams.splitKFactor, validParams.gemmScheduleVersion,
-        validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK,
-        std::nullopt, std::nullopt);
+        validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
   }
 }
 

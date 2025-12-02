@@ -17,7 +17,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "GridLayoutEmitter.h"
-#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -28,6 +27,7 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -204,21 +204,19 @@ class LoweringBlockwiseLoadTileOp final
     // The decision was already made in GridwiseGemmToBlockwise pass
     LdsTransposeConfigAttr transposeAttr = nullptr;
     if (ldsTransposeEnabled) {
-      // INVARIANT: If ldsTranspose=true, then tuningParams MUST be
-      // MfmaGemmParamsAttr with MFMA geometry set
-      auto mfmaParams = dyn_cast<MfmaGemmParamsAttr>(tuningParams);
-      assert(mfmaParams && "ldsTranspose=true requires MfmaGemmParamsAttr");
-
-      auto mfmaDDim = mfmaParams.getMfmaDDim();
-      auto mfmaKDim = mfmaParams.getMfmaKDim();
-      assert(mfmaDDim.has_value() && mfmaKDim.has_value() &&
-             "ldsTranspose=true requires MFMA geometry in params");
+      // Get accelerator dimensions from matrix params and tuning params
+      // accelDDim = mnPerXdl (for MFMA instructions with blocksMfma=1)
+      // accelKDim = accelKDim from BlockwiseMatrixParamsAttr
+      int64_t accelDDim = tuningParams.getMnPerXdl();
+      int64_t accelKDim = matrixParams.getAccelKDim();
+      assert(accelDDim > 0 && accelKDim > 0 &&
+             "ldsTranspose=true requires valid accel geometry in params");
 
       // Build transpose config attribute using helper
       transposeAttr = hwtranspose::buildTransposeAttrFromParams(
-          b, mfmaDDim.value(), mfmaKDim.value(), mPerBlock, nPerBlock,
-          kPerBlock, tuningParams.getMPerWave(), tuningParams.getNPerWave(),
-          doubleBuffer, isA);
+          b, accelDDim, accelKDim, mPerBlock, nPerBlock, kPerBlock,
+          tuningParams.getMPerWave(), tuningParams.getNPerWave(), doubleBuffer,
+          isA);
 
       LLVM_DEBUG(llvm::dbgs()
                  << "[lds_transpose] Built transpose config for operand "
