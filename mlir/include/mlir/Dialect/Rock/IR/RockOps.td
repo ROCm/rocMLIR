@@ -1148,12 +1148,23 @@ def Rock_LDSTransposeLoadOp
       Arguments<(ins Arg<MemRefOf<[F16, BF16]>, "LDS source buffer">:$source,
           Variadic<Index>:$indices)>,
       Results<(outs VectorOfLengthAndType<[4], [F16, BF16]>:$fragment)> {
-  let summary = "Hardware-assisted LDS transpose panel load (v4 fragment)";
+  let summary = "Hardware-assisted LDS transpose panel load";
   let description = [{
-    LDS transpose panel load for MFMA-friendly ordering.
-    Loads a panel from LDS memory with transpose support.
-    The returned fragment ($fragment) contains elements in transposed layout suitable for MFMA operations.
-    Helps to reduce bank conflicts. Only supported for gfx950.
+    Loads a tile (panel) of data from Local Data Share (LDS) memory with
+    hardware-assisted transpose instruction.
+    Panel is a tile of data whose dimensions match the selected
+    matrix-multiply accelerator instruction geometry (`dDim × instrK`),
+    where:
+    - `dDim` is the accelerator M/N dimension (e.g., 16 or 32)
+    - `instrK` is the accelerator K dimension (e.g., 8, 16, or 32)
+    The operation returns a 4-element vector per thread ($fragment) containing
+    transposed elements in a layout suitable for matrix-multiply accelerator 
+    instructions.
+
+    Benefits:
+    - Reduces LDS bank conflicts through optimized access patterns
+    - Provides data in layout expected by matrix-multiply accelerators
+    - Hardware-accelerated transpose with no software overhead
   }];
 
   let assemblyFormat = [{

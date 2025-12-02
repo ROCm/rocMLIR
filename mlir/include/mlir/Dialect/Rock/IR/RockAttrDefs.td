@@ -515,11 +515,11 @@ def Rock_LdsTransposeConfigAttr : Rock_Attr<"LdsTransposeConfig", []> {
   let description = [{
     Configuration parameters for hardware-assisted LDS transpose loads.
     This attribute encapsulates all the necessary information to emit
-    rock.lds_transpose_load operations with the correct MFMA geometry
+    rock.lds_transpose_load operations with the correct accelerator geometry
     and tiling parameters.
     
-    - mfmaDDim: MFMA instruction D dimension (M or N, 16 or 32)
-    - mfmaKDim: MFMA instruction K dimension (8, 16, or 32)
+    - mfmaDDim: Matrix-multiply accelerator instruction D dimension (M or N, typically 16 or 32)
+    - mfmaKDim: Matrix-multiply accelerator instruction K dimension (typically 8, 16, or 32)
     - mPerBlock: M dimension size per block
     - nPerBlock: N dimension size per block
     - kPerBlock: K dimension size per block

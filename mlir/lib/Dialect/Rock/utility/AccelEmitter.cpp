@@ -593,7 +593,7 @@ int64_t MfmaEmitter::getMfmaK() const {
   return mfmaAttr.k;
 }
 
-int64_t MfmaEmitter::getMfmaNonKDim() const {
+int64_t MfmaEmitter::getMfmaDDim() const {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   return mfmaAttr.mfmaDDim;
 }
@@ -835,6 +835,16 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   params.accVectorType = wmmaInsn.retType;
 
   return params;
+}
+
+int64_t WmmaEmitter::getMfmaK() const {
+  // K dimension is encoded in the input vector length
+  return wmmaInsn.argTypeA.getNumElements();
+}
+
+int64_t WmmaEmitter::getMfmaDDim() const {
+  // D dimension (M/N) for WMMA is always dPerAccel
+  return wmmaInsn.dPerAccel;
 }
 
 Value WmmaEmitter::wrapLDSBufferForLoad(

@@ -151,16 +151,10 @@ struct AccelEmitter {
   AccelEmitterParams getParams() const { return accelEmitterParams; }
 
   // Return the accelerator K dimension
-  virtual int64_t getMfmaK() const {
-    llvm_unreachable("getMfmaK() not implemented for wmma accelerator");
-    return 0;
-  }
+  virtual int64_t getMfmaK() const = 0;
 
-  // Return the accelerator instruction's non-K dimension
-  virtual int64_t getMfmaNonKDim() const {
-    llvm_unreachable("getMfmaNonKDim() not implemented for wmma accelerator");
-    return 0;
-  }
+  // Return the accelerator D dimension (M/N dimension)
+  virtual int64_t getMfmaDDim() const = 0;
 
   virtual ~AccelEmitter() {}
 
@@ -217,8 +211,8 @@ struct MfmaEmitter : public AccelEmitter {
   // Return the MFMA K dimension
   int64_t getMfmaK() const override;
 
-  // Return the MFMA instruction's non-K dimension
-  int64_t getMfmaNonKDim() const override;
+  // Return the MFMA D dimension (M/N dimension)
+  int64_t getMfmaDDim() const override;
 
   static bool classof(const AccelEmitter *AE) {
     return AE->getKind() == AccelEmitterKind::AEK_MFMAEmitter;
@@ -260,6 +254,12 @@ struct WmmaEmitter : public AccelEmitter {
       ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) override;
+
+  // Return the WMMA K dimension
+  int64_t getMfmaK() const override;
+
+  // Return the WMMA D dimension (M/N dimension)
+  int64_t getMfmaDDim() const override;
 
   static bool classof(const AccelEmitter *AE) {
     return AE->getKind() == AccelEmitterKind::AEK_WMMAEmitter;

@@ -213,7 +213,7 @@ LdsTransposeDecision decideLdsTransposeForOperands(
   }
 
   // Extract MFMA geometry temporarily for decision making
-  int64_t mfmaDDim = mfmaEmitter->getMfmaNonKDim();
+  int64_t mfmaDDim = mfmaEmitter->getMfmaDDim();
   int64_t mfmaKDim = mfmaEmitter->getMfmaK();
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] MFMA geometry: " << mfmaDDim
