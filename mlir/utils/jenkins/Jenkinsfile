@@ -445,9 +445,9 @@ String getLabelFromChip(String chip) {
             return "mlir && gfx942"
         case "gfx950":
             if (params.weekly) {
-                return "mlir && linux-mi355-8"
+                return "mlir && linux-mi350-8"
             } else {
-                return "mlir && linux-mi355-1"
+                return "mlir && linux-mi350-1"
             }
         case "gfx1030":
             // For [Tune MLIR Kernels] and [Performance report] stages,
