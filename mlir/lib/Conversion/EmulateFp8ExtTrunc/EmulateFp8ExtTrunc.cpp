@@ -231,11 +231,10 @@ void Fp8ExtToTableLookupPattern::rewrite(
     return rewriter.replaceOp(op, ret);
   }
   VectorType floatVecType = inVecType.clone(f32);
-  Value floats = rewriter.createOrFold<vector::SplatOp>(
-      loc,
+  Value floats = rewriter.createOrFold<vector::BroadcastOp>(
+      loc, floatVecType,
       rewriter.createOrFold<ConstantOp>(loc, f32,
-                                        rewriter.getF32FloatAttr(0.0f)),
-      floatVecType);
+                                        rewriter.getF32FloatAttr(0.0f)));
   SmallVector<int64_t> strides = computeStrides(inVecType.getShape());
   for (int64_t i = 0, e = inVecType.getNumElements(); i < e; ++i) {
     SmallVector<int64_t> idx = delinearize(i, strides);
@@ -730,11 +729,10 @@ void Fp8TruncToCallPattern::rewrite(TruncFOp op, OpAdaptor adaptor,
     return rewriter.replaceOp(op, oneToOut(in));
 
   VectorType retVecType = inVecType.clone(outElemType);
-  Value rets = rewriter.createOrFold<vector::SplatOp>(
-      loc,
+  Value rets = rewriter.createOrFold<vector::BroadcastOp>(
+      loc, retVecType,
       rewriter.createOrFold<ConstantFloatOp>(
-          loc, outElemType, APFloat::getZero(outElemType.getFloatSemantics())),
-      retVecType);
+          loc, outElemType, APFloat::getZero(outElemType.getFloatSemantics())));
   SmallVector<int64_t> strides = computeStrides(inVecType.getShape());
   for (int64_t i = 0, e = inVecType.getNumElements(); i < e; ++i) {
     SmallVector<int64_t> idx = delinearize(i, strides);
