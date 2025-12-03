@@ -29,6 +29,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -371,11 +372,13 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
     // threadid/iter dimensions on both the M/N axis.
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
                                           toRowsAndColsAttr};
-    mlir::rock::swapThreadIdAndIteration(
+    FailureOr<TopDownTMBuilder> swapRes = mlir::rock::swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
         inMPerThread, inNPerThread, mPerBlock, nPerBlock,
         doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
         /*isBlockwise=*/false, transformAttrs);
+    if (failed(swapRes))
+      return failure();
 
     ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
@@ -1188,11 +1191,13 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
                       ArrayRef<int64_t>{dimSizesN}.slice(1));
 
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
-    mlir::rock::swapThreadIdAndIteration(
+    FailureOr<TopDownTMBuilder> swapRes = mlir::rock::swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
         inMPerThread, inNPerThread, mPerBlock, nPerBlock,
         doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
         /**isBlockwise=*/false, transformAttrs);
+    if (failed(swapRes))
+      return failure();
 
     ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
