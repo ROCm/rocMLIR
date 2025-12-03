@@ -35,14 +35,14 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
-
-#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/Support/Debug.h"
 
 #include <iterator>
@@ -795,6 +795,16 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     return b.notifyMatchFailure(loc, "failed to get global to LDS transform");
 
   auto globalToLDSTransform = maybeGlobalToLDSTransform.value();
+
+  // Check if the operation has the LDS transpose config dictionary
+  if (op.getLdsTransposeConfigAttr()) {
+    // Emit hardware transpose load sequence directly from config
+    if (failed(rock::hwtranspose::emitThreadwiseHWTranspose(b, op, blockSize,
+                                                            waveSize))) {
+      return op.emitOpError("LDS transpose load emission failed");
+    }
+    return success();
+  }
 
   bool recordsValidity =
       op.getValidityRecord() && !op.getValidityRecord().use_empty();
