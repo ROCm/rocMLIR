@@ -27,6 +27,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/SCF/Transforms/Patterns.h"
+#include "mlir/Interfaces/LoopLikeInterface.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -541,15 +542,17 @@ SmallVector<scf::ForOp> collectLoopLevels(mlir::func::FuncOp func) {
 
   unsigned curLevelLen = 0;
   func.walk([&](scf::ForOp forOp) {
+    // A loop is top-level if there is no enclosing outer loop.
+    // Traverse backwards through the parent chain until we reach the function.
+    // If we encounter a LoopLikeOp along the way, this is not a top-level loop.
+    bool isTopLevel = true;
     Operation *parentOp = forOp->getParentOp();
-    // A loop is top-level if:
-    // 1. Its immediate parent is the function
-    // 2. Its parent is an scf.if, and the scf.if's parent is the function.
-    //    Note: This will be the case when we have early exit.
-    bool isTopLevel = (parentOp == func);
-    if (!isTopLevel) {
-      if (auto ifOp = dyn_cast<scf::IfOp>(parentOp))
-        isTopLevel = (ifOp->getParentOp() == func);
+    while (parentOp && parentOp != func) {
+      if (isa<LoopLikeOpInterface>(parentOp)) {
+        isTopLevel = false;
+        break;
+      }
+      parentOp = parentOp->getParentOp();
     }
 
     if (isTopLevel) {

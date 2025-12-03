@@ -15,6 +15,18 @@ module {
       affine.for %arg4 = 0 to 32 {
         memref.store %cst, %3[%arg4] : memref<32xf32, #gpu.address_space<private>>
       }
+
+      // CHECK: scf.for %[[IV:.*]] = %c0 to %c3 step %c1 {
+      // CHECK-NEXT: %[[IV_PLUS_1:.*]] = arith.addi %[[IV]], %c1
+      // CHECK: %[[ALLOC_E:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+      // CHECK: %[[ALLOC_F:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+      // CHECK: %[[WID3:.*]] = rock.workitem_id : index
+      // CHECK: %[[MUL:.*]] = arith.muli %[[IV_PLUS_1]], %c16
+      // CHECK: %[[ADD:.*]] = arith.addi %[[MUL]], %[[WID3]]
+      // CHECK: memref.load %arg0[%[[ADD]]]
+      // CHECK: memref.store {{.*}}, %[[ALLOC_E]][%c0]
+      // CHECK: memref.load %arg1[%[[ADD]]]
+      // CHECK: memref.store {{.*}}, %[[ALLOC_F]][%c0]
       scf.for %arg4 = %c0 to %c4 step %c1 {
         rock.stage {
           %4 = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
@@ -41,6 +53,17 @@ module {
         } {name = "LDSWrite"}
         rock.lds_barrier
         rock.stage {
+          // CHECK: affine.for %[[INNER_IV:.*]] = 0 to 16 {
+          // CHECK: memref.load {{.*}}[%[[INNER_IV]]]
+          // CHECK: memref.load {{.*}}[%[[INNER_IV]]]
+          // CHECK: arith.extf
+          // CHECK: arith.extf
+          // CHECK: arith.mulf
+          // CHECK: memref.load {{.*}}[%[[INNER_IV]]]
+          // CHECK: arith.addf
+          // CHECK: memref.store {{.*}}[%[[INNER_IV]]]
+          // CHECK: }
+          // CHECK-NEXT: rock.lds_barrier
           affine.for %arg5 = 0 to 16 {
             %4 = memref.load %1[%arg5] : memref<64xf16, #gpu.address_space<workgroup>>
             %5 = memref.load %2[%arg5] : memref<64xf16, #gpu.address_space<workgroup>>
@@ -56,9 +79,17 @@ module {
         rock.lds_barrier
       } {pipeline = #rock.pipeline<2>}
 
-      // CHECK: rock.lds_barrier
+      // CHECK: %[[ALLOC_G:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+      // CHECK: %[[ALLOC_H:.*]] = rock.alloc() : memref<16xf16, #gpu.address_space<private>>
+      // CHECK: %[[WID4:.*]] = rock.workitem_id : index
+      // CHECK: memref.load %[[ALLOC_G]][%c0]
+      // CHECK: memref.store {{.*}}, {{.*}}[%[[WID4]]]
+      // CHECK: memref.load %[[ALLOC_H]][%c0]
+      // CHECK: memref.store {{.*}}, {{.*}}[%[[WID4]]]
+      // CHECK: }
       // CHECK-NOT: {pipeline = #rock.pipeline<2>}
-      // CHECK: affine.for %{{.*}} = 0 to 16
+
+      // CHECK: affine.for %{{.*}} = 0 to 32 {
       affine.for %arg4 = 0 to 32 {
         %4 = memref.load %3[%arg4] : memref<32xf32, #gpu.address_space<private>>
         %5 = arith.truncf %4 : f32 to f16
