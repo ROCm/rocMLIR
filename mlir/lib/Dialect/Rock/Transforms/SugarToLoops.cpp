@@ -1578,6 +1578,24 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// LDSTransposeLoadOp lowering.
+//===----------------------------------------------------------------------===//
+struct LDSTransposeLoadRewritePattern
+    : public OpRewritePattern<LDSTransposeLoadOp> {
+  using OpRewritePattern<LDSTransposeLoadOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(LDSTransposeLoadOp op,
+                                PatternRewriter &b) const override {
+
+    // Replace with amdgpu.transpose_load having identical semantics.
+    auto newOp = amdgpu::TransposeLoadOp::create(
+        b, op.getLoc(), op.getResult().getType(), op.getSource(),
+        op.getIndices());
+    b.replaceOp(op, newOp.getResult());
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // InBoundsLoad lowering.
 //===----------------------------------------------------------------------===//
 struct InBoundsLoadRewritePattern : public OpRewritePattern<InBoundsLoadOp> {
@@ -1632,8 +1650,8 @@ void RockSugarToLoopsPass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<ExtractSliceRewritePattern, InsertSliceRewritePattern,
                GlobalLoadRewritePattern, GlobalLoadToLDSRewritePattern,
-               GlobalStoreRewritePattern, InBoundsLoadRewritePattern,
-               InBoundsStoreRewritePattern>(ctx);
+               GlobalStoreRewritePattern, LDSTransposeLoadRewritePattern,
+               InBoundsLoadRewritePattern, InBoundsStoreRewritePattern>(ctx);
   if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 

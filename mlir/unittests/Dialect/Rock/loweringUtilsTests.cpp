@@ -41,7 +41,7 @@ Value createI8Buffer(OpBuilder &b, Location loc, int64_t numBytes,
                      Attribute memorySpace = nullptr) {
   auto bufferType =
       MemRefType::get({numBytes}, b.getI8Type(), nullptr, memorySpace);
-  return b.create<memref::AllocOp>(loc, bufferType);
+  return memref::AllocOp::create(b, loc, bufferType);
 }
 
 //===----------------------------------------------------------------------===//
@@ -433,7 +433,7 @@ TEST(ViewBufferAsDeathTest, BufferNotRank1) {
 
   // Create a 2D i8 buffer (should fail - must be 1D)
   auto badBufferType = MemRefType::get({4, 4}, b.getI8Type());
-  Value badBuffer = b.create<memref::AllocOp>(loc, badBufferType);
+  Value badBuffer = memref::AllocOp::create(b, loc, badBufferType);
 
   EXPECT_DEATH(
       { viewBufferAs(b, badBuffer, b.getF32Type()); },
@@ -447,7 +447,7 @@ TEST(ViewBufferAsDeathTest, BufferNotI8) {
 
   // Create a 1D f32 buffer (should fail - must be i8)
   auto badBufferType = MemRefType::get({4}, b.getF32Type());
-  Value badBuffer = b.create<memref::AllocOp>(loc, badBufferType);
+  Value badBuffer = memref::AllocOp::create(b, loc, badBufferType);
 
   EXPECT_DEATH(
       { viewBufferAs(b, badBuffer, b.getF32Type()); },

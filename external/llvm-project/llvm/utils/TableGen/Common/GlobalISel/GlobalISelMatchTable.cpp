@@ -457,7 +457,7 @@ std::optional<LLTCodeGen> llvm::gi::MVTToLLT(MVT::SimpleValueType SVT) {
 
 void Matcher::optimize() {}
 
-Matcher::~Matcher() {}
+Matcher::~Matcher() = default;
 
 //===- GroupMatcher -------------------------------------------------------===//
 
@@ -1150,11 +1150,11 @@ void RuleMatcher::insnmatchers_pop_front() { Matchers.erase(Matchers.begin()); }
 
 //===- PredicateMatcher ---------------------------------------------------===//
 
-PredicateMatcher::~PredicateMatcher() {}
+PredicateMatcher::~PredicateMatcher() = default;
 
 //===- OperandPredicateMatcher --------------------------------------------===//
 
-OperandPredicateMatcher::~OperandPredicateMatcher() {}
+OperandPredicateMatcher::~OperandPredicateMatcher() = default;
 
 bool OperandPredicateMatcher::isHigherPriorityThan(
     const OperandPredicateMatcher &B) const {
@@ -1471,6 +1471,12 @@ Error OperandMatcher::addTypeCheckPredicate(const TypeSetByHwMode &VTy,
        VTy.getMachineValueType() == MVT::cPTR) &&
       OperandIsAPointer) {
     addPredicate<PointerToAnyOperandMatcher>(0);
+    return Error::success();
+  }
+
+  llvm::MVT::SimpleValueType STy = VTy.getMachineValueType().SimpleTy;
+  if (STy == MVT::Metadata) {
+    addPredicate<MachineOperandTypeMatcher>(MachineOperand::MO_Metadata);
     return Error::success();
   }
 
@@ -1939,9 +1945,20 @@ bool InstructionOperandMatcher::isHigherPriorityThan(
   return false;
 }
 
+//===- MachineOperandTypeMatcher -----------------------------------------===//
+
+void MachineOperandTypeMatcher::emitPredicateOpcodes(MatchTable &Table,
+                                                     RuleMatcher &Rule) const {
+  Table << MatchTable::Opcode("GIM_CheckMachineOperandType")
+        << MatchTable::Comment("MI") << MatchTable::ULEB128Value(InsnVarID)
+        << MatchTable::Comment("Op") << MatchTable::ULEB128Value(OpIdx)
+        << MatchTable::Comment("Ty") << MatchTable::ULEB128Value(MOTy)
+        << MatchTable::LineBreak;
+}
+
 //===- OperandRenderer ----------------------------------------------------===//
 
-OperandRenderer::~OperandRenderer() {}
+OperandRenderer::~OperandRenderer() = default;
 
 //===- CopyRenderer -------------------------------------------------------===//
 
