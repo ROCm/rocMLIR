@@ -29,6 +29,7 @@
 #include "llvm/Support/FormatVariadic.h"
 
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/LogicalResult.h"
 using namespace mlir;
 using namespace mlir::rock;
 
@@ -231,8 +232,14 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
-  int64_t kThreads = kPerBlock / kPerThread;
+  if (dPerBlock % dPerThread != 0) {
+    return failure();
+  }
   int64_t dThreads = dPerBlock / dPerThread;
+  int64_t kThreads = blockSize / dThreads;
+  if (kThreads * dThreads != blockSize) {
+    return failure();
+  }
 
   RegsAsMatrixSubTiles gpuViews;
   {
@@ -325,8 +332,14 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
-  int64_t kThreads = kPerBlock / kPerThread;
+  if (dPerBlock % dPerThread != 0) {
+    return failure();
+  }
   int64_t dThreads = dPerBlock / dPerThread;
+  int64_t kThreads = blockSize / dThreads;
+  if (kThreads * dThreads != blockSize) {
+    return failure();
+  }
 
   int64_t kpackPerThread = std::min(kPerThread, kpack);
   assert(kPerThread % kpackPerThread == 0);
@@ -459,7 +472,7 @@ Value mlir::rock::padMatrix(Value matrix, OpBuilder &b, Location loc,
   return TransformOp::create(b, loc, matrix, padAttr);
 }
 
-TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
+FailureOr<TopDownTMBuilder> mlir::rock::swapThreadIdAndIteration(
     TopDownTMBuilder &toMatrixC, int64_t mBlocks, int64_t nBlocks,
     int64_t copyMPerThread, int64_t copyNPerThread, int64_t mPerBlock,
     int64_t nPerBlock, bool doSwapThreadIterSubDimsForM,
@@ -480,6 +493,8 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
       splitAgain.passThrough({"gemmBlockM"}, {idx}, {"gemmBlockM"});
       idx += 1;
     } else {
+      if (mPerBlock % copyMPerThread != 0)
+        return failure();
       splitAgain.merge({"m_iter", "m_tid"}, {idx, idx + 1}, "gemmBlockM",
                        {copyMPerThread, mPerBlock / copyMPerThread});
       idx += 2;
@@ -487,9 +502,12 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
 
     if (!doSwapThreadIterSubDimsForN)
       splitAgain.passThrough({"gemmBlockN"}, {idx}, {"gemmBlockN"});
-    else
+    else {
+      if (nPerBlock % copyNPerThread != 0)
+        return failure();
       splitAgain.merge({"n_iter", "n_tid"}, {idx, idx + 1}, "gemmBlockN",
                        {copyNPerThread, nPerBlock / copyNPerThread});
+    }
   }
   TransformMapAttr splitAgainAttr = splitAgain.get();
   transformAttr.push_back(splitAgainAttr);
