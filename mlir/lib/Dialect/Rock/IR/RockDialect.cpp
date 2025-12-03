@@ -564,7 +564,7 @@ static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
          (dDim == 32 && (kDim == 8 || kDim == 16));
 }
 
-LogicalResult LdsTransposeConfigAttr::verify(
+LogicalResult LDSTransposeConfigAttr::verify(
     function_ref<InFlightDiagnostic()> emitError, int64_t mfmaDDim,
     int64_t mfmaKDim, int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
     int64_t mPerWave, int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
@@ -1391,7 +1391,7 @@ LogicalResult LiveInOp::verify() {
   if (failed(memSpaceCheck))
     return emitError("The operand of rock.live_in must have a specified "
                      "memory space");
-  if (!*memSpaceCheck)
+  if (!memSpaceCheck.value())
     return emitError("The operand of rock.live_in must be an LDS memref");
 
   return success();
@@ -1412,7 +1412,7 @@ LogicalResult LiveOutOp::verify() {
   if (failed(memSpaceCheck))
     return emitError("The operand of rock.live_out must have a specified "
                      "memory space");
-  if (!*memSpaceCheck)
+  if (!memSpaceCheck.value())
     return emitError("The operand of rock.live_out must be an LDS memref");
 
   return success();
@@ -1945,7 +1945,7 @@ LogicalResult GlobalLoadToLDSOp::verify() {
       isWorkgroupMemorySpace(destType.getMemorySpace());
   if (failed(memSpaceCheck))
     return emitOpError("Destination memref must have a specified memory space");
-  if (!*memSpaceCheck)
+  if (!memSpaceCheck.value())
     return emitOpError("Destination memref must live in workgroup memory");
 
   int64_t numBits = getTransferType().getIntOrFloatBitWidth();
@@ -2067,12 +2067,12 @@ LogicalResult LDSTransposeLoadOp::verify() {
       isWorkgroupMemorySpace(srcType.getMemorySpace());
   if (failed(memSpaceCheck))
     return emitOpError("source memref must have a specified memory space");
-  if (!*memSpaceCheck)
+  if (!memSpaceCheck.value())
     return emitOpError("source memory address space must be workgroup (LDS)");
 
   // Result element type must match source element type
   Type srcElemType = srcType.getElementType();
-  VectorType resultType = getFragment().getType();
+  VectorType resultType = getResult().getType();
   Type resultElemType = resultType.getElementType();
 
   if (resultElemType != srcElemType) {
@@ -2860,7 +2860,7 @@ LogicalResult BlockwiseFillOp::verify() {
       isWorkgroupMemorySpace(memrefType.getMemorySpace());
   if (failed(memSpaceCheck))
     return emitError("Memref must have a specified memory space");
-  if (!*memSpaceCheck)
+  if (!memSpaceCheck.value())
     return emitError("Memory space is expected to be workgroup");
   int64_t numElements = getMemref().getType().getNumElements();
   if (VectorType vecType = dyn_cast<VectorType>(getValue().getType())) {

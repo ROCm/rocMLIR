@@ -1147,19 +1147,18 @@ def Rock_LDSTransposeLoadOp
                                         MemoryEffectsOpInterface>]>,
       Arguments<(ins Arg<MemRefOf<[F16, BF16]>, "LDS source buffer">:$source,
           Variadic<Index>:$indices)>,
-      Results<(outs VectorOfLengthAndType<[4], [F16, BF16]>:$fragment)> {
-  let summary = "Hardware-assisted LDS transpose panel load";
+      Results<(outs VectorOfLengthAndType<[4], [F16, BF16]>:$result)> {
+  let summary =
+      "Hardware-assisted LDS transpose load for matrix accelerator tile";
   let description = [{
-    Loads a tile (panel) of data from Local Data Share (LDS) memory with
-    hardware-assisted transpose instruction.
-    Panel is a tile of data whose dimensions match the selected
-    matrix-multiply accelerator instruction geometry (`dDim × instrK`),
-    where:
+    Loads a matrix accelerator tile of data from Local Data Share (LDS) memory
+    with hardware-assisted transpose instruction.
+    The tile dimensions match the selected matrix-multiply accelerator
+    instruction geometry (`dDim × instrK`), where:
     - `dDim` is the accelerator M/N dimension (e.g., 16 or 32)
     - `instrK` is the accelerator K dimension (e.g., 8, 16, or 32)
-    The operation returns a 4-element vector per thread ($fragment) containing
-    transposed elements in a layout suitable for matrix-multiply accelerator 
-    instructions.
+    The operation returns a vector of 4 elements per thread containing
+    transposed elements in a layout suitable for matrix accelerator instructions.
 
     Benefits:
     - Reduces LDS bank conflicts through optimized access patterns
@@ -1168,7 +1167,7 @@ def Rock_LDSTransposeLoadOp
   }];
 
   let assemblyFormat = [{
-    $source (`[` $indices^ `]`)? attr-dict `:` type($source) `->` type($fragment)
+    $source (`[` $indices^ `]`)? attr-dict `:` type($source) `->` type($result)
   }];
 
   let hasVerifier = 1;
@@ -1199,7 +1198,7 @@ def Rock_ThreadwiseReadIntoOp
           Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
           TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
           UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs,
-          OptionalAttr<Rock_LdsTransposeConfigAttr>:$ldsTransposeConfig)>,
+          OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig)>,
       Results<(outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord)> {
   let summary = "Read values from transformed source into destination";
 
@@ -1274,7 +1273,7 @@ def Rock_ThreadwiseReadIntoOp
       OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
                     "ValueRange":$extraIndices, "bool":$forceUnroll,
                     "bool":$useIndexDiffs,
-                    "LdsTransposeConfigAttr":$ldsTransposeConfig),
+                    "LDSTransposeConfigAttr":$ldsTransposeConfig),
                 [{
         build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig);
       }]>,

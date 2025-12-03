@@ -445,7 +445,7 @@ struct BlockwiseGemmAccelRewritePattern
 
     // Build LDS-transpose config attribute using decision from
     // GridwiseGemmToBlockwise
-    auto buildTransposeAttr = [&](bool isOperandA) -> LdsTransposeConfigAttr {
+    auto buildTransposeAttr = [&](bool isOperandA) -> LDSTransposeConfigAttr {
       const auto &matrixParams = isOperandA ? matrixParamsA : matrixParamsB;
 
       // Check if LDS transpose is enabled for this operand
@@ -470,9 +470,9 @@ struct BlockwiseGemmAccelRewritePattern
           /*doubleBuffering=*/false, isOperandA);
     };
 
-    LdsTransposeConfigAttr transposeAttrA =
+    LDSTransposeConfigAttr transposeAttrA =
         buildTransposeAttr(/*isOperandA=*/true);
-    LdsTransposeConfigAttr transposeAttrB =
+    LDSTransposeConfigAttr transposeAttrB =
         buildTransposeAttr(/*isOperandA=*/false);
 
     LLVM_DEBUG(llvm::dbgs()
@@ -531,7 +531,7 @@ struct BlockwiseGemmAccelRewritePattern
     auto loadBuffer =
         [&](Value buffer, Value wrappedLDSBufferForLoad, Value loopVar,
             Type argType, int64_t repeats, bool loadFromLDS, bool directToLDS,
-            bool isA, LdsTransposeConfigAttr transposeAttr = nullptr) -> Value {
+            bool isA, LDSTransposeConfigAttr transposeAttr = nullptr) -> Value {
       Value inputBuffer = buffer;
       SmallVector<int64_t> shape;
       if (directToLDS) {

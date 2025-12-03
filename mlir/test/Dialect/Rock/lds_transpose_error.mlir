@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt -split-input-file -verify-diagnostics %s
 
 // Error case: Invalid MFMA geometry (16x8 is not valid)
-// This tests that LdsTransposeConfigAttr::verify() catches invalid MFMA
+// This tests that LDSTransposeConfigAttr::verify() catches invalid MFMA
 // geometry combinations. Valid combinations are: (16,16), (16,32), (32,8), (32,16)
 func.func @threadwise_read_into_invalid_mfma_geometry_16x8(
     %source: memref<128xf16, #gpu.address_space<workgroup>>,

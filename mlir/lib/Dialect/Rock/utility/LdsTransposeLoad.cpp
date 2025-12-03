@@ -17,11 +17,12 @@
 //
 // This file defines helper functions for MLIR code generation related to
 // rock.lds_transpose_load operations. It provides utilities for computing
-// panel offsets, generating indices, and emitting calls to the LDS
-// transpose load operation in a MFMA-friendly layout.
+// matrix accelerator tile offsets, generating indices, and emitting calls
+// to the LDS transpose load operation in an accelerator-friendly layout.
 //
 // It is intended to simplify the IR generation logic and ensure
-// consistent handling of f16/bf16 panel loads from LDS memory.
+// consistent handling of f16/bf16 matrix accelerator tile loads from LDS
+// memory.
 //
 //===----------------------------------------------------------------------===//
 
@@ -60,7 +61,7 @@ struct MfmaInstrShape {
 };
 
 // Internal structure to hold the outcome of the hardware transpose analysis.
-// Used only within makeDecision() and decideLdsTransposeForOperands().
+// Used only within makeDecision() and decideLDSTransposeForOperands().
 struct Decision {
   bool usable{false};
   OperandKind operand{OperandKind::A};
@@ -186,7 +187,7 @@ struct StrideConfig {
 // Determines whether LDS transpose optimization should be enabled for operands
 // A and/or B, and extracts MFMA geometry for attribute propagation.
 //
-// Returns LdsTransposeDecision with:
+// Returns LDSTransposeDecision with:
 //   - enableA, enableB: Flags indicating which operands should use LDS
 //   transpose
 //   - mfmaDDim, mfmaKDim: MFMA geometry (only set if at least one operand is
@@ -195,7 +196,7 @@ struct StrideConfig {
 // IMPORTANT: mfmaDDim and mfmaKDim are ONLY populated if at least one
 // operand can use LDS transpose. This avoids polluting tuning params with
 // unnecessary data.
-LdsTransposeDecision decideLdsTransposeForOperands(
+LDSTransposeDecision decideLDSTransposeForOperands(
     const rock::accel::AccelEmitter *accelEmitter, StringRef arch,
     Type elementTypeA, Type elementTypeB, bool directToLDS,
     const LDSLayoutConfigDim &ldsLayoutConfigA,
@@ -203,7 +204,7 @@ LdsTransposeDecision decideLdsTransposeForOperands(
     int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave, int64_t nPerWave,
     int64_t kpack, bool doubleBuffering) {
 
-  LdsTransposeDecision result;
+  LDSTransposeDecision result;
 
   // Only MFMA supports LDS transpose optimization
   auto *mfmaEmitter = dyn_cast<rock::accel::MfmaEmitter>(accelEmitter);
@@ -282,7 +283,7 @@ LdsTransposeDecision decideLdsTransposeForOperands(
 
 // Build LDS transpose config attribute from already-computed MFMA params.
 // Used when decision was made upstream and MFMA geometry is available.
-LdsTransposeConfigAttr buildTransposeAttrFromParams(
+LDSTransposeConfigAttr buildTransposeAttrFromParams(
     PatternRewriter &rewriter, int64_t mfmaDDim, int64_t mfmaKDim,
     int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
     int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
@@ -295,7 +296,7 @@ LdsTransposeConfigAttr buildTransposeAttrFromParams(
          "(32,8), (32,16)");
 
   // Create structured attribute with all parameters
-  return LdsTransposeConfigAttr::get(rewriter.getContext(), mfmaDDim, mfmaKDim,
+  return LDSTransposeConfigAttr::get(rewriter.getContext(), mfmaDDim, mfmaKDim,
                                      mPerBlock, nPerBlock, kPerBlock, mPerWave,
                                      nPerWave, doubleBuffering, isOperandA);
 }
@@ -505,7 +506,7 @@ static Value emitPanelLoad(PatternRewriter &b, Location loc, Value rawSrc,
   auto loadOp = rock::LDSTransposeLoadOp::create(b, loc, panelVecType, rawSrc,
                                                  ValueRange{finalOffset});
 
-  return loadOp.getFragment();
+  return loadOp.getResult();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1065,7 +1066,7 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
                                         ThreadwiseReadIntoOp op,
                                         int64_t blockSize, int64_t waveSize) {
   // Extract LDS transpose configuration from the operation
-  LdsTransposeConfigAttr config = op.getLdsTransposeConfigAttr();
+  LDSTransposeConfigAttr config = op.getLdsTransposeConfigAttr();
   if (!config)
     return failure();
 

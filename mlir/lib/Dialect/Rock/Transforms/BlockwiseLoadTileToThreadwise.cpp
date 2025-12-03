@@ -77,7 +77,7 @@ class LoweringBlockwiseLoadTileOp final
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
       bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams,
-      LdsTransposeConfigAttr transposeAttr = nullptr) const {
+      LDSTransposeConfigAttr transposeAttr = nullptr) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
@@ -202,7 +202,7 @@ class LoweringBlockwiseLoadTileOp final
 
     // Build LDS transpose config attribute if enabled
     // The decision was already made in GridwiseGemmToBlockwise pass
-    LdsTransposeConfigAttr transposeAttr = nullptr;
+    LDSTransposeConfigAttr transposeAttr = nullptr;
     if (ldsTransposeEnabled) {
       // Get accelerator dimensions from matrix params and tuning params
       // accelDDim = mnPerXdl (for MFMA instructions with blocksMfma=1)

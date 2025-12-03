@@ -3044,8 +3044,8 @@ struct GridwiseGemmAccelRewritePattern
     // ============================================================
     // LDS TRANSPOSE DECISION MAKING
     // ============================================================
-    hwtranspose::LdsTransposeDecision ldsDecision =
-        hwtranspose::decideLdsTransposeForOperands(
+    hwtranspose::LDSTransposeDecision ldsDecision =
+        hwtranspose::decideLDSTransposeForOperands(
             accelEmitterPtr.get(), arch, elementTypeA, elementTypeB,
             directToLDS, ldsLayoutConfigA, ldsLayoutConfigB, mPerBlock,
             nPerBlock, kPerBlock, mPerWave, nPerWave, kpack, doubleBuffering);

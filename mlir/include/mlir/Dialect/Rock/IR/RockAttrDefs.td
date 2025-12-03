@@ -511,7 +511,7 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
   }];
 }
 
-def Rock_LdsTransposeConfigAttr : Rock_Attr<"LdsTransposeConfig", []> {
+def Rock_LDSTransposeConfigAttr : Rock_Attr<"LDSTransposeConfig", []> {
   let mnemonic = "lds_transpose_config";
   let description = [{
     Configuration parameters for hardware-assisted LDS transpose loads.

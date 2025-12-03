@@ -17,11 +17,12 @@
 //
 // This file defines helper functions for MLIR code generation related to
 // rock.lds_transpose_load operations. It provides utilities for computing
-// panel offsets, generating indices, and emitting calls to the LDS
-// transpose load operation in a MFMA-friendly layout.
+// matrix accelerator tile offsets, generating indices, and emitting calls
+// to the LDS transpose load operation in an accelerator-friendly layout.
 //
 // It is intended to simplify the IR generation logic and ensure
-// consistent handling of f16/bf16 panel loads from LDS memory.
+// consistent handling of f16/bf16 matrix accelerator tile loads from LDS
+// memory.
 //
 //===----------------------------------------------------------------------===//
 
@@ -43,19 +44,19 @@ enum class OperandKind { A, B };
 // Used in BlockwiseLoadTileToThreadwise when decision was made upstream.
 // Requires mfmaDDim > 0 and mfmaKDim > 0 (asserted).
 // Valid combinations: (16,16), (16,32), (32,8), (32,16)
-LdsTransposeConfigAttr buildTransposeAttrFromParams(
+LDSTransposeConfigAttr buildTransposeAttrFromParams(
     PatternRewriter &rewriter, int64_t mfmaDDim, int64_t mfmaKDim,
     int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
     int64_t nPerWave, bool doubleBuffering, bool isOperandA);
 
 // Emits the actual hardware transpose load sequence.
-// Reads configuration directly from the op's LdsTransposeConfigAttr.
+// Reads configuration directly from the op's LDSTransposeConfigAttr.
 LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
                                         ThreadwiseReadIntoOp op,
                                         int64_t blockSize, int64_t waveSize);
 
 // Result of LDS transpose decision making for both operands
-struct LdsTransposeDecision {
+struct LDSTransposeDecision {
   bool enableA{false}; // Enable for operand A
   bool enableB{false}; // Enable for operand B
   int64_t mfmaDDim{0}; // MFMA D dimension (M or N, 16 or 32)
@@ -64,7 +65,7 @@ struct LdsTransposeDecision {
 
 // Decides whether to enable LDS transpose for operands A and B
 // based on architecture, MFMA geometry, kpack constraints, and layout config.
-LdsTransposeDecision decideLdsTransposeForOperands(
+LDSTransposeDecision decideLDSTransposeForOperands(
     const rock::accel::AccelEmitter *accelEmitter, StringRef arch,
     Type elementTypeA, Type elementTypeB, bool directToLDS,
     const LDSLayoutConfigDim &ldsLayoutConfigA,
