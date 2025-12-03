@@ -15,6 +15,7 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
@@ -1303,17 +1304,10 @@ struct GlobalLoadToLDSRewritePattern
     SmallVector<Value> coords(op.getSourceCoord());
     SmallVector<Value> destCoords(op.getDestCoord());
 
-    bool asyncDirectToLDS = false;
     StringRef arch = rock::getArchValue(op);
-    if (arch == "gfx1250")
-      asyncDirectToLDS = true;
-
-    // TODO: Get async direct to LDS from features when
-    // https://github.com/ROCm/rocMLIR-internal/issues/2048
-    // is ready.
-    // auto features = rock::lookupArchInfo(arch).defaultFeatures;
-    // asyncDirectToLDS =
-    //     bitEnumContainsAll(features, GemmFeatures::async_direct_to_lds);
+    auto features = rock::lookupArchInfo(arch).defaultFeatures;
+    bool asyncDirectToLDS =
+        bitEnumContainsAll(features, GemmFeatures::async_direct_to_lds);
 
     llvm::APInt validConst = APInt::getZero(1);
     bool hasI64Idx = op.getNeeds64BitIdx();

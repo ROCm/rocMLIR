@@ -407,6 +407,8 @@ def Rock_GemmFeatures_DirectToLDS32B
     : I32BitEnumAttrCaseBit<"direct_to_lds_32b", 7>;
 def Rock_GemmFeatures_DirectToLDS128B
     : I32BitEnumAttrCaseBit<"direct_to_lds_128b", 8>;
+def Rock_GemmFeatures_AsyncDirectToLDS
+    : I32BitEnumAttrCaseBit<"async_direct_to_lds", 9>;
 
 def Rock_GemmFeatures
     : I32BitEnumAttr<
@@ -417,7 +419,8 @@ def Rock_GemmFeatures
            Rock_GemmFeatures_AtomicAdd, Rock_GemmFeatures_AtomicAddBF16,
            Rock_GemmFeatures_AtomicAddF16, Rock_GemmFeatures_AtomicFmaxF32,
            Rock_GemmFeatures_DirectToLDS32B,
-           Rock_GemmFeatures_DirectToLDS128B]> {
+           Rock_GemmFeatures_DirectToLDS128B,
+           Rock_GemmFeatures_AsyncDirectToLDS]> {
   let cppNamespace = "::mlir::rock";
   let genSpecializedAttr = 0;
 }
