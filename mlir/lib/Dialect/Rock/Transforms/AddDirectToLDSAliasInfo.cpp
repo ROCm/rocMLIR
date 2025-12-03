@@ -66,7 +66,7 @@ LLVM::AliasScopeAttr getDirectToLDSLoadScope(MLIRContext *ctx) {
 LLVM::AliasScopeAttr getLDSLoadScope(MLIRContext *ctx) {
   Builder b(ctx);
   auto name = b.getStringAttr("amdgpu.LDSLoads");
-  auto desc = b.getStringAttr("Scope containing all LDS load ops");
+  auto desc = b.getStringAttr("Scope containing all LDS load and store ops");
   return b.getAttr<LLVM::AliasScopeAttr>(name, getScopeDomain(ctx), desc);
 }
 
