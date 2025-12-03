@@ -66,6 +66,7 @@ static cl::opt<unsigned> PromoteAllocaToVectorLimit(
     cl::desc("Maximum byte size to consider promote alloca to vector"),
     cl::init(0));
 
+// TODO(rocmlir): temporary fix for backend bug
 static cl::opt<unsigned> PromoteAllocaToVectorMaxRegs(
     "amdgpu-promote-alloca-to-vector-max-regs",
     cl::desc(
@@ -287,8 +288,12 @@ void AMDGPUPromoteAllocaImpl::sortAllocasToPromote(
 
 void AMDGPUPromoteAllocaImpl::setFunctionLimits(const Function &F) {
   // Load per function limits, overriding with global options where appropriate.
+  // R600 register tuples/aliasing are fragile with large vector promotions so
+  // apply architecture specific limit here.
+  const int R600MaxVectorRegs = 16;
   MaxVectorRegs = F.getFnAttributeAsParsedInteger(
-      "amdgpu-promote-alloca-to-vector-max-regs", PromoteAllocaToVectorMaxRegs);
+      "amdgpu-promote-alloca-to-vector-max-regs",
+      IsAMDGCN ? PromoteAllocaToVectorMaxRegs : R600MaxVectorRegs);
   if (PromoteAllocaToVectorMaxRegs.getNumOccurrences())
     MaxVectorRegs = PromoteAllocaToVectorMaxRegs;
   VGPRBudgetRatio = F.getFnAttributeAsParsedInteger(

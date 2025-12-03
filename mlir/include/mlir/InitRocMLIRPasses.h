@@ -73,6 +73,7 @@ inline void registerUpstreamPasses() {
   registerControlFlowSinkPass();
   tensor::registerTensorPasses();
   tosa::registerTosaOptPasses();
+  tosa::registerTosaAttachTargetPass();
   vector::registerVectorPasses();
 }
 
