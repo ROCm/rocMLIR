@@ -242,6 +242,7 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   Type new1DOutTy;
   Value inputZp, weightZp;
   int lastDim = newShape.size() - 1;
+  tosa::Conv2DOp::Properties prop;
   switch (dims) {
   case 1:
     // Expand to do a conv2d, because there's no 1d version of
@@ -266,7 +267,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                          RankedTensorType::get(
                              cast<ShapedType>(filter.getType()).getShape()[0],
                              newOutElementTy)),
-                     inputZp, weightZp});
+                     inputZp, weightZp},
+          prop);
     }
     break;
 
@@ -284,7 +286,8 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
                          RankedTensorType::get(
                              cast<ShapedType>(filter.getType()).getShape()[0],
                              newOutElementTy)),
-                     inputZp, weightZp});
+                     inputZp, weightZp},
+          prop);
     }
     break;
   case 3:

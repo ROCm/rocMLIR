@@ -764,9 +764,8 @@ def Rock_YieldOp :
   // Yoinked from affine.yield
   let arguments = (ins Variadic<AnyType>:$operands);
 
-  let builders = [
-    OpBuilder<(ins), [{ build($_builder, $_state, std::nullopt); }]>
-  ];
+  let builders = [OpBuilder<(ins),
+                            [{ build($_builder, $_state, ValueRange{}); }]>];
 
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
 }

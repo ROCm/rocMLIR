@@ -1121,9 +1121,27 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   auto vectorC =
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
-  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, argA, argB, vectorC,
-                                     /*subwordOffset=*/0, /*unsignedA=*/false,
-                                     /*unsignedB=*/false, /*clamp=*/true);
+  // WMMAOp requires explicit m, n, k dimensions as IntegerAttrs
+  auto mAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
+  auto nAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
+  // see WmmaInsnGroup.cpp, all current wmma operations have k=16
+  auto kAttr = b.getI32IntegerAttr(16);
+  auto subwordOffsetAttr = b.getI32IntegerAttr(0);
+
+  // Clamp flag is only valid for integer output types
+  Type elementType = vectorType.getElementType();
+  UnitAttr clampAttr =
+      isa<IntegerType>(elementType) ? b.getUnitAttr() : nullptr;
+
+  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, mAttr, nAttr, kAttr,
+                                     argA, argB, vectorC, subwordOffsetAttr,
+                                     /*unsignedA=*/nullptr,
+                                     /*unsignedB=*/nullptr, clampAttr);
+
+  // auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, argA, argB, vectorC,
+  //                                    /*subwordOffset=*/0,
+  //                                    /*unsignedA=*/false,
+  //                                    /*unsignedB=*/false, /*clamp=*/true);
   auto vectorD = mfma.getDestD();
 
   memref::StoreOp::create(b, loc, vectorD, bufferC, regCOffset);

@@ -72,5 +72,4 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRVectorTransforms
   MLIRMHAL
   MLIRMHALTransforms
-  MLIRCopyOpInterface
 )
