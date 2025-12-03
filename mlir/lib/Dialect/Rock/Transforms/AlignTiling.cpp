@@ -690,7 +690,8 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
       validityRecord != nullptr ? TypeRange{validityRecordResultType}
                                 : TypeRange{},
       src, alloc, dynamicValidities, tiledOp.getExtraViews(),
-      /*extraIndices=*/tiledOp.getExtraIndices(), forceUnroll, useIndexDiffs);
+      /*extraIndices=*/tiledOp.getExtraIndices(), forceUnroll, useIndexDiffs,
+      /*ldsTransposeConfig=*/nullptr);
   if (validityRecord != nullptr)
     *validityRecord = threadwiseReadIntoOp.getValidityRecord();
 
@@ -917,7 +918,8 @@ reapplyPaddingIfNeeded(linalg::GenericOp reconfiguredGeneric,
       unmaskedTile, originalTile,
       /*dynamicValidities=*/validityRecords,
       /*extraViews=*/b.getArrayAttr({}), /*extraIndices=*/ValueRange{},
-      /*forceUnroll=*/false, /*useIndexDiffs=*/false);
+      /*forceUnroll=*/false, /*useIndexDiffs=*/false,
+      /*ldsTransposeConfig=*/nullptr);
   return maskingRead.getValidityRecord();
 }
 
