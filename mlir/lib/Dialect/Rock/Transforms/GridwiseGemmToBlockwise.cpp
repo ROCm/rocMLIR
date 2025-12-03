@@ -2390,7 +2390,8 @@ struct GridwiseAttentionAccelRewritePattern
         // Conservative barrier: Ensure all LDS writes complete
         // before MMA stage reads from LDS. RockPipelinePass will remove this
         // and add optimized barriers when pipelining.
-        LDSBarrierOp::create(rewriter, loc);
+        if (loadType != GemmLoadTileType::BypassLDS)
+          LDSBarrierOp::create(rewriter, loc);
 
         auto computeStage = StageOp::create(rewriter, loc, "MMA");
         {
@@ -2434,7 +2435,8 @@ struct GridwiseAttentionAccelRewritePattern
         // Conservative barrier: Ensure all LDS reads complete before the next
         // iteration writes to LDS. RockPipelinePass will remove this and add
         // optimized barriers when pipelining.
-        LDSBarrierOp::create(rewriter, loc);
+        if (kIterationsGemm0 > 1 && loadType != GemmLoadTileType::BypassLDS)
+          LDSBarrierOp::create(rewriter, loc);
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
@@ -2661,7 +2663,8 @@ struct GridwiseAttentionAccelRewritePattern
           // Conservative barrier: Ensure all LDS writes complete
           // before MMA stage reads from LDS. RockPipelinePass will remove this
           // and add optimized barriers when pipelining.
-          LDSBarrierOp::create(rewriter, loc);
+          if (loadType != GemmLoadTileType::BypassLDS)
+            LDSBarrierOp::create(rewriter, loc);
 
           // Emit GEMM 1.
           auto computeStage = StageOp::create(rewriter, loc, "MMA");
@@ -2776,7 +2779,8 @@ struct GridwiseAttentionAccelRewritePattern
           // Conservative barrier: Ensure all LDS reads complete before the next
           // iteration writes to LDS. RockPipelinePass will remove this and add
           // optimized barriers when pipelining.
-          LDSBarrierOp::create(rewriter, loc);
+          if (gemm1MBlocks > 1 && loadType != GemmLoadTileType::BypassLDS)
+            LDSBarrierOp::create(rewriter, loc);
         }
       }
     }
@@ -3180,7 +3184,8 @@ struct GridwiseGemmAccelRewritePattern
     }
 
     // Emit loop.
-    Value nIterations = ConstantIndexOp::create(b, loc, K / kPerBlock);
+    int64_t kIterations = K / kPerBlock;
+    Value nIterations = ConstantIndexOp::create(b, loc, kIterations);
 
     scf::ForOp loopOp = createMainLoop(b, loc, nIterations, loadType);
     {
@@ -3215,7 +3220,8 @@ struct GridwiseGemmAccelRewritePattern
       // Conservative barrier: Ensure all LDS writes complete
       // before MMA stage reads from LDS. RockPipelinePass will remove this
       // and add optimized barriers when pipelining.
-      LDSBarrierOp::create(b, loc);
+      if (loadType != GemmLoadTileType::BypassLDS)
+        LDSBarrierOp::create(b, loc);
 
       // Emit blockwise GEMM. This will load data from LDS (or registers) and
       // compute the MMA at the same time
@@ -3236,7 +3242,8 @@ struct GridwiseGemmAccelRewritePattern
       // Conservative barrier: Ensure all LDS reads complete before the next
       // iteration writes to LDS. RockPipelinePass will remove this and add
       // optimized barriers when pipelining.
-      LDSBarrierOp::create(b, loc);
+      if (kIterations > 1 && loadType != GemmLoadTileType::BypassLDS)
+        LDSBarrierOp::create(b, loc);
     }
 
     // Matrix C write out logic.
