@@ -589,6 +589,10 @@ def main() -> bool:
                         action='store_true',
                         default=False,
                         help='Save failures to file')
+    parser.add_argument('--debug-fails',
+                        action='store_true',
+                        default=False,
+                        help='Enable debug output for failing configurations')
     parser.add_argument('--codepath',
                         type=str,
                         default='none',
