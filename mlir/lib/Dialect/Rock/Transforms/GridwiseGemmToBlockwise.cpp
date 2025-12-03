@@ -1829,14 +1829,17 @@ struct GridwiseAttentionAccelRewritePattern
   void runEarlyExit(PatternRewriter &rewriter, Location loc, Value start,
                     Value end, int64_t splitKV, int64_t gemm0MPerBlock,
                     std::optional<APInt> prePadG0M, bool isCausal,
-                    bool isKVCache) const {
+                    bool isKVCache, bool skipRunEarlyExit) const {
     // we need to do early exit if (1) and (2 || 3) conditions are true:
     // 1. split-kv > 1
     // 2. there's padding in gemm0M && (at least) the last block in split-kv
     // dimension has nothing to do
     // 3. (kvcache || causal) && (end <= start)
 
-    if (splitKV == 1)
+    // skipRunEarlyExit disables early exit logic as the MIGraphX flash decoding
+    // implementation requires that the first of two kernels is initialized to
+    // zero (and not left uninitialized as is the case with early exit logic).
+    if (splitKV == 1 || skipRunEarlyExit)
       return;
 
     // condition 2: some padding in gemm0M
@@ -2268,7 +2271,8 @@ struct GridwiseAttentionAccelRewritePattern
 
     // early exit if there is no work to do for this block
     runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
-                 op.getPrePadG0M(), isCausal, isKVCache);
+                 op.getPrePadG0M(), isCausal, isKVCache,
+                 /*skipRunEarlyExit=*/true);
 
     // create matrix params (LDS transpose not supported for attention)
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
@@ -2394,8 +2398,7 @@ struct GridwiseAttentionAccelRewritePattern
         // Conservative barrier: Ensure all LDS writes complete
         // before MMA stage reads from LDS. RockPipelinePass will remove this
         // and add optimized barriers when pipelining.
-        if (loadType != GemmLoadTileType::BypassLDS)
-          LDSBarrierOp::create(rewriter, loc);
+        LDSBarrierOp::create(rewriter, loc);
 
         auto computeStage = StageOp::create(rewriter, loc, "MMA");
         {
@@ -2439,8 +2442,7 @@ struct GridwiseAttentionAccelRewritePattern
         // Conservative barrier: Ensure all LDS reads complete before the next
         // iteration writes to LDS. RockPipelinePass will remove this and add
         // optimized barriers when pipelining.
-        if (kIterationsGemm0 > 1 && loadType != GemmLoadTileType::BypassLDS)
-          LDSBarrierOp::create(rewriter, loc);
+        LDSBarrierOp::create(rewriter, loc);
       }
       accelEmitterPtrGemm0->computeOutputConversion(
           rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
@@ -2667,8 +2669,7 @@ struct GridwiseAttentionAccelRewritePattern
           // Conservative barrier: Ensure all LDS writes complete
           // before MMA stage reads from LDS. RockPipelinePass will remove this
           // and add optimized barriers when pipelining.
-          if (loadType != GemmLoadTileType::BypassLDS)
-            LDSBarrierOp::create(rewriter, loc);
+          LDSBarrierOp::create(rewriter, loc);
 
           // Emit GEMM 1.
           auto computeStage = StageOp::create(rewriter, loc, "MMA");
@@ -2783,8 +2784,7 @@ struct GridwiseAttentionAccelRewritePattern
           // Conservative barrier: Ensure all LDS reads complete before the next
           // iteration writes to LDS. RockPipelinePass will remove this and add
           // optimized barriers when pipelining.
-          if (gemm1MBlocks > 1 && loadType != GemmLoadTileType::BypassLDS)
-            LDSBarrierOp::create(rewriter, loc);
+          LDSBarrierOp::create(rewriter, loc);
         }
       }
     }
@@ -3240,8 +3240,7 @@ struct GridwiseGemmAccelRewritePattern
       // Conservative barrier: Ensure all LDS writes complete
       // before MMA stage reads from LDS. RockPipelinePass will remove this
       // and add optimized barriers when pipelining.
-      if (loadType != GemmLoadTileType::BypassLDS)
-        LDSBarrierOp::create(b, loc);
+      LDSBarrierOp::create(b, loc);
 
       // Emit blockwise GEMM. This will load data from LDS (or registers) and
       // compute the MMA at the same time
@@ -3262,8 +3261,7 @@ struct GridwiseGemmAccelRewritePattern
       // Conservative barrier: Ensure all LDS reads complete before the next
       // iteration writes to LDS. RockPipelinePass will remove this and add
       // optimized barriers when pipelining.
-      if (kIterations > 1 && loadType != GemmLoadTileType::BypassLDS)
-        LDSBarrierOp::create(b, loc);
+      LDSBarrierOp::create(b, loc);
     }
 
     // Matrix C write out logic.
