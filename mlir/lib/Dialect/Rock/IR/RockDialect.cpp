@@ -74,6 +74,20 @@ using namespace mlir::rock;
 // Utility Functions
 //===----------------------------------------------------------------------===//
 
+FailureOr<bool> mlir::rock::isWorkgroupMemorySpace(Attribute memorySpace) {
+  if (!memorySpace)
+    return failure();
+
+  if (auto gpuMemSpace = dyn_cast<gpu::AddressSpaceAttr>(memorySpace))
+    return gpuMemSpace.getValue() == gpu::AddressSpace::Workgroup;
+
+  if (auto intMemSpace = dyn_cast<IntegerAttr>(memorySpace))
+    return intMemSpace.getInt() ==
+           static_cast<int64_t>(gpu::GPUDialect::getWorkgroupAddressSpace());
+
+  return false;
+}
+
 static Type getElementTypeOrSelfRecursive(Type type) {
   while (auto shapedType = dyn_cast<ShapedType>(type)) {
     type = shapedType.getElementType();
@@ -541,6 +555,48 @@ LogicalResult TransformMapAttr::verify(
       return emitError() << "Lower bound/shape component less than 0";
     }
   }
+  return success();
+}
+
+// Helper function to check valid MFMA geometry for LDS transpose
+static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && (kDim == 16 || kDim == 32)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16));
+}
+
+LogicalResult LDSTransposeConfigAttr::verify(
+    function_ref<InFlightDiagnostic()> emitError, int64_t mfmaDDim,
+    int64_t mfmaKDim, int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
+    int64_t mPerWave, int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
+
+  // Validate MFMA geometry
+  if (!isValidLdsTransposeMfmaGeometry(mfmaDDim, mfmaKDim)) {
+    return emitError() << "invalid MFMA geometry (" << mfmaDDim << "x"
+                       << mfmaKDim
+                       << ") for LDS transpose - valid combinations: "
+                          "(16,16), (16,32), (32,8), (32,16)";
+  }
+
+  // Validate positive dimensions
+  if (mfmaDDim <= 0 || mfmaKDim <= 0 || mPerBlock <= 0 || nPerBlock <= 0 ||
+      kPerBlock <= 0 || mPerWave <= 0 || nPerWave <= 0) {
+    return emitError() << "all dimensions must be positive";
+  }
+
+  // Validate that block dimensions are divisible by MFMA dimensions
+  int64_t dPerBlock = isOperandA ? mPerBlock : nPerBlock;
+  if (dPerBlock % mfmaDDim != 0) {
+    return emitError() << (isOperandA ? "mPerBlock" : "nPerBlock") << " ("
+                       << dPerBlock << ") must be divisible by mfmaDDim ("
+                       << mfmaDDim << ")";
+  }
+
+  if (kPerBlock % mfmaKDim != 0) {
+    return emitError() << "kPerBlock (" << kPerBlock
+                       << ") must be divisible by mfmaKDim (" << mfmaKDim
+                       << ")";
+  }
+
   return success();
 }
 
@@ -1330,12 +1386,13 @@ LogicalResult LiveInOp::verify() {
     return emitError("The operand of rock.live_in must be the result of a "
                      "rock.alloc operation.");
 
-  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-      getMemref().getType().getMemorySpace());
-  if (!memSpace ||
-      (memSpace &&
-       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
-    return emitError("The operand of rock.live_in must a LDS memref");
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(getMemref().getType().getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("The operand of rock.live_in must have a specified "
+                     "memory space");
+  if (!memSpaceCheck.value())
+    return emitError("The operand of rock.live_in must be an LDS memref");
 
   return success();
 }
@@ -1350,12 +1407,13 @@ LogicalResult LiveOutOp::verify() {
     return emitError("The operand of rock.live_out must be the result of a "
                      "rock.alloc operation.");
 
-  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-      getMemref().getType().getMemorySpace());
-  if (!memSpace ||
-      (memSpace &&
-       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
-    return emitError("The operand of rock.live_out must a LDS memref");
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(getMemref().getType().getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("The operand of rock.live_out must have a specified "
+                     "memory space");
+  if (!memSpaceCheck.value())
+    return emitError("The operand of rock.live_out must be an LDS memref");
 
   return success();
 }
@@ -1882,12 +1940,12 @@ LogicalResult GlobalLoadToLDSOp::verify() {
   SmallVector<Value> destCoords(getDestCoord());
   MemRefType sourceType = cast<MemRefType>(source.getType());
   MemRefType destType = cast<MemRefType>(dest.getType());
-  Attribute destMemSpaceAttr = destType.getMemorySpace();
-  auto destGpuMemSpaceAttr =
-      dyn_cast_or_null<gpu::AddressSpaceAttr>(destMemSpaceAttr);
-  if (destMemSpaceAttr &&
-      (!destGpuMemSpaceAttr ||
-       destGpuMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup))
+
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(destType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitOpError("Destination memref must have a specified memory space");
+  if (!memSpaceCheck.value())
     return emitOpError("Destination memref must live in workgroup memory");
 
   int64_t numBits = getTransferType().getIntOrFloatBitWidth();
@@ -1987,6 +2045,61 @@ LogicalResult InBoundsStoreOp::verify() {
   if (isa<ShapedType>(dataType) && !isa<VectorType>(dataType))
     return emitOpError(
         "Non-scalar data types must be vectors, not other shaped types");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// LDSTransposeLoadOp
+//===-----------------------------------------------------===//
+void LDSTransposeLoadOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  // This op only reads from LDS (workgroup) memory
+  effects.emplace_back(MemoryEffects::Read::get(), &getSourceMutable());
+
+  // Writes transposed result to destination (VGPRs)
+  effects.emplace_back(MemoryEffects::Write::get());
+}
+
+LogicalResult LDSTransposeLoadOp::verify() {
+  // Source must be memref in workgroup (LDS) address space
+  MemRefType srcType = getSource().getType();
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(srcType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitOpError("source memref must have a specified memory space");
+  if (!memSpaceCheck.value())
+    return emitOpError("source memory address space must be workgroup (LDS)");
+
+  // Result element type must match source element type
+  Type srcElemType = srcType.getElementType();
+  VectorType resultType = getResult().getType();
+  Type resultElemType = resultType.getElementType();
+
+  if (resultElemType != srcElemType) {
+    return emitOpError("result element type (")
+           << resultElemType << ") must match source element type ("
+           << srcElemType << ")";
+  }
+
+  // Check hardware support using AmdArchDb
+  StringAttr archAttr =
+      rock::getArch(*this).value_or(StringAttr::get(getContext(), "gfx00"));
+  StringRef arch = archAttr.getValue();
+  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (!archInfo.hasLdsTransposeLoad) {
+    return emitOpError(
+               "LDS transpose load is not supported on this architecture: ")
+           << arch;
+  }
+
+  // Indices size must match rank
+  if (static_cast<int64_t>(getIndices().size()) != srcType.getRank())
+    return emitOpError("expected " + Twine(srcType.getRank()) + " indices");
+  for (Value idx : getIndices()) {
+    if (!idx.getType().isIndex())
+      return emitOpError("indices must be of index type");
+  }
+
   return success();
 }
 
@@ -2743,14 +2856,12 @@ LogicalResult BlockwiseFillOp::verify() {
   if (memrefType.getRank() != 1) {
     return emitError("Blockwise fill expects a flat memref");
   }
-  if (gpu::AddressSpaceAttr memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-          memrefType.getMemorySpace())) {
-    if (memSpace.getValue() != gpu::AddressSpace::Workgroup) {
-      return emitError("Memory space is expected to be workgroup");
-    }
-  } else {
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(memrefType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("Memref must have a specified memory space");
+  if (!memSpaceCheck.value())
     return emitError("Memory space is expected to be workgroup");
-  }
   int64_t numElements = getMemref().getType().getNumElements();
   if (VectorType vecType = dyn_cast<VectorType>(getValue().getType())) {
     if (numElements % vecType.getNumElements() != 0) {
