@@ -264,8 +264,8 @@ def main():
                       arch=arch,
                       flags=[],
                       concurrent_tests=args.jobs,
-                      numCu=get_num_cu(chip),
-                      logFailures=args.log_failures)
+                      num_cu=get_num_cu(chip),
+                      log_failures=args.log_failures)
 
     if not args.quiet:
         print(f"Sampling {args.samples} configurations from attention space...")
