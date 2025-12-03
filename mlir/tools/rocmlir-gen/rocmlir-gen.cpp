@@ -5507,6 +5507,14 @@ int main(int argc, char **argv) {
     module = ModuleOp::create(UnknownLoc::get(&context));
   }
 
+  if (kernelRepeats.getNumOccurrences() > 0 && !genCPUValidation &&
+      !genHostHarness) {
+    llvm::errs()
+        << "--kernel-repeats is only supported with host harness (-ph) or "
+           "CPU validation (-pv).\n";
+    return EXIT_FAILURE;
+  }
+
   if (genCloneHarness.getValue()) {
     populateCloneHarnessLogic(*module);
   } else if (!hasUserKernel) {
@@ -5546,8 +5554,9 @@ int main(int argc, char **argv) {
   }
 
   if (emitTuningSpace.getNumOccurrences() > 0) {
+    rock::TuningParamSpaceSettings settings;
     std::unique_ptr<rock::TuningParamSet> tunableParams(
-        rock::createTunableParamSpace(*module, emitTuningSpace));
+        rock::createTunableParamSpace(*module, emitTuningSpace, settings));
     SmallString<64> perfConfig;
     for (auto param : tunableParams->tuningRange) {
       param.getPerfConfigStr(perfConfig);

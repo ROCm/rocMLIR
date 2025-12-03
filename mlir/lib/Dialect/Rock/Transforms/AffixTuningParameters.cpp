@@ -288,37 +288,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
   }
 }
 
-static RockAccelTuningParamAttrInterface
-deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
-                        AttnPerfConfigAttr attnPerfConfig) {
-  auto gemm0TuningParams =
-      cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
-  int64_t gemm1KPack = gemm0TuningParams.getKpack();
-  if (auto gemm0XdlDerivedParams =
-          dyn_cast<MfmaGemmParamsAttr>(op.getGemm0Params().value())) {
-    return MfmaGemmParamsAttr::get(
-        builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
-        attnPerfConfig.getMPerBlockG1(), gemm0XdlDerivedParams.getNPerBlock(),
-        gemm0TuningParams.getKpack(),
-        gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() /
-                                           gemm0TuningParams.getMPerBlock()),
-        gemm0XdlDerivedParams.getNPerWave(),
-        gemm0XdlDerivedParams.getMnPerXdl(), attnPerfConfig.getSplitKFactor(),
-        gemm0XdlDerivedParams.getScheduleVersion(),
-        gemm0XdlDerivedParams.getOutputSwizzle(),
-        gemm0XdlDerivedParams.getForceUnroll());
-  }
-  return WmmaGemmParamsAttr::get(
-      builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
-      attnPerfConfig.getMPerBlockG1(), attnPerfConfig.getNPerBlockG0(),
-      gemm0TuningParams.getKpack(),
-      gemm0TuningParams.getMPerWave() *
-          (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
-      gemm0TuningParams.getNPerWave(), gemm0TuningParams.getMnPerXdl(),
-      attnPerfConfig.getSplitKFactor(), gemm0TuningParams.getScheduleVersion(),
-      gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getForceUnroll());
-}
-
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmGemmWrapperInterface op) {
   OpBuilder builder(op.getContext());
@@ -364,55 +333,22 @@ void AffixTuningParameters::affixTuningParametersImpl(
     return signalPassFailure();
   }
 
-  GemmFeatures features = rock::getFeatures(op);
-  RockAccelTuningParamAttrInterface accelParams0;
-  if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
-    accelParams0 = MfmaGemmParamsAttr::get(
-        builder.getContext(), attnPerfConfig.getKpackPerBlock(),
-        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
-        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
-        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
-        attnPerfConfig.getForceUnroll());
-  } else {
-    accelParams0 = WmmaGemmParamsAttr::get(
-        builder.getContext(), attnPerfConfig.getKpackPerBlock(),
-        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
-        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
-        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
-        attnPerfConfig.getForceUnroll());
-  }
-  op.setGemm0ParamsAttr(accelParams0);
-  if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {
-    op.emitError(
-        "The MPerBlockG0 should be larger or equal to getMPerBlockG1.");
+  auto accelParams = getAttentionTuningParams(builder, op, attnPerfConfig);
+  if (failed(accelParams)) {
+    op.emitError("The provided perf config is not valid");
     return signalPassFailure();
   }
-  RockAccelTuningParamAttrInterface accelParams1 =
-      deriveGemm1TuningParams(builder, op, attnPerfConfig);
+  RockAccelTuningParamAttrInterface accelParams0, accelParams1;
+  accelParams0 = accelParams->first;
+  accelParams1 = accelParams->second;
+  LLVM_DEBUG(llvm::dbgs() << "accelParams0=" << accelParams0 << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "accelParams1=" << accelParams1 << "\n");
+  op.setGemm0ParamsAttr(accelParams0);
   op.setGemm1ParamsAttr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
                       accelParams0.getMPerBlock() /
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
-  auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
-  LLVM_DEBUG(llvm::dbgs() << "accelParams0=" << accelParams0 << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "accelParams1=" << accelParams1 << "\n");
-  LogicalResult isValidBlockwiseGemm0 =
-      populateParamsAccelPtr->isValidBlockwiseGemm(
-          accelParams0, cast<MemRefType>(op.getAType()).getElementType(),
-          cast<MemRefType>(op.getBType()).getElementType(),
-          rock::getArchValue(op));
-  LogicalResult isValidBlockwiseGemm1 =
-      populateParamsAccelPtr->isValidBlockwiseGemm(
-          accelParams1, cast<MemRefType>(op.getCType()).getElementType(),
-          cast<MemRefType>(op.getCType()).getElementType(),
-          rock::getArchValue(op));
-  if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {
-    op.emitError("The provided perf config is not valid");
-    return signalPassFailure();
-  }
 
   IntegerAttr blockSizeAttr = builder.getI32IntegerAttr(blockSize);
   func::FuncOp funcOp = getOperation();
