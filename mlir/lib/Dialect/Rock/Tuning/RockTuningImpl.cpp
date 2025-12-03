@@ -30,7 +30,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
-#include <algorithm>
 #include <cstdint>
 #include <random>
 
@@ -41,6 +40,40 @@
 
 namespace mlir {
 namespace rock {
+
+static std::vector<uint32_t> computeDPerBlock(TuningParamSetKind tuningKind) {
+  std::vector<uint32_t> dPerBlockList;
+
+  if (tuningKind == TuningParamSetKind::Greedy) {
+    for (uint32_t dPerBlock = 16; dPerBlock <= 256; dPerBlock += 16) {
+      dPerBlockList.push_back(dPerBlock);
+    }
+  } else {
+    for (uint32_t dPerBlock = 16; dPerBlock <= 256; dPerBlock *= 2) {
+      dPerBlockList.push_back(dPerBlock);
+    }
+  }
+  return dPerBlockList;
+}
+
+static SmallVector<uint32_t> compute1MPerBlock(TuningParamSetKind tuningKind,
+                                               uint32_t gemm0MPerBlock) {
+  SmallVector<uint32_t> mPerBlockList;
+  if (tuningKind == TuningParamSetKind::Greedy) {
+    for (uint32_t mPerBlock = gemm0MPerBlock; mPerBlock <= 256;
+         mPerBlock += 16) {
+      if (mPerBlock % gemm0MPerBlock == 0)
+        mPerBlockList.push_back(mPerBlock);
+    }
+  } else {
+    for (uint32_t mPerBlock = gemm0MPerBlock; mPerBlock <= 256;
+         mPerBlock *= 2) {
+      if (mPerBlock % gemm0MPerBlock == 0)
+        mPerBlockList.push_back(mPerBlock);
+    }
+  }
+  return mPerBlockList;
+}
 
 static SmallVector<uint32_t> computeDPerWave(TuningParamSetKind tuningKind,
                                              uint32_t dPerBlock,
@@ -135,9 +168,10 @@ getSchedules(Operation *op, const TuningParamSetKind &tuningKind) {
 
 static std::vector<std::vector<uint32_t>>
 getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
+  auto dPerBlock = computeDPerBlock(kind);
   std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-      {16, 32, 64, 128, 256},     // M/block
-      {16, 32, 64, 128, 256},     // N/block
+      dPerBlock,                  // M/block
+      dPerBlock,                  // N/block
       {1, 2, 4, 8},               // K/block
       {16, 32},                   // MnPerXdl
       {1, 4, 8, 16, 32},          // kPack
@@ -145,8 +179,8 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
       {0, 1}};                    // forceUnroll
 
   std::vector<std::vector<uint32_t>> validRangeAccelGemmParams8BitReduction = {
-      {16, 32, 64, 128, 256},     // M/block
-      {16, 32, 64, 128, 256},     // N/block
+      dPerBlock,                  // M/block
+      dPerBlock,                  // N/block
       {4, 8, 16, 32},             // K/block
       {16, 32},                   // MnPerXdl
       {1, 4, 8, 16},              // kPack
@@ -162,8 +196,8 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
                       : validRangeAccelGemmParams;
 
   std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
-      {16, 32, 64, 128, 256},     // M/block
-      {16, 32, 64, 128, 256},     // N/block
+      dPerBlock,                  // M/block
+      dPerBlock,                  // N/block
       {1, 2, 4, 8},               // K/block
       {16},                       // MnPerXdl
       {4, 8, 16},                 // kPack
@@ -177,27 +211,20 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
   return validRangeWmmaGemmParams;
 }
 
-static SmallVector<uint32_t> compute1MPerBlock(uint32_t gemm0MPerBlock) {
-  SmallVector<uint32_t> mPerBlockList;
-  for (uint32_t mPerBlock = gemm0MPerBlock; mPerBlock <= 256; mPerBlock *= 2) {
-    mPerBlockList.push_back(mPerBlock);
-  }
-  return mPerBlockList;
-}
-
 static std::vector<std::vector<uint32_t>>
 getAccelRangeAttn(RockGemmGemmWrapperInterface gemmGemmOp,
                   TuningParamSetKind kind) {
+  auto dPerBlock = computeDPerBlock(kind);
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsMFMA = {
-      /*gemm0MPerBlock=*/{16, 32, 64, 128, 256},
-      /*gemm0NPerBlock=*/{16, 32, 64, 128, 256},
+      /*gemm0MPerBlock=*/dPerBlock,
+      /*gemm0NPerBlock=*/dPerBlock,
       /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
       /*mnPerXdl=*/{4, 16, 32},
       /*kPack=*/{4, 8, 16},
       getSchedules(gemmGemmOp, kind)};
   static const std::vector<std::vector<uint32_t>> validRangeAttnParamsWMMA = {
-      /*gemm0MPerBlock=*/{16, 32, 64, 128},
-      /*gemm0NPerBlock=*/{16, 32, 64, 128, 256},
+      /*gemm0MPerBlock=*/dPerBlock,
+      /*gemm0NPerBlock=*/dPerBlock,
       /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
       /*mnPerXdl=*/{16},
       /*kPack=*/{4, 8, 16},
@@ -241,7 +268,8 @@ static void createAttnTuningRangeGreedyPhase1(
   for (uint32_t gemm0MPerBlock : params[0]) {
     SmallVector<uint32_t> mPerWaveRange =
         computeDPerWave(TuningParamSetKind::Greedy, gemm0MPerBlock, waveSize);
-    SmallVector<uint32_t> mPerBlockGemm1 = compute1MPerBlock(gemm0MPerBlock);
+    SmallVector<uint32_t> mPerBlockGemm1 =
+        compute1MPerBlock(TuningParamSetKind::Greedy, gemm0MPerBlock);
     for (uint32_t gemm1MPerBlock : mPerBlockGemm1) {
       for (uint32_t gemm0NPerBlock : params[1]) {
         SmallVector<uint32_t> nPerWaveRange = computeDPerWave(
@@ -255,8 +283,10 @@ static void createAttnTuningRangeGreedyPhase1(
                                    optimalSplitKFactors.size();
         uint32_t numRandomIterations =
             std::min(numRandomPerTileSize, totalIterations);
-        for (uint32_t randomIteration = 0;
-             randomIteration < numRandomIterations;) {
+        for (uint32_t randomIteration = 0, iterations = 0;
+             (randomIteration < numRandomIterations) &&
+             (iterations < 2 * numRandomIterations);
+             iterations++) {
           uint32_t gemmKPerBlock = params[2][rng() % params[2].size()];
           uint32_t gemmMPerWave = mPerWaveRange[rng() % mPerWaveRange.size()];
           uint32_t gemmNPerWave = nPerWaveRange[rng() % nPerWaveRange.size()];
@@ -308,7 +338,6 @@ static void createAttnTuningRangeGreedyPhase2(
 
   SmallVector<uint32_t> mPerWaveRange =
       computeDPerWave(TuningParamSetKind::Greedy, gemm0MPerBlock, waveSize);
-  SmallVector<uint32_t> mPerBlockGemm1 = compute1MPerBlock(gemm0MPerBlock);
   SmallVector<uint32_t> nPerWaveRange =
       computeDPerWave(TuningParamSetKind::Greedy, gemm0NPerBlock, waveSize);
   auto optimalSplitKFactors =
@@ -363,7 +392,8 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
   for (uint32_t gemm0MPerBlock : validRangeAttnParams[0]) {
     SmallVector<uint32_t> mPerWaveRange =
         computeDPerWave(kind, gemm0MPerBlock, waveSize);
-    SmallVector<uint32_t> mPerBlockGemm1 = compute1MPerBlock(gemm0MPerBlock);
+    SmallVector<uint32_t> mPerBlockGemm1 =
+        compute1MPerBlock(kind, gemm0MPerBlock);
     for (uint32_t gemm1MPerBlock : mPerBlockGemm1) {
       for (uint32_t gemm0NPerBlock : validRangeAttnParams[1]) {
         SmallVector<uint32_t> nPerWaveRange =
@@ -776,8 +806,10 @@ static void createGemmTuningRangeGreedyPhase1(TuningParamSet *newSpace,
                                  params[6].size();
       uint32_t numRandomIterations =
           std::min(numRandomPerTileSize, totalIterations);
-      for (uint32_t randomIteration = 0;
-           randomIteration < numRandomIterations;) {
+      for (uint32_t randomIteration = 0, iterations = 0;
+           (randomIteration < numRandomIterations) &&
+           (iterations < 2 * numRandomIterations);
+           iterations++) {
         uint32_t gemmKPerBlock = params[2][rng() % params[2].size()];
         uint32_t gemmMPerWave = mPerWaveRange[rng() % mPerWaveRange.size()];
         uint32_t gemmNPerWave = nPerWaveRange[rng() % nPerWaveRange.size()];
