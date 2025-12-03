@@ -29,6 +29,7 @@
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -183,7 +184,7 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      ValueRange regCOffset, Value scaleA,
                                      Value scaleB) {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
-  int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
+  int64_t mfmaDDim = mfmaAttr.mfmaDDim;
   auto imms = mfmaGroup.getImms();
   int64_t nResultVectors = imms.size();
   Value nResultVectorsConst = ConstantIndexOp::create(b, loc, nResultVectors);
@@ -203,12 +204,12 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
     Value vectorD;
     if (isScaled) {
       auto mfma = amdgpu::ScaledMFMAOp::create(
-          b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k, argA, argB,
+          b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k, argA, argB,
           vectorC, scaleA, scaleB, /*scalesIdxA=*/0, /*scalesIdxB=*/0);
       vectorD = mfma.getDestD();
     } else {
       auto mfma = amdgpu::MFMAOp::create(
-          b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
+          b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k,
           mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
           /*abid=*/imms[i].abid, /*blgp=*/imms[i].blgp,
           /*reducePrecision=*/false, /*negateA=*/false, /*negateB=*/false,
@@ -283,7 +284,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
   int64_t rowGroupSize = mfmaAttr.rowGroupSize;
   int64_t rowGroupsPerBlock = mfmaAttr.rowGroupsPerBlock;
   int64_t inputSpanLen = mfmaAttr.inputSpanLen;
-  int64_t m = mfmaAttr.mfmaNonKDim;
+  int64_t m = mfmaAttr.mfmaDDim;
 
   // Note n has the 4x4 => 4x64 behavior that necessitated
   // inputSpansPerMfmaIn
@@ -371,11 +372,13 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
     // threadid/iter dimensions on both the M/N axis.
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
                                           toRowsAndColsAttr};
-    mlir::rock::swapThreadIdAndIteration(
+    FailureOr<TopDownTMBuilder> swapRes = mlir::rock::swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
         inMPerThread, inNPerThread, mPerBlock, nPerBlock,
         doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
         /*isBlockwise=*/false, transformAttrs);
+    if (failed(swapRes))
+      return failure();
 
     ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
@@ -586,6 +589,16 @@ bool MfmaEmitter::isKReduction() const {
 int64_t MfmaEmitter::getRowGroupSize() const {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   return mfmaAttr.rowGroupSize;
+}
+
+int64_t MfmaEmitter::getMfmaK() const {
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  return mfmaAttr.k;
+}
+
+int64_t MfmaEmitter::getMfmaDDim() const {
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  return mfmaAttr.mfmaDDim;
 }
 
 llvm::FailureOr<RegsAsMatrixSubTiles>
@@ -825,6 +838,16 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   params.accVectorType = wmmaInsn.retType;
 
   return params;
+}
+
+int64_t WmmaEmitter::getMfmaK() const {
+  // K dimension is encoded in the input vector length
+  return wmmaInsn.argTypeA.getNumElements();
+}
+
+int64_t WmmaEmitter::getMfmaDDim() const {
+  // D dimension (M/N) for WMMA is always dPerAccel
+  return wmmaInsn.dPerAccel;
 }
 
 Value WmmaEmitter::wrapLDSBufferForLoad(
@@ -1098,9 +1121,27 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
   auto vectorC =
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
-  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, argA, argB, vectorC,
-                                     /*subwordOffset=*/0, /*unsignedA=*/false,
-                                     /*unsignedB=*/false, /*clamp=*/true);
+  // WMMAOp requires explicit m, n, k dimensions as IntegerAttrs
+  auto mAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
+  auto nAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
+  // see WmmaInsnGroup.cpp, all current wmma operations have k=16
+  auto kAttr = b.getI32IntegerAttr(16);
+  auto subwordOffsetAttr = b.getI32IntegerAttr(0);
+
+  // Clamp flag is only valid for integer output types
+  Type elementType = vectorType.getElementType();
+  UnitAttr clampAttr =
+      isa<IntegerType>(elementType) ? b.getUnitAttr() : nullptr;
+
+  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, mAttr, nAttr, kAttr,
+                                     argA, argB, vectorC, subwordOffsetAttr,
+                                     /*unsignedA=*/nullptr,
+                                     /*unsignedB=*/nullptr, clampAttr);
+
+  // auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, argA, argB, vectorC,
+  //                                    /*subwordOffset=*/0,
+  //                                    /*unsignedA=*/false,
+  //                                    /*unsignedB=*/false, /*clamp=*/true);
   auto vectorD = mfma.getDestD();
 
   memref::StoreOp::create(b, loc, vectorD, bufferC, regCOffset);
@@ -1188,11 +1229,13 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
                       ArrayRef<int64_t>{dimSizesN}.slice(1));
 
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
-    mlir::rock::swapThreadIdAndIteration(
+    FailureOr<TopDownTMBuilder> swapRes = mlir::rock::swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
         inMPerThread, inNPerThread, mPerBlock, nPerBlock,
         doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
         /**isBlockwise=*/false, transformAttrs);
+    if (failed(swapRes))
+      return failure();
 
     ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }

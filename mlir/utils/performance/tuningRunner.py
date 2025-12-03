@@ -183,8 +183,10 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
             test_vector = config.to_command_line()
             print("Tuning:", test_vector, file=sys.stderr)
             command_line_options = config.generate_mlir_driver_commandline(
-                options.rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS)
-            # Note, we don't need the -ph, this goes to the tuning driver
+                options.rocmlir_gen_flags, kernel_repeats=None)
+            # Note, we don't need the -ph, this goes to the tuning driver.
+            # Because we don't set -ph, kernel_repeats is set to None.
+            # This is because the kernel-repeats flag is only supported with host harness or CPU validation.
             kernel_gen_command = paths.mlir_paths.rocmlir_gen_path + ' ' + command_line_options
             kernel_gen = subprocess.Popen(kernel_gen_command.split(),
                                           stdout=subprocess.PIPE,
@@ -345,7 +347,7 @@ def main(args=None):
 
     parser.add_argument("--tuning-space",
                         default="full",
-                        choices=["quick", "full", "exhaustive"],
+                        choices=["quick", "full", "greedy", "exhaustive"],
                         help="Which space of tuning configs should be used while tuning")
     parser.add_argument("--quiet",
                         "-q",

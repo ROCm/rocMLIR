@@ -1542,8 +1542,8 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
     }
 
     // split KV to batch
-    Value resultTensor = b.create<bufferization::ToTensorOp>(
-        loc,
+    Value resultTensor = bufferization::ToTensorOp::create(
+        b, loc,
         memref::getTensorTypeFromMemRefType(
             cpuMem[cpuMem.size() - 1].getType()),
         cpuMem[cpuMem.size() - 1], true, false);
@@ -3044,7 +3044,7 @@ static Value createMaskSplitKV(OpBuilder &builder, Location loc,
   auto denseAttr =
       DenseElementsAttr::get(initialType, ArrayRef<int32_t>(validSplitKV));
   Value initialTensor =
-      builder.create<tosa::ConstOp>(loc, initialType, denseAttr);
+      tosa::ConstOp::create(builder, loc, initialType, denseAttr);
 
   // Create zero tensor of target shape
   auto outType = RankedTensorType::get(shape, builder.getI32Type());
@@ -3141,8 +3141,8 @@ static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
 
   // convert to one dimensional tensor
   SmallVector<ReassociationIndices> reassocIndices = {{0, 1, 2, 3}};
-  finalResult =
-      builder.create<tensor::CollapseShapeOp>(loc, finalResult, reassocIndices);
+  finalResult = tensor::CollapseShapeOp::create(builder, loc, finalResult,
+                                                reassocIndices);
   return finalResult;
 }
 
@@ -3648,8 +3648,8 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
             Value add = arith::AddIOp::create(builder, loc, mul, c);
             linalg::YieldOp::create(builder, loc, add);
           } else {
-            a = builder.create<arith::MulFOp>(loc, a, aScale);
-            b = builder.create<arith::MulFOp>(loc, b, bScale);
+            a = arith::MulFOp::create(builder, loc, a, aScale);
+            b = arith::MulFOp::create(builder, loc, b, bScale);
             Value mul = arith::MulFOp::create(builder, loc, a, b);
             Value add = arith::AddFOp::create(builder, loc, mul, c);
             linalg::YieldOp::create(builder, loc, add);
@@ -4473,7 +4473,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
       thr_relDiff = getF32Val(100.0f);
     Type boolType = b.getIntegerType(1);
     bool isFP32 = isa<Float32Type>(testElemType);
-    auto isFP32Val = b.create<arith::ConstantIntOp>(loc, boolType, isFP32);
+    auto isFP32Val = arith::ConstantIntOp::create(b, loc, boolType, isFP32);
 
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, floatType,
@@ -5507,6 +5507,14 @@ int main(int argc, char **argv) {
     module = ModuleOp::create(UnknownLoc::get(&context));
   }
 
+  if (kernelRepeats.getNumOccurrences() > 0 && !genCPUValidation &&
+      !genHostHarness) {
+    llvm::errs()
+        << "--kernel-repeats is only supported with host harness (-ph) or "
+           "CPU validation (-pv).\n";
+    return EXIT_FAILURE;
+  }
+
   if (genCloneHarness.getValue()) {
     populateCloneHarnessLogic(*module);
   } else if (!hasUserKernel) {
@@ -5546,8 +5554,9 @@ int main(int argc, char **argv) {
   }
 
   if (emitTuningSpace.getNumOccurrences() > 0) {
+    rock::TuningParamSpaceSettings settings;
     std::unique_ptr<rock::TuningParamSet> tunableParams(
-        rock::createTunableParamSpace(*module, emitTuningSpace));
+        rock::createTunableParamSpace(*module, emitTuningSpace, settings));
     SmallString<64> perfConfig;
     for (auto param : tunableParams->tuningRange) {
       param.getPerfConfigStr(perfConfig);
