@@ -599,7 +599,7 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
         unsigned otherCnts = ~0xC00F; // C00F has bits 15:14 and 3:0 set
         unsigned waitValue = lowBits | highBits | otherCnts;
 
-        ROCDL::SWaitcntOp::create(rewriter,loc, waitValue);
+        ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);
 
         constexpr int32_t ldsOnlyBitsGfx6789 = ~(0x1f << 8);
         constexpr int32_t ldsOnlyBitsGfx10 = ~(0x3f << 8);
@@ -613,8 +613,8 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
           ldsOnlyBits = ldsOnlyBitsGfx6789;
         else
           return op.emitOpError(
-                    "don't know how to lower this for chipset major version")
-                << chipset.majorVersion;
+                     "don't know how to lower this for chipset major version")
+                 << chipset.majorVersion;
         ROCDL::SWaitcntOp::create(rewriter, loc, ldsOnlyBits);
       }
       ROCDL::SBarrierOp::create(rewriter, loc);
@@ -627,7 +627,7 @@ struct LDSBarrierOpLowering : public ConvertOpToLLVMPattern<LDSBarrierOp> {
         unsigned asyncCnt = 0;
         ROCDL::WaitAsynccntOp::create(rewriter, loc, asyncCnt);
       }
-      rewriter.replaceOpWithNewOp<ROCDL::SBarrierOp>(op);
+      ROCDL::SBarrierOp::create(rewriter, loc);
     } else {
       ROCDL::BarrierSignalOp::create(rewriter, loc, -1);
       ROCDL::BarrierWaitOp::create(rewriter, loc, -1);
