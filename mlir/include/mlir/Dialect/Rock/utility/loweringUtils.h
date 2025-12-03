@@ -311,7 +311,8 @@ std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
 FailureOr<ThreadwiseReadIntoLoopInfo>
 getThreadwiseReadIntoLoopInfo(const ThreadwiseReadIntoLoopConfigInput &input);
 
-/// Returns a prediction of the loop count after the ThreadwiseReadIntoOp op is lowered.
+/// Returns a prediction of the loop count after the ThreadwiseReadIntoOp op is
+/// lowered.
 FailureOr<int64_t> predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op);
 
 } // end namespace rock

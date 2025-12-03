@@ -45,8 +45,7 @@ struct AsyncWaitOpConversion
   AsyncWaitOpConversion(const LLVMTypeConverter &converter,
                         amdgpu::Chipset chipset, bool supportsDirectToLDS)
       : ConvertOpToLLVMPattern<rock::AsyncWaitOp>(converter), chipset(chipset),
-        supportsDirectToLDS(supportsDirectToLDS) {
-  }
+        supportsDirectToLDS(supportsDirectToLDS) {}
 
   mlir::amdgpu::Chipset chipset;
   bool supportsDirectToLDS;
