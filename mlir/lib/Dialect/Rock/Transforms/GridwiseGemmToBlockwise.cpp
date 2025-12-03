@@ -728,13 +728,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         "gemmBlockN", 4, {"n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
         {gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave, nPerThread});
 
-    swapThreadIdAndIteration(
+    FailureOr<TopDownTMBuilder> swapRes = swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1],
         /*nBlocks=*/bidGridLengths[2], maybeVecDimInfoA->inDPerThread,
         maybeVecDimInfoB->inDPerThread, mPerBlock, nPerBlock,
         ldsLayoutConfigA.doSwapThreadIterSubDims,
         ldsLayoutConfigB.doSwapThreadIterSubDims,
         /*isBlockwise=*/false, transformAttrs);
+    if (failed(swapRes))
+      return failure();
 
     Value registerC = registerMatrixCAllocOp;
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(transformAttrs);

@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/Support/LogicalResult.h"
 
 namespace mlir {
 class Operation;
@@ -177,7 +178,7 @@ Value normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
 // and the iter id dimensions, so that the threads write in a contiguous fashion
 // minimizing LDS bank conflicts.  This transformation swap those dimensions
 // back before producing the final output view
-TopDownTMBuilder
+FailureOr<TopDownTMBuilder>
 swapThreadIdAndIteration(TopDownTMBuilder &toMatrixC, int64_t mBlocks,
                          int64_t nBlocks, int64_t copyMPerThread,
                          int64_t copyNPerThread, int64_t mPerBlock,

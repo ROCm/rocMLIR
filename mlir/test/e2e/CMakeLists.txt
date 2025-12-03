@@ -62,6 +62,7 @@ if (ROCK_E2E_TEST_ENABLED)
   GemmScaled
   GemmScaledF32
   MixedConvLayouts
+  GemmVariantsNonPowerOfTwoTileSize
   )
   list(APPEND CONFIGS
   Resnet50Config
@@ -96,6 +97,7 @@ if (ROCK_E2E_TEST_ENABLED)
   AttentionDirectToLDS
   GemmElementwiseGemmDirectToLDS
   ConvElementwiseGemmDirectToLDS
+  AttentionNonPowerOfTwoTileSize
   )
 endif()
 # Create a list for dummy files
