@@ -121,7 +121,7 @@ static auto getMfmaInsnInfoMap = []() -> const llvm::StringMap<MfmaInsnInfo> & {
 };
 
 static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
-  int64_t mfmaNonKDim = info.mfmaNonKDim;
+  int64_t mfmaDDim = info.mfmaDDim;
   int64_t k = info.k;
   int64_t blocksMfma = info.blocksMfma;
 
@@ -129,15 +129,15 @@ static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
   // Derived properties of the individual MFMA. These are computed here
   // and used in places throughout the code and may not all be needed.
   int64_t kPerMfmaInput =
-      math_util::integer_divide_ceil(waveSize, mfmaNonKDim * blocksMfma);
+      math_util::integer_divide_ceil(waveSize, mfmaDDim * blocksMfma);
   // k_base is the number of times you need to step in the k dimension on each
   // lane in a wave.
   int64_t k_base = k / kPerMfmaInput;
 
   // Number of logical values each thread needs to pass in to the MFMA in
   // order for the correct number of input values to be passed to the MFMA.
-  int64_t nInputsToMfma = (mfmaNonKDim * blocksMfma * k) / waveSize;
-  int64_t nOutputsOfMfma = (mfmaNonKDim * mfmaNonKDim * blocksMfma) / waveSize;
+  int64_t nInputsToMfma = (mfmaDDim * blocksMfma * k) / waveSize;
+  int64_t nOutputsOfMfma = (mfmaDDim * mfmaDDim * blocksMfma) / waveSize;
 
   constexpr int64_t rowGroupSize = 4;
   // The number of rows in each MFMA output item (usually a VGPR, except in
@@ -152,19 +152,19 @@ static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
   // (remembering that the rows are first tiled into groups of group_size
   // outputs). Therefore, we need to impose the bound m_mfma / group_size on
   // the number of rows per output.
-  int64_t rowsPerMfmaOutput = std::min(waveSize / /*n_mfma=*/mfmaNonKDim,
-                                       /*m_mfma=*/mfmaNonKDim / rowGroupSize);
+  int64_t rowsPerMfmaOutput = std::min(waveSize / /*n_mfma=*/mfmaDDim,
+                                       /*m_mfma=*/mfmaDDim / rowGroupSize);
   // The number of blocks in each MFMA output. If rowsPerMfmaOutput followed
   // the typical case and was computed using waveSize / n_mfma, this will
   // be 1. However, in the 4x4 case, where we do have 16 blocks packed into
   // each output blocksPerOutput will be > 1 (namely 16).
   int64_t blocksPerMfmaOutput = math_util::integer_divide_ceil(
-      waveSize, rowsPerMfmaOutput * /*n_mfma=*/mfmaNonKDim);
+      waveSize, rowsPerMfmaOutput * /*n_mfma=*/mfmaDDim);
   // The number of register groups (of four rows) per block of output
   // Note that the inclusion of blocksPerOutput forces this value to be 1 in
   // the 4x4 case, as it should be.
   int64_t rowGroupsPerBlock = math_util::integer_divide_ceil(
-      /*m_mfma=*/mfmaNonKDim,
+      /*m_mfma=*/mfmaDDim,
       rowGroupSize * rowsPerMfmaOutput * blocksPerMfmaOutput);
   // Number of output blocks that can be accessed by going through the
   // registers on any given lane.
@@ -174,15 +174,15 @@ static MfmaInsnAttr deriveAttr(MfmaInsnInfo info) {
   // and because they're only used for broadcast operations, we have
   // historically represented them as 4x64 operations that have one large
   // "block" instead of 16 tiny ones. So, the length of an input span
-  // (row for A, column for B) is usually equal to mfmaNonKDim, but is
-  // more generally equal to mfmaNonKDim * blocksPerOutput in order to
+  // (row for A, column for B) is usually equal to mfmaDDim, but is
+  // more generally equal to mfmaDDim * blocksPerOutput in order to
   // enable the math throughout our code to note break.
-  int64_t inputSpanLen = mfmaNonKDim * blocksPerMfmaOutput;
+  int64_t inputSpanLen = mfmaDDim * blocksPerMfmaOutput;
   int64_t inputSpansPerMfmaIn = waveSize / inputSpanLen;
 
   bool isKReduction = (blocksInOutRegs == 1) && (inputSpansPerMfmaIn > 1);
 
-  return {mfmaNonKDim,
+  return {mfmaDDim,
           k,
           blocksMfma,
           nInputsToMfma,
@@ -659,14 +659,14 @@ MfmaInsnGroup::MfmaInsnGroup(Type elementTypeA, Type elementTypeB,
 int64_t MfmaInsnGroup::getMRepeats(int64_t mPerWave) {
   auto mfmaInsnAttr = getInsnAttr();
   // mnPerXdl is how many row/columns a single Xdlops instruction will compute
-  int64_t mnPerXdl = (mfmaInsnAttr.mfmaNonKDim * mfmaInsnAttr.blocksMfma);
+  int64_t mnPerXdl = (mfmaInsnAttr.mfmaDDim * mfmaInsnAttr.blocksMfma);
   return std::max(int64_t(1), mPerWave / mnPerXdl);
 }
 
 int64_t MfmaInsnGroup::getNRepeats(int64_t nPerWave) {
   auto mfmaInsnAttr = getInsnAttr();
   // mnPerXdl is how many row/columns a single Xdlops instruction will compute
-  int64_t mnPerXdl = (mfmaInsnAttr.mfmaNonKDim * mfmaInsnAttr.blocksMfma);
+  int64_t mnPerXdl = (mfmaInsnAttr.mfmaDDim * mfmaInsnAttr.blocksMfma);
   return std::max(int64_t(1), nPerWave / mnPerXdl);
 }
 

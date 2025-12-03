@@ -474,10 +474,6 @@ traceToNonViewReaders(Operation *op, Value parentVal,
     if (hasEffect<MemoryEffects::Read>(memEffectOp, parentVal)) {
       nonViewReaders.push_back(op);
     }
-  } else if (auto copyOp = dyn_cast<CopyOpInterface>(op)) {
-    if (copyOp.getSource() == parentVal) {
-      nonViewReaders.push_back(op);
-    }
   } else {
     return op->emitError() << "Found an unsupported operator that needs to "
                               "be added reader checks \n"
@@ -690,7 +686,8 @@ makeExtraInputTile(LinalgAlignRewriter &b, TiledOp tiledOp, Value src,
       validityRecord != nullptr ? TypeRange{validityRecordResultType}
                                 : TypeRange{},
       src, alloc, dynamicValidities, tiledOp.getExtraViews(),
-      /*extraIndices=*/tiledOp.getExtraIndices(), forceUnroll, useIndexDiffs);
+      /*extraIndices=*/tiledOp.getExtraIndices(), forceUnroll, useIndexDiffs,
+      /*ldsTransposeConfig=*/nullptr);
   if (validityRecord != nullptr)
     *validityRecord = threadwiseReadIntoOp.getValidityRecord();
 
@@ -917,7 +914,8 @@ reapplyPaddingIfNeeded(linalg::GenericOp reconfiguredGeneric,
       unmaskedTile, originalTile,
       /*dynamicValidities=*/validityRecords,
       /*extraViews=*/b.getArrayAttr({}), /*extraIndices=*/ValueRange{},
-      /*forceUnroll=*/false, /*useIndexDiffs=*/false);
+      /*forceUnroll=*/false, /*useIndexDiffs=*/false,
+      /*ldsTransposeConfig=*/nullptr);
   return maskingRead.getValidityRecord();
 }
 
