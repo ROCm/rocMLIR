@@ -56,10 +56,10 @@ def to_attn_config(params, options: Options) -> AttentionConfiguration:
                                          head_dim_v=hdv,
                                          with_attn_scale=scale,
                                          with_attn_bias=bias,
-                                         transQ=tq,
-                                         transK=tk,
-                                         transV=tv,
-                                         transO=to,
+                                         trans_q=tq,
+                                         trans_k=tk,
+                                         trans_v=tv,
+                                         trans_o=to,
                                          causal=causal,
                                          return_lse=rlse,
                                          split_kv=split_kv,
@@ -134,10 +134,10 @@ def sample_attn_shape():
         random.randint(1, 1024),  # HEAD_DIM_V
         random.choice(BOOLS),  # with_attn_scale
         random.choice(BOOLS),  # with_attn_bias
-        random.choice(BOOLS),  # transQ
-        random.choice(BOOLS),  # transK
-        random.choice(BOOLS),  # transV
-        random.choice(BOOLS),  # transO
+        random.choice(BOOLS),  # trans_q
+        random.choice(BOOLS),  # trans_k
+        random.choice(BOOLS),  # trans_v
+        random.choice(BOOLS),  # trans_o
         random.choice(BOOLS),  # causal
         return_lse,
         split_kv,
