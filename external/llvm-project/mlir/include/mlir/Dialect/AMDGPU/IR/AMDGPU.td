@@ -997,9 +997,6 @@ def AMDGPU_AsyncLoadToLDSOp :
       the size of the data to be transferred and the number of threads in the subgroup.
       The transfer type must be a scalar type or a vector type with a single element type.
 
-    The `$dst`, along with its indices, points to the memory location the subgroup of this thread
-    will write to.
-
     Note: only supported on gfx1250+
   }];
   let assemblyFormat = [{
