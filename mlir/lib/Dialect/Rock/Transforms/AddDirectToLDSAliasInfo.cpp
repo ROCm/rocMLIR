@@ -16,12 +16,7 @@
 //===----------------------------------------------------------------------===//
 //
 // This pass adds alias scope information to operations that perform
-// direct-to-LDS loads or stores and local loads or stores.
-//
-// This includes:
-// - rocdl.load_to_lds operations (direct loads to LDS)
-// - llvm.load operations from global memory to LDS  (local loads)
-// - llvm.store operations to LDS from global memory (local stores)
+// direct-to-LDS loads or stores and LDS loads or stores.
 //
 //===----------------------------------------------------------------------===//
 
@@ -45,7 +40,7 @@ namespace rock {
 } // namespace rock
 } // namespace mlir
 
-#define DEBUG_TYPE "add-direct-to-lds-alias-info"
+#define DEBUG_TYPE "rock-add-direct-to-lds-alias-info"
 
 using namespace mlir;
 using namespace mlir::rock;
@@ -57,7 +52,7 @@ LLVM::AliasScopeDomainAttr getScopeDomain(MLIRContext *ctx) {
       b.getStringAttr("amdgpu.LoadsScope"),
       b.getStringAttr(
           "Domain to hold alias scopes to specify aliasing information for "
-          "operations that load directly from global memory to LDS"));
+          "LDS loads or direct-to-LDS loads"));
 }
 
 LLVM::AliasScopeAttr getDirectToLDSLoadScope(MLIRContext *ctx) {
@@ -148,9 +143,6 @@ struct RockAddDirectToLDSAliasInfoPass
             assert(effectValue && "Effect value is null");
 
             if (isLDSPointer(effectValue)) {
-              // We lower rock ops to GatherToLDS ops, which then are lowered to
-              // operations that write to LDS at this point, so here its the
-              // right moment to add alias scope information.
               LLVM_DEBUG(llvm::dbgs()
                          << aliasOp->getName() << ": Adding to aliasScope\n");
               addDirectToLDSLoadAliasScope(aliasIface);
