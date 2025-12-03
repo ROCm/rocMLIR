@@ -1,4 +1,7 @@
 // RUN: rocmlir-driver --rock-pipeline %s | FileCheck %s
+// RUN: rocmlir-driver --rock-pipeline %s | FileCheck %s --check-prefix=COUNT
+
+// COUNT-COUNT-1: rock.lds_barrier
 
 module {
   func.func @pipeline_loop_in_scf_if(%arg0: memref<128xf16>, %arg1: memref<128xf16>, %arg2: memref<128xf16>, %arg3: i32) attributes {block_size = 64 : i32, grid_size = 1 : i32, kernel} {
