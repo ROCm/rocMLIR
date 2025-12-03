@@ -496,8 +496,12 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
   // CHECK-NEXT: %[[endSplitKV:.+]] = arith.muli %[[splitPlusOne]], %[[gemm0MIterations]] : index
   // CHECK-NEXT: %[[endIter:.+]] = arith.minui %[[numIter]], %[[endSplitKV]] : index
   // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[endIter]], %[[c1]] : index
-  // CHECK-NEXT: %[[someWorkToDo:.+]] = arith.cmpi ugt, %[[endIter]], %[[startIter]] : index
-  // CHECK-NEXT: scf.if %[[someWorkToDo]]
+  
+  // TODO: Revert this change when we don't need to skipEarlyExit workaround for
+  //       flash decoding
+  // BUG-CHECK-NEXT: %[[someWorkToDo:.+]] = arith.cmpi ugt, %[[endIter]], %[[startIter]] : index
+  // BUG-CHECK-NEXT: scf.if %[[someWorkToDo]]
+
   // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[startIter]] to %[[endIter]] step %[[c1]] {
   // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
   // CHECK-NEXT: scf.if %[[comparison]] {
