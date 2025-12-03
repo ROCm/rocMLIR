@@ -126,8 +126,8 @@ struct GpuAllocRewritePattern : OpRewritePattern<gpu::AllocOp> {
       newAllocResultTypes.push_back(allocOp.getAsyncToken().getType());
 
     rewriter.setInsertionPoint(allocOp);
-    auto newAlloc = rewriter.create<gpu::AllocOp>(
-        allocOp.getLoc(), newAllocResultTypes,
+    auto newAlloc = gpu::AllocOp::create(
+        rewriter, allocOp.getLoc(), newAllocResultTypes,
         ValueRange{allocOp.getDynamicSizes()},
         ValueRange{allocOp.getAsyncDependencies()},
         ValueRange{allocOp.getSymbolOperands()}, allocOp.getHostShared());
@@ -141,8 +141,8 @@ struct GpuAllocRewritePattern : OpRewritePattern<gpu::AllocOp> {
       castOutputTypes.push_back(allocOp.getAsyncToken().getType());
     }
 
-    auto castBack = rewriter.create<UnrealizedConversionCastOp>(
-        allocOp.getLoc(), castOutputTypes, castInputs);
+    auto castBack = UnrealizedConversionCastOp::create(
+        rewriter, allocOp.getLoc(), castOutputTypes, castInputs);
 
     allocOp.replaceAllUsesWith(castBack.getResults());
     rewriter.eraseOp(allocOp);

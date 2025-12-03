@@ -103,6 +103,10 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
 
+// Returns true if the provided memory space attribute encodes GPU workgroup
+// memory. Returns failure if memorySpace is null (unspecified).
+FailureOr<bool> isWorkgroupMemorySpace(Attribute memorySpace);
+
 // Return true if this shaped type will occupy more than 4 GB (2 ^ 32 bytes)
 // in memory.
 bool is4GBMemoryType(ShapedType type);

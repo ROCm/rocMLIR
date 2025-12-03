@@ -228,9 +228,9 @@ swapInputOutputDimensions(OpBuilder &rewriter, tosa::CustomOp op, Value weight,
     };
     auto swappedTy =
         RankedTensorType::get(swappedShape, weightTy.getElementType());
-    weight = rewriter.create<tosa::TransposeOp>(
-        op.getLoc(), swappedTy, weight,
-        rewriter.getDenseI32ArrayAttr({3, 1, 2, 0}));
+    weight =
+        tosa::TransposeOp::create(rewriter, op.getLoc(), swappedTy, weight,
+                                  rewriter.getDenseI32ArrayAttr({3, 1, 2, 0}));
     weightTy = cast<ShapedType>(weight.getType());
 
     return std::make_tuple(weight, weightTy);

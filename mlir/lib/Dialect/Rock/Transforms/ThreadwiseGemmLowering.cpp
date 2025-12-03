@@ -35,14 +35,14 @@
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
-
-#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/Support/Debug.h"
 
 #include <iterator>
@@ -182,7 +182,7 @@ struct ThreadwiseGemmRewritePattern
       ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
       Value cVal = InBoundsLoadOp::create(b, loc, dataType, bufferC, cCoords);
 
-      Value cVector = vector::SplatOp::create(b, loc, abType, cVal);
+      Value cVector = vector::BroadcastOp::create(b, loc, abType, cVal);
       Value result;
       if (isa<IntegerType>(dataType)) {
         Value mul = MulIOp::create(b, loc, aVal, bVal);
@@ -796,13 +796,23 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   auto globalToLDSTransform = maybeGlobalToLDSTransform.value();
 
+  // Check if the operation has the LDS transpose config dictionary
+  if (op.getLdsTransposeConfigAttr()) {
+    // Emit hardware transpose load sequence directly from config
+    if (failed(rock::hwtranspose::emitThreadwiseHWTranspose(b, op, blockSize,
+                                                            waveSize))) {
+      return op.emitOpError("LDS transpose load emission failed");
+    }
+    return success();
+  }
+
   bool recordsValidity =
       op.getValidityRecord() && !op.getValidityRecord().use_empty();
   Value validityInit = nullptr;
   if (recordsValidity) {
     Value trueConst =
         b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-    validityInit = vector::SplatOp::create(
+    validityInit = vector::BroadcastOp::create(
         b, loc, op.getValidityRecord().getType(), trueConst);
   }
   SmallVector<ValueRange> inits{readStartCoords, readStartCoords};
@@ -834,8 +844,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       Type validityType = b.getI1Type();
       if (auto loadVecType = dyn_cast<VectorType>(loadType)) {
         validityType = loadVecType.cloneWith(std::nullopt, validityType);
-        validityToStore =
-            b.createOrFold<vector::SplatOp>(loc, validityType, validityToStore);
+        validityToStore = b.createOrFold<vector::BroadcastOp>(loc, validityType,
+                                                              validityToStore);
       }
       Value validityRecord = loadLoop.getIterArgs()[0];
       nextValidityRecord =
@@ -886,14 +896,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
       // no need to multiply blockSize by constantNumElements, because the
       // stride of the loop is already srcStride
-      Value itemConst = b.create<arith::ConstantIndexOp>(loc, blockSize);
-      Value ldsIndex = b.create<arith::MulIOp>(loc, item, itemConst);
-      Value waveIdConst =
-          b.create<arith::ConstantIndexOp>(loc, waveSize * constantNumElements);
-      Value ldsIndexWave = b.create<arith::MulIOp>(loc, waveId, waveIdConst);
+      Value itemConst = arith::ConstantIndexOp::create(b, loc, blockSize);
+      Value ldsIndex = arith::MulIOp::create(b, loc, item, itemConst);
+      Value waveIdConst = arith::ConstantIndexOp::create(
+          b, loc, waveSize * constantNumElements);
+      Value ldsIndexWave = arith::MulIOp::create(b, loc, waveId, waveIdConst);
       // LDS index is wavefront-uniform as that is needed by load to LDS
       // instruction
-      ldsIndex = b.create<arith::AddIOp>(loc, ldsIndex, ldsIndexWave);
+      ldsIndex = arith::AddIOp::create(b, loc, ldsIndex, ldsIndexWave);
       GlobalLoadToLDSOp::create(b, loc, buffer, dest, validity, directToLDSType,
                                 loadLoop.getLowerCoords(/*domain=*/0),
                                 ValueRange{ldsIndex}, needs64BitIdx);
