@@ -17,6 +17,7 @@
 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
 #include <memory>
 
 #define DEBUG_TYPE "rock-tuning-parameter"
@@ -475,6 +476,16 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
     return failure();
   }
 
+  if (param.getMPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: mPerWave not divisible by mnPerXdl\n");
+    return failure();
+  }
+
+  if (param.getNPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: nPerWave not divisible by mnPerXdl\n");
+    return failure();
+  }
+
   // Reject invalid blockSize
   int64_t kPerBlock = param.getKpackPerBlock() * param.getKpack();
   int64_t mPerBlock = param.getMPerBlock();
@@ -654,6 +665,16 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   if ((param.getNPerBlock() % param.getNPerWave()) != 0)
     return failure();
 
+  if (param.getMPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: mPerWave not divisible by mnPerXdl\n");
+    return failure();
+  }
+
+  if (param.getNPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: nPerWave not divisible by mnPerXdl\n");
+    return failure();
+  }
+
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.
   if (!param.getForceUnroll()) {
@@ -728,4 +749,83 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.gemmMPerWave, nPerWave, mnPerXdl, validParams.splitKFactor,
       validParams.gemmScheduleVersion, validParams.outputSwizzle,
       validParams.gemmAThreadCopyMoreGemmK);
+}
+
+static RockAccelTuningParamAttrInterface
+deriveGemm1TuningParams(OpBuilder &b,
+                        RockAccelTuningParamAttrInterface gemm0TuningParams,
+                        AttnPerfConfigAttr attnPerfConfig) {
+  int64_t gemm1KPack = gemm0TuningParams.getKpack();
+  if (auto gemm0XdlDerivedParams =
+          dyn_cast<MfmaGemmParamsAttr>(gemm0TuningParams)) {
+    return MfmaGemmParamsAttr::get(
+        b.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
+        attnPerfConfig.getMPerBlockG1(), gemm0XdlDerivedParams.getNPerBlock(),
+        gemm0TuningParams.getKpack(),
+        gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() /
+                                           gemm0TuningParams.getMPerBlock()),
+        gemm0XdlDerivedParams.getNPerWave(),
+        gemm0XdlDerivedParams.getMnPerXdl(), attnPerfConfig.getSplitKFactor(),
+        gemm0XdlDerivedParams.getScheduleVersion(),
+        gemm0XdlDerivedParams.getOutputSwizzle(),
+        gemm0XdlDerivedParams.getForceUnroll());
+  }
+  return WmmaGemmParamsAttr::get(
+      b.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
+      attnPerfConfig.getMPerBlockG1(), attnPerfConfig.getNPerBlockG0(),
+      gemm0TuningParams.getKpack(),
+      gemm0TuningParams.getMPerWave() *
+          (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
+      gemm0TuningParams.getNPerWave(), gemm0TuningParams.getMnPerXdl(),
+      attnPerfConfig.getSplitKFactor(), gemm0TuningParams.getScheduleVersion(),
+      gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getForceUnroll());
+}
+
+FailureOr<std::pair<RockAccelTuningParamAttrInterface,
+                    RockAccelTuningParamAttrInterface>>
+mlir::rock::getAttentionTuningParams(OpBuilder &b,
+                                     RockGemmGemmWrapperInterface op,
+                                     AttnPerfConfigAttr attnPerfConfig) {
+  GemmFeatures features = rock::getFeatures(op);
+  RockAccelTuningParamAttrInterface accelParams0;
+  if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
+    accelParams0 = MfmaGemmParamsAttr::get(
+        b.getContext(), attnPerfConfig.getKpackPerBlock(),
+        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
+        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
+        attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
+        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getForceUnroll());
+  } else {
+    accelParams0 = WmmaGemmParamsAttr::get(
+        b.getContext(), attnPerfConfig.getKpackPerBlock(),
+        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
+        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
+        attnPerfConfig.getNPerWave(), attnPerfConfig.getMnPerXdl(), 1,
+        attnPerfConfig.getScheduleVersion(), attnPerfConfig.getOutputSwizzle(),
+        attnPerfConfig.getForceUnroll());
+  }
+  if (attnPerfConfig.getMPerBlockG1() % attnPerfConfig.getMPerBlockG0() != 0) {
+    return failure();
+  }
+  if (attnPerfConfig.getMPerBlockG0() % attnPerfConfig.getKpack() != 0) {
+    return failure();
+  }
+  RockAccelTuningParamAttrInterface accelParams1 =
+      deriveGemm1TuningParams(b, accelParams0, attnPerfConfig);
+  auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
+  LogicalResult isValidBlockwiseGemm0 =
+      populateParamsAccelPtr->isValidBlockwiseGemm(
+          accelParams0, cast<MemRefType>(op.getAType()).getElementType(),
+          cast<MemRefType>(op.getBType()).getElementType(),
+          rock::getArchValue(op));
+  LogicalResult isValidBlockwiseGemm1 =
+      populateParamsAccelPtr->isValidBlockwiseGemm(
+          accelParams1, cast<MemRefType>(op.getCType()).getElementType(),
+          cast<MemRefType>(op.getCType()).getElementType(),
+          rock::getArchValue(op));
+  if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {
+    return failure();
+  }
+  return std::make_pair(accelParams0, accelParams1);
 }
