@@ -251,7 +251,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
-      ("v4:" + Twine(getBlockSize()) + ","
+      ("v3:" + Twine(getBlockSize()) + ","
       + Twine(getMPerBlock()) + ","
       + Twine(getNPerBlock()) + ","
       + Twine(getKPerBlock()) + ","
@@ -321,19 +321,11 @@ def Rock_MfmaGemmParamsAttr
   let description = [{
     The tuning parameters for an mfma-based matrix multiplication.
   }];
-  let parameters = (ins
-    "int64_t":$kpackPerBlock,
-    "int64_t":$mPerBlock,
-    "int64_t":$nPerBlock,
-    "int64_t":$kpack,
-    "int64_t":$mPerWave,
-    "int64_t":$nPerWave,
-    "int64_t":$mnPerXdl,
-    "int64_t":$splitKFactor,
-    "int64_t":$scheduleVersion,
-    "int64_t":$outputSwizzle,
-    "bool":$forceUnroll
-  );
+  let parameters = (ins "int64_t":$kpackPerBlock, "int64_t":$mPerBlock,
+      "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
+      "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
+      "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -505,15 +497,47 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
     - g: gemm parameter G
     - d: gemm parameter D (could be M or N)
     - inDPerThread: How many elements of D (M or N) each thread is going to load from memory.
+    - accelKDim: Accelerator instruction K dimension (for LDS transpose support).
   }];
   let parameters = (ins "Type":$elementType, "Type":$elementTypeLoad,
       "bool":$rotateDWithK, "bool":$swapThreadIterSubDims, "bool":$LDSLayoutDxK,
       "bool":$directToLDS, "bool":$splitKAcrossThreadsFirst, "int64_t":$g,
-      "int64_t":$d, "int64_t":$inDPerThread);
+      "int64_t":$d, "int64_t":$inDPerThread,
+      DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled,
+      DefaultValuedParameter<"int64_t", "0">:$accelKDim);
 
   let assemblyFormat = [{
     `<` struct(params) `>`
   }];
+}
+
+def Rock_LDSTransposeConfigAttr : Rock_Attr<"LDSTransposeConfig", []> {
+  let mnemonic = "lds_transpose_config";
+  let description = [{
+    Configuration parameters for hardware-assisted LDS transpose loads.
+    This attribute encapsulates all the necessary information to emit
+    rock.lds_transpose_load operations with the correct accelerator geometry
+    and tiling parameters.
+    
+    - mfmaDDim: Matrix-multiply accelerator instruction D dimension (M or N, typically 16 or 32)
+    - mfmaKDim: Matrix-multiply accelerator instruction K dimension (typically 8, 16, or 32)
+    - mPerBlock: M dimension size per block
+    - nPerBlock: N dimension size per block
+    - kPerBlock: K dimension size per block
+    - mPerWave: M dimension size per wave
+    - nPerWave: N dimension size per wave
+    - doubleBuffering: Whether double buffering is enabled
+    - isOperandA: True if this is operand A, false if operand B
+  }];
+  let parameters = (ins "int64_t":$mfmaDDim, "int64_t":$mfmaKDim,
+      "int64_t":$mPerBlock, "int64_t":$nPerBlock, "int64_t":$kPerBlock,
+      "int64_t":$mPerWave, "int64_t":$nPerWave, "bool":$doubleBuffering,
+      "bool":$isOperandA);
+
+  let assemblyFormat = [{
+    `<` struct(params) `>`
+  }];
+  let genVerifyDecl = 1;
 }
 
 #endif

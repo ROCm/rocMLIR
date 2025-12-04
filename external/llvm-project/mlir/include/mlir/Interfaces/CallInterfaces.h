@@ -21,7 +21,6 @@
 #include "llvm/ADT/PointerUnion.h"
 
 namespace mlir {
-
 namespace func {
 class FuncOp;
 }
