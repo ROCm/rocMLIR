@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/Support/LogicalResult.h"
 
 namespace mlir {
 class Operation;
@@ -102,6 +103,10 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
 
+// Returns true if the provided memory space attribute encodes GPU workgroup
+// memory. Returns failure if memorySpace is null (unspecified).
+FailureOr<bool> isWorkgroupMemorySpace(Attribute memorySpace);
+
 // Return true if this shaped type will occupy more than 4 GB (2 ^ 32 bytes)
 // in memory.
 bool is4GBMemoryType(ShapedType type);
@@ -173,7 +178,7 @@ Value normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
 // and the iter id dimensions, so that the threads write in a contiguous fashion
 // minimizing LDS bank conflicts.  This transformation swap those dimensions
 // back before producing the final output view
-TopDownTMBuilder
+FailureOr<TopDownTMBuilder>
 swapThreadIdAndIteration(TopDownTMBuilder &toMatrixC, int64_t mBlocks,
                          int64_t nBlocks, int64_t copyMPerThread,
                          int64_t copyNPerThread, int64_t mPerBlock,
