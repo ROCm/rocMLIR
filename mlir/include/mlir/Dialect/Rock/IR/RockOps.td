@@ -616,6 +616,29 @@ def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
   let hasVerifier = 1;
 }
 
+def Rock_AsyncWaitOp : Rock_Op<"async_wait">,
+                       Arguments<(ins I32Attr:$numInst)> {
+  let summary = "Wait for asynchronous global memory loads to LDS to complete";
+  let description = [{
+    The `rock.async_wait` operation waits for asynchronous global memory loads
+    to Local Data Share (LDS) instructions to complete before execution continues.
+    
+    The `numInst` attribute specifies how many async loads need to
+    complete before continuing. The value is clamped to 6 bits (maximum 63). It also
+    introduces a barrier to ensure all workitems in the workgroup synchronize at
+    this point.
+        
+    Example:
+    ```mlir
+    // Wait for 4 outstanding async loads to complete and synchronize all workitems.
+    rock.async_wait {numInst = 4 : i32}
+    ```
+  }];
+  let assemblyFormat = [{
+    attr-dict
+  }];
+}
+
 // Select one among a set of multiple buffers
 def Rock_ExtractMultiBufferOp:
     Rock_Op<"extract_multibuffer", [Pure]>,
