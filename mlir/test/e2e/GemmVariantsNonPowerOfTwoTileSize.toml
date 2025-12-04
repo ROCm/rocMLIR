@@ -13,7 +13,7 @@ values = ["true", "false"]
 prefix = "--transB="
 
 [[axis]]
-name = "transC" 
+name = "transC"
 values = ["true", "false"]
 prefix = "--transC="
 
