@@ -248,13 +248,8 @@ def RockAddDirectToLDSAliasInfoPass : Pass<"rock-add-direct-to-lds-alias-info", 
   let summary = "This pass adds alias information to direct-to-LDS load/store and local load/store operations";
   let description = [{
     This pass annotates operations that perform direct loads or stores to LDS and local loads or stores with
-    appropriate alias scope information. This includes:
-    - rocdl.load_to_lds operations (direct loads to LDS)
-    - llvm.load operations from global memory to LDS  (local loads)
-    - llvm.store operations to LDS from global memory (local stores)
-    
-    The alias information helps the compiler understand that these operations
-    access distinct memory regions and can be optimized accordingly.
+    appropriate alias scope information. The alias information helps the backend compiler understand that
+    these operations access distinct memory regions and can be optimized accordingly.
   }];
   let dependentDialects = ["amdgpu::AMDGPUDialect", "LLVM::LLVMDialect", "gpu::GPUDialect", "ROCDL::ROCDLDialect"];
 }
