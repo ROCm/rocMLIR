@@ -16,6 +16,7 @@ set(LIBS
 
 add_rocmlir_tool(rocmlir-tuning-driver
   rocmlir-tuning-driver.cpp
+  CacheFlush.cpp
 )
 
 # Grab HIP again, since we'll be using it directly
@@ -31,8 +32,9 @@ endif()
 # Therefore, temporarily add the ROCm path to CMAKE_PREFIX_PATH so we can
 # load HIP, then remove it
 set(REAL_CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}")
-list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH} "${ROCM_PATH}/hip")
+list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH} "${ROCM_PATH}/hip" "${ROCM_PATH}/hiprtc")
 find_package(hip REQUIRED)
+find_package(hiprtc REQUIRED)
 set(CMAKE_PREFIX_PATH "${REAL_CMAKE_PREFIX_PATH}")
 
 # Supress compiler warnings from HIP headers
@@ -66,6 +68,6 @@ set_property(TARGET rocmlir-tuning-driver
 
 target_link_libraries(rocmlir-tuning-driver PRIVATE ${LIBS})
 target_link_libraries(rocmlir-tuning-driver PUBLIC benchmark-driver-utils)
-target_link_libraries(rocmlir-tuning-driver PUBLIC hip::host hip::amdhip64)
+target_link_libraries(rocmlir-tuning-driver PUBLIC hip::host hip::amdhip64 hiprtc::hiprtc)
 llvm_update_compile_flags(rocmlir-tuning-driver)
 endif()

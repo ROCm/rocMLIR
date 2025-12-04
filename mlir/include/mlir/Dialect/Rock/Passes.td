@@ -11,10 +11,39 @@
 
 include "mlir/Pass/PassBase.td"
 
+def RockPack4BitGpuOpsTo8BitPass
+    : Pass<"rock-pack-4bit-gpu-ops-to-8bit", "::mlir::func::FuncOp"> {
+  let summary =
+      "Pack GPU memory operations on 4-bit element types to use 8-bit storage";
+  let description = [{
+    Change the physical storage of gpu.alloc buffers whose memref element type
+    is the 4-bit integer or float (printed as f4E2M1FN) to i8 while preserving the original
+    logical buffer size. This transformation packs two 4-bit values into one 8-bit value
+    (halving the last dimension). It handles gpu.alloc, gpu.dealloc, and gpu.memcpy operations,
+    preserving async semantics and host_shared attributes. This is necessary as GPU memory
+    operations cannot do subbyte addressing.
+  }];
+  let dependentDialects = ["gpu::GPUDialect"];
+}
+
 def RockViewToTransformPass : Pass<"rock-view-to-transform", "::mlir::func::FuncOp"> {
   let summary = "convert tensor view ops to rock.transform";
   let dependentDialects = ["rock::RockDialect", "tensor::TensorDialect",
     "tosa::TosaDialect"];
+}
+
+def RockDetectFlashDecodingPass
+    : Pass<"rock-detect-flash-decoding", "::mlir::func::FuncOp"> {
+  let summary = "Detect flash decoding (splitKV > 1) from rock.transform "
+                "operations and update AttentionOps";
+  let description = [{
+    This pass analyzes rock.transform operations to detect when flash decoding
+    (splitKV > 1) is being used. It identifies broadcast patterns in input
+    tensors that indicate the splitKV factor, removes those broadcasts (since
+    the attention implementation handles splitting internally), and updates the
+    AttentionOp's splitKV attribute accordingly.
+  }];
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
 def RockConvToGemmPass : Pass<"rock-conv-to-gemm", "::mlir::func::FuncOp"> {
@@ -208,6 +237,22 @@ def RockAnnotateLivenessPass
   let summary = "This pass annotates LDS memory with liveness ops "
                 "(rock.live_in, rock.live_out)";
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
+}
+
+def RockAddAsyncWaitPass : Pass<"rock-add-async-wait", "::mlir::func::FuncOp"> {
+  let summary = "This pass adds async wait operations for LDS memory";
+  let dependentDialects = ["rock::RockDialect"];
+}
+
+def ConvertRockOpsToROCDLOps
+    : Pass<"rock-to-rocdl", "::mlir::LLVM::LLVMFuncOp"> {
+  let summary = "This pass lowers specific rock ops to ROCDL";
+  let options = [Option<"chipset", "chipset", "std::string",
+                        /*default=*/"\"gfx000\"",
+                        "Chipset that these operations will run on">,
+  ];
+  let dependentDialects = ["rock::RockDialect", "ROCDL::ROCDLDialect",
+                           "LLVM::LLVMDialect"];
 }
 
 #endif // MLIR_DIALECT_ROCK_PASSES

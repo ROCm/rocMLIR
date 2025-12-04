@@ -29,27 +29,36 @@ struct AmdArchInfo {
   int64_t minNumCU;
   bool hasFp8ConversionInstrs;
   bool hasOcpFp8ConversionInstrs;
+  bool hasScaledGemm;
   int64_t maxNumXCC;
+  bool hasLdsTransposeLoad;
 
   constexpr AmdArchInfo(GemmFeatures defaultFeatures, int64_t waveSize,
                         int64_t maxWavesPerEU, int64_t totalSGPRPerEU,
                         int64_t totalVGPRPerEU, int64_t sharedMemPerCU,
                         int64_t sharedMemPerWG, int64_t numEUPerCU,
                         int64_t minNumCU, bool hasFp8ConversionInstrs,
-                        bool hasOcpFp8ConversionInstrs, int64_t maxNumXCC)
+                        bool hasOcpFp8ConversionInstrs, bool hasScaledGemm,
+                        int64_t maxNumXCC, bool hasLdsTransposeLoad)
       : defaultFeatures(defaultFeatures), waveSize(waveSize),
         maxWavesPerEU(maxWavesPerEU), totalSGPRPerEU(totalSGPRPerEU),
         totalVGPRPerEU(totalVGPRPerEU), totalSharedMemPerCU(sharedMemPerCU),
         maxSharedMemPerWG(sharedMemPerWG), numEUPerCU(numEUPerCU),
         minNumCU(minNumCU), hasFp8ConversionInstrs(hasFp8ConversionInstrs),
         hasOcpFp8ConversionInstrs(hasOcpFp8ConversionInstrs),
-        maxNumXCC(maxNumXCC) {}
+        hasScaledGemm(hasScaledGemm), maxNumXCC(maxNumXCC),
+        hasLdsTransposeLoad(hasLdsTransposeLoad) {}
 
   /// Get the default features for the pair <arch, datatype>
   GemmFeatures getDefaultFeatures(Type dataType);
+
+  /// Get the maximum LDS vector length for the given architecture and element
+  /// bit width
+  int64_t getMaxLDSVectorLength(int64_t elementBitWidth);
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);
+bool isDirectToLDSSupported(GemmFeatures features);
 } // namespace rock
 } // namespace mlir
 

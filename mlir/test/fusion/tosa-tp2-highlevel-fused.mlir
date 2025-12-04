@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver --host-pipeline highlevel %s | FileCheck %s
+// RUN: rocmlir-driver -kernel-pipeline highlevel %s | FileCheck %s
 // CHECK: rock.conv(%{{.*}}, %{{.*}}, %{{.*}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "y", "x"], input_layout = ["ni", "hi", "wi", "gi", "ci"], output_layout = ["no", "ho", "wo", "go", "ko"], padding = [1 : index, 1 : index, 1 : index, 1 : index], strides = [1 : index, 1 : index]} : memref<1x64x128x3x3xf32>, memref<256x28x28x1x128xf32>, memref<256x28x28x1x64xf32>
 
 // CHECK-COUNT-1: linalg.generic

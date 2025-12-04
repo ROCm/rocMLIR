@@ -1,0 +1,47 @@
+directory = "gemm_scaled_split_k_f4"
+prefix = "rocmlir-gen"
+suffix = "--operation gemm -out_dtype f32 --arch %arch %pv %random_data -rand_type float %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "scaledGemm"
+values = ["true", "false"]
+prefix = "--scaledGemm=" 
+
+[[axis]]
+name = "data type"
+values = ["f4E2M1FN"]
+prefix = "-t "
+
+[[axis]]
+name = "scaleA dtype"
+values = ["f8E8M0FNU"]
+prefix = "-scale_a_dtype "
+
+[[axis]]
+name = "scaleB dtype"
+values = ["f8E8M0FNU"]
+prefix =  "-scale_b_dtype "
+
+[[axis]]
+name = "splitKFactor"
+values = ["v3:64,64,16,32,32,32,1,1,2,1,1",
+          "v3:64,64,16,32,32,32,2,1,2,1,1",
+          "v3:64,64,16,32,32,32,3,1,2,1,1",
+          "v3:64,64,16,32,32,32,4,1,2,1,1",
+          "v3:64,64,16,32,32,32,5,1,2,1,1",
+          "v3:64,64,16,32,32,32,6,1,2,1,1",
+          "v3:64,64,16,32,32,32,1,2,2,1,1",
+          "v3:64,64,16,32,32,32,2,2,2,1,1",
+          "v3:64,64,16,32,32,32,3,2,2,1,1",
+          "v3:64,64,16,32,32,32,4,2,2,1,1",
+          "v3:64,64,16,32,32,32,5,2,2,1,1",
+          "v3:64,64,16,32,32,32,6,2,2,1,1"]
+          
+prefix = "-perf_config="
+
+## Gemm variants
+[[suite]]
+name = "gemm_scaled_split_k_f4"
+
+[[suite.test]]
+config = "-g 3 -m 256 -k 768 -n 256"

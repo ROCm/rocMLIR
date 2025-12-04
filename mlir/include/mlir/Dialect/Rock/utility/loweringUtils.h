@@ -15,7 +15,11 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/Support/LogicalResult.h"
+
+#include <optional>
 
 namespace mlir {
 class Operation;
@@ -26,6 +30,7 @@ enum class AddressSpace : uint32_t;
 }
 
 namespace rock {
+class ThreadwiseReadIntoOp;
 struct ConvolutionDims;
 struct GemmSize;
 
@@ -72,6 +77,36 @@ struct VectorDimInfo {
   GemmDimension vectorTiebreaker;
 };
 
+/// Helper struct to encapsulate the data needed by
+/// `ThreadwiseReadIntoOp` to perform the lowering (vectorization choices,
+/// bounds, etc.).
+struct ThreadwiseReadIntoLoopConfigInput {
+  Value sourceView;
+  MemRefType dstBufferType;
+  size_t extraIdxCount;
+  Type elementType;
+  int64_t numValues;
+  bool isSrcVectorBuffer;
+  bool isDstVectorBuffer;
+  bool hasDynamicValidities;
+  bool isGlobalToLDS;
+  std::optional<int64_t> maxGlobalToLDSVectorLen;
+};
+
+/// Summary of the loop parameters computed from
+/// `ThreadwiseReadIntoLoopConfigInput`, containing the
+/// bound (`numValues`), stride (`srcStride`), and the vectorization layout
+/// (`vectorSrcLen`, `vectorDstLen`, `loadType`, etc.).
+struct ThreadwiseReadIntoLoopInfo {
+  int64_t numValues;
+  int64_t srcStride;
+  int64_t vectorSrcLen;
+  int64_t vectorDstLen;
+  Type elementType;
+  Type loadType;
+  VectorType dstVectorType;
+};
+
 // The rows and columns of subtile view needs to
 // be transposed depending on which operand of
 // gemm the view is going to be.
@@ -101,6 +136,10 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
+
+// Returns true if the provided memory space attribute encodes GPU workgroup
+// memory. Returns failure if memorySpace is null (unspecified).
+FailureOr<bool> isWorkgroupMemorySpace(Attribute memorySpace);
 
 // Return true if this shaped type will occupy more than 4 GB (2 ^ 32 bytes)
 // in memory.
@@ -173,7 +212,7 @@ Value normalizeMatrix(Value matrix, OpBuilder &b, Location loc,
 // and the iter id dimensions, so that the threads write in a contiguous fashion
 // minimizing LDS bank conflicts.  This transformation swap those dimensions
 // back before producing the final output view
-TopDownTMBuilder
+FailureOr<TopDownTMBuilder>
 swapThreadIdAndIteration(TopDownTMBuilder &toMatrixC, int64_t mBlocks,
                          int64_t nBlocks, int64_t copyMPerThread,
                          int64_t copyNPerThread, int64_t mPerBlock,
@@ -193,8 +232,11 @@ FailureOr<rock::GpuAllocOp> findGpuAlloc(Value value);
 // `memref::AllocOp` or fails.
 FailureOr<memref::AllocOp> findMemrefAlloc(Value value);
 
-/// Compute, if possible, the constant different between two values.
-std::optional<int64_t> computeConstDiff(Value l, Value u);
+/// Trace back a value to find all GpuAllocOps it originates from.
+/// Handles views, extract_multibuffer, and transform operations.
+/// Returns all allocs that could be the source (for extract_multibuffer with
+/// multiple buffers).
+SmallVector<rock::GpuAllocOp> findAllGpuAllocs(Value value);
 
 // Get gridSize
 FailureOr<IntegerAttr> getGridSize(Operation *op);
@@ -260,6 +302,18 @@ FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
 
 // Get the LDS size of the memref
 std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
+
+/// Replicates the loop-shape analysis performed by
+/// `ThreadwiseReadIntoRewritePattern`. Returns a ThreadwiseReadIntoLoopInfo
+/// struct, representingthe iteration bounds, strides, and vectorization details
+/// so other passes (e.g. add-async-wait) can reason about how many iterations a
+/// `rock.threadwise_read_into` executes without duplicating lowering logic.
+FailureOr<ThreadwiseReadIntoLoopInfo>
+getThreadwiseReadIntoLoopInfo(const ThreadwiseReadIntoLoopConfigInput &input);
+
+/// Returns a prediction of the loop count after the ThreadwiseReadIntoOp op is
+/// lowered.
+FailureOr<int64_t> predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op);
 
 } // end namespace rock
 } // end namespace mlir

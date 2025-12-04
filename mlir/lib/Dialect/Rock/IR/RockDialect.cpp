@@ -54,11 +54,13 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SMLoc.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 
@@ -72,6 +74,20 @@ using namespace mlir::rock;
 // Utility Functions
 //===----------------------------------------------------------------------===//
 
+FailureOr<bool> mlir::rock::isWorkgroupMemorySpace(Attribute memorySpace) {
+  if (!memorySpace)
+    return failure();
+
+  if (auto gpuMemSpace = dyn_cast<gpu::AddressSpaceAttr>(memorySpace))
+    return gpuMemSpace.getValue() == gpu::AddressSpace::Workgroup;
+
+  if (auto intMemSpace = dyn_cast<IntegerAttr>(memorySpace))
+    return intMemSpace.getInt() ==
+           static_cast<int64_t>(gpu::GPUDialect::getWorkgroupAddressSpace());
+
+  return false;
+}
+
 static Type getElementTypeOrSelfRecursive(Type type) {
   while (auto shapedType = dyn_cast<ShapedType>(type)) {
     type = shapedType.getElementType();
@@ -83,10 +99,17 @@ static Type getElementTypeOrSelfRecursive(Value val) {
   return getElementTypeOrSelfRecursive(val.getType());
 }
 
+template <int N>
+struct rank : rank<N - 1> {};
+
+template <>
+struct rank<0> {};
+
 template <typename OpType>
-static void
-getGemmEffects(OpType &op,
-               SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+static auto
+getGemmEffects(rank<1>, OpType &op,
+               SmallVectorImpl<MemoryEffects::EffectInstance> &effects)
+    -> decltype(void(op.getScaleA()), void(op.getScaleB())) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
 
@@ -95,6 +118,42 @@ getGemmEffects(OpType &op,
 
   effects.emplace_back(read, &op.getAMutable());
   effects.emplace_back(read, &op.getBMutable());
+
+  if (op.getScaleA()) {
+    auto scaleARange = op.getScaleAMutable();
+    if (!scaleARange.empty()) {
+      effects.emplace_back(read, &scaleARange[0]);
+    }
+  }
+
+  if (op.getScaleB()) {
+    auto scaleBRange = op.getScaleBMutable();
+    if (!scaleBRange.empty()) {
+      effects.emplace_back(read, &scaleBRange[0]);
+    }
+  }
+}
+
+template <typename OpType>
+static auto
+getGemmEffects(rank<0>, OpType &op,
+               SmallVectorImpl<MemoryEffects::EffectInstance> &effects)
+    -> void {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
+  effects.emplace_back(read, &op.getCMutable());
+  effects.emplace_back(write, &op.getCMutable());
+
+  effects.emplace_back(read, &op.getAMutable());
+  effects.emplace_back(read, &op.getBMutable());
+}
+
+template <typename OpType>
+static void
+getGemmEffects(OpType &op,
+               SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getGemmEffects(rank<1>{}, op, effects);
 }
 
 template <typename OpType>
@@ -157,6 +216,33 @@ getCommonEffects(OpType &op,
   effects.emplace_back(write, &op.getDestMutable());
 }
 
+template <typename OpType>
+static LogicalResult verifyScales(OpType op, Value matrix, Value scale,
+                                  StringRef matrixName) {
+  if (scale != nullptr) {
+    ShapedType matrixType = cast<ShapedType>(matrix.getType());
+    ShapedType scaleType = cast<ShapedType>(scale.getType());
+    Type matrixElemType = getElementTypeOrSelfRecursive(matrixType);
+    Type scaleElemType = getElementTypeOrSelfRecursive(scaleType);
+
+    if (!isa<Float8E8M0FNUType>(scaleElemType)) {
+      return op.emitError(
+          llvm::formatv("Scale{0} must be of type Float8E8M0FNU.", matrixName));
+    }
+    if (!isa<Float4E2M1FNType>(matrixElemType)) {
+      return op.emitError(
+          llvm::formatv("For the scaled GEMMs, matrix{0} must be of "
+                        "type Float4E2M1FNType.",
+                        matrixName));
+    }
+    if (matrixType.getShape() != scaleType.getShape()) {
+      return op.emitError(llvm::formatv(
+          "Scale{0} shape must match matrix{0} shape.", matrixName));
+    }
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // RockDialect Interfaces
 //===----------------------------------------------------------------------===//
@@ -173,8 +259,8 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "general_gemm_params";
       return AliasResult::OverridableAlias;
     }
-    if (isa<XdlopsGemmParamsAttr>(attr)) {
-      os << "xldops_gemm_params";
+    if (isa<MfmaGemmParamsAttr>(attr)) {
+      os << "mfma_gemm_params";
       return AliasResult::OverridableAlias;
     }
     return AliasResult::NoAlias;
@@ -472,6 +558,48 @@ LogicalResult TransformMapAttr::verify(
   return success();
 }
 
+// Helper function to check valid MFMA geometry for LDS transpose
+static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && (kDim == 16 || kDim == 32)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16));
+}
+
+LogicalResult LDSTransposeConfigAttr::verify(
+    function_ref<InFlightDiagnostic()> emitError, int64_t mfmaDDim,
+    int64_t mfmaKDim, int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock,
+    int64_t mPerWave, int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
+
+  // Validate MFMA geometry
+  if (!isValidLdsTransposeMfmaGeometry(mfmaDDim, mfmaKDim)) {
+    return emitError() << "invalid MFMA geometry (" << mfmaDDim << "x"
+                       << mfmaKDim
+                       << ") for LDS transpose - valid combinations: "
+                          "(16,16), (16,32), (32,8), (32,16)";
+  }
+
+  // Validate positive dimensions
+  if (mfmaDDim <= 0 || mfmaKDim <= 0 || mPerBlock <= 0 || nPerBlock <= 0 ||
+      kPerBlock <= 0 || mPerWave <= 0 || nPerWave <= 0) {
+    return emitError() << "all dimensions must be positive";
+  }
+
+  // Validate that block dimensions are divisible by MFMA dimensions
+  int64_t dPerBlock = isOperandA ? mPerBlock : nPerBlock;
+  if (dPerBlock % mfmaDDim != 0) {
+    return emitError() << (isOperandA ? "mPerBlock" : "nPerBlock") << " ("
+                       << dPerBlock << ") must be divisible by mfmaDDim ("
+                       << mfmaDDim << ")";
+  }
+
+  if (kPerBlock % mfmaKDim != 0) {
+    return emitError() << "kPerBlock (" << kPerBlock
+                       << ") must be divisible by mfmaKDim (" << mfmaKDim
+                       << ")";
+  }
+
+  return success();
+}
+
 } // namespace rock
 } // namespace mlir
 //===----------------------------------------------------------------------===//
@@ -638,30 +766,36 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
   bool isGfx11 = arch.contains("gfx11");
+  if (isa<Float8E8M0FNUType>(elemTypeA) || isa<Float8E8M0FNUType>(elemTypeB)) {
+    return op->emitOpError(
+        "Matrix A or B is not allowed to have Float8E8M0FNU types");
+  }
   if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
     if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
       if (isGfx11)
-        return op->emitOpError(
-            "Wmma gridwise supports only F16/BF16/int8 data types");
+        return op->emitOpError("Wmma supports only F16/BF16/int8 data types");
       if (!isFloat8Type(elemTypeA))
         return op->emitOpError(
-            "Wmma gridwise supports only F16/BF16/int8/E4M3/E5M2 data types");
+            "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
     if (elemTypeA != elemTypeB)
-      return op->emitOpError("Wmma gridwise does not support mixed types");
+      return op->emitOpError("Wmma does not support mixed types");
   }
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     bool isGfx95 = arch.contains("gfx95");
     if (isGfx95 && (isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeA) ||
                     isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeB))) {
       return op->emitOpError(
-          "Mfma gridwise does not support E4M3FNUZ/E5M2FNUZ data types");
+          "Mfma does not support E4M3FNUZ/E5M2FNUZ data types");
     }
     if (!isGfx95 && arch.contains("gfx9") &&
         (isa<Float8E4M3FNType, Float8E5M2Type>(elemTypeA) ||
          isa<Float8E4M3FNType, Float8E5M2Type>(elemTypeB))) {
-      return op->emitOpError(
-          "Mfma gridwise does not support E4M3/E5M2 data types ");
+      return op->emitOpError("Mfma does not support E4M3/E5M2 data types ");
+    }
+    if (!isGfx95 && (isa<Float4E2M1FNType>(elemTypeA) ||
+                     isa<Float4E2M1FNType>(elemTypeB))) {
+      return op->emitOpError("Mfma does not support Float4E2M1FN data type ");
     }
   }
   if (elemTypeC) {
@@ -907,6 +1041,7 @@ void ConvBwdWeightOp::getEffects(
 LogicalResult GemmOp::verify() {
   ShapedType typeA = getA().getType(), typeB = getB().getType(),
              typeC = getC().getType();
+
   Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
   // The integer gemm will produce i32 and then truncate/extend to the requested
   // iN e.g. i8.
@@ -916,6 +1051,20 @@ LogicalResult GemmOp::verify() {
 
   ArrayRef<int64_t> dimsA = typeA.getShape(), dimsB = typeB.getShape(),
                     dimsC = typeC.getShape();
+  auto rankCheck = [&](ArrayRef<int64_t> dims,
+                       StringRef name) -> LogicalResult {
+    if (dims.size() != 2 && dims.size() != 3) {
+      return emitOpError()
+             << name
+             << " must be a rank 2 or rank 3 tensor representing [G,] M, K";
+    }
+    return success();
+  };
+  if (failed(rankCheck(dimsA, "Matrix A")) ||
+      failed(rankCheck(dimsB, "Matrix B")) ||
+      failed(rankCheck(dimsC, "Matrix C"))) {
+    return failure();
+  }
   int64_t offsetA = dimsA.size() == 2 ? 0 : 1,
           offsetB = dimsB.size() == 2 ? 0 : 1,
           offsetC = dimsC.size() == 2 ? 0 : 1;
@@ -939,14 +1088,77 @@ LogicalResult GemmOp::verify() {
   if (kA != kB)
     return emitOpError("K dimensions don't match")
            << " k_a = " << kA << " k_b = " << kB;
+  bool hasScaleA = getScaleA() != nullptr;
+  bool hasScaleB = getScaleB() != nullptr;
+  if (hasScaleA ^ hasScaleB) {
+    return emitOpError("both scaleA and scaleB must be provided or neither");
+  }
+  // Unified verification for scaleA / scaleB.
+  auto verifyScale = [&](Value scale, bool isA) -> LogicalResult {
+    if (!scale)
+      return success();
+    ShapedType ty = cast<ShapedType>(scale.getType());
+    ArrayRef<int64_t> dims = ty.getShape();
+    StringRef scaleName = isA ? "scaleA" : "scaleB";
+    if (failed(rankCheck(dims, scaleName)))
+      return failure();
+    Type elemType = ty.getElementType();
+    if (!isa<Float8E8M0FNUType>(elemType) && !elemType.isF32())
+      return emitOpError() << scaleName
+                           << " must be of type Float8E8M0FNUType or f32";
 
+    bool transposed = isA ? getAScaleTransposed() : getBScaleTransposed();
+    int64_t offset = dims.size() == 2 ? 0 : 1;
+    int64_t g = offset ? dims[0] : 1;
+    int64_t first = dims[offset + (transposed ? 1 : 0)];
+    int64_t second = dims[offset + (transposed ? 0 : 1)];
+
+    int64_t expectedG = isA ? gA : gB;
+    int64_t expectedFirst = isA ? mA : kB;  // scaleA: M; scaleB: K
+    int64_t expectedSecond = isA ? kA : nB; // scaleA: K; scaleB: N
+
+    StringRef firstName = isA ? "M" : "K";
+    StringRef secondName = isA ? "K" : "N";
+
+    if (second != expectedSecond)
+      return emitOpError() << scaleName << "'s " << secondName
+                           << " dimension must match matrix "
+                           << (isA ? "A" : "B") << "'s " << secondName
+                           << " dimension"
+                           << " " << scaleName << "_" << secondName.lower()
+                           << " = " << second << " " << (isA ? "k_a" : "n_b")
+                           << " = " << expectedSecond;
+    if (first != expectedFirst)
+      return emitOpError() << scaleName << "'s " << firstName
+                           << " dimension must match matrix "
+                           << (isA ? "A" : "B") << "'s " << firstName
+                           << " dimension"
+                           << " " << scaleName << "_" << firstName.lower()
+                           << " = " << first << " " << (isA ? "m_a" : "k_b")
+                           << " = " << expectedFirst;
+    if (g != expectedG)
+      return emitOpError() << scaleName << "'s G dimension must match matrix "
+                           << (isA ? "A" : "B") << "'s G dimension"
+                           << " " << scaleName << "_g = " << g << " "
+                           << (isA ? "g_a" : "g_b") << " = " << expectedG;
+    return success();
+  };
+
+  if (failed(verifyScale(getScaleA(), /*isA=*/true)) ||
+      failed(verifyScale(getScaleB(), /*isA=*/false)))
+    return failure();
+  if (hasScaleA && hasScaleB) {
+    if (!isa<Float4E2M1FNType>(inElems)) {
+      return emitOpError(
+          "Scaled GEMMs are only supported for Float4E2M1FN input type");
+    }
+  }
   auto features = rock::getFeatures(this->getOperation());
-  bool isXdlops = bitEnumContainsAll(features, GemmFeatures::mfma);
+  bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
-    if (isXdlops &&
-        !isa<XdlopsGemmParamsAttr, XdlopsGemmDerivedParamsAttr>(params))
-      return emitOpError("an xdlops GEMM has non-xdlops tuning parameters");
+    if (isMfma && !isa<MfmaGemmParamsAttr>(params))
+      return emitOpError("a mfma GEMM has non-mfma tuning parameters");
     if (getFeatures() == GemmFeatures::none &&
         !isa<GeneralGemmParamsAttr>(params))
       return emitOpError("an all-hardware gemm must used the general gemm "
@@ -958,7 +1170,7 @@ LogicalResult GemmOp::verify() {
     }
   }
 
-  if (getDerivedBlockSize().has_value() && !isXdlops && !isWmma) {
+  if (getDerivedBlockSize().has_value() && !isMfma && !isWmma) {
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
   }
@@ -1004,16 +1216,20 @@ template <typename GridOp>
 static LogicalResult verifyGridwiseGemm(GridOp op) {
   MemRefType aType = op.getA().getType(), bType = op.getB().getType(),
              cType = op.getC().getType();
-  Type aElem = aType.getElementType(), bElem = bType.getElementType(),
-       cElem = cType.getElementType();
-
-  if (failed(verifyGemmTypes(op, rock::getFeatures(op), "gfx00", aElem, bElem,
-                             cElem)))
+  Type aElemType = getElementTypeOrSelfRecursive(aType);
+  Type bElemType = getElementTypeOrSelfRecursive(bType);
+  Type cElemType = getElementTypeOrSelfRecursive(cType);
+  StringAttr archAttr =
+      rock::getArch(op).value_or(StringAttr::get(op.getContext(), "gfx00"));
+  if (failed(verifyGemmTypes(op, rock::getFeatures(op), archAttr, aElemType,
+                             bElemType, cElemType)))
     return failure();
-  if (aElem.isInteger(8) && !(cElem.isInteger(32) || cElem.isInteger(8)))
+  if (aElemType.isInteger(8) &&
+      !(cElemType.isInteger(32) || cElemType.isInteger(8)))
     return op.emitOpError("i8 input requires i32 or i8 output");
-  if (isFloat8Type(aElem) && !cElem.isF32())
-    return op.emitOpError("8-bit float input requires f32 output");
+  if ((isFloat8Type(aElemType) || isa<Float4E2M1FNType>(aElemType)) &&
+      !cElemType.isF32())
+    return op.emitOpError("4-bit or 8-bit float input requires f32 output");
 
   ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
                     cShape = cType.getShape();
@@ -1061,6 +1277,17 @@ SmallVector<mlir::Type> GridwiseGemmAccelOp::getTypesForFeature() {
 LogicalResult GridwiseGemmOp::verify() { return verifyGridwiseGemm(*this); }
 
 LogicalResult GridwiseGemmAccelOp::verify() {
+  Value scaleA = getScaleA();
+  Value scaleB = getScaleB();
+  bool hasScaleA = scaleA != nullptr;
+  bool hasScaleB = scaleB != nullptr;
+  if (hasScaleA ^ hasScaleB) {
+    return emitOpError("both scaleA and scaleB must be provided or neither");
+  }
+  if (failed(verifyScales(*this, getA(), scaleA, "A")) ||
+      failed(verifyScales(*this, getB(), scaleB, "B"))) {
+    return failure();
+  }
   return verifyGridwiseGemm(*this);
 }
 
@@ -1159,12 +1386,13 @@ LogicalResult LiveInOp::verify() {
     return emitError("The operand of rock.live_in must be the result of a "
                      "rock.alloc operation.");
 
-  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-      getMemref().getType().getMemorySpace());
-  if (!memSpace ||
-      (memSpace &&
-       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
-    return emitError("The operand of rock.live_in must a LDS memref");
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(getMemref().getType().getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("The operand of rock.live_in must have a specified "
+                     "memory space");
+  if (!memSpaceCheck.value())
+    return emitError("The operand of rock.live_in must be an LDS memref");
 
   return success();
 }
@@ -1179,12 +1407,13 @@ LogicalResult LiveOutOp::verify() {
     return emitError("The operand of rock.live_out must be the result of a "
                      "rock.alloc operation.");
 
-  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-      getMemref().getType().getMemorySpace());
-  if (!memSpace ||
-      (memSpace &&
-       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
-    return emitError("The operand of rock.live_out must a LDS memref");
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(getMemref().getType().getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("The operand of rock.live_out must have a specified "
+                     "memory space");
+  if (!memSpaceCheck.value())
+    return emitError("The operand of rock.live_out must be an LDS memref");
 
   return success();
 }
@@ -1705,20 +1934,53 @@ LogicalResult GlobalLoadToLDSOp::verify() {
   LogicalResult res = verifyGlobalLoad(*this);
   if (failed(res))
     return res;
+  Value source = getSource();
+  Value dest = getDest();
+  SmallVector<Value> coords(getSourceCoord());
+  SmallVector<Value> destCoords(getDestCoord());
+  MemRefType sourceType = cast<MemRefType>(source.getType());
+  MemRefType destType = cast<MemRefType>(dest.getType());
 
-  MemRefType destType = getDest().getType();
-  Attribute destMemSpaceAttr = destType.getMemorySpace();
-  auto destGpuMemSpaceAttr =
-      dyn_cast_or_null<gpu::AddressSpaceAttr>(destMemSpaceAttr);
-  if (destMemSpaceAttr &&
-      (!destGpuMemSpaceAttr ||
-       destGpuMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup))
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(destType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitOpError("Destination memref must have a specified memory space");
+  if (!memSpaceCheck.value())
     return emitOpError("Destination memref must live in workgroup memory");
 
   int64_t numBits = getTransferType().getIntOrFloatBitWidth();
   if (numBits != 128 && numBits != 32)
     return emitOpError(
         "Direct to LDS is implemented for 128bit and 32bit loads only");
+  unsigned bitWidth = cast<ShapedType>(sourceType).getElementTypeBitWidth();
+  unsigned destBitWidth = cast<ShapedType>(destType).getElementTypeBitWidth();
+  // For 4-bit source types (f4, i4), add validation checks as GPU can not do
+  // sub-byte addressing
+  if (bitWidth == 4) {
+    // Check that last source coordinate is even
+    APInt coordConst(64, 0);
+    // It is possible that this is not a compile time constant and it cannot
+    // be matched. Doing runtime checks is very expensive. Given directToLDS
+    // transfers bits are multiple of 8, it should be safe to assume that last
+    // coord will be even at runtime.
+    if (matchPattern(coords.back(), m_ConstantInt(&coordConst))) {
+      if (coordConst.urem(2) != 0) { // Check if number is odd
+        return emitOpError(
+            "For 4-bit source types, last source coordinate must be even");
+      }
+    }
+  }
+
+  // For 4-bit dest types, check that last dest coordinate is even
+  if (destBitWidth == 4) {
+    APInt destCoordConst(64, 0);
+    if (matchPattern(destCoords.back(), m_ConstantInt(&destCoordConst))) {
+      if (destCoordConst.urem(2) != 0) { // Check if number is odd
+        return emitOpError(
+            "For 4-bit destination types, last dest coordinate must be even");
+      }
+    }
+  }
   return success();
 }
 
@@ -1783,6 +2045,61 @@ LogicalResult InBoundsStoreOp::verify() {
   if (isa<ShapedType>(dataType) && !isa<VectorType>(dataType))
     return emitOpError(
         "Non-scalar data types must be vectors, not other shaped types");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// LDSTransposeLoadOp
+//===-----------------------------------------------------===//
+void LDSTransposeLoadOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  // This op only reads from LDS (workgroup) memory
+  effects.emplace_back(MemoryEffects::Read::get(), &getSourceMutable());
+
+  // Writes transposed result to destination (VGPRs)
+  effects.emplace_back(MemoryEffects::Write::get());
+}
+
+LogicalResult LDSTransposeLoadOp::verify() {
+  // Source must be memref in workgroup (LDS) address space
+  MemRefType srcType = getSource().getType();
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(srcType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitOpError("source memref must have a specified memory space");
+  if (!memSpaceCheck.value())
+    return emitOpError("source memory address space must be workgroup (LDS)");
+
+  // Result element type must match source element type
+  Type srcElemType = srcType.getElementType();
+  VectorType resultType = getResult().getType();
+  Type resultElemType = resultType.getElementType();
+
+  if (resultElemType != srcElemType) {
+    return emitOpError("result element type (")
+           << resultElemType << ") must match source element type ("
+           << srcElemType << ")";
+  }
+
+  // Check hardware support using AmdArchDb
+  StringAttr archAttr =
+      rock::getArch(*this).value_or(StringAttr::get(getContext(), "gfx00"));
+  StringRef arch = archAttr.getValue();
+  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (!archInfo.hasLdsTransposeLoad) {
+    return emitOpError(
+               "LDS transpose load is not supported on this architecture: ")
+           << arch;
+  }
+
+  // Indices size must match rank
+  if (static_cast<int64_t>(getIndices().size()) != srcType.getRank())
+    return emitOpError("expected " + Twine(srcType.getRank()) + " indices");
+  for (Value idx : getIndices()) {
+    if (!idx.getType().isIndex())
+      return emitOpError("indices must be of index type");
+  }
+
   return success();
 }
 
@@ -2044,6 +2361,14 @@ LogicalResult BlockwiseLoadTileOp::verify() {
   GemmLoadTileType loadType = getLoadType();
   bool singleBuffer = loadType == GemmLoadTileType::Default ||
                       loadType == GemmLoadTileType::DirectToLDSDefault;
+  bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
+                     loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
+  bool paramsDirectToLDS = getIsA() ? getMatrixParamsA().getDirectToLDS()
+                                    : getMatrixParamsB().getDirectToLDS();
+
+  if (paramsDirectToLDS != directToLDS)
+    return emitOpError("Inconsistency between params and load type");
 
   if (!destLDS && loadType != GemmLoadTileType::BypassLDS)
     return emitOpError("destLDS must be set unless loadType is BypassLDS");
@@ -2056,7 +2381,7 @@ LogicalResult BlockwiseLoadTileOp::verify() {
 }
 
 SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
-  return {getElementTypeA()};
+  return {getElementType()};
 }
 
 //===----------------------------------------------------------------------===//
@@ -2091,27 +2416,123 @@ void BlockwiseGemmOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 LogicalResult BlockwiseGemmAccelOp::verify() {
-  bool loadAFromLDS = getLoadAfromLDS();
-  bool loadBFromLDS = getLoadBfromLDS();
   bool hasA = getMatrixA() != nullptr;
   bool hasB = getMatrixB() != nullptr;
+  bool directToLDS = getMatrixParamsA().getDirectToLDS() ||
+                     getMatrixParamsB().getDirectToLDS();
 
-  if (loadAFromLDS && !hasA)
-    return emitOpError("If loadAFromLDS is enabled, matrixA must be non-null.");
-  if (loadBFromLDS && !hasB)
-    return emitOpError("If loadBFromLDS is enabled, matrixB must be non-null.");
-
-  if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) != getElementTypeA())
+  if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) !=
+                  getMatrixParamsA().getElementType())
     return emitOpError("ElementTypeA and matrixA element type don't match");
 
-  if (hasB && getElementTypeOrSelfRecursive(getMatrixB()) != getElementTypeB())
+  if (hasB && getElementTypeOrSelfRecursive(getMatrixB()) !=
+                  getMatrixParamsB().getElementType())
     return emitOpError("ElementTypeA and matrixA element type don't match");
+
+  bool hasScaleABuffer = getBufferScaleA() != nullptr;
+  bool hasScaleBBuffer = getBufferScaleB() != nullptr;
+  ShapedType aBufferType = cast<ShapedType>(getBufferA().getType());
+  ShapedType bBufferType = cast<ShapedType>(getBufferB().getType());
+  ShapedType cBufferType = cast<ShapedType>(getMatrixC().getType());
+  Type aType = getElementTypeOrSelfRecursive(aBufferType);
+  Type bType = getElementTypeOrSelfRecursive(bBufferType);
+  Type cType = getElementTypeOrSelfRecursive(cBufferType);
+
+  StringAttr archAttr = rock::getArch(*this).value_or(
+      StringAttr::get(this->getContext(), "gfx00"));
+
+  if (hasA && hasB)
+    if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr, aType,
+                               bType, directToLDS ? nullptr : cType)))
+      return failure();
+  auto verifyMatrixAndScale = [&](bool loadFromLds, Value matrix, Value lds,
+                                  Value bufferScale, ShapedType bufferType,
+                                  const char *matrixName) -> LogicalResult {
+    bool hasMatrix = matrix != nullptr;
+    bool hasLdsScale = lds != nullptr;
+    bool hasBufferScale = bufferScale != nullptr;
+
+    if (loadFromLds) {
+      if (!hasMatrix)
+        return emitOpError(llvm::formatv(
+            "If load{0}FromLDS is enabled, matrix{0} must be non-null.",
+            matrixName));
+      if (hasBufferScale && !hasLdsScale)
+        return emitOpError(llvm::formatv(
+            "If load{0}FromLDS is enabled, scale{0} must be loaded from LDS.",
+            matrixName));
+      if (hasLdsScale && !hasBufferScale)
+        return emitOpError(llvm::formatv(
+            "If scale{0} is loaded from LDS, scale{0} buffer must be non-null.",
+            matrixName));
+      if (hasLdsScale) {
+        ShapedType ldsScaleType = cast<ShapedType>(lds.getType());
+        ShapedType ldsType = cast<ShapedType>(matrix.getType());
+        if (ldsType.getShape() != ldsScaleType.getShape()) {
+          return emitOpError(llvm::formatv(
+              "If scale{0} is loaded from LDS, its shape must match "
+              "matrix{0}'s shape.",
+              matrixName));
+        }
+        Type ldsScaleElemType = getElementTypeOrSelfRecursive(ldsScaleType);
+        if (!isa<Float8E8M0FNUType>(ldsScaleElemType)) {
+          return emitOpError(llvm::formatv(
+              "Scale{0} must be of type Float8E8M0FNU.", matrixName));
+        }
+        Type ldsElemType = getElementTypeOrSelfRecursive(ldsType);
+        if (!isa<Float4E2M1FNType>(ldsElemType)) {
+          return emitOpError(
+              llvm::formatv("For the scaled GEMMs, matrix{0} must be of "
+                            "type Float4E2M1FNType.",
+                            matrixName));
+        }
+      }
+    }
+
+    if (hasBufferScale) {
+      ShapedType bufferScaleType = cast<ShapedType>(bufferScale.getType());
+      if (bufferType.getShape() != bufferScaleType.getShape()) {
+        return emitOpError(llvm::formatv(
+            "If scale{0} buffer is non-null, its shape must match "
+            "buffer{0}'s shape.",
+            matrixName));
+      }
+      Type bufferScaleElemType = getElementTypeOrSelfRecursive(bufferScaleType);
+      if (!isa<Float8E8M0FNUType>(bufferScaleElemType)) {
+        return emitOpError(llvm::formatv(
+            "Scale{0} buffer must be of type Float8E8M0FNU.", matrixName));
+      }
+      Type bufferElemType = getElementTypeOrSelfRecursive(bufferType);
+      if (!isa<Float4E2M1FNType>(bufferElemType)) {
+        return emitOpError(
+            llvm::formatv("For the scaled GEMMs, buffer{0} must be of "
+                          "type Float4E2M1FNType.",
+                          matrixName));
+      }
+    }
+
+    return success();
+  };
+
+  // Verify matrix A and its scales
+  if (failed(verifyMatrixAndScale(hasA, getMatrixA(), getScaleA(),
+                                  getBufferScaleA(), aBufferType, "A")))
+    return failure();
+
+  // Verify matrix B and its scales
+  if (failed(verifyMatrixAndScale(hasB, getMatrixB(), getScaleB(),
+                                  getBufferScaleB(), bBufferType, "B")))
+    return failure();
+
+  if (hasScaleABuffer ^ hasScaleBBuffer)
+    return emitOpError(
+        "scaleA and scaleB buffers must both be present or both be null.");
 
   return success();
 }
 
 SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
-  return {getMatrixA().getType()};
+  return {getMatrixParamsA().getElementType()};
 }
 
 void BlockwiseGemmAccelOp::getEffects(
@@ -2124,17 +2545,26 @@ void BlockwiseGemmAccelOp::getEffects(
 
   effects.emplace_back(read, &getBufferAMutable());
   effects.emplace_back(read, &getBufferBMutable());
-
+  if (getBufferScaleA() && getBufferScaleB()) {
+    effects.emplace_back(read, &getBufferScaleAMutable()[0]);
+    effects.emplace_back(read, &getBufferScaleBMutable()[0]);
+  }
   // if we load from LDS, we need to write to registers
-  if (getLoadAfromLDS()) {
-    assert(getMatrixA() != nullptr);
+  if (getMatrixA() != nullptr) {
     effects.emplace_back(read, &getMatrixAMutable()[0]);
     effects.emplace_back(write, &getBufferAMutable());
+    if (getScaleA()) {
+      effects.emplace_back(read, &getScaleAMutable()[0]);
+      effects.emplace_back(write, &getBufferScaleAMutable()[0]);
+    }
   }
-  if (getLoadBfromLDS()) {
-    assert(getMatrixB() != nullptr);
+  if (getMatrixB() != nullptr) {
     effects.emplace_back(read, &getMatrixBMutable()[0]);
     effects.emplace_back(write, &getBufferBMutable());
+    if (getScaleB()) {
+      effects.emplace_back(read, &getScaleBMutable()[0]);
+      effects.emplace_back(write, &getBufferScaleBMutable()[0]);
+    }
   }
 }
 
@@ -2163,15 +2593,20 @@ void ThreadwiseGemmOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// ThreadwiseAccelGemmOp
+// ThreadwiseGemmAccelOp
 //===----------------------------------------------------------------------===//
-SmallVector<mlir::Type> ThreadwiseAccelGemmOp::getTypesForFeature() {
+SmallVector<mlir::Type> ThreadwiseGemmAccelOp::getTypesForFeature() {
   return {getMatrixA().getType()};
 }
 
-LogicalResult ThreadwiseAccelGemmOp::verify() {
-  ArrayRef<int64_t> aShape = getMatrixA().getType().getShape(),
-                    bShape = getMatrixB().getType().getShape(),
+LogicalResult ThreadwiseGemmAccelOp::verify() {
+  ShapedType aType = cast<ShapedType>(getMatrixA().getType());
+  ShapedType bType = cast<ShapedType>(getMatrixB().getType());
+
+  Type aElemType = getElementTypeOrSelfRecursive(aType);
+  Type bElemType = getElementTypeOrSelfRecursive(bType);
+  Type cElemType = getElementTypeOrSelfRecursive(getMatrixC().getType());
+  ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
                     cShape = getMatrixC().getType().getShape();
 
   if (aShape.size() != 2)
@@ -2185,11 +2620,35 @@ LogicalResult ThreadwiseAccelGemmOp::verify() {
   if (getComputeIndices().size() != 3)
     return emitOpError("ComputeIndices need to be a <i,j,k> tuple");
 
+  StringAttr archAttr = rock::getArch(*this).value_or(
+      StringAttr::get(this->getContext(), "gfx00"));
+
+  if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr,
+                             aElemType, bElemType, cElemType)))
+    return failure();
+
+  bool hasScaleA = getScaleA() != nullptr;
+  bool hasScaleB = getScaleB() != nullptr;
+  if (hasScaleA ^ hasScaleB) {
+    return emitOpError(
+        "ScaleA and ScaleB must both be present or both be null.");
+  }
+  if (failed(verifyScales(*this, getMatrixA(), getScaleA(), "A")) ||
+      failed(verifyScales(*this, getMatrixB(), getScaleB(), "B")))
+    return failure();
   return success();
 }
 
-void ThreadwiseAccelGemmOp::getEffects(
+void ThreadwiseGemmAccelOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  if (getScaleA()) {
+    auto *read = MemoryEffects::Read::get();
+    effects.emplace_back(read, &getScaleAMutable()[0]);
+  }
+  if (getScaleB()) {
+    auto *read = MemoryEffects::Read::get();
+    effects.emplace_back(read, &getScaleBMutable()[0]);
+  }
   getGemmMatrixEffects(*this, effects);
 }
 
@@ -2397,14 +2856,12 @@ LogicalResult BlockwiseFillOp::verify() {
   if (memrefType.getRank() != 1) {
     return emitError("Blockwise fill expects a flat memref");
   }
-  if (gpu::AddressSpaceAttr memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-          memrefType.getMemorySpace())) {
-    if (memSpace.getValue() != gpu::AddressSpace::Workgroup) {
-      return emitError("Memory space is expected to be workgroup");
-    }
-  } else {
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(memrefType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("Memref must have a specified memory space");
+  if (!memSpaceCheck.value())
     return emitError("Memory space is expected to be workgroup");
-  }
   int64_t numElements = getMemref().getType().getNumElements();
   if (VectorType vecType = dyn_cast<VectorType>(getValue().getType())) {
     if (numElements % vecType.getNumElements() != 0) {
@@ -2765,7 +3222,8 @@ void AttentionOp::getEffects(
 // AttentionPerfConfig Attr
 //===-----------------------------------------------------===//
 
-AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
+AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
+                                           bool isWmma) {
   // Here a conventional c++ string split is being
   // done because MLIR lacks parseSourceString() method
   // to parse Attributes and its only there for Ops.
@@ -2784,10 +3242,23 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
   if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
     return {};
   }
-  if (version != 1 && version != 2) {
-    return {};
+  if (version != 1 && version != 2 && version != 3) {
+    llvm_unreachable("Unknown version of the perfConfig");
   }
-  size_t expectedNumTokens = version == 1 ? 8 : 11;
+  size_t expectedNumTokens = 0;
+  switch (version) {
+  case 1:
+    expectedNumTokens = 8;
+    break;
+  case 2:
+    expectedNumTokens = 11;
+    break;
+  case 3:
+    expectedNumTokens = 12;
+    break;
+  default:
+    llvm_unreachable("Unknown version of the perfConfig");
+  }
   SmallVector<StringRef, 11> tokens;
   rest.split(tokens, ',');
   if (tokens.size() != expectedNumTokens) {
@@ -2799,21 +3270,39 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr) {
     llvm::to_integer(s, param);
     return param;
   });
+  bool isV3 = (version == 3);
   int64_t mPerBlockG0 = params[0];
   int64_t mPerBlockG1 = params[1];
   int64_t nPerBlockG0 = params[2];
   int64_t kpackPerBlock = params[3];
   int64_t mPerWave = params[4];
-  int64_t mnPerXdl = params[5];
-  int64_t kpack = params[6];
-  int64_t splitKFactor = version == 2 ? params[7] : 1;
-  int64_t scheduleVersion = version == 2 ? params[8] : 1;
-  int64_t outputSwizzle = version == 2 ? params[9] : 2;
+  int64_t nPerWave, mnPerXdl;
+  int64_t lastIdx = 5;
+  if (isV3) {
+    nPerWave = params[lastIdx++];
+    mnPerXdl = params[lastIdx++];
+    // the code below is for compatibility with < v3
+  } else if (isWmma) {
+    mnPerXdl = 16; // default value 16 because v3 had no mnPerXdl
+    nPerWave = params[lastIdx++];
+  } else {
+    mnPerXdl = params[lastIdx++];
+    const int64_t maxWavesPerWG = 4;
+    int64_t mWaves = std::min(mPerBlockG0 / mPerWave, maxWavesPerWG);
+    int64_t nWaves = maxWavesPerWG / mWaves;
+
+    mPerWave = mPerBlockG0 / mWaves;
+    nPerWave = std::max(nPerBlockG0 / nWaves, mnPerXdl);
+  }
+  int64_t kpack = params[lastIdx++];
+  int64_t splitKFactor = version > 1 ? params[lastIdx++] : 1;
+  int64_t scheduleVersion = version > 1 ? params[lastIdx++] : 1;
+  int64_t outputSwizzle = version > 1 ? params[lastIdx++] : 2;
   int64_t forceUnroll = params[expectedNumTokens - 1] == 1;
-  return AttnPerfConfigAttr::get(perfConfigStrAttr.getContext(), mPerBlockG0,
-                                 mPerBlockG1, nPerBlockG0, kpackPerBlock,
-                                 mPerWave, mnPerXdl, kpack, splitKFactor,
-                                 scheduleVersion, outputSwizzle, forceUnroll);
+  return AttnPerfConfigAttr::get(
+      perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
+      kpackPerBlock, mPerWave, nPerWave, mnPerXdl, kpack, splitKFactor,
+      scheduleVersion, outputSwizzle, forceUnroll);
 }
 
 //===-----------------------------------------------------===//

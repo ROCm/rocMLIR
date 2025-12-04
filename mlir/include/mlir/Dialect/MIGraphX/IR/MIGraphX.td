@@ -55,11 +55,12 @@ def MIGraphX_LiteralOp : MIGraphX_Op<"literal",
 
 // Elementwise binary operations
 
-class MIGraphX_ElementwiseBinaryOp<string name, list<Trait> traits = []> :
-    MIGraphX_Op<name, traits>,
-    Arguments<(ins AnyMIXRShaped:$inA,
-                   AnyMIXRShaped:$inB)>,
-    Results<(outs AnyMIXRShaped:$output)> {
+class MIGraphX_ElementwiseBinaryOp<string name, list<Trait> traits = []>
+    : MIGraphX_Op<
+          name, !listconcat(
+                    traits, [AllElementTypesMatch<["inA", "inB", "output"]>])>,
+      Arguments<(ins AnyMIXRShaped:$inA, AnyMIXRShaped:$inB)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Elementwise " # name # " of two shaped values with broadcast";
   let assemblyFormat = [{
     $inA `,` $inB attr-dict
@@ -78,6 +79,20 @@ def MIGraphX_DivOp :
 def MIGraphX_PowOp :
     MIGraphX_ElementwiseBinaryOp<"pow">;
 def MIGraphX_Greater : MIGraphX_ElementwiseBinaryOp<"greater">;
+
+def MIGraphX_Equal : MIGraphX_ElementwiseBinaryOp<"equal"> {
+  let summary = [{
+    Elementwise equality comparison
+  }];
+
+  let description = [{
+    Returns the truth value of (input1 == input2) element-wise.
+
+    Returns a tensor with the same element type as the inputs (not i1) to
+    match MIGraphX's IR representation. This allows direct use with
+    `migraphx.where`, which requires I8/SI8/UI8 condition tensors.
+  }];
+}
 
 def MIGraphX_ClipOp :
     MIGraphX_Op<"clip">,
@@ -508,30 +523,46 @@ def MIGraphX_MultiBroadcastOp :
   }];
 }
 
-class MIGraphX_DotOpBase<string mnemonic, list<Type> inputTypes=[], list<Type> outputTypes=[]> :
-    MIGraphX_Op<mnemonic>,
-    Arguments<(ins MIXRShapedOf<inputTypes>:$in_a,
-                   MIXRShapedOf<inputTypes>:$in_b
-                   )>,
-	Results<(outs MIXRShapedOf<outputTypes>:$output)> {
-    let assemblyFormat = [{
-      $in_a `,` $in_b attr-dict `:` type($in_a) `,` type($in_b) `->` type($output)
-    }];
-}
+defvar QuantDotInTypes = [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, F4E2M1FN,
+                          I8, SI8];
+defvar QuantDotOutTypes = [F32, I32, SI32];
+defvar QuantDotScaleTypes = [F8E8M0FNU, F32];
 
-def MIGraphX_QuantDotOp :
-    MIGraphX_DotOpBase<"quant_dot", [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, I8, SI8], [F32, I32, SI32]>{
+def MIGraphX_QuantDotOp
+    : MIGraphX_Op<"quant_dot", [AttrSizedOperandSegments]>,
+      Arguments<(ins MIXRShapedOf<QuantDotInTypes>:$in_a,
+          MIXRShapedOf<QuantDotInTypes>:$in_b,
+          Optional<MIXRShapedOf<QuantDotScaleTypes>>:$scaleA,
+          Optional<MIXRShapedOf<QuantDotScaleTypes>>:$scaleB)>,
+      Results<(outs MIXRShapedOf<QuantDotOutTypes>:$output)> {
   let summary = "Dot product of quantized tensors";
   let description = [{
-    The `migraphx.quant_dot` op computes the dot product of two tensors.
+    The `migraphx.quant_dot` op computes the dot product of two tensors. This operation is used when converting MIGraphX IR's quant_dot operation to MIGraphX Dialect. 
+    Usually `migraphx.quant_dot` operations have QuantizeLinear and DequantizeLinear operations to convert data types from higher precision to lower precision.  
+    `migraphx.quant_dot` operation is also used for "scaled" GEMMs. 
   }];
+  let assemblyFormat = [{
+    $in_a (`scaled` `by` $scaleA^)? `,` $in_b (`scaled` `by` $scaleB^)? attr-dict
+    `:` type($in_a) (`scaled` `by` type($scaleA)^)? `,` type($in_b)
+        (`scaled` `by` type($scaleB)^)?
+    `->` type($output)
+  }];
+  let hasVerifier = 1;
 }
 
-def MIGraphX_DotOp :
-    MIGraphX_DotOpBase<"dot", [F32, F16, BF16], [F32, F16, BF16]>{
+defvar DotInTypes = [F32, F16, BF16, F4E2M1FN];
+defvar DotOutTypes = [F32, F16, BF16];
+
+def MIGraphX_DotOp : MIGraphX_Op<"dot">,
+                     Arguments<(ins MIXRShapedOf<DotInTypes>:$in_a,
+                         MIXRShapedOf<DotInTypes>:$in_b)>,
+                     Results<(outs MIXRShapedOf<DotOutTypes>:$output)> {
   let summary = "Dot product of tensors";
   let description = [{
     The `migraphx.dot` op computes the dot product of two tensors.
+  }];
+  let assemblyFormat = [{
+    $in_a `,` $in_b attr-dict `:` type($in_a) `,` type($in_b) `->` type($output)
   }];
 }
 

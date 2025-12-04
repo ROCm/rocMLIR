@@ -5,6 +5,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
@@ -19,6 +20,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include <optional>
 
 namespace mlir {
 namespace rock {
@@ -50,6 +52,41 @@ private:
   void setUtilityKernelSizes(Value arg, T utilityOp);
 };
 } // anonymous namespace
+
+static FailureOr<std::optional<int64_t>> getScheduleVersion(func::FuncOp funcOp,
+                                                            Operation *op) {
+  auto scheduleVersionAttrName = rock::ScheduleVersionAttr::getMnemonic();
+
+  std::optional<int64_t> scheduleVersion = std::nullopt;
+  bool hasPerfConfig = op->hasAttrOfType<StringAttr>("perf_config");
+  if (funcOp->hasAttrOfType<rock::ScheduleVersionAttr>(
+          scheduleVersionAttrName) &&
+      hasPerfConfig) {
+    return op->emitError(
+        "kernel has both perf_config and schedule_version attribute "
+        "set. Please modify schedule version directly inside "
+        "perf_config and remove schedule_version\n");
+  }
+  if (funcOp->hasAttrOfType<rock::ScheduleVersionAttr>(
+          scheduleVersionAttrName)) {
+    scheduleVersion = dyn_cast<rock::ScheduleVersionAttr>(
+                          funcOp->removeAttr(scheduleVersionAttrName))
+                          .getScheduleVersion();
+  } else if (!hasPerfConfig) {
+    // set default schedule
+    scheduleVersion = static_cast<int64_t>(GemmLoadTileType::Default);
+  }
+
+  // check scheduleVersion is valid
+  if (scheduleVersion.has_value()) {
+    std::optional<GemmLoadTileType> maybeLoadType =
+        rock::symbolizeGemmLoadTileType(scheduleVersion.value());
+    if (!maybeLoadType.has_value())
+      return op->emitOpError("schedule version value is incorrect");
+  }
+
+  return scheduleVersion;
+}
 
 void AffixTuningParameters::runOnOperation() {
   func::FuncOp func = getOperation();
@@ -128,33 +165,37 @@ void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
   funcOp->setAttr("grid_size", gridSizeAttr);
 }
 
+static LogicalResult isScheduleVersionSupported(int64_t scheduleVersion,
+                                                GemmFeatures features) {
+  std::optional<GemmLoadTileType> maybeLoadType =
+      rock::symbolizeGemmLoadTileType(scheduleVersion);
+  if (!maybeLoadType.has_value())
+    return failure();
+
+  auto loadType = maybeLoadType.value();
+  bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
+                     loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+  if (directToLDS && !isDirectToLDSSupported(features))
+    return failure();
+
+  return success();
+}
+
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmWrapperInterface op) {
   OpBuilder b(op.getContext());
-  auto scheduleVersionAttrName = rock::ScheduleVersionAttr::getMnemonic();
   auto funcParent = op->getParentOfType<func::FuncOp>();
   std::string perfConfig;
-  if (funcParent->hasAttrOfType<rock::ScheduleVersionAttr>(
-          scheduleVersionAttrName) &&
-      op->hasAttrOfType<StringAttr>("perf_config")) {
-    op->emitError("kernel has both perf_config and schedule_version attribute "
-                  "set. Please modify schedule version directly inside "
-                  "perf_config and remove schedule_version\n");
-    signalPassFailure();
-    return;
-  }
   if (auto perfConfigAttr =
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
   }
-  // by default rocMLIR selects GEMM Schedule V1
-  auto scheduleVersion = 1;
-  if (funcParent->hasAttrOfType<rock::ScheduleVersionAttr>(
-          scheduleVersionAttrName)) {
-    scheduleVersion = dyn_cast<rock::ScheduleVersionAttr>(
-                          funcParent->removeAttr(scheduleVersionAttrName))
-                          .getScheduleVersion();
-  }
+  FailureOr<std::optional<int64_t>> maybeScheduleVersion =
+      getScheduleVersion(funcParent, op);
+  if (failed(maybeScheduleVersion))
+    return signalPassFailure();
+
+  std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
 
   GemmFeatures features = rock::getFeatures(op);
   if (isAccel(features)) {
@@ -165,9 +206,15 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // update schedule version to what is provided by the user if and only if
     // user hasn't provided perfConfig, otherwise just keep whatever is inside
     // perfConfig
-    if (!op->hasAttrOfType<StringAttr>("perf_config")) {
-      validParams.gemmScheduleVersion = scheduleVersion;
+    if (scheduleVersion.has_value())
+      validParams.gemmScheduleVersion = scheduleVersion.value();
+
+    if (failed(isScheduleVersionSupported(validParams.gemmScheduleVersion,
+                                          features))) {
+      op->emitError("schedule version not supported\n");
+      return signalPassFailure();
     }
+
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
@@ -208,14 +255,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
     int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
-    RockAccelTuningParamAttrInterface gemmParams;
     Attribute gemmParamsAttr =
         populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
-    if (auto xdlopsParams = dyn_cast<XdlopsGemmParamsAttr>(gemmParamsAttr)) {
-      gemmParams = XdlopsGemmDerivedParamsAttr::get(xdlopsParams);
-    } else {
-      gemmParams = cast<RockAccelTuningParamAttrInterface>(gemmParamsAttr);
-    }
+    RockAccelTuningParamAttrInterface gemmParams =
+        cast<RockAccelTuningParamAttrInterface>(gemmParamsAttr);
     int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op.setGemmParamsAttr(gemmParams);
@@ -233,9 +276,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // update schedule version to what is provided by the user if and only if
     // user hasn't provided perfConfig, otherwise just keep whatever was
     // obtained from perfConfig
-    if (!op->hasAttrOfType<StringAttr>("perf_config")) {
-      validParams.gemmScheduleVersion = scheduleVersion;
-    }
+    if (scheduleVersion.has_value())
+      validParams.gemmScheduleVersion = scheduleVersion.value();
 
     Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
     op.setGemmParamsAttr(gemmParams);
@@ -244,39 +286,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.blockSize));
   }
-}
-
-static RockAccelTuningParamAttrInterface
-deriveGemm1TuningParams(OpBuilder &builder, RockGemmGemmWrapperInterface op,
-                        AttnPerfConfigAttr attnPerfConfig) {
-  auto gemm0TuningParams =
-      cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
-  int64_t gemm1KPack = gemm0TuningParams.getKpack();
-  int64_t gemmNPerWaveOrMnPerXdl = gemm0TuningParams.getNPerWave();
-  if (auto gemm0XdlDerivedParams =
-          dyn_cast<XdlopsGemmDerivedParamsAttr>(op.getGemm0Params().value())) {
-    gemmNPerWaveOrMnPerXdl = gemm0XdlDerivedParams.getMnPerXdl();
-    return XdlopsGemmDerivedParamsAttr::get(
-        builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
-        attnPerfConfig.getMPerBlockG1(), gemm0XdlDerivedParams.getNPerBlock(),
-        gemm0TuningParams.getKpack(),
-        gemm0TuningParams.getMPerWave() * (attnPerfConfig.getMPerBlockG1() /
-                                           gemm0TuningParams.getMPerBlock()),
-        gemm0XdlDerivedParams.getNPerWave(),
-        gemm0XdlDerivedParams.getMnPerXdl(), attnPerfConfig.getSplitKFactor(),
-        gemm0XdlDerivedParams.getScheduleVersion(),
-        gemm0XdlDerivedParams.getOutputSwizzle(),
-        gemm0XdlDerivedParams.getForceUnroll());
-  }
-  return WmmaGemmParamsAttr::get(
-      builder.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
-      attnPerfConfig.getMPerBlockG1(), attnPerfConfig.getNPerBlockG0(),
-      gemm0TuningParams.getKpack(),
-      gemm0TuningParams.getMPerWave() *
-          (attnPerfConfig.getMPerBlockG1() / gemm0TuningParams.getMPerBlock()),
-      gemmNPerWaveOrMnPerXdl, attnPerfConfig.getSplitKFactor(),
-      gemm0TuningParams.getScheduleVersion(),
-      gemm0TuningParams.getOutputSwizzle(), gemm0TuningParams.getForceUnroll());
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(
@@ -289,74 +298,57 @@ void AffixTuningParameters::affixTuningParametersImpl(
                  "with matrix accelerator extentions");
     return signalPassFailure();
   }
+  auto funcParent = op->getParentOfType<func::FuncOp>();
+  FailureOr<std::optional<int64_t>> maybeScheduleVersion =
+      getScheduleVersion(funcParent, op);
+  if (failed(maybeScheduleVersion))
+    return signalPassFailure();
+
+  std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
 
   Attribute params0 = op.getGemm0Params().value_or(nullptr);
   // set a default one if params is not provided
   StringAttr perfConfigStrAttr =
-      builder.getStringAttr("attn:v2:32,32,32,32,32,32,1,1,1,2,1");
+      builder.getStringAttr("attn:v3:32,32,32,32,32,32,16,1,1,1,2,1");
   if (!params0) {
     if (StringAttr mayBePerfConfigStrAttr =
             dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
       perfConfigStrAttr = mayBePerfConfigStrAttr;
     }
   }
-  auto attnPerfConfig = AttnPerfConfigAttr::get(perfConfigStrAttr);
+  bool isWmma = bitEnumContainsAny(rock::getFeatures(op), GemmFeatures::wmma);
+  auto attnPerfConfig = AttnPerfConfigAttr::get(perfConfigStrAttr, isWmma);
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
     return signalPassFailure();
   }
-  GemmFeatures features = rock::getFeatures(op);
-  RockAccelTuningParamAttrInterface accelParams0;
-  if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
-    auto xdlopsParams0 = XdlopsGemmParamsAttr::get(
-        builder.getContext(), attnPerfConfig.getKpackPerBlock(),
-        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
-        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(),
-        attnPerfConfig.getOutputSwizzle(), attnPerfConfig.getForceUnroll());
-    accelParams0 = XdlopsGemmDerivedParamsAttr::get(xdlopsParams0);
-  } else {
-    accelParams0 = WmmaGemmParamsAttr::get(
-        builder.getContext(), attnPerfConfig.getKpackPerBlock(),
-        attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0(),
-        attnPerfConfig.getKpack(), attnPerfConfig.getMPerWave(),
-        attnPerfConfig.getMnPerXdl(), 1, attnPerfConfig.getScheduleVersion(),
-        attnPerfConfig.getOutputSwizzle(), attnPerfConfig.getForceUnroll());
-  }
-  op.setGemm0ParamsAttr(accelParams0);
-  if (attnPerfConfig.getMPerBlockG0() > attnPerfConfig.getMPerBlockG1()) {
-    op.emitError(
-        "The MPerBlockG0 should be larger or equal to getMPerBlockG1.");
+
+  if (scheduleVersion.has_value())
+    attnPerfConfig =
+        attnPerfConfig.withScheduleVersion(scheduleVersion.value());
+
+  if (failed(isScheduleVersionSupported(attnPerfConfig.getScheduleVersion(),
+                                        rock::getFeatures(op)))) {
+    op->emitError("schedule version not supported\n");
     return signalPassFailure();
   }
-  RockAccelTuningParamAttrInterface accelParams1 =
-      deriveGemm1TuningParams(builder, op, attnPerfConfig);
+
+  auto accelParams = getAttentionTuningParams(builder, op, attnPerfConfig);
+  if (failed(accelParams)) {
+    op.emitError("The provided perf config is not valid");
+    return signalPassFailure();
+  }
+  RockAccelTuningParamAttrInterface accelParams0, accelParams1;
+  accelParams0 = accelParams->first;
+  accelParams1 = accelParams->second;
+  LLVM_DEBUG(llvm::dbgs() << "accelParams0=" << accelParams0 << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "accelParams1=" << accelParams1 << "\n");
+  op.setGemm0ParamsAttr(accelParams0);
   op.setGemm1ParamsAttr(accelParams1);
   int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
   int64_t blockSize = waveSize * accelParams0.getNPerBlock() *
                       accelParams0.getMPerBlock() /
                       (accelParams0.getMPerWave() * accelParams0.getNPerWave());
-  auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
-  LLVM_DEBUG(llvm::dbgs() << "accelParams0=" << accelParams0 << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "accelParams1=" << accelParams1 << "\n");
-  LogicalResult isValidBlockwiseGemm0 =
-      populateParamsAccelPtr->isValidBlockwiseGemm(
-          accelParams0, cast<MemRefType>(op.getAType()).getElementType(),
-          cast<MemRefType>(op.getBType()).getElementType(),
-          rock::getArchValue(op),
-          /*enableBlockSizeUpperLimit=*/false,
-          /*enableDPerWaveFiltering=*/false);
-  LogicalResult isValidBlockwiseGemm1 =
-      populateParamsAccelPtr->isValidBlockwiseGemm(
-          accelParams1, cast<MemRefType>(op.getCType()).getElementType(),
-          cast<MemRefType>(op.getCType()).getElementType(),
-          rock::getArchValue(op),
-          /*enableBlockSizeUpperLimit=*/false,
-          /*enableDPerWaveFiltering=*/false);
-  if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {
-    op.emitError("The provided perf config is not valid");
-    return signalPassFailure();
-  }
 
   IntegerAttr blockSizeAttr = builder.getI32IntegerAttr(blockSize);
   func::FuncOp funcOp = getOperation();

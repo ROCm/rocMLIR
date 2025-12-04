@@ -31,7 +31,7 @@ int main(int argc, char *argv[]) {
   size_t Length = strlen(Buffer);
   size_t Bytes = WriteFileCustom(FD, Buffer, Length);
   if (Bytes != Length) {
-    fail("Write failed with ret %d", Bytes);
+    fail("Write failed with ret %zu", Bytes);
   }
 
   amd_comgr_data_t DataObject;
@@ -46,6 +46,9 @@ int main(int argc, char *argv[]) {
   size_t SliceLength = Length - 2;
   Status = amd_comgr_get_data(DataObject, &SliceLength, Slice);
   checkError(Status, "amd_comgr_get_data");
+
+  Status = amd_comgr_release_data(DataObject);
+  checkError(Status, "amd_comgr_release_data");
 
   if (SliceLength != Length - Offset) {
     fail("File Slice Length incorrect");

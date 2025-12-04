@@ -90,9 +90,11 @@ struct AccelEmitter {
          RockAccelTuningParamAttrInterface tuningParams);
 
   /// Emit the actual intrinsic in the threadwise operation
+  /// If scaleA and scaleB are provided, emits a scaled version
   virtual void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                   Value argB, Value bufferC,
-                                  ValueRange regCOffset) = 0;
+                                  ValueRange regCOffset, Value scaleA = Value(),
+                                  Value scaleB = Value()) = 0;
 
   /// Return a wrapped view of the LDS buffer tailored for the accelerator
   /// load pattern. This is similar to wrapLDSBufferForStore, but while storing
@@ -100,10 +102,8 @@ struct AccelEmitter {
   /// is dependent on the type of accelerator we are targeting
   virtual Value
   wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
-                       int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK, bool directToLds,
-                       bool ldsLayoutDxK,
-                       bool doSplitKAcrossThreadsFirst = false) const = 0;
+                       const BlockwiseMatrixParamsAttr &matrixParams,
+                       int64_t blockSize, StringRef dName) const = 0;
 
   /// This functions creates the subtile views that is :
   /// 1) gridSubTileView :
@@ -150,6 +150,12 @@ struct AccelEmitter {
   /// Return the accelerator parameters
   AccelEmitterParams getParams() const { return accelEmitterParams; }
 
+  // Return the accelerator K dimension
+  virtual int64_t getMfmaK() const = 0;
+
+  // Return the accelerator D dimension (M/N dimension)
+  virtual int64_t getMfmaDDim() const = 0;
+
   virtual ~AccelEmitter() {}
 
   enum AccelEmitterKind { AEK_MFMAEmitter, AEK_WMMAEmitter };
@@ -175,14 +181,13 @@ struct MfmaEmitter : public AccelEmitter {
               RockAccelTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
-                          Value bufferC, ValueRange regCOffset) override;
+                          Value bufferC, ValueRange regCOffset,
+                          Value scaleA = Value(),
+                          Value scaleB = Value()) override;
 
-  Value
-  wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
-                       int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK, bool directToLds,
-                       bool ldsLayoutDxK,
-                       bool doSplitKAcrossThreadsFirst = false) const override;
+  Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                             const BlockwiseMatrixParamsAttr &matrixParams,
+                             int64_t blockSize, StringRef dName) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
@@ -202,6 +207,12 @@ struct MfmaEmitter : public AccelEmitter {
   bool isKReduction() const;
 
   int64_t getRowGroupSize() const;
+
+  // Return the MFMA K dimension
+  int64_t getMfmaK() const override;
+
+  // Return the MFMA D dimension (M/N dimension)
+  int64_t getMfmaDDim() const override;
 
   static bool classof(const AccelEmitter *AE) {
     return AE->getKind() == AccelEmitterKind::AEK_MFMAEmitter;
@@ -223,14 +234,13 @@ struct WmmaEmitter : public AccelEmitter {
               RockAccelTuningParamAttrInterface tuningParams);
 
   void emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA, Value argB,
-                          Value bufferC, ValueRange regCOffset) override;
+                          Value bufferC, ValueRange regCOffset,
+                          Value scaleA = Value(),
+                          Value scaleB = Value()) override;
 
-  Value
-  wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
-                       int64_t blockSize, int64_t dInCopyPerThread,
-                       StringRef dName, bool rotateDWithK, bool directToLds,
-                       bool ldsLayoutDxK,
-                       bool doSplitKAcrossThreadsFirst = false) const override;
+  Value wrapLDSBufferForLoad(OpBuilder &b, Location loc, Value buffer,
+                             const BlockwiseMatrixParamsAttr &matrixParams,
+                             int64_t blockSize, StringRef dName) const override;
 
   FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
@@ -244,6 +254,12 @@ struct WmmaEmitter : public AccelEmitter {
       ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
       int64_t inNPerThread, bool doSwapThreadIterSubDimsForM = false,
       bool doSwapThreadIterSubDimsForN = false) override;
+
+  // Return the WMMA K dimension
+  int64_t getMfmaK() const override;
+
+  // Return the WMMA D dimension (M/N dimension)
+  int64_t getMfmaDDim() const override;
 
   static bool classof(const AccelEmitter *AE) {
     return AE->getKind() == AccelEmitterKind::AEK_WMMAEmitter;

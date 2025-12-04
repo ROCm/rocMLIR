@@ -80,7 +80,8 @@ class Rock_ConvOpBase<string mnemonic, list<Type> inputTypes = [F32, F16, BF16],
   let results = (outs Optional<AnyRankedTensor>:$result);
 }
 
-defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
+defvar GemmInputTypes = [F32, F16, BF16, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
+                         F8E4M3FN, F4E2M1FN, F8E8M0FNU];
 // This can be extended for quantization.
 defvar GemmOutputTypes = [F32, F16, BF16, I32, I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
 defvar GemmAccumulatorTypes = [F32, F16, BF16, I32];
@@ -141,11 +142,14 @@ def Rock_GemmOp
     : Rock_Op<"gemm", [DeclareOpInterfaceMethods<RockGemmWrapperInterface>,
                        DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                       RockFusionRoot]>,
+                       RockFusionRoot, AttrSizedOperandSegments]>,
       Arguments<(ins Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix A">:$a,
           Arg<TensorOrMemRefOf<GemmInputTypes>, "matrix B">:$b,
           Arg<TensorOrMemRefOf<GemmOutputTypes>, "matrix C">:$c,
+          Optional<TensorOrMemRefOf<[F8E8M0FNU, F32]>>:$scaleA,
+          Optional<TensorOrMemRefOf<[F8E8M0FNU, F32]>>:$scaleB,
           UnitAttr:$aTransposed, UnitAttr:$bTransposed, UnitAttr:$cTransposed,
+          UnitAttr:$aScaleTransposed, UnitAttr:$bScaleTransposed,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, OptionalAttr<I32Attr>:$derivedBlockSize,
           OptionalAttr<I32Attr>:$gridSize,
@@ -172,9 +176,9 @@ def Rock_GemmOp
   }];
   let hasVerifier = 1;
   let assemblyFormat = [{
-    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a `*` (`tr` $bTransposed^)? $b
+    (`tr` $cTransposed^)? $c `=` (`tr` $aTransposed^)? $a (`scaled` `by` (`tr` $aScaleTransposed^)? $scaleA^)? `*` (`tr` $bTransposed^)? $b (`scaled` `by` (`tr` $bScaleTransposed^)? $scaleB^)?
     (`features` `=` $features^)? `storeMethod` `=` $storeMethod attr-dict
-    `:` type($c) `=` type($a) `*` type($b) (`->` type($result)^)?
+    `:` type($c) `=` type($a) (`scaled` `by` type($scaleA)^)? `*` type($b) (`scaled` `by` type($scaleB)^)? (`->` type($result)^)?
   }];
 }
 
@@ -219,7 +223,9 @@ def Rock_AttentionOp
           StoreMethodAttr:$storeMethod, OptionalAttr<TypeAttr>:$softmaxType,
           OptionalAttr<RockTuningParamAttrInterface>:$params0,
           OptionalAttr<RockTuningParamAttrInterface>:$params1,
-          DenseI64ArrayAttr:$firstGemmIndices)>,
+          DenseI64ArrayAttr:$firstGemmIndices,
+          DefaultValuedOptionalAttr<BoolAttr,
+                                    "false">:$preSoftmaxHasSplitKVTransforms)>,
       Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result,
           Optional<TensorOf<[F32, F16, BF16]>>:$lseOut)> {
   let summary = "Attention operation of transformer models";
@@ -243,6 +249,12 @@ def Rock_AttentionOp
     For flash decoding, you can pass splitKV > 1, the default value is 1, which means flash decoding is disabled. 
     Flash decoding multiplies the number of blocks by splitKV. Note that "lse" has to be non-null for splitKV > 1. 
     However, "lse" can be non-null even if splitKV = 1.
+
+    The `preSoftmaxHasSplitKVTransforms` attribute indicates whether the preSoftmaxBody inputs 
+    have splitKV transforms applied. It is set to true by DetectFlashDecoding when it detects 
+    and removes splitKV patterns. This prevents GridwiseGemmToBlockwise from unnecessarily 
+    re-applying splitKV transforms when the IR is generated directly (e.g., via rocmlir-gen) 
+    without flash decoding detection.
 
     The parameters `gridSize`, and `blockSize` are optional as they can be
     inferred by a tuning process or a heuristic, but they must be set before
@@ -499,10 +511,12 @@ def Rock_GridwiseGemmAccelOp
     : Rock_Op<"gridwise_gemm_accel",
               [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-               RockFusionRoot]>,
+               RockFusionRoot, AttrSizedOperandSegments]>,
       Arguments<(ins Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix A view">:$a,
           Arg<MemRefRankOf<GemmInputTypes, [3]>, "matrix B view">:$b,
           Arg<MemRefRankOf<GemmAccumulatorTypes, [3]>, "matrix C view">:$c,
+          Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleA,
+          Optional<MemRefRankOf<[F8E8M0FNU], [3]>>:$scaleB,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
           RockAccelTuningParamAttrInterface:$params)> {
@@ -511,7 +525,12 @@ def Rock_GridwiseGemmAccelOp
     The `rock.gridwise_gemm` op computes gridwise GEMM with acceleration.
   }];
   let assemblyFormat = [{
-    `(` operands `)` `storeMethod` `(` $storeMethod `)` (`features` `=` $features^)? attr-dict `:` type(operands)
+    `(` $a `,` $b `,` $c
+        (`,` $scaleA^)? (`,` $scaleB^)? `)`
+    `storeMethod` `(` $storeMethod `)`
+    (`features` `=` $features^)? attr-dict
+    `:` type($a) `,` type($b) `,` type($c)
+       (`,` type($scaleA)^)? (`,` type($scaleB)^)?
   }];
   let hasVerifier = 1;
 }
@@ -539,7 +558,9 @@ def Rock_GridwiseAttentionAccelOp
           RockAccelTuningParamAttrInterface:$params0,
           RockAccelTuningParamAttrInterface:$params1,
           DenseI64ArrayAttr:$firstGemmIndices,
-          DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax)> {
+          DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax,
+          DefaultValuedOptionalAttr<BoolAttr,
+                                    "false">:$preSoftmaxHasSplitKVTransforms)> {
   let summary = "Gridwise attention accelerated version";
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
@@ -593,6 +614,29 @@ def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
     $memref attr-dict `:` type($memref)
   }];
   let hasVerifier = 1;
+}
+
+def Rock_AsyncWaitOp : Rock_Op<"async_wait">,
+                       Arguments<(ins I32Attr:$numInst)> {
+  let summary = "Wait for asynchronous global memory loads to LDS to complete";
+  let description = [{
+    The `rock.async_wait` operation waits for asynchronous global memory loads
+    to Local Data Share (LDS) instructions to complete before execution continues.
+    
+    The `numInst` attribute specifies how many async loads need to
+    complete before continuing. The value is clamped to 6 bits (maximum 63). It also
+    introduces a barrier to ensure all workitems in the workgroup synchronize at
+    this point.
+        
+    Example:
+    ```mlir
+    // Wait for 4 outstanding async loads to complete and synchronize all workitems.
+    rock.async_wait {numInst = 4 : i32}
+    ```
+  }];
+  let assemblyFormat = [{
+    attr-dict
+  }];
 }
 
 // Select one among a set of multiple buffers
@@ -743,9 +787,8 @@ def Rock_YieldOp :
   // Yoinked from affine.yield
   let arguments = (ins Variadic<AnyType>:$operands);
 
-  let builders = [
-    OpBuilder<(ins), [{ build($_builder, $_state, std::nullopt); }]>
-  ];
+  let builders = [OpBuilder<(ins),
+                            [{ build($_builder, $_state, ValueRange{}); }]>];
 
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
 }
@@ -951,11 +994,12 @@ def Rock_IndexDiffUpdateOp :
 }
 
 defvar SupportedMemoryElems = [F32, F16, BF16, I1, I<4>, I8, I16, I32,
-                               F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN];
+                               F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN,
+                               F4E2M1FN, F8E8M0FNU];
 defvar NativeMemoryOpTypes =
     [F32, F16, BF16, I<4>, I8, I16, I32, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
-     F8E4M3FN, F4E2M1FN,
-     VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32, F4E2M1FN]>,
+     F8E4M3FN, F4E2M1FN, F8E8M0FNU,
+     VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32, F4E2M1FN, F8E8M0FNU]>,
      VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
      VectorOfLengthAndType<[2, 4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
                                            F8E4M3FN]>];
@@ -1119,6 +1163,38 @@ defvar SameShapeVectorOfI1 = [{
   ::mlir::VectorType::get(::llvm::cast<::mlir::ShapedType>($_self).getShape(), ::mlir::IntegerType::get($_ctxt, 1))
 }];
 
+// lds_transpose_load
+def Rock_LDSTransposeLoadOp
+    : Rock_Op<"lds_transpose_load", [DeclareOpInterfaceMethods<
+                                        MemoryEffectsOpInterface>]>,
+      Arguments<(ins Arg<MemRefOf<[F16, BF16]>, "LDS source buffer">:$source,
+          Variadic<Index>:$indices)>,
+      Results<(outs VectorOfLengthAndType<[4], [F16, BF16]>:$result)> {
+  let summary =
+      "Hardware-assisted LDS transpose load for matrix accelerator tile";
+  let description = [{
+    Loads a matrix accelerator tile of data from Local Data Share (LDS) memory
+    with hardware-assisted transpose instruction.
+    The tile dimensions match the selected matrix-multiply accelerator
+    instruction geometry (`dDim × instrK`), where:
+    - `dDim` is the accelerator M/N dimension (e.g., 16 or 32)
+    - `instrK` is the accelerator K dimension (e.g., 8, 16, or 32)
+    The operation returns a vector of 4 elements per thread containing
+    transposed elements in a layout suitable for matrix accelerator instructions.
+
+    Benefits:
+    - Reduces LDS bank conflicts through optimized access patterns
+    - Provides data in layout expected by matrix-multiply accelerators
+    - Hardware-accelerated transpose with no software overhead
+  }];
+
+  let assemblyFormat = [{
+    $source (`[` $indices^ `]`)? attr-dict `:` type($source) `->` type($result)
+  }];
+
+  let hasVerifier = 1;
+}
+
 // threadwise_read_into
 def Rock_ThreadwiseReadIntoOp
     : Rock_Op<
@@ -1143,7 +1219,8 @@ def Rock_ThreadwiseReadIntoOp
           Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
           Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
           TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
-          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs)>,
+          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs,
+          OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig)>,
       Results<(outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord)> {
   let summary = "Read values from transformed source into destination";
 
@@ -1206,14 +1283,30 @@ def Rock_ThreadwiseReadIntoOp
   }];
 
   let builders = [
-    // Alias for the common case where we aren't filling a buffer of validity checks
-    OpBuilder<(ins "Value":$source, "Value":$dest,
-                   "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
-                   "bool":$forceUnroll, "bool":$useIndexDiffs),
-      [{
-        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs);
-      }]>
-  ];
+      // Alias for the common case where we aren't filling a buffer of validity
+      // checks
+      OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
+                    "ValueRange":$extraIndices, "bool":$forceUnroll,
+                    "bool":$useIndexDiffs),
+                [{
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+      }]>,
+      // Builder with explicit ldsTransposeConfig support
+      OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
+                    "ValueRange":$extraIndices, "bool":$forceUnroll,
+                    "bool":$useIndexDiffs,
+                    "LDSTransposeConfigAttr":$ldsTransposeConfig),
+                [{
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig);
+      }]>,
+      // Builder with validityRecord but without ldsTransposeConfig
+      OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
+                    "Value":$dest, "ValueRange":$dynamicValidities,
+                    "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
+                    "bool":$forceUnroll, "bool":$useIndexDiffs),
+                [{
+        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+      }]>];
 
   let assemblyFormat = [{
     attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest
@@ -1338,10 +1431,13 @@ def Rock_BlockwiseGemmOp
 
 // This is less general than the one in the AMDGPU dialect, since it only
 // accounts for how we call these operations.
-defvar AccelArgTypes = [F32,
-                    VectorOfLengthAndType<[2, 4], [F32]>,
-                    VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-                    VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2, F8E4M3FN]>];
+defvar AccelArgTypes = [F32, VectorOfLengthAndType<[2, 4], [F32]>,
+                        VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
+                        VectorOfLengthAndType<[4, 8, 16], [I8, F8E5M2FNUZ,
+                                                           F8E4M3FNUZ, F8E5M2,
+                                                           F8E4M3FN]>,
+                        VectorOfLengthAndType<[8, 16, 32], [F4E2M1FN]>,
+                        VectorOfLengthAndType<[4, 8, 16, 32], [F8E8M0FNU]>];
 defvar AccelResTypes = [VectorOfLengthAndType<[4, 8, 16, 32], [F32, I32, F16, BF16]>];
 
 // blockwise_gemm_accel
@@ -1350,31 +1446,32 @@ def Rock_BlockwiseGemmAccelOp
               [AttrSizedOperandSegments,
                DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
-      Arguments<(ins Optional<MemRefOf<LdsBufferTypes>>:$matrixA,
-          Optional<MemRefOf<LdsBufferTypes>>:$matrixB, I32Attr:$inMPerThread,
-          I32Attr:$inNPerThread, UnitAttr:$rotateMWithK, UnitAttr:$rotateNWithK,
-          UnitAttr:$loadAfromLDS, UnitAttr:$loadBfromLDS,
-          UnitAttr:$splitKAcrossThreadsFirstA,
-          UnitAttr:$splitKAcrossThreadsFirstB, UnitAttr:$directToLDS,
-          UnitAttr:$ldsLayoutMxK, UnitAttr:$ldsLayoutNxK,
-          MemRefOf<LdsBufferTypes>:$bufferA, MemRefOf<LdsBufferTypes>:$bufferB,
-          MemRefOf<AccelResTypes>:$matrixC, TypeAttr:$elementTypeA,
-          TypeAttr:$elementTypeB, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          I32Attr:$blockSize, RockAccelTuningParamAttrInterface:$params)> {
+      Arguments<(ins MemRefOf<LdsBufferTypes>:$bufferA,
+          MemRefOf<LdsBufferTypes>:$bufferB, MemRefOf<AccelResTypes>:$matrixC,
+          Rock_BlockwiseMatrixParamsAttr:$matrixParamsA,
+          Rock_BlockwiseMatrixParamsAttr:$matrixParamsB,
+          Optional<MemRefOf<LdsBufferTypes>>:$matrixA,
+          Optional<MemRefOf<LdsBufferTypes>>:$matrixB,
+          Optional<MemRefOf<LdsBufferTypes>>:$scaleA,
+          Optional<MemRefOf<LdsBufferTypes>>:$scaleB,
+          Optional<MemRefOf<LdsBufferTypes>>:$bufferScaleA,
+          Optional<MemRefOf<LdsBufferTypes>>:$bufferScaleB,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
+          RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
     The `rock.blockwise_gemm_accel` op does GEMM at workgroup (block) level.
-    - Matrix A and Matrix B shall reside on LDS or registers (depending on loadAfromLDS and loadBfromLDS).
+    - Matrix A and Matrix B shall reside on registers (if matrixA or matrixB are passed, we load them from LDS).
     - Matrix C shall be vectors.
 
     The elements of matrices A and B should be vectors of length kpack, or
     scalars when kpack is 1.
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $bufferA (`from` $matrixA^)? `*`
-                        $bufferB (`from` $matrixB^)? (`features` `=` $features^)? attr-dict
-    `:` type($matrixC) `+` `` `=` type($bufferA) (`from` type($matrixA)^)? `*`
-                                  type($bufferB) (`from` type($matrixB)^)?
+    $matrixC `+` `` `=` $bufferA (`from` $matrixA^)?  (`scaled` `by` $bufferScaleA^)? (`from` $scaleA^)? `*`
+                        $bufferB (`from` $matrixB^)? (`scaled` `by` $bufferScaleB^)? (`from` $scaleB^)? (`features` `=` $features^)? attr-dict
+    `:` type($matrixC) `+` `` `=` type($bufferA) (`from` type($matrixA)^)? (`scaled` `by` type($bufferScaleA)^)? (`from` type($scaleA)^)? `*`
+                                  type($bufferB) (`from` type($matrixB)^)? (`scaled` `by` type($bufferScaleB)^)? (`from` type($scaleB)^)?
   }];
   let hasVerifier = 1;
 }
@@ -1390,13 +1487,13 @@ def Rock_BlockwiseLoadTileOp
           Arg<Optional<MemRefOf<LdsBufferTypes>>, "destination LDS">:$destLDS,
           Arg<Optional<MemRefOf<NativeMemoryOpTypes>>,
               "destination registers">:$destRegisters,
-          Rock_GemmLoadTileTypeAttr:$loadType, UnitAttr:$isA,
-          TypeAttr:$elementTypeA, TypeAttr:$elementTypeB,
-          TypeAttr:$elementTypeALoad, TypeAttr:$elementTypeBLoad,
-          UnitAttr:$rotateWithK, UnitAttr:$swapThreadIterSubDims,
-          UnitAttr:$LDSLayoutDxK, Variadic<Index>:$sourceIndices, I64Attr:$G,
-          I64Attr:$M, I64Attr:$N, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          I32Attr:$blockSize, RockAccelTuningParamAttrInterface:$params)> {
+          Rock_GemmLoadTileTypeAttr:$loadType, TypeAttr:$elementType,
+          TypeAttr:$elementLoadType,
+          Rock_BlockwiseMatrixParamsAttr:$matrixParamsA,
+          Rock_BlockwiseMatrixParamsAttr:$matrixParamsB, UnitAttr:$isA,
+          Variadic<Index>:$sourceIndices,
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
+          RockAccelTuningParamAttrInterface:$params)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
@@ -1407,8 +1504,13 @@ def Rock_BlockwiseLoadTileOp
     - Default: Creates two stages, (1) load from memory, (2) write to LDS.
     - BypassLDS: Bypasses LDS and loads from device memory to registers directly (only one stage).
     - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
+    - DirectToLDSDefault: Same as Default, but a single stage loads from memory and writes to LDS.
+    - DirectToLDSDoubleBuffer: Same as DoubleBuffer, but a single stage loads from memory and writes to LDS.
 
     `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
+    `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. They are data types for the Matrix A & B of the GEMMs. 
+    `elementLoadType` is the element type of the global buffer this BlockwiseLoadTileOp is trying to load. 
+    `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.  
   }];
   let assemblyFormat = [{
     $source (`[` $sourceIndices^ `]`)? (`LDS` `->` $destLDS^)? (`->` $destRegisters^)? attr-dict
@@ -1441,28 +1543,31 @@ def Rock_ThreadwiseGemmOp
   let hasVerifier = 1;
 }
 
-// threadwise_accel_gemm
-def Rock_ThreadwiseAccelGemmOp
-    : Rock_Op<"threadwise_accel_gemm",
+// threadwise_gemm_accel
+def Rock_ThreadwiseGemmAccelOp
+    : Rock_Op<"threadwise_gemm_accel",
               [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               AttrSizedOperandSegments]>,
       Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
                          "source register view A">:$matrixA,
           Arg<MemRefOf<NativeMemoryOpTypes>, "source register view B">:$matrixB,
           Arg<MemRefOf<NativeMemoryOpTypes>, "dest register view C">:$matrixC,
+          Optional<MemRefOf<NativeMemoryOpTypes>>:$scaleA,
+          Optional<MemRefOf<NativeMemoryOpTypes>>:$scaleB,
           Variadic<Index>:$computeIndices,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           RockAccelTuningParamAttrInterface:$params)> {
   let summary = "Accelerated GEMM";
   let description = [{
-    The `rock.accel_gemm` op is an abstraction of doing GEMM based on an accelerator.
+    The `rock.threadwise_gemm_accel` op is an abstraction of doing GEMM based on an accelerator.
     It would employ a series of accelerator (e.g., mfma or wmma) operations.
 
     Matrices A and B reside in LDS, the buffers live in registers, C is a vector
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $matrixA `*` $matrixB `at` `[` $computeIndices `]` (`features` `=` $features^)? attr-dict
-    `:` type($matrixC) `+` `` `=` type($matrixA) `*` type($matrixB)
+    $matrixC `+` `` `=` $matrixA (`scaled` `by` $scaleA^)? `*` $matrixB (`scaled` `by` $scaleB^)? `at` `[` $computeIndices `]` (`features` `=` $features^)? attr-dict
+    `:` type($matrixC) `+` `` `=` type($matrixA) (`scaled` `by` type($scaleA)^)? `*` type($matrixB) (`scaled` `by` type($scaleB)^)?
   }];
   let hasVerifier = 1;
 }

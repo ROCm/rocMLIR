@@ -19,10 +19,13 @@ func.func @gridwise_attn_causal_scale_gqa(%arg0: memref<8192xf16>, %arg1: memref
   %14 = rock.transform %10 by <affine_map<(d0, d1, d2) -> (d0, d1, d2)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 24} ["gemm1NPad"] at [1] -> ["gemm1N"] at [1]>, <PassThrough ["gemm1M"] at [2] -> ["gemm1M"] at [2]>] bounds = [8, 32, 128] -> [8, 8, 128]> : memref<8x8x128xf16> to memref<8x32x128xf16>
   %15 = rock.transform %12 by <affine_map<(d0, d1) -> (d0, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <Pad{0, 24} ["gemm1NPad"] at [1] -> ["gemm1N"] at [1]>] bounds = [8, 32] -> [8, 8]> : memref<8x8xf16> to memref<8x32xf16>
 
-  // CHECK: %[[c8:.+]] = arith.constant 8 : index
+  // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
+  // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
+  // CHECK-DAG: %[[c4:.+]] = arith.constant 4 : index
+  // CHECK-DAG: %[[c8:.+]] = arith.constant 8 : index
 
   // main loop
-  // CHECK: affine.for %arg6 = 0 to 4
+  // CHECK: scf.for %arg6 = %c0 to %c4 step %c1
   
   // data conversion transforming_for
   // CHECK: rock.transforming_for
@@ -60,6 +63,6 @@ func.func @gridwise_attn_causal_scale_gqa(%arg0: memref<8192xf16>, %arg1: memref
     }
     memref.copy %alloc, %arg8 : memref<64x1x8192xf16> to memref<64x1x8192xf16>
     rock.yield
-  } {blockSize = 32 : i32, causal, firstGemmIndices = array<i64: 0>, gridSize = 8 : i32, numRepeatsGQA = 8 : index, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 1>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0N = 8 : index, softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} : memref<8x128x32xf16>, memref<8x128x8192xf16>, memref<8x8192x128xf16>, memref<64x1x8192xf16>, memref<8x32x128xf16>, memref<8x32xf16>
+  } {blockSize = 32 : i32, causal, firstGemmIndices = array<i64: 0>, gridSize = 8 : i32, numRepeatsGQA = 8 : index, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 1>, params0 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll  = true>, params1 = #rock.wmma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll  = true>, prePadG0N = 8 : index, softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} : memref<8x128x32xf16>, memref<8x128x8192xf16>, memref<8x8192x128xf16>, memref<64x1x8192xf16>, memref<8x32x128xf16>, memref<8x32xf16>
   return
 }

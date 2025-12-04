@@ -41,12 +41,13 @@ class PerfConfig:
 
     class Version(enum.Enum):
         V2 = 2
-        V3 = 4
+        V3 = 3
+        V4 = 4
 
-    def __init__(self, config: Sequence[int], version: Version = Version.V3):
+    def __init__(self, config: Sequence[int], version: Version = Version.V4):
         self._config = config
         self._version = version
-        self._version_map = {PerfConfig.Version.V2: "v2", PerfConfig.Version.V3: "v3"}
+        self._version_map = {PerfConfig.Version.V2: "v2", PerfConfig.Version.V3: "v3", PerfConfig.Version.V4: "v4"}
 
     def __str__(self):
         suffix = ','.join(str(v) for v in self._config)
@@ -56,7 +57,7 @@ class PerfConfig:
 class MLIROnlyConfig(ConvConfiguration):
 
     def __repr__(self):
-        perf_config_str = str(self.perfConfig) if self.perfConfig else ""
+        perf_config_str = str(self.perfconfig) if self.perfconfig else ""
         return f"""ConvConfiguration(dtype={self.dataType!r}, direction={self.direction!r}, layout={self.inputLayout.upper()!r},
                 n={self.n!r}, c={self.c!r}, hi={self.hi!r}, wi={self.wi!r}, k={self.k!r}, y={self.y!r}, x={self.x!r},
                 convStrideH={self.conv_stride_h!r}, convStrideW={self.conv_stride_w!r}, paddingHL={self.padding_hl!r}, paddingHR={self.padding_hr!r},
@@ -90,12 +91,6 @@ class MLIROnlyConfig(ConvConfiguration):
             str(self.padding_wl), '--padding_w_r',
             str(self.padding_wr)
         ]
-
-        # Under the hood MIGraphX will use -v4r1 0 (i.e., all the gemms it
-        # creates are in a single kernel), so we want to make sure that this
-        # is the path this is tested.
-        if self.direction == 'bwd':
-            result += ['-v4r1', '0']
 
         result += rocmlir_gen_flags
 
@@ -432,6 +427,8 @@ WMMA_PERF_CONFIG = itertools.product(
     range(2, 8),
     # NPerWave (exponent)
     range(2, 8),
+    # MNPerXdl (exponent)
+    range(4, 5), # 16 only
     # KPack (exponent)
     range(2, 5),
     # splitKFactor (exponent)
@@ -456,6 +453,8 @@ MFMA_PERF_CONFIG = itertools.product(
     range(2, 8),
     # NPerWave (exponent)
     range(2, 8),
+    # MNPerXdl (exponent)
+    range(4, 6),
     # KPack (exponent)
     range(1, 4),
     # splitKFactor (exponent)
@@ -463,16 +462,27 @@ MFMA_PERF_CONFIG = itertools.product(
     # GEMM Schedule Version
     range(1, 3))
 
+def to_wmma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
+    n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw = \
+        512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
+    op, layout, dtype, m_per_block, n_per_block, k_per_block, m_per_wave, \
+        n_per_wave, mn_per_xdl, kpack, split_k, gemm_schedule = params
+    # no mn_per_xdl for wmma
+    perf_config_tuple = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block, 1 << m_per_wave,
+                         1 << n_per_wave, 1 << kpack, 1 << split_k, gemm_schedule, 2, 1, 1)
+    return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl, phr, pwl, pwr, dh,
+                          dw, g, options.arch, PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
+
 
 def to_mfma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw = \
         512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, m_per_block, n_per_block, k_per_block, m_per_wave, \
-        n_per_wave, kpack, split_k, gemm_schedule = params
+        n_per_wave, mn_per_xdl, kpack, split_k, gemm_schedule = params
     perf_config_tuple = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block, 1 << m_per_wave,
-                         1 << n_per_wave, 1 << kpack, 1 << split_k, gemm_schedule, 2, 1, 1)
+                         1 << n_per_wave, 1 << mn_per_xdl, 1 << kpack, 1 << split_k, gemm_schedule, 2, 1, 1)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl, phr, pwl, pwr, dh,
-                          dw, g, options.arch, PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
+                          dw, g, options.arch, PerfConfig(perf_config_tuple, PerfConfig.Version.V4))
 
 
 VANILLA_PERF_CONFIG = itertools.product(
@@ -519,7 +529,7 @@ async def run_config(param_iter: Iterable[IterType], to_config: Callable[[IterTy
     if len(failures) != 0:
         print("*** Summary of failures ***")
         for c in failures:
-            print(' '.join(c.generate_mlir_driver_commandline(options.flags, kernel_repeats=None)))
+            print(' '.join(c.generate_mlir_driver_commandline(options.flags)))
     print(f"Passed: {n_passes}, Invalid: {n_invalids}, Failed: {len(failures)}")
     return len(failures) == 0 and n_passes > 0
 
@@ -651,7 +661,7 @@ def main() -> bool:
             run_config(VANILLA_PERF_CONFIG, to_vanilla_perf_config_test, options, paths))
     elif config == 'wmma_perf_config':
         succeeded = asyncio.run(
-            run_config(WMMA_PERF_CONFIG, to_mfma_perf_config_test, options, paths))
+            run_config(WMMA_PERF_CONFIG, to_wmma_perf_config_test, options, paths))
     else:
         print(f"Unknown config: {config}", file=sys.stderr)
     return succeeded

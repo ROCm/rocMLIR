@@ -28,6 +28,8 @@
 #include "mlir/Dialect/Rock/IR/WmmaInsnGroup.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
+#include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::arith;
@@ -179,14 +181,17 @@ AccelEmitterParams MfmaEmitter::initAccelEmitterParams(
 
 void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
-                                     ValueRange regCOffset) {
+                                     ValueRange regCOffset, Value scaleA,
+                                     Value scaleB) {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
-  int64_t mfmaNonKDim = mfmaAttr.mfmaNonKDim;
+  int64_t mfmaDDim = mfmaAttr.mfmaDDim;
   auto imms = mfmaGroup.getImms();
   int64_t nResultVectors = imms.size();
   Value nResultVectorsConst = ConstantIndexOp::create(b, loc, nResultVectors);
   VectorType vectorType = mfmaGroup.getRetType();
   auto outputOffset = llvm::to_vector(regCOffset);
+  bool isScaled = scaleA && scaleB;
+
   for (int64_t i = 0; i < nResultVectors; ++i) {
     Value offset = b.createOrFold<arith::ConstantIndexOp>(loc, i);
     offset = AddIOp::create(
@@ -195,13 +200,22 @@ void MfmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
     outputOffset.back() = offset;
     auto vectorC =
         memref::LoadOp::create(b, loc, vectorType, bufferC, outputOffset);
-    auto mfma = amdgpu::MFMAOp::create(
-        b, loc, vectorType, mfmaNonKDim, mfmaNonKDim, mfmaAttr.k,
-        mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
-        /*abid=*/imms[i].abid,
-        /*blgp=*/imms[i].blgp, /*reducePrecision=*/false, /*negateA=*/false,
-        /*negateB=*/false, /*negateC=*/false);
-    auto vectorD = mfma.getDestD();
+
+    Value vectorD;
+    if (isScaled) {
+      auto mfma = amdgpu::ScaledMFMAOp::create(
+          b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k, argA, argB,
+          vectorC, scaleA, scaleB, /*scalesIdxA=*/0, /*scalesIdxB=*/0);
+      vectorD = mfma.getDestD();
+    } else {
+      auto mfma = amdgpu::MFMAOp::create(
+          b, loc, vectorType, mfmaDDim, mfmaDDim, mfmaAttr.k,
+          mfmaAttr.blocksMfma, argA, argB, vectorC, /*cbsz=*/imms[i].cbsz,
+          /*abid=*/imms[i].abid, /*blgp=*/imms[i].blgp,
+          /*reducePrecision=*/false, /*negateA=*/false, /*negateB=*/false,
+          /*negateC=*/false);
+      vectorD = mfma.getDestD();
+    }
 
     memref::StoreOp::create(b, loc, vectorD, bufferC, outputOffset);
   }
@@ -270,7 +284,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
   int64_t rowGroupSize = mfmaAttr.rowGroupSize;
   int64_t rowGroupsPerBlock = mfmaAttr.rowGroupsPerBlock;
   int64_t inputSpanLen = mfmaAttr.inputSpanLen;
-  int64_t m = mfmaAttr.mfmaNonKDim;
+  int64_t m = mfmaAttr.mfmaDDim;
 
   // Note n has the 4x4 => 4x64 behavior that necessitated
   // inputSpansPerMfmaIn
@@ -358,11 +372,13 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
     // threadid/iter dimensions on both the M/N axis.
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
                                           toRowsAndColsAttr};
-    mlir::rock::swapThreadIdAndIteration(
+    FailureOr<TopDownTMBuilder> swapRes = mlir::rock::swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
         inMPerThread, inNPerThread, mPerBlock, nPerBlock,
         doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
         /*isBlockwise=*/false, transformAttrs);
+    if (failed(swapRes))
+      return failure();
 
     ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
@@ -406,12 +422,10 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
   return ret;
 }
 
-Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
-                                        Value buffer, int64_t blockSize,
-                                        int64_t dInCopyPerThread,
-                                        StringRef dName, bool rotateDWithK,
-                                        bool directToLds, bool ldsLayoutDxK,
-                                        bool doSplitKAcrossThreadsFirst) const {
+Value MfmaEmitter::wrapLDSBufferForLoad(
+    OpBuilder &b, Location loc, Value buffer,
+    const BlockwiseMatrixParamsAttr &matrixParams, int64_t blockSize,
+    StringRef dName) const {
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
@@ -423,6 +437,9 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t mPerBlock = tuningParams.getMPerBlock();
   int64_t nPerBlock = tuningParams.getNPerBlock();
   int64_t kPack = tuningParams.getKpack();
+  bool rotateDWithK = matrixParams.getRotateDWithK();
+  bool ldsLayoutDxK = matrixParams.getLDSLayoutDxK();
+  int64_t dPerThread = matrixParams.getInDPerThread();
 
   // Extract relevant emitter parameters
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
@@ -430,11 +447,15 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
   bool isKReduction = mfmaAttr.isKReduction;
   int64_t kIter = kpackPerThread;
+  int64_t kVec = 1;
   // Note that when directToLDS is disabled, we are loading vector<kpackxdtype>
   // from LDS, so we load kpackPerThread. When directToLDS is enabled, we
   // load vector<1xdtype>, so each thread will load kpackPerThread * kPack.
-  if (directToLds) {
-    kIter *= kPack;
+  if (matrixParams.getDirectToLDS()) {
+    // kVec is kPack for directToLDS because as explained above, the
+    // non-directToLDS case, has a dtype=vector<kpackxdtype>. So, we need to
+    // handle both cases.
+    kVec = kPack;
     kPerBlock *= kPack;
     assert(!rotateDWithK && "rotateDWithK must not be enabled for directToLds");
   }
@@ -452,11 +473,12 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   SmallVector<Attribute> transformAttrs;
   if (!isKReduction) {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                              {blockSize, dRepeats, kIter});
+                              {blockSize, dRepeats, kIter * kVec});
     splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
                    {blockSize / waveSize, waveSize});
+    splitTid.merge({"k_iter", "k_vec"}, {3, 4}, "k_iter", {kIter, kVec});
 
-    splitTid.passThrough({"d_iter", "k_iter"}, {2, 3}, {"d_iter", "k_iter"});
+    splitTid.passThrough({"d_iter"}, {2}, {"d_iter"});
     TransformMapAttr splitTidAttr = splitTid.get();
     transformAttrs.push_back(splitTidAttr);
 
@@ -464,8 +486,9 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
         TopDownTMBuilder::below(splitTid, splitTidAttr);
     splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id",
                       {mWaves, nWaves});
-    splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {2, 3, 4},
-                            {"lane_id", "d_iter", "k_iter"});
+    splitWaveId.passThrough({"lane_id", "d_iter", "k_iter", "k_vec"},
+                            {2, 3, 4, 5},
+                            {"lane_id", "d_iter", "k_iter", "k_vec"});
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
 
@@ -477,14 +500,14 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
                         {dRepeats, dWaves, dPerAccel});
 
     // k = k_i
-    toLDSRowCol.passThrough({"k"}, 1, {"k_iter"});
+    toLDSRowCol.unmerge("k", 1, {"k_iter", "k_vec"}, {kIter, kVec});
     toLDSRowCol.ignore(otherWaveDim);
 
     TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
 
     transformAttrs.push_back(toLDSRowColAttr);
 
-    int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
+    int64_t stride = (kPack == 1 ? dPerThread : 1);
     auto offset =
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
@@ -499,12 +522,13 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
 
   } else {
     TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                              {blockSize, dRepeats, kIter});
+                              {blockSize, dRepeats, kIter * kVec});
     splitTid.merge(
         {"wave_id", "blk_id", "blk_td"}, {0, 1, 2}, "tid",
         {blockSize / waveSize, waveSize / inputSpanLen, inputSpanLen});
+    splitTid.merge({"k_iter", "k_vec"}, {4, 5}, "k_iter", {kIter, kVec});
 
-    splitTid.passThrough({"d_iter", "k_iter"}, {3, 4}, {"d_iter", "k_iter"});
+    splitTid.passThrough({"d_iter"}, {3}, {"d_iter"});
     TransformMapAttr splitTidAttr = splitTid.get();
     transformAttrs.push_back(splitTidAttr);
 
@@ -512,9 +536,9 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
         TopDownTMBuilder::below(splitTid, splitTidAttr);
     splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id",
                       {mWaves, nWaves});
-    splitWaveId.passThrough({"blk_id", "blk_td", "d_iter", "k_iter"},
-                            {2, 3, 4, 5},
-                            {"blk_id", "blk_td", "d_iter", "k_iter"});
+    splitWaveId.passThrough({"blk_id", "blk_td", "d_iter", "k_iter", "k_vec"},
+                            {2, 3, 4, 5, 6},
+                            {"blk_id", "blk_td", "d_iter", "k_iter", "k_vec"});
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
 
@@ -524,14 +548,14 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     // d = blk_td + d_i * waveOffset
     toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
                         {dRepeats, dWaves, inputSpanLen});
-    if (doSplitKAcrossThreadsFirst) {
+    if (matrixParams.getSplitKAcrossThreadsFirst()) {
       // k = blk_id + (waveSize / inputSpanLen) * k_i
-      toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id"},
-                          {kIter, waveSize / inputSpanLen});
+      toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id", "k_vec"},
+                          {kIter, waveSize / inputSpanLen, kVec});
     } else {
       // k = k_i + kpackPerBlock * blk_id
-      toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter"},
-                          {waveSize / inputSpanLen, kIter});
+      toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter", "k_vec"},
+                          {waveSize / inputSpanLen, kIter, kVec});
     }
 
     toLDSRowCol.ignore(otherWaveDim);
@@ -539,7 +563,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
     TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
     transformAttrs.push_back(toLDSRowColAttr);
 
-    int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
+    int64_t stride = (kPack == 1 ? dPerThread : 1);
     auto offset =
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
@@ -565,6 +589,16 @@ bool MfmaEmitter::isKReduction() const {
 int64_t MfmaEmitter::getRowGroupSize() const {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   return mfmaAttr.rowGroupSize;
+}
+
+int64_t MfmaEmitter::getMfmaK() const {
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  return mfmaAttr.k;
+}
+
+int64_t MfmaEmitter::getMfmaDDim() const {
+  MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+  return mfmaAttr.mfmaDDim;
 }
 
 llvm::FailureOr<RegsAsMatrixSubTiles>
@@ -806,12 +840,20 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   return params;
 }
 
-Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
-                                        Value buffer, int64_t blockSize,
-                                        int64_t dInCopyPerThread,
-                                        StringRef dName, bool rotateDWithK,
-                                        bool directToLds, bool ldsLayoutDxK,
-                                        bool doSplitKAcrossThreadsFirst) const {
+int64_t WmmaEmitter::getMfmaK() const {
+  // K dimension is encoded in the input vector length
+  return wmmaInsn.argTypeA.getNumElements();
+}
+
+int64_t WmmaEmitter::getMfmaDDim() const {
+  // D dimension (M/N) for WMMA is always dPerAccel
+  return wmmaInsn.dPerAccel;
+}
+
+Value WmmaEmitter::wrapLDSBufferForLoad(
+    OpBuilder &b, Location loc, Value buffer,
+    const BlockwiseMatrixParamsAttr &matrixParams, int64_t blockSize,
+    StringRef dName) const {
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();
@@ -821,8 +863,10 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   int64_t nPerWave = tuningParams.getNPerWave();
   int64_t kPack = tuningParams.getKpack();
   // TODO: gfx10 supports directToLDS. Implement it.
-  assert(!directToLds && "direct to LDS not supported for WMMA");
-  assert(!ldsLayoutDxK && "WMMA only supports LDS layout KxD for now");
+  assert(!matrixParams.getDirectToLDS() &&
+         "direct to LDS not supported for WMMA");
+  assert(!matrixParams.getLDSLayoutDxK() &&
+         "WMMA only supports LDS layout KxD for now");
 
   // Extract relevant emitter parameters
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
@@ -887,10 +931,10 @@ Value WmmaEmitter::wrapLDSBufferForLoad(OpBuilder &b, Location loc,
   TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
   transformAttrs.push_back(toLDSRowColAttr);
 
-  int64_t stride = (kPack == 1 ? dInCopyPerThread : 1);
-  auto offset =
-      rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
-               dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
+  int64_t stride = (kPack == 1 ? matrixParams.getInDPerThread() : 1);
+  auto offset = rotateIf(matrixParams.getRotateDWithK(), toLDSRowCol,
+                         toLDSRowColAttr, stride, "d", dPerBlock, 0, "k",
+                         kPerBlock, {}, {"k"}, transformAttrs);
 
   offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
 
@@ -1065,14 +1109,39 @@ WmmaEmitter::createAccelGemmOperandTransforms(
 
 void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
-                                     ValueRange regCOffset) {
+                                     ValueRange regCOffset, Value scaleA,
+                                     Value scaleB) {
+  bool isScaled = scaleA && scaleB;
+  if (isScaled) {
+    llvm::report_fatal_error(
+        "Scaled WMMA not implemented yet for WMMA Emitter");
+  }
+
   VectorType vectorType = wmmaInsn.retType;
   auto vectorC =
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
-  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, argA, argB, vectorC,
-                                     /*subwordOffset=*/0, /*unsignedA=*/false,
-                                     /*unsignedB=*/false, /*clamp=*/true);
+  // WMMAOp requires explicit m, n, k dimensions as IntegerAttrs
+  auto mAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
+  auto nAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
+  // see WmmaInsnGroup.cpp, all current wmma operations have k=16
+  auto kAttr = b.getI32IntegerAttr(16);
+  auto subwordOffsetAttr = b.getI32IntegerAttr(0);
+
+  // Clamp flag is only valid for integer output types
+  Type elementType = vectorType.getElementType();
+  UnitAttr clampAttr =
+      isa<IntegerType>(elementType) ? b.getUnitAttr() : nullptr;
+
+  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, mAttr, nAttr, kAttr,
+                                     argA, argB, vectorC, subwordOffsetAttr,
+                                     /*unsignedA=*/nullptr,
+                                     /*unsignedB=*/nullptr, clampAttr);
+
+  // auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, argA, argB, vectorC,
+  //                                    /*subwordOffset=*/0,
+  //                                    /*unsignedA=*/false,
+  //                                    /*unsignedB=*/false, /*clamp=*/true);
   auto vectorD = mfma.getDestD();
 
   memref::StoreOp::create(b, loc, vectorD, bufferC, regCOffset);
@@ -1160,11 +1229,13 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
                       ArrayRef<int64_t>{dimSizesN}.slice(1));
 
     SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr};
-    mlir::rock::swapThreadIdAndIteration(
+    FailureOr<TopDownTMBuilder> swapRes = mlir::rock::swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1], /*nBlocks=*/bidGridLengths[2],
         inMPerThread, inNPerThread, mPerBlock, nPerBlock,
         doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
         /**isBlockwise=*/false, transformAttrs);
+    if (failed(swapRes))
+      return failure();
 
     ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
@@ -1215,11 +1286,9 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
   bool isMfma = rock::bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = rock::bitEnumContainsAll(features, GemmFeatures::wmma);
   if (isMfma) {
-    XdlopsGemmDerivedParamsAttr mfmaParams =
-        cast<XdlopsGemmDerivedParamsAttr>(tuningParams);
     auto maybeMfmaInsnGroup = MfmaInsnGroup::select(
-        dataTypeA, dataTypeB, arch, mfmaParams.getMnPerXdl(),
-        mfmaParams.getKpack(), mfmaParams.getKpackPerBlock());
+        dataTypeA, dataTypeB, arch, tuningParams.getMnPerXdl(),
+        tuningParams.getKpack(), tuningParams.getKpackPerBlock());
     if (failed(maybeMfmaInsnGroup)) {
       return nullptr;
     }

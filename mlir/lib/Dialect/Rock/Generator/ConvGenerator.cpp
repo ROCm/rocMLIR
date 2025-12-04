@@ -961,14 +961,18 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
             config.strideDims, config.dilationDims, config.filterDims)) {
       // For all backwards data convolution ops that don't write to every pixel,
       // we want to zeroinitialize the buffer in the second argument
-      // (input tensor)
+      // (input tensor). To avoid multiple initializations when multiple V4R1
+      // kernels are used only the first kernel (kernelId == 0) should set the
+      // prefill attribute
       // TODO: This is okay for right now since we are not doing any fusions.
       // When we do handle fusions in the future there is no guarantee that
       // arg 1 is going to be the input tensor.
-      zeroInitArg(builder, func, 1);
+      if (kernelId == 0) {
+        zeroInitArg(builder, func, 1);
+      }
     }
-    builder.create<ConvBwdDataOp>(builder.getUnknownLoc(), ArrayRef<Type>{},
-                                  args, attributes);
+    ConvBwdDataOp::create(builder, builder.getUnknownLoc(), ArrayRef<Type>{},
+                          args, attributes);
   } break;
   case ConvOpType::BwdWeight: {
     int kernelCount = 0;

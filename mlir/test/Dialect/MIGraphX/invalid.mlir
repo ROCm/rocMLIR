@@ -42,3 +42,186 @@ func.func @mlir_neg_one_with_zero(%arg0: !migraphx.shaped<2x4xf16, 0x1>) {
   return
 }
 
+func.func @func_equal(%arg0: !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1>) -> !migraphx.shaped<1x36x384x64xi32, 884736x24576x64x1> attributes{kernel, arch = ""} {
+  %cst = migraphx.literal (dense<1> : tensor<1x36x384x64xi32>) : <1x36x384x64xi32, 884736x24576x64x1>
+  %0 = migraphx.add %arg0, %cst : <1x36x384x64xi32, 884736x24576x64x1>, <1x36x384x64xi32, 884736x24576x64x1> -> <1x36x384x64xi32, 884736x24576x64x1>
+  // expected-error@+1 {{'migraphx.equal' op failed to verify that all of {inA, inB, output} have same element type}}
+  %1 = migraphx.equal %arg0, %0 : <1x36x384x64xi32, 884736x24576x64x1>, <1x36x384x64xi32, 884736x24576x64x1> -> <1x36x384x64xi16, 884736x24576x64x1>
+  return %1 : !migraphx.shaped<1x36x384x64xi16, 884736x24576x64x1>
+}
+
+// Test: Only scaleA provided (should fail - both scales required)
+func.func @quant_dot_only_scale_a(
+  %arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>, 
+  %arg1: !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>,
+  %arg2: !migraphx.shaped<1x16x512xf32, 8192x512x1>
+) -> !migraphx.shaped<1x16x16xf32, 256x16x1> {
+  // expected-error @+1 {{both scaleA and scaleB must be provided or neither}}
+  %0 = migraphx.quant_dot
+       %arg0 scaled by %arg2,
+       %arg1
+     : !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1> scaled by
+       !migraphx.shaped<1x16x512xf32, 8192x512x1>,
+       !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>
+     -> !migraphx.shaped<1x16x16xf32, 256x16x1>
+  return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
+}
+
+// -----
+
+// Test: Only scaleB provided (should fail - both scales required)
+func.func @quant_dot_only_scale_b(
+  %arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>, 
+  %arg1: !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>,
+  %arg2: !migraphx.shaped<1x512x16xf32, 8192x16x1>
+) -> !migraphx.shaped<1x16x16xf32, 256x16x1> {
+  // expected-error @+1 {{both scaleA and scaleB must be provided or neither}}
+  %0 = migraphx.quant_dot
+       %arg0,
+       %arg1 scaled by %arg2
+     : !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>,
+       !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1> scaled by
+       !migraphx.shaped<1x512x16xf32, 8192x16x1>
+     -> !migraphx.shaped<1x16x16xf32, 256x16x1>
+  return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
+}
+
+// -----
+
+// Test: Scaled quant_dot with non-f4E2M1FN inputs (should fail)
+func.func @quant_dot_wrong_input_type(
+  %arg0: !migraphx.shaped<2x32x64xi8, 2048x64x1>, 
+  %arg1: !migraphx.shaped<2x64x32xi8, 2048x32x1>,
+  %arg2: !migraphx.shaped<2x32x64xf32, 2048x64x1>,
+  %arg3: !migraphx.shaped<2x64x32xf32, 2048x32x1>
+) -> !migraphx.shaped<2x32x32xf32, 1024x32x1> {
+  // expected-error @+1 {{'migraphx.quant_dot' op Scaled quant dot ops only support f4E2M1FN element type}}
+  %0 = migraphx.quant_dot
+       %arg0 scaled by %arg2,
+       %arg1 scaled by %arg3
+     : !migraphx.shaped<2x32x64xi8, 2048x64x1> scaled by
+       !migraphx.shaped<2x32x64xf32, 2048x64x1>,
+       !migraphx.shaped<2x64x32xi8, 2048x32x1> scaled by
+       !migraphx.shaped<2x64x32xf32, 2048x32x1>
+     -> !migraphx.shaped<2x32x32xf32, 1024x32x1>
+  return %0 : !migraphx.shaped<2x32x32xf32, 1024x32x1>
+}
+
+// -----
+
+// Test: Scaled quant_dot with FP8 inputs (should fail - requires f4E2M1FN)
+func.func @quant_dot_fp8_inputs(
+  %arg0: !migraphx.shaped<4x8x16xf8E4M3FNUZ, 128x16x1>, 
+  %arg1: !migraphx.shaped<4x16x8xf8E5M2FNUZ, 128x8x1>,
+  %arg2: !migraphx.shaped<4x8x16xf8E8M0FNU, 128x16x1>,
+  %arg3: !migraphx.shaped<4x16x8xf8E8M0FNU, 128x8x1>
+) -> !migraphx.shaped<4x8x8xf32, 64x8x1> {
+  // expected-error @+1 {{input types must have the same element type}}
+  %0 = migraphx.quant_dot
+       %arg0 scaled by %arg2,
+       %arg1 scaled by %arg3
+     : !migraphx.shaped<4x8x16xf8E4M3FNUZ, 128x16x1> scaled by
+       !migraphx.shaped<4x8x16xf8E8M0FNU, 128x16x1>,
+       !migraphx.shaped<4x16x8xf8E5M2FNUZ, 128x8x1> scaled by
+       !migraphx.shaped<4x16x8xf8E8M0FNU, 128x8x1>
+     -> !migraphx.shaped<4x8x8xf32, 64x8x1>
+  return %0 : !migraphx.shaped<4x8x8xf32, 64x8x1>
+}
+
+// -----
+
+// Test: Mismatched input types for scaled quant_dot
+func.func @quant_dot_mismatched_inputs(
+  %arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>, 
+  %arg1: !migraphx.shaped<1x512x16xf8E4M3FN, 8192x16x1>,
+  %arg2: !migraphx.shaped<1x16x512xf32, 8192x512x1>,
+  %arg3: !migraphx.shaped<1x512x16xf32, 8192x16x1>
+) -> !migraphx.shaped<1x16x16xf32, 256x16x1> {
+  // expected-error @+1 {{input types must have the same element type}}
+  %0 = migraphx.quant_dot
+       %arg0 scaled by %arg2,
+       %arg1 scaled by %arg3
+     : !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1> scaled by
+       !migraphx.shaped<1x16x512xf32, 8192x512x1>,
+       !migraphx.shaped<1x512x16xf8E4M3FN, 8192x16x1> scaled by
+       !migraphx.shaped<1x512x16xf32, 8192x16x1>
+     -> !migraphx.shaped<1x16x16xf32, 256x16x1>
+  return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
+}
+
+// -----
+
+// Test: Scale shape doesn't match input shape (rank mismatch)
+func.func @quant_dot_mismatched_scale_shape(
+  %arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>, 
+  %arg1: !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>,
+  %arg2: !migraphx.shaped<1x16xf32, 16x1>,
+  %arg3: !migraphx.shaped<1x512x16xf32, 8192x16x1>
+) -> !migraphx.shaped<1x16x16xf32, 256x16x1> {
+  // expected-error @+1 {{scaleA shape must have the same number of dimensions as the input types}}
+  %0 = migraphx.quant_dot
+       %arg0 scaled by %arg2,
+       %arg1 scaled by %arg3
+     : !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1> scaled by
+       !migraphx.shaped<1x16xf32, 16x1>,
+       !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1> scaled by
+       !migraphx.shaped<1x512x16xf32, 8192x16x1>
+     -> !migraphx.shaped<1x16x16xf32, 256x16x1>
+  return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
+}
+
+// -----
+
+// Test: Scale dimensions don't match input dimensions
+func.func @quant_dot_wrong_scale_dims(
+  %arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>, 
+  %arg1: !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>,
+  %arg2: !migraphx.shaped<1x32x512xf32, 16384x512x1>,
+  %arg3: !migraphx.shaped<1x512x16xf32, 8192x16x1>
+) -> !migraphx.shaped<1x16x16xf32, 256x16x1> {
+  // expected-error @+1 {{scaleA shape must have the same dimensions as the input types}}
+  %0 = migraphx.quant_dot
+       %arg0 scaled by %arg2,
+       %arg1 scaled by %arg3
+     : !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1> scaled by
+       !migraphx.shaped<1x32x512xf32, 16384x512x1>,
+       !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1> scaled by
+       !migraphx.shaped<1x512x16xf32, 8192x16x1>
+     -> !migraphx.shaped<1x16x16xf32, 256x16x1>
+  return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
+}
+
+// -----
+
+// Test: Result type must be float for scaled quant_dot
+func.func @quant_dot_result_not_float(
+  %arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>, 
+  %arg1: !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>,
+  %arg2: !migraphx.shaped<1x16x512xf32, 8192x512x1>,
+  %arg3: !migraphx.shaped<1x512x16xf32, 8192x16x1>
+) -> !migraphx.shaped<1x16x16xi32, 256x16x1> {
+  // expected-error @+1 {{result type must be a float32 type for scaled quant dot ops}}
+  %0 = migraphx.quant_dot
+       %arg0 scaled by %arg2,
+       %arg1 scaled by %arg3
+     : !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1> scaled by
+       !migraphx.shaped<1x16x512xf32, 8192x512x1>,
+       !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1> scaled by
+       !migraphx.shaped<1x512x16xf32, 8192x16x1>
+     -> !migraphx.shaped<1x16x16xi32, 256x16x1>
+  return %0 : !migraphx.shaped<1x16x16xi32, 256x16x1>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @migraphx_quant_dot_f4_no_scales
+func.func @migraphx_quant_dot_f4_n_scales(%arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>, %arg1: !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>) -> !migraphx.shaped<1x16x16xf32, 256x16x1>  {
+ // expected-error @+1 {{Quant Dot ops requires scales to be provided to use f4E2M1FN element type}}
+ %0 = migraphx.quant_dot
+      %arg0,
+      %arg1 
+    : <1x16x512xf4E2M1FN, 8192x512x1>, 
+      <1x512x16xf4E2M1FN, 8192x16x1>
+    -> <1x16x16xf32, 256x16x1>
+  return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
+}

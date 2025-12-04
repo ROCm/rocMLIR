@@ -19,51 +19,73 @@ on:
       - "!external/llvm-project/**"
 jobs:
   py-checks:
-    if: false
     runs-on: ubuntu-latest
+    container:
+      image: python:3.8
+      options: --user root
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.8'
+      - name: Fix git ownership
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 yapf pep8-naming
+          pip install -r pip_requirements.txt
 
       - name: Get changed Python files under mlir/
         id: changes
         shell: bash
         run: |
+          echo "Determining merge base..."
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            BASE_REF="origin/${{ github.base_ref }}"
+            BASE_BRANCH="${{ github.base_ref }}"
           else
-            BASE_SHA="${{ github.event.before }}"
+            BASE_REF="origin/${{ github.ref_name }}"
+            BASE_BRANCH="${{ github.ref_name }}"
           fi
-          HEAD_SHA="${{ github.sha }}"
-          # list added/modified files, restrict to mlir/**/*.py
-          files=$(git diff --name-only --diff-filter=AM "$BASE_SHA" "$HEAD_SHA" \
+
+          echo "BASE_REF=$BASE_REF"
+          echo "BASE_BRANCH=$BASE_BRANCH"
+          
+          # Fetch the base branch explicitly
+          git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" || \
+            git fetch origin "$BASE_BRANCH" || true
+
+          # Verify that BASE_REF exists locally
+          if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+            echo "Error: Base ref '$BASE_REF' does not exist locally. Fetch may have failed." >&2
+            exit 1
+          fi
+          BASE_SHA=$(git merge-base HEAD "$BASE_REF")
+          echo "BASE_SHA=$BASE_SHA"
+
+          # Get added/modified Python files under mlir/
+          files=$(git diff --name-only --diff-filter=AM "$BASE_SHA"...HEAD \
                     | grep -E '^mlir/.*\.py$' || true)
+
           echo "files<<EOF" >> $GITHUB_OUTPUT
           echo "$files" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          echo "Changed files:"
+
+          echo "Changed Python files:"
           echo "$files"
 
       - name: Run flake8
         if: steps.changes.outputs.files != ''
         run: |
-          flake8 --ignore=E501,E251,E124,E251,W605 ${{ steps.changes.outputs.files }}
+          flake8 --ignore=E501,E251,E124,W605,W504,E131,E126,W503 \
+            ${{ steps.changes.outputs.files }}
 
       - name: Run YAPF check
         if: steps.changes.outputs.files != ''
         run: |
-          # --diff prints a unified diff and returns non-zero if changes would be made
           yapf --diff ${{ steps.changes.outputs.files }} \
             || (echo "Format issues found. Fix locally with: yapf -i <files>"; exit 1)
 

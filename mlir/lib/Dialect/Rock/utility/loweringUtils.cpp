@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/utility/math.h"
+#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Value.h"
@@ -29,8 +30,11 @@
 #include "llvm/Support/FormatVariadic.h"
 
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/LogicalResult.h"
 using namespace mlir;
 using namespace mlir::rock;
+
+#define DEBUG_TYPE "rock-lowering-utils"
 
 bool mlir::rock::isValidBlockSize(int64_t blockSize, int64_t kPerBlock,
                                   int64_t mPerBlock, int64_t nPerBlock) {
@@ -231,8 +235,14 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
-  int64_t kThreads = kPerBlock / kPerThread;
+  if (dPerBlock % dPerThread != 0) {
+    return failure();
+  }
   int64_t dThreads = dPerBlock / dPerThread;
+  int64_t kThreads = blockSize / dThreads;
+  if (kThreads * dThreads != blockSize) {
+    return failure();
+  }
 
   RegsAsMatrixSubTiles gpuViews;
   {
@@ -325,8 +335,14 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
-  int64_t kThreads = kPerBlock / kPerThread;
+  if (dPerBlock % dPerThread != 0) {
+    return failure();
+  }
   int64_t dThreads = dPerBlock / dPerThread;
+  int64_t kThreads = blockSize / dThreads;
+  if (kThreads * dThreads != blockSize) {
+    return failure();
+  }
 
   int64_t kpackPerThread = std::min(kPerThread, kpack);
   assert(kPerThread % kpackPerThread == 0);
@@ -459,7 +475,7 @@ Value mlir::rock::padMatrix(Value matrix, OpBuilder &b, Location loc,
   return TransformOp::create(b, loc, matrix, padAttr);
 }
 
-TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
+FailureOr<TopDownTMBuilder> mlir::rock::swapThreadIdAndIteration(
     TopDownTMBuilder &toMatrixC, int64_t mBlocks, int64_t nBlocks,
     int64_t copyMPerThread, int64_t copyNPerThread, int64_t mPerBlock,
     int64_t nPerBlock, bool doSwapThreadIterSubDimsForM,
@@ -480,6 +496,8 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
       splitAgain.passThrough({"gemmBlockM"}, {idx}, {"gemmBlockM"});
       idx += 1;
     } else {
+      if (mPerBlock % copyMPerThread != 0)
+        return failure();
       splitAgain.merge({"m_iter", "m_tid"}, {idx, idx + 1}, "gemmBlockM",
                        {copyMPerThread, mPerBlock / copyMPerThread});
       idx += 2;
@@ -487,9 +505,12 @@ TopDownTMBuilder mlir::rock::swapThreadIdAndIteration(
 
     if (!doSwapThreadIterSubDimsForN)
       splitAgain.passThrough({"gemmBlockN"}, {idx}, {"gemmBlockN"});
-    else
+    else {
+      if (nPerBlock % copyNPerThread != 0)
+        return failure();
       splitAgain.merge({"n_iter", "n_tid"}, {idx, idx + 1}, "gemmBlockN",
                        {copyNPerThread, nPerBlock / copyNPerThread});
+    }
   }
   TransformMapAttr splitAgainAttr = splitAgain.get();
   transformAttr.push_back(splitAgainAttr);
@@ -559,7 +580,7 @@ Value mlir::rock::createSliceOfFirstDim(PatternRewriter &rewriter, Location loc,
 }
 
 template <typename AllocType>
-FailureOr<AllocType> findAlloc(Value value) {
+static FailureOr<AllocType> findAlloc(Value value) {
   auto *curOp = value.getDefiningOp();
   auto maybeAllocOp = dyn_cast_or_null<AllocType>(curOp);
   while (!maybeAllocOp) {
@@ -579,7 +600,7 @@ FailureOr<AllocType> findAlloc(Value value) {
       } else if (buffers.size() == 1) {
         curOp = buffers.back().getDefiningOp();
       } else {
-        int64_t index = selectIndex.value();
+        int64_t index = selectIndex.value() % buffers.size();
         curOp = buffers[index].getDefiningOp();
       }
     } else {
@@ -601,6 +622,44 @@ FailureOr<memref::AllocOp> mlir::rock::findMemrefAlloc(Value value) {
   return findAlloc<memref::AllocOp>(value);
 }
 
+// This is similar to findAlloc(), but this function gives you a
+// list of allocs. The reason why it's a list is because if we find a
+// ExtractMultiBufferOp and the index is non-static, we can't know which one
+// will be chosen, so we trace back all of them.
+SmallVector<rock::GpuAllocOp> mlir::rock::findAllGpuAllocs(Value value) {
+  SmallVector<rock::GpuAllocOp> allocs;
+  SmallVector<Operation *> worklist{value.getDefiningOp()};
+  while (!worklist.empty()) {
+    Operation *curOp = worklist.pop_back_val();
+    auto maybeAllocOp = dyn_cast_or_null<rock::GpuAllocOp>(curOp);
+    if (maybeAllocOp) {
+      allocs.push_back(maybeAllocOp);
+    } else {
+      // Keep going until the operation that defines the value is a
+      // view-like operation
+      if (auto viewOp = dyn_cast_or_null<ViewLikeOpInterface>(curOp)) {
+        worklist.push_back(viewOp.getViewSource().getDefiningOp());
+      } else if (auto extractMultiBufferOp =
+                     dyn_cast_or_null<rock::ExtractMultiBufferOp>(curOp)) {
+        auto buffers = extractMultiBufferOp.getBuffers();
+        auto selectIndex = dyn_cast_or_null<arith::ConstantIndexOp>(
+            extractMultiBufferOp.getSelectIndex().getDefiningOp());
+        if (buffers.size() > 1 && !selectIndex) {
+          for (auto buffer : buffers)
+            worklist.push_back(buffer.getDefiningOp());
+        } else if (buffers.size() == 1) {
+          worklist.push_back(buffers.back().getDefiningOp());
+        } else {
+          int64_t index = selectIndex.value() % buffers.size();
+          worklist.push_back(buffers[index].getDefiningOp());
+        }
+      }
+    }
+  }
+
+  return allocs;
+}
+
 FailureOr<BlockArgument> mlir::rock::findBlockArgument(Value value) {
   auto maybeBlockArg = dyn_cast_or_null<BlockArgument>(value);
   while (!maybeBlockArg) {
@@ -616,16 +675,6 @@ FailureOr<BlockArgument> mlir::rock::findBlockArgument(Value value) {
   }
 
   return maybeBlockArg;
-}
-
-std::optional<int64_t> mlir::rock::computeConstDiff(Value l, Value u) {
-  IntegerAttr clb, cub;
-  if (matchPattern(l, m_Constant(&clb)) && matchPattern(u, m_Constant(&cub))) {
-    llvm::APInt lbValue = clb.getValue();
-    llvm::APInt ubValue = cub.getValue();
-    return (ubValue - lbValue).getSExtValue();
-  }
-  return std::nullopt;
 }
 
 // The rows and columns of subtile view needs to
@@ -766,7 +815,6 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   Location loc = buffer.getLoc();
   Value zeroByteOffset = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
   auto bufferType = cast<MemRefType>(buffer.getType());
-  int64_t byteWidth = getByteWidth(elementType);
   assert(bufferType.getRank() == 1 &&
          "Buffer type must be a 1D memref for viewBufferAs");
   assert(bufferType.getElementType() == b.getI8Type() &&
@@ -775,9 +823,15 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
   int64_t numBytes = bufferType.getShape()[0];
   int64_t numElements = std::accumulate(dimensions.begin(), dimensions.end(),
                                         int64_t{1}, std::multiplies<>());
-  assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
-  assert(numBytes / byteWidth == numElements &&
-         "Provided dimensions don't match buffer size");
+  int64_t elementBitWidth =
+      getElementTypeOrSelf(elementType).getIntOrFloatBitWidth();
+  int64_t vectorLength = isa<VectorType>(elementType)
+                             ? cast<VectorType>(elementType).getNumElements()
+                             : 1;
+  int64_t totalBitWidthRequested = elementBitWidth * numElements * vectorLength;
+  int64_t bufferBitWidth = numBytes * 8;
+  assert(bufferBitWidth == totalBitWidthRequested &&
+         "Can't evenly fit type into buffer");
 
   auto newBufferType = MemRefType::get(dimensions, elementType, nullptr,
                                        bufferType.getMemorySpace());
@@ -794,10 +848,16 @@ TypedValue<MemRefType> mlir::rock::viewBufferAs(OpBuilder &b, Value buffer,
          "Buffer type must be a 1D memref for viewBufferAs");
   assert(bufferType.getElementType() == b.getI8Type() &&
          "Buffer type must be a i8 memref for viewBufferAs");
-  int64_t byteWidth = getByteWidth(elementType);
   int64_t numBytes = bufferType.getShape()[0];
-  assert(numBytes % byteWidth == 0 && "Can't evenly fit type into buffer");
-  int64_t length = numBytes / byteWidth;
+  int64_t bufferBitWidth = numBytes * 8;
+  int64_t elementBitWidth =
+      getElementTypeOrSelf(elementType).getIntOrFloatBitWidth();
+  int64_t vectorLength = isa<VectorType>(elementType)
+                             ? cast<VectorType>(elementType).getNumElements()
+                             : 1;
+  assert(bufferBitWidth % (elementBitWidth * vectorLength) == 0 &&
+         "Can't evenly fit type into buffer");
+  int64_t length = bufferBitWidth / (elementBitWidth * vectorLength);
   return viewBufferAs(b, buffer, elementType, {length});
 }
 
@@ -816,8 +876,8 @@ Value mlir::rock::gpuAlloc(OpBuilder &b, Location loc, int64_t bufferDim,
     return GpuAllocOp::create(b, loc, memType);
   }
   auto rawMemType =
-      MemRefType::get({bufferDim * getByteWidth(elementType)}, b.getI8Type(),
-                      AffineMap{}, memoryAddressSpaceAttr);
+      MemRefType::get({getPackedByteSize(bufferDim, elementType)},
+                      b.getI8Type(), AffineMap{}, memoryAddressSpaceAttr);
   auto buffer = GpuAllocOp::create(b, loc, rawMemType);
 
   return viewBufferAs(b, buffer, elementType);
@@ -1063,10 +1123,9 @@ FailureOr<Value> mlir::rock::wrapLDSBufferForStore(
     kpack = vectorDataType.getNumElements();
     dataType = vectorDataType.getElementType();
   }
-
-  if (bufferShape[0] != kOuter * d * kpack * getByteWidth(dataType)) {
+  if (bufferShape[0] != getPackedByteSize(kOuter * d * kpack, dataType)) {
     return emitError(loc, "LDS buffer should have ")
-           << kOuter * d * kpack * getByteWidth(dataType)
+           << getPackedByteSize(kOuter * d * kpack, dataType)
            << " elements but has " << bufferShape[0];
   }
   int64_t kpackPerThread = std::min(kPerThread, kpack);
@@ -1178,7 +1237,159 @@ std::optional<int64_t> mlir::rock::getWorkgroupMemorySize(MemRefType type) {
   auto memSpaceValue =
       dyn_cast_or_null<gpu::AddressSpaceAttr>(type.getMemorySpace()).getValue();
   if (memSpaceValue == gpu::GPUDialect::getWorkgroupAddressSpace()) {
-    return type.getNumElements() * getByteWidth(type.getElementType());
+    return getPackedByteSize(type.getNumElements(), type.getElementType());
   }
   return std::nullopt;
+}
+
+FailureOr<ThreadwiseReadIntoLoopInfo> mlir::rock::getThreadwiseReadIntoLoopInfo(
+    const ThreadwiseReadIntoLoopConfigInput &input) {
+  ThreadwiseReadIntoLoopInfo info;
+  info.numValues = input.numValues;
+  info.vectorDstLen = 1;
+  info.vectorSrcLen = 1;
+  info.srcStride = 1;
+  info.dstVectorType = nullptr;
+
+  Type elementType = input.elementType;
+  Type loadType;
+
+  if (input.isSrcVectorBuffer) {
+    loadType = elementType;
+    info.vectorSrcLen = dyn_cast<VectorType>(elementType).getNumElements();
+    elementType = dyn_cast<VectorType>(elementType).getElementType();
+    // Here we would call collapseContiguousMerges
+    info.srcStride = 1;
+    if (!input.isDstVectorBuffer)
+      info.numValues = info.numValues / info.vectorSrcLen;
+  } else {
+    VectorizationResult vectorSrcRes = getMaxVectorization(
+        input.sourceView, input.extraIdxCount, /*inputDimLen=*/info.numValues);
+    info.vectorSrcLen = vectorSrcRes.max;
+    if (input.isGlobalToLDS &&
+        info.vectorSrcLen > input.maxGlobalToLDSVectorLen) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "getThreadwiseReadIntoLoopInfo:"
+                 << "Constraining vectorization from " << info.vectorSrcLen
+                 << " to " << input.maxGlobalToLDSVectorLen.value()
+                 << " for Global-to-LDS hardware limits\n");
+      info.vectorSrcLen = input.maxGlobalToLDSVectorLen.value();
+    }
+    // Here we would call collapseContiguousMerges
+    info.srcStride = info.vectorSrcLen;
+    loadType = vectorTypeOrSelf(elementType, info.vectorSrcLen);
+  }
+
+  // Force the dynamic validity case down to a vectorization of 1
+  if (input.hasDynamicValidities) {
+    info.vectorSrcLen = 1;
+    info.srcStride = 1;
+    loadType = elementType;
+  }
+
+  if (input.isDstVectorBuffer) {
+    info.dstVectorType =
+        dyn_cast<VectorType>(input.dstBufferType.getElementType());
+    info.vectorDstLen =
+        dyn_cast<VectorType>(info.dstVectorType).getNumElements();
+    info.numValues = info.numValues * info.vectorDstLen;
+    if (input.isSrcVectorBuffer) {
+      info.numValues = info.numValues / info.vectorSrcLen;
+    }
+  }
+
+  info.elementType = elementType;
+  info.loadType = loadType;
+  return info;
+}
+
+FailureOr<int64_t>
+mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
+  Value sourceView = op.getSource();
+  Value dest = op.getDest();
+
+  auto sourceViewType = cast<MemRefType>(sourceView.getType());
+  MemRefType dstBufferType = cast<MemRefType>(dest.getType());
+
+  bool isSrcVectorBuffer = isa<VectorType>(sourceViewType.getElementType());
+  bool isDstVectorBuffer = isa<VectorType>(dstBufferType.getElementType());
+
+  // Collect transforms from the source value without creating operations
+  SmallVector<TransformMapAttr> transforms;
+  Value buffer;
+  std::tie(buffer, std::ignore) = untransform(sourceView, transforms);
+
+  // Get buffer type
+  auto srcBufferType = dyn_cast<MemRefType>(buffer.getType());
+  if (!srcBufferType) {
+    return failure();
+  }
+
+  // Determine address spaces
+  gpu::AddressSpace srcAddrSpace = gpu::AddressSpace::Global;
+  if (srcBufferType.getMemorySpace()) {
+    srcAddrSpace =
+        cast<gpu::AddressSpaceAttr>(srcBufferType.getMemorySpace()).getValue();
+  }
+  gpu::AddressSpace dstAddrSpace = gpu::AddressSpace::Private;
+  if (dstBufferType.getMemorySpace()) {
+    dstAddrSpace =
+        cast<gpu::AddressSpaceAttr>(dstBufferType.getMemorySpace()).getValue();
+  }
+  bool isGlobalToLDS = srcAddrSpace == gpu::AddressSpace::Global &&
+                       dstAddrSpace == gpu::AddressSpace::Workgroup;
+
+  int64_t numValues = dstBufferType.getNumElements();
+
+  // For GlobalToLDS, get numValues from the transform maps
+  // We need to combine extraViews with existing transforms
+  ArrayAttr extraViews = op.getExtraViews();
+  if (isGlobalToLDS) {
+    // Combine extraViews with existing transforms to find the top map
+    SmallVector<TransformMapAttr> allTransforms;
+    if (extraViews) {
+      for (auto attr : extraViews.getAsRange<TransformMapAttr>()) {
+        allTransforms.push_back(attr);
+      }
+    }
+    allTransforms.append(transforms.begin(), transforms.end());
+
+    if (allTransforms.empty()) {
+      return failure();
+    }
+    TransformMapAttr topMap = allTransforms[0];
+    numValues = topMap.getUpperBounds().asArrayRef().back();
+    if (isSrcVectorBuffer || isDstVectorBuffer) {
+      return failure();
+    }
+  }
+
+  size_t extraIdxCount = op.getExtraIndices().size();
+  auto elementType = sourceViewType.getElementType();
+
+  std::optional<int64_t> maxGlobalToLDSVectorLen;
+  if (isGlobalToLDS) {
+    auto arch = rock::getArch(op);
+    if (failed(arch))
+      return failure();
+    auto archInfo = rock::lookupArchInfo(arch.value());
+    Type scalarElementType = getElementTypeOrSelf(elementType);
+    int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
+    maxGlobalToLDSVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
+  }
+
+  ThreadwiseReadIntoLoopConfigInput loopInput{
+      sourceView,        dstBufferType,
+      extraIdxCount,     elementType,
+      numValues,         isSrcVectorBuffer,
+      isDstVectorBuffer, !op.getDynamicValidities().empty(),
+      isGlobalToLDS,     maxGlobalToLDSVectorLen};
+  auto maybeLoopInfo = getThreadwiseReadIntoLoopInfo(loopInput);
+  if (failed(maybeLoopInfo))
+    return failure();
+
+  ThreadwiseReadIntoLoopInfo info = maybeLoopInfo.value();
+  if (info.srcStride == 0)
+    return failure();
+  return info.numValues / info.srcStride;
 }

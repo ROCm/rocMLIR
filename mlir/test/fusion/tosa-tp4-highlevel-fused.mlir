@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver --host-pipeline highlevel %s | FileCheck %s
+// RUN: rocmlir-driver -kernel-pipeline highlevel %s | FileCheck %s
 
 module {
   // CHECK-LABEL: @test_conv_tp

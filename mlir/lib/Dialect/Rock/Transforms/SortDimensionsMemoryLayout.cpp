@@ -98,8 +98,16 @@ static LogicalResult traceGemmInputToBlockArgs(
   // transforms == SeqExisting + Seq
   // transformAttrsMap[inputArg] = SeqExisting
   // transformAttrsMap[Source] = SeqExisting + Seq
-  std::tie(source, transforms, std::ignore) =
-      rock::untransform(b, inputArg, transformAttrsMap[inputArg]);
+
+  if (!isa<BlockArgument>(inputArg) &&
+      isa<memref::AllocOp>(inputArg.getDefiningOp())) {
+    source = inputArg;
+    transforms = b.getArrayAttr(SmallVector<Attribute>{});
+  } else {
+    std::tie(source, transforms, std::ignore) =
+        rock::untransform(b, inputArg, transformAttrsMap[inputArg]);
+  }
+
   // insert transform sequence on source into the map if it doesn't already
   // exists. if it does then we've found a loop or case where multiple operators
   // are writing to same `memref.alloc`
@@ -306,7 +314,7 @@ reorderBatch(Value tensor, const SmallVector<StringRef> &layout,
 template <typename ContainerTy, typename ElementTy>
 static std::optional<size_t> findIndex(const ContainerTy &container,
                                        const ElementTy &element) {
-  auto it = llvm::find(container, element);
+  const auto *it = llvm::find(container, element);
   if (it == container.end())
     return std::nullopt;
   return std::distance(container.begin(), it);
@@ -320,68 +328,90 @@ static SmallVector<Operation *> getOperations(func::FuncOp &func) {
   return ops;
 }
 
+// Result of tensor layout processing
+struct TensorLayoutResult {
+  Value tensor;
+  UnitAttr transposed;
+  SmallVector<StringRef> initialLayout;
+  SmallVector<StringRef> finalLayout;
+
+  // Convenience method to check if processing succeeded
+  explicit operator bool() const { return tensor != nullptr; }
+};
+
+// Helper function to process a tensor with sort and batch reorder operations.
+static TensorLayoutResult processTensorLayout(PatternRewriter &b, Value tensor,
+                                              ArrayRef<StringRef> layoutDims,
+                                              bool isTransposed, int tensorRank,
+                                              const std::string &debugName) {
+  // Setup layout based on transpose attribute
+  SmallVector<StringRef> layout(layoutDims.begin(), layoutDims.end());
+  if (isTransposed && layout.size() == 3)
+    layout = {layout[0], layout[2], layout[1]};
+  if (tensorRank == 2 && layout.size() == 3)
+    layout = {layout[1], layout[2]};
+
+  SmallVector<StringRef> initialLayout = layout;
+
+  // Sort by memory layout
+  auto maybeSorted = sortByMemoryLayout(tensor, layout, b);
+  if (failed(maybeSorted))
+    return {Value{}, UnitAttr{}, initialLayout, SmallVector<StringRef>{}};
+
+  auto sorted = maybeSorted.value();
+  LLVM_DEBUG(llvm::dbgs() << debugName << "=" << std::get<0>(sorted) << "\n");
+
+  // Reorder batch
+  auto batchReorder = reorderBatch(std::get<0>(sorted), std::get<1>(sorted),
+                                   layoutDims.back(), b);
+
+  Value newTensor = std::get<0>(batchReorder);
+  UnitAttr transposed = std::get<1>(batchReorder);
+  auto finalLayout = std::get<2>(batchReorder);
+
+  LLVM_DEBUG(llvm::dbgs() << "new" << debugName << "=" << newTensor << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "transposed" << debugName << "=" << transposed
+                          << "\n");
+
+  return {newTensor, transposed, initialLayout, finalLayout};
+}
+
 static FailureOr<std::tuple<Value, Value, Value, UnitAttr, UnitAttr, UnitAttr>>
 commonGemmGemm(rock::RockGemmGemmWrapperInterface op, Value q, Value k, Value v,
                PatternRewriter &b) {
-  SmallVector<StringRef> layoutQ{"G", "M", "K"};
-  if (op.getTransposedA())
-    layoutQ = {"G", "K", "M"};
-  if (cast<ShapedType>(q.getType()).getRank() == 2)
-    layoutQ = {layoutQ[1], layoutQ[2]};
+  // Process Q tensor
+  auto resultQ =
+      processTensorLayout(b, q, {"G", "M", "K"}, op.getTransposedA(),
+                          cast<ShapedType>(q.getType()).getRank(), "TensorQ");
 
-  SmallVector<StringRef> layoutK{"G", "K", "N"};
-  if (op.getTransposedB())
-    layoutK = {"G", "N", "K"};
-  if (cast<ShapedType>(k.getType()).getRank() == 2)
-    layoutK = {layoutK[1], layoutK[2]};
+  if (!resultQ)
+    return op.emitOpError("sortByMemoryLayout failed for TensorQ");
 
-  SmallVector<StringRef> layoutV{"G", "K", "N"};
-  if (op.getTransposedC())
-    layoutV = {"G", "N", "K"};
-  if (cast<ShapedType>(v.getType()).getRank() == 2)
-    layoutV = {layoutV[1], layoutV[2]};
+  // Process K tensor
+  auto resultK =
+      processTensorLayout(b, k, {"G", "K", "N"}, op.getTransposedB(),
+                          cast<ShapedType>(k.getType()).getRank(), "TensorK");
 
-  auto maybeSortedQ = sortByMemoryLayout(q, layoutQ, b);
-  auto maybeSortedK = sortByMemoryLayout(k, layoutK, b);
-  auto maybeSortedV = sortByMemoryLayout(v, layoutV, b);
+  if (!resultK)
+    return op.emitOpError("sortByMemoryLayout failed for TensorK");
 
-  if (failed(maybeSortedQ) || failed(maybeSortedK) || failed(maybeSortedV))
-    return op.emitOpError("sortByMemoryLayout failed");
+  // Process V tensor
+  auto resultV =
+      processTensorLayout(b, v, {"G", "K", "N"}, op.getTransposedC(),
+                          cast<ShapedType>(v.getType()).getRank(), "TensorV");
 
-  auto sortedQ = maybeSortedQ.value();
-  auto sortedK = maybeSortedK.value();
-  auto sortedV = maybeSortedV.value();
-
-  LLVM_DEBUG(llvm::dbgs() << "sortedQ=" << std::get<0>(sortedQ)
-                          << " sortedK=" << std::get<0>(sortedK)
-                          << " sortedV=" << std::get<0>(sortedV) << "\n");
-
-  // the batch size is currently required to be the first one. If that's not
-  // the case we need to add an extra transform.
-  auto batchReorderQ =
-      reorderBatch(std::get<0>(sortedQ), std::get<1>(sortedQ), "K", b);
-  auto batchReorderK =
-      reorderBatch(std::get<0>(sortedK), std::get<1>(sortedK), "N", b);
-  auto batchReorderV =
-      reorderBatch(std::get<0>(sortedV), std::get<1>(sortedV), "N", b);
-
-  Value newTensorQ = std::get<0>(batchReorderQ);
-  Value newTensorK = std::get<0>(batchReorderK);
-  Value newTensorV = std::get<0>(batchReorderV);
-  UnitAttr transposedQ = std::get<1>(batchReorderQ);
-  UnitAttr transposedK = std::get<1>(batchReorderK);
-  UnitAttr transposedV = std::get<1>(batchReorderV);
-  auto finalLayoutQ = std::get<2>(batchReorderQ);
-  auto finalLayoutK = std::get<2>(batchReorderK);
-  auto finalLayoutV = std::get<2>(batchReorderV);
+  if (!resultV)
+    return op.emitOpError("sortByMemoryLayout failed for TensorV");
 
   // no need to create transforms if it's the same tensor
-  if (finalLayoutQ == layoutQ && finalLayoutK == layoutK &&
-      finalLayoutV == layoutV)
+  if (resultQ.finalLayout == resultQ.initialLayout &&
+      resultK.finalLayout == resultK.initialLayout &&
+      resultV.finalLayout == resultV.initialLayout)
     return failure();
 
-  return std::make_tuple(newTensorQ, newTensorK, newTensorV, transposedQ,
-                         transposedK, transposedV);
+  return std::make_tuple(resultQ.tensor, resultK.tensor, resultV.tensor,
+                         resultQ.transposed, resultK.transposed,
+                         resultV.transposed);
 }
 
 template <typename OpT>
@@ -492,59 +522,73 @@ struct GemmRewritePattern : public OpRewritePattern<rock::GemmOp> {
                                 PatternRewriter &b) const final {
     auto tensorA = op.getA();
     auto tensorB = op.getB();
+    auto scaleA = op.getScaleA();
+    auto scaleB = op.getScaleB();
+    bool isScaledGemm = scaleA != Value{nullptr} && scaleB != Value{nullptr};
 
-    SmallVector<StringRef> layoutA{"G", "M", "K"};
-    if (op.getATransposedAttr())
-      layoutA = {"G", "K", "M"};
-    if (tensorA.getType().getRank() == 2)
-      layoutA = {layoutA[1], layoutA[2]};
+    // Process tensor A
+    auto resultA =
+        processTensorLayout(b, tensorA, {"G", "M", "K"}, op.getATransposed(),
+                            tensorA.getType().getRank(), "TensorA");
 
-    SmallVector<StringRef> layoutB{"G", "K", "N"};
-    if (op.getBTransposedAttr())
-      layoutB = {"G", "N", "K"};
-    if (tensorB.getType().getRank() == 2)
-      layoutB = {layoutB[1], layoutB[2]};
+    if (!resultA)
+      return op.emitOpError("sortByMemoryLayout failed on TensorA");
 
-    auto maybeSortedA = sortByMemoryLayout(tensorA, layoutA, b);
-    auto maybeSortedB = sortByMemoryLayout(tensorB, layoutB, b);
+    // Process tensor B
+    auto resultB =
+        processTensorLayout(b, tensorB, {"G", "K", "N"}, op.getBTransposed(),
+                            tensorB.getType().getRank(), "TensorB");
 
-    if (failed(maybeSortedA) || failed(maybeSortedB))
-      return op.emitOpError("sortByMemoryLayout failed");
-
-    auto sortedA = maybeSortedA.value();
-    auto sortedB = maybeSortedB.value();
-
-    LLVM_DEBUG(llvm::dbgs() << "sortedA=" << std::get<0>(sortedA)
-                            << " sortedB=" << std::get<0>(sortedB) << "\n");
-
-    // the batch size is currently required to be the first one. If that's not
-    // the case we need to add an extra transform.
-    auto batchReorderA =
-        reorderBatch(std::get<0>(sortedA), std::get<1>(sortedA), "K", b);
-    auto batchReorderB =
-        reorderBatch(std::get<0>(sortedB), std::get<1>(sortedB), "N", b);
-
-    Value newTensorA = std::get<0>(batchReorderA);
-    Value newTensorB = std::get<0>(batchReorderB);
-    UnitAttr transposedA = std::get<1>(batchReorderA);
-    UnitAttr transposedB = std::get<1>(batchReorderB);
-    auto finalLayoutA = std::get<2>(batchReorderA);
-    auto finalLayoutB = std::get<2>(batchReorderB);
-
-    LLVM_DEBUG(llvm::dbgs() << "newTensorA=" << newTensorA
-                            << " newTensorB=" << newTensorB << "\n");
-    LLVM_DEBUG(llvm::dbgs() << "transposedA=" << transposedA
-                            << "\ntransposedB=" << transposedB << "\n");
+    if (!resultB)
+      return op.emitOpError("sortByMemoryLayout failed on TensorB");
 
     // no need to create transforms if it's the same tensor
-    if (finalLayoutA == layoutA && finalLayoutB == layoutB)
+    bool changeInLayout = resultA.finalLayout != resultA.initialLayout ||
+                          resultB.finalLayout != resultB.initialLayout;
+
+    // Process scale tensors if present
+    Value newTensorScaleA = Value{nullptr};
+    Value newTensorScaleB = Value{nullptr};
+    UnitAttr transposedScaleA = UnitAttr{nullptr};
+    UnitAttr transposedScaleB = UnitAttr{nullptr};
+    if (isScaledGemm) {
+      // Process scale A
+      auto resultScaleA = processTensorLayout(
+          b, scaleA, {"G", "M", "K"}, op.getAScaleTransposed(),
+          scaleA.getType().getRank(), "ScaleA");
+
+      if (!resultScaleA)
+        return op.emitOpError("sortByMemoryLayout failed for scale tensors");
+
+      // Process scale B
+      auto resultScaleB = processTensorLayout(
+          b, scaleB, {"G", "K", "N"}, op.getBScaleTransposed(),
+          scaleB.getType().getRank(), "ScaleB");
+
+      if (!resultScaleB)
+        return op.emitOpError("sortByMemoryLayout failed for scale tensors");
+
+      newTensorScaleA = resultScaleA.tensor;
+      newTensorScaleB = resultScaleB.tensor;
+      transposedScaleA = resultScaleA.transposed;
+      transposedScaleB = resultScaleB.transposed;
+
+      changeInLayout =
+          changeInLayout ||
+          (resultScaleA.finalLayout != resultScaleA.initialLayout) ||
+          (resultScaleB.finalLayout != resultScaleB.initialLayout);
+    }
+
+    // if no change in layout, return failure
+    if (!changeInLayout)
       return failure();
 
     auto newGemm = b.replaceOpWithNewOp<rock::GemmOp>(
-        op, op->getResultTypes(), newTensorA, newTensorB, op.getC(),
-        transposedA, transposedB, op.getCTransposedAttr(), op.getFeaturesAttr(),
-        op.getStoreMethodAttr(), op.getDerivedBlockSizeAttr(),
-        op.getGridSizeAttr(),
+        op, op->getResultTypes(), resultA.tensor, resultB.tensor, op.getC(),
+        newTensorScaleA, newTensorScaleB, resultA.transposed,
+        resultB.transposed, op.getCTransposedAttr(), transposedScaleA,
+        transposedScaleB, op.getFeaturesAttr(), op.getStoreMethodAttr(),
+        op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
         op.getParams() ? op.getParams().value() : nullptr);
 
     if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
@@ -572,14 +616,15 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
     std::tie(newTensorQ, newTensorK, newTensorV, transposedQ, transposedK,
              transposedV) = maybeRewrite.value();
 
-    auto newOp = rock::AttentionOp::create(b, 
-        op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK, newTensorV,
-        op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(), op.getOut(),
-        op.getLse(), op.getNumHeadsQAttr(), op.getNumHeadsKVAttr(), transposedQ,
-        transposedK, transposedV, op.getOTransposedAttr(), op.getCausalAttr(),
-        op.getSplitKVAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
-        op.getSoftmaxTypeAttr(), op.getParams0Attr(), op.getParams1Attr(),
-        op.getFirstGemmIndicesAttr());
+    auto newOp = rock::AttentionOp::create(
+        b, op->getLoc(), op->getResultTypes(), newTensorQ, newTensorK,
+        newTensorV, op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(),
+        op.getOut(), op.getLse(), op.getNumHeadsQAttr(), op.getNumHeadsKVAttr(),
+        transposedQ, transposedK, transposedV, op.getOTransposedAttr(),
+        op.getCausalAttr(), op.getSplitKVAttr(), op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(), op.getParams0Attr(),
+        op.getParams1Attr(), op.getFirstGemmIndicesAttr(),
+        op.getPreSoftmaxHasSplitKVTransformsAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;
@@ -617,33 +662,20 @@ struct ConvElementwiseGemmRewritePattern
     auto c = op.getC();
 
     // handle "c"
-    SmallVector<StringRef> layoutC{"G", "K", "N"};
-    if (op.getTransposedC())
-      layoutC = {"G", "N", "K"};
-    if (cast<ShapedType>(c.getType()).getRank() == 2)
-      layoutC = {layoutC[1], layoutC[2]};
+    auto resultC =
+        processTensorLayout(rw, c, {"G", "K", "N"}, op.getTransposedC(),
+                            cast<ShapedType>(c.getType()).getRank(), "TensorC");
 
-    auto maybeSortedC = sortByMemoryLayout(c, layoutC, rw);
-    if (failed(maybeSortedC))
-      return op.emitOpError("sortByMemoryLayout failed");
-
-    auto sortedC = maybeSortedC.value();
-    LLVM_DEBUG(llvm::dbgs() << "sortedC=" << std::get<0>(sortedC) << "\n");
-
-    auto batchReorderC =
-        reorderBatch(std::get<0>(sortedC), std::get<1>(sortedC), "N", rw);
-
-    Value newTensorC = std::get<0>(batchReorderC);
-    UnitAttr transposedC = std::get<1>(batchReorderC);
-    auto finalLayoutC = std::get<2>(batchReorderC);
+    if (!resultC)
+      return op.emitOpError("sortByMemoryLayout failed on TensorC");
 
     // no need to create transforms if it's the same tensors
-    if (convNoChange && finalLayoutC == layoutC)
+    if (convNoChange && resultC.finalLayout == resultC.initialLayout)
       return failure();
 
     auto newOp = rock::ConvElementwiseGemmOp::create(
-        rw, op->getLoc(), op->getResultTypes(), newFilter, newInput, newTensorC,
-        op.getElemwiseInputs(), op.getOut(), transposedC,
+        rw, op->getLoc(), op->getResultTypes(), newFilter, newInput,
+        resultC.tensor, op.getElemwiseInputs(), op.getOut(), resultC.transposed,
         op.getOTransposedAttr(), op.getFeaturesAttr(), op.getStoreMethodAttr(),
         op.getPaddingAttr(), op.getStridesAttr(), op.getDilationsAttr(),
         op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());

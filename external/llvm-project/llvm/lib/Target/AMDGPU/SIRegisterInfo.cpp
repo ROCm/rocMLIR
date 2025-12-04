@@ -333,7 +333,8 @@ struct SGPRSpillBuilder {
 SIRegisterInfo::SIRegisterInfo(const GCNSubtarget &ST)
     : AMDGPUGenRegisterInfo(AMDGPU::PC_REG, ST.getAMDGPUDwarfFlavour(),
                             ST.getAMDGPUDwarfFlavour(),
-                            /*PC=*/0, ST.getHwMode()),
+                            /*PC=*/0,
+                            ST.getHwMode(MCSubtargetInfo::HwMode_RegInfo)),
       ST(ST), SpillSGPRToVGPR(EnableSpillSGPRToVGPR), isWave32(ST.isWave32()) {
 
   assert(getSubRegIndexLaneMask(AMDGPU::sub0).getAsInteger() == 3 &&
@@ -1137,12 +1138,7 @@ SIRegisterInfo::getPointerRegClass(unsigned Kind) const {
 
 const TargetRegisterClass *
 SIRegisterInfo::getCrossCopyRegClass(const TargetRegisterClass *RC) const {
-  if (isAGPRClass(RC) && !ST.hasGFX90AInsts())
-    return getEquivalentVGPRClass(RC);
-  if (RC == &AMDGPU::SCC_CLASSRegClass)
-    return getWaveMaskRegClass();
-
-  return RC;
+  return RC == &AMDGPU::SCC_CLASSRegClass ? &AMDGPU::SReg_32RegClass : RC;
 }
 
 static unsigned getNumSubRegsForSpillOp(const MachineInstr &MI,
@@ -1896,6 +1892,16 @@ void SIRegisterInfo::buildSpillLoadStore(
       }
     }
 
+    Register FinalValueReg = ValueReg;
+    if (LoadStoreOp == AMDGPU::SCRATCH_LOAD_USHORT_SADDR) {
+      // If we are loading 16-bit value with SRAMECC endabled we need a temp
+      // 32-bit VGPR to load and extract 16-bits into the final register.
+      ValueReg =
+          RS->scavengeRegisterBackwards(AMDGPU::VGPR_32RegClass, MI, false, 0);
+      SubReg = ValueReg;
+      IsKill = false;
+    }
+
     MachinePointerInfo PInfo = BasePtrInfo.getWithOffset(RegOffset);
     MachineMemOperand *NewMMO =
         MF->getMachineMemOperand(PInfo, MMO->getFlags(), RemEltSize,
@@ -1948,6 +1954,17 @@ void SIRegisterInfo::buildSpillLoadStore(
       }
     }
 
+    if (FinalValueReg != ValueReg) {
+      // Extract 16-bit from the loaded 32-bit value.
+      ValueReg = getSubReg(ValueReg, AMDGPU::lo16);
+      MIB = BuildMI(MBB, MI, DL, TII->get(AMDGPU::V_MOV_B16_t16_e64))
+                .addReg(FinalValueReg, getDefRegState(true))
+                .addImm(0)
+                .addReg(ValueReg, getKillRegState(true))
+                .addImm(0);
+      ValueReg = FinalValueReg;
+    }
+
     if (!IsAGPR && NeedSuperRegDef)
       MIB.addReg(ValueReg, RegState::ImplicitDefine);
 
@@ -1959,9 +1976,13 @@ void SIRegisterInfo::buildSpillLoadStore(
     }
 
     bool IsSrcDstDef = SrcDstRegState & RegState::Define;
+    bool PartialReloadCopy = (RemEltSize != EltSize) && !IsStore;
     if (NeedSuperRegImpOperand &&
-        (IsFirstSubReg || (IsLastSubReg && !IsSrcDstDef)))
+        (IsFirstSubReg || (IsLastSubReg && !IsSrcDstDef))) {
       MIB.addReg(ValueReg, RegState::Implicit | SrcDstRegState);
+      if (PartialReloadCopy)
+        MIB.addReg(ValueReg, RegState::Implicit);
+    }
 
     // The epilog restore of a wwm-scratch register can cause undesired
     // optimization during machine-cp post PrologEpilogInserter if the same
@@ -2358,8 +2379,6 @@ bool SIRegisterInfo::spillEmergencySGPR(MachineBasicBlock::iterator MI,
     // Don't need to write VGPR out.
   }
 
-  MachineRegisterInfo &MRI = MI->getMF()->getRegInfo();
-
   // Restore clobbered registers in the specified restore block.
   MI = RestoreMBB.end();
   SB.setMI(&RestoreMBB, MI);
@@ -2374,7 +2393,8 @@ bool SIRegisterInfo::spillEmergencySGPR(MachineBasicBlock::iterator MI,
           SB.NumSubRegs == 1
               ? SB.SuperReg
               : Register(getSubReg(SB.SuperReg, SB.SplitParts[i]));
-      MRI.constrainRegClass(SubReg, &AMDGPU::SReg_32_XM0RegClass);
+
+      assert(SubReg.isPhysical());
       bool LastSubReg = (i + 1 == e);
       auto MIB = BuildMI(*SB.MBB, MI, SB.DL, SB.TII.get(AMDGPU::V_READLANE_B32),
                          SubReg)
@@ -2653,7 +2673,7 @@ bool SIRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
       BuildMI(*MBB, MI, MI->getDebugLoc(), TII->get(AMDGPU::S_MOV_B32),
               AMDGPU::M0)
           .add(*TII->getNamedOperand(*MI, AMDGPU::OpName::mask));
-      LLVM_FALLTHROUGH;
+      [[fallthrough]];
     }
     case AMDGPU::SI_SPILL_V16_RESTORE:
     case AMDGPU::SI_SPILL_V32_RESTORE:
@@ -2708,7 +2728,9 @@ bool SIRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
       unsigned Opc;
       if (MI->getOpcode() == AMDGPU::SI_SPILL_V16_RESTORE) {
         assert(ST.enableFlatScratch() && "Flat Scratch is not enabled!");
-        Opc = AMDGPU::SCRATCH_LOAD_SHORT_D16_SADDR_t16;
+        Opc = ST.d16PreservesUnusedBits()
+                  ? AMDGPU::SCRATCH_LOAD_SHORT_D16_SADDR_t16
+                  : AMDGPU::SCRATCH_LOAD_USHORT_SADDR;
       } else {
         Opc = MI->getOpcode() == AMDGPU::SI_BLOCK_SPILL_V1024_RESTORE
                   ? AMDGPU::SCRATCH_LOAD_BLOCK_SADDR
@@ -3161,8 +3183,41 @@ bool SIRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
                   : RS->scavengeRegisterBackwards(AMDGPU::SReg_32_XM0RegClass,
                                                   MI, false, 0, !UseSGPR);
 
-      // TODO: for flat scratch another attempt can be made with a VGPR index
-      //       if no SGPRs can be scavenged.
+      // Fallback: If we need an SGPR but cannot scavenge one and there is no
+      // frame register, try to convert the flat-scratch instruction to use a
+      // VGPR index (SS -> SV) and materialize the offset in a VGPR.
+      unsigned Opc = MI->getOpcode();
+      int NewOpc = AMDGPU::getFlatScratchInstSVfromSS(Opc);
+      if (!TmpSReg && !FrameReg && TII->isFLATScratch(*MI) && NewOpc != -1) {
+        // Reuse an existing VGPR temp if available, otherwise scavenge one.
+        Register VTmp = (!UseSGPR && TmpReg)
+                            ? TmpReg
+                            : RS->scavengeRegisterBackwards(
+                                  AMDGPU::VGPR_32RegClass, MI,
+                                  /*RestoreAfter=*/false, /*SPAdj=*/0);
+        if (VTmp) {
+          // Put the large offset into a VGPR and zero the immediate offset.
+          BuildMI(*MBB, MI, DL, TII->get(AMDGPU::V_MOV_B32_e32), VTmp)
+              .addImm(Offset);
+
+          int OldSAddrIdx =
+              AMDGPU::getNamedOperandIdx(Opc, AMDGPU::OpName::saddr);
+          int NewVAddrIdx =
+              AMDGPU::getNamedOperandIdx(NewOpc, AMDGPU::OpName::vaddr);
+
+          assert(OldSAddrIdx >= 0 && NewVAddrIdx >= 0 &&
+                 "Invalid address operand indexes");
+          MI->setDesc(TII->get(NewOpc));
+          MI->getOperand(NewVAddrIdx).ChangeToRegister(VTmp, false);
+          MachineOperand *OffOp =
+              TII->getNamedOperand(*MI, AMDGPU::OpName::offset);
+
+          assert(OffOp && "Flat scratch SV form must have offset operand");
+          OffOp->setImm(0);
+          return false;
+        }
+      }
+
       if ((!TmpSReg && !FrameReg) || (!TmpReg && !UseSGPR))
         report_fatal_error("Cannot scavenge register in FI elimination!");
 
@@ -3261,8 +3316,7 @@ bool SIRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
         if (IsSALU && LiveSCC) {
           Register NewDest;
           if (IsCopy) {
-            MF->getRegInfo().constrainRegClass(ResultReg,
-                                               &AMDGPU::SReg_32_XM0RegClass);
+            assert(ResultReg.isPhysical());
             NewDest = ResultReg;
           } else {
             NewDest = RS->scavengeRegisterBackwards(AMDGPU::SReg_32_XM0RegClass,
@@ -3392,8 +3446,6 @@ bool SIRegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator MI,
 
             Register NewDest;
             if (IsCopy) {
-              MF->getRegInfo().constrainRegClass(ResultReg,
-                                                 &AMDGPU::SReg_32_XM0RegClass);
               NewDest = ResultReg;
             } else {
               NewDest = RS->scavengeRegisterBackwards(

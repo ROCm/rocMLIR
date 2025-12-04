@@ -69,6 +69,23 @@ using namespace clang::driver::tools;
 using namespace clang;
 using namespace llvm::opt;
 
+static bool addRPathCmdArg(const llvm::opt::ArgList &Args,
+                           ArgStringList &CmdArgs,
+                           const std::string pathCandidate,
+                           bool onlyIfPathExists = true) {
+  SmallString<0> simplifiedPathCandidate(pathCandidate);
+  llvm::sys::path::remove_dots(simplifiedPathCandidate, true);
+
+  bool pathExists = llvm::sys::fs::exists(simplifiedPathCandidate);
+
+  if (onlyIfPathExists && !pathExists)
+    return false;
+
+  CmdArgs.push_back("-rpath");
+  CmdArgs.push_back(Args.MakeArgString(simplifiedPathCandidate));
+  return pathExists;
+}
+
 static bool useFramePointerForTargetByDefault(const llvm::opt::ArgList &Args,
                                               const llvm::Triple &Triple) {
   if (Args.hasArg(clang::driver::options::OPT_pg) &&
@@ -670,11 +687,11 @@ static std::string getAMDGPUTargetGPU(const llvm::Triple &T,
   if (A) {
     auto GPUName = getProcessorFromTargetID(T, A->getValue());
     return llvm::StringSwitch<std::string>(GPUName)
-        .Cases("rv630", "rv635", "r600")
-        .Cases("rv610", "rv620", "rs780", "rs880")
+        .Cases({"rv630", "rv635"}, "r600")
+        .Cases({"rv610", "rv620", "rs780"}, "rs880")
         .Case("rv740", "rv770")
         .Case("palm", "cedar")
-        .Cases("sumo", "sumo2", "sumo")
+        .Cases({"sumo", "sumo2"}, "sumo")
         .Case("hemlock", "cypress")
         .Case("aruba", "cayman")
         .Default(GPUName.str());
@@ -955,6 +972,24 @@ bool tools::isTLSDESCEnabled(const ToolChain &TC,
         << A->getSpelling() << V << Triple.getTriple();
   }
   return EnableTLSDESC;
+}
+
+void tools::addDTLTOOptions(const ToolChain &ToolChain, const ArgList &Args,
+                            llvm::opt::ArgStringList &CmdArgs) {
+  if (Arg *A = Args.getLastArg(options::OPT_fthinlto_distributor_EQ)) {
+    CmdArgs.push_back(
+        Args.MakeArgString("--thinlto-distributor=" + Twine(A->getValue())));
+    const Driver &D = ToolChain.getDriver();
+    CmdArgs.push_back(Args.MakeArgString("--thinlto-remote-compiler=" +
+                                         Twine(D.getClangProgramPath())));
+    if (auto *PA = D.getPrependArg())
+      CmdArgs.push_back(Args.MakeArgString(
+          "--thinlto-remote-compiler-prepend-arg=" + Twine(PA)));
+
+    for (const auto &A :
+         Args.getAllArgValues(options::OPT_Xthinlto_distributor_EQ))
+      CmdArgs.push_back(Args.MakeArgString("--thinlto-distributor-arg=" + A));
+  }
 }
 
 void tools::addLTOOptions(const ToolChain &ToolChain, const ArgList &Args,
@@ -1281,6 +1316,11 @@ void tools::addLTOOptions(const ToolChain &ToolChain, const ArgList &Args,
     CmdArgs.push_back(
         Args.MakeArgString(Twine(PluginOptPrefix) + "-stack-size-section"));
 
+  if (Args.hasFlag(options::OPT_fexperimental_call_graph_section,
+                   options::OPT_fno_experimental_call_graph_section, false))
+    CmdArgs.push_back(
+        Args.MakeArgString(Twine(PluginOptPrefix) + "-call-graph-section"));
+
   // Setup statistics file output.
   SmallString<128> StatsFile = getStatsFileName(Args, Output, *Input, D);
   if (!StatsFile.empty())
@@ -1354,16 +1394,7 @@ void tools::addLTOOptions(const ToolChain &ToolChain, const ArgList &Args,
     CmdArgs.push_back(
         Args.MakeArgString(Twine(PluginOptPrefix) + "-time-passes"));
 
-  if (Arg *A = Args.getLastArg(options::OPT_fthinlto_distributor_EQ)) {
-    CmdArgs.push_back(
-        Args.MakeArgString("--thinlto-distributor=" + Twine(A->getValue())));
-    CmdArgs.push_back(
-        Args.MakeArgString("--thinlto-remote-compiler=" +
-                           Twine(ToolChain.getDriver().getClangProgramPath())));
-
-    for (auto A : Args.getAllArgValues(options::OPT_Xthinlto_distributor_EQ))
-      CmdArgs.push_back(Args.MakeArgString("--thinlto-distributor-arg=" + A));
-  }
+  addDTLTOOptions(ToolChain, Args, CmdArgs);
 }
 
 void tools::addOpenMPRuntimeSpecificRPath(const ToolChain &TC,
@@ -1386,12 +1417,8 @@ void tools::addOpenMPRuntimeSpecificRPath(const ToolChain &TC,
   // one of the LIBRARY_PATH directories.
   ArgStringList EnvLibraryPaths;
   addDirectoryList(Args, EnvLibraryPaths, "", "LIBRARY_PATH");
-  for (auto &EnvLibraryPath : EnvLibraryPaths) {
-    if (llvm::sys::fs::exists(EnvLibraryPath)) {
-      CmdArgs.push_back("-rpath");
-      CmdArgs.push_back(Args.MakeArgString(EnvLibraryPath));
-    }
-  }
+  for (auto &EnvLibraryPath : EnvLibraryPaths)
+    addRPathCmdArg(Args, CmdArgs, EnvLibraryPath);
 
   if (Args.hasFlag(options::OPT_fopenmp_implicit_rpath,
                    options::OPT_fno_openmp_implicit_rpath, true)) {
@@ -1400,46 +1427,33 @@ void tools::addOpenMPRuntimeSpecificRPath(const ToolChain &TC,
     SmallString<256> DefaultLibPath =
         llvm::sys::path::parent_path(TC.getDriver().Dir);
     llvm::sys::path::append(DefaultLibPath, CLANG_INSTALL_LIBDIR_BASENAME);
-    if (TC.getSanitizerArgs(Args).needsAsanRt()) {
-      CmdArgs.push_back("-rpath");
-      CmdArgs.push_back(Args.MakeArgString(TC.getCompilerRTPath()));
-    }
+    if (TC.getSanitizerArgs(Args).needsAsanRt())
+      addRPathCmdArg(Args, CmdArgs, TC.getCompilerRTPath(),
+                     /*onlyIfPathExists=*/false);
 
     // In case LibSuffix was not built, try lib
     std::string CandidateRPath_suf = D.Dir + "/../" + LibSuffix;
-    CmdArgs.push_back("-rpath");
-    CmdArgs.push_back(Args.MakeArgString(CandidateRPath_suf.c_str()));
-
     // Add lib directory in case LibSuffix does not exist
     std::string CandidateRPath_lib = D.Dir + "/../lib";
-    if ((!llvm::sys::fs::exists(CandidateRPath_suf)) &&
-        (llvm::sys::fs::exists(CandidateRPath_lib))) {
-      CmdArgs.push_back("-rpath");
-      CmdArgs.push_back(Args.MakeArgString(CandidateRPath_lib.c_str()));
-    }
+    if (!addRPathCmdArg(Args, CmdArgs, CandidateRPath_suf,
+                        /*onlyIfPathExists=*/false))
+      addRPathCmdArg(Args, CmdArgs, CandidateRPath_lib);
 
     std::string rocmPath =
         Args.getLastArgValue(clang::driver::options::OPT_rocm_path_EQ).str();
     if (rocmPath.size() != 0) {
       std::string rocmPath_lib = rocmPath + "/lib";
       std::string rocmPath_suf = rocmPath + "/" + LibSuffix;
-      if (llvm::sys::fs::exists(rocmPath_suf)) {
-        CmdArgs.push_back("-rpath");
-        CmdArgs.push_back(Args.MakeArgString(rocmPath_suf.c_str()));
-      } else if (llvm::sys::fs::exists(rocmPath_lib)) {
-        CmdArgs.push_back("-rpath");
-        CmdArgs.push_back(Args.MakeArgString(rocmPath_lib.c_str()));
-      }
+      if (!addRPathCmdArg(Args, CmdArgs, rocmPath_suf))
+        addRPathCmdArg(Args, CmdArgs, rocmPath_lib);
     }
 
     // Add Default lib path to ensure llvm dynamic library is picked up for
     // lib-debug/lib-perf
-    if (LibSuffix != "lib" && llvm::sys::fs::exists(DefaultLibPath)){
-      CmdArgs.push_back("-rpath");
-      CmdArgs.push_back(Args.MakeArgString(DefaultLibPath.c_str()));
-    }
+    if (LibSuffix != "lib")
+      addRPathCmdArg(Args, CmdArgs, DefaultLibPath.c_str());
 
-     if (llvm::find_if(CmdArgs, [](StringRef str) {
+    if (llvm::find_if(CmdArgs, [](StringRef str) {
           return !str.compare("--enable-new-dtags");
         }) == CmdArgs.end())
       CmdArgs.push_back("--disable-new-dtags");
@@ -1479,10 +1493,8 @@ void tools::addArchSpecificRPath(const ToolChain &TC, const ArgList &Args,
     CandidateRPaths.emplace_back(*CandidateRPath);
 
   for (const auto &CandidateRPath : CandidateRPaths) {
-    if (TC.getVFS().exists(CandidateRPath)) {
-      CmdArgs.push_back("-rpath");
-      CmdArgs.push_back(Args.MakeArgString(CandidateRPath));
-    }
+    if (TC.getVFS().exists(CandidateRPath))
+      addRPathCmdArg(Args, CmdArgs, CandidateRPath, /*onlyIfPathExists=*/false);
   }
 }
 
@@ -2373,7 +2385,7 @@ static unsigned ParseDebugDefaultVersion(const ToolChain &TC,
     return 0;
 
   unsigned Value = 0;
-  if (StringRef(A->getValue()).getAsInteger(10, Value) || Value > 5 ||
+  if (StringRef(A->getValue()).getAsInteger(10, Value) || Value > 6 ||
       Value < 2)
     TC.getDriver().Diag(diag::err_drv_invalid_int_value)
         << A->getAsString(Args) << A->getValue();
@@ -2386,13 +2398,14 @@ unsigned tools::DwarfVersionNum(StringRef ArgValue) {
       .Case("-gdwarf-3", 3)
       .Case("-gdwarf-4", 4)
       .Case("-gdwarf-5", 5)
+      .Case("-gdwarf-6", 6)
       .Default(0);
 }
 
 const Arg *tools::getDwarfNArg(const ArgList &Args) {
   return Args.getLastArg(options::OPT_gdwarf_2, options::OPT_gdwarf_3,
                          options::OPT_gdwarf_4, options::OPT_gdwarf_5,
-                         options::OPT_gdwarf);
+                         options::OPT_gdwarf_6, options::OPT_gdwarf);
 }
 
 unsigned tools::getDwarfVersion(const ToolChain &TC,
@@ -2410,6 +2423,37 @@ unsigned tools::getDwarfVersion(const ToolChain &TC,
     assert(DwarfVersion && "toolchain default DWARF version must be nonzero");
   }
   return DwarfVersion;
+}
+
+DwarfFissionKind tools::getDebugFissionKind(const Driver &D,
+                                            const ArgList &Args, Arg *&Arg) {
+  Arg = Args.getLastArg(options::OPT_gsplit_dwarf, options::OPT_gsplit_dwarf_EQ,
+                        options::OPT_gno_split_dwarf);
+  if (!Arg || Arg->getOption().matches(options::OPT_gno_split_dwarf))
+    return DwarfFissionKind::None;
+
+  if (Arg->getOption().matches(options::OPT_gsplit_dwarf))
+    return DwarfFissionKind::Split;
+
+  StringRef Value = Arg->getValue();
+  if (Value == "split")
+    return DwarfFissionKind::Split;
+  if (Value == "single")
+    return DwarfFissionKind::Single;
+
+  D.Diag(diag::err_drv_unsupported_option_argument)
+      << Arg->getSpelling() << Arg->getValue();
+  return DwarfFissionKind::None;
+}
+
+bool tools::checkDebugInfoOption(const Arg *A, const ArgList &Args,
+                                 const Driver &D, const ToolChain &TC) {
+  assert(A && "Expected non-nullptr argument.");
+  if (TC.supportsDebugInfoOption(A))
+    return true;
+  D.Diag(diag::warn_drv_unsupported_debug_info_opt_for_target)
+      << A->getAsString(Args) << TC.getTripleString();
+  return false;
 }
 
 void tools::AddAssemblerKPIC(const ToolChain &ToolChain, const ArgList &Args,
@@ -3517,20 +3561,16 @@ bool tools::shouldEnableVectorizerAtOLevel(const ArgList &Args, bool isSlpVec) {
 void tools::handleVectorizeLoopsArgs(const ArgList &Args,
                                      ArgStringList &CmdArgs) {
   bool EnableVec = shouldEnableVectorizerAtOLevel(Args, false);
-  OptSpecifier vectorizeAliasOption =
-      EnableVec ? options::OPT_O_Group : options::OPT_fvectorize;
-  if (Args.hasFlag(options::OPT_fvectorize, vectorizeAliasOption,
-                   options::OPT_fno_vectorize, EnableVec))
+  if (Args.hasFlag(options::OPT_fvectorize, options::OPT_fno_vectorize,
+                   EnableVec))
     CmdArgs.push_back("-vectorize-loops");
 }
 
 void tools::handleVectorizeSLPArgs(const ArgList &Args,
                                    ArgStringList &CmdArgs) {
   bool EnableSLPVec = shouldEnableVectorizerAtOLevel(Args, true);
-  OptSpecifier SLPVectAliasOption =
-      EnableSLPVec ? options::OPT_O_Group : options::OPT_fslp_vectorize;
-  if (Args.hasFlag(options::OPT_fslp_vectorize, SLPVectAliasOption,
-                   options::OPT_fno_slp_vectorize, EnableSLPVec))
+  if (Args.hasFlag(options::OPT_fslp_vectorize, options::OPT_fno_slp_vectorize,
+                   EnableSLPVec))
     CmdArgs.push_back("-vectorize-slp");
 }
 
@@ -3731,4 +3771,52 @@ tools::renderComplexRangeOption(LangOptionsBase::ComplexRangeKind Range) {
   if (!ComplexRangeStr.empty())
     return "-complex-range=" + ComplexRangeStr;
   return ComplexRangeStr;
+}
+
+static void emitComplexRangeDiag(const Driver &D, StringRef LastOpt,
+                                 LangOptions::ComplexRangeKind Range,
+                                 StringRef NewOpt,
+                                 LangOptions::ComplexRangeKind NewRange) {
+  //  Do not emit a warning if NewOpt overrides LastOpt in the following cases.
+  //
+  // | LastOpt               | NewOpt                |
+  // |-----------------------|-----------------------|
+  // | -fcx-limited-range    | -fno-cx-limited-range |
+  // | -fno-cx-limited-range | -fcx-limited-range    |
+  // | -fcx-fortran-rules    | -fno-cx-fortran-rules |
+  // | -fno-cx-fortran-rules | -fcx-fortran-rules    |
+  // | -ffast-math           | -fno-fast-math        |
+  // | -ffp-model=           | -ffast-math           |
+  // | -ffp-model=           | -fno-fast-math        |
+  // | -ffp-model=           | -ffp-model=           |
+  // | -fcomplex-arithmetic= | -fcomplex-arithmetic= |
+  if (LastOpt == NewOpt || NewOpt.empty() || LastOpt.empty() ||
+      (LastOpt == "-fcx-limited-range" && NewOpt == "-fno-cx-limited-range") ||
+      (LastOpt == "-fno-cx-limited-range" && NewOpt == "-fcx-limited-range") ||
+      (LastOpt == "-fcx-fortran-rules" && NewOpt == "-fno-cx-fortran-rules") ||
+      (LastOpt == "-fno-cx-fortran-rules" && NewOpt == "-fcx-fortran-rules") ||
+      (LastOpt == "-ffast-math" && NewOpt == "-fno-fast-math") ||
+      (LastOpt.starts_with("-ffp-model=") && NewOpt == "-ffast-math") ||
+      (LastOpt.starts_with("-ffp-model=") && NewOpt == "-fno-fast-math") ||
+      (LastOpt.starts_with("-ffp-model=") &&
+       NewOpt.starts_with("-ffp-model=")) ||
+      (LastOpt.starts_with("-fcomplex-arithmetic=") &&
+       NewOpt.starts_with("-fcomplex-arithmetic=")))
+    return;
+
+  D.Diag(clang::diag::warn_drv_overriding_complex_range)
+      << LastOpt << NewOpt << complexRangeKindToStr(Range)
+      << complexRangeKindToStr(NewRange);
+}
+
+void tools::setComplexRange(const Driver &D, StringRef NewOpt,
+                            LangOptions::ComplexRangeKind NewRange,
+                            StringRef &LastOpt,
+                            LangOptions::ComplexRangeKind &Range) {
+  // Warn if user overrides the previously set complex number
+  // multiplication/division option.
+  if (Range != LangOptions::ComplexRangeKind::CX_None && Range != NewRange)
+    emitComplexRangeDiag(D, LastOpt, Range, NewOpt, NewRange);
+  LastOpt = NewOpt;
+  Range = NewRange;
 }

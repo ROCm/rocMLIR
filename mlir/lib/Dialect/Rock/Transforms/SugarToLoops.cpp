@@ -63,6 +63,14 @@ using namespace mlir;
 using namespace mlir::arith;
 using namespace mlir::rock;
 
+// Helper function to convert number of bits to number of bytes (with ceiling)
+static APInt bitsToBytes(const APInt &numBits) {
+  APInt numBytes = numBits.udiv(8);
+  if (numBits.urem(8) != 0)
+    numBytes += 1;
+  return numBytes;
+}
+
 namespace {
 struct RockSugarToLoopsPass
     : public rock::impl::RockSugarToLoopsPassBase<RockSugarToLoopsPass> {
@@ -1186,9 +1194,10 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     bool emitOobChecks =
         !isStaticSize || !isAlwaysValid || (hasI64Idx && op.getCanReadOffEnd());
 
-    APInt numBytes =
-        numElemsConst *
-        (cast<ShapedType>(source.getType()).getElementTypeBitWidth() / 8);
+    unsigned bitWidth =
+        cast<ShapedType>(source.getType()).getElementTypeBitWidth();
+    APInt numBits = numElemsConst * bitWidth;
+    APInt numBytes = bitsToBytes(numBits);
     // In cases where we need more than 2 GB of offset to index but are still
     // using 32-bit indexing, we'll need to use buffer operations. In the
     // dymanic shape case, we'll already be in the i64 case, so we don't set
@@ -1303,9 +1312,10 @@ struct GlobalLoadToLDSRewritePattern
     bool emitOobChecks =
         !isStaticSize || !isAlwaysValid || (hasI64Idx && op.getCanReadOffEnd());
 
-    APInt numBytes =
-        numElemsConst *
-        (cast<ShapedType>(source.getType()).getElementTypeBitWidth() / 8);
+    unsigned bitWidth =
+        cast<ShapedType>(source.getType()).getElementTypeBitWidth();
+    APInt numBits = numElemsConst * bitWidth;
+    APInt numBytes = bitsToBytes(numBits);
     // In cases where we need more than 2 GB of offset to index but are still
     // using 32-bit indexing, we'll need to use buffer operations. In the
     // dynamic shape case, we'll already be in the i64 case, so we don't set
@@ -1425,6 +1435,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     Type elemTy = cast<MemRefType>(dest.getType()).getElementType();
     int64_t len = op.getLength().getZExtValue();
     Type storeTy = vectorTypeOrSelf(elemTy, len);
+    assert(elemTy.getIntOrFloatBitWidth() >= 8 &&
+           "GlobalStoreOp must be on 8-bit or larger elements");
 
     SmallVector<Value, 5> coords(op.getDestCoord());
     Value sourceStart = op.getSourceCoord();
@@ -1566,6 +1578,24 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// LDSTransposeLoadOp lowering.
+//===----------------------------------------------------------------------===//
+struct LDSTransposeLoadRewritePattern
+    : public OpRewritePattern<LDSTransposeLoadOp> {
+  using OpRewritePattern<LDSTransposeLoadOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(LDSTransposeLoadOp op,
+                                PatternRewriter &b) const override {
+
+    // Replace with amdgpu.transpose_load having identical semantics.
+    auto newOp = amdgpu::TransposeLoadOp::create(
+        b, op.getLoc(), op.getResult().getType(), op.getSource(),
+        op.getIndices());
+    b.replaceOp(op, newOp.getResult());
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // InBoundsLoad lowering.
 //===----------------------------------------------------------------------===//
 struct InBoundsLoadRewritePattern : public OpRewritePattern<InBoundsLoadOp> {
@@ -1620,8 +1650,8 @@ void RockSugarToLoopsPass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<ExtractSliceRewritePattern, InsertSliceRewritePattern,
                GlobalLoadRewritePattern, GlobalLoadToLDSRewritePattern,
-               GlobalStoreRewritePattern, InBoundsLoadRewritePattern,
-               InBoundsStoreRewritePattern>(ctx);
+               GlobalStoreRewritePattern, LDSTransposeLoadRewritePattern,
+               InBoundsLoadRewritePattern, InBoundsStoreRewritePattern>(ctx);
   if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 

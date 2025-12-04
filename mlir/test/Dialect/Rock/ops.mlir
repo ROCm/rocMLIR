@@ -129,6 +129,15 @@ func.func @rock_gemm(%a : memref<32x64xf16>, %b : memref<1x32x128xf16>, %c : mem
 // CHECK-LABEL: func.func @rock_gemm
 // CHECK-NEXT: rock.gemm
 
+func.func @rock_scaled_gemm(%a : memref<32x64xf4E2M1FN>, %b : memref<1x32x128xf4E2M1FN>, %c : memref<64x128xf32>, %scaleA : memref<32x64xf8E8M0FNU>, %scaleB : memref<1x32x128xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.gemm %c = tr %a scaled by tr %scaleA * %b scaled by %scaleB features = mfma storeMethod = set
+  : memref<64x128xf32> = memref<32x64xf4E2M1FN> scaled by memref<32x64xf8E8M0FNU> * memref<1x32x128xf4E2M1FN> scaled by memref<1x32x128xf8E8M0FNU>
+  func.return
+}
+// CHECK-LABEL: func.func @rock_scaled_gemm
+// CHECK-NEXT: rock.gemm
+
+
 // Affine maps needed when testing transform
 #map0 = affine_map<(d0, d1, d2, d3, d4) -> (d1, d0, d2, d3 - 1, d4 - 2)>
 #map1 = affine_map<(d0, d1, d2) -> (d0, d2, d1 floordiv 512,
@@ -211,7 +220,7 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x
   rock.gridwise_gemm_accel(%A, %B, %C) storeMethod(set) features = none {
     blockSize = 256 : i32,
     gridSize = 1 : i32,
-    params = #rock.xdlops_gemm_derived_params<
+    params = #rock.mfma_gemm_params<
       kpackPerBlock = 4,
       kpack = 4,
       mPerBlock = 128,
@@ -229,6 +238,91 @@ func.func @rock_gridwise_gemm_accel(%A : memref<2x1024x1024xf32>, %B : memref<2x
 
 // CHECK-LABEL: func.func @rock_gridwise_gemm_accel
 // CHECK-NEXT: rock.gridwise_gemm_accel
+
+func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf4E2M1FN>, %B : memref<2x1024x2048xf4E2M1FN>, %C : memref<2x1024x2048xf32>, %scaleA : memref<2x1024x1024xf8E8M0FNU>, %scaleB : memref<2x1024x2048xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
+  rock.gridwise_gemm_accel(%A, %B, %C, %scaleA, %scaleB) storeMethod (set) features = mfma {
+    blockSize = 256 : i32,
+    gridSize = 1 : i32,
+    params = #rock.mfma_gemm_params<
+      kpackPerBlock = 4,
+      kpack = 4,
+      mPerBlock = 128,
+      mPerWave = 64,
+      nPerBlock = 128,
+      nPerWave = 64,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 1,
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<2x1024x1024xf4E2M1FN>, memref<2x1024x2048xf4E2M1FN>, memref<2x1024x2048xf32>, memref<2x1024x1024xf8E8M0FNU>, memref<2x1024x2048xf8E8M0FNU>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_gridwise_scaled_gemm_accel
+// CHECK-NEXT: rock.gridwise_gemm_accel
+
+func.func @rock_blockwise_gemm_accel_scaled(%matrixA : memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>, 
+                                                %matrixB : memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>>,
+                                                %matrixScaleA : memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>,
+                                                %matrixScaleB : memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>,
+                                                %bufferA : memref<4xf4E2M1FN, #gpu.address_space<private>>, 
+                                                %bufferB : memref<4xf4E2M1FN, #gpu.address_space<private>>,
+                                                %bufferScaleA : memref<4xf8E8M0FNU, #gpu.address_space<private>>,
+                                                %bufferScaleB : memref<4xf8E8M0FNU, #gpu.address_space<private>>,
+                                                %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA scaled by %bufferScaleA from %matrixScaleA * %bufferB from %matrixB scaled by %bufferScaleB from %matrixScaleB features = mfma {
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    blockSize = 256 : i32,
+    matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
+    matrixParamsB = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 256, inDPerThread = 2>,
+    params = #rock.mfma_gemm_params<
+      kpackPerBlock = 2,
+      kpack = 2,
+      mPerBlock = 128,
+      mPerWave = 64,
+      nPerBlock = 128,
+      nPerWave = 64,
+      mnPerXdl = 32,
+      splitKFactor = 1,
+      scheduleVersion = 1,
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<4xvector<16xf32>, #gpu.address_space<private>> += memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>> scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>> * memref<4xf4E2M1FN, #gpu.address_space<private>> from memref<256xvector<2xf4E2M1FN>, #gpu.address_space<workgroup>> scaled by memref<4xf8E8M0FNU, #gpu.address_space<private>> from memref<256xvector<2xf8E8M0FNU>, #gpu.address_space<workgroup>>
+  return
+}
+
+// CHECK-LABEL: @rock_blockwise_gemm_accel_scaled
+// CHECK-NEXT: rock.blockwise_gemm_accel
+
+// ----
+
+func.func @rock_threadwise_gemm_accel_scaled(%matrixA : memref<1x4xvector<4xf4E2M1FN>, 5>,
+                                                %matrixB : memref<1x4xvector<4xf4E2M1FN>, 5>,
+                                                %matrixC : memref<1x1xvector<32xf32>, 5>, %scaleA : memref<1x4xvector<4xf8E8M0FNU>, 5>, %scaleB : memref<1x4xvector<4xf8E8M0FNU>, 5>) {
+  %c0 = arith.constant 0 : index
+    rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma{
+    arch = "amdgcn-amd-amdhsa:gfx950",
+    params = #rock.mfma_gemm_params<
+      mPerBlock = 256,
+      nPerBlock = 256,
+      kpackPerBlock = 16,
+      mPerWave = 128,
+      nPerWave = 64,
+      mnPerXdl = 32,
+      kpack = 1,
+      splitKFactor = 1, 
+      scheduleVersion = 1, 
+      outputSwizzle = 2,
+      forceUnroll = true>
+  } : memref<1x1xvector<32xf32>, 5> += memref<1x4xvector<4xf4E2M1FN>, 5> scaled by memref<1x4xvector<4xf8E8M0FNU>, 5> * memref<1x4xvector<4xf4E2M1FN>, 5> scaled by memref<1x4xvector<4xf8E8M0FNU>, 5>
+  return
+}
+// CHECK-LABEL: func.func @rock_threadwise_gemm_accel_scaled
+// CHECK: rock.threadwise_gemm_accel
+
+// ----
+
 
 func.func @rock_extract_slice(%v : vector<32xf32>) -> vector<4xf32> {
   %i = arith.constant 0 : index
@@ -274,8 +368,8 @@ func.func @gridwise_attn_atomic_add(%arg0: memref<1x384x64xf32>, %arg1: memref<1
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    params0 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    params1 = #rock.xdlops_gemm_derived_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
     storeMethod = #rock<StoreMethod atomic_add>,
     splitKV = 1 : i32,
@@ -292,5 +386,152 @@ func.func @attention(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
   } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, storeMethod = #rock<StoreMethod set>}
+  return
+}
+
+// ----
+
+// CHECK-LABEL: func.func @rock_lds_transpose_load_f16
+// CHECK-NEXT: %[[C0:.*]] = arith.constant 0
+// CHECK-NEXT: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_f16(%lds_buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %fragment = rock.lds_transpose_load %lds_buffer[%c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_lds_transpose_load_bf16
+// CHECK: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_bf16(%lds_buffer: memref<256x128xbf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c32 = arith.constant 32 : index
+  %fragment = rock.lds_transpose_load %lds_buffer[%c32, %c0]
+    : memref<256x128xbf16, #gpu.address_space<workgroup>> -> vector<4xbf16>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_lds_transpose_load_dynamic_indices
+// CHECK: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_dynamic_indices(%lds_buffer: memref<64x32xf16, #gpu.address_space<workgroup>>, 
+                                            %idx0: index, %idx1: index) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %fragment = rock.lds_transpose_load %lds_buffer[%idx0, %idx1]
+    : memref<64x32xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_lds_transpose_load_full_arch
+// CHECK: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_full_arch(%lds_buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950:sramecc+:xnack-"} {
+  %c0 = arith.constant 0 : index
+  %fragment = rock.lds_transpose_load %lds_buffer[%c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_16x32
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 16, mfmaKDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = true>
+func.func @test_lds_transpose_config_attr_16x32(%src: memref<8192xf16, #gpu.address_space<workgroup>>, 
+                                                 %dest: memref<8xf16, #gpu.address_space<private>>)
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll, 
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      mfmaDDim = 16, 
+      mfmaKDim = 32, 
+      mPerBlock = 64, 
+      nPerBlock = 64, 
+      kPerBlock = 32, 
+      mPerWave = 16, 
+      nPerWave = 64, 
+      doubleBuffering = true, 
+      isOperandA = true
+    >, 
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<8192xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_32x16
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 32, mfmaKDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = false>
+func.func @test_lds_transpose_config_attr_32x16(%src: memref<1024xf16, #gpu.address_space<workgroup>>, 
+                                                 %dest: memref<8xf16, #gpu.address_space<private>>)
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll, 
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      mfmaDDim = 32, 
+      mfmaKDim = 16, 
+      mPerBlock = 64, 
+      nPerBlock = 64, 
+      kPerBlock = 16, 
+      mPerWave = 32, 
+      nPerWave = 32, 
+      doubleBuffering = false, 
+      isOperandA = false
+    >, 
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<1024xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_16x16
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 16, mfmaKDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = true>
+func.func @test_lds_transpose_config_attr_16x16(%src: memref<4096xf16, #gpu.address_space<workgroup>>, 
+                                                 %dest: memref<8xf16, #gpu.address_space<private>>)
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll, 
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      mfmaDDim = 16, 
+      mfmaKDim = 16, 
+      mPerBlock = 64, 
+      nPerBlock = 64, 
+      kPerBlock = 16, 
+      mPerWave = 16, 
+      nPerWave = 64, 
+      doubleBuffering = true, 
+      isOperandA = true
+    >, 
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<4096xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_32x8
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 32, mfmaKDim = 8, mPerBlock = 64, nPerBlock = 64, kPerBlock = 8, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = false>
+func.func @test_lds_transpose_config_attr_32x8(%src: memref<2048xf16, #gpu.address_space<workgroup>>, 
+                                                %dest: memref<8xf16, #gpu.address_space<private>>)
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll, 
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      mfmaDDim = 32, 
+      mfmaKDim = 8, 
+      mPerBlock = 64, 
+      nPerBlock = 64, 
+      kPerBlock = 8, 
+      mPerWave = 32, 
+      nPerWave = 32, 
+      doubleBuffering = false, 
+      isOperandA = false
+    >, 
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<2048xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_threadwise_read_into_without_lds_transpose
+// CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs}
+// CHECK-NOT: ldsTransposeConfig
+func.func @test_threadwise_read_into_without_lds_transpose(%src: memref<8192xf16, #gpu.address_space<workgroup>>, 
+                                                            %dest: memref<8xf16, #gpu.address_space<private>>)
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%src) [] -> %dest 
+    : memref<8192xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
   return
 }

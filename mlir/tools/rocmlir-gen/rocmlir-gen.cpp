@@ -52,7 +52,6 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/SymbolTable.h"
-#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/InitRocMLIRCLOptions.h"
@@ -313,10 +312,15 @@ static llvm::cl::opt<int64_t> gemmN("n",
                                     llvm::cl::value_desc("positive integer"),
                                     llvm::cl::init(-1));
 
+static llvm::cl::opt<bool> scaledGemm(
+    "scaledGemm",
+    llvm::cl::desc("Indicates whether to generate scaling gemm or not"),
+    llvm::cl::value_desc("boolean"), llvm::cl::init(false));
+
 /// Backwards data convolution options
 static llvm::cl::opt<int64_t>
     usesV4R1("v4r1", llvm::cl::desc("Use V4R1 for bwd_data convolution"),
-             llvm::cl::init(1));
+             llvm::cl::init(0));
 
 /// gemm+elementwise+gemm options
 static llvm::cl::opt<int64_t>
@@ -333,10 +337,26 @@ static llvm::cl::opt<bool>
                llvm::cl::desc("whether matrix B is GxKxN (default) or GxNxK"),
                llvm::cl::init(false));
 
+static llvm::cl::opt<bool> transposeScaleA(
+    "transScaleA",
+    llvm::cl::desc("whether matrix A is GxMxK (default) or GxKxM"),
+    llvm::cl::init(false));
+
+static llvm::cl::opt<bool> transposeScaleB(
+    "transScaleB",
+    llvm::cl::desc("whether matrix B is GxKxN (default) or GxNxK"),
+    llvm::cl::init(false));
+
 static llvm::cl::opt<bool>
     transposeC("transC",
                llvm::cl::desc("whether matrix C is GxMxN (default) or GxNxM"),
                llvm::cl::init(false));
+
+static llvm::cl::opt<int>
+    quantBlockSize("quantBlockSize",
+                   llvm::cl::desc("Block size for block-scaled quantized GEMM"),
+                   llvm::cl::value_desc("positive integer"),
+                   llvm::cl::init(32));
 
 static llvm::cl::opt<rock::StoreMethod> storeMethod(
     "store-method", llvm::cl::desc("storage method for gemm"),
@@ -473,6 +493,14 @@ static llvm::cl::alias inTypeAliasShortI("ti",
                                          llvm::cl::aliasopt(inputDataType));
 static llvm::cl::alias inTypeAliasShortB("tb",
                                          llvm::cl::aliasopt(inputDataType));
+static llvm::cl::opt<std::string>
+    scaleADataType("scale_a_dtype",
+                   llvm::cl::desc("Data type for scale tensor or matrix A"),
+                   llvm::cl::init("f8E8M0FNU"));
+static llvm::cl::opt<std::string>
+    scaleBDataType("scale_b_dtype",
+                   llvm::cl::desc("Data type for scale tensor or matrix B"),
+                   llvm::cl::init("f8E8M0FNU"));
 
 // Note that this is defaulted to blank so we can implement `-t` easily
 // and know if we should use default i8 input -> i32 output behavior.
@@ -513,7 +541,7 @@ static llvm::cl::opt<std::string> dataTypeAlias(
         if (val == "i8")
           outputDataType = "i32";
         else if (val.starts_with("f8") || val.starts_with("fp8") ||
-                 val.starts_with("bf8"))
+                 val.starts_with("bf8") || val.starts_with("f4E2M1FN"))
           outputDataType = "f32";
         else if (filterDataType == inputDataType)
           outputDataType = v;
@@ -1369,13 +1397,14 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
 static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
                                                     const GenParams &params) {
-  // default perfConfig is attn:v2:32,32,32,32,32,32,1,1,1,2,1
+  // default perfConfig is attn:v3:32,32,32,32,32,32,16,1,1,1,2,1
   // keep in sync with AffixTuningParameters.cpp
   if (params.perfConfig.empty())
     return {32, 32};
 
+  bool isWmma = bitEnumContainsAny(params.features, rock::GemmFeatures::wmma);
   auto attnPerfConfig = mlir::rock::AttnPerfConfigAttr::get(
-      builder.getStringAttr(params.perfConfig));
+      builder.getStringAttr(params.perfConfig), isWmma);
   return {attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0()};
 }
 
@@ -1513,22 +1542,20 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
     }
 
     // split KV to batch
-    Value resultTensor = b.create<bufferization::ToTensorOp>(
-        loc,
+    Value resultTensor = bufferization::ToTensorOp::create(
+        b, loc,
         memref::getTensorTypeFromMemRefType(
             cpuMem[cpuMem.size() - 1].getType()),
         cpuMem[cpuMem.size() - 1], true, false);
     Value lseTensor = bufferization::ToTensorOp::create(
-        b,
-        loc,
+        b, loc,
         memref::getTensorTypeFromMemRefType(
             cpuMem[cpuMem.size() - 2].getType()),
         cpuMem[cpuMem.size() - 2], true, false);
     auto out = computeFinalAttentionStage(b, loc, resultTensor, lseTensor,
                                           validSplitKV);
     Value outMemref = bufferization::ToBufferOp::create(
-        b,
-        loc,
+        b, loc,
         cast<mlir::bufferization::BufferLikeType>(
             cpuMem[cpuMem.size() - 1].getType()),
         out);
@@ -1558,10 +1585,12 @@ static Type typeFromString(StringRef name, MLIRContext *ctx) {
           .Case("bf16", BFloat16Type::get(ctx))
           .Case("i8", IntegerType::get(ctx, 8))
           .Case("i32", IntegerType::get(ctx, 32))
+          .Case("f4E2M1FN", Float4E2M1FNType::get(ctx))
           .Case("f8E5M2", Float8E5M2Type::get(ctx))
           .Case("f8E4M3FN", Float8E4M3FNType::get(ctx))
           .Case("f8E5M2FNUZ", Float8E5M2FNUZType::get(ctx))
           .Case("f8E4M3FNUZ", Float8E4M3FNUZType::get(ctx))
+          .Case("f8E8M0FNU", Float8E8M0FNUType::get(ctx))
           .Default(std::nullopt);
   if (!result) {
     llvm::errs() << "Unknown data type: " << name << "\n";
@@ -1612,7 +1641,8 @@ static std::tuple<short, short> getRandomTestData(int idx, bool isRandFloat) {
   return std::make_tuple(min, max);
 }
 
-llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType, int idx) {
+static llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType,
+                                                        int idx) {
   llvm::SmallVector<float, 3> pattern;
   if (randomSeed == "none") {
     float fixedVal = 1.0f;
@@ -1621,13 +1651,21 @@ llvm::SmallVector<float, 3> getTensorInitPattern(Type elemType, int idx) {
       isRandFloat = false;
     }
     if (isRandFloat)
-      // Clamp the fixed rondam float by 0.1 to avoid infs in some f16 tests
+      // Clamp the fixed random float by 0.1 to avoid infs in some f16 tests
       fixedVal *= 0.1f;
     pattern = {static_cast<float>(fixedVal)};
   } else if (randomSeed == "fixed") {
     if (elemType.isIntOrIndex())
       pattern = {1.0, -1.0, 2.0};
-    else
+    // float4E2M1FN can only represent 8 values. Use a small set of values to
+    // avoid quantization error
+    else if (isa<Float4E2M1FNType>(elemType)) {
+      pattern = {1, -4, 0.5, 1.5};
+      // Float8E8M0FNU is only supposed to represent values that are in powers
+      // of 2 Use a small set of such values to avoid quantization error
+    } else if (isa<Float8E8M0FNUType>(elemType)) {
+      pattern = {1, 2, 4, 8, 0.5, 0.25, 0.125};
+    } else
       pattern = {0.5, -1, 0.75};
   } else {
     llvm_unreachable("We shouldn't be here for random values");
@@ -2324,23 +2362,125 @@ createCPUConvFunc(ModuleOp module,
 static void getGemmTypes(ArrayRef<Type> elemTypes,
                          SmallVectorImpl<Type> &result, bool isCpuVerifier) {
   Type cElemType = elemTypes[2];
+  OpBuilder b(elemTypes[0].getContext());
   // Verify in int64_t to detect overflow
   if (elemTypes[0].isInteger(8) && isCpuVerifier)
     cElemType = IntegerType::get(cElemType.getContext(), 64);
 
-  SmallVector<int64_t> aDims = {groupSize, transposeA ? gemmK : gemmM,
-                                transposeA ? gemmM : gemmK},
-                       bDims = {groupSize, transposeB ? gemmN : gemmK,
-                                transposeB ? gemmK : gemmN},
-                       cDims = {groupSize, transposeC ? gemmN : gemmM,
-                                transposeC ? gemmM : gemmN};
-
+  if (scaledGemm && gemmK % quantBlockSize != 0) {
+    llvm::errs() << "GEMM K dimension must be multiple of quantBlockSize "
+                    "("
+                 << quantBlockSize << ")\n";
+    exit(1);
+  }
+  SmallVector<int64_t>
+      aDims = {groupSize, transposeA ? gemmK : gemmM,
+               transposeA ? gemmM : gemmK},
+      bDims = {groupSize, transposeB ? gemmN : gemmK,
+               transposeB ? gemmK : gemmN},
+      cDims = {groupSize, transposeC ? gemmN : gemmM,
+               transposeC ? gemmM : gemmN},
+      aScale = {groupSize, transposeScaleA ? gemmK / quantBlockSize : gemmM,
+                transposeScaleA ? gemmM : gemmK / quantBlockSize},
+      bScale = {groupSize, transposeScaleB ? gemmN : gemmK / quantBlockSize,
+                transposeScaleB ? gemmK / quantBlockSize : gemmN};
   MemRefType aType = MemRefType::get(aDims, elemTypes[0]),
              bType = MemRefType::get(bDims, elemTypes[1]),
-             cType = MemRefType::get(cDims, cElemType);
+             cType = MemRefType::get(cDims, cElemType),
+             aScaleType = MemRefType::get(aScale, elemTypes[3]),
+             bScaleType = MemRefType::get(bScale, elemTypes[4]);
   result.push_back(aType);
   result.push_back(bType);
   result.push_back(cType);
+  if (scaledGemm) {
+    result.push_back(aScaleType);
+    result.push_back(bScaleType);
+  }
+}
+
+static Value buildBroadcastedScales(OpBuilder b, Location loc, Value scale,
+                                    bool transpose, bool isA) {
+  // Initial logical dim order for A or B scale
+  SmallVector<StringRef, 3> initDims;
+  if (transpose) {
+    if (isA)
+      initDims = {"g", "kScale", "m"};
+    else
+      initDims = {"g", "n", "kScale"};
+  } else {
+    if (isA)
+      initDims = {"g", "m", "kScale"};
+    else
+      initDims = {"g", "kScale", "n"};
+  }
+  rock::BottomUpTMBuilder addDimB(
+      b, initDims, cast<ShapedType>(scale.getType()).getShape(), loc);
+
+  // Position where the added "block" dim will go
+  uint32_t blockDim = isA ? (transpose ? 2 : 3) : (transpose ? 3 : 2);
+
+  if (transpose) {
+    if (isA)
+      addDimB.passThrough({"g", "kScale", "m"}, {0, 1, 3},
+                          {"g", "kScale", "m"});
+    else
+      addDimB.passThrough({"g", "n", "kScale"});
+    addDimB.addDim("block", blockDim, 1);
+  } else {
+    addDimB.addDim("block", blockDim, 1);
+    if (isA)
+      addDimB.passThrough({"g", "m", "kScale"});
+    else
+      addDimB.passThrough({"g", "kScale", "n"}, {0, 1, 3},
+                          {"g", "kScale", "n"});
+  }
+  auto addDimAttr = addDimB.get();
+  scale = rock::TransformOp::create(b, loc, scale, addDimAttr);
+
+  // Broadcast the newly added block dim to blockSize.
+  rock::BottomUpTMBuilder broadcastB =
+      rock::BottomUpTMBuilder::above(addDimB, addDimAttr);
+  broadcastB.broadcast({blockDim}, {quantBlockSize});
+  if (transpose) {
+    if (isA)
+      broadcastB.passThrough({"g", "kScale", "m"});
+    else
+      broadcastB.passThrough({"g", "n", "kScale"});
+  } else {
+    if (isA)
+      broadcastB.passThrough({"g", "m", "kScale"});
+    else
+      broadcastB.passThrough({"g", "kScale", "n"});
+  }
+  auto broadcastAttr = broadcastB.get();
+  scale = rock::TransformOp::create(b, loc, scale, broadcastAttr);
+
+  // Merge kScale + block into k; pass through the remaining dims.
+  rock::BottomUpTMBuilder mergeB =
+      rock::BottomUpTMBuilder::above(broadcastB, broadcastAttr);
+  if (isA) {
+    if (transpose) {
+      // dims: g, kScale, m, block
+      mergeB.passThrough({"g", "m"}, {0, 2}, {"g", "m"});
+      mergeB.merge("k", 1, {"kScale", "block"});
+    } else {
+      // dims: g, m, kScale, block
+      mergeB.merge("k", 2, {"kScale", "block"});
+      mergeB.passThrough({"g", "m"});
+    }
+  } else { // B scale
+    if (transpose) {
+      // dims: g, n, kScale, block
+      mergeB.passThrough({"g", "n"}, {0, 1}, {"g", "n"});
+      mergeB.merge("k", 2, {"kScale", "block"});
+    } else {
+      // dims: g, kScale, block, n
+      mergeB.passThrough({"g", "n"}, {0, 2}, {"g", "n"});
+      mergeB.merge("k", 1, {"kScale", "block"});
+    }
+  }
+  auto finalAttr = mergeB.get();
+  return rock::TransformOp::create(b, loc, scale, finalAttr);
 }
 
 static func::FuncOp createGpuGemmKernel(ModuleOp module,
@@ -2355,7 +2495,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (!module->hasAttr("mhal.arch"))
     module->setAttr("mhal.arch", archAttr);
 
-  SmallVector<Type, 3> argTypes;
+  SmallVector<Type, 5> argTypes;
   getGemmTypes(params.types, argTypes,
                /*isCpuVerifier=*/false);
   constexpr StringLiteral kernelName("rock_gemm");
@@ -2372,7 +2512,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   if (numCUAttr)
     funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
 
-  SmallVector<Type, 3> flatTypes =
+  SmallVector<Type, 5> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
   auto func =
       func::FuncOp::create(b, loc, isVerifier ? kernelNameVerifier : kernelName,
@@ -2386,6 +2526,14 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
       gName, transposeB ? nName : kName, transposeB ? kName : nName});
   allArgNames.emplace_back(SmallVector<StringRef>{
       gName, transposeC ? nName : mName, transposeC ? mName : nName});
+  if (scaledGemm) {
+    allArgNames.emplace_back(
+        SmallVector<StringRef>{gName, transposeScaleA ? kName : mName,
+                               transposeScaleA ? mName : kName});
+    allArgNames.emplace_back(
+        SmallVector<StringRef>{gName, transposeScaleB ? nName : kName,
+                               transposeScaleB ? kName : nName});
+  }
 
   Block *block = func.addEntryBlock();
   b.setInsertionPointToStart(block);
@@ -2394,10 +2542,73 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                                     expandedArgs);
 
   Value aVal = expandedArgs[0], bVal = expandedArgs[1], cVal = expandedArgs[2];
-
+  Value aScale = nullptr, bScale = nullptr;
+  if (scaledGemm) {
+    aScale = buildBroadcastedScales(b, loc, expandedArgs[3], transposeScaleA,
+                                    /*isA=*/true);
+    bScale = buildBroadcastedScales(b, loc, expandedArgs[4], transposeScaleB,
+                                    /*isA=*/false);
+  }
+  bool hasAccel = rock::isAccel(params.features);
+  // for the non-accel path, emulate Fp4 scaled GEMMs by multiplying the scale
+  // by the matrix. This is used when doing `-pv_with_gpu`
+  if (!hasAccel && scaledGemm) {
+    if (transposeA) {
+      aVal = rock::normalizeMatrix(aVal, b, loc, true, kName, mName);
+      transposeA = false;
+    }
+    if (transposeB) {
+      bVal = rock::normalizeMatrix(bVal, b, loc, true, nName, kName);
+      transposeB = false;
+    }
+    if (transposeScaleB) {
+      bScale = rock::normalizeMatrix(bScale, b, loc, true, nName, kName);
+      transposeScaleB = false;
+    }
+    if (transposeScaleA) {
+      aScale = rock::normalizeMatrix(aScale, b, loc, true, mName, kName);
+      transposeScaleA = false;
+    }
+    uint64_t rankA = cast<ShapedType>(aVal.getType()).getRank();
+    uint64_t rankB = cast<ShapedType>(bVal.getType()).getRank();
+    auto aMap = AffineMap::getMultiDimIdentityMap(rankA, ctx);
+    auto bMap = AffineMap::getMultiDimIdentityMap(rankB, ctx);
+    auto multipledValA =
+        memref::AllocOp::create(b, loc, llvm::cast<MemRefType>(aVal.getType()));
+    auto multipledValB =
+        memref::AllocOp::create(b, loc, llvm::cast<MemRefType>(bVal.getType()));
+    linalg::GenericOp::create(
+        b, loc, ValueRange{aVal, aScale}, ValueRange{multipledValA},
+        ArrayRef<AffineMap>{aMap, aMap, aMap},
+        ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
+                                      utils::IteratorType::parallel,
+                                      utils::IteratorType::parallel},
+        /*doc=*/"", /*libraryCall=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value a = elems[0], scale = elems[1];
+          Value mul = arith::MulFOp::create(builder, loc, a, scale);
+          linalg::YieldOp::create(builder, loc, mul);
+        });
+    linalg::GenericOp::create(
+        b, loc, ValueRange{bVal, bScale}, ValueRange{multipledValB},
+        ArrayRef<AffineMap>{bMap, bMap, bMap},
+        ArrayRef<utils::IteratorType>{utils::IteratorType::parallel,
+                                      utils::IteratorType::parallel,
+                                      utils::IteratorType::parallel},
+        /*doc=*/"", /*libraryCall=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value b = elems[0], scale = elems[1];
+          Value mul = arith::MulFOp::create(builder, loc, b, scale);
+          linalg::YieldOp::create(builder, loc, mul);
+        });
+    aVal = multipledValA;
+    bVal = multipledValB;
+    aScale = nullptr;
+    bScale = nullptr;
+  }
   auto gemm = rock::GemmOp::create(
-      b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, transposeA,
-      transposeB, transposeC,
+      b, loc, /*resultTypes=*/TypeRange{}, aVal, bVal, cVal, aScale, bScale,
+      transposeA, transposeB, transposeC, transposeScaleA, transposeScaleB,
       rock::GemmFeaturesAttr::get(b.getContext(), params.features), storeMethod,
       /*blockSize=*/nullptr, /*gridSize=*/nullptr, /*params=*/nullptr);
 
@@ -2833,7 +3044,7 @@ static Value createMaskSplitKV(OpBuilder &builder, Location loc,
   auto denseAttr =
       DenseElementsAttr::get(initialType, ArrayRef<int32_t>(validSplitKV));
   Value initialTensor =
-      builder.create<tosa::ConstOp>(loc, initialType, denseAttr);
+      tosa::ConstOp::create(builder, loc, initialType, denseAttr);
 
   // Create zero tensor of target shape
   auto outType = RankedTensorType::get(shape, builder.getI32Type());
@@ -2930,8 +3141,8 @@ static Value computeFinalAttentionStage(OpBuilder builder, Location loc,
 
   // convert to one dimensional tensor
   SmallVector<ReassociationIndices> reassocIndices = {{0, 1, 2, 3}};
-  finalResult =
-      builder.create<tensor::CollapseShapeOp>(loc, finalResult, reassocIndices);
+  finalResult = tensor::CollapseShapeOp::create(builder, loc, finalResult,
+                                                reassocIndices);
   return finalResult;
 }
 
@@ -2968,6 +3179,13 @@ static Value broadcastKVCacheRock(OpBuilder builder, Location loc,
   merger.merge("gemmG", 0, {"gemmG", "numHeadsQ"});
   auto mergerAttr = merger.get();
   return rock::TransformOp::create(builder, loc, tensorBroadcast, mergerAttr);
+}
+
+static void setScheduleVersion(MLIRContext *ctx, func::FuncOp func) {
+  if (gemmScheduleVersion.getValue() != GEMMScheduleVersion::V1)
+    func->setAttr(rock::ScheduleVersionAttr::getMnemonic(),
+                  rock::ScheduleVersionAttr::get(
+                      ctx, int(gemmScheduleVersion.getValue())));
 }
 
 static func::FuncOp createGpuAttentionKernel(ModuleOp module,
@@ -3049,8 +3267,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
-  auto attention = rock::AttentionOp::create(builder,
-      loc, TypeRange{}, queries, keys, values, elemwiseInputs,
+  auto attention = rock::AttentionOp::create(
+      builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, numHeadsQ, numHeadsKV, transposeQ,
       transposeK, transposeV, transposeO, causalMasking, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
@@ -3114,6 +3332,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   if (!params.perfConfig.empty())
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
+
+  setScheduleVersion(ctx, func);
 
   func::ReturnOp::create(builder, loc);
   module.push_back(func);
@@ -3229,6 +3449,8 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   builder.getUnitAttr());
 
+  setScheduleVersion(ctx, func);
+
   module.push_back(func);
   return func;
 }
@@ -3318,6 +3540,8 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   builder.getUnitAttr());
 
+  setScheduleVersion(ctx, func);
+
   module.push_back(func);
   return func;
 }
@@ -3351,6 +3575,14 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   bVal = ensureFloatIsF32(b, loc, bVal, floatType);
   cVal = ensureFloatIsF32(b, loc, cVal, floatType);
 
+  Value aScaleVal = nullptr, bScaleVal = nullptr;
+  if (scaledGemm) {
+    aScaleVal = block->getArgument(3);
+    bScaleVal = block->getArgument(4);
+    aScaleVal = ensureFloatIsF32(b, loc, aScaleVal, floatType);
+    bScaleVal = ensureFloatIsF32(b, loc, bScaleVal, floatType);
+  }
+
   auto cType = cast<MemRefType>(cVal.getType());
   Value zeroOut = rock::createZeroConstantOp(b, loc, cType.getElementType());
 
@@ -3378,28 +3610,80 @@ static func::FuncOp createCpuGemmKernelWithMlir(ModuleOp module,
   Value aExpVal = expandArg(aVal, argTypes[0]),
         bExpVal = expandArg(bVal, argTypes[1]),
         cExpVal = expandArg(cVal, argTypes[2]);
-  linalg::GenericOp::create(
-      b, loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
-      ArrayRef<AffineMap>{aMap, bMap, cMap},
-      ArrayRef<utils::IteratorType>{
-          utils::IteratorType::parallel, utils::IteratorType::parallel,
-          utils::IteratorType::parallel, utils::IteratorType::reduction},
-      /*doc=*/"", /*library_call=*/"",
-      [](OpBuilder &builder, Location loc, ValueRange elems) {
-        Value a = elems[0], b = elems[1], c = elems[2];
-        Type cType = c.getType();
-        if (isa<IntegerType>(cType)) {
-          Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
-          Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
-          Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
-          Value add = arith::AddIOp::create(builder, loc, mul, c);
-          linalg::YieldOp::create(builder, loc, add);
-        } else {
-          Value mul = arith::MulFOp::create(builder, loc, a, b);
-          Value add = arith::AddFOp::create(builder, loc, mul, c);
-          linalg::YieldOp::create(builder, loc, add);
-        }
-      });
+  Value aExpValScaled = nullptr, bExpValScaled = nullptr;
+  if (scaledGemm) {
+    // Create scaled AffineMaps
+    // (g, m, n, k) -> (g, m, k // blockSize)  for A if not transposed
+    // (g, m, n, k) -> (g, k // blockSize, n)  for B if not transposed
+    auto scaleAffineMap = [&](bool transposeFlag, AffineExpr d) -> AffineMap {
+      // Create constant for blockSize
+      auto cBlockSize = getAffineConstantExpr(quantBlockSize, b.getContext());
+      auto kFloorDiv32 = k.floorDiv(cBlockSize);
+      SmallVector<AffineExpr> resultExprs = {g, transposeFlag ? kFloorDiv32 : d,
+                                             transposeFlag ? d : kFloorDiv32};
+      return AffineMap::get(4, 0, resultExprs, b.getContext());
+    };
+    AffineMap aMapScaled = scaleAffineMap(transposeScaleA, m);
+    AffineMap bMapScaled = scaleAffineMap(!transposeScaleB, n);
+
+    aExpValScaled = expandArg(aScaleVal, argTypes[3]);
+    bExpValScaled = expandArg(bScaleVal, argTypes[4]);
+    linalg::GenericOp::create(
+        b, loc, ValueRange{aExpVal, bExpVal, aExpValScaled, bExpValScaled},
+        ValueRange{cExpVal},
+        ArrayRef<AffineMap>{aMap, bMap, aMapScaled, bMapScaled, cMap},
+        ArrayRef<utils::IteratorType>{
+            utils::IteratorType::parallel, utils::IteratorType::parallel,
+            utils::IteratorType::parallel, utils::IteratorType::reduction},
+        /*doc=*/"", /*library_call=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value a = elems[0], b = elems[1], aScale = elems[2],
+                bScale = elems[3];
+          Value c = elems[4];
+          Type cType = c.getType();
+          if (isa<IntegerType>(cType)) {
+            Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
+            Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
+            Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
+            Value add = arith::AddIOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          } else {
+            a = arith::MulFOp::create(builder, loc, a, aScale);
+            b = arith::MulFOp::create(builder, loc, b, bScale);
+            Value mul = arith::MulFOp::create(builder, loc, a, b);
+            Value add = arith::AddFOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          }
+        });
+    if (!isa<BlockArgument>(aScaleVal))
+      memref::DeallocOp::create(b, loc, aScaleVal);
+    if (!isa<BlockArgument>(bScaleVal))
+      memref::DeallocOp::create(b, loc, bScaleVal);
+  } else {
+    linalg::GenericOp::create(
+        b, loc, ValueRange{aExpVal, bExpVal}, ValueRange{cExpVal},
+        ArrayRef<AffineMap>{aMap, bMap, cMap},
+        ArrayRef<utils::IteratorType>{
+            utils::IteratorType::parallel, utils::IteratorType::parallel,
+            utils::IteratorType::parallel, utils::IteratorType::reduction},
+        /*doc=*/"", /*library_call=*/"",
+        [](OpBuilder &builder, Location loc, ValueRange elems) {
+          Value a = elems[0], b = elems[1];
+          Value c = elems[2];
+          Type cType = c.getType();
+          if (isa<IntegerType>(cType)) {
+            Value aExt = rock::createTypeConversionOp(builder, loc, a, cType);
+            Value bExt = rock::createTypeConversionOp(builder, loc, b, cType);
+            Value mul = arith::MulIOp::create(builder, loc, aExt, bExt);
+            Value add = arith::AddIOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          } else {
+            Value mul = arith::MulFOp::create(builder, loc, a, b);
+            Value add = arith::AddFOp::create(builder, loc, mul, c);
+            linalg::YieldOp::create(builder, loc, add);
+          }
+        });
+  }
 
   if (!isa<BlockArgument>(aVal))
     memref::DeallocOp::create(b, loc, aVal);
@@ -4021,25 +4305,9 @@ static void emitPrintTensor(OpBuilder &b, Value var) {
   }
 }
 
-static void checkRandomInputsE2E() {
-  if (randomSeed != "none" && randomSeed != "fixed" &&
-      randomDataType == "float") {
-    int min = randMin.getValue();
-    int max = randMax.getValue();
-    if (min < 0 && max > 0) {
-      llvm::errs() << "WARNING: E2E tests with float random inputs within ";
-      llvm::errs() << "WARNING: E2E tests may fail with both positive and ";
-      llvm::errs() << "negative float random inputs\n";
-      llvm::errs() << "         Try range [1, 3] by setting ";
-      llvm::errs() << "\"-rand_min 1 -rand_max 3\"\n";
-    }
-  }
-}
-
 static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
                                        MemRefType testType, MemRefType valType,
                                        std::string funcName) {
-  checkRandomInputsE2E();
   func::FuncOp func = module.lookupSymbol<func::FuncOp>(funcName);
   if (func) // already exists
     return func;
@@ -4205,15 +4473,14 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
       thr_relDiff = getF32Val(100.0f);
     Type boolType = b.getIntegerType(1);
     bool isFP32 = isa<Float32Type>(testElemType);
-    auto isFP32Val = b.create<arith::ConstantIntOp>(loc, boolType, isFP32);
+    auto isFP32Val = arith::ConstantIntOp::create(b, loc, boolType, isFP32);
 
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, floatType,
                                    floatType, floatType, charType, boolType});
     func::CallOp::create(b, loc, verifyFuncDecl,
-                           ValueRange{testResult, valResult, thr_RMS,
-                                      thr_absDiff, thr_relDiff, printDebugVal,
-                                      isFP32Val});
+                         ValueRange{testResult, valResult, thr_RMS, thr_absDiff,
+                                    thr_relDiff, printDebugVal, isFP32Val});
   } else {
     verifyFuncDecl = makeFuncDecl(module, verifyFuncName,
                                   {mr1DUnkTestType, mr1DUnkValType, charType});
@@ -4407,11 +4674,12 @@ static void insertValidationCalls(const GenParams &genParams, OpBuilder &b,
                                               mlir::rock::GemmFeatures::wmma);
 
       if (!((heuristicValidation || hasAccel) &&
-            genParams.types[0].isInteger(8)))
+            genParams.types[0].isInteger(8))) {
         // use f32 data type to verify non-f32 or xdlops f32 kernels
         // except that i8 xdops is verified with i8 non-xdolps and tuned i8 is
         // verified with itself in heuristic mode.
-        newParams.types = SmallVector<Type>(3, b.getF32Type());
+        newParams.types = SmallVector<Type>(5, b.getF32Type());
+      }
 
       KernelIF kernel(
           createGpuGemmKernel(module, newParams, /*isVerifier=*/true));
@@ -4939,7 +5207,6 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     } else
       enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
                                    wmmaFeature == FeatureToggle::on);
-
     genParams.operation = operation;
     genParams.features = enabledFeatures;
     genParams.arch = arch;
@@ -4947,7 +5214,8 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     if (isGemm) {
       for (const auto &arg :
            {filterDataType.getValue(), inputDataType.getValue(),
-            outputDataType.getValue()})
+            outputDataType.getValue(), scaleADataType.getValue(),
+            scaleBDataType.getValue()})
         genParams.types.push_back(typeFromString(arg, context));
       genParams.convConfig = std::nullopt;
       (void)createGpuGemmKernel(module, genParams);
@@ -5239,6 +5507,14 @@ int main(int argc, char **argv) {
     module = ModuleOp::create(UnknownLoc::get(&context));
   }
 
+  if (kernelRepeats.getNumOccurrences() > 0 && !genCPUValidation &&
+      !genHostHarness) {
+    llvm::errs()
+        << "--kernel-repeats is only supported with host harness (-ph) or "
+           "CPU validation (-pv).\n";
+    return EXIT_FAILURE;
+  }
+
   if (genCloneHarness.getValue()) {
     populateCloneHarnessLogic(*module);
   } else if (!hasUserKernel) {
@@ -5278,8 +5554,9 @@ int main(int argc, char **argv) {
   }
 
   if (emitTuningSpace.getNumOccurrences() > 0) {
+    rock::TuningParamSpaceSettings settings;
     std::unique_ptr<rock::TuningParamSet> tunableParams(
-        rock::createTunableParamSpace(*module, emitTuningSpace));
+        rock::createTunableParamSpace(*module, emitTuningSpace, settings));
     SmallString<64> perfConfig;
     for (auto param : tunableParams->tuningRange) {
       param.getPerfConfigStr(perfConfig);
