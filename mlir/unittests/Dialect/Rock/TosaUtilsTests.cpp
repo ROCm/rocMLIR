@@ -50,7 +50,7 @@ static mlir::tosa::ConstOp buildConst(OpBuilder &b, Location loc,
   for (int64_t i = 0, e = type.getNumElements(); i < e; ++i, v += 1.0)
     elems.push_back(b.getF32FloatAttr((float)v));
   auto attr = DenseElementsAttr::get(type, elems);
-  return b.create<mlir::tosa::ConstOp>(loc, type, attr);
+  return mlir::tosa::ConstOp::create(b, loc, type, attr);
 }
 } // namespace
 
@@ -174,14 +174,14 @@ TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
   Location loc = builder.getUnknownLoc();
 
   auto funcType = builder.getFunctionType({}, {});
-  auto func = builder.create<func::FuncOp>(loc, "test", funcType);
+  auto func = func::FuncOp::create(builder, loc, "test", funcType);
   auto &entryBlock = *func.addEntryBlock();
   builder.setInsertionPointToStart(&entryBlock);
 
   {
     auto tType = RankedTensorType::get({}, builder.getF32Type());
     auto attr = DenseElementsAttr::get(tType, builder.getF32FloatAttr(0.0f));
-    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
+    auto cst = mlir::tosa::ConstOp::create(builder, loc, tType, attr);
     EXPECT_TRUE(isConstantZero(cst));
     EXPECT_FALSE(isConstantOne(cst));
     EXPECT_TRUE(isConstantValue(cst, 0.0));
@@ -190,7 +190,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
     auto tType = RankedTensorType::get({}, builder.getF8E8M0Type());
     auto attr = DenseElementsAttr::get(
         tType, builder.getFloatAttr(builder.getF8E8M0Type(), 1.0f));
-    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
+    auto cst = mlir::tosa::ConstOp::create(builder, loc, tType, attr);
     EXPECT_FALSE(isConstantZero(cst));
     EXPECT_TRUE(isConstantOne(cst));
     EXPECT_FALSE(isConstantValue(cst, 0.0));
@@ -199,7 +199,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
   {
     auto tType = RankedTensorType::get({}, builder.getF32Type());
     auto attr = DenseElementsAttr::get(tType, builder.getF32FloatAttr(1.0f));
-    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
+    auto cst = mlir::tosa::ConstOp::create(builder, loc, tType, attr);
     EXPECT_TRUE(isConstantOne(cst));
     EXPECT_FALSE(isConstantZero(cst));
     EXPECT_TRUE(isConstantValue(cst, 1.0));
@@ -207,7 +207,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesScalars) {
   {
     auto tType = RankedTensorType::get({}, builder.getI32Type());
     auto attr = DenseElementsAttr::get(tType, builder.getI32IntegerAttr(1));
-    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
+    auto cst = mlir::tosa::ConstOp::create(builder, loc, tType, attr);
     EXPECT_TRUE(isConstantOne(cst));
     EXPECT_FALSE(isConstantZero(cst));
   }
@@ -219,7 +219,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
   Location loc = builder.getUnknownLoc();
 
   auto funcType = builder.getFunctionType({}, {});
-  auto func = builder.create<func::FuncOp>(loc, "test2", funcType);
+  auto func = func::FuncOp::create(builder, loc, "test2", funcType);
   auto &entryBlock = *func.addEntryBlock();
   builder.setInsertionPointToStart(&entryBlock);
 
@@ -227,7 +227,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
     auto tType = RankedTensorType::get({2, 2}, builder.getF16Type());
     SmallVector<Attribute> elems(4, builder.getF16FloatAttr(0.0));
     auto attr = DenseElementsAttr::get(tType, elems);
-    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
+    auto cst = mlir::tosa::ConstOp::create(builder, loc, tType, attr);
     EXPECT_TRUE(isConstantZero(cst));
     EXPECT_FALSE(isConstantOne(cst));
   }
@@ -235,7 +235,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
     auto tType = RankedTensorType::get({3}, builder.getI32Type());
     SmallVector<Attribute> elems(3, builder.getI32IntegerAttr(1));
     auto attr = DenseElementsAttr::get(tType, elems);
-    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
+    auto cst = mlir::tosa::ConstOp::create(builder, loc, tType, attr);
     EXPECT_TRUE(isConstantOne(cst));
     EXPECT_FALSE(isConstantZero(cst));
   }
@@ -247,7 +247,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
     elems.push_back(
         builder.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
     auto attr = DenseElementsAttr::get(tType, elems);
-    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
+    auto cst = mlir::tosa::ConstOp::create(builder, loc, tType, attr);
     EXPECT_TRUE(isConstNegInf(cst));
   }
   {
@@ -256,7 +256,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
     for (int i = 0; i < 8; ++i)
       elems.push_back(builder.getI32IntegerAttr(i));
     auto attr = DenseElementsAttr::get(tType, elems);
-    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
+    auto cst = mlir::tosa::ConstOp::create(builder, loc, tType, attr);
     EXPECT_TRUE(isConstRange(cst));
   }
   {
@@ -267,7 +267,7 @@ TEST(TosaUtilsTest, ConstantValuePredicatesTensors) {
     elems.push_back(builder.getI32IntegerAttr(3));
     elems.push_back(builder.getI32IntegerAttr(1));
     auto attr = DenseElementsAttr::get(tType, elems);
-    auto cst = builder.create<mlir::tosa::ConstOp>(loc, tType, attr);
+    auto cst = mlir::tosa::ConstOp::create(builder, loc, tType, attr);
     EXPECT_FALSE(isConstRange(cst));
   }
 }
@@ -287,7 +287,7 @@ TEST(TosaUtilsTest, CreateOpAndInferMulHelper) {
   Location loc = builder.getUnknownLoc();
 
   auto funcType = builder.getFunctionType({}, {});
-  auto func = builder.create<func::FuncOp>(loc, "test3", funcType);
+  auto func = func::FuncOp::create(builder, loc, "test3", funcType);
   auto &entryBlock = *func.addEntryBlock();
   builder.setInsertionPointToStart(&entryBlock);
 
@@ -296,8 +296,8 @@ TEST(TosaUtilsTest, CreateOpAndInferMulHelper) {
   SmallVector<Attribute> elemsB(4, builder.getF32FloatAttr(3.0f));
   auto aAttr = DenseElementsAttr::get(tType, elemsA);
   auto bAttr = DenseElementsAttr::get(tType, elemsB);
-  auto aConst = builder.create<mlir::tosa::ConstOp>(loc, tType, aAttr);
-  auto bConst = builder.create<mlir::tosa::ConstOp>(loc, tType, bAttr);
+  auto aConst = mlir::tosa::ConstOp::create(builder, loc, tType, aAttr);
+  auto bConst = mlir::tosa::ConstOp::create(builder, loc, tType, bAttr);
 
   auto mulOp = rock::tosa::getMulOp(builder, loc, aConst.getResult(),
                                     bConst.getResult(), builder.getF32Type());
