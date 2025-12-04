@@ -112,6 +112,15 @@ static constexpr AmdArchInfo
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
+              /*maxNumXCC=*/1),
+    gfx1250Info(GemmFeatures::dot | GemmFeatures::atomic_add |
+                  GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma |
+                  GemmFeatures::atomic_add_f16 | GemmFeatures::atomic_add_bf16,
+              /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 1600,
+              /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 327680,
+              /*maxSharedMemPerWG*/ 327680, /*numEUPerCU=*/4, /*minNumCU=*/96,
+              /*hasFp8ConversionInstrs=*/false,
+              /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
               /*maxNumXCC=*/1);
 
 static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
@@ -367,6 +376,9 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     return rdna3Info;
   }
   if (major == "gfx12") {
+    // gfx1250 has specific differences from generic gfx12 (32 user SGPRs, enhanced WMMA)
+    if (minor == "50")
+      return gfx1250Info;
     return rdna4Info;
   }
   auto msg = "Unsupported architecture: " + arch.str();

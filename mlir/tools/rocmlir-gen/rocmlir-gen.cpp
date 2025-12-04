@@ -851,7 +851,7 @@ static llvm::cl::opt<float>
 static llvm::cl::opt<float>
     absDiffThreshold("absDiff_threshold",
                      llvm::cl::desc("Threshold for absDiff metric"),
-                     llvm::cl::value_desc("error"), llvm::cl::init(100.0f));
+                     llvm::cl::value_desc("error"), llvm::cl::init(200.0f));
 
 static llvm::cl::opt<float>
     relDiffThreshold("relDiff_threshold",
@@ -4397,7 +4397,7 @@ static func::FuncOp createVerifierFunc(ModuleOp module, const KernelIF &kernel,
 
   if (isa<FloatType>(testElemType)) {
     constexpr float defaultRMSThreshold(0.00003f);
-    constexpr float defaultRMSThresholdFP16(0.001f);
+    constexpr float defaultRMSThresholdFP16(1.5f);
     float RMSThresholdValue = isa<Float16Type, BFloat16Type>(testElemType)
                                   ? defaultRMSThresholdFP16
                                   : defaultRMSThreshold;

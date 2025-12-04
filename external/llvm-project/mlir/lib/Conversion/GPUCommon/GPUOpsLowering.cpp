@@ -257,8 +257,20 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
 
         // Arguments are of llvm.ptr type and attributions are of memref type:
         // we need to wrap them in memref descriptors.
-        Value descr = MemRefDescriptor::fromStaticShape(
-            rewriter, loc, *getTypeConverter(), type, arg);
+        // Handle both static and dynamic strides
+        auto [strides, offset] = type.getStridesAndOffset();
+        bool hasDynamicStrides = llvm::any_of(strides, ShapedType::isDynamic);
+        Value descr;
+        if (!hasDynamicStrides && ShapedType::isStatic(offset)) {
+          descr = MemRefDescriptor::fromStaticShape(
+              rewriter, loc, *getTypeConverter(), type, arg);
+        } else {
+          // Create descriptor with computed strides for dynamic case
+          SmallVector<Value> sizes, strideVals;
+          Value sizeVal;
+          getMemRefDescriptorSizes(loc, type, {}, rewriter, sizes, strideVals, sizeVal);
+          descr = createMemRefDescriptor(loc, type, arg, arg, sizes, strideVals, rewriter);
+        }
 
         // And remap the arguments
         signatureConversion.remapInput(numProperArguments + idx, descr);
@@ -279,8 +291,20 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
         // and canonicalize that away later.
         Value attribution = gpuFuncOp.getWorkgroupAttributions()[idx];
         auto type = cast<MemRefType>(attribution.getType());
-        Value descr = MemRefDescriptor::fromStaticShape(
-            rewriter, loc, *getTypeConverter(), type, memory);
+        // Handle both static and dynamic strides
+        auto [strides, offset] = type.getStridesAndOffset();
+        bool hasDynamicStrides = llvm::any_of(strides, ShapedType::isDynamic);
+        Value descr;
+        if (!hasDynamicStrides && ShapedType::isStatic(offset)) {
+          descr = MemRefDescriptor::fromStaticShape(
+              rewriter, loc, *getTypeConverter(), type, memory);
+        } else {
+          // Create descriptor with computed strides for dynamic case
+          SmallVector<Value> sizes, strideVals;
+          Value sizeVal;
+          getMemRefDescriptorSizes(loc, type, {}, rewriter, sizes, strideVals, sizeVal);
+          descr = createMemRefDescriptor(loc, type, memory, memory, sizes, strideVals, rewriter);
+        }
         signatureConversion.remapInput(numProperArguments + idx, descr);
       }
     }
@@ -309,8 +333,20 @@ GPUFuncOpLowering::matchAndRewrite(gpu::GPUFuncOp gpuFuncOp, OpAdaptor adaptor,
       Value allocated =
           LLVM::AllocaOp::create(rewriter, gpuFuncOp.getLoc(), ptrType,
                                  elementType, numElements, alignment);
-      Value descr = MemRefDescriptor::fromStaticShape(
-          rewriter, loc, *getTypeConverter(), type, allocated);
+      // Handle both static and dynamic strides
+      auto [strides, offset] = type.getStridesAndOffset();
+      bool hasDynamicStrides = llvm::any_of(strides, ShapedType::isDynamic);
+      Value descr;
+      if (!hasDynamicStrides && ShapedType::isStatic(offset)) {
+        descr = MemRefDescriptor::fromStaticShape(
+            rewriter, loc, *getTypeConverter(), type, allocated);
+      } else {
+        // Create descriptor with computed strides for dynamic case
+        SmallVector<Value> sizes, strideVals;
+        Value sizeVal;
+        getMemRefDescriptorSizes(loc, type, {}, rewriter, sizes, strideVals, sizeVal);
+        descr = createMemRefDescriptor(loc, type, allocated, allocated, sizes, strideVals, rewriter);
+      }
       signatureConversion.remapInput(
           numProperArguments + numWorkgroupAttributions + idx, descr);
     }

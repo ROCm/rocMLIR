@@ -1345,8 +1345,10 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
 
     // The WMMA operations represent vectors of bf16s as vectors of i16s, so we
     // need to bitcast bfloats to i16 and then bitcast them back.
+    // NOTE: gfx1250 intrinsics use native BF16 types, not i16.
     VectorType rawOutType = outType;
-    if (outType.getElementType().isBF16())
+    bool isGfx1250 = (chipset == Chipset{12, 5, 0});
+    if (outType.getElementType().isBF16() && !isGfx1250)
       rawOutType = outType.clone(rewriter.getI16Type());
 
     std::optional<StringRef> maybeIntrinsic = wmmaOpToIntrinsic(op, chipset);
@@ -1361,9 +1363,6 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
     loweredOp.addTypes(rawOutType);
 
     SmallVector<Value, 4> operands;
-    
-    // gfx1250 has different intrinsic signatures with modifier arguments
-    bool isGfx1250 = (chipset == Chipset{12, 5, 0});
     
     if (isGfx1250) {
       // gfx1250 has three different intrinsic signature patterns:
@@ -1389,12 +1388,11 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
       Value sourceB = adaptor.getSourceB();
       Value destC = adaptor.getDestC();
       
-      // Handle BF16 and FP8/BF8 bitcasting
+      // Handle FP8/BF8 bitcasting for gfx1250
+      // NOTE: BF16/F16 types remain as-is for gfx1250 (intrinsics expect float types)
+      // Only FP8/BF8 need packing to i32 vectors
       if (auto vecType = dyn_cast<VectorType>(sourceA.getType())) {
-        if (vecType.getElementType().isBF16()) {
-          sourceA = LLVM::BitcastOp::create(
-              rewriter, loc, vecType.clone(rewriter.getI16Type()), sourceA);
-        } else if (vecType.getElementType().getIntOrFloatBitWidth() == 8) {
+        if (vecType.getElementType().getIntOrFloatBitWidth() == 8) {
           // Pack 8-bit FP8/BF8 elements into 32-bit integers (v32i8 -> v8i32)
           int64_t numBits = vecType.getNumElements() * 8;
           Type i32 = rewriter.getI32Type();
@@ -1403,10 +1401,7 @@ struct WMMAOpLowering : public ConvertOpToLLVMPattern<WMMAOp> {
         }
       }
       if (auto vecType = dyn_cast<VectorType>(sourceB.getType())) {
-        if (vecType.getElementType().isBF16()) {
-          sourceB = LLVM::BitcastOp::create(
-              rewriter, loc, vecType.clone(rewriter.getI16Type()), sourceB);
-        } else if (vecType.getElementType().getIntOrFloatBitWidth() == 8) {
+        if (vecType.getElementType().getIntOrFloatBitWidth() == 8) {
           // Pack 8-bit FP8/BF8 elements into 32-bit integers (v32i8 -> v8i32)
           int64_t numBits = vecType.getNumElements() * 8;
           Type i32 = rewriter.getI32Type();

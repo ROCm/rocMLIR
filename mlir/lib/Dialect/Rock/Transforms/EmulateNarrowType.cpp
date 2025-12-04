@@ -191,6 +191,50 @@ struct BufferStoreRewritePatttern
 };
 } // end namespace
 
+namespace {
+/// Replace memref::AtomicRMWOp with simple load-modify-store for GPU kernels.
+/// This is safe because GPU threads access different sub-byte locations.
+struct ReplaceAtomicWithLoadModifyStore
+    : public OpRewritePattern<memref::AtomicRMWOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(memref::AtomicRMWOp atomicOp,
+                                PatternRewriter &rewriter) const override {
+    // Only handle simple integer operations
+    auto kind = atomicOp.getKind();
+    if (kind != arith::AtomicRMWKind::andi &&
+        kind != arith::AtomicRMWKind::ori &&
+        kind != arith::AtomicRMWKind::assign)
+      return failure();
+
+    Location loc = atomicOp.getLoc();
+    Value memref = atomicOp.getMemref();
+    ValueRange indices = atomicOp.getIndices();
+    Value value = atomicOp.getValue();
+
+    // Load current value
+    Value loaded = memref::LoadOp::create(rewriter, loc, memref, indices);
+
+    // Perform operation
+    Value result = loaded;
+    if (kind == arith::AtomicRMWKind::andi) {
+      result = arith::AndIOp::create(rewriter, loc, loaded, value);
+    } else if (kind == arith::AtomicRMWKind::ori) {
+      result = arith::OrIOp::create(rewriter, loc, loaded, value);
+    } else if (kind == arith::AtomicRMWKind::assign) {
+      result = value;
+    }
+
+    // Store result
+    memref::StoreOp::create(rewriter, loc, result, memref, indices);
+
+    // Replace atomic operation - note that AtomicRMWOp returns the old value
+    rewriter.replaceOp(atomicOp, loaded);
+    return success();
+  }
+};
+} // end namespace
+
 void RockEmulateNarrowTypePass::runOnOperation() {
   func::FuncOp op = getOperation();
   MLIRContext *ctx = &getContext();
@@ -251,6 +295,8 @@ void RockEmulateNarrowTypePass::runOnOperation() {
 
   RewritePatternSet postPatterns(ctx);
   vector::populateVectorNarrowTypeRewritePatterns(postPatterns);
+  // Replace atomic operations with simple load-modify-store for GPU kernels
+  postPatterns.add<ReplaceAtomicWithLoadModifyStore>(ctx);
   if (failed(applyPatternsGreedily(op, std::move(postPatterns))))
     return signalPassFailure();
 }
