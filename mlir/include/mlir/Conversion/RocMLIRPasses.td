@@ -63,6 +63,12 @@ def RocmlirCustomTosaToLinalgPass : Pass<"rocmlir-custom-tosa-to-linalg", ""> {
   ];
 }
 
+def RockWinogradConvPass
+    : Pass<"rock-winograd-conv", "::mlir::func::FuncOp"> {
+  let summary = "this pass converts tosa.conv2d ops to winograd decompositions using linalg and then converts linalg to rock ops";
+  let dependentDialects = ["rock::RockDialect", "tosa::TosaDialect", "linalg::LinalgDialect", "tensor::TensorDialect", "bufferization::BufferizationDialect", "scf::SCFDialect"];
+}
+
 //===----------------------------------------------------------------------===//
 // TosaToRock
 //===----------------------------------------------------------------------===//

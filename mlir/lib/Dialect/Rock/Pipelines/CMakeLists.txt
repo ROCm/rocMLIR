@@ -15,6 +15,7 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRTosaToSCF
   MLIRTosaToTensor
   MLIRRockToGPU
+  MLIRRockWinogradConv
   MLIRRockOps
   MLIRRockTransforms
   MLIRRockUtility

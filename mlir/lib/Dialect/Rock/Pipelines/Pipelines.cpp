@@ -65,9 +65,13 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   // TOSA conversion to rock and/or linalg with mhal.launch's
   if (!noRock) {
     // convert tosa.conv2d/matmul to rock.conv
-    /* rocmlir-opt --tosa-to-tensor --tosa-to-rock --rock-view-to-transform
+    /* rocmlir-opt --tosa-to-tensor --rock-winograd-conv --tosa-to-rock
+     * --rock-view-to-transform
      */
     funcPm.addPass(createTosaToTensorPass());
+    // Run Winograd convolution pass before TosaToRock to decompose eligible
+    // tosa.conv2d operations into Winograd convolution form
+    funcPm.addPass(createRockWinogradConvPass());
     funcPm.addPass(createTosaToRockPass());
     funcPm.addPass(rock::createRockViewToTransformPass());
     funcPm.addPass(rock::createRockDetectFlashDecodingPass());

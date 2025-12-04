@@ -1,0 +1,31 @@
+add_rocmlir_conversion_library(MLIRRockWinogradConv
+  RockWinogradConvPass.cpp
+
+  ADDITIONAL_HEADER_DIRS
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Conversion/RockWinogradConv
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/IR
+
+  DEPENDS
+  MLIRRockPassIncGen
+  MLIRConversionPassIncGen
+  RocMLIRConversionPassIncGen
+)
+target_link_libraries(MLIRRockWinogradConv
+  PUBLIC
+  MLIRArithDialect
+  MLIRLinalgDialect
+  MLIRLinalgTransforms
+  MLIRLinalgUtils
+  MLIRRockOps
+  MLIRRockTransforms
+  MLIRRockConvGenerator
+  MLIRTosaDialect
+  MLIRSCFDialect
+  MLIRTensorDialect
+  MLIRBufferizationDialect
+  MLIRFuncDialect
+  MLIRTransformUtils
+  MLIRIR
+  MLIRPass
+  MLIRSupport
+  )
