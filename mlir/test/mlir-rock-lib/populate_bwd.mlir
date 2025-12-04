@@ -55,7 +55,7 @@
 
 // ZEROINIT_KERNELCOUNT: Kernel count=1
 // ZEROINIT_BIN: ELF
-// ZEROINIT_TUNING: globalSize=100352, localSize=128
+// ZEROINIT_TUNING: globalSize=100352, localSize=64
 // ZEROINIT_DRIVER: %arg1: memref<{{.*}}xf16> {rock.prefill = 0.000000e+00 : f16}
 // ZEROINIT_DRIVER-COUNT-3: rock.transform %{{.+}} by
 // ZEROINIT_DRIVER-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x2048x1024x1x1xf16>, memref<256x1x1024x14x14xf16>, memref<256x1x2048x7x7xf16>
