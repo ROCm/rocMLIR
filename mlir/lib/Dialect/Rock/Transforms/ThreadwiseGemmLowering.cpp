@@ -31,6 +31,7 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
@@ -711,54 +712,33 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   int64_t srcStride;
   VectorType dstVectorType;
 
-  // Calculate maximum allowed vectorization for Global-to-LDS based on hardware
-  Type scalarElementType = getElementTypeOrSelf(elementType);
-  int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
-  int64_t maxGlobalToLDSVectorLen =
-      archInfo.getMaxLDSVectorLength(elementBitWidth);
-
-  if (isSrcVectorBuffer) {
-    loadType = elementType;
-    vectorSrcLen = dyn_cast<VectorType>(elementType).getNumElements();
-    elementType = dyn_cast<VectorType>(elementType).getElementType();
-    collapseContiguousMerges(sourceView);
-    srcStride = 1;
-    if (!isDstVectorBuffer) {
-      numValues = numValues / vectorSrcLen;
-    }
-  } else {
-    VectorizationResult vectorSrcRes = getMaxVectorization(
-        sourceView, extraIdxCount, /*inputDimLen=*/numValues);
-    vectorSrcLen = vectorSrcRes.max;
-    // Vectorization constraint for Global-to-LDS based on hardware capabilities
-    if (isGlobalToLDS && vectorSrcLen > maxGlobalToLDSVectorLen) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Constraining vectorization from " << vectorSrcLen << " to "
-                 << maxGlobalToLDSVectorLen
-                 << " for Global-to-LDS hardware limits\n");
-      vectorSrcLen = maxGlobalToLDSVectorLen;
-    }
-    // In the future, this might get merged into the vectorizer.
-    collapseContiguousMerges(sourceView);
-    srcStride = vectorSrcLen;
-    loadType = vectorTypeOrSelf(elementType, vectorSrcLen);
+  // Prepare vectorization helpers shared with lowering utils.
+  std::optional<int64_t> maxGlobalToLDSVectorLen;
+  if (isGlobalToLDS) {
+    Type scalarElementType = getElementTypeOrSelf(elementType);
+    int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
+    maxGlobalToLDSVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
   }
 
-  // Force the dynamic validity case down to a vectorization of 1
-  if (!adaptor.getDynamicValidities().empty()) {
-    vectorSrcLen = 1;
-    srcStride = 1;
-    loadType = elementType;
-  }
+  ThreadwiseReadIntoLoopConfigInput loopInput{
+      sourceView,        dstBufferType,
+      extraIdxCount,     elementType,
+      numValues,         isSrcVectorBuffer,
+      isDstVectorBuffer, !adaptor.getDynamicValidities().empty(),
+      isGlobalToLDS,     maxGlobalToLDSVectorLen};
+  auto maybeLoopInfo = getThreadwiseReadIntoLoopInfo(loopInput);
+  if (failed(maybeLoopInfo))
+    return b.notifyMatchFailure(loc, "failed to compute loop info");
 
-  if (isDstVectorBuffer) {
-    dstVectorType = dyn_cast<VectorType>(dstBufferType.getElementType());
-    vectorDstLen = dyn_cast<VectorType>(dstVectorType).getNumElements();
-    numValues = numValues * vectorDstLen;
-    if (isSrcVectorBuffer) {
-      numValues = numValues / vectorSrcLen;
-    }
-  }
+  ThreadwiseReadIntoLoopInfo loopInfo = maybeLoopInfo.value();
+  numValues = loopInfo.numValues;
+  vectorSrcLen = loopInfo.vectorSrcLen;
+  vectorDstLen = loopInfo.vectorDstLen;
+  srcStride = loopInfo.srcStride;
+  loadType = loopInfo.loadType;
+  elementType = loopInfo.elementType;
+  dstVectorType = loopInfo.dstVectorType;
+  collapseContiguousMerges(sourceView);
 
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = "
                           << vectorSrcLen << "\n");
