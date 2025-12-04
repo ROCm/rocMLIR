@@ -14,16 +14,13 @@
 
 #include "ClauseFinder.h"
 #include "flang/Evaluate/fold.h"
-#include "flang/Lower/OpenMP/Clauses.h"
 #include <flang/Lower/AbstractConverter.h>
 #include <flang/Lower/ConvertExprToHLFIR.h>
 #include <flang/Lower/ConvertType.h>
 #include <flang/Lower/DirectivesCommon.h>
 #include <flang/Lower/OpenMP/Clauses.h>
 #include <flang/Lower/PFTBuilder.h>
-#include <flang/Lower/StatementContext.h>
 #include <flang/Lower/Support/PrivateReductionUtils.h>
-#include <flang/Lower/SymbolMap.h>
 #include <flang/Optimizer/Builder/FIRBuilder.h>
 #include <flang/Optimizer/Builder/Todo.h>
 #include <flang/Parser/openmp-utils.h>
@@ -279,7 +276,7 @@ mlir::Value createParentSymAndGenIntermediateMaps(
     semantics::SemanticsContext &semaCtx, lower::StatementContext &stmtCtx,
     omp::ObjectList &objectList, llvm::SmallVectorImpl<int64_t> &indices,
     OmpMapParentAndMemberData &parentMemberIndices, llvm::StringRef asFortran,
-    llvm::omp::OpenMPOffloadMappingFlags mapTypeBits) {
+    mlir::omp::ClauseMapFlags mapTypeBits) {
   fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
 
   /// Checks if an omp::Object is an array expression with a subscript, e.g.
@@ -420,11 +417,10 @@ mlir::Value createParentSymAndGenIntermediateMaps(
         // be safer to just pass OMP_MAP_NONE as the map type, but we may still
         // need some of the other map types the mapped member utilises, so for
         // now it's good to keep an eye on this.
-        llvm::omp::OpenMPOffloadMappingFlags interimMapType = mapTypeBits;
-        interimMapType &= ~llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_TO;
-        interimMapType &= ~llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_FROM;
-        interimMapType &=
-            ~llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_RETURN_PARAM;
+        mlir::omp::ClauseMapFlags interimMapType = mapTypeBits;
+        interimMapType &= ~mlir::omp::ClauseMapFlags::to;
+        interimMapType &= ~mlir::omp::ClauseMapFlags::from;
+        interimMapType &= ~mlir::omp::ClauseMapFlags::return_param;
 
         // Create a map for the intermediate member and insert it and it's
         // indices into the parentMemberIndices list to track it.
@@ -433,10 +429,7 @@ mlir::Value createParentSymAndGenIntermediateMaps(
             /*varPtrPtr=*/mlir::Value{}, asFortran,
             /*bounds=*/interimBounds,
             /*members=*/{},
-            /*membersIndex=*/mlir::ArrayAttr{},
-            static_cast<
-                std::underlying_type_t<llvm::omp::OpenMPOffloadMappingFlags>>(
-                interimMapType),
+            /*membersIndex=*/mlir::ArrayAttr{}, interimMapType,
             mlir::omp::VariableCaptureKind::ByRef, curValue.getType());
 
         parentMemberIndices.memberPlacementIndices.push_back(interimIndices);
@@ -568,8 +561,7 @@ void insertChildMapInfoIntoParent(
       // selecting a childs can result in the incorrect map type being
       // applied to the parent and data being incorrectly moved to or
       // from device.
-      uint64_t mapType = llvm::to_underlying(
-          llvm::omp::OpenMPOffloadMappingFlags::OMP_MAP_NONE);
+      mlir::omp::ClauseMapFlags mapType = mlir::omp::ClauseMapFlags::storage;
 
       llvm::SmallVector<mlir::Value> members;
       members.reserve(indices.second.memberMap.size());
@@ -685,7 +677,6 @@ int64_t collectLoopRelatedInfo(
     mlir::omp::LoopRelatedClauseOps &result,
     llvm::SmallVectorImpl<const semantics::Symbol *> &iv) {
   int64_t numCollapse = 1;
-  fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
 
   // Collect the loops to collapse.
   lower::pft::Evaluation *doConstructEval = &eval.getFirstNestedEvaluation();
@@ -700,6 +691,25 @@ int64_t collectLoopRelatedInfo(
     numCollapse = collapseValue;
   }
 
+  collectLoopRelatedInfo(converter, currentLocation, eval, numCollapse, result,
+                         iv);
+  return numCollapse;
+}
+
+void collectLoopRelatedInfo(
+    lower::AbstractConverter &converter, mlir::Location currentLocation,
+    lower::pft::Evaluation &eval, int64_t numCollapse,
+    mlir::omp::LoopRelatedClauseOps &result,
+    llvm::SmallVectorImpl<const semantics::Symbol *> &iv) {
+
+  fir::FirOpBuilder &firOpBuilder = converter.getFirOpBuilder();
+
+  // Collect the loops to collapse.
+  lower::pft::Evaluation *doConstructEval = &eval.getFirstNestedEvaluation();
+  if (doConstructEval->getIf<parser::DoConstruct>()->IsDoConcurrent()) {
+    TODO(currentLocation, "Do Concurrent in Worksharing loop construct");
+  }
+
   // Collect sizes from tile directive if present.
   std::int64_t sizesLengthValue = 0l;
   if (auto *ompCons{eval.getIf<parser::OpenMPConstruct>()}) {
@@ -709,7 +719,7 @@ int64_t collectLoopRelatedInfo(
         });
   }
 
-  collapseValue = std::max(collapseValue, sizesLengthValue);
+  std::int64_t collapseValue = std::max(numCollapse, sizesLengthValue);
   std::size_t loopVarTypeSize = 0;
   do {
     lower::pft::Evaluation *doLoop =
@@ -742,8 +752,6 @@ int64_t collectLoopRelatedInfo(
   } while (collapseValue > 0);
 
   convertLoopBounds(converter, currentLocation, result, loopVarTypeSize);
-
-  return numCollapse;
 }
 
 } // namespace omp

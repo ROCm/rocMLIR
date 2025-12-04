@@ -31,7 +31,6 @@ func.func @matmul_acc(%arg0: tensor<1x5x3xf16>, %arg1: tensor<1x3x6xf16>) -> (te
 
 // -----
 
-
 // CHECK-LABEL: @matmul_quantized
 func.func @matmul_quantized(%arg0: tensor<1x5x3xi8>, %arg1: tensor<1x3x6xi8>) -> (tensor<1x5x6xi32>) {
   // CHECK: [[C0:%.+]] = arith.constant 0
