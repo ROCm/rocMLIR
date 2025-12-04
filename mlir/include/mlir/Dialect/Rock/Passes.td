@@ -244,14 +244,17 @@ def RockAddAsyncWaitPass : Pass<"rock-add-async-wait", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect"];
 }
 
-def RockAddDirectToLDSAliasInfoPass : Pass<"rock-add-direct-to-lds-alias-info", "::mlir::gpu::GPUModuleOp"> {
-  let summary = "This pass adds alias information to direct-to-LDS load/store and local load/store operations";
+def RockAddDirectToLDSAliasInfoPass
+    : Pass<"rock-add-direct-to-lds-alias-info", "::mlir::gpu::GPUModuleOp"> {
+  let summary = "This pass adds alias information to direct-to-LDS load/store "
+                "and local load/store operations";
   let description = [{
     This pass annotates operations that perform direct loads or stores to LDS and local loads or stores with
     appropriate alias scope information. The alias information helps the backend compiler understand that
     these operations access distinct memory regions and can be optimized accordingly.
   }];
-  let dependentDialects = ["amdgpu::AMDGPUDialect", "LLVM::LLVMDialect", "gpu::GPUDialect", "ROCDL::ROCDLDialect"];
+  let dependentDialects = ["amdgpu::AMDGPUDialect", "LLVM::LLVMDialect",
+                           "gpu::GPUDialect", "ROCDL::ROCDLDialect"];
 }
 
 def ConvertRockOpsToROCDLOps
