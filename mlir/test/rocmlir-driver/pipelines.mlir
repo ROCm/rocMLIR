@@ -30,6 +30,7 @@
 // GPU-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // GPU-NEXT:convert-linalg-to-affine-loops,
 // GPU-NEXT:rock-vectorize-fusions,
+// GPU-NEXT:rock-add-async-wait,
 // GPU-NEXT:rock-annotate-liveness,
 // GPU-NEXT:rock-reuse-lds,
 // GPU-NEXT:rock-output-swizzle,
@@ -69,6 +70,7 @@
 // BINARY-DAG:func
 // BINARY-DAG:arith
 // BINARY-SAME:} chipset=gfx90a index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY-NEXT:llvm.func(rock-to-rocdl{chipset=gfx90a}),
 // BINARY-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY-NEXT:cse,
 // BINARY-NEXT:rock-prepare-llvm)),
@@ -98,6 +100,7 @@
 // BINARY_MI300-DAG:func
 // BINARY_MI300-DAG:arith
 // BINARY_MI300-SAME:} chipset=gfx942 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY_MI300-NEXT:llvm.func(rock-to-rocdl{chipset=gfx942}),
 // BINARY_MI300-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI300-NEXT:cse,
 // BINARY_MI300-NEXT:rock-prepare-llvm)),
@@ -127,6 +130,7 @@
 // BINARY_MI350-DAG:func
 // BINARY_MI350-DAG:arith
 // BINARY_MI350-SAME:} chipset=gfx950 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY_MI350-NEXT:llvm.func(rock-to-rocdl{chipset=gfx950}),
 // BINARY_MI350-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI350-NEXT:cse,
 // BINARY_MI350-NEXT:rock-prepare-llvm)),
