@@ -196,7 +196,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     funcPm.addPass(rock::createRockVectorizeFusionsPass());
-
+    funcPm.addPass(rock::createRockAddAsyncWaitPass());
     // We run reuse LDS before the output swizzle pass because it uses a
     // heuristic to determine whether to swizzle or not, and that heuristic
     // needs the actual LDS usage. After running output swizzle, we'll create a
@@ -295,6 +295,9 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   rocdlOpts.allowedDialects.assign(
       {"memref", "math", "cf", "func", "vector", "arith"});
   gpuPm.addPass(createConvertGpuOpsToROCDLOps(rocdlOpts));
+  ConvertRockOpsToROCDLOpsOptions rockToROCDLOpts;
+  rockToROCDLOpts.chipset = options.chip;
+  gpuPm.addPass(rock::createConvertRockOpsToROCDLOps(rockToROCDLOpts));
   // Ensure we only run passes on LLVM functions inside GPU modules.
   auto &llvmFuncPm = gpuPm.nest<LLVM::LLVMFuncOp>();
   // -canonicalize -cse so that we don't have to crawl through memref
