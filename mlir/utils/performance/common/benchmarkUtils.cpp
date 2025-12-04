@@ -97,6 +97,7 @@ void printUsage(const std::string &name) {
                "(f32|f16|bf16|i8) \n [-transA=(True|False)] "
                "[-transB=(True|False)] \n "
                "[--kernel-repeats numKernelRepeats]\n"
+               "[--warmup-runs numWarmupRuns]\n"
                "[--fusion=(fastgelu_add_add)]\n"
                "[-split-k-factor]\n"
                "[--algo-index algoIndex]\n"
@@ -291,6 +292,8 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       i++;
     } else if (arg == "--kernel-repeats") {
       res.kernelRepeats = atoi(argv[++i]);
+    } else if (arg == "--warmup-runs") {
+      res.warmupRuns = atoi(argv[++i]);
     } else if (arg.rfind("--fusion=", 0) == 0) {
       const int lenTransB = std::string("--fusion=").length();
       std::string value = arg.substr(lenTransB);

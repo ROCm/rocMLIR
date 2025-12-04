@@ -33,7 +33,7 @@ static hipDataType toHipDataType(benchmark::DataType dataType) {
   case benchmark::DataType::I8:
     return HIP_R_8I;
   case benchmark::DataType::F8:
-    return HIP_R_8F_E4M3;
+    return HIP_R_8F_E4M3_FNUZ;
   case benchmark::DataType::I32:
     return HIP_R_32I;
   case benchmark::DataType::F4:
@@ -45,26 +45,17 @@ static hipDataType toHipDataType(benchmark::DataType dataType) {
   __builtin_unreachable();
 }
 
-static bool supportsF32Accumulation() {
-  const auto device_name = benchmark::get_device_name();
-  return (device_name.find("gfx908") != std::string::npos ||
-          device_name.find("gfx90a") != std::string::npos ||
-          device_name.find("gfx94") != std::string::npos ||
-          device_name.find("gfx95") != std::string::npos);
-}
-
 static benchmark::DataType getComputeDataType(benchmark::DataType inputType,
                                               benchmark::DataType outputType) {
-  if (inputType == benchmark::DataType::F8)
-    return benchmark::DataType::F32;
-
-  if ((inputType == benchmark::DataType::F16 ||
-       inputType == benchmark::DataType::BF16) &&
-      supportsF32Accumulation())
-    return benchmark::DataType::F32;
-
   if (inputType == benchmark::DataType::I8)
     return benchmark::DataType::I32;
+
+  // All floating-point types (F8, F16, BF16, F32) use F32 compute type
+  if (inputType == benchmark::DataType::F8 ||
+      inputType == benchmark::DataType::F16 ||
+      inputType == benchmark::DataType::BF16 ||
+      inputType == benchmark::DataType::F32)
+    return benchmark::DataType::F32;
 
   return outputType;
 }
@@ -110,7 +101,7 @@ int main(int argc, char **argv) {
       args.transposeB ? HIPBLAS_OP_T : HIPBLAS_OP_N;
   const hipblasOperation_t trans_b =
       args.transposeA ? HIPBLAS_OP_T : HIPBLAS_OP_N;
- 
+
   const int64_t lda = args.transposeA ? m : k;
   const int64_t ldb = args.transposeB ? k : n;
   const int64_t ldc = n;
@@ -125,7 +116,7 @@ int main(int argc, char **argv) {
 
   void *alpha = benchmark::makeHostConstant(1.0, computeDataType);
   void *beta = benchmark::makeHostConstant(0.0, computeDataType);
-  
+
   const size_t strideA = m * k, strideB = k * n, strideC = m * n;
   const size_t aBytes =
       benchmark::getBytesPerElement(args.dataType) * strideA * batch_count;
@@ -133,17 +124,15 @@ int main(int argc, char **argv) {
       benchmark::getBytesPerElement(args.dataType) * strideB * batch_count;
   const size_t cBytes =
       benchmark::getBytesPerElement(args.outDataType) * strideC * batch_count;
-  const size_t dBytes = cBytes;
 
   void *h_a = benchmark::allocAndFill(args.dataType, aBytes);
   void *h_b = benchmark::allocAndFill(args.dataType, bBytes);
   void *h_c = benchmark::allocAndFill(args.outDataType, cBytes);
-  void *h_d = benchmark::allocAndFill(args.outDataType, dBytes);
 
   void *d_a = benchmark::getGpuBuffer(h_a, aBytes);
   void *d_b = benchmark::getGpuBuffer(h_b, bBytes);
+  // Since beta = 0, C is not read, so we use the same buffer for both C and D
   void *d_c = benchmark::getGpuBuffer(h_c, cBytes);
-  void *d_d = benchmark::getGpuBuffer(h_d, dBytes);
 
   hipblasLtHandle_t handle;
   HIPBLASLT_ABORT_IF_FAIL(hipblasLtCreate(&handle));
@@ -184,6 +173,7 @@ int main(int argc, char **argv) {
   }
 
   hipblasLtMatrixLayout_t matA, matB, matC, matD;
+  // Due to A/B swap for row-major emulation: matA uses ldb, matB uses lda
   HIPBLASLT_ABORT_IF_FAIL(
       hipblasLtMatrixLayoutCreate(&matA, inputType, n, k, ldb));
   HIPBLASLT_ABORT_IF_FAIL(
@@ -194,6 +184,7 @@ int main(int argc, char **argv) {
       hipblasLtMatrixLayoutCreate(&matD, outputType, n, m, ldd));
 
   if (batch_count > 1) {
+    // Due to A/B swap: matA uses strideB, matB uses strideA
     setBatchAttributes(matA, batch_count, strideB);
     setBatchAttributes(matB, batch_count, strideA);
     setBatchAttributes(matC, batch_count, strideC);
@@ -209,21 +200,21 @@ int main(int argc, char **argv) {
   // If user specified a algorithm index, use it directly
   if (args.algoIndex >= 0) {
     printf("Using user-specified algorithm index: %d\n", args.algoIndex);
-    
+
     std::vector<int> requestedIndices = {args.algoIndex};
     std::vector<hipblasLtMatmulHeuristicResult_t> selectedAlgos;
-    
+
     hipblasStatus_t status = hipblaslt_ext::getAlgosFromIndex(
         handle,
         requestedIndices,
         selectedAlgos);
-    
+
     if (status != HIPBLAS_STATUS_SUCCESS || selectedAlgos.empty()) {
-      fprintf(stderr, "Error: Algorithm index %d is not available\n", 
+      fprintf(stderr, "Error: Algorithm index %d is not available\n",
               args.algoIndex);
       exit(1);
     }
-    
+
     heuristicResults = selectedAlgos;
     printf("Successfully loaded algorithm index %d\n", args.algoIndex);
   }
@@ -261,7 +252,7 @@ int main(int argc, char **argv) {
     HIP_ABORT_IF_FAIL(hipMalloc(&workspace, maxWorkspaceSize));
   }
 
-  const int warmupRuns = 2;
+  const int warmupRuns = args.warmupRuns;
   const int benchmarkRuns = args.kernelRepeats;
   float bestAvgTime = std::numeric_limits<float>::max();
   int bestAlgoIndex = -1;
@@ -278,7 +269,7 @@ int main(int argc, char **argv) {
       HIP_ABORT_IF_FAIL(hipEventRecord(startEvent, NULL));
 
       hipblasStatus_t status = hipblasLtMatmul(
-          handle, matmul, alpha, d_b, matA, d_a, matB, beta, d_c, matC, d_d,
+          handle, matmul, alpha, d_b, matA, d_a, matB, beta, d_c, matC, d_c,
           matD, &heuristicResults[algoIdx].algo, workspace,
           heuristicResults[algoIdx].workspaceSize, 0);
 
@@ -336,7 +327,7 @@ int main(int argc, char **argv) {
     HIP_ABORT_IF_FAIL(hipEventRecord(startEvent, NULL));
 
     HIPBLASLT_ABORT_IF_FAIL(hipblasLtMatmul(
-        handle, matmul, alpha, d_b, matA, d_a, matB, beta, d_c, matC, d_d, matD,
+        handle, matmul, alpha, d_b, matA, d_a, matB, beta, d_c, matC, d_c, matD,
         &bestResult.algo, workspace, bestResult.workspaceSize, 0));
 
     float currentMilliseconds = 0.0;
@@ -357,7 +348,7 @@ int main(int argc, char **argv) {
   std::cout << "Best kernel tflops: "
             << ((2 * batch_count * m * n * k) / avgTime) * 1e-9 << "\n";
 
-  HIP_ABORT_IF_FAIL(hipMemcpy(h_d, d_d, dBytes, hipMemcpyDeviceToHost));
+  HIP_ABORT_IF_FAIL(hipMemcpy(h_c, d_c, cBytes, hipMemcpyDeviceToHost));
 
   if (workspace)
     HIP_ABORT_IF_FAIL(hipFree(workspace));
@@ -376,12 +367,10 @@ int main(int argc, char **argv) {
   HIP_ABORT_IF_FAIL(hipFree(d_a));
   HIP_ABORT_IF_FAIL(hipFree(d_b));
   HIP_ABORT_IF_FAIL(hipFree(d_c));
-  HIP_ABORT_IF_FAIL(hipFree(d_d));
 
   free(h_a);
   free(h_b);
   free(h_c);
-  free(h_d);
   free(alpha);
   free(beta);
 
