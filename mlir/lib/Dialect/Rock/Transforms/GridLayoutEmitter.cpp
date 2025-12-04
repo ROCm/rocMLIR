@@ -64,6 +64,9 @@ static int64_t getNumChiplets(StringRef arch, int64_t numCU) {
   if (arch.contains("gfx942") && numCU == 80) {
     numChiplets = 4;
   }
+  if (arch.contains("gfx942") && numCU == 20) {
+    numChiplets = 1;
+  }
   return numChiplets;
 }
 
