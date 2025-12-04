@@ -27,6 +27,7 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
@@ -75,7 +76,8 @@ class LoweringBlockwiseLoadTileOp final
       Location loc, PatternRewriter &b,
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
-      bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams) const {
+      bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams,
+      LDSTransposeConfigAttr transposeAttr = nullptr) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
@@ -114,7 +116,8 @@ class LoweringBlockwiseLoadTileOp final
     ThreadwiseReadIntoOp::create(b, loc, ldsViewForLoad, regs,
                                  b.getArrayAttr({}), ValueRange{tid},
                                  /*forceUnroll=*/forceUnroll,
-                                 /*useIndexDiffs=*/true);
+                                 /*useIndexDiffs=*/true,
+                                 /*ldsTransposeConfig=*/transposeAttr);
   }
 
   std::pair<StageOp, bool> createOrGetStage(PatternRewriter &b, Location loc,
@@ -157,6 +160,9 @@ class LoweringBlockwiseLoadTileOp final
     bool isA = op.getIsA();
     StringRef dName = isA ? "m" : "n";
 
+    // Check if LDS transpose is enabled for this operand
+    bool ldsTransposeEnabled = matrixParams.getLdsTransposeEnabled();
+
     bool doRotateWithK = matrixParams.getRotateDWithK();
     bool doSwapThreadIterSubDims = matrixParams.getSwapThreadIterSubDims();
     bool ldsLayoutDxK = matrixParams.getLDSLayoutDxK();
@@ -193,6 +199,30 @@ class LoweringBlockwiseLoadTileOp final
                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
     bool doubleBuffer = loadType == GemmLoadTileType::DoubleBuffer ||
                         loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
+    // Build LDS transpose config attribute if enabled
+    // The decision was already made in GridwiseGemmToBlockwise pass
+    LDSTransposeConfigAttr transposeAttr = nullptr;
+    if (ldsTransposeEnabled) {
+      // Get accelerator dimensions from matrix params and tuning params
+      // accelDDim = mnPerXdl (for MFMA instructions with blocksMfma=1)
+      // accelKDim = accelKDim from BlockwiseMatrixParamsAttr
+      int64_t accelDDim = tuningParams.getMnPerXdl();
+      int64_t accelKDim = matrixParams.getAccelKDim();
+      assert(accelDDim > 0 && accelKDim > 0 &&
+             "ldsTranspose=true requires valid accel geometry in params");
+
+      // Build transpose config attribute using helper
+      transposeAttr = hwtranspose::buildTransposeAttrFromParams(
+          b, accelDDim, accelKDim, mPerBlock, nPerBlock, kPerBlock,
+          tuningParams.getMPerWave(), tuningParams.getNPerWave(), doubleBuffer,
+          isA);
+
+      LLVM_DEBUG(llvm::dbgs()
+                 << "[lds_transpose] Built transpose config for operand "
+                 << (isA ? "A" : "B") << "\n");
+    }
+
     FailureOr<VectorDimInfo> maybeVecDimInfo =
         getVectorDim(loc, source, elementTypeLoad, blockSize, kPerBlock,
                      dPerBlock, kpack, directToLDS);
@@ -262,7 +292,8 @@ class LoweringBlockwiseLoadTileOp final
                                    wrappedSource, loadBuffer,
                                    /*dynamicValidities=*/ValueRange{},
                                    /*extraViews=*/b.getArrayAttr({}),
-                                   /*extraIndices=*/indices, forceUnroll, true);
+                                   /*extraIndices=*/indices, forceUnroll, true,
+                                   /*ldsTransposeConfig=*/nullptr);
       if (stageGlobalReadNew)
         rock::YieldOp::create(b, loc);
     }
@@ -404,7 +435,8 @@ class LoweringBlockwiseLoadTileOp final
           }
 
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
-                           destRegisters, blockSize, forceUnroll, matrixParams);
+                           destRegisters, blockSize, forceUnroll, matrixParams,
+                           transposeAttr);
           if (stageLDSReadNew)
             rock::YieldOp::create(b, loc);
         }
