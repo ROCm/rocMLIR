@@ -2256,7 +2256,7 @@ struct GridwiseAttentionAccelRewritePattern
     auto gridCoordsGemm0mIter0 = layout::makeGxNGridLayout(
         rewriter, loc, bid,
         rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0), gemm0NBlocks,
-        gridSize, arch, splitKVConst);
+        gridSize, arch, rock::getNumCUValue(op), splitKVConst);
 
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
@@ -2315,7 +2315,8 @@ struct GridwiseAttentionAccelRewritePattern
       // it is fine m iteration to be zero as it irrelevant to Q tensor
       // as the first gemm is Kt x Qt.
       auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
-          rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch, splitKVConst);
+          rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch,
+          rock::getNumCUValue(op), splitKVConst);
 
       Value ldsByteBufferQ = nullptr;
       if (!doBypassLDSForQ)
@@ -2339,9 +2340,9 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value mLoopIV = mLoopOp.getInductionVar();
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-      layout::GridCoordinates gridCoordsGemm0 =
-          layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks,
-                                    gridSize, arch, splitKVConst);
+      layout::GridCoordinates gridCoordsGemm0 = layout::makeGxNGridLayout(
+          rewriter, loc, bid, mLoopIV, gemm0NBlocks, gridSize, arch,
+          rock::getNumCUValue(op), splitKVConst);
 
       // LDS buffers
       Value ldsByteBufferQ;
@@ -2636,9 +2637,9 @@ struct GridwiseAttentionAccelRewritePattern
         Value endG1MLoop =
             rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
 
-        auto gridCoordsGemm1 =
-            layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks,
-                                      gridSize, arch, splitKVConst);
+        auto gridCoordsGemm1 = layout::makeGxNGridLayout(
+            rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch,
+            rock::getNumCUValue(op), splitKVConst);
         scf::ForOp g1MLoopOp =
             createMainLoop(rewriter, loc, endG1MLoop, loadType);
         {
@@ -2818,8 +2819,9 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Note that we don't use splitKV here because that dimension belongs to the
     // batch size already for output tensors
-    auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-        rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch);
+    auto gridCoordsGemm1 =
+        layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks,
+                                  gridSize, arch, rock::getNumCUValue(op));
     Value outAccBufferOutTypedFlat =
         getFlattenedMemref(rewriter, outAccBufferOutTyped);
     ThreadwiseWriteAllOp::create(
