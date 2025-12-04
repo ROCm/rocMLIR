@@ -175,7 +175,7 @@ def get_winning_config(tuning_output, config, paths: Paths, options: Options):
                 nano_seconds = np.nan
             else:
                 nano_seconds = float(time)
-        except Exception:
+        except ValueError:
             print(f"Error parsing tuning driver output line: {result}", file=sys.stderr)
             continue
 
@@ -222,16 +222,12 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
             'arch': options.arch,
             'numCUs': options.num_cu,
             'testVector': '',
-            'perfConfig': ''
+            f'perfConfig ({options.tuning_space_kind})': ''
         }
         if options.tflops:
             result_data_template['TFlops'] = 0.0
 
-        # Rename last column to include tuning space kind
-        last_key = list(result_data_template.keys())[-1]
-        result_data_template[
-            f'{last_key} ({options.tuning_space_kind})'] = result_data_template.pop(last_key)
-
+        # Create a DataFrame to hold results. We will write out one problem config at a time as we go.
         result_df = pd.DataFrame([result_data_template])
 
         # Print header
@@ -358,6 +354,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                 print(f"Tuned : {test_vector} : {winning_config} with {max_tflops} TFlops",
                       file=sys.stderr)
 
+            # Eagerly write out results to output file
             result_df.iloc[0, 2] = test_vector
             result_df.iloc[0, 3] = winning_config
             if options.tflops:
