@@ -616,6 +616,29 @@ def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
   let hasVerifier = 1;
 }
 
+def Rock_AsyncWaitOp : Rock_Op<"async_wait">,
+                       Arguments<(ins I32Attr:$numInst)> {
+  let summary = "Wait for asynchronous global memory loads to LDS to complete";
+  let description = [{
+    The `rock.async_wait` operation waits for asynchronous global memory loads
+    to Local Data Share (LDS) instructions to complete before execution continues.
+    
+    The `numInst` attribute specifies how many async loads need to
+    complete before continuing. The value is clamped to 6 bits (maximum 63). It also
+    introduces a barrier to ensure all workitems in the workgroup synchronize at
+    this point.
+        
+    Example:
+    ```mlir
+    // Wait for 4 outstanding async loads to complete and synchronize all workitems.
+    rock.async_wait {numInst = 4 : i32}
+    ```
+  }];
+  let assemblyFormat = [{
+    attr-dict
+  }];
+}
+
 // Select one among a set of multiple buffers
 def Rock_ExtractMultiBufferOp:
     Rock_Op<"extract_multibuffer", [Pure]>,
@@ -764,9 +787,8 @@ def Rock_YieldOp :
   // Yoinked from affine.yield
   let arguments = (ins Variadic<AnyType>:$operands);
 
-  let builders = [
-    OpBuilder<(ins), [{ build($_builder, $_state, std::nullopt); }]>
-  ];
+  let builders = [OpBuilder<(ins),
+                            [{ build($_builder, $_state, ValueRange{}); }]>];
 
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
 }
@@ -1141,6 +1163,38 @@ defvar SameShapeVectorOfI1 = [{
   ::mlir::VectorType::get(::llvm::cast<::mlir::ShapedType>($_self).getShape(), ::mlir::IntegerType::get($_ctxt, 1))
 }];
 
+// lds_transpose_load
+def Rock_LDSTransposeLoadOp
+    : Rock_Op<"lds_transpose_load", [DeclareOpInterfaceMethods<
+                                        MemoryEffectsOpInterface>]>,
+      Arguments<(ins Arg<MemRefOf<[F16, BF16]>, "LDS source buffer">:$source,
+          Variadic<Index>:$indices)>,
+      Results<(outs VectorOfLengthAndType<[4], [F16, BF16]>:$result)> {
+  let summary =
+      "Hardware-assisted LDS transpose load for matrix accelerator tile";
+  let description = [{
+    Loads a matrix accelerator tile of data from Local Data Share (LDS) memory
+    with hardware-assisted transpose instruction.
+    The tile dimensions match the selected matrix-multiply accelerator
+    instruction geometry (`dDim × instrK`), where:
+    - `dDim` is the accelerator M/N dimension (e.g., 16 or 32)
+    - `instrK` is the accelerator K dimension (e.g., 8, 16, or 32)
+    The operation returns a vector of 4 elements per thread containing
+    transposed elements in a layout suitable for matrix accelerator instructions.
+
+    Benefits:
+    - Reduces LDS bank conflicts through optimized access patterns
+    - Provides data in layout expected by matrix-multiply accelerators
+    - Hardware-accelerated transpose with no software overhead
+  }];
+
+  let assemblyFormat = [{
+    $source (`[` $indices^ `]`)? attr-dict `:` type($source) `->` type($result)
+  }];
+
+  let hasVerifier = 1;
+}
+
 // threadwise_read_into
 def Rock_ThreadwiseReadIntoOp
     : Rock_Op<
@@ -1165,7 +1219,8 @@ def Rock_ThreadwiseReadIntoOp
           Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
           Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
           TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
-          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs)>,
+          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs,
+          OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig)>,
       Results<(outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord)> {
   let summary = "Read values from transformed source into destination";
 
@@ -1228,14 +1283,30 @@ def Rock_ThreadwiseReadIntoOp
   }];
 
   let builders = [
-    // Alias for the common case where we aren't filling a buffer of validity checks
-    OpBuilder<(ins "Value":$source, "Value":$dest,
-                   "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
-                   "bool":$forceUnroll, "bool":$useIndexDiffs),
-      [{
-        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs);
-      }]>
-  ];
+      // Alias for the common case where we aren't filling a buffer of validity
+      // checks
+      OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
+                    "ValueRange":$extraIndices, "bool":$forceUnroll,
+                    "bool":$useIndexDiffs),
+                [{
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+      }]>,
+      // Builder with explicit ldsTransposeConfig support
+      OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
+                    "ValueRange":$extraIndices, "bool":$forceUnroll,
+                    "bool":$useIndexDiffs,
+                    "LDSTransposeConfigAttr":$ldsTransposeConfig),
+                [{
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig);
+      }]>,
+      // Builder with validityRecord but without ldsTransposeConfig
+      OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
+                    "Value":$dest, "ValueRange":$dynamicValidities,
+                    "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
+                    "bool":$forceUnroll, "bool":$useIndexDiffs),
+                [{
+        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+      }]>];
 
   let assemblyFormat = [{
     attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest

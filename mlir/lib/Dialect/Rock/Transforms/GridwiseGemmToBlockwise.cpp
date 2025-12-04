@@ -57,6 +57,7 @@
 
 #include "GridLayoutEmitter.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -111,7 +112,6 @@ static void blockwiseGemmAccel(
 
   BlockwiseGemmAccelOp::create(rewriter, loc, bufferA, bufferB, matrixC,
                                matrixParamsA, matrixParamsB, matrixA, matrixB,
-
                                scaleA, scaleB, bufferScaleA, bufferScaleB,
                                features, blockSize, params);
 }
@@ -728,13 +728,15 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
         "gemmBlockN", 4, {"n_repeat", "n_cuwaves", "n_cuwave", "n_thread"},
         {gemmNRepeat, nCuwavesPerBlock, nThreadsPerCuwave, nPerThread});
 
-    swapThreadIdAndIteration(
+    FailureOr<TopDownTMBuilder> swapRes = swapThreadIdAndIteration(
         toMatrixC, /*mBlocks=*/bidGridLengths[1],
         /*nBlocks=*/bidGridLengths[2], maybeVecDimInfoA->inDPerThread,
         maybeVecDimInfoB->inDPerThread, mPerBlock, nPerBlock,
         ldsLayoutConfigA.doSwapThreadIterSubDims,
         ldsLayoutConfigB.doSwapThreadIterSubDims,
         /*isBlockwise=*/false, transformAttrs);
+    if (failed(swapRes))
+      return failure();
 
     Value registerC = registerMatrixCAllocOp;
     ArrayAttr idToMatrixCMaps = b.getArrayAttr(transformAttrs);
@@ -1293,8 +1295,8 @@ struct GridwiseAttentionAccelRewritePattern
           switch (outOfScopeType) {
           case OutOfScopeType::KVCache:
             assert(currentSeqLen != nullptr);
-            isInvalid = arith::CmpIOp::create(thenb,
-                loc, arith::CmpIPredicate::ugt, mIndex, currentSeqLen);
+            isInvalid = arith::CmpIOp::create(
+                thenb, loc, arith::CmpIPredicate::ugt, mIndex, currentSeqLen);
             break;
           case OutOfScopeType::Causal:
             Value nIndex = lowerCoords[1];
@@ -1302,8 +1304,8 @@ struct GridwiseAttentionAccelRewritePattern
               nIndex = thenb.createOrFold<arith::DivUIOp>(loc, nIndex,
                                                           constNumRepeatsGQA);
 
-            isInvalid = arith::CmpIOp::create(thenb,
-                loc, arith::CmpIPredicate::ugt, mIndex, nIndex);
+            isInvalid = arith::CmpIOp::create(
+                thenb, loc, arith::CmpIPredicate::ugt, mIndex, nIndex);
             break;
           }
 
@@ -1761,7 +1763,7 @@ struct GridwiseAttentionAccelRewritePattern
         // so we need to take the minimum of currentSeqLen and maxRowOfBlock
         if (effectiveSeqLen)
           maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, currentSeqLen,
-                                                          maxRowOfBlock);
+                                                 maxRowOfBlock);
         effectiveSeqLen = maxRowOfBlock;
       }
 
@@ -1769,7 +1771,7 @@ struct GridwiseAttentionAccelRewritePattern
       Value constGemm0MPerBlock =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MPerBlock);
       Value numerator = arith::AddIOp::create(rewriter, loc, effectiveSeqLen,
-                                                       constGemm0MPerBlock);
+                                              constGemm0MPerBlock);
       end = rewriter.createOrFold<arith::DivUIOp>(loc, numerator,
                                                   constGemm0MPerBlock);
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
@@ -1790,12 +1792,12 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.createOrFold<arith::DivUIOp>(loc, numerator, constSplitKV);
 
         // if split-kv is enabled, we need to compute the start and end indices.
-        start = arith::MulIOp::create(rewriter, loc, gridCoordsGemm0.split_block,
-                                       gemm0MIterations);
-        Value splitPlusOne = arith::AddIOp::create(rewriter, loc,
-                                                    gridCoordsGemm0.split_block, one);
+        start = arith::MulIOp::create(
+            rewriter, loc, gridCoordsGemm0.split_block, gemm0MIterations);
+        Value splitPlusOne = arith::AddIOp::create(
+            rewriter, loc, gridCoordsGemm0.split_block, one);
         Value endSplitKV = arith::MulIOp::create(rewriter, loc, splitPlusOne,
-                                                  gemm0MIterations);
+                                                 gemm0MIterations);
         end = arith::MinUIOp::create(rewriter, loc, end, endSplitKV);
       }
       // compute last iteration of the block, this will be used later in
@@ -1812,8 +1814,8 @@ struct GridwiseAttentionAccelRewritePattern
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
       start = arith::MulIOp::create(rewriter, loc, gridCoordsGemm0.split_block,
                                     gemm0MIterations);
-      Value splitPlusOne =
-          arith::AddIOp::create(rewriter, loc, gridCoordsGemm0.split_block, one);
+      Value splitPlusOne = arith::AddIOp::create(
+          rewriter, loc, gridCoordsGemm0.split_block, one);
       end =
           arith::MulIOp::create(rewriter, loc, splitPlusOne, gemm0MIterations);
     } else {
@@ -2271,30 +2273,34 @@ struct GridwiseAttentionAccelRewritePattern
     runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
                  op.getPrePadG0M(), isCausal, isKVCache, skipRunEarlyExit);
 
-    // create matrix params
+    // create matrix params (LDS transpose not supported for attention)
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeK, elemTypeKLoad,
         ldsLayoutCfgMG0.doRotateWithK, ldsLayoutCfgMG0.doSwapThreadIterSubDims,
         ldsLayoutCfgMG0.ldsLayoutDxK, directToLDS,
-        /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0M, gemm0InMPerThread);
+        /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0M, gemm0InMPerThread,
+        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
 
     BlockwiseMatrixParamsAttr matrixParamsQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeQ, elemTypeQLoad,
         ldsLayoutCfgNG0.doRotateWithK, ldsLayoutCfgNG0.doSwapThreadIterSubDims,
         ldsLayoutCfgNG0.ldsLayoutDxK, directToLDSQ,
-        /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0N, gemm0InNPerThread);
+        /*splitKAcrossThreadsFirst=*/false, gemm0G, gemm0N, gemm0InNPerThread,
+        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
 
     BlockwiseMatrixParamsAttr matrixParamsV = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad,
         ldsLayoutCfgMG1.doRotateWithK, ldsLayoutCfgMG1.doSwapThreadIterSubDims,
         ldsLayoutCfgMG1.ldsLayoutDxK, directToLDS, doBypassLDSSecondGemm,
-        gemm0G, gemm1M, gemm1InMPerThread);
+        gemm0G, gemm1M, gemm1InMPerThread,
+        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
 
     BlockwiseMatrixParamsAttr matrixParamsKxQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad, /*rotateDWithK=*/false,
         /*swapThreadIterSubDims=*/false, /*LDSLayoutDxK=*/false,
         /*directToLDS=*/false, /*splitKAcrossThreadsFirst=*/false, gemm0G,
-        gemm1N, gemm1InMPerThread);
+        gemm1N, gemm1InMPerThread,
+        /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
 
     // If gemm0K is equal to gemm0KPerBlock that means
     // effectively there is no K loop. Therefore, we
@@ -3028,9 +3034,26 @@ struct GridwiseGemmAccelRewritePattern
     if (!accelEmitterPtr)
       return op.emitOpError("Unable to emit accelerator code.");
 
+    // TODO: add an heuristic to decide if the it should use scheduleV1 or V2.
+    bool doubleBuffering =
+        loadType == GemmLoadTileType::DoubleBuffer ||
+        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
+
     // Extract relevant accelerator parameters
     rock::accel::AccelEmitterParams params = accelEmitterPtr->getParams();
     bool useIndexDiffs = true;
+
+    // ============================================================
+    // LDS TRANSPOSE DECISION MAKING
+    // ============================================================
+    hwtranspose::LDSTransposeDecision ldsDecision =
+        hwtranspose::decideLDSTransposeForOperands(
+            accelEmitterPtr.get(), arch, elementTypeA, elementTypeB,
+            directToLDS, ldsLayoutConfigA, ldsLayoutConfigB, mPerBlock,
+            nPerBlock, kPerBlock, mPerWave, nPerWave, kpack, doubleBuffering);
+
+    // Note: LDS transpose geometry (accelKDim) is now stored in
+    // BlockwiseMatrixParamsAttr, not in tuning params
 
     LLVM_DEBUG(llvm::dbgs()
                << "M: " << M << "\n"
@@ -3072,18 +3095,22 @@ struct GridwiseGemmAccelRewritePattern
                             ldsBlockScaleASize, ldsBlockScaleBSize)))
       return op.emitOpError("requires too much LDS");
 
-    // create matrix params
+    // create matrix params (with LDS transpose flag and accel K dimension)
     BlockwiseMatrixParamsAttr matrixParamsA = BlockwiseMatrixParamsAttr::get(
         b.getContext(), elementTypeA, elementTypeALoad,
         ldsLayoutConfigA.doRotateWithK,
         ldsLayoutConfigA.doSwapThreadIterSubDims, ldsLayoutConfigA.ldsLayoutDxK,
-        directToLDS, /*splitKAcrossThreadsFirst=*/false, G, M, copyMPerThread);
+        directToLDS, /*splitKAcrossThreadsFirst=*/false, G, M, copyMPerThread,
+        /*ldsTranspose=*/ldsDecision.enableA,
+        /*accelKDim=*/ldsDecision.mfmaKDim);
 
     BlockwiseMatrixParamsAttr matrixParamsB = BlockwiseMatrixParamsAttr::get(
         b.getContext(), elementTypeB, elementTypeBLoad,
         ldsLayoutConfigB.doRotateWithK,
         ldsLayoutConfigB.doSwapThreadIterSubDims, ldsLayoutConfigB.ldsLayoutDxK,
-        directToLDS, /*splitKAcrossThreadsFirst=*/false, G, N, copyNPerThread);
+        directToLDS, /*splitKAcrossThreadsFirst=*/false, G, N, copyNPerThread,
+        /*ldsTranspose=*/ldsDecision.enableB,
+        /*accelKDim=*/ldsDecision.mfmaKDim);
 
     // Allocate LDS.
     Value ldsByteBufferA = createLDSByteBuffer(
@@ -3123,11 +3150,6 @@ struct GridwiseGemmAccelRewritePattern
             viewBufferAs(b, ldsByteBufferScaleB, ldsReadTypeScaleB);
       }
     }
-
-    // TODO: add an heuristic to decide if the it should use scheduleV1 or V2.
-    bool doubleBuffering =
-        loadType == GemmLoadTileType::DoubleBuffer ||
-        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
     auto [arrayAForLoad, arrayA] = createRegInterrimBufferForAccel(
         b, loc, params.argTypeA, params.kBasePerThread,
@@ -3173,24 +3195,24 @@ struct GridwiseGemmAccelRewritePattern
       loadAndStoreGemmInputTile(b, loc, matB, /*kiter=*/iv, tid, gridCoords,
                                 ldsByteBufferB, arrayBForLoad, loadType, "n",
                                 blockSize, elementTypeB, elementTypeBLoad,
-                                op.getParamsAttr(), featuresAttr, matrixParamsA,
+                                tuningParams, featuresAttr, matrixParamsA,
                                 matrixParamsB);
       loadAndStoreGemmInputTile(b, loc, matA, /*kiter=*/iv, tid, gridCoords,
                                 ldsByteBufferA, arrayAForLoad, loadType, "m",
                                 blockSize, elementTypeA, elementTypeALoad,
-                                op.getParamsAttr(), featuresAttr, matrixParamsA,
+                                tuningParams, featuresAttr, matrixParamsA,
                                 matrixParamsB);
       if (isScaledGemm) {
         loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, tid, gridCoords,
                                   ldsByteBufferScaleB, arrayScaleBForLoad,
                                   loadType, "n", blockSize, elementTypeScaleB,
-                                  elementTypeBLoad, op.getParamsAttr(),
-                                  featuresAttr, matrixParamsA, matrixParamsB);
+                                  elementTypeBLoad, tuningParams, featuresAttr,
+                                  matrixParamsA, matrixParamsB);
         loadAndStoreGemmInputTile(b, loc, scaleA, /*kiter=*/iv, tid, gridCoords,
                                   ldsByteBufferScaleA, arrayScaleAForLoad,
                                   loadType, "m", blockSize, elementTypeScaleA,
-                                  elementTypeALoad, op.getParamsAttr(),
-                                  featuresAttr, matrixParamsA, matrixParamsB);
+                                  elementTypeALoad, tuningParams, featuresAttr,
+                                  matrixParamsA, matrixParamsB);
       }
       // Emit blockwise GEMM. This will load data from LDS (or registers) and
       // compute the MMA at the same time
@@ -3204,7 +3226,7 @@ struct GridwiseGemmAccelRewritePattern
             matrixParamsA, matrixParamsB, ldsViewForGemmA, ldsViewForGemmB,
             /*scaleA=*/ldsViewForGemmScaleA, /*scaleB=*/ldsViewForGemmScaleB,
             /*bufferScaleA=*/arrayScaleA, /*bufferScaleB=*/arrayScaleB,
-            featuresAttr, op.getBlockSizeAttr(), op.getParamsAttr());
+            featuresAttr, op.getBlockSizeAttr(), tuningParams);
         YieldOp::create(b, loc);
       }
     }

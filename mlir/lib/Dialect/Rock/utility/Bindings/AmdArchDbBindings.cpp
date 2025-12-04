@@ -45,7 +45,10 @@ PYBIND11_MODULE(amd_arch_db, m) {
                     &mlir::rock::AmdArchInfo::hasFp8ConversionInstrs)
       .def_readonly("has_ocp_fp8_conversion_instrs",
                     &mlir::rock::AmdArchInfo::hasOcpFp8ConversionInstrs)
-      .def_readonly("max_num_xcc", &mlir::rock::AmdArchInfo::maxNumXCC);
+      .def_readonly("has_scaled_gemm", &mlir::rock::AmdArchInfo::hasScaledGemm)
+      .def_readonly("max_num_xcc", &mlir::rock::AmdArchInfo::maxNumXCC)
+      .def_readonly("has_lds_transpose_load",
+                    &mlir::rock::AmdArchInfo::hasLdsTransposeLoad);
 
   m.def("lookup_arch_info", [](const std::string &arch) {
     return mlir::rock::lookupArchInfo(arch);

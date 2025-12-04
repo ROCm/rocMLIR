@@ -17,6 +17,7 @@
 
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MathExtras.h"
 #include <memory>
 
 #define DEBUG_TYPE "rock-tuning-parameter"
@@ -475,6 +476,16 @@ PopulateParamsXDL::isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
     return failure();
   }
 
+  if (param.getMPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: mPerWave not divisible by mnPerXdl\n");
+    return failure();
+  }
+
+  if (param.getNPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: nPerWave not divisible by mnPerXdl\n");
+    return failure();
+  }
+
   // Reject invalid blockSize
   int64_t kPerBlock = param.getKpackPerBlock() * param.getKpack();
   int64_t mPerBlock = param.getMPerBlock();
@@ -653,6 +664,16 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
 
   if ((param.getNPerBlock() % param.getNPerWave()) != 0)
     return failure();
+
+  if (param.getMPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: mPerWave not divisible by mnPerXdl\n");
+    return failure();
+  }
+
+  if (param.getNPerWave() % param.getMnPerXdl() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "tuning: nPerWave not divisible by mnPerXdl\n");
+    return failure();
+  }
 
   // Sledgehammer hotfix because not unrolling sometimes makes the register
   // allocator break. This should be refined quickly.

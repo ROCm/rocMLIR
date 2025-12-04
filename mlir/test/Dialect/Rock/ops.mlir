@@ -388,3 +388,150 @@ func.func @attention(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %
   } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
+
+// ----
+
+// CHECK-LABEL: func.func @rock_lds_transpose_load_f16
+// CHECK-NEXT: %[[C0:.*]] = arith.constant 0
+// CHECK-NEXT: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_f16(%lds_buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %fragment = rock.lds_transpose_load %lds_buffer[%c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_lds_transpose_load_bf16
+// CHECK: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_bf16(%lds_buffer: memref<256x128xbf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c32 = arith.constant 32 : index
+  %fragment = rock.lds_transpose_load %lds_buffer[%c32, %c0]
+    : memref<256x128xbf16, #gpu.address_space<workgroup>> -> vector<4xbf16>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_lds_transpose_load_dynamic_indices
+// CHECK: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_dynamic_indices(%lds_buffer: memref<64x32xf16, #gpu.address_space<workgroup>>, 
+                                            %idx0: index, %idx1: index) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %fragment = rock.lds_transpose_load %lds_buffer[%idx0, %idx1]
+    : memref<64x32xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_lds_transpose_load_full_arch
+// CHECK: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_full_arch(%lds_buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950:sramecc+:xnack-"} {
+  %c0 = arith.constant 0 : index
+  %fragment = rock.lds_transpose_load %lds_buffer[%c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_16x32
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 16, mfmaKDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = true>
+func.func @test_lds_transpose_config_attr_16x32(%src: memref<8192xf16, #gpu.address_space<workgroup>>, 
+                                                 %dest: memref<8xf16, #gpu.address_space<private>>)
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll, 
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      mfmaDDim = 16, 
+      mfmaKDim = 32, 
+      mPerBlock = 64, 
+      nPerBlock = 64, 
+      kPerBlock = 32, 
+      mPerWave = 16, 
+      nPerWave = 64, 
+      doubleBuffering = true, 
+      isOperandA = true
+    >, 
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<8192xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_32x16
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 32, mfmaKDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = false>
+func.func @test_lds_transpose_config_attr_32x16(%src: memref<1024xf16, #gpu.address_space<workgroup>>, 
+                                                 %dest: memref<8xf16, #gpu.address_space<private>>)
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll, 
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      mfmaDDim = 32, 
+      mfmaKDim = 16, 
+      mPerBlock = 64, 
+      nPerBlock = 64, 
+      kPerBlock = 16, 
+      mPerWave = 32, 
+      nPerWave = 32, 
+      doubleBuffering = false, 
+      isOperandA = false
+    >, 
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<1024xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_16x16
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 16, mfmaKDim = 16, mPerBlock = 64, nPerBlock = 64, kPerBlock = 16, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = true>
+func.func @test_lds_transpose_config_attr_16x16(%src: memref<4096xf16, #gpu.address_space<workgroup>>, 
+                                                 %dest: memref<8xf16, #gpu.address_space<private>>)
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll, 
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      mfmaDDim = 16, 
+      mfmaKDim = 16, 
+      mPerBlock = 64, 
+      nPerBlock = 64, 
+      kPerBlock = 16, 
+      mPerWave = 16, 
+      nPerWave = 64, 
+      doubleBuffering = true, 
+      isOperandA = true
+    >, 
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<4096xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_lds_transpose_config_attr_32x8
+// CHECK: ldsTransposeConfig = #rock.lds_transpose_config<mfmaDDim = 32, mfmaKDim = 8, mPerBlock = 64, nPerBlock = 64, kPerBlock = 8, mPerWave = 32, nPerWave = 32, doubleBuffering = false, isOperandA = false>
+func.func @test_lds_transpose_config_attr_32x8(%src: memref<2048xf16, #gpu.address_space<workgroup>>, 
+                                                %dest: memref<8xf16, #gpu.address_space<private>>)
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {
+    forceUnroll, 
+    ldsTransposeConfig = #rock.lds_transpose_config<
+      mfmaDDim = 32, 
+      mfmaKDim = 8, 
+      mPerBlock = 64, 
+      nPerBlock = 64, 
+      kPerBlock = 8, 
+      mPerWave = 32, 
+      nPerWave = 32, 
+      doubleBuffering = false, 
+      isOperandA = false
+    >, 
+    useIndexDiffs
+  } [](%src) [] -> %dest : memref<2048xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+  return
+}
+
+// CHECK-LABEL: func.func @test_threadwise_read_into_without_lds_transpose
+// CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs}
+// CHECK-NOT: ldsTransposeConfig
+func.func @test_threadwise_read_into_without_lds_transpose(%src: memref<8192xf16, #gpu.address_space<workgroup>>, 
+                                                            %dest: memref<8xf16, #gpu.address_space<private>>)
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%src) [] -> %dest 
+    : memref<8192xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
+  return
+}
