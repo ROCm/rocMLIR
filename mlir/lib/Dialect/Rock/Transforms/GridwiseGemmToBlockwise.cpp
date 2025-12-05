@@ -1884,14 +1884,7 @@ struct GridwiseAttentionAccelRewritePattern
                                         Value start, Value end, int64_t splitKV,
                                         int64_t gemm0MPerBlock,
                                         std::optional<APInt> prePadG0M,
-                                        bool isCausal, bool isKVCache,
-                                        bool skipRunEarlyExit) const {
-    // skipRunEarlyExit disables early exit logic as the MIGraphX flash decoding
-    // implementation requires that the first of two kernels is initialized to
-    // zero (and not left uninitialized as is the case with early exit logic).
-    if (skipRunEarlyExit)
-      return std::nullopt;
-
+                                        bool isCausal, bool isKVCache) const {
     // Compute the work condition using the extracted helper function
     Value someWorkToDo =
         computeIfWorkToDo(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
@@ -2307,12 +2300,11 @@ struct GridwiseAttentionAccelRewritePattern
                      isKVCache, op.getNumRepeatsGQAAttr());
 
     // Early exit: Skip all computation when there's no work but always write
-    // output (zeros).
+    // output.
     // This wraps Q loads, M/K loops, GEMMs, softmax, etc. in a conditional.
     std::optional<scf::IfOp> earlyExitIf =
         runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
-                     op.getPrePadG0M(), isCausal, isKVCache,
-                     /*skipRunEarlyExit=*/false);
+                     op.getPrePadG0M(), isCausal, isKVCache);
 
     // create matrix params (LDS transpose not supported for attention)
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
