@@ -22,6 +22,14 @@
     }                                                                          \
   } while (0)
 
+static hipDataType getF8HipType() {
+  const auto device_name = benchmark::get_device_name();
+  if (device_name.find("gfx94") != std::string::npos) {
+    return HIP_R_8F_E4M3_FNUZ;
+  }
+  return HIP_R_8F_E4M3;
+}
+
 static hipDataType toHipDataType(benchmark::DataType dataType) {
   switch (dataType) {
   case benchmark::DataType::F32:
@@ -33,7 +41,7 @@ static hipDataType toHipDataType(benchmark::DataType dataType) {
   case benchmark::DataType::I8:
     return HIP_R_8I;
   case benchmark::DataType::F8:
-    return HIP_R_8F_E4M3_FNUZ;
+    return getF8HipType();
   case benchmark::DataType::I32:
     return HIP_R_32I;
   case benchmark::DataType::F4:
@@ -56,6 +64,13 @@ static benchmark::DataType getComputeDataType(benchmark::DataType inputType,
       inputType == benchmark::DataType::BF16 ||
       inputType == benchmark::DataType::F32)
     return benchmark::DataType::F32;
+
+  // F4 and other types are not supported by hipBLASLt
+  if (inputType == benchmark::DataType::F4 ||
+      inputType == benchmark::DataType::F8E8M0FNU) {
+    fprintf(stderr, "Data type not supported by hipBLASLt\n");
+    exit(1);
+  }
 
   return outputType;
 }
@@ -94,9 +109,13 @@ int main(int argc, char **argv) {
   const int64_t k = args.gemmK;
   const int64_t batch_count = args.gemmG > 0 ? args.gemmG : 1;
 
-  // MIGraphx and MLIR use row-major format, while hipBLASLt uses column-major.
-  // To emulate row-major, we swap A and B matrices and compute B * A instead of
-  // A * B.
+  // Please note: MIGraphx and MLIR are using row-major format
+  // to store matrices, while hipBLASLt is using a column-major format.
+  // To be compliant to hipBLASLt format, MIGraphx swaps the inputs
+  // and tells hipBLASLt that B is nxk and A is kxm. So the result
+  // will be a nxm matrix stored in column-major order. We can simply
+  // recover the original matrix C by reading the matrix in a row-major
+  // way.
   const hipblasOperation_t trans_a =
       args.transposeB ? HIPBLAS_OP_T : HIPBLAS_OP_N;
   const hipblasOperation_t trans_b =
