@@ -415,9 +415,9 @@ String getLabelFromCodepath(String codepath) {
         label = 'mlir && (gfx942 || gfx908 || gfx90a)'
     } else if (codepath == "gfx950") {
         if (params.weekly) {
-            label = 'mlir && linux-mi355-8'
+            label = 'mlir && linux-mi350-8'
         } else {
-            label = 'mlir && linux-mi355-1'
+            label = 'mlir && linux-mi350-1'
         }
     } else if (codepath == "navi21") {
         // For non-performance related testing, use both workstations (gfx1030w)
@@ -457,9 +457,9 @@ String getLabelFromChip(String chip) {
             return "mlir && gfx942"
         case "gfx950":
             if (params.weekly) {
-                return "mlir && linux-mi355-8"
+                return "mlir && linux-mi350-8"
             } else {
-                return "mlir && linux-mi355-1"
+                return "mlir && linux-mi350-1"
             }
         case "gfx1030":
             // For [Tune MLIR Kernels] and [Performance report] stages,
@@ -1170,10 +1170,10 @@ PY
                                                     stage("Tune Fusion") {
                                                         dir('build') {
                                                             // Tune resnet50
-                                                            sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/tuningRunner.py --abort-on-error --op fusion --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
 
                                                             // Tune bert
-                                                            sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/tuningRunner.py --abort-on-error --op fusion --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
                                                         }
                                                         sh 'rm -f build/CMakeCache.txt'
                                                     }
