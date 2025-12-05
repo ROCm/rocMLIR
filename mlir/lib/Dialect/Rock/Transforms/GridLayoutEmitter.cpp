@@ -58,6 +58,15 @@ static Value rearrangeWorkgroupsForXCC(Location loc, PatternRewriter &b,
   return bid;
 }
 
+static int64_t getNumChiplets(StringRef arch, int64_t numCU) {
+  int64_t numChiplets = rock::lookupArchInfo(arch).maxNumXCC;
+  // TODO: hack until we find a better way to determine number of chiplets
+  if (arch.contains("gfx942") && numCU == 80) {
+    numChiplets = 4;
+  }
+  return numChiplets;
+}
+
 GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
                                                     Location loc, Value bid,
                                                     GridLayoutInfo info,
@@ -68,7 +77,7 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
   // a spatially local tile.
   // Therefore, adjust bid to make every consecutive #groups of chiplets
   // be slowest changing in the grid.
-  int64_t numChiplets = rock::lookupArchInfo(arch).maxNumXCC;
+  int64_t numChiplets = getNumChiplets(arch, info.numCU);
   if (numChiplets > 1) {
     // It was empirically found that two chiplets as a group
     // computing a spatial mxn tile has better locality throughout.
@@ -99,12 +108,13 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
   // Group together the workgroups in g_block
   Value groupId = DivUIOp::create(b, loc, bid, blocksPerGroup);
   Value firstBidM = MulIOp::create(b, loc, groupId, mBlocksPerGroup);
-  Value thisMBlocksPerGroup = MinUIOp::create(b, 
-      loc, SubIOp::create(b, loc, mBlocksValue, firstBidM), mBlocksPerGroup);
-  Value m_block = AddIOp::create(b, 
-      loc, firstBidM, RemUIOp::create(b, loc, bid, thisMBlocksPerGroup));
-  Value n_block = DivUIOp::create(b, 
-      loc, RemUIOp::create(b, loc, bid, blocksPerGroup), thisMBlocksPerGroup);
+  Value thisMBlocksPerGroup = MinUIOp::create(
+      b, loc, SubIOp::create(b, loc, mBlocksValue, firstBidM), mBlocksPerGroup);
+  Value m_block = AddIOp::create(
+      b, loc, firstBidM, RemUIOp::create(b, loc, bid, thisMBlocksPerGroup));
+  Value n_block =
+      DivUIOp::create(b, loc, RemUIOp::create(b, loc, bid, blocksPerGroup),
+                      thisMBlocksPerGroup);
   // no need to get splitKFactor here
   return {g_block, m_block, n_block};
 }
@@ -112,14 +122,14 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
 AttnGridCoordinates
 rock::layout::makeGxNGridLayout(PatternRewriter &b, Location loc, Value bid,
                                 Value mIter, int64_t nBlocks, int64_t gridSize,
-                                StringRef arch, Value splitKV) {
+                                StringRef arch, int64_t numCU, Value splitKV) {
   // Currently the firmware will launch workgroups
   // in a round-robin fashion to each chiplet. However
   // we would want a group (>=1) of chiplets to perform
   // a spatially local tile.
   // Therefore, adjust bid to make every consecutive #groups of chiplets
   // be slowest changing in the grid.
-  int64_t numChiplets = rock::lookupArchInfo(arch).maxNumXCC;
+  int64_t numChiplets = getNumChiplets(arch, numCU);
   if (numChiplets > 1) {
     // It was empirically found that two chiplets as a group
     // computing a spatial mxn tile has better locality throughout.
