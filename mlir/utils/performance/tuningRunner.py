@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import os
 import subprocess
 import sys
-from pathlib import Path
 import argparse
 import glob
 import tempfile
@@ -40,6 +39,20 @@ class Options:
     verify_perfconfigs: bool
     tflops: bool
     compact_print: bool
+    output: str
+    abort_on_error: bool
+
+
+class TuningError(Exception):
+    pass
+
+
+def log_error(title, message, outfile):
+    content = f"{title}\n" + '\n'.join(f"\t{line}" for line in message.split('\n'))
+    print(content, file=sys.stderr)
+    if outfile:
+        print('\n'.join(f"### {line}" for line in content.split('\n')), file=outfile)
+        outfile.flush()
 
 
 def verify_mode_flags(verify_mode: str) -> str:
@@ -78,6 +91,9 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths, options: Opt
 
     prevdir = os.getcwd()
     with tempfile.TemporaryDirectory() as tmpdir:
+        p1 = None
+        p2 = None
+        p3 = None
         try:
             os.chdir(tmpdir)
             # invoke rocmlir-gen.
@@ -97,32 +113,53 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths, options: Opt
                                   stderr=subprocess.PIPE)
             p2.stdout.close()  # Allow p2 to receive a SIGPIPE if p3 exits.
             # get output.
+
+            debug_info = f"""rocmlir-gen cmd = {rocmlir_gen_command}
+rocmlir-driver cmd = {' '.join(rocmlir_driver_command)}
+rocprof cmd = {' '.join(profiler_command)}"""
+
             try:
                 outs, errs = p3.communicate(timeout=600)
                 outs = outs.decode('utf-8')
                 if p3.returncode != 0 or not CORRECT_RESULT_RE.search(outs):
-                    print(f"""Verification failed:
-Output = {outs}
-Errors = {errs.decode('utf-8')}""",
-                          file=sys.stderr)
-                    return np.nan
+                    raise TuningError(f"""Verification failed
+{debug_info}
+stdout:
+{outs}
+stderr:
+{errs.decode('utf-8')}""")
             except subprocess.TimeoutExpired:
-                print("Verification timed out", file=sys.stderr)
                 p3.kill()
                 outs, errs = p3.communicate()
-                return np.nan
+                raise TuningError(f"""Verification timed out
+{debug_info}
+stdout:
+{outs.decode('utf-8')}
+stderr:
+{errs.decode('utf-8')}""")
+
             nano_seconds = perfRunner.get_nanoseconds(
                 perfRunner.get_profiler_output_path(options.arch,
                                                     perfRunner.BENCHMARKING_STATS_FILE_NAME))
         finally:
             os.chdir(prevdir)
+            if p1:
+                p1.terminate()
+                p1.wait()
+            if p2:
+                p2.terminate()
+                p2.wait()
+            if p3:
+                p3.terminate()
+                p3.wait()
     return nano_seconds
 
 
-def get_winning_config(tuning_output, test_vector, config, all_data, paths: Path, options: Options):
+def get_winning_config(tuning_output, config, paths: Paths, options: Options):
     max_tflops = -np.inf
     min_ns = np.inf
     winning_config = "None"
+    entries = []
     for i, result in enumerate(tuning_output):
         result = result.decode('utf-8').strip()
         if not options.quiet and not options.compact_print and i > 0 and i % 100 == 0:
@@ -131,30 +168,30 @@ def get_winning_config(tuning_output, test_vector, config, all_data, paths: Path
                 file=sys.stderr)
         if options.debug:
             print(result, file=sys.stderr)
-        # Time is in ns
-        perfconfig, time = result.split('\t')
-        if time == "N/A":
-            nano_seconds = np.nan
-        else:
-            nano_seconds = float(time)
+        try:
+            # Time is in ns
+            perfconfig, time = result.split('\t')
+            if time == "N/A":
+                nano_seconds = np.nan
+            else:
+                nano_seconds = float(time)
+        except ValueError:
+            print(f"Error parsing tuning driver output line: {result}", file=sys.stderr)
+            continue
 
         config.set_perfconfig(perfconfig)
         entry = config.table_entry(nano_seconds)
-        all_data.append(entry)
+        entries.append(entry)
         these_tflops = entry['TFlops']
         # verify that each perfconfig passes accuracy verification
         if options.verify_perfconfigs:
-            if options.verify_mode == "none":
-                print(
-                    "Use of `--verify-perf-configs` should happen in conjuction with `--verify-mode`. Please pass `--verify-mode=cpu` or `--verify-mode=gpu` flag"
-                )
-                sys.exit(1)
-            else:
+            try:
                 verify_ns = verify_kernel_with_perfconfig(perfconfig, config, paths, options)
-                if np.isnan(verify_ns):
-                    # Verification failed, abort the loop
-                    print(f"verification failed on : {test_vector} : {perfconfig}", file=sys.stderr)
-                    sys.exit(1)
+            except TuningError as e:
+                raise TuningError(
+                    f"Error during verification of perf config {perfconfig}\n{str(e)}")
+            if np.isnan(verify_ns):
+                raise TuningError(f"Verification failed for perf config {perfconfig}")
 
         if not np.isnan(these_tflops) and these_tflops > max_tflops:
             max_tflops = these_tflops
@@ -165,82 +202,184 @@ def get_winning_config(tuning_output, test_vector, config, all_data, paths: Path
                     f"Tested {i} configs, best perf {max_tflops} TFlops {min_ns} ns on perf_config {winning_config}",
                     file=sys.stderr)
 
-    return winning_config, max_tflops
+    return winning_config, max_tflops, entries
 
 
 # Tune MLIR Gemm or Convolution kernels
 def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
-    all_data = []
-    winners = {}
-    tuning_driver_args = [
-        f"--tuning-space={options.tuning_space_kind}", f"--num-iterations={MLIR_N_REPEATS}",
-        f"--warmup-iterations={WARMUP_ITERATIONS}", f"--sleep-us={SLEEP_US}", "--use-median"
-    ]
-    for test_vector in configs:
-        if not test_vector.endswith(".mlir"):
-            command_line = test_vector.split(sep=' ')
-            config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
-            test_vector = config.to_command_line()
-            print("Tuning:", test_vector, file=sys.stderr)
-            command_line_options = config.generate_mlir_driver_commandline(
-                options.rocmlir_gen_flags, kernel_repeats=None)
-            # Note, we don't need the -ph, this goes to the tuning driver.
-            # Because we don't set -ph, kernel_repeats is set to None.
-            # This is because the kernel-repeats flag is only supported with host harness or CPU validation.
-            kernel_gen_command = paths.mlir_paths.rocmlir_gen_path + ' ' + command_line_options
-            kernel_gen = subprocess.Popen(kernel_gen_command.split(),
-                                          stdout=subprocess.PIPE,
-                                          stderr=subprocess.DEVNULL)
-            tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
-                                           tuning_driver_args,
-                                           stdin=kernel_gen.stdout,
-                                           stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE)
-            kernel_gen.stdout.close()
+    outfile = None
+    debugfile = None
+    try:
+        if options.output == '-':
+            outfile = sys.stdout
         else:
-            # pipe to rocmlir_gen --emit-tuning-key
-            tuning_key = subprocess.Popen(
-                [paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', test_vector],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE)
-            output, _ = tuning_key.communicate()
-            result = output.decode('utf-8').strip().split('\t')
-            print(f"Tuning:{result[2]} from {test_vector}", file=sys.stderr)
-            command_line = result[2].split(sep=' ')
-            config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
-            tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
-                                           tuning_driver_args + [test_vector],
-                                           stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE)
+            outfile = open(options.output, 'a')
 
-        # Tune, printing progress as we go to avoid CI timeouts
-        winning_config, max_tflops = get_winning_config(tuning_loop.stdout, test_vector, config,
-                                                        all_data, paths, options)
+        if options.debug:
+            debugfile = open(f"{options.output}.debug", 'a')
 
-        if options.verify_mode != "none":
-            verify_ns = verify_kernel_with_perfconfig(winning_config, config, paths, options)
-            if np.isnan(verify_ns):
-                # Verification failed, abort the loop
-                return None, None
-            verify_tflops = config.compute_tflops(verify_ns)
-            print(
-                f"Tuned and verified : {test_vector} : {winning_config} with {max_tflops} TFlops and {verify_tflops} on verification",
-                file=sys.stderr)
-            if options.verify_mode == "gpu":
-                print("Note: Verify tflops counts verification kernel", file=sys.stderr)
-        else:
-            print(f"Tuned : {test_vector} : {winning_config} with {max_tflops} TFlops",
-                  file=sys.stderr)
+        result_data_template = {
+            'arch': options.arch,
+            'numCUs': options.num_cu,
+            'testVector': '',
+            f'perfConfig ({options.tuning_space_kind})': ''
+        }
         if options.tflops:
-            winners[test_vector] = (winning_config, max_tflops)
-        else:
-            winners[test_vector] = winning_config
-    all_data = pd.DataFrame(all_data)
-    return winners, all_data
+            result_data_template['TFlops'] = 0.0
+
+        # Create a DataFrame to hold results. We will write out one problem config at a time as we go.
+        result_df = pd.DataFrame([result_data_template])
+
+        # Print header
+        print("# " + "\t".join(result_df.columns), file=outfile)
+        outfile.flush()
+
+        debug_header_written = False
+
+        tuning_driver_args = [
+            f"--tuning-space={options.tuning_space_kind}", f"--num-iterations={MLIR_N_REPEATS}",
+            f"--warmup-iterations={WARMUP_ITERATIONS}", f"--sleep-us={SLEEP_US}", "--use-median"
+        ]
+
+        for test_vector in configs:
+            error_title = f"Error tuning test vector: {test_vector}"
+            kernel_gen = None
+            tuning_loop = None
+            try:
+                if not test_vector.endswith(".mlir"):
+                    command_line = test_vector.split(sep=' ')
+                    config = conf_class.from_command_line(command_line, options.arch,
+                                                          options.num_cu)
+                    test_vector = config.to_command_line()
+                    print("Tuning:", test_vector, file=sys.stderr)
+                    command_line_options = config.generate_mlir_driver_commandline(
+                        options.rocmlir_gen_flags, kernel_repeats=None)
+                    # Note, we don't need the -ph, this goes to the tuning driver.
+                    # Because we don't set -ph, kernel_repeats is set to None.
+                    # This is because the kernel-repeats flag is only supported with host harness or CPU validation.
+                    kernel_gen_command = paths.mlir_paths.rocmlir_gen_path + ' ' + command_line_options
+                    kernel_gen = subprocess.Popen(kernel_gen_command.split(),
+                                                  stdout=subprocess.PIPE,
+                                                  stderr=subprocess.DEVNULL)
+                    tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
+                                                   tuning_driver_args,
+                                                   stdin=kernel_gen.stdout,
+                                                   stdout=subprocess.PIPE,
+                                                   stderr=subprocess.PIPE)
+                    kernel_gen.stdout.close()
+                else:
+                    # pipe to rocmlir_gen --emit-tuning-key
+                    tuning_key = subprocess.Popen(
+                        [paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', test_vector],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE)
+                    output, _ = tuning_key.communicate()
+                    result = output.decode('utf-8').strip().split('\t')
+                    print(f"Tuning:{result[2]} from {test_vector}", file=sys.stderr)
+                    command_line = result[2].split(sep=' ')
+                    config = conf_class.from_command_line(command_line, options.arch,
+                                                          options.num_cu)
+                    tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
+                                                   tuning_driver_args + [test_vector],
+                                                   stdout=subprocess.PIPE,
+                                                   stderr=subprocess.PIPE)
+
+                # Tune, printing progress as we go to avoid CI timeouts
+                winning_config, max_tflops, entries = get_winning_config(
+                    tuning_loop.stdout, config, paths, options)
+
+            except TuningError as e:
+                log_error(error_title, str(e), outfile)
+                if options.abort_on_error:
+                    return False
+                else:
+                    continue
+            finally:
+                if kernel_gen:
+                    if kernel_gen.poll() is None:
+                        kernel_gen.terminate()
+                    kernel_gen.wait()
+                if tuning_loop:
+                    if tuning_loop.poll() is None:
+                        tuning_loop.terminate()
+                    tuning_loop.wait()
+
+            if tuning_loop.returncode != 0:
+                error_msg = f"rocmlir-tuning-driver failed with return code {tuning_loop.returncode}"
+                stderr_content = tuning_loop.stderr.read().decode('utf-8').strip()
+                if stderr_content:
+                    error_msg += f"\nstderr:\n{stderr_content}"
+                log_error(error_title, error_msg, outfile)
+                if options.abort_on_error:
+                    return False
+                else:
+                    continue
+
+            if winning_config == "None":
+                log_error(error_title, "No valid perf config found", outfile)
+                if options.abort_on_error:
+                    return False
+                else:
+                    continue
+
+            if options.verify_mode != "none":
+                try:
+                    verify_ns = verify_kernel_with_perfconfig(winning_config, config, paths,
+                                                              options)
+                except TuningError as e:
+                    log_error(
+                        error_title,
+                        f"Error during verification of winning config {winning_config}\n{str(e)}",
+                        outfile)
+                    if options.abort_on_error:
+                        return False
+                    else:
+                        continue
+
+                if np.isnan(verify_ns):
+                    log_error(error_title,
+                              f"Verification failed for winning config {winning_config}", outfile)
+                    if options.abort_on_error:
+                        return False
+                    else:
+                        continue
+
+                verify_tflops = config.compute_tflops(verify_ns)
+                print(
+                    f"Tuned and verified : {test_vector} : {winning_config} with {max_tflops} TFlops and {verify_tflops} on verification",
+                    file=sys.stderr)
+                if options.verify_mode == "gpu":
+                    print("Note: Verify tflops counts verification kernel", file=sys.stderr)
+            else:
+                print(f"Tuned : {test_vector} : {winning_config} with {max_tflops} TFlops",
+                      file=sys.stderr)
+
+            # Eagerly write out results to output file
+            result_df.iloc[0, 2] = test_vector
+            result_df.iloc[0, 3] = winning_config
+            if options.tflops:
+                result_df.iloc[0, 4] = max_tflops
+            result_df.to_csv(outfile, sep='\t', mode='a', header=False, index=False)
+            outfile.flush()
+
+            if debugfile:
+                pd.DataFrame(entries).to_csv(debugfile,
+                                             sep='\t',
+                                             mode='a',
+                                             header=not debug_header_written,
+                                             index=False)
+                debugfile.flush()
+                debug_header_written = True
+        return True
+    finally:
+        if outfile and outfile != sys.stdout:
+            outfile.close()
+        if debugfile:
+            debugfile.close()
 
 
 # Extract gemm or conv configurations from fusion tests
-def extract_fusion_configs(test_dir, paths: Paths, options: Options):
+def extract_fusion_configs(test_dir, paths: Paths):
     all_configs = []
     op_type = Operation.FUSION
     for filename in glob.glob(test_dir + '/*mlir'):
@@ -403,7 +542,18 @@ def main(args=None):
                         default=False,
                         help="Print info only when a change happens")
 
+    parser.add_argument("--abort-on-error",
+                        action='store_true',
+                        default=False,
+                        help="Abort tuning upon first error encounter")
+
     parsed_args = parser.parse_args(args)
+
+    if parsed_args.verify_perf_configs and parsed_args.verify_mode == "none":
+        print(
+            "Use of `--verify-perf-configs` is not allowed with `--verify-mode=none`. Please pass `--verify-mode=cpu` or `--verify-mode=gpu`."
+        )
+        return 1
 
     rocmlir_gen_flags = ''
     if 'rocmlir_gen_flags' in parsed_args:
@@ -428,10 +578,12 @@ def main(args=None):
                       verify_mode=parsed_args.verify_mode,
                       verify_perfconfigs=parsed_args.verify_perf_configs,
                       tflops=parsed_args.tflops,
-                      compact_print=parsed_args.compact_print)
+                      compact_print=parsed_args.compact_print,
+                      output=parsed_args.output,
+                      abort_on_error=parsed_args.abort_on_error)
 
     if op_type == Operation.FUSION:
-        op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
+        op_type = extract_fusion_configs(parsed_args.test_dir, paths)
 
     conf_class = PerfConfiguration
     if op_type == Operation.CONV:
@@ -463,40 +615,9 @@ def main(args=None):
     elif op_type == Operation.CONV_GEMM:
         configs = perfRunner.get_conv_gemm_configurations(paths.configuration_file_path)
 
-    winners, all_data = tune_mlir_kernels(configs, conf_class, paths, options)
-
-    if winners is None:
-        # Tuning aborted, bail
-        print("Tuning aborted")
+    if not tune_mlir_kernels(configs, conf_class, paths, options):
+        print("Tuning aborted", file=sys.stderr)
         return 1
-
-    if parsed_args.debug:
-        print(all_data, file=sys.stderr)
-        all_data.to_csv(f"{parsed_args.output}.debug", sep='\t', index=False)
-
-    # Note, appending results here to allow multiple config sets
-    if parsed_args.output == '-':
-        outfile = sys.stdout
-    else:
-        outfile = open(parsed_args.output, 'a')
-
-    with outfile:
-        if parsed_args.tflops:
-            print(f"# arch\tnumCUs\ttestVector\tperfConfig\tTFlops ({options.tuning_space_kind})",
-                  file=outfile)
-            for test_vector, (perfconfig, tflops) in winners.items():
-                print(f"Arch = {arch}({num_cu} CUs), vector = '{test_vector}', \
-perfConfig = {perfconfig}, TFlops = {tflops}",
-                      file=sys.stderr)
-                print(f"{arch}\t{num_cu}\t{test_vector}\t{perfconfig}\t{tflops}", file=outfile)
-        else:
-            print(f"# arch\tnumCUs\ttestVector\tperfConfig ({options.tuning_space_kind})",
-                  file=outfile)
-            for test_vector, perfconfig in winners.items():
-                print(
-                    f"Arch = {arch}({num_cu} CUs), vector = '{test_vector}', perfConfig = {perfconfig}",
-                    file=sys.stderr)
-                print(f"{arch}\t{num_cu}\t{test_vector}\t{perfconfig}", file=outfile)
 
 
 if __name__ == '__main__':
