@@ -221,8 +221,8 @@ async def test_config(config, options: Options, paths: Paths) -> TestResult:
     else:
         rocmlir_gen_opts = config.generate_mlir_driver_commandline(' '.join(options.flags),
                                                                    kernel_repeats=None).split()
-        if getattr(config, "currentSeqLen") is not None:
-            rocmlir_gen_opts.append(f"--current_seq_len={','.join(map(str, config.currentSeqLen))}")
+        if getattr(config, "current_seqlen") is not None:
+            rocmlir_gen_opts.append(f"--current_seq_len={','.join(map(str, config.current_seqlen))}")
     rocmlir_gen_opts.append('-pv')
 
     applicable_from_gen, gen_to_applicable = os.pipe()
