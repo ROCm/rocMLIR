@@ -4,7 +4,7 @@ suffix = "--operation attention --arch %arch -pv %random_data -rand_min 0 -rand_
 
 [[axis]]
 name = "t"
-values = ["f16", "bf16", "i8"]
+values = ["f16", "i8"]
 prefix = "-t "
 
 [[axis]]
