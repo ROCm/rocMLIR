@@ -1880,27 +1880,33 @@ struct GridwiseAttentionAccelRewritePattern
     return someWorkToDo;
   }
 
-  void runEarlyExit(PatternRewriter &rewriter, Location loc, Value start,
-                    Value end, int64_t splitKV, int64_t gemm0MPerBlock,
-                    std::optional<APInt> prePadG0M, bool isCausal,
-                    bool isKVCache, bool skipRunEarlyExit) const {
+  std::optional<scf::IfOp> runEarlyExit(PatternRewriter &rewriter, Location loc,
+                                        Value start, Value end, int64_t splitKV,
+                                        int64_t gemm0MPerBlock,
+                                        std::optional<APInt> prePadG0M,
+                                        bool isCausal, bool isKVCache,
+                                        bool skipRunEarlyExit) const {
     // skipRunEarlyExit disables early exit logic as the MIGraphX flash decoding
     // implementation requires that the first of two kernels is initialized to
     // zero (and not left uninitialized as is the case with early exit logic).
     if (skipRunEarlyExit)
-      return;
+      return std::nullopt;
 
     // Compute the work condition using the extracted helper function
     Value someWorkToDo =
         computeIfWorkToDo(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
-                            prePadG0M, isCausal, isKVCache);
+                          prePadG0M, isCausal, isKVCache);
 
     if (!someWorkToDo)
-      return;
+      return std::nullopt;
 
     scf::IfOp ifb = scf::IfOp::create(rewriter, loc, someWorkToDo,
                                       /*withElseRegion=*/false);
     rewriter.setInsertionPointToStart(&ifb.getThenRegion().front());
+    
+    // Return the IfOp so caller can close it later (by setting insertion point
+    // after it) to ensure output writes happen unconditionally
+    return ifb;
   }
 
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
@@ -2195,6 +2201,9 @@ struct GridwiseAttentionAccelRewritePattern
       gemm1OutBuffer = createBufferForGemmOut(
           loc, elemTypeSoftmax, accelParamsGemm1, rewriter, gemm1MBlocks);
     }
+    // Zero gemm1OutBuffer to ensure it contains valid data even when early exit
+    // skips computation (needed for MIGraphX when softmax is disabled)
+    zeroAccBuffer(rewriter, loc, gemm1OutBuffer);
 
     SmallVector<int64_t, 3> gemm1BidGridLengths = {gemm0G, gemm1MBlocks,
                                                    gemm1NBlocks};
@@ -2261,6 +2270,8 @@ struct GridwiseAttentionAccelRewritePattern
         Type elemTypeLse = cast<MemRefType>(lse.getType()).getElementType();
         lseBuffer = createBufferForGemmOut(loc, elemTypeLse, accelParamsGemm1,
                                            rewriter);
+        // Initialize lseBuffer to -infinity
+        FillOp::create(rewriter, loc, lseBuffer, negInfSumTyped);
       }
 
       zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
@@ -2292,10 +2303,13 @@ struct GridwiseAttentionAccelRewritePattern
                      gemm0M, gemm0MPerBlock, gemm0NPerBlock, splitKV, isCausal,
                      isKVCache, op.getNumRepeatsGQAAttr());
 
-    // early exit if there is no work to do for this block
-    runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
-                 op.getPrePadG0M(), isCausal, isKVCache,
-                 /*skipRunEarlyExit=*/true);
+    // Early exit: Skip all computation when there's no work but always write
+    // output (zeros).
+    // This wraps Q loads, M/K loops, GEMMs, softmax, etc. in a conditional.
+    std::optional<scf::IfOp> earlyExitIf =
+        runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
+                     op.getPrePadG0M(), isCausal, isKVCache,
+                     /*skipRunEarlyExit=*/false);
 
     // create matrix params (LDS transpose not supported for attention)
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
@@ -2333,90 +2347,24 @@ struct GridwiseAttentionAccelRewritePattern
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     if (prefetchQTile) {
       LLVM_DEBUG(llvm::dbgs()
-                 << "rock.attention: gemm0K is equal to gemm0KPerBlock\n");
+                 << "rock.attention: gemm0K is equal to gemm0KPerBlock, "
+                 << "prefetching Q tile into regs\n");
 
-      // Optimization: Compute work condition for conditional Q load.
-      // When there's no work to do (e.g., due to causal masking or KV-cache),
-      // skip the expensive global memory read of Q and zero registers instead.
-      Value someWorkToDo =
-          computeIfWorkToDo(rewriter, loc, start, end, splitKV,
-                              gemm0MPerBlock, op.getPrePadG0M(), isCausal,
-                              isKVCache);
+      // it is fine m iteration to be zero as it irrelevant to Q tensor
+      // as the first gemm is Kt x Qt.
+      auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
+          rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch, splitKVConst);
 
-      if (someWorkToDo) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "rock.attention: Conditional Q load optimization enabled "
-                   << "(splitKV > 1 with causal/kvcache/padding)\n");
+      Value ldsByteBufferQ = nullptr;
+      if (!doBypassLDSForQ)
+        ldsByteBufferQ =
+            createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
 
-        // Create if-else block: load Q only if there's work, otherwise zero
-        // registers
-        scf::IfOp qLoadIf = scf::IfOp::create(rewriter, loc, someWorkToDo,
-                                              /*withElseRegion=*/true);
-
-        // Then region: Load Q from global memory (when there's work to do)
-        {
-          PatternRewriter::InsertionGuard guard(rewriter);
-          rewriter.setInsertionPointToStart(&qLoadIf.getThenRegion().front());
-
-          LLVM_DEBUG(llvm::dbgs()
-                     << "rock.attention: Prefetching Q tile into regs "
-                     << "(has work to do)\n");
-
-          // it is fine m iteration to be zero as it irrelevant to Q tensor
-          // as the first gemm is Kt x Qt.
-          auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
-              rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch,
-              splitKVConst);
-
-          Value ldsByteBufferQ = nullptr;
-          if (!doBypassLDSForQ)
-            ldsByteBufferQ = createLDSByteBuffer(rewriter, loc,
-                                                 ldsByteBufferQSize, elemTypeQ);
-
-          loadAndStoreGemmInputTile(
-              rewriter, loc, inQ, /*kiter=*/zero, tid, gridCoordsGemm0LoadQ,
-              ldsByteBufferQ, preAccelRegBuffersQForLoad, loadTypeQ, "n",
-              blockSize, elemTypeQ, elemTypeQLoad, gemm0TuningParams,
-              featuresAttr, matrixParamsK, matrixParamsQ);
-        }
-
-        // Else region: Zero Q registers
-        {
-          PatternRewriter::InsertionGuard guard(rewriter);
-          rewriter.setInsertionPointToStart(&qLoadIf.getElseRegion().front());
-
-          LLVM_DEBUG(llvm::dbgs()
-                     << "rock.attention: Skipping Q load, zeroing registers "
-                     << "instead (no work to do)\n");
-
-          // Zero both the load buffer and the compute buffer
-          zeroAccBuffer(rewriter, loc, preAccelRegBuffersQForLoad);
-          if (preAccelRegBuffersQ != preAccelRegBuffersQForLoad)
-            zeroAccBuffer(rewriter, loc, preAccelRegBuffersQ);
-        }
-
-        // Continue after the if-else block
-        rewriter.setInsertionPointAfter(qLoadIf);
-      } else {
-        // No early exit conditions apply - always load Q (normal case when
-        // splitKV == 1 and not causal/kvcache)
-        // it is fine m iteration to be zero as it irrelevant to Q tensor
-        // as the first gemm is Kt x Qt.
-        auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
-            rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch,
-            splitKVConst);
-
-        Value ldsByteBufferQ = nullptr;
-        if (!doBypassLDSForQ)
-          ldsByteBufferQ =
-              createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
-
-        loadAndStoreGemmInputTile(
-            rewriter, loc, inQ, /*kiter=*/zero, tid, gridCoordsGemm0LoadQ,
-            ldsByteBufferQ, preAccelRegBuffersQForLoad, loadTypeQ, "n",
-            blockSize, elemTypeQ, elemTypeQLoad, gemm0TuningParams,
-            featuresAttr, matrixParamsK, matrixParamsQ);
-      }
+      loadAndStoreGemmInputTile(
+          rewriter, loc, inQ, /*kiter=*/zero, tid, gridCoordsGemm0LoadQ,
+          ldsByteBufferQ, preAccelRegBuffersQForLoad, loadTypeQ, "n", blockSize,
+          elemTypeQ, elemTypeQLoad, gemm0TuningParams, featuresAttr,
+          matrixParamsK, matrixParamsQ);
     }
 
     bool dynamicMLoop = splitKV != 1 || isCausal || isKVCache;
@@ -2912,6 +2860,16 @@ struct GridwiseAttentionAccelRewritePattern
       Value lseBufferView = transform(
           rewriter, lseBuffer, attentionOutAccBufferThreadSubTileViewMaps);
       computeLse(rewriter, loc, lseBufferView, sumRowBuffer, maxRowBuffer);
+    }
+
+    // Close the early exit if block here. Everything above this point is
+    // conditional (only runs when there's work to do). Everything below
+    // (output writes) always executes, writing zeros when there's no work.
+    if (earlyExitIf.has_value()) {
+      rewriter.setInsertionPointAfter(*earlyExitIf);
+      LLVM_DEBUG(llvm::dbgs()
+                 << "rock.attention: early exit enabled - "
+                 << "output writes will execute unconditionally\n");
     }
 
     MemRefType outAccBufferOutType =
