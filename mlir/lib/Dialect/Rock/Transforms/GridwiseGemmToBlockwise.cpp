@@ -2270,8 +2270,11 @@ struct GridwiseAttentionAccelRewritePattern
         Type elemTypeLse = cast<MemRefType>(lse.getType()).getElementType();
         lseBuffer = createBufferForGemmOut(loc, elemTypeLse, accelParamsGemm1,
                                            rewriter);
-        // Initialize lseBuffer to -infinity
-        FillOp::create(rewriter, loc, lseBuffer, negInfSumTyped);
+        // Initialize lseBuffer to -infinity (use the correct type for lse)
+        auto negInfLse = createConstantFloatOp(
+            rewriter, loc, elemTypeLse, elemTypeLse,
+            -std::numeric_limits<float>::infinity(), APFloat::opOK);
+        FillOp::create(rewriter, loc, lseBuffer, negInfLse);
       }
 
       zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
