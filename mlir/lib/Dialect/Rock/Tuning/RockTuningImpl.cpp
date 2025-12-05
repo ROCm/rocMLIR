@@ -103,12 +103,8 @@ static SmallVector<uint32_t> computeDPerWave(TuningParamSetKind tuningKind,
 
 static SmallVector<int64_t>
 computeOptimalSplitKFactors(RockGemmGemmWrapperInterface gemmGemmOp,
-                            int64_t gemm0NPerBlock, bool isSplitKFusible) {
+                            int64_t gemm0NPerBlock) {
   SmallVector<int64_t> splitKValues = {1};
-
-  if (!isSplitKFusible) {
-    return splitKValues;
-  }
 
   auto func = cast<func::FuncOp>(gemmGemmOp->getParentOp());
   if (!func->hasAttr(rock::EnableSplitKForTuningAttr::getMnemonic())) {
@@ -250,7 +246,7 @@ paramsAttnProbablyValid(OpBuilder &b, RockGemmGemmWrapperInterface gemmGemmOp,
 // Generate random configs for greedy first iteration (Phase 1)
 static void createAttnTuningRangeGreedyPhase1(
     TuningParamSet *newSpace, RockGemmGemmWrapperInterface gemmGemmOp,
-    bool isSplitKFusible, unsigned numRandomPerTileSize, unsigned int seed) {
+    unsigned numRandomPerTileSize, unsigned int seed) {
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
   OpBuilder b(gemmGemmOp.getContext());
   const std::vector<std::vector<uint32_t>> params =
@@ -274,8 +270,8 @@ static void createAttnTuningRangeGreedyPhase1(
       for (uint32_t gemm0NPerBlock : params[1]) {
         SmallVector<uint32_t> nPerWaveRange = computeDPerWave(
             TuningParamSetKind::Greedy, gemm0NPerBlock, waveSize);
-        auto optimalSplitKFactors = computeOptimalSplitKFactors(
-            gemmGemmOp, gemm0NPerBlock, isSplitKFusible);
+        auto optimalSplitKFactors =
+            computeOptimalSplitKFactors(gemmGemmOp, gemm0NPerBlock);
 
         uint32_t totalIterations = params[2].size() * mPerWaveRange.size() *
                                    nPerWaveRange.size() * params[3].size() *
@@ -313,9 +309,10 @@ static void createAttnTuningRangeGreedyPhase1(
 }
 
 // Generate brute force configs for greedy second iteration (Phase 2)
-static void createAttnTuningRangeGreedyPhase2(
-    TuningParamSet *newSpace, RockGemmGemmWrapperInterface gemmGemmOp,
-    bool isSplitKFusible, StringRef winningConfig) {
+static void
+createAttnTuningRangeGreedyPhase2(TuningParamSet *newSpace,
+                                  RockGemmGemmWrapperInterface gemmGemmOp,
+                                  StringRef winningConfig) {
   const std::vector<std::vector<uint32_t>> validRangeAttnParams =
       getAccelRangeAttn(gemmGemmOp, TuningParamSetKind::Greedy);
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
@@ -341,7 +338,7 @@ static void createAttnTuningRangeGreedyPhase2(
   SmallVector<uint32_t> nPerWaveRange =
       computeDPerWave(TuningParamSetKind::Greedy, gemm0NPerBlock, waveSize);
   auto optimalSplitKFactors =
-      computeOptimalSplitKFactors(gemmGemmOp, gemm0NPerBlock, isSplitKFusible);
+      computeOptimalSplitKFactors(gemmGemmOp, gemm0NPerBlock);
 
   for (uint32_t gemmKPerBlock : validRangeAttnParams[2]) {
     for (uint32_t gemmMPerWave : mPerWaveRange) {
@@ -373,7 +370,6 @@ static void createAttnTuningRangeGreedyPhase2(
 // The full space is a brute-force search for attention kernels
 static void createAttnTuningRangeBF(TuningParamSet *newSpace,
                                     RockGemmGemmWrapperInterface gemmGemmOp,
-                                    bool isSplitKFusible,
                                     TuningParamSetKind kind) {
   const std::vector<std::vector<uint32_t>> validRangeAttnParams =
       getAccelRangeAttn(gemmGemmOp, kind);
@@ -398,8 +394,8 @@ static void createAttnTuningRangeBF(TuningParamSet *newSpace,
       for (uint32_t gemm0NPerBlock : validRangeAttnParams[1]) {
         SmallVector<uint32_t> nPerWaveRange =
             computeDPerWave(kind, gemm0NPerBlock, waveSize);
-        auto optimalSplitKFactors = computeOptimalSplitKFactors(
-            gemmGemmOp, gemm0NPerBlock, isSplitKFusible);
+        auto optimalSplitKFactors =
+            computeOptimalSplitKFactors(gemmGemmOp, gemm0NPerBlock);
 
         for (uint32_t gemmKPerBlock : validRangeAttnParams[2]) {
           for (uint32_t gemmMPerWave : mPerWaveRange) {
@@ -506,14 +502,9 @@ computeOptimalSplitKFactors(GemmSize origGemmSize, int32_t gemmMPerBlock,
 static SmallVector<int64_t>
 computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
                             int32_t gemmMPerBlock, int32_t gemmNPerBlock,
-                            int32_t gemmKPerBlock, int32_t kPack,
-                            bool isSplitKFusible) {
+                            int32_t gemmKPerBlock, int32_t kPack) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   SmallVector<int64_t> splitKValues = {1};
-
-  if (!isSplitKFusible) {
-    return splitKValues;
-  }
 
   auto func = cast<func::FuncOp>(gemmOp->getParentOp());
   if (!func->hasAttr(rock::EnableSplitKForTuningAttr::getMnemonic())) {
@@ -536,7 +527,6 @@ computeOptimalSplitKFactors(RockGemmWrapperInterface gemmOp,
 // If `kind` is Full, also filters out unlikely-to-be-good configurations.
 static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                                     RockGemmWrapperInterface gemmOp,
-                                    bool isSplitKFusible,
                                     TuningParamSetKind kind) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
 
@@ -571,7 +561,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
                 for (uint32_t gemmKPack : accelParams[4]) {
                   auto optimalSplitKFactors = computeOptimalSplitKFactors(
                       gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock,
-                      gemmKPack, isSplitKFusible);
+                      gemmKPack);
                   for (int64_t splitKFactor : optimalSplitKFactors) {
                     for (int64_t gemmSchedule : accelParams[5]) {
                       for (uint32_t forceUnroll : accelParams[6]) {
@@ -611,8 +601,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
           for (uint32_t gemmKPerBlock : validRangeGeneralGemmParams[3]) {
             for (uint32_t gemmMPerThread : validRangeGeneralGemmParams[4]) {
               auto optimalSplitKFactors = computeOptimalSplitKFactors(
-                  gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, 1,
-                  isSplitKFusible);
+                  gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, 1);
               for (auto splitKFactor : optimalSplitKFactors) {
                 for (uint32_t gemmNPerThread : validRangeGeneralGemmParams[5]) {
                   // hardcode schedule version to v1 and outputSwizzle to
@@ -778,7 +767,6 @@ unsigned getNumberOfIterations(TuningParamSetKind kind) {
 // parameters (greedy tuning, phase 1)
 static void createGemmTuningRangeGreedyPhase1(TuningParamSet *newSpace,
                                               RockGemmWrapperInterface gemmOp,
-                                              bool isSplitKFusible,
                                               unsigned numRandomPerTileSize,
                                               unsigned int seed) {
   GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
@@ -818,8 +806,7 @@ static void createGemmTuningRangeGreedyPhase1(TuningParamSet *newSpace,
         uint32_t gemmSchedule = params[5][rng() % params[5].size()];
         uint32_t forceUnroll = params[6][rng() % params[6].size()];
         auto optimalSplitKFactors = computeOptimalSplitKFactors(
-            gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmKPack,
-            isSplitKFusible);
+            gemmOp, gemmMPerBlock, gemmNPerBlock, gemmKPerBlock, gemmKPack);
         uint32_t splitKFactor =
             optimalSplitKFactors[rng() % optimalSplitKFactors.size()];
         // hardcode outputSwizzle to heuristics = 2
@@ -841,7 +828,6 @@ static void createGemmTuningRangeGreedyPhase1(TuningParamSet *newSpace,
 // brute force (greedy tuning, phase 2)
 static void createGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
                                               RockGemmWrapperInterface gemmOp,
-                                              bool isSplitKFusible,
                                               StringRef winningConfig) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   OpBuilder b(gemmOp.getContext());
@@ -877,7 +863,7 @@ static void createGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
           for (uint32_t gemmKPack : params[4]) {
             auto optimalSplitKFactors = computeOptimalSplitKFactors(
                 gemmOp, winningMPerBlock, winningNPerBlock, gemmKPerBlock,
-                gemmKPack, isSplitKFusible);
+                gemmKPack);
             for (int64_t splitKFactor : optimalSplitKFactors) {
               for (int64_t gemmSchedule : params[5]) {
                 for (uint32_t forceUnroll : params[6]) {
@@ -910,8 +896,6 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
   struct TuningParamSet *newSpace;
   newSpace = new TuningParamSet();
 
-  bool isSplitKFusible = succeeded(rock::testFusionLegalitySplitK(mod));
-
   // create range and heuristic
   WalkResult findPrimary =
       mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
@@ -927,17 +911,16 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         switch (kind) {
         case TuningParamSetKind::Full:
         case TuningParamSetKind::Exhaustive:
-          createGemmTuningRangeBF(newSpace, op, isSplitKFusible, kind);
+          createGemmTuningRangeBF(newSpace, op, kind);
           break;
         case TuningParamSetKind::Greedy:
           if (settings.iteration == 0) {
             // First iteration: random configs per tile size
             createGemmTuningRangeGreedyPhase1(
-                newSpace, op, isSplitKFusible,
-                NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
+                newSpace, op, NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
           } else {
             // Second iteration: brute force with winning tile sizes
-            createGemmTuningRangeGreedyPhase2(newSpace, op, isSplitKFusible,
+            createGemmTuningRangeGreedyPhase2(newSpace, op,
                                               settings.winningConfig);
           }
           break;
@@ -954,17 +937,16 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         switch (kind) {
         case TuningParamSetKind::Full:
         case TuningParamSetKind::Exhaustive:
-          createAttnTuningRangeBF(newSpace, op, isSplitKFusible, kind);
+          createAttnTuningRangeBF(newSpace, op, kind);
           break;
         case TuningParamSetKind::Greedy:
           if (settings.iteration == 0) {
             // First iteration: random configs per tile size
             createAttnTuningRangeGreedyPhase1(
-                newSpace, op, isSplitKFusible,
-                NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
+                newSpace, op, NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
           } else {
             // Second iteration: brute force with winning tile sizes
-            createAttnTuningRangeGreedyPhase2(newSpace, op, isSplitKFusible,
+            createAttnTuningRangeGreedyPhase2(newSpace, op,
                                               settings.winningConfig);
           }
           break;
