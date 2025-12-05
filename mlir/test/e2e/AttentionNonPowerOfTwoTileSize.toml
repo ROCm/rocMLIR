@@ -4,7 +4,7 @@ suffix = "--operation attention --arch %arch -pv %random_data -rand_min 0 -rand_
 
 [[axis]]
 name = "t"
-values = ["f16", "i8"]
+values = ["f16", "bf16", "i8"]
 prefix = "-t "
 
 [[axis]]
@@ -50,9 +50,10 @@ config = "-seq_len_q 128 -seq_len_k 27 -head_dim_qk 64 -head_dim_v 32 --with-att
 [[suite.test]]
 config = "-seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
 
+# Currently disabled until https://github.com/ROCm/rocMLIR-internal/issues/2173 is fixed
 # causal
-[[suite.test]]
-config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"
+#[[suite.test]]
+#config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"
 
 # GQA + KV Cache batch=3 + return LSE
 [[suite.test]]
