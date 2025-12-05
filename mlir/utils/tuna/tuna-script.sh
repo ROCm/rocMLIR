@@ -16,6 +16,7 @@ function mysql_setup_generic
     mysql --user root -e 'create database tuna;'
 }
 
+# no-py file changed
 function tuna_setup
 {
 #     rm -rf /tmp/MITuna
