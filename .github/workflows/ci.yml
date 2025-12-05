@@ -80,7 +80,7 @@ jobs:
       - name: Run flake8
         if: steps.changes.outputs.files != ''
         run: |
-          flake8 --ignore=E501,E251,E124,W605,W504,E131,E126,W503 \
+          flake8 --ignore=E501,E251,E124,W605,W504,E131,E126,W503,E123 \
             ${{ steps.changes.outputs.files }}
 
       - name: Run YAPF check
