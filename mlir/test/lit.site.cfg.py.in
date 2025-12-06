@@ -77,6 +77,7 @@ config.no_AMD_GPU = False
 config.arch = ""
 config.arch_support_mfma = False
 config.arch_support_wmma = False
+config.arch_support_accel_fp8 = False
 config.features = None
 if config.rocm_path:
     try:
@@ -84,7 +85,7 @@ if config.rocm_path:
         config.arch = ','.join(agents)
         for x in agents:
             if not config.features:
-                config.features, config.arch_support_mfma, config.arch_support_wmma = get_arch_features(x)
+                config.features, config.arch_support_mfma, config.arch_support_wmma, config.arch_support_accel_fp8 = get_arch_features(x)
                 config.substitutions.append(('%features', config.features))
         if not config.arch:
             config.no_AMD_GPU = True
