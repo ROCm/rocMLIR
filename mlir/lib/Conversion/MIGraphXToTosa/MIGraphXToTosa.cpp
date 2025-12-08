@@ -404,6 +404,104 @@ LogicalResult ConvConverter<ConvType>::matchAndRewrite(
   return success();
 }
 
+/// Helper struct to hold batch flattening information for matmul operations.
+/// TOSA matmul only supports a single batch dimension, so we need to flatten
+/// multiple batch dimensions into one.
+struct BatchFlattenInfo {
+  int64_t batchSizeA;
+  int64_t batchSizeB;
+  int64_t batchSizeOut;
+  int64_t mDim;
+  int64_t kDim;
+  int64_t nDim;
+  // After handling broadcast
+  int64_t newBatchA;
+  int64_t newBatchB;
+  int64_t newBatchOut;
+  int64_t newM;
+  // Whether reshaping is needed
+  bool needsReshape;
+};
+
+/// Compute batch flattening information for matmul operations.
+/// Returns failure if the batch dimensions can't be handled (e.g., broadcast
+/// A).
+static FailureOr<BatchFlattenInfo>
+computeBatchFlattenInfo(ArrayRef<int64_t> shapeA, ArrayRef<int64_t> shapeB,
+                        ArrayRef<int64_t> outShape) {
+  BatchFlattenInfo info;
+  size_t rankA = shapeA.size();
+  size_t rankB = shapeB.size();
+  size_t outRank = outShape.size();
+
+  // Compute batch sizes by multiplying all dimensions except last 2
+  info.batchSizeA = 1;
+  info.batchSizeB = 1;
+  info.batchSizeOut = 1;
+  for (size_t i = 0; i < outRank - 2; i++)
+    info.batchSizeOut *= outShape[i];
+  for (size_t i = 0; i < rankA - 2; i++)
+    info.batchSizeA *= shapeA[i];
+  for (size_t i = 0; i < rankB - 2; i++)
+    info.batchSizeB *= shapeB[i];
+
+  // Get M, K, N dimensions (last 2 dims of each tensor)
+  info.mDim = shapeA[rankA - 2];
+  info.kDim = shapeA[rankA - 1];
+  info.nDim = shapeB[rankB - 1];
+
+  // Initialize new batch dimensions
+  info.newBatchA = info.batchSizeA;
+  info.newBatchB = info.batchSizeB;
+  info.newBatchOut = info.batchSizeOut;
+  info.newM = info.mDim;
+
+  // Handle batch dimension mismatch (broadcast)
+  if (info.batchSizeA != info.batchSizeB) {
+    if (info.batchSizeB == 1) {
+      // Broadcast B - flatten A's batch into M dimension
+      info.newBatchA = 1;
+      info.newM = info.batchSizeA * info.mDim;
+      info.newBatchOut = 1;
+    } else {
+      // Can't broadcast A
+      return failure();
+    }
+  }
+
+  // Determine if reshaping is needed
+  info.needsReshape = (outRank != 3 || rankA != rankB ||
+                       (outRank == 3 && shapeA[0] != shapeB[0]));
+
+  return info;
+}
+
+/// Reshape tensors to 3D for matmul if needed.
+/// Returns the reshaped A and B tensors.
+static std::pair<Value, Value>
+reshapeTo3DForMatmul(PatternRewriter &rewriter, Location loc, Value inA,
+                     Value inB, const BatchFlattenInfo &info, Type elementTy) {
+  Value inAReshaped = inA;
+  Value inBReshaped = inB;
+
+  if (info.needsReshape) {
+    SmallVector<int64_t> newDimsA = {info.newBatchA, info.newM, info.kDim};
+    SmallVector<int64_t> newDimsB = {info.newBatchB, info.kDim, info.nDim};
+
+    auto newDimsAValue = tosa::getTosaConstShape(rewriter, loc, newDimsA);
+    RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
+    inAReshaped =
+        tosa::ReshapeOp::create(rewriter, loc, newAType, inA, newDimsAValue);
+
+    auto newDimsBValue = tosa::getTosaConstShape(rewriter, loc, newDimsB);
+    RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
+    inBReshaped =
+        tosa::ReshapeOp::create(rewriter, loc, newBType, inB, newDimsBValue);
+  }
+
+  return {inAReshaped, inBReshaped};
+}
+
 template <typename DotType>
 LogicalResult DotConverter<DotType>::matchAndRewrite(
     DotType op, OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const {
@@ -411,6 +509,22 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
   auto inA = cast<TypedValue<RankedTensorType>>(adaptor.getInA());
   auto inB = cast<TypedValue<RankedTensorType>>(adaptor.getInB());
   auto results = op->getResults();
+
+  // Handle scale parameters (only available for QuantDotOp)
+  Value inScaleA, inScaleB;
+  TypedValue<RankedTensorType> scaleA;
+  TypedValue<RankedTensorType> scaleB;
+  bool hasScales = false;
+  if constexpr (std::is_same_v<DotType, migraphx::QuantDotOp>) {
+    inScaleA = adaptor.getScaleA();
+    inScaleB = adaptor.getScaleB();
+    if (inScaleA && inScaleB) {
+      scaleA = cast<TypedValue<RankedTensorType>>(inScaleA);
+      scaleB = cast<TypedValue<RankedTensorType>>(inScaleB);
+      hasScales = true;
+    }
+  }
+
   Type elementTy = inA.getType().getElementType();
   auto origOutputTy = cast<MIXRShapedType>(results[0].getType());
   Type outElementTy = origOutputTy.getElementType();
@@ -419,75 +533,62 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
   if (outElementTy.isUnsignedInteger())
     return op.emitError("No support for unsigned dot product.\n");
 
-  // check batch dimension. Tosa matmul only allow a single dimension for it,
-  // add reshape ops to flatten and restore the original dimension.
+  // Get shapes for batch flattening
+  ArrayRef<int64_t> shapeA = inA.getType().getShape();
+  ArrayRef<int64_t> shapeB = inB.getType().getShape();
   ArrayRef<int64_t> origOutDims = origOutputTy.getShape();
-  RankedTensorType newOutType =
-      RankedTensorType::get(origOutDims, newOutElementTy);
-  size_t outRank = origOutDims.size();
-  ArrayRef<int64_t> orgDimsA = inA.getType().getShape();
-  ArrayRef<int64_t> orgDimsB = inB.getType().getShape();
-  size_t rankA = orgDimsA.size();
-  size_t rankB = orgDimsB.size();
 
-  // A, B, Out have the same rank. rank=2 assumes batch=1.
-  // Here handling special cases.
-  if (outRank != 3 || rankA != rankB ||
-      (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
-    int64_t batchSizeA = 1, batchSizeB = 1, batchSizeC = 1;
-    for (size_t i = 0; i < outRank - 2; i++) {
-      batchSizeC *= origOutDims[i];
-    }
-    for (size_t i = 0; i < rankA - 2; i++) {
-      batchSizeA *= orgDimsA[i];
-    }
-    for (size_t i = 0; i < rankB - 2; i++) {
-      batchSizeB *= orgDimsB[i];
-    }
-
-    int64_t newDimsA[3] = {batchSizeA, orgDimsA[outRank - 2],
-                           orgDimsA[outRank - 1]};
-    int64_t newDimsB[3] = {batchSizeB, orgDimsB[outRank - 2],
-                           orgDimsB[outRank - 1]};
-    int64_t newDimsOut[3] = {batchSizeC, origOutDims[outRank - 2],
-                             origOutDims[outRank - 1]};
-    if (batchSizeA != batchSizeB) {
-      // support when batchB dimension is broadcast
-      if (batchSizeB == 1) {
-        // modify [g, m, k, n] to [1, g*m, k, n]
-        newDimsA[0] = 1;
-        newDimsA[1] *= batchSizeA;
-        newDimsOut[0] = 1;
-        newDimsOut[1] *= batchSizeC;
-      } else {
-        // currently not supporting the other case, broadcast A could be
-        // supported with an additional transpose.
-        return op->emitError("tosa.matmul can't broadcast input.");
-      }
-    }
-    RankedTensorType newAType = RankedTensorType::get(newDimsA, elementTy);
-    RankedTensorType newBType = RankedTensorType::get(newDimsB, elementTy);
-    newOutType = RankedTensorType::get(newDimsOut, newOutElementTy);
-    auto newDimsAValue = tosa::getTosaConstShape(rewriter, loc, newDimsA);
-    auto reshapeAOp =
-        tosa::ReshapeOp::create(rewriter, loc, newAType, inA, newDimsAValue);
-    auto newDimsBValue = tosa::getTosaConstShape(rewriter, loc, newDimsB);
-    auto reshapeBOp =
-        tosa::ReshapeOp::create(rewriter, loc, newBType, inB, newDimsBValue);
-
-    // reassign inputs.
-    inA = cast<TypedValue<RankedTensorType>>(reshapeAOp.getResult());
-    inB = cast<TypedValue<RankedTensorType>>(reshapeBOp.getResult());
+  // Compute batch flattening info (done once for both scaled and regular)
+  auto batchInfoResult = computeBatchFlattenInfo(shapeA, shapeB, origOutDims);
+  if (failed(batchInfoResult)) {
+    return op->emitError("tosa.matmul can't broadcast input.");
   }
-  auto aZp =
-      tosa::createZeroPointTensor(rewriter, loc, inA.getType(), 0).value();
-  auto bZp =
-      tosa::createZeroPointTensor(rewriter, loc, inB.getType(), 0).value();
-  // Construct tosa.matmul.
-  auto mop =
-      tosa::MatMulOp::create(rewriter, loc, newOutType, inA, inB, aZp, bZp);
+  BatchFlattenInfo batchInfo = *batchInfoResult;
 
-  // Determine the accumulation type based on the output type.
+  // Compute 3D output shape
+  SmallVector<int64_t> newDimsOut = {
+      batchInfo.newBatchOut,
+      (batchInfo.batchSizeB == 1 && batchInfo.batchSizeA != 1)
+          ? batchInfo.batchSizeOut * batchInfo.mDim
+          : batchInfo.mDim,
+      batchInfo.nDim};
+
+  // Reshape data tensors to 3D (done once for both scaled and regular)
+  Value inAReshaped = inA;
+  Value inBReshaped = inB;
+  if (batchInfo.needsReshape) {
+    auto [reshapedA, reshapedB] =
+        reshapeTo3DForMatmul(rewriter, loc, inA, inB, batchInfo, elementTy);
+    inAReshaped = reshapedA;
+    inBReshaped = reshapedB;
+  }
+
+  // Scaled quant_dot operations should have been decomposed by the
+  // MIGraphXTransform pass before reaching MIGraphXToTosa
+  if constexpr (std::is_same_v<DotType, migraphx::QuantDotOp>) {
+    if (hasScales) {
+      return op.emitError(
+          "Scaled quant_dot should have been decomposed by migraphx-transform "
+          "pass before reaching MIGraphXToTosa conversion");
+    }
+  }
+
+  // Regular matmul path (no scales)
+  RankedTensorType newOutType =
+      RankedTensorType::get(newDimsOut, newOutElementTy);
+
+  auto aZp =
+      tosa::createZeroPointTensor(rewriter, loc, inAReshaped.getType(), 0)
+          .value();
+  auto bZp =
+      tosa::createZeroPointTensor(rewriter, loc, inBReshaped.getType(), 0)
+          .value();
+
+  // Construct tosa.matmul
+  auto mop = tosa::MatMulOp::create(rewriter, loc, newOutType, inAReshaped,
+                                    inBReshaped, aZp, bZp);
+
+  // Determine the accumulation type based on the output type
   Type accType = rock::tosa::getAccType(rewriter, elementTy);
   mop->setAttr("acc_type", TypeAttr::get(accType));
 
@@ -495,8 +596,8 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
   if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
     mop->setAttr("perf_config", attr);
 
-  if (outRank != 3 || rankA != rankB ||
-      (outRank == 3 && orgDimsA[0] != orgDimsB[0])) {
+  // Reshape output back to original shape if we flattened batch dimensions
+  if (batchInfo.needsReshape) {
     auto origOutDimsValue = tosa::getTosaConstShape(rewriter, loc, origOutDims);
     auto rop = tosa::ReshapeOp::create(
         rewriter, loc, getTypeConverter()->convertType(origOutputTy), mop,

@@ -898,6 +898,7 @@ public:
   }
 
   // Helper to extract scale and matrix from a mul operation
+  // Pattern: tosa.mul(tosa.cast(fp4_data), tosa.cast(scale))
   FailureOr<std::pair<Value, Value>>
   tryExtractScaleAndMatrix(Value mulInput1, Value mulInput2) const {
     Value scale = nullptr;
@@ -941,7 +942,7 @@ public:
     return std::make_pair(scale, matrix);
   }
 
-  // Helper to reshape matrix and scale to match target shape
+  // Helper to reshape value to match target shape
   Value reshapeIfNeeded(Value val, ArrayRef<int64_t> targetShape, Location loc,
                         ConversionPatternRewriter &rw) const {
     auto valType = cast<RankedTensorType>(val.getType());
@@ -998,7 +999,7 @@ public:
     }
 
     // rock.gemm requires both scaleA and scaleB to be provided, or neither
-    // If only one scale is present, fall back to normal matmul
+    // If only one scale is present, emit error
     bool hasScaleA = (scaleA != nullptr);
     bool hasScaleB = (scaleB != nullptr);
     if (hasScaleA != hasScaleB) {
@@ -1022,6 +1023,7 @@ public:
       scaleB = reshapeIfNeeded(scaleB, targetShape, loc, rw);
       matB = cast<TypedValue<TensorType>>(matBBeforeCast);
     }
+
     Value output =
         bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
 
@@ -1052,9 +1054,6 @@ public:
     if (scaleA) {
       SmallVector<int64_t, 3> aScaleShape = llvm::to_vector<3>(
           cast<RankedTensorType>(scaleA.getType()).getShape());
-      // TODO: Handle transpose of scaleA, currently TransposeRewritePattern
-      // will not be able to match scaled_gemms. Update logic when we have
-      // scaled_gemm support in TOSA
       setLastDims(nullptr, aScaleShape, {mDim, kDim});
       brAScale = insertBroadcast(scaleA, aScaleShape, loc, rw);
     }
@@ -1068,15 +1067,127 @@ public:
     if (scaleB) {
       SmallVector<int64_t, 3> bScaleShape = llvm::to_vector<3>(
           cast<RankedTensorType>(scaleB.getType()).getShape());
-      // TODO: Handle transpose of scaleB, currently TransposeRewritePattern
-      // will not be able to match scaled_gemms. Update logic when we have
-      // scaled_gemm support in TOSA
       setLastDims(nullptr, bScaleShape, {kDim, nDim});
       brBScale = insertBroadcast(scaleB, bScaleShape, loc, rw);
     }
+
     auto rockGemm = rock::GemmOp::create(
         rw, loc, outputType, brA, brB, output, brAScale, brBScale, transposeA,
-        transposeB, transposeC, nullptr, nullptr,
+        transposeB, transposeC, /*aScaleTransposed=*/nullptr,
+        /*bScaleTransposed=*/nullptr,
+        /*features=*/nullptr,
+        rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
+        /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+        /*params=*/nullptr);
+
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      rockGemm->setAttr("perf_config", attr);
+
+    rw.replaceOp(op, rockGemm.getResult());
+
+    return success();
+  }
+};
+
+/// Broadcast scale tensor from [batch, dim1, kScale] to [batch, dim1, k]
+/// by adding a block dimension and broadcasting it to blockSize.
+static Value broadcastScale(OpBuilder &b, Location loc, Value scale,
+                            int64_t blockSize, bool isA) {
+  (void)isA; // Currently unused but kept for potential future use
+  auto scaleType = cast<RankedTensorType>(scale.getType());
+  ArrayRef<int64_t> scaleShape = scaleType.getShape();
+
+  // Scale shape is [batch, M, kScale] for A or [batch, N, kScale] for B
+  // (B is already transposed in matmul_t_block_scaled)
+
+  // Step 1: Add a "block" dimension with size 1
+  // Shape: [batch, row, kScale] -> [batch, row, kScale, block=1]
+  SmallVector<StringRef, 3> initDims = {"batch", "row", "kScale"};
+  rock::BottomUpTMBuilder addDimB(b, initDims, scaleShape, loc);
+  addDimB.passThrough({"batch", "row", "kScale"});
+  addDimB.addDim("block", 3, 1);
+  auto addDimAttr = addDimB.get();
+  scale = rock::TransformOp::create(b, loc, scale, addDimAttr);
+
+  // Step 2: Broadcast the block dimension to blockSize
+  // Shape: [batch, row, kScale, 1] -> [batch, row, kScale, blockSize]
+  rock::BottomUpTMBuilder broadcastB =
+      rock::BottomUpTMBuilder::above(addDimB, addDimAttr);
+  broadcastB.passThrough({"batch", "row", "kScale"});
+  broadcastB.broadcast({3}, {blockSize});
+  auto broadcastAttr = broadcastB.get();
+  scale = rock::TransformOp::create(b, loc, scale, broadcastAttr);
+
+  // Step 3: Merge kScale and block into k
+  // Shape: [batch, row, kScale, blockSize] -> [batch, row, k]
+  rock::BottomUpTMBuilder mergeB =
+      rock::BottomUpTMBuilder::above(broadcastB, broadcastAttr);
+  mergeB.passThrough({"batch", "row"});
+  mergeB.merge("k", 2, {"kScale", "block"});
+  auto mergeAttr = mergeB.get();
+  return rock::TransformOp::create(b, loc, scale, mergeAttr);
+}
+
+class MatmulTBlockScaledConverter final
+    : public OpConversionPattern<tosa::MatmulTBlockScaledOp> {
+public:
+  using OpConversionPattern<tosa::MatmulTBlockScaledOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(tosa::MatmulTBlockScaledOp op,
+                                tosa::MatmulTBlockScaledOp::Adaptor adaptor,
+                                ConversionPatternRewriter &rw) const final {
+    Location loc = op->getLoc();
+    auto outputType = cast<RankedTensorType>(op.getType());
+
+    // Get operands
+    // For matmul_t_block_scaled:
+    //   a_data: [batch, M, K] - f4E2M1FN
+    //   a_scale: [batch, M, K/blockSize] - f8E8M0FNU
+    //   b_data: [batch, N, K] - f4E2M1FN (B is transposed!)
+    //   b_scale: [batch, N, K/blockSize] - f8E8M0FNU
+    //   output: [batch, M, N] - f32
+    Value aData = adaptor.getAData();
+    Value aScale = adaptor.getAScale();
+    Value bData = adaptor.getBData();
+    Value bScale = adaptor.getBScale();
+
+    auto aDataType = cast<RankedTensorType>(aData.getType());
+    auto aScaleType = cast<RankedTensorType>(aScale.getType());
+
+    ArrayRef<int64_t> aShape = aDataType.getShape();
+    ArrayRef<int64_t> aScaleShape = aScaleType.getShape();
+
+    // Extract dimensions
+    int64_t kDim = aShape[2];             // K dimension from A
+    int64_t kScaleDim = aScaleShape[2];   // K/blockSize from scale
+    int64_t blockSize = kDim / kScaleDim; // Compute block size
+
+    // Allocate output
+    Value output =
+        bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
+
+    rock::GemmFeatures features = getGemmFeaturesFromOp(op, aData.getType());
+
+    if (failed(setSplitKAttrs(op, features, rw)))
+      return failure();
+
+    // Broadcast scales to match data tensor shapes
+    // A scale: [batch, M, K/blockSize] -> [batch, M, K]
+    // B scale: [batch, N, K/blockSize] -> [batch, N, K]
+    Value brAScale = broadcastScale(rw, loc, aScale, blockSize, /*isA=*/true);
+    Value brBScale = broadcastScale(rw, loc, bScale, blockSize, /*isA=*/false);
+
+    // For matmul_t_block_scaled, B is already transposed (shape is [batch, N,
+    // K]) So we need to tell rock.gemm that B is transposed
+    UnitAttr transposeB = rw.getUnitAttr();
+
+    auto rockGemm = rock::GemmOp::create(
+        rw, loc, outputType, aData, bData, output, brAScale, brBScale,
+        /*aTransposed=*/nullptr,
+        /*bTransposed=*/transposeB,
+        /*cTransposed=*/nullptr,
+        /*aScaleTransposed=*/nullptr,
+        /*bScaleTransposed=*/transposeB, // B scale is also transposed
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
@@ -3065,8 +3176,8 @@ void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ForwardConvConverter<tosa::Conv2DOp>,
                ForwardConvConverter<tosa::Conv3DOp>, BackwardConvConverter,
-               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
-      context);
+               MatMulConverter, MatmulTBlockScaledConverter, ReduceSumConverter,
+               ReduceMaxConverter>(context);
 }
 
 void tosa::populateTosaToRockAttentionConversionPatterns(

@@ -82,9 +82,13 @@ public:
 
     // Only decompose scaled GEMM operations (both scales must be present).
     // The verifier ensures both scales are provided together or neither.
-    if (!scaleA && !scaleB) {
+    if (!scaleA || !scaleB) {
       return failure();
     }
+
+    // Decompose ALL scaled quant_dot operations.
+    // The resulting convert+mul+dot pattern will be handled by TosaToRock
+    // which extracts the scales and creates rock.gemm with scales.
 
     // Determine target output type
     auto resultType = op.getResult().getType();
@@ -128,26 +132,39 @@ void populateMIGraphXSqrt(MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<SqrtDecompose>(context);
 }
 
+void populateQuantDotDecompose(MLIRContext *context,
+                               RewritePatternSet &patterns) {
+  patterns.add<QuantDotDecompose>(context);
+}
+
 struct MIGraphXTransforms
     : public migraphx::impl::MIGraphXTransformPassBase<MIGraphXTransforms> {
   void runOnOperation() override {
     auto &ctx = getContext();
+    auto func = getOperation();
+
+    // First, use greedy rewrite to decompose QuantDot ops with scales
+    // This pattern transforms QuantDotOp with scales into
+    // convert+mul+DotOp without scales
+    {
+      RewritePatternSet quantDotPatterns(&ctx);
+      populateQuantDotDecompose(&ctx, quantDotPatterns);
+      if (failed(applyPatternsGreedily(func, std::move(quantDotPatterns)))) {
+        signalPassFailure();
+        return;
+      }
+    }
+
+    // Then, use full conversion for other transforms (like SqrtDecompose)
     RewritePatternSet patterns(&ctx);
     ConversionTarget target(ctx);
     target.addLegalDialect<migraphx::MIGraphXDialect, func::FuncDialect,
                            tosa::TosaDialect, mhal::MHALDialect>();
     target.addIllegalOp<migraphx::SqrtOp>();
-    auto func = getOperation();
 
     populateMIGraphXSqrt(&ctx, patterns);
     if (failed(applyFullConversion(func, target, std::move(patterns)))) {
       signalPassFailure();
-    }
-    {
-      RewritePatternSet patterns(&ctx);
-      patterns.add<QuantDotDecompose>(&ctx);
-      if (failed(applyPatternsGreedily(func, std::move(patterns))))
-        signalPassFailure();
     }
   }
 };
