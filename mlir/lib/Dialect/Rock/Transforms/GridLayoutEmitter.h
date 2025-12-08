@@ -67,7 +67,7 @@ GridCoordinates makeGroupedGridLayout(PatternRewriter &b, Location loc,
 AttnGridCoordinates makeGxNGridLayout(PatternRewriter &b, Location loc,
                                       Value bid, Value mIter, int64_t nBlocks,
                                       int64_t gridSize, StringRef arch,
-                                      Value splitKV = nullptr);
+                                      int64_t numCU, Value splitKV = nullptr);
 
 } // namespace layout
 } // namespace rock
