@@ -1827,15 +1827,13 @@ struct GridwiseAttentionAccelRewritePattern
   }
 
   // Helper function to compute the 'someWorkToDo' condition used for early
-  // exit optimization. This can be used independently of creating an if block,
-  // allowing us to conditionally skip expensive operations (like Q loads)
-  // while still ensuring output buffers are initialized.
+  // exit optimization.
   Value computeIfWorkToDo(PatternRewriter &rewriter, Location loc,
                             Value start, Value end, int64_t splitKV,
                             int64_t gemm0MPerBlock,
                             std::optional<APInt> prePadG0M, bool isCausal,
                             bool isKVCache) const {
-    // We need have no work to do if (1) and (2 || 3) conditions are true:
+    // We have no work to do if (1) and (2 || 3) conditions are true:
     // 1. split-kv > 1
     // 2. there's padding in gemm0M && (at least) the last block in split-kv
     // dimension has nothing to do
@@ -2342,8 +2340,9 @@ struct GridwiseAttentionAccelRewritePattern
     Value zero = rewriter.createOrFold<ConstantIndexOp>(loc, 0);
     if (prefetchQTile) {
       LLVM_DEBUG(llvm::dbgs()
-                 << "rock.attention: gemm0K is equal to gemm0KPerBlock, "
-                 << "prefetching Q tile into regs\n");
+                 << "rock.attention: gemm0K is equal to gemm0KPerBlock\n");
+      LLVM_DEBUG(llvm::dbgs()
+                 << "rock.attention: Prefetching Q tile into regs...\n");
 
       // it is fine m iteration to be zero as it irrelevant to Q tensor
       // as the first gemm is Kt x Qt.
