@@ -14,8 +14,8 @@ def add_numbers(a, b):
 
 if __name__ == "__main__":
     # Example usage - commit adfter
-    result = addNumbers(5, 3)
+    result = add_numbers(5, 3)
     print(f"5 + 3 = {result}")
 
-    result = addNumbers(10.5, 2.3)
+    result = add_numbers(10.5, 2.3)
     print(f"10.5 + 2.3 = {result}")
