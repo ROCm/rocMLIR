@@ -1828,11 +1828,10 @@ struct GridwiseAttentionAccelRewritePattern
 
   // Helper function to compute the 'someWorkToDo' condition used for early
   // exit optimization.
-  Value computeIfWorkToDo(PatternRewriter &rewriter, Location loc,
-                            Value start, Value end, int64_t splitKV,
-                            int64_t gemm0MPerBlock,
-                            std::optional<APInt> prePadG0M, bool isCausal,
-                            bool isKVCache) const {
+  Value computeIfWorkToDo(PatternRewriter &rewriter, Location loc, Value start,
+                          Value end, int64_t splitKV, int64_t gemm0MPerBlock,
+                          std::optional<APInt> prePadG0M, bool isCausal,
+                          bool isKVCache) const {
     // We have no work to do if (1) and (2 || 3) conditions are true:
     // 1. split-kv > 1
     // 2. there's padding in gemm0M && (at least) the last block in split-kv
@@ -1894,7 +1893,7 @@ struct GridwiseAttentionAccelRewritePattern
     scf::IfOp ifb = scf::IfOp::create(rewriter, loc, someWorkToDo,
                                       /*withElseRegion=*/false);
     rewriter.setInsertionPointToStart(&ifb.getThenRegion().front());
-    
+
     // Return the IfOp so caller can close it later (by setting insertion point
     // after it) to ensure output writes happen unconditionally
     return ifb;
