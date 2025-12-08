@@ -6,7 +6,7 @@
 // RUNNER-SAME: func.func(convert-linalg-to-affine-loops,
 // RUNNER-SAME: lower-affine,
 // RUNNER-SAME: expand-strided-metadata,
-// RUNNER-SAME: convert-scf-to-cf),
+// RUNNER-SAME: convert-scf-to-cf{allow-pattern-rollback=true}),
 // RUNNER-SAME: func.func(gpu-async-region),
 // RUNNER-SAME: convert-mhal-to-gpu,
 // RUNNER-SAME: convert-mhal-to-cpu,
