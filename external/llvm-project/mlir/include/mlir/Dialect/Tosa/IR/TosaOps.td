@@ -827,12 +827,12 @@ def Tosa_IntDivOp : Tosa_ElementwiseOp<"intdiv", [SameOperandsAndResultElementTy
   }];
 
   let arguments = (ins
-    Tosa_Int32Tensor:$input1,
-    Tosa_Int32Tensor:$input2
+    Tosa_Int32Or64Tensor:$input1,
+    Tosa_Int32Or64Tensor:$input2
   );
 
   let results = (outs
-    Tosa_Int32Tensor:$output
+    Tosa_Int32Or64Tensor:$output
   );
 
   list<Availability> availability = [
@@ -2220,7 +2220,8 @@ def Tosa_TileOp : Tosa_InferShapedTypeOp<"tile"> {
 // Operator: transpose
 //===----------------------------------------------------------------------===//
 def Tosa_TransposeOp : Tosa_InferShapedTypeOp<"transpose",
-                [DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                [DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface ,
+                                           ["reifyResultShapes"]>,
                  AllElementTypesMatch<["input1", "output"]>]> {
   let summary = "Transpose operator.";
 
@@ -2271,7 +2272,7 @@ def Tosa_GatherOp : Tosa_InferShapedTypeOp<"gather"> {
 
   let arguments = (ins
     Tosa_Tensor3D:$values,
-    Tosa_Int32Tensor2D:$indices
+    Tosa_IndexTensor2D:$indices
   );
 
   let results = (outs
@@ -2308,7 +2309,7 @@ def Tosa_ScatterOp : Tosa_InferShapedTypeOp<"scatter"> {
 
   let arguments = (ins
     Tosa_Tensor3D:$values_in,
-    Tosa_Int32Tensor2D:$indices,
+    Tosa_IndexTensor2D:$indices,
     Tosa_Tensor3D:$input
   );
 

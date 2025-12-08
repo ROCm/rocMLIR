@@ -171,7 +171,7 @@ struct BufferResultsToOutParamsOpts {
   /// If true, the pass eliminates the memref.alloc and memcpy if the returned
   /// memref is allocated in the current function and has dynamic shape.
   bool hoistDynamicAllocs = false;
-  
+
   /// If true, the pass modifies the function signatures of public functions.
   bool modifyPublicFunctions = false;
 };
