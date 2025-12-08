@@ -1162,3 +1162,64 @@ func.func @global_load_to_lds_f4_dest_odd_coord(
     : memref<128xf4E2M1FN> -> memref<128xf4E2M1FN, #gpu.address_space<workgroup>>
   return
 }
+
+// Error case: Wrong memory space (not specified)
+func.func @lds_transpose_load_wrong_memory_space(%buffer: memref<128x64xf16>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{source memref must have a specified memory space}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
+    : memref<128x64xf16> -> vector<4xf16>
+  return
+}
+
+// Error case: Wrong memory space (private)
+func.func @lds_transpose_load_private_memory(%buffer: memref<128x64xf16, #gpu.address_space<private>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{source memory address space must be workgroup (LDS)}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<private>> -> vector<4xf16>
+  return
+}
+
+// Error case: Unsupported architecture (gfx908)
+func.func @lds_transpose_load_old_arch(%buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx908"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{LDS transpose load is not supported on this architecture}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// Error case: Wrong number of indices (rank mismatch - too few)
+func.func @lds_transpose_load_wrong_indices_count(%buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{expected 2 indices}}
+  %fragment = rock.lds_transpose_load %buffer[%c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// Error case: Wrong number of indices (rank mismatch - too many)
+func.func @lds_transpose_load_too_many_indices(%buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{expected 2 indices}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// Error case: Mismatched element types (source f16, result bf16)
+func.func @lds_transpose_load_mismatched_types(%buffer: memref<128x32xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  // expected-error @+1 {{result element type ('bf16') must match source element type ('f16')}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c1]
+    : memref<128x32xf16, #gpu.address_space<workgroup>> -> vector<4xbf16>
+  return
+}

@@ -4,6 +4,8 @@ set(ROCK_UNITTEST_SOURCES
   loweringUtilsTests.cpp
   transformMapUtilsTests.cpp
   InitParamsAccelTests.cpp
+  InitParamsNonAccelTests.cpp
+  ParamLookupTableTests.cpp
 )
 
 if(NOT WIN32)
@@ -19,6 +21,7 @@ target_link_libraries(MLIRRockUnitTests
   PRIVATE
   MLIRRockOps
   MLIRRockUtility
+  MLIRRockTuning
   MLIRTosaDialect
   MLIRFuncDialect
   MLIRIR

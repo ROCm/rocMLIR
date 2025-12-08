@@ -43,7 +43,7 @@ Value createTransformedMemRef(OpBuilder &b, Location loc,
                               Attribute memorySpace = nullptr) {
   // Create base memref
   auto baseType = MemRefType::get(shape, elemType, nullptr, memorySpace);
-  Value base = b.create<memref::AllocOp>(loc, baseType);
+  Value base = memref::AllocOp::create(b, loc, baseType);
 
   // Create an identity transform to get a transformed value
   BottomUpTMBuilder builder(b, shape, loc);
@@ -54,7 +54,7 @@ Value createTransformedMemRef(OpBuilder &b, Location loc,
   TransformMapAttr transform = builder.get();
 
   // Apply transform
-  return b.create<TransformOp>(loc, base, transform);
+  return TransformOp::create(b, loc, base, transform);
 }
 
 //===----------------------------------------------------------------------===//

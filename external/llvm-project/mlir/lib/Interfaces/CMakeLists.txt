@@ -1,8 +1,8 @@
 set(LLVM_OPTIONAL_SOURCES
+  AlignmentAttrInterface.cpp
   CallInterfaces.cpp
   CastInterfaces.cpp
   ControlFlowInterfaces.cpp
-  CopyOpInterface.cpp
   DataLayoutInterfaces.cpp
   DerivedAttributeOpInterface.cpp
   DestinationStyleOpInterface.cpp
@@ -10,6 +10,7 @@ set(LLVM_OPTIONAL_SOURCES
   FunctionInterfaces.cpp
   IndexingMapOpInterface.cpp
   InferIntRangeInterface.cpp
+  InferStridedMetadataInterface.cpp
   InferTypeOpInterface.cpp
   LoopLikeInterface.cpp
   MemOpInterfaces.cpp
@@ -41,10 +42,10 @@ function(add_mlir_interface_library name)
 endfunction(add_mlir_interface_library)
 
 
+add_mlir_interface_library(AlignmentAttrInterface)
 add_mlir_interface_library(CallInterfaces)
 add_mlir_interface_library(CastInterfaces)
 add_mlir_interface_library(ControlFlowInterfaces)
-add_mlir_interface_library(CopyOpInterface)
 add_mlir_interface_library(DataLayoutInterfaces)
 add_mlir_interface_library(DerivedAttributeOpInterface)
 add_mlir_interface_library(DestinationStyleOpInterface)
@@ -66,6 +67,21 @@ add_mlir_library(MLIRFunctionInterfaces
 
 add_mlir_interface_library(IndexingMapOpInterface)
 add_mlir_interface_library(InferIntRangeInterface)
+
+add_mlir_library(MLIRInferStridedMetadataInterface
+  InferStridedMetadataInterface.cpp
+
+  ADDITIONAL_HEADER_DIRS
+  ${MLIR_MAIN_INCLUDE_DIR}/mlir/Interfaces
+
+  DEPENDS
+  MLIRInferStridedMetadataInterfaceIncGen
+
+  LINK_LIBS PUBLIC
+  MLIRInferIntRangeInterface
+  MLIRIR
+)
+
 add_mlir_interface_library(InferTypeOpInterface)
 
 add_mlir_library(MLIRLoopLikeInterface

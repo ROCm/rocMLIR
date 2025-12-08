@@ -101,7 +101,6 @@ MLIRControlFlowInterfaces
 MLIRControlFlowToLLVM
 MLIRConvertToLLVMInterface
 MLIRConvertToLLVMPass
-MLIRCopyOpInterface
 MLIRDLTIDialect
 MLIRDataLayoutInterfaces
 MLIRDestinationStyleOpInterface
@@ -124,6 +123,7 @@ MLIRIndexToLLVM
 MLIRIndexingMapOpInterface
 MLIRInferIntRangeCommon
 MLIRInferIntRangeInterface
+MLIRInferStridedMetadataInterface
 MLIRInferTypeOpInterface
 MLIRLLVMCommonConversion
 MLIRLLVMDialect
@@ -150,6 +150,8 @@ MLIRNVGPUDialect
 MLIRNVVMDialect
 MLIRNVVMTarget
 MLIRNVVMToLLVMIRTranslation
+MLIROpenACCMPCommon
+MLIROpenMPDialect
 MLIRPDLDialect
 MLIRPDLInterpDialect
 MLIRPDLToPDLInterp
