@@ -844,16 +844,18 @@ def get_attn_configurations(filename):
     if DATA_TYPES_ATTENTION is None:
         initialize_dtypes_attn()
     bool_space = ['false', 'true']
+    # if not defined, set it to false
+    default_to_false = ['false']
     default_test_space = {
         "-t": DATA_TYPES_ATTENTION,
         "-transQ": bool_space,
         "-transK": bool_space,
         "-transV": bool_space,
         "-transO": bool_space,
-        "-causal": bool_space,
-        "-return_lse": bool_space,
-        "-with-attn-scale": bool_space,
-        "-with-attn-bias": bool_space
+        "-causal": default_to_false,
+        "-return_lse": default_to_false,
+        "-with-attn-scale": default_to_false,
+        "-with-attn-bias": default_to_false
     }
 
     configs = []
