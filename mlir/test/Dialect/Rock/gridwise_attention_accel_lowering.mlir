@@ -11,13 +11,13 @@
 // CHECK: %[[QTr0:.+]] = rock.transform %[[Q]] by
 
 // init maxRow buffer
-// CHECK-DAG: rock.fill(%[[maxRowBuf:.+]], %[[negInf]])
+// CHECK-DAG: rock.fill(%[[maxRowBuf:.+]], %[[negInf]]) : memref<1xf32
 
 // init sumRow buffer
-// CHECK-DAG: rock.fill(%[[sumRowBuf:.+]], %[[zeroF32]])
+// CHECK-DAG: rock.fill(%[[sumRowBuf:.+]], %[[zeroF32]]) : memref<1xf32
 
 // init attentionAcc buffer
-// CHECK-DAG: rock.fill(%[[attnOutBuf:.+]], %[[zeroF32]])
+// CHECK-DAG: rock.fill(%[[attnOutBuf:.+]], %[[zeroF32]]) : memref<2x16xf32
 
 // Outer N-tile loop
 // CHECK: scf.for
@@ -496,12 +496,8 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
   // CHECK-NEXT: %[[endSplitKV:.+]] = arith.muli %[[splitPlusOne]], %[[gemm0MIterations]] : index
   // CHECK-NEXT: %[[endIter:.+]] = arith.minui %[[numIter]], %[[endSplitKV]] : index
   // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[endIter]], %[[c1]] : index
-  
-  // TODO: Revert this change when we don't need to skipEarlyExit workaround for
-  //       flash decoding
-  // BUG-CHECK-NEXT: %[[someWorkToDo:.+]] = arith.cmpi ugt, %[[endIter]], %[[startIter]] : index
-  // BUG-CHECK-NEXT: scf.if %[[someWorkToDo]]
-
+  // CHECK-NEXT: %[[someWorkToDo:.+]] = arith.cmpi ugt, %[[endIter]], %[[startIter]] : index
+  // CHECK-NEXT: scf.if %[[someWorkToDo]]
   // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[startIter]] to %[[endIter]] step %[[c1]] {
   // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
   // CHECK-NEXT: scf.if %[[comparison]] {
