@@ -22,7 +22,7 @@ from hip import hip
 
 import reportUtils
 from perfCommonUtils import Operation, GEMMLibrary
-
+ 
 # global variables.
 ROCPROF = '/opt/rocm/bin/rocprofv3'
 MIOPENDRIVER = '/opt/rocm/bin/MIOpenDriver'
