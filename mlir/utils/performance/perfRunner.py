@@ -2114,7 +2114,7 @@ def benchmark_fusion_kernels(test_dir,
     df.to_csv(chip + '_' + op + '_' + reportUtils.PERF_REPORT_FUSION_FILE, index=False)
 
 
-# Tune MIOpen with MLIR kernelss
+# Tune MIOpen with MLIR kernelssss
 def tune_mlir_kernels(configs, arch, num_cu):
     solver_names = {
         test_vector: get_solver_name(test_vector, arch, num_cu) for test_vector in configs
