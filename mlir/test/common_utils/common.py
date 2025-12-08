@@ -11,6 +11,7 @@ def get_arch_features(arch: str):
     arch_features = None
     support_mfma = False
     support_wmma = False
+    support_accel_fp8 = False
     major = chip_name[:-2]
     minor = chip_name[-2:]
     if major == 'gfx9':
@@ -18,8 +19,10 @@ def get_arch_features(arch: str):
             arch_features = 'mfma|dot|atomic_add|atomic_add_f16'
         elif minor == '42':
             arch_features = 'mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b'
+            support_accel_fp8 = True
         elif minor == '50':
             arch_features = 'mfma|dot|atomic_add|atomic_add_f16|atomic_add_bf16|direct_to_lds_32b|direct_to_lds_128b|lds_transpose_load'
+            support_accel_fp8 = True
         elif minor == '06':
             arch_features = 'dot'
         else:
@@ -35,13 +38,14 @@ def get_arch_features(arch: str):
         arch_features = 'dot|atomic_add|atomic_fmax_f32|wmma'
     elif major == 'gfx12':
         arch_features = 'dot|atomic_add|atomic_add_f16|atomic_add_bf16|atomic_fmax_f32|wmma'
+        support_accel_fp8 = True
     if arch_features and 'mfma' in arch_features:
         support_mfma = True
         pass
     elif arch_features and 'wmma' in arch_features:
         support_wmma = True
         pass
-    return arch_features, support_mfma, support_wmma
+    return arch_features, support_mfma, support_wmma, support_accel_fp8
 
 
 def hip_check(call_result):
