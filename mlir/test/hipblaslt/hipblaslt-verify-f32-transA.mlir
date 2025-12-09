@@ -1,4 +1,3 @@
-// REQUIRES: rock-any-e2e
 // RUN: %python %mlir_src_root/utils/performance/hipblaslt-benchmark-driver/verify_hipblaslt.py -m 256 -n 128 -k 64 -g 1 -t f32 --transA True \
 // RUN:   --hipblaslt-path hipblaslt-benchmark-driver \
 // RUN:   --rocmlir-gen-path rocmlir-gen \

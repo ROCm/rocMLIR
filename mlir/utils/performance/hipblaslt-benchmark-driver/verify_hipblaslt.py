@@ -69,8 +69,12 @@ def run_rocmlir_gen(rocmlir_gen_path, rocmlir_driver_path, runner_path, libs,
                     m, n, k, g, dtype, transA, transB, arch):
     """Run rocmlir-gen with -pr and execute to get reference output."""
     # Map dtype to rocmlir-gen format
-    dtype_map = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i8'}
+    dtype_map = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i8', 'fp8': 'fp8'}
     rocmlir_dtype = dtype_map.get(dtype, dtype)
+
+    # Convert transA/transB to lowercase for rocmlir-gen
+    trans_a = transA.lower() if isinstance(transA, str) else str(transA).lower()
+    trans_b = transB.lower() if isinstance(transB, str) else str(transB).lower()
 
     # Build rocmlir-gen command
     gen_cmd = [
@@ -82,8 +86,8 @@ def run_rocmlir_gen(rocmlir_gen_path, rocmlir_driver_path, runner_path, libs,
         '-n', str(n),
         '-k', str(k),
         '-g', str(g if g > 0 else 1),
-        f'-transA={transA}',
-        f'-transB={transB}',
+        f'-transA={trans_a}',
+        f'-transB={trans_b}',
         '-pr',  # print results
         '-ph',  # generate host harness
     ]

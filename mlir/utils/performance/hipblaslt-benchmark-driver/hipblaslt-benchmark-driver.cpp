@@ -1,4 +1,5 @@
 #include "../common/benchmarkUtils.h"
+#include "../common/hip_f8_impl.h"
 
 #include <hip/hip_fp16.h>
 #include <hip/hip_runtime_api.h>
@@ -118,6 +119,20 @@ static float f16ToFloat(uint16_t f16) {
   return __half2float(h);
 }
 
+// Check if device uses FNUZ (negative zero is NaN) FP8 format
+static bool isF8Fnuz() {
+  const auto device_name = benchmark::get_device_name();
+  return device_name.find("gfx94") != std::string::npos;
+}
+
+// Convert FP8 E4M3 to float using the appropriate format for the device
+static float fp8ToFloat(uint8_t fp8) {
+  if (isF8Fnuz()) {
+    return benchmark::cast_from_f8<3, 4, float, true>(fp8);
+  }
+  return benchmark::cast_from_f8<3, 4, float, false>(fp8);
+}
+
 // Get element as float from buffer
 static float getElementAsFloat(const void *buf, size_t idx,
                                benchmark::DataType dtype) {
@@ -132,6 +147,8 @@ static float getElementAsFloat(const void *buf, size_t idx,
     return static_cast<float>(static_cast<const int32_t *>(buf)[idx]);
   case benchmark::DataType::I8:
     return static_cast<float>(static_cast<const int8_t *>(buf)[idx]);
+  case benchmark::DataType::F8:
+    return fp8ToFloat(static_cast<const uint8_t *>(buf)[idx]);
   default:
     return 0.0f;
   }
@@ -188,10 +205,13 @@ int main(int argc, char **argv) {
   const hipblasOperation_t trans_b =
       args.transposeA ? HIPBLAS_OP_T : HIPBLAS_OP_N;
 
-  const int64_t lda = args.transposeA ? m : k;
-  const int64_t ldb = args.transposeB ? k : n;
-  const int64_t ldc = n;
-  const int64_t ldd = n;
+  // Matrix layout dimensions depend on transpose flags.
+  // Leading dimension equals rows for column-major contiguous matrices.
+  const int64_t matA_rows = args.transposeB ? k : n;
+  const int64_t matA_cols = args.transposeB ? n : k;
+
+  const int64_t matB_rows = args.transposeA ? m : k;
+  const int64_t matB_cols = args.transposeA ? k : m;
 
   benchmark::DataType computeDataType =
       getComputeDataType(args.dataType, args.outDataType);
@@ -259,15 +279,12 @@ int main(int argc, char **argv) {
   }
 
   hipblasLtMatrixLayout_t matA, matB, matC, matD;
-  // Due to A/B swap for row-major emulation: matA uses ldb, matB uses lda
-  HIPBLASLT_ABORT_IF_FAIL(
-      hipblasLtMatrixLayoutCreate(&matA, inputType, n, k, ldb));
-  HIPBLASLT_ABORT_IF_FAIL(
-      hipblasLtMatrixLayoutCreate(&matB, inputType, k, m, lda));
-  HIPBLASLT_ABORT_IF_FAIL(
-      hipblasLtMatrixLayoutCreate(&matC, outputType, n, m, ldc));
-  HIPBLASLT_ABORT_IF_FAIL(
-      hipblasLtMatrixLayoutCreate(&matD, outputType, n, m, ldd));
+  HIPBLASLT_ABORT_IF_FAIL(hipblasLtMatrixLayoutCreate(
+      &matA, inputType, matA_rows, matA_cols, matA_rows));
+  HIPBLASLT_ABORT_IF_FAIL(hipblasLtMatrixLayoutCreate(
+      &matB, inputType, matB_rows, matB_cols, matB_rows));
+  HIPBLASLT_ABORT_IF_FAIL(hipblasLtMatrixLayoutCreate(&matC, outputType, n, m, n));
+  HIPBLASLT_ABORT_IF_FAIL(hipblasLtMatrixLayoutCreate(&matD, outputType, n, m, n));
 
   if (batch_count > 1) {
     // Due to A/B swap: matA uses strideB, matB uses strideA

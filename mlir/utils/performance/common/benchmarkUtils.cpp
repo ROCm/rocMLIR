@@ -85,8 +85,22 @@ uint16_t float_to_float16(float flt) {
   return sign;
 }
 
+// Check if device uses FNUZ FP8 format
+bool isF8Fnuz() {
+  hipDeviceProp_t props{};
+  auto status = hipGetDeviceProperties(&props, get_device_id());
+  if (status != hipSuccess)
+    return false;
+  std::string device_name(props.gcnArchName);
+  return device_name.find("gfx94") != std::string::npos;
+}
+
+// Convert float to FP8 E4M3 using the appropriate format
 uint8_t float_to_float8(float flt) {
-  return benchmark::cast_to_f8<4, 3, float, false, false>(flt, false, 0);
+  if (isF8Fnuz()) {
+    return benchmark::cast_to_f8<3, 4, float, true, false>(flt, false, 0);
+  }
+  return benchmark::cast_to_f8<3, 4, float, false, false>(flt, false, 0);
 }
 
 // Print the help message
