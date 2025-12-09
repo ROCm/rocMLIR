@@ -99,12 +99,13 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
   // Group together the workgroups in g_block
   Value groupId = DivUIOp::create(b, loc, bid, blocksPerGroup);
   Value firstBidM = MulIOp::create(b, loc, groupId, mBlocksPerGroup);
-  Value thisMBlocksPerGroup = MinUIOp::create(b, 
-      loc, SubIOp::create(b, loc, mBlocksValue, firstBidM), mBlocksPerGroup);
-  Value m_block = AddIOp::create(b, 
-      loc, firstBidM, RemUIOp::create(b, loc, bid, thisMBlocksPerGroup));
-  Value n_block = DivUIOp::create(b, 
-      loc, RemUIOp::create(b, loc, bid, blocksPerGroup), thisMBlocksPerGroup);
+  Value thisMBlocksPerGroup = MinUIOp::create(
+      b, loc, SubIOp::create(b, loc, mBlocksValue, firstBidM), mBlocksPerGroup);
+  Value m_block = AddIOp::create(
+      b, loc, firstBidM, RemUIOp::create(b, loc, bid, thisMBlocksPerGroup));
+  Value n_block =
+      DivUIOp::create(b, loc, RemUIOp::create(b, loc, bid, blocksPerGroup),
+                      thisMBlocksPerGroup);
   // no need to get splitKFactor here
   return {g_block, m_block, n_block};
 }
