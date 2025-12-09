@@ -566,10 +566,8 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
   // Handle scaled quant_dot -> tosa.matmul_t_block_scaled
   if constexpr (std::is_same_v<DotType, migraphx::QuantDotOp>) {
     if (hasScales) {
-      // Get the original MIXRShapedType for scale tensors to access strides
+      // Get the original MIXRShapedType for scale A tensor to access strides
       auto origScaleAType = cast<MIXRShapedType>(op.getScaleA().getType());
-      auto origScaleBType = cast<MIXRShapedType>(op.getScaleB().getType());
-      (void)origScaleBType; // Used to get scale element type
 
       ArrayRef<int64_t> scaleAStrides = origScaleAType.getStrides();
       size_t rankA = shapeA.size();
@@ -598,7 +596,9 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
 
       int64_t scaleKDim = batchInfo.kDim / blockSize;
 
-      // Physical scale shapes (3D)
+      // MIGraphX verifier already validates that scale shapes match input
+      // shapes. Therefore we can use the same batch flattening info from A and
+      // B to compute the physical scale shapes.
       SmallVector<int64_t> physScaleAShape = {batchInfo.newBatchA,
                                               batchInfo.newM, scaleKDim};
       SmallVector<int64_t> physScaleBShape = {batchInfo.newBatchB, scaleKDim,

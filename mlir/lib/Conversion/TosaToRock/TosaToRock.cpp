@@ -956,39 +956,75 @@ public:
   }
 };
 
-/// Broadcast scale tensor from [batch, dim1, kScale] to [batch, dim1, k]
-/// by adding a block dimension and broadcasting it to blockSize.
+/// Broadcast scale tensor to full k Dim by adding a block dimension and
+/// broadcasting it to blockSize.
+// scale is of shape [batch, D, kScale] if not transposed, [batch, kScale, D] if
+// transposed
 static Value broadcastScale(OpBuilder &b, Location loc, Value scale,
-                            int64_t blockSize) {
+                            int64_t blockSize, UnitAttr transpose) {
   auto scaleType = cast<RankedTensorType>(scale.getType());
   ArrayRef<int64_t> scaleShape = scaleType.getShape();
 
-  // Scale shape is [batch, M, kScale] for A or [batch, N, kScale] for B
-  // (B is already transposed in matmul_t_block_scaled)
+  if (transpose) {
+    // Transposed scale input: [batch, kScale, D]
+    // Output: [batch, k, D] where k = kScale * blockSize
 
+    // Step 1: Add a "block" dimension with size 1 after kScale
+    // Shape: [batch, kScale, D] -> [batch, kScale, block=1, D]
+    // Note: We define end dims in order: batch(0), kScale(1), block(2), D(3)
+    SmallVector<StringRef, 3> initDims = {"batch", "kScale", "D"};
+    rock::BottomUpTMBuilder addDimB(b, initDims, scaleShape, loc);
+    addDimB.passThrough({"batch", "kScale"}); // batch->0, kScale->1
+    addDimB.addDim("block", 2, 1);            // block->2
+    // D comes from start dim 2, goes to end dim 3
+    addDimB.passThrough({"D"}, {3}, {"D"});
+    auto addDimAttr = addDimB.get();
+    scale = rock::TransformOp::create(b, loc, scale, addDimAttr);
+
+    // Step 2: Broadcast the block dimension to blockSize
+    // Shape: [batch, kScale, 1, D] -> [batch, kScale, blockSize, D]
+    rock::BottomUpTMBuilder broadcastB =
+        rock::BottomUpTMBuilder::above(addDimB, addDimAttr);
+    broadcastB.passThrough({"batch", "kScale"});
+    broadcastB.broadcast({2}, {blockSize});
+    broadcastB.passThrough({"D"}, {3}, {"D"});
+    auto broadcastAttr = broadcastB.get();
+    scale = rock::TransformOp::create(b, loc, scale, broadcastAttr);
+
+    // Step 3: Merge kScale and block into k
+    // Shape: [batch, kScale, blockSize, D] -> [batch, k, D]
+    rock::BottomUpTMBuilder mergeB =
+        rock::BottomUpTMBuilder::above(broadcastB, broadcastAttr);
+    mergeB.passThrough("batch");
+    mergeB.merge("k", 1, {"kScale", "block"});
+    mergeB.passThrough({"D"}, {2}, {"D"});
+    auto mergeAttr = mergeB.get();
+    return rock::TransformOp::create(b, loc, scale, mergeAttr);
+  }
+  // else if not transposed
   // Step 1: Add a "block" dimension with size 1
-  // Shape: [batch, row, kScale] -> [batch, row, kScale, block=1]
-  SmallVector<StringRef, 3> initDims = {"batch", "row", "kScale"};
+  // Shape: [batch, D, kScale] -> [batch, D, kScale, block=1]
+  SmallVector<StringRef, 3> initDims = {"batch", "D", "kScale"};
   rock::BottomUpTMBuilder addDimB(b, initDims, scaleShape, loc);
-  addDimB.passThrough({"batch", "row", "kScale"});
+  addDimB.passThrough({"batch", "D", "kScale"});
   addDimB.addDim("block", 3, 1);
   auto addDimAttr = addDimB.get();
   scale = rock::TransformOp::create(b, loc, scale, addDimAttr);
 
   // Step 2: Broadcast the block dimension to blockSize
-  // Shape: [batch, row, kScale, 1] -> [batch, row, kScale, blockSize]
+  // Shape: [batch, D, kScale, 1] -> [batch, D, kScale, blockSize]
   rock::BottomUpTMBuilder broadcastB =
       rock::BottomUpTMBuilder::above(addDimB, addDimAttr);
-  broadcastB.passThrough({"batch", "row", "kScale"});
+  broadcastB.passThrough({"batch", "D", "kScale"});
   broadcastB.broadcast({3}, {blockSize});
   auto broadcastAttr = broadcastB.get();
   scale = rock::TransformOp::create(b, loc, scale, broadcastAttr);
 
   // Step 3: Merge kScale and block into k
-  // Shape: [batch, row, kScale, blockSize] -> [batch, row, k]
+  // Shape: [batch, D, kScale, blockSize] -> [batch, D, k]
   rock::BottomUpTMBuilder mergeB =
       rock::BottomUpTMBuilder::above(broadcastB, broadcastAttr);
-  mergeB.passThrough({"batch", "row"});
+  mergeB.passThrough({"batch", "D"});
   mergeB.merge("k", 2, {"kScale", "block"});
   auto mergeAttr = mergeB.get();
   return rock::TransformOp::create(b, loc, scale, mergeAttr);
@@ -998,6 +1034,14 @@ class MatmulTBlockScaledConverter final
     : public OpConversionPattern<tosa::MatmulTBlockScaledOp> {
 public:
   using OpConversionPattern<tosa::MatmulTBlockScaledOp>::OpConversionPattern;
+
+  UnitAttr getTranspose(tosa::MatmulTBlockScaledOp op, StringRef name) const {
+    if (auto attr = op->getAttrOfType<BoolAttr>(name)) {
+      if (attr.getValue())
+        return UnitAttr::get(op->getContext());
+    }
+    return nullptr;
+  }
 
   LogicalResult matchAndRewrite(tosa::MatmulTBlockScaledOp op,
                                 tosa::MatmulTBlockScaledOp::Adaptor adaptor,
@@ -1009,24 +1053,52 @@ public:
     // For matmul_t_block_scaled:
     //   a_data: [batch, M, K] - f4E2M1FN
     //   a_scale: [batch, M, K/blockSize] - f8E8M0FNU
-    //   b_data: [batch, N, K] - f4E2M1FN (B is transposed!)
-    //   b_scale: [batch, N, K/blockSize] - f8E8M0FNU
-    //   output: [batch, M, N] - f32
+    //   b_data: [batch, N, K] - f4E2M1FN (B is transposed by default for
+    //   tosa.matmul_t_block_scaled)
+    //   b_scale: [batch, N, K/blockSize] - f8E8M0FNU (B scale is already
+    //   transposed by default for tosa.matmul_t_block_scaled) output: [batch,
+    //   M, N] - f32
     Value aData = adaptor.getAData();
     Value aScale = adaptor.getAScale();
     Value bData = adaptor.getBData();
     Value bScale = adaptor.getBScale();
 
-    auto aDataType = cast<RankedTensorType>(aData.getType());
     auto aScaleType = cast<RankedTensorType>(aScale.getType());
+    auto bScaleType = cast<RankedTensorType>(bScale.getType());
 
-    ArrayRef<int64_t> aShape = aDataType.getShape();
     ArrayRef<int64_t> aScaleShape = aScaleType.getShape();
+    ArrayRef<int64_t> bScaleShape = bScaleType.getShape();
 
-    // Extract dimensions
-    int64_t kDim = aShape[2];             // K dimension from A
-    int64_t kScaleDim = aScaleShape[2];   // K/blockSize from scale
-    int64_t blockSize = kDim / kScaleDim; // Compute block size
+    // Get transpose attributes that may have been set by
+    // TransposeRewritePattern
+    UnitAttr transposeA = getTranspose(op, "transpose_a");
+    UnitAttr transposeBFromAttr = getTranspose(op, "transpose_b");
+    UnitAttr transposeAScaleFromAttr = getTranspose(op, "transpose_a_scale");
+    UnitAttr transposeBScaleFromAttr = getTranspose(op, "transpose_b_scale");
+
+    // Compute blockSize from scales
+    // A scale: [batch, M, K/blockSize] if not transposed, [batch, K/blockSize,
+    // M] if transposed
+    int64_t kScaleDimA =
+        transposeAScaleFromAttr ? aScaleShape[1] : aScaleShape[2];
+    // B scale: [batch, N, K/blockSize] if not transposed, [batch, K/blockSize,
+    // N] if transposed. Note that B scale is already transposed by default for
+    // tosa.matmul_t_block_scaled.
+    int64_t kScaleDimB =
+        transposeBScaleFromAttr ? bScaleShape[1] : bScaleShape[2];
+    // K/blockSize should match between A and B scales
+    assert(kScaleDimA == kScaleDimB &&
+           "A and B scale K dimensions should match");
+
+    // Get K from output type and B data
+    // Output is [batch, M, N]
+    auto bDataType = cast<RankedTensorType>(bData.getType());
+    ArrayRef<int64_t> bShape = bDataType.getShape();
+    // B physical shape depends on transpose:
+    // by default B is tranposed in tosa.matmul_t_block_scaled with shape
+    // [batch, N, K].
+    int64_t kDim = transposeBFromAttr ? bShape[1] : bShape[2];
+    int64_t blockSize = kDim / kScaleDimA;
 
     // Allocate output
     Value output =
@@ -1038,22 +1110,38 @@ public:
       return failure();
 
     // Broadcast scales to match data tensor shapes
-    // A scale: [batch, M, K/blockSize] -> [batch, M, K]
-    // B scale: [batch, N, K/blockSize] -> [batch, N, K]
-    Value brAScale = broadcastScale(rw, loc, aScale, blockSize);
-    Value brBScale = broadcastScale(rw, loc, bScale, blockSize);
+    // A scale: [batch, M, K/blockSize] -> [batch, M, K] if not transposed,
+    // A scale: [batch, K/blockSize, M] -> [batch, K, M] if transposed
+    // Note that B scale is already transposed by default for
+    // tosa.matmul_t_block_scaled. B scale: [batch, N, K/blockSize] -> [batch,
+    // N, K] if not transposed, B scale: [batch, K/blockSize, N] -> [batch, K,
+    // N] if transposed
+    Value brAScale =
+        broadcastScale(rw, loc, aScale, blockSize, transposeAScaleFromAttr);
+    Value brBScale =
+        broadcastScale(rw, loc, bScale, blockSize, transposeBScaleFromAttr);
 
-    // For matmul_t_block_scaled, B is already transposed (shape is [batch, N,
-    // K]) So we need to tell rock.gemm that B is transposed
-    UnitAttr transposeB = rw.getUnitAttr();
+    // Scale transpose attributes:
+    // TransposeRewritePattern can set transpose_a_scale and transpose_b_scale
+    // when transposes are fused into the matmul_t_block_scaled op.
+    // Scale transposes are independent of data transposes - rock::GemmOp can
+    // take scaleA/scaleB transposed independently from A/B arguments.
+    //
+    // - A scale: starts non-transposed [batch, M, K], toggled if
+    //   transpose_a_scale is set
+    // - B scale: starts transposed [batch, N, K] (matching B's default layout
+    //   in matmul_t_block_scaled), toggled if transpose_b_scale is set
+    UnitAttr aScaleTransposed = transposeAScaleFromAttr;
+    UnitAttr bScaleTransposed =
+        transposeBScaleFromAttr ? nullptr : rw.getUnitAttr();
+    // For matmul_t_block_scaled, B is already expected to be transposed.
+    // If transpose_b attribute is set, it toggles the transpose.
+    UnitAttr transposeB = transposeBFromAttr ? nullptr : rw.getUnitAttr();
 
     auto rockGemm = rock::GemmOp::create(
         rw, loc, outputType, aData, bData, output, brAScale, brBScale,
-        /*aTransposed=*/nullptr,
-        /*bTransposed=*/transposeB,
-        /*cTransposed=*/nullptr,
-        /*aScaleTransposed=*/nullptr,
-        /*bScaleTransposed=*/transposeB, // B scale is also transposed
+        transposeA, transposeB,
+        /*cTransposed=*/nullptr, aScaleTransposed, bScaleTransposed,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
         /*blockSize=*/nullptr, /*gridSize=*/nullptr,
@@ -1303,10 +1391,20 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
           // so an additional transpose would un-transpose it
           setTranspose(matMulTBlockScaledOp, "transpose_b", mmNonTrivial);
           matMulTBlockScaledOp.getBDataMutable().assign(tInput);
+        } else if (matMulTBlockScaledOp.getAScale() == tOutput) {
+          // Handle transpose on A scale input
+          setTranspose(matMulTBlockScaledOp, "transpose_a_scale", mmNonTrivial);
+          matMulTBlockScaledOp.getAScaleMutable().assign(tInput);
+        } else if (matMulTBlockScaledOp.getBScale() == tOutput) {
+          // Handle transpose on B scale input
+          // Note: B scale follows B's default transpose in
+          // matmul_t_block_scaled
+          setTranspose(matMulTBlockScaledOp, "transpose_b_scale", mmNonTrivial);
+          matMulTBlockScaledOp.getBScaleMutable().assign(tInput);
         } else {
           return matMulTBlockScaledOp.emitWarning(
               "transpose found leading to a matmul_t_block_scaled input other "
-              "than A or B data");
+              "than A/B data or scale");
         }
       } else {
         return failure();
