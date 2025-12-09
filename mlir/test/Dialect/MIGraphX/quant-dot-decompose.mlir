@@ -150,3 +150,25 @@ func.func @quant_dot_non_standard_strides(
      -> !migraphx.shaped<4x64x64xf32, 4096x64x1>
   return %0 : !migraphx.shaped<4x64x64xf32, 4096x64x1>
 }
+
+// Kernel functions shouldn't get decomposed
+// CHECK-LABEL: func.func @quant_dot_with_both_scales_f8e8m0fnu_kernel
+// CHECK-NOT: migraphx.convert
+// CHECK-NOT: migraphx.dot
+// CHECK: migraphx.quant_dot
+func.func @quant_dot_with_both_scales_f8e8m0fnu_kernel(
+  %arg0: !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1>, 
+  %arg1: !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1>,
+  %arg2: !migraphx.shaped<1x16x512xf8E8M0FNU, 8192x512x1>,
+  %arg3: !migraphx.shaped<1x512x16xf8E8M0FNU, 8192x16x1>
+) -> !migraphx.shaped<1x16x16xf32, 256x16x1> attributes {kernel} {
+  %0 = migraphx.quant_dot
+       %arg0 scaled by %arg2,
+       %arg1 scaled by %arg3 {perf_config = "v3:64,64,16,32,32,32,4,1,2,1,1"}
+     : !migraphx.shaped<1x16x512xf4E2M1FN, 8192x512x1> scaled by
+       !migraphx.shaped<1x16x512xf8E8M0FNU, 8192x512x1>,
+       !migraphx.shaped<1x512x16xf4E2M1FN, 8192x16x1> scaled by
+       !migraphx.shaped<1x512x16xf8E8M0FNU, 8192x16x1>
+     -> !migraphx.shaped<1x16x16xf32, 256x16x1>
+  return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
+}
