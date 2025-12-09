@@ -278,6 +278,13 @@ LDSTransposeDecision decideLDSTransposeForOperands(
   }
   // else - implicitly: neither operand usable, enableA/enableB remain false.
 
+  // TODO: adapt code to support numWaves = 8, 16 and 32 (only wmma).
+  int64_t numWaves = (mPerBlock * nPerBlock) / (mPerWave * nPerWave);
+  if (numWaves > 4) {
+    result.enableA = false;
+    result.enableB = false;
+  }
+
   return result;
 }
 
@@ -720,31 +727,31 @@ static std::pair<Value, Value> computeLDSBaseOffsets(PatternRewriter &b,
 //
 // Parameters:
 //   waveId        - Runtime wave ID inside the workgroup.
-//   physicalWaves - Total number of waves (compile-time).
 //
 // Returns:
 //   WaveGridLayout containing:
 //     - wavesInM, wavesInN: Grid dimensions.
 //     - waveM, waveN:      This wave's assigned 2D grid coordinates.
 //===----------------------------------------------------------------------===//
-static WaveGridLayout computeWaveGridLayout(PatternRewriter &b, Location loc,
-                                            Value waveId, int64_t physicalWaves,
-                                            int64_t mPerWave, int64_t nPerWave,
-                                            int64_t mPerBlock,
-                                            int64_t nPerBlock) {
+static FailureOr<WaveGridLayout>
+computeWaveGridLayout(PatternRewriter &b, Location loc, Value waveId,
+                      int64_t mPerWave, int64_t nPerWave, int64_t mPerBlock,
+                      int64_t nPerBlock) {
   // Calculate how many wave-sized tiles fit in the block dimensions
   // These determine the wave grid, not accounting for outer loop repeats
   int64_t waveTilesInM = mPerBlock / mPerWave;
   int64_t waveTilesInN = nPerBlock / nPerWave;
+  int64_t numWaves = waveTilesInM * waveTilesInN;
 
   // Determine wave grid layout based on physical waves and wave tiles
   // This distributes waves spatially across M and N dimensions
-  // Note: physicalWaves can only be 1, 2, 3, or 4 (for 64, 128, 192, 256
+  // Note: numWaves can only be 1, 2, 3, or 4 (for 64, 128, 192, 256
   // threads)
+  // TODO: numWaves can be 8 and 16 (and 32 for wmma) as well, update this code
   int64_t wavesInM = 1;
   int64_t wavesInN = 1;
 
-  switch (physicalWaves) {
+  switch (numWaves) {
   case 1:
     // Single wave: always 1×1
     wavesInM = 1;
@@ -805,7 +812,7 @@ static WaveGridLayout computeWaveGridLayout(PatternRewriter &b, Location loc,
     }
     break;
   default:
-    llvm_unreachable("Invalid physicalWaves: blockSize / waveSize");
+    return failure();
   }
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Wave grid layout: " << wavesInM
@@ -818,7 +825,7 @@ static WaveGridLayout computeWaveGridLayout(PatternRewriter &b, Location loc,
   Value waveM = arith::DivUIOp::create(b, loc, waveId, wavesInNVal);
   Value waveN = arith::RemUIOp::create(b, loc, waveId, wavesInNVal);
 
-  return {wavesInM, wavesInN, waveM, waveN};
+  return WaveGridLayout{wavesInM, wavesInN, waveM, waveN};
 }
 
 //===----------------------------------------------------------------------===//
@@ -1084,7 +1091,6 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   Value waveSizeVal = arith::ConstantIndexOp::create(b, loc, waveSize);
   Value lane = arith::RemUIOp::create(b, loc, tid, waveSizeVal);
   Value waveId = arith::DivUIOp::create(b, loc, tid, waveSizeVal);
-  int64_t physicalWaves = blockSize / waveSize;
 
   // Read parameters directly from config
   int64_t dDim = config.getMfmaDDim();
@@ -1099,8 +1105,11 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
       config.getIsOperandA() ? OperandKind::A : OperandKind::B;
 
   // Compute wave grid layout and decompose wave ID into 2D position
-  WaveGridLayout waveGrid = computeWaveGridLayout(
-      b, loc, waveId, physicalWaves, mPerWave, nPerWave, mPerBlock, nPerBlock);
+  FailureOr<WaveGridLayout> maybeWaveGrid = computeWaveGridLayout(
+      b, loc, waveId, mPerWave, nPerWave, mPerBlock, nPerBlock);
+  assert(succeeded(maybeWaveGrid) &&
+         "If we decided to use transpose load, this must work");
+  WaveGridLayout waveGrid = maybeWaveGrid.value();
   Value waveM = waveGrid.waveM;
   Value waveN = waveGrid.waveN;
 
