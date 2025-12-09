@@ -498,11 +498,12 @@ int setLitWorkerCount() {
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
-    buildProject('check-mlir-build-only check-rocmlir-build-only', """
+    buildProject("check-mlir-build-only check-rocmlir-build-only${params.nightly ? ' hipblaslt-benchmark-driver' : ''}", """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+              -DROCMLIR_ENABLE_BENCHMARKS=${params.nightly ? 'hipblaslt' : ''}
               -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)

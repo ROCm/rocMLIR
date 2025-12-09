@@ -3,22 +3,20 @@ find_library(HIPBLAS_LIBRARY
   NAMES hipblas
   PATHS /opt/rocm/lib /opt/rocm/lib64
   PATH_SUFFIXES lib lib64
-  REQUIRED
 )
 
 find_library(HIPBLASLT_LIBRARY
   NAMES hipblaslt
   PATHS /opt/rocm/lib /opt/rocm/lib64
   PATH_SUFFIXES lib lib64
-  REQUIRED
 )
 
-# Check if include directories exist
-if (EXISTS "/opt/rocm/include/hipblas" AND EXISTS "/opt/rocm/include/hipblaslt")
+# Check if libraries and include directories exist
+if (HIPBLAS_LIBRARY AND HIPBLASLT_LIBRARY AND
+    EXISTS "/opt/rocm/include/hipblas" AND EXISTS "/opt/rocm/include/hipblaslt")
   set(LIBS ${HIPBLAS_LIBRARY} ${HIPBLASLT_LIBRARY} benchmark-driver-utils)
 
   add_executable(hipblaslt-benchmark-driver
-    EXCLUDE_FROM_ALL
     hipblaslt-benchmark-driver.cpp
   )
 
@@ -35,5 +33,5 @@ if (EXISTS "/opt/rocm/include/hipblas" AND EXISTS "/opt/rocm/include/hipblaslt")
   
   message(STATUS "Building hipBLASLt benchmark driver with libraries: ${LIBS}")
 else()
-  message(STATUS "Could not find hipBLAS/hipBLASLt include directories, not building hipBLASLt benchmark driver")
+  message(STATUS "Could not find hipBLAS/hipBLASLt libraries or include directories, not building hipBLASLt benchmark driver")
 endif()

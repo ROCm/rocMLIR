@@ -1,5 +1,6 @@
 #include "../common/benchmarkUtils.h"
 
+#include <hip/hip_fp16.h>
 #include <hip/hip_runtime_api.h>
 #include <hipblas/hipblas.h>
 #include <hipblaslt/hipblaslt-ext.hpp>
@@ -8,6 +9,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <limits>
 #include <vector>
@@ -98,6 +100,71 @@ static void setBatchAttributes(hipblasLtMatrixLayout_t layout,
   HIPBLASLT_ABORT_IF_FAIL(hipblasLtMatrixLayoutSetAttribute(
       layout, HIPBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &stride,
       sizeof(stride)));
+}
+
+// Convert BF16 (stored as uint16) to float
+// BF16 is just the upper 16 bits of float32
+static float bf16ToFloat(uint16_t bf16) {
+  uint32_t f32_bits = static_cast<uint32_t>(bf16) << 16;
+  float result;
+  memcpy(&result, &f32_bits, sizeof(result));
+  return result;
+}
+
+// Convert F16 to float using HIP's __half type
+static float f16ToFloat(uint16_t f16) {
+  __half h;
+  memcpy(&h, &f16, sizeof(h));
+  return __half2float(h);
+}
+
+// Get element as float from buffer
+static float getElementAsFloat(const void *buf, size_t idx,
+                               benchmark::DataType dtype) {
+  switch (dtype) {
+  case benchmark::DataType::F32:
+    return static_cast<const float *>(buf)[idx];
+  case benchmark::DataType::F16:
+    return f16ToFloat(static_cast<const uint16_t *>(buf)[idx]);
+  case benchmark::DataType::BF16:
+    return bf16ToFloat(static_cast<const uint16_t *>(buf)[idx]);
+  case benchmark::DataType::I32:
+    return static_cast<float>(static_cast<const int32_t *>(buf)[idx]);
+  case benchmark::DataType::I8:
+    return static_cast<float>(static_cast<const int8_t *>(buf)[idx]);
+  default:
+    return 0.0f;
+  }
+}
+
+// Print tensor in format compatible with rocmlir-gen's printMemrefF32
+static void printTensor(const void *data, int64_t m, int64_t n,
+                        int64_t batchCount, benchmark::DataType dtype) {
+  std::cout << "data = \n";
+
+  size_t idx = 0;
+  for (int64_t g = 0; g < batchCount; ++g) {
+    if (batchCount > 1)
+      std::cout << "[";
+    for (int64_t i = 0; i < m; ++i) {
+      std::cout << "[";
+      for (int64_t j = 0; j < n; ++j) {
+        float val = getElementAsFloat(data, idx++, dtype);
+        printf("%g", val);
+        if (j < n - 1)
+          std::cout << ",   ";
+      }
+      std::cout << "]";
+      if (i < m - 1)
+        std::cout << ",\n";
+    }
+    if (batchCount > 1) {
+      std::cout << "]";
+      if (g < batchCount - 1)
+        std::cout << ",\n";
+    }
+  }
+  std::cout << "\n";
 }
 
 int main(int argc, char **argv) {
@@ -368,6 +435,10 @@ int main(int argc, char **argv) {
             << ((2 * batch_count * m * n * k) / avgTime) * 1e-9 << "\n";
 
   HIP_ABORT_IF_FAIL(hipMemcpy(h_c, d_c, cBytes, hipMemcpyDeviceToHost));
+
+  if (args.printResults) {
+    printTensor(h_c, m, n, batch_count, args.outDataType);
+  }
 
   if (workspace)
     HIP_ABORT_IF_FAIL(hipFree(workspace));

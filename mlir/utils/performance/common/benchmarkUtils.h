@@ -49,6 +49,7 @@ struct BenchmarkArgs {
   int splitKFactor{1};
   bool verbose{false};
   int algoIndex{-1};
+  bool printResults{false};
 };
 
 // Parse command line arguments

@@ -101,6 +101,7 @@ void printUsage(const std::string &name) {
                "[--fusion=(fastgelu_add_add)]\n"
                "[-split-k-factor]\n"
                "[--algo-index algoIndex]\n"
+               "[--print-results|-pr]\n"
                "[-v]\n";
 }
 
@@ -311,6 +312,8 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       res.verbose = true;
     } else if (arg == "--algo-index") {
       res.algoIndex = atoi(argv[++i]);
+    } else if (arg == "--print-results" || arg == "-pr") {
+      res.printResults = true;
     } else {
       std::cerr << "Invalid argument!\n";
       printUsage(name);
