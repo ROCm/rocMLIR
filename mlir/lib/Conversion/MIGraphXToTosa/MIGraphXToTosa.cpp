@@ -502,6 +502,39 @@ reshapeTo3DForMatmul(PatternRewriter &rewriter, Location loc, Value inA,
   return {inAReshaped, inBReshaped};
 }
 
+/// Helper to undo broadcast on scales for quantized dot product.
+static Value unbroadcastScale(PatternRewriter &rewriter, Location loc,
+                              Value scale, Type elementType, bool needsReshape,
+                              ArrayRef<int64_t> shape3D,
+                              ArrayRef<int64_t> shape4D,
+                              ArrayRef<int64_t> sliceSize,
+                              ArrayRef<int64_t> shapeFinal) {
+  Value scaleFlat = scale;
+  if (needsReshape) {
+    auto shape3DValue = tosa::getTosaConstShape(rewriter, loc, shape3D);
+    RankedTensorType type3D = RankedTensorType::get(shape3D, elementType);
+    scaleFlat =
+        tosa::ReshapeOp::create(rewriter, loc, type3D, scale, shape3DValue);
+  }
+
+  auto shape4DValue = tosa::getTosaConstShape(rewriter, loc, shape4D);
+  RankedTensorType type4D = RankedTensorType::get(shape4D, elementType);
+  Value scale4D =
+      tosa::ReshapeOp::create(rewriter, loc, type4D, scaleFlat, shape4DValue);
+
+  SmallVector<int64_t> sliceStart(4, 0);
+  auto sliceStartValue = tosa::getTosaConstShape(rewriter, loc, sliceStart);
+  auto sliceSizeValue = tosa::getTosaConstShape(rewriter, loc, sliceSize);
+  RankedTensorType sliceType = RankedTensorType::get(sliceSize, elementType);
+  Value scaleSliced = tosa::SliceOp::create(rewriter, loc, sliceType, scale4D,
+                                            sliceStartValue, sliceSizeValue);
+
+  auto shapeFinalValue = tosa::getTosaConstShape(rewriter, loc, shapeFinal);
+  RankedTensorType finalType = RankedTensorType::get(shapeFinal, elementType);
+  return tosa::ReshapeOp::create(rewriter, loc, finalType, scaleSliced,
+                                 shapeFinalValue);
+}
+
 template <typename DotType>
 LogicalResult DotConverter<DotType>::matchAndRewrite(
     DotType op, OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const {
@@ -566,65 +599,55 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
   // Handle scaled quant_dot -> tosa.matmul_t_block_scaled
   if constexpr (std::is_same_v<DotType, migraphx::QuantDotOp>) {
     if (hasScales) {
-      // Get the original MIXRShapedType for scale A tensor to access strides
-      auto origScaleAType = cast<MIXRShapedType>(op.getScaleA().getType());
-
-      ArrayRef<int64_t> scaleAStrides = origScaleAType.getStrides();
-      size_t rankA = shapeA.size();
-
-      // Calculate block_size from the scale tensor strides
-      // For scale with shape [... x M x K] and strides [..., s_m, s_k]:
-      // Physical K dimension = s_m / s_k (when s_k != 0)
-      int64_t kDimA = shapeA[rankA - 1];
-      int64_t scaleAStrideM = scaleAStrides[rankA - 2]; // stride along M dim
-      int64_t scaleAStrideK = scaleAStrides[rankA - 1]; // stride along K dim
-
-      if (scaleAStrideK == 0) {
-        return op.emitError("Scale tensor has broadcast along K dimension, "
-                            "not a block-scaled format");
-      }
-
-      int64_t physicalKDimA = scaleAStrideM / scaleAStrideK;
-      int64_t blockSize = kDimA / physicalKDimA;
-
-      // Only block_size=32 is supported for matmul_t_block_scaled
-      if (blockSize != 32) {
-        return op.emitError(
-                   "Scaled quant_dot only supports block_size=32, got ")
-               << blockSize;
-      }
-
+      // TODO: only blockSize of 32 is supported for matmul_t_block_scaled for
+      // now
+      int64_t blockSize = 32;
       int64_t scaleKDim = batchInfo.kDim / blockSize;
 
-      // MIGraphX verifier already validates that scale shapes match input
-      // shapes. Therefore we can use the same batch flattening info from A and
-      // B to compute the physical scale shapes.
+      // The scales from MIGraphX have been broadcasted to match A/B shapes.
+      // Scale A has shape [batch, M, K] (broadcasted from [batch, M,
+      // K/blockSize]) Scale B has shape [batch, K, N] (broadcasted from [batch,
+      // K/blockSize, N]) We need to undo this broadcast to get scales in the
+      // shape expected by tosa.matmul_t_block_scaled: [batch, M, K/blockSize]
+      // and [batch, K/blockSize, N]
+
+      auto scaleAType = scaleA.getType();
+      auto scaleBType = scaleB.getType();
+      Type scaleAElementType = scaleAType.getElementType();
+      Type scaleBElementType = scaleBType.getElementType();
+
+      // Undo broadcast on scaleA: [batch, M, K] -> [batch, M, K/blockSize]
+      SmallVector<int64_t> scaleA3DShape = {batchInfo.newBatchA, batchInfo.newM,
+                                            batchInfo.kDim};
+      SmallVector<int64_t> scaleA4DShape = {batchInfo.newBatchA, batchInfo.newM,
+                                            scaleKDim, blockSize};
+      SmallVector<int64_t> scaleASliceSize = {batchInfo.newBatchA,
+                                              batchInfo.newM, scaleKDim, 1};
       SmallVector<int64_t> physScaleAShape = {batchInfo.newBatchA,
                                               batchInfo.newM, scaleKDim};
+
+      Value scaleAPhysical = unbroadcastScale(
+          rewriter, loc, scaleA, scaleAElementType, batchInfo.needsReshape,
+          scaleA3DShape, scaleA4DShape, scaleASliceSize, physScaleAShape);
+
+      // Undo broadcast on scaleB: [batch, K, N] -> [batch, K/blockSize, N]
+      SmallVector<int64_t> scaleB3DShape = {batchInfo.newBatchB, batchInfo.kDim,
+                                            batchInfo.nDim};
+      SmallVector<int64_t> scaleB4DShape = {batchInfo.newBatchB, scaleKDim,
+                                            blockSize, batchInfo.nDim};
+      SmallVector<int64_t> scaleBSliceSize = {batchInfo.newBatchB, scaleKDim, 1,
+                                              batchInfo.nDim};
       SmallVector<int64_t> physScaleBShape = {batchInfo.newBatchB, scaleKDim,
                                               batchInfo.nDim};
 
-      Type scaleElementType = origScaleAType.getElementType();
-      RankedTensorType physicalScaleAType =
-          RankedTensorType::get(physScaleAShape, scaleElementType);
-      RankedTensorType physicalScaleBType =
-          RankedTensorType::get(physScaleBShape, scaleElementType);
+      Value scaleBPhysical = unbroadcastScale(
+          rewriter, loc, scaleB, scaleBElementType, batchInfo.needsReshape,
+          scaleB3DShape, scaleB4DShape, scaleBSliceSize, physScaleBShape);
 
       // Transpose B from [batch x K x N] to [batch x N x K]
       SmallVector<int32_t> bTransposePerm = {0, 2, 1};
       Value bDataTransposed = rock::tosa::getTransposeOp(
           rewriter, loc, inBReshaped, bTransposePerm);
-
-      // Reshape scale tensors to their physical 3D shapes
-      auto physScaleAShapeValue =
-          tosa::getTosaConstShape(rewriter, loc, physScaleAShape);
-      Value scaleAPhysical = tosa::ReshapeOp::create(
-          rewriter, loc, physicalScaleAType, scaleA, physScaleAShapeValue);
-
-      auto physScaleBShapeValue =
-          tosa::getTosaConstShape(rewriter, loc, physScaleBShape);
-      Value scaleBPhysical = tosa::ReshapeOp::create(
-          rewriter, loc, physicalScaleBType, scaleB, physScaleBShapeValue);
 
       // Transpose scaleB from [batch x (K/block_size) x N] to [batch x N x
       // (K/block_size)]
