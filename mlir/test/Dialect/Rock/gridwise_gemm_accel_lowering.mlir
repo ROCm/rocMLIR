@@ -84,15 +84,19 @@ func.func @fp8_bf8_xdlops_ocp(%arg0: memref<1x128x128xf8E4M3FN>, %arg1: memref<1
 
 #xdlops_gemm_params2 = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 // CHECK: @chiplet_grid
-func.func @chiplet_grid(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
+func.func @chiplet_grid(%arg0: memref<1x32x1280xf32>, %arg1: memref<1x32x2560xf32>, %arg2: memref<1x1280x2560xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
   // CHECK: %[[BID:.+]] = rock.workgroup_id
-  // CHECK-DAG: %[[CHIPLET_GRP_ID:.+]] = arith.remui %[[BID]], %c4 : index
-  // CHECK-DAG: %[[CHIPLET_BID:.+]] = arith.divui %[[BID]], %c4 : index
-  // CHECK-DAG: %[[CHIPLET_GRP_ID_LSHIFT:.+]] = arith.muli %[[CHIPLET_GRP_ID]], %c2 : index
-  // CHECK-DAG: %[[MAYBE_NEW_BID:.+]] = arith.addi %[[CHIPLET_BID]], %[[CHIPLET_GRP_ID_LSHIFT]] : index
-  // CHECK-DAG: %[[IS_TAIL_BID:.+]] = arith.cmpi sgt, %[[BID]], %c7 : index
-  // CHECK-DAG: %[[NEW_BID:.+]] = arith.select %[[IS_TAIL_BID]], %[[BID]], %[[MAYBE_NEW_BID]] : index
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params2} : memref<1x32x128xf32>, memref<1x32x256xf32>, memref<1x128x256xf32>
+  // CHECK-DAG: %[[XCD:.+]] = arith.remui %[[BID]], %c8 : index
+  // CHECK-DAG: %[[LOCAL_BID:.+]] = arith.divui %[[BID]], %c8 : index
+  // CHECK-DAG: %[[CHUNK_IDX:.+]] = arith.divui %[[LOCAL_BID]], %c36 : index
+  // CHECK-DAG: %[[POS_IN_CHUNK:.+]] = arith.remui %[[LOCAL_BID]], %c36 : index
+  // CHECK-DAG: %[[CHUNK_IDX_BY_BLOCK:.+]] = arith.muli %[[CHUNK_IDX]], %c288 : index
+  // CHECK-DAG: %[[XCD_BY_CHUNKSIZE:.+]] = arith.muli %[[XCD]], %c36 : index
+  // CHECK-DAG: %[[MAYBE_NEW_BID_PARTIAL:.+]] = arith.addi %[[CHUNK_IDX_BY_BLOCK]], %[[XCD_BY_CHUNKSIZE]] : index
+  // CHECK-DAG: %[[MAYBE_NEW_BID:.+]] = arith.addi %[[MAYBE_NEW_BID_PARTIAL]], %[[POS_IN_CHUNK]] : index
+  // CHECK-DAG: %[[IS_LARGER_THAN_FULLBLOCK:.+]] = arith.cmpi sgt, %[[BID]], %c576 : index
+  // CHECK-DAG: %[[NEW_BID:.+]] = arith.select %[[IS_LARGER_THAN_FULLBLOCK]], %[[BID]], %[[MAYBE_NEW_BID]] : index
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params2} : memref<1x32x1280xf32>, memref<1x32x2560xf32>, memref<1x1280x2560xf32>
   return
 }
 
@@ -100,15 +104,19 @@ func.func @chiplet_grid(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>
 
 #xdlops_gemm_params2 = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 // CHECK: @chiplet_grid_mi308
-func.func @chiplet_grid_mi308(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 80 : i32} {
+func.func @chiplet_grid_mi308(%arg0: memref<1x32x1280xf32>, %arg1: memref<1x32x2560xf32>, %arg2: memref<1x1280x2560xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 80 : i32} {
   // CHECK: %[[BID:.+]] = rock.workgroup_id
-  // CHECK-DAG: %[[CHIPLET_GRP_ID:.+]] = arith.remui %[[BID]], %c2 : index
-  // CHECK-DAG: %[[CHIPLET_BID:.+]] = arith.divui %[[BID]], %c2 : index
-  // CHECK-DAG: %[[CHIPLET_GRP_ID_LSHIFT:.+]] = arith.muli %[[CHIPLET_GRP_ID]], %c4 : index
-  // CHECK-DAG: %[[MAYBE_NEW_BID:.+]] = arith.addi %[[CHIPLET_BID]], %[[CHIPLET_GRP_ID_LSHIFT]] : index
-  // CHECK-DAG: %[[IS_TAIL_BID:.+]] = arith.cmpi sgt, %[[BID]], %c7 : index
-  // CHECK-DAG: %[[NEW_BID:.+]] = arith.select %[[IS_TAIL_BID]], %[[BID]], %[[MAYBE_NEW_BID]] : index
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params2} : memref<1x32x128xf32>, memref<1x32x256xf32>, memref<1x128x256xf32>
+  // CHECK-DAG: %[[XCD:.+]] = arith.remui %[[BID]], %c4 : index
+  // CHECK-DAG: %[[LOCAL_BID:.+]] = arith.divui %[[BID]], %c4 : index
+  // CHECK-DAG: %[[CHUNK_IDX:.+]] = arith.divui %[[LOCAL_BID]], %c25 : index
+  // CHECK-DAG: %[[POS_IN_CHUNK:.+]] = arith.remui %[[LOCAL_BID]], %c25 : index
+  // CHECK-DAG: %[[CHUNK_IDX_BY_BLOCK:.+]] = arith.muli %[[CHUNK_IDX]], %c100 : index
+  // CHECK-DAG: %[[XCD_BY_CHUNKSIZE:.+]] = arith.muli %[[XCD]], %c25 : index
+  // CHECK-DAG: %[[MAYBE_NEW_BID_PARTIAL:.+]] = arith.addi %[[CHUNK_IDX_BY_BLOCK]], %[[XCD_BY_CHUNKSIZE]] : index
+  // CHECK-DAG: %[[MAYBE_NEW_BID:.+]] = arith.addi %[[MAYBE_NEW_BID_PARTIAL]], %[[POS_IN_CHUNK]] : index
+  // CHECK-DAG: %[[IS_LARGER_THAN_FULLBLOCK:.+]] = arith.cmpi sgt, %[[BID]], %c800 : index
+  // CHECK-DAG: %[[NEW_BID:.+]] = arith.select %[[IS_LARGER_THAN_FULLBLOCK]], %[[BID]], %[[MAYBE_NEW_BID]] : index
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params2} : memref<1x32x1280xf32>, memref<1x32x2560xf32>, memref<1x1280x2560xf32>
   return
 }
 
@@ -288,20 +296,24 @@ func.func @gemm_wavespereu_outputswizzle(%arg0: memref<1x32x128xf32>, %arg1: mem
 
 // -----
 
-#xdlops_gemm_params_gridgroupsize = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 64, forceUnroll = true>
+#xdlops_gemm_params_gridgroupsize = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 9, forceUnroll = true>
 // CHECK: @grid_group_size
-func.func @grid_group_size(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
+func.func @grid_group_size(%arg0: memref<1x32x1280xf32>, %arg1: memref<1x32x2560xf32>, %arg2: memref<1x1280x2560xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
   // CHECK: %[[BID:.+]] = rock.workgroup_id
-  // CHECK-DAG: %[[CHIPLET_GRP_ID:.+]] = arith.remui %[[BID]], %c4 : index
-  // CHECK-DAG: %[[CHIPLET_BID:.+]] = arith.divui %[[BID]], %c4 : index
-  // CHECK-DAG: %[[CHIPLET_GRP_ID_LSHIFT:.+]] = arith.muli %[[CHIPLET_GRP_ID]], %c2 : index
-  // CHECK-DAG: %[[MAYBE_NEW_BID:.+]] = arith.addi %[[CHIPLET_BID]], %[[CHIPLET_GRP_ID_LSHIFT]] : index
-  // CHECK-DAG: %[[IS_TAIL_BID:.+]] = arith.cmpi sgt, %[[BID]], %c7 : index
-  // CHECK-DAG: %[[NEW_BID:.+]] = arith.select %[[IS_TAIL_BID]], %[[BID]], %[[MAYBE_NEW_BID]] : index
-  // CHECK-DAG: %[[NEW_BID2:.+]] = arith.remui %[[NEW_BID]], %c8 : index
-  // CHECK-DAG: %[[GROUD_ID:.+]] = arith.divui %[[NEW_BID2]], %c256 : index
-  // CHECK-DAG: %[[FIRST_BID_M:.+]] = arith.muli %[[GROUD_ID]], %c64 : index
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params_gridgroupsize} : memref<1x32x128xf32>, memref<1x32x256xf32>, memref<1x128x256xf32>
+  // CHECK-DAG: %[[XCD:.+]] = arith.remui %[[BID]], %c8 : index
+  // CHECK-DAG: %[[LOCAL_BID:.+]] = arith.divui %[[BID]], %c8 : index
+  // CHECK-DAG: %[[CHUNK_IDX:.+]] = arith.divui %[[LOCAL_BID]], %c81 : index
+  // CHECK-DAG: %[[POS_IN_CHUNK:.+]] = arith.remui %[[LOCAL_BID]], %c81 : index
+  // CHECK-DAG: %[[CHUNK_IDX_BY_BLOCK:.+]] = arith.muli %[[CHUNK_IDX]], %c648 : index
+  // CHECK-DAG: %[[XCD_BY_CHUNKSIZE:.+]] = arith.muli %[[XCD]], %c81 : index
+  // CHECK-DAG: %[[MAYBE_NEW_BID_PARTIAL:.+]] = arith.addi %[[CHUNK_IDX_BY_BLOCK]], %[[XCD_BY_CHUNKSIZE]] : index
+  // CHECK-DAG: %[[MAYBE_NEW_BID:.+]] = arith.addi %[[MAYBE_NEW_BID_PARTIAL]], %[[POS_IN_CHUNK]] : index
+  // CHECK-DAG: %[[IS_LARGER_THAN_FULLBLOCK:.+]] = arith.cmpi sgt, %[[BID]], %c648 : index
+  // CHECK-DAG: %[[NEW_BID:.+]] = arith.select %[[IS_LARGER_THAN_FULLBLOCK]], %[[BID]], %[[MAYBE_NEW_BID]] : index
+  // CHECK-DAG: %[[NEW_BID2:.+]] = arith.remui %[[NEW_BID]], %c800 : index
+  // CHECK-DAG: %[[GROUP_ID:.+]] = arith.divui %[[NEW_BID2]], %c360 : index
+  // CHECK-DAG: %[[FIRST_BID_M:.+]] = arith.muli %[[GROUP_ID]], %c9 : index
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params_gridgroupsize} : memref<1x32x1280xf32>, memref<1x32x2560xf32>, memref<1x1280x2560xf32>
   return
 }
 
@@ -309,17 +321,21 @@ func.func @grid_group_size(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf
 
 #xdlops_gemm_params_gridgroupsize_default = #rock.accel_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 // CHECK: @grid_group_size_default
-func.func @grid_group_size_default(%arg0: memref<1x32x128xf32>, %arg1: memref<1x32x256xf32>, %arg2: memref<1x128x256xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
+func.func @grid_group_size_default(%arg0: memref<1x32x1280xf32>, %arg1: memref<1x32x2560xf32>, %arg2: memref<1x1280x2560xf32>) attributes {block_size = 256 : i32, grid_size = 8 : i32, arch = "amdgcn-amd-amdhsa:gfx942", numCU = 228 : i32} {
   // CHECK: %[[BID:.+]] = rock.workgroup_id
-  // CHECK-DAG: %[[CHIPLET_GRP_ID:.+]] = arith.remui %[[BID]], %c4 : index
-  // CHECK-DAG: %[[CHIPLET_BID:.+]] = arith.divui %[[BID]], %c4 : index
-  // CHECK-DAG: %[[CHIPLET_GRP_ID_LSHIFT:.+]] = arith.muli %[[CHIPLET_GRP_ID]], %c2 : index
-  // CHECK-DAG: %[[MAYBE_NEW_BID:.+]] = arith.addi %[[CHIPLET_BID]], %[[CHIPLET_GRP_ID_LSHIFT]] : index
-  // CHECK-DAG: %[[IS_TAIL_BID:.+]] = arith.cmpi sgt, %[[BID]], %c7 : index
-  // CHECK-DAG: %[[NEW_BID:.+]] = arith.select %[[IS_TAIL_BID]], %[[BID]], %[[MAYBE_NEW_BID]] : index
-  // CHECK-DAG: %[[NEW_BID2:.+]] = arith.remui %[[NEW_BID]], %c8 : index
-  // CHECK-DAG: %[[GROUD_ID:.+]] = arith.divui %[[NEW_BID2]], %c64 : index
-  // CHECK-DAG: %[[FIRST_BID_M:.+]] = arith.muli %[[GROUD_ID]], %c16 : index
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params_gridgroupsize_default} : memref<1x32x128xf32>, memref<1x32x256xf32>, memref<1x128x256xf32>
+  // CHECK-DAG: %[[XCD:.+]] = arith.remui %[[BID]], %c8 : index
+  // CHECK-DAG: %[[LOCAL_BID:.+]] = arith.divui %[[BID]], %c8 : index
+  // CHECK-DAG: %[[CHUNK_IDX:.+]] = arith.divui %[[LOCAL_BID]], %c36 : index
+  // CHECK-DAG: %[[POS_IN_CHUNK:.+]] = arith.remui %[[LOCAL_BID]], %c36 : index
+  // CHECK-DAG: %[[CHUNK_IDX_BY_BLOCK:.+]] = arith.muli %[[CHUNK_IDX]], %c288 : index
+  // CHECK-DAG: %[[XCD_BY_CHUNKSIZE:.+]] = arith.muli %[[XCD]], %c36 : index
+  // CHECK-DAG: %[[MAYBE_NEW_BID_PARTIAL:.+]] = arith.addi %[[CHUNK_IDX_BY_BLOCK]], %[[XCD_BY_CHUNKSIZE]] : index
+  // CHECK-DAG: %[[MAYBE_NEW_BID:.+]] = arith.addi %[[MAYBE_NEW_BID_PARTIAL]], %[[POS_IN_CHUNK]] : index
+  // CHECK-DAG: %[[IS_LARGER_THAN_FULLBLOCK:.+]] = arith.cmpi sgt, %[[BID]], %c576 : index
+  // CHECK-DAG: %[[NEW_BID:.+]] = arith.select %[[IS_LARGER_THAN_FULLBLOCK]], %[[BID]], %[[MAYBE_NEW_BID]] : index
+  // CHECK-DAG: %[[NEW_BID2:.+]] = arith.remui %[[NEW_BID]], %c800 : index
+  // CHECK-DAG: %[[GROUP_ID:.+]] = arith.divui %[[NEW_BID2]], %c240 : index
+  // CHECK-DAG: %[[FIRST_BID_M:.+]] = arith.muli %[[GROUP_ID]], %c6 : index
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 900 : i32, params = #xdlops_gemm_params_gridgroupsize_default} : memref<1x32x1280xf32>, memref<1x32x2560xf32>, memref<1x1280x2560xf32>
   return
 }
