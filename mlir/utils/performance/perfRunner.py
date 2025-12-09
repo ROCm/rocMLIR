@@ -2130,10 +2130,7 @@ def tune_mlir_kernels(configs, arch, num_cu):
         if config.input_layout == 'nchw':
             miopen_driver_cmd = [MIOPENDRIVER, *commandline, '-V', '0']
             print(' '.join(miopen_driver_cmd))
-            p1 = subprocess.Popen(miopen_driver_cmd,
-                                  stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE,
-                                  env=envs)
+            p1 = subprocess.Popen(miopen_driver_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=envs)
             # get output.
             try:
                 _, errs = p1.communicate(timeout=300)
