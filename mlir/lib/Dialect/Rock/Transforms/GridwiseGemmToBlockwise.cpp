@@ -1251,42 +1251,40 @@ struct GridwiseAttentionAccelRewritePattern
       Value gemm0MBlocksLastIter, Value currentSeqLen = nullptr,
       IntegerAttr numRepeatsGQA = nullptr) const {
     if (enabled) {
-      auto isLastIteration =
-          arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
-                                mLoopIV, gemm0MBlocksLastIter);
-      scf::IfOp ifb = scf::IfOp::create(rewriter, loc, isLastIteration,
-                                        /*withElseRegion=*/false);
-      {
-        OpBuilder thenb = ifb.getThenBodyBuilder();
+      // For KVCache, we only need to mask on the last iteration, but for causal
+      // masking we need to mask on every iteration.
+      bool needsLastIterCheck = (outOfScopeType == OutOfScopeType::KVCache);
 
+      // Use a lambda to generate the masking logic.
+      auto generateMaskingLogic = [&](OpBuilder &b) {
         Value constNumRepeatsGQA = nullptr;
         if (numRepeatsGQA)
-          constNumRepeatsGQA = thenb.createOrFold<arith::ConstantIndexOp>(
+          constNumRepeatsGQA = b.createOrFold<arith::ConstantIndexOp>(
               loc, numRepeatsGQA.getInt());
 
         MemRefType gemm0OutBufferType =
             cast<MemRefType>(gemm0OutBuffer.getType());
         auto negInfTyped = createConstantFloatOp(
-            thenb, loc, gemm0OutBufferType.getElementType(),
+            b, loc, gemm0OutBufferType.getElementType(),
             gemm0OutBufferType.getElementType(),
             -std::numeric_limits<float>::infinity(), APFloat::opOK);
         // Get current workitem ID.
-        auto tid = WorkitemIdOp::create(thenb, loc, thenb.getIndexType());
+        auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
         int64_t elementsInThreadBuffer = gemm0OutBufferType.getNumElements();
-        Value zero = thenb.createOrFold<ConstantIndexOp>(loc, 0);
+        Value zero = b.createOrFold<ConstantIndexOp>(loc, 0);
         auto loop = TransformingForOp::create(
-            thenb, loc,
+            b, loc,
             ArrayRef<ValueRange>{{gridCoords.g_block, gridCoords.m_block,
                                   gridCoords.n_block, tid, zero},
                                  {zero, zero, zero, zero, zero}},
             ArrayRef<Attribute>{gemm0OutSubTileViews.gridSubTile,
-                                thenb.getArrayAttr({})},
+                                b.getArrayAttr({})},
             /*bounds=*/ArrayRef<int64_t>{1, 1, 1, 1, elementsInThreadBuffer},
             /*strides=*/ArrayRef<int64_t>{1, 1, 1, 1, 1},
             /*forceUnroll=*/true, /*useIndexDiffs=*/true);
         {
-          OpBuilder::InsertionGuard guard(thenb);
-          thenb.setInsertionPointToStart(loop.getBody());
+          OpBuilder::InsertionGuard guard(b);
+          b.setInsertionPointToStart(loop.getBody());
 
           Block::BlockArgListType lowerCoords = loop.getLowerCoords(0);
           Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
@@ -1295,28 +1293,43 @@ struct GridwiseAttentionAccelRewritePattern
           switch (outOfScopeType) {
           case OutOfScopeType::KVCache:
             assert(currentSeqLen != nullptr);
-            isInvalid = arith::CmpIOp::create(
-                thenb, loc, arith::CmpIPredicate::ugt, mIndex, currentSeqLen);
+            isInvalid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ugt,
+                                              mIndex, currentSeqLen);
             break;
           case OutOfScopeType::Causal:
             Value nIndex = lowerCoords[1];
             if (constNumRepeatsGQA)
-              nIndex = thenb.createOrFold<arith::DivUIOp>(loc, nIndex,
-                                                          constNumRepeatsGQA);
+              nIndex = b.createOrFold<arith::DivUIOp>(loc, nIndex,
+                                                      constNumRepeatsGQA);
 
-            isInvalid = arith::CmpIOp::create(
-                thenb, loc, arith::CmpIPredicate::ugt, mIndex, nIndex);
+            isInvalid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ugt,
+                                              mIndex, nIndex);
             break;
           }
 
-          scf::IfOp ifb = scf::IfOp::create(thenb, loc, isInvalid,
-                                            /*withElseRegion=*/false);
+          scf::IfOp ifbCausal = scf::IfOp::create(b, loc, isInvalid,
+                                                  /*withElseRegion=*/false);
           {
-            OpBuilder thenb = ifb.getThenBodyBuilder();
-            InBoundsStoreOp::create(thenb, loc, negInfTyped, gemm0OutBuffer,
-                                    ValueRange{upperCoords[4]});
+            OpBuilder thenbCausal = ifbCausal.getThenBodyBuilder();
+            InBoundsStoreOp::create(thenbCausal, loc, negInfTyped,
+                                    gemm0OutBuffer, ValueRange{upperCoords[4]});
           }
         }
+      };
+
+      if (needsLastIterCheck) {
+        auto isLastIteration =
+            arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
+                                  mLoopIV, gemm0MBlocksLastIter);
+        scf::IfOp ifb = scf::IfOp::create(rewriter, loc, isLastIteration,
+                                          /*withElseRegion=*/false);
+        {
+          OpBuilder thenb = ifb.getThenBodyBuilder();
+          generateMaskingLogic(thenb);
+        }
+      } else {
+        // For causal masking, apply on every iteration
+        generateMaskingLogic(rewriter);
       }
     }
   }
@@ -1745,12 +1758,18 @@ struct GridwiseAttentionAccelRewritePattern
         effectiveSeqLen = currentSeqLen;
       }
       if (isCausal) {
-        // this computes the maximum n of the block
+        // Compute the last Q position in the block.
+        // For Q block n_block, the last Q position is:
+        // (n_block + 1) * NPerBlock - 1.
         Value nIndex = gridCoordsGemm0.n_block;
         Value constGemm0NPerBlock =
             rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0NPerBlock);
+        Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
+        Value nIndexPlusOne = arith::AddIOp::create(rewriter, loc, nIndex, one);
+        Value nextBlockStart = arith::MulIOp::create(
+            rewriter, loc, nIndexPlusOne, constGemm0NPerBlock);
         Value maxRowOfBlock =
-            arith::MulIOp::create(rewriter, loc, nIndex, constGemm0NPerBlock);
+            arith::SubIOp::create(rewriter, loc, nextBlockStart, one);
         if (numRepeatsGQA) {
           Value constNumRepeatsGQA =
               rewriter.createOrFold<arith::ConstantIndexOp>(
@@ -1764,6 +1783,13 @@ struct GridwiseAttentionAccelRewritePattern
         if (effectiveSeqLen)
           maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, currentSeqLen,
                                                  maxRowOfBlock);
+
+        // Bound by actual K dimension (safety for seq_len_q > seq_len_k)
+        Value gemm0MMinusOne =
+            rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0M - 1);
+        maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, maxRowOfBlock,
+                                               gemm0MMinusOne);
+
         effectiveSeqLen = maxRowOfBlock;
       }
 
