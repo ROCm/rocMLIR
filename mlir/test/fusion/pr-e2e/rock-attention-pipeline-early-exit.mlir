@@ -11,3 +11,4 @@
 // RUN: | FileCheck %s --check-prefix=LLAMA
 
 // LLAMA: [1 1 1]
+
