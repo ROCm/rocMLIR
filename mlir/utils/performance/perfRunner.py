@@ -2134,7 +2134,7 @@ def tune_mlir_kernels(configs, arch, num_cu):
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE,
                                   env=envs)
-            # get output.
+            # get output. dddwdad
             try:
                 _, errs = p1.communicate(timeout=300)
                 if len(errs) > 0 and p1.returncode != 0:
