@@ -513,6 +513,9 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
   // CHECK-NEXT: %[[lse:.+]] = arith.mulf %[[lseLog2]], %[[log2]] : f32
   // CHECK-NEXT: rock.in_bounds_store %[[lse]] -> %[[lseBuffer:.+]][{{.*}}] : f32 -> memref<16xf32, #gpu.address_space<private>>, index
   // CHECK-NEXT: rock.yield
+  // Verify that the early exit scf.if block closes before the writes
+  // CHECK: }
+  // CHECK-NEXT: }
   // CHECK: rock.threadwise_write_all {{.*}} by  set : memref<32xf32, #gpu.address_space<private>> -> memref<8x64x384xf32>
   // CHECK-NEXT: rock.threadwise_write_all {{.*}} %[[lseBuffer]] {{.*}} set : memref<16xf32, #gpu.address_space<private>> -> memref<8x384xf32>
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {} {

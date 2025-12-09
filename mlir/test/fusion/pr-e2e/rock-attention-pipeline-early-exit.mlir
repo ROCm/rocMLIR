@@ -4,3 +4,10 @@
 // RUN: | FileCheck %s
 
 // CHECK: [1 1 1]
+
+// RUN: rocmlir-gen -rand 1 -operation attention -t f16 -g 1 -seq_len_q 1 -seq_len_k 8192 -num_heads_q 64 -num_heads_kv 8 -head_dim_qk 512  -head_dim_v 512 -causal=true  -return_lse=true -split_kv=128 -current_seq_len=16 --arch %arch -pv \
+// RUN: | rocmlir-driver -c \
+// RUN: | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext -entry-point-result=void \
+// RUN: | FileCheck %s --check-prefix=LLAMA
+
+// LLAMA: [1 1 1]
