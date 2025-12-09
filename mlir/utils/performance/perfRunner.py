@@ -56,7 +56,8 @@ MLIR_N_REPEATS = 100
 WARMUP_ITERATIONS = 10
 SLEEP_US = 1000  # 1 ms
 
-FILTER_LAYOUT_MAP = {'N': 'k', 'C': 'c', 'H': 'y', 'W': 'x', 'G': 'g', '0': '0', '1': '1'}
+FILTER_LAYOUT_MAP = {'N': 'k', 'C': 'c', 'H': 'y', 'W': 'x',
+                     'G': 'g', '0': '0', '1': '1'}
 INPUT_LAYOUT_MAP = {'N': 'n', 'C': 'c', 'H': 'h', 'W': 'w', 'G': 'g', '0': '0', '1': '1'}
 OUTPUT_LAYOUT_MAP = {'N': 'n', 'C': 'k', 'H': 'h', 'W': 'w', 'G': 'g', '0': '0', '1': '1'}
 
