@@ -503,6 +503,7 @@ reshapeTo3DForMatmul(PatternRewriter &rewriter, Location loc, Value inA,
 }
 
 /// Helper to undo broadcast on scales for quantized dot product.
+// TODO: this wouldn't be needed once we start accepting non-broadcasted scales.
 static Value unbroadcastScale(PatternRewriter &rewriter, Location loc,
                               Value scale, Type elementType, bool needsReshape,
                               ArrayRef<int64_t> shape3D,
