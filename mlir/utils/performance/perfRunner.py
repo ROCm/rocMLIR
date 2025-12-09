@@ -40,12 +40,7 @@ DATA_TYPES_ATTENTION_WMMA = ['i8', 'f16', 'bf16']
 DATA_TYPES_ATTENTION_MFMA = ['i8', 'f32', 'f16', 'bf16']
 DATA_TYPES_GEMM_GEMM = ['f32', 'f16', 'bf16']
 DATA_TYPES_CONV_GEMM = ['f32', 'f16', 'bf16']
-OUTPUT_DATA_TYPES_MAP = {
-    'f32': 'f32',
-    'f16': 'f16',
-    'bf16': 'bf16',
-    'i8': 'i32',
-    'fp8': 'f32',
+OUTPUT_DATA_TYPES_MAP = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i32', 'fp8': 'f32',
     'fp8_fp8': 'f32',
     'fp8_bf8': 'f32',
     'bf8_fp8': 'f32',
