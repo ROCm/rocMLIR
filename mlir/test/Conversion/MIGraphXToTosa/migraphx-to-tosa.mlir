@@ -298,3 +298,41 @@ func.func @dot_f16(%arg0: !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>
   %4 = migraphx.dot %arg0, %arg1 {perf_config = "v2:16,16,8,16,16,4,1,1,1"} : <8x64x64x320xf16, 1310720x20480x320x1>, <8x64x320x320xf16, 6553600x102400x320x1> -> <8x64x64x320xf16, 1310720x20480x320x1>
   return %4 : !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>
 }
+
+// -----
+
+// Test quant_dot without scales - should use regular tosa.matmul
+// CHECK-LABEL: @quant_dot_no_scales
+// CHECK-SAME: (%[[A:.*]]: tensor<8192xi8>, %[[B:.*]]: tensor<8192xi8>)
+func.func @quant_dot_no_scales(
+    %arg0: !migraphx.shaped<1x64x128xi8, 8192x128x1>,
+    %arg1: !migraphx.shaped<1x128x64xi8, 8192x64x1>
+) -> !migraphx.shaped<1x64x64xi32, 4096x64x1> {
+  // CHECK-NOT: tosa.matmul_t_block_scaled
+  // CHECK: tosa.matmul
+  // CHECK-SAME: acc_type = i32
+  %0 = migraphx.quant_dot %arg0, %arg1
+    : !migraphx.shaped<1x64x128xi8, 8192x128x1>,
+      !migraphx.shaped<1x128x64xi8, 8192x64x1>
+    -> !migraphx.shaped<1x64x64xi32, 4096x64x1>
+  return %0 : !migraphx.shaped<1x64x64xi32, 4096x64x1>
+}
+
+// -----
+
+// Test quant_dot FP8 without scales - should use regular tosa.matmul
+// CHECK-LABEL: @quant_dot_fp8_no_scales
+// CHECK-SAME: (%[[A:.*]]: tensor<8192xf8E4M3FNUZ>, %[[B:.*]]: tensor<8192xf8E4M3FNUZ>)
+func.func @quant_dot_fp8_no_scales(
+    %arg0: !migraphx.shaped<1x64x128xf8E4M3FNUZ, 8192x128x1>,
+    %arg1: !migraphx.shaped<1x128x64xf8E4M3FNUZ, 8192x64x1>
+) -> !migraphx.shaped<1x64x64xf32, 4096x64x1> {
+  // CHECK-NOT: tosa.matmul_t_block_scaled
+  // CHECK: tosa.matmul
+  // CHECK-SAME: acc_type = f32
+  %0 = migraphx.quant_dot %arg0, %arg1
+    : !migraphx.shaped<1x64x128xf8E4M3FNUZ, 8192x128x1>,
+      !migraphx.shaped<1x128x64xf8E4M3FNUZ, 8192x64x1>
+    -> !migraphx.shaped<1x64x64xf32, 4096x64x1>
+  return %0 : !migraphx.shaped<1x64x64xf32, 4096x64x1>
+}

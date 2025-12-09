@@ -563,13 +563,102 @@ LogicalResult DotConverter<DotType>::matchAndRewrite(
     inBReshaped = reshapedB;
   }
 
-  // Scaled quant_dot operations should have been decomposed by the
-  // MIGraphXTransform pass before reaching MIGraphXToTosa
+  // Handle scaled quant_dot -> tosa.matmul_t_block_scaled
   if constexpr (std::is_same_v<DotType, migraphx::QuantDotOp>) {
     if (hasScales) {
-      return op.emitError(
-          "Scaled quant_dot should have been decomposed by migraphx-transform "
-          "pass before reaching MIGraphXToTosa conversion");
+      // Get the original MIXRShapedType for scale tensors to access strides
+      auto origScaleAType = cast<MIXRShapedType>(op.getScaleA().getType());
+      auto origScaleBType = cast<MIXRShapedType>(op.getScaleB().getType());
+      (void)origScaleBType; // Used to get scale element type
+
+      ArrayRef<int64_t> scaleAStrides = origScaleAType.getStrides();
+      size_t rankA = shapeA.size();
+
+      // Calculate block_size from the scale tensor strides
+      // For scale with shape [... x M x K] and strides [..., s_m, s_k]:
+      // Physical K dimension = s_m / s_k (when s_k != 0)
+      int64_t kDimA = shapeA[rankA - 1];
+      int64_t scaleAStrideM = scaleAStrides[rankA - 2]; // stride along M dim
+      int64_t scaleAStrideK = scaleAStrides[rankA - 1]; // stride along K dim
+
+      if (scaleAStrideK == 0) {
+        return op.emitError("Scale tensor has broadcast along K dimension, "
+                            "not a block-scaled format");
+      }
+
+      int64_t physicalKDimA = scaleAStrideM / scaleAStrideK;
+      int64_t blockSize = kDimA / physicalKDimA;
+
+      // Only block_size=32 is supported for matmul_t_block_scaled
+      if (blockSize != 32) {
+        return op.emitError(
+                   "Scaled quant_dot only supports block_size=32, got ")
+               << blockSize;
+      }
+
+      int64_t scaleKDim = batchInfo.kDim / blockSize;
+
+      // Physical scale shapes (3D)
+      SmallVector<int64_t> physScaleAShape = {batchInfo.newBatchA,
+                                              batchInfo.newM, scaleKDim};
+      SmallVector<int64_t> physScaleBShape = {batchInfo.newBatchB, scaleKDim,
+                                              batchInfo.nDim};
+
+      Type scaleElementType = origScaleAType.getElementType();
+      RankedTensorType physicalScaleAType =
+          RankedTensorType::get(physScaleAShape, scaleElementType);
+      RankedTensorType physicalScaleBType =
+          RankedTensorType::get(physScaleBShape, scaleElementType);
+
+      // Transpose B from [batch x K x N] to [batch x N x K]
+      SmallVector<int32_t> bTransposePerm = {0, 2, 1};
+      Value bDataTransposed = rock::tosa::getTransposeOp(
+          rewriter, loc, inBReshaped, bTransposePerm);
+
+      // Reshape scale tensors to their physical 3D shapes
+      auto physScaleAShapeValue =
+          tosa::getTosaConstShape(rewriter, loc, physScaleAShape);
+      Value scaleAPhysical = tosa::ReshapeOp::create(
+          rewriter, loc, physicalScaleAType, scaleA, physScaleAShapeValue);
+
+      auto physScaleBShapeValue =
+          tosa::getTosaConstShape(rewriter, loc, physScaleBShape);
+      Value scaleBPhysical = tosa::ReshapeOp::create(
+          rewriter, loc, physicalScaleBType, scaleB, physScaleBShapeValue);
+
+      // Transpose scaleB from [batch x (K/block_size) x N] to [batch x N x
+      // (K/block_size)]
+      Value scaleBTransposed = rock::tosa::getTransposeOp(
+          rewriter, loc, scaleBPhysical, bTransposePerm);
+
+      // Output type for matmul (3D)
+      RankedTensorType matmulOutputType =
+          RankedTensorType::get(newDimsOut, newOutElementTy);
+
+      // Create tosa.matmul_t_block_scaled
+      auto blockSizeAttr = mlir::tosa::BlockSizeAttr::get(
+          rewriter.getContext(), mlir::tosa::BlockSize::BLOCK_SIZE_32);
+
+      auto matmulOp = tosa::MatmulTBlockScaledOp::create(
+          rewriter, loc, matmulOutputType, inAReshaped, scaleAPhysical,
+          bDataTransposed, scaleBTransposed, blockSizeAttr);
+
+      // Convert optional attributes
+      if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))
+        matmulOp->setAttr("perf_config", attr);
+
+      // Reshape output back to original shape if needed
+      Value result = matmulOp.getResult();
+      if (batchInfo.needsReshape) {
+        auto origOutDimsValue =
+            tosa::getTosaConstShape(rewriter, loc, origOutDims);
+        result = tosa::ReshapeOp::create(
+            rewriter, loc, RankedTensorType::get(origOutDims, newOutElementTy),
+            matmulOp, origOutDimsValue);
+      }
+
+      rewriter.replaceOp(op, result);
+      return success();
     }
   }
 

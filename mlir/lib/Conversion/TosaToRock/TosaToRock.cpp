@@ -897,65 +897,6 @@ public:
     }
   }
 
-  // Helper to extract scale and matrix from a mul operation
-  // Pattern: tosa.mul(tosa.cast(fp4_data), tosa.cast(scale))
-  FailureOr<std::pair<Value, Value>>
-  tryExtractScaleAndMatrix(Value mulInput1, Value mulInput2) const {
-    Value scale = nullptr;
-    Value matrix = nullptr;
-
-    // Check if input1 is a cast from Float4E2M1FN
-    if (tosa::CastOp castOp = mulInput1.getDefiningOp<tosa::CastOp>()) {
-      Value castInput = castOp.getInput();
-      if (isa<Float4E2M1FNType>(
-              cast<ShapedType>(castInput.getType()).getElementType())) {
-        matrix = castInput;
-        scale = mulInput2;
-      }
-    }
-    // Check if input2 is a cast from Float4E2M1FN
-    else if (tosa::CastOp castOp = mulInput2.getDefiningOp<tosa::CastOp>()) {
-      Value castInput = castOp.getInput();
-      if (isa<Float4E2M1FNType>(
-              cast<ShapedType>(castInput.getType()).getElementType())) {
-        matrix = castInput;
-        scale = mulInput1;
-      }
-    }
-
-    // Unwrap cast on scale if present
-    if (scale && scale.getDefiningOp<tosa::CastOp>()) {
-      scale = scale.getDefiningOp<tosa::CastOp>().getInput();
-    }
-    if (scale) {
-      RankedTensorType scaleType = cast<RankedTensorType>(scale.getType());
-      if (!isa<Float8E8M0FNUType>(scaleType.getElementType()) &&
-          !isa<Float32Type>(scaleType.getElementType())) {
-        return failure();
-      }
-    }
-
-    if (!scale || !matrix) {
-      return failure();
-    }
-
-    return std::make_pair(scale, matrix);
-  }
-
-  // Helper to reshape value to match target shape
-  Value reshapeIfNeeded(Value val, ArrayRef<int64_t> targetShape, Location loc,
-                        ConversionPatternRewriter &rw) const {
-    auto valType = cast<RankedTensorType>(val.getType());
-    if (valType.getShape() == targetShape) {
-      return val;
-    }
-
-    RankedTensorType newType =
-        RankedTensorType::get(targetShape, valType.getElementType());
-    auto normalizedShapeValue = tosa::getTosaConstShape(rw, loc, targetShape);
-    return tosa::ReshapeOp::create(rw, loc, newType, val, normalizedShapeValue);
-  }
-
   LogicalResult matchAndRewrite(tosa::MatMulOp op,
                                 tosa::MatMulOp::Adaptor adaptor,
                                 ConversionPatternRewriter &rw) const final {
@@ -963,66 +904,6 @@ public:
     auto outputType = cast<RankedTensorType>(op.getType());
     auto matA = op.getA();
     auto matB = op.getB();
-    Value matABeforeCast = nullptr;
-    Value matBBeforeCast = nullptr;
-    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
-                                  tensor::ExpandShapeOp::getOperationName()};
-
-    // Try to extract scale and matrix for input A
-    Value scaleA = nullptr;
-    FailureOr<tosa::MulOp> maybeMulA =
-        getDefiningOpSkipping<tosa::MulOp>(matA, opsToSkip);
-    if (succeeded(maybeMulA)) {
-      tosa::MulOp mulOpA = maybeMulA.value();
-      FailureOr<std::pair<Value, Value>> maybeScaleMatrixA =
-          tryExtractScaleAndMatrix(mulOpA.getInput1(), mulOpA.getInput2());
-      if (succeeded(maybeScaleMatrixA)) {
-        auto [extractedScaleA, extractedMatrixA] = maybeScaleMatrixA.value();
-        scaleA = extractedScaleA;
-        matABeforeCast = extractedMatrixA;
-      }
-    }
-
-    // Try to extract scale and matrix for input B
-    Value scaleB = nullptr;
-    FailureOr<tosa::MulOp> maybeMulB =
-        getDefiningOpSkipping<tosa::MulOp>(matB, opsToSkip);
-    if (succeeded(maybeMulB)) {
-      tosa::MulOp mulOpB = maybeMulB.value();
-      FailureOr<std::pair<Value, Value>> maybeScaleMatrixB =
-          tryExtractScaleAndMatrix(mulOpB.getInput1(), mulOpB.getInput2());
-      if (succeeded(maybeScaleMatrixB)) {
-        auto [extractedScaleB, extractedMatrixB] = maybeScaleMatrixB.value();
-        scaleB = extractedScaleB;
-        matBBeforeCast = extractedMatrixB;
-      }
-    }
-
-    // rock.gemm requires both scaleA and scaleB to be provided, or neither
-    // If only one scale is present, emit error
-    bool hasScaleA = (scaleA != nullptr);
-    bool hasScaleB = (scaleB != nullptr);
-    if (hasScaleA != hasScaleB) {
-      return op.emitError("Only one scale is present. For scaled GEMM, both "
-                          "scaleA and scaleB must be provided.");
-    }
-
-    // Reshape matrices and scales to match the expected shapes if needed
-    if (matABeforeCast && scaleA) {
-      ArrayRef<int64_t> targetShape =
-          cast<ShapedType>(matA.getType()).getShape();
-      matABeforeCast = reshapeIfNeeded(matABeforeCast, targetShape, loc, rw);
-      scaleA = reshapeIfNeeded(scaleA, targetShape, loc, rw);
-      matA = cast<TypedValue<TensorType>>(matABeforeCast);
-    }
-
-    if (matBBeforeCast && scaleB) {
-      ArrayRef<int64_t> targetShape =
-          cast<ShapedType>(matB.getType()).getShape();
-      matBBeforeCast = reshapeIfNeeded(matBBeforeCast, targetShape, loc, rw);
-      scaleB = reshapeIfNeeded(scaleB, targetShape, loc, rw);
-      matB = cast<TypedValue<TensorType>>(matBBeforeCast);
-    }
 
     Value output =
         bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
@@ -1050,30 +931,16 @@ public:
         llvm::to_vector<3>(cast<RankedTensorType>(matA.getType()).getShape());
     setLastDims(transposeA, aShape, {mDim, kDim});
     Value brA = insertBroadcast(matA, aShape, loc, rw);
-    Value brAScale = nullptr;
-    if (scaleA) {
-      SmallVector<int64_t, 3> aScaleShape = llvm::to_vector<3>(
-          cast<RankedTensorType>(scaleA.getType()).getShape());
-      setLastDims(nullptr, aScaleShape, {mDim, kDim});
-      brAScale = insertBroadcast(scaleA, aScaleShape, loc, rw);
-    }
 
     SmallVector<int64_t, 3> bShape = llvm::to_vector<3>(
         cast<RankedTensorType>(op.getB().getType()).getShape());
     setLastDims(transposeB, bShape, {kDim, nDim});
     Value brB = insertBroadcast(matB, bShape, loc, rw);
 
-    Value brBScale = nullptr;
-    if (scaleB) {
-      SmallVector<int64_t, 3> bScaleShape = llvm::to_vector<3>(
-          cast<RankedTensorType>(scaleB.getType()).getShape());
-      setLastDims(nullptr, bScaleShape, {kDim, nDim});
-      brBScale = insertBroadcast(scaleB, bScaleShape, loc, rw);
-    }
-
     auto rockGemm = rock::GemmOp::create(
-        rw, loc, outputType, brA, brB, output, brAScale, brBScale, transposeA,
-        transposeB, transposeC, /*aScaleTransposed=*/nullptr,
+        rw, loc, outputType, brA, brB, output, /*scaleA=*/nullptr,
+        /*scaleB=*/nullptr, transposeA, transposeB, transposeC,
+        /*aScaleTransposed=*/nullptr,
         /*bScaleTransposed=*/nullptr,
         /*features=*/nullptr,
         rw.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
@@ -1092,8 +959,7 @@ public:
 /// Broadcast scale tensor from [batch, dim1, kScale] to [batch, dim1, k]
 /// by adding a block dimension and broadcasting it to blockSize.
 static Value broadcastScale(OpBuilder &b, Location loc, Value scale,
-                            int64_t blockSize, bool isA) {
-  (void)isA; // Currently unused but kept for potential future use
+                            int64_t blockSize) {
   auto scaleType = cast<RankedTensorType>(scale.getType());
   ArrayRef<int64_t> scaleShape = scaleType.getShape();
 
@@ -1174,8 +1040,8 @@ public:
     // Broadcast scales to match data tensor shapes
     // A scale: [batch, M, K/blockSize] -> [batch, M, K]
     // B scale: [batch, N, K/blockSize] -> [batch, N, K]
-    Value brAScale = broadcastScale(rw, loc, aScale, blockSize, /*isA=*/true);
-    Value brBScale = broadcastScale(rw, loc, bScale, blockSize, /*isA=*/false);
+    Value brAScale = broadcastScale(rw, loc, aScale, blockSize);
+    Value brBScale = broadcastScale(rw, loc, bScale, blockSize);
 
     // For matmul_t_block_scaled, B is already transposed (shape is [batch, N,
     // K]) So we need to tell rock.gemm that B is transposed
@@ -1242,7 +1108,8 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
     return success();
   }
 
-  LogicalResult checkMatMulTransposeValid(tosa::MatMulOp matmulOp,
+  template <typename OpT>
+  LogicalResult checkMatMulTransposeValid(OpT matmulOp,
                                           const ArrayRef<int32_t> dims) const {
     // batch dimension is expected to be 3rd from the last.
     if (dims.size() >= 3 && dims[dims.size() - 3] != (int32_t)dims.size() - 3) {
@@ -1421,6 +1288,25 @@ struct TransposeRewritePattern : public OpRewritePattern<tosa::TransposeOp> {
         } else {
           return matMulOp.emitWarning(
               "transpose found leading to a matmul input other than A or B");
+        }
+      } else if (auto matMulTBlockScaledOp =
+                     dyn_cast<tosa::MatmulTBlockScaledOp>(use.getOwner())) {
+        if (checkMatMulTransposeValid(matMulTBlockScaledOp, dims).failed()) {
+          return failure();
+        }
+        bool mmNonTrivial = isMatMulNonTrivial(dims);
+        if (matMulTBlockScaledOp.getAData() == tOutput) {
+          setTranspose(matMulTBlockScaledOp, "transpose_a", mmNonTrivial);
+          matMulTBlockScaledOp.getADataMutable().assign(tInput);
+        } else if (matMulTBlockScaledOp.getBData() == tOutput) {
+          // Note: matmul_t_block_scaled already expects B to be transposed,
+          // so an additional transpose would un-transpose it
+          setTranspose(matMulTBlockScaledOp, "transpose_b", mmNonTrivial);
+          matMulTBlockScaledOp.getBDataMutable().assign(tInput);
+        } else {
+          return matMulTBlockScaledOp.emitWarning(
+              "transpose found leading to a matmul_t_block_scaled input other "
+              "than A or B data");
         }
       } else {
         return failure();
