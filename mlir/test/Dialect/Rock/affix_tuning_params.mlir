@@ -751,7 +751,7 @@ func.func @rock_attn_schedule_default(%arg0: memref<1x384x64xf16>, %arg1: memref
 }
 
 // CHECK-LABEL: @rock_gemm_gemm_splitk
-// GRID-LABLE: @rock_gemm_gemm_splitk
+// GRID-LABEL: @rock_gemm_gemm_splitk
 // GRID: grid_size = 256
 func.func @rock_gemm_gemm_splitk(%arg0: memref<1474560xf16>, %arg1: memref<1474560xf16>, %arg2: memref<1474560xf16>, %arg3: memref<1474560xf16>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d1 * 360 + d2)> by [<Unmerge{4096, 360} ["m", "k"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 4096, 360] -> [1474560]> : memref<1474560xf16> to memref<1x4096x360xf16>
@@ -775,8 +775,8 @@ func.func @rock_gemm_gemm_splitk(%arg0: memref<1474560xf16>, %arg1: memref<14745
   return
 }
 
-// CHECK-LABLE: @mlir_dot_max_splitk
-// GRID-LABLE: @mlir_dot_max_splitk
+// CHECK-LABEL: @mlir_dot_max_splitk
+// GRID-LABEL: @mlir_dot_max_splitk
 // GRID: grid_size = 100
 func.func @mlir_dot_max_splitk(%arg1: memref<1x2x1280xf32>, %arg2: memref<1x1280x320xf32>, %arg3: memref<1x2x320xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
   %cst = arith.constant 0.000000e+00 : f32

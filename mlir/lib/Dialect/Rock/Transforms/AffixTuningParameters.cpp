@@ -289,7 +289,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
                             b.getI32IntegerAttr(validParams.blockSize));
   }
   // check for fusion legality with SplitK for both accel and non-accel path
-  // this check should happen after perfConfig is picked either thruogh
+  // this check should happen after perfConfig is picked either through
   // heuristics or user provided
   if (rock::isSplitKRequested(rock::getFeatures(op),
                               b.getStringAttr(perfConfig))) {
