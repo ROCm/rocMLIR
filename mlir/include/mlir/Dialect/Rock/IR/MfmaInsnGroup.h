@@ -36,13 +36,13 @@ enum class MfmaTypeId : uint32_t {
 
 struct MfmaInsnInfo {
   MfmaTypeId type;
-  int64_t mfmaNonKDim;
+  int64_t mfmaDDim;
   int64_t k;
   int64_t blocksMfma;
 };
 
 struct MfmaInsnAttr {
-  int64_t mfmaNonKDim;
+  int64_t mfmaDDim;
   int64_t k;
   int64_t blocksMfma;
 

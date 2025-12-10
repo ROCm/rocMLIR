@@ -30,6 +30,7 @@
 // GPU-NEXT:canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // GPU-NEXT:convert-linalg-to-affine-loops,
 // GPU-NEXT:rock-vectorize-fusions,
+// GPU-NEXT:rock-add-async-wait,
 // GPU-NEXT:rock-annotate-liveness,
 // GPU-NEXT:rock-reuse-lds,
 // GPU-NEXT:rock-output-swizzle,
@@ -69,6 +70,8 @@
 // BINARY-DAG:func
 // BINARY-DAG:arith
 // BINARY-SAME:} chipset=gfx90a index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY-NEXT:rock-add-direct-to-lds-alias-info,
+// BINARY-NEXT:llvm.func(rock-to-rocdl{chipset=gfx90a}),
 // BINARY-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY-NEXT:cse,
 // BINARY-NEXT:rock-prepare-llvm)),
@@ -98,6 +101,8 @@
 // BINARY_MI300-DAG:func
 // BINARY_MI300-DAG:arith
 // BINARY_MI300-SAME:} chipset=gfx942 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY_MI300-NEXT:rock-add-direct-to-lds-alias-info,
+// BINARY_MI300-NEXT:llvm.func(rock-to-rocdl{chipset=gfx942}),
 // BINARY_MI300-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI300-NEXT:cse,
 // BINARY_MI300-NEXT:rock-prepare-llvm)),
@@ -127,6 +132,8 @@
 // BINARY_MI350-DAG:func
 // BINARY_MI350-DAG:arith
 // BINARY_MI350-SAME:} chipset=gfx950 index-bitwidth=0 runtime=HIP use-bare-ptr-memref-call-conv=true},
+// BINARY_MI350-NEXT:rock-add-direct-to-lds-alias-info,
+// BINARY_MI350-NEXT:llvm.func(rock-to-rocdl{chipset=gfx950}),
 // BINARY_MI350-NEXT:llvm.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true},
 // BINARY_MI350-NEXT:cse,
 // BINARY_MI350-NEXT:rock-prepare-llvm)),
@@ -144,7 +151,13 @@
 // HIGHLEVEL-NEXT:rock-view-to-transform,
 // HIGHLEVEL-NEXT:rock-detect-flash-decoding,
 // HIGHLEVEL-NEXT:rocmlir-custom-tosa-decompose,
-// HIGHLEVEL-NEXT:rocmlir-custom-tosa-to-linalg),
+// HIGHLEVEL-NEXT:rocmlir-custom-tosa-to-linalg,
+// HIGHLEVEL-NEXT:builtin.module(tosa-attach-target{extensions={int4,
+// HIGHLEVEL-NEXT:bf16,
+// HIGHLEVEL-NEXT:fp8e4m3,
+// HIGHLEVEL-NEXT:fp8e5m2,
+// HIGHLEVEL-NEXT:mxfp} level=none profiles={pro_int,
+// HIGHLEVEL-NEXT:pro_fp} specification_version=1.0})),
 // HIGHLEVEL-NEXT:func.func(tosa-optional-decompositions),
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-infer-shapes),
@@ -153,8 +166,6 @@
 // HIGHLEVEL-NEXT:func.func(canonicalize{  max-iterations=10 max-num-rewrites=-1 region-simplify=normal test-convergence=false top-down=true}),
 // HIGHLEVEL-NEXT:func.func(tosa-layerwise-constant-fold{aggressive-reduce-constant=false}),
 // HIGHLEVEL-NEXT:func.func(tosa-make-broadcastable),
-// HIGHLEVEL-NEXT:tosa-validate{allow-invalid-op-datatype-combinations=true  level=none profile={pro_int,
-// HIGHLEVEL-NEXT:pro_fp} strict-op-spec-alignment=false},
 // HIGHLEVEL-NEXT:func.func(tosa-to-linalg{aggressive-reduce-constant=false disable-tosa-decompositions=false}),
 // HIGHLEVEL-NEXT:func.func(tosa-to-tensor,
 // HIGHLEVEL-NEXT:tosa-to-scf,
@@ -170,7 +181,7 @@
 // HIGHLEVEL-NEXT:func.func(empty-tensor-to-alloc-tensor,
 // HIGHLEVEL-NEXT:linalg-fold-unit-extent-dims{use-rank-reducing-slices=false}),
 // HIGHLEVEL-NEXT:one-shot-bufferize{allow-return-allocs-from-loops=true allow-unknown-ops=false analysis-fuzzer-seed=0 analysis-heuristic=bottom-up buffer-alignment=64 bufferize-function-boundaries=true check-parallel-regions=true copy-before-write=false  dump-alias-sets=false function-boundary-type-conversion=identity-layout-map must-infer-memory-space=false  print-conflicts=false test-analysis-only=false unknown-type-conversion=identity-layout-map use-encoding-for-memory-space=false},
-// HIGHLEVEL-NEXT:buffer-results-to-out-params{add-result-attr=false hoist-static-allocs=false},
+// HIGHLEVEL-NEXT:buffer-results-to-out-params{add-result-attr=false hoist-dynamic-allocs=false hoist-static-allocs=false modify-public-functions=true},
 // HIGHLEVEL-NEXT:func.func(rock-remove-output-alloc,
 // HIGHLEVEL-NEXT:rock-find-first-gemm-index,
 // HIGHLEVEL-NEXT:rock-sort-dimensions-memory-layout))
