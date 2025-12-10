@@ -1826,39 +1826,52 @@ struct GridwiseAttentionAccelRewritePattern
     return std::make_tuple(start, end, gemm0MBlocksLastIter, currentSeqLen);
   }
 
-  void runEarlyExit(PatternRewriter &rewriter, Location loc, Value start,
-                    Value end, int64_t splitKV, int64_t gemm0MPerBlock,
-                    std::optional<APInt> prePadG0M, bool isCausal,
-                    bool isKVCache, bool skipRunEarlyExit) const {
-    // we need to do early exit if (1) and (2 || 3) conditions are true:
+  // Helper function to determine if early exit optimization is possible.
+  // Early exit requires splitKV > 1 and at least one of: padding in gemm0M,
+  // causal masking, or KV cache.
+  static bool isEarlyExitPossible(int64_t splitKV, int64_t gemm0MPerBlock,
+                                  std::optional<APInt> prePadG0M, bool isCausal,
+                                  bool isKVCache) {
+    // We have no work to do if (1) and (2 || 3) conditions are true:
     // 1. split-kv > 1
     // 2. there's padding in gemm0M && (at least) the last block in split-kv
     // dimension has nothing to do
     // 3. (kvcache || causal) && (end <= start)
+    if (splitKV == 1)
+      return false;
 
-    // skipRunEarlyExit disables early exit logic as the MIGraphX flash decoding
-    // implementation requires that the first of two kernels is initialized to
-    // zero (and not left uninitialized as is the case with early exit logic).
-    if (splitKV == 1 || skipRunEarlyExit)
-      return;
-
-    // condition 2: some padding in gemm0M
-    // if prePadM < gemm0MPerBlock, then, the last block has some work to do
     bool earlyExitDueToPadding =
         prePadG0M.has_value() &&
         (prePadG0M.value().getSExtValue() >= gemm0MPerBlock);
-    // condition 3: causal or kvcache
     bool earlyExitDueToCausalOrKVCache = isCausal || isKVCache;
 
-    if (!earlyExitDueToPadding && !earlyExitDueToCausalOrKVCache)
-      return;
+    return earlyExitDueToPadding || earlyExitDueToCausalOrKVCache;
+  }
+
+  // Helper function to compute the 'someWorkToDo' condition used for early
+  // exit optimization.
+  FailureOr<Value> computeIfWorkToDo(PatternRewriter &rewriter, Location loc,
+                                     Value start, Value end, int64_t splitKV,
+                                     int64_t gemm0MPerBlock,
+                                     std::optional<APInt> prePadG0M,
+                                     bool isCausal, bool isKVCache) const {
+    if (!isEarlyExitPossible(splitKV, gemm0MPerBlock, prePadG0M, isCausal,
+                             isKVCache))
+      return failure();
+
+    // Determine which condition applies to generate the appropriate runtime
+    // check
+    bool earlyExitDueToPadding =
+        prePadG0M.has_value() &&
+        (prePadG0M.value().getSExtValue() >= gemm0MPerBlock);
+    bool earlyExitDueToCausalOrKVCache = isCausal || isKVCache;
 
     Value someWorkToDo;
-    // for dynamic kernels, no need to check padding condition. start/end checks
-    // can handle padding as well.
+    // For dynamic kernels, no need to check padding condition. start/end
+    // checks can handle padding as well.
     if (earlyExitDueToCausalOrKVCache) {
-      // if end is less than (or equal) start, then we can early exit the split
-      // KV loop.
+      // If end is less than (or equal) start, then we can early exit the
+      // split KV loop.
       someWorkToDo = arith::CmpIOp::create(
           rewriter, loc, arith::CmpIPredicate::ugt, end, start);
     } else if (earlyExitDueToPadding) {
@@ -1869,15 +1882,35 @@ struct GridwiseAttentionAccelRewritePattern
       Value startIteration =
           arith::MulIOp::create(rewriter, loc, start, constGemm0MPerBlock);
 
-      // if startIteration is less than (or equal) prePadMValue, then we can
-      // early exit the split KV loop.
+      // If startIteration is less than prePadMValue, then there is work to do
       someWorkToDo =
           arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ult,
                                 startIteration, prePadMValue);
     }
-    scf::IfOp ifb = scf::IfOp::create(rewriter, loc, someWorkToDo,
+
+    return someWorkToDo;
+  }
+
+  std::optional<scf::IfOp> runEarlyExit(PatternRewriter &rewriter, Location loc,
+                                        Value start, Value end, int64_t splitKV,
+                                        int64_t gemm0MPerBlock,
+                                        std::optional<APInt> prePadG0M,
+                                        bool isCausal, bool isKVCache) const {
+    // Compute the work condition using the extracted helper function
+    FailureOr<Value> maybeSomeWorkToDo =
+        computeIfWorkToDo(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
+                          prePadG0M, isCausal, isKVCache);
+
+    if (failed(maybeSomeWorkToDo))
+      return std::nullopt;
+
+    scf::IfOp ifb = scf::IfOp::create(rewriter, loc, maybeSomeWorkToDo.value(),
                                       /*withElseRegion=*/false);
     rewriter.setInsertionPointToStart(&ifb.getThenRegion().front());
+
+    // Return the IfOp so caller can close it later (by setting insertion point
+    // after it) to ensure output writes happen unconditionally
+    return ifb;
   }
 
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
@@ -1947,6 +1980,10 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
     int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
+
+    // Compute whether early exit is possible
+    bool earlyExitPossible = isEarlyExitPossible(
+        splitKV, gemm0MPerBlock, op.getPrePadG0M(), isCausal, isKVCache);
 
     int64_t scheduleVersion = gemm0TuningParams.getScheduleVersion();
     int64_t scheduleVersionG1 = gemm1TuningParams.getScheduleVersion();
@@ -2238,6 +2275,13 @@ struct GridwiseAttentionAccelRewritePattern
         Type elemTypeLse = cast<MemRefType>(lse.getType()).getElementType();
         lseBuffer = createBufferForGemmOut(loc, elemTypeLse, accelParamsGemm1,
                                            rewriter);
+        // Initialize lseBuffer to -infinity only when early exit is possible.
+        if (earlyExitPossible) {
+          auto negInfLse = createConstantFloatOp(
+              rewriter, loc, elemTypeLse, elemTypeLse,
+              -std::numeric_limits<float>::infinity(), APFloat::opOK);
+          FillOp::create(rewriter, loc, lseBuffer, negInfLse);
+        }
       }
 
       zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
@@ -2269,10 +2313,12 @@ struct GridwiseAttentionAccelRewritePattern
                      gemm0M, gemm0MPerBlock, gemm0NPerBlock, splitKV, isCausal,
                      isKVCache, op.getNumRepeatsGQAAttr());
 
-    // early exit if there is no work to do for this block
-    runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
-                 op.getPrePadG0M(), isCausal, isKVCache,
-                 /*skipRunEarlyExit=*/true);
+    // Early exit: Skip all computation when there's no work but always write
+    // output.
+    // This wraps Q loads, M/K loops, GEMMs, softmax, etc. in a conditional.
+    std::optional<scf::IfOp> earlyExitIf =
+        runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
+                     op.getPrePadG0M(), isCausal, isKVCache);
 
     // create matrix params (LDS transpose not supported for attention)
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
@@ -2313,6 +2359,7 @@ struct GridwiseAttentionAccelRewritePattern
                  << "rock.attention: gemm0K is equal to gemm0KPerBlock\n");
       LLVM_DEBUG(llvm::dbgs()
                  << "rock.attention: Prefetching Q tile into regs...\n");
+
       // it is fine m iteration to be zero as it irrelevant to Q tensor
       // as the first gemm is Kt x Qt.
       auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
@@ -2824,6 +2871,16 @@ struct GridwiseAttentionAccelRewritePattern
       Value lseBufferView = transform(
           rewriter, lseBuffer, attentionOutAccBufferThreadSubTileViewMaps);
       computeLse(rewriter, loc, lseBufferView, sumRowBuffer, maxRowBuffer);
+    }
+
+    // Close the early exit if block here. Everything above this point is
+    // conditional (only runs when there's work to do). Everything below
+    // (output writes) always executes, writing zeros when there's no work.
+    if (earlyExitIf.has_value()) {
+      rewriter.setInsertionPointAfter(*earlyExitIf);
+      LLVM_DEBUG(llvm::dbgs()
+                 << "rock.attention: early exit enabled - "
+                 << "output writes will execute unconditionally\n");
     }
 
     MemRefType outAccBufferOutType =
