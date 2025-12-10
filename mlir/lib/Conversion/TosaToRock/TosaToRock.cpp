@@ -1992,8 +1992,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return failure();
 
     // Look for add(row_indices, offset)
-    auto maybeAdd =
-        getDefiningOpSkipping<tosa::AddOp>(maybeNonOne2.value(), expandAndCollapse);
+    auto maybeAdd = getDefiningOpSkipping<tosa::AddOp>(maybeNonOne2.value(),
+                                                       expandAndCollapse);
     if (failed(maybeAdd))
       return failure();
 
@@ -2007,10 +2007,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value offset;
 
     // Check if input1 is row indices
-    if (succeeded(isConstantRange(cast<TypedValue<TensorType>>(addInput1), 1))) {
+    if (succeeded(
+            isConstantRange(cast<TypedValue<TensorType>>(addInput1), 1))) {
       offset = addInput2;
-    } else if (succeeded(
-                   isConstantRange(cast<TypedValue<TensorType>>(addInput2), 1))) {
+    } else if (succeeded(isConstantRange(
+                   cast<TypedValue<TensorType>>(addInput2), 1))) {
       offset = addInput1;
     } else {
       return failure();
@@ -2029,11 +2030,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value unwrappedOffset = maybeOffsetUnwrapped.value();
 
     // Trace offset back to block argument
-    DenseSet<StringRef> seqLenSkip{
-        tensor::CollapseShapeOp::getOperationName(),
-        tensor::ExpandShapeOp::getOperationName(),
-        tosa::TransposeOp::getOperationName(),
-        tosa::MulOp::getOperationName()};
+    DenseSet<StringRef> seqLenSkip{tensor::CollapseShapeOp::getOperationName(),
+                                   tensor::ExpandShapeOp::getOperationName(),
+                                   tosa::TransposeOp::getOperationName(),
+                                   tosa::MulOp::getOperationName()};
     FailureOr<Value> maybeBlockArg =
         getValueSkipping(unwrappedOffset, seqLenSkip);
 
@@ -3004,7 +3004,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     bool isPrefixCausal = attentionMatcherValues.isPrefixCausal;
-    UnitAttr prefixCausalAttr = isPrefixCausal ? rewriter.getUnitAttr() : nullptr;
+    UnitAttr prefixCausalAttr =
+        isPrefixCausal ? rewriter.getUnitAttr() : nullptr;
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
         attentionMatcherValues.preSoftmaxElementwiseFinder;
     int64_t firstGemmBlockIndex = elemwiseRegion.getFirstGemmBlockIndex();

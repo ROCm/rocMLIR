@@ -2971,8 +2971,10 @@ static Value prefixCausalMaskingTosa(OpBuilder builder, Location loc,
   ArrayRef<int64_t> inpShape = inpType.getShape();
 
   // Create row and column ranges
-  Value rowRange = createRange(builder, loc, 2, inpShape); // SEQ_LEN_Q dimension
-  Value colRange = createRange(builder, loc, 3, inpShape); // SEQ_LEN_KV dimension
+  Value rowRange =
+      createRange(builder, loc, 2, inpShape); // SEQ_LEN_Q dimension
+  Value colRange =
+      createRange(builder, loc, 3, inpShape); // SEQ_LEN_KV dimension
 
   // Broadcast offset to match shape [B, NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
@@ -4211,10 +4213,11 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
 
   if (currentSeqLenTensor) {
     if (prefixCausalMasking) {
-      // For prefix causal, use the combined formula: mask when col > row + offset
-      qkTensor = prefixCausalMaskingTosa(builder, loc, qkTensor,
-                                         currentSeqLenTensor,
-                                         -std::numeric_limits<float>::infinity());
+      // For prefix causal, use the combined formula: mask when col > row +
+      // offset
+      qkTensor =
+          prefixCausalMaskingTosa(builder, loc, qkTensor, currentSeqLenTensor,
+                                  -std::numeric_limits<float>::infinity());
     } else {
       // Standard KV-cache masking: mask when col > currentSeqLen
       qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,

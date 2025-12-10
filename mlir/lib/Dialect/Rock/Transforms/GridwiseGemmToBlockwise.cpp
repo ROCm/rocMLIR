@@ -1783,8 +1783,8 @@ struct GridwiseAttentionAccelRewritePattern
         if (isPrefixCausal) {
           // For prefix causal: effective seq len = maxRowOfBlock + offset
           // This determines how many M-blocks we need to process
-          effectiveSeqLen =
-              arith::AddIOp::create(rewriter, loc, maxRowOfBlock, currentSeqLen);
+          effectiveSeqLen = arith::AddIOp::create(rewriter, loc, maxRowOfBlock,
+                                                  currentSeqLen);
         } else if (effectiveSeqLen) {
           // if effectiveSeqLen is set, it means KV Cache is enabled,
           // so we need to take the minimum of currentSeqLen and maxRowOfBlock
@@ -2612,11 +2612,11 @@ struct GridwiseAttentionAccelRewritePattern
         if (isPrefixCausal) {
           // Prefix causal: mask when key > query + offset
           // This combines causal masking with a prefix offset
-          setGemm0OutputOutOfScope(
-              rewriter, loc, OutOfScopeType::PrefixCausal, gridCoordsGemm0,
-              softmaxInputBuffer, gemm0OutSubTileViewsTr, isPrefixCausal,
-              mLoopIV, gemm0MBlocksLastIter, currentSeqLen,
-              op.getNumRepeatsGQAAttr());
+          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::PrefixCausal,
+                                   gridCoordsGemm0, softmaxInputBuffer,
+                                   gemm0OutSubTileViewsTr, isPrefixCausal,
+                                   mLoopIV, gemm0MBlocksLastIter, currentSeqLen,
+                                   op.getNumRepeatsGQAAttr());
         } else {
           // Standard KV cache masking: mask when key > currentSeqLen
           setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
