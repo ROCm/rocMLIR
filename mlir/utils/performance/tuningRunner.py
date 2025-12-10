@@ -286,7 +286,9 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                     if kernel_gen.returncode != 0:
                         raise RuntimeError(f'rocmlir-gen command failed: {kernel_gen_command}')
                     if tuning_loop.returncode != 0:
-                        raise RuntimeError(f'rocmlir-tuning-driver command failed: {paths.mlir_paths.rocmlir_tuning_driver_path} {tuning_driver_args}')
+                        raise RuntimeError(
+                            f'rocmlir-tuning-driver command failed: {paths.mlir_paths.rocmlir_tuning_driver_path} {tuning_driver_args}'
+                        )
                 else:
                     # pipe to rocmlir_gen --emit-tuning-key
                     tuning_key = subprocess.Popen(
@@ -306,7 +308,9 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                     # Wait and make sure the process finished successfully.
                     tuning_loop_stdout, _ = tuning_loop.communicate()
                     if tuning_loop.returncode != 0:
-                        raise RuntimeError(f'rocmlir-tuning-driver command failed: {paths.mlir_paths.rocmlir_tuning_driver_path} {tuning_driver_args}')
+                        raise RuntimeError(
+                            f'rocmlir-tuning-driver command failed: {paths.mlir_paths.rocmlir_tuning_driver_path} {tuning_driver_args}'
+                        )
 
                 # Tune, printing progress as we go to avoid CI timeouts
                 winning_config, max_tflops, entries = get_winning_config(
