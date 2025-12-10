@@ -98,22 +98,26 @@ static void blockwiseGemmAccel(
     const RockAccelTuningParamAttrInterface &params) {
   // only pass LDS if BlockwiseGemmAccelOp will load from LDS
   Value matrixA = nullptr;
+  Value scaleMatrixA = nullptr;
   if (loadTypeA == GemmLoadTileType::Default ||
       loadTypeA == GemmLoadTileType::DirectToLDSDefault) {
     matrixA = matrixAInput;
+    scaleMatrixA = scaleA;
     assert(matrixA != nullptr);
   }
   Value matrixB = nullptr;
+  Value scaleMatrixB = nullptr;
   if (loadTypeB == GemmLoadTileType::Default ||
       loadTypeB == GemmLoadTileType::DirectToLDSDefault) {
     matrixB = matrixBInput;
+    scaleMatrixB = scaleB;
     assert(matrixB != nullptr);
   }
 
   BlockwiseGemmAccelOp::create(rewriter, loc, bufferA, bufferB, matrixC,
                                matrixParamsA, matrixParamsB, matrixA, matrixB,
-                               scaleA, scaleB, bufferScaleA, bufferScaleB,
-                               features, blockSize, params);
+                               scaleMatrixA, scaleMatrixB, bufferScaleA,
+                               bufferScaleB, features, blockSize, params);
 }
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
