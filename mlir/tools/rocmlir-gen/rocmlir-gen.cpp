@@ -2955,14 +2955,23 @@ static Value causalMaskingTosa(OpBuilder builder, Location loc,
 static Value prefixCausalMaskingTosa(OpBuilder builder, Location loc,
                                      Value inputTensor, Value offsetTensor,
                                      float initValue) {
+  auto origType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> origShape = origType.getShape();
+  SmallVector<int64_t, 4> newShape = {origShape[0] / numHeadsQ, numHeadsQ,
+                                      origShape[1], origShape[2]};
+  ImplicitLocOpBuilder implicitBuilder(loc, builder);
+  auto newShapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
+  inputTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, origType.getElementType(), inputTensor, newShapeValue);
+
   auto inpType = cast<RankedTensorType>(inputTensor.getType());
   ArrayRef<int64_t> inpShape = inpType.getShape();
 
-  // Create row and column ranges
-  Value rowRange = createRange(builder, loc, 1, inpShape);
-  Value colRange = createRange(builder, loc, 2, inpShape);
+  // Create row and column ranges (dimensions 2 and 3 in 4D)
+  Value rowRange = createRange(builder, loc, 2, inpShape);
+  Value colRange = createRange(builder, loc, 3, inpShape);
 
-  // Broadcast offset to match input shape
+  // Broadcast offset to match 4D shape
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
   auto offsetBroadcast = rock::tosa::getMulOp(
       builder, loc, offsetTensor,
@@ -2978,7 +2987,13 @@ static Value prefixCausalMaskingTosa(OpBuilder builder, Location loc,
 
   // Apply mask
   Value result = applyMask(builder, loc, inputTensor, mask, initValue);
-  return result;
+
+  // Reshape result back to [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
+  auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
+  auto resultReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, inpType.getElementType(), result, origShapeValue);
+
+  return resultReshaped;
 }
 
 static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,

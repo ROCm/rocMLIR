@@ -2002,9 +2002,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (failed(maybeBlockArg) || !isa<BlockArgument>(maybeBlockArg.value()))
       return failure();
 
-    // Verify offset is integer type
+    // Verify offset is i32
     auto offsetShape = dyn_cast<ShapedType>(unwrappedOffset.getType());
-    if (!offsetShape || !offsetShape.getElementType().isIntOrIndex())
+    if (!offsetShape || !offsetShape.getElementType().isInteger(32))
       return failure();
 
     return unwrappedOffset;
@@ -2034,11 +2034,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     assert(succeeded(maybeCurrentSeqLen) && "Must have non-reshape op");
     Value currentSeqLen = maybeCurrentSeqLen.value();
 
-    // currentSeqLen must be of integer type
+    // currentSeqLen must be i32
     auto currentSeqLenShape = dyn_cast<ShapedType>(currentSeqLen.getType());
-    if (!currentSeqLenShape ||
-        !currentSeqLenShape.getElementType().isIntOrIndex())
-      return failure();
+      if (!currentSeqLenShape ||
+          !currentSeqLenShape.getElementType().isInteger(32))
+        return failure();
 
     // Check if currentSeqLen comes from a block argument
     FailureOr<Value> mustBeBlockArg =
