@@ -673,6 +673,12 @@ static llvm::cl::opt<bool>
                   llvm::cl::desc("whether we implement causal masking"),
                   llvm::cl::init(false));
 
+static llvm::cl::opt<bool> prefixCausalMasking(
+    "prefix-causal",
+    llvm::cl::desc("whether to use prefix causal masking (mask when key > "
+                   "query + currentSeqLen)"),
+    llvm::cl::init(false));
+
 static llvm::cl::opt<int64_t> splitKV(
     "split_kv",
     llvm::cl::desc("Flash decoding enabled if split-kv > 1. Describes "
@@ -3270,7 +3276,8 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   auto attention = rock::AttentionOp::create(
       builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, numHeadsQ, numHeadsKV, transposeQ,
-      transposeK, transposeV, transposeO, causalMasking, splitKV,
+      transposeK, transposeV, transposeO, causalMasking, prefixCausalMasking,
+      splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,

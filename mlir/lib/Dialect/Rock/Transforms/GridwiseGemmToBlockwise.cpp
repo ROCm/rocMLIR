@@ -1242,7 +1242,7 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
-  enum class OutOfScopeType { KVCache, Causal };
+  enum class OutOfScopeType { KVCache, Causal, PrefixCausal };
 
   void setGemm0OutputOutOfScope(
       PatternRewriter &rewriter, Location loc, OutOfScopeType outOfScopeType,
@@ -1298,7 +1298,7 @@ struct GridwiseAttentionAccelRewritePattern
             isInvalid = arith::CmpIOp::create(
                 thenb, loc, arith::CmpIPredicate::ugt, mIndex, currentSeqLen);
             break;
-          case OutOfScopeType::Causal:
+          case OutOfScopeType::Causal: {
             Value nIndex = lowerCoords[1];
             if (constNumRepeatsGQA)
               nIndex = thenb.createOrFold<arith::DivUIOp>(loc, nIndex,
@@ -1307,6 +1307,25 @@ struct GridwiseAttentionAccelRewritePattern
             isInvalid = arith::CmpIOp::create(
                 thenb, loc, arith::CmpIPredicate::ugt, mIndex, nIndex);
             break;
+          }
+          case OutOfScopeType::PrefixCausal: {
+            // Prefix causal: mask when key_pos > query_pos + prefix_offset
+            // This is used for chunked/prefix attention where:
+            // - A prefix of tokens (0..prefix_offset) is always visible
+            // - Within the current chunk, standard causal masking applies
+            assert(currentSeqLen != nullptr);
+            Value nIndex = lowerCoords[1];
+            if (constNumRepeatsGQA)
+              nIndex = thenb.createOrFold<arith::DivUIOp>(loc, nIndex,
+                                                          constNumRepeatsGQA);
+
+            // Compute query_pos + prefix_offset
+            Value threshold =
+                arith::AddIOp::create(thenb, loc, nIndex, currentSeqLen);
+            isInvalid = arith::CmpIOp::create(
+                thenb, loc, arith::CmpIPredicate::ugt, mIndex, threshold);
+            break;
+          }
           }
 
           scf::IfOp ifb = scf::IfOp::create(thenb, loc, isInvalid,
@@ -1696,16 +1715,16 @@ struct GridwiseAttentionAccelRewritePattern
                layout::AttnGridCoordinates gridCoordsGemm0,
                Value currentSeqLenTensor, int64_t gemm0M,
                int64_t gemm0MPerBlock, int64_t gemm0NPerBlock, int64_t splitKV,
-               bool isCausal, bool isKVCache,
+               bool isCausal, bool isKVCache, bool isPrefixCausal,
                IntegerAttr numRepeatsGQA = nullptr) const {
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
     Value effectiveSeqLen;
     Value start, end;
-    // This is needed for KV Cache/Causal masking support
-    if (isCausal || isKVCache) {
+    // This is needed for KV Cache/Causal/Prefix Causal masking support
+    if (isCausal || isKVCache || isPrefixCausal) {
       Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
-      if (isKVCache) {
+      if (isKVCache || isPrefixCausal) {
         // add dim 1 for thread_read_into (registers)
         ArrayRef<int64_t> inpShape =
             cast<ShapedType>(currentSeqLenTensor.getType()).getShape();
@@ -1742,9 +1761,11 @@ struct GridwiseAttentionAccelRewritePattern
                                    currentSeqLenLoad, ValueRange{zero});
         currentSeqLen = rewriter.createOrFold<arith::IndexCastOp>(
             loc, rewriter.getIndexType(), currentSeqLenValue);
-        effectiveSeqLen = currentSeqLen;
+        if (isKVCache && !isPrefixCausal) {
+          effectiveSeqLen = currentSeqLen;
+        }
       }
-      if (isCausal) {
+      if (isCausal || isPrefixCausal) {
         // this computes the maximum n of the block
         Value nIndex = gridCoordsGemm0.n_block;
         Value constGemm0NPerBlock =
@@ -1759,12 +1780,20 @@ struct GridwiseAttentionAccelRewritePattern
               loc, maxRowOfBlock, constNumRepeatsGQA);
         }
 
-        // if effectiveSeqLen is set, it means KV Cache is enabled,
-        // so we need to take the minimum of currentSeqLen and maxRowOfBlock
-        if (effectiveSeqLen)
+        if (isPrefixCausal) {
+          // For prefix causal: effective seq len = maxRowOfBlock + offset
+          // This determines how many M-blocks we need to process
+          effectiveSeqLen =
+              arith::AddIOp::create(rewriter, loc, maxRowOfBlock, currentSeqLen);
+        } else if (effectiveSeqLen) {
+          // if effectiveSeqLen is set, it means KV Cache is enabled,
+          // so we need to take the minimum of currentSeqLen and maxRowOfBlock
           maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, currentSeqLen,
                                                  maxRowOfBlock);
-        effectiveSeqLen = maxRowOfBlock;
+          effectiveSeqLen = maxRowOfBlock;
+        } else {
+          effectiveSeqLen = maxRowOfBlock;
+        }
       }
 
       // compute end index
@@ -1954,6 +1983,7 @@ struct GridwiseAttentionAccelRewritePattern
     TypedValue<MemRefType> currentSeqLenTensor = op.getCurrentSeqLen();
     bool isKVCache = currentSeqLenTensor != nullptr;
     bool isCausal = op.getCausal();
+    bool isPrefixCausal = op.getPrefixCausal();
     int64_t splitKV = op.getSplitKV();
 
     // Gemm0 out is casted to be softmaxType (if null, it's casted to elemTypeV)
@@ -2311,7 +2341,7 @@ struct GridwiseAttentionAccelRewritePattern
     std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen) =
         getMLoopInfo(rewriter, loc, gridCoordsGemm0mIter0, currentSeqLenTensor,
                      gemm0M, gemm0MPerBlock, gemm0NPerBlock, splitKV, isCausal,
-                     isKVCache, op.getNumRepeatsGQAAttr());
+                     isKVCache, isPrefixCausal, op.getNumRepeatsGQAAttr());
 
     // Early exit: Skip all computation when there's no work but always write
     // output.
@@ -2578,18 +2608,29 @@ struct GridwiseAttentionAccelRewritePattern
                                        softmaxInputBuffer,
                                        gemm0OutSubTileViewsTrUnPadded);
         }
-        // Negative Infinite for extra values (KV cache)
-        setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
-                                 gridCoordsGemm0, softmaxInputBuffer,
-                                 gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
-                                 gemm0MBlocksLastIter, currentSeqLen);
+        // Negative Infinite for extra values based on masking type
+        if (isPrefixCausal) {
+          // Prefix causal: mask when key > query + offset
+          // This combines causal masking with a prefix offset
+          setGemm0OutputOutOfScope(
+              rewriter, loc, OutOfScopeType::PrefixCausal, gridCoordsGemm0,
+              softmaxInputBuffer, gemm0OutSubTileViewsTr, isPrefixCausal,
+              mLoopIV, gemm0MBlocksLastIter, currentSeqLen,
+              op.getNumRepeatsGQAAttr());
+        } else {
+          // Standard KV cache masking: mask when key > currentSeqLen
+          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
+                                   gridCoordsGemm0, softmaxInputBuffer,
+                                   gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
+                                   gemm0MBlocksLastIter, currentSeqLen);
 
-        // Negative Infinite for extra values (causal masking)
-        setGemm0OutputOutOfScope(
-            rewriter, loc, OutOfScopeType::Causal, gridCoordsGemm0,
-            softmaxInputBuffer, gemm0OutSubTileViewsTr, isCausal, mLoopIV,
-            gemm0MBlocksLastIter, /*currentSeqLen=*/nullptr,
-            op.getNumRepeatsGQAAttr());
+          // Standard causal masking: mask when key > query
+          setGemm0OutputOutOfScope(
+              rewriter, loc, OutOfScopeType::Causal, gridCoordsGemm0,
+              softmaxInputBuffer, gemm0OutSubTileViewsTr, isCausal, mLoopIV,
+              gemm0MBlocksLastIter, /*currentSeqLen=*/nullptr,
+              op.getNumRepeatsGQAAttr());
+        }
 
         APInt reductionAxis = APInt(64, 1);
         // Softmax max reduction

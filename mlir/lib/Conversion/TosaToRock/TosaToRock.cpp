@@ -1627,6 +1627,7 @@ struct AttentionMatcherValues {
   Value causalMaskInput;
   Value currentSeqLen;
   bool isCausal;
+  bool isPrefixCausal;
   Type softmaxType;
   ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
 };
@@ -1928,6 +1929,124 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return addResult;
 
     return failure();
+  }
+
+  // Helper function to detect prefix attention pattern:
+  //   - select(greater(col_indices, row_indices + offset), -inf, value)
+  //   - where offset traces back to a block argument
+  // This pattern is used for prefix/chunked attention where:
+  //   - Positions 0..prefix_length are always visible (the prefix)
+  //   - Positions after the prefix use causal masking within the chunk
+  // Returns: (value_to_continue_matching, prefix_offset_value)
+  FailureOr<std::pair<Value, Value>> getPrefixCausal(Value input) const {
+    // Check that this leads to an exp op (required for softmax)
+    if (!isUsedByExp(input))
+      return failure();
+
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName(),
+                                  tosa::CastOp::getOperationName()};
+
+    // Check for select pattern with -inf
+    auto maybeSelect = getDefiningOpSkipping<tosa::SelectOp>(input, opsToSkip);
+    if (failed(maybeSelect))
+      return failure();
+
+    auto select = maybeSelect.value();
+
+    // Check onTrue is -inf
+    auto onTrue = select.getInput2();
+    bool isConstNegInf = false;
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+    auto maybeTosaConst =
+        getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
+    auto maybeArithConst =
+        getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
+    if (succeeded(maybeTosaConst))
+      isConstNegInf = rock::isConstNegInf(maybeTosaConst.value().getResult());
+    else if (succeeded(maybeArithConst))
+      isConstNegInf = rock::isConstNegInf(maybeArithConst.value().getResult());
+
+    if (!isConstNegInf)
+      return failure();
+
+    // Look for greater(col_indices, row_indices + offset)
+    opsToSkip.insert(tosa::MulOp::getOperationName());
+    auto pred = select.getInput1();
+    auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
+    if (failed(maybeGreater))
+      return failure();
+
+    auto greater = maybeGreater.value();
+
+    // input1 should be column indices [0, 1, 2, ..., seq_k]
+    if (failed(isConstantRange(greater.getInput1(), 0)))
+      return failure();
+
+    // input2 should be (row_indices + offset) where offset is block arg
+    Value input2 = greater.getInput2();
+    FailureOr<Value> maybeNonOne2 = mulBroadcast(input2);
+    if (failed(maybeNonOne2))
+      return failure();
+
+    // Look for add(row_indices, offset)
+    auto maybeAdd =
+        getDefiningOpSkipping<tosa::AddOp>(maybeNonOne2.value(), expandAndCollapse);
+    if (failed(maybeAdd))
+      return failure();
+
+    auto add = maybeAdd.value();
+    Value addInput1 = add.getInput1();
+    Value addInput2 = add.getInput2();
+
+    // One input should be row indices (constant range starting from 0,
+    // broadcasted on the second-to-last dimension)
+    // Other input should trace to block arg (the prefix offset)
+    Value offset;
+
+    // Check if input1 is row indices
+    if (succeeded(isConstantRange(cast<TypedValue<TensorType>>(addInput1), 1))) {
+      offset = addInput2;
+    } else if (succeeded(
+                   isConstantRange(cast<TypedValue<TensorType>>(addInput2), 1))) {
+      offset = addInput1;
+    } else {
+      return failure();
+    }
+
+    // Trace offset back through broadcasts to find the original value
+    FailureOr<Value> maybeOffset = mulBroadcast(offset);
+    if (failed(maybeOffset))
+      maybeOffset = offset;
+
+    FailureOr<Value> maybeOffsetUnwrapped =
+        getValueSkipping(maybeOffset.value(), expandAndCollapse);
+    if (failed(maybeOffsetUnwrapped))
+      return failure();
+
+    Value unwrappedOffset = maybeOffsetUnwrapped.value();
+
+    // Trace offset back to block argument
+    DenseSet<StringRef> seqLenSkip{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName(),
+        tosa::TransposeOp::getOperationName(),
+        tosa::MulOp::getOperationName()};
+    FailureOr<Value> maybeBlockArg =
+        getValueSkipping(unwrappedOffset, seqLenSkip);
+
+    if (failed(maybeBlockArg) || !isa<BlockArgument>(maybeBlockArg.value()))
+      return failure();
+
+    // Verify offset is i32 type
+    auto offsetShape = dyn_cast<ShapedType>(unwrappedOffset.getType());
+    if (!offsetShape || !offsetShape.getElementType().isInteger(32))
+      return failure();
+
+    Value result = select.getInput3();
+    return std::make_pair(result, unwrappedOffset);
   }
 
   /*
@@ -2729,9 +2848,32 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return failure();
     }
 
+    // Try prefix causal detection first (more specific pattern)
+    // Prefix causal: greater(col_indices, row_indices + prefix_offset)
+    // This pattern masks: key_pos > query_pos + prefix_offset
+    bool isPrefixCausal = false;
+    Value prefixOffset;
+    auto maybePrefixCausal = getPrefixCausal(kvCacheInput);
+    if (succeeded(maybePrefixCausal)) {
+      isPrefixCausal = true;
+      Value prefixCausalInput;
+      std::tie(prefixCausalInput, prefixOffset) = maybePrefixCausal.value();
+      // For prefix causal, set currentSeqLen to the prefix offset
+      // The kernel will apply: mask when key > query + offset
+      currentSeqLen = prefixOffset;
+      kvCacheInput = prefixCausalInput;
+    }
+
+    // Try standard causal detection if not prefix causal
     auto causal = getCausal(kvCacheInput);
     bool isCausal = succeeded(causal);
     Value causalMaskInput = isCausal ? causal.value() : kvCacheInput;
+
+    // If prefix causal was detected, update causalMaskInput
+    // Note: isPrefixCausal is separate from isCausal
+    if (isPrefixCausal) {
+      causalMaskInput = kvCacheInput;
+    }
 
     OpBuilder b{op};
     ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
@@ -2753,6 +2895,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
     LLVM_DEBUG(llvm::dbgs() << "isKVCache: " << isKVCache << "\n");
     LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "isPrefixCausal = " << isPrefixCausal << "\n");
     if (isDotProduct && hasReduceOp)
       return failure();
     if (!isDotProduct && !hasReduceOp)
@@ -2778,6 +2921,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // rewriter
     AttentionMatcherValues attentionMatcherValues;
     attentionMatcherValues.isCausal = isCausal;
+    attentionMatcherValues.isPrefixCausal = isPrefixCausal;
     attentionMatcherValues.softmaxType = softmaxType;
     attentionMatcherValues.softmaxValues = softmaxMatcherValues;
     attentionMatcherValues.lse = lse;
@@ -2859,6 +3003,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     }
 
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
+    bool isPrefixCausal = attentionMatcherValues.isPrefixCausal;
+    UnitAttr prefixCausalAttr = isPrefixCausal ? rewriter.getUnitAttr() : nullptr;
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
         attentionMatcherValues.preSoftmaxElementwiseFinder;
     int64_t firstGemmBlockIndex = elemwiseRegion.getFirstGemmBlockIndex();
@@ -2876,7 +3022,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
-        /*oTransposed=*/nullptr, causalAttr,
+        /*oTransposed=*/nullptr, causalAttr, prefixCausalAttr,
         /*splitKV=*/rewriter.getI32IntegerAttr(1),
         /*features=*/nullptr,
         rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
