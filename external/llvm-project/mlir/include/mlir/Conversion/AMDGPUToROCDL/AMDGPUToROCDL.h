@@ -27,8 +27,7 @@ class Pass;
 /// populateAMDGPUMemorySpaceAttributeConversions().
 void populateAMDGPUToROCDLConversionPatterns(LLVMTypeConverter &converter,
                                              RewritePatternSet &patterns,
-                                             amdgpu::Chipset chipset,
-                                             bool hackForDirectToLDS);
+                                             amdgpu::Chipset chipset);
 
 /// Remap AMDGPU memory spaces to LLVM address spaces
 /// by mapping amdgpu::AddressSpace::fat_raw_buffer to ptr addrspace(7),

@@ -11,13 +11,13 @@
 // CHECK: %[[QTr0:.+]] = rock.transform %[[Q]] by
 
 // init maxRow buffer
-// CHECK-DAG: rock.fill(%[[maxRowBuf:.+]], %[[negInf]])
+// CHECK-DAG: rock.fill(%[[maxRowBuf:.+]], %[[negInf]]) : memref<1xf32
 
 // init sumRow buffer
-// CHECK-DAG: rock.fill(%[[sumRowBuf:.+]], %[[zeroF32]])
+// CHECK-DAG: rock.fill(%[[sumRowBuf:.+]], %[[zeroF32]]) : memref<1xf32
 
 // init attentionAcc buffer
-// CHECK-DAG: rock.fill(%[[attnOutBuf:.+]], %[[zeroF32]])
+// CHECK-DAG: rock.fill(%[[attnOutBuf:.+]], %[[zeroF32]]) : memref<2x16xf32
 
 // Outer N-tile loop
 // CHECK: scf.for
@@ -496,12 +496,8 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
   // CHECK-NEXT: %[[endSplitKV:.+]] = arith.muli %[[splitPlusOne]], %[[gemm0MIterations]] : index
   // CHECK-NEXT: %[[endIter:.+]] = arith.minui %[[numIter]], %[[endSplitKV]] : index
   // CHECK-NEXT: %[[lastIter:.+]] = arith.subi %[[endIter]], %[[c1]] : index
-
-  // commented out because of SWDEV-559105
-  // TODO: revert this change once SWDEV-559105 is solved
-  // BUG-CHECK-NEXT: %[[someWorkToDo:.+]] = arith.cmpi ugt, %[[endIter]], %[[startIter]] : index
-  // BUG-CHECK-NEXT: scf.if %[[someWorkToDo]]
-
+  // CHECK-NEXT: %[[someWorkToDo:.+]] = arith.cmpi ugt, %[[endIter]], %[[startIter]] : index
+  // CHECK-NEXT: scf.if %[[someWorkToDo]]
   // CHECK-NEXT: scf.for %[[iterIndex:.+]] = %[[startIter]] to %[[endIter]] step %[[c1]] {
   // CHECK: %[[comparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
   // CHECK-NEXT: scf.if %[[comparison]] {
@@ -517,6 +513,9 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
   // CHECK-NEXT: %[[lse:.+]] = arith.mulf %[[lseLog2]], %[[log2]] : f32
   // CHECK-NEXT: rock.in_bounds_store %[[lse]] -> %[[lseBuffer:.+]][{{.*}}] : f32 -> memref<16xf32, #gpu.address_space<private>>, index
   // CHECK-NEXT: rock.yield
+  // Verify that the early exit scf.if block closes before the writes
+  // CHECK: }
+  // CHECK-NEXT: }
   // CHECK: rock.threadwise_write_all {{.*}} by  set : memref<32xf32, #gpu.address_space<private>> -> memref<8x64x384xf32>
   // CHECK-NEXT: rock.threadwise_write_all {{.*}} %[[lseBuffer]] {{.*}} set : memref<16xf32, #gpu.address_space<private>> -> memref<8x384xf32>
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) features =  mfma|dot|atomic_add|atomic_add_f16 preSoftmaxOps = {} {

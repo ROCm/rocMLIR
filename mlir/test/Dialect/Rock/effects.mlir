@@ -603,3 +603,12 @@ func.func @loadtile_default_directtolds(%arg0: memref<1x384x64xf32>, %lds: memre
   return
 }
 
+func.func @rock_lds_transpose_load(%lds_buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  // expected-remark @below {{operation has no memory effects}}
+  %c0 = arith.constant 0 : index
+  // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
+  // expected-remark @below {{found an instance of 'write' on resource '<Default>'}}
+  %fragment = rock.lds_transpose_load %lds_buffer[%c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
