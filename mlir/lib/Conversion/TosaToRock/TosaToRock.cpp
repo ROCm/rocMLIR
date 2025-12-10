@@ -1825,6 +1825,18 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return maybeSelect;
   }
 
+  // Helper to verify a value is i32 and traces back to a block argument
+  bool isI32BlockArgument(Value val,
+                          const DenseSet<StringRef> &seqLenSkip) const {
+    auto shape = dyn_cast<ShapedType>(val.getType());
+    if (!shape || !shape.getElementType().isInteger(32))
+      return false;
+
+    FailureOr<Value> maybeBlockArg = getValueSkipping(val, seqLenSkip);
+    return succeeded(maybeBlockArg) &&
+           isa<BlockArgument>(maybeBlockArg.value());
+  }
+
   // Helper function to detect select-based causal mask pattern:
   //   - true branch is a splat -inf constant
   //   - false branch is the tensor value that we want to return
@@ -1954,15 +1966,15 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Helper to try detecting prefix causal pattern: add(row_indices, offset)
   // Returns the offset value if successful
   FailureOr<Value>
-  tryPrefixCausalPattern(Value input2,
+  tryPrefixCausalPattern(Value input,
                          const DenseSet<StringRef> &expandAndCollapse,
                          const DenseSet<StringRef> &seqLenSkip) const {
-    FailureOr<Value> maybeNonOne2 = mulBroadcast(input2);
-    if (failed(maybeNonOne2))
+    FailureOr<Value> maybeNonOne = mulBroadcast(input);
+    if (failed(maybeNonOne))
       return failure();
 
     // Look for add(row_indices, offset)
-    auto maybeAdd = getDefiningOpSkipping<tosa::AddOp>(maybeNonOne2.value(),
+    auto maybeAdd = getDefiningOpSkipping<tosa::AddOp>(maybeNonOne.value(),
                                                        expandAndCollapse);
     if (failed(maybeAdd))
       return failure();
@@ -1996,15 +2008,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     Value unwrappedOffset = maybeOffsetUnwrapped.value();
 
-    // Trace offset back to block argument
-    FailureOr<Value> maybeBlockArg =
-        getValueSkipping(unwrappedOffset, seqLenSkip);
-    if (failed(maybeBlockArg) || !isa<BlockArgument>(maybeBlockArg.value()))
-      return failure();
-
-    // Verify offset is i32
-    auto offsetShape = dyn_cast<ShapedType>(unwrappedOffset.getType());
-    if (!offsetShape || !offsetShape.getElementType().isInteger(32))
+    // Verify offset is i32 and traces back to a block argument
+    if (!isI32BlockArgument(unwrappedOffset, seqLenSkip))
       return failure();
 
     return unwrappedOffset;
@@ -2013,14 +2018,14 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Helper to try detecting KV-cache pattern
   // Returns the seqLen value if successful
   FailureOr<Value>
-  tryKVCachePattern(Value input2, const DenseSet<StringRef> &expandAndCollapse,
+  tryKVCachePattern(Value input, const DenseSet<StringRef> &expandAndCollapse,
                     const DenseSet<StringRef> &seqLenSkip) const {
-    FailureOr<Value> maybeNonOne2 = mulBroadcast(input2);
-    if (failed(maybeNonOne2))
+    FailureOr<Value> maybeNonOne = mulBroadcast(input);
+    if (failed(maybeNonOne))
       return failure();
 
     // Check that the right dimensions are broadcasted (scalar-like)
-    auto beforeBroadcastShape = dyn_cast<ShapedType>(maybeNonOne2->getType());
+    auto beforeBroadcastShape = dyn_cast<ShapedType>(maybeNonOne->getType());
     if (!beforeBroadcastShape)
       return failure();
 
@@ -2030,20 +2035,12 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return failure();
 
     auto maybeCurrentSeqLen =
-        getValueSkipping(maybeNonOne2.value(), expandAndCollapse);
+        getValueSkipping(maybeNonOne.value(), expandAndCollapse);
     assert(succeeded(maybeCurrentSeqLen) && "Must have non-reshape op");
     Value currentSeqLen = maybeCurrentSeqLen.value();
 
-    // currentSeqLen must be i32
-    auto currentSeqLenShape = dyn_cast<ShapedType>(currentSeqLen.getType());
-      if (!currentSeqLenShape ||
-          !currentSeqLenShape.getElementType().isInteger(32))
-        return failure();
-
-    // Check if currentSeqLen comes from a block argument
-    FailureOr<Value> mustBeBlockArg =
-        getValueSkipping(currentSeqLen, seqLenSkip);
-    if (failed(mustBeBlockArg) || !isa<BlockArgument>(mustBeBlockArg.value()))
+    // Verify currentSeqLen is i32 and traces back to a block argument
+    if (!isI32BlockArgument(currentSeqLen, seqLenSkip))
       return failure();
 
     return currentSeqLen;

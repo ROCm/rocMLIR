@@ -2967,11 +2967,11 @@ static Value prefixCausalMaskingTosa(OpBuilder builder, Location loc,
   auto inpType = cast<RankedTensorType>(inputTensor.getType());
   ArrayRef<int64_t> inpShape = inpType.getShape();
 
-  // Create row and column ranges (dimensions 2 and 3 in 4D)
+  // Create row and column ranges
   Value rowRange = createRange(builder, loc, 2, inpShape);
   Value colRange = createRange(builder, loc, 3, inpShape);
 
-  // Broadcast offset to match 4D shape
+  // Broadcast offset
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
   auto offsetBroadcast = rock::tosa::getMulOp(
       builder, loc, offsetTensor,
@@ -2988,7 +2988,7 @@ static Value prefixCausalMaskingTosa(OpBuilder builder, Location loc,
   // Apply mask
   Value result = applyMask(builder, loc, inputTensor, mask, initValue);
 
-  // Reshape result back to [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
+  // Reshape result
   auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
   auto resultReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
       builder, loc, inpType.getElementType(), result, origShapeValue);

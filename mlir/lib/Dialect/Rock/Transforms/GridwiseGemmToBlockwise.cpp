@@ -1310,9 +1310,9 @@ struct GridwiseAttentionAccelRewritePattern
           }
           case OutOfScopeType::PrefixCausal: {
             // Prefix causal: mask when key_pos > query_pos + prefix_offset
-            // This is used for chunked/prefix attention where:
+            // This is used for prefix attention where:
             // - A prefix of tokens (0..prefix_offset) is always visible
-            // - Within the current chunk, standard causal masking applies
+            // - Anything after the prefix, standard causal masking applies
             assert(currentSeqLen != nullptr);
             Value nIndex = lowerCoords[1];
             if (constNumRepeatsGQA)
