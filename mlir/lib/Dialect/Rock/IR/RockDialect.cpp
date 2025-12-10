@@ -2675,6 +2675,14 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   if (!getEnableSoftmax() && getSoftmaxType()) {
     return emitError("Setting softmax type only works for attention.");
   }
+
+  // Validate prefix causal constraints
+  if (getPrefixCausal() && getCausal())
+    return emitError("prefixCausal and causal are mutually exclusive.");
+
+  if (getPrefixCausal() && !getCurrentSeqLen())
+    return emitError("prefixCausal requires currentSeqLen.");
+
   return success();
 }
 
@@ -3208,6 +3216,16 @@ LogicalResult AttentionOp::verify() {
 
   if (getStoreMethod() != StoreMethod::Set)
     return emitError("Only set store method is supported for attention.");
+
+  // Validate prefix causal constraints
+  if (getPrefixCausal() && getCausal())
+    return emitError("prefixCausal and causal are mutually exclusive. "
+                     "Use prefixCausal for prefix/chunked attention, "
+                     "or causal for standard causal masking.");
+
+  if (getPrefixCausal() && !getCurrentSeqLen())
+    return emitError("prefixCausal requires currentSeqLen to specify "
+                     "the prefix offset.");
 
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
                                   getNumHeadsQ(), getNumHeadsKV());

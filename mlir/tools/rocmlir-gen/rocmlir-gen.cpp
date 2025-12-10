@@ -2952,6 +2952,53 @@ static Value causalMaskingTosa(OpBuilder builder, Location loc,
   return result;
 }
 
+static Value prefixCausalMaskingTosa(OpBuilder builder, Location loc,
+                                     Value inputTensor, Value offsetTensor,
+                                     float initValue) {
+  // Prefix causal: mask when col > row + offset
+  // inputTensor is [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV], reshape to
+  // [B, NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV] for proper broadcasting
+  auto origType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> origShape = origType.getShape();
+  SmallVector<int64_t, 4> newShape = {origShape[0] / numHeadsQ, numHeadsQ,
+                                      origShape[1], origShape[2]};
+  ImplicitLocOpBuilder implicitBuilder(loc, builder);
+  auto newShapeValue = tosa::getTosaConstShape(implicitBuilder, newShape);
+  inputTensor = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, origType.getElementType(), inputTensor, newShapeValue);
+
+  auto inpType = cast<RankedTensorType>(inputTensor.getType());
+  ArrayRef<int64_t> inpShape = inpType.getShape();
+
+  // Create row and column ranges
+  Value rowRange = createRange(builder, loc, 2, inpShape); // SEQ_LEN_Q dimension
+  Value colRange = createRange(builder, loc, 3, inpShape); // SEQ_LEN_KV dimension
+
+  // Broadcast offset to match shape [B, NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
+  auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
+  auto offsetBroadcast = rock::tosa::getMulOp(
+      builder, loc, offsetTensor,
+      rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
+
+  // Compute row + offset
+  auto rowPlusOffset = rock::tosa::createOpAndInfer<tosa::AddOp>(
+      builder, loc, builder.getI32Type(), rowRange, offsetBroadcast);
+
+  // Create mask: col > row + offset
+  auto mask = rock::tosa::createOpAndInfer<tosa::GreaterOp>(
+      builder, loc, builder.getIntegerType(1), colRange, rowPlusOffset);
+
+  // Apply mask
+  Value result = applyMask(builder, loc, inputTensor, mask, initValue);
+
+  // Reshape result back to [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV]
+  auto origShapeValue = tosa::getTosaConstShape(implicitBuilder, origShape);
+  auto resultReshaped = rock::tosa::createOpAndInfer<tosa::ReshapeOp>(
+      builder, loc, inpType.getElementType(), result, origShapeValue);
+
+  return resultReshaped;
+}
+
 static Value maskKVCacheTosa(OpBuilder builder, Location loc, Value inputTensor,
                              Value currentSeqLenVal, float initValue) {
   // inputTensor is [B*NUM_HEADS, SEQ_LEN_Q, SEQ_LEN_KV], we want to reshape to
@@ -4163,8 +4210,16 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
                                                         softmaxType, qkTensor);
 
   if (currentSeqLenTensor) {
-    qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,
-                               -std::numeric_limits<float>::infinity());
+    if (prefixCausalMasking) {
+      // For prefix causal, use the combined formula: mask when col > row + offset
+      qkTensor = prefixCausalMaskingTosa(builder, loc, qkTensor,
+                                         currentSeqLenTensor,
+                                         -std::numeric_limits<float>::infinity());
+    } else {
+      // Standard KV-cache masking: mask when col > currentSeqLen
+      qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,
+                                 -std::numeric_limits<float>::infinity());
+    }
     optionalArgsCounter++;
   }
 
