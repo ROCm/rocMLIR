@@ -10,13 +10,13 @@
 // CHECK-DAG: %[[QTr0:.+]] = rock.transform %[[Q]] by
 
 // init maxRow buffer
-// CHECK-DAG: rock.fill(%[[maxRowBuf:.+]], %[[negInf]])
+// CHECK-DAG: rock.fill(%[[maxRowBuf:.+]], %[[negInf]]) : memref<1xf32
 
 // init sumRow buffer
-// CHECK-DAG: rock.fill(%[[sumRowBuf:.+]], %[[zeroF32]])
+// CHECK-DAG: rock.fill(%[[sumRowBuf:.+]], %[[zeroF32]]) : memref<1xf32
 
 // init attentionAcc buffer
-// CHECK-DAG: rock.fill(%[[attnOutBuf:.+]], %[[zeroF32]])
+// CHECK-DAG: rock.fill(%[[attnOutBuf:.+]], %[[zeroF32]]) : memref<2x16xf32
 
 // Outer N-tile loop
 // CHECK: scf.for
