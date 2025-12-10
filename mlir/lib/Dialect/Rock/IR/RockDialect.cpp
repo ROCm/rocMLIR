@@ -2678,10 +2678,13 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
 
   // Validate prefix causal constraints
   if (getPrefixCausal() && getCausal())
-    return emitError("prefixCausal and causal are mutually exclusive.");
+    return emitError("prefixCausal and causal are mutually exclusive. "
+                     "Use prefixCausal for prefix/chunked attention, "
+                     "or causal for standard causal masking.");
 
   if (getPrefixCausal() && !getCurrentSeqLen())
-    return emitError("prefixCausal requires currentSeqLen.");
+    return emitError("prefixCausal requires currentSeqLen to specify "
+                     "the prefix offset.");
 
   return success();
 }
