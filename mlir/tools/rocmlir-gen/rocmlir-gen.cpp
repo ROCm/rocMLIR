@@ -5153,9 +5153,19 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     arch = canonicalArch.str().str();
 
     LogicalResult status = success();
-
     Type filterElemType = typeFromString(filterDataType.getValue(), context);
     Type inputElemType = typeFromString(inputDataType.getValue(), context);
+    // for regular convolution it does filter * input = output
+    // for bwd data convolution it does filter * output = input
+    // for the bwd weight convolution it does output * input = filter
+    // therefore need to remap data types accordingly before calculating
+    // features
+    if (operation == rock::KernelType::ConvBwdData) {
+      // for the bwd data, input and output are flipped
+      inputElemType = typeFromString(outputDataType.getValue(), context);
+    } else if (operation == rock::KernelType::ConvBwdWeight) {
+      filterElemType = typeFromString(outputDataType.getValue(), context);
+    }
     Type elemType = inputElemType;
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
