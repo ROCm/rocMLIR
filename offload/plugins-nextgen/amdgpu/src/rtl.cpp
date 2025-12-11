@@ -3453,6 +3453,16 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     // TODO: put them back in constructor
     //    readEnvVars();
 
+    // Retrieve the size of the group memory.
+    for (const auto *Pool : AllMemoryPools) {
+      if (Pool->isGroup()) {
+        if (auto Err = Pool->getAttr(HSA_AMD_MEMORY_POOL_INFO_SIZE,
+                                     MaxBlockSharedMemSize))
+          return Err;
+        break;
+      }
+    }
+
     return Plugin::success();
   }
 
@@ -3634,6 +3644,11 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     // Load the HSA executable.
     if (Error Err = AMDImage->loadExecutable(*this))
       return std::move(Err);
+
+    // Launch the special kernel for device memory initialization
+    if (Error Err = launchDMInitKernel(*AMDImage))
+      return std::move(Err);
+
     return AMDImage;
   }
 
@@ -4327,6 +4342,9 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
     if (Status == HSA_STATUS_SUCCESS)
       Info.add("Cacheline Size", TmpUInt);
 
+    Info.add("Max Shared Memory per Work Group", MaxBlockSharedMemSize, "bytes",
+             DeviceInfo::WORK_GROUP_LOCAL_MEM_SIZE);
+
     Status = getDeviceAttrRaw(HSA_AMD_AGENT_INFO_MAX_CLOCK_FREQUENCY, TmpUInt);
     if (Status == HSA_STATUS_SUCCESS)
       Info.add("Max Clock Freq", TmpUInt, "MHz",
@@ -4629,13 +4647,16 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
   Error preAllocateDeviceMemoryPool() {
 
     void *DevPtr;
+    // Use PER_DEVICE_PREALLOC_SIZE (128KB) as heap and allocate 512MB for
+    // device memory
+    size_t PreAllocSize = hsa_utils::PER_DEVICE_PREALLOC_SIZE + DMSlabSize;
+
     for (AMDGPUMemoryPoolTy *MemoryPool : AllMemoryPools) {
       if (!MemoryPool->isGlobal())
         continue;
 
       if (MemoryPool->isCoarseGrained()) {
         DevPtr = nullptr;
-        size_t PreAllocSize = hsa_utils::PER_DEVICE_PREALLOC_SIZE;
 
         Error Err = MemoryPool->allocate(PreAllocSize, &DevPtr);
         if (Err)
@@ -4651,6 +4672,11 @@ struct AMDGPUDeviceTy : public GenericDeviceTy, AMDGenericDeviceTy {
               "Zero initialization of preallocated device memory pool failed");
 
         PreAllocatedDeviceMemoryPool = DevPtr;
+
+        DMHeapPtr = DevPtr;
+        DMSlabPtr =
+            reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(DevPtr) +
+                                     hsa_utils::PER_DEVICE_PREALLOC_SIZE);
       }
     }
     return Plugin::success();
@@ -5057,6 +5083,13 @@ private:
   /// True if in multi-device mode.
   bool IsMultiDeviceEnabled = false;
 
+  /// Arguments for device memory initialization.
+  void *DMHeapPtr = nullptr;
+  void *DMSlabPtr = nullptr;
+  bool DMInitialized = false;
+  static constexpr uint32_t DMNumSlabs = 256;
+  static constexpr size_t DMSlabSize = DMNumSlabs * (2 * 1024 * 1024); // 512MB
+
   /// Struct holding time in ns at a point in time for both host and device
   /// This is used to compute a device-to-host offset and skew. Required for
   /// OMPT function translate_time.
@@ -5097,16 +5130,16 @@ private:
 
   static inline const std::unordered_map<std::string, DeviceEnvarConfigTy>
       EnvarConfigs = {{"MI210", {.OMPX_UseMultipleSdmaEngines = true,
-                                 .OMPX_XteamBlockSize = 256,
+                                 .OMPX_XteamBlockSize = 512,
                                  .OMPX_XTeamReductionOccupancyBasedOpt = true,
                                  .OMPX_AdjustNumTeamsForXteamRedSmallBlockSize=0}},
                       {"MI250X",{.OMPX_UseMultipleSdmaEngines = true,
-                                 .OMPX_XteamBlockSize = 256,
+                                 .OMPX_XteamBlockSize = 512,
                                  .OMPX_XTeamReductionOccupancyBasedOpt = true,
                                  .OMPX_AdjustNumTeamsForXteamRedSmallBlockSize=0}},
                       {"MI250X/MI250",{
                                  .OMPX_UseMultipleSdmaEngines = true,
-                                 .OMPX_XteamBlockSize = 256,
+                                 .OMPX_XteamBlockSize = 512,
                                  .OMPX_XTeamReductionOccupancyBasedOpt = true,
                                  .OMPX_AdjustNumTeamsForXteamRedSmallBlockSize=0}},
                       {"MI300A", {.OMPX_UseMultipleSdmaEngines = false,
@@ -5114,6 +5147,14 @@ private:
                                  .OMPX_XTeamReductionOccupancyBasedOpt = false,
                                  .OMPX_AdjustNumTeamsForXteamRedSmallBlockSize=1}},
                       {"MI300X", {.OMPX_UseMultipleSdmaEngines = true,
+                                 .OMPX_XteamBlockSize = 512,
+                                 .OMPX_XTeamReductionOccupancyBasedOpt = false,
+                                 .OMPX_AdjustNumTeamsForXteamRedSmallBlockSize=1}},
+                      {"MI308X", {.OMPX_UseMultipleSdmaEngines = true,
+                                 .OMPX_XteamBlockSize = 256,
+                                 .OMPX_XTeamReductionOccupancyBasedOpt = true,
+                                 .OMPX_AdjustNumTeamsForXteamRedSmallBlockSize=0}},
+                      {"MI350X", {.OMPX_UseMultipleSdmaEngines = true,
                                  .OMPX_XteamBlockSize = 512,
                                  .OMPX_XTeamReductionOccupancyBasedOpt = false,
                                  .OMPX_AdjustNumTeamsForXteamRedSmallBlockSize=1}},
@@ -5144,6 +5185,70 @@ private:
     DP("Envar config for %s is used.\n", DeviceMarketingName.c_str());
 
     return It->second;
+  }
+
+  /// Launch the device memory initialization kernel.
+  Error launchDMInitKernel(AMDGPUDeviceImageTy &Image) {
+    // Already initialized, skip
+    if (DMInitialized)
+      return Plugin::success();
+
+    if (!DMHeapPtr || !DMSlabPtr)
+      return Plugin::error(
+          ErrorCode::UNKNOWN,
+          "Device memory not allocated for launching DM init kernel.");
+
+    // Check if this image contains the DM init kernel
+    const char *KernelName = "__omp_dm_init_kernel";
+
+    GenericGlobalHandlerTy &Handler = Plugin.getGlobalHandler();
+    if (!Handler.isSymbolInImage(*this, Image, KernelName)) {
+      DP("DM init kernel is not in this image.\n");
+      return Plugin::success();
+    }
+
+    AMDGPUKernelTy DMInitKernel(KernelName, Plugin.getGlobalHandler());
+    if (auto Err = DMInitKernel.init(*this, Image)) {
+      return Err;
+    }
+
+    DP("Device memory initializing...\n");
+
+    // Prepare kernel arguments
+    struct __attribute__((packed)) {
+      uint64_t HeapAddr;
+      uint64_t SlabAddr;
+    } Args;
+
+    Args.HeapAddr = reinterpret_cast<uint64_t>(DMHeapPtr);
+    Args.SlabAddr = reinterpret_cast<uint64_t>(DMSlabPtr);
+
+    KernelArgsTy KernelArgs;
+    KernelLaunchParamsTy LaunchParams;
+    LaunchParams.Data = &Args;
+    LaunchParams.Size = sizeof(Args);
+
+    AsyncInfoWrapperTy AsyncInfo(*this, nullptr);
+
+    uint32_t NumThreads[3] = {256u, 1u, 1u};
+    uint32_t NumBlocks[3] = {1u, 1u, 1u};
+
+    // Launch kernel with 256 threads and 1 block
+    if (auto Err = DMInitKernel.launchImpl(*this, NumThreads, NumBlocks,
+                                           KernelArgs, LaunchParams, AsyncInfo))
+      return Err;
+
+    // Wait for completion
+    Error Err = Plugin::success();
+    AsyncInfo.finalize(Err);
+
+    // Mark as successfully initialized
+    if (!Err) {
+      DMInitialized = true;
+      DP("Device memory initialized successfully\n");
+    }
+
+    return Err;
   }
 
 public:

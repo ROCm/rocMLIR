@@ -15,6 +15,7 @@ import warnings
 import time
 from typing import (
     Any,
+    Final,
     Optional,
     Dict,
     cast,
@@ -30,7 +31,7 @@ from typing import (
 
 # set timeout based on whether ASAN was enabled or not. Increase
 # timeout by a factor of 10 if ASAN is enabled.
-DEFAULT_TIMEOUT = 10 * (10 if ("ASAN_OPTIONS" in os.environ) else 1)
+DEFAULT_TIMEOUT: Final[float] = 50 * (10 if ("ASAN_OPTIONS" in os.environ) else 1)
 
 # See lldbtest.Base.spawnSubprocess, which should help ensure any processes
 # created by the DAP client are terminated correctly when the test ends.
@@ -191,6 +192,11 @@ class NotSupportedError(KeyError):
 
 
 class DebugCommunication(object):
+    @property
+    def is_stopped(self) -> bool:
+        """Returns True if the debuggee is stopped, otherwise False."""
+        return len(self.thread_stop_reasons) > 0 or self.exit_status is not None
+
     def __init__(
         self,
         recv: BinaryIO,
@@ -343,7 +349,7 @@ class DebugCommunication(object):
         self,
         *,
         predicate: Optional[Callable[[ProtocolMessage], bool]] = None,
-        timeout: Optional[float] = DEFAULT_TIMEOUT,
+        timeout: float = DEFAULT_TIMEOUT,
     ) -> Optional[ProtocolMessage]:
         """Processes received packets from the adapter.
         Updates the DebugCommunication stateful properties based on the received
@@ -386,7 +392,7 @@ class DebugCommunication(object):
         with self._recv_condition:
             for packet in self._recv_packets:
                 if packet and ("seq" not in packet or packet["seq"] == 0):
-                    warnings.warn(
+                    raise ValueError(
                         f"received a malformed packet, expected 'seq != 0' for {packet!r}"
                     )
                 # Handle events that may modify any stateful properties of
@@ -780,6 +786,8 @@ class DebugCommunication(object):
         *,
         program: Optional[str] = None,
         pid: Optional[int] = None,
+        debuggerId: Optional[int] = None,
+        targetId: Optional[int] = None,
         waitFor=False,
         initCommands: Optional[list[str]] = None,
         preRunCommands: Optional[list[str]] = None,
@@ -799,6 +807,10 @@ class DebugCommunication(object):
             args_dict["pid"] = pid
         if program is not None:
             args_dict["program"] = program
+        if debuggerId is not None:
+            args_dict["debuggerId"] = debuggerId
+        if targetId is not None:
+            args_dict["targetId"] = targetId
         if waitFor:
             args_dict["waitFor"] = waitFor
         args_dict["initCommands"] = self.init_commands
@@ -860,7 +872,17 @@ class DebugCommunication(object):
         response = self._send_recv(command_dict)
         if response:
             self.configuration_done_sent = True
+            stopped_on_entry = self.is_stopped
             self.request_threads()
+            if not stopped_on_entry:
+                # Drop the initial cached threads if we did not stop-on-entry.
+                # In VSCode, immediately following 'configurationDone', a
+                # 'threads' request is made to get the initial set of threads,
+                # specifically the main threads id and name.
+                # We issue the threads request to mimic this pattern but in our
+                # tests we don't want to cache the result unless the process is
+                # actually stopped.
+                self.threads = None
         return response
 
     def _process_stopped(self):
@@ -972,15 +994,25 @@ class DebugCommunication(object):
         }
         return self._send_recv(command_dict)
 
-    def request_evaluate(self, expression, frameIndex=0, threadId=None, context=None):
+    def request_evaluate(
+        self,
+        expression,
+        frameIndex=0,
+        threadId=None,
+        context=None,
+        is_hex: Optional[bool] = None,
+    ):
         stackFrame = self.get_stackFrame(frameIndex=frameIndex, threadId=threadId)
         if stackFrame is None:
             return []
         args_dict = {
             "expression": expression,
-            "context": context,
             "frameId": stackFrame["id"],
         }
+        if context:
+            args_dict["context"] = context
+        if is_hex is not None:
+            args_dict["format"] = {"hex": is_hex}
         command_dict = {
             "command": "evaluate",
             "type": "request",
@@ -1234,16 +1266,18 @@ class DebugCommunication(object):
         return response
 
     def request_dataBreakpointInfo(
-        self, variablesReference, name, frameIndex=0, threadId=None
+        self, variablesReference, name, size=None, frameIndex=0, threadId=None
     ):
         stackFrame = self.get_stackFrame(frameIndex=frameIndex, threadId=threadId)
         if stackFrame is None:
             return []
-        args_dict = {
-            "variablesReference": variablesReference,
-            "name": name,
-            "frameId": stackFrame["id"],
-        }
+        args_dict = {"name": name}
+        if size is None:
+            args_dict["variablesReference"] = variablesReference
+            args_dict["frameId"] = stackFrame["id"]
+        else:
+            args_dict["asAddress"] = True
+            args_dict["bytes"] = size
         command_dict = {
             "command": "dataBreakpointInfo",
             "type": "request",
