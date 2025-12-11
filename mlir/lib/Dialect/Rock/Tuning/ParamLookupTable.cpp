@@ -1,5 +1,6 @@
 #include "mlir/Dialect/Rock/Tuning/ParamLookupTable.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/Debug.h"
@@ -170,5 +171,17 @@ ParamLookupTable<InitParamsAccel>::buildTable() {
   };
 }
 
+// Specialization for Attention (XDL/WMMA) parameters
+template <>
+std::map<std::string, ParamLookupTable<InitParamsAttn>::ParamArray>
+ParamLookupTable<InitParamsAttn>::buildTable() {
+  return {
+#define Attn_LOOKUP_TABLE_GEN
+#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
+#undef Attn_LOOKUP_TABLE_GEN
+  };
+}
+
 template class mlir::rock::ParamLookupTable<InitParamsNonAccel>;
 template class mlir::rock::ParamLookupTable<InitParamsAccel>;
+template class mlir::rock::ParamLookupTable<InitParamsAttn>;

@@ -1734,6 +1734,73 @@ static const InitParamsAccel initParametersForwardI8ConvGfx1150[nInitParametersF
 
 #endif
 
+#ifdef Attn_XDL_DEFINITIONS_GEN
+
+// BEGIN_ATTENTION_XDL_f32_gfx900_DEFS
+const InitParamsAttn PopulateParamsAttnXDL::initParametersAttentionGfx900[PopulateParamsAttnXDL::nInitParametersAttentionGfx900] = {
+    {32,128,64,32,32,32,16,4,1,1,2,true},
+    {32,64,64,32,32,32,16,4,1,1,2,true},
+    {32,128,128,32,32,32,32,4,1,1,2,true},
+    {64,64,32,16,32,32,16,4,1,1,2,true},
+    {32,64,64,16,32,32,16,4,1,1,2,true},
+    {32,64,128,16,32,32,32,4,1,1,2,true},
+    {64,64,64,16,32,32,32,4,1,1,2,true}
+};
+// END_ATTENTION_XDL_f32_gfx900_DEFS
+
+// BEGIN_ATTENTION_XDL_f16_gfx900_DEFS
+const InitParamsAttn PopulateParamsAttnXDL::initParametersFp16AttentionGfx900[PopulateParamsAttnXDL::nInitParametersFp16AttentionGfx900] = {
+    {32,128,128,32,32,32,32,4,1,1,2,true},
+    {64,64,32,16,32,32,16,4,1,1,2,true},
+    {32,64,64,16,32,32,16,4,1,1,2,true},
+    {32,64,128,16,32,32,16,4,1,1,2,true},
+    {64,64,64,16,32,32,16,4,1,1,2,true},
+    {64,64,64,16,32,32,32,4,1,1,2,true}
+};
+// END_ATTENTION_XDL_f16_gfx900_DEFS
+
+#endif
+
+#ifdef Attn_XDL_DECLARATIONS_GEN
+
+// BEGIN_ATTENTION_XDL_f32_gfx900_DECS
+static constexpr size_t nInitParametersAttentionGfx900 = 7;
+static const InitParamsAttn initParametersAttentionGfx900[nInitParametersAttentionGfx900];
+// END_ATTENTION_XDL_f32_gfx900_DECS
+
+// BEGIN_ATTENTION_XDL_f16_gfx900_DECS
+static constexpr size_t nInitParametersFp16AttentionGfx900 = 6;
+static const InitParamsAttn initParametersFp16AttentionGfx900[nInitParametersFp16AttentionGfx900];
+// END_ATTENTION_XDL_f16_gfx900_DECS
+
+#endif
+
+#ifdef Attn_Wmma_DEFINITIONS_GEN
+
+// BEGIN_ATTENTION_Wmma_f16_gfx1000_DEFS
+const InitParamsAttn PopulateParamsAttnWmma::initParametersFp16AttentionGfx1000[PopulateParamsAttnWmma::nInitParametersFp16AttentionGfx1000] = {
+    {64,128,128,8,32,32,16,4,1,1,2,true},
+    {64,64,256,8,64,32,16,8,1,1,2,true},
+    {64,64,256,16,32,32,16,8,1,1,2,true},
+    {64,64,32,8,32,32,16,4,1,1,2,true},
+    {32,64,128,8,32,32,16,8,1,1,2,true},
+    {64,64,128,8,64,32,16,8,1,1,2,true},
+    {32,32,128,8,32,32,16,8,1,1,2,true},
+    {128,128,128,8,32,32,16,8,1,1,2,true}
+};
+// END_ATTENTION_Wmma_f16_gfx1000_DEFS
+
+#endif
+
+#ifdef Attn_Wmma_DECLARATIONS_GEN
+
+// BEGIN_ATTENTION_Wmma_f16_gfx1000_DECS
+static constexpr size_t nInitParametersFp16AttentionGfx1000 = 8;
+static const InitParamsAttn initParametersFp16AttentionGfx1000[nInitParametersFp16AttentionGfx1000];
+// END_ATTENTION_Wmma_f16_gfx1000_DECS
+
+#endif
+
 #ifdef NonAccel_LOOKUP_TABLE_GEN
 
 {"gfx1000_gemm_f32", {PopulateParams::initParametersGemmGfx1000, PopulateParams::nInitParametersGemmGfx1000}},
@@ -1800,5 +1867,17 @@ static const InitParamsAccel initParametersForwardI8ConvGfx1150[nInitParametersF
 {"gfx1150_gemm_i8", {PopulateParamsWmma::initParametersI8GemmGfx1150, PopulateParamsWmma::nInitParametersI8GemmGfx1150}},
 {"gfx1150_conv_f16", {PopulateParamsWmma::initParametersFp16ConvGfx1150, PopulateParamsWmma::nInitParametersFp16ConvGfx1150}},
 {"gfx1150_conv_i8", {PopulateParamsWmma::initParametersForwardI8ConvGfx1150, PopulateParamsWmma::nInitParametersForwardI8ConvGfx1150}},
+
+#endif
+
+#ifdef Attn_LOOKUP_TABLE_GEN
+
+// NOTE: Temporary until proper quick-tune lists are generated
+{"gfx900_attention_f32", {PopulateParamsAttnXDL::initParametersAttentionGfx900, PopulateParamsAttnXDL::nInitParametersAttentionGfx900}},
+{"gfx900_attention_f16", {PopulateParamsAttnXDL::initParametersFp16AttentionGfx900, PopulateParamsAttnXDL::nInitParametersFp16AttentionGfx900}},
+{"gfx900_attention_i8", {PopulateParamsAttnXDL::initParametersAttentionGfx900, PopulateParamsAttnXDL::nInitParametersAttentionGfx900}},
+{"gfx1000_attention_f32", {PopulateParamsAttnWmma::initParametersFp16AttentionGfx1000, PopulateParamsAttnWmma::nInitParametersFp16AttentionGfx1000}},
+{"gfx1000_attention_f16", {PopulateParamsAttnWmma::initParametersFp16AttentionGfx1000, PopulateParamsAttnWmma::nInitParametersFp16AttentionGfx1000}},
+{"gfx1000_attention_i8", {PopulateParamsAttnWmma::initParametersFp16AttentionGfx1000, PopulateParamsAttnWmma::nInitParametersFp16AttentionGfx1000}},
 
 #endif

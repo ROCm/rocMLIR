@@ -7,6 +7,7 @@
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
@@ -333,7 +334,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     return signalPassFailure();
   }
 
-  auto accelParams = getAttentionTuningParams(builder, op, attnPerfConfig);
+  auto accelParams =
+      getAttentionTuningParams(builder, PopulateParamsAttnInfo::fromOp(op),
+                               InitParamsAttn{attnPerfConfig});
   if (failed(accelParams)) {
     op.emitError("The provided perf config is not valid");
     return signalPassFailure();
