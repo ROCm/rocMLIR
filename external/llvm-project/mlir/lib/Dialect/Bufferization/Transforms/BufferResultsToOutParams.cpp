@@ -207,7 +207,6 @@ updateCalls(ModuleOp module, const AllocDynamicSizesMap &map,
             const bufferization::BufferResultsToOutParamsOpts &options) {
   bool didFail = false;
   SymbolTable symtab(module);
-<<<<<<< HEAD
   module.walk([&](CallOpInterface op) {
     // TODO(rocmlir) CallOpInterface does not have a getCallee() method.
     // We should enable this back once we add this method.
@@ -226,22 +225,6 @@ updateCalls(ModuleOp module, const AllocDynamicSizesMap &map,
     // if (callee.isExternal())
     //   return;
     // FIXME validate callee in the symbol table.
-=======
-  module.walk([&](func::CallOp op) {
-    auto callee = symtab.lookup<func::FuncOp>(op.getCallee());
-    if (!callee) {
-      op.emitError() << "cannot find callee '" << op.getCallee() << "' in "
-                     << "symbol table";
-      didFail = true;
-      return;
-    }
-    if (!options.filterFn(&callee))
-      return;
-    if (callee.isPublic() && !options.modifyPublicFunctions)
-      return;
-    if (callee.isExternal())
-      return;
->>>>>>> 64e029163199b5e55a8c9d6727c345229134e15c
 
     SmallVector<Value, 6> replaceWithNewCallResults;
     SmallVector<Value, 6> replaceWithOutParams;
