@@ -292,7 +292,9 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
   // CHECK-NEXT: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%[[currSeqLenTensor]]) [%{{.+}}] -> %[[registers]] : memref<1x1xi32> -> memref<1xi32, #gpu.address_space<private>>, vector<1xi1>
   // CHECK-NEXT: %[[currSeqLen:.+]] = rock.in_bounds_load %[[registers]][%[[c0]]] : memref<1xi32, #gpu.address_space<private>>, index -> i32
   // CHECK-NEXT: %[[currSeqLenIndex:.+]] = arith.index_cast %[[currSeqLen]] : i32 to index
-  // CHECK-NEXT: %[[maxRowOfBlock:.+]] = arith.muli %[[blockIdN]], %[[c32]] : index
+  // CHECK-NEXT: %[[nIndexPlusOne:.+]] = arith.addi %[[blockIdN]], %[[c1]] : index
+  // CHECK-NEXT: %[[nextBlockStart:.+]] = arith.muli %[[nIndexPlusOne]], %[[c32]] : index
+  // CHECK-NEXT: %[[maxRowOfBlock:.+]] = arith.subi %[[nextBlockStart]], %[[c1]] : index
   // CHECK-NEXT: %[[minCausalCurrSeqLen:.+]] = arith.minui %[[currSeqLenIndex]], %[[maxRowOfBlock]] : index
   // CHECK: %[[num:.+]] = arith.addi %[[minCausalCurrSeqLen]], %[[c32]] : index
   // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
@@ -304,8 +306,6 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
   // CHECK-NEXT: %[[secondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[currSeqLenIndex]] : index
   // CHECK-NEXT: scf.if %[[secondComparison]] {
   // CHECK-NEXT: rock.in_bounds_store
-  // CHECK: %[[causalComparison:.+]] = arith.cmpi eq, %[[iterIndex]], %[[lastIter]] : index
-  // CHECK-NEXT: scf.if %[[causalComparison]] {
   // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
   // CHECK-NEXT: %[[causalSecondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[dim1]] : index
   // CHECK-NEXT: scf.if %[[causalSecondComparison]] {
@@ -321,6 +321,47 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
     splitKV = 1 : i32,
     storeMethod = #rock<StoreMethod set>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>
+  return
+}
+
+// -----
+
+// Test: causal masking with seq_len_q > seq_len_k (gemm0N > gemm0M)
+// This verifies that maxRowOfBlock is clamped to gemm0M - 1 = 255
+// CHECK-LABEL: @gridwise_attn_causal_seqq_gt_seqk
+func.func @gridwise_attn_causal_seqq_gt_seqk(%arg0: memref<1x512x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x256x64xf32>, %arg3: memref<1x512x64xf32>) attributes {block_size = 64 : i32, grid_size = 32 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 512] -> [1, 512, 64]> : memref<1x512x64xf32> to memref<1x64x512xf32>
+  // CHECK-DAG: %[[c0:.+]] = arith.constant 0 : index
+  // CHECK-DAG: %[[c1:.+]] = arith.constant 1 : index
+  // CHECK-DAG: %[[c32:.+]] = arith.constant 32 : index
+  // CHECK-DAG: %[[c255:.+]] = arith.constant 255 : index
+  // CHECK-DAG: %[[blockIdN:.+]] = arith.remui %{{.+}}, %{{.+}} : index
+  // Compute maxRowOfBlock = (blockIdN + 1) * 32 - 1
+  // CHECK: %[[nIndexPlusOne:.+]] = arith.addi %[[blockIdN]], %[[c1]] : index
+  // CHECK-NEXT: %[[nextBlockStart:.+]] = arith.muli %[[nIndexPlusOne]], %[[c32]] : index
+  // CHECK-NEXT: %[[maxRowOfBlock:.+]] = arith.subi %[[nextBlockStart]], %[[c1]] : index
+  // Clamp maxRowOfBlock to gemm0M - 1 = 255 (since gemm0N=512 > gemm0M=256)
+  // CHECK-NEXT: %[[clampedMaxRow:.+]] = arith.minui %[[maxRowOfBlock]], %[[c255]] : index
+  // Compute loop bounds
+  // CHECK-NEXT: %[[num:.+]] = arith.addi %[[clampedMaxRow]], %[[c32]] : index
+  // CHECK-NEXT: %[[numIter:.+]] = arith.divui %[[num]], %[[c32]] : index
+  // CHECK: scf.for %[[iterIndex:.+]] = %[[c0]] to %[[numIter]] step %[[c1]] {
+  // Causal masking: applied on every iteration (no last-iter guard)
+  // CHECK: rock.transforming_for {forceUnroll, useIndexDiffs} (%[[dim0:.+]], %[[dim1:.+]], %[[dim2:.+]]) = [{{.*}}]({{.*}}), ({{.*}}) = []
+  // CHECK-NEXT: %[[causalComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[dim1]] : index
+  // CHECK-NEXT: scf.if %[[causalComparison]] {
+  // CHECK-NEXT: rock.in_bounds_store
+  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
+    blockSize = 64 : i32,
+    causal,
+    gridSize = 32 : i32,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>,
+    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    firstGemmIndices = array<i64: 0>,
+    splitKV = 1 : i32,
+    storeMethod = #rock<StoreMethod set>
+  } : memref<1x64x512xf32>, memref<1x64x256xf32>, memref<1x256x64xf32>, memref<1x512x64xf32>
   return
 }
 

@@ -1307,11 +1307,11 @@ struct GridwiseAttentionAccelRewritePattern
             break;
           }
 
-          scf::IfOp ifbCausal = scf::IfOp::create(b, loc, isInvalid,
-                                                  /*withElseRegion=*/false);
+          scf::IfOp ifOp = scf::IfOp::create(b, loc, isInvalid,
+                                             /*withElseRegion=*/false);
           {
-            OpBuilder thenbCausal = ifbCausal.getThenBodyBuilder();
-            InBoundsStoreOp::create(thenbCausal, loc, negInfTyped,
+            OpBuilder thenBody = ifOp.getThenBodyBuilder();
+            InBoundsStoreOp::create(thenBody, loc, negInfTyped,
                                     gemm0OutBuffer, ValueRange{upperCoords[4]});
           }
         }
@@ -1707,7 +1707,7 @@ struct GridwiseAttentionAccelRewritePattern
   std::tuple<Value, Value, Value, Value>
   getMLoopInfo(PatternRewriter &rewriter, Location loc,
                layout::AttnGridCoordinates gridCoordsGemm0,
-               Value currentSeqLenTensor, int64_t gemm0M,
+               Value currentSeqLenTensor, int64_t gemm0M, int64_t gemm0N,
                int64_t gemm0MPerBlock, int64_t gemm0NPerBlock, int64_t splitKV,
                bool isCausal, bool isKVCache,
                IntegerAttr numRepeatsGQA = nullptr) const {
@@ -1784,11 +1784,13 @@ struct GridwiseAttentionAccelRewritePattern
           maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, currentSeqLen,
                                                  maxRowOfBlock);
 
-        // Bound by actual K dimension (safety for seq_len_q > seq_len_k)
-        Value gemm0MMinusOne =
-            rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0M - 1);
-        maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, maxRowOfBlock,
-                                               gemm0MMinusOne);
+        if (gemm0N > gemm0M) {
+          // Bound by actual K dimension (safety for seq_len_q > seq_len_k)
+          Value gemm0MMinusOne =
+              rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0M - 1);
+          maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, maxRowOfBlock,
+                                                 gemm0MMinusOne);
+        }
 
         effectiveSeqLen = maxRowOfBlock;
       }
@@ -2292,8 +2294,8 @@ struct GridwiseAttentionAccelRewritePattern
     // get mLoop
     std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen) =
         getMLoopInfo(rewriter, loc, gridCoordsGemm0mIter0, currentSeqLenTensor,
-                     gemm0M, gemm0MPerBlock, gemm0NPerBlock, splitKV, isCausal,
-                     isKVCache, op.getNumRepeatsGQAAttr());
+                     gemm0M, gemm0N, gemm0MPerBlock, gemm0NPerBlock, splitKV,
+                     isCausal, isKVCache, op.getNumRepeatsGQAAttr());
 
     // early exit if there is no work to do for this block
     runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
