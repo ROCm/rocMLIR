@@ -59,8 +59,8 @@ MLIR_CAPI_EXPORTED bool mlirGetBinary(MlirModule module, size_t *size,
 // pipelines
 
 /// Add the high-level pipeline that creates something that can be tuned.
-/// Architecture and num_cu information should be set on the kernel function
-/// being compiled.
+/// Architecture, num_cu and num_chiplets information should be set on the
+/// kernel function being compiled.
 MLIR_CAPI_EXPORTED void mlirMIGraphXAddHighLevelPipeline(MlirPassManager pm);
 
 /// Adds the pipeline that checks if the kernel with a given tuning

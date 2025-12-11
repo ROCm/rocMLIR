@@ -43,7 +43,8 @@ ConvGenerator::ConvGenerator(
     bool disableSplitKForTuning, int64_t scheduleVersion,
     const std::string &triple, const std::string &chipFeatures,
     const std::string &perfConfig, std::optional<int> num_cu,
-    GemmFeatures features, const std::optional<ConvOpType> operation,
+    std::optional<int> num_chiplets, GemmFeatures features,
+    const std::optional<ConvOpType> operation,
     const std::string &filterDataTypeStr, const std::string &inputDataTypeStr,
     const std::string &outputDataTypeStr, ArrayRef<int> dilations,
     ArrayRef<int> strides, ArrayRef<int> paddingLeft,
@@ -58,6 +59,7 @@ ConvGenerator::ConvGenerator(
              chipFeatures,
              perfConfig,
              num_cu,
+             num_chiplets,
              features,
              operation,
              filterDataTypeStr,
@@ -443,6 +445,12 @@ uint32_t ConvGenerator::getNumCU() const {
                                    : rock::lookupArchInfo(config.arch).minNumCU;
 }
 
+int64_t ConvGenerator::getNumChiplets() const {
+  return config.num_chiplets.has_value()
+             ? config.num_chiplets.value()
+             : rock::lookupArchInfo(config.arch).maxNumXCC;
+}
+
 LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
                                              const char *arguments) {
   std::map<std::string, std::string> argMap;
@@ -527,6 +535,7 @@ LogicalResult ConvGenerator::parseConvConfig(OpBuilder &builder,
 
   strToStr("perf_config", config.perfConfig);
   strToInt("num_cu", config.num_cu);
+  strToInt("num_chiplets", config.num_chiplets);
 
   // conv settings
   auto const op = getConvOpTypeForName(argMap["operation"]);
@@ -846,10 +855,14 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
   IntegerAttr numCUIntAttr =
       builder.getIntegerAttr(builder.getI32Type(), getNumCU());
   NamedAttribute numCUAttr = builder.getNamedAttr("num_cu", numCUIntAttr);
+  IntegerAttr numChipletsIntAttr =
+      builder.getIntegerAttr(builder.getI64Type(), getNumChiplets());
+  NamedAttribute numChipletsAttr =
+      builder.getNamedAttr("num_chiplets", numChipletsIntAttr);
 
   SmallVector<NamedAttribute, 2> kernelAttrs = {
       builder.getNamedAttr("kernel", builder.getI32IntegerAttr(kernelId)),
-      archAttr, numCUAttr};
+      archAttr, numCUAttr, numChipletsAttr};
 
   // Construct the FuncOp.
   func = func::FuncOp::create(builder.getUnknownLoc(), kernelName, funcType,
