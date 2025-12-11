@@ -669,14 +669,46 @@ static llvm::cl::opt<bool> transposeO(
     llvm::cl::init(false));
 
 // Causal masking option: -1 = disabled, 0 = regular causal, >0 = prefix causal
-// Usage: -causal (defaults to 0 for regular causal), -causal=N for prefix
-//        causal, where N is the prefix offset.
-static llvm::cl::opt<int32_t> causalMaskingValue(
+// Usage: -causal or -causal=true (regular causal), -causal=N for prefix causal
+//        with offset N, -causal=false or -causal=-1 for disabled.
+// Legacy "-causal true/false" format is normalized via argv pre-processing.
+static int32_t causalMaskingValue = -1;
+static llvm::cl::opt<std::string> causalMaskingOpt(
     "causal", llvm::cl::ValueOptional,
-    llvm::cl::desc("Enable causal masking. Use -causal for regular causal, "
-                   "-causal=N for prefix causal mode (where N is the prefix "
-                   "offset)"),
-    llvm::cl::init(-1));
+    llvm::cl::desc("Enable causal masking. Use -causal or -causal=true for "
+                   "regular causal, -causal=N for prefix causal mode (where N "
+                   "is the prefix offset), -causal=false or -causal=-1 for "
+                   "disabled."),
+    llvm::cl::cb<void, std::string>([](std::string val) {
+      if (val.empty() || val == "true") {
+        causalMaskingValue = 0; // -causal or -causal=true means regular causal
+      } else if (val == "false") {
+        causalMaskingValue = -1; // -causal=false means disabled
+      } else {
+        causalMaskingValue = std::stoi(val);
+      }
+    }));
+
+// Normalizes legacy "-causal true/false" to "-causal=true/false" in argv.
+// Returns a vector of args with owned strings kept alive in ownedStrings.
+static std::vector<const char *>
+normalizeArgv(int argc, char **argv, std::vector<std::string> &ownedStrings) {
+  std::vector<const char *> result;
+  for (int i = 0; i < argc; ++i) {
+    llvm::StringRef arg(argv[i]);
+    if ((arg == "-causal" || arg == "--causal") && i + 1 < argc) {
+      llvm::StringRef next(argv[i + 1]);
+      if (next == "true" || next == "false") {
+        ownedStrings.push_back((arg + "=" + next).str());
+        result.push_back(ownedStrings.back().c_str());
+        ++i; // Skip next arg
+        continue;
+      }
+    }
+    result.push_back(argv[i]);
+  }
+  return result;
+}
 
 static llvm::cl::opt<int64_t> splitKV(
     "split_kv",
@@ -1533,7 +1565,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
     for (int64_t i = 0; i < groupSize; ++i) {
       int32_t currSeqLen =
           currentSeqLen.empty() ? (sequenceLengthK - 1) : currentSeqLen[i];
-      if ((causalMaskingValue == 0)) {
+      if (causalMaskingValue == 0) {
         // only implemented if sequenceLengthQ <= nPerBlock
         // currSeqLen = min(currSeqLen, n_block * gemm0NPerBlock)
         currSeqLen = 0;
@@ -4182,7 +4214,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       scaleTensor =
           maskKVCacheTosa(builder, loc, scaleTensor, currentSeqLenTensor, 1.0f);
 
-    if ((causalMaskingValue == 0))
+    if (causalMaskingValue == 0)
       scaleTensor = causalMaskingTosa(builder, loc, scaleTensor, 1.0f);
     else if ((causalMaskingValue > 0))
       scaleTensor =
@@ -4199,7 +4231,7 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       biasTensor =
           maskKVCacheTosa(builder, loc, biasTensor, currentSeqLenTensor, 0.0f);
 
-    if ((causalMaskingValue == 0))
+    if (causalMaskingValue == 0)
       biasTensor = causalMaskingTosa(builder, loc, biasTensor, 0.0f);
     else if ((causalMaskingValue > 0))
       biasTensor =
@@ -4225,11 +4257,11 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   if (returnLSE)
     lseOut = block->getArgument(optionalArgsCounter++);
 
-  if ((causalMaskingValue == 0))
+  if (causalMaskingValue == 0)
     qkTensor = causalMaskingTosa(builder, loc, qkTensor,
                                  -std::numeric_limits<float>::infinity());
 
-  if ((causalMaskingValue > 0)) {
+  if (causalMaskingValue > 0) {
     // For prefix causal, use the combined formula:
     // mask when col > (row + offset)
     qkTensor = prefixCausalMaskingTosa(builder, loc, qkTensor,
@@ -5517,8 +5549,14 @@ int main(int argc, char **argv) {
                       bufferization::BufferizationDialect, tosa::TosaDialect,
                       mlir::LLVM::LLVMDialect>();
 
+  // Normalize legacy "-causal true/false" format before parsing.
+  std::vector<std::string> ownedArgStrings;
+  std::vector<const char *> normalizedArgv =
+      normalizeArgv(argc, argv, ownedArgStrings);
+
   // Parse pass names in main to ensure static initialization completed.
-  llvm::cl::ParseCommandLineOptions(argc, argv,
+  llvm::cl::ParseCommandLineOptions(normalizedArgv.size(),
+                                    normalizedArgv.data(),
                                     "MLIR Rock Dialect host generation\n");
 
   amdgpu::Chipset chipset;

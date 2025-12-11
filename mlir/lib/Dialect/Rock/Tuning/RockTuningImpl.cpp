@@ -1218,8 +1218,7 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
 
   if (isAttention) {
     auto attentionOp = cast<AttentionOp>(gemmGemmOp);
-    problemOS << "-causal ";
-    problemOS << attentionOp.getCausalMaskingValue() << sep;
+    problemOS << "-causal=" << attentionOp.getCausalMaskingValue() << sep;
 
     problemOS << "-return_lse ";
     if (attentionOp.getLse())
