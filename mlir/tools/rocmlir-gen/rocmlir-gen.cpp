@@ -2315,13 +2315,16 @@ createCPUConvFunc(ModuleOp module,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
 
-  Type elemType =
+  Type inputElemType =
       typeFromString(genConfig.inputDataTypeStr, module.getContext());
+  Type filterElemType =
+      typeFromString(genConfig.filterDataTypeStr, module.getContext());
   Type outputElemType =
       typeFromString(genConfig.outputDataTypeStr, module.getContext());
 
   if (genConfig.inputDataTypeStr == "i8") {
-    elemType = b.getI8Type();
+    inputElemType = b.getI8Type();
+    filterElemType = b.getI8Type();
     // Compute the output in int64_t to detect overflow
     outputElemType = b.getIntegerType(64);
     assert(genConfig.operation.value() == rock::ConvOpType::Fwd);
@@ -2331,8 +2334,8 @@ createCPUConvFunc(ModuleOp module,
   int64_t inputElems = computeProduct(genConfig.inputDimension);
   int64_t outputElems = computeProduct(genConfig.outputDimension);
 
-  auto filterType = MemRefType::get(filterElems, elemType);
-  auto inputType = MemRefType::get(inputElems, elemType);
+  auto filterType = MemRefType::get(filterElems, filterElemType);
+  auto inputType = MemRefType::get(inputElems, inputElemType);
   auto outputType = MemRefType::get(outputElems, outputElemType);
 
   // Create conv_host function
