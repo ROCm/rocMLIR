@@ -1759,8 +1759,8 @@ struct GridwiseAttentionAccelRewritePattern
       }
       if (isCausal) {
         // Compute the last Q position in the block.
-        // For Q block n_block, the last Q position is:
-        // (n_block + 1) * NPerBlock - 1.
+        // For Q block nIndex, the last Q position is:
+        // (nIndex + 1) * NPerBlock - 1.
         Value nIndex = gridCoordsGemm0.n_block;
         Value constGemm0NPerBlock =
             rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0NPerBlock);
