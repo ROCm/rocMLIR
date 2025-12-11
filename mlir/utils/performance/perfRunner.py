@@ -850,7 +850,7 @@ def get_attn_configurations(filename):
         "-transK": bool_space,
         "-transV": bool_space,
         "-transO": bool_space,
-        "-causal": default_to_false,
+        "-causal": ['-1'],  # -1 = disabled, 0 = regular causal, >0 = prefix causal
         "-return_lse": default_to_false,
         "-with-attn-scale": default_to_false,
         "-with-attn-bias": default_to_false
@@ -1445,7 +1445,7 @@ class AttentionConfiguration(PerfConfiguration):
                  trans_k: bool,
                  trans_v: bool,
                  trans_o: bool,
-                 causal: bool,
+                 causal: int,
                  return_lse: bool,
                  split_kv: int,
                  arch: str,
@@ -1559,7 +1559,7 @@ class AttentionConfiguration(PerfConfiguration):
         trans_k = False
         trans_v = False
         trans_o = False
-        causal = False
+        causal = -1  # -1 = disabled, 0 = regular causal, >0 = prefix causal
         return_lse = False
         split_kv = 1
         with_attn_scale = False
@@ -1597,7 +1597,7 @@ class AttentionConfiguration(PerfConfiguration):
             elif opt.endswith("-transO"):
                 trans_o = (val.lower() in ["1", "true"])
             elif opt.endswith("-causal"):
-                causal = (val.lower() in ["1", "true"])
+                causal = int(val)
             elif opt.endswith("-return_lse"):
                 return_lse = (val.lower() in ["1", "true"])
             elif opt.endswith("-split_kv"):
@@ -1623,7 +1623,7 @@ class AttentionConfiguration(PerfConfiguration):
             f"-t {self.datatype} " +
             f"-transQ {str(self.trans_q).lower()} -transK {str(self.trans_k).lower()} " +
             f"-transV {str(self.trans_v).lower()} -transO {str(self.trans_o).lower()} " +
-            f"-causal {str(self.causal).lower()} " +
+            f"-causal {self.causal} " +
             f"-return_lse {str(self.return_lse).lower()} " + f"-split_kv {str(self.split_kv)} " +
             f"-g {self.g} " +
             f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "

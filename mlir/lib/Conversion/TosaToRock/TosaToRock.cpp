@@ -1626,8 +1626,7 @@ struct AttentionMatcherValues {
   Value lse;
   Value causalMaskInput;
   Value currentSeqLen;
-  bool isCausal;
-  bool isPrefixCausal;
+  int64_t causalMaskingValue; // -1 = none, 0 = causal, >0 = prefix causal offset
   Type softmaxType;
   ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
 };
@@ -1956,16 +1955,33 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return failure();
   }
 
-  // Result struct for sequence length mask detection
+  // Helper to extract a constant integer value from a Value.
+  // Returns std::nullopt if the value is not a constant integer.
+  std::optional<int64_t> getConstantInt(Value val) const {
+    if (auto constOp = val.getDefiningOp<mlir::arith::ConstantOp>())
+      if (auto intAttr = dyn_cast<IntegerAttr>(constOp.getValue()))
+        return intAttr.getInt();
+
+    if (auto tosaConstOp = val.getDefiningOp<tosa::ConstOp>())
+      if (auto denseAttr = dyn_cast<DenseElementsAttr>(tosaConstOp.getValues()))
+        if (denseAttr.isSplat())
+          return denseAttr.getSplatValue<APInt>().getSExtValue();
+
+    return std::nullopt;
+  }
+
+  // Result struct for sequence length mask detection.
+  // Supports detecting both KV cache and prefix causal patterns
   struct SeqLenMaskResult {
-    Value inputToContinue; // The value to continue pattern matching with
-    Value seqLen;          // The sequence length or prefix offset value
-    bool isPrefixCausal;   // True if prefix causal pattern detected
+    Value inputToContinue;      // The value to continue pattern matching with
+    Value kvCacheSeqLen;        // KV cache sequence length (null if not detected)
+    int64_t prefixCausalOffset; // Prefix causal offset (-1 if not detected)
   };
 
   // Helper to try detecting prefix causal pattern: add(row_indices, offset)
-  // Returns the offset value if successful
-  FailureOr<Value>
+  // Returns the constant offset value if successful, or failure if pattern
+  // doesn't match or offset is not a constant
+  FailureOr<int64_t>
   tryPrefixCausalPattern(Value input,
                          const DenseSet<StringRef> &expandAndCollapse,
                          const DenseSet<StringRef> &seqLenSkip) const {
@@ -2008,11 +2024,11 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     Value unwrappedOffset = maybeOffsetUnwrapped.value();
 
-    // Verify offset is i32 and traces back to a block argument
-    if (!isI32BlockArgument(unwrappedOffset, seqLenSkip))
-      return failure();
+    // Try to extract constant offset value
+    if (auto offset = getConstantInt(unwrappedOffset))
+      return *offset;
 
-    return unwrappedOffset;
+    return failure();
   }
 
   // Helper to try detecting KV-cache pattern
@@ -2203,7 +2219,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   //   - KV-cache: select(greater(col_indices, seqLen), -inf, value)
   //   - Prefix causal: select(greater(col_indices, row_indices + offset), -inf,
   //   value)
-  // Returns SeqLenMaskResult with the detected pattern type
+  // Returns SeqLenMaskResult with detected patterns
   FailureOr<SeqLenMaskResult> getSeqLenMask(Value softmaxInput) const {
     auto maybeSelect = getSelectWithNegInf(softmaxInput);
     if (failed(maybeSelect))
@@ -2238,23 +2254,23 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     Value input2 = greater.getInput2();
     Value result = select.getInput3();
 
-    // Try KV-cache pattern first (scalar seqLen)
+    SeqLenMaskResult currentResult{result, nullptr, -1};
+
+    // Try KV-cache pattern (scalar seqLen)
     auto maybeKVCache =
         tryKVCachePattern(input2, expandAndCollapse, seqLenSkip);
     if (succeeded(maybeKVCache)) {
-      return SeqLenMaskResult{result, maybeKVCache.value(),
-                              /*isPrefixCausal=*/false};
+      currentResult.kvCacheSeqLen = maybeKVCache.value();
     }
 
-    // Try prefix causal pattern (row_indices + offset)
+    // Try prefix causal pattern (row_indices + constant offset)
     auto maybePrefixCausal =
         tryPrefixCausalPattern(input2, expandAndCollapse, seqLenSkip);
     if (succeeded(maybePrefixCausal)) {
-      return SeqLenMaskResult{result, maybePrefixCausal.value(),
-                              /*isPrefixCausal=*/true};
+      currentResult.prefixCausalOffset = maybePrefixCausal.value();
     }
 
-    return failure();
+    return currentResult;
   }
 
   /*
@@ -2801,17 +2817,17 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return failure();
     }
 
-    // Detect sequence length masking patterns (KV-cache or prefix causal)
+    // Detect sequence length masking patterns (KV-cache and/or prefix causal)
     // Note that non KV-Cache fusions might have tosa.select
     // so, if the checks fail, we just keep going
     Value kvCacheInput, currentSeqLen;
-    bool isPrefixCausal = false;
+    int64_t prefixCausalOffset = -1; // -1 = not prefix causal
     auto maybeSeqLenMask = getSeqLenMask(softmaxInput);
     if (succeeded(maybeSeqLenMask)) {
       auto result = maybeSeqLenMask.value();
       kvCacheInput = result.inputToContinue;
-      currentSeqLen = result.seqLen;
-      isPrefixCausal = result.isPrefixCausal;
+      currentSeqLen = result.kvCacheSeqLen;
+      prefixCausalOffset = result.prefixCausalOffset;
     } else {
       kvCacheInput = softmaxInput;
     }
@@ -2825,11 +2841,19 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     // Try standard causal detection if not prefix causal
     auto causal = getCausal(kvCacheInput);
-    bool isCausal = succeeded(causal);
+    bool isCausal = succeeded(causal) && prefixCausalOffset < 0;
+
+    // Compute causalMaskingValue: -1 = disabled, 0 = regular causal, >0 = prefix
+    int64_t causalMaskingValue = -1;
+    if (prefixCausalOffset >= 0) {
+      causalMaskingValue = prefixCausalOffset;
+    } else if (isCausal) {
+      causalMaskingValue = 0;
+    }
+
     // Use causal input if standard causal, otherwise use kvCacheInput
     // (which is also set for prefix causal pattern)
-    Value causalMaskInput =
-        (isCausal && !isPrefixCausal) ? causal.value() : kvCacheInput;
+    Value causalMaskInput = isCausal ? causal.value() : kvCacheInput;
 
     OpBuilder b{op};
     ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
@@ -2850,9 +2874,9 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                << "first matmul = " << maybeFirstMatMul.value() << "\n");
     LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
     LLVM_DEBUG(llvm::dbgs()
-               << "isKVCache: " << (currentSeqLen && !isPrefixCausal) << "\n");
-    LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
-    LLVM_DEBUG(llvm::dbgs() << "isPrefixCausal = " << isPrefixCausal << "\n");
+               << "isKVCache: " << (currentSeqLen != nullptr) << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "causalMaskingValue = " << causalMaskingValue
+                            << "\n");
     if (isDotProduct && hasReduceOp)
       return failure();
     if (!isDotProduct && !hasReduceOp)
@@ -2877,8 +2901,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // populate struct to aggregate attention matcher values and pass it to
     // rewriter
     AttentionMatcherValues attentionMatcherValues;
-    attentionMatcherValues.isCausal = isCausal;
-    attentionMatcherValues.isPrefixCausal = isPrefixCausal;
+    attentionMatcherValues.causalMaskingValue = causalMaskingValue;
     attentionMatcherValues.softmaxType = softmaxType;
     attentionMatcherValues.softmaxValues = softmaxMatcherValues;
     attentionMatcherValues.lse = lse;
@@ -2935,7 +2958,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     tosa::MatMulOp firstMatMulOp =
         preSoftmaxElementwiseFinder.getFirstGemmBasedOp().value();
     Value currentSeqLen = attentionMatcherValues.currentSeqLen;
-    bool isCausal = attentionMatcherValues.isCausal;
+    int64_t causalMaskingValue = attentionMatcherValues.causalMaskingValue;
     TypeAttr softmaxTypeAttr =
         TypeAttr::get(attentionMatcherValues.softmaxType);
 
@@ -2959,10 +2982,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           rewriter, op.getLoc(), currentSeqLen, reassocIndices);
     }
 
-    UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
-    bool isPrefixCausal = attentionMatcherValues.isPrefixCausal;
-    UnitAttr prefixCausalAttr =
-        isPrefixCausal ? rewriter.getUnitAttr() : nullptr;
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
         attentionMatcherValues.preSoftmaxElementwiseFinder;
     int64_t firstGemmBlockIndex = elemwiseRegion.getFirstGemmBlockIndex();
@@ -2980,7 +2999,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         /*qTransposed=*/nullptr,
         /*kTransposed=*/nullptr,
         /*vTransposed=*/nullptr,
-        /*oTransposed=*/nullptr, causalAttr, prefixCausalAttr,
+        /*oTransposed=*/nullptr,
+        rewriter.getI64IntegerAttr(causalMaskingValue),
         /*splitKV=*/rewriter.getI32IntegerAttr(1),
         /*features=*/nullptr,
         rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),

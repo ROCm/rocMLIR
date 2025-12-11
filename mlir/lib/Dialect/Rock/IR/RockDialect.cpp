@@ -2676,16 +2676,6 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
     return emitError("Setting softmax type only works for attention.");
   }
 
-  // Validate prefix causal constraints
-  if (getPrefixCausal() && getCausal())
-    return emitError("prefixCausal and causal are mutually exclusive. "
-                     "Use prefixCausal for prefix/chunked attention, "
-                     "or causal for standard causal masking.");
-
-  if (getPrefixCausal() && !getCurrentSeqLen())
-    return emitError("prefixCausal requires currentSeqLen to specify "
-                     "the prefix offset.");
-
   return success();
 }
 
@@ -3220,16 +3210,6 @@ LogicalResult AttentionOp::verify() {
   if (getStoreMethod() != StoreMethod::Set)
     return emitError("Only set store method is supported for attention.");
 
-  // Validate prefix causal constraints
-  if (getPrefixCausal() && getCausal())
-    return emitError("prefixCausal and causal are mutually exclusive. "
-                     "Use prefixCausal for prefix/chunked attention, "
-                     "or causal for standard causal masking.");
-
-  if (getPrefixCausal() && !getCurrentSeqLen())
-    return emitError("prefixCausal requires currentSeqLen to specify "
-                     "the prefix offset.");
-
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
                                   getNumHeadsQ(), getNumHeadsKV());
 }
@@ -3351,6 +3331,46 @@ ParseResult StageOp::parse(OpAsmParser &parser, OperationState &result) {
       parser.parseOptionalAttrDict(result.attributes))
     return failure();
 
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// Custom parser/printer for causal masking
+//===----------------------------------------------------------------------===//
+
+/// Prints causal masking based on causalMaskingValue:
+/// - causalMaskingValue == 0: prints "causal\n"
+/// - causalMaskingValue > 0: prints "prefixCausal = N\n"
+/// - causalMaskingValue == -1: prints nothing
+static void printCausalMasking(OpAsmPrinter &p, Operation *op,
+                               IntegerAttr causalMaskingValue) {
+  int64_t value = causalMaskingValue ? causalMaskingValue.getInt() : -1;
+  if (value == 0) {
+    p << "causal";
+    p.printNewline();
+  } else if (value > 0) {
+    p << "prefixCausal = " << value;
+    p.printNewline();
+  }
+  // If -1, print nothing
+}
+
+/// Parses causal masking keywords and sets causalMaskingValue:
+/// - "causal" -> 0
+/// - "prefixCausal = N" -> N
+/// - neither -> -1
+static ParseResult parseCausalMasking(OpAsmParser &parser,
+                                      IntegerAttr &causalMaskingValue) {
+  int64_t value = -1;
+
+  if (succeeded(parser.parseOptionalKeyword("causal"))) {
+    value = 0;
+  } else if (succeeded(parser.parseOptionalKeyword("prefixCausal"))) {
+    if (parser.parseEqual() || parser.parseInteger(value))
+      return failure();
+  }
+
+  causalMaskingValue = parser.getBuilder().getI64IntegerAttr(value);
   return success();
 }
 

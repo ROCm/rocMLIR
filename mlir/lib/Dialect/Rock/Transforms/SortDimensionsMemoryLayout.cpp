@@ -621,7 +621,7 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
         newTensorV, op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(),
         op.getOut(), op.getLse(), op.getNumHeadsQAttr(), op.getNumHeadsKVAttr(),
         transposedQ, transposedK, transposedV, op.getOTransposedAttr(),
-        op.getCausalAttr(), op.getPrefixCausalAttr(), op.getSplitKVAttr(),
+        op.getCausalMaskingValueAttr(), op.getSplitKVAttr(),
         op.getFeaturesAttr(), op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(),
         op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr(),
         op.getPreSoftmaxHasSplitKVTransformsAttr());

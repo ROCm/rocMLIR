@@ -668,16 +668,15 @@ static llvm::cl::opt<bool> transposeO(
                    "Gxseq_len_qxhead_v (default) or Gxhead_vxseq_len_q"),
     llvm::cl::init(false));
 
-static llvm::cl::opt<bool>
-    causalMasking("causal",
-                  llvm::cl::desc("whether we implement causal masking"),
-                  llvm::cl::init(false));
-
-static llvm::cl::opt<bool> prefixCausalMasking(
-    "prefix_causal",
-    llvm::cl::desc("whether to use prefix causal masking (mask when key > "
-                   "(query + prefix_offset))"),
-    llvm::cl::init(false));
+// Causal masking option: -1 = disabled, 0 = regular causal, >0 = prefix causal
+// Usage: -causal (defaults to 0 for regular causal), -causal=N for prefix
+//        causal, where N is the prefix offset.
+static llvm::cl::opt<int64_t> causalMaskingValue(
+    "causal", llvm::cl::ValueOptional,
+    llvm::cl::desc("Enable causal masking. Use -causal for regular causal, "
+                   "-causal=N for prefix causal mode (where N is the prefix "
+                   "offset)"),
+    llvm::cl::init(-1));
 
 static llvm::cl::opt<int64_t> splitKV(
     "split_kv",
@@ -1522,7 +1521,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
     // TODO: causal masking is not implemented yet
     // typically, causal masking is used in the prefill phase, where split-KV is
     // not typically used
-    if (sequenceLengthQ > nPerBlock && causalMasking) {
+    if (sequenceLengthQ > nPerBlock && (causalMaskingValue == 0)) {
       llvm::errs() << "Causal masking + split-KV is not supported with "
                       "sequenceLengthQ > nPerBlock (rocmlir-gen limitation)\n";
       exit(1);
@@ -1534,7 +1533,7 @@ static func::FuncOp createGPUWrapper(ModuleOp module,
     for (int64_t i = 0; i < groupSize; ++i) {
       int32_t currSeqLen =
           currentSeqLen.empty() ? (sequenceLengthK - 1) : currentSeqLen[i];
-      if (causalMasking) {
+      if ((causalMaskingValue == 0)) {
         // only implemented if sequenceLengthQ <= nPerBlock
         // currSeqLen = min(currSeqLen, n_block * gemm0NPerBlock)
         currSeqLen = 0;
@@ -2953,7 +2952,7 @@ static Value causalMaskingTosa(OpBuilder builder, Location loc,
 }
 
 static Value prefixCausalMaskingTosa(OpBuilder builder, Location loc,
-                                     Value inputTensor, Value offsetTensor,
+                                     Value inputTensor, int64_t offset,
                                      float initValue) {
   auto origType = cast<RankedTensorType>(inputTensor.getType());
   ArrayRef<int64_t> origShape = origType.getShape();
@@ -2971,13 +2970,16 @@ static Value prefixCausalMaskingTosa(OpBuilder builder, Location loc,
   Value rowRange = createRange(builder, loc, 2, inpShape);
   Value colRange = createRange(builder, loc, 3, inpShape);
 
-  // Broadcast offset
+  // Compute row + offset using a constant
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
-  auto offsetBroadcast = rock::tosa::getMulOp(
-      builder, loc, offsetTensor,
+  auto offsetAttr = DenseElementsAttr::get(
+      RankedTensorType::get({}, builder.getI32Type()),
+      builder.getI32IntegerAttr(static_cast<int32_t>(offset)));
+  Value offsetScalar =
+      tosa::ConstOp::create(builder, loc, offsetAttr.getType(), offsetAttr);
+  Value offsetBroadcast = rock::tosa::getMulOp(
+      builder, loc, offsetScalar,
       rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
-
-  // Compute row + offset
   auto rowPlusOffset = rock::tosa::createOpAndInfer<tosa::AddOp>(
       builder, loc, builder.getI32Type(), rowRange, offsetBroadcast);
 
@@ -3315,19 +3317,12 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   }
   output = unflattenedArgs[optionalArgsCounter];
 
-  if (causalMasking && prefixCausalMasking) {
-    llvm::errs() << "Cannot enable both causal masking and prefix causal "
-                    "masking simultaneously\n";
-    exit(1);
-  }
-
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
   auto attention = rock::AttentionOp::create(
       builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
       currentSeqLenTensor, output, lse, numHeadsQ, numHeadsKV, transposeQ,
-      transposeK, transposeV, transposeO, causalMasking, prefixCausalMasking,
-      splitKV,
+      transposeK, transposeV, transposeO, causalMaskingValue, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,
@@ -4186,8 +4181,11 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       scaleTensor =
           maskKVCacheTosa(builder, loc, scaleTensor, currentSeqLenTensor, 1.0f);
 
-    if (causalMasking)
+    if ((causalMaskingValue == 0))
       scaleTensor = causalMaskingTosa(builder, loc, scaleTensor, 1.0f);
+    else if ((causalMaskingValue > 0))
+      scaleTensor =
+          prefixCausalMaskingTosa(builder, loc, scaleTensor, causalMaskingValue, 1.0f);
 
     qkTensor = rock::tosa::getMulOp(
         builder, loc, qkTensor, scaleTensor,
@@ -4200,8 +4198,11 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
       biasTensor =
           maskKVCacheTosa(builder, loc, biasTensor, currentSeqLenTensor, 0.0f);
 
-    if (causalMasking)
+    if ((causalMaskingValue == 0))
       biasTensor = causalMaskingTosa(builder, loc, biasTensor, 0.0f);
+    else if ((causalMaskingValue > 0))
+      biasTensor =
+          prefixCausalMaskingTosa(builder, loc, biasTensor, causalMaskingValue, 0.0f);
 
     qkTensor = rock::tosa::createOpAndInfer<tosa::AddOp>(
         builder, loc, cast<ShapedType>(biasTensor.getType()).getElementType(),
@@ -4213,17 +4214,9 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
                                                         softmaxType, qkTensor);
 
   if (currentSeqLenTensor) {
-    if (prefixCausalMasking) {
-      // For prefix causal, use the combined formula: mask when col > row +
-      // offset
-      qkTensor =
-          prefixCausalMaskingTosa(builder, loc, qkTensor, currentSeqLenTensor,
-                                  -std::numeric_limits<float>::infinity());
-    } else {
-      // Standard KV-cache masking: mask when col > currentSeqLen
-      qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,
-                                 -std::numeric_limits<float>::infinity());
-    }
+    // Standard KV-cache masking: mask when col > currentSeqLen
+    qkTensor = maskKVCacheTosa(builder, loc, qkTensor, currentSeqLenTensor,
+                               -std::numeric_limits<float>::infinity());
     optionalArgsCounter++;
   }
 
@@ -4231,9 +4224,17 @@ static func::FuncOp createCpuAttentionKernelWithMlir(ModuleOp module,
   if (returnLSE)
     lseOut = block->getArgument(optionalArgsCounter++);
 
-  if (causalMasking)
+  if ((causalMaskingValue == 0))
     qkTensor = causalMaskingTosa(builder, loc, qkTensor,
                                  -std::numeric_limits<float>::infinity());
+
+  if ((causalMaskingValue > 0)) {
+    // For prefix causal, use the combined formula:
+    // mask when col > (row + offset)
+    qkTensor = prefixCausalMaskingTosa(builder, loc, qkTensor,
+                                       causalMaskingValue,
+                                       -std::numeric_limits<float>::infinity());
+  }
 
   constexpr int64_t reductionAxis = 2;
   auto qkMaxs = rock::tosa::createOpAndInfer<tosa::ReduceMaxOp>(

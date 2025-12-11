@@ -283,10 +283,10 @@ func.func @rock_attention_kvcache(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x
 // CHECK-SAME: block_size = 64 : i32, grid_size = 32 : i32
 func.func @rock_attention_causal(%arg0: memref<1x64x1024xf32>, %arg1: memref<1x64x1024xf32>, %arg2: memref<1x1024x64xf32>, %arg3: memref<1x1024x64xf32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908", block_size = 64 : i32} {
   // CHECK: rock.gridwise_attention_accel(%[[q]], %[[k]], %[[v]], %[[o]])
-  // CHECK-NEXT: , causal,
+  // CHECK-NEXT: causalMaskingValue = 0 : i64,
   rock.attention{
      qk = tr %arg0 * %arg1 : memref<1x64x1024xf32>, memref<1x64x1024xf32>
-     causal
+     causalMaskingValue = 0
      %arg3 = softmax(qk) * %arg2 : memref<1x1024x64xf32> -> memref<1x1024x64xf32>
   } {
     params0 = #xldops_attn_params_g0,

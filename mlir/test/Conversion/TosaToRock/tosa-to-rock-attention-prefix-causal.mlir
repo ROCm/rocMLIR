@@ -3,7 +3,7 @@
 module {
   // CHECK-LABEL: func @mlir_attention
   // CHECK: rock.attention
-  // CHECK: currentSeqLen = (%{{.*}} : tensor<14xi32>)
+  // CHECK-NOT: currentSeqLen
   // CHECK-NOT: causal
   // CHECK: prefixCausal
   func.func @mlir_attention(%arg0: tensor<1xi32>, %arg1: tensor<4608xf16>, %arg2: tensor<2048xf16>, %arg3: tensor<14336xf16>) -> tensor<3584xf16> attributes {kernel} {

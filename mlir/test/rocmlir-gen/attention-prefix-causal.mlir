@@ -1,4 +1,4 @@
-// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -current_seq_len=5 --prefix-causal -num_heads_q 4 -num_heads_kv 4 -seq_len_q 8 -seq_len_k 16 -head_dim_qk 32 -head_dim_v 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope
+// RUN: rocmlir-gen --arch gfx90a:sramecc+:xnack- --operation attention -causal=5 -num_heads_q 4 -num_heads_kv 4 -seq_len_q 8 -seq_len_k 16 -head_dim_qk 32 -head_dim_v 32 -t f32 -pv --apply-bufferization-pipeline=false | rocmlir-opt | FileCheck %s --enable-var-scope
 
 // CHECK: module attributes {mhal.arch = "[[$ARCH:.*]]"}
 
@@ -6,21 +6,17 @@
 // CHECK-SAME: (%[[queriesRaw:.*0]]: memref<1024xf32>,
 // CHECK-SAME: %[[keysRaw:.*1]]: memref<2048xf32>,
 // CHECK-SAME: %[[valuesRaw:.*2]]: memref<2048xf32>,
-// CHECK-SAME: %[[currentSeqLenRaw:.*3]]: memref<1xi32>,
-// CHECK-SAME: %[[outputRaw:.*4]]: memref<1024xf32>)
+// CHECK-SAME: %[[outputRaw:.*3]]: memref<1024xf32>)
 // CHECK-SAME: attributes {kernel, mhal.arch = "[[$ARCH]]"}
 // CHECK: %[[queries:.*]] = rock.transform %[[queriesRaw]] {{.*}} : memref<1024xf32> to memref<4x8x32xf32>
 // CHECK: %[[keys:.*]] = rock.transform %[[keysRaw]] {{.*}} : memref<2048xf32> to memref<4x32x16xf32>
 // CHECK: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<2048xf32> to memref<4x16x32xf32>
-// CHECK: %[[currentSeqLen:.*]] = rock.transform %[[currentSeqLenRaw]] {{.*}} : memref<1xi32> to memref<1xi32>
 // CHECK: %[[output:.*]] = rock.transform %[[outputRaw]] {{.*}} : memref<1024xf32> to memref<4x8x32xf32>
 
-// Verify rock.attention has prefixCausal attribute and currentSeqLen
+// Verify rock.attention has causalMaskingValue = 5 (prefix causal with offset 5)
 // CHECK: rock.attention
 // CHECK: qk = %[[queries]] * %[[keys]]
-// CHECK: currentSeqLen = (%{{.*}} : memref<4xi32>)
-// CHECK-NOT: causal
-// CHECK: prefixCausal
+// CHECK: causalMaskingValue = 5
 // CHECK: %[[output]] = softmax(qk) * %[[values]]
 // CHECK: return
 

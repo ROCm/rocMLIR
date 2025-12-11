@@ -103,7 +103,7 @@ module {
       }
       memref.copy %alloc_0, %arg6 : memref<1x14x4x16xf16> to memref<1x14x4x16xf16>
       rock.yield
-    } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0>, gridSize = 14 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>, params0 = #mfma_gemm_params, params1 = #mfma_gemm_params, prePadG0M = 16 : index, prePadG0N = 4 : index, prefixCausal, softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} : memref<14x64x32xf16>, memref<14x64x32xf16>, memref<14x32x64xf16>, memref<14xi32>, memref<14x32x64xf16>
+    } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0>, gridSize = 14 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>, params0 = #mfma_gemm_params, params1 = #mfma_gemm_params, prePadG0M = 16 : index, prePadG0N = 4 : index, causalMaskingValue = 1 : i64, softmaxType = f32, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>} : memref<14x64x32xf16>, memref<14x64x32xf16>, memref<14x32x64xf16>, memref<14xi32>, memref<14x32x64xf16>
     memref.copy %alloc, %arg4 : memref<3584xf16> to memref<3584xf16>
     return
   }
