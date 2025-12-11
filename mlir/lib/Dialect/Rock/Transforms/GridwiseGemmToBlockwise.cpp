@@ -1311,8 +1311,8 @@ struct GridwiseAttentionAccelRewritePattern
                                              /*withElseRegion=*/false);
           {
             OpBuilder thenBody = ifOp.getThenBodyBuilder();
-            InBoundsStoreOp::create(thenBody, loc, negInfTyped,
-                                    gemm0OutBuffer, ValueRange{upperCoords[4]});
+            InBoundsStoreOp::create(thenBody, loc, negInfTyped, gemm0OutBuffer,
+                                    ValueRange{upperCoords[4]});
           }
         }
       };
