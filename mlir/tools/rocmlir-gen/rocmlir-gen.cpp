@@ -671,7 +671,7 @@ static llvm::cl::opt<bool> transposeO(
 // Causal masking option: -1 = disabled, 0 = regular causal, >0 = prefix causal
 // Usage: -causal (defaults to 0 for regular causal), -causal=N for prefix
 //        causal, where N is the prefix offset.
-static llvm::cl::opt<int64_t> causalMaskingValue(
+static llvm::cl::opt<int32_t> causalMaskingValue(
     "causal", llvm::cl::ValueOptional,
     llvm::cl::desc("Enable causal masking. Use -causal for regular causal, "
                    "-causal=N for prefix causal mode (where N is the prefix "
@@ -2952,7 +2952,7 @@ static Value causalMaskingTosa(OpBuilder builder, Location loc,
 }
 
 static Value prefixCausalMaskingTosa(OpBuilder builder, Location loc,
-                                     Value inputTensor, int64_t offset,
+                                     Value inputTensor, int32_t offset,
                                      float initValue) {
   auto origType = cast<RankedTensorType>(inputTensor.getType());
   ArrayRef<int64_t> origShape = origType.getShape();
@@ -2970,15 +2970,15 @@ static Value prefixCausalMaskingTosa(OpBuilder builder, Location loc,
   Value rowRange = createRange(builder, loc, 2, inpShape);
   Value colRange = createRange(builder, loc, 3, inpShape);
 
-  // Compute row + offset using a constant
+  // Compute row + offset using a broadcastable constant tensor
   auto outType = RankedTensorType::get(inpShape, builder.getI32Type());
   auto offsetAttr = DenseElementsAttr::get(
-      RankedTensorType::get({}, builder.getI32Type()),
+      RankedTensorType::get({1, 1, 1, 1}, builder.getI32Type()),
       builder.getI32IntegerAttr(static_cast<int32_t>(offset)));
-  Value offsetScalar =
+  Value offsetTensor =
       tosa::ConstOp::create(builder, loc, offsetAttr.getType(), offsetAttr);
   Value offsetBroadcast = rock::tosa::getMulOp(
-      builder, loc, offsetScalar,
+      builder, loc, offsetTensor,
       rock::tosa::getOneTensor(builder, loc, outType), builder.getI32Type());
   auto rowPlusOffset = rock::tosa::createOpAndInfer<tosa::AddOp>(
       builder, loc, builder.getI32Type(), rowRange, offsetBroadcast);
@@ -3321,8 +3321,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
   auto attention = rock::AttentionOp::create(
       builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
-      currentSeqLenTensor, output, lse, numHeadsQ, numHeadsKV, transposeQ,
-      transposeK, transposeV, transposeO, causalMaskingValue, splitKV,
+      currentSeqLenTensor, /*dynamicPrefixOffset=*/nullptr, output, lse,
+      numHeadsQ, numHeadsKV, transposeQ, transposeK, transposeV, transposeO,
+      causalMaskingValue, splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),
       storeMethod, softmaxType,
       /*params0=*/nullptr, /*params1=*/nullptr,

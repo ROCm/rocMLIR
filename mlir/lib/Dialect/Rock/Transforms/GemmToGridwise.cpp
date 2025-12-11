@@ -471,7 +471,7 @@ arrangeGemmGemmSplitKTransform(OpBuilder &builder,
 static LogicalResult commonAttentionGemmElmtGemm(
     ConversionPatternRewriter &rw, RockGemmGemmWrapperInterface op, Value a,
     Value b, Value c, Value out, Value lse, Value currentSeqLen,
-    int64_t causalMaskingValue, IntegerAttr splitKV,
+    Value dynamicPrefixOffset, int32_t causalMaskingValue, IntegerAttr splitKV,
     ValueRange elementwiseInputs, Region &preSecondOpRegion, bool enableSoftmax,
     TypeAttr softmaxType, int64_t numHeadsQ, int64_t numHeadsKV,
     std::optional<std::reference_wrapper<const BufferDependencyAnalysis>>
@@ -583,8 +583,9 @@ static LogicalResult commonAttentionGemmElmtGemm(
   }
 
   auto newOp = GridwiseAttentionAccelOp::create(
-      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse,
-      rw.getI64IntegerAttr(causalMaskingValue), splitKV, op.getGemmFeaturesAttr(),
+      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, dynamicPrefixOffset,
+      out, lse, rw.getI32IntegerAttr(causalMaskingValue), splitKV,
+      op.getGemmFeaturesAttr(),
       op.getStoreMethodAttr(), blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
       numRepeatsGQA, softmaxType, params0, params1,
@@ -1042,8 +1043,9 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getQueries(), adaptor.getKeys(), adaptor.getValues(),
       adaptor.getOut(), adaptor.getLse(), adaptor.getCurrentSeqLen(),
-      adaptor.getCausalMaskingValue(), adaptor.getSplitKVAttr(),
-      adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
+      adaptor.getDynamicPrefixOffset(), adaptor.getCausalMaskingValue(),
+      adaptor.getSplitKVAttr(), adaptor.getPreSoftmaxElemWiseInputs(),
+      op.getPreSoftmaxBody(),
       /*enableSoftmax=*/true, op.getSoftmaxTypeAttr(), adaptor.getNumHeadsQ(),
       adaptor.getNumHeadsKV(),
       /*bufferDeps=*/std::nullopt,
@@ -1057,8 +1059,9 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getA(), adaptor.getB(), adaptor.getC(), adaptor.getOut(),
       /*lse=*/nullptr,
-      /*currentSeqLen=*/nullptr, /*causalMaskingValue=*/-1,
-      splitKV, adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
+      /*currentSeqLen=*/nullptr, /*dynamicPrefixOffset=*/nullptr,
+      /*causalMaskingValue=*/-1, splitKV, adaptor.getElemwiseInputs(),
+      op.getPreSecondGemmBody(),
       /*enableSoftmax=*/false, /*softmaxType=*/nullptr, /*numHeadsQ=*/1,
       /*numHeadsKV=*/1, std::cref(bufferDeps),
       /*preSoftmaxHasSplitKVTransforms=*/rw.getBoolAttr(false));

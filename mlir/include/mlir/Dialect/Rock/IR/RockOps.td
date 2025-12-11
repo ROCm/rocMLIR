@@ -215,11 +215,12 @@ def Rock_AttentionOp
           TensorOrMemRefOf<[F32, F16, BF16]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
+          Optional<TensorOrMemRefOf<[I32]>>:$dynamicPrefixOffset,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out,
           Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse, I32Attr:$numHeadsQ,
           I32Attr:$numHeadsKV, UnitAttr:$qTransposed, UnitAttr:$kTransposed,
           UnitAttr:$vTransposed, UnitAttr:$oTransposed,
-          DefaultValuedOptionalAttr<I64Attr, "-1">:$causalMaskingValue,
+          DefaultValuedOptionalAttr<I32Attr, "-1">:$causalMaskingValue,
           I32Attr:$splitKV,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, OptionalAttr<TypeAttr>:$softmaxType,
@@ -245,11 +246,11 @@ def Rock_AttentionOp
     transposed. For example, if `qTransposed` is set, then the argument `queries` should be
     a [G] x head_qk x seq_q memory.
 
-    The `causalMaskingValue` attribute controls causal masking:
-    - N == -1 (default): No causal masking
-    - N == 0: Regular causal masking (mask when key_pos > query_pos)
-    - N > 0: Prefix causal masking (mask when key_pos > (query_pos + offset)),
-             where N is the prefix offset.
+    The `causalMaskingValue` attribute and `dynamicPrefixOffset` operand control causal masking:
+    - causalMaskingValue == -1: No causal masking (dynamicPrefixOffset is ignored)
+    - causalMaskingValue == 0 and dynamicPrefixOffset == null: Regular causal masking
+    - causalMaskingValue == 0 and dynamicPrefixOffset set: Prefix causal with dynamic offset
+    - causalMaskingValue > 0: Prefix causal masking with constant offset N
 
     LSE (log-sum-exp) is an optional output typically used for flash decoding.
     For flash decoding, you can pass splitKV > 1, the default value is 1, which means flash decoding is disabled. 
@@ -275,6 +276,7 @@ def Rock_AttentionOp
     `{` `\n`
         ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
         (`currentSeqLen` `=` `(` $currentSeqLen^ `:` type($currentSeqLen) `)` `\n`)?
+        (`dynamicPrefixOffset` `=` `(` $dynamicPrefixOffset^ `:` type($dynamicPrefixOffset) `)` `\n`)?
         custom<CausalMasking>($causalMaskingValue)
         (`lse` `=` $lse^ `:` type($lse) `\n`)?
         (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
@@ -553,9 +555,10 @@ def Rock_GridwiseAttentionAccelOp
           MemRefRankOf<[F32, F16, BF16], [3]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
+          Optional<MemRefRankOf<[I32], [1]>>:$dynamicPrefixOffset,
           MemRefRankOf<[F32, F16, BF16], [3]>:$out,
           Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse,
-          DefaultValuedOptionalAttr<I64Attr, "-1">:$causalMaskingValue,
+          DefaultValuedOptionalAttr<I32Attr, "-1">:$causalMaskingValue,
           I32Attr:$splitKV,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,

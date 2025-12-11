@@ -3344,7 +3344,7 @@ ParseResult StageOp::parse(OpAsmParser &parser, OperationState &result) {
 /// - causalMaskingValue == -1: prints nothing
 static void printCausalMasking(OpAsmPrinter &p, Operation *op,
                                IntegerAttr causalMaskingValue) {
-  int64_t value = causalMaskingValue ? causalMaskingValue.getInt() : -1;
+  int32_t value = causalMaskingValue ? causalMaskingValue.getInt() : -1;
   if (value == 0) {
     p << "causal";
     p.printNewline();
@@ -3361,7 +3361,7 @@ static void printCausalMasking(OpAsmPrinter &p, Operation *op,
 /// - neither -> -1
 static ParseResult parseCausalMasking(OpAsmParser &parser,
                                       IntegerAttr &causalMaskingValue) {
-  int64_t value = -1;
+  int32_t value = -1;
 
   if (succeeded(parser.parseOptionalKeyword("causal"))) {
     value = 0;
@@ -3370,7 +3370,7 @@ static ParseResult parseCausalMasking(OpAsmParser &parser,
       return failure();
   }
 
-  causalMaskingValue = parser.getBuilder().getI64IntegerAttr(value);
+  causalMaskingValue = parser.getBuilder().getI32IntegerAttr(value);
   return success();
 }
 

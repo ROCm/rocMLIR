@@ -1249,8 +1249,8 @@ struct GridwiseAttentionAccelRewritePattern
       layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
       RegsAsMatrixSubTiles gemm0OutSubTileViews, bool enabled, Value mLoopIV,
       Value gemm0MBlocksLastIter, Value currentSeqLen = nullptr,
-      IntegerAttr numRepeatsGQA = nullptr,
-      int64_t prefixCausalOffset = 0) const {
+      IntegerAttr numRepeatsGQA = nullptr, int32_t prefixCausalOffset = 0,
+      Value loadedPrefixOffset = nullptr) const {
     if (enabled) {
       auto isLastIteration =
           arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
@@ -1319,11 +1319,13 @@ struct GridwiseAttentionAccelRewritePattern
               nIndex = thenb.createOrFold<arith::DivUIOp>(loc, nIndex,
                                                           constNumRepeatsGQA);
 
-            // Compute query_pos + prefix_offset using constant offset
-            Value offsetConst =
-                thenb.createOrFold<arith::ConstantIndexOp>(loc, prefixCausalOffset);
+            // Compute query_pos + prefix_offset
+            Value offset = loadedPrefixOffset
+                               ? loadedPrefixOffset
+                               : thenb.createOrFold<arith::ConstantIndexOp>(
+                                     loc, prefixCausalOffset);
             Value threshold =
-                arith::AddIOp::create(thenb, loc, nIndex, offsetConst);
+                arith::AddIOp::create(thenb, loc, nIndex, offset);
             isInvalid = arith::CmpIOp::create(
                 thenb, loc, arith::CmpIPredicate::ugt, mIndex, threshold);
             break;
@@ -1712,59 +1714,63 @@ struct GridwiseAttentionAccelRewritePattern
     return viewBuilder.get();
   }
 
-  std::tuple<Value, Value, Value, Value>
+  std::tuple<Value, Value, Value, Value, Value>
   getMLoopInfo(PatternRewriter &rewriter, Location loc,
                layout::AttnGridCoordinates gridCoordsGemm0,
-               Value currentSeqLenTensor, int64_t gemm0M,
-               int64_t gemm0MPerBlock, int64_t gemm0NPerBlock, int64_t splitKV,
-               bool isCausal, bool isKVCache, int64_t causalMaskingValue,
+               Value currentSeqLenTensor, Value dynamicPrefixOffsetTensor,
+               int64_t gemm0M, int64_t gemm0MPerBlock, int64_t gemm0NPerBlock,
+               int64_t splitKV, bool isCausal, bool isKVCache,
+               bool isPrefixCausal, int32_t causalMaskingValue,
                IntegerAttr numRepeatsGQA = nullptr) const {
-    bool isPrefixCausal = (causalMaskingValue > 0);
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
+    Value loadedPrefixOffset;
     Value effectiveSeqLen;
     Value start, end;
+
+    // Helper lambda to load a 1D tensor value into a scalar index
+    auto loadTensorToIndex = [&](Value tensor) -> Value {
+      Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
+      ArrayRef<int64_t> inpShape =
+          cast<ShapedType>(tensor.getType()).getShape();
+      SmallVector<StringRef> startNames = {"gemmG"};
+      rock::BottomUpTMBuilder addDim(rewriter, startNames, inpShape);
+      addDim.addDim("dummy", 1, 1);
+      addDim.passThrough(ArrayRef<uint32_t>{0}, ArrayRef<uint32_t>{0});
+      auto addDimAttr = addDim.get();
+      Value tensorAddDim =
+          rock::TransformOp::create(rewriter, loc, tensor, addDimAttr);
+      Type elemType = getElementTypeOrSelf(tensorAddDim.getType());
+
+      auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+          gpu::GPUDialect::getPrivateAddressSpace());
+      auto memrefType =
+          MemRefType::get({1}, elemType, AffineMap{}, privateMemoryAddressSpace);
+      auto regAlloc = GpuAllocOp::create(rewriter, loc, memrefType);
+
+      ThreadwiseReadIntoOp::create(
+          rewriter, loc, vectorOfBoolShapedLike(regAlloc), tensorAddDim,
+          regAlloc,
+          /*dynamicValidities=*/ValueRange{},
+          /*extraViews=*/rewriter.getArrayAttr({}),
+          /*extraIndices=*/ValueRange{gridCoordsGemm0.g_block}, true, true);
+
+      Value loadedValue = InBoundsLoadOp::create(rewriter, loc, elemType,
+                                                 regAlloc, ValueRange{zero});
+      return rewriter.createOrFold<arith::IndexCastOp>(
+          loc, rewriter.getIndexType(), loadedValue);
+    };
+
     // This is needed for KV Cache/Causal/Prefix Causal masking support
     if (isCausal || isKVCache || isPrefixCausal) {
-      Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
       if (isKVCache) {
-        // add dim 1 for thread_read_into (registers)
-        ArrayRef<int64_t> inpShape =
-            cast<ShapedType>(currentSeqLenTensor.getType()).getShape();
-        SmallVector<StringRef> startNames = {"gemmG"};
-        rock::BottomUpTMBuilder addDim(rewriter, startNames, inpShape);
-        addDim.addDim("dummy", 1, 1);
-        addDim.passThrough(ArrayRef<uint32_t>{0}, ArrayRef<uint32_t>{0});
-        auto addDimAttr = addDim.get();
-        Value currentSeqLenTensorAddDim = rock::TransformOp::create(
-            rewriter, loc, currentSeqLenTensor, addDimAttr);
-        Type currentSeqLenElemType =
-            getElementTypeOrSelf(currentSeqLenTensorAddDim.getType());
-
-        // create registers
-        auto privateMemoryAddressSpace =
-            rewriter.getAttr<gpu::AddressSpaceAttr>(
-                gpu::GPUDialect::getPrivateAddressSpace());
-        auto memrefType = MemRefType::get(
-            {1}, currentSeqLenElemType, AffineMap{}, privateMemoryAddressSpace);
-        auto currentSeqLenLoad = GpuAllocOp::create(rewriter, loc, memrefType);
-
-        // load from memory to registers
-        ThreadwiseReadIntoOp::create(
-            rewriter, loc, vectorOfBoolShapedLike(currentSeqLenLoad),
-            currentSeqLenTensorAddDim, currentSeqLenLoad,
-            /*dynamicValidities=*/ValueRange{},
-            /*extraViews=*/rewriter.getArrayAttr({}),
-            /*extraIndices=*/
-            ValueRange{gridCoordsGemm0.g_block}, true, true);
-
-        // load from registers
-        Value currentSeqLenValue =
-            InBoundsLoadOp::create(rewriter, loc, currentSeqLenElemType,
-                                   currentSeqLenLoad, ValueRange{zero});
-        currentSeqLen = rewriter.createOrFold<arith::IndexCastOp>(
-            loc, rewriter.getIndexType(), currentSeqLenValue);
+        currentSeqLen = loadTensorToIndex(currentSeqLenTensor);
         effectiveSeqLen = currentSeqLen;
+      }
+
+      // Load dynamic prefix offset if present
+      if (dynamicPrefixOffsetTensor) {
+        loadedPrefixOffset = loadTensorToIndex(dynamicPrefixOffsetTensor);
       }
 
       // Compute maxRowOfBlock for causal masking
@@ -1784,13 +1790,15 @@ struct GridwiseAttentionAccelRewritePattern
         }
 
         if (isPrefixCausal) {
-          // Prefix causal: maxRowOfBlock = maxRowOfBlock + constant offset
-          Value offsetConst = rewriter.createOrFold<arith::ConstantIndexOp>(
-              loc, causalMaskingValue);
+          // Prefix causal: maxRowOfBlock = maxRowOfBlock + offset
+          Value offset = loadedPrefixOffset
+                             ? loadedPrefixOffset
+                             : rewriter.createOrFold<arith::ConstantIndexOp>(
+                                   loc, causalMaskingValue);
           maxRowOfBlock =
-              arith::AddIOp::create(rewriter, loc, maxRowOfBlock, offsetConst);
-        } 
-        
+              arith::AddIOp::create(rewriter, loc, maxRowOfBlock, offset);
+        }
+
         // If effectiveSeqLen is set, it means KV Cache is enabled,
         // so we need to take the minimum of currentSeqLen and maxRowOfBlock
         if (effectiveSeqLen) {
@@ -1809,6 +1817,7 @@ struct GridwiseAttentionAccelRewritePattern
       end = rewriter.createOrFold<arith::DivUIOp>(loc, numerator,
                                                   constGemm0MPerBlock);
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
+      Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
       // start index is zero unless split-kv is enabled
       start = zero;
@@ -1857,7 +1866,8 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
       end = rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
     }
-    return std::make_tuple(start, end, gemm0MBlocksLastIter, currentSeqLen);
+    return std::make_tuple(start, end, gemm0MBlocksLastIter, currentSeqLen,
+                           loadedPrefixOffset);
   }
 
   // Helper function to determine if early exit optimization is possible.
@@ -1987,9 +1997,14 @@ struct GridwiseAttentionAccelRewritePattern
 
     TypedValue<MemRefType> currentSeqLenTensor = op.getCurrentSeqLen();
     bool isKVCache = currentSeqLenTensor != nullptr;
-    int64_t causalMaskingValue = op.getCausalMaskingValue();
-    bool isCausal = (causalMaskingValue == 0);
-    bool isPrefixCausal = (causalMaskingValue > 0);
+    TypedValue<MemRefType> dynamicPrefixOffsetTensor = op.getDynamicPrefixOffset();
+    int32_t causalMaskingValue = op.getCausalMaskingValue();
+    // isCausal: causalMaskingValue == 0 and no dynamic offset
+    bool isCausal =
+        (causalMaskingValue == 0) && (dynamicPrefixOffsetTensor == nullptr);
+    // isPrefixCausal: constant offset (>0) OR dynamic offset
+    bool isPrefixCausal =
+        (causalMaskingValue > 0) || (dynamicPrefixOffsetTensor != nullptr);
     int64_t splitKV = op.getSplitKV();
 
     // Gemm0 out is casted to be softmaxType (if null, it's casted to elemTypeV)
@@ -2342,12 +2357,16 @@ struct GridwiseAttentionAccelRewritePattern
 
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
+    Value loadedPrefixOffset;
     Value start, end;
     // get mLoop
-    std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen) =
+    std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen,
+             loadedPrefixOffset) =
         getMLoopInfo(rewriter, loc, gridCoordsGemm0mIter0, currentSeqLenTensor,
-                     gemm0M, gemm0MPerBlock, gemm0NPerBlock, splitKV, isCausal,
-                     isKVCache, causalMaskingValue, op.getNumRepeatsGQAAttr());
+                     dynamicPrefixOffsetTensor, gemm0M, gemm0MPerBlock,
+                     gemm0NPerBlock, splitKV, isCausal, isKVCache,
+                     isPrefixCausal, causalMaskingValue,
+                     op.getNumRepeatsGQAAttr());
 
     // Early exit: Skip all computation when there's no work but always write
     // output.
@@ -2627,7 +2646,8 @@ struct GridwiseAttentionAccelRewritePattern
                                  gemm0OutSubTileViewsTr, isPrefixCausal,
                                  mLoopIV, gemm0MBlocksLastIter,
                                  /*currentSeqLen=*/nullptr,
-                                 op.getNumRepeatsGQAAttr(), causalMaskingValue);
+                                 op.getNumRepeatsGQAAttr(), causalMaskingValue,
+                                 loadedPrefixOffset);
 
         // Standard causal masking: mask when key > query
         setGemm0OutputOutOfScope(

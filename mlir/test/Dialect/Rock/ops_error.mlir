@@ -15,7 +15,7 @@ func.func @gridwise_attn_atomic_add_fail(%arg0: memref<1x384x64xf32>, %arg1: mem
     enableSoftmax = true,
     numHeadsKV = 1 : i32, 
     numHeadsQ = 1 : i32,
-    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }

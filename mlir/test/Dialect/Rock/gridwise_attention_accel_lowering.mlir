@@ -235,7 +235,7 @@ func.func @gridwise_attn_simple(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x
     firstGemmIndices = array<i64: 0>,
     splitKV = 1 : i32,
     storeMethod = #rock<StoreMethod set>,
-    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }
@@ -266,7 +266,7 @@ func.func @gridwise_attn_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 0>,
     params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
@@ -312,9 +312,9 @@ func.func @gridwise_attn_causal_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memr
   // CHECK-NEXT: rock.in_bounds_store
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
-    causalMaskingValue = 0 : i64,
+    causalMaskingValue = 0 : i32,
     gridSize = 24 : i32,
-    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 0>,
     params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
@@ -361,7 +361,7 @@ func.func @gridwise_attn_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1: memref<
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 1>,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 1>,
     params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
@@ -398,7 +398,7 @@ func.func @gridwise_attn_softmaxtype(%arg0: memref<1x384x64xf16>, %arg1: memref<
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3, %arg5) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 1>,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 1>,
     params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
@@ -456,7 +456,7 @@ func.func @gridwise_attn_softmaxtype_with_scaling(%arg0: memref<1x384x64xf16>, %
     arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 1>,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 1>,
     params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
@@ -522,7 +522,7 @@ func.func @gridwise_attn_splitkv_lse_kvcache(%arg0: memref<1x384x64xf32>, %arg1:
     arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",
     blockSize = 64 : i32,
     gridSize = 192 : i32,
-    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 1>,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 1, 1>,
     params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
@@ -600,7 +600,7 @@ func.func @multiple_linalg_generics_in_presoftmax_ops(%arg0: memref<59136xf16>, 
     }
     memref.copy %alloc_1, %arg7 : memref<12x77x77xf32> to memref<12x77x77xf32>
     rock.yield
-  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
+  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
   memref.copy %alloc, %arg4 : memref<59136xf16> to memref<59136xf16>
   return
 }
@@ -683,7 +683,7 @@ func.func @multiple_linalg_generics_in_presoftmax_ops_with_transforms_inbetween(
     %35 = rock.transform %alloc_1 by <affine_map<(d0, d1, d2) -> (d0 floordiv 6, d0 mod 6, d1, d2)> by [<Merge{2, 6} ["dim0"] at [0] -> ["dim0", "dim1"] at [0, 1]>, <PassThrough ["dim2"] at [1] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [2] -> ["dim3"] at [3]>] bounds = [12, 77, 77] -> [2, 6, 77, 77]> : memref<2x6x77x77xf32> to memref<12x77x77xf32>
     memref.copy %35, %arg9 : memref<12x77x77xf32> to memref<12x77x77xf32>
     rock.yield
-  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 1, 0>, params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<5929xf32>, memref<12x96x64xf16>
+  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 2, 0, 0, 1, 0>, params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<5929xf32>, memref<12x96x64xf16>
   memref.copy %alloc, %arg5 : memref<59136xf16> to memref<59136xf16>
   return
 }
@@ -744,7 +744,7 @@ func.func @non_invertible_transformations_while_regularizing(%arg0: memref<59136
     %32 = rock.transform %31 by <affine_map<(d0, d1, d2) -> (d0 floordiv 6, d0 mod 6, d1, d2)> by [<Merge{2, 6} ["dim0"] at [0] -> ["dim0", "dim1"] at [0, 1]>, <PassThrough ["dim2"] at [1] -> ["dim2"] at [2]>, <PassThrough ["dim3"] at [2] -> ["dim3"] at [3]>] bounds = [12, 77, 77] -> [2, 6, 77, 77]> : memref<2x6x77x77xf32> to memref<12x77x77xf32>
     memref.copy %32, %arg7 : memref<12x77x77xf32> to memref<12x77x77xf32>
     rock.yield
-  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
+  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
   memref.copy %alloc, %arg4 : memref<59136xf16> to memref<59136xf16>
   return
 }
@@ -807,7 +807,7 @@ func.func @multiple_outputs_linalg_while_regularizing(%arg0: memref<59136xf16>, 
     }
     memref.copy %alloc_2, %arg7 : memref<12x77x77xf32> to memref<12x77x77xf32>
     rock.yield
-  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 1, 0>, params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
+  } {blockSize = 64 : i32, firstGemmIndices = array<i64: 0, 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>, gridSize = 36 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, prePadG0M = 77 : index, prePadG0N = 77 : index, softmaxType = f32} : memref<12x64x96xf16>, memref<12x64x96xf16>, memref<12x96x64xf16>, memref<5929xf16>, memref<12x96x64xf16>
   memref.copy %alloc, %arg4 : memref<59136xf16> to memref<59136xf16>
   return
 }
@@ -836,6 +836,6 @@ func.func @gridwise_attn_splitk(%arg0: memref<1474560xf16>, %arg1: memref<147456
 
   // CHECK: rock.threadwise_write_all {{.*}} atomic_add : memref<96xf16, #gpu.address_space<private>> -> memref<4x384x4096xf16>
   rock.gridwise_attention_accel(%13, %14, %15, %16) features =  mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b preSoftmaxOps = {
-  } {blockSize = 128 : i32, enableSoftmax = false, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, gridSize = 512 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 0>, params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 8, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 32, kpack = 8, mPerWave = 128, nPerWave = 16, mnPerXdl = 16, splitKFactor = 4, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, storeMethod = #rock<StoreMethod atomic_add>} : memref<4x512x4096xf16>, memref<4x512x1024xf16>, memref<4x1024x384xf16>, memref<4x4096x384xf16>
+  } {blockSize = 128 : i32, enableSoftmax = false, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, gridSize = 512 : i32, operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>, params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 8, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, params1 = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 128, nPerBlock = 32, kpack = 8, mPerWave = 128, nPerWave = 16, mnPerXdl = 16, splitKFactor = 4, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>, storeMethod = #rock<StoreMethod atomic_add>} : memref<4x512x4096xf16>, memref<4x512x1024xf16>, memref<4x1024x384xf16>, memref<4x4096x384xf16>
   return
 }

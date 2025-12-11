@@ -13,10 +13,10 @@
 // CHECK: %[[values:.*]] = rock.transform %[[valuesRaw]] {{.*}} : memref<2048xf32> to memref<4x16x32xf32>
 // CHECK: %[[output:.*]] = rock.transform %[[outputRaw]] {{.*}} : memref<1024xf32> to memref<4x8x32xf32>
 
-// Verify rock.attention has causalMaskingValue = 5 (prefix causal with offset 5)
+// Verify rock.attention has prefixCausal = 5 (prefix causal with offset 5)
 // CHECK: rock.attention
 // CHECK: qk = %[[queries]] * %[[keys]]
-// CHECK: causalMaskingValue = 5
+// CHECK: prefixCausal = 5
 // CHECK: %[[output]] = softmax(qk) * %[[values]]
 // CHECK: return
 
