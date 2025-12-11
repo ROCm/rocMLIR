@@ -674,9 +674,9 @@ static llvm::cl::opt<bool>
                   llvm::cl::init(false));
 
 static llvm::cl::opt<bool> prefixCausalMasking(
-    "prefix-causal",
+    "prefix_causal",
     llvm::cl::desc("whether to use prefix causal masking (mask when key > "
-                   "query + currentSeqLen)"),
+                   "(query + prefix_offset))"),
     llvm::cl::init(false));
 
 static llvm::cl::opt<int64_t> splitKV(
@@ -3314,6 +3314,12 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
     lse = unflattenedArgs[optionalArgsCounter++];
   }
   output = unflattenedArgs[optionalArgsCounter];
+
+  if (causalMasking && prefixCausalMasking) {
+    llvm::errs() << "Cannot enable both causal masking and prefix causal "
+                    "masking simultaneously\n";
+    exit(1);
+  }
 
   auto softmaxType =
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));

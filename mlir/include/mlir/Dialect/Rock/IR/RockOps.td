@@ -247,7 +247,7 @@ def Rock_AttentionOp
     If causal is enabled, we implement causal masking.
 
     If prefixCausal is enabled, we implement prefix causal masking where:
-    mask = key_pos > query_pos + currentSeqLen.
+    mask = key_pos > (query_pos + currentSeqLen).
 
     LSE (log-sum-exp) is an optional output typically used for flash decoding.
     For flash decoding, you can pass splitKV > 1, the default value is 1, which means flash decoding is disabled. 

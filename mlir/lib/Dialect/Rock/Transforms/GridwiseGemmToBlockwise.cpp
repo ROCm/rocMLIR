@@ -1309,7 +1309,7 @@ struct GridwiseAttentionAccelRewritePattern
             break;
           }
           case OutOfScopeType::PrefixCausal: {
-            // Prefix causal: mask when key_pos > query_pos + prefix_offset
+            // Prefix causal: mask when key_pos > (query_pos + prefix_offset).
             // This is used for prefix attention where:
             // - A prefix of tokens (0..prefix_offset) is always visible
             // - Anything after the prefix, standard causal masking applies
@@ -2610,7 +2610,7 @@ struct GridwiseAttentionAccelRewritePattern
         }
         // Negative Infinite for extra values based on masking type
         if (isPrefixCausal) {
-          // Prefix causal: mask when key > query + offset
+          // Prefix causal: mask when key > (query + offset).
           // This combines causal masking with a prefix offset
           setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::PrefixCausal,
                                    gridCoordsGemm0, softmaxInputBuffer,
