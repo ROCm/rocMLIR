@@ -775,10 +775,10 @@ func.func @rock_gemm_gemm_splitk(%arg0: memref<1474560xf16>, %arg1: memref<14745
   return
 }
 
-// CHECK-LABEL: @mlir_dot_max_splitk
-// GRID-LABEL: @mlir_dot_max_splitk
+// CHECK-LABEL: @mlir_dot_splitk
+// GRID-LABEL: @mlir_dot_splitk
 // GRID: grid_size = 100
-func.func @mlir_dot_max_splitk(%arg1: memref<1x2x1280xf32>, %arg2: memref<1x1280x320xf32>, %arg3: memref<1x2x320xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
+func.func @mlir_dot_splitk(%arg1: memref<1x2x1280xf32>, %arg2: memref<1x1280x320xf32>, %arg3: memref<1x2x320xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
   %cst = arith.constant 0.000000e+00 : f32
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x2x320xf32>
   // CHECK: rock.gemm

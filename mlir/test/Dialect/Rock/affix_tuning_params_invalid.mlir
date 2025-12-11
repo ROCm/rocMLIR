@@ -145,3 +145,4 @@ func.func @rock_gemm_gemm_splitk(%arg0: memref<1474560xf16>, %arg1: memref<14745
     memref.copy %2, %arg3 : memref<1x2x320xf32> to memref<1x2x320xf32>
     return
   }
+  
