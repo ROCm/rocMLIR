@@ -28,7 +28,7 @@ func.func @rock_accel_gemm_reduction_nokpack(%matrixA : memref<1x2xf32, 5>,
        mnPerXdl = 32,
        splitKFactor = 1, 
        scheduleVersion = 1, 
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<1x2xvector<16xf32>, 5> += memref<1x2xf32, 5> * memref<1x2xf32, 5>
   return
@@ -59,7 +59,7 @@ func.func @rock_accel_gemm_reduction_kpack_f32(%matrixA : memref<1x2xf32, 5>,
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<2x2xvector<16xf32>, 5> += memref<1x2xf32, 5> * memref<1x2xf32, 5>
   return
@@ -90,7 +90,7 @@ func.func @rock_accel_gemm_reduction_kpack_i8(%matrixA : memref<1x4xvector<4xi8>
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xi32>, 5> += memref<1x4xvector<4xi8>, 5> * memref<1x4xvector<4xi8>, 5>
   return
@@ -120,7 +120,7 @@ func.func @accel_gemm_gfx90a_i8(%matrixA : memref<1x4xvector<4xi8>, 5>,
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xi32>, 5> += memref<1x4xvector<4xi8>, 5> * memref<1x4xvector<4xi8>, 5>
   return
@@ -147,7 +147,7 @@ func.func @accel_gemm_gfx942_i8(%matrixA : memref<1x4xvector<8xi8>, 5>,
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xi32>, 5> += memref<1x4xvector<8xi8>, 5> * memref<1x4xvector<8xi8>, 5>
   return
@@ -174,7 +174,7 @@ func.func @accel_gemm_gfx908_bf16(%matrixA : memref<1x4xvector<2xbf16>, 5>,
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x4xvector<2xbf16>, 5> * memref<1x4xvector<2xbf16>, 5>
   return
@@ -201,7 +201,7 @@ func.func @accel_gemm_gfx90a_bf16(%matrixA : memref<1x4xvector<4xbf16>, 5>,
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x4xvector<4xbf16>, 5> * memref<1x4xvector<4xbf16>, 5>
   return
@@ -230,7 +230,7 @@ func.func @accel_gemm_fp8_bf8(%matrixA : memref<1x4xvector<8xf8E4M3FNUZ>, #gpu.a
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<2x2xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>> * memref<1x4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>>
   return
@@ -259,7 +259,7 @@ func.func @accel_gemm_fp8_bf8_ocp(%matrixA : memref<1x4xvector<8xf8E4M3FN>, #gpu
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<2x2xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xf8E4M3FN>, #gpu.address_space<private>> * memref<1x4xvector<8xf8E5M2>, #gpu.address_space<private>>
   return
@@ -286,7 +286,7 @@ func.func @accel_gemm_gfx950_f16_16x16x32(%matrixA : memref<1x2xvector<8xf16>, 5
       mnPerXdl = 16,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<4xf32>, 5> += memref<1x2xvector<8xf16>, 5> * memref<1x2xvector<8xf16>, 5>
   return
@@ -313,7 +313,7 @@ func.func @accel_gemm_gfx950_bf16_16x16x32(%matrixA : memref<1x2xvector<8xbf16>,
       mnPerXdl = 16,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<4xf32>, 5> += memref<1x2xvector<8xbf16>, 5> * memref<1x2xvector<8xbf16>, 5>
   return
@@ -340,7 +340,7 @@ func.func @accel_gemm_gfx950_f16_32x32x16(%matrixA : memref<1x2xvector<8xf16>, 5
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x2xvector<8xf16>, 5> * memref<1x2xvector<8xf16>, 5>
   return
@@ -367,7 +367,7 @@ func.func @accel_gemm_gfx950_bf16_32x32x16(%matrixA : memref<1x2xvector<8xbf16>,
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x2xvector<8xbf16>, 5> * memref<1x2xvector<8xbf16>, 5>
   return
@@ -394,7 +394,7 @@ func.func @accel_gemm_gfx950_i8_32x32x32(%matrixA : memref<1x4xvector<16xi8>, 5>
       mnPerXdl = 32,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xi32>, 5> += memref<1x4xvector<16xi8>, 5> * memref<1x4xvector<16xi8>, 5>
   return
@@ -421,7 +421,7 @@ func.func @accel_gemm_gfx950_i8_16x16x64(%matrixA : memref<1x2xvector<16xi8>, 5>
       mnPerXdl = 16,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<4xi32>, 5> += memref<1x2xvector<16xi8>, 5> * memref<1x2xvector<16xi8>, 5>
   return
@@ -449,7 +449,7 @@ func.func @accel_gemm_gfx950_f32_16x16x128_fp4(%matrixA : memref<1x1xvector<32xf
       mnPerXdl = 16,
       splitKFactor = 1,
       scheduleVersion = 1,
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<4xf32>, 5> += memref<1x1xvector<32xf4E2M1FN>, 5> * memref<1x1xvector<32xf4E2M1FN>, 5>
   return
@@ -477,7 +477,7 @@ func.func @accel_gemm_gfx950_f32_32x32x64_fp4(%matrixA : memref<1x1xvector<32xf4
       mnPerXdl = 32,
       splitKFactor = 1,
       scheduleVersion = 1,
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x1xvector<32xf4E2M1FN>, 5> * memref<1x1xvector<32xf4E2M1FN>, 5>
   return
@@ -505,7 +505,7 @@ func.func @accel_gemm_gfx950_f32_64x64x512_fp4_1(%matrixA : memref<1x16xvector<3
       mnPerXdl = 16,
       splitKFactor = 1,
       scheduleVersion = 1,
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x16xvector<4xf32>, 5> += memref<1x16xvector<32xf4E2M1FN>, 5> * memref<1x16xvector<32xf4E2M1FN>, 5>
   return
@@ -535,7 +535,7 @@ func.func @accel_gemm_gfx950_f32_64x64x512_fp4_2(%matrixA : memref<1x8xvector<32
       mnPerXdl = 32,
       splitKFactor = 1,
       scheduleVersion = 1,
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x8xvector<32xf4E2M1FN>, 5> * memref<1x8xvector<32xf4E2M1FN>, 5>
   return
@@ -572,7 +572,7 @@ func.func @accel_gemm_gfx950_f32_16x16x128_fp4_scaled(%matrixA : memref<1x1xvect
       mnPerXdl = 16,
       splitKFactor = 1,
       scheduleVersion = 1,
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<4xf32>, 5> += memref<1x1xvector<32xf4E2M1FN>, 5> scaled by memref<1x1xvector<32xf8E8M0FNU>, 5> * memref<1x1xvector<32xf4E2M1FN>, 5> scaled by memref<1x1xvector<32xf8E8M0FNU>, 5>
   return
@@ -608,7 +608,7 @@ func.func @accel_gemm_gfx950_f32_32x32x64_fp4_scaled(%matrixA : memref<1x1xvecto
       mnPerXdl = 32,
       splitKFactor = 1,
       scheduleVersion = 1,
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<16xf32>, 5> += memref<1x1xvector<32xf4E2M1FN>, 5> scaled by memref<1x1xvector<32xf8E8M0FNU>, 5> * memref<1x1xvector<32xf4E2M1FN>, 5> scaled by memref<1x1xvector<32xf8E8M0FNU>, 5>
   return
@@ -644,7 +644,7 @@ func.func @accel_gemm_gfx950_f32_16x16x512_fp4_scaled_multi(%matrixA : memref<1x
       mnPerXdl = 16,
       splitKFactor = 1,
       scheduleVersion = 1,
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1x1xvector<4xf32>, 5> += memref<1x4xvector<32xf4E2M1FN>, 5> scaled by memref<1x4xvector<32xf8E8M0FNU>, 5> * memref<1x4xvector<32xf4E2M1FN>, 5> scaled by memref<1x4xvector<32xf8E8M0FNU>, 5>
   return

@@ -7,8 +7,8 @@ func.func @gridwise_attn_atomic_add_fail(%arg0: memref<1x384x64xf32>, %arg1: mem
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
     storeMethod = #rock<StoreMethod atomic_add>,
     splitKV = 1 : i32,
@@ -304,7 +304,7 @@ func.func @gemm_scaled_inputs_not_float4e2m1(%a: memref<2x64x128xf16>,
   mnPerXdl = 32,
   splitKFactor = 1,
   scheduleVersion = 1,
-  outputSwizzle = 2,
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
   forceUnroll = true>
 
 func.func @gridwise_gemm_accel_scale_presence_a_only(%A: memref<1x4x8xf4E2M1FN>, %B: memref<1x4x16xf4E2M1FN>, %C: memref<1x8x16xf32>, %scaleA: memref<1x4x8xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
@@ -429,7 +429,7 @@ func.func @rock_gridwise_gemm_accel_invalid_out_dtype(%A: memref<2x1024x1024xf4E
   mnPerXdl = 32,
   splitKFactor = 1,
   scheduleVersion = 1,
-  outputSwizzle = 2,
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
   forceUnroll = true>
 
 func.func @blockwise_gemm_accel_scale_buffer_presence_a_only(
@@ -949,7 +949,7 @@ func.func @blockwise_gemm_accel_invalid_arch(
   kpack = 1,
   splitKFactor = 1, 
   scheduleVersion = 1, 
-  outputSwizzle = 2,
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
   forceUnroll = true>
 
 // Error case: Only scaleA provided

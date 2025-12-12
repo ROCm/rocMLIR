@@ -29,7 +29,7 @@ prefix = "--transO="
 
 [[axis]]
 name = "perf_config"
-values = ["attn:v3:64,64,192,32,32,96,16,8,1,1,2,1", "attn:v3:64,64,96,8,32,48,16,8,1,1,2,1"]
+values = ["attn:v3:64,64,192,32,32,96,16,8,1,1,2,0,1", "attn:v3:64,64,96,8,32,48,16,8,1,1,2,0,1"]
 prefix = "--perf_config "
 
 ## attention variant
