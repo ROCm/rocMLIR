@@ -71,7 +71,7 @@ struct Serializable {
   }
 
   bool checkVersionFormat(const std::string &s) {
-    const int32_t maxNumTokensArray[] = {0, 8, 9, 11, 12};
+    const int32_t maxNumTokensArray[] = {0, 8, 9, 11, 14};
     const int32_t versionIdx = static_cast<int32_t>(version);
     if (versionIdx < 1 || versionIdx >= static_cast<int32_t>(Version::Count)) {
       llvm_unreachable("Unknown version of the perfConfig");

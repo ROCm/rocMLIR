@@ -152,7 +152,8 @@ perfconfig_space_mfma = list(
         [4, 8, 16],  # kPack
         [1],  # splitKFactor
         [1, 2, 3, 4],  # scheduleVersion
-        [2],  # outputSwizzle
+        [0, 1, 2],  # outputSwizzle
+        [0, 1, 2, 4, 8],  # wavesPerEU
         [0, 1]  # forceUnroll
     ))
 
@@ -168,7 +169,8 @@ perfconfig_space_wmma = list(
         [4, 8, 16],  # kPack
         [1],  # splitKFactor
         [1, 2, 3, 4],  # scheduleVersion
-        [2],  # outputSwizzle
+        [0, 1, 2],  # outputSwizzle
+        [0, 1, 2, 4, 8, 16],  # wavesPerEU
         [0, 1]  # forceUnroll
     ))
 
