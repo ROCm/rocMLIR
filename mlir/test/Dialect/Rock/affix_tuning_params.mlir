@@ -760,8 +760,8 @@ func.func @rock_gemm_gemm_splitk(%arg0: memref<1474560xf16>, %arg1: memref<14745
   %3 = rock.transform %arg3 by <affine_map<(d0, d1, d2) -> (d1 * 1 + d2)> by [<Unmerge{4096, 360} ["m", "gemmO"] at [1, 2] -> ["raw"] at [0]>, <AddDim{1} ["g"] at [0] -> [] at []>] bounds = [1, 4096, 360] -> [1474560]> : memref<1474560xf16> to memref<1x4096x360xf16>
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x4096x360xf16>
   // CHECK: rock.gemm_elementwise_gemm
-  // CHECK: params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
-  // CHECK: params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 2, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+  // CHECK: params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
+  // CHECK: params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 2, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
   rock.gemm_elementwise_gemm{
     ab = %0 * %1 : memref<1x4096x360xf16>, memref<1x360x4096xf16>
     ab = elementwise {
@@ -770,7 +770,7 @@ func.func @rock_gemm_gemm_splitk(%arg0: memref<1474560xf16>, %arg1: memref<14745
     rock.yield
   }
     %alloc = ab * %2 : memref<1x4096x360xf16> -> memref<1x4096x360xf16>
-  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, firstGemmIndices = array<i64: 0>, storeMethod = #rock<StoreMethod set>, perf_config="attn:v3:32,32,32,32,32,32,16,1,2,1,2,1"}
+  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, firstGemmIndices = array<i64: 0>, storeMethod = #rock<StoreMethod set>, perf_config="attn:v3:32,32,32,32,32,32,16,1,2,1,2,0,1"}
   memref.copy %alloc, %3 : memref<1x4096x360xf16> to memref<1x4096x360xf16>
   return
 }
@@ -782,8 +782,8 @@ func.func @mlir_dot_splitk(%arg1: memref<1x2x1280xf32>, %arg2: memref<1x1280x320
   %cst = arith.constant 0.000000e+00 : f32
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x2x320xf32>
   // CHECK: rock.gemm
-  // CHECK-SAME: params = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 16, nPerBlock = 16, kpack = 1, mPerWave = 16, nPerWave = 16, mnPerXdl = 16, splitKFactor = 5, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
-  rock.gemm %alloc = %arg1 * %arg2 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set {arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-", perf_config = "v4:16,16,4,16,16,16,1,5,1,2,1,1"} : memref<1x2x320xf32> = memref<1x2x1280xf32> * memref<1x1280x320xf32>
+  // CHECK-SAME: params = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 16, nPerBlock = 16, kpack = 1, mPerWave = 16, nPerWave = 16, mnPerXdl = 16, splitKFactor = 5, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
+  rock.gemm %alloc = %arg1 * %arg2 features =  mfma|dot|atomic_add|atomic_add_f16 storeMethod =  set {arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-", perf_config = "v4:16,16,4,16,16,16,1,5,1,2,0,0,1,1"} : memref<1x2x320xf32> = memref<1x2x1280xf32> * memref<1x1280x320xf32>
   memref.copy %alloc, %arg3 : memref<1x2x320xf32> to memref<1x2x320xf32>
   return
 }
