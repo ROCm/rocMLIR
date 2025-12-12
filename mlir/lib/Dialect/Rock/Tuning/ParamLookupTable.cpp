@@ -173,8 +173,9 @@ ParamLookupTable<InitParamsAccel>::buildTable() {
 
 // Specialization for Attention (XDL/WMMA) parameters
 template <>
-std::map<std::string, ParamLookupTable<InitParamsAttn>::ParamArray>
-ParamLookupTable<InitParamsAttn>::buildTable() {
+std::map<std::string,
+         ParamLookupTable<PopulateParamsAttn::PerfConfig>::ParamArray>
+ParamLookupTable<PopulateParamsAttn::PerfConfig>::buildTable() {
   return {
 #define Attn_LOOKUP_TABLE_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
@@ -184,4 +185,4 @@ ParamLookupTable<InitParamsAttn>::buildTable() {
 
 template class mlir::rock::ParamLookupTable<InitParamsNonAccel>;
 template class mlir::rock::ParamLookupTable<InitParamsAccel>;
-template class mlir::rock::ParamLookupTable<InitParamsAttn>;
+template class mlir::rock::ParamLookupTable<PopulateParamsAttn::PerfConfig>;

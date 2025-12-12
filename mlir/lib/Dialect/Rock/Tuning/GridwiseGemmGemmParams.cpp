@@ -1,7 +1,5 @@
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmGemmParams.h"
-#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
-#include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
 #include "mlir/Support/LogicalResult.h"
 
@@ -12,132 +10,124 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-PopulateParamsAttnInfo
-PopulateParamsAttnInfo::fromOp(RockGemmGemmWrapperInterface op) {
-  return PopulateParamsAttnInfo(
-      op.getGemmGemmSize(), rock::getArchValue(op), rock::getFeatures(op),
-      cast<MemRefType>(op.getAType()).getElementType(),
-      cast<MemRefType>(op.getBType()).getElementType(),
-      cast<MemRefType>(op.getCType()).getElementType(), op.getKernelType());
-}
+using PerfConfig = PopulateParamsAttn::PerfConfig;
 
-std::unique_ptr<PopulateParamsAttn>
-PopulateParamsAttn::select(GemmFeatures features) {
-  if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
-    return std::make_unique<PopulateParamsAttnXDL>();
-  } else if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
-    return std::make_unique<PopulateParamsAttnWmma>();
-  } else {
-    return nullptr;
+#define Attn_DEFINITIONS_GEN
+#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
+#undef Attn_DEFINITIONS_GEN
+
+std::vector<AttnPerfConfigAttr>
+PopulateParamsAttn::getQuickTuningRange(OpBuilder &b,
+                                        RockGemmGemmWrapperInterface op) {
+  if (!bitEnumContainsAny(rock::getFeatures(op),
+                          GemmFeatures::mfma | GemmFeatures::wmma)) {
+    return {};
   }
+  auto perfConfigs = ParamLookupTable<PerfConfig>::lookup(
+      rock::getArchValue(op), op.getKernelType(),
+      cast<MemRefType>(op.getAType()).getElementType());
+  return perfConfigsToAttrs(b, perfConfigs);
 }
 
-std::vector<InitParamsAttn>
-PopulateParamsAttn::getTuningParameters(KernelType kernelType, Type dataType,
-                                        StringRef arch) const {
-  auto params =
-      ParamLookupTable<InitParamsAttn>::lookup(arch, kernelType, dataType);
-  return std::vector<InitParamsAttn>(params.begin(), params.end());
+namespace {
+
+template <std::size_t... Is>
+AttnPerfConfigAttr perfConfigToAttrImpl(OpBuilder &b, const PerfConfig &config,
+                                        std::index_sequence<Is...>) {
+  return AttnPerfConfigAttr::get(b.getContext(), config.data[Is]...);
 }
 
-Attribute
-PopulateParamsAttn::getAttnParamsAttr(OpBuilder &b,
-                                      const InitParamsAttn &params) const {
-  return b.getAttr<AttnPerfConfigAttr>(
-      params.mPerBlockG0, params.mPerBlockG1, params.nPerBlockG0,
-      params.kpackPerBlock, params.mPerWave, params.nPerWave, params.mnPerXdl,
-      params.kpack, params.splitKFactor, params.scheduleVersion,
-      params.outputSwizzle, params.forceUnroll);
+} // namespace
+
+AttnPerfConfigAttr
+PopulateParamsAttn::perfConfigToAttr(OpBuilder &b, const PerfConfig &config) {
+  return perfConfigToAttrImpl(b, config,
+                              std::make_index_sequence<PerfConfig::n>{});
 }
 
-LogicalResult
-PopulateParamsAttn::paramsProbablyValid(OpBuilder &b,
-                                        const PopulateParamsAttnInfo &info,
-                                        const InitParamsAttn &params) {
-  if (succeeded(getAttentionTuningParams(b, info, params))) {
+std::vector<AttnPerfConfigAttr>
+PopulateParamsAttn::perfConfigsToAttrs(OpBuilder &b,
+                                       const std::vector<PerfConfig> &configs) {
+  std::vector<AttnPerfConfigAttr> ret;
+  ret.reserve(configs.size());
+  std::transform(
+      configs.begin(), configs.end(), std::back_inserter(ret),
+      [&](const PerfConfig &config) { return perfConfigToAttr(b, config); });
+  return ret;
+}
+
+LogicalResult PopulateParamsAttn::paramsProbablyValid(
+    OpBuilder &b, RockGemmGemmWrapperInterface op, AttnPerfConfigAttr params) {
+  if (succeeded(getGemmGemmTuningParams(b, op, params))) {
     return success();
   } else {
     return failure();
   }
 }
 
-static RockAccelTuningParamAttrInterface
-deriveGemm1TuningParams(OpBuilder &b,
-                        RockAccelTuningParamAttrInterface gemm0TuningParams,
-                        const InitParamsAttn &params) {
-  int64_t gemm1KPack = gemm0TuningParams.getKpack();
-  if (auto gemm0XdlDerivedParams =
-          dyn_cast<MfmaGemmParamsAttr>(gemm0TuningParams)) {
-    return MfmaGemmParamsAttr::get(
-        b.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
-        params.mPerBlockG1, gemm0XdlDerivedParams.getNPerBlock(),
-        gemm0TuningParams.getKpack(),
-        gemm0TuningParams.getMPerWave() *
-            (params.mPerBlockG1 / gemm0TuningParams.getMPerBlock()),
-        gemm0XdlDerivedParams.getNPerWave(),
-        gemm0XdlDerivedParams.getMnPerXdl(), params.splitKFactor,
-        gemm0XdlDerivedParams.getScheduleVersion(),
-        gemm0XdlDerivedParams.getOutputSwizzle(),
-        gemm0XdlDerivedParams.getForceUnroll());
-  } else {
-    return WmmaGemmParamsAttr::get(
-        b.getContext(), gemm0TuningParams.getMPerBlock() / gemm1KPack,
-        params.mPerBlockG1, params.nPerBlockG0, gemm0TuningParams.getKpack(),
-        gemm0TuningParams.getMPerWave() *
-            (params.mPerBlockG1 / gemm0TuningParams.getMPerBlock()),
-        gemm0TuningParams.getNPerWave(), gemm0TuningParams.getMnPerXdl(),
-        params.splitKFactor, gemm0TuningParams.getScheduleVersion(),
-        gemm0TuningParams.getOutputSwizzle(),
-        gemm0TuningParams.getForceUnroll());
-  }
-}
-
 FailureOr<std::pair<RockAccelTuningParamAttrInterface,
                     RockAccelTuningParamAttrInterface>>
-mlir::rock::getAttentionTuningParams(OpBuilder &b,
-                                     const PopulateParamsAttnInfo &info,
-                                     const InitParamsAttn &params) {
-  GemmFeatures features = info.gemmFeatures;
-  RockAccelTuningParamAttrInterface accelParams0;
-  int64_t splitKFactor = 1;
-  if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
-    accelParams0 = MfmaGemmParamsAttr::get(
-        b.getContext(), params.kpackPerBlock, params.mPerBlockG0,
-        params.nPerBlockG0, params.kpack, params.mPerWave, params.nPerWave,
-        params.mnPerXdl, splitKFactor, params.scheduleVersion,
-        params.outputSwizzle, params.forceUnroll);
+PopulateParamsAttn::getGemmGemmTuningParams(OpBuilder &b,
+                                            RockGemmGemmWrapperInterface op,
+                                            AttnPerfConfigAttr params) {
+  if ((params.getMPerBlockG1() % params.getMPerBlockG0()) ||
+      (params.getMPerBlockG0() % params.getKpack())) {
+    return failure();
+  }
+
+  auto features = rock::getFeatures(op);
+  RockAccelTuningParamAttrInterface accelParams0, accelParams1;
+  if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
+    accelParams0 = getGemm0TuningParams<MfmaGemmParamsAttr>(b, params);
+    accelParams1 = getGemm1TuningParams<MfmaGemmParamsAttr>(b, params);
+  } else if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
+    accelParams0 = getGemm0TuningParams<WmmaGemmParamsAttr>(b, params);
+    accelParams1 = getGemm1TuningParams<WmmaGemmParamsAttr>(b, params);
   } else {
-    accelParams0 = WmmaGemmParamsAttr::get(
-        b.getContext(), params.kpackPerBlock, params.mPerBlockG0,
-        params.nPerBlockG0, params.kpack, params.mPerWave, params.nPerWave,
-        params.mnPerXdl, splitKFactor, params.scheduleVersion,
-        params.outputSwizzle, params.forceUnroll);
-  }
-  if (params.mPerBlockG1 % params.mPerBlockG0 != 0) {
     return failure();
   }
-  if (params.mPerBlockG0 % params.kpack != 0) {
-    return failure();
-  }
-  RockAccelTuningParamAttrInterface accelParams1 =
-      deriveGemm1TuningParams(b, accelParams0, params);
+
   auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
   LogicalResult isValidBlockwiseGemm0 =
-      populateParamsAccelPtr->isValidBlockwiseGemm(accelParams0, info.gemmAType,
-                                                   info.gemmBType, info.arch);
+      populateParamsAccelPtr->isValidBlockwiseGemm(
+          accelParams0, cast<MemRefType>(op.getAType()).getElementType(),
+          cast<MemRefType>(op.getBType()).getElementType(),
+          rock::getArchValue(op));
   LogicalResult isValidBlockwiseGemm1 =
-      populateParamsAccelPtr->isValidBlockwiseGemm(accelParams1, info.gemmCType,
-                                                   info.gemmCType, info.arch);
+      populateParamsAccelPtr->isValidBlockwiseGemm(
+          accelParams1, cast<MemRefType>(op.getCType()).getElementType(),
+          cast<MemRefType>(op.getCType()).getElementType(),
+          rock::getArchValue(op));
   if (isValidBlockwiseGemm0.failed() || isValidBlockwiseGemm1.failed()) {
     return failure();
   }
+
   return std::make_pair(accelParams0, accelParams1);
 }
 
-#define Attn_XDL_DEFINITIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef Attn_XDL_DEFINITIONS_GEN
+template <typename GemmParamsAttrType>
+RockAccelTuningParamAttrInterface
+PopulateParamsAttn::getGemm0TuningParams(OpBuilder &b,
+                                         AttnPerfConfigAttr params) {
+  constexpr auto splitKFactor = 1;
+  return GemmParamsAttrType::get(
+      b.getContext(), params.getKpackPerBlock(), params.getMPerBlockG0(),
+      params.getNPerBlockG0(), params.getKpack(), params.getMPerWave(),
+      params.getNPerWave(), params.getMnPerXdl(), splitKFactor,
+      params.getScheduleVersion(), params.getOutputSwizzle(),
+      params.getForceUnroll());
+}
 
-#define Attn_Wmma_DEFINITIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef Attn_Wmma_DEFINITIONS_GEN
+template <typename GemmParamsAttrType>
+RockAccelTuningParamAttrInterface
+PopulateParamsAttn::getGemm1TuningParams(OpBuilder &b,
+                                         AttnPerfConfigAttr params) {
+  return GemmParamsAttrType::get(
+      b.getContext(), params.getMPerBlockG0() / params.getKpack(),
+      params.getMPerBlockG1(), params.getNPerBlockG0(), params.getKpack(),
+      params.getMPerWave() *
+          (params.getMPerBlockG1() / params.getMPerBlockG0()),
+      params.getNPerWave(), params.getMnPerXdl(), params.getSplitKFactor(),
+      params.getScheduleVersion(), params.getOutputSwizzle(),
+      params.getForceUnroll());
+}

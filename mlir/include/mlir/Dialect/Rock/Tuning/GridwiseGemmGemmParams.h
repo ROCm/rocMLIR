@@ -13,131 +13,54 @@
 #ifndef MLIR_DIALECT_ROCK_GRIDWISE_GEMM_GEMM_PARAMS_H
 #define MLIR_DIALECT_ROCK_GRIDWISE_GEMM_GEMM_PARAMS_H
 
-#include "mlir/Dialect/Rock/IR/GemmGemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Tuning/ParamLookupTable.h"
-#include "mlir/Dialect/Rock/Tuning/Serializable.h"
 
 namespace mlir {
 namespace rock {
 
-struct InitParamsAttn : Serializable<InitParamsAttn> {
-  int64_t mPerBlockG0;
-  int64_t mPerBlockG1;
-  int64_t nPerBlockG0;
-  int64_t kpackPerBlock;
-  int64_t mPerWave;
-  int64_t nPerWave;
-  int64_t mnPerXdl;
-  int64_t kpack;
-  int64_t splitKFactor;
-  int64_t scheduleVersion;
-  int64_t outputSwizzle;
-  bool forceUnroll;
-
-  constexpr InitParamsAttn(int64_t mPerBlockG0, int64_t mPerBlockG1,
-                           int64_t nPerBlockG0, int64_t kpackPerBlock,
-                           int64_t mPerWave, int64_t nPerWave, int64_t mnPerXdl,
-                           int64_t kpack, int64_t splitKFactor,
-                           int64_t scheduleVersion, int64_t outputSwizzle,
-                           bool forceUnroll)
-      : mPerBlockG0(mPerBlockG0), mPerBlockG1(mPerBlockG1),
-        nPerBlockG0(nPerBlockG0), kpackPerBlock(kpackPerBlock),
-        mPerWave(mPerWave), nPerWave(nPerWave), mnPerXdl(mnPerXdl),
-        kpack(kpack), splitKFactor(splitKFactor),
-        scheduleVersion(scheduleVersion), outputSwizzle(outputSwizzle),
-        forceUnroll(forceUnroll) {}
-
-  constexpr InitParamsAttn()
-      : InitParamsAttn(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL,
-                       true) {}
-
-  InitParamsAttn(AttnPerfConfigAttr attr)
-      : mPerBlockG0(attr.getMPerBlockG0()), mPerBlockG1(attr.getMPerBlockG1()),
-        nPerBlockG0(attr.getNPerBlockG0()),
-        kpackPerBlock(attr.getKpackPerBlock()), mPerWave(attr.getMPerWave()),
-        nPerWave(attr.getNPerWave()), mnPerXdl(attr.getMnPerXdl()),
-        kpack(attr.getKpack()), splitKFactor(attr.getSplitKFactor()),
-        scheduleVersion(attr.getScheduleVersion()),
-        outputSwizzle(attr.getOutputSwizzle()),
-        forceUnroll(attr.getForceUnroll()) {}
-
-  template <class Self, class F>
-  static void visit(Self &&self, F f) {
-    f(self.mPerBlockG0);
-    f(self.mPerBlockG1);
-    f(self.nPerBlockG0);
-    f(self.kpackPerBlock);
-    f(self.mPerWave);
-    f(self.nPerWave);
-    f(self.mnPerXdl);
-    f(self.kpack);
-    f(self.splitKFactor);
-    f(self.scheduleVersion);
-    f(self.outputSwizzle);
-    f(self.forceUnroll);
-  }
-};
-
-struct PopulateParamsAttnInfo {
-  GemmGemmSize gemmGemmSize;
-  SmallString<32> arch;
-  GemmFeatures gemmFeatures;
-  Type gemmAType;
-  Type gemmBType;
-  Type gemmCType;
-  KernelType kernelType;
-
-  PopulateParamsAttnInfo(GemmGemmSize gemmGemmSize, StringRef arch,
-                         GemmFeatures gemmFeatures, Type gemmAType,
-                         Type gemmBType, Type gemmCType, KernelType kernelType)
-      : gemmGemmSize(gemmGemmSize), arch(arch), gemmFeatures(gemmFeatures),
-        gemmAType(gemmAType), gemmBType(gemmBType), gemmCType(gemmCType),
-        kernelType(kernelType) {}
-
-  static PopulateParamsAttnInfo fromOp(RockGemmGemmWrapperInterface op);
-};
-
 class PopulateParamsAttn {
 public:
-  virtual ~PopulateParamsAttn() = default;
+  struct PerfConfig {
+    static constexpr size_t n = 12;
+    const int64_t data[n];
+  };
 
-  static std::unique_ptr<PopulateParamsAttn> select(GemmFeatures features);
+  static std::vector<AttnPerfConfigAttr>
+  getQuickTuningRange(OpBuilder &b, RockGemmGemmWrapperInterface op);
 
-  std::vector<InitParamsAttn> getTuningParameters(KernelType kernelType,
-                                                  Type dataType,
-                                                  StringRef arch) const;
+  static AttnPerfConfigAttr perfConfigToAttr(OpBuilder &b,
+                                             const PerfConfig &config);
 
-  Attribute getAttnParamsAttr(OpBuilder &b, const InitParamsAttn &params) const;
+  static std::vector<AttnPerfConfigAttr>
+  perfConfigsToAttrs(OpBuilder &b, const std::vector<PerfConfig> &configs);
 
-  LogicalResult paramsProbablyValid(OpBuilder &b,
-                                    const PopulateParamsAttnInfo &info,
-                                    const InitParamsAttn &params);
-};
+  static LogicalResult paramsProbablyValid(OpBuilder &b,
+                                           RockGemmGemmWrapperInterface op,
+                                           AttnPerfConfigAttr params);
 
-class PopulateParamsAttnXDL : public PopulateParamsAttn {
+  static FailureOr<std::pair<RockAccelTuningParamAttrInterface,
+                             RockAccelTuningParamAttrInterface>>
+  getGemmGemmTuningParams(OpBuilder &b, RockGemmGemmWrapperInterface op,
+                          AttnPerfConfigAttr params);
+
+protected:
+  template <typename GemmParamsAttrType>
+  static RockAccelTuningParamAttrInterface
+  getGemm0TuningParams(OpBuilder &b, AttnPerfConfigAttr params);
+
+  template <typename GemmParamsAttrType>
+  static RockAccelTuningParamAttrInterface
+  getGemm1TuningParams(OpBuilder &b, AttnPerfConfigAttr params);
+
 private:
-#define Attn_XDL_DECLARATIONS_GEN
+#define Attn_DECLARATIONS_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef Attn_XDL_DECLARATIONS_GEN
+#undef Attn_DECLARATIONS_GEN
 
-  friend class ParamLookupTable<InitParamsAttn>;
+  friend class ParamLookupTable<PerfConfig>;
 };
-
-class PopulateParamsAttnWmma : public PopulateParamsAttn {
-private:
-#define Attn_Wmma_DECLARATIONS_GEN
-#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef Attn_Wmma_DECLARATIONS_GEN
-
-  friend class ParamLookupTable<InitParamsAttn>;
-};
-
-FailureOr<std::pair<RockAccelTuningParamAttrInterface,
-                    RockAccelTuningParamAttrInterface>>
-getAttentionTuningParams(OpBuilder &b, const PopulateParamsAttnInfo &info,
-                         const InitParamsAttn &params);
 
 } // namespace rock
 } // namespace mlir

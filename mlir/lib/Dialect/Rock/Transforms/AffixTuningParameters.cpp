@@ -335,8 +335,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   }
 
   auto accelParams =
-      getAttentionTuningParams(builder, PopulateParamsAttnInfo::fromOp(op),
-                               InitParamsAttn{attnPerfConfig});
+      PopulateParamsAttn::getGemmGemmTuningParams(builder, op, attnPerfConfig);
   if (failed(accelParams)) {
     op.emitError("The provided perf config is not valid");
     return signalPassFailure();
