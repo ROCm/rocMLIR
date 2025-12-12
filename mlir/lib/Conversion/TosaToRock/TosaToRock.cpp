@@ -1627,6 +1627,7 @@ struct AttentionMatcherValues {
   Value causalMaskInput;
   Value currentSeqLen;
   bool isCausal;
+  Value prefixOffset;
   Type softmaxType;
   ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
 };
@@ -1794,6 +1795,48 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return false;
   }
 
+  // Helper to check if a value is a -inf constant (skipping shape ops)
+  bool isNegInfConstant(Value val) const {
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+    auto maybeTosaConst =
+        getDefiningOpSkipping<tosa::ConstOp>(val, expandAndCollapse);
+    auto maybeArithConst =
+        getDefiningOpSkipping<arith::ConstantOp>(val, expandAndCollapse);
+    if (succeeded(maybeTosaConst))
+      return rock::isConstNegInf(maybeTosaConst.value().getResult());
+    if (succeeded(maybeArithConst))
+      return rock::isConstNegInf(maybeArithConst.value().getResult());
+    return false;
+  }
+
+  // Helper to get a select op where the onTrue branch is -inf
+  // Returns the select op if found, failure otherwise
+  FailureOr<tosa::SelectOp> getSelectWithNegInf(Value input) const {
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName(),
+                                  tosa::CastOp::getOperationName()};
+    auto maybeSelect = getDefiningOpSkipping<tosa::SelectOp>(input, opsToSkip);
+    if (failed(maybeSelect))
+      return failure();
+    if (!isNegInfConstant(maybeSelect.value().getInput2()))
+      return failure();
+    return maybeSelect;
+  }
+
+  // Helper to verify a value is i32 and traces back to a block argument
+  bool isI32BlockArgument(Value val,
+                          const DenseSet<StringRef> &seqLenSkip) const {
+    auto shape = dyn_cast<ShapedType>(val.getType());
+    if (!shape || !shape.getElementType().isInteger(32))
+      return false;
+
+    FailureOr<Value> maybeBlockArg = getValueSkipping(val, seqLenSkip);
+    return succeeded(maybeBlockArg) &&
+           isa<BlockArgument>(maybeBlockArg.value());
+  }
+
   // Helper function to detect select-based causal mask pattern:
   //   - true branch is a splat -inf constant
   //   - false branch is the tensor value that we want to return
@@ -1802,38 +1845,21 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   //           tensors
   //       (2) A pre-folded broadcasted constant 1 upper‑triangular mask tensor
   FailureOr<Value> getCausalFromSelect(Value input) const {
-    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
-                                  tensor::ExpandShapeOp::getOperationName(),
-                                  tosa::CastOp::getOperationName()};
-    auto maybeSelect = getDefiningOpSkipping<tosa::SelectOp>(input, opsToSkip);
+    auto maybeSelect = getSelectWithNegInf(input);
     if (failed(maybeSelect))
       return failure();
 
     auto select = maybeSelect.value();
-    // Check onTrue is -inf
-    auto onTrue = select.getInput2();
-    bool isConstNegInf = false;
-    DenseSet<StringRef> expandAndCollapse{
-        tensor::CollapseShapeOp::getOperationName(),
-        tensor::ExpandShapeOp::getOperationName()};
-    auto maybeTosaConst =
-        getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
-    auto maybeArithConst =
-        getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
-    if (succeeded(maybeTosaConst))
-      isConstNegInf = rock::isConstNegInf(maybeTosaConst.value().getResult());
-    else if (succeeded(maybeArithConst))
-      isConstNegInf = rock::isConstNegInf(maybeArithConst.value().getResult());
-
-    if (!isConstNegInf)
-      return failure();
-
     auto pred = select.getInput1();
+
     // There are two cases that we need to be able to handle for the pred:
     // 1. We have a greater op that is doing a comparison between two
     //    constants
     // 2. The greater op has already been constant folded by MIGraphX, so we
     //    find the broadcast input and then do the necessary constant checks
+    DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
+                                  tensor::ExpandShapeOp::getOperationName(),
+                                  tosa::CastOp::getOperationName()};
     auto maybeBroadcast = getDefiningOpSkipping<tosa::MulOp>(pred, opsToSkip);
     opsToSkip.insert(tosa::MulOp::getOperationName());
     auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
@@ -1928,6 +1954,100 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       return addResult;
 
     return failure();
+  }
+
+  // Result struct for sequence length mask detection
+  struct SeqLenMaskResult {
+    Value inputToContinue; // The value to continue pattern matching with
+    Value seqLen;          // The sequence length or prefix offset value
+    Value prefixOffset;    // The prefix offset value
+  };
+
+  // Helper to try detecting prefix causal pattern: add(row_indices, offset)
+  // Returns the offset value if successful
+  FailureOr<Value>
+  tryPrefixCausalPattern(Value input,
+                         const DenseSet<StringRef> &seqLenSkip) const {
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+    FailureOr<Value> maybeNonOne = mulBroadcast(input);
+    if (failed(maybeNonOne))
+      return failure();
+
+    // Look for add(row_indices, offset)
+    auto maybeAdd = getDefiningOpSkipping<tosa::AddOp>(maybeNonOne.value(),
+                                                       expandAndCollapse);
+    if (failed(maybeAdd))
+      return failure();
+
+    auto add = maybeAdd.value();
+    Value addInput1 = add.getInput1();
+    Value addInput2 = add.getInput2();
+
+    // One input should be row indices (constant range on dimension 1)
+    // Other input should trace to block arg (the prefix offset)
+    Value offset;
+    if (succeeded(
+            isConstantRange(cast<TypedValue<TensorType>>(addInput1), 1))) {
+      offset = addInput2;
+    } else if (succeeded(isConstantRange(
+                   cast<TypedValue<TensorType>>(addInput2), 1))) {
+      offset = addInput1;
+    } else {
+      return failure();
+    }
+
+    // Trace offset back through broadcasts to find the original value
+    FailureOr<Value> maybeOffset = mulBroadcast(offset);
+    if (failed(maybeOffset))
+      maybeOffset = offset;
+
+    FailureOr<Value> maybeOffsetUnwrapped =
+        getValueSkipping(maybeOffset.value(), expandAndCollapse);
+    if (failed(maybeOffsetUnwrapped))
+      return failure();
+
+    Value unwrappedOffset = maybeOffsetUnwrapped.value();
+
+    // Verify offset is i32 and traces back to a block argument
+    if (!isI32BlockArgument(unwrappedOffset, seqLenSkip))
+      return failure();
+
+    return unwrappedOffset;
+  }
+
+  // Helper to try detecting KV-cache pattern
+  // Returns the seqLen value if successful
+  FailureOr<Value>
+  tryKVCachePattern(Value input, const DenseSet<StringRef> &seqLenSkip) const {
+    DenseSet<StringRef> expandAndCollapse{
+        tensor::CollapseShapeOp::getOperationName(),
+        tensor::ExpandShapeOp::getOperationName()};
+    FailureOr<Value> maybeNonOne = mulBroadcast(input);
+    if (failed(maybeNonOne))
+      return failure();
+
+    // Check that the right dimensions are broadcasted (scalar-like)
+    auto beforeBroadcastShape = dyn_cast<ShapedType>(maybeNonOne->getType());
+    if (!beforeBroadcastShape)
+      return failure();
+
+    auto shape = beforeBroadcastShape.getShape();
+    if (beforeBroadcastShape.getRank() > 2 &&
+        !llvm::all_of(shape.slice(2), [](int32_t v) { return v == 1; }))
+      return failure();
+
+    auto maybeCurrentSeqLen =
+        getValueSkipping(maybeNonOne.value(), expandAndCollapse);
+    assert(succeeded(maybeCurrentSeqLen) && "Must have non-reshape op");
+    Value currentSeqLen = maybeCurrentSeqLen.value();
+
+    // Verify currentSeqLen is i32 and traces back to a block argument
+    if (!isI32BlockArgument(currentSeqLen, seqLenSkip))
+      return failure();
+
+    return currentSeqLen;
   }
 
   /*
@@ -2083,89 +2203,57 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     return nullptr;
   }
 
-  FailureOr<std::pair<Value, Value>> getKVCache(Value softmaxInput) const {
+  // Detects sequence length masking patterns:
+  //   - KV-cache: select(greater(col_indices, seqLen), -inf, value)
+  //   - Prefix causal: select(greater(col_indices, row_indices + offset), -inf,
+  //   value)
+  // Returns SeqLenMaskResult with the detected pattern type
+  FailureOr<SeqLenMaskResult> getSeqLenMask(Value softmaxInput) const {
+    auto maybeSelect = getSelectWithNegInf(softmaxInput);
+    if (failed(maybeSelect))
+      return failure();
+
+    auto select = maybeSelect.value();
+
     DenseSet<StringRef> opsToSkip{tensor::CollapseShapeOp::getOperationName(),
                                   tensor::ExpandShapeOp::getOperationName(),
-                                  tosa::CastOp::getOperationName()};
-    auto maybeSelect =
-        getDefiningOpSkipping<tosa::SelectOp>(softmaxInput, opsToSkip);
-    if (succeeded(maybeSelect)) {
-      auto select = maybeSelect.value();
-      // Check onTrue is -inf
-      auto onTrue = select.getInput2();
-      bool isConsNegInf = false;
-      DenseSet<StringRef> expandAndCollapse{
-          tensor::CollapseShapeOp::getOperationName(),
-          tensor::ExpandShapeOp::getOperationName()};
-      auto maybeTosaConst =
-          getDefiningOpSkipping<tosa::ConstOp>(onTrue, expandAndCollapse);
-      auto maybeArithConst =
-          getDefiningOpSkipping<arith::ConstantOp>(onTrue, expandAndCollapse);
-      if (succeeded(maybeArithConst))
-        isConsNegInf = rock::isConstNegInf(maybeArithConst.value().getResult());
-      else if (succeeded(maybeTosaConst))
-        isConsNegInf = rock::isConstNegInf(maybeTosaConst.value().getResult());
+                                  tosa::CastOp::getOperationName(),
+                                  tosa::MulOp::getOperationName()};
+    auto pred = select.getInput1();
+    auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
+    if (failed(maybeGreater))
+      return failure();
 
-      if (!isConsNegInf)
-        return failure();
+    auto greater = maybeGreater.value();
 
-      opsToSkip.insert(tosa::MulOp::getOperationName());
-      auto pred = select.getInput1();
-      auto maybeGreater =
-          getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
-      if (succeeded(maybeGreater)) {
-        auto greater = maybeGreater.value();
-        // input1 is a constant with a range from 0 to maxSeqLen
-        if (failed(isConstantRange(greater.getInput1(), 0)))
-          return failure();
+    // input1 must be column indices (constant range from 0)
+    if (failed(isConstantRange(greater.getInput1(), 0)))
+      return failure();
 
-        // input2 comes from argument: currentSeqLen
-        auto input2 = greater.getInput2();
-        FailureOr<Value> maybeNonOne2 = mulBroadcast(input2);
-        if (failed(maybeNonOne2))
-          return failure();
+    // Common set used by both pattern detectors
+    DenseSet<StringRef> seqLenSkip{tensor::CollapseShapeOp::getOperationName(),
+                                   tensor::ExpandShapeOp::getOperationName(),
+                                   tosa::TransposeOp::getOperationName(),
+                                   tosa::MulOp::getOperationName()};
 
-        // check that the right dimensions are broadcasted
-        auto beforeBroadcastShape =
-            dyn_cast<ShapedType>(maybeNonOne2->getType());
-        if (beforeBroadcastShape) {
-          auto shape = beforeBroadcastShape.getShape();
-          if (beforeBroadcastShape.getRank() > 2 &&
-              !llvm::all_of(shape.slice(2), [](int32_t v) { return v == 1; }))
-            return failure();
-        } else {
-          return failure();
-        }
+    Value input2 = greater.getInput2();
+    Value result = select.getInput3();
 
-        auto maybeCurrentSeqLen =
-            getValueSkipping(maybeNonOne2.value(), expandAndCollapse);
-        assert(succeeded(maybeCurrentSeqLen) && "Must have non-reshape op");
-        Value currentSeqLen = maybeCurrentSeqLen.value();
-        Value result = select.getInput3();
+    SeqLenMaskResult currentResult{result, nullptr, nullptr};
 
-        // currentSeqLen must be of i32 type
-        auto currentSeqLenShape = dyn_cast<ShapedType>(currentSeqLen.getType());
-        if (!currentSeqLenShape ||
-            !currentSeqLenShape.getElementType().isInteger(32))
-          return failure();
-
-        // we'll check now if currentSeqLen comes from a block argument
-        DenseSet<StringRef> seqLenSkip{
-            tensor::CollapseShapeOp::getOperationName(),
-            tensor::ExpandShapeOp::getOperationName(),
-            tosa::TransposeOp::getOperationName(),
-            tosa::MulOp::getOperationName()};
-        FailureOr<Value> mustBeBlockArg =
-            getValueSkipping(currentSeqLen, seqLenSkip);
-
-        if (failed(mustBeBlockArg) ||
-            !isa<BlockArgument>(mustBeBlockArg.value()))
-          return failure();
-
-        return std::make_pair(result, currentSeqLen);
-      }
+    // Try KV-cache pattern first (scalar seqLen)
+    auto maybeKVCache = tryKVCachePattern(input2, seqLenSkip);
+    if (succeeded(maybeKVCache)) {
+      currentResult.seqLen = maybeKVCache.value();
     }
-    return failure();
+
+    // Try prefix causal pattern (row_indices + offset)
+    auto maybePrefixCausal = tryPrefixCausalPattern(input2, seqLenSkip);
+    if (succeeded(maybePrefixCausal)) {
+      currentResult.prefixOffset = maybePrefixCausal.value();
+    }
+
+    return currentResult;
   }
 
   /*
@@ -2712,26 +2800,39 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         return failure();
     }
 
+    // Detect sequence length masking patterns (KV-cache or prefix causal)
     // Note that non KV-Cache fusions might have tosa.select
-    // so, if the checks for kv-cache fail, we just keep going
-    Value kvCacheInput, currentSeqLen;
-    auto maybeKVCache = getKVCache(softmaxInput);
-    bool isKVCache = succeeded(maybeKVCache);
-    if (isKVCache)
-      std::tie(kvCacheInput, currentSeqLen) = maybeKVCache.value();
-    else
+    // so, if the checks fail, we just keep going
+    Value kvCacheInput, currentSeqLen, prefixOffset;
+    auto maybeSeqLenMask = getSeqLenMask(softmaxInput);
+    if (succeeded(maybeSeqLenMask)) {
+      auto result = maybeSeqLenMask.value();
+      kvCacheInput = result.inputToContinue;
+      currentSeqLen = result.seqLen;
+      prefixOffset = result.prefixOffset;
+    } else {
       kvCacheInput = softmaxInput;
-
-    // currentSeqLen needs one or two dimensions
-    if (currentSeqLen &&
-        cast<ShapedType>(currentSeqLen.getType()).getRank() > 2) {
-      LLVM_DEBUG(llvm::dbgs() << "currentSeqLen has more than 2 dimensions\n");
-      return failure();
     }
 
+    // currentSeqLen and prefixOffset need one or two dimensions
+    auto hasInvalidRank = [](Value v, StringRef name) {
+      if (v && cast<ShapedType>(v.getType()).getRank() > 2) {
+        LLVM_DEBUG(llvm::dbgs() << name << " has more than 2 dimensions\n");
+        return true;
+      }
+      return false;
+    };
+    if (hasInvalidRank(currentSeqLen, "currentSeqLen") ||
+        hasInvalidRank(prefixOffset, "prefixOffset"))
+      return failure();
+
+    // Try standard causal detection if not prefix causal
     auto causal = getCausal(kvCacheInput);
-    bool isCausal = succeeded(causal);
-    Value causalMaskInput = isCausal ? causal.value() : kvCacheInput;
+    bool isCausal = succeeded(causal) || prefixOffset;
+    // Use causal input if standard causal, otherwise use kvCacheInput
+    // (which is also set for prefix causal pattern)
+    Value causalMaskInput =
+        (succeeded(causal) && !prefixOffset) ? causal.value() : kvCacheInput;
 
     OpBuilder b{op};
     ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
@@ -2751,8 +2852,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     LLVM_DEBUG(llvm::dbgs()
                << "first matmul = " << maybeFirstMatMul.value() << "\n");
     LLVM_DEBUG(llvm::dbgs() << "hasReduceOp = " << hasReduceOp << "\n");
-    LLVM_DEBUG(llvm::dbgs() << "isKVCache: " << isKVCache << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "isKVCache: " << (bool)currentSeqLen << "\n");
     LLVM_DEBUG(llvm::dbgs() << "isCausal = " << isCausal << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "isPrefixCausal = " << (bool)prefixOffset << "\n");
     if (isDotProduct && hasReduceOp)
       return failure();
     if (!isDotProduct && !hasReduceOp)
@@ -2778,6 +2881,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // rewriter
     AttentionMatcherValues attentionMatcherValues;
     attentionMatcherValues.isCausal = isCausal;
+    attentionMatcherValues.prefixOffset = prefixOffset;
     attentionMatcherValues.softmaxType = softmaxType;
     attentionMatcherValues.softmaxValues = softmaxMatcherValues;
     attentionMatcherValues.lse = lse;
@@ -2834,29 +2938,33 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     tosa::MatMulOp firstMatMulOp =
         preSoftmaxElementwiseFinder.getFirstGemmBasedOp().value();
     Value currentSeqLen = attentionMatcherValues.currentSeqLen;
+    Value prefixOffset = attentionMatcherValues.prefixOffset;
     bool isCausal = attentionMatcherValues.isCausal;
     TypeAttr softmaxTypeAttr =
         TypeAttr::get(attentionMatcherValues.softmaxType);
 
-    // If currentSeqLen's dimension does not match the output dim, then it means
-    // that the proper value has not been broadcasted. We need to broadcast it
-    // to make sure it has the correct shape + values
-    if (currentSeqLen &&
-        (cast<ShapedType>(currentSeqLen.getType()).getShape()[0] !=
-         outputType.getShape()[0])) {
-      auto maybeNewSeqLen = addBroadcastForBlockArg(rewriter, currentSeqLen,
-                                                    firstMatMulOp.getA());
-      if (succeeded(maybeNewSeqLen))
-        currentSeqLen = maybeNewSeqLen.value();
-    }
+    // Helper to broadcast and reshape a block arg tensor to match output shape
+    auto prepareBlockArgTensor = [&](Value &val) {
+      if (!val)
+        return;
+      // Broadcast if dimension doesn't match output
+      if (cast<ShapedType>(val.getType()).getShape()[0] !=
+          outputType.getShape()[0]) {
+        auto maybeNew =
+            addBroadcastForBlockArg(rewriter, val, firstMatMulOp.getA());
+        if (succeeded(maybeNew))
+          val = maybeNew.value();
+      }
+      // Reshape {batch, numHeads} -> {batch * numHeads}
+      if (cast<ShapedType>(val.getType()).getRank() == 2) {
+        SmallVector<ReassociationIndices> reassocIndices = {{0, 1}};
+        val = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), val,
+                                              reassocIndices);
+      }
+    };
 
-    // Reshape currentSeqLen {batch, numHeads} -> {batch * numHeads}
-    if (currentSeqLen &&
-        cast<ShapedType>(currentSeqLen.getType()).getRank() == 2) {
-      SmallVector<ReassociationIndices> reassocIndices = {{0, 1}};
-      currentSeqLen = tensor::CollapseShapeOp::create(
-          rewriter, op.getLoc(), currentSeqLen, reassocIndices);
-    }
+    prepareBlockArgTensor(currentSeqLen);
+    prepareBlockArgTensor(prefixOffset);
 
     UnitAttr causalAttr = isCausal ? rewriter.getUnitAttr() : nullptr;
     ElementwiseRegionFinder<tosa::MatMulOp> elemwiseRegion =
@@ -2870,8 +2978,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
     rock::AttentionOp attnOp = rock::AttentionOp::create(
         rewriter, loc, outputType, lseType, queries, keys, values,
-        elementwiseOtherArgs, currentSeqLen, /*prefixOffset=*/nullptr, output,
-        lseOut,
+        elementwiseOtherArgs, currentSeqLen, prefixOffset, output, lseOut,
         /*numHeadsQ=*/numHeadsQ,
         /*numHeadsKV=*/numHeadsKV,
         /*qTransposed=*/nullptr,
