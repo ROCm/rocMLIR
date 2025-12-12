@@ -280,7 +280,7 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
       "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$mPerWave,
       "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$kpack,
       "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
-      "int64_t":$outputSwizzle, "bool":$forceUnroll);
+      "int64_t":$outputSwizzle, "int64_t":$wavesPerEU, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -296,13 +296,14 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
       + Twine(getSplitKFactor()) + ","
       + Twine(getScheduleVersion()) + ","
       + Twine(getOutputSwizzle()) + ","
+      + Twine(getWavesPerEU()) + ","
       + Twine(getForceUnroll())).toVector(perfStr);
     }
     AttnPerfConfigAttr withScheduleVersion(int64_t newScheduleVersion) const {
     return AttnPerfConfigAttr::get(
       getContext(), getMPerBlockG0(), getMPerBlockG1(), getNPerBlockG0(),
       getKpackPerBlock(), getMPerWave(), getNPerWave(), getMnPerXdl(), getKpack(),
-      getSplitKFactor(), newScheduleVersion, getOutputSwizzle(), getForceUnroll());
+      getSplitKFactor(), newScheduleVersion, getOutputSwizzle(), getWavesPerEU(), getForceUnroll());
   }
   }];
 
@@ -325,7 +326,7 @@ def Rock_MfmaGemmParamsAttr
       "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
       "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
       "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
-      "bool":$forceUnroll);
+      "int64_t":$wavesPerEU, "int64_t":$gridGroupSize, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -339,6 +340,8 @@ def Rock_MfmaGemmParamsAttr
         + Twine(getSplitKFactor()) + ","
         + Twine(getScheduleVersion()) + ","
         + Twine(getOutputSwizzle()) + ","
+        + Twine(getWavesPerEU()) + ","
+        + Twine(getGridGroupSize()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);
@@ -359,7 +362,7 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
       "int64_t":$nPerBlock, "int64_t":$kpack, "int64_t":$mPerWave,
       "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$splitKFactor,
       "int64_t":$scheduleVersion, "int64_t":$outputSwizzle,
-      "bool":$forceUnroll);
+      "int64_t":$wavesPerEU, "int64_t":$gridGroupSize, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(SmallVectorImpl<char> &perfStr) {
@@ -373,6 +376,8 @@ def Rock_WmmaGemmParamsAttr : Rock_Attr<"WmmaGemmParams", [RockTuningParamAttrIn
         + Twine(getSplitKFactor()) + ","
         + Twine(getScheduleVersion()) + ","
         + Twine(getOutputSwizzle()) + ","
+        + Twine(getWavesPerEU()) + ","
+        + Twine(getGridGroupSize()) + ","
         + Twine(getForceUnroll()) + ","
           + "1") /* *ThreadCopyMore* */
         .toVector(perfStr);
@@ -459,9 +464,25 @@ def Rock_ScheduleVersionAttr : Rock_Attr<"ScheduleVersion"> {
   }];
 }
 
-// It is a temporary attribute
 def Rock_EnableSplitKForTuning : Rock_Attr<"EnableSplitKForTuning"> {
   let mnemonic = "enable_splitk_for_tuning";
+  let description = [{
+    Whether we tune for split-k. If unset, split-k=1.
+  }];
+}
+
+def Rock_WavesPerEU : Rock_Attr<"WavesPerEU"> {
+  let mnemonic = "waves_per_eu";
+  let description = [{
+    This is a hint to the backend compiler to tune the number of wavefronts that are capable of fitting within the resources of an EU.
+  }];
+}
+
+def Rock_OutputSwizzle : Rock_Attr<"OutputSwizzle"> {
+  let mnemonic = "output_swizzle";
+  let description = [{
+    Whether we run the output swizzle pass. 0 -> disabled, 1 -> enabled, 2 -> heuristic.
+  }];
 }
 
 def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
