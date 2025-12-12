@@ -240,13 +240,26 @@ static Value moveNumHeadsToSeqLenOut(OpBuilder builder, Location loc,
   return rock::TransformOp::create(builder, loc, matrixUnmerge, mergerAttr);
 }
 
+// Result of GQA (Grouped-Query Attention) processing
+struct GQAResult {
+  IntegerAttr numRepeats;
+  Value queries;
+  Value keys;
+  Value values;
+  Value out;
+  Value lse;
+  Value currentSeqLen;
+  Value prefixOffset;
+};
+
 // This function will implement GQA, moving numRepeat=num_heads_q/num_heads_kv
 // to the seq_len_q dimension. See moveNumHeadsToSeqLenQ() comment for more
 // details.
-static std::tuple<IntegerAttr, Value, Value, Value, Value, Value, Value>
-processGQA(ConversionPatternRewriter &rw, Location loc, Value queries,
-           Value keys, Value values, Value out, Value lse, Value currentSeqLen,
-           int64_t numHeadsQ, int64_t numHeadsKV, int64_t splitKV) {
+static GQAResult processGQA(ConversionPatternRewriter &rw, Location loc,
+                            Value queries, Value keys, Value values, Value out,
+                            Value lse, Value currentSeqLen, Value prefixOffset,
+                            int64_t numHeadsQ, int64_t numHeadsKV,
+                            int64_t splitKV) {
   assert(numHeadsQ % numHeadsKV == 0);
   IntegerAttr numRepeatsAttr = nullptr;
 
@@ -258,13 +271,16 @@ processGQA(ConversionPatternRewriter &rw, Location loc, Value queries,
     if (currentSeqLen)
       currentSeqLen =
           moveNumHeadsToSeqLenCurrSeqLen(rw, loc, currentSeqLen, numRepeats);
+    if (prefixOffset)
+      prefixOffset =
+          moveNumHeadsToSeqLenCurrSeqLen(rw, loc, prefixOffset, numRepeats);
     out = moveNumHeadsToSeqLenOut(rw, loc, out, numRepeats, splitKV);
     if (lse)
       lse = moveNumHeadsToSeqLenOut(rw, loc, lse, numRepeats, splitKV);
   }
 
-  return std::make_tuple(numRepeatsAttr, queries, keys, values, out, lse,
-                         currentSeqLen);
+  return GQAResult{numRepeatsAttr, queries,     keys, values, out, lse,
+                   currentSeqLen,  prefixOffset};
 }
 
 template <typename Op>
@@ -471,9 +487,9 @@ arrangeGemmGemmSplitKTransform(OpBuilder &builder,
 static LogicalResult commonAttentionGemmElmtGemm(
     ConversionPatternRewriter &rw, RockGemmGemmWrapperInterface op, Value a,
     Value b, Value c, Value out, Value lse, Value currentSeqLen,
-    UnitAttr causal, IntegerAttr splitKV, ValueRange elementwiseInputs,
-    Region &preSecondOpRegion, bool enableSoftmax, TypeAttr softmaxType,
-    int64_t numHeadsQ, int64_t numHeadsKV,
+    Value prefixOffset, UnitAttr causal, IntegerAttr splitKV,
+    ValueRange elementwiseInputs, Region &preSecondOpRegion, bool enableSoftmax,
+    TypeAttr softmaxType, int64_t numHeadsQ, int64_t numHeadsKV,
     std::optional<std::reference_wrapper<const BufferDependencyAnalysis>>
         bufferDeps,
     BoolAttr preSoftmaxHasSplitKVTransforms) {
@@ -528,10 +544,19 @@ static LogicalResult commonAttentionGemmElmtGemm(
 
   // Grouped-Query Attention (GQA)
   IntegerAttr numRepeatsGQA = nullptr;
-  if (enableSoftmax)
-    std::tie(numRepeatsGQA, a, b, c, out, lse, currentSeqLen) =
-        processGQA(rw, op.getLoc(), a, b, c, out, lse, currentSeqLen, numHeadsQ,
-                   numHeadsKV, splitKVNum);
+  if (enableSoftmax) {
+    GQAResult gqa =
+        processGQA(rw, op.getLoc(), a, b, c, out, lse, currentSeqLen,
+                   prefixOffset, numHeadsQ, numHeadsKV, splitKVNum);
+    numRepeatsGQA = gqa.numRepeats;
+    a = gqa.queries;
+    b = gqa.keys;
+    c = gqa.values;
+    out = gqa.out;
+    lse = gqa.lse;
+    currentSeqLen = gqa.currentSeqLen;
+    prefixOffset = gqa.prefixOffset;
+  }
 
   // Note, matrix dimension correctness is handled in the verifier
   ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
@@ -583,9 +608,9 @@ static LogicalResult commonAttentionGemmElmtGemm(
   }
 
   auto newOp = GridwiseAttentionAccelOp::create(
-      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, out, lse, causal,
-      splitKV, op.getGemmFeaturesAttr(), op.getStoreMethodAttr(), blockSizeAttr,
-      gridSizeAttr,
+      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, prefixOffset, out,
+      lse, causal, splitKV, op.getGemmFeaturesAttr(), op.getStoreMethodAttr(),
+      blockSizeAttr, gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
       numRepeatsGQA, softmaxType, params0, params1,
       rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
@@ -1042,8 +1067,9 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getQueries(), adaptor.getKeys(), adaptor.getValues(),
       adaptor.getOut(), adaptor.getLse(), adaptor.getCurrentSeqLen(),
-      adaptor.getCausalAttr(), adaptor.getSplitKVAttr(),
-      adaptor.getPreSoftmaxElemWiseInputs(), op.getPreSoftmaxBody(),
+      adaptor.getPrefixOffset(), adaptor.getCausalAttr(),
+      adaptor.getSplitKVAttr(), adaptor.getPreSoftmaxElemWiseInputs(),
+      op.getPreSoftmaxBody(),
       /*enableSoftmax=*/true, op.getSoftmaxTypeAttr(), adaptor.getNumHeadsQ(),
       adaptor.getNumHeadsKV(),
       /*bufferDeps=*/std::nullopt,
@@ -1057,8 +1083,8 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
   return commonAttentionGemmElmtGemm(
       rw, op, adaptor.getA(), adaptor.getB(), adaptor.getC(), adaptor.getOut(),
       /*lse=*/nullptr,
-      /*currentSeqLen=*/nullptr, /*causal=*/nullptr, splitKV,
-      adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
+      /*currentSeqLen=*/nullptr, /*prefixOffset=*/nullptr, /*causal=*/nullptr,
+      splitKV, adaptor.getElemwiseInputs(), op.getPreSecondGemmBody(),
       /*enableSoftmax=*/false, /*softmaxType=*/nullptr, /*numHeadsQ=*/1,
       /*numHeadsKV=*/1, std::cref(bufferDeps),
       /*preSoftmaxHasSplitKVTransforms=*/rw.getBoolAttr(false));

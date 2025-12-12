@@ -215,6 +215,7 @@ def Rock_AttentionOp
           TensorOrMemRefOf<[F32, F16, BF16]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
+          Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out,
           Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse, I32Attr:$numHeadsQ,
           I32Attr:$numHeadsKV, UnitAttr:$qTransposed, UnitAttr:$kTransposed,
@@ -245,6 +246,13 @@ def Rock_AttentionOp
 
     If causal is enabled, we implement causal masking.
 
+    If causal is enabled AND prefixOffset is not null, we implement prefix
+    causal masking where: mask = key_pos > (query_pos + offset).
+    The prefixOffset can be either:
+    - A scalar (shape [1]): a single global offset applied to all sequences
+    - A tensor of shape [G]: per-group/batch offsets, allowing different prefix
+      lengths for each sequence in the batch
+
     LSE (log-sum-exp) is an optional output typically used for flash decoding.
     For flash decoding, you can pass splitKV > 1, the default value is 1, which means flash decoding is disabled. 
     Flash decoding multiplies the number of blocks by splitKV. Note that "lse" has to be non-null for splitKV > 1. 
@@ -269,6 +277,7 @@ def Rock_AttentionOp
     `{` `\n`
         ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
         (`currentSeqLen` `=` `(` $currentSeqLen^ `:` type($currentSeqLen) `)` `\n`)?
+        (`prefixOffset` `=` `(` $prefixOffset^ `:` type($prefixOffset) `)` `\n`)?
         (`causal` `\n` $causal^)?
         (`lse` `=` $lse^ `:` type($lse) `\n`)?
         (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
@@ -547,6 +556,7 @@ def Rock_GridwiseAttentionAccelOp
           MemRefRankOf<[F32, F16, BF16], [3]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
+          Optional<MemRefRankOf<[I32], [1]>>:$prefixOffset,
           MemRefRankOf<[F32, F16, BF16], [3]>:$out,
           Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
           I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
