@@ -591,12 +591,12 @@ int64_t MfmaEmitter::getRowGroupSize() const {
   return mfmaAttr.rowGroupSize;
 }
 
-int64_t MfmaEmitter::getMfmaK() const {
+int64_t MfmaEmitter::getKDim() const {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   return mfmaAttr.k;
 }
 
-int64_t MfmaEmitter::getMfmaDDim() const {
+int64_t MfmaEmitter::getDDim(StringRef dName) const {
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   return mfmaAttr.mfmaDDim;
 }
@@ -815,8 +815,8 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   params.nResultVectors = 1;
 
   params.kpackPerThread = kpackPerBlock;
-  params.mPerAccel = wmmaInsn.dPerAccel;
-  params.nPerAccel = wmmaInsn.dPerAccel;
+  params.mPerAccel = wmmaInsn.mPerAccel;
+  params.nPerAccel = wmmaInsn.nPerAccel;
   // Pre-gfx12 each thread in the wave is loading an entire groups
   // of Ks to reduce. So, if there are 32 threads in a wave and
   // and we want to do a(16x16) * b(16x16), 16 threads are loading a vector
@@ -829,7 +829,9 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
     // to reduce. For instance, with the previous example, each
     // thread is loading a vector of 8 Ks. The first 16 threads are
     // loading k=[0:8] the second 16 threads are loading k=[8:16] threads
-    int64_t numReductions = waveSize / wmmaInsn.dPerAccel;
+    assert(wmmaInsn.mPerAccel == wmmaInsn.nPerAccel &&
+           "Currently only supported for equal mPerAccel and nPerAccel");
+    int64_t numReductions = waveSize / wmmaInsn.mPerAccel;
     params.kpackPerThread /= numReductions;
   }
   params.kBasePerThread = (params.kpackPerThread * kPack) / params.kBase;
@@ -840,14 +842,17 @@ AccelEmitterParams WmmaEmitter::initAccelEmitterParams(
   return params;
 }
 
-int64_t WmmaEmitter::getMfmaK() const {
+int64_t WmmaEmitter::getKDim() const {
   // K dimension is encoded in the input vector length
-  return wmmaInsn.argTypeA.getNumElements();
+  return wmmaInsn.kDim;
 }
 
-int64_t WmmaEmitter::getMfmaDDim() const {
-  // D dimension (M/N) for WMMA is always dPerAccel
-  return wmmaInsn.dPerAccel;
+int64_t WmmaEmitter::getDDim(StringRef dName) const {
+  if (dName.empty()) {
+    llvm_unreachable("dName must be specified for WMMA");
+  }
+
+  return dName == "m" ? wmmaInsn.mPerAccel : wmmaInsn.nPerAccel;
 }
 
 Value WmmaEmitter::wrapLDSBufferForLoad(
@@ -1122,10 +1127,9 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
   // WMMAOp requires explicit m, n, k dimensions as IntegerAttrs
-  auto mAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
-  auto nAttr = b.getI32IntegerAttr(wmmaInsn.dPerAccel);
-  // see WmmaInsnGroup.cpp, all current wmma operations have k=16
-  auto kAttr = b.getI32IntegerAttr(16);
+  auto mAttr = b.getI32IntegerAttr(wmmaInsn.mPerAccel);
+  auto nAttr = b.getI32IntegerAttr(wmmaInsn.nPerAccel);
+  auto kAttr = b.getI32IntegerAttr(wmmaInsn.kDim);
   auto subwordOffsetAttr = b.getI32IntegerAttr(0);
 
   // Clamp flag is only valid for integer output types
@@ -1137,11 +1141,6 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      argA, argB, vectorC, subwordOffsetAttr,
                                      /*unsignedA=*/nullptr,
                                      /*unsignedB=*/nullptr, clampAttr);
-
-  // auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, argA, argB, vectorC,
-  //                                    /*subwordOffset=*/0,
-  //                                    /*unsignedA=*/false,
-  //                                    /*unsignedB=*/false, /*clamp=*/true);
   auto vectorD = mfma.getDestD();
 
   memref::StoreOp::create(b, loc, vectorD, bufferC, regCOffset);
@@ -1181,8 +1180,8 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
     dimNamesM.push_back(/*4=*/"item_i");
   }
   SmallVector<int64_t, 7> orderedDimStridesM{/*0=*/mPerBlock,
-                                             /*1=*/mWaves * wmmaInsn.dPerAccel,
-                                             /*2=*/wmmaInsn.dPerAccel};
+                                             /*1=*/mWaves * wmmaInsn.mPerAccel,
+                                             /*2=*/wmmaInsn.mPerAccel};
   if (isGfx11) {
     orderedDimStridesM.push_back(/*3=*/wmmaInsn.outputStride);
   } else {
@@ -1198,8 +1197,8 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
                                       /*2=*/"wave_n",
                                       /*3=*/"n_tid"};
   SmallVector<int64_t, 5> orderedDimStridesN{/*0=*/nPerBlock,
-                                             /*1=*/nWaves * wmmaInsn.dPerAccel,
-                                             /*2=*/wmmaInsn.dPerAccel,
+                                             /*1=*/nWaves * wmmaInsn.nPerAccel,
+                                             /*2=*/wmmaInsn.nPerAccel,
                                              /*3=*/1};
   SmallVector<int64_t, 7> dimSizesN;
   convertDimStridestoSizes(orderedDimStridesN, nLen, dimSizesN);
@@ -1213,9 +1212,11 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
          mRepeats * nRepeats * retNumElements},
         loc);
     splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
+    assert(wmmaInsn.mPerAccel == wmmaInsn.nPerAccel &&
+           "Currently only supported for equal mPerAccel and nPerAccel");
     splitMemoryCoords.merge(
         {"wave_m", "wave_n", "m_tid", "n_tid"}, {3, 4, 5, 6}, "tid",
-        {mWaves, nWaves, waveSize / wmmaInsn.dPerAccel, wmmaInsn.dPerAccel});
+        {mWaves, nWaves, waveSize / wmmaInsn.mPerAccel, wmmaInsn.mPerAccel});
     splitMemoryCoords.merge({"rep_i", "rep_j", "item_i"}, {7, 8, 9}, "item",
                             {mRepeats, nRepeats, retNumElements});
     TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
@@ -1295,10 +1296,12 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
     return std::make_unique<MfmaEmitter>(*maybeMfmaInsnGroup, arch,
                                          tuningParams);
   } else if (isWmma) {
+    WmmaGemmParamsAttr wmmaParams = cast<WmmaGemmParamsAttr>(tuningParams);
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
-    auto maybeWmmaInsnGroup = WmmaInsn::select(dataTypeA, dataTypeB, waveSize,
-                                               arch, tuningParams.getMPerWave(),
-                                               tuningParams.getNPerWave());
+    auto maybeWmmaInsnGroup =
+        WmmaInsn::select(dataTypeA, dataTypeB, waveSize, arch,
+                         wmmaParams.getMPerWave(), wmmaParams.getNPerWave(),
+                         wmmaParams.getKpack(), wmmaParams.getKpackPerBlock());
     if (failed(maybeWmmaInsnGroup)) {
       return nullptr;
     }
