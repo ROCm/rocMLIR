@@ -2513,7 +2513,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
 
   // This function identifies when the currentSeqLen is a block argument
   // that is one dimensional, and broadcasts it to the correct shape, and with
-  // the correct batch, numHeads values
+  // the correct batch, numHeads, and optionally splitKV, values
   FailureOr<Value> addBroadcastForBlockArg(PatternRewriter &rewriter,
                                            Value currentSeqLen,
                                            Value matrixQ) const {
@@ -2539,38 +2539,59 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     auto collapse = cast<tensor::CollapseShapeOp>(matrixQ.getDefiningOp());
     auto reassocIndices = collapse.getReassociationIndices();
 
-    // Check if the first reassociation merges two dimensions [0, 1]
-    if (reassocIndices.empty() || reassocIndices[0].size() != 2)
+    // Check if the first reassociation merges two or three dimensions
+    // 2D case: [batch, numHeads] for 4D attention layout
+    // 3D case: [batch, numHeads, splitKV] for 5D attention layout
+    if (reassocIndices.empty() ||
+        (reassocIndices[0].size() != 2 && reassocIndices[0].size() != 3))
       return failure();
 
     // Get the original shape before collapse
     auto srcShape = collapse.getSrcType().getShape();
+    size_t numCollapsedDims = reassocIndices[0].size();
 
-    if (srcShape.size() < 2)
+    if (srcShape.size() < numCollapsedDims)
       return failure();
 
-    int64_t batch = srcShape[0];
-    int64_t numHeads = srcShape[1];
-
-    // Create a tensor.expand_shape from 1D to 2D
     auto loc = currentSeqLen.getLoc();
     auto elemTy = cast<ShapedType>(currentSeqLen.getType()).getElementType();
-    SmallVector<int64_t, 2> expandedShape{origShape, 1};
-    auto expandedType = RankedTensorType::get(expandedShape, elemTy);
-    SmallVector<ReassociationIndices, 1> reassoc{{0, 1}};
-    Value expanded = tensor::ExpandShapeOp::create(rewriter, loc, expandedType,
-                                                   currentSeqLen, reassoc);
 
-    // Create a tosa.const that is all zeros, but in our desired shape of
-    // batch x numHeads
-    auto broadcastTy = RankedTensorType::get({batch, numHeads}, elemTy);
-    auto oneElems = cast<ElementsAttr>(rewriter.getOneAttr(broadcastTy));
-    auto constOp = tosa::ConstOp::create(rewriter, loc, broadcastTy, oneElems);
+    // Lambda to expand and broadcast currentSeqLen to match the given shape
+    auto expandAndBroadcast = [&](ArrayRef<int64_t> broadcastShape) -> Value {
+      // Build expanded shape: [origShape, 1, 1, ...] with trailing 1s
+      SmallVector<int64_t> expandedShape{origShape};
+      expandedShape.append(broadcastShape.size() - 1, 1);
 
-    // Create a tosa.mul (broadcast) to our desired batch and numHeads values.
-    auto mul =
-        rock::tosa::getMulOp(rewriter, loc, expanded, constOp, broadcastTy);
-    return mul.getOutput();
+      auto expandedType = RankedTensorType::get(expandedShape, elemTy);
+
+      // Build reassociation indices: {{0, 1, 2, ...}}
+      SmallVector<int64_t> indices(broadcastShape.size());
+      std::iota(indices.begin(), indices.end(), 0);
+      SmallVector<ReassociationIndices, 1> reassoc{
+          ReassociationIndices(indices.begin(), indices.end())};
+
+      Value expanded = tensor::ExpandShapeOp::create(
+          rewriter, loc, expandedType, currentSeqLen, reassoc);
+
+      // Create a tosa.const with all ones in the broadcast shape
+      auto broadcastTy = RankedTensorType::get(broadcastShape, elemTy);
+      auto oneElems = cast<ElementsAttr>(rewriter.getOneAttr(broadcastTy));
+      auto constOp =
+          tosa::ConstOp::create(rewriter, loc, broadcastTy, oneElems);
+
+      // Create a tosa.mul (broadcast) to the desired shape
+      auto mul =
+          rock::tosa::getMulOp(rewriter, loc, expanded, constOp, broadcastTy);
+      return mul.getOutput();
+    };
+
+    if (numCollapsedDims == 2) {
+      // 4D attention layout: [batch, numHeads, seqLen, headDim]
+      return expandAndBroadcast({srcShape[0], srcShape[1]});
+    } else {
+      // 5D attention layout: [batch, numHeads, splitKV, seqLen, headDim]
+      return expandAndBroadcast({srcShape[0], srcShape[1], srcShape[2]});
+    }
   }
 
   FailureOr<std::pair<int64_t, int64_t>> getNumHeadsGQA(Value value,
@@ -2996,10 +3017,15 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           val = maybeNew.value();
       }
       // Reshape {batch, numHeads} -> {batch * numHeads}
-      if (cast<ShapedType>(val.getType()).getRank() == 2) {
+      int64_t rank = cast<ShapedType>(val.getType()).getRank();
+      if (rank == 2) {
         SmallVector<ReassociationIndices> reassocIndices = {{0, 1}};
         val = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), val,
                                               reassocIndices);
+      } else if (rank == 3) {
+        SmallVector<ReassociationIndices> reassocIndices = {{0, 1, 2}};
+        currentSeqLen = tensor::CollapseShapeOp::create(
+            rewriter, op.getLoc(), currentSeqLen, reassocIndices);
       }
     };
 

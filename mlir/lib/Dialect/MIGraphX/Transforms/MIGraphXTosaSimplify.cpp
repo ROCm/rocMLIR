@@ -81,7 +81,16 @@ struct MIGraphXTosaSimplify
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
     patterns.add<EliminateCastOp>(ctx);
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+
+    // Use a GreedyRewriteConfig that disables fold (canonicalization).
+    // This prevents TOSA reshape canonicalization from folding consecutive
+    // reshapes, which would lose the 5D structure needed for flash decoding
+    // detection.
+    GreedyRewriteConfig config;
+    config.enableFolding(false);
+
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),
+                                     config))) {
       signalPassFailure();
     }
   }
