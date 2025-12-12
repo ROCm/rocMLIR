@@ -382,9 +382,10 @@ createAttnTuningRangeGreedyPhase2(TuningParamSet *newSpace,
 
 // With almost all tuning params already set, tune for fine-tuning parameters by
 // brute force (greedy tuning, phase 3)
-static void createAttnTuningRangeGreedyPhase3(
-    TuningParamSet *newSpace, RockGemmGemmWrapperInterface gemmGemmOp,
-    bool isSplitKFusible, StringRef winningConfig) {
+static void
+createAttnTuningRangeGreedyPhase3(TuningParamSet *newSpace,
+                                  RockGemmGemmWrapperInterface gemmGemmOp,
+                                  StringRef winningConfig) {
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
   bool isWMMA = bitEnumContainsAny(features, GemmFeatures::wmma);
   if (!bitEnumContainsAny(features, GemmFeatures::mfma) && !isWMMA) {
@@ -1064,19 +1065,17 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
           if (settings.iteration == 0) {
             // First iteration: random configs per tile size
             createAttnTuningRangeGreedyPhase1(
-                newSpace, op, isSplitKFusible,
-                NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
+                newSpace, op, NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
           } else if (settings.iteration == 1) {
             // Second iteration: brute force (except waves_per_eu and
             // output_swizzle, which we hardcode to use the heuristic) with
             // winning tile sizes
-
-            createAttnTuningRangeGreedyPhase2(newSpace, op, isSplitKFusible,
+            createAttnTuningRangeGreedyPhase2(newSpace, op,
                                               settings.winningConfig);
           } else {
             // Third iteration: brute force the remaining configs (waves_per_eu
             // and output_swizzle)
-            createAttnTuningRangeGreedyPhase3(newSpace, op, isSplitKFusible,
+            createAttnTuningRangeGreedyPhase3(newSpace, op,
                                               settings.winningConfig);
           }
           break;
