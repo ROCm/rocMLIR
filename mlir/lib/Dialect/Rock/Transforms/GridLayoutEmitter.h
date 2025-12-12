@@ -54,6 +54,7 @@ struct GridLayoutInfo {
   int64_t numCU;
   Type inputType;
   Type outputType;
+  int64_t gridGroupSize;
 };
 
 /// This function emits the right triplet of <group,block_m,block_n>
