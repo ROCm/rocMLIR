@@ -181,7 +181,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_f32(%matrixA : memref<1x1xvector<2xf32>,
        kpack = 4,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<1x1xvector<8xf32>, 5> += memref<1x1xvector<2xf32>, 5> * memref<1x1xvector<2xf32>, 5>
   return
@@ -211,7 +211,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_f16_k32(%matrixA : memref<1x2xvector<16x
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<1x1xvector<8xf32>, 5> += memref<1x2xvector<16xf16>, 5> * memref<1x2xvector<16xf16>, 5>
   return
@@ -241,7 +241,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_bf16_k32(%matrixA : memref<1x2xvector<16
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<1x1xvector<8xf32>, 5> += memref<1x2xvector<16xbf16>, 5> * memref<1x2xvector<16xbf16>, 5>
   return
@@ -271,7 +271,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_fp8_fp8_k64(%matrixA : memref<4x4xvector
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<4x4xvector<8xf32>, 5> += memref<4x4xvector<64xf8E4M3FN>, 5> * memref<4x4xvector<64xf8E4M3FN>, 5>
   return
@@ -301,7 +301,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_fp8_bf8_k64(%matrixA : memref<4x4xvector
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<4x4xvector<8xf32>, 5> += memref<4x4xvector<64xf8E4M3FN>, 5> * memref<4x4xvector<64xf8E5M2>, 5>
   return
@@ -331,7 +331,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_bf8_fp8_k64(%matrixA : memref<4x4xvector
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<4x4xvector<8xf32>, 5> += memref<4x4xvector<64xf8E5M2>, 5> * memref<4x4xvector<64xf8E4M3FN>, 5>
   return
@@ -361,7 +361,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_bf8_bf8_k64(%matrixA : memref<4x4xvector
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<4x4xvector<8xf32>, 5> += memref<4x4xvector<64xf8E5M2>, 5> * memref<4x4xvector<64xf8E5M2>, 5>
   return
@@ -391,7 +391,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_fp8_fp8_k128(%matrixA : memref<4x8xvecto
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<4x4xvector<8xf32>, 5> += memref<4x8xvector<64xf8E4M3FN>, 5> * memref<4x8xvector<64xf8E4M3FN>, 5>
   return
@@ -421,7 +421,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_fp8_bf8_k128(%matrixA : memref<4x8xvecto
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<4x4xvector<8xf32>, 5> += memref<4x8xvector<64xf8E4M3FN>, 5> * memref<4x8xvector<64xf8E5M2>, 5>
   return
@@ -451,7 +451,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_bf8_fp8_k128(%matrixA : memref<4x8xvecto
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<4x4xvector<8xf32>, 5> += memref<4x8xvector<64xf8E5M2>, 5> * memref<4x8xvector<64xf8E4M3FN>, 5>
   return
@@ -481,7 +481,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_bf8_bf8_k128(%matrixA : memref<4x8xvecto
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<4x4xvector<8xf32>, 5> += memref<4x8xvector<64xf8E5M2>, 5> * memref<4x8xvector<64xf8E5M2>, 5>
   return
@@ -511,7 +511,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_i8_k64(%matrixA : memref<4x4xvector<32xi
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<4x4xvector<8xi32>, 5> += memref<4x4xvector<32xi8>, 5> * memref<4x4xvector<32xi8>, 5>
   return
@@ -541,7 +541,7 @@ func.func @rock_accel_gemm_wmma_gfx1250_k_selection(%matrixA : memref<4x8xvector
        kpack = 16,
        splitKFactor = 1,
        scheduleVersion = 1,
-       outputSwizzle = 2,
+       outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
        forceUnroll = true>
      } : memref<4x4xvector<8xf32>, 5> += memref<4x8xvector<64xf8E4M3FN>, 5> * memref<4x8xvector<64xf8E5M2>, 5>
   return
