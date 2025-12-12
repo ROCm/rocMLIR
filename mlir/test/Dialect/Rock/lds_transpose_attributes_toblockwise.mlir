@@ -4,13 +4,13 @@
   kpackPerBlock = 32, mPerBlock = 256, nPerBlock = 256,
   kpack = 1, mPerWave = 64, nPerWave = 64,
   mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 4,
-  outputSwizzle = 2, forceUnroll = true>
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 
 #params_8 = #rock.mfma_gemm_params<
   kpackPerBlock = 32, mPerBlock = 256, nPerBlock = 128,
   kpack = 1, mPerWave = 64, nPerWave = 64,
   mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 4,
-  outputSwizzle = 2, forceUnroll = true>
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
   // CHECK-LABEL: func.func @test_16_waves
