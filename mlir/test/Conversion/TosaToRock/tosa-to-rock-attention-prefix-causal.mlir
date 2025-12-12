@@ -70,3 +70,4 @@ module {
     return %collapsed_8 : tensor<3584xf16>
   }
 }
+

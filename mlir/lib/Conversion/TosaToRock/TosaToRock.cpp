@@ -2207,7 +2207,41 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   //   - KV-cache: select(greater(col_indices, seqLen), -inf, value)
   //   - Prefix causal: select(greater(col_indices, row_indices + offset), -inf,
   //   value)
-  // Returns SeqLenMaskResult with the detected pattern type
+  // Updates SeqLenMaskResult with the detected pattern type
+  void analyzeSelectForSeqLenMask(
+      tosa::SelectOp select, SeqLenMaskResult &result,
+      const DenseSet<StringRef> &opsToSkip,
+      const DenseSet<StringRef> &seqLenSkip) const {
+    auto pred = select.getInput1();
+    auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
+    if (failed(maybeGreater))
+      return;
+
+    auto greater = maybeGreater.value();
+
+    // input1 must be column indices (constant range from 0)
+    if (failed(isConstantRange(greater.getInput1(), 0)))
+      return;
+
+    Value input2 = greater.getInput2();
+
+    // Try KV-cache pattern (scalar seqLen) if not already found
+    if (!result.seqLen) {
+      auto maybeKVCache = tryKVCachePattern(input2, seqLenSkip);
+      if (succeeded(maybeKVCache)) {
+        result.seqLen = maybeKVCache.value();
+      }
+    }
+
+    // Try prefix causal pattern (row_indices + offset) if not already found
+    if (!result.prefixOffset) {
+      auto maybePrefixCausal = tryPrefixCausalPattern(input2, seqLenSkip);
+      if (succeeded(maybePrefixCausal)) {
+        result.prefixOffset = maybePrefixCausal.value();
+      }
+    }
+  }
+
   FailureOr<SeqLenMaskResult> getSeqLenMask(Value softmaxInput) const {
     auto maybeSelect = getSelectWithNegInf(softmaxInput);
     if (failed(maybeSelect))
@@ -2219,16 +2253,6 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                                   tensor::ExpandShapeOp::getOperationName(),
                                   tosa::CastOp::getOperationName(),
                                   tosa::MulOp::getOperationName()};
-    auto pred = select.getInput1();
-    auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
-    if (failed(maybeGreater))
-      return failure();
-
-    auto greater = maybeGreater.value();
-
-    // input1 must be column indices (constant range from 0)
-    if (failed(isConstantRange(greater.getInput1(), 0)))
-      return failure();
 
     // Common set used by both pattern detectors
     DenseSet<StringRef> seqLenSkip{tensor::CollapseShapeOp::getOperationName(),
@@ -2236,22 +2260,38 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                                    tosa::TransposeOp::getOperationName(),
                                    tosa::MulOp::getOperationName()};
 
-    Value input2 = greater.getInput2();
-    Value result = select.getInput3();
+    Value inputToContinue = select.getInput3();
+    SeqLenMaskResult currentResult{inputToContinue, nullptr, nullptr};
 
-    SeqLenMaskResult currentResult{result, nullptr, nullptr};
+    // Analyze the first (outer) select
+    analyzeSelectForSeqLenMask(select, currentResult, opsToSkip, seqLenSkip);
 
-    // Try KV-cache pattern first (scalar seqLen)
-    auto maybeKVCache = tryKVCachePattern(input2, seqLenSkip);
-    if (succeeded(maybeKVCache)) {
-      currentResult.seqLen = maybeKVCache.value();
+    // Check if the inputToContinue (input3) is another chained select with -inf
+    // This handles the case where KVCache and prefix causal use separate
+    // selects.
+    bool haveSeqLen = currentResult.seqLen != nullptr;
+    bool havePrefixOffset = currentResult.prefixOffset != nullptr;
+    
+    if (haveSeqLen != havePrefixOffset) {
+      auto maybeChainedSelect = getSelectWithNegInf(inputToContinue);
+      if (succeeded(maybeChainedSelect)) {
+        auto chainedSelect = maybeChainedSelect.value();
+        // Try to analyze the chained select for the missing pattern
+        analyzeSelectForSeqLenMask(chainedSelect, currentResult, opsToSkip,
+                                   seqLenSkip);
+        // Only update inputToContinue if we found the complementary pattern
+        bool foundComplementary = 
+            (!haveSeqLen && currentResult.seqLen) ||
+            (!havePrefixOffset && currentResult.prefixOffset);
+        if (foundComplementary) {
+          currentResult.inputToContinue = chainedSelect.getInput3();
+        }
+      }
     }
 
-    // Try prefix causal pattern (row_indices + offset)
-    auto maybePrefixCausal = tryPrefixCausalPattern(input2, seqLenSkip);
-    if (succeeded(maybePrefixCausal)) {
-      currentResult.prefixOffset = maybePrefixCausal.value();
-    }
+    // We need at least one pattern to be detected
+    if (!currentResult.seqLen && !currentResult.prefixOffset)
+      return failure();
 
     return currentResult;
   }
