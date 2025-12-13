@@ -1959,7 +1959,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   // Result struct for sequence length mask detection
   struct SeqLenMaskResult {
     Value inputToContinue; // The value to continue pattern matching with
-    Value seqLen;          // The sequence length or prefix offset value
+    Value seqLen;          // The sequence length
     Value prefixOffset;    // The prefix offset value
   };
 
