@@ -1323,8 +1323,8 @@ struct GridwiseAttentionAccelRewritePattern
             // Compute query_pos + prefix_offset
             Value threshold =
                 arith::AddIOp::create(b, loc, nIndex, prefixOffset);
-            isInvalid = arith::CmpIOp::create(
-                b, loc, arith::CmpIPredicate::ugt, mIndex, threshold);
+            isInvalid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ugt,
+                                              mIndex, threshold);
             break;
           }
           }
@@ -2692,13 +2692,12 @@ struct GridwiseAttentionAccelRewritePattern
                                    op.getNumRepeatsGQAAttr());
         } else if (isCausal) {
           // Standard causal masking: mask when key > query
-          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::Causal,
-                                   gridCoordsGemm0, softmaxInputBuffer,
-                                   gemm0OutSubTileViewsTr, isCausal, mLoopIV,
-                                   gemm0MBlocksLastIter,
-                                   /*currentSeqLen=*/nullptr,
-                                   /*prefixOffset=*/nullptr,
-                                   op.getNumRepeatsGQAAttr());
+          setGemm0OutputOutOfScope(
+              rewriter, loc, OutOfScopeType::Causal, gridCoordsGemm0,
+              softmaxInputBuffer, gemm0OutSubTileViewsTr, isCausal, mLoopIV,
+              gemm0MBlocksLastIter,
+              /*currentSeqLen=*/nullptr,
+              /*prefixOffset=*/nullptr, op.getNumRepeatsGQAAttr());
         }
 
         APInt reductionAxis = APInt(64, 1);
