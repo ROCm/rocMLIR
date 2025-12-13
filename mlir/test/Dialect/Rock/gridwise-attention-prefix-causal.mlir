@@ -47,14 +47,16 @@
 #transform_map26 = #rock.transform_map<#map6 by [<Merge{14} ["dim0"] at [0] -> ["exp1"] at [1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>, <PassThrough ["dim2"] at [2] -> ["dim2"] at [3]>, <ConstDim{0, 1} [] at [] -> ["unit0"] at [0]>] bounds = [14, 4, 16] -> [1, 14, 4, 16]>
 module {
   // CHECK-LABEL: func @mlir_attention
-  // Verify prefix causal loop bound calculation: effectiveSeqLen = maxRowOfBlock + prefixOffset
+  // Verify prefix causal loop bound calculation: effectiveSeqLen = min(maxRowOfBlock + prefixOffset, gemm0M - 1)
   // The muli computes n_block * blockSize, then subi computes maxRowOfBlock = nextBlockStart - 1
   // CHECK: arith.muli %{{.*}}, %c32{{.*}} : index
   // CHECK: %[[MAX_ROW:.*]] = arith.subi %{{.*}}, %c1{{.*}} : index
   // The prefixOffset is loaded from tensor and converted to index
   // CHECK: %[[OFFSET:.*]] = arith.index_cast %{{.*}} : i32 to index
   // effectiveSeqLen = maxRowOfBlock + prefixOffset
-  // CHECK: %[[EFFECTIVE_SEQ:.*]] = arith.addi %[[MAX_ROW]], %[[OFFSET]] : index
+  // CHECK: %[[EFFECTIVE_SEQ_UNBOUND:.*]] = arith.addi %[[MAX_ROW]], %[[OFFSET]] : index
+  // Bound by gemm0M - 1 (key sequence length - 1) to prevent out-of-bounds access
+  // CHECK: %[[EFFECTIVE_SEQ:.*]] = arith.minui %[[EFFECTIVE_SEQ_UNBOUND]], %c{{.*}} : index
   // Ceiling division: (effectiveSeqLen + blockSize) / blockSize
   // CHECK: arith.addi %[[EFFECTIVE_SEQ]], %c32{{.*}} : index
   // CHECK: %[[END:.*]] = arith.divui %{{.*}}, %c32{{.*}} : index
