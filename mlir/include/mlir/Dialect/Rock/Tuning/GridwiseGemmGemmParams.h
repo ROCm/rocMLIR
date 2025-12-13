@@ -22,19 +22,8 @@ namespace rock {
 
 class PopulateParamsAttn {
 public:
-  struct PerfConfig {
-    static constexpr size_t n = 12;
-    const int64_t data[n];
-  };
-
   static std::vector<AttnPerfConfigAttr>
   getQuickTuningRange(OpBuilder &b, RockGemmGemmWrapperInterface op);
-
-  static AttnPerfConfigAttr perfConfigToAttr(OpBuilder &b,
-                                             const PerfConfig &config);
-
-  static std::vector<AttnPerfConfigAttr>
-  perfConfigsToAttrs(OpBuilder &b, const std::vector<PerfConfig> &configs);
 
   static LogicalResult paramsProbablyValid(OpBuilder &b,
                                            RockGemmGemmWrapperInterface op,
@@ -46,6 +35,14 @@ public:
                           AttnPerfConfigAttr params);
 
 protected:
+  static AttnPerfConfigAttr
+  deserializePerfConfig(OpBuilder &b, RockGemmGemmWrapperInterface op,
+                        StringRef config);
+
+  static std::vector<AttnPerfConfigAttr>
+  deserializePerfConfigs(OpBuilder &b, RockGemmGemmWrapperInterface op,
+                         ArrayRef<StringRef> configs);
+
   template <typename GemmParamsAttrType>
   static RockAccelTuningParamAttrInterface
   getGemm0TuningParams(OpBuilder &b, AttnPerfConfigAttr params);
@@ -59,7 +56,7 @@ private:
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Attn_DECLARATIONS_GEN
 
-  friend class ParamLookupTable<PerfConfig>;
+  friend class ParamLookupTable<StringRef>;
 };
 
 } // namespace rock

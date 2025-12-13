@@ -1737,38 +1737,38 @@ static const InitParamsAccel initParametersForwardI8ConvGfx1150[nInitParametersF
 #ifdef Attn_DEFINITIONS_GEN
 
 // BEGIN_ATTENTION_Attn_f32_gfx900_DEFS
-const PopulateParamsAttn::PerfConfig PopulateParamsAttn::initParametersAttentionGfx900[PopulateParamsAttn::nInitParametersAttentionGfx900] = {
-    {32,128,64,32,32,32,16,4,1,1,2,true},
-    {32,64,64,32,32,32,16,4,1,1,2,true},
-    {32,128,128,32,32,32,32,4,1,1,2,true},
-    {64,64,32,16,32,32,16,4,1,1,2,true},
-    {32,64,64,16,32,32,16,4,1,1,2,true},
-    {32,64,128,16,32,32,32,4,1,1,2,true},
-    {64,64,64,16,32,32,32,4,1,1,2,true}
+const StringRef PopulateParamsAttn::initParametersAttentionGfx900[] = {
+    "attn:v3:32,128,64,32,32,32,16,4,1,1,2,1",
+    "attn:v3:32,64,64,32,32,32,16,4,1,1,2,1",
+    "attn:v3:32,128,128,32,32,32,32,4,1,1,2,1",
+    "attn:v3:64,64,32,16,32,32,16,4,1,1,2,1",
+    "attn:v3:32,64,64,16,32,32,16,4,1,1,2,1",
+    "attn:v3:32,64,128,16,32,32,32,4,1,1,2,1",
+    "attn:v3:64,64,64,16,32,32,32,4,1,1,2,1"
 };
 // END_ATTENTION_Attn_f32_gfx900_DEFS
 
 // BEGIN_ATTENTION_Attn_f16_gfx900_DEFS
-const PopulateParamsAttn::PerfConfig PopulateParamsAttn::initParametersFp16AttentionGfx900[PopulateParamsAttn::nInitParametersFp16AttentionGfx900] = {
-    {32,128,128,32,32,32,32,4,1,1,2,true},
-    {64,64,32,16,32,32,16,4,1,1,2,true},
-    {32,64,64,16,32,32,16,4,1,1,2,true},
-    {32,64,128,16,32,32,16,4,1,1,2,true},
-    {64,64,64,16,32,32,16,4,1,1,2,true},
-    {64,64,64,16,32,32,32,4,1,1,2,true}
+const StringRef PopulateParamsAttn::initParametersFp16AttentionGfx900[] = {
+    "attn:v3:32,128,128,32,32,32,32,4,1,1,2,1",
+    "attn:v3:64,64,32,16,32,32,16,4,1,1,2,1",
+    "attn:v3:32,64,64,16,32,32,16,4,1,1,2,1",
+    "attn:v3:32,64,128,16,32,32,16,4,1,1,2,1",
+    "attn:v3:64,64,64,16,32,32,16,4,1,1,2,1",
+    "attn:v3:64,64,64,16,32,32,32,4,1,1,2,1"
 };
 // END_ATTENTION_Attn_f16_gfx900_DEFS
 
 // BEGIN_ATTENTION_Attn_f16_gfx1000_DEFS
-const PopulateParamsAttn::PerfConfig PopulateParamsAttn::initParametersFp16AttentionGfx1000[PopulateParamsAttn::nInitParametersFp16AttentionGfx1000] = {
-    {64,128,128,8,32,32,16,4,1,1,2,true},
-    {64,64,256,8,64,32,16,8,1,1,2,true},
-    {64,64,256,16,32,32,16,8,1,1,2,true},
-    {64,64,32,8,32,32,16,4,1,1,2,true},
-    {32,64,128,8,32,32,16,8,1,1,2,true},
-    {64,64,128,8,64,32,16,8,1,1,2,true},
-    {32,32,128,8,32,32,16,8,1,1,2,true},
-    {128,128,128,8,32,32,16,8,1,1,2,true}
+const StringRef PopulateParamsAttn::initParametersFp16AttentionGfx1000[] = {
+    "attn:v3:64,128,128,8,32,32,16,4,1,1,2,1",
+    "attn:v3:64,64,256,8,64,32,16,8,1,1,2,1",
+    "attn:v3:64,64,256,16,32,32,16,8,1,1,2,1",
+    "attn:v3:64,64,32,8,32,32,16,4,1,1,2,1",
+    "attn:v3:32,64,128,8,32,32,16,8,1,1,2,1",
+    "attn:v3:64,64,128,8,64,32,16,8,1,1,2,1",
+    "attn:v3:32,32,128,8,32,32,16,8,1,1,2,1",
+    "attn:v3:128,128,128,8,32,32,16,8,1,1,2,1"
 };
 // END_ATTENTION_Attn_f16_gfx1000_DEFS
 
@@ -1778,17 +1778,17 @@ const PopulateParamsAttn::PerfConfig PopulateParamsAttn::initParametersFp16Atten
 
 // BEGIN_ATTENTION_Attn_f32_gfx900_DECS
 static constexpr size_t nInitParametersAttentionGfx900 = 7;
-static const PerfConfig initParametersAttentionGfx900[nInitParametersAttentionGfx900];
+static const StringRef initParametersAttentionGfx900[nInitParametersAttentionGfx900];
 // END_ATTENTION_Attn_f32_gfx900_DECS
 
 // BEGIN_ATTENTION_Attn_f16_gfx900_DECS
 static constexpr size_t nInitParametersFp16AttentionGfx900 = 6;
-static const PerfConfig initParametersFp16AttentionGfx900[nInitParametersFp16AttentionGfx900];
+static const StringRef initParametersFp16AttentionGfx900[nInitParametersFp16AttentionGfx900];
 // END_ATTENTION_Attn_f16_gfx900_DECS
 
 // BEGIN_ATTENTION_Attn_f16_gfx1000_DECS
 static constexpr size_t nInitParametersFp16AttentionGfx1000 = 8;
-static const PerfConfig initParametersFp16AttentionGfx1000[nInitParametersFp16AttentionGfx1000];
+static const StringRef initParametersFp16AttentionGfx1000[nInitParametersFp16AttentionGfx1000];
 // END_ATTENTION_Attn_f16_gfx1000_DECS
 
 #endif

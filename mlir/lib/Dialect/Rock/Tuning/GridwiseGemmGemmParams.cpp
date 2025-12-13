@@ -10,8 +10,6 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-using PerfConfig = PopulateParamsAttn::PerfConfig;
-
 #define Attn_DEFINITIONS_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Attn_DEFINITIONS_GEN
@@ -19,40 +17,31 @@ using PerfConfig = PopulateParamsAttn::PerfConfig;
 std::vector<AttnPerfConfigAttr>
 PopulateParamsAttn::getQuickTuningRange(OpBuilder &b,
                                         RockGemmGemmWrapperInterface op) {
-  if (!bitEnumContainsAny(rock::getFeatures(op),
-                          GemmFeatures::mfma | GemmFeatures::wmma)) {
+  if (!rock::isAccel(rock::getFeatures(op))) {
     return {};
   }
-  auto perfConfigs = ParamLookupTable<PerfConfig>::lookup(
+  auto perfConfigs = ParamLookupTable<StringRef>::lookup(
       rock::getArchValue(op), op.getKernelType(),
       cast<MemRefType>(op.getAType()).getElementType());
-  return perfConfigsToAttrs(b, perfConfigs);
+  return deserializePerfConfigs(b, op, perfConfigs);
 }
 
-namespace {
-
-template <std::size_t... Is>
-AttnPerfConfigAttr perfConfigToAttrImpl(OpBuilder &b, const PerfConfig &config,
-                                        std::index_sequence<Is...>) {
-  return AttnPerfConfigAttr::get(b.getContext(), config.data[Is]...);
-}
-
-} // namespace
-
-AttnPerfConfigAttr
-PopulateParamsAttn::perfConfigToAttr(OpBuilder &b, const PerfConfig &config) {
-  return perfConfigToAttrImpl(b, config,
-                              std::make_index_sequence<PerfConfig::n>{});
+AttnPerfConfigAttr PopulateParamsAttn::deserializePerfConfig(
+    OpBuilder &b, RockGemmGemmWrapperInterface op, StringRef config) {
+  auto stringAttr = b.getStringAttr(config);
+  auto isWmma = bitEnumContainsAll(rock::getFeatures(op), GemmFeatures::wmma);
+  return AttnPerfConfigAttr::get(stringAttr, isWmma);
 }
 
 std::vector<AttnPerfConfigAttr>
-PopulateParamsAttn::perfConfigsToAttrs(OpBuilder &b,
-                                       const std::vector<PerfConfig> &configs) {
+PopulateParamsAttn::deserializePerfConfigs(OpBuilder &b,
+                                           RockGemmGemmWrapperInterface op,
+                                           ArrayRef<StringRef> configs) {
   std::vector<AttnPerfConfigAttr> ret;
   ret.reserve(configs.size());
   std::transform(
       configs.begin(), configs.end(), std::back_inserter(ret),
-      [&](const PerfConfig &config) { return perfConfigToAttr(b, config); });
+      [&](StringRef config) { return deserializePerfConfig(b, op, config); });
   return ret;
 }
 

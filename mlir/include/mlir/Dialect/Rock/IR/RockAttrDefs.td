@@ -235,6 +235,7 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     - scheduleVersion: Param to select GEMM schedule
     - outputSwizzle: Whether to enable/disable output swizzle or use heuristics 
   }];
+
   let parameters = (ins
     "uint32_t":$blockSize,
     "int64_t":$kPerBlock,
@@ -276,11 +277,19 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
     The perf configs for rock.attention operator.
   }];
 
-  let parameters = (ins "int64_t":$mPerBlockG0, "int64_t":$mPerBlockG1,
-      "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$mPerWave,
-      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$kpack,
-      "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
-      "int64_t":$outputSwizzle, "bool":$forceUnroll);
+  let parameters = (ins
+    "int64_t":$mPerBlockG0,
+    "int64_t":$mPerBlockG1,
+    "int64_t":$nPerBlockG0,
+    "int64_t":$kpackPerBlock,
+    "int64_t":$mPerWave,
+    "int64_t":$nPerWave,
+    "int64_t":$mnPerXdl,
+    "int64_t":$kpack,
+    "int64_t":$splitKFactor,
+    "int64_t":$scheduleVersion,
+    "int64_t":$outputSwizzle,
+    "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -296,14 +305,15 @@ def Rock_AttnPerfConfig : Rock_Attr<"AttnPerfConfig", [RockTuningParamAttrInterf
       + Twine(getSplitKFactor()) + ","
       + Twine(getScheduleVersion()) + ","
       + Twine(getOutputSwizzle()) + ","
-      + Twine(getForceUnroll())).toVector(perfStr);
+      + Twine(getForceUnroll()))
+      .toVector(perfStr);
     }
     AttnPerfConfigAttr withScheduleVersion(int64_t newScheduleVersion) const {
-    return AttnPerfConfigAttr::get(
-      getContext(), getMPerBlockG0(), getMPerBlockG1(), getNPerBlockG0(),
-      getKpackPerBlock(), getMPerWave(), getNPerWave(), getMnPerXdl(), getKpack(),
-      getSplitKFactor(), newScheduleVersion, getOutputSwizzle(), getForceUnroll());
-  }
+      return AttnPerfConfigAttr::get(
+        getContext(), getMPerBlockG0(), getMPerBlockG1(), getNPerBlockG0(),
+        getKpackPerBlock(), getMPerWave(), getNPerWave(), getMnPerXdl(), getKpack(),
+        getSplitKFactor(), newScheduleVersion, getOutputSwizzle(), getForceUnroll());
+    }
   }];
 
   let builders = [AttrBuilderWithInferredContext<(
