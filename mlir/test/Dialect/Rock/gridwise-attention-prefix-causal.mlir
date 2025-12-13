@@ -17,7 +17,7 @@
 #map14 = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
 #map15 = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #map16 = affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)>
-#mfma_gemm_params = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>
+#mfma_gemm_params = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 #transform_map = #rock.transform_map<#map by [<Unmerge{2, 16, 64} ["exp1", "exp3", "exp4"] at [1, 3, 4] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>, <AddDim{1} ["unit2"] at [2] -> [] at []>] bounds = [1, 2, 1, 16, 64] -> [2048]>
 #transform_map1 = #rock.transform_map<#map1 by [<Unmerge{4, 18, 64} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 4, 18, 64] -> [4608]>
 #transform_map2 = #rock.transform_map<#map2 by [<PassThrough ["dim0", "dim2", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim2", "dim1", "dim3"] at [0, 2, 1, 3]>] bounds = [1, 18, 4, 64] -> [1, 4, 18, 64]>
@@ -48,8 +48,9 @@
 module {
   // CHECK-LABEL: func @mlir_attention
   // Verify prefix causal loop bound calculation: effectiveSeqLen = maxRowOfBlock + prefixOffset
-  // The muli computes n_block * blockSize (maxRowOfBlock)
-  // CHECK: %[[MAX_ROW:.*]] = arith.muli %{{.*}}, %c32{{.*}} : index
+  // The muli computes n_block * blockSize, then subi computes maxRowOfBlock = nextBlockStart - 1
+  // CHECK: arith.muli %{{.*}}, %c32{{.*}} : index
+  // CHECK: %[[MAX_ROW:.*]] = arith.subi %{{.*}}, %c1{{.*}} : index
   // The prefixOffset is loaded from tensor and converted to index
   // CHECK: %[[OFFSET:.*]] = arith.index_cast %{{.*}} : i32 to index
   // effectiveSeqLen = maxRowOfBlock + prefixOffset

@@ -1317,14 +1317,14 @@ struct GridwiseAttentionAccelRewritePattern
             assert(prefixOffset != nullptr);
             Value nIndex = lowerCoords[1];
             if (constNumRepeatsGQA)
-              nIndex = thenb.createOrFold<arith::DivUIOp>(loc, nIndex,
-                                                          constNumRepeatsGQA);
+              nIndex = b.createOrFold<arith::DivUIOp>(loc, nIndex,
+                                                      constNumRepeatsGQA);
 
             // Compute query_pos + prefix_offset
             Value threshold =
-                arith::AddIOp::create(thenb, loc, nIndex, prefixOffset);
+                arith::AddIOp::create(b, loc, nIndex, prefixOffset);
             isInvalid = arith::CmpIOp::create(
-                thenb, loc, arith::CmpIPredicate::ugt, mIndex, threshold);
+                b, loc, arith::CmpIPredicate::ugt, mIndex, threshold);
             break;
           }
           }
@@ -1821,6 +1821,7 @@ struct GridwiseAttentionAccelRewritePattern
           // so we need to take the minimum of currentSeqLen and maxRowOfBlock
           maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, currentSeqLen,
                                                  maxRowOfBlock);
+        }
 
         if (gemm0N > gemm0M) {
           // Bound by actual K dimension (safety for seq_len_q > seq_len_k)
