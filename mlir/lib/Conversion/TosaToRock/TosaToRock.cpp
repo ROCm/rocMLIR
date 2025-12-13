@@ -2208,10 +2208,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   //   - Prefix causal: select(greater(col_indices, row_indices + offset), -inf,
   //   value)
   // Updates SeqLenMaskResult with the detected pattern type
-  void analyzeSelectForSeqLenMask(
-      tosa::SelectOp select, SeqLenMaskResult &result,
-      const DenseSet<StringRef> &opsToSkip,
-      const DenseSet<StringRef> &seqLenSkip) const {
+  void analyzeSelectForSeqLenMask(tosa::SelectOp select,
+                                  SeqLenMaskResult &result,
+                                  const DenseSet<StringRef> &opsToSkip,
+                                  const DenseSet<StringRef> &seqLenSkip) const {
     auto pred = select.getInput1();
     auto maybeGreater = getDefiningOpSkipping<tosa::GreaterOp>(pred, opsToSkip);
     if (failed(maybeGreater))
@@ -2271,7 +2271,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     // selects.
     bool haveSeqLen = currentResult.seqLen != nullptr;
     bool havePrefixOffset = currentResult.prefixOffset != nullptr;
-    
+
     if (haveSeqLen != havePrefixOffset) {
       auto maybeChainedSelect = getSelectWithNegInf(inputToContinue);
       if (succeeded(maybeChainedSelect)) {
@@ -2280,7 +2280,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         analyzeSelectForSeqLenMask(chainedSelect, currentResult, opsToSkip,
                                    seqLenSkip);
         // Only update inputToContinue if we found the complementary pattern
-        bool foundComplementary = 
+        bool foundComplementary =
             (!haveSeqLen && currentResult.seqLen) ||
             (!havePrefixOffset && currentResult.prefixOffset);
         if (foundComplementary) {
