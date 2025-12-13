@@ -1823,8 +1823,11 @@ struct GridwiseAttentionAccelRewritePattern
                                                  maxRowOfBlock);
         }
 
-        if (gemm0N > gemm0M) {
-          // Bound by actual K dimension (safety for seq_len_q > seq_len_k)
+        // For prefix causal, adding prefix_offset can push maxRowOfBlock beyond
+        // gemm0M. Similarly, when gemm0N > gemm0M, the last query position can
+        // exceed the key sequence length. In both cases, bound by gemm0M - 1.
+        if (gemm0N > gemm0M || isPrefixCausal) {
+          // Bound by actual K dimension (key sequence length)
           Value gemm0MMinusOne =
               rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0M - 1);
           maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, maxRowOfBlock,
