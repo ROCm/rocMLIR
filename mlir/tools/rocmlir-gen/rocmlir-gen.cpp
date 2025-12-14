@@ -1397,7 +1397,7 @@ static Value makeNDMemRef(OpBuilder &b, Value var, uint32_t ndim) {
 
 static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
                                                     const GenParams &params) {
-  // default perfConfig is attn:v3:32,32,32,32,32,32,16,1,1,1,2,1
+  // default perfConfig is attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1
   // keep in sync with AffixTuningParameters.cpp
   if (params.perfConfig.empty())
     return {32, 32};
@@ -2315,13 +2315,16 @@ createCPUConvFunc(ModuleOp module,
   OpBuilder b(module.getContext());
   auto loc = b.getUnknownLoc();
 
-  Type elemType =
+  Type inputElemType =
       typeFromString(genConfig.inputDataTypeStr, module.getContext());
+  Type filterElemType =
+      typeFromString(genConfig.filterDataTypeStr, module.getContext());
   Type outputElemType =
       typeFromString(genConfig.outputDataTypeStr, module.getContext());
 
   if (genConfig.inputDataTypeStr == "i8") {
-    elemType = b.getI8Type();
+    inputElemType = b.getI8Type();
+    filterElemType = b.getI8Type();
     // Compute the output in int64_t to detect overflow
     outputElemType = b.getIntegerType(64);
     assert(genConfig.operation.value() == rock::ConvOpType::Fwd);
@@ -2331,8 +2334,8 @@ createCPUConvFunc(ModuleOp module,
   int64_t inputElems = computeProduct(genConfig.inputDimension);
   int64_t outputElems = computeProduct(genConfig.outputDimension);
 
-  auto filterType = MemRefType::get(filterElems, elemType);
-  auto inputType = MemRefType::get(inputElems, elemType);
+  auto filterType = MemRefType::get(filterElems, filterElemType);
+  auto inputType = MemRefType::get(inputElems, inputElemType);
   auto outputType = MemRefType::get(outputElems, outputElemType);
 
   // Create conv_host function
@@ -5153,9 +5156,19 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     arch = canonicalArch.str().str();
 
     LogicalResult status = success();
-
     Type filterElemType = typeFromString(filterDataType.getValue(), context);
     Type inputElemType = typeFromString(inputDataType.getValue(), context);
+    // for regular convolution it does filter * input = output
+    // for bwd data convolution it does filter * output = input
+    // for the bwd weight convolution it does output * input = filter
+    // therefore need to remap data types accordingly before calculating
+    // features
+    if (operation == rock::KernelType::ConvBwdData) {
+      // for the bwd data, input and output are flipped
+      inputElemType = typeFromString(outputDataType.getValue(), context);
+    } else if (operation == rock::KernelType::ConvBwdWeight) {
+      filterElemType = typeFromString(outputDataType.getValue(), context);
+    }
     Type elemType = inputElemType;
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);

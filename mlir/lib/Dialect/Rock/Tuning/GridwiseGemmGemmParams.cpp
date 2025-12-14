@@ -98,19 +98,20 @@ template <typename GemmParamsAttrType>
 RockAccelTuningParamAttrInterface
 PopulateParamsAttn::getGemm0TuningParams(OpBuilder &b,
                                          AttnPerfConfigAttr params) {
-  constexpr auto splitKFactor = 1;
+  constexpr auto splitKFactor = 1, gridGroupSize = 0;
   return GemmParamsAttrType::get(
       b.getContext(), params.getKpackPerBlock(), params.getMPerBlockG0(),
       params.getNPerBlockG0(), params.getKpack(), params.getMPerWave(),
       params.getNPerWave(), params.getMnPerXdl(), splitKFactor,
       params.getScheduleVersion(), params.getOutputSwizzle(),
-      params.getForceUnroll());
+      params.getWavesPerEU(), gridGroupSize, params.getForceUnroll());
 }
 
 template <typename GemmParamsAttrType>
 RockAccelTuningParamAttrInterface
 PopulateParamsAttn::getGemm1TuningParams(OpBuilder &b,
                                          AttnPerfConfigAttr params) {
+  constexpr auto gridGroupSize = 0;
   return GemmParamsAttrType::get(
       b.getContext(), params.getMPerBlockG0() / params.getKpack(),
       params.getMPerBlockG1(), params.getNPerBlockG0(), params.getKpack(),
@@ -118,5 +119,5 @@ PopulateParamsAttn::getGemm1TuningParams(OpBuilder &b,
           (params.getMPerBlockG1() / params.getMPerBlockG0()),
       params.getNPerWave(), params.getMnPerXdl(), params.getSplitKFactor(),
       params.getScheduleVersion(), params.getOutputSwizzle(),
-      params.getForceUnroll());
+      params.getWavesPerEU(), gridGroupSize, params.getForceUnroll());
 }

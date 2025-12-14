@@ -577,6 +577,7 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
         validParams.gemmMPerWave, validParams.gemmNPerWave,
         validParams.gemmMnPerXdl, validParams.splitKFactor,
         validParams.gemmScheduleVersion, validParams.outputSwizzle,
+        validParams.wavesPerEU, validParams.gridGroupSize,
         validParams.gemmAThreadCopyMoreGemmK);
   } else {
     // V3 and older
@@ -590,11 +591,13 @@ PopulateParamsXDL::getGemmParamsAttr(OpBuilder &builder,
 
     mPerWave = mPerBlock / mWaves;
     int64_t nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
+
     return builder.getAttr<MfmaGemmParamsAttr>(
         validParams.gemmKPerBlock, validParams.gemmMPerBlock,
         validParams.gemmNPerBlock, validParams.gemmKPack, mPerWave, nPerWave,
         mnPerXdl, validParams.splitKFactor, validParams.gemmScheduleVersion,
-        validParams.outputSwizzle, validParams.gemmAThreadCopyMoreGemmK);
+        validParams.outputSwizzle, validParams.wavesPerEU,
+        validParams.gridGroupSize, validParams.gemmAThreadCopyMoreGemmK);
   }
 }
 
@@ -682,9 +685,9 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   }
 
   // Reject invalid KPACK values.
-  auto maybeWmmaInsn =
-      WmmaInsn::select(dataTypeA, dataTypeB, waveSize, arch,
-                       param.getMPerWave(), param.getNPerWave());
+  auto maybeWmmaInsn = WmmaInsn::select(
+      dataTypeA, dataTypeB, waveSize, arch, param.getMPerWave(),
+      param.getNPerWave(), param.getKpack(), param.getKpackPerBlock());
   if (failed(maybeWmmaInsn)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select wmma instruction.\n");
     return failure();
@@ -708,18 +711,18 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
   std::vector<InitParamsAccel> res;
   // Only return valid Wmma params
   const int64_t waveSize = mlir::rock::lookupArchInfo(arch).waveSize;
-  std::copy_if(params.begin(), params.end(), std::back_inserter(res),
-               [&](const InitParamsAccel &param) {
-                 auto maybeWmmaInsn =
-                     WmmaInsn::select(dataTypeA, dataTypeB, waveSize, arch,
-                                      param.gemmMPerWave, param.gemmNPerWave);
-                 if (failed(maybeWmmaInsn)) {
-                   return false;
-                 }
-                 WmmaInsn wmmaInsn = *maybeWmmaInsn;
-                 return wmmaInsn.isCoherentWithK(param.gemmKPack,
-                                                 param.gemmKPerBlock);
-               });
+  std::copy_if(
+      params.begin(), params.end(), std::back_inserter(res),
+      [&](const InitParamsAccel &param) {
+        auto maybeWmmaInsn = WmmaInsn::select(
+            dataTypeA, dataTypeB, waveSize, arch, param.gemmMPerWave,
+            param.gemmNPerWaveOrMnPerXdl, param.gemmKPack, param.gemmKPerBlock);
+        if (failed(maybeWmmaInsn)) {
+          return false;
+        }
+        WmmaInsn wmmaInsn = *maybeWmmaInsn;
+        return wmmaInsn.isCoherentWithK(param.gemmKPack, param.gemmKPerBlock);
+      });
   return res;
 }
 
@@ -748,5 +751,6 @@ Attribute PopulateParamsWmma::getGemmParamsAttr(
       validParams.gemmNPerBlock, validParams.gemmKPack,
       validParams.gemmMPerWave, nPerWave, mnPerXdl, validParams.splitKFactor,
       validParams.gemmScheduleVersion, validParams.outputSwizzle,
+      validParams.wavesPerEU, validParams.gridGroupSize,
       validParams.gemmAThreadCopyMoreGemmK);
 }
