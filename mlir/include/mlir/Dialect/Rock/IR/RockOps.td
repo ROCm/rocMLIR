@@ -1061,6 +1061,26 @@ def Rock_InBoundsStoreOp
   let hasVerifier = 1;
 }
 
+// global_prefetch
+def Rock_GlobalPrefetchOp
+    : Rock_Op<"global_prefetch">,
+      Arguments<(
+          ins Arg<MemRefOf<SupportedMemoryElems>, "source memory">:$source,
+          Variadic<Index>:$sourceCoord)> {
+  let summary = "Prefetch from global memory";
+  let description = [{
+    `global_prefetch` prefetches an item from the provided memref
+    (applying no coordinate transformations), starting at `sourceCoord`. 
+
+    Note that it's ok if `sourceCoord` are out of bounds because we use Speculative Prefetch.
+  }];
+  let assemblyFormat = [{
+    $source `[` $sourceCoord `]` attr-dict
+    `:` type($source)
+  }];
+  let hasVerifier = 1;
+}
+
 // global_load
 def Rock_GlobalLoadOp
     : Rock_Op<
@@ -1265,7 +1285,7 @@ def Rock_ThreadwiseReadIntoOp
     L is the length of `%dest`, V is the maximum vectorization computed
     for MAPS.
 
-    The input to extraViews ; (the transforms on %source) must have the form
+    The input to extraViews: (the transforms on %source) must have the form
     (extraIdx0, ... , extraIdxN, iteration_number)
 
     Primarily, extraIndices would be used to pass in tid and bid. This would need
@@ -1324,6 +1344,59 @@ def Rock_ThreadwiseReadIntoOp
     attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest
     (`if` ` ` `[` $dynamicValidities^ `]`)?
     `:` type($source) `->` type($dest) (`,` type($validityRecord)^)?
+  }];
+  let hasVerifier = 1;
+}
+
+// threadwise_prefetch
+def Rock_ThreadwisePrefetchOp
+    : Rock_Op<"threadwise_prefetch", [DeclareOpInterfaceMethods<
+                                         RockAcceptingViewOpInterface>]>,
+      Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source view">:$source,
+          TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
+          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs)> {
+  let summary = "Prefetch values from transformed source";
+
+  let description = [{
+    A high-level representation of a global prefetch loop that
+    accounts for coordinate transformations.
+
+    If `%source = rock.transform #transform_mapN %buffer`
+    (with the one transformation representing an entire sequence),
+    the operation
+
+    ```mlir
+    rock.threadwise_prefetch [#transform_mapM](%source)
+    ```
+
+    will lower to
+    ```mlir
+    %bid = rock.workgroup_id
+    %tid = rock.workitem_id
+    rock.transforming_for
+      (%args, ...) = MAPS(%bid, %tid, %c0)
+      (%_, %_, %i) = [](%c0, %c0, %c0)
+      bounds = [1, 1, L], strides = [1, 1, 1] {
+        rock.global_prefetch %buffer[%args]
+    }
+    ```
+
+    where MAPS is `[#transform_mapM, #transform_mapN]`,
+    L is the length of the upper view last dimension (number of elements).
+
+    The input to extraViews ; (the transforms on %source) must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number)
+
+    Primarily, extraIndices would be used to pass in tid and bid. This would need
+    to have a matching view in [extraViews]source. The extraIndices could be used
+    to integrate loop induction vars that is outside of the op.
+    If extraIndices are used, the [extraViews]source must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)?
+    `:` type($source)
   }];
   let hasVerifier = 1;
 }
