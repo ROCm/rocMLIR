@@ -283,8 +283,10 @@ int main(int argc, char **argv) {
       &matA, inputType, matA_rows, matA_cols, matA_rows));
   HIPBLASLT_ABORT_IF_FAIL(hipblasLtMatrixLayoutCreate(
       &matB, inputType, matB_rows, matB_cols, matB_rows));
-  HIPBLASLT_ABORT_IF_FAIL(hipblasLtMatrixLayoutCreate(&matC, outputType, n, m, n));
-  HIPBLASLT_ABORT_IF_FAIL(hipblasLtMatrixLayoutCreate(&matD, outputType, n, m, n));
+  HIPBLASLT_ABORT_IF_FAIL(
+      hipblasLtMatrixLayoutCreate(&matC, outputType, n, m, n));
+  HIPBLASLT_ABORT_IF_FAIL(
+      hipblasLtMatrixLayoutCreate(&matD, outputType, n, m, n));
 
   if (batch_count > 1) {
     // Due to A/B swap: matA uses strideB, matB uses strideA
@@ -308,9 +310,7 @@ int main(int argc, char **argv) {
     std::vector<hipblasLtMatmulHeuristicResult_t> selectedAlgos;
 
     hipblasStatus_t status = hipblaslt_ext::getAlgosFromIndex(
-        handle,
-        requestedIndices,
-        selectedAlgos);
+        handle, requestedIndices, selectedAlgos);
 
     if (status != HIPBLAS_STATUS_SUCCESS || selectedAlgos.empty()) {
       fprintf(stderr, "Error: Algorithm index %d is not available\n",
@@ -411,8 +411,8 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  int algoIndex = hipblaslt_ext::getIndexFromAlgo(
-    heuristicResults[bestAlgoIndex].algo);
+  int algoIndex =
+      hipblaslt_ext::getIndexFromAlgo(heuristicResults[bestAlgoIndex].algo);
 
   if (algoIndex >= 0) {
     std::cout << "Best algorithm index: " << algoIndex << "\n";
