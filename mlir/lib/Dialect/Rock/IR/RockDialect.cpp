@@ -1916,6 +1916,7 @@ LogicalResult IndexDiffUpdateOp::verify() {
   return success();
 }
 
+// Common verification code for load and prefetch
 template <typename LoadOrPrefetch>
 static LogicalResult verifyGlobalLoadAndPrefetch(LoadOrPrefetch op) {
   MemRefType sourceType = op.getSource().getType();
