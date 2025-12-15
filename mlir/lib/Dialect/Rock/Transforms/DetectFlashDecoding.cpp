@@ -164,23 +164,42 @@ static std::pair<int64_t, int64_t> detectSplitKVFromKV(Value tensor,
         return std::nullopt;
       };
 
-      // 5D case: Unmerge has 5 params, splitKV at position 2 or 3
+      // 5D case with AddDim: Unmerge has 4 params, AddDim adds the 5th.
+      if (params.size() == 4 && upperBounds.size() == 5) {
+        if (auto result = checkUnmergePattern(5, 3, params[2]))
+          return *result;
+        if (auto result = checkUnmergePattern(5, 4, params[3]))
+          return *result;
+      }
+
+      // 5D case without AddDim: Unmerge has 5 params.
       if (params.size() == 5 && upperBounds.size() == 5) {
-        // Check position 2: [B, H, splitKV, ...]
         if (auto result = checkUnmergePattern(5, 2, params[2]))
           return *result;
-        // Check position 3: [B, H, D, splitKV, ...]
         if (auto result = checkUnmergePattern(5, 3, params[3]))
           return *result;
       }
 
-      // 4D case: Unmerge has 4 params, splitKV at position 1 or 2
+      // 4D case with AddDim: Unmerge has 3 params, AddDim adds the 4th.
+      if (params.size() == 3 && upperBounds.size() == 4) {
+        if (auto result = checkUnmergePattern(4, 2, params[1]))
+          return *result;
+        if (auto result = checkUnmergePattern(4, 3, params[2]))
+          return *result;
+      }
+
+      // 4D case without AddDim: Unmerge has 4 params.
       if (params.size() == 4 && upperBounds.size() == 4) {
-        // Check position 1: [BH, splitKV, ...]
         if (auto result = checkUnmergePattern(4, 1, params[1]))
           return *result;
-        // Check position 2: [BH, D, splitKV, ...]
         if (auto result = checkUnmergePattern(4, 2, params[2]))
+          return *result;
+      }
+
+      // 3D case: Unmerge has 3 params, splitKV merged into batch.
+      if (params.size() == 3 && upperBounds.size() == 3) {
+        // Check params[1] for splitKV at position 1
+        if (auto result = checkUnmergePattern(3, 1, params[1]))
           return *result;
       }
     }
