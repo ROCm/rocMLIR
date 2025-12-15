@@ -1127,8 +1127,10 @@ computeCopyPerThreadAccelLayout(Type elementType, int64_t copyPerThread,
   assert(dPerBlock % dThread == 0 &&
          "dPerBlock should be divisible by dThread");
   copyDPerThread = dPerBlock / dThread;
-  assert(kPerBlock % (copyKPerThread * kThread) == 0 &&
-         "kPerBlock should be divisible by (copyKPerThread*kThread)");
+  if (kPerBlock % (copyKPerThread * kThread) != 0) {
+    return mlir::emitError(loc)
+           << "kPerBlock should be divisible by (copyKPerThread*kThread)\n";
+  }
   repeatKPerThread = kPerBlock / (copyKPerThread * kThread);
   GemmDimension dim = GemmDimension::K;
 
