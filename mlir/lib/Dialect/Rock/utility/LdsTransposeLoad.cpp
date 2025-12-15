@@ -115,7 +115,7 @@ static Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
   // Layout must be KxD (not DxK) for transpose load to work
   // This is a fundamental constraint - DxK layout cannot benefit from
   // hardware transpose instructions
-  if (ldsLayoutConfig.ldsLayout == GemmLDSLayout::KxD) {
+  if (ldsLayoutConfig.ldsLayout != GemmLDSLayout::KxD) {
     return dec;
   }
 
