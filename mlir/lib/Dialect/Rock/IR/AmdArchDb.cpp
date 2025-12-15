@@ -112,7 +112,18 @@ static constexpr AmdArchInfo
               /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
-              /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false);
+              /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
+    // TODO: update with right information
+    gfx1250Info(GemmFeatures::dot | GemmFeatures::atomic_add |
+                    GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma |
+                    GemmFeatures::atomic_add_f16 |
+                    GemmFeatures::atomic_add_bf16,
+                /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 800,
+                /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
+                /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
+                /*hasFp8ConversionInstrs=*/false,
+                /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
+                /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false);
 
 static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {
   std::tuple<StringRef, unsigned> ret("", 0);
@@ -373,7 +384,9 @@ AmdArchInfo mlir::rock::lookupArchInfo(StringRef arch) {
     return rdna3Info;
   }
   if (major == "gfx12") {
-    return rdna4Info;
+    return llvm::StringSwitch<AmdArchInfo>(minor)
+        .Case("50", gfx1250Info)
+        .Default(rdna4Info);
   }
   auto msg = "Unsupported architecture: " + arch.str();
   llvm_unreachable(msg.c_str());
@@ -437,4 +450,8 @@ mlir::rock::AmdArchInfo::getMaxLDSVectorLength(int64_t elementBitWidth) {
   }
 
   return maxGlobalToLDSVectorLen;
+}
+
+bool mlir::rock::isGlobalPrefetchSupported(StringRef arch) {
+  return arch.contains("gfx1250");
 }

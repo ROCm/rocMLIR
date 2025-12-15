@@ -50,10 +50,17 @@ config = "-seq_len_q 128 -seq_len_k 27 -head_dim_qk 64 -head_dim_v 32 --with-att
 [[suite.test]]
 config = "-seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 --with-attn-scale --with-attn-bias"
 
-# Currently disabled until https://github.com/ROCm/rocMLIR-internal/issues/2173 is fixed
 # causal
-#[[suite.test]]
-#config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"
+[[suite.test]]
+config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"
+
+# prefix causal
+[[suite.test]]
+config = "-seq_len_q 384 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -prefix_offset=64 -causal --with-attn-scale --with-attn-bias"
+
+# causal with seq_len_q > seq_len_k
+[[suite.test]]
+config = "-seq_len_q 384 -seq_len_k 192 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"
 
 # GQA + KV Cache batch=3 + return LSE
 [[suite.test]]
@@ -70,3 +77,7 @@ config = "-rand 1 -return_lse -split_kv 8 -current_seq_len=17,1,32 -g 3 -num_hea
 # GQA + causal + KV Cache batch=3 + return LSE + split-kv (padding)
 [[suite.test]]
 config = "-rand 1 -return_lse -split_kv 8 -current_seq_len=17,1,32 -g 3 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"
+
+# GQA + prefix causal + KV Cache batch=3 + return LSE + split-kv (padding)
+[[suite.test]]
+config = "-rand 1 -return_lse -split_kv 8 -prefix_offset=18,5,16 -current_seq_len=17,1,32 -g 3 -num_heads_q 4 -num_heads_kv 2 -seq_len_q 1 -seq_len_k 384 -head_dim_qk 64 -head_dim_v 64 -causal --with-attn-scale --with-attn-bias"
