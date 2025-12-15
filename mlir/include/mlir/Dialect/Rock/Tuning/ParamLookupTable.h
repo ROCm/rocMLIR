@@ -19,11 +19,10 @@
 namespace mlir {
 namespace rock {
 
-template <typename ParamsType>
 class ParamLookupTable {
 public:
-  static ArrayRef<ParamsType> lookup(StringRef arch, KernelType op,
-                                     Type dataType);
+  static ArrayRef<StringRef> lookup(StringRef arch, KernelType op,
+                                    Type dataType);
 
   // Finds the lexicographically closest architecture variant when the exact
   // target key is not found in the lookup table.
@@ -47,12 +46,12 @@ private:
         .str();
   }
 
-  static const std::map<StringRef, ArrayRef<ParamsType>> &getTable() {
-    static const std::map<StringRef, ArrayRef<ParamsType>> table = buildTable();
+  static const std::map<StringRef, ArrayRef<StringRef>> &getTable() {
+    static const std::map<StringRef, ArrayRef<StringRef>> table = buildTable();
     return table;
   }
 
-  static std::map<StringRef, ArrayRef<ParamsType>> buildTable();
+  static std::map<StringRef, ArrayRef<StringRef>> buildTable();
 
   static StringRef normalizeArch(StringRef arch);
 
