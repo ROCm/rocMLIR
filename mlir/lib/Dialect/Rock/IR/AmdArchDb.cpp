@@ -453,5 +453,5 @@ mlir::rock::AmdArchInfo::getMaxLDSVectorLength(int64_t elementBitWidth) {
 }
 
 bool mlir::rock::isGlobalPrefetchSupported(StringRef arch) {
-  return arch == "gfx1250";
+  return arch.contains("gfx1250");
 }
