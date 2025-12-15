@@ -725,9 +725,10 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
                  gemmFilter, /*scaleA=*/nullptr, /*scaleB=*/nullptr,
                  /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                  /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-                 /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
-                 storeMethod, op.getDerivedBlockSizeAttr(),
-                 op.getGridSizeAttr(), op.getParamsAttr());
+                 /*bScaleTransposed=*/nullptr, /*accelLayoutA=*/nullptr,
+                 /*accelLayoutB=*/nullptr, op.getFeaturesAttr(), storeMethod,
+                 op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
+                 op.getParamsAttr());
 
   // Finally, erase the original Conv op.
   b.eraseOp(op);
@@ -1089,7 +1090,8 @@ FailureOr<std::tuple<Value, Value, Value>> backwardDataV4R1(ConvBwdDataOp op,
       /*scaleA=*/nullptr, /*scaleB=*/nullptr,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-      /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
+      /*bScaleTransposed=*/nullptr, /*accelLayoutA=*/nullptr,
+      /*accelLayoutB=*/nullptr, op.getFeaturesAttr(), storeMethod,
       op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
   gemm->setAttr("kernelId", b.getIndexAttr(kernelId));
@@ -1446,9 +1448,10 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
                    /*scaleA=*/nullptr, /*scaleB=*/nullptr,
                    /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                    /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-                   /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
-                   storeMethod, op.getDerivedBlockSizeAttr(),
-                   op.getGridSizeAttr(), tuningParams);
+                   /*bScaleTransposed=*/nullptr, /*accelLayoutA=*/nullptr,
+                   /*accelLayoutB=*/nullptr, op.getFeaturesAttr(), storeMethod,
+                   op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(),
+                   tuningParams);
 
     // Finally, erase the original Conv op.
     b.eraseOp(op);

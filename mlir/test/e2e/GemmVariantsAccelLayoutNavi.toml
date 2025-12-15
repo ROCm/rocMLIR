@@ -1,0 +1,51 @@
+directory = "GemmVariantsAccelLayoutNavi"
+prefix = "rocmlir-gen"
+suffix = "--operation gemm --arch %arch -pv %random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "transA"
+values = ["true", "false"]
+prefix = "--transA="
+
+[[axis]]
+name = "transB"
+values = ["true", "false"]
+prefix = "--transB="
+
+[[axis]]
+name = "transC"
+values = ["true", "false"]
+prefix = "--transC="
+
+[[axis]]
+name = "accelLayoutA"
+values = ["true", "false"]
+prefix = "--accelLayoutA="
+
+[[axis]]
+name = "accelLayoutB"
+values = ["true", "false"]
+prefix = "--accelLayoutB="
+
+[[axis]]
+name = "perf_config"
+values = ["v3:32,32,4,32,16,8,1,1,2,1,1", "v3:16,16,4,16,16,8,1,2,2,1,1", "v3:128,128,4,32,32,8,1,2,2,1,1"]
+prefix = "--perf_config="
+
+[[axis]]
+name = "data type"
+values = ["f16"]
+prefix = "-t "
+
+## Gemm variants
+[[suite]]
+name = "gemm_variants_accel_layout_navi"
+
+[[suite.test]]
+config = "-g 3 -m 256 -k 128 -n 256"
+
+[[suite.test]]
+config = "-g 1 -m 256 -k 128 -n 256"
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 128"

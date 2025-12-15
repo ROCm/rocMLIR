@@ -187,27 +187,32 @@ Type mlir::rock::vectorTypeOrSelf(Type elementType, int64_t len) {
 static void makeLoadRegsTidMerge(TopDownTMBuilder &viewBuilder,
                                  StringRef dThreadName, int64_t dThreads,
                                  int64_t kThreads, ArrayRef<unsigned> outDims,
-                                 bool isKContiguousDim) {
-  if (isKContiguousDim) {
-    viewBuilder.merge({dThreadName, "k_thread"}, outDims, "tid",
-                      {dThreads, kThreads});
-  } else {
+                                 bool isKContiguousDim, bool accelLayout) {
+  if (!isKContiguousDim || accelLayout) {
     viewBuilder.merge({"k_thread", dThreadName}, outDims, "tid",
                       {kThreads, dThreads});
+  } else {
+    viewBuilder.merge({dThreadName, "k_thread"}, outDims, "tid",
+                      {dThreads, kThreads});
   }
 }
 
 static void makeLoadRegsIterMerge(TopDownTMBuilder &viewBuilder,
                                   StringRef dIterName, int64_t dPerThread,
-                                  int64_t kPerThread,
+                                  int64_t kPerThread, int64_t repeatKPerThread,
                                   ArrayRef<unsigned> outDims,
-                                  bool isKContiguousDim) {
-  if (isKContiguousDim) {
-    viewBuilder.merge({dIterName, "k_iter"}, outDims, "iter",
-                      {dPerThread, kPerThread});
+                                  bool isKContiguousDim, bool accelLayout) {
+  if (accelLayout) {
+    viewBuilder.merge({"k_repeat", dIterName, "k_iter"}, outDims, "iter",
+                      {repeatKPerThread, dPerThread, kPerThread});
   } else {
-    viewBuilder.merge({"k_iter", dIterName}, outDims, "iter",
-                      {kPerThread, dPerThread});
+    if (isKContiguousDim) {
+      viewBuilder.merge({dIterName, "k_iter"}, outDims.take_front(2), "iter",
+                        {dPerThread, kPerThread});
+    } else {
+      viewBuilder.merge({"k_iter", dIterName}, outDims.take_front(2), "iter",
+                        {kPerThread, dPerThread});
+    }
   }
 }
 
@@ -215,7 +220,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, bool isKContiguousDim, bool directToLDS) {
+    int64_t dPerThread, int64_t repeatKPerThread, bool isKContiguousDim,
+    bool directToLDS, bool accelLayout) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -235,14 +241,21 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
-  if (dPerBlock % dPerThread != 0) {
-    return failure();
+  int64_t kThreads, dThreads;
+  if (accelLayout) {
+    dThreads = math_util::gcd(blockSize, dPerBlock);
+    assert(blockSize % dThreads == 0 &&
+           "blockSize should be divisible by dThreads");
+    kThreads = blockSize / dThreads;
+  } else {
+    if (dPerBlock % dPerThread != 0) {
+      return failure();
+    }
+    dThreads = dPerBlock / dPerThread;
+    kThreads = blockSize / dThreads;
   }
-  int64_t dThreads = dPerBlock / dPerThread;
-  int64_t kThreads = blockSize / dThreads;
-  if (kThreads * dThreads != blockSize) {
+  if (kThreads * dThreads != blockSize)
     return failure();
-  }
 
   RegsAsMatrixSubTiles gpuViews;
   {
@@ -256,27 +269,31 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     gridwiseSplitId.passThrough(
         {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2]});
     makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, kThreads,
-                         {4, 5}, isKContiguousDim);
+                         {4, 5}, isKContiguousDim, accelLayout);
     makeLoadRegsIterMerge(gridwiseSplitId, dIterName, dPerThread, kPerThread,
-                          {6, 7}, isKContiguousDim);
+                          repeatKPerThread, {6, 7, 8}, isKContiguousDim,
+                          accelLayout);
     TransformMapAttr splitIdAttr = gridwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
-    if (directToLDS) {
-      if (isKContiguousDim) {
-        toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
-                            {kGlobal / kPerBlock, kThreads, kPerThread});
-        toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
-                            {dGlobal / dPerBlock, dPerThread, dThreads});
-      } else {
-        toGlobalIdx.unmerge("k", 1, {"k_loop", "k_iter", "k_thread"},
-                            {kGlobal / kPerBlock, kPerThread, kThreads});
-        toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
-                            {dGlobal / dPerBlock, dThreads, dPerThread});
-      }
+    // k dimension
+    if (directToLDS && !isKContiguousDim) {
+      toGlobalIdx.unmerge("k", 1, {"k_loop", "k_iter", "k_thread"},
+                          {kGlobal / kPerBlock, kPerThread, kThreads});
+    } else if (accelLayout) {
+      toGlobalIdx.unmerge(
+          "k", 1, {"k_loop", "k_repeat", "k_thread", "k_iter"},
+          {kGlobal / kPerBlock, repeatKPerThread, kThreads, kPerThread});
     } else {
       toGlobalIdx.unmerge("k", 1, {"k_loop", "k_thread", "k_iter"},
                           {kGlobal / kPerBlock, kThreads, kPerThread});
+    }
+
+    // d dimension
+    if ((directToLDS && isKContiguousDim) || accelLayout) {
+      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
+                          {dGlobal / dPerBlock, dPerThread, dThreads});
+    } else {
       toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
                           {dGlobal / dPerBlock, dThreads, dPerThread});
     }
@@ -314,8 +331,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, int64_t kpack, bool isKContiguousDim,
-    bool doSwapThreadIterSubDimsForD) {
+    int64_t dPerThread, int64_t repeatKPerThread, int64_t kpack,
+    bool isKContiguousDim, bool doSwapThreadIterSubDimsForD, bool accelLayout) {
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
@@ -335,18 +352,26 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
 
   // Note: (kThreads * dThreads) = (kPerBlock * dPerBlock) / dataPerThread) =
   // blockSize
-  if (dPerBlock % dPerThread != 0) {
-    return failure();
+  int64_t kThreads, dThreads;
+  if (accelLayout) {
+    dThreads = math_util::gcd(blockSize, dPerBlock);
+    assert(blockSize % dThreads == 0 &&
+           "blockSize should be divisible by dThreads");
+    kThreads = blockSize / dThreads;
+  } else {
+    if (dPerBlock % dPerThread != 0) {
+      return failure();
+    }
+    dThreads = dPerBlock / dPerThread;
+    kThreads = blockSize / dThreads;
   }
-  int64_t dThreads = dPerBlock / dPerThread;
-  int64_t kThreads = blockSize / dThreads;
-  if (kThreads * dThreads != blockSize) {
+  if (kThreads * dThreads != blockSize)
     return failure();
-  }
 
   int64_t kpackPerThread = std::min(kPerThread, kpack);
   assert(kPerThread % kpackPerThread == 0);
-  int64_t kOuterPerThread = kPerThread / kpackPerThread;
+  int64_t kOuterPerThread =
+      accelLayout ? repeatKPerThread : kPerThread / kpackPerThread;
 
   RegsAsMatrixSubTiles gpuViews;
   {
@@ -360,24 +385,30 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getPackedRegsAsTileViews(
     gridwiseSplitId.passThrough(
         {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2]});
     makeLoadRegsTidMerge(gridwiseSplitId, dThreadName, dThreads, kThreads,
-                         {4, 5}, isKContiguousDim);
+                         {4, 5}, isKContiguousDim, accelLayout);
     gridwiseSplitId.merge({"kouterPerThread", dIterName, "kpackPerThread"},
                           {6, 7, 8}, "iter",
                           {kOuterPerThread, dPerThread, kpackPerThread});
     TransformMapAttr splitIdAttr = gridwiseSplitId.get();
     auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
-    toGlobalIdx.unmerge(
-        "k", 1, {"k_loop", "k_thread", "kouterPerThread", "kpackPerThread"},
-        {kGlobal / kPerBlock, kThreads, kOuterPerThread, kpackPerThread});
+    if (accelLayout) {
+      toGlobalIdx.unmerge(
+          "k", 1, {"k_loop", "kouterPerThread", "k_thread", "kpackPerThread"},
+          {kGlobal / kPerBlock, kOuterPerThread, kThreads, kpackPerThread});
+    } else {
+      toGlobalIdx.unmerge(
+          "k", 1, {"k_loop", "k_thread", "kouterPerThread", "kpackPerThread"},
+          {kGlobal / kPerBlock, kThreads, kOuterPerThread, kpackPerThread});
+    }
     // if the matrix is KxD swap the iter/thread dimension. This is so that
     // each thread writes in LDS contiguously, minimizing bank conflicts
-    if (!doSwapThreadIterSubDimsForD)
-      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
-                          {dGlobal / dPerBlock, dThreads, dPerThread});
-    else
+    if (accelLayout || doSwapThreadIterSubDimsForD)
       toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName, dThreadName},
                           {dGlobal / dPerBlock, dPerThread, dThreads});
+    else
+      toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dThreadName, dIterName},
+                          {dGlobal / dPerBlock, dThreads, dPerThread});
 
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
@@ -994,18 +1025,21 @@ mlir::rock::traceGemmOutputToGenericOps(Value matC, func::FuncOp func,
 /// loop over the other dimension
 static std::pair<GemmDimension, int64_t>
 bestGlobalVectorization(Value matrix, int64_t copyDPerThread,
-                        int64_t copyKPerThread, GemmDimension tiebreaker,
-                        int64_t kPerBlock, int64_t dPerBlock) {
+                        int64_t copyKPerThread, int64_t repeatKPerThread,
+                        GemmDimension tiebreaker, int64_t kPerBlock,
+                        int64_t dPerBlock) {
   // A future commit will account for the underlying buffer's vectorization
   // here.
   VectorizationResult kVectorRes = getMaxVectorization(
       matrix, static_cast<uint32_t>(GemmDimension::K), /*inputDimLen=*/
-      math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock),
+      math_util::gcd(copyKPerThread * copyDPerThread * repeatKPerThread,
+                     kPerBlock),
       matrix.getDefiningOp());
   int64_t kVectorLen = kVectorRes.max;
   VectorizationResult dVectorRes = getMaxVectorization(
       matrix, static_cast<uint32_t>(GemmDimension::MorN), /*inputDimLen=*/
-      math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock),
+      math_util::gcd(copyDPerThread * copyKPerThread * repeatKPerThread,
+                     dPerBlock),
       matrix.getDefiningOp());
   int64_t dVectorLen = dVectorRes.max;
 
@@ -1023,13 +1057,14 @@ bestGlobalVectorization(Value matrix, int64_t copyDPerThread,
 /// Compute a thread copy layout, i.e., how many elements a single thread (or
 /// workitem) reads along K and M (independently on how we vectorize the reads).
 /// This function is used when we are copying directly to LDS.
-static FailureOr<std::tuple<GemmDimension, int64_t, int64_t>>
+static FailureOr<std::tuple<GemmDimension, int64_t, int64_t, int64_t>>
 computeCopyPerThreadDirectToLDS(Value matrix, Type elementType,
                                 int64_t copyPerThread, int64_t kPerBlock,
                                 int64_t dPerBlock, int64_t kpack,
                                 int64_t targetBits, Location loc) {
   int64_t copyKPerThread = 0;
   int64_t copyDPerThread = 0;
+  int64_t repeatKPerThread = 1;
   // TODO: we need targetBits=96 if we want direct to LDS for f6
   if (targetBits % elementType.getIntOrFloatBitWidth() != 0)
     return failure();
@@ -1069,12 +1104,54 @@ computeCopyPerThreadDirectToLDS(Value matrix, Type elementType,
   if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
     return failure();
   }
-  return std::make_tuple(dim, copyKPerThread, copyDPerThread);
+  return std::make_tuple(dim, copyKPerThread, copyDPerThread, repeatKPerThread);
+}
+
+static FailureOr<std::tuple<GemmDimension, int64_t, int64_t, int64_t>>
+computeCopyPerThreadAccelLayout(Type elementType, int64_t copyPerThread,
+                                int64_t kPerBlock, int64_t dPerBlock,
+                                int64_t kpack, int64_t blockSize,
+                                Location loc) {
+  int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
+  maxVlen = math_util::gcd(maxVlen, kpack);
+  int64_t copyKPerThread = 0;
+  int64_t copyDPerThread = 0;
+  int64_t repeatKPerThread = 0;
+
+  int64_t dThread = math_util::gcd(blockSize, dPerBlock);
+  assert(blockSize % dThread == 0 &&
+         "blockSize should be divisible by dThread");
+  int64_t kThread = blockSize / dThread;
+
+  copyKPerThread = math_util::gcd(maxVlen, copyPerThread);
+  assert(dPerBlock % dThread == 0 &&
+         "dPerBlock should be divisible by dThread");
+  copyDPerThread = dPerBlock / dThread;
+  if (kPerBlock % (copyKPerThread * kThread) != 0) {
+    return mlir::emitError(loc)
+           << "kPerBlock should be divisible by (copyKPerThread*kThread)\n";
+  }
+  repeatKPerThread = kPerBlock / (copyKPerThread * kThread);
+  GemmDimension dim = GemmDimension::K;
+
+  if (copyKPerThread == 0 || copyDPerThread == 0 || repeatKPerThread == 0) {
+    return emitError(loc) << "gemmA copy size too small,"
+                          << " repeatKPerThread: " << repeatKPerThread
+                          << " copyKPerThread: " << copyKPerThread
+                          << " copyDPerThread: " << copyDPerThread << "\n";
+  }
+  if (kPerBlock < (copyKPerThread * repeatKPerThread) ||
+      dPerBlock < copyDPerThread) {
+    return mlir::emitError(loc)
+           << "gemmA per thread copy smaller than per"
+           << " block copy, incoherent tuning parameters\n";
+  }
+  return std::make_tuple(dim, copyKPerThread, copyDPerThread, repeatKPerThread);
 }
 
 /// Compute a thread copy layout, i.e., how many elements a single thread (or
 /// workitem) reads along K and M (independently on how we vectorize the reads)
-static FailureOr<std::tuple<GemmDimension, int64_t, int64_t>>
+static FailureOr<std::tuple<GemmDimension, int64_t, int64_t, int64_t>>
 computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
                      int64_t dPerBlock, int64_t kpack, Location loc) {
 
@@ -1084,6 +1161,7 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
   int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
   int64_t copyKPerThread = 0;
   int64_t copyDPerThread = 0;
+  int64_t repeatKPerThread = 1;
 
   GemmDimension dim;
   if (kpack == 1) {
@@ -1106,7 +1184,7 @@ computeCopyPerThread(Type elementType, int64_t copyPerThread, int64_t kPerBlock,
            << "gemmA per thread copy smaller than per"
            << " block copy, incoherent tuning parameters\n";
   }
-  return std::make_tuple(dim, copyKPerThread, copyDPerThread);
+  return std::make_tuple(dim, copyKPerThread, copyDPerThread, repeatKPerThread);
 }
 
 FailureOr<Value> mlir::rock::wrapLDSBufferForStore(
@@ -1166,9 +1244,15 @@ FailureOr<Value> mlir::rock::wrapLDSBufferForStore(
 FailureOr<VectorDimInfo>
 mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
                          int64_t blockSize, int64_t kPerBlock,
-                         int64_t dPerBlock, int64_t kpack, bool directToLDS) {
-  FailureOr<std::tuple<GemmDimension, int64_t, int64_t>> maybeCopyDPerThread =
-      failure();
+                         int64_t dPerBlock, int64_t kpack, bool directToLDS,
+                         bool accelLayout) {
+
+  if (accelLayout && kpack == 1)
+    return emitError(loc) << "accel layout requires kpack > 1, but got "
+                          << kpack;
+
+  FailureOr<std::tuple<GemmDimension, int64_t, int64_t, int64_t>>
+      maybeCopyDPerThread = failure();
   int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
   if (directToLDS) {
     auto arch = getArch(matrix.getDefiningOp());
@@ -1193,6 +1277,9 @@ mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
       maybeCopyDPerThread =
           computeCopyPerThreadDirectToLDS(matrix, elemType, copyPerThread,
                                           kPerBlock, dPerBlock, kpack, 32, loc);
+  } else if (accelLayout) {
+    maybeCopyDPerThread = computeCopyPerThreadAccelLayout(
+        elemType, copyPerThread, kPerBlock, dPerBlock, kpack, blockSize, loc);
   } else {
     maybeCopyDPerThread = computeCopyPerThread(
         elemType, copyPerThread, kPerBlock, dPerBlock, kpack, loc);
@@ -1203,6 +1290,7 @@ mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
   GemmDimension vectorDim = std::get<0>(maybeCopyDPerThread.value());
   int64_t copyKPerThread = std::get<1>(maybeCopyDPerThread.value());
   int64_t copyDPerThread = std::get<2>(maybeCopyDPerThread.value());
+  int64_t repeatKPerThread = std::get<3>(maybeCopyDPerThread.value());
   int64_t vectorLen;
   GemmDimension vectorTiebreaker =
       (kpack > 1) ? GemmDimension::K : GemmDimension::MorN;
@@ -1212,25 +1300,27 @@ mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
     if (vectorDim == GemmDimension::K) {
       VectorizationResult kVectorRes = getMaxVectorization(
           matrix, static_cast<uint32_t>(GemmDimension::K), /*inputDimLen=*/
-          math_util::gcd(copyKPerThread * copyDPerThread, kPerBlock),
+          math_util::gcd(copyKPerThread * copyDPerThread * repeatKPerThread,
+                         kPerBlock),
           matrix.getDefiningOp());
       vectorLen = math_util::gcd(kVectorRes.max, copyKPerThread);
     } else {
       VectorizationResult dVectorRes = getMaxVectorization(
           matrix, static_cast<uint32_t>(GemmDimension::MorN), /*inputDimLen=*/
-          math_util::gcd(copyDPerThread * copyKPerThread, dPerBlock),
+          math_util::gcd(copyDPerThread * copyKPerThread * repeatKPerThread,
+                         dPerBlock),
           matrix.getDefiningOp());
       vectorLen = math_util::gcd(dVectorRes.max, copyDPerThread);
     }
   } else {
     // Find the best way of vectorizing the layout
-    std::tie(vectorDim, vectorLen) =
-        bestGlobalVectorization(matrix, copyDPerThread, copyKPerThread,
-                                vectorTiebreaker, kPerBlock, dPerBlock);
+    std::tie(vectorDim, vectorLen) = bestGlobalVectorization(
+        matrix, copyDPerThread, copyKPerThread, repeatKPerThread,
+        vectorTiebreaker, kPerBlock, dPerBlock);
   }
 
-  return VectorDimInfo{vectorDim, vectorLen, copyKPerThread, copyDPerThread,
-                       vectorTiebreaker};
+  return VectorDimInfo{vectorDim,      vectorLen,        copyKPerThread,
+                       copyDPerThread, repeatKPerThread, vectorTiebreaker};
 }
 
 std::optional<int64_t> mlir::rock::getWorkgroupMemorySize(MemRefType type) {

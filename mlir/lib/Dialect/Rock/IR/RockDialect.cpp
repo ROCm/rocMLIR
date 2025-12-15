@@ -1065,6 +1065,7 @@ LogicalResult GemmOp::verify() {
              typeC = getC().getType();
 
   Type inElems = typeA.getElementType(), outElems = typeC.getElementType();
+
   // The integer gemm will produce i32 and then truncate/extend to the requested
   // iN e.g. i8.
   if (isa<FloatType>(inElems) && !isa<FloatType>(outElems))
@@ -3465,6 +3466,44 @@ ParseResult StageOp::parse(OpAsmParser &parser, OperationState &result) {
       parser.parseOptionalAttrDict(result.attributes))
     return failure();
 
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// AccelLayoutTransformOp
+//===-----------------------------------------------------===//
+
+LogicalResult AccelLayoutTransformOp::verify() {
+  auto inputRank = getInput().getType().getRank();
+  if (inputRank != 1)
+    return emitError("Input must be rank 1");
+
+  ShapedType outputType = getType();
+  if (outputType.getRank() != 3)
+    return emitError("wrong output type rank");
+
+  if (outputType.getNumElements() != getInput().getType().getNumElements())
+    return emitError("Input and output must have the same number of elements");
+
+  auto maybeParams = getParams();
+  if (maybeParams.has_value()) {
+    auto params = maybeParams.value();
+    int64_t kPack = params.getKpack();
+    int64_t mPerBlock = params.getMPerBlock();
+    int64_t nPerBlock = params.getNPerBlock();
+    int64_t kPackPerBlock = params.getKpackPerBlock();
+    int64_t dPerBlock = getIsA() ? mPerBlock : nPerBlock;
+    bool transposed = getTransposed();
+    bool kBlockFirst = (getIsA() && !transposed) || (!getIsA() && transposed);
+
+    int64_t d =
+        kBlockFirst ? outputType.getShape()[1] : outputType.getShape()[2];
+    int64_t k =
+        kBlockFirst ? outputType.getShape()[2] : outputType.getShape()[1];
+    int64_t kPerBlock = kPackPerBlock * kPack;
+    if (d % dPerBlock != 0 || k % kPerBlock != 0)
+      return emitError("output shape is not compatible with accel layout");
+  }
   return success();
 }
 

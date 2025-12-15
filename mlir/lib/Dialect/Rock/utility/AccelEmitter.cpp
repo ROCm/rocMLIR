@@ -438,7 +438,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
   int64_t nPerBlock = tuningParams.getNPerBlock();
   int64_t kPack = tuningParams.getKpack();
   bool rotateDWithK = matrixParams.getRotateDWithK();
-  bool ldsLayoutDxK = matrixParams.getLDSLayoutDxK();
+  GemmLDSLayout ldsLayout = matrixParams.getLDSLayout();
   int64_t dPerThread = matrixParams.getInDPerThread();
 
   // Extract relevant emitter parameters
@@ -451,7 +451,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
   // Note that when directToLDS is disabled, we are loading vector<kpackxdtype>
   // from LDS, so we load kpackPerThread. When directToLDS is enabled, we
   // load vector<1xdtype>, so each thread will load kpackPerThread * kPack.
-  if (matrixParams.getDirectToLDS()) {
+  if (matrixParams.getDirectToLDS() && ldsLayout != GemmLDSLayout::KxDxkpack) {
     // kVec is kPack for directToLDS because as explained above, the
     // non-directToLDS case, has a dtype=vector<kpackxdtype>. So, we need to
     // handle both cases.
@@ -512,7 +512,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
 
-    if (ldsLayoutDxK)
+    if (ldsLayout == GemmLDSLayout::DxK)
       offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
     else
       offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
@@ -568,7 +568,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
         rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
                  dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
 
-    if (ldsLayoutDxK)
+    if (ldsLayout == GemmLDSLayout::DxK)
       offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
     else
       offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
@@ -870,8 +870,8 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
   // TODO: gfx10 supports directToLDS. Implement it.
   assert(!matrixParams.getDirectToLDS() &&
          "direct to LDS not supported for WMMA");
-  assert(!matrixParams.getLDSLayoutDxK() &&
-         "WMMA only supports LDS layout KxD for now");
+  assert(matrixParams.getLDSLayout() == GemmLDSLayout::KxDxkpack &&
+         "WMMA only supports LDS layout KxDxkpack for now");
 
   // Extract relevant emitter parameters
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;

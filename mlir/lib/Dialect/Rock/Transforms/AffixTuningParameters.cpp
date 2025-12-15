@@ -108,10 +108,20 @@ void AffixTuningParameters::runOnOperation() {
     signalPassFailure();
     return;
   }
-  func.walk(
-      [&](RockGemmWrapperInterface op) { affixTuningParametersImpl(op); });
+  std::optional<RockAccelTuningParamAttrInterface> tuningParams;
+  func.walk([&](RockGemmWrapperInterface op) {
+    affixTuningParametersImpl(op);
+    if (op.getGemmParams().has_value() &&
+        isa<RockAccelTuningParamAttrInterface>(op.getGemmParams().value()))
+      tuningParams =
+          cast<RockAccelTuningParamAttrInterface>(op.getGemmParams().value());
+  });
   func.walk(
       [&](RockGemmGemmWrapperInterface op) { affixTuningParametersImpl(op); });
+  func.walk([&](AccelLayoutTransformOp op) {
+    assert(tuningParams.has_value());
+    op.setParamsAttr(tuningParams.value());
+  });
   func.walk([&](ReduceOp op) {
     func::FuncOp funcOp = getOperation();
     if (!funcOp->hasAttr("block_size")) {

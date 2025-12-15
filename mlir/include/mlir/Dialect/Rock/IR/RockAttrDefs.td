@@ -443,6 +443,22 @@ def Rock_GemmLoadTileType
 def Rock_GemmLoadTileTypeAttr
     : EnumAttr<Rock_Dialect, Rock_GemmLoadTileType, "GemmLoadTileType">;
 
+// GEMM Layouts
+def Rock_GemmLDSLayoutDxK : I32EnumAttrCase<"DxK", 0>;
+def Rock_GemmLDSLayoutKxD : I32EnumAttrCase<"KxD", 1>;
+def Rock_GemmLDSLayoutKxDxkpack : I32EnumAttrCase<"KxDxkpack", 2>;
+
+def Rock_GemmLDSLayout
+    : Rock_I32Enum<"GemmLDSLayout", "GEMM LDS layout type",
+                   [Rock_GemmLDSLayoutDxK, Rock_GemmLDSLayoutKxD,
+                    Rock_GemmLDSLayoutKxDxkpack]> {
+  let cppNamespace = "::mlir::rock";
+  let genSpecializedAttr = 0;
+}
+
+def Rock_GemmLDSLayoutAttr
+    : EnumAttr<Rock_Dialect, Rock_GemmLDSLayout, "GemmLDSLayout">;
+
 // Misc Attrs
 def Rock_PipelineAttr : Rock_Attr<"Pipeline"> {
   let mnemonic = "pipeline";
@@ -485,6 +501,11 @@ def Rock_OutputSwizzle : Rock_Attr<"OutputSwizzle"> {
   }];
 }
 
+// It is a temporary attribute
+def Rock_AccelLayout : Rock_Attr<"AccelLayout"> {
+  let mnemonic = "accel_layout";
+}
+
 def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
   let mnemonic = "rock.prefill";
 
@@ -512,17 +533,19 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
     - elementTypeLoad: Element type of that was actually loaded from memory (before any input fusion).
     - rotateDWithK: Trick to reduce LDS bank conflicts (see more info here: https://github.com/ROCm/rocMLIR/pull/1209)
     - swapThreadIterSubDims: Trick to reduce LDS bank conflicts (see more info here: https://github.com/ROCm/rocMLIR/pull/1209)
-    - LDSLayoutDxK: Wheter the layout in LDS is DxK
-    - directToLDS: Wheter direct to LDS is enabled
+    - LDSLayout: The layout in LDS
+    - directToLDS: Whether direct to LDS is enabled
     - splitKAcrossThreadsFirst: Used for attention, when bypassing LDS for the result of the first GEMM, explanation here: https://github.com/ROCm/rocMLIR-internal/issues/1201#issuecomment-1898925539
+    - accelLayout: Whether the layout in global memory is accel layout
     - g: gemm parameter G
     - d: gemm parameter D (could be M or N)
     - inDPerThread: How many elements of D (M or N) each thread is going to load from memory.
     - accelKDim: Accelerator instruction K dimension (for LDS transpose support).
   }];
   let parameters = (ins "Type":$elementType, "Type":$elementTypeLoad,
-      "bool":$rotateDWithK, "bool":$swapThreadIterSubDims, "bool":$LDSLayoutDxK,
-      "bool":$directToLDS, "bool":$splitKAcrossThreadsFirst, "int64_t":$g,
+      "bool":$rotateDWithK, "bool":$swapThreadIterSubDims,
+      "GemmLDSLayout":$LDSLayout, "bool":$directToLDS,
+      "bool":$splitKAcrossThreadsFirst, "bool":$accelLayout, "int64_t":$g,
       "int64_t":$d, "int64_t":$inDPerThread,
       DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled,
       DefaultValuedParameter<"int64_t", "0">:$accelKDim);

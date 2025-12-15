@@ -64,7 +64,7 @@ struct RegsAsMatrixSubTiles {
 struct LDSLayoutConfigDim {
   bool doRotateWithK;
   bool doSwapThreadIterSubDims;
-  bool ldsLayoutDxK;
+  rock::GemmLDSLayout ldsLayout;
 };
 
 // This is helper struct to aggregate
@@ -74,6 +74,7 @@ struct VectorDimInfo {
   int64_t vectorLen;
   int64_t inKPerThread;
   int64_t inDPerThread;
+  int64_t repeatKPerThread;
   GemmDimension vectorTiebreaker;
 };
 
@@ -121,7 +122,8 @@ FailureOr<RegsAsMatrixSubTiles> getLoadRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, bool isKContiguousDim, bool directToLDS);
+    int64_t dPerThread, int64_t repeatKPerThread, bool isKContiguousDim,
+    bool directToLDS, bool accelLayout);
 
 // This function will create views of the register buffer of the loaded tile
 // but packed as kOuterPerThread, dPerThread and kPackPerThread for max
@@ -131,8 +133,8 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
     ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
     int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, int64_t kpack, bool isKContiguousDim,
-    bool doSwapThreadIterSubDimsForD = false);
+    int64_t dPerThread, int64_t repeatKPerThread, int64_t kpack,
+    bool isKContiguousDim, bool doSwapThreadIterSubDimsForD, bool accelLayout);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
@@ -293,12 +295,12 @@ FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc, Value buffer,
                                        Type ldsReadType, int64_t kOuter,
                                        StringRef dName, int64_t d,
                                        int64_t kPerThread, int64_t dPerThread,
-                                       bool rotateDWithK = false);
+                                       bool rotateDWithK);
 
 FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
                                       int64_t blockSize, int64_t kPerBlock,
                                       int64_t dPerBlock, int64_t kpack,
-                                      bool directToLDS);
+                                      bool directToLDS, bool accelLayout);
 
 // Get the LDS size of the memref
 std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
