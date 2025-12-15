@@ -501,6 +501,11 @@ def Rock_OutputSwizzle : Rock_Attr<"OutputSwizzle"> {
   }];
 }
 
+// It is a temporary attribute
+def Rock_AccelLayout : Rock_Attr<"AccelLayout"> {
+  let mnemonic = "accel_layout";
+}
+
 def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
   let mnemonic = "rock.prefill";
 
