@@ -22,41 +22,38 @@ namespace rock {
 
 class PopulateParamsAttn {
 public:
-  static std::vector<AttnPerfConfigAttr>
+  static std::vector<AttnParamsAttr>
   getQuickTuningRange(OpBuilder &b, RockGemmGemmWrapperInterface op);
 
   static LogicalResult paramsProbablyValid(OpBuilder &b,
                                            RockGemmGemmWrapperInterface op,
-                                           AttnPerfConfigAttr params);
+                                           AttnParamsAttr params);
 
-  static FailureOr<std::pair<RockAccelTuningParamAttrInterface,
-                             RockAccelTuningParamAttrInterface>>
+  static FailureOr<std::pair<AccelGemmParamsAttr, AccelGemmParamsAttr>>
   getGemmGemmTuningParams(OpBuilder &b, RockGemmGemmWrapperInterface op,
-                          AttnPerfConfigAttr params);
+                          AttnParamsAttr params);
 
 protected:
-  static AttnPerfConfigAttr
-  deserializePerfConfig(OpBuilder &b, RockGemmGemmWrapperInterface op,
-                        StringRef config);
+  static AttnParamsAttr deserializePerfConfig(OpBuilder &b,
+                                              RockGemmGemmWrapperInterface op,
+                                              StringRef config);
 
-  static std::vector<AttnPerfConfigAttr>
+  static std::vector<AttnParamsAttr>
   deserializePerfConfigs(OpBuilder &b, RockGemmGemmWrapperInterface op,
                          ArrayRef<StringRef> configs);
 
-  template <typename GemmParamsAttrType>
-  static RockAccelTuningParamAttrInterface
-  getGemm0TuningParams(OpBuilder &b, AttnPerfConfigAttr params);
+  static AccelGemmParamsAttr getGemm0TuningParams(OpBuilder &b,
+                                                  AttnParamsAttr params);
 
-  template <typename GemmParamsAttrType>
-  static RockAccelTuningParamAttrInterface
-  getGemm1TuningParams(OpBuilder &b, AttnPerfConfigAttr params);
+  static AccelGemmParamsAttr getGemm1TuningParams(OpBuilder &b,
+                                                  AttnParamsAttr params);
 
 private:
 #define Attn_DECLARATIONS_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Attn_DECLARATIONS_GEN
 
-  friend class ParamLookupTable<StringRef>;
+  friend class ParamLookupTable;
 };
 
 } // namespace rock

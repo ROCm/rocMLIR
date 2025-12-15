@@ -3,8 +3,9 @@ set(ROCK_UNITTEST_SOURCES
   TosaUtilsTests.cpp
   loweringUtilsTests.cpp
   transformMapUtilsTests.cpp
-  InitParamsAccelTests.cpp
-  InitParamsNonAccelTests.cpp
+  AccelGemmParamsAttrTests.cpp
+  GeneralGemmParamsAttrTests.cpp
+  AttnParamsAttrTests.cpp
   ParamLookupTableTests.cpp
 )
 

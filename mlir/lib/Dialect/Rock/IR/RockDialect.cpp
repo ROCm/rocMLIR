@@ -259,8 +259,8 @@ struct RockOpAsmDialectInterface : public OpAsmDialectInterface {
       os << "general_gemm_params";
       return AliasResult::OverridableAlias;
     }
-    if (isa<MfmaGemmParamsAttr>(attr)) {
-      os << "mfma_gemm_params";
+    if (isa<AccelGemmParamsAttr>(attr)) {
+      os << "accel_gemm_params";
       return AliasResult::OverridableAlias;
     }
     return AliasResult::NoAlias;
@@ -1179,7 +1179,7 @@ LogicalResult GemmOp::verify() {
   bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
   if (Attribute params = this->getParams().value_or(nullptr)) {
-    if (isMfma && !isa<MfmaGemmParamsAttr>(params))
+    if (isMfma && !isa<AccelGemmParamsAttr>(params))
       return emitOpError("a mfma GEMM has non-mfma tuning parameters");
     if (getFeatures() == GemmFeatures::none &&
         !isa<GeneralGemmParamsAttr>(params))
@@ -3267,90 +3267,210 @@ void AttentionOp::getEffects(
 }
 
 //===-----------------------------------------------------===//
-// AttentionPerfConfig Attr
+// PerfConfigStr parsing
 //===-----------------------------------------------------===//
 
-AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
-                                           bool isWmma) {
-  // Here a conventional c++ string split is being
-  // done because MLIR lacks parseSourceString() method
-  // to parse Attributes and its only there for Ops.
-  StringRef perfConfigStrRef = perfConfigStrAttr.strref();
-  StringRef token;
-  StringRef rest;
-  std::tie(token, rest) = perfConfigStrRef.split(':');
-  if (token != "attn") {
-    return {};
-  }
-  std::tie(token, rest) = rest.split(':');
-  if (token.substr(0, 1) != "v") {
-    return {};
-  }
+namespace {
+
+struct PerfConfigParseResult {
   int version;
-  if (!llvm::to_integer(token.slice(1, StringRef::npos), version)) {
-    return {};
-  }
-  if (version != 1 && version != 2 && version != 3) {
-    llvm_unreachable("Unknown version of the perfConfig");
-  }
-  size_t expectedNumTokens = 0;
-  switch (version) {
-  case 1:
-    expectedNumTokens = 8;
-    break;
-  case 2:
-    expectedNumTokens = 11;
-    break;
-  case 3:
-    expectedNumTokens = 13;
-    break;
-  default:
-    llvm_unreachable("Unknown version of the perfConfig");
-  }
-  SmallVector<StringRef> tokens;
   SmallVector<int64_t> params;
-  tokens.reserve(expectedNumTokens);
-  params.reserve(expectedNumTokens);
+};
+
+static std::optional<PerfConfigParseResult>
+parsePerfConfigStr(StringRef configStr, StringRef expectedPrefix = "") {
+  StringRef rest = configStr;
+
+  // Handle optional prefix
+  if (!expectedPrefix.empty()) {
+    StringRef prefix;
+    std::tie(prefix, rest) = rest.split(':');
+    if (prefix != expectedPrefix)
+      return std::nullopt;
+  }
+
+  // Parse "vN:"
+  StringRef versionStr;
+  std::tie(versionStr, rest) = rest.split(':');
+  if (!versionStr.consume_front("v"))
+    return std::nullopt;
+
+  int version;
+  if (!llvm::to_integer(versionStr, version))
+    return std::nullopt;
+
+  // Parse comma-separated parameters
+  SmallVector<StringRef> tokens;
   rest.split(tokens, ',');
-  if (tokens.size() != expectedNumTokens) {
+
+  SmallVector<int64_t> params;
+  params.reserve(tokens.size());
+  for (StringRef tok : tokens) {
+    int64_t val;
+    if (!llvm::to_integer(tok.trim(), val))
+      return std::nullopt;
+    params.push_back(val);
+  }
+
+  return PerfConfigParseResult{version, params};
+}
+
+} // namespace
+
+//===-----------------------------------------------------===//
+// GeneralGemmParamsAttr
+//===-----------------------------------------------------===//
+
+GeneralGemmParamsAttr GeneralGemmParamsAttr::get(StringAttr perfConfigStrAttr) {
+  auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref());
+  if (!parsed) {
     return {};
   }
-  llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
-    int param;
-    llvm::to_integer(s, param);
-    return param;
-  });
-  bool isV3 = (version == 3);
-  int64_t mPerBlockG0 = params[0];
-  int64_t mPerBlockG1 = params[1];
-  int64_t nPerBlockG0 = params[2];
-  int64_t kpackPerBlock = params[3];
-  int64_t mPerWave = params[4];
+
+  int version = parsed->version;
+  auto &params = parsed->params;
+
+  size_t expectedCount = (version == 1)   ? 6
+                         : (version == 2) ? 7
+                         : (version == 3) ? 9
+                                          : 0;
+  if (expectedCount == 0 || params.size() != expectedCount) {
+    return {};
+  }
+
+  int64_t idx = 0;
+  int64_t blockSize = params[idx++];
+  int64_t mPerBlock = params[idx++];
+  int64_t nPerBlock = params[idx++];
+  int64_t kPerBlock = params[idx++];
+  int64_t mPerThread = params[idx++];
+  int64_t nPerThread = params[idx++];
+  int64_t splitKFactor = (version > 1) ? params[idx++] : 1;
+  int64_t scheduleVersion = (version > 2) ? params[idx++] : 1;
+  int64_t outputSwizzle = (version > 2) ? params[idx++] : 2;
+
+  constexpr int64_t kPerThread = 1;
+  constexpr int64_t kpack = 1;
+
+  return GeneralGemmParamsAttr::get(perfConfigStrAttr.getContext(), blockSize,
+                                    kPerBlock, mPerBlock, nPerBlock, kPerThread,
+                                    mPerThread, nPerThread, kpack, splitKFactor,
+                                    scheduleVersion, outputSwizzle);
+}
+
+//===-----------------------------------------------------===//
+// AccelGemmParamsAttr
+//===-----------------------------------------------------===//
+
+AccelGemmParamsAttr AccelGemmParamsAttr::get(StringAttr perfConfigStrAttr,
+                                             bool isWmma) {
+  auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref());
+  if (!parsed) {
+    return {};
+  }
+
+  int version = parsed->version;
+  auto &params = parsed->params;
+
+  size_t expectedCount = (version == 1)   ? 8
+                         : (version == 2) ? 9
+                         : (version == 3) ? 11
+                         : (version == 4) ? 14
+                                          : 0;
+  if (expectedCount == 0 || params.size() != expectedCount) {
+    return {};
+  }
+
+  int64_t idx = 0;
+  int64_t mPerBlock = params[idx++];
+  int64_t nPerBlock = params[idx++];
+  int64_t kpackPerBlock = params[idx++];
+  int64_t mPerWave = params[idx++];
+
   int64_t nPerWave, mnPerXdl;
-  int64_t lastIdx = 5;
-  if (isV3) {
-    nPerWave = params[lastIdx++];
-    mnPerXdl = params[lastIdx++];
-    // the code below is for compatibility with < v3
+  if (version > 3) {
+    nPerWave = params[idx++];
+    mnPerXdl = params[idx++];
+    // the code below is for compatibility with < v4
   } else if (isWmma) {
     mnPerXdl = 16; // default value 16 because v3 had no mnPerXdl
-    nPerWave = params[lastIdx++];
+    nPerWave = params[idx++];
   } else {
-    mnPerXdl = params[lastIdx++];
-    const int64_t maxWavesPerWG = 4;
+    mnPerXdl = params[idx++];
+    constexpr int64_t maxWavesPerWG = 4;
+    int64_t mWaves = std::min(mPerBlock / mPerWave, maxWavesPerWG);
+    int64_t nWaves = maxWavesPerWG / mWaves;
+    mPerWave = mPerBlock / mWaves;
+    nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
+  }
+
+  int64_t kpack = params[idx++];
+  int64_t splitKFactor = (version > 1) ? params[idx++] : 1;
+  int64_t scheduleVersion = (version > 2) ? params[idx++] : 1;
+  int64_t outputSwizzle = (version > 2) ? params[idx++] : 2;
+  int64_t wavesPerEU = (version > 3) ? params[idx++] : 0; // 0 -> use heuristic
+  int64_t gridGroupSize = (version > 3) ? params[idx++] : 0;
+  bool forceUnroll = params[idx++];
+
+  return AccelGemmParamsAttr::get(
+      perfConfigStrAttr.getContext(), kpackPerBlock, mPerBlock, nPerBlock,
+      kpack, mPerWave, nPerWave, mnPerXdl, splitKFactor, scheduleVersion,
+      outputSwizzle, wavesPerEU, gridGroupSize, forceUnroll);
+}
+
+//===-----------------------------------------------------===//
+// AttnParamsAttr
+//===-----------------------------------------------------===//
+
+AttnParamsAttr AttnParamsAttr::get(StringAttr perfConfigStrAttr, bool isWmma) {
+  auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref(), "attn");
+  if (!parsed) {
+    return {};
+  }
+
+  int version = parsed->version;
+  auto &params = parsed->params;
+
+  size_t expectedCount = (version == 1)   ? 8
+                         : (version == 2) ? 11
+                         : (version == 3) ? 13
+                                          : 0;
+  if (expectedCount == 0 || params.size() != expectedCount) {
+    return {};
+  }
+
+  int64_t idx = 0;
+  int64_t mPerBlockG0 = params[idx++];
+  int64_t mPerBlockG1 = params[idx++];
+  int64_t nPerBlockG0 = params[idx++];
+  int64_t kpackPerBlock = params[idx++];
+  int64_t mPerWave = params[idx++];
+
+  int64_t nPerWave, mnPerXdl;
+  if (version > 2) {
+    nPerWave = params[idx++];
+    mnPerXdl = params[idx++];
+    // the code below is for compatibility with < v3
+  } else if (isWmma) {
+    mnPerXdl = 16; // default value 16 because v2 had no mnPerXdl
+    nPerWave = params[idx++];
+  } else {
+    mnPerXdl = params[idx++];
+    constexpr int64_t maxWavesPerWG = 4;
     int64_t mWaves = std::min(mPerBlockG0 / mPerWave, maxWavesPerWG);
     int64_t nWaves = maxWavesPerWG / mWaves;
-
     mPerWave = mPerBlockG0 / mWaves;
     nPerWave = std::max(nPerBlockG0 / nWaves, mnPerXdl);
   }
-  int64_t kpack = params[lastIdx++];
-  int64_t splitKFactor = version > 1 ? params[lastIdx++] : 1;
-  int64_t scheduleVersion = version > 1 ? params[lastIdx++] : 1;
-  int64_t outputSwizzle = version > 1 ? params[lastIdx++] : 2;
-  int64_t wavesPerEU = isV3 ? params[lastIdx++] : 0; // 0 -> use heuristic
-  int64_t forceUnroll = params[expectedNumTokens - 1] == 1;
-  return AttnPerfConfigAttr::get(
+
+  int64_t kpack = params[idx++];
+  int64_t splitKFactor = (version > 1) ? params[idx++] : 1;
+  int64_t scheduleVersion = (version > 1) ? params[idx++] : 1;
+  int64_t outputSwizzle = (version > 1) ? params[idx++] : 2;
+  int64_t wavesPerEU = (version > 2) ? params[idx++] : 0; // 0 -> use heuristic
+  bool forceUnroll = params[idx++];
+
+  return AttnParamsAttr::get(
       perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
       kpackPerBlock, mPerWave, nPerWave, mnPerXdl, kpack, splitKFactor,
       scheduleVersion, outputSwizzle, wavesPerEU, forceUnroll);

@@ -14,30 +14,30 @@ using namespace mlir::rock;
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Attn_DEFINITIONS_GEN
 
-std::vector<AttnPerfConfigAttr>
+std::vector<AttnParamsAttr>
 PopulateParamsAttn::getQuickTuningRange(OpBuilder &b,
                                         RockGemmGemmWrapperInterface op) {
   if (!rock::isAccel(rock::getFeatures(op))) {
     return {};
   }
-  auto perfConfigs = ParamLookupTable<StringRef>::lookup(
+  auto perfConfigs = ParamLookupTable::lookup(
       rock::getArchValue(op), op.getKernelType(),
       cast<MemRefType>(op.getAType()).getElementType());
   return deserializePerfConfigs(b, op, perfConfigs);
 }
 
-AttnPerfConfigAttr PopulateParamsAttn::deserializePerfConfig(
+AttnParamsAttr PopulateParamsAttn::deserializePerfConfig(
     OpBuilder &b, RockGemmGemmWrapperInterface op, StringRef config) {
   auto stringAttr = b.getStringAttr(config);
   auto isWmma = bitEnumContainsAll(rock::getFeatures(op), GemmFeatures::wmma);
-  return AttnPerfConfigAttr::get(stringAttr, isWmma);
+  return AttnParamsAttr::get(stringAttr, isWmma);
 }
 
-std::vector<AttnPerfConfigAttr>
+std::vector<AttnParamsAttr>
 PopulateParamsAttn::deserializePerfConfigs(OpBuilder &b,
                                            RockGemmGemmWrapperInterface op,
                                            ArrayRef<StringRef> configs) {
-  std::vector<AttnPerfConfigAttr> ret;
+  std::vector<AttnParamsAttr> ret;
   ret.reserve(configs.size());
   std::transform(
       configs.begin(), configs.end(), std::back_inserter(ret),
@@ -46,7 +46,7 @@ PopulateParamsAttn::deserializePerfConfigs(OpBuilder &b,
 }
 
 LogicalResult PopulateParamsAttn::paramsProbablyValid(
-    OpBuilder &b, RockGemmGemmWrapperInterface op, AttnPerfConfigAttr params) {
+    OpBuilder &b, RockGemmGemmWrapperInterface op, AttnParamsAttr params) {
   if (succeeded(getGemmGemmTuningParams(b, op, params))) {
     return success();
   } else {
@@ -54,27 +54,22 @@ LogicalResult PopulateParamsAttn::paramsProbablyValid(
   }
 }
 
-FailureOr<std::pair<RockAccelTuningParamAttrInterface,
-                    RockAccelTuningParamAttrInterface>>
+FailureOr<std::pair<AccelGemmParamsAttr, AccelGemmParamsAttr>>
 PopulateParamsAttn::getGemmGemmTuningParams(OpBuilder &b,
                                             RockGemmGemmWrapperInterface op,
-                                            AttnPerfConfigAttr params) {
+                                            AttnParamsAttr params) {
+  auto features = rock::getFeatures(op);
+  if (!rock::isAccel(features)) {
+    return failure();
+  }
+
   if ((params.getMPerBlockG1() % params.getMPerBlockG0()) ||
       (params.getMPerBlockG0() % params.getKpack())) {
     return failure();
   }
 
-  auto features = rock::getFeatures(op);
-  RockAccelTuningParamAttrInterface accelParams0, accelParams1;
-  if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
-    accelParams0 = getGemm0TuningParams<MfmaGemmParamsAttr>(b, params);
-    accelParams1 = getGemm1TuningParams<MfmaGemmParamsAttr>(b, params);
-  } else if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
-    accelParams0 = getGemm0TuningParams<WmmaGemmParamsAttr>(b, params);
-    accelParams1 = getGemm1TuningParams<WmmaGemmParamsAttr>(b, params);
-  } else {
-    return failure();
-  }
+  AccelGemmParamsAttr accelParams0 = getGemm0TuningParams(b, params);
+  AccelGemmParamsAttr accelParams1 = getGemm1TuningParams(b, params);
 
   auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
   LogicalResult isValidBlockwiseGemm0 =
@@ -94,12 +89,10 @@ PopulateParamsAttn::getGemmGemmTuningParams(OpBuilder &b,
   return std::make_pair(accelParams0, accelParams1);
 }
 
-template <typename GemmParamsAttrType>
-RockAccelTuningParamAttrInterface
-PopulateParamsAttn::getGemm0TuningParams(OpBuilder &b,
-                                         AttnPerfConfigAttr params) {
+AccelGemmParamsAttr
+PopulateParamsAttn::getGemm0TuningParams(OpBuilder &b, AttnParamsAttr params) {
   constexpr auto splitKFactor = 1, gridGroupSize = 0;
-  return GemmParamsAttrType::get(
+  return AccelGemmParamsAttr::get(
       b.getContext(), params.getKpackPerBlock(), params.getMPerBlockG0(),
       params.getNPerBlockG0(), params.getKpack(), params.getMPerWave(),
       params.getNPerWave(), params.getMnPerXdl(), splitKFactor,
@@ -107,12 +100,10 @@ PopulateParamsAttn::getGemm0TuningParams(OpBuilder &b,
       params.getWavesPerEU(), gridGroupSize, params.getForceUnroll());
 }
 
-template <typename GemmParamsAttrType>
-RockAccelTuningParamAttrInterface
-PopulateParamsAttn::getGemm1TuningParams(OpBuilder &b,
-                                         AttnPerfConfigAttr params) {
+AccelGemmParamsAttr
+PopulateParamsAttn::getGemm1TuningParams(OpBuilder &b, AttnParamsAttr params) {
   constexpr auto gridGroupSize = 0;
-  return GemmParamsAttrType::get(
+  return AccelGemmParamsAttr::get(
       b.getContext(), params.getMPerBlockG0() / params.getKpack(),
       params.getMPerBlockG1(), params.getNPerBlockG0(), params.getKpack(),
       params.getMPerWave() *

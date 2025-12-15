@@ -203,16 +203,16 @@ void AffixTuningParameters::affixTuningParametersImpl(
   GemmFeatures features = rock::getFeatures(op);
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
-    InitParamsAccel validParams;
+    AccelGemmParamsAttr validParams;
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
-        op, perfConfig, validParams);
+        b, op, perfConfig, validParams);
     // update schedule version to what is provided by the user if and only if
     // user hasn't provided perfConfig, otherwise just keep whatever is inside
     // perfConfig
     if (scheduleVersion.has_value())
-      validParams.gemmScheduleVersion = scheduleVersion.value();
+      validParams = validParams.withScheduleVersion(scheduleVersion.value());
 
-    if (failed(isScheduleVersionSupported(validParams.gemmScheduleVersion,
+    if (failed(isScheduleVersionSupported(validParams.getScheduleVersion(),
                                           features))) {
       op->emitError("schedule version not supported\n");
       return signalPassFailure();
@@ -222,8 +222,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
       // Try again if allowed.
       if (fallBackNoConfig) {
         perfConfig.clear();
-        status = populateParamsAccelPtr->obtainTuningParameters(op, perfConfig,
-                                                                validParams);
+        status = populateParamsAccelPtr->obtainTuningParameters(
+            b, op, perfConfig, validParams);
       }
       if (failed(status)) {
         LLVM_DEBUG(llvm::dbgs() << "obtainTuningParameters call fails.\n");
@@ -232,8 +232,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     }
 
     auto origGemmSize = op.getGemmSize();
-    auto paddedGemmSize = calculatePaddedGemmSize(validParams, origGemmSize,
-                                                  validParams.gemmKPack);
+    auto paddedGemmSize = calculatePaddedGemmSize(
+        validParams.getKpackPerBlock(), validParams.getMPerBlock(),
+        validParams.getNPerBlock(), origGemmSize, validParams.getKpack());
     const bool requiredPadding = !(paddedGemmSize == origGemmSize);
 
     int64_t gemmKBlocks = 1;
@@ -242,9 +243,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (maybeWrwOp &&
         isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
       auto res = calculateKBlockNum(
-          info.batchSize, paddedGemmSize, validParams.gemmMPerBlock,
-          validParams.gemmNPerBlock, validParams.gemmKPerBlock,
-          validParams.gemmKPack, info.numCu, gemmKBlocks);
+          info.batchSize, paddedGemmSize, validParams.getMPerBlock(),
+          validParams.getNPerBlock(), validParams.getKpackPerBlock(),
+          validParams.getKpack(), info.numCu, gemmKBlocks);
 
       if (failed(res)) {
         LLVM_DEBUG(llvm::dbgs()
@@ -258,10 +259,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
 
     int64_t waveSize = rock::lookupArchInfo(rock::getArchValue(op)).waveSize;
-    Attribute gemmParamsAttr =
-        populateParamsAccelPtr->getGemmParamsAttr(b, validParams);
     RockAccelTuningParamAttrInterface gemmParams =
-        cast<RockAccelTuningParamAttrInterface>(gemmParamsAttr);
+        cast<RockAccelTuningParamAttrInterface>(validParams);
     int64_t blockSize = obtainBlockSize(waveSize, gemmParams);
     op.setDerivedBlockSizeAttr(b.getI32IntegerAttr(blockSize));
     op.setGemmParamsAttr(gemmParams);
@@ -269,10 +268,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // Set attributes on the function.
     getOperation()->setAttr("block_size", b.getI32IntegerAttr(blockSize));
   } else {
-    InitParamsNonAccel validParams;
+    GeneralGemmParamsAttr validParams;
     PopulateParams populateParams;
     LogicalResult status =
-        populateParams.obtainTuningParameters(op, perfConfig, validParams);
+        populateParams.obtainTuningParameters(b, op, perfConfig, validParams);
     if (failed(status)) {
       return signalPassFailure();
     }
@@ -280,14 +279,13 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // user hasn't provided perfConfig, otherwise just keep whatever was
     // obtained from perfConfig
     if (scheduleVersion.has_value())
-      validParams.gemmScheduleVersion = scheduleVersion.value();
+      validParams = validParams.withScheduleVersion(scheduleVersion.value());
 
-    Attribute gemmParams = populateParams.getGemmParamsAttr(b, validParams);
-    op.setGemmParamsAttr(gemmParams);
+    op.setGemmParamsAttr(validParams);
 
     // Set attributes on the function.
     getOperation()->setAttr("block_size",
-                            b.getI32IntegerAttr(validParams.blockSize));
+                            b.getI32IntegerAttr(validParams.getBlockSize()));
   }
   // check for fusion legality with SplitK for both accel and non-accel path
   // this check should happen after perfConfig is picked either through
@@ -330,7 +328,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     }
   }
   bool isWmma = bitEnumContainsAny(rock::getFeatures(op), GemmFeatures::wmma);
-  auto attnPerfConfig = AttnPerfConfigAttr::get(perfConfigStrAttr, isWmma);
+  auto attnPerfConfig = AttnParamsAttr::get(perfConfigStrAttr, isWmma);
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
     return signalPassFailure();
