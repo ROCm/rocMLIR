@@ -538,8 +538,9 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
     - accelKDim: Accelerator instruction K dimension (for LDS transpose support).
   }];
   let parameters = (ins "Type":$elementType, "Type":$elementTypeLoad,
-      "bool":$rotateDWithK, "bool":$swapThreadIterSubDims, "GemmLDSLayout":$LDSLayout,
-      "bool":$directToLDS, "bool":$splitKAcrossThreadsFirst, "bool":$accelLayout, "int64_t":$g,
+      "bool":$rotateDWithK, "bool":$swapThreadIterSubDims,
+      "GemmLDSLayout":$LDSLayout, "bool":$directToLDS,
+      "bool":$splitKAcrossThreadsFirst, "bool":$accelLayout, "int64_t":$g,
       "int64_t":$d, "int64_t":$inDPerThread,
       DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled,
       DefaultValuedParameter<"int64_t", "0">:$accelKDim);

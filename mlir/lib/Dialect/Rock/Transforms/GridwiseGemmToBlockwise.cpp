@@ -2425,28 +2425,30 @@ struct GridwiseAttentionAccelRewritePattern
         rewriter.getContext(), elemTypeK, elemTypeKLoad,
         ldsLayoutCfgMG0.doRotateWithK, ldsLayoutCfgMG0.doSwapThreadIterSubDims,
         ldsLayoutCfgMG0.ldsLayout, directToLDS,
-        /*splitKAcrossThreadsFirst=*/false, /*accelLayout*/false, gemm0G, gemm0M, gemm0InMPerThread,
+        /*splitKAcrossThreadsFirst=*/false, /*accelLayout*/ false, gemm0G,
+        gemm0M, gemm0InMPerThread,
         /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
 
     BlockwiseMatrixParamsAttr matrixParamsQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeQ, elemTypeQLoad,
         ldsLayoutCfgNG0.doRotateWithK, ldsLayoutCfgNG0.doSwapThreadIterSubDims,
         ldsLayoutCfgNG0.ldsLayout, directToLDSQ,
-        /*splitKAcrossThreadsFirst=*/false, /*accelLayout*/false, gemm0G, gemm0N, gemm0InNPerThread,
+        /*splitKAcrossThreadsFirst=*/false, /*accelLayout*/ false, gemm0G,
+        gemm0N, gemm0InNPerThread,
         /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
 
     BlockwiseMatrixParamsAttr matrixParamsV = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad,
         ldsLayoutCfgMG1.doRotateWithK, ldsLayoutCfgMG1.doSwapThreadIterSubDims,
-        ldsLayoutCfgMG1.ldsLayout, directToLDS, doBypassLDSSecondGemm, /*accelLayout*/false,
-        gemm0G, gemm1M, gemm1InMPerThread,
+        ldsLayoutCfgMG1.ldsLayout, directToLDS, doBypassLDSSecondGemm,
+        /*accelLayout*/ false, gemm0G, gemm1M, gemm1InMPerThread,
         /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
 
     BlockwiseMatrixParamsAttr matrixParamsKxQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad, /*rotateDWithK=*/false,
         /*swapThreadIterSubDims=*/false, /*LDSLayout=*/GemmLDSLayout::KxDxkpack,
-        /*directToLDS=*/false, /*splitKAcrossThreadsFirst=*/false, /*accelLayout*/false, gemm0G,
-        gemm1N, gemm1InMPerThread,
+        /*directToLDS=*/false, /*splitKAcrossThreadsFirst=*/false,
+        /*accelLayout*/ false, gemm0G, gemm1N, gemm1InMPerThread,
         /*ldsTransposeEnabled=*/false, /*accelKDim=*/0);
 
     // If gemm0K is equal to gemm0KPerBlock that means
@@ -3246,10 +3248,12 @@ struct GridwiseGemmAccelRewritePattern
     funcOp->setAttr(rock::WavesPerEUAttr::getMnemonic(), wavesPerEUAttr);
     funcOp->setAttr(rock::OutputSwizzleAttr::getMnemonic(), outputSwizzleAttr);
 
-    LDSLayoutConfigDim ldsLayoutConfigA = getLDSLayoutConfigDim(
-        elementTypeA, kpack, maybeVecDimInfoA.value(), directToLDS, accelLayoutA);
-    LDSLayoutConfigDim ldsLayoutConfigB = getLDSLayoutConfigDim(
-        elementTypeB, kpack, maybeVecDimInfoB.value(), directToLDS, accelLayoutB);
+    LDSLayoutConfigDim ldsLayoutConfigA =
+        getLDSLayoutConfigDim(elementTypeA, kpack, maybeVecDimInfoA.value(),
+                              directToLDS, accelLayoutA);
+    LDSLayoutConfigDim ldsLayoutConfigB =
+        getLDSLayoutConfigDim(elementTypeB, kpack, maybeVecDimInfoB.value(),
+                              directToLDS, accelLayoutB);
 
     // Obtain Accelerator-related attributes.
     int64_t mPerWave = tuningParams.getMPerWave();
@@ -3327,7 +3331,8 @@ struct GridwiseGemmAccelRewritePattern
         b.getContext(), elementTypeA, elementTypeALoad,
         ldsLayoutConfigA.doRotateWithK,
         ldsLayoutConfigA.doSwapThreadIterSubDims, ldsLayoutConfigA.ldsLayout,
-        directToLDS, /*splitKAcrossThreadsFirst=*/false, accelLayoutA, G, M, copyMPerThread,
+        directToLDS, /*splitKAcrossThreadsFirst=*/false, accelLayoutA, G, M,
+        copyMPerThread,
         /*ldsTranspose=*/ldsDecision.enableA,
         /*accelKDim=*/ldsDecision.mfmaKDim);
 
@@ -3335,7 +3340,8 @@ struct GridwiseGemmAccelRewritePattern
         b.getContext(), elementTypeB, elementTypeBLoad,
         ldsLayoutConfigB.doRotateWithK,
         ldsLayoutConfigB.doSwapThreadIterSubDims, ldsLayoutConfigB.ldsLayout,
-        directToLDS, /*splitKAcrossThreadsFirst=*/false, accelLayoutB, G, N, copyNPerThread,
+        directToLDS, /*splitKAcrossThreadsFirst=*/false, accelLayoutB, G, N,
+        copyNPerThread,
         /*ldsTranspose=*/ldsDecision.enableB,
         /*accelKDim=*/ldsDecision.mfmaKDim);
 
