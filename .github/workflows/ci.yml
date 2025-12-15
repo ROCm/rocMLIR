@@ -66,13 +66,11 @@ jobs:
           BASE_SHA=$(git merge-base HEAD "$BASE_REF")
           echo "BASE_SHA=$BASE_SHA"
 
-          # Get added/modified Python files under mlir/
+          # Get added/modified Python files under mlir/ (space-separated)
           files=$(git diff --name-only --diff-filter=AM "$BASE_SHA"...HEAD \
-                    | grep -E '^mlir/.*\.py$' || true)
+                    | grep -E '^mlir/.*\.py$' | tr '\n' ' ' || true)
 
-          echo "files<<EOF" >> $GITHUB_OUTPUT
-          echo "$files" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "files=$files" >> $GITHUB_OUTPUT
 
           echo "Changed Python files:"
           echo "$files"
@@ -80,14 +78,19 @@ jobs:
       - name: Run flake8
         if: steps.changes.outputs.files != ''
         run: |
-          flake8 --ignore=E501,E251,E124,W605,W504,E131,E126,W503,E123 \
-            ${{ steps.changes.outputs.files }}
+          files="${{ steps.changes.outputs.files }}"
+          if [ -n "$files" ]; then
+            flake8 --ignore=E501,E251,E124,W605,W504,E131,E126,W503,E123 $files
+          fi
 
       - name: Run YAPF check
         if: steps.changes.outputs.files != ''
         run: |
-          yapf --diff ${{ steps.changes.outputs.files }} \
-            || (echo "Format issues found. Fix locally with: yapf -i <files>"; exit 1)
+          files="${{ steps.changes.outputs.files }}"
+          if [ -n "$files" ]; then
+            yapf --diff $files \
+              || (echo "Format issues found. Fix locally with: yapf -i <files>"; exit 1)
+          fi
 
       - name: No Python changes in mlir/
         if: steps.changes.outputs.files == ''

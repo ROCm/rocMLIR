@@ -18,9 +18,11 @@
 
 #include "GridLayoutEmitter.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
@@ -294,6 +296,22 @@ class LoweringBlockwiseLoadTileOp final
                                    /*extraViews=*/b.getArrayAttr({}),
                                    /*extraIndices=*/indices, forceUnroll, true,
                                    /*ldsTransposeConfig=*/nullptr);
+
+      if (rock::isGlobalPrefetchSupported(arch)) {
+        // add one to k_loop to prefetch next iteration
+        SmallVector<Value> indicesNext(indices.begin(), indices.end());
+        Value one = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
+        indicesNext[0] =
+            arith::AddIOp::create(b, loc, indicesNext[0], one).getResult();
+
+        // it's acceptable if the indices are out of bounds because we use
+        // GLOBAL_PREFETCH_B8 with Speculative Prefetch. See llvm.prefetch
+        // documentation in AMDGPUUsage.rst
+        rock::ThreadwisePrefetchOp::create(b, loc, wrappedSource,
+                                           /*extraViews=*/b.getArrayAttr({}),
+                                           /*extraIndices=*/indicesNext,
+                                           forceUnroll, true);
+      }
       if (stageGlobalReadNew)
         rock::YieldOp::create(b, loc);
     }
