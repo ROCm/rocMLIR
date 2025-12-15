@@ -1193,7 +1193,7 @@ class ConvGemmConfiguration(PerfConfiguration):
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
         result = ' '.join([
             '-operation', 'conv_gemm', '-t', self.datatype, '--arch', self.arch,
-            f'--num_cu={self.num_cu}', f'--num_chiplets={self.num_chiplets}'
+            f'--num_cu={self.num_cu}', f'--num_chiplets={self.num_chiplets}',
             f'--fil_layout={self.filter_layout}', f'--in_layout={self.input_layout}',
             f'--transC={self.trans_c}', f'--transO={self.trans_o}', f'--batchsize={self.n}',
             f'--in_channels={self.c}', f'--in_h={self.hi}', f'--in_w={self.wi}',
@@ -1978,7 +1978,7 @@ def get_fusion_test_info(filename, paths: Paths):
     p2.stdout.close()
     output, _ = tuning_key.communicate()
     result = output.decode('utf-8').strip().split('\t')
-    test_entry = {'filename': filename, 'testVector': result[2], 'futName': fut_name}
+    test_entry = {'filename': filename, 'testVector': result[3], 'futName': fut_name}
     return test_entry
 
 
@@ -2070,6 +2070,9 @@ def benchmark_fusion_kernels(test_dir,
             split_perf = perfconfig.split(',')
             if ((perfconfig[0:3] == 'v2:' or perfconfig[0:3] == 'v3:') and int(split_perf[6]) > 1):
                 split_perf[6] = '1'
+                tuning_db[arch, config] = ','.join(split_perf)
+            if ((perfconfig[0:3] == 'v4:') and int(split_perf[7]) > 1):
+                split_perf[7] = '1'
                 tuning_db[arch, config] = ','.join(split_perf)
 
     # Profile each test case

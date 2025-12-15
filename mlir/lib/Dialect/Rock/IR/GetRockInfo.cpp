@@ -98,6 +98,7 @@ StringAttr mlir::rock::getArchValue(Operation *op) {
 FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
   FailureOr<StringAttr> maybeArch = getArch(op);
   if (failed(maybeArch)) {
+    LLVM_DEBUG(llvm::dbgs() << "arch not found\n");
     return failure();
   }
   StringAttr arch = maybeArch.value();
@@ -134,19 +135,24 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
 FailureOr<int64_t> mlir::rock::getNumChiplets(Operation *op) {
   FailureOr<StringAttr> maybeArch = getArch(op);
   if (failed(maybeArch)) {
+    LLVM_DEBUG(llvm::dbgs() << "arch not found\n");
     return failure();
   }
   StringAttr arch = maybeArch.value();
   FailureOr<IntegerAttr> maybeNumChiplets =
       getAttrFromOpOrParents<IntegerAttr>(op, "num_chiplets");
   if (failed(maybeNumChiplets)) {
+    LLVM_DEBUG(llvm::dbgs() << "Could not find num_chiplets\n");
     return failure();
   }
   IntegerAttr numChiplets = maybeNumChiplets.value();
   AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (numChiplets.getValue().getSExtValue() <= 0) {
+    return op->emitError() << "num_chiplets must be greater than zero";
+  }
   if (numChiplets.getValue().getSExtValue() > archInfo.maxNumXCC) {
     return op->emitError() << "num_chiplets=" << numChiplets
-                           << " cannot be greather than arch maxNumXCC="
+                           << " cannot be greater than arch maxNumXCC="
                            << archInfo.maxNumXCC;
   }
   return numChiplets.getValue().getSExtValue();

@@ -81,7 +81,6 @@ static bool testReduceFusible(MlirContext ctx) {
 
   // Test whether the module is fusible
   const bool isFusible = mlirIsModuleFusible(moduleOp, perfStr);
-
   // Clean up
   mlirModuleDestroy(moduleOp);
 
