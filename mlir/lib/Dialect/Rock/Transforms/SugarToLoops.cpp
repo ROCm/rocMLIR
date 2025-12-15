@@ -1172,6 +1172,26 @@ Value selectDataIf4b(Location loc, PatternRewriter &b,
   return b.createOrFold<vector::ExtractOp>(loc, loadedVec, lsb);
 }
 
+struct GlobalPrefetchRewritePattern
+    : public OpRewritePattern<GlobalPrefetchOp> {
+  using OpRewritePattern<GlobalPrefetchOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(GlobalPrefetchOp op,
+                                PatternRewriter &b) const override {
+    Value source = op.getSource();
+
+    source = asGlobal(b, source);
+
+    // it's acceptable if the indices are out of bounds because we use
+    // GLOBAL_PREFETCH_B8 with Speculative Prefetch. See llvm.prefetch
+    // documentation in AMDGPUUsage.rst localityHint=3 is translated to memory
+    // scope SCOPE_SE.
+    b.replaceOpWithNewOp<memref::PrefetchOp>(
+        op, source, op.getSourceCoord(), /*isWrite=*/false, /*localityHint=*/3,
+        /*isDataCache=*/true);
+    return success();
+  }
+};
+
 struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
   using OpRewritePattern<GlobalLoadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(GlobalLoadOp op,
@@ -1650,8 +1670,9 @@ void RockSugarToLoopsPass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<ExtractSliceRewritePattern, InsertSliceRewritePattern,
                GlobalLoadRewritePattern, GlobalLoadToLDSRewritePattern,
-               GlobalStoreRewritePattern, LDSTransposeLoadRewritePattern,
-               InBoundsLoadRewritePattern, InBoundsStoreRewritePattern>(ctx);
+               GlobalPrefetchRewritePattern, GlobalStoreRewritePattern,
+               LDSTransposeLoadRewritePattern, InBoundsLoadRewritePattern,
+               InBoundsStoreRewritePattern>(ctx);
   if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();
 
