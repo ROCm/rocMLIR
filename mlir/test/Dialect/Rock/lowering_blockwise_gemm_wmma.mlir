@@ -25,7 +25,7 @@ func.func @rock_blockwise_gemm_accel_wmma(%matrixA : memref<16xvector<8xf16>, #w
       mnPerXdl = 16,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv> from memref<16xvector<8xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<16xvector<8xf16>, #wg>
   return
@@ -54,7 +54,7 @@ func.func @rock_blockwise_gemm_accel_wmma_largekpack(%matrixA : memref<32xvector
       kpack = 8,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv>  from memref<32xvector<8xf16>, #wg> * memref<1xvector<16xf16>, #priv> from memref<32xvector<8xf16>, #wg>
   return
@@ -83,7 +83,7 @@ func.func @rock_blockwise_gemm_accel_wmma_int8(%matrixA : memref<32xvector<16xi8
       kpack = 16,
       splitKFactor = 1, 
       scheduleVersion = 1, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<4xvector<8xi32>, #priv> += memref<4xvector<16xi8>, #priv> from memref<32xvector<16xi8>, #wg> * memref<4xvector<16xi8>, #priv> from memref<32xvector<16xi8>, #wg>
   return
@@ -111,7 +111,7 @@ func.func @rock_blockwise_gemm_accel_wmma_double_buffer(%bufferA : memref<1xvect
       mnPerXdl = 16,
       splitKFactor = 1, 
       scheduleVersion = 2, 
-      outputSwizzle = 2,
+      outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
       forceUnroll = true>
   } : memref<1xvector<8xf32>, #priv> += memref<1xvector<16xf16>, #priv> * memref<1xvector<16xf16>, #priv>
   return

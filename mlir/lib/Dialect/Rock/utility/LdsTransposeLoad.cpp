@@ -214,8 +214,8 @@ LDSTransposeDecision decideLDSTransposeForOperands(
   }
 
   // Extract MFMA geometry temporarily for decision making
-  int64_t mfmaDDim = mfmaEmitter->getMfmaDDim();
-  int64_t mfmaKDim = mfmaEmitter->getMfmaK();
+  int64_t mfmaDDim = mfmaEmitter->getDDim();
+  int64_t mfmaKDim = mfmaEmitter->getKDim();
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] MFMA geometry: " << mfmaDDim
                           << "x" << mfmaKDim << "\n");
@@ -1093,8 +1093,8 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   Value waveId = arith::DivUIOp::create(b, loc, tid, waveSizeVal);
 
   // Read parameters directly from config
-  int64_t dDim = config.getMfmaDDim();
-  int64_t instrK = config.getMfmaKDim();
+  int64_t dDim = config.getDDim();
+  int64_t instrK = config.getKDim();
   int64_t mPerWave = config.getMPerWave();
   int64_t nPerWave = config.getNPerWave();
   int64_t mPerBlock = config.getMPerBlock();

@@ -532,9 +532,12 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (failed(maybeArch)) {
       return op.emitError("arch needs to be set.");
     }
+    // always use heuristic for non-accel path
+    int64_t gridGroupSize = 0;
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType},
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType,
+         gridGroupSize},
         maybeArch->getValue());
 
     Value storeBufferA = GpuAllocOp::create(b, loc, loadBufferA.getType());
@@ -1242,51 +1245,49 @@ struct GridwiseAttentionAccelRewritePattern
     }
   }
 
-  enum class OutOfScopeType { KVCache, Causal };
+  enum class OutOfScopeType { KVCache, Causal, PrefixCausal };
 
   void setGemm0OutputOutOfScope(
       PatternRewriter &rewriter, Location loc, OutOfScopeType outOfScopeType,
       layout::GridCoordinates gridCoords, Value gemm0OutBuffer,
       RegsAsMatrixSubTiles gemm0OutSubTileViews, bool enabled, Value mLoopIV,
-      Value gemm0MBlocksLastIter, Value currentSeqLen = nullptr,
-      IntegerAttr numRepeatsGQA = nullptr) const {
+      Value gemm0MBlocksLastIter, Value currentSeqLen, Value prefixOffset,
+      IntegerAttr numRepeatsGQA) const {
     if (enabled) {
-      auto isLastIteration =
-          arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
-                                mLoopIV, gemm0MBlocksLastIter);
-      scf::IfOp ifb = scf::IfOp::create(rewriter, loc, isLastIteration,
-                                        /*withElseRegion=*/false);
-      {
-        OpBuilder thenb = ifb.getThenBodyBuilder();
+      // For KVCache, we only need to mask on the last iteration, but for causal
+      // masking we need to mask on every iteration.
+      bool needsLastIterCheck = (outOfScopeType == OutOfScopeType::KVCache);
 
+      // Use a lambda to generate the masking logic.
+      auto generateMaskingLogic = [&](OpBuilder &b) {
         Value constNumRepeatsGQA = nullptr;
         if (numRepeatsGQA)
-          constNumRepeatsGQA = thenb.createOrFold<arith::ConstantIndexOp>(
+          constNumRepeatsGQA = b.createOrFold<arith::ConstantIndexOp>(
               loc, numRepeatsGQA.getInt());
 
         MemRefType gemm0OutBufferType =
             cast<MemRefType>(gemm0OutBuffer.getType());
         auto negInfTyped = createConstantFloatOp(
-            thenb, loc, gemm0OutBufferType.getElementType(),
+            b, loc, gemm0OutBufferType.getElementType(),
             gemm0OutBufferType.getElementType(),
             -std::numeric_limits<float>::infinity(), APFloat::opOK);
         // Get current workitem ID.
-        auto tid = WorkitemIdOp::create(thenb, loc, thenb.getIndexType());
+        auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
         int64_t elementsInThreadBuffer = gemm0OutBufferType.getNumElements();
-        Value zero = thenb.createOrFold<ConstantIndexOp>(loc, 0);
+        Value zero = b.createOrFold<ConstantIndexOp>(loc, 0);
         auto loop = TransformingForOp::create(
-            thenb, loc,
+            b, loc,
             ArrayRef<ValueRange>{{gridCoords.g_block, gridCoords.m_block,
                                   gridCoords.n_block, tid, zero},
                                  {zero, zero, zero, zero, zero}},
             ArrayRef<Attribute>{gemm0OutSubTileViews.gridSubTile,
-                                thenb.getArrayAttr({})},
+                                b.getArrayAttr({})},
             /*bounds=*/ArrayRef<int64_t>{1, 1, 1, 1, elementsInThreadBuffer},
             /*strides=*/ArrayRef<int64_t>{1, 1, 1, 1, 1},
             /*forceUnroll=*/true, /*useIndexDiffs=*/true);
         {
-          OpBuilder::InsertionGuard guard(thenb);
-          thenb.setInsertionPointToStart(loop.getBody());
+          OpBuilder::InsertionGuard guard(b);
+          b.setInsertionPointToStart(loop.getBody());
 
           Block::BlockArgListType lowerCoords = loop.getLowerCoords(0);
           Block::BlockArgListType upperCoords = loop.getLowerCoords(1);
@@ -1295,28 +1296,62 @@ struct GridwiseAttentionAccelRewritePattern
           switch (outOfScopeType) {
           case OutOfScopeType::KVCache:
             assert(currentSeqLen != nullptr);
-            isInvalid = arith::CmpIOp::create(
-                thenb, loc, arith::CmpIPredicate::ugt, mIndex, currentSeqLen);
+            isInvalid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ugt,
+                                              mIndex, currentSeqLen);
             break;
-          case OutOfScopeType::Causal:
+          case OutOfScopeType::Causal: {
             Value nIndex = lowerCoords[1];
             if (constNumRepeatsGQA)
-              nIndex = thenb.createOrFold<arith::DivUIOp>(loc, nIndex,
-                                                          constNumRepeatsGQA);
+              nIndex = b.createOrFold<arith::DivUIOp>(loc, nIndex,
+                                                      constNumRepeatsGQA);
 
-            isInvalid = arith::CmpIOp::create(
-                thenb, loc, arith::CmpIPredicate::ugt, mIndex, nIndex);
+            isInvalid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ugt,
+                                              mIndex, nIndex);
             break;
           }
+          case OutOfScopeType::PrefixCausal: {
+            // Prefix causal: mask when key_pos > (query_pos + prefix_offset).
+            // This is used for prefix attention where:
+            // - A prefix of tokens (0..prefix_offset) is always visible
+            // - Anything after the prefix, standard causal masking applies
+            assert(prefixOffset != nullptr);
+            Value nIndex = lowerCoords[1];
+            if (constNumRepeatsGQA)
+              nIndex = b.createOrFold<arith::DivUIOp>(loc, nIndex,
+                                                      constNumRepeatsGQA);
 
-          scf::IfOp ifb = scf::IfOp::create(thenb, loc, isInvalid,
-                                            /*withElseRegion=*/false);
+            // Compute query_pos + prefix_offset
+            Value threshold =
+                arith::AddIOp::create(b, loc, nIndex, prefixOffset);
+            isInvalid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ugt,
+                                              mIndex, threshold);
+            break;
+          }
+          }
+
+          scf::IfOp ifOp = scf::IfOp::create(b, loc, isInvalid,
+                                             /*withElseRegion=*/false);
           {
-            OpBuilder thenb = ifb.getThenBodyBuilder();
-            InBoundsStoreOp::create(thenb, loc, negInfTyped, gemm0OutBuffer,
+            OpBuilder thenBody = ifOp.getThenBodyBuilder();
+            InBoundsStoreOp::create(thenBody, loc, negInfTyped, gemm0OutBuffer,
                                     ValueRange{upperCoords[4]});
           }
         }
+      };
+
+      if (needsLastIterCheck) {
+        auto isLastIteration =
+            arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::eq,
+                                  mLoopIV, gemm0MBlocksLastIter);
+        scf::IfOp ifb = scf::IfOp::create(rewriter, loc, isLastIteration,
+                                          /*withElseRegion=*/false);
+        {
+          OpBuilder thenb = ifb.getThenBodyBuilder();
+          generateMaskingLogic(thenb);
+        }
+      } else {
+        // For causal masking, apply on every iteration
+        generateMaskingLogic(rewriter);
       }
     }
   }
@@ -1691,66 +1726,79 @@ struct GridwiseAttentionAccelRewritePattern
     return viewBuilder.get();
   }
 
-  std::tuple<Value, Value, Value, Value>
+  std::tuple<Value, Value, Value, Value, Value>
   getMLoopInfo(PatternRewriter &rewriter, Location loc,
                layout::AttnGridCoordinates gridCoordsGemm0,
-               Value currentSeqLenTensor, int64_t gemm0M,
-               int64_t gemm0MPerBlock, int64_t gemm0NPerBlock, int64_t splitKV,
-               bool isCausal, bool isKVCache,
+               Value currentSeqLenTensor, Value prefixOffsetTensor,
+               int64_t gemm0M, int64_t gemm0N, int64_t gemm0MPerBlock,
+               int64_t gemm0NPerBlock, int64_t splitKV, bool isCausal,
+               bool isKVCache, bool isPrefixCausal,
                IntegerAttr numRepeatsGQA = nullptr) const {
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
+    Value prefixOffset;
     Value effectiveSeqLen;
     Value start, end;
-    // This is needed for KV Cache/Causal masking support
-    if (isCausal || isKVCache) {
+
+    // Lambda to load a 1D tensor value (used for currentSeqLen and
+    // prefixOffset)
+    auto loadTensorValue = [&](Value tensor) -> Value {
+      assert(tensor && "tensor must be non-null");
       Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
+      // add dim 1 for thread_read_into (registers)
+      ArrayRef<int64_t> inpShape =
+          cast<ShapedType>(tensor.getType()).getShape();
+      SmallVector<StringRef> startNames = {"gemmG"};
+      rock::BottomUpTMBuilder addDim(rewriter, startNames, inpShape);
+      addDim.addDim("dummy", 1, 1);
+      addDim.passThrough(ArrayRef<uint32_t>{0}, ArrayRef<uint32_t>{0});
+      auto addDimAttr = addDim.get();
+      Value tensorAddDim =
+          rock::TransformOp::create(rewriter, loc, tensor, addDimAttr);
+      Type elemType = getElementTypeOrSelf(tensorAddDim.getType());
+
+      // create registers
+      auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+          gpu::GPUDialect::getPrivateAddressSpace());
+      auto memrefType = MemRefType::get({1}, elemType, AffineMap{},
+                                        privateMemoryAddressSpace);
+      auto loadAlloc = GpuAllocOp::create(rewriter, loc, memrefType);
+
+      // load from memory to registers
+      ThreadwiseReadIntoOp::create(
+          rewriter, loc, vectorOfBoolShapedLike(loadAlloc), tensorAddDim,
+          loadAlloc,
+          /*dynamicValidities=*/ValueRange{},
+          /*extraViews=*/rewriter.getArrayAttr({}),
+          /*extraIndices=*/
+          ValueRange{gridCoordsGemm0.g_block}, true, true);
+
+      // load from registers
+      Value loadedValue = InBoundsLoadOp::create(rewriter, loc, elemType,
+                                                 loadAlloc, ValueRange{zero});
+      return rewriter.createOrFold<arith::IndexCastOp>(
+          loc, rewriter.getIndexType(), loadedValue);
+    };
+
+    // This is needed for KV Cache/Causal/Prefix Causal masking support
+    if (isCausal || isKVCache || isPrefixCausal) {
       if (isKVCache) {
-        // add dim 1 for thread_read_into (registers)
-        ArrayRef<int64_t> inpShape =
-            cast<ShapedType>(currentSeqLenTensor.getType()).getShape();
-        SmallVector<StringRef> startNames = {"gemmG"};
-        rock::BottomUpTMBuilder addDim(rewriter, startNames, inpShape);
-        addDim.addDim("dummy", 1, 1);
-        addDim.passThrough(ArrayRef<uint32_t>{0}, ArrayRef<uint32_t>{0});
-        auto addDimAttr = addDim.get();
-        Value currentSeqLenTensorAddDim = rock::TransformOp::create(
-            rewriter, loc, currentSeqLenTensor, addDimAttr);
-        Type currentSeqLenElemType =
-            getElementTypeOrSelf(currentSeqLenTensorAddDim.getType());
-
-        // create registers
-        auto privateMemoryAddressSpace =
-            rewriter.getAttr<gpu::AddressSpaceAttr>(
-                gpu::GPUDialect::getPrivateAddressSpace());
-        auto memrefType = MemRefType::get(
-            {1}, currentSeqLenElemType, AffineMap{}, privateMemoryAddressSpace);
-        auto currentSeqLenLoad = GpuAllocOp::create(rewriter, loc, memrefType);
-
-        // load from memory to registers
-        ThreadwiseReadIntoOp::create(
-            rewriter, loc, vectorOfBoolShapedLike(currentSeqLenLoad),
-            currentSeqLenTensorAddDim, currentSeqLenLoad,
-            /*dynamicValidities=*/ValueRange{},
-            /*extraViews=*/rewriter.getArrayAttr({}),
-            /*extraIndices=*/
-            ValueRange{gridCoordsGemm0.g_block}, true, true);
-
-        // load from registers
-        Value currentSeqLenValue =
-            InBoundsLoadOp::create(rewriter, loc, currentSeqLenElemType,
-                                   currentSeqLenLoad, ValueRange{zero});
-        currentSeqLen = rewriter.createOrFold<arith::IndexCastOp>(
-            loc, rewriter.getIndexType(), currentSeqLenValue);
+        currentSeqLen = loadTensorValue(currentSeqLenTensor);
         effectiveSeqLen = currentSeqLen;
       }
-      if (isCausal) {
-        // this computes the maximum n of the block
+
+      if (isCausal || isPrefixCausal) {
+        // Compute the last Q position in the block.
+        // (nIndex + 1) * NPerBlock - 1.
         Value nIndex = gridCoordsGemm0.n_block;
         Value constGemm0NPerBlock =
             rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0NPerBlock);
+        Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
+        Value nIndexPlusOne = arith::AddIOp::create(rewriter, loc, nIndex, one);
+        Value nextBlockStart = arith::MulIOp::create(
+            rewriter, loc, nIndexPlusOne, constGemm0NPerBlock);
         Value maxRowOfBlock =
-            arith::MulIOp::create(rewriter, loc, nIndex, constGemm0NPerBlock);
+            arith::SubIOp::create(rewriter, loc, nextBlockStart, one);
         if (numRepeatsGQA) {
           Value constNumRepeatsGQA =
               rewriter.createOrFold<arith::ConstantIndexOp>(
@@ -1759,11 +1807,33 @@ struct GridwiseAttentionAccelRewritePattern
               loc, maxRowOfBlock, constNumRepeatsGQA);
         }
 
-        // if effectiveSeqLen is set, it means KV Cache is enabled,
-        // so we need to take the minimum of currentSeqLen and maxRowOfBlock
-        if (effectiveSeqLen)
+        if (isPrefixCausal) {
+          assert(isCausal && "isPrefixCausal requires isCausal");
+          // For prefix causal: effective seq len = maxRowOfBlock + offset
+          // This determines how many M-blocks we need to process
+          prefixOffset = loadTensorValue(prefixOffsetTensor);
+          maxRowOfBlock =
+              arith::AddIOp::create(rewriter, loc, maxRowOfBlock, prefixOffset);
+        }
+
+        if (effectiveSeqLen) {
+          // if effectiveSeqLen is set, it means KV Cache is enabled,
+          // so we need to take the minimum of currentSeqLen and maxRowOfBlock
           maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, currentSeqLen,
                                                  maxRowOfBlock);
+        }
+
+        // For prefix causal, adding prefix_offset can push maxRowOfBlock beyond
+        // gemm0M. Similarly, when gemm0N > gemm0M, the last query position can
+        // exceed the key sequence length. In both cases, bound by gemm0M - 1.
+        if (gemm0N > gemm0M || isPrefixCausal) {
+          // Bound by actual K dimension (key sequence length)
+          Value gemm0MMinusOne =
+              rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0M - 1);
+          maxRowOfBlock = arith::MinUIOp::create(rewriter, loc, maxRowOfBlock,
+                                                 gemm0MMinusOne);
+        }
+
         effectiveSeqLen = maxRowOfBlock;
       }
 
@@ -1775,6 +1845,7 @@ struct GridwiseAttentionAccelRewritePattern
       end = rewriter.createOrFold<arith::DivUIOp>(loc, numerator,
                                                   constGemm0MPerBlock);
       Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
+      Value zero = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
       // start index is zero unless split-kv is enabled
       start = zero;
@@ -1823,42 +1894,58 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
       end = rewriter.createOrFold<arith::ConstantIndexOp>(loc, gemm0MBlocks);
     }
-    return std::make_tuple(start, end, gemm0MBlocksLastIter, currentSeqLen);
+    return std::make_tuple(start, end, gemm0MBlocksLastIter, currentSeqLen,
+                           prefixOffset);
   }
 
-  void runEarlyExit(PatternRewriter &rewriter, Location loc, Value start,
-                    Value end, int64_t splitKV, int64_t gemm0MPerBlock,
-                    std::optional<APInt> prePadG0M, bool isCausal,
-                    bool isKVCache, bool skipRunEarlyExit) const {
-    // we need to do early exit if (1) and (2 || 3) conditions are true:
+  // Helper function to determine if early exit optimization is possible.
+  // Early exit requires splitKV > 1 and at least one of: padding in gemm0M,
+  // causal masking, or KV cache.
+  static bool isEarlyExitPossible(int64_t splitKV, int64_t gemm0MPerBlock,
+                                  std::optional<APInt> prePadG0M, bool isCausal,
+                                  bool isKVCache) {
+    // We have no work to do if (1) and (2 || 3) conditions are true:
     // 1. split-kv > 1
     // 2. there's padding in gemm0M && (at least) the last block in split-kv
     // dimension has nothing to do
     // 3. (kvcache || causal) && (end <= start)
+    // - Note, causal could be set true here for prefix causal, or just
+    //   regular causal.
+    if (splitKV == 1)
+      return false;
 
-    // skipRunEarlyExit disables early exit logic as the MIGraphX flash decoding
-    // implementation requires that the first of two kernels is initialized to
-    // zero (and not left uninitialized as is the case with early exit logic).
-    if (splitKV == 1 || skipRunEarlyExit)
-      return;
-
-    // condition 2: some padding in gemm0M
-    // if prePadM < gemm0MPerBlock, then, the last block has some work to do
     bool earlyExitDueToPadding =
         prePadG0M.has_value() &&
         (prePadG0M.value().getSExtValue() >= gemm0MPerBlock);
-    // condition 3: causal or kvcache
     bool earlyExitDueToCausalOrKVCache = isCausal || isKVCache;
 
-    if (!earlyExitDueToPadding && !earlyExitDueToCausalOrKVCache)
-      return;
+    return earlyExitDueToPadding || earlyExitDueToCausalOrKVCache;
+  }
+
+  // Helper function to compute the 'someWorkToDo' condition used for early
+  // exit optimization.
+  FailureOr<Value> computeIfWorkToDo(PatternRewriter &rewriter, Location loc,
+                                     Value start, Value end, int64_t splitKV,
+                                     int64_t gemm0MPerBlock,
+                                     std::optional<APInt> prePadG0M,
+                                     bool isCausal, bool isKVCache) const {
+    if (!isEarlyExitPossible(splitKV, gemm0MPerBlock, prePadG0M, isCausal,
+                             isKVCache))
+      return failure();
+
+    // Determine which condition applies to generate the appropriate runtime
+    // check
+    bool earlyExitDueToPadding =
+        prePadG0M.has_value() &&
+        (prePadG0M.value().getSExtValue() >= gemm0MPerBlock);
+    bool earlyExitDueToCausalOrKVCache = isCausal || isKVCache;
 
     Value someWorkToDo;
-    // for dynamic kernels, no need to check padding condition. start/end checks
-    // can handle padding as well.
+    // For dynamic kernels, no need to check padding condition. start/end
+    // checks can handle padding as well.
     if (earlyExitDueToCausalOrKVCache) {
-      // if end is less than (or equal) start, then we can early exit the split
-      // KV loop.
+      // If end is less than (or equal) start, then we can early exit the
+      // split KV loop.
       someWorkToDo = arith::CmpIOp::create(
           rewriter, loc, arith::CmpIPredicate::ugt, end, start);
     } else if (earlyExitDueToPadding) {
@@ -1869,15 +1956,35 @@ struct GridwiseAttentionAccelRewritePattern
       Value startIteration =
           arith::MulIOp::create(rewriter, loc, start, constGemm0MPerBlock);
 
-      // if startIteration is less than (or equal) prePadMValue, then we can
-      // early exit the split KV loop.
+      // If startIteration is less than prePadMValue, then there is work to do
       someWorkToDo =
           arith::CmpIOp::create(rewriter, loc, arith::CmpIPredicate::ult,
                                 startIteration, prePadMValue);
     }
-    scf::IfOp ifb = scf::IfOp::create(rewriter, loc, someWorkToDo,
+
+    return someWorkToDo;
+  }
+
+  std::optional<scf::IfOp> runEarlyExit(PatternRewriter &rewriter, Location loc,
+                                        Value start, Value end, int64_t splitKV,
+                                        int64_t gemm0MPerBlock,
+                                        std::optional<APInt> prePadG0M,
+                                        bool isCausal, bool isKVCache) const {
+    // Compute the work condition using the extracted helper function
+    FailureOr<Value> maybeSomeWorkToDo =
+        computeIfWorkToDo(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
+                          prePadG0M, isCausal, isKVCache);
+
+    if (failed(maybeSomeWorkToDo))
+      return std::nullopt;
+
+    scf::IfOp ifb = scf::IfOp::create(rewriter, loc, maybeSomeWorkToDo.value(),
                                       /*withElseRegion=*/false);
     rewriter.setInsertionPointToStart(&ifb.getThenRegion().front());
+
+    // Return the IfOp so caller can close it later (by setting insertion point
+    // after it) to ensure output writes happen unconditionally
+    return ifb;
   }
 
   LogicalResult matchAndRewrite(GridwiseAttentionAccelOp op,
@@ -1919,8 +2026,10 @@ struct GridwiseAttentionAccelRewritePattern
     Value lse = op.getLse();
 
     TypedValue<MemRefType> currentSeqLenTensor = op.getCurrentSeqLen();
+    TypedValue<MemRefType> prefixOffsetTensor = op.getPrefixOffset();
     bool isKVCache = currentSeqLenTensor != nullptr;
     bool isCausal = op.getCausal();
+    bool isPrefixCausal = isCausal && prefixOffsetTensor;
     int64_t splitKV = op.getSplitKV();
 
     // Gemm0 out is casted to be softmaxType (if null, it's casted to elemTypeV)
@@ -1947,6 +2056,10 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t gemm0MBlocks = gemm0M / gemm0MPerBlock;
     int64_t gemm0NBlocks = gemm0N / gemm0NPerBlock;
     int64_t gemm1kpack = gemm1TuningParams.getKpack();
+
+    // Compute whether early exit is possible
+    bool earlyExitPossible = isEarlyExitPossible(
+        splitKV, gemm0MPerBlock, op.getPrePadG0M(), isCausal, isKVCache);
 
     int64_t scheduleVersion = gemm0TuningParams.getScheduleVersion();
     int64_t scheduleVersionG1 = gemm1TuningParams.getScheduleVersion();
@@ -1979,6 +2092,20 @@ struct GridwiseAttentionAccelRewritePattern
       return op.emitOpError("Unable to emit accelerator code.");
     rock::accel::AccelEmitterParams accelParamsGemm1 =
         accelEmitterPtrGemm1->getParams();
+
+    // wavesPerEU is needed in RockToGPU pass and OutputSwizzle for the
+    // OutputSwizzle pass. We add them as func attributes.
+    assert(gemm0TuningParams.getWavesPerEU() ==
+           gemm1TuningParams.getWavesPerEU());
+    assert(gemm0TuningParams.getOutputSwizzle() ==
+           gemm1TuningParams.getOutputSwizzle());
+    IntegerAttr wavesPerEUAttr =
+        rewriter.getI64IntegerAttr(gemm0TuningParams.getWavesPerEU());
+    IntegerAttr outputSwizzleAttr =
+        rewriter.getI64IntegerAttr(gemm0TuningParams.getOutputSwizzle());
+    func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
+    funcOp->setAttr(rock::WavesPerEUAttr::getMnemonic(), wavesPerEUAttr);
+    funcOp->setAttr(rock::OutputSwizzleAttr::getMnemonic(), outputSwizzleAttr);
 
     // Get current workgroup ID.
     auto bid = WorkgroupIdOp::create(rewriter, loc, rewriter.getIndexType());
@@ -2238,6 +2365,13 @@ struct GridwiseAttentionAccelRewritePattern
         Type elemTypeLse = cast<MemRefType>(lse.getType()).getElementType();
         lseBuffer = createBufferForGemmOut(loc, elemTypeLse, accelParamsGemm1,
                                            rewriter);
+        // Initialize lseBuffer to -infinity only when early exit is possible.
+        if (earlyExitPossible) {
+          auto negInfLse = createConstantFloatOp(
+              rewriter, loc, elemTypeLse, elemTypeLse,
+              -std::numeric_limits<float>::infinity(), APFloat::opOK);
+          FillOp::create(rewriter, loc, lseBuffer, negInfLse);
+        }
       }
 
       zeroAccBuffer(rewriter, loc, attentionOutAccBuffer);
@@ -2262,17 +2396,21 @@ struct GridwiseAttentionAccelRewritePattern
 
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
+    Value prefixOffset;
     Value start, end;
     // get mLoop
-    std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen) =
+    std::tie(start, end, gemm0MBlocksLastIter, currentSeqLen, prefixOffset) =
         getMLoopInfo(rewriter, loc, gridCoordsGemm0mIter0, currentSeqLenTensor,
-                     gemm0M, gemm0MPerBlock, gemm0NPerBlock, splitKV, isCausal,
-                     isKVCache, op.getNumRepeatsGQAAttr());
+                     prefixOffsetTensor, gemm0M, gemm0N, gemm0MPerBlock,
+                     gemm0NPerBlock, splitKV, isCausal, isKVCache,
+                     isPrefixCausal, op.getNumRepeatsGQAAttr());
 
-    // early exit if there is no work to do for this block
-    runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
-                 op.getPrePadG0M(), isCausal, isKVCache,
-                 /*skipRunEarlyExit=*/true);
+    // Early exit: Skip all computation when there's no work but always write
+    // output.
+    // This wraps Q loads, M/K loops, GEMMs, softmax, etc. in a conditional.
+    std::optional<scf::IfOp> earlyExitIf =
+        runEarlyExit(rewriter, loc, start, end, splitKV, gemm0MPerBlock,
+                     op.getPrePadG0M(), isCausal, isKVCache);
 
     // create matrix params (LDS transpose not supported for attention)
     BlockwiseMatrixParamsAttr matrixParamsK = BlockwiseMatrixParamsAttr::get(
@@ -2313,6 +2451,7 @@ struct GridwiseAttentionAccelRewritePattern
                  << "rock.attention: gemm0K is equal to gemm0KPerBlock\n");
       LLVM_DEBUG(llvm::dbgs()
                  << "rock.attention: Prefetching Q tile into regs...\n");
+
       // it is fine m iteration to be zero as it irrelevant to Q tensor
       // as the first gemm is Kt x Qt.
       auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
@@ -2531,18 +2670,38 @@ struct GridwiseAttentionAccelRewritePattern
                                        softmaxInputBuffer,
                                        gemm0OutSubTileViewsTrUnPadded);
         }
-        // Negative Infinite for extra values (KV cache)
-        setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
-                                 gridCoordsGemm0, softmaxInputBuffer,
-                                 gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
-                                 gemm0MBlocksLastIter, currentSeqLen);
+        // Negative Infinite for extra values based on masking type
+        // KV cache masking is independent of causal masking - it masks out
+        // positions beyond currentSeqLen (padding). Apply it whenever KV
+        // cache is enabled, regardless of causal/prefix-causal mode.
+        if (isKVCache) {
+          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
+                                   gridCoordsGemm0, softmaxInputBuffer,
+                                   gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
+                                   gemm0MBlocksLastIter, currentSeqLen,
+                                   /*prefixOffset=*/nullptr,
+                                   /*numRepeatsGQA=*/nullptr);
+        }
 
-        // Negative Infinite for extra values (causal masking)
-        setGemm0OutputOutOfScope(
-            rewriter, loc, OutOfScopeType::Causal, gridCoordsGemm0,
-            softmaxInputBuffer, gemm0OutSubTileViewsTr, isCausal, mLoopIV,
-            gemm0MBlocksLastIter, /*currentSeqLen=*/nullptr,
-            op.getNumRepeatsGQAAttr());
+        // Causal masking: either prefix-causal or standard causal
+        if (isPrefixCausal) {
+          // Prefix causal: mask when key > (query + offset).
+          // This combines causal masking with a prefix offset
+          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::PrefixCausal,
+                                   gridCoordsGemm0, softmaxInputBuffer,
+                                   gemm0OutSubTileViewsTr, isPrefixCausal,
+                                   mLoopIV, gemm0MBlocksLastIter,
+                                   /*currentSeqLen=*/nullptr, prefixOffset,
+                                   op.getNumRepeatsGQAAttr());
+        } else if (isCausal) {
+          // Standard causal masking: mask when key > query
+          setGemm0OutputOutOfScope(
+              rewriter, loc, OutOfScopeType::Causal, gridCoordsGemm0,
+              softmaxInputBuffer, gemm0OutSubTileViewsTr, isCausal, mLoopIV,
+              gemm0MBlocksLastIter,
+              /*currentSeqLen=*/nullptr,
+              /*prefixOffset=*/nullptr, op.getNumRepeatsGQAAttr());
+        }
 
         APInt reductionAxis = APInt(64, 1);
         // Softmax max reduction
@@ -2826,6 +2985,16 @@ struct GridwiseAttentionAccelRewritePattern
       computeLse(rewriter, loc, lseBufferView, sumRowBuffer, maxRowBuffer);
     }
 
+    // Close the early exit if block here. Everything above this point is
+    // conditional (only runs when there's work to do). Everything below
+    // (output writes) always executes, writing zeros when there's no work.
+    if (earlyExitIf.has_value()) {
+      rewriter.setInsertionPointAfter(*earlyExitIf);
+      LLVM_DEBUG(llvm::dbgs()
+                 << "rock.attention: early exit enabled - "
+                 << "output writes will execute unconditionally\n");
+    }
+
     MemRefType outAccBufferOutType =
         cast<MemRefType>(outAccBufferOutTyped.getType());
     int64_t numElementsAttnOut = outAccBufferOutType.getNumElements();
@@ -3037,10 +3206,22 @@ struct GridwiseGemmAccelRewritePattern
     auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
 
     // Compute grid coordinates
+    int64_t gridGroupSize = tuningParams.getGridGroupSize();
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType},
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType,
+         gridGroupSize},
         arch);
+
+    // wavesPerEU is needed in RockToGPU pass and OutputSwizzle for the
+    // OutputSwizzle pass. We add them as func attributes.
+    IntegerAttr wavesPerEUAttr =
+        b.getI64IntegerAttr(tuningParams.getWavesPerEU());
+    IntegerAttr outputSwizzleAttr =
+        b.getI64IntegerAttr(tuningParams.getOutputSwizzle());
+    func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
+    funcOp->setAttr(rock::WavesPerEUAttr::getMnemonic(), wavesPerEUAttr);
+    funcOp->setAttr(rock::OutputSwizzleAttr::getMnemonic(), outputSwizzleAttr);
 
     LDSLayoutConfigDim ldsLayoutConfigA = getLDSLayoutConfigDim(
         elementTypeA, kpack, maybeVecDimInfoA.value(), directToLDS);

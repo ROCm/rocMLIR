@@ -8,7 +8,9 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/Tuning/UtilityParams.h"
+#include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -286,6 +288,16 @@ void AffixTuningParameters::affixTuningParametersImpl(
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.blockSize));
   }
+  // check for fusion legality with SplitK for both accel and non-accel path
+  // this check should happen after perfConfig is picked either through
+  // heuristics or user provided
+  if (rock::isSplitKRequested(rock::getFeatures(op),
+                              b.getStringAttr(perfConfig))) {
+    if (failed(testFusionLegalitySplitK(funcParent))) {
+      op->emitError("Fusion with SplitK perfConfig is not legal");
+      return signalPassFailure();
+    }
+  }
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(
@@ -309,7 +321,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   Attribute params0 = op.getGemm0Params().value_or(nullptr);
   // set a default one if params is not provided
   StringAttr perfConfigStrAttr =
-      builder.getStringAttr("attn:v3:32,32,32,32,32,32,16,1,1,1,2,1");
+      builder.getStringAttr("attn:v3:32,32,32,32,32,32,16,1,1,1,2,0,1");
   if (!params0) {
     if (StringAttr mayBePerfConfigStrAttr =
             dyn_cast_or_null<StringAttr>(op->getAttr("perf_config"))) {
@@ -337,6 +349,13 @@ void AffixTuningParameters::affixTuningParametersImpl(
   if (failed(accelParams)) {
     op.emitError("The provided perf config is not valid");
     return signalPassFailure();
+  }
+  // check for splitK legality
+  if (rock::isSplitKRequested(rock::getFeatures(op), perfConfigStrAttr)) {
+    if (failed(testFusionLegalitySplitK(funcParent))) {
+      op->emitError("Fusion with SplitK perfConfig is not legal");
+      return signalPassFailure();
+    }
   }
   RockAccelTuningParamAttrInterface accelParams0, accelParams1;
   accelParams0 = accelParams->first;

@@ -215,6 +215,7 @@ def Rock_AttentionOp
           TensorOrMemRefOf<[F32, F16, BF16]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
+          Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out,
           Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse, I32Attr:$numHeadsQ,
           I32Attr:$numHeadsKV, UnitAttr:$qTransposed, UnitAttr:$kTransposed,
@@ -245,6 +246,13 @@ def Rock_AttentionOp
 
     If causal is enabled, we implement causal masking.
 
+    If causal is enabled AND prefixOffset is not null, we implement prefix
+    causal masking where: mask = key_pos > (query_pos + offset).
+    The prefixOffset can be either:
+    - A scalar (shape [1]): a single global offset applied to all sequences
+    - A tensor of shape [G]: per-group/batch offsets, allowing different prefix
+      lengths for each sequence in the batch
+
     LSE (log-sum-exp) is an optional output typically used for flash decoding.
     For flash decoding, you can pass splitKV > 1, the default value is 1, which means flash decoding is disabled. 
     Flash decoding multiplies the number of blocks by splitKV. Note that "lse" has to be non-null for splitKV > 1. 
@@ -269,6 +277,7 @@ def Rock_AttentionOp
     `{` `\n`
         ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
         (`currentSeqLen` `=` `(` $currentSeqLen^ `:` type($currentSeqLen) `)` `\n`)?
+        (`prefixOffset` `=` `(` $prefixOffset^ `:` type($prefixOffset) `)` `\n`)?
         (`causal` `\n` $causal^)?
         (`lse` `=` $lse^ `:` type($lse) `\n`)?
         (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
@@ -547,6 +556,7 @@ def Rock_GridwiseAttentionAccelOp
           MemRefRankOf<[F32, F16, BF16], [3]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
+          Optional<MemRefRankOf<[I32], [1]>>:$prefixOffset,
           MemRefRankOf<[F32, F16, BF16], [3]>:$out,
           Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
           I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
@@ -1001,8 +1011,8 @@ defvar NativeMemoryOpTypes =
      F8E4M3FN, F4E2M1FN, F8E8M0FNU,
      VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32, F4E2M1FN, F8E8M0FNU]>,
      VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-     VectorOfLengthAndType<[2, 4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
-                                           F8E4M3FN]>];
+     VectorOfLengthAndType<[2, 4, 8, 16, 32, 64], [I8, F8E5M2FNUZ, F8E4M3FNUZ,
+                                                   F8E5M2, F8E4M3FN]>];
 
 // in_bounds_load
 def Rock_InBoundsLoadOp
@@ -1045,6 +1055,26 @@ def Rock_InBoundsStoreOp
   let assemblyFormat = [{
     $data `->` $dest `[` $coords `]` attr-dict
     `:` type($data) `->` type($dest) `,` type($coords)
+  }];
+  let hasVerifier = 1;
+}
+
+// global_prefetch
+def Rock_GlobalPrefetchOp
+    : Rock_Op<"global_prefetch">,
+      Arguments<(
+          ins Arg<MemRefOf<SupportedMemoryElems>, "source memory">:$source,
+          Variadic<Index>:$sourceCoord)> {
+  let summary = "Prefetch from global memory";
+  let description = [{
+    `global_prefetch` prefetches an item from the provided memref
+    (applying no coordinate transformations), starting at `sourceCoord`. 
+
+    Note that it's ok if `sourceCoord` are out of bounds because we use Speculative Prefetch.
+  }];
+  let assemblyFormat = [{
+    $source `[` $sourceCoord `]` attr-dict
+    `:` type($source)
   }];
   let hasVerifier = 1;
 }
@@ -1253,7 +1283,7 @@ def Rock_ThreadwiseReadIntoOp
     L is the length of `%dest`, V is the maximum vectorization computed
     for MAPS.
 
-    The input to extraViews ; (the transforms on %source) must have the form
+    The input to extraViews: (the transforms on %source) must have the form
     (extraIdx0, ... , extraIdxN, iteration_number)
 
     Primarily, extraIndices would be used to pass in tid and bid. This would need
@@ -1312,6 +1342,59 @@ def Rock_ThreadwiseReadIntoOp
     attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest
     (`if` ` ` `[` $dynamicValidities^ `]`)?
     `:` type($source) `->` type($dest) (`,` type($validityRecord)^)?
+  }];
+  let hasVerifier = 1;
+}
+
+// threadwise_prefetch
+def Rock_ThreadwisePrefetchOp
+    : Rock_Op<"threadwise_prefetch", [DeclareOpInterfaceMethods<
+                                         RockAcceptingViewOpInterface>]>,
+      Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source view">:$source,
+          TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
+          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs)> {
+  let summary = "Prefetch values from transformed source";
+
+  let description = [{
+    A high-level representation of a global prefetch loop that
+    accounts for coordinate transformations.
+
+    If `%source = rock.transform #transform_mapN %buffer`
+    (with the one transformation representing an entire sequence),
+    the operation
+
+    ```mlir
+    rock.threadwise_prefetch [#transform_mapM](%source)
+    ```
+
+    will lower to
+    ```mlir
+    %bid = rock.workgroup_id
+    %tid = rock.workitem_id
+    rock.transforming_for
+      (%args, ...) = MAPS(%bid, %tid, %c0)
+      (%_, %_, %i) = [](%c0, %c0, %c0)
+      bounds = [1, 1, L], strides = [1, 1, 1] {
+        rock.global_prefetch %buffer[%args]
+    }
+    ```
+
+    where MAPS is `[#transform_mapM, #transform_mapN]`,
+    L is the length of the upper view last dimension (number of elements).
+
+    The input to extraViews ; (the transforms on %source) must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number)
+
+    Primarily, extraIndices would be used to pass in tid and bid. This would need
+    to have a matching view in [extraViews]source. The extraIndices could be used
+    to integrate loop induction vars that is outside of the op.
+    If extraIndices are used, the [extraViews]source must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)?
+    `:` type($source)
   }];
   let hasVerifier = 1;
 }
