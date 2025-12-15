@@ -119,9 +119,7 @@ static std::pair<int64_t, int64_t> detectSplitKVFromQ(Value qTensor) {
 }
 
 // Detect splitKV from K or V tensor by finding the Unmerge with splitKV
-// dimension This works for both K and V since they have similar patterns:
-//   5D: flat --Unmerge--> [..., SplitKV, ...] (splitKV at position 2 or 3)
-//   4D: flat --Unmerge--> [..., SplitKV, ...] (splitKV at position 1 or 2)
+// dimension This works for both K and V since they have similar patterns.
 // Returns (splitKV, dimensionality), where dimensionality is 4 or 5
 // Returns (1, 0) if not found
 static std::pair<int64_t, int64_t> detectSplitKVFromKV(Value tensor,
@@ -198,7 +196,6 @@ static std::pair<int64_t, int64_t> detectSplitKVFromKV(Value tensor,
 
       // 3D case: Unmerge has 3 params, splitKV merged into batch.
       if (params.size() == 3 && upperBounds.size() == 3) {
-        // Check params[1] for splitKV at position 1
         if (auto result = checkUnmergePattern(3, 1, params[1]))
           return *result;
       }
