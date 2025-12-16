@@ -95,6 +95,14 @@ struct ThreadwiseReadIntoRewritePattern
                                 ConversionPatternRewriter &b) const final;
 };
 
+struct ThreadwisePrefetchRewritePattern
+    : public OpConversionPattern<ThreadwisePrefetchOp> {
+  using OpConversionPattern<ThreadwisePrefetchOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(ThreadwisePrefetchOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final;
+};
+
 //===----------------------------------------------------------------------===//
 // ThreadwiseGemm lowering.
 //===----------------------------------------------------------------------===//
@@ -990,6 +998,54 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   return success();
 }
 
+LogicalResult ThreadwisePrefetchRewritePattern::matchAndRewrite(
+    ThreadwisePrefetchOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &b) const {
+  Location loc = op.getLoc();
+  Value sourceView = adaptor.getSource();
+  ArrayAttr extraViews = op.getExtraViews();
+  sourceView =
+      cast<TypedValue<MemRefType>>(transform(b, sourceView, extraViews));
+  sourceView = addIterationIndexIfScalar(b, loc, sourceView);
+  sourceView = isolateTransforms(b, sourceView);
+
+  auto [buffer, transforms, _] = untransform(b, sourceView);
+
+  size_t extraIdxCount = op.getExtraIndices().size();
+  auto upperType = cast<ShapedType>(sourceView.getType());
+  int64_t numValues = upperType.getShape()[extraIdxCount];
+
+  bool forceUnroll = op.getForceUnroll();
+  bool useIndexDiffs = op.getUseIndexDiffs();
+
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  SmallVector<Value, 3> readStartCoords =
+      llvm::to_vector<3>(op.getExtraIndices());
+  readStartCoords.push_back(zero);
+  SmallVector<int64_t, 3> bounds(readStartCoords.size() - 1, 1);
+  bounds.push_back(numValues);
+  SmallVector<int64_t, 3> strides(readStartCoords.size() - 1, 1);
+  strides.push_back(1);
+
+  SmallVector<Attribute> transformAttrs;
+
+  SmallVector<ValueRange> inits{readStartCoords};
+  SmallVector<Attribute> loopTransforms{transforms};
+
+  auto prefetchLoop =
+      TransformingForOp::create(b, loc, inits, loopTransforms, bounds, strides,
+                                forceUnroll, useIndexDiffs, ValueRange{});
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(prefetchLoop.getBody());
+
+    rock::GlobalPrefetchOp::create(b, loc, buffer,
+                                   prefetchLoop.getLowerCoords(/*domain=*/0));
+  }
+  b.replaceOp(op, prefetchLoop.getResults());
+  return success();
+}
+
 LogicalResult ThreadwiseWriteAllRewritePattern::matchAndRewrite(
     ThreadwiseWriteAllOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &b) const {
@@ -1103,7 +1159,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp,
-                                ThreadwiseCopyOp>();
+                                ThreadwiseCopyOp, ThreadwisePrefetchOp>();
     writeAllTarget.addLegalDialect<
         arith::ArithDialect, rock::RockDialect, memref::MemRefDialect,
         scf::SCFDialect, vector::VectorDialect, affine::AffineDialect>();
@@ -1111,7 +1167,8 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
         .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern,
-             ThreadwiseCopyRewritePattern>(ctx);
+             ThreadwiseCopyRewritePattern, ThreadwisePrefetchRewritePattern>(
+            ctx);
     if (failed(applyPartialConversion(getOperation(), writeAllTarget,
                                       std::move(writeAllPatterns))))
       signalPassFailure();

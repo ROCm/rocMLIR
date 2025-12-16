@@ -59,6 +59,8 @@ struct AmdArchInfo {
 
 AmdArchInfo lookupArchInfo(StringRef arch);
 bool isDirectToLDSSupported(GemmFeatures features);
+bool isGlobalPrefetchSupported(StringRef arch);
+bool isAsyncDirectToLDSSupported(StringRef arch);
 } // namespace rock
 } // namespace mlir
 
