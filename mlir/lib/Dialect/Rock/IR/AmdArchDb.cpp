@@ -8,6 +8,7 @@
 
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -436,6 +437,10 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
 bool mlir::rock::isDirectToLDSSupported(GemmFeatures features) {
   return bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b) ||
          bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
+}
+
+bool mlir::rock::isAsyncDirectToLDSSupported(StringRef arch) {
+  return arch.contains("gfx1250");
 }
 
 int64_t

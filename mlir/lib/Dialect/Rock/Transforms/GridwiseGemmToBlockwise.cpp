@@ -2064,6 +2064,11 @@ struct GridwiseAttentionAccelRewritePattern
     int64_t scheduleVersion = gemm0TuningParams.getScheduleVersion();
     int64_t scheduleVersionG1 = gemm1TuningParams.getScheduleVersion();
     assert(scheduleVersion == scheduleVersionG1);
+
+    // Check if the schedule version is supported by the hardware
+    if (failed(isScheduleVersionSupported(scheduleVersion, features, arch)))
+      return op.emitOpError("schedule version not supported");
+
     std::optional<GemmLoadTileType> maybeLoadType =
         symbolizeGemmLoadTileType(scheduleVersion);
     if (!maybeLoadType.has_value())
@@ -2072,11 +2077,6 @@ struct GridwiseAttentionAccelRewritePattern
     GemmLoadTileType loadType = maybeLoadType.value();
     bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-
-    // If we are using direct to LDS, we need to ensure that the
-    // hardware supports it.
-    if (directToLDS && !isDirectToLDSSupported(features))
-      return op.emitOpError("Direct to LDS is not supported by the hardware");
 
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
         features, elemTypeQ, elemTypeK, arch, gemm0TuningParams);
@@ -3146,6 +3146,11 @@ struct GridwiseGemmAccelRewritePattern
         math_util::integer_divide_ceil(bCopyPerThread, kpack);
 
     int64_t scheduleVersion = tuningParams.getScheduleVersion();
+
+    // Check if the schedule version is supported by the hardware
+    if (failed(isScheduleVersionSupported(scheduleVersion, features, arch)))
+      return op.emitOpError("schedule version not supported");
+
     std::optional<GemmLoadTileType> maybeLoadType =
         symbolizeGemmLoadTileType(scheduleVersion);
     if (!maybeLoadType.has_value())
@@ -3154,11 +3159,6 @@ struct GridwiseGemmAccelRewritePattern
     auto loadType = maybeLoadType.value();
     bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
                        loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-
-    // If we are using direct to LDS, we need to ensure that the
-    // hardware supports it.
-    if (directToLDS && !isDirectToLDSSupported(features))
-      return op.emitOpError("Direct to LDS is not supported by the hardware");
 
     // Get the vector copy layout for A and B
     FailureOr<VectorDimInfo> maybeVecDimInfoA =
