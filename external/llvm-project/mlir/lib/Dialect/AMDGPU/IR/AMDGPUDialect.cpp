@@ -606,6 +606,39 @@ LogicalResult GatherToLDSOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// AsyncLoadToLDSOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult AsyncLoadToLDSOp::verify() {
+  MemRefType srcType = cast<MemRefType>(getSrc().getType());
+  MemRefType dstType = cast<MemRefType>(getDst().getType());
+
+  auto elemType = srcType.getElementType();
+  // Check $src and $dst element types are the same.
+  if (elemType != dstType.getElementType())
+    return emitOpError("source and destination element types must match");
+
+  auto transferType = getTransferType();
+  int transferSize;
+  if (auto vectorTransfer = dyn_cast<VectorType>(transferType)) {
+    transferSize = vectorTransfer.getNumElements() *
+                   vectorTransfer.getElementTypeBitWidth();
+  } else {
+    transferSize = transferType.getIntOrFloatBitWidth();
+  }
+  if (!llvm::is_contained({8, 32, 64, 128}, transferSize))
+    return emitOpError("Transfering type size must be 8, 32, 64 or 128 bits");
+
+  if (!hasGlobalMemorySpace(srcType.getMemorySpace()))
+    return emitOpError("source memory address space must be global");
+
+  if (!hasWorkgroupMemorySpace(dstType.getMemorySpace()))
+    return emitOpError("destination memory address space must be Workgroup");
+
+  return success();
+}
+
 namespace {
 /// If the source/target of a GatherToLDSOp is a CastOp that only removes static
 /// information or changes layout, the cast can be skipped.
