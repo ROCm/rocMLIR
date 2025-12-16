@@ -1793,7 +1793,7 @@ static const StringRef initParametersFp16AttentionGfx1000[nInitParametersFp16Att
 
 #endif
 
-#ifdef PARAM_LOOKUP_TABLE_GEN
+#ifdef NonAccel_LOOKUP_TABLE_GEN
 
 {"gfx1000_gemm_f32", {PopulateParams::initParametersGemmGfx1000, PopulateParams::nInitParametersGemmGfx1000}},
 {"gfx1100_gemm_f32", {PopulateParams::initParametersGemmGfx1100, PopulateParams::nInitParametersGemmGfx1100}},
@@ -1805,6 +1805,10 @@ static const StringRef initParametersFp16AttentionGfx1000[nInitParametersFp16Att
 {"gfx1151_conv_f32", {PopulateParams::initParametersConvGfx1151, PopulateParams::nInitParametersConvGfx1151}},
 {"gfx1150_gemm_f32", {PopulateParams::initParametersGemmGfx1150, PopulateParams::nInitParametersGemmGfx1150}},
 {"gfx1150_conv_f32", {PopulateParams::initParametersConvGfx1150, PopulateParams::nInitParametersConvGfx1150}},
+
+#endif
+
+#ifdef Accel_LOOKUP_TABLE_GEN
 
 {"gfx908_gemm_f32", {PopulateParamsXDL::initParametersGemmGfx908, PopulateParamsXDL::nInitParametersGemmGfx908}},
 {"gfx90a_gemm_f32", {PopulateParamsXDL::initParametersGemmGfx90a, PopulateParamsXDL::nInitParametersGemmGfx90a}},
@@ -1833,7 +1837,6 @@ static const StringRef initParametersFp16AttentionGfx1000[nInitParametersFp16Att
 {"gfx942_conv_i8", {PopulateParamsXDL::initParametersForwardI8ConvGfx942, PopulateParamsXDL::nInitParametersForwardI8ConvGfx942}},
 {"gfx950_conv_i8", {PopulateParamsXDL::initParametersForwardI8ConvGfx950, PopulateParamsXDL::nInitParametersForwardI8ConvGfx950}},
 {"gfx950_gemm_f4", {PopulateParamsXDL::initParametersF4GemmGfx950, PopulateParamsXDL::nInitParametersF4GemmGfx950}},
-
 {"gfx1000_gemm_f16", {PopulateParamsWmma::initParametersFp16GemmGfx1000, PopulateParamsWmma::nInitParametersFp16GemmGfx1000}},
 {"gfx1100_gemm_f16", {PopulateParamsWmma::initParametersFp16GemmGfx1100, PopulateParamsWmma::nInitParametersFp16GemmGfx1100}},
 {"gfx1000_conv_f16", {PopulateParamsWmma::initParametersFp16ConvGfx1000, PopulateParamsWmma::nInitParametersFp16ConvGfx1000}},
@@ -1856,6 +1859,10 @@ static const StringRef initParametersFp16AttentionGfx1000[nInitParametersFp16Att
 {"gfx1150_gemm_i8", {PopulateParamsWmma::initParametersI8GemmGfx1150, PopulateParamsWmma::nInitParametersI8GemmGfx1150}},
 {"gfx1150_conv_f16", {PopulateParamsWmma::initParametersFp16ConvGfx1150, PopulateParamsWmma::nInitParametersFp16ConvGfx1150}},
 {"gfx1150_conv_i8", {PopulateParamsWmma::initParametersForwardI8ConvGfx1150, PopulateParamsWmma::nInitParametersForwardI8ConvGfx1150}},
+
+#endif
+
+#ifdef Attn_LOOKUP_TABLE_GEN
 
 {"gfx900_attention_f32", {PopulateParamsAttn::initParametersAttentionGfx900, PopulateParamsAttn::nInitParametersAttentionGfx900}},
 {"gfx900_attention_f16", {PopulateParamsAttn::initParametersFp16AttentionGfx900, PopulateParamsAttn::nInitParametersFp16AttentionGfx900}},

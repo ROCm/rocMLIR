@@ -10,8 +10,10 @@
 using namespace mlir;
 using namespace mlir::rock;
 
-ArrayRef<StringRef> ParamLookupTable::lookup(StringRef arch, KernelType op,
-                                             Type dataType) {
+template <typename ParamsType>
+ArrayRef<StringRef> ParamLookupTable<ParamsType>::lookup(StringRef arch,
+                                                         KernelType op,
+                                                         Type dataType) {
   if (dataType.getIntOrFloatBitWidth() == 4 && isa<FloatType>(dataType) &&
       op == KernelType::Gemm && !lookupArchInfo(arch).hasScaledGemm)
     llvm::report_fatal_error("Unsupported arch for f4 kernels");
@@ -36,7 +38,8 @@ ArrayRef<StringRef> ParamLookupTable::lookup(StringRef arch, KernelType op,
   llvm::report_fatal_error(Twine("Tuning parameters not found for key ") + key);
 }
 
-StringRef ParamLookupTable::findFallback(StringRef target) {
+template <typename ParamsType>
+StringRef ParamLookupTable<ParamsType>::findFallback(StringRef target) {
   const auto relatives = getRelatives(target);
   if (relatives.empty())
     return StringRef();
@@ -59,9 +62,12 @@ StringRef ParamLookupTable::findFallback(StringRef target) {
     return *it;
 }
 
-SmallVector<StringRef, 12> ParamLookupTable::getRelatives(StringRef target) {
+template <typename ParamsType>
+SmallVector<StringRef, 12>
+ParamLookupTable<ParamsType>::getRelatives(StringRef target) {
   // For non-accel params, fall back to any gfx
-  constexpr auto fallbackArchPrefixLen = 4; // TODO NonAccel
+  constexpr auto fallbackArchPrefixLen =
+      std::is_same_v<ParamsType, GeneralGemmParamsAttr> ? 3 : 4;
   const auto suffixLen = target.size() - target.find(separator);
 
   SmallVector<StringRef, 12> relatives;
@@ -79,7 +85,8 @@ SmallVector<StringRef, 12> ParamLookupTable::getRelatives(StringRef target) {
   return relatives;
 }
 
-StringRef ParamLookupTable::normalizeArch(StringRef arch) {
+template <typename ParamsType>
+StringRef ParamLookupTable<ParamsType>::normalizeArch(StringRef arch) {
   auto gfxPos = arch.find("gfx");
   if (gfxPos == StringRef::npos) {
     llvm_unreachable("Invalid architecture string");
@@ -90,7 +97,9 @@ StringRef ParamLookupTable::normalizeArch(StringRef arch) {
   return remaining.substr(0, endPos);
 }
 
-std::string ParamLookupTable::getKernelTypeString(KernelType kernelType) {
+template <typename ParamsType>
+std::string
+ParamLookupTable<ParamsType>::getKernelTypeString(KernelType kernelType) {
   switch (kernelType) {
   case KernelType::ConvBwdData:
   case KernelType::ConvBwdWeight:
@@ -101,9 +110,9 @@ std::string ParamLookupTable::getKernelTypeString(KernelType kernelType) {
   }
 }
 
-std::string ParamLookupTable::getDataTypeString(Type dataType) {
-  if constexpr (         /*std::is_same_v<StringRef, InitParamsNonAccel>*/
-                false) { // TODO
+template <typename ParamsType>
+std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
+  if constexpr (std::is_same_v<ParamsType, GeneralGemmParamsAttr>) {
     // For non-accel params, we only support f32
     return "f32";
   } else if (dataType.getIntOrFloatBitWidth() == 4 &&
@@ -130,10 +139,36 @@ std::string ParamLookupTable::getDataTypeString(Type dataType) {
   }
 }
 
-std::map<StringRef, ArrayRef<StringRef>> ParamLookupTable::buildTable() {
+template <>
+std::map<StringRef, ArrayRef<StringRef>>
+ParamLookupTable<GeneralGemmParamsAttr>::buildTable() {
   return {
-#define PARAM_LOOKUP_TABLE_GEN
+#define NonAccel_LOOKUP_TABLE_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef PARAM_LOOKUP_TABLE_GEN
+#undef NonAccel_LOOKUP_TABLE_GEN
   };
 }
+
+template <>
+std::map<StringRef, ArrayRef<StringRef>>
+ParamLookupTable<AccelGemmParamsAttr>::buildTable() {
+  return {
+#define Accel_LOOKUP_TABLE_GEN
+#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
+#undef Accel_LOOKUP_TABLE_GEN
+  };
+}
+
+template <>
+std::map<StringRef, ArrayRef<StringRef>>
+ParamLookupTable<AttnParamsAttr>::buildTable() {
+  return {
+#define Attn_LOOKUP_TABLE_GEN
+#include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
+#undef Attn_LOOKUP_TABLE_GEN
+  };
+}
+
+template class mlir::rock::ParamLookupTable<GeneralGemmParamsAttr>;
+template class mlir::rock::ParamLookupTable<AccelGemmParamsAttr>;
+template class mlir::rock::ParamLookupTable<AttnParamsAttr>;

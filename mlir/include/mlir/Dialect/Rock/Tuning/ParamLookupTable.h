@@ -19,6 +19,7 @@
 namespace mlir {
 namespace rock {
 
+template <typename ParamsType>
 class ParamLookupTable {
 public:
   static ArrayRef<StringRef> lookup(StringRef arch, KernelType op,

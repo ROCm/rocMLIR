@@ -272,7 +272,8 @@ std::vector<GeneralGemmParamsAttr>
 PopulateParams::getTuningParameters(OpBuilder &b, KernelType opType,
                                     Type dataTypeA, Type dataTypeB,
                                     StringRef arch) const {
-  auto perfConfigs = ParamLookupTable::lookup(arch, opType, dataTypeA);
+  auto perfConfigs =
+      ParamLookupTable<GeneralGemmParamsAttr>::lookup(arch, opType, dataTypeA);
   std::vector<GeneralGemmParamsAttr> result;
   result.reserve(perfConfigs.size());
   for (StringRef perfConfig : perfConfigs) {
@@ -520,7 +521,8 @@ std::vector<AccelGemmParamsAttr>
 PopulateParamsXDL::getTuningParameters(OpBuilder &b, KernelType opType,
                                        Type dataTypeA, Type dataTypeB,
                                        StringRef arch) const {
-  auto perfConfigs = ParamLookupTable::lookup(arch, opType, dataTypeA);
+  auto perfConfigs =
+      ParamLookupTable<AccelGemmParamsAttr>::lookup(arch, opType, dataTypeA);
 
   std::vector<AccelGemmParamsAttr> res;
   // Only return valid XDLOp params
@@ -669,7 +671,8 @@ std::vector<AccelGemmParamsAttr>
 PopulateParamsWmma::getTuningParameters(OpBuilder &b, KernelType opType,
                                         Type dataTypeA, Type dataTypeB,
                                         StringRef arch) const {
-  auto perfConfigs = ParamLookupTable::lookup(arch, opType, dataTypeA);
+  auto perfConfigs =
+      ParamLookupTable<AccelGemmParamsAttr>::lookup(arch, opType, dataTypeA);
 
   std::vector<AccelGemmParamsAttr> res;
   // Only return valid Wmma params

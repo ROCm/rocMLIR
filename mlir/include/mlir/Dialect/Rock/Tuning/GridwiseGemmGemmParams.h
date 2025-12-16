@@ -53,7 +53,7 @@ private:
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Attn_DECLARATIONS_GEN
 
-  friend class ParamLookupTable;
+  friend class ParamLookupTable<AttnParamsAttr>;
 };
 
 } // namespace rock

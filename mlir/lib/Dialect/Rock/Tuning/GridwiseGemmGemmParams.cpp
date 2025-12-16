@@ -20,7 +20,7 @@ PopulateParamsAttn::getQuickTuningRange(OpBuilder &b,
   if (!rock::isAccel(rock::getFeatures(op))) {
     return {};
   }
-  auto perfConfigs = ParamLookupTable::lookup(
+  auto perfConfigs = ParamLookupTable<AttnParamsAttr>::lookup(
       rock::getArchValue(op), op.getKernelType(),
       cast<MemRefType>(op.getAType()).getElementType());
   return deserializePerfConfigs(b, op, perfConfigs);

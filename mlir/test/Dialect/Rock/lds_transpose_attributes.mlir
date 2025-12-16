@@ -1,6 +1,6 @@
 // RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -rock-blockwise-gemm-to-threadwise %s | FileCheck %s
 
-#params = #rock.mfma_gemm_params<
+#params = #rock.accel_gemm_params<
   kpackPerBlock = 16, mPerBlock = 64, nPerBlock = 64,
   kpack = 1, mPerWave = 32, nPerWave = 32,
   mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 3,
@@ -33,7 +33,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
 
 // -----
 
-#params_double = #rock.mfma_gemm_params<
+#params_double = #rock.accel_gemm_params<
   kpackPerBlock = 32, mPerBlock = 64, nPerBlock = 64,
   kpack = 1, mPerWave = 16, nPerWave = 64,
   mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 4,

@@ -172,7 +172,7 @@ private:
   // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk
 
-  friend class ParamLookupTable;
+  friend class ParamLookupTable<GeneralGemmParamsAttr>;
 
   LogicalResult
   calculateBlockGemmPerformanceParameters(GeneralGemmParamsAttr params);
@@ -269,7 +269,7 @@ class PopulateParamsXDL : public PopulateParamsAccel {
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef XDL_DECLARATIONS_GEN
 
-  friend class ParamLookupTable;
+  friend class ParamLookupTable<AccelGemmParamsAttr>;
 
 public:
   std::vector<AccelGemmParamsAttr>
@@ -295,7 +295,7 @@ private:
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Wmma_DECLARATIONS_GEN
 
-  friend class ParamLookupTable;
+  friend class ParamLookupTable<AccelGemmParamsAttr>;
 
 public:
   std::vector<AccelGemmParamsAttr>
