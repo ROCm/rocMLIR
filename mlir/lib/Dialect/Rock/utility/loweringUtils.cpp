@@ -1174,6 +1174,11 @@ mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
     auto arch = getArch(matrix.getDefiningOp());
     if (failed(arch))
       return emitError(loc) << "can't get arch\n";
+    // TODO: Implement this for WMMA.
+    StringRef archValue = rock::getArchValue(matrix.getDefiningOp());
+    if (archValue.contains("gfx1250")) {
+      return emitError(loc) << "AsyncDirectToLDS is not implemented for WMMA";
+    }
     auto features = rock::lookupArchInfo(arch.value()).defaultFeatures;
     bool directToLDS128b =
         bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b);

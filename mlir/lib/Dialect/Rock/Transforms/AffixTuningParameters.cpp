@@ -167,22 +167,6 @@ void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
   funcOp->setAttr("grid_size", gridSizeAttr);
 }
 
-static LogicalResult isScheduleVersionSupported(int64_t scheduleVersion,
-                                                GemmFeatures features) {
-  std::optional<GemmLoadTileType> maybeLoadType =
-      rock::symbolizeGemmLoadTileType(scheduleVersion);
-  if (!maybeLoadType.has_value())
-    return failure();
-
-  auto loadType = maybeLoadType.value();
-  bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
-                     loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-  if (directToLDS && !isDirectToLDSSupported(features))
-    return failure();
-
-  return success();
-}
-
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmWrapperInterface op) {
   OpBuilder b(op.getContext());
@@ -199,6 +183,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
   std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
 
+  StringRef arch = rock::getArchValue(op);
   GemmFeatures features = rock::getFeatures(op);
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
@@ -212,7 +197,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
       validParams.gemmScheduleVersion = scheduleVersion.value();
 
     if (failed(isScheduleVersionSupported(validParams.gemmScheduleVersion,
-                                          features))) {
+                                          features, arch))) {
       op->emitError("schedule version not supported\n");
       return signalPassFailure();
     }
@@ -340,7 +325,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
         attnPerfConfig.withScheduleVersion(scheduleVersion.value());
 
   if (failed(isScheduleVersionSupported(attnPerfConfig.getScheduleVersion(),
-                                        rock::getFeatures(op)))) {
+                                        rock::getFeatures(op),
+                                        rock::getArchValue(op)))) {
     op->emitError("schedule version not supported\n");
     return signalPassFailure();
   }
