@@ -21,6 +21,7 @@ from perfCommonUtils import CORRECT_RESULT_RE
 
 import numpy as np
 import pandas as pd
+import json
 
 MLIR_N_REPEATS = 10
 WARMUP_ITERATIONS = 1
@@ -113,7 +114,6 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths, options: Opt
                                   stderr=subprocess.PIPE)
             p2.stdout.close()  # Allow p2 to receive a SIGPIPE if p3 exits.
             # get output.
-
             debug_info = f"""rocmlir-gen cmd = {rocmlir_gen_command}
 rocmlir-driver cmd = {' '.join(rocmlir_driver_command)}
 rocprof cmd = {' '.join(profiler_command)}"""
@@ -180,7 +180,7 @@ def get_winning_config(tuning_output, config, paths: Paths, options: Options):
                 measurements = None
             else:
                 nano_seconds = float(time)
-                measurements = parts[1] if len(parts) == 3 else None
+                measurements = json.loads(parts[1]) if len(parts) == 3 else None
         except ValueError:
             print(f"Error parsing tuning driver output line: {result}", file=sys.stderr)
             continue
