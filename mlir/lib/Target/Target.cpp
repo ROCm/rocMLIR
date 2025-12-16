@@ -149,9 +149,10 @@ AMDGPUSerializer::loadBitcodeFiles(llvm::Module &module) {
 std::optional<SmallVector<char, 0>>
 AMDGPUSerializer::compileToBinary(const std::string &serializedISA) {
   // Assemble the ISA.
-  std::optional<SmallVector<char, 0>> isaBinary = assembleIsa(serializedISA);
+  auto errCallback = [&]() { return getOperation().emitError(); };
+  FailureOr<SmallVector<char, 0>> isaBinary = assembleIsa(serializedISA, this->triple, this->chip, this->features, errCallback);
 
-  if (!isaBinary) {
+  if (failed(isaBinary)) {
     getOperation().emitError() << "Failed during ISA assembling.";
     return std::nullopt;
   }
