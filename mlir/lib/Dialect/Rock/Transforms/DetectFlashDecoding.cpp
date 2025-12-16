@@ -489,10 +489,23 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
       newCurrentSeqLen = maybeNewSeqLen.value();
     }
 
+    // Transform prefixOffset if present
+    Value newPrefixOffset = nullptr;
+    if (auto prefixOffset = op.getPrefixOffset()) {
+      auto maybeNewPrefixOffset =
+          sliceSplitKVFromBatch(rewriter, op.getLoc(), prefixOffset,
+                                splitKVFromQ, "prefixOffset", {});
+      if (failed(maybeNewPrefixOffset)) {
+        op.emitError("Failed to transform prefixOffset");
+        return failure();
+      }
+      newPrefixOffset = maybeNewPrefixOffset.value();
+    }
+
     auto newOp = rock::AttentionOp::create(
         rewriter, op->getLoc(), resultType, lseOutType, newQueries, newKeys,
         newValues, op.getPreSoftmaxElemWiseInputs(), newCurrentSeqLen,
-        op.getPrefixOffset(), op.getOut(), op.getLse(), op.getNumHeadsQAttr(),
+        newPrefixOffset, op.getOut(), op.getLse(), op.getNumHeadsQAttr(),
         op.getNumHeadsKVAttr(), op.getQTransposedAttr(),
         op.getKTransposedAttr(), op.getVTransposedAttr(),
         op.getOTransposedAttr(), op.getCausalAttr(),

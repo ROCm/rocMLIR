@@ -3024,8 +3024,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
                                               reassocIndices);
       } else if (rank == 3) {
         SmallVector<ReassociationIndices> reassocIndices = {{0, 1, 2}};
-        currentSeqLen = tensor::CollapseShapeOp::create(
-            rewriter, op.getLoc(), currentSeqLen, reassocIndices);
+        val = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), val,
+                                              reassocIndices);
       }
     };
 
