@@ -1031,8 +1031,10 @@ computeCopyPerThreadDirectToLDS(Value matrix, Type elementType,
   int64_t copyKPerThread = 0;
   int64_t copyDPerThread = 0;
   // TODO: we need targetBits=96 if we want direct to LDS for f6
-  if (targetBits % elementType.getIntOrFloatBitWidth() != 0)
+  if (targetBits % elementType.getIntOrFloatBitWidth() != 0) {
+    LLVM_DEBUG(llvm::dbgs() << "err1\n");
     return failure();
+  }
 
   int64_t inputDimLen = targetBits / elementType.getIntOrFloatBitWidth();
 
@@ -1060,15 +1062,19 @@ computeCopyPerThreadDirectToLDS(Value matrix, Type elementType,
   // if the fastest dimension doesn't match inputDimLen. We can't use direct to
   // LDS.
   if (copyFastestDimPerThread != inputDimLen) {
+    LLVM_DEBUG(llvm::dbgs() << "err2: " << copyFastestDimPerThread << " != " << inputDimLen << "\n");
     return failure();
   }
 
   if (copyKPerThread == 0 || copyDPerThread == 0) {
+    LLVM_DEBUG(llvm::dbgs() << "err3\n");
     return failure();
   }
   if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
+    LLVM_DEBUG(llvm::dbgs() << "err4\n");
     return failure();
   }
+  LLVM_DEBUG(llvm::dbgs() << "all good, success\n");
   return std::make_tuple(dim, copyKPerThread, copyDPerThread);
 }
 
@@ -1174,27 +1180,24 @@ mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
     auto arch = getArch(matrix.getDefiningOp());
     if (failed(arch))
       return emitError(loc) << "can't get arch\n";
-    // TODO: Implement this for WMMA.
-    StringRef archValue = rock::getArchValue(matrix.getDefiningOp());
-    if (archValue.contains("gfx1250")) {
-      return emitError(loc) << "AsyncDirectToLDS is not implemented for WMMA";
-    }
     auto features = rock::lookupArchInfo(arch.value()).defaultFeatures;
     bool directToLDS128b =
         bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b);
     bool directToLDS32b =
         bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
-    assert(directToLDS128b || directToLDS32b);
+    assert(directToLDS128b || directToLDS32b || isAsyncDirectToLDSSupported(arch.value()));
+    // TODO: Differentiate between different async DirectToLDS byte widths. Right now, it will
+    // attempt to load 128b per thread first, and then 32b.
 
     // For direct to LDS, we will try if we can load 128b per thread first.
     // If not possible, we will try 32b. If not possible, we can't use direct to
     // LDS.
-    if (directToLDS128b)
+    if (directToLDS128b || isAsyncDirectToLDSSupported(arch.value()))
       maybeCopyDPerThread = computeCopyPerThreadDirectToLDS(
           matrix, elemType, copyPerThread, kPerBlock, dPerBlock, kpack, 128,
           loc);
 
-    if (failed(maybeCopyDPerThread) && directToLDS32b)
+    if (failed(maybeCopyDPerThread) && (directToLDS32b || isAsyncDirectToLDSSupported(arch.value())))
       maybeCopyDPerThread =
           computeCopyPerThreadDirectToLDS(matrix, elemType, copyPerThread,
                                           kPerBlock, dPerBlock, kpack, 32, loc);

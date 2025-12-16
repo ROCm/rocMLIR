@@ -683,15 +683,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   auto arch = getArch(op);
   if (failed(arch))
-    return emitError(loc) << "can't get arch\n";
+    return emitError(loc) << "can't get arch";
   auto archInfo = rock::lookupArchInfo(arch.value());
 
   int64_t numValues = dstBufferType.getNumElements();
   bool hwDirectToLDS128b, hwDirectToLDS32b;
   if (isGlobalToLDS) {
     if (transforms.empty()) {
-      LLVM_DEBUG(llvm::dbgs() << "transforms is empty.\n");
-      return failure();
+      return emitError(loc) << "transforms is empty";
     }
     TransformMapAttr topMap = cast<TransformMapAttr>(transforms[0]);
     numValues = topMap.getUpperBounds().asArrayRef().back();
@@ -702,13 +701,11 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
     auto features = archInfo.defaultFeatures;
     hwDirectToLDS128b =
-        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b);
+        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b) || isAsyncDirectToLDSSupported(arch.value());
     hwDirectToLDS32b =
-        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
+        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b) || isAsyncDirectToLDSSupported(arch.value());
     if (!hwDirectToLDS128b && !hwDirectToLDS32b) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Direct to LDS is not supported by the hardware\n");
-      return failure();
+      return emitError(loc) << "Direct to LDS is not supported by the hardware";
     }
   }
 
@@ -864,20 +861,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         constantNumElements = 128 / dstBufferType.getElementTypeBitWidth();
         directToLDSType = b.getF128Type();
         if (!hwDirectToLDS128b) {
-          LLVM_DEBUG(
-              llvm::dbgs()
-              << "128 bits direct to LDS is not supported by the hardware\n");
-          return failure();
+          return emitError(loc) << "128 bits direct to LDS is not supported by the hardware";          
         }
       } else {
         assert(32 % dstBufferType.getElementTypeBitWidth() == 0);
         constantNumElements = 32 / dstBufferType.getElementTypeBitWidth();
         directToLDSType = b.getF32Type();
         if (!hwDirectToLDS32b) {
-          LLVM_DEBUG(
-              llvm::dbgs()
-              << "32 bits direct to LDS is not supported by the hardware\n");
-          return failure();
+          return emitError(loc) << "32 bits direct to LDS is not supported by the hardware";
         }
       }
       assert(srcStride == constantNumElements);

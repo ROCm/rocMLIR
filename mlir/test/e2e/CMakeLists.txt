@@ -89,6 +89,7 @@ if (ROCK_E2E_TEST_ENABLED)
   )
   list(APPEND CONFIGS
   GemmDirectToLDS
+  GemmAsyncDirectToLDS
   GemmDirectToLDSF4
   ConvDirectToLDS
   AttentionSchedule

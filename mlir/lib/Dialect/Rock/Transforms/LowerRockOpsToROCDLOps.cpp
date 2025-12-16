@@ -43,37 +43,52 @@ struct AsyncWaitOpConversion
   using ConvertOpToLLVMPattern<rock::AsyncWaitOp>::ConvertOpToLLVMPattern;
 
   AsyncWaitOpConversion(const LLVMTypeConverter &converter,
-                        amdgpu::Chipset chipset, bool supportsDirectToLDS)
+                        amdgpu::Chipset chipset, bool supportsDirectToLDS,
+                        bool supportsAsyncDirectToLDS)
       : ConvertOpToLLVMPattern<rock::AsyncWaitOp>(converter), chipset(chipset),
-        supportsDirectToLDS(supportsDirectToLDS) {}
+        supportsDirectToLDS(supportsDirectToLDS),
+        supportsAsyncDirectToLDS(supportsAsyncDirectToLDS) {}
 
   mlir::amdgpu::Chipset chipset;
   bool supportsDirectToLDS;
+  bool supportsAsyncDirectToLDS;
 
   LogicalResult
   matchAndRewrite(rock::AsyncWaitOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     // Erase the op when DirectToLDS is not supported
-    if (!supportsDirectToLDS) {
+    if (!supportsDirectToLDS && !supportsAsyncDirectToLDS) {
+      LLVM_DEBUG(llvm::dbgs() << "AsyncWaitOpConversion: arch does not support "
+                                 "DirectToLDS or AsyncDirectToLDS\n");
       rewriter.eraseOp(op);
       return success();
     }
 
     auto loc = op->getLoc();
 
-    // Clamp vmcnt to 6bits; a lower vmcnt will produce a conservative wait
-    unsigned vmCnt = std::min(63u, op.getNumInst());
+    if (supportsAsyncDirectToLDS) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "AsyncWaitOpConversion: arch supports AsyncDirectToLDS\n");
+      unsigned asyncCnt = std::min(63u, 0u);
+      ROCDL::WaitAsynccntOp::create(rewriter, loc, asyncCnt);
+      ROCDL::SBarrierOp::create(rewriter, loc);
+    } else { // supportsDirectToLDS
+      LLVM_DEBUG(llvm::dbgs()
+                 << "AsyncWaitOpConversion: arch supports DirectToLDS\n");
+      // Clamp vmcnt to 6bits; a lower vmcnt will produce a conservative wait
+      unsigned vmCnt = std::min(63u, op.getNumInst());
 
-    // Extract low and high bits and combine while setting all other bits to 1
-    unsigned lowBits = vmCnt & 0xF;
-    unsigned highBits = vmCnt >> 4 << 14;
-    unsigned otherCnts = ~0xC00F; // C00F has bits 15:14 and 3:0 set
-    unsigned waitValue = lowBits | highBits | otherCnts;
+      // Extract low and high bits and combine while setting all other bits to 1
+      unsigned lowBits = vmCnt & 0xF;
+      unsigned highBits = vmCnt >> 4 << 14;
+      unsigned otherCnts = ~0xC00F; // C00F has bits 15:14 and 3:0 set
+      unsigned waitValue = lowBits | highBits | otherCnts;
 
-    ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);
-    ROCDL::SBarrierOp::create(rewriter, loc);
+      ROCDL::SWaitcntOp::create(rewriter, loc, waitValue);
+      ROCDL::SBarrierOp::create(rewriter, loc);
+    }
+
     rewriter.eraseOp(op);
-
     return success();
   }
 };
@@ -99,11 +114,13 @@ struct LowerRockOpsToROCDLOpsPass final
     // Check if the GPU supports DirectToLDS
     AmdArchInfo archInfo = lookupArchInfo(chipset);
     bool supportsDirectToLDS = isDirectToLDSSupported(archInfo.defaultFeatures);
+    bool supportsAsyncDirectToLDS = isAsyncDirectToLDSSupported(chipset);
 
     LLVMConversionTarget target(getContext());
     target.addIllegalOp<rock::AsyncWaitOp>();
     patterns.add<AsyncWaitOpConversion>(converter, *maybeChipset,
-                                        supportsDirectToLDS);
+                                        supportsDirectToLDS,
+                                        supportsAsyncDirectToLDS);
     target.addLegalDialect<ROCDL::ROCDLDialect>();
 
     if (failed(applyPartialConversion(op, target, std::move(patterns))))
