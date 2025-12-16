@@ -15,6 +15,7 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -51,6 +52,10 @@ inline rock::GemmFeatures intersectGemmFeatures(rock::GemmFeatures a,
 // Get the features enabled for the specified op. These will be dependent on
 // the architecture being used, and the type of the op.
 rock::GemmFeatures getFeatures(Operation *op);
+
+// Check if a schedule version is supported by the hardware
+LogicalResult isScheduleVersionSupported(int64_t scheduleVersion,
+                                         GemmFeatures features, StringRef arch);
 
 } // End namespace rock
 } // End namespace mlir
