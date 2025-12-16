@@ -38,19 +38,26 @@ def parse_tensor_output(output):
     return [float(n) for n in numbers]
 
 
-def run_hipblaslt(hipblaslt_path, m, n, k, g, dtype, transA, transB):
+def run_hipblaslt(hipblaslt_path, m, n, k, g, dtype, trans_a, trans_b):
     """Run hipblaslt-benchmark-driver with --print-results."""
     cmd = [
         hipblaslt_path,
-        '-m', str(m),
-        '-n', str(n),
-        '-k', str(k),
-        '-g', str(g),
-        '-t', dtype,
-        f'-transA={transA}',
-        f'-transB={transB}',
-        '--kernel-repeats', '1',
-        '--warmup-runs', '1',
+        '-m',
+        str(m),
+        '-n',
+        str(n),
+        '-k',
+        str(k),
+        '-g',
+        str(g),
+        '-t',
+        dtype,
+        f'-transA={trans_a}',
+        f'-transB={trans_b}',
+        '--kernel-repeats',
+        '1',
+        '--warmup-runs',
+        '1',
         '--print-results',
     ]
 
@@ -65,27 +72,34 @@ def run_hipblaslt(hipblaslt_path, m, n, k, g, dtype, transA, transB):
         return None, str(e)
 
 
-def run_rocmlir_gen(rocmlir_gen_path, rocmlir_driver_path, runner_path, libs,
-                    m, n, k, g, dtype, transA, transB, arch):
+def run_rocmlir_gen(rocmlir_gen_path, rocmlir_driver_path, runner_path, libs, m, n, k, g, dtype,
+                    trans_a, trans_b, arch):
     """Run rocmlir-gen with -pr and execute to get reference output."""
     # Map dtype to rocmlir-gen format
     dtype_map = {'f32': 'f32', 'f16': 'f16', 'bf16': 'bf16', 'i8': 'i8', 'fp8': 'fp8'}
     rocmlir_dtype = dtype_map.get(dtype, dtype)
 
-    # Convert transA/transB to lowercase for rocmlir-gen
-    trans_a = transA.lower() if isinstance(transA, str) else str(transA).lower()
-    trans_b = transB.lower() if isinstance(transB, str) else str(transB).lower()
+    # Convert trans_a/trans_b to lowercase for rocmlir-gen
+    trans_a = trans_a.lower() if isinstance(trans_a, str) else str(trans_a).lower()
+    trans_b = trans_b.lower() if isinstance(trans_b, str) else str(trans_b).lower()
 
     # Build rocmlir-gen command
     gen_cmd = [
         rocmlir_gen_path,
-        '--arch', arch,
-        '--operation', 'gemm',
-        '-t', rocmlir_dtype,
-        '-m', str(m),
-        '-n', str(n),
-        '-k', str(k),
-        '-g', str(g if g > 0 else 1),
+        '--arch',
+        arch,
+        '--operation',
+        'gemm',
+        '-t',
+        rocmlir_dtype,
+        '-m',
+        str(m),
+        '-n',
+        str(n),
+        '-k',
+        str(k),
+        '-g',
+        str(g if g > 0 else 1),
         f'-transA={trans_a}',
         f'-transB={trans_b}',
         '-pr',  # print results
@@ -100,8 +114,11 @@ def run_rocmlir_gen(rocmlir_gen_path, rocmlir_driver_path, runner_path, libs,
 
         # Compile with rocmlir-driver
         driver_cmd = [rocmlir_driver_path, '-c']
-        driver_result = subprocess.run(
-            driver_cmd, input=gen_result.stdout, capture_output=True, text=True, timeout=120)
+        driver_result = subprocess.run(driver_cmd,
+                                       input=gen_result.stdout,
+                                       capture_output=True,
+                                       text=True,
+                                       timeout=120)
         if driver_result.returncode != 0:
             return None, f"rocmlir-driver failed: {driver_result.stderr}"
 
@@ -112,8 +129,11 @@ def run_rocmlir_gen(rocmlir_gen_path, rocmlir_driver_path, runner_path, libs,
             f'--shared-libs={libs}',
             '--entry-point-result=void',
         ]
-        runner_result = subprocess.run(
-            runner_cmd, input=driver_result.stdout, capture_output=True, text=True, timeout=120)
+        runner_result = subprocess.run(runner_cmd,
+                                       input=driver_result.stdout,
+                                       capture_output=True,
+                                       text=True,
+                                       timeout=120)
         if runner_result.returncode != 0:
             return None, f"mlir-runner failed: {runner_result.stderr}"
 
@@ -161,19 +181,20 @@ def compare_results(hipblaslt_values, rocmlir_values, tolerance=0.01):
 
 def main():
     parser = argparse.ArgumentParser(description='Verify hipblaslt vs rocmlir-gen')
-    parser.add_argument('--hipblaslt-path', required=True,
+    parser.add_argument('--hipblaslt-path',
+                        required=True,
                         help='Path to hipblaslt-benchmark-driver')
-    parser.add_argument('--rocmlir-gen-path', required=True,
-                        help='Path to rocmlir-gen')
-    parser.add_argument('--rocmlir-driver-path', required=True,
-                        help='Path to rocmlir-driver')
-    parser.add_argument('--runner-path', required=True,
-                        help='Path to mlir-runner')
-    parser.add_argument('--libs', required=True,
-                        help='Comma-separated shared libraries')
-    parser.add_argument('-arch', '--arch', required=True,
+    parser.add_argument('--rocmlir-gen-path', required=True, help='Path to rocmlir-gen')
+    parser.add_argument('--rocmlir-driver-path', required=True, help='Path to rocmlir-driver')
+    parser.add_argument('--runner-path', required=True, help='Path to mlir-runner')
+    parser.add_argument('--libs', required=True, help='Comma-separated shared libraries')
+    parser.add_argument('-arch',
+                        '--arch',
+                        required=True,
                         help='GPU architecture (e.g., gfx90a, gfx942)')
-    parser.add_argument('--tolerance', type=float, default=0.01,
+    parser.add_argument('--tolerance',
+                        type=float,
+                        default=0.01,
                         help='Relative tolerance (default: 0.01)')
 
     # GEMM parameters
@@ -188,20 +209,18 @@ def main():
     args = parser.parse_args()
 
     # Run hipblaslt
-    hipblaslt_out, hipblaslt_err = run_hipblaslt(
-        args.hipblaslt_path, args.m, args.n, args.k, args.g,
-        args.dtype, args.transA, args.transB)
+    hipblaslt_out, hipblaslt_err = run_hipblaslt(args.hipblaslt_path, args.m, args.n, args.k,
+                                                 args.g, args.dtype, args.transA, args.transB)
 
     if hipblaslt_err:
         print(f"HIPBLASLT ERROR: {hipblaslt_err}")
         sys.exit(1)
 
     # Run rocmlir-gen
-    rocmlir_out, rocmlir_err = run_rocmlir_gen(
-        args.rocmlir_gen_path, args.rocmlir_driver_path,
-        args.runner_path, args.libs,
-        args.m, args.n, args.k, args.g,
-        args.dtype, args.transA, args.transB, args.arch)
+    rocmlir_out, rocmlir_err = run_rocmlir_gen(args.rocmlir_gen_path, args.rocmlir_driver_path,
+                                               args.runner_path, args.libs, args.m, args.n, args.k,
+                                               args.g, args.dtype, args.transA, args.transB,
+                                               args.arch)
 
     if rocmlir_err:
         print(f"ROCMLIR ERROR: {rocmlir_err}")

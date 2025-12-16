@@ -226,7 +226,8 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
             ck_gemm_benchmark_driver_path=(str(ck_gemm_benchmark_driver_location)
                                            if ck_gemm_benchmark_driver_location.exists() else None),
             hipblaslt_benchmark_driver_path=(str(hipblaslt_benchmark_driver_location)
-                                             if hipblaslt_benchmark_driver_location.exists() else None))
+                                             if hipblaslt_benchmark_driver_location.exists() else
+                                             None))
 
     return Paths(config_file_path, mlir_paths)
 
@@ -1763,7 +1764,6 @@ def benchmark_mlir(commandline,
 
     nanoseconds = run_config_with_mlir(config, paths, arch, rocmlir_gen_flags, use_rocprof)
     return config.table_entry(nanoseconds)
-
 
 
 # Generate MLIR vs. MIOpen or hipBLASLt performance results
