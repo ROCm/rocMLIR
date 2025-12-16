@@ -273,25 +273,26 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
     }
   }];
 
-  let builders = [AttrBuilderWithInferredContext<(
-      ins "StringAttr":$perfConfigStr)>];
+  let builders = [AttrBuilderWithInferredContext<(ins
+      "StringAttr":$perfConfigStr)>];
 
   let assemblyFormat = [{
     `<` struct(params) `>`
   }];
 }
 
-def Rock_AttnParamsAttr : Rock_Attr<"AttnParams", [RockTuningParamAttrInterface]> {
+def Rock_AttnParamsAttr
+    : Rock_Attr<"AttnParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "attn_perf_config";
   let description = [{
     The tuning parameters for an mfma or wmma-based attention.
   }];
 
   let parameters = (ins "int64_t":$mPerBlockG0, "int64_t":$mPerBlockG1,
-    "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$mPerWave,
-    "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$kpack,
-    "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
-    "int64_t":$outputSwizzle, "int64_t":$wavesPerEU, "bool":$forceUnroll);
+      "int64_t":$nPerBlockG0, "int64_t":$kpackPerBlock, "int64_t":$mPerWave,
+      "int64_t":$nPerWave, "int64_t":$mnPerXdl, "int64_t":$kpack,
+      "int64_t":$splitKFactor, "int64_t":$scheduleVersion,
+      "int64_t":$outputSwizzle, "int64_t":$wavesPerEU, "bool":$forceUnroll);
 
   let extraClassDeclaration = [{
     void getPerfConfigStr(::llvm::SmallVectorImpl<char> &perfStr) {
@@ -327,7 +328,9 @@ def Rock_AttnParamsAttr : Rock_Attr<"AttnParams", [RockTuningParamAttrInterface]
   }];
 }
 
-def Rock_AccelGemmParamsAttr : Rock_Attr<"AccelGemmParams", [RockTuningParamAttrInterface, RockAccelTuningParamAttrInterface]> {
+def Rock_AccelGemmParamsAttr
+    : Rock_Attr<"AccelGemmParams", [RockTuningParamAttrInterface,
+                                    RockAccelTuningParamAttrInterface]> {
   let mnemonic = "accel_gemm_params";
   let description = [{
     The tuning parameters for an mfma or wmma-based matrix multiplication.
