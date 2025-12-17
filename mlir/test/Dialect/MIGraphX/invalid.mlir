@@ -225,3 +225,109 @@ func.func @migraphx_quant_dot_f4_n_scales(%arg0: !migraphx.shaped<1x16x512xf4E2M
     -> <1x16x16xf32, 256x16x1>
   return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
 }
+
+// -----
+
+// Test: squeeze with axis out of bounds (positive)
+func.func @squeeze_axis_out_of_bounds(%arg0: !migraphx.shaped<1x3x1x4xf16, 12x4x4x1>) -> !migraphx.shaped<3x1x4xf16, 4x4x1> {
+  // expected-error @+1 {{'migraphx.squeeze' op axis 5 is out of bounds for input with rank 4 (valid range is [-4, 3])}}
+  %0 = migraphx.squeeze %arg0 {axes = [5]} : <1x3x1x4xf16, 12x4x4x1> -> <3x1x4xf16, 4x4x1>
+  return %0 : !migraphx.shaped<3x1x4xf16, 4x4x1>
+}
+
+// -----
+
+// Test: squeeze with axis out of bounds (negative)
+func.func @squeeze_axis_out_of_bounds_negative(%arg0: !migraphx.shaped<1x3x1x4xf16, 12x4x4x1>) -> !migraphx.shaped<3x1x4xf16, 4x4x1> {
+  // expected-error @+1 {{'migraphx.squeeze' op axis -5 is out of bounds for input with rank 4 (valid range is [-4, 3])}}
+  %0 = migraphx.squeeze %arg0 {axes = [-5]} : <1x3x1x4xf16, 12x4x4x1> -> <3x1x4xf16, 4x4x1>
+  return %0 : !migraphx.shaped<3x1x4xf16, 4x4x1>
+}
+
+// -----
+
+// Test: squeeze on axis that doesn't have size 1
+func.func @squeeze_non_unit_dim(%arg0: !migraphx.shaped<1x3x1x4xf16, 12x4x4x1>) -> !migraphx.shaped<1x1x4xf16, 4x4x1> {
+  // expected-error @+1 {{'migraphx.squeeze' op cannot squeeze axis 1 (normalized to 1) which has size 3 (expected size 1)}}
+  %0 = migraphx.squeeze %arg0 {axes = [1]} : <1x3x1x4xf16, 12x4x4x1> -> <1x1x4xf16, 4x4x1>
+  return %0 : !migraphx.shaped<1x1x4xf16, 4x4x1>
+}
+
+// -----
+
+// Test: gather with axis out of bounds (positive)
+func.func @gather_axis_out_of_bounds(%data: !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>, %indices: !migraphx.shaped<5xi32, 1>) -> !migraphx.shaped<5x2x2x16xf16, 64x32x16x1> {
+  // expected-error @+1 {{'migraphx.gather' op axis 4 is out of bounds for data with rank 4 (valid range is [-4, 3])}}
+  %0 = migraphx.gather %data, %indices {axis = 4} : <5x2x2x16xf16, 64x32x16x1>, <5xi32, 1> -> <5x2x2x16xf16, 64x32x16x1>
+  return %0 : !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>
+}
+
+// -----
+
+// Test: gather with axis out of bounds (negative)
+func.func @gather_axis_out_of_bounds_negative(%data: !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>, %indices: !migraphx.shaped<5xi32, 1>) -> !migraphx.shaped<5x2x2x16xf16, 64x32x16x1> {
+  // expected-error @+1 {{'migraphx.gather' op axis -5 is out of bounds for data with rank 4 (valid range is [-4, 3])}}
+  %0 = migraphx.gather %data, %indices {axis = -5} : <5x2x2x16xf16, 64x32x16x1>, <5xi32, 1> -> <5x2x2x16xf16, 64x32x16x1>
+  return %0 : !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>
+}
+
+// -----
+
+// Test: scatter_none with axis out of bounds (positive)
+func.func @scatter_none_axis_out_of_bounds(
+    %data: !migraphx.shaped<10x2x16xf16, 32x16x1>,
+    %indices: !migraphx.shaped<8x2x16xi32, 32x16x1>,
+    %updates: !migraphx.shaped<8x2x16xf16, 32x16x1>
+) -> !migraphx.shaped<10x2x16xf16, 32x16x1> {
+  // expected-error @+1 {{'migraphx.scatter_none' op axis 3 is out of bounds for data with rank 3 (valid range is [-3, 2])}}
+  %0 = migraphx.scatter_none %data, %indices, %updates {axis = 3}
+      : <10x2x16xf16, 32x16x1>, <8x2x16xi32, 32x16x1>, <8x2x16xf16, 32x16x1>
+      -> <10x2x16xf16, 32x16x1>
+  return %0 : !migraphx.shaped<10x2x16xf16, 32x16x1>
+}
+
+// -----
+
+// Test: scatter_none with axis out of bounds (negative)
+func.func @scatter_none_axis_out_of_bounds_negative(
+    %data: !migraphx.shaped<10x2x16xf16, 32x16x1>,
+    %indices: !migraphx.shaped<8x2x16xi32, 32x16x1>,
+    %updates: !migraphx.shaped<8x2x16xf16, 32x16x1>
+) -> !migraphx.shaped<10x2x16xf16, 32x16x1> {
+  // expected-error @+1 {{'migraphx.scatter_none' op axis -4 is out of bounds for data with rank 3 (valid range is [-3, 2])}}
+  %0 = migraphx.scatter_none %data, %indices, %updates {axis = -4}
+      : <10x2x16xf16, 32x16x1>, <8x2x16xi32, 32x16x1>, <8x2x16xf16, 32x16x1>
+      -> <10x2x16xf16, 32x16x1>
+  return %0 : !migraphx.shaped<10x2x16xf16, 32x16x1>
+}
+
+// -----
+
+// Test: scatter_none with mismatched ranks
+func.func @scatter_none_rank_mismatch(
+    %data: !migraphx.shaped<10x2x16xf16, 32x16x1>,
+    %indices: !migraphx.shaped<8x16xi32, 16x1>,
+    %updates: !migraphx.shaped<8x2x16xf16, 32x16x1>
+) -> !migraphx.shaped<10x2x16xf16, 32x16x1> {
+  // expected-error @+1 {{'migraphx.scatter_none' op data, indices, and updates must have the same rank, got 3, 2, and 3}}
+  %0 = migraphx.scatter_none %data, %indices, %updates {axis = 0}
+      : <10x2x16xf16, 32x16x1>, <8x16xi32, 16x1>, <8x2x16xf16, 32x16x1>
+      -> <10x2x16xf16, 32x16x1>
+  return %0 : !migraphx.shaped<10x2x16xf16, 32x16x1>
+}
+
+// -----
+
+// Test: scatter_none with mismatched indices/updates shapes
+func.func @scatter_none_shape_mismatch(
+    %data: !migraphx.shaped<10x2x16xf16, 32x16x1>,
+    %indices: !migraphx.shaped<8x2x16xi32, 32x16x1>,
+    %updates: !migraphx.shaped<4x2x16xf16, 32x16x1>
+) -> !migraphx.shaped<10x2x16xf16, 32x16x1> {
+  // expected-error @+1 {{'migraphx.scatter_none' op indices and updates must have the same shape}}
+  %0 = migraphx.scatter_none %data, %indices, %updates {axis = 0}
+      : <10x2x16xf16, 32x16x1>, <8x2x16xi32, 32x16x1>, <4x2x16xf16, 32x16x1>
+      -> <10x2x16xf16, 32x16x1>
+  return %0 : !migraphx.shaped<10x2x16xf16, 32x16x1>
+}
+

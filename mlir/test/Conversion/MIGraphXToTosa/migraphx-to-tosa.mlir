@@ -298,3 +298,126 @@ func.func @dot_f16(%arg0: !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>
   %4 = migraphx.dot %arg0, %arg1 {perf_config = "v2:16,16,8,16,16,4,1,1,1"} : <8x64x64x320xf16, 1310720x20480x320x1>, <8x64x320x320xf16, 6553600x102400x320x1> -> <8x64x64x320xf16, 1310720x20480x320x1>
   return %4 : !migraphx.shaped<8x64x64x320xf16, 1310720x20480x320x1>
 }
+
+// -----
+
+// Tests for squeeze
+
+// CHECK-LABEL: @squeeze_single_axis
+// CHECK-SAME: ([[arg0:%.+]]: tensor<320xf16>) -> tensor<320xf16>
+func.func @squeeze_single_axis(%arg0: !migraphx.shaped<1x5x2x2x16xf16, 320x64x32x16x1>) -> !migraphx.shaped<5x2x2x16xf16, 64x32x16x1> {
+  // CHECK: [[exp:%.+]] = tosa.reshape [[arg0]], %{{.*}} : (tensor<320xf16>, !tosa.shape<5>) -> tensor<1x5x2x2x16xf16>
+  // CHECK: [[squeezed:%.+]] = tosa.reshape [[exp]], %{{.*}} : (tensor<1x5x2x2x16xf16>, !tosa.shape<4>) -> tensor<5x2x2x16xf16>
+  // CHECK: [[flat:%.+]] = tosa.reshape [[squeezed]], %{{.*}} : (tensor<5x2x2x16xf16>, !tosa.shape<1>) -> tensor<320xf16>
+  // CHECK: return [[flat]]
+  %0 = migraphx.squeeze %arg0 {axes = [0]} : <1x5x2x2x16xf16, 320x64x32x16x1> -> <5x2x2x16xf16, 64x32x16x1>
+  func.return %0 : !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>
+}
+
+// CHECK-LABEL: @squeeze_no_axes
+// CHECK-SAME: ([[arg0:%.+]]: tensor<12xf16>) -> tensor<12xf16>
+func.func @squeeze_no_axes(%arg0: !migraphx.shaped<1x3x1x4xf16, 12x4x4x1>) -> !migraphx.shaped<3x4xf16, 4x1> {
+  // CHECK: [[exp:%.+]] = tosa.reshape [[arg0]], %{{.*}} : (tensor<12xf16>, !tosa.shape<4>) -> tensor<1x3x1x4xf16>
+  // CHECK: [[squeezed:%.+]] = tosa.reshape [[exp]], %{{.*}} : (tensor<1x3x1x4xf16>, !tosa.shape<2>) -> tensor<3x4xf16>
+  // CHECK: [[flat:%.+]] = tosa.reshape [[squeezed]], %{{.*}} : (tensor<3x4xf16>, !tosa.shape<1>) -> tensor<12xf16>
+  // CHECK: return [[flat]]
+  %0 = migraphx.squeeze %arg0 : <1x3x1x4xf16, 12x4x4x1> -> <3x4xf16, 4x1>
+  func.return %0 : !migraphx.shaped<3x4xf16, 4x1>
+}
+
+// CHECK-LABEL: @squeeze_negative_axis
+// CHECK-SAME: ([[arg0:%.+]]: tensor<12xf16>) -> tensor<12xf16>
+func.func @squeeze_negative_axis(%arg0: !migraphx.shaped<1x3x1x4xf16, 12x4x4x1>) -> !migraphx.shaped<1x3x4xf16, 12x4x1> {
+  // CHECK: [[exp:%.+]] = tosa.reshape [[arg0]], %{{.*}} : (tensor<12xf16>, !tosa.shape<4>) -> tensor<1x3x1x4xf16>
+  // CHECK: [[squeezed:%.+]] = tosa.reshape [[exp]], %{{.*}} : (tensor<1x3x1x4xf16>, !tosa.shape<3>) -> tensor<1x3x4xf16>
+  // CHECK: [[flat:%.+]] = tosa.reshape [[squeezed]], %{{.*}} : (tensor<1x3x4xf16>, !tosa.shape<1>) -> tensor<12xf16>
+  // CHECK: return [[flat]]
+  %0 = migraphx.squeeze %arg0 {axes = [-2]} : <1x3x1x4xf16, 12x4x4x1> -> <1x3x4xf16, 12x4x1>
+  func.return %0 : !migraphx.shaped<1x3x4xf16, 12x4x1>
+}
+
+// -----
+
+// Tests for gather
+
+// CHECK-LABEL: @gather_axis0
+// CHECK-SAME: ([[arg0:%.+]]: tensor<320xf16>, [[arg1:%.+]]: tensor<5xi32>) -> tensor<320xf16>
+func.func @gather_axis0(%data: !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>, %indices: !migraphx.shaped<5xi32, 1>) -> !migraphx.shaped<5x2x2x16xf16, 64x32x16x1> {
+  // CHECK: [[dataExp:%.+]] = tosa.reshape [[arg0]], %{{.*}} : (tensor<320xf16>, !tosa.shape<4>) -> tensor<5x2x2x16xf16>
+  // CHECK: [[dataReshaped:%.+]] = tosa.reshape [[dataExp]], %{{.*}} : (tensor<5x2x2x16xf16>, !tosa.shape<3>) -> tensor<1x5x64xf16>
+  // CHECK: [[indicesReshaped:%.+]] = tosa.reshape [[arg1]], %{{.*}} : (tensor<5xi32>, !tosa.shape<2>) -> tensor<1x5xi32>
+  // CHECK: [[gathered:%.+]] = tosa.gather [[dataReshaped]], [[indicesReshaped]]
+  // CHECK: [[reshapedOut:%.+]] = tosa.reshape [[gathered]], %{{.*}} : (tensor<1x5x64xf16>, !tosa.shape<4>) -> tensor<5x2x2x16xf16>
+  // CHECK: [[flat:%.+]] = tosa.reshape [[reshapedOut]], %{{.*}} : (tensor<5x2x2x16xf16>, !tosa.shape<1>) -> tensor<320xf16>
+  // CHECK: return [[flat]]
+  %0 = migraphx.gather %data, %indices {axis = 0} : <5x2x2x16xf16, 64x32x16x1>, <5xi32, 1> -> <5x2x2x16xf16, 64x32x16x1>
+  func.return %0 : !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>
+}
+
+// CHECK-LABEL: @gather_axis1
+// CHECK-SAME: ([[arg0:%.+]]: tensor<24xf32>, [[arg1:%.+]]: tensor<2xi32>) -> tensor<16xf32>
+func.func @gather_axis1(%data: !migraphx.shaped<2x3x4xf32, 12x4x1>, %indices: !migraphx.shaped<2xi32, 1>) -> !migraphx.shaped<2x2x4xf32, 8x4x1> {
+  // CHECK: [[dataExp:%.+]] = tosa.reshape [[arg0]], %{{.*}} : (tensor<24xf32>, !tosa.shape<3>) -> tensor<2x3x4xf32>
+  // CHECK: [[dataReshaped:%.+]] = tosa.reshape [[dataExp]], %{{.*}} : (tensor<2x3x4xf32>, !tosa.shape<3>) -> tensor<2x3x4xf32>
+  // CHECK: [[indicesBatched:%.+]] = tosa.reshape [[arg1]], %{{.*}} : (tensor<2xi32>, !tosa.shape<2>) -> tensor<1x2xi32>
+  // CHECK: [[indicesTiled:%.+]] = tosa.tile [[indicesBatched]], %{{.*}} : (tensor<1x2xi32>, !tosa.shape<2>) -> tensor<2x2xi32>
+  // CHECK: [[gathered:%.+]] = tosa.gather [[dataReshaped]], [[indicesTiled]]
+  // CHECK: [[reshapedOut:%.+]] = tosa.reshape [[gathered]], %{{.*}} : (tensor<2x2x4xf32>, !tosa.shape<3>) -> tensor<2x2x4xf32>
+  // CHECK: [[flat:%.+]] = tosa.reshape [[reshapedOut]], %{{.*}} : (tensor<2x2x4xf32>, !tosa.shape<1>) -> tensor<16xf32>
+  // CHECK: return [[flat]]
+  %0 = migraphx.gather %data, %indices {axis = 1} : <2x3x4xf32, 12x4x1>, <2xi32, 1> -> <2x2x4xf32, 8x4x1>
+  func.return %0 : !migraphx.shaped<2x2x4xf32, 8x4x1>
+}
+
+// CHECK-LABEL: @gather_negative_axis
+// CHECK-SAME: ([[arg0:%.+]]: tensor<320xf16>, [[arg1:%.+]]: tensor<5xi32>) -> tensor<320xf16>
+func.func @gather_negative_axis(%data: !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>, %indices: !migraphx.shaped<5xi32, 1>) -> !migraphx.shaped<5x2x2x16xf16, 64x32x16x1> {
+  // CHECK: [[dataExp:%.+]] = tosa.reshape [[arg0]], %{{.*}} : (tensor<320xf16>, !tosa.shape<4>) -> tensor<5x2x2x16xf16>
+  // CHECK: [[dataReshaped:%.+]] = tosa.reshape [[dataExp]], %{{.*}} : (tensor<5x2x2x16xf16>, !tosa.shape<3>) -> tensor<1x5x64xf16>
+  // CHECK: [[indicesReshaped:%.+]] = tosa.reshape [[arg1]], %{{.*}} : (tensor<5xi32>, !tosa.shape<2>) -> tensor<1x5xi32>
+  // CHECK: [[gathered:%.+]] = tosa.gather [[dataReshaped]], [[indicesReshaped]]
+  // CHECK: [[reshapedOut:%.+]] = tosa.reshape [[gathered]], %{{.*}} : (tensor<1x5x64xf16>, !tosa.shape<4>) -> tensor<5x2x2x16xf16>
+  // CHECK: [[flat:%.+]] = tosa.reshape [[reshapedOut]], %{{.*}} : (tensor<5x2x2x16xf16>, !tosa.shape<1>) -> tensor<320xf16>
+  // CHECK: return [[flat]]
+  %0 = migraphx.gather %data, %indices {axis = -4} : <5x2x2x16xf16, 64x32x16x1>, <5xi32, 1> -> <5x2x2x16xf16, 64x32x16x1>
+  func.return %0 : !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>
+}
+
+// -----
+
+// Tests for scatter
+
+// CHECK-LABEL: @scatter_none_axis0
+func.func @scatter_none_axis0(
+    %data: !migraphx.shaped<10x2x16xf16, 32x16x1>,
+    %indices: !migraphx.shaped<8x2x16xi32, 1x0x0>,
+    %updates: !migraphx.shaped<8x2x16xf16, 32x16x1>
+) -> !migraphx.shaped<10x2x16xf16, 32x16x1> {
+  // CHECK: tosa.reshape %{{.*}}, %{{.*}} : (tensor<10x2x16xf16>, !tosa.shape<3>) -> tensor<1x10x32xf16>
+  // CHECK: tosa.reshape %{{.*}}, %{{.*}} : (tensor<8x2x16xf16>, !tosa.shape<3>) -> tensor<1x8x32xf16>
+  // CHECK: tosa.slice %{{.*}}, %{{.*}}, %{{.*}} : (tensor<1x8x32xi32>, !tosa.shape<3>, !tosa.shape<3>) -> tensor<1x8x1xi32>
+  // CHECK: tosa.scatter
+  // CHECK-SAME: tensor<1x10x32xf16>
+  %0 = migraphx.scatter_none %data, %indices, %updates {axis = 0}
+      : <10x2x16xf16, 32x16x1>, <8x2x16xi32, 1x0x0>, <8x2x16xf16, 32x16x1>
+      -> <10x2x16xf16, 32x16x1>
+  func.return %0 : !migraphx.shaped<10x2x16xf16, 32x16x1>
+}
+
+// CHECK-LABEL: @scatter_none_negative_axis
+func.func @scatter_none_negative_axis(
+    %data: !migraphx.shaped<10x2x16xf16, 32x16x1>,
+    %indices: !migraphx.shaped<8x2x16xi32, 1x0x0>,
+    %updates: !migraphx.shaped<8x2x16xf16, 32x16x1>
+) -> !migraphx.shaped<10x2x16xf16, 32x16x1> {
+  // CHECK: tosa.reshape %{{.*}}, %{{.*}} : (tensor<10x2x16xf16>, !tosa.shape<3>) -> tensor<1x10x32xf16>
+  // CHECK: tosa.reshape %{{.*}}, %{{.*}} : (tensor<8x2x16xf16>, !tosa.shape<3>) -> tensor<1x8x32xf16>
+  // CHECK: tosa.slice %{{.*}}, %{{.*}}, %{{.*}} : (tensor<1x8x32xi32>, !tosa.shape<3>, !tosa.shape<3>) -> tensor<1x8x1xi32>
+  // CHECK: tosa.scatter
+  // CHECK-SAME: tensor<1x10x32xf16>
+  %0 = migraphx.scatter_none %data, %indices, %updates {axis = -3}
+      : <10x2x16xf16, 32x16x1>, <8x2x16xi32, 1x0x0>, <8x2x16xf16, 32x16x1>
+      -> <10x2x16xf16, 32x16x1>
+  func.return %0 : !migraphx.shaped<10x2x16xf16, 32x16x1>
+}
+
