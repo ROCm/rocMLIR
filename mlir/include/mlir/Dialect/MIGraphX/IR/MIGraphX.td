@@ -523,6 +523,109 @@ def MIGraphX_MultiBroadcastOp :
   }];
 }
 
+def MIGraphX_SqueezeOp :
+    MIGraphX_Op<"squeeze", [AllElementTypesMatch<["input", "output"]>]>,
+    Arguments<(ins AnyMIXRShaped:$input,
+                   OptionalAttr<I64ArrayAttr>:$axes
+                   )>,
+    Results<(outs AnyMIXRShaped:$output)> {
+  let summary = "Remove dimensions of size 1";
+  let description = [{
+    The `migraphx.squeeze` op removes dimensions of size 1 from the input
+    tensor. If `axes` is provided, only the specified dimensions are removed.
+    If `axes` is not provided, all dimensions of size 1 are removed.
+
+    Negative axis values are supported (counting from the back). Valid range
+    is [-rank, rank-1].
+    
+    Examples:
+    ```mlir
+    // Remove specific dimension 0 (which has size 1)
+    %result = migraphx.squeeze %input {axes = [0]}
+        : <1x5x2x2x16xf16, 320x64x32x16x1> -> <5x2x2x16xf16, 64x32x16x1>
+
+    // Remove all dimensions of size 1
+    %result = migraphx.squeeze %input
+        : <1x3x1x4xf16, ...> -> <3x4xf16, ...>
+    ```
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+  let hasVerifier = 1;
+}
+
+def MIGraphX_GatherOp :
+    MIGraphX_Op<"gather">,
+    Arguments<(ins AnyMIXRShaped:$data,
+                   MIXRShapedOf<[I32, I64, Index]>:$indices,
+                   DefaultValuedAttr<I64Attr, "0">:$axis
+                   )>,
+    Results<(outs AnyMIXRShaped:$output)> {
+  let summary = "Gather slices from data along an axis";
+  let description = [{
+    The `migraphx.gather` op gathers slices from `data` along the specified
+    `axis` using `indices`.
+
+    Given `data` of rank r and `indices` of rank q, the output has rank
+    q + (r - 1). The `axis` dimension of `data` is replaced by the shape of
+    `indices` in the output.
+
+    Negative axis values are supported (counting from the back). Valid range
+    is [-rank, rank-1].
+
+    Example:
+    ```mlir
+    %gathered = migraphx.gather %data, %indices {axis = 0}
+        : <5x2x2x16xf16, 64x32x16x1>, <5xi32, 1> -> <5x2x2x16xf16, 64x32x16x1>
+    ```
+  }];
+  let assemblyFormat = [{
+    $data `,` $indices attr-dict
+    `:` type($data) `,` type($indices) `->` type($output)
+  }];
+  let hasVerifier = 1;
+}
+
+def MIGraphX_ScatterNoneOp :
+    MIGraphX_Op<"scatter_none">,
+    Arguments<(ins AnyMIXRShaped:$data,
+                   MIXRShapedOf<[I32, I64, Index]>:$indices,
+                   AnyMIXRShaped:$updates,
+                   DefaultValuedAttr<I64Attr, "0">:$axis
+                   )>,
+    Results<(outs AnyMIXRShaped:$output)> {
+  let summary = "Scatter updates into data at specified indices (no reduction)";
+  let description = [{
+    The `migraphx.scatter_none` op updates `data` at positions specified by
+    `indices` with values from `updates` along the given `axis`. This corresponds
+    to the ONNX ScatterElements operator with reduction='none'.
+
+    All three inputs must have the same rank. The `indices` and `updates` tensors
+    must have the same shape. The output has the same shape as `data`.
+
+    For each entry in `updates`, the target index in `data` is computed by
+    combining the entry's own indices with the value from `indices`:
+    - For axis=0: `output[indices[i][j]][j] = updates[i][j]`
+    - For axis=1: `output[i][indices[i][j]] = updates[i][j]`
+
+    Negative axis values are supported (counting from the back). Valid range
+    is [-rank, rank-1].
+
+    Example:
+    ```mlir
+    %scattered = migraphx.scatter_none %data, %indices, %updates {axis = 0}
+        : <10x2x16xf16, 32x16x1>, <8x2x16xi32, 1x0x0>, <8x2x16xf16, 32x16x1>
+        -> <10x2x16xf16, 32x16x1>
+    ```
+  }];
+  let assemblyFormat = [{
+    $data `,` $indices `,` $updates attr-dict
+    `:` type($data) `,` type($indices) `,` type($updates) `->` type($output)
+  }];
+  let hasVerifier = 1;
+}
+
 defvar QuantDotInTypes = [F8E4M3FNUZ, F8E5M2FNUZ, F8E4M3FN, F8E5M2, F4E2M1FN,
                           I8, SI8];
 defvar QuantDotOutTypes = [F32, I32, SI32];

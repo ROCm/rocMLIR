@@ -368,6 +368,92 @@ LogicalResult ReshapeOp::verify() {
   return success();
 }
 
+LogicalResult SqueezeOp::verify() {
+  MIXRShapedType inputType = getInput().getType();
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  int64_t rank = inputShape.size();
+
+  // If axes is provided, verify each specified axis has dimension size 1
+  if (std::optional<ArrayAttr> axesAttr = getAxes()) {
+    for (Attribute attr : *axesAttr) {
+      int64_t axis = cast<IntegerAttr>(attr).getInt();
+      int64_t originalAxis = axis;
+
+      // Normalize negative axes
+      if (axis < 0)
+        axis += rank;
+
+      // Check axis is in bounds [0, rank)
+      if (axis < 0 || axis >= rank)
+        return emitOpError("axis ")
+               << originalAxis << " is out of bounds for input with rank "
+               << rank << " (valid range is [" << -rank << ", " << rank - 1
+               << "])";
+
+      // Check that the dimension at this axis is 1
+      if (inputShape[axis] != 1)
+        return emitOpError("cannot squeeze axis ")
+               << originalAxis << " (normalized to " << axis
+               << ") which has size " << inputShape[axis]
+               << " (expected size 1)";
+    }
+  }
+
+  return success();
+}
+
+LogicalResult GatherOp::verify() {
+  MIXRShapedType dataType = getData().getType();
+  int64_t rank = dataType.getRank();
+  int64_t axis = getAxis();
+  int64_t originalAxis = axis;
+
+  // Normalize negative axes
+  if (axis < 0)
+    axis += rank;
+
+  // Check axis is in bounds [0, rank)
+  if (axis < 0 || axis >= rank)
+    return emitOpError("axis ")
+           << originalAxis << " is out of bounds for data with rank " << rank
+           << " (valid range is [" << -rank << ", " << rank - 1 << "])";
+
+  return success();
+}
+
+LogicalResult ScatterNoneOp::verify() {
+  MIXRShapedType dataType = getData().getType();
+  MIXRShapedType indicesType = getIndices().getType();
+  MIXRShapedType updatesType = getUpdates().getType();
+  int64_t dataRank = dataType.getRank();
+  int64_t indicesRank = indicesType.getRank();
+  int64_t updatesRank = updatesType.getRank();
+  int64_t axis = getAxis();
+  int64_t originalAxis = axis;
+
+  // Normalize negative axes
+  if (axis < 0)
+    axis += dataRank;
+
+  // Check axis is in bounds [0, rank)
+  if (axis < 0 || axis >= dataRank)
+    return emitOpError("axis ")
+           << originalAxis << " is out of bounds for data with rank " << dataRank
+           << " (valid range is [" << -dataRank << ", " << dataRank - 1 << "])";
+
+  // Check that data, indices, and updates all have the same rank
+  if (dataRank != indicesRank || dataRank != updatesRank)
+    return emitOpError("data, indices, and updates must have the same rank, got ")
+           << dataRank << ", " << indicesRank << ", and " << updatesRank;
+
+  // Check that indices and updates have the same shape
+  if (indicesType.getShape() != updatesType.getShape())
+    return emitOpError("indices and updates must have the same shape, got ")
+           << indicesType.getShape() << " vs " << updatesType.getShape();
+
+  return success();
+}
+
 LogicalResult UnpackOp::verify() {
   MIXRShapedType inType = getIn().getType();
   MIXRShapedType outType = getOut().getType();
