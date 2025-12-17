@@ -555,6 +555,33 @@ struct SliceConverter final : public OpConversionPattern<migraphx::SliceOp> {
   matchAndRewrite(migraphx::SliceOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+
+struct SqueezeConverter final
+    : public OpConversionPattern<migraphx::SqueezeOp> {
+  using OpConversionPattern<migraphx::SqueezeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::SqueezeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
+
+struct GatherConverter final
+    : public OpConversionPattern<migraphx::GatherOp> {
+  using OpConversionPattern<migraphx::GatherOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
+
+struct ScatterNoneConverter final
+    : public OpConversionPattern<migraphx::ScatterNoneOp> {
+  using OpConversionPattern<migraphx::ScatterNoneOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(migraphx::ScatterNoneOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final;
+};
 } // namespace
 
 LogicalResult
@@ -712,6 +739,311 @@ SliceConverter::matchAndRewrite(migraphx::SliceOp op, OpAdaptor adaptor,
   auto sliceOp = rock::tosa::createOpAndInfer<tosa::SliceOp>(
       rewriter, loc, newInType.getElementType(), input, startValue, sizeValue);
   rewriter.replaceOp(op, sliceOp);
+  return success();
+}
+
+LogicalResult
+SqueezeConverter::matchAndRewrite(migraphx::SqueezeOp op, OpAdaptor adaptor,
+                                  ConversionPatternRewriter &rewriter) const {
+  Location loc = op->getLoc();
+  Value input = adaptor.getInput();
+  auto inputType = cast<RankedTensorType>(input.getType());
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  int64_t rank = inputShape.size();
+
+  Type outputTy = getTypeConverter()->convertType(op.getOutput().getType());
+
+  // Determine which axes to squeeze
+  SmallVector<int64_t> axesToSqueeze;
+  if (auto axesAttr = op.getAxes()) {
+    for (Attribute attr : *axesAttr) {
+      int64_t axis = cast<IntegerAttr>(attr).getInt();
+      // Normalize negative axes (counting from the back)
+      if (axis < 0)
+        axis += rank;
+      axesToSqueeze.push_back(axis);
+    }
+  } else {
+    // If no axes specified, squeeze all dimensions of size 1
+    for (int64_t i = 0; i < rank; ++i) {
+      if (inputShape[i] == 1)
+        axesToSqueeze.push_back(i);
+    }
+  }
+
+  // Build the new shape by excluding the squeezed axes
+  SmallVector<int64_t> newShape;
+  for (int64_t i = 0; i < rank; ++i) {
+    if (!llvm::is_contained(axesToSqueeze, i)) {
+      newShape.push_back(inputShape[i]);
+    }
+  }
+
+  auto newShapeValue = tosa::getTosaConstShape(rewriter, loc, newShape);
+  auto reshapeOp =
+      tosa::ReshapeOp::create(rewriter, loc, outputTy, input, newShapeValue);
+
+  rewriter.replaceOp(op, reshapeOp);
+  return success();
+}
+
+LogicalResult
+GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
+                                 ConversionPatternRewriter &rewriter) const {
+  Location loc = op->getLoc();
+  Value data = adaptor.getData();
+  Value indices = adaptor.getIndices();
+
+  auto dataType = cast<RankedTensorType>(data.getType());
+  auto indicesType = cast<RankedTensorType>(indices.getType());
+  ArrayRef<int64_t> dataShape = dataType.getShape();
+  ArrayRef<int64_t> indicesShape = indicesType.getShape();
+
+  int64_t dataRank = dataShape.size();
+  int64_t axis = op.getAxis();
+
+  // Normalize negative axis values (e.g., -1 means last dimension)
+  if (axis < 0)
+    axis += dataRank;
+
+  Type outputTy = getTypeConverter()->convertType(op.getOutput().getType());
+  auto outputType = cast<RankedTensorType>(outputTy);
+  Type elemType = dataType.getElementType();
+
+  // Lowering strategy for migraphx.gather -> tosa.gather:
+  // TOSA's gather op is constrained to 3D tensors:
+  //   - values:  [N, K, C]  (N batches, K rows to gather from, C channels)
+  //   - indices: [N, W]     (N batches of W indices)
+  //   - output:  [N, W, C]  (for each batch n, index w: out[n,w,:] = values[n,indices[n,w],:])
+  // To handle arbitrary-rank MIGraphX gather, we reshape to/from this format.
+
+  // Compute the 3D shape for TOSA gather:
+  // N = product of dims before axis (batch dimensions, flattened)
+  // K = dim at axis (the dimension we gather from)
+  // C = product of dims after axis (channel dimensions, flattened)
+  int64_t N = 1, K = dataShape[axis], C = 1;
+  for (int64_t i = 0; i < axis; ++i)
+    N *= dataShape[i];
+  for (int64_t i = axis + 1; i < dataRank; ++i)
+    C *= dataShape[i];
+
+  // W = total number of indices (flattened from potentially multi-dim indices)
+  int64_t W = 1;
+  for (int64_t dim : indicesShape)
+    W *= dim;
+
+  // Step 1: Reshape data from [d0, d1, ..., d_{r-1}] to [N, K, C]
+  // This flattens pre-axis dims into N and post-axis dims into C
+  SmallVector<int64_t> reshapedDataShape = {N, K, C};
+  auto reshapedDataType = RankedTensorType::get(reshapedDataShape, elemType);
+  auto reshapedDataShapeValue =
+      tosa::getTosaConstShape(rewriter, loc, reshapedDataShape);
+  Value reshapedData = tosa::ReshapeOp::create(rewriter, loc, reshapedDataType,
+                                               data, reshapedDataShapeValue);
+
+  // Step 2: Flatten indices to [W] then reshape to [N, W]
+  // First flatten multi-dimensional indices to 1D (skip if already 1D)
+  SmallVector<int64_t> flatIndicesShape = {W};
+  Value flatIndices = indices;
+  if (indicesShape.size() != 1) {
+    auto flatIndicesType =
+        RankedTensorType::get(flatIndicesShape, indicesType.getElementType());
+    auto flatIndicesShapeValue =
+        tosa::getTosaConstShape(rewriter, loc, flatIndicesShape);
+    flatIndices = tosa::ReshapeOp::create(rewriter, loc, flatIndicesType,
+                                          indices, flatIndicesShapeValue);
+  }
+
+  // Cast to i32 if needed (TOSA requires i32 indices)
+  if (!indicesType.getElementType().isInteger(32)) {
+    auto i32FlatType =
+        RankedTensorType::get(flatIndicesShape, rewriter.getI32Type());
+    flatIndices = tosa::CastOp::create(rewriter, loc, i32FlatType, flatIndices);
+  }
+
+  // Reshape indices from [W] to [N, W] to match TOSA's batch dimension requirement
+  Value tosaIndices;
+  SmallVector<int64_t> tosaIndicesShape = {N, W};
+  auto tosaIndicesType =
+      RankedTensorType::get(tosaIndicesShape, rewriter.getI32Type());
+
+  if (N == 1) {
+    // Simple case: just add the batch dimension
+    auto reshapeValue =
+        tosa::getTosaConstShape(rewriter, loc, tosaIndicesShape);
+    tosaIndices = tosa::ReshapeOp::create(rewriter, loc, tosaIndicesType,
+                                          flatIndices, reshapeValue);
+  } else {
+    // When N > 1, we need to broadcast the same indices across all batches.
+    // In ONNX Gather semantics, the same indices apply to each "batch" slice.
+    // First add batch dim: [W] -> [1, W]
+    SmallVector<int64_t> batchedShape = {1, W};
+    auto batchedType =
+        RankedTensorType::get(batchedShape, rewriter.getI32Type());
+    auto batchedShapeValue =
+        tosa::getTosaConstShape(rewriter, loc, batchedShape);
+    Value batchedIndices = tosa::ReshapeOp::create(
+        rewriter, loc, batchedType, flatIndices, batchedShapeValue);
+
+    // Tile to [N, W] - replicate indices N times for each batch
+    SmallVector<int64_t> multiples = {N, 1};
+    auto multiplesValue = tosa::getTosaConstShape(rewriter, loc, multiples);
+    tosaIndices = tosa::TileOp::create(rewriter, loc, tosaIndicesType,
+                                       batchedIndices, multiplesValue);
+  }
+
+  // Step 3: Call tosa.gather
+  // This gathers slices along dimension 1 (K) of the reshaped data
+  // Output: [N, W, C] where each [n, w, :] = reshaped_data[n, indices[n, w], :]
+  SmallVector<int64_t> gatherOutputShape = {N, W, C};
+  auto gatherOutputType = RankedTensorType::get(gatherOutputShape, elemType);
+  Value gatherResult = tosa::GatherOp::create(rewriter, loc, gatherOutputType,
+                                              reshapedData, tosaIndices);
+
+  // Step 4: Reshape output from [N, W, C] back to the expected output shape
+  // This restores the original dimensionality by unflattening N and C
+  auto finalShapeValue =
+      tosa::getTosaConstShape(rewriter, loc, outputType.getShape());
+  Value result = tosa::ReshapeOp::create(rewriter, loc, outputTy, gatherResult,
+                                         finalShapeValue);
+
+  rewriter.replaceOp(op, result);
+  return success();
+}
+
+// Lowering strategy for migraphx.scatter_none -> tosa.scatter:
+//
+// TOSA's scatter op is constrained to 3D tensors:
+//   - values_in: [N, K, C]  (tensor to be modified)
+//   - indices:   [N, W]     (W scatter positions per batch)
+//   - input:     [N, W, C]  (values to scatter)
+//   - values_out: [N, K, C] (result)
+//
+// Semantics: values_out[n, indices[n,w], :] = input[n, w, :]
+// (This is the inverse of tosa.gather)
+//
+// IMPORTANT: TOSA scatter scatters entire C-slices at once. For ONNX
+// ScatterElements where each element can have a different index, this only
+// works when indices are constant across the C dimension (e.g., broadcast).
+// The paged-attention use case has broadcast indices, so this lowering works.
+//
+// Example: data=[10,2,16], indices=[8,2,16](broadcast), updates=[8,2,16], axis=0
+//   1. Compute: N=1, K=10, C=32, W=8
+//   2. Reshape data:    [10,2,16] -> [1,10,32]
+//   3. Reshape updates: [8,2,16]  -> [1,8,32]
+//   4. Reduce indices:  [8,2,16]  -> [1,8] (take one value per W since broadcast)
+//   5. tosa.scatter:    [1,10,32], [1,8], [1,8,32] -> [1,10,32]
+//   6. Reshape output:  [1,10,32] -> [10,2,16]
+LogicalResult
+ScatterNoneConverter::matchAndRewrite(migraphx::ScatterNoneOp op,
+                                      OpAdaptor adaptor,
+                                      ConversionPatternRewriter &rewriter) const {
+  Location loc = op->getLoc();
+  Value data = adaptor.getData();
+  Value indices = adaptor.getIndices();
+  Value updates = adaptor.getUpdates();
+
+  auto dataType = cast<RankedTensorType>(data.getType());
+  auto indicesType = cast<RankedTensorType>(indices.getType());
+  auto updatesType = cast<RankedTensorType>(updates.getType());
+
+  ArrayRef<int64_t> dataShape = dataType.getShape();
+  ArrayRef<int64_t> updatesShape = updatesType.getShape();
+
+  int64_t dataRank = dataShape.size();
+  int64_t axis = op.getAxis();
+
+  // Normalize negative axis values
+  if (axis < 0)
+    axis += dataRank;
+
+  Type outputTy = getTypeConverter()->convertType(op.getOutput().getType());
+  Type elemType = dataType.getElementType();
+  Type indicesElemType = indicesType.getElementType();
+
+  // Compute TOSA 3D dimensions:
+  // N = product of dims before axis (batch dimensions)
+  // K = dim at axis in data (size of scatter dimension)
+  // C = product of dims after axis (channel dimensions)
+  int64_t N = 1, K = dataShape[axis], C = 1;
+  for (int64_t i = 0; i < axis; ++i)
+    N *= dataShape[i];
+  for (int64_t i = axis + 1; i < dataRank; ++i)
+    C *= dataShape[i];
+
+  // W = number of scatter operations (updates dim at axis)
+  int64_t W = updatesShape[axis];
+
+  // Step 1: Reshape data to [N, K, C]
+  SmallVector<int64_t> reshapedDataShape = {N, K, C};
+  auto reshapedDataType = RankedTensorType::get(reshapedDataShape, elemType);
+  auto reshapedDataShapeValue =
+      tosa::getTosaConstShape(rewriter, loc, reshapedDataShape);
+  Value reshapedData = tosa::ReshapeOp::create(rewriter, loc, reshapedDataType,
+                                               data, reshapedDataShapeValue);
+
+  // Step 2: Reshape updates to [N, W, C]
+  SmallVector<int64_t> reshapedUpdatesShape = {N, W, C};
+  auto reshapedUpdatesType =
+      RankedTensorType::get(reshapedUpdatesShape, elemType);
+  auto reshapedUpdatesShapeValue =
+      tosa::getTosaConstShape(rewriter, loc, reshapedUpdatesShape);
+  Value reshapedUpdates = tosa::ReshapeOp::create(
+      rewriter, loc, reshapedUpdatesType, updates, reshapedUpdatesShapeValue);
+
+  // Step 3: Reduce indices from [updates_shape] to [N, W]
+  // For ScatterElements, indices has the same shape as updates.
+  // We assume indices are broadcast/constant across the C dimension,
+  // so we can safely take a single value per (N, W) position.
+  // First reshape to [N, W, C], then slice to [N, W, 1], then reshape to [N, W]
+  SmallVector<int64_t> reshapedIndicesShape = {N, W, C};
+  auto reshapedIndicesType =
+      RankedTensorType::get(reshapedIndicesShape, indicesElemType);
+  auto reshapedIndicesShapeValue =
+      tosa::getTosaConstShape(rewriter, loc, reshapedIndicesShape);
+  Value reshapedIndices = tosa::ReshapeOp::create(
+      rewriter, loc, reshapedIndicesType, indices, reshapedIndicesShapeValue);
+
+  // Slice to get [N, W, 1] - take only the first element of C dimension
+  SmallVector<int64_t> sliceStart = {0, 0, 0};
+  SmallVector<int64_t> sliceSize = {N, W, 1};
+  auto slicedIndicesType =
+      RankedTensorType::get(sliceSize, indicesElemType);
+  auto sliceStartValue = tosa::getTosaConstShape(rewriter, loc, sliceStart);
+  auto sliceSizeValue = tosa::getTosaConstShape(rewriter, loc, sliceSize);
+  Value slicedIndices = tosa::SliceOp::create(
+      rewriter, loc, slicedIndicesType, reshapedIndices,
+      sliceStartValue, sliceSizeValue);
+
+  // Reshape to [N, W]
+  SmallVector<int64_t> tosaIndicesShape = {N, W};
+  auto tosaIndicesType =
+      RankedTensorType::get(tosaIndicesShape, indicesElemType);
+  auto tosaIndicesShapeValue =
+      tosa::getTosaConstShape(rewriter, loc, tosaIndicesShape);
+  Value tosaIndices = tosa::ReshapeOp::create(
+      rewriter, loc, tosaIndicesType, slicedIndices, tosaIndicesShapeValue);
+
+  // Cast to i32 if needed (TOSA requires i32 indices)
+  if (!indicesElemType.isInteger(32)) {
+    auto i32Type =
+        RankedTensorType::get(tosaIndicesShape, rewriter.getI32Type());
+    tosaIndices = tosa::CastOp::create(rewriter, loc, i32Type, tosaIndices);
+  }
+
+  // Step 4: Call tosa.scatter
+  // tosa.scatter(values_in, indices, input) -> values_out
+  // where values_in/out are [N, K, C], indices is [N, W], input is [N, W, C]
+  Value scatterResult =
+      tosa::ScatterOp::create(rewriter, loc, reshapedDataType, reshapedData,
+                              tosaIndices, reshapedUpdates);
+
+  // Step 5: Reshape output back to expected shape
+  auto finalShapeValue = tosa::getTosaConstShape(rewriter, loc, dataShape);
+  Value result = tosa::ReshapeOp::create(rewriter, loc, outputTy,
+                                         scatterResult, finalShapeValue);
+
+  rewriter.replaceOp(op, result);
   return success();
 }
 
@@ -1466,7 +1798,9 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
                DotConverter<DotOp>, DotConverter<QuantDotOp>,
                BroadcastConverter, MultiBroadcastConverter, TransposeConverter,
-               ReshapeConverter, SliceConverter, ReduceMeanConverter,
+               ReshapeConverter, SliceConverter, SqueezeConverter, GatherConverter,
+               ScatterNoneConverter,
+               ReduceMeanConverter,
                ReduceConverter<ReduceSumOp, tosa::ReduceSumOp>,
                ReduceConverter<ReduceMaxOp, tosa::ReduceMaxOp>,
                TrivialConverter<AddOp, tosa::AddOp>,
