@@ -110,8 +110,8 @@ while getopts ":hc:t:r:f:o:s:l:" arg; do
   case $arg in
     o) # Operation (convolution or gemm [default convolution])
       OP=${OPTARG}
-      [ "$OP" = "convolution" ] || [ "$OP" = "gemm" ] || [ "$OP" = "attention" ] \
-        || echo "Operation needs to be 'convolution', 'gemm', or 'attention'."
+      [ "$OP" = "convolution" ] || [ "$OP" = "gemm" ] || [ "$OP" = "attention" ] || [ "$OP" = "gemm_gemm" ] \
+        || echo "Operation needs to be 'convolution', 'gemm', 'attention', or 'gemm_gemm'."
       ;;
     c) # Configs file
       CONFIGS_FILE="${OPTARG}"

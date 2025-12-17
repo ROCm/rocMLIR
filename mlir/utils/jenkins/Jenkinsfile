@@ -1150,6 +1150,10 @@ PY
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o attention \
                                                                     -c ${attnConfigToUse} \
                                                                     -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
+                                                            // Tune gemm_gemm configs
+                                                            sh """../mlir/utils/tuna/tuna-script.sh -o gemm_gemm \
+                                                                    -c ../mlir/utils/performance/configs/tier1-gemmgemm-configs \
+                                                                    -t ${WORKSPACE}/MITuna -f mlir_tuning_${CHIP}.tsv 2>&1 | tee -a ${tuningLog}"""
                                                             // Tune gemms with default datatypes, fail if the DB is not created (quick tuning)
                                                             // (Includes int8xint8->int8 for performance comparisons against CK.)
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o gemm \
