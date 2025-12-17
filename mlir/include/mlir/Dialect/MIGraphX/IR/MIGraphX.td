@@ -523,12 +523,10 @@ def MIGraphX_MultiBroadcastOp :
   }];
 }
 
-def MIGraphX_SqueezeOp :
-    MIGraphX_Op<"squeeze", [AllElementTypesMatch<["input", "output"]>]>,
-    Arguments<(ins AnyMIXRShaped:$input,
-                   OptionalAttr<I64ArrayAttr>:$axes
-                   )>,
-    Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_SqueezeOp
+    : MIGraphX_Op<"squeeze", [AllElementTypesMatch<["input", "output"]>]>,
+      Arguments<(ins AnyMIXRShaped:$input, OptionalAttr<I64ArrayAttr>:$axes)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Remove dimensions of size 1";
   let description = [{
     The `migraphx.squeeze` op removes dimensions of size 1 from the input
@@ -555,13 +553,11 @@ def MIGraphX_SqueezeOp :
   let hasVerifier = 1;
 }
 
-def MIGraphX_GatherOp :
-    MIGraphX_Op<"gather">,
-    Arguments<(ins AnyMIXRShaped:$data,
-                   MIXRShapedOf<[I32, I64, Index]>:$indices,
-                   DefaultValuedAttr<I64Attr, "0">:$axis
-                   )>,
-    Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_GatherOp : MIGraphX_Op<"gather">,
+                        Arguments<(ins AnyMIXRShaped:$data,
+                            MIXRShapedOf<[I32, I64, Index]>:$indices,
+                            DefaultValuedAttr<I64Attr, "0">:$axis)>,
+                        Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Gather slices from data along an axis";
   let description = [{
     The `migraphx.gather` op gathers slices from `data` along the specified
@@ -587,14 +583,12 @@ def MIGraphX_GatherOp :
   let hasVerifier = 1;
 }
 
-def MIGraphX_ScatterNoneOp :
-    MIGraphX_Op<"scatter_none">,
-    Arguments<(ins AnyMIXRShaped:$data,
-                   MIXRShapedOf<[I32, I64, Index]>:$indices,
-                   AnyMIXRShaped:$updates,
-                   DefaultValuedAttr<I64Attr, "0">:$axis
-                   )>,
-    Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_ScatterNoneOp
+    : MIGraphX_Op<"scatter_none">,
+      Arguments<(ins AnyMIXRShaped:$data,
+          MIXRShapedOf<[I32, I64, Index]>:$indices, AnyMIXRShaped:$updates,
+          DefaultValuedAttr<I64Attr, "0">:$axis)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Scatter updates into data at specified indices (no reduction)";
   let description = [{
     The `migraphx.scatter_none` op updates `data` at positions specified by

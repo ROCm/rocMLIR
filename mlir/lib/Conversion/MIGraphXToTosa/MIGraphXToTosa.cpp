@@ -565,8 +565,7 @@ struct SqueezeConverter final
                   ConversionPatternRewriter &rewriter) const final;
 };
 
-struct GatherConverter final
-    : public OpConversionPattern<migraphx::GatherOp> {
+struct GatherConverter final : public OpConversionPattern<migraphx::GatherOp> {
   using OpConversionPattern<migraphx::GatherOp>::OpConversionPattern;
 
   LogicalResult
@@ -814,7 +813,8 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
   // TOSA's gather op is constrained to 3D tensors:
   //   - values:  [N, K, C]  (N batches, K rows to gather from, C channels)
   //   - indices: [N, W]     (N batches of W indices)
-  //   - output:  [N, W, C]  (for each batch n, index w: out[n,w,:] = values[n,indices[n,w],:])
+  //   - output:  [N, W, C]  (for each batch n, index w: out[n,w,:] =
+  //   values[n,indices[n,w],:])
   // To handle arbitrary-rank MIGraphX gather, we reshape to/from this format.
 
   // Compute the 3D shape for TOSA gather:
@@ -861,7 +861,8 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
     flatIndices = tosa::CastOp::create(rewriter, loc, i32FlatType, flatIndices);
   }
 
-  // Reshape indices from [W] to [N, W] to match TOSA's batch dimension requirement
+  // Reshape indices from [W] to [N, W] to match TOSA's batch dimension
+  // requirement
   Value tosaIndices;
   SmallVector<int64_t> tosaIndicesShape = {N, W};
   auto tosaIndicesType =
@@ -927,17 +928,18 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
 // works when indices are constant across the C dimension (e.g., broadcast).
 // The paged-attention use case has broadcast indices, so this lowering works.
 //
-// Example: data=[10,2,16], indices=[8,2,16](broadcast), updates=[8,2,16], axis=0
+// Example: data=[10,2,16], indices=[8,2,16](broadcast), updates=[8,2,16],
+// axis=0
 //   1. Compute: N=1, K=10, C=32, W=8
 //   2. Reshape data:    [10,2,16] -> [1,10,32]
 //   3. Reshape updates: [8,2,16]  -> [1,8,32]
-//   4. Reduce indices:  [8,2,16]  -> [1,8] (take one value per W since broadcast)
+//   4. Reduce indices:  [8,2,16]  -> [1,8] (take one value per W since
+//   broadcast)
 //   5. tosa.scatter:    [1,10,32], [1,8], [1,8,32] -> [1,10,32]
 //   6. Reshape output:  [1,10,32] -> [10,2,16]
-LogicalResult
-ScatterNoneConverter::matchAndRewrite(migraphx::ScatterNoneOp op,
-                                      OpAdaptor adaptor,
-                                      ConversionPatternRewriter &rewriter) const {
+LogicalResult ScatterNoneConverter::matchAndRewrite(
+    migraphx::ScatterNoneOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &rewriter) const {
   Location loc = op->getLoc();
   Value data = adaptor.getData();
   Value indices = adaptor.getIndices();
@@ -1007,13 +1009,12 @@ ScatterNoneConverter::matchAndRewrite(migraphx::ScatterNoneOp op,
   // Slice to get [N, W, 1] - take only the first element of C dimension
   SmallVector<int64_t> sliceStart = {0, 0, 0};
   SmallVector<int64_t> sliceSize = {N, W, 1};
-  auto slicedIndicesType =
-      RankedTensorType::get(sliceSize, indicesElemType);
+  auto slicedIndicesType = RankedTensorType::get(sliceSize, indicesElemType);
   auto sliceStartValue = tosa::getTosaConstShape(rewriter, loc, sliceStart);
   auto sliceSizeValue = tosa::getTosaConstShape(rewriter, loc, sliceSize);
-  Value slicedIndices = tosa::SliceOp::create(
-      rewriter, loc, slicedIndicesType, reshapedIndices,
-      sliceStartValue, sliceSizeValue);
+  Value slicedIndices =
+      tosa::SliceOp::create(rewriter, loc, slicedIndicesType, reshapedIndices,
+                            sliceStartValue, sliceSizeValue);
 
   // Reshape to [N, W]
   SmallVector<int64_t> tosaIndicesShape = {N, W};
@@ -1040,8 +1041,8 @@ ScatterNoneConverter::matchAndRewrite(migraphx::ScatterNoneOp op,
 
   // Step 5: Reshape output back to expected shape
   auto finalShapeValue = tosa::getTosaConstShape(rewriter, loc, dataShape);
-  Value result = tosa::ReshapeOp::create(rewriter, loc, outputTy,
-                                         scatterResult, finalShapeValue);
+  Value result = tosa::ReshapeOp::create(rewriter, loc, outputTy, scatterResult,
+                                         finalShapeValue);
 
   rewriter.replaceOp(op, result);
   return success();
@@ -1798,9 +1799,8 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
                ConvConverter<ConvolutionOp>, ConvConverter<QuantConvolutionOp>,
                DotConverter<DotOp>, DotConverter<QuantDotOp>,
                BroadcastConverter, MultiBroadcastConverter, TransposeConverter,
-               ReshapeConverter, SliceConverter, SqueezeConverter, GatherConverter,
-               ScatterNoneConverter,
-               ReduceMeanConverter,
+               ReshapeConverter, SliceConverter, SqueezeConverter,
+               GatherConverter, ScatterNoneConverter, ReduceMeanConverter,
                ReduceConverter<ReduceSumOp, tosa::ReduceSumOp>,
                ReduceConverter<ReduceMaxOp, tosa::ReduceMaxOp>,
                TrivialConverter<AddOp, tosa::AddOp>,

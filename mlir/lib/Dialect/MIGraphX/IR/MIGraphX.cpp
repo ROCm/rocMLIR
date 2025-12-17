@@ -438,12 +438,14 @@ LogicalResult ScatterNoneOp::verify() {
   // Check axis is in bounds [0, rank)
   if (axis < 0 || axis >= dataRank)
     return emitOpError("axis ")
-           << originalAxis << " is out of bounds for data with rank " << dataRank
-           << " (valid range is [" << -dataRank << ", " << dataRank - 1 << "])";
+           << originalAxis << " is out of bounds for data with rank "
+           << dataRank << " (valid range is [" << -dataRank << ", "
+           << dataRank - 1 << "])";
 
   // Check that data, indices, and updates all have the same rank
   if (dataRank != indicesRank || dataRank != updatesRank)
-    return emitOpError("data, indices, and updates must have the same rank, got ")
+    return emitOpError(
+               "data, indices, and updates must have the same rank, got ")
            << dataRank << ", " << indicesRank << ", and " << updatesRank;
 
   // Check that indices and updates have the same shape
