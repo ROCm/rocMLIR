@@ -136,7 +136,17 @@ static llvm::cl::opt<unsigned> sleepUs(
 
 static llvm::cl::opt<bool> showStats(
     "show-stats",
-    llvm::cl::desc("Show detailed statistics (min, max, median, stddev, cv)"),
+    llvm::cl::desc(
+        "Print detailed stats (min, max, median, stddev, cv) in JSON format. "
+        "In case of small kernels print total_cpu_time and number of "
+        "iterations."),
+    llvm::cl::init(false));
+
+static llvm::cl::opt<bool> showAllMeasurements(
+    "show-all-measurements",
+    llvm::cl::desc(
+        "Print all individual timing measurements in JSON format. In case of "
+        "small kernels print total_cpu_time and number of iterations."),
     llvm::cl::init(false));
 
 static llvm::cl::opt<std::string> benchmarkConfig(
@@ -262,6 +272,7 @@ struct BenchmarkParams {
   unsigned trimPercent;
   unsigned sleepUs;
   bool showStats;
+  bool showAllMeasurements;
   rock::TuningParamSetKind tuningSpaceKind;
   const unsigned numCompileThreads;
   std::string benchmarkConfig;
@@ -359,7 +370,6 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
     measurements.push_back(totalMilliseconds);
   }
 
-  std::sort(measurements.begin(), measurements.end());
   return success();
 }
 
@@ -491,12 +501,29 @@ benchmarkKernels(ArrayRef<std::string> binaries,
       return failure();
   }
 
+  if (params.showAllMeasurements) {
+    if (isSmallKernel) {
+      llvm::outs() << "{\"total_cpu_time\":" << smallKernelCpuMs
+                   << ",\"iterations\":" << iterations << "}\t";
+    } else {
+      llvm::outs() << "[";
+      for (size_t i = 0; i < measurements.size(); ++i) {
+        if (i > 0)
+          llvm::outs() << ",";
+        llvm::outs() << measurements[i];
+      }
+      llvm::outs() << "]\t";
+    }
+  }
+
+  std::sort(measurements.begin(), measurements.end());
+
   if (params.showStats) {
     // We cannot show the rest of the stats because the small kernel case uses
     // one timer only, so we cannot actually compute the min, max, etc.
     if (isSmallKernel) {
-      llvm::outs() << "[total CPUTime: " << smallKernelCpuMs
-                   << "iterations: " << iterations << "]\t";
+      llvm::outs() << "{\"total_cpu_time\":" << smallKernelCpuMs
+                   << ",\"iterations\":" << iterations << "}\t";
     }
     if (measurements.size() > 1) {
       float median = computeMedian(measurements);
@@ -505,17 +532,17 @@ benchmarkKernels(ArrayRef<std::string> binaries,
       float mean = computeMean(measurements);
       float stdDev = computeStdDev(measurements, mean);
       float coefficientOfVariation = (mean > 0) ? (stdDev / mean * 100) : 0;
-      llvm::outs() << "[min: " << min << ", median: " << median
-                   << ", max: " << max << ", stddev: " << stdDev
-                   << ", cv: " << coefficientOfVariation << "%]\t";
+      llvm::outs() << "{\"min\":" << min << ",\"median\":" << median
+                   << ",\"max\":" << max << ",\"stddev\":" << stdDev
+                   << ",\"cv\":" << coefficientOfVariation << "}\t";
     }
   }
 
   auto msToNs = [](double ms) { return 1e6 * ms; };
   if (params.useMedian)
     return msToNs(computeMedian(measurements));
-  // else
-  return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
+  else
+    return msToNs(computeMean(trimValues(measurements, params.trimPercent)));
 }
 
 static int toKernelOrder(Attribute attr) {
@@ -652,9 +679,9 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   // NOTE: Compilation (PassManager::run()) resets the cl opts, so we have to
   // save the values.
   const BenchmarkParams benchmarkParams = {
-      numIterations,   warmupIterations,  useMedian,
-      trimPercent,     sleepUs,           showStats,
-      tuningSpaceKind, numCompileThreads, benchmarkConfig};
+      numIterations,     warmupIterations, useMedian,           trimPercent,
+      sleepUs,           showStats,        showAllMeasurements, tuningSpaceKind,
+      numCompileThreads, benchmarkConfig};
 
   unsigned numTuningIterations =
       rock::getNumberOfIterations(benchmarkParams.tuningSpaceKind);
