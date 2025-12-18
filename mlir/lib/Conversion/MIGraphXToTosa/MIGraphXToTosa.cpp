@@ -928,8 +928,7 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
     // In ONNX Gather semantics, the same indices apply to each "batch" slice.
     // First add batch dim: [W] -> [1, W]
     SmallVector<int64_t> batchedShape = {1, W};
-    auto batchedType =
-        RankedTensorType::get(batchedShape, indicesElemType);
+    auto batchedType = RankedTensorType::get(batchedShape, indicesElemType);
     auto batchedShapeValue =
         tosa::getTosaConstShape(rewriter, loc, batchedShape);
     Value batchedIndices = tosa::ReshapeOp::create(
@@ -987,10 +986,10 @@ LogicalResult ScatterNoneConverter::matchAndRewrite(
   // (all dimensions after the axis). This is because TOSA scatter writes
   // all C elements to the same K position: values_out[n, k, :] = input[n, w, :]
   //
-  // ONNX/MIGraphX ScatterElements allows each element to have a different index, but
-  // TOSA scatter does not support this. We verify by checking the strides of
-  // the original MIXRShapedType - if strides are 0 for dims after axis, the
-  // indices are broadcast (constant) across those dimensions.
+  // ONNX/MIGraphX ScatterElements allows each element to have a different
+  // index, but TOSA scatter does not support this. We verify by checking the
+  // strides of the original MIXRShapedType - if strides are 0 for dims after
+  // axis, the indices are broadcast (constant) across those dimensions.
   MIXRShapedType origIndicesType = op.getIndices().getType();
   ArrayRef<int64_t> indicesStrides = origIndicesType.getStrides();
   for (int64_t i = axis + 1; i < dataRank; ++i) {
