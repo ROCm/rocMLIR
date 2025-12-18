@@ -985,7 +985,6 @@ LogicalResult ScatterNoneConverter::matchAndRewrite(
   // TOSA scatter requires that indices be constant across the "C" dimension
   // (all dimensions after the axis). This is because TOSA scatter writes
   // all C elements to the same K position: values_out[n, k, :] = input[n, w, :]
-  //
   // ONNX/MIGraphX ScatterElements allows each element to have a different
   // index, but TOSA scatter does not support this. We verify by checking the
   // strides of the original MIXRShapedType - if strides are 0 for dims after
