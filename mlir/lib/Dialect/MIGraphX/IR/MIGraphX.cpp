@@ -402,6 +402,26 @@ LogicalResult SqueezeOp::verify() {
   return success();
 }
 
+/// Check if constant indices contain negative values. Returns true if a
+/// negative value is found. Only checks non-unsigned integer types since
+/// unsigned types cannot be negative.
+static bool hasNegativeIndices(Value indices) {
+  Type elemType = cast<MIXRShapedType>(indices.getType()).getElementType();
+  if (elemType.isUnsignedInteger())
+    return false;
+
+  auto literalOp = indices.getDefiningOp<LiteralOp>();
+  if (!literalOp)
+    return false;
+
+  auto denseAttr = dyn_cast<DenseElementsAttr>(literalOp.getValue());
+  if (!denseAttr)
+    return false;
+
+  return llvm::any_of(denseAttr.getValues<APInt>(),
+                      [](APInt val) { return val.isNegative(); });
+}
+
 LogicalResult GatherOp::verify() {
   MIXRShapedType dataType = getData().getType();
   int64_t rank = dataType.getRank();
@@ -418,19 +438,12 @@ LogicalResult GatherOp::verify() {
            << originalAxis << " is out of bounds for data with rank " << rank
            << " (valid range is [" << -rank << ", " << rank - 1 << "])";
 
-  // Check that indices are non-negative if they are constant
-  // MIGraphX is expected to normalize negative indices before passing to this
-  // op
-  if (auto literalOp = getIndices().getDefiningOp<LiteralOp>()) {
-    auto indicesAttr = literalOp.getValue();
-    if (auto denseAttr = dyn_cast<DenseElementsAttr>(indicesAttr)) {
-      for (APInt val : denseAttr.getValues<APInt>()) {
-        if (val.isNegative())
-          return emitOpError("indices must be non-negative, found negative "
-                             "index value ");
-      }
-    }
-  }
+  // Check that constant indices are non-negative (MIGraphX normalizes indices,
+  // so negative values indicate an error).
+  if (hasNegativeIndices(getIndices()))
+    return emitOpError("indices must be non-negative (MIGraphX should "
+                       "normalize negative indices), found negative index "
+                       "value");
 
   return success();
 }
@@ -467,19 +480,12 @@ LogicalResult ScatterNoneOp::verify() {
     return emitOpError("indices and updates must have the same shape, got ")
            << indicesType.getShape() << " vs " << updatesType.getShape();
 
-  // Check that indices are non-negative if they are constant
-  // MIGraphX is expected to normalize negative indices before passing to this
-  // op
-  if (auto literalOp = getIndices().getDefiningOp<LiteralOp>()) {
-    auto indicesAttr = literalOp.getValue();
-    if (auto denseAttr = dyn_cast<DenseElementsAttr>(indicesAttr)) {
-      for (APInt val : denseAttr.getValues<APInt>()) {
-        if (val.isNegative())
-          return emitOpError("indices must be non-negative, found negative "
-                             "index value ");
-      }
-    }
-  }
+  // Check that constant indices are non-negative (MIGraphX normalizes indices,
+  // so negative values indicate an error).
+  if (hasNegativeIndices(getIndices()))
+    return emitOpError("indices must be non-negative (MIGraphX should "
+                       "normalize negative indices), found negative index "
+                       "value");
 
   return success();
 }
