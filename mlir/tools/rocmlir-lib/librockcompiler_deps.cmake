@@ -81,12 +81,19 @@ MLIRArithToAMDGPU
 MLIRArithToLLVM
 MLIRArithTransforms
 MLIRArithUtils
+MLIRArmNeonDialect
+MLIRArmNeonToLLVMIRTranslation
+MLIRArmSMEDialect
+MLIRArmSMEToLLVMIRTranslation
+MLIRArmSVEDialect
+MLIRArmSVEToLLVMIRTranslation
 MLIRAsmParser
 MLIRAsyncDialect
 MLIRAsyncToLLVM
 MLIRBufferizationDialect
 MLIRBufferizationTransformOps
 MLIRBufferizationTransforms
+MLIRBuiltinToLLVMIRTranslation
 MLIRBytecodeOpInterface
 MLIRBytecodeReader
 MLIRBytecodeWriter
@@ -149,9 +156,13 @@ MLIRMemorySlotInterfaces
 MLIRNVGPUDialect
 MLIRNVVMDialect
 MLIRNVVMTarget
+MLIRNVVMToLLVM
 MLIRNVVMToLLVMIRTranslation
+MLIROpenACCDialect
 MLIROpenACCMPCommon
+MLIROpenACCToLLVMIRTranslation
 MLIROpenMPDialect
+MLIROpenMPToLLVMIRTranslation
 MLIRPDLDialect
 MLIRPDLInterpDialect
 MLIRPDLToPDLInterp
@@ -159,7 +170,9 @@ MLIRParallelCombiningOpInterface
 MLIRParser
 MLIRPass
 MLIRPresburger
+MLIRPtrDialect
 MLIRPtrMemorySpaceInterfaces
+MLIRPtrToLLVMIRTranslation
 MLIRQuantDialect
 MLIRQuantUtils
 MLIRROCDLDialect
@@ -178,6 +191,7 @@ MLIRSPIRVDialect
 MLIRSPIRVImageInterfaces
 MLIRSPIRVSerialization
 MLIRSPIRVTarget
+MLIRSPIRVToLLVMIRTranslation
 MLIRShapedOpInterfaces
 MLIRShardDialect
 MLIRShardTransforms
@@ -195,6 +209,7 @@ MLIRTensorToLinalg
 MLIRTensorTransforms
 MLIRTensorUtils
 MLIRTilingInterface
+MLIRToLLVMIRTranslationRegistration
 MLIRTosaDialect
 MLIRTosaShardingInterfaceImpl
 MLIRTosaToArith
@@ -210,6 +225,8 @@ MLIRTransforms
 MLIRTranslateLib
 MLIRUBDialect
 MLIRUBToLLVM
+MLIRVCIXDialect
+MLIRVCIXToLLVMIRTranslation
 MLIRValueBoundsOpInterface
 MLIRVectorDialect
 MLIRVectorInterfaces
@@ -220,6 +237,7 @@ MLIRVectorUtils
 MLIRViewLikeInterface
 MLIRX86VectorDialect
 MLIRXeVMDialect
+MLIRXeVMToLLVMIRTranslation
 lldCommon
 lldELF
 )
