@@ -58,9 +58,11 @@
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/InitMHALDialects.h"
+#include "mlir/Target/LLVMIR/Dialect/All.h"
 
 namespace mlir {
 
@@ -81,6 +83,7 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
                   math::MathDialect,
                   memref::MemRefDialect,
                   scf::SCFDialect,
+                  ub::UBDialect,
                   vector::VectorDialect,
                   ROCDL::ROCDLDialect,
                   tensor::TensorDialect,
@@ -127,6 +130,10 @@ inline void registerRocMLIRDialects(DialectRegistry &registry) {
 
   // Register auxiliary Upstream dialects
   registerUpstreamDialects(registry);
+
+  // Register LLVM translation interfaces required by GPU passes (e.g., gpu-module-to-binary)
+  // TODO: Remove this when a safe dialect interface registration mechanism is implemented
+  registerAllGPUToLLVMIRTranslations(registry);
 
   // Register the target serialization interface
   registerRocTarget(registry);

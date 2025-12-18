@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 
 // MLIR includes
+#include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
@@ -28,6 +29,7 @@
 #include "mlir/Dialect/GPU/Transforms/Passes.h"
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
+#include "mlir/Dialect/Math/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "mlir/Dialect/Tensor/Transforms/Passes.h"
@@ -61,6 +63,7 @@ inline void registerUpstreamPasses() {
 
   // MLIR passes
   registerTransformsPasses();
+  amdgpu::registerAMDGPUPasses();
   affine::registerAffinePasses();
   arith::registerArithPasses();
   bufferization::registerBufferizationPasses();
@@ -68,6 +71,7 @@ inline void registerUpstreamPasses() {
   registerGPUPasses();
   registerLinalgPasses();
   LLVM::registerLLVMPasses();
+  math::registerMathPasses();
   memref::registerMemRefPasses();
   registerSCFPasses();
   registerControlFlowSinkPass();

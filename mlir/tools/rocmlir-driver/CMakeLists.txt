@@ -12,6 +12,10 @@ set(LIBS
   ${rocmlir_test_libs}
   MLIRMHAL
   MLIRMHALTransforms
+  MLIRRegisterAllDialects
+  MLIRRegisterAllExtensions
+  MLIRAMDGPUTransforms
+  MLIRMathTransforms
   MLIRMHALPipeline
   )
 
