@@ -109,7 +109,9 @@ MLIRDialectUtils
 MLIRExecutionEngineUtils
 MLIRFuncDialect
 MLIRFuncToLLVM
+MLIRFuncTransformOps
 MLIRFuncTransforms
+MLIRFuncUtils
 MLIRFunctionInterfaces
 MLIRGPUDialect
 MLIRGPUToGPURuntimeTransforms
