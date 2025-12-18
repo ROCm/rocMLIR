@@ -18938,6 +18938,8 @@ SITargetLowering::getRegClassFor(MVT VT, bool isDivergent) const {
   if (!TRI->isSGPRClass(RC) && !isDivergent)
     return TRI->getEquivalentSGPRClass(RC);
   if (TRI->isSGPRClass(RC) && isDivergent) {
+    // TODO(rocMLIR) : This change is necessary to pass scaled GEMM FP4
+    // This can be removed once we have solution for SWDEV-573034
     if (Subtarget->hasGFX90AInsts() && !Subtarget->hasGFX950Insts())
       return TRI->getEquivalentAVClass(RC);
     return TRI->getEquivalentVGPRClass(RC);
