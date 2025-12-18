@@ -331,3 +331,28 @@ func.func @scatter_none_shape_mismatch(
   return %0 : !migraphx.shaped<10x2x16xf16, 32x16x1>
 }
 
+// -----
+
+// Test: gather with negative constant indices (MIGraphX should normalize before passing)
+func.func @gather_negative_indices(%data: !migraphx.shaped<5x4xf16, 4x1>) -> !migraphx.shaped<3x4xf16, 4x1> {
+  %indices = migraphx.literal (dense<[0, -1, 2]> : tensor<3xi32>) : <3xi32, 1>
+  // expected-error @+1 {{'migraphx.gather' op indices must be non-negative, found negative index value}}
+  %0 = migraphx.gather %data, %indices {axis = 0} : <5x4xf16, 4x1>, <3xi32, 1> -> <3x4xf16, 4x1>
+  return %0 : !migraphx.shaped<3x4xf16, 4x1>
+}
+
+// -----
+
+// Test: scatter_none with negative constant indices (MIGraphX should normalize before passing)
+func.func @scatter_none_negative_indices(
+    %data: !migraphx.shaped<5x4xf16, 4x1>,
+    %updates: !migraphx.shaped<3x4xf16, 4x1>
+) -> !migraphx.shaped<5x4xf16, 4x1> {
+  %indices = migraphx.literal (dense<[[0, 0, 0, 0], [-1, -1, -1, -1], [2, 2, 2, 2]]> : tensor<3x4xi32>) : <3x4xi32, 4x1>
+  // expected-error @+1 {{'migraphx.scatter_none' op indices must be non-negative, found negative index value}}
+  %0 = migraphx.scatter_none %data, %indices, %updates {axis = 0}
+      : <5x4xf16, 4x1>, <3x4xi32, 4x1>, <3x4xf16, 4x1>
+      -> <5x4xf16, 4x1>
+  return %0 : !migraphx.shaped<5x4xf16, 4x1>
+}
+

@@ -418,6 +418,20 @@ LogicalResult GatherOp::verify() {
            << originalAxis << " is out of bounds for data with rank " << rank
            << " (valid range is [" << -rank << ", " << rank - 1 << "])";
 
+  // Check that indices are non-negative if they are constant
+  // MIGraphX is expected to normalize negative indices before passing to this
+  // op
+  if (auto literalOp = getIndices().getDefiningOp<LiteralOp>()) {
+    auto indicesAttr = literalOp.getValue();
+    if (auto denseAttr = dyn_cast<DenseElementsAttr>(indicesAttr)) {
+      for (APInt val : denseAttr.getValues<APInt>()) {
+        if (val.isNegative())
+          return emitOpError("indices must be non-negative, found negative "
+                             "index value ");
+      }
+    }
+  }
+
   return success();
 }
 
@@ -452,6 +466,20 @@ LogicalResult ScatterNoneOp::verify() {
   if (indicesType.getShape() != updatesType.getShape())
     return emitOpError("indices and updates must have the same shape, got ")
            << indicesType.getShape() << " vs " << updatesType.getShape();
+
+  // Check that indices are non-negative if they are constant
+  // MIGraphX is expected to normalize negative indices before passing to this
+  // op
+  if (auto literalOp = getIndices().getDefiningOp<LiteralOp>()) {
+    auto indicesAttr = literalOp.getValue();
+    if (auto denseAttr = dyn_cast<DenseElementsAttr>(indicesAttr)) {
+      for (APInt val : denseAttr.getValues<APInt>()) {
+        if (val.isNegative())
+          return emitOpError("indices must be non-negative, found negative "
+                             "index value ");
+      }
+    }
+  }
 
   return success();
 }

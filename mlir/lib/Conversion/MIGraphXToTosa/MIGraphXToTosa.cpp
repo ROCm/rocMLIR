@@ -121,40 +121,6 @@ static Value createCastOp(PatternRewriter &rewriter, Location loc,
   return res;
 }
 
-/// Normalize negative indices for gather/scatter operations.
-/// MIGraphX allows indices in range [-K, K-1] where negative values index
-/// from the end. TOSA requires non-negative indices, so we normalize:
-/// if index < 0, then index += K.
-static Value normalizeNegativeIndices(PatternRewriter &rewriter, Location loc,
-                                      Value indices, int64_t dimSize) {
-  auto indicesType = cast<RankedTensorType>(indices.getType());
-  Type elemType = indicesType.getElementType();
-  auto boolType =
-      RankedTensorType::get(indicesType.getShape(), rewriter.getI1Type());
-
-  // Create constant tensors for comparison and addition
-  auto zeroAttr =
-      DenseElementsAttr::get(indicesType, rewriter.getIntegerAttr(elemType, 0));
-  Value zeroConst = tosa::ConstOp::create(rewriter, loc, indicesType, zeroAttr);
-
-  auto dimSizeAttr = DenseElementsAttr::get(
-      indicesType, rewriter.getIntegerAttr(elemType, dimSize));
-  Value dimSizeConst =
-      tosa::ConstOp::create(rewriter, loc, indicesType, dimSizeAttr);
-
-  // Compute: isNonNegative = (indices >= 0)
-  Value isNonNegative =
-      tosa::GreaterEqualOp::create(rewriter, loc, boolType, indices, zeroConst);
-
-  // Compute: indicesPlusDimSize = indices + dimSize
-  Value indicesPlusDimSize =
-      tosa::AddOp::create(rewriter, loc, indicesType, indices, dimSizeConst);
-
-  // Select: normalizedIndices = isNonNegative ? indices : indicesPlusDimSize
-  return tosa::SelectOp::create(rewriter, loc, indicesType, isNonNegative,
-                                indices, indicesPlusDimSize);
-}
-
 //===----------------------------------------------------------------------===//
 // The general one-to-one conversion and
 //===----------------------------------------------------------------------===//
@@ -902,13 +868,6 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
                                           indices, flatIndicesShapeValue);
   }
 
-  // Normalize negative indices: MIGraphX allows indices in range [-K, K-1]
-  // where negative values index from the end. TOSA requires non-negative
-  // indices. See normalizeNegativeIndices for the transformation.
-  // TODO: This could potentially be a performance hit, so check with MIGraphX
-  // to see if they will ever expect negative indices.
-  flatIndices = normalizeNegativeIndices(rewriter, loc, flatIndices, K);
-
   // Reshape indices from [W] to [N, W] to match TOSA's batch dimension
   // requirement
   Value tosaIndices;
@@ -1090,13 +1049,6 @@ LogicalResult ScatterNoneConverter::matchAndRewrite(
 
   Value tosaIndices = tosa::ReshapeOp::create(
       rewriter, loc, tosaIndicesType, slicedIndices, tosaIndicesShapeValue);
-
-  // Normalize negative indices: MIGraphX allows indices in range [-K, K-1]
-  // where negative values index from the end. TOSA requires non-negative
-  // indices. See normalizeNegativeIndices for the transformation.
-  // TODO: This could potentially be a performance hit, so check with MIGraphX
-  // to see if they will ever expect negative indices.
-  tosaIndices = normalizeNegativeIndices(rewriter, loc, tosaIndices, K);
 
   // Step 4: Call tosa.scatter
   // tosa.scatter(values_in, indices, input) -> values_out
