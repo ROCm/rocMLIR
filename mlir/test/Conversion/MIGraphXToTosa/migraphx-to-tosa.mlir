@@ -345,7 +345,13 @@ func.func @squeeze_negative_axis(%arg0: !migraphx.shaped<1x3x1x4xf16, 12x4x4x1>)
 func.func @gather_axis0(%data: !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>, %indices: !migraphx.shaped<5xi32, 1>) -> !migraphx.shaped<5x2x2x16xf16, 64x32x16x1> {
   // CHECK: [[dataExp:%.+]] = tosa.reshape [[arg0]], %{{.*}} : (tensor<320xf16>, !tosa.shape<4>) -> tensor<5x2x2x16xf16>
   // CHECK: [[dataReshaped:%.+]] = tosa.reshape [[dataExp]], %{{.*}} : (tensor<5x2x2x16xf16>, !tosa.shape<3>) -> tensor<1x5x64xf16>
-  // CHECK: [[indicesReshaped:%.+]] = tosa.reshape [[arg1]], %{{.*}} : (tensor<5xi32>, !tosa.shape<2>) -> tensor<1x5xi32>
+  // Negative index normalization
+  // CHECK: [[zeroConst:%.+]] = "tosa.const"() <{values = dense<0> : tensor<5xi32>}> : () -> tensor<5xi32>
+  // CHECK: [[dimSizeConst:%.+]] = "tosa.const"() <{values = dense<5> : tensor<5xi32>}> : () -> tensor<5xi32>
+  // CHECK: [[isNonNeg:%.+]] = tosa.greater_equal [[arg1]], [[zeroConst]] : (tensor<5xi32>, tensor<5xi32>) -> tensor<5xi1>
+  // CHECK: [[indicesPlusK:%.+]] = tosa.add [[arg1]], [[dimSizeConst]] : (tensor<5xi32>, tensor<5xi32>) -> tensor<5xi32>
+  // CHECK: [[normalizedIndices:%.+]] = tosa.select [[isNonNeg]], [[arg1]], [[indicesPlusK]] : (tensor<5xi1>, tensor<5xi32>, tensor<5xi32>) -> tensor<5xi32>
+  // CHECK: [[indicesReshaped:%.+]] = tosa.reshape [[normalizedIndices]], %{{.*}} : (tensor<5xi32>, !tosa.shape<2>) -> tensor<1x5xi32>
   // CHECK: [[gathered:%.+]] = tosa.gather [[dataReshaped]], [[indicesReshaped]]
   // CHECK: [[reshapedOut:%.+]] = tosa.reshape [[gathered]], %{{.*}} : (tensor<1x5x64xf16>, !tosa.shape<4>) -> tensor<5x2x2x16xf16>
   // CHECK: [[flat:%.+]] = tosa.reshape [[reshapedOut]], %{{.*}} : (tensor<5x2x2x16xf16>, !tosa.shape<1>) -> tensor<320xf16>
@@ -359,7 +365,13 @@ func.func @gather_axis0(%data: !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>, %indi
 func.func @gather_axis1(%data: !migraphx.shaped<2x3x4xf32, 12x4x1>, %indices: !migraphx.shaped<2xi32, 1>) -> !migraphx.shaped<2x2x4xf32, 8x4x1> {
   // CHECK: [[dataExp:%.+]] = tosa.reshape [[arg0]], %{{.*}} : (tensor<24xf32>, !tosa.shape<3>) -> tensor<2x3x4xf32>
   // CHECK: [[dataReshaped:%.+]] = tosa.reshape [[dataExp]], %{{.*}} : (tensor<2x3x4xf32>, !tosa.shape<3>) -> tensor<2x3x4xf32>
-  // CHECK: [[indicesBatched:%.+]] = tosa.reshape [[arg1]], %{{.*}} : (tensor<2xi32>, !tosa.shape<2>) -> tensor<1x2xi32>
+  // Negative index normalization
+  // CHECK: [[zeroConst:%.+]] = "tosa.const"() <{values = dense<0> : tensor<2xi32>}> : () -> tensor<2xi32>
+  // CHECK: [[dimSizeConst:%.+]] = "tosa.const"() <{values = dense<3> : tensor<2xi32>}> : () -> tensor<2xi32>
+  // CHECK: [[isNonNeg:%.+]] = tosa.greater_equal [[arg1]], [[zeroConst]] : (tensor<2xi32>, tensor<2xi32>) -> tensor<2xi1>
+  // CHECK: [[indicesPlusK:%.+]] = tosa.add [[arg1]], [[dimSizeConst]] : (tensor<2xi32>, tensor<2xi32>) -> tensor<2xi32>
+  // CHECK: [[normalizedIndices:%.+]] = tosa.select [[isNonNeg]], [[arg1]], [[indicesPlusK]] : (tensor<2xi1>, tensor<2xi32>, tensor<2xi32>) -> tensor<2xi32>
+  // CHECK: [[indicesBatched:%.+]] = tosa.reshape [[normalizedIndices]], %{{.*}} : (tensor<2xi32>, !tosa.shape<2>) -> tensor<1x2xi32>
   // CHECK: [[indicesTiled:%.+]] = tosa.tile [[indicesBatched]], %{{.*}} : (tensor<1x2xi32>, !tosa.shape<2>) -> tensor<2x2xi32>
   // CHECK: [[gathered:%.+]] = tosa.gather [[dataReshaped]], [[indicesTiled]]
   // CHECK: [[reshapedOut:%.+]] = tosa.reshape [[gathered]], %{{.*}} : (tensor<2x2x4xf32>, !tosa.shape<3>) -> tensor<2x2x4xf32>
@@ -374,7 +386,13 @@ func.func @gather_axis1(%data: !migraphx.shaped<2x3x4xf32, 12x4x1>, %indices: !m
 func.func @gather_negative_axis(%data: !migraphx.shaped<5x2x2x16xf16, 64x32x16x1>, %indices: !migraphx.shaped<5xi32, 1>) -> !migraphx.shaped<5x2x2x16xf16, 64x32x16x1> {
   // CHECK: [[dataExp:%.+]] = tosa.reshape [[arg0]], %{{.*}} : (tensor<320xf16>, !tosa.shape<4>) -> tensor<5x2x2x16xf16>
   // CHECK: [[dataReshaped:%.+]] = tosa.reshape [[dataExp]], %{{.*}} : (tensor<5x2x2x16xf16>, !tosa.shape<3>) -> tensor<1x5x64xf16>
-  // CHECK: [[indicesReshaped:%.+]] = tosa.reshape [[arg1]], %{{.*}} : (tensor<5xi32>, !tosa.shape<2>) -> tensor<1x5xi32>
+  // Negative index normalization
+  // CHECK: [[zeroConst:%.+]] = "tosa.const"() <{values = dense<0> : tensor<5xi32>}> : () -> tensor<5xi32>
+  // CHECK: [[dimSizeConst:%.+]] = "tosa.const"() <{values = dense<5> : tensor<5xi32>}> : () -> tensor<5xi32>
+  // CHECK: [[isNonNeg:%.+]] = tosa.greater_equal [[arg1]], [[zeroConst]] : (tensor<5xi32>, tensor<5xi32>) -> tensor<5xi1>
+  // CHECK: [[indicesPlusK:%.+]] = tosa.add [[arg1]], [[dimSizeConst]] : (tensor<5xi32>, tensor<5xi32>) -> tensor<5xi32>
+  // CHECK: [[normalizedIndices:%.+]] = tosa.select [[isNonNeg]], [[arg1]], [[indicesPlusK]] : (tensor<5xi1>, tensor<5xi32>, tensor<5xi32>) -> tensor<5xi32>
+  // CHECK: [[indicesReshaped:%.+]] = tosa.reshape [[normalizedIndices]], %{{.*}} : (tensor<5xi32>, !tosa.shape<2>) -> tensor<1x5xi32>
   // CHECK: [[gathered:%.+]] = tosa.gather [[dataReshaped]], [[indicesReshaped]]
   // CHECK: [[reshapedOut:%.+]] = tosa.reshape [[gathered]], %{{.*}} : (tensor<1x5x64xf16>, !tosa.shape<4>) -> tensor<5x2x2x16xf16>
   // CHECK: [[flat:%.+]] = tosa.reshape [[reshapedOut]], %{{.*}} : (tensor<5x2x2x16xf16>, !tosa.shape<1>) -> tensor<320xf16>
@@ -396,6 +414,13 @@ func.func @scatter_none_axis0(
   // CHECK: tosa.reshape %{{.*}}, %{{.*}} : (tensor<10x2x16xf16>, !tosa.shape<3>) -> tensor<1x10x32xf16>
   // CHECK: tosa.reshape %{{.*}}, %{{.*}} : (tensor<8x2x16xf16>, !tosa.shape<3>) -> tensor<1x8x32xf16>
   // CHECK: tosa.slice %{{.*}}, %{{.*}}, %{{.*}} : (tensor<1x8x32xi32>, !tosa.shape<3>, !tosa.shape<3>) -> tensor<1x8x1xi32>
+  // CHECK: tosa.reshape %{{.*}}, %{{.*}} : (tensor<1x8x1xi32>, !tosa.shape<2>) -> tensor<1x8xi32>
+  // Negative index normalization
+  // CHECK: "tosa.const"() <{values = dense<0> : tensor<1x8xi32>}> : () -> tensor<1x8xi32>
+  // CHECK: "tosa.const"() <{values = dense<10> : tensor<1x8xi32>}> : () -> tensor<1x8xi32>
+  // CHECK: tosa.greater_equal
+  // CHECK: tosa.add
+  // CHECK: tosa.select
   // CHECK: tosa.scatter
   // CHECK-SAME: tensor<1x10x32xf16>
   %0 = migraphx.scatter_none %data, %indices, %updates {axis = 0}
@@ -413,6 +438,13 @@ func.func @scatter_none_negative_axis(
   // CHECK: tosa.reshape %{{.*}}, %{{.*}} : (tensor<10x2x16xf16>, !tosa.shape<3>) -> tensor<1x10x32xf16>
   // CHECK: tosa.reshape %{{.*}}, %{{.*}} : (tensor<8x2x16xf16>, !tosa.shape<3>) -> tensor<1x8x32xf16>
   // CHECK: tosa.slice %{{.*}}, %{{.*}}, %{{.*}} : (tensor<1x8x32xi32>, !tosa.shape<3>, !tosa.shape<3>) -> tensor<1x8x1xi32>
+  // CHECK: tosa.reshape %{{.*}}, %{{.*}} : (tensor<1x8x1xi32>, !tosa.shape<2>) -> tensor<1x8xi32>
+  // Negative index normalization
+  // CHECK: "tosa.const"() <{values = dense<0> : tensor<1x8xi32>}> : () -> tensor<1x8xi32>
+  // CHECK: "tosa.const"() <{values = dense<10> : tensor<1x8xi32>}> : () -> tensor<1x8xi32>
+  // CHECK: tosa.greater_equal
+  // CHECK: tosa.add
+  // CHECK: tosa.select
   // CHECK: tosa.scatter
   // CHECK-SAME: tensor<1x10x32xf16>
   %0 = migraphx.scatter_none %data, %indices, %updates {axis = -3}

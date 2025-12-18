@@ -121,6 +121,40 @@ static Value createCastOp(PatternRewriter &rewriter, Location loc,
   return res;
 }
 
+/// Normalize negative indices for gather/scatter operations.
+/// MIGraphX allows indices in range [-K, K-1] where negative values index
+/// from the end. TOSA requires non-negative indices, so we normalize:
+/// if index < 0, then index += K.
+static Value normalizeNegativeIndices(PatternRewriter &rewriter, Location loc,
+                                      Value indices, int64_t dimSize) {
+  auto indicesType = cast<RankedTensorType>(indices.getType());
+  Type elemType = indicesType.getElementType();
+  auto boolType =
+      RankedTensorType::get(indicesType.getShape(), rewriter.getI1Type());
+
+  // Create constant tensors for comparison and addition
+  auto zeroAttr =
+      DenseElementsAttr::get(indicesType, rewriter.getIntegerAttr(elemType, 0));
+  Value zeroConst = tosa::ConstOp::create(rewriter, loc, indicesType, zeroAttr);
+
+  auto dimSizeAttr = DenseElementsAttr::get(
+      indicesType, rewriter.getIntegerAttr(elemType, dimSize));
+  Value dimSizeConst =
+      tosa::ConstOp::create(rewriter, loc, indicesType, dimSizeAttr);
+
+  // Compute: isNonNegative = (indices >= 0)
+  Value isNonNegative =
+      tosa::GreaterEqualOp::create(rewriter, loc, boolType, indices, zeroConst);
+
+  // Compute: indicesPlusDimSize = indices + dimSize
+  Value indicesPlusDimSize =
+      tosa::AddOp::create(rewriter, loc, indicesType, indices, dimSizeConst);
+
+  // Select: normalizedIndices = isNonNegative ? indices : indicesPlusDimSize
+  return tosa::SelectOp::create(rewriter, loc, indicesType, isNonNegative,
+                                indices, indicesPlusDimSize);
+}
+
 //===----------------------------------------------------------------------===//
 // The general one-to-one conversion and
 //===----------------------------------------------------------------------===//
@@ -798,6 +832,20 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
   ArrayRef<int64_t> dataShape = dataType.getShape();
   ArrayRef<int64_t> indicesShape = indicesType.getShape();
 
+  // Check for dynamic dimensions in data tensor
+  for (int64_t i = 0; i < static_cast<int64_t>(dataShape.size()); ++i) {
+    if (ShapedType::isDynamic(dataShape[i]))
+      return op.emitOpError("dynamic dimensions in data tensor are not "
+                            "supported for gather lowering to TOSA");
+  }
+
+  // Check for dynamic dimensions in indices tensor
+  for (int64_t dim : indicesShape) {
+    if (ShapedType::isDynamic(dim))
+      return op.emitOpError("dynamic dimensions in indices tensor are not "
+                            "supported for gather lowering to TOSA");
+  }
+
   int64_t dataRank = dataShape.size();
   int64_t axis = op.getAxis();
 
@@ -854,19 +902,20 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
                                           indices, flatIndicesShapeValue);
   }
 
-  // Cast to i32 if needed (TOSA requires i32 indices)
-  if (!indicesType.getElementType().isInteger(32)) {
-    auto i32FlatType =
-        RankedTensorType::get(flatIndicesShape, rewriter.getI32Type());
-    flatIndices = tosa::CastOp::create(rewriter, loc, i32FlatType, flatIndices);
-  }
+  // Normalize negative indices: MIGraphX allows indices in range [-K, K-1]
+  // where negative values index from the end. TOSA requires non-negative
+  // indices. See normalizeNegativeIndices for the transformation.
+  // TODO: This could potentially be a performance hit, so check with MIGraphX
+  // to see if they will ever expect negative indices.
+  flatIndices = normalizeNegativeIndices(rewriter, loc, flatIndices, K);
 
   // Reshape indices from [W] to [N, W] to match TOSA's batch dimension
   // requirement
   Value tosaIndices;
+  Type indicesElemType = indicesType.getElementType();
   SmallVector<int64_t> tosaIndicesShape = {N, W};
   auto tosaIndicesType =
-      RankedTensorType::get(tosaIndicesShape, rewriter.getI32Type());
+      RankedTensorType::get(tosaIndicesShape, indicesElemType);
 
   if (N == 1) {
     // Simple case: just add the batch dimension
@@ -880,7 +929,7 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
     // First add batch dim: [W] -> [1, W]
     SmallVector<int64_t> batchedShape = {1, W};
     auto batchedType =
-        RankedTensorType::get(batchedShape, rewriter.getI32Type());
+        RankedTensorType::get(batchedShape, indicesElemType);
     auto batchedShapeValue =
         tosa::getTosaConstShape(rewriter, loc, batchedShape);
     Value batchedIndices = tosa::ReshapeOp::create(
@@ -912,31 +961,6 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
   return success();
 }
 
-// Lowering strategy for migraphx.scatter_none -> tosa.scatter:
-//
-// TOSA's scatter op is constrained to 3D tensors:
-//   - values_in: [N, K, C]  (tensor to be modified)
-//   - indices:   [N, W]     (W scatter positions per batch)
-//   - input:     [N, W, C]  (values to scatter)
-//   - values_out: [N, K, C] (result)
-//
-// Semantics: values_out[n, indices[n,w], :] = input[n, w, :]
-// (This is the inverse of tosa.gather)
-//
-// IMPORTANT: TOSA scatter scatters entire C-slices at once. For ONNX
-// ScatterElements where each element can have a different index, this only
-// works when indices are constant across the C dimension (e.g., broadcast).
-// The paged-attention use case has broadcast indices, so this lowering works.
-//
-// Example: data=[10,2,16], indices=[8,2,16](broadcast), updates=[8,2,16],
-// axis=0
-//   1. Compute: N=1, K=10, C=32, W=8
-//   2. Reshape data:    [10,2,16] -> [1,10,32]
-//   3. Reshape updates: [8,2,16]  -> [1,8,32]
-//   4. Reduce indices:  [8,2,16]  -> [1,8] (take one value per W since
-//   broadcast)
-//   5. tosa.scatter:    [1,10,32], [1,8], [1,8,32] -> [1,10,32]
-//   6. Reshape output:  [1,10,32] -> [10,2,16]
 LogicalResult ScatterNoneConverter::matchAndRewrite(
     migraphx::ScatterNoneOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
@@ -959,9 +983,51 @@ LogicalResult ScatterNoneConverter::matchAndRewrite(
   if (axis < 0)
     axis += dataRank;
 
+  // TOSA scatter requires that indices be constant across the "C" dimension
+  // (all dimensions after the axis). This is because TOSA scatter writes
+  // all C elements to the same K position: values_out[n, k, :] = input[n, w, :]
+  //
+  // ONNX/MIGraphX ScatterElements allows each element to have a different index, but
+  // TOSA scatter does not support this. We verify by checking the strides of
+  // the original MIXRShapedType - if strides are 0 for dims after axis, the
+  // indices are broadcast (constant) across those dimensions.
+  MIXRShapedType origIndicesType = op.getIndices().getType();
+  ArrayRef<int64_t> indicesStrides = origIndicesType.getStrides();
+  for (int64_t i = axis + 1; i < dataRank; ++i) {
+    // Stride must be 0 (broadcast) or the dimension size must be 1
+    if (indicesStrides[i] != 0 && origIndicesType.getShape()[i] != 1) {
+      return op.emitOpError("cannot lower to TOSA scatter: indices are not "
+                            "constant across dimension ")
+             << i << " (stride=" << indicesStrides[i]
+             << "). TOSA scatter requires indices to be broadcast across all "
+             << "dimensions after the scatter axis. Consider using a different "
+             << "lowering path for this scatter pattern.";
+    }
+  }
+
+  // Check for dynamic dimensions in data tensor
+  for (int64_t dim : dataShape) {
+    if (ShapedType::isDynamic(dim))
+      return op.emitOpError("dynamic dimensions in data tensor are not "
+                            "supported for scatter lowering to TOSA");
+  }
+
+  // Check for dynamic dimensions in updates tensor
+  for (int64_t dim : updatesShape) {
+    if (ShapedType::isDynamic(dim))
+      return op.emitOpError("dynamic dimensions in updates tensor are not "
+                            "supported for scatter lowering to TOSA");
+  }
+
   Type outputTy = getTypeConverter()->convertType(op.getOutput().getType());
   Type elemType = dataType.getElementType();
   Type indicesElemType = indicesType.getElementType();
+
+  // TOSA's scatter op is constrained to 3D tensors:
+  //   - values_in: [N, K, C]  (tensor to be modified)
+  //   - indices:   [N, W]     (W scatter positions per batch)
+  //   - input:     [N, W, C]  (values to scatter)
+  //   - values_out: [N, K, C] (result)
 
   // Compute TOSA 3D dimensions:
   // N = product of dims before axis (batch dimensions)
@@ -1018,19 +1084,21 @@ LogicalResult ScatterNoneConverter::matchAndRewrite(
 
   // Reshape to [N, W]
   SmallVector<int64_t> tosaIndicesShape = {N, W};
-  auto tosaIndicesType =
-      RankedTensorType::get(tosaIndicesShape, indicesElemType);
   auto tosaIndicesShapeValue =
       tosa::getTosaConstShape(rewriter, loc, tosaIndicesShape);
+
+  auto tosaIndicesType =
+      RankedTensorType::get(tosaIndicesShape, indicesElemType);
+
   Value tosaIndices = tosa::ReshapeOp::create(
       rewriter, loc, tosaIndicesType, slicedIndices, tosaIndicesShapeValue);
 
-  // Cast to i32 if needed (TOSA requires i32 indices)
-  if (!indicesElemType.isInteger(32)) {
-    auto i32Type =
-        RankedTensorType::get(tosaIndicesShape, rewriter.getI32Type());
-    tosaIndices = tosa::CastOp::create(rewriter, loc, i32Type, tosaIndices);
-  }
+  // Normalize negative indices: MIGraphX allows indices in range [-K, K-1]
+  // where negative values index from the end. TOSA requires non-negative
+  // indices. See normalizeNegativeIndices for the transformation.
+  // TODO: This could potentially be a performance hit, so check with MIGraphX
+  // to see if they will ever expect negative indices.
+  tosaIndices = normalizeNegativeIndices(rewriter, loc, tosaIndices, K);
 
   // Step 4: Call tosa.scatter
   // tosa.scatter(values_in, indices, input) -> values_out
