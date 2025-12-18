@@ -18938,7 +18938,7 @@ SITargetLowering::getRegClassFor(MVT VT, bool isDivergent) const {
   if (!TRI->isSGPRClass(RC) && !isDivergent)
     return TRI->getEquivalentSGPRClass(RC);
   if (TRI->isSGPRClass(RC) && isDivergent) {
-    if (Subtarget->hasGFX90AInsts())
+    if (Subtarget->hasGFX90AInsts() && !Subtarget->hasGFX950Insts())
       return TRI->getEquivalentAVClass(RC);
     return TRI->getEquivalentVGPRClass(RC);
   }

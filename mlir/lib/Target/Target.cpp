@@ -79,10 +79,10 @@ public:
   loadBitcodeFiles(llvm::Module &module) override;
 
   /// Compiles assembly to a binary.
-  std::optional<SmallVector<char, 0>>
-  compileToBinary(const std::string &serializedISA) override;
+  FailureOr<SmallVector<char, 0>>
+  compileToBinary(StringRef serializedISA) override;
 
-  std::optional<SmallVector<char, 0>>
+  FailureOr<SmallVector<char, 0>>
   moduleToObject(llvm::Module &llvmModule) override;
 
 private:
@@ -146,14 +146,16 @@ AMDGPUSerializer::loadBitcodeFiles(llvm::Module &module) {
   return std::move(bcFiles);
 }
 
-std::optional<SmallVector<char, 0>>
-AMDGPUSerializer::compileToBinary(const std::string &serializedISA) {
+FailureOr<SmallVector<char, 0>>
+AMDGPUSerializer::compileToBinary(StringRef serializedISA) {
+  auto errCallback = [&]() { return getOperation().emitError(); };
   // Assemble the ISA.
-  std::optional<SmallVector<char, 0>> isaBinary = assembleIsa(serializedISA);
+  FailureOr<SmallVector<char, 0>> isaBinary = assembleIsa(
+      serializedISA, this->triple, this->chip, this->features, errCallback);
 
-  if (!isaBinary) {
+  if (failed(isaBinary)) {
     getOperation().emitError() << "Failed during ISA assembling.";
-    return std::nullopt;
+    return failure();
   }
 
   // Save the ISA binary to a temp file.
@@ -163,7 +165,7 @@ AMDGPUSerializer::compileToBinary(const std::string &serializedISA) {
                                          tempIsaBinaryFilename)) {
     getOperation().emitError()
         << "Failed to create a temporary file for dumping the ISA binary.";
-    return std::nullopt;
+    return failure();
   }
   llvm::FileRemover cleanupIsaBinary(tempIsaBinaryFilename);
   {
@@ -178,7 +180,7 @@ AMDGPUSerializer::compileToBinary(const std::string &serializedISA) {
                                          tempHsacoFilename)) {
     getOperation().emitError()
         << "Failed to create a temporary file for the HSA code object.";
-    return std::nullopt;
+    return failure();
   }
   llvm::FileRemover cleanupHsaco(tempHsacoFilename);
 
@@ -190,7 +192,7 @@ AMDGPUSerializer::compileToBinary(const std::string &serializedISA) {
                          "-o", tempHsacoFilename.c_str()},
                         llvm::outs(), llvm::errs(), false, false)) {
       getOperation().emitError() << "lld invocation error";
-      return std::nullopt;
+      return failure();
     }
     lld::CommonLinkerContext::destroy();
   }
@@ -201,7 +203,7 @@ AMDGPUSerializer::compileToBinary(const std::string &serializedISA) {
   if (!hsacoFile) {
     getOperation().emitError()
         << "Failed to read the HSA code object from the temp file.";
-    return std::nullopt;
+    return failure();
   }
 
   StringRef buffer = (*hsacoFile)->getBuffer();
@@ -209,7 +211,7 @@ AMDGPUSerializer::compileToBinary(const std::string &serializedISA) {
   return SmallVector<char, 0>(buffer.begin(), buffer.end());
 }
 
-std::optional<SmallVector<char, 0>>
+FailureOr<SmallVector<char, 0>>
 AMDGPUSerializer::moduleToObject(llvm::Module &llvmModule) {
   return moduleToObjectImpl(targetOptions, llvmModule);
 }
