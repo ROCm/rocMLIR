@@ -28,6 +28,7 @@
 #include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Conversion/NVVMToLLVM/NVVMToLLVM.h"
 #include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
@@ -103,6 +104,7 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
   registerConvertFuncToLLVMInterface(registry);
   registerConvertMathToLLVMInterface(registry);
   registerConvertMemRefToLLVMInterface(registry);
+  registerConvertNVVMToLLVMInterface(registry);
   ub::registerConvertUBToLLVMInterface(registry);
 
   // Register all external models.

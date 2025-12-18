@@ -12,4 +12,5 @@ add_rocmlir_public_c_api_library(MLIRCAPIRegisterRocMLIR
   MLIRMHALTransforms
   MLIRMHALPipeline
   MLIRCAPIIR
+  MLIRNVVMToLLVM
 )
