@@ -304,15 +304,12 @@ LogicalResult mlir::bufferization::promoteBufferResultsToOutParams(
   // function.
   AllocDynamicSizesMap map;
   for (auto func : module.getOps<func::FuncOp>()) {
-    if (func.isPublic() && !options.modifyPublicFunctions) {
+    if (func.isPublic() && !options.modifyPublicFunctions)
       continue;
-    }
-    if (func.isExternal()) {
+    if (func.isExternal())
       continue;
-    }
-    if (!options.filterFn(&func)) {
+    if (!options.filterFn(&func)) 
       continue;
-    }
     SmallVector<BlockArgument, 6> appendedEntryArgs;
     if (failed(
             updateFuncOp(func, appendedEntryArgs, options.addResultAttribute))) {
