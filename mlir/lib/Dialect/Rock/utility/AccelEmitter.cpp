@@ -866,7 +866,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
   int64_t kPerBlock = tuningParams.getKpackPerBlock();
   int64_t mPerWave = tuningParams.getMPerWave();
   int64_t nPerWave = tuningParams.getNPerWave();
-  int64_t kPack = tuningParams.getKpack();  
+  int64_t kPack = tuningParams.getKpack();
   bool rotateDWithK = matrixParams.getRotateDWithK();
   bool ldsLayoutDxK = matrixParams.getLDSLayoutDxK();
 
@@ -888,7 +888,7 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
     kVec = kPack;
     kPerBlock *= kPack;
     assert(!rotateDWithK && "rotateDWithK must not be enabled for directToLds");
-  }                                 
+  }
 
   // Extract relevant derived parameters
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
@@ -906,16 +906,18 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
                             {blockSize, dRepeats, kIter * kVec});
   splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
                  {blockSize / waveSize, waveSize});
+  splitTid.merge({"k_iter", "k_vec"}, {3, 4}, "k_iter", {kIter, kVec});
 
-  splitTid.passThrough({"d_iter", "k_iter"}, {2, 3}, {"d_iter", "k_iter"});
+  splitTid.passThrough({"d_iter"}, {2}, {"d_iter"});
   TransformMapAttr splitTidAttr = splitTid.get();
   transformAttrs.push_back(splitTidAttr);
 
   TopDownTMBuilder splitWaveId =
       TopDownTMBuilder::below(splitTid, splitTidAttr);
   splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id", {mWaves, nWaves});
-  splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {2, 3, 4},
-                          {"lane_id", "d_iter", "k_iter"});
+  splitWaveId.passThrough({"lane_id", "d_iter", "k_iter", "k_vec"},
+                          {2, 3, 4, 5},
+                          {"lane_id", "d_iter", "k_iter", "k_vec"});
   TransformMapAttr splitWaveIdAttr = splitWaveId.get();
   transformAttrs.push_back(splitWaveIdAttr);
 
