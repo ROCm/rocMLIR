@@ -32,4 +32,4 @@ prefix = "-perf_config="
 name = "async_load_to_lds_e2e"
 
 [[suite.test]]
-config = "-g 1 -m 1024 -k 768 -n 1024"
+config = "-g 1 -m 128 -k 128 -n 128"

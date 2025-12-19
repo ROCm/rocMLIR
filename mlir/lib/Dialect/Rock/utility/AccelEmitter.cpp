@@ -869,9 +869,11 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
   int64_t kPack = tuningParams.getKpack();
   bool rotateDWithK = matrixParams.getRotateDWithK();
   bool ldsLayoutDxK = matrixParams.getLDSLayoutDxK();
+  int64_t dPerThread = matrixParams.getInDPerThread();
 
   // Extract relevant emitter parameters
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
+  int64_t kpackPerBlock = tuningParams.getKpackPerBlock();
   int64_t dRepeats = (dName == "m" ? accelEmitterParams.mRepeats
                                    : accelEmitterParams.nRepeats);
   int64_t dPerAccel = (dName == "m" ? accelEmitterParams.mPerAccel
@@ -889,6 +891,12 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
     kPerBlock *= kPack;
     assert(!rotateDWithK && "rotateDWithK must not be enabled for directToLds");
   }
+
+  llvm::errs() << "WmmaEmitter::wrapLDSBufferForLoad values:\n";
+  llvm::errs() << "- kPack: " << kPack << "\n";
+  llvm::errs() << "- kVec: " << kVec << "\n";
+  llvm::errs() << "- kpackPerBlock: " << kPerBlock << "\n";
+  llvm::errs() << "- kpackPerThread: " << kpackPerThread << "\n";
 
   // Extract relevant derived parameters
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
@@ -923,9 +931,9 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
 
   TopDownTMBuilder replicateLanes =
       TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
-  replicateLanes.passThrough({"wave_m", "wave_n", "d_iter", "k_iter"},
-                             {0, 1, 4, 5},
-                             {"wave_m", "wave_n", "d_iter", "k_iter"});
+  replicateLanes.passThrough({"wave_m", "wave_n", "d_iter", "k_iter", "k_vec"},
+                             {0, 1, 4, 5, 6},
+                             {"wave_m", "wave_n", "d_iter", "k_iter", "k_vec"});
 
   replicateLanes.merge({"block_id", "block_td"}, {2, 3}, "lane_id",
                        {waveSize / dPerAccel, dPerAccel});
@@ -934,7 +942,13 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
 
   TopDownTMBuilder toLDSRowCol =
       TopDownTMBuilder::below(replicateLanes, replicateLanesAttr);
-  if (isGfx11) {
+  if (true) { // e.g., gfx1250
+    // d = d_i*dWaves*dPerAccel + wave_d*dPerAccel + lane_id
+    // toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "lane_id"},
+    //   {dRepeats, dWaves, dPerAccel});
+    toLDSRowCol.unmerge("k", 1, {"block_id", "k_iter"}, {kIter, kVec});
+  } else if (isGfx11) {
+    // assert(false && "not implemented!dd!!");
     toLDSRowCol.passThrough({"k"}, {1}, {"k_iter"});
     toLDSRowCol.ignore("block_id");
   } else {
@@ -948,17 +962,21 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
   TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
   transformAttrs.push_back(toLDSRowColAttr);
 
-  int64_t stride = (kPack == 1 ? matrixParams.getInDPerThread() : 1);
-  auto offset = rotateIf(matrixParams.getRotateDWithK(), toLDSRowCol,
-                         toLDSRowColAttr, stride, "d", dPerBlock, 0, "k",
-                         kPerBlock, {}, {"k"}, transformAttrs);
+  int64_t stride = (kPack == 1 ? dPerThread : 1);
+  auto offset =
+      rotateIf(rotateDWithK, toLDSRowCol, toLDSRowColAttr, stride, "d",
+               dPerBlock, 0, "k", kPerBlock, {}, {"k"}, transformAttrs);
 
-  if (ldsLayoutDxK)
+  // llvm::errs() << "offsetAttr 1: " << offset.get() << "\n";             
+  if (ldsLayoutDxK) {
+    llvm::errs() << "dPerBlock: " << dPerBlock << "\n";
+    llvm::errs() << "kPerBlock: " << kPerBlock << "\n";
     offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
-  else
+  } else
     offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
 
   TransformMapAttr offsetAttr = offset.get();
+  llvm::errs() << "offsetAttr 2: " << offset.get() << "\n";
   transformAttrs.push_back(offsetAttr);
 
   ArrayAttr ldsRead = b.getArrayAttr(transformAttrs);
@@ -971,6 +989,8 @@ WmmaEmitter::createAccelGemmOperandTransforms(
     ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
     int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
     bool rotateDWithK, bool doSplitKAcrossThreadsFirst) const {
+
+  assert(false && "not implemented!!");
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
@@ -1071,7 +1091,8 @@ WmmaEmitter::createAccelGemmOperandTransforms(
       toLDSRowCol.passThrough({"k_loop", "g_block"});
       toLDSRowCol.passThrough({thisBlockDim}, {2}, {thisBlockDim});
       toLDSRowCol.passThrough({"kpack"}, {3}, {"kpack"});
-      if (isGfx11) {
+      if (true) {
+        assert(false && "not implemented");
         toLDSRowCol.passThrough({"k"}, {5}, {"k_iter"});
         toLDSRowCol.ignore("block_id");
       } else {
