@@ -11,3 +11,4 @@ yapf
 flake8
 pep8-naming
 pre-commit
+tqdm
