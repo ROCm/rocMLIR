@@ -224,7 +224,7 @@ stderr:
 {errs.decode('utf-8')}""")
 
             except subprocess.TimeoutExpired:
-                p3.terminate()
+                kill_process(p3)
                 outs, errs = p3.communicate()
                 raise TuningError(f"""Verification timed out
 {debug_info}
