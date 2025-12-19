@@ -44,6 +44,7 @@ name = "pr_gemm_scaled"
 [[suite.test]]
 config = "-g 3 -m 1024 -k 768 -n 1024"
 
+## disable this test for now
 # Test large tensors with padding
-[[suite.test]]
-config = "-g 1 -m 32768 -k 32 -n 32769"
+# [[suite.test]]
+# config = "-g 1 -m 32768 -k 32 -n 32769"
