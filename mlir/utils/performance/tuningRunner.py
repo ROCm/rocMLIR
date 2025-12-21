@@ -52,6 +52,7 @@ class Options:
     tflops: bool
     output: str
     abort_on_error: bool
+    retune: bool
 
 
 @dataclass
@@ -97,12 +98,57 @@ def get_available_gpus() -> List[int]:
     return list(range(device_count)) or [0]
 
 
+def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
+    tuned_configs = {}
+    if options.output == '-' or not os.path.exists(options.output):
+        return tuned_configs
+
+    try:
+        is_same_tuning_space = False
+        with open_output_file(options.output, mode='r') as outfile:
+            for line in outfile:
+                line = line.strip()
+                if not line:
+                    continue
+
+                if line.startswith('###'):
+                    continue
+                if line.startswith('#'):
+                    if f'perfConfig ({options.tuning_space_kind})' in line:
+                        is_same_tuning_space = True
+                    else:
+                        is_same_tuning_space = False
+                    continue
+
+                if not is_same_tuning_space:
+                    continue
+
+                parts = line.split('\t')
+                if len(parts) < 4:
+                    continue
+
+                test_vector = parts[2]
+                winning_config = parts[3] if parts[3] else None
+                max_tflops = float(parts[4]) if len(parts) > 4 and parts[4] else None
+
+                if winning_config and winning_config != "None":
+                    tuned_configs[test_vector] = TuningResult(test_vector=test_vector,
+                                                              success=True,
+                                                              winning_config=winning_config,
+                                                              max_tflops=max_tflops)
+    except Exception as e:
+        print(f"Warning: Failed to load existing tuning results from {options.output}: {e}",
+              file=sys.stderr)
+
+    return tuned_configs
+
+
 @contextmanager
-def open_output_file(output_path: str):
+def open_output_file(output_path: str, mode='a'):
     if output_path == '-':
         yield sys.stdout
     else:
-        f = open(output_path, 'a')
+        f = open(output_path, mode)
         try:
             yield f
         finally:
@@ -432,6 +478,19 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
         except Exception as e:
             return TuningResult(test_vector=test_vector, success=False, error=str(e))
 
+    tuned_configs = {}
+    if not options.retune and options.output != '-':
+        tuned_configs = load_tuned_configs(options)
+        if tuned_configs and not options.quiet:
+            print(f"Found {len(tuned_configs)} tuned config(s) in {options.output}",
+                  file=sys.stderr)
+
+    configs_to_tune = [config for config in configs if config not in tuned_configs]
+    num_tuned_configs = len(configs) - len(configs_to_tune)
+    if num_tuned_configs and not options.quiet:
+        print(f"Skipping {num_tuned_configs} out of {len(configs)} already tuned config(s)",
+              file=sys.stderr)
+
     debugfile = None
     debug_header_written = False
 
@@ -439,13 +498,17 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
 
     try:
         pbar = tqdm(total=len(configs),
+                    initial=num_tuned_configs,
                     disable=options.quiet,
                     file=sys.stderr,
                     desc=f"Tuning {conf_class.__name__} ({options.tuning_space_kind})",
-                    unit="config")
+                    unit="config",
+                    leave=False)
 
         executor = ThreadPoolExecutor(max_workers=num_workers)
-        futures = {executor.submit(tune_task, test_vector): test_vector for test_vector in configs}
+        futures = {
+            executor.submit(tune_task, test_vector): test_vector for test_vector in configs_to_tune
+        }
 
         if options.debug:
             debugfile = open(f"{options.output}.debug", 'a')
@@ -474,14 +537,20 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                               outfile)
                     if options.abort_on_error:
                         executor.shutdown(wait=False, cancel_futures=True)
-                        break
+                        return False
 
     except KeyboardInterrupt:
         print("\nInterrupted by user", file=sys.stderr)
+        return False
     finally:
         if debugfile:
             debugfile.close()
         pbar.close()
+
+    if has_errors:
+        print("Encountered errors during tuning", file=sys.stderr)
+    else:
+        print("Tuning completed successfully", file=sys.stderr)
 
     return not has_errors
 
@@ -661,12 +730,18 @@ def main(args=None):
                         default=False,
                         help="Abort tuning upon first error encounter")
 
+    parser.add_argument(
+        "--retune",
+        action='store_true',
+        default=False,
+        help="Force retuning of all configs, ignoring existing results in the output file")
+
     parsed_args = parser.parse_args(args)
 
     if parsed_args.verify_perf_configs and parsed_args.verify_mode == "none":
         print(
             "Use of `--verify-perf-configs` is not allowed with `--verify-mode=none`. Please pass `--verify-mode=cpu` or `--verify-mode=gpu`.",
-            sys.stderr)
+            file=sys.stderr)
         return 1
 
     rocmlir_gen_flags = ''
@@ -693,7 +768,8 @@ def main(args=None):
                       verify_perfconfigs=parsed_args.verify_perf_configs,
                       tflops=parsed_args.tflops,
                       output=parsed_args.output,
-                      abort_on_error=parsed_args.abort_on_error)
+                      abort_on_error=parsed_args.abort_on_error,
+                      retune=parsed_args.retune)
 
     if op_type == Operation.FUSION:
         op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
@@ -728,9 +804,7 @@ def main(args=None):
     elif op_type == Operation.CONV_GEMM:
         configs = perfRunner.get_conv_gemm_configurations(paths.configuration_file_path)
 
-    if not tune_mlir_kernels(configs, conf_class, paths, options):
-        print("Encountered errors during tuning", file=sys.stderr)
-        return 1
+    return not tune_mlir_kernels(configs, conf_class, paths, options)
 
 
 if __name__ == '__main__':

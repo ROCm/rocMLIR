@@ -879,6 +879,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         llvm::outs() << result.perfConfig << "\t";
 
         if (result.status == CompilationStatus::CompilationFailed) {
+          benchmarkFailed = true;
           break;
         }
 
