@@ -445,6 +445,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
     gpu_ids = get_available_gpus()
     num_workers = len(gpu_ids)
     num_compile_threads = math.ceil((os.cpu_count() or 1) / num_workers)
+    num_compile_threads = max(1, num_compile_threads - 1)  # reserve one for the benchmark thread
 
     if not options.quiet:
         print(f"Using {num_workers} GPU(s): {gpu_ids}", file=sys.stderr)

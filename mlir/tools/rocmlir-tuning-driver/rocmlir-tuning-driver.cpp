@@ -866,7 +866,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
 
     std::vector<std::thread> compilationThreads;
     compilationThreads.reserve(numThreads);
-    for (unsigned i = 0; i < numThreads - 1; ++i) {
+    for (unsigned i = 0; i < numThreads; ++i) {
       compilationThreads.emplace_back(compilationWorker);
     }
 
