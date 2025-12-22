@@ -194,11 +194,11 @@ def main():
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
-    
+
     # Set default mlir-build-dir if not provided
     if args.mlir_build_dir is None:
         args.mlir_build_dir = find_mlir_build_dir()
-    
+
     arch = get_arch()
     chip_match = GFX_CHIP_RE.search(arch)
     if chip_match is None:
