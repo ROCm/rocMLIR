@@ -443,12 +443,12 @@ def tune_single_config(test_vector, conf_class, paths: Paths, options: Options, 
 
 def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
     gpu_ids = get_available_gpus()
-    num_workers = len(gpu_ids)
+    num_workers = min(len(gpu_ids), len(configs))
     num_compile_threads = math.ceil((os.cpu_count() or 1) / num_workers)
-    num_compile_threads = max(1, num_compile_threads - 1)  # reserve one for the benchmark thread
+    num_compile_threads = max(1, num_compile_threads - 1)  # reserve one for the main thread
 
     if not options.quiet:
-        print(f"Using {num_workers} GPU(s): {gpu_ids}", file=sys.stderr)
+        print(f"Using {num_workers} GPU(s): {gpu_ids[:num_workers]}", file=sys.stderr)
         print(f"Using {num_compile_threads} compile thread(s) per GPU", file=sys.stderr)
 
     gpu_assignment_lock = threading.Lock()
@@ -757,7 +757,7 @@ def main(args=None):
     paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir)
 
     if not paths.mlir_paths:
-        raise RuntimeError("MLIR build dir was not provided/found")
+        raise RuntimeError("rocMLIR build dir was not provided/found")
 
     options = Options(arch=arch,
                       num_cu=num_cu,

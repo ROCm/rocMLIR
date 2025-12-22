@@ -9,6 +9,9 @@
 #ifndef ROCMLIR_TUNING_DRIVER_CONCURRENT_QUEUE_H
 #define ROCMLIR_TUNING_DRIVER_CONCURRENT_QUEUE_H
 
+#include "llvm/Support/Compiler.h"
+
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <queue>
@@ -19,29 +22,29 @@ template <typename T>
 class ConcurrentQueue {
 public:
   template <typename U>
-  void push(U &&item) {
+  bool push(U &&item) {
+    if (LLVM_UNLIKELY(done.load(std::memory_order_relaxed)))
+      return false; // Early exit if terminated
+
     {
       std::lock_guard<std::mutex> lock(mtx);
-      queue.push(std::forward<U>(item));
+      if (LLVM_UNLIKELY(done.load(std::memory_order_relaxed)))
+        return false; // Double-check after acquiring the lock
+
+      queue.emplace(std::forward<U>(item));
     }
+
     cv.notify_one();
+    return true;
   }
 
   bool pop(T &item) {
     std::unique_lock<std::mutex> lock(mtx);
-    cv.wait(lock, [this] { return !queue.empty() || done; });
+    cv.wait(lock, [this] {
+      return !queue.empty() || done.load(std::memory_order_relaxed);
+    });
 
-    if (queue.empty())
-      return false;
-
-    item = std::move(queue.front());
-    queue.pop();
-    return true;
-  }
-
-  bool tryPop(T &item) {
-    std::lock_guard<std::mutex> lock(mtx);
-    if (queue.empty())
+    if (LLVM_UNLIKELY(queue.empty()))
       return false;
 
     item = std::move(queue.front());
@@ -50,45 +53,17 @@ public:
   }
 
   void terminate() {
-    {
-      std::lock_guard<std::mutex> lock(mtx);
-      done = true;
-    }
+    done.store(true, std::memory_order_relaxed);
     cv.notify_all();
   }
 
-  void reset() {
-    std::lock_guard<std::mutex> lock(mtx);
-    done = false;
-    std::queue<T> empty;
-    queue.swap(empty);
-  }
-
-  bool isTerminated() const {
-    std::lock_guard<std::mutex> lock(mtx);
-    return done;
-  }
-
-  bool isDone() const {
-    std::lock_guard<std::mutex> lock(mtx);
-    return done && queue.empty();
-  }
-
-  size_t size() const {
-    std::lock_guard<std::mutex> lock(mtx);
-    return queue.size();
-  }
-
-  bool empty() const {
-    std::lock_guard<std::mutex> lock(mtx);
-    return queue.empty();
-  }
+  bool isTerminated() const { return done.load(std::memory_order_relaxed); }
 
 private:
   std::queue<T> queue;
-  mutable std::mutex mtx;
+  std::mutex mtx;
   std::condition_variable cv;
-  bool done = false;
+  std::atomic<bool> done{false};
 };
 
 } // namespace rocmlir::tuningdriver

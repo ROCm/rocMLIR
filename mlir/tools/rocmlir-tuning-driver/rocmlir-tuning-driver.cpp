@@ -741,8 +741,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // PHASE 2: Parallel compilation phase
     ConcurrentQueue<CompilationResult> compilationResults;
     std::mutex outputMutex; // For thread-safe console output
-    std::atomic<bool> compilationFailed{
-        false}; // Flag to signal early termination
 
     auto compileConfig = [&](size_t idx) -> CompilationResult {
       CompilationResult result;
@@ -806,7 +804,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         auto tunedFunc = sourceCopy->lookupSymbol<func::FuncOp>(fnName);
         if (!tunedFunc) {
           result.status = CompilationStatus::CompilationFailed;
-          compilationFailed.store(true, std::memory_order_relaxed);
           return result;
         }
         result.blockSizes.push_back(
@@ -821,7 +818,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         llvm::errs() << "Backend pipeline failed for config: "
                      << result.perfConfig << "\n";
         result.status = CompilationStatus::CompilationFailed;
-        compilationFailed.store(true, std::memory_order_relaxed);
         return result;
       }
 
@@ -831,7 +827,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
             sourceCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
         if (!binary) {
           result.status = CompilationStatus::CompilationFailed;
-          compilationFailed.store(true, std::memory_order_relaxed);
           return result;
         }
         result.hipModules.push_back(
@@ -851,85 +846,78 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // fast, full compilation is slow). Dynamic work stealing provides better
     // load balancing by allowing fast threads to pick up more work.
     std::atomic<size_t> nextIdx{0};
-    auto compilationWorker = [&] {
+    std::atomic<size_t> activeThreads{numThreads};
+    auto worker = [&] {
       while (true) {
-        if (compilationFailed.load(std::memory_order_relaxed))
-          break;
-
         size_t idx = nextIdx.fetch_add(1, std::memory_order_relaxed);
         if (idx >= configs.size())
           break;
 
-        compilationResults.push(compileConfig(idx));
+        if (compilationResults.isTerminated())
+          break; // Avoid unnecessary work
+
+        if (!compilationResults.push(compileConfig(idx)))
+          break; // Queue terminated
+      }
+
+      if (activeThreads.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        // Last thread - signal termination
+        compilationResults.terminate();
       }
     };
 
-    std::vector<std::thread> compilationThreads;
-    compilationThreads.reserve(numThreads);
+    std::vector<std::thread> threads;
+    threads.reserve(numThreads);
     for (unsigned i = 0; i < numThreads; ++i) {
-      compilationThreads.emplace_back(compilationWorker);
+      threads.emplace_back(worker);
     }
+
+    auto threadCleanup = llvm::make_scope_exit([&] {
+      // In case of early termination, signal all threads to stop
+      compilationResults.terminate();
+      for (auto &t : threads) {
+        t.join();
+      }
+    });
 
     int64_t validResults = 0;
-    bool benchmarkFailed = false;
-    auto benchmarkWorker = [&] {
-      // Sequential benchmarking phase (must be sequential for accurate timing)
-      CompilationResult result;
-      while (compilationResults.pop(result)) {
-        llvm::outs() << result.perfConfig << "\t";
+    // Sequential benchmarking phase (must be sequential for accurate timing)
+    CompilationResult result;
+    while (compilationResults.pop(result)) {
+      llvm::outs() << result.perfConfig << "\t";
 
-        if (result.status == CompilationStatus::CompilationFailed) {
-          benchmarkFailed = true;
-          break;
-        }
+      if (result.status == CompilationStatus::CompilationFailed) {
+        llvm::errs() << "Compilation failed\n";
+        return failure();
+      }
 
-        if (result.status == CompilationStatus::NotApplicable) {
-          llvm::outs() << "N/A\n";
-          continue;
-        }
+      if (result.status == CompilationStatus::NotApplicable) {
+        llvm::outs() << "N/A\n";
+        continue;
+      }
 
-        assert(result.status == CompilationStatus::Success &&
-               "Unexpected compilation status in benchmarking phase");
+      assert(result.status == CompilationStatus::Success &&
+             "Unexpected compilation status in benchmarking phase");
 
-        FailureOr<double> timing =
-            benchmarkKernels(result.hipModules, kernelFuncNames,
-                             result.blockSizes, result.gridSizes, hostBuffers,
-                             gpuBuffers, bufferLengths, benchmarkParams);
+      FailureOr<double> timing =
+          benchmarkKernels(result.hipModules, kernelFuncNames,
+                           result.blockSizes, result.gridSizes, hostBuffers,
+                           gpuBuffers, bufferLengths, benchmarkParams);
 
-        if (failed(timing)) {
-          benchmarkFailed = true;
-          break;
-        }
-        llvm::outs() << timing.value() << "\n";
+      if (failed(timing)) {
+        llvm::errs() << "Kernel execution failed\n";
+        return failure();
+      }
+      llvm::outs() << timing.value() << "\n";
 
-        validResults++;
-        // Find best config
-        if (rock::needToUpdateBest(benchmarkParams.tuningSpaceKind)) {
-          if (timing.value() < bestTimeOverall) {
-            bestTimeOverall = timing.value();
-            bestConfigOverall = result.perfConfig;
-          }
+      validResults++;
+      // Find best config
+      if (rock::needToUpdateBest(benchmarkParams.tuningSpaceKind)) {
+        if (timing.value() < bestTimeOverall) {
+          bestTimeOverall = timing.value();
+          bestConfigOverall = result.perfConfig;
         }
       }
-    };
-    std::thread benchmarkThread(benchmarkWorker);
-
-    for (auto &t : compilationThreads) {
-      t.join();
-    }
-    compilationResults.terminate();
-    benchmarkThread.join();
-
-    // Check if any compilation failed and terminate early
-    if (compilationFailed.load(std::memory_order_relaxed)) {
-      llvm::errs()
-          << "Compilation failed for one or more configs. Terminating.\n";
-      return failure();
-    }
-
-    if (benchmarkFailed) {
-      llvm::errs() << "Kernel execution failed\n";
-      return failure();
     }
 
     if (validResults == 0) {
