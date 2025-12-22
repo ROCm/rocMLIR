@@ -883,6 +883,45 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       // LDS index is wavefront-uniform as that is needed by load to LDS
       // instruction
       ldsIndex = arith::AddIOp::create(b, loc, ldsIndex, ldsIndexWave);
+
+      if (isAsyncDirectToLDSSupported(maybeArch.value())) {
+        // Whereas DirectToLDS works like a gather (where every thread will have
+        // the same output index), async DirectToLDS actually works like a
+        // traditional load, so we must take into account the thread-specific
+        // offset here.
+        if (loadTypeByteWidth == 16) {
+          assert(128 % dstBufferType.getElementTypeBitWidth() == 0);
+
+          Value waveTid = ldsCoords[2];
+          int64_t elementTypeBitWidth = dstBufferType.getElementTypeBitWidth();
+          // Calculate: tid * 16 * 8 / elementTypeBitWidth = tid * 128 /
+          // elementTypeBitWidth
+          Value tidMul128 = arith::MulIOp::create(
+              b, loc, waveTid, arith::ConstantIndexOp::create(b, loc, 128));
+          Value elementTypeBitWidthVal =
+              arith::ConstantIndexOp::create(b, loc, elementTypeBitWidth);
+          Value tidOffset = b.createOrFold<arith::DivUIOp>(
+              loc, tidMul128, elementTypeBitWidthVal);
+          ldsIndex = arith::AddIOp::create(b, loc, ldsIndex, tidOffset);
+        } else if (loadTypeByteWidth == 4) {
+          assert(32 % dstBufferType.getElementTypeBitWidth() == 0);
+
+          Value waveTid = ldsCoords[2];
+          int64_t elementTypeBitWidth = dstBufferType.getElementTypeBitWidth();
+          // Calculate: tid * 4 * 8 / elementTypeBitWidth = tid * 32 /
+          // elementTypeBitWidth
+          Value tidMul32 = arith::MulIOp::create(
+              b, loc, waveTid, arith::ConstantIndexOp::create(b, loc, 32));
+          Value elementTypeBitWidthVal =
+              arith::ConstantIndexOp::create(b, loc, elementTypeBitWidth);
+          Value tidOffset = b.createOrFold<arith::DivUIOp>(
+              loc, tidMul32, elementTypeBitWidthVal);
+          ldsIndex = arith::AddIOp::create(b, loc, ldsIndex, tidOffset);
+        } else {
+          llvm_unreachable("unsupported for now");
+        }
+      }
+
       GlobalLoadToLDSOp::create(b, loc, buffer, dest, validity, directToLDSType,
                                 loadLoop.getLowerCoords(/*domain=*/0),
                                 ValueRange{ldsIndex}, needs64BitIdx);
