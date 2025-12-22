@@ -1185,22 +1185,37 @@ mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
         bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b);
     bool directToLDS32b =
         bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
-    assert(directToLDS128b || directToLDS32b || isAsyncDirectToLDSSupported(arch.value()));
-    // TODO: Differentiate between different async DirectToLDS byte widths. Right now, it will
-    // attempt to load 128b per thread first, and then 32b.
+    bool asyncDirectToLDS = isAsyncDirectToLDSSupported(arch.value());
+    if (!directToLDS128b && !directToLDS32b && !asyncDirectToLDS) {
+      return emitError(loc) << "direct to LDS is not supported by the hardware";
+    }
 
-    // For direct to LDS, we will try if we can load 128b per thread first.
-    // If not possible, we will try 32b. If not possible, we can't use direct to
-    // LDS.
-    if (directToLDS128b || isAsyncDirectToLDSSupported(arch.value()))
-      maybeCopyDPerThread = computeCopyPerThreadDirectToLDS(
-          matrix, elemType, copyPerThread, kPerBlock, dPerBlock, kpack, 128,
-          loc);
+    if (asyncDirectToLDS) {
+      // For async direct to LDS, we support all load widths (8, 32, 64 and 128
+      // bits), so attempt to use all of them, sorted from highest to lowest.
+      for (int64_t loadWidth : {128, 64, 32, 8}) {
+        maybeCopyDPerThread = computeCopyPerThreadDirectToLDS(
+            matrix, elemType, copyPerThread, kPerBlock, dPerBlock, kpack,
+            loadWidth, loc);
+        if (succeeded(maybeCopyDPerThread)) {
+          break;
+        }
+      }
+    } else {
+      // For direct to LDS, we will try if we can load 128b per thread first.
+      // If not possible, we will try 32b. If not possible, we can't use direct
+      // to LDS.
+      if (directToLDS128b || isAsyncDirectToLDSSupported(arch.value()))
+        maybeCopyDPerThread = computeCopyPerThreadDirectToLDS(
+            matrix, elemType, copyPerThread, kPerBlock, dPerBlock, kpack, 128,
+            loc);
 
-    if (failed(maybeCopyDPerThread) && (directToLDS32b || isAsyncDirectToLDSSupported(arch.value())))
-      maybeCopyDPerThread =
-          computeCopyPerThreadDirectToLDS(matrix, elemType, copyPerThread,
-                                          kPerBlock, dPerBlock, kpack, 32, loc);
+      if (failed(maybeCopyDPerThread) &&
+          (directToLDS32b || isAsyncDirectToLDSSupported(arch.value())))
+        maybeCopyDPerThread = computeCopyPerThreadDirectToLDS(
+            matrix, elemType, copyPerThread, kPerBlock, dPerBlock, kpack, 32,
+            loc);
+    }
   } else {
     maybeCopyDPerThread = computeCopyPerThread(
         elemType, copyPerThread, kPerBlock, dPerBlock, kpack, loc);
