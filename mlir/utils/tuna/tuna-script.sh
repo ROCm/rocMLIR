@@ -38,6 +38,10 @@ function clear_tables
         tablekind="conv"
     fi
 
+    if [ "$tablekind" = "gemm_gemm" ]; then
+        tablekind="gemmgemm"
+    fi
+
     # config table has foreign keys from job and results tables.  however,
     # config table doesn't have a session column so we must delete them all.
     mysql --user root --database tuna -e "delete from rocmlir_${tablekind}_results;"
