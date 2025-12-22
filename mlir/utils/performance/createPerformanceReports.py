@@ -7,7 +7,7 @@ import sys
 
 
 # Create html reports from .csv files
-def print_all_performance(chip, lib='rocBLAS'):
+def print_all_performance(chip, lib='hipBLASLt'):
 
     df = pd.read_csv(chip + '_' + reportUtils.PERF_REPORT_FILE[lib])
     columns_to_average = ['MLIR TFlops', f'{lib} TFlops (no MLIR Kernels)', f'MLIR/{lib}']
@@ -59,7 +59,7 @@ if __name__ == '__main__':
         print("Error: missing chip argument (usage: createPerformanceReports.py <chip> [lib])")
         sys.exit(1)
     chip = sys.argv[1]
-    lib = sys.argv[2] if len(sys.argv) > 2 else 'rocBLAS'
+    lib = sys.argv[2] if len(sys.argv) > 2 else 'hipBLASLt'
     try:
         print_all_performance(chip, lib)
     except FileNotFoundError:

@@ -139,3 +139,14 @@ func.func @rock_multiple_liveness_ranges() attributes{arch = "##TOKEN_ARCH##", b
 
   return
 }
+
+// Check that we handle ops with memory effects but no associated value instead of crashing
+// CHECK-LABEL: func.func @op_with_memory_effects_but_no_associated_value
+func.func @op_with_memory_effects_but_no_associated_value() attributes{arch = "##TOKEN_ARCH##", block_size = 256 : i32, grid_size = 320 : i32, kernel} {
+  rock.alloc() : memref<1024xi8, #wg>
+  // CHECK: gpu.printf "Let's try to trigger a crash!"
+  gpu.printf "Let's try to trigger a crash!"
+  // CHECK-NOT: rock.live_in
+  // CHECK-NOT: rock.live_out
+  return
+}
