@@ -1032,7 +1032,9 @@ computeCopyPerThreadDirectToLDS(Value matrix, Type elementType,
   int64_t copyDPerThread = 0;
   // TODO: we need targetBits=96 if we want direct to LDS for f6
   if (targetBits % elementType.getIntOrFloatBitWidth() != 0) {
-    LLVM_DEBUG(llvm::dbgs() << "err1\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << targetBits << "%" << elementType.getIntOrFloatBitWidth()
+               << " != 0\n");
     return failure();
   }
 
@@ -1062,19 +1064,21 @@ computeCopyPerThreadDirectToLDS(Value matrix, Type elementType,
   // if the fastest dimension doesn't match inputDimLen. We can't use direct to
   // LDS.
   if (copyFastestDimPerThread != inputDimLen) {
-    LLVM_DEBUG(llvm::dbgs() << "err2: " << copyFastestDimPerThread << " != " << inputDimLen << "\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << copyFastestDimPerThread << " != " << inputDimLen << "\n");
     return failure();
   }
 
   if (copyKPerThread == 0 || copyDPerThread == 0) {
-    LLVM_DEBUG(llvm::dbgs() << "err3\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << copyKPerThread << " == 0 || " << copyDPerThread << " == 0\n");
     return failure();
   }
   if (kPerBlock < copyKPerThread || dPerBlock < copyDPerThread) {
-    LLVM_DEBUG(llvm::dbgs() << "err4\n");
+    LLVM_DEBUG(llvm::dbgs() << kPerBlock << " < " << copyKPerThread << " || "
+                            << dPerBlock << " < " << copyDPerThread << "\n");
     return failure();
   }
-  LLVM_DEBUG(llvm::dbgs() << "all good, success\n");
   return std::make_tuple(dim, copyKPerThread, copyDPerThread);
 }
 
