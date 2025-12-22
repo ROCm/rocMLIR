@@ -613,11 +613,11 @@ def main() -> bool:
         help="The build directory of MLIR based kernel generator",
     )
     args = parser.parse_args()
-    
+
     # Set default mlir-build-dir if not provided
     if args.mlir_build_dir is None:
         args.mlir_build_dir = perfRunner.find_mlir_build_dir()
-    
+
     arch = get_arch()
     supported_codepath = ['mfma', 'vanilla', 'wmma']
     # If codepath not provided or not supported, infer it from the arch
