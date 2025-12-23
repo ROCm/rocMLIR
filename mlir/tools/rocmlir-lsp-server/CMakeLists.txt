@@ -15,10 +15,6 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
   MLIRLspServerLib
-  MLIRRegisterAllDialects
-  MLIRRegisterAllExtensions
-  MLIRAMDGPUTransforms
-  MLIRMathTransforms
   MLIRMHAL
   MLIRMHALTransforms
   )

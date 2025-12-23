@@ -11,10 +11,6 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
   MLIRParser
-  MLIRRegisterAllDialects
-  MLIRRegisterAllExtensions
-  MLIRAMDGPUTransforms
-  MLIRMathTransforms
   MLIRMHALPipeline
 )
 

@@ -63,10 +63,6 @@ list(APPEND LLVM_INCLUDE_DIRS
 
 add_subdirectory("${LLVM_PROJECT_DIR}/llvm" "external/llvm-project/llvm" EXCLUDE_FROM_ALL)
 
-# Add upstream MLIR translation libraries needed by rocMLIR tools
-# This is needed because registerRocMLIRDialects calls registerAllGPUToLLVMIRTranslations
-set_property(GLOBAL APPEND PROPERTY ROCMLIR_DIALECT_LIBS MLIRToLLVMIRTranslationRegistration)
-
 function(add_rocmlir_dialect_library name)
   set_property(GLOBAL APPEND PROPERTY ROCMLIR_DIALECT_LIBS ${name})
   set_property(GLOBAL APPEND PROPERTY MLIR_DIALECT_LIBS ${name})

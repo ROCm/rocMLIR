@@ -17,10 +17,6 @@ set(LIBS
   ${rocmlir_conversion_libs}
   ${rocmlir_test_libs}
   MLIROptLib
-  MLIRRegisterAllDialects
-  MLIRRegisterAllExtensions
-  MLIRAMDGPUTransforms
-  MLIRMathTransforms
   MLIRMHAL
   MLIRMHALTransforms
   MLIRMHALPipeline
