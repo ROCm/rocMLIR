@@ -518,6 +518,7 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
     - g: gemm parameter G
     - d: gemm parameter D (could be M or N)
     - inDPerThread: How many elements of D (M or N) each thread is going to load from memory.
+    - accelDDim: Accelerator instruction D dimension (for LDS transpose support, typically 16 or 32).
     - accelKDim: Accelerator instruction K dimension (for LDS transpose support).
   }];
   let parameters = (ins "Type":$elementType, "Type":$elementTypeLoad,
@@ -525,6 +526,7 @@ def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
       "bool":$directToLDS, "bool":$splitKAcrossThreadsFirst, "int64_t":$g,
       "int64_t":$d, "int64_t":$inDPerThread,
       DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled,
+      DefaultValuedParameter<"int64_t", "0">:$accelDDim,
       DefaultValuedParameter<"int64_t", "0">:$accelKDim);
 
   let assemblyFormat = [{

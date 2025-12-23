@@ -207,9 +207,9 @@ class LoweringBlockwiseLoadTileOp final
     LDSTransposeConfigAttr transposeAttr = nullptr;
     if (ldsTransposeEnabled) {
       // Get accelerator dimensions from matrix params and tuning params
-      // accelDDim = mnPerXdl (for MFMA instructions with blocksMfma=1)
+      // accelDDim = AccelDDim (for MFMA instructions with blocksMfma=1)
       // accelKDim = accelKDim from BlockwiseMatrixParamsAttr
-      int64_t accelDDim = tuningParams.getMnPerXdl();
+      int64_t accelDDim = matrixParams.getAccelDDim();
       int64_t accelKDim = matrixParams.getAccelKDim();
       assert(accelDDim > 0 && accelKDim > 0 &&
              "ldsTranspose=true requires valid accel geometry in params");

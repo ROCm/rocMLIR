@@ -202,7 +202,7 @@ LDSTransposeDecision decideLDSTransposeForOperands(
     const LDSLayoutConfigDim &ldsLayoutConfigA,
     const LDSLayoutConfigDim &ldsLayoutConfigB, int64_t mPerBlock,
     int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave, int64_t nPerWave,
-    int64_t kpack, bool doubleBuffering) {
+    int64_t kpack, bool doubleBuffering, bool bLoadsFromLDS) {
 
   LDSTransposeDecision result;
 
@@ -234,13 +234,21 @@ LDSTransposeDecision decideLDSTransposeForOperands(
                           << (decA.usable ? "USABLE" : "NOT USABLE") << "\n");
 
   // Make decision for operand B
-  Decision decB =
-      makeDecision(arch, elementTypeA, elementTypeB, directToLDS, shape,
-                   OperandKind::B, ldsLayoutConfigB, mPerBlock, nPerBlock,
-                   kPerBlock, mPerWave, nPerWave, doubleBuffering);
-
-  LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Decision for operand B: "
-                          << (decB.usable ? "USABLE" : "NOT USABLE") << "\n");
+  // If B doesn't load from LDS (e.g., prefetched Q matrix), it can't use
+  // LDS transpose regardless of other constraints
+  Decision decB;
+  if (!bLoadsFromLDS) {
+    decB.usable = false;
+    LLVM_DEBUG(llvm::dbgs()
+               << "[lds_transpose] Decision for operand B: NOT USABLE "
+               << "(bypasses LDS - prefetched to registers)\n");
+  } else {
+    decB = makeDecision(arch, elementTypeA, elementTypeB, directToLDS, shape,
+                        OperandKind::B, ldsLayoutConfigB, mPerBlock, nPerBlock,
+                        kPerBlock, mPerWave, nPerWave, doubleBuffering);
+    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Decision for operand B: "
+                            << (decB.usable ? "USABLE" : "NOT USABLE") << "\n");
+  }
 
   // ========================================
   // KPACK CONSTRAINT LOGIC
@@ -879,7 +887,7 @@ static StrideConfig computeStrideConfiguration(OperandKind operand,
     }
   } else {
     // Operand B (N dimension)
-    if (waveGrid.wavesInN >= 2 && waveGrid.wavesInN == waveGrid.wavesInM) {
+    if (waveGrid.wavesInN >= 2) {
       // BALANCED GRID (2×2, 3×3, 4×4) → tiles are interleaved in N dimension
       // Special case: balanced grids require interleaved tile access
       config.tileOffsetStride = waveGrid.wavesInN * dDim;

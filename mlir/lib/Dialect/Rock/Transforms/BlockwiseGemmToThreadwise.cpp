@@ -453,9 +453,9 @@ struct BlockwiseGemmAccelRewritePattern
         return nullptr;
 
       // Get accelerator dimensions from matrix params and tuning params
-      // accelDDim = mnPerXdl (for MFMA instructions with blocksMfma=1)
+      // accelDDim = accelDDim (for MFMA instructions with blocksMfma=1)
       // accelKDim = accelKDim from BlockwiseMatrixParamsAttr
-      int64_t accelDDim = tuningParams.getMnPerXdl();
+      int64_t accelDDim = matrixParams.getAccelDDim();
       int64_t accelKDim = matrixParams.getAccelKDim();
 
       if (accelDDim <= 0 || accelKDim <= 0)
