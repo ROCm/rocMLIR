@@ -1351,16 +1351,51 @@ struct GlobalLoadToLDSRewritePattern
                         (numBytes.trunc(32).isNegative() || emitOobChecks ||
                          op.getCanReadOffEnd());
 
-    if (emitOobChecks && !useBufferOps) {
-      return op->emitError(
-          "If we need to emit OOB checks, we must use buffer ops");
-    }
-
     source = asGlobal(b, source);
     if (useBufferOps && emitOobChecks && coords.empty()) {
       source = zeroDMemrefAsOneD(b, source);
       coords.push_back(b.createOrFold<ConstantIndexOp>(loc, 0));
     }
+
+    Type originalLoadedType = op.getTransferType();
+    PatternRewriter::InsertionGuard insertGuard(b);
+    if (asyncDirectToLDS && emitOobChecks && !useBufferOps) {
+      Value cond = valid;
+      if (op.getCanReadOffEnd()) {
+        Value fallsOffEnd = arith::CmpIOp::create(
+            b, loc, arith::CmpIPredicate::uge, coords[0], numElems);
+        cond = arith::AndIOp::create(b, loc, fallsOffEnd, cond);
+      }
+      auto guard =
+          scf::IfOp::create(b, loc, TypeRange(), cond, /*hasThen=*/ true, /*hasElse=*/ false);
+      // Remove implicit yields from both blocks
+      llvm::errs() << "Module: " << op->getParentOfType<ModuleOp>() << "\n";
+      Block *thenBlock = guard.getBody(0);
+      // Block *elseBlock = guard.getBody(1);
+      b.moveOpBefore(op, thenBlock, thenBlock->begin());
+      // b.eraseOp(thenBlock->getTerminator());
+      // b.eraseOp(elseBlock->getTerminator());
+
+      // b.replaceOp(op, guard);
+
+      // Clone the operation into the then block
+      // b.setInsertionPointToStart(thenBlock);
+      // auto oldOp = op;
+      // op = b.clone(*op);
+      // b.eraseOp(oldOp);
+      
+      // b.setInsertionPointToEnd(guard.getBody(1));
+      // Value zeroes = createZeroConstantOp(b, loc, originalLoadedType);
+      // scf::YieldOp::create(b, loc, zeroes);
+      // b.setInsertionPointToEnd(guard.getBody(0));
+      // Value hack = createZeroConstantOp(b, loc, originalLoadedType);
+      // scf::YieldOp::create(b, loc, hack);
+
+      
+      llvm::errs() << "Module: " << op->getParentOfType<ModuleOp>() << "\n";
+      b.setInsertionPointToEnd(thenBlock);
+    }
+
     if (useBufferOps) {
       // Implement bounds checks for buffer ops by sending any out of bounds
       // write off the end of the buffer, causing the hardware to return 0
@@ -1389,6 +1424,9 @@ struct GlobalLoadToLDSRewritePattern
             : amdgpu::GatherToLDSOp::create(b, loc, source, coords, dest,
                                             destCoords, op.getTransferType());
 
+    if (asyncDirectToLDS && emitOobChecks && !useBufferOps) {
+      scf::YieldOp::create(b, loc);
+    }
     b.replaceOp(op, toLDSOp);
     return success();
   }
