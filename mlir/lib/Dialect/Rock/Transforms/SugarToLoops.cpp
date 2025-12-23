@@ -1359,7 +1359,11 @@ struct GlobalLoadToLDSRewritePattern
 
     Type originalLoadedType = op.getTransferType();
     PatternRewriter::InsertionGuard insertGuard(b);
-    if (asyncDirectToLDS && emitOobChecks && !useBufferOps) {
+    if (emitOobChecks && !useBufferOps) {
+      if (!asyncDirectToLDS) {
+        return op->emitError(
+            "If we need to emit OOB checks, we must use buffer ops");
+      }
       Value cond = valid;
       if (op.getCanReadOffEnd()) {
         Value fallsOffEnd = arith::CmpIOp::create(
@@ -1371,17 +1375,17 @@ struct GlobalLoadToLDSRewritePattern
       Block *thenBlock = guard.getBody(0);
       Block *elseBlock = guard.getBody(1);
 
-      // Build the then block: move the original operation
+      // Build the then block: move the GlobalLoadToLDSOp inside.
       b.moveOpBefore(op, thenBlock, thenBlock->begin());
 
-      // Build the else block: store zeros to the same destination location
+      // Build the else block: store zeros to the GlobalLoadToLDSOp destination.
       b.setInsertionPointToEnd(elseBlock);
       Type transferType = op.getTransferType();
       Value zeroValue = createZeroConstantOp(b, loc, transferType);
       InBoundsStoreOp::create(b, loc, zeroValue, dest, destCoords);
       scf::YieldOp::create(b, loc);
 
-      // sss
+      // Reset insertion point to the end of the then block.
       b.setInsertionPointToEnd(thenBlock);
     }
 
