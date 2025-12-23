@@ -237,6 +237,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(
         math::createMathExtendToSupportedTypes(extendToLLVMTypesOptions));
     funcPm.addPass(rock::createRockBufferLoadMergePass());
+    funcPm.addPass(rock::createRockAnalyzeScfForOpsPass());
     funcPm.addPass(rock::createRockTransformToMemrefPass());
     funcPm.addPass(rock::createRockEmulateNarrowTypePass());
     funcPm.addPass(rock::createRockPack4BitGpuOpsTo8BitPass());
