@@ -119,4 +119,37 @@ func.func @load_4bit_boundary_case_to_lds_f4E2M1FN(%mem: memref<4294967295xf4E2M
     return
 }
 
+// CHECK-LABEL: func.func @load_conditionally_oob_checks
+// CHECK-SAME: (%[[mem:.*]]: memref<512xf16>)
+func.func @load_conditionally_oob_checks(%arg0: memref<512xf16>) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+  %c5 = arith.constant 5 : index
+  %c1 = arith.constant 1 : index
+  %c0 = arith.constant 0 : index
+  %0 = rock.alloc() : memref<4096xf16, #gpu.address_space<workgroup>>
+  scf.for %arg3 = %c0 to %c5 step %c1 {
+    %1 = arith.index_cast %arg3 : index to i1
+    %2 = arith.addi %arg3, %arg3 : index
+    rock.global_load_to_lds %arg0[%arg3] -> %0[%2] if %1 {transferType = f128} : memref<512xf16> -> memref<4096xf16, #gpu.address_space<workgroup>>
+  }
+  return
+}
+
+// CHECK-LABEL: func.func @load_8bit_async_direct_to_lds
+// CHECK-SAME: (%[[mem:.*]]: memref<192xi8>)
+func.func @load_8bit_async_direct_to_lds(%mem: memref<192xi8>) attributes {kernel, arch = "##TOKEN_ARCH##"} {
+    %c0 = arith.constant 0 : index
+    %true = arith.constant true
+    %lds = rock.alloc() : memref<64xi8, #gpu.address_space<workgroup>>
+    %lds_view = memref.view %lds[%c0][] : memref<64xi8, #gpu.address_space<workgroup>> to memref<8xi8, #gpu.address_space<workgroup>>
+    // Test 8-bit (1-byte) load width for async direct to LDS
+    // CHECK: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
+    // CHECK-SAME: #gpu.address_space<global>
+    // GFX942: amdgpu.gather_to_lds %[[cast]]
+    // GFX942-SAME: i8, memref<192xi8, #gpu.address_space<global>>, memref<8xi8, #gpu.address_space<workgroup>>
+    // GFX1250: amdgpu.async_load_to_lds %[[cast]]
+    // GFX1250-SAME: i8, memref<192xi8, #gpu.address_space<global>>, memref<8xi8, #gpu.address_space<workgroup>>
+    rock.global_load_to_lds %mem[%c0] -> %lds_view[%c0] if %true {transferType = i8} : memref<192xi8> -> memref<8xi8, #gpu.address_space<workgroup>>
+    return
+}
+
 }
