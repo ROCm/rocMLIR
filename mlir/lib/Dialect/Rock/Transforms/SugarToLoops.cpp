@@ -1366,14 +1366,14 @@ struct GlobalLoadToLDSRewritePattern
             b, loc, arith::CmpIPredicate::uge, coords[0], numElems);
         cond = arith::AndIOp::create(b, loc, fallsOffEnd, cond);
       }
-      auto guard =
-          scf::IfOp::create(b, loc, TypeRange(), cond, /*hasThen=*/ true, /*hasElse=*/ true);
+      auto guard = scf::IfOp::create(b, loc, TypeRange(), cond,
+                                     /*hasThen=*/true, /*hasElse=*/true);
       Block *thenBlock = guard.getBody(0);
       Block *elseBlock = guard.getBody(1);
-      
+
       // Build the then block: move the original operation
       b.moveOpBefore(op, thenBlock, thenBlock->begin());
-      
+
       // Build the else block: store zeros to the same destination location
       b.setInsertionPointToEnd(elseBlock);
       Type transferType = op.getTransferType();
@@ -1703,46 +1703,49 @@ struct InBoundsStoreRewritePattern : public OpRewritePattern<InBoundsStoreOp> {
 
       if (srcBits == destBits) {
         b.replaceOpWithNewOp<memref::StoreOp>(op, op.getData(), op.getDest(),
-                                            op.getCoords());
-      }
-      else if (srcBits > destBits && (srcBits % destBits == 0)) {
+                                              op.getCoords());
+      } else if (srcBits > destBits && (srcBits % destBits == 0)) {
         unsigned ratio = srcBits / destBits;
 
         // Bitcast the source operand to a vector<1 x srcType>
         VectorType singleElemVecType = VectorType::get({1}, srcElemType);
-        Value dataToBitcast = b.create<vector::BroadcastOp>(loc, singleElemVecType, data);
+        Value dataToBitcast =
+            b.create<vector::BroadcastOp>(loc, singleElemVecType, data);
 
         // Create a vector type with smaller elements for bitcasting
         // vector<ratio x destType>
         VectorType bitcastType = VectorType::get({ratio}, destElemType);
-        
+
         // Bitcast the source data to the smaller element type
-        Value bitcastData = b.create<vector::BitCastOp>(loc, bitcastType, dataToBitcast);
+        Value bitcastData =
+            b.create<vector::BitCastOp>(loc, bitcastType, dataToBitcast);
 
         // Create stores for each element
         int64_t lastDim = coords.size() - 1;
         Value baseLastCoord = coords[lastDim];
-        
+
         for (unsigned i = 0; i < ratio; ++i) {
           // Extract the i-th element from the bitcast vector
           Value index = b.create<arith::ConstantIndexOp>(loc, i);
           Value elem = b.create<vector::ExtractOp>(loc, bitcastData, index);
-          
+
           // Calculate new coordinates: increment the last coordinate by i
           SmallVector<Value> newCoords(coords.begin(), coords.end());
           if (i > 0) {
             Value offset = b.create<arith::ConstantIndexOp>(loc, i);
-            newCoords[lastDim] = b.create<arith::AddIOp>(loc, baseLastCoord, offset);
+            newCoords[lastDim] =
+                b.create<arith::AddIOp>(loc, baseLastCoord, offset);
           }
-          
+
           // Create the store operation - use StoreOp for scalar elements
           b.create<memref::StoreOp>(loc, elem, dest, newCoords);
         }
-        
+
         b.eraseOp(op);
-      } 
-      else {
-        return op.emitError("Source element type is larger than destination, but not a multiple of the destination element type");
+      } else {
+        return op.emitError(
+            "Source element type is larger than destination, but not a "
+            "multiple of the destination element type");
       }
     }
     return success();
