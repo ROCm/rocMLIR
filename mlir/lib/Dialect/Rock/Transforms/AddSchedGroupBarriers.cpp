@@ -1,14 +1,14 @@
-//===- AnalyzeScfForOps.cpp - Analyze scf.for memory ops and MFMA ---------===//
+//===- AddSchedGroupBarriers.cpp - Add scheduling group barriers ----------===//
 //
 // Part of the rocMLIR Project, under the Apache License v2.0 with LLVM
 // Exceptions. See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-// Copyright (c) 2024 Advanced Micro Devices Inc.
+// Copyright (c) 2025 Advanced Micro Devices Inc.
 //===----------------------------------------------------------------------===//
 //
 // This pass analyzes scf.for loops to count memory operations and MFMA
-// instructions per iteration:
+// instructions per iteration, then inserts scheduling group barriers:
 // - Global memory loads (amdgpu.raw_buffer_load, vector.load from global)
 // - LDS/workgroup memory reads (memref.load from workgroup address space)
 // - LDS/workgroup memory writes (memref.store to workgroup address space)
@@ -34,13 +34,14 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
-#define DEBUG_TYPE "rock-analyze-scf-for-ops"
+#define DEBUG_TYPE "rock-add-sched-group-barriers"
 
 namespace mlir {
 namespace rock {
-#define GEN_PASS_DEF_ROCKANALYZESCFFOROPSPASS
+#define GEN_PASS_DEF_ROCKADDSCHEDGROUPBARRIERSPASS
 #include "mlir/Dialect/Rock/Passes.h.inc"
 } // namespace rock
 } // namespace mlir
@@ -238,18 +239,13 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
 
     // Insert sched group barriers based on the analysis
     if (numBufferLoads > 0) {
-      uint64_t dsReadsPerLoad = numDSReads / numBufferLoads;
-      uint64_t dsWritesPerLoad = numDSWrites / numBufferLoads;
-      uint64_t mfmaPerLoad = numMFMA / numBufferLoads;
+      uint64_t dsReadsPerLoad = llvm::divideCeil(numDSReads, numBufferLoads);
+      uint64_t dsWritesPerLoad = llvm::divideCeil(numDSWrites, numBufferLoads);
+      uint64_t mfmaPerLoad = llvm::divideCeil(numMFMA, numBufferLoads);
       // Ensure we have at least 3 MFMAs to distribute (for the pattern)
-      uint64_t remainingMfma = mfmaPerLoad > 3 ? mfmaPerLoad - 3 : 0;
+      uint64_t remainingMfma = mfmaPerLoad > 2 ? mfmaPerLoad - 2 : 0;
 
       for (uint64_t i = 0; i < numBufferLoads; i++) {
-        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1, 0); // MFMA
-        if (dsReadsPerLoad > 0) {
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
-                                           dsReadsPerLoad, 0); // DS Reads
-        }
         ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1, 0); // MFMA
         if (dsWritesPerLoad > 0) {
           ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
@@ -260,6 +256,10 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
         if (remainingMfma > 0) {
           ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
                                            remainingMfma, 0); // MFMA
+        }
+        if (dsReadsPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
+                                           dsReadsPerLoad, 0); // DS Reads
         }
       }
     }
@@ -274,8 +274,8 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
   }
 };
 
-struct RockAnalyzeScfForOpsPass final
-    : rock::impl::RockAnalyzeScfForOpsPassBase<RockAnalyzeScfForOpsPass> {
+struct RockAddSchedGroupBarriersPass final
+    : rock::impl::RockAddSchedGroupBarriersPassBase<RockAddSchedGroupBarriersPass> {
 
   void runOnOperation() override {
     func::FuncOp funcOp = getOperation();

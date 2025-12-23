@@ -3,7 +3,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   AffixTuningParameters.cpp
   AlignTiling.cpp
   AnalyzeMemoryUse.cpp
-  AnalyzeScfForOps.cpp
+  AddSchedGroupBarriers.cpp
   BlockwiseGemmToThreadwise.cpp
   BufferLoadMerge.cpp
   BufferizableOpInterfaceImpl.cpp

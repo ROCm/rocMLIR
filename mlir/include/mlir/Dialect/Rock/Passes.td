@@ -152,7 +152,7 @@ def RockPipelinePass : Pass<"rock-pipeline", "::mlir::func::FuncOp"> {
     Option<"removeStages", "rock-pipeline-remove-stages", "bool", "true",
       "Remove pipeline stages once the pipeline pass is completed">
   ];
-  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "ROCDL::ROCDLDialect", "amdgpu::AMDGPUDialect"];
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect"];
   let summary = "Pipeline loops";
 }
 
@@ -167,7 +167,7 @@ def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::Func
   let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect"];
 }
 
-def RockAnalyzeScfForOpsPass : Pass<"rock-analyze-scf-for-ops", "::mlir::func::FuncOp"> {
+def RockAddSchedGroupBarriersPass : Pass<"rock-add-sched-group-barriers", "::mlir::func::FuncOp"> {
   let summary = "Analyze scf.for loops and insert scheduling group barriers";
   let description = [{
     This pass analyzes scf.for operations, counts memory operations and MFMA
