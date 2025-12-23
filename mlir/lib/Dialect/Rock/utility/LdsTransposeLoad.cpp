@@ -286,9 +286,10 @@ LDSTransposeDecision decideLDSTransposeForOperands(
   }
   // else - implicitly: neither operand usable, enableA/enableB remain false.
 
-  // TODO: adapt code to support numWaves = 8, 16 and 32 (only wmma).
+  // Check if numWaves is supported (1, 2, 3, 4, 8, 16)
+  // TODO: support 32 waves for WMMA
   int64_t numWaves = (mPerBlock * nPerBlock) / (mPerWave * nPerWave);
-  if (numWaves > 4) {
+  if (numWaves > 16) {
     result.enableA = false;
     result.enableB = false;
   }
@@ -753,9 +754,7 @@ computeWaveGridLayout(PatternRewriter &b, Location loc, Value waveId,
 
   // Determine wave grid layout based on physical waves and wave tiles
   // This distributes waves spatially across M and N dimensions
-  // Note: numWaves can only be 1, 2, 3, or 4 (for 64, 128, 192, 256
-  // threads)
-  // TODO: numWaves can be 8 and 16 (and 32 for wmma) as well, update this code
+  // Supported: 1, 2, 3, 4, 8, 16 waves (32 is WMMA only, not yet supported)
   int64_t wavesInM = 1;
   int64_t wavesInN = 1;
 
@@ -819,6 +818,52 @@ computeWaveGridLayout(PatternRewriter &b, Location loc, Value waveId,
       }
     }
     break;
+
+  case 8:
+    // Eight waves: prefer 2×4 or 4×2 (balanced), then 1×8 or 8×1
+    if (waveTilesInM >= 2 && waveTilesInN >= 4) {
+      wavesInM = 2;
+      wavesInN = 4;
+    } else if (waveTilesInM >= 4 && waveTilesInN >= 2) {
+      wavesInM = 4;
+      wavesInN = 2;
+    } else if (waveTilesInN >= 8) {
+      wavesInM = 1;
+      wavesInN = 8;
+    } else if (waveTilesInM >= 8) {
+      wavesInM = 8;
+      wavesInN = 1;
+    } else {
+      // Fallback: prefer 2×4 layout
+      wavesInM = 2;
+      wavesInN = 4;
+    }
+    break;
+
+  case 16:
+    // Sixteen waves: prefer 4×4 (balanced), then 2×8, 8×2, 1×16, 16×1
+    if (waveTilesInM >= 4 && waveTilesInN >= 4) {
+      wavesInM = 4;
+      wavesInN = 4;
+    } else if (waveTilesInM >= 2 && waveTilesInN >= 8) {
+      wavesInM = 2;
+      wavesInN = 8;
+    } else if (waveTilesInM >= 8 && waveTilesInN >= 2) {
+      wavesInM = 8;
+      wavesInN = 2;
+    } else if (waveTilesInN >= 16) {
+      wavesInM = 1;
+      wavesInN = 16;
+    } else if (waveTilesInM >= 16) {
+      wavesInM = 16;
+      wavesInN = 1;
+    } else {
+      // Fallback: prefer 4×4 layout
+      wavesInM = 4;
+      wavesInN = 4;
+    }
+    break;
+
   default:
     return failure();
   }
