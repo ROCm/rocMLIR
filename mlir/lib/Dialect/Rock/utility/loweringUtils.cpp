@@ -1209,13 +1209,12 @@ mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
       // For direct to LDS, we will try if we can load 128b per thread first.
       // If not possible, we will try 32b. If not possible, we can't use direct
       // to LDS.
-      if (directToLDS128b || isAsyncDirectToLDSSupported(arch.value()))
+      if (directToLDS128b)
         maybeCopyDPerThread = computeCopyPerThreadDirectToLDS(
             matrix, elemType, copyPerThread, kPerBlock, dPerBlock, kpack, 128,
             loc);
 
-      if (failed(maybeCopyDPerThread) &&
-          (directToLDS32b || isAsyncDirectToLDSSupported(arch.value())))
+      if (failed(maybeCopyDPerThread) && directToLDS32b)
         maybeCopyDPerThread = computeCopyPerThreadDirectToLDS(
             matrix, elemType, copyPerThread, kPerBlock, dPerBlock, kpack, 32,
             loc);

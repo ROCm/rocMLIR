@@ -687,7 +687,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   auto archInfo = rock::lookupArchInfo(arch.value());
 
   int64_t numValues = dstBufferType.getNumElements();
-  bool hwDirectToLDS128b, hwDirectToLDS32b;
+  bool hwDirectToLDS128b, hwDirectToLDS32b, hwAsyncDirectToLDS;
   if (isGlobalToLDS) {
     if (transforms.empty()) {
       return emitError(loc) << "transforms is empty";
@@ -701,12 +701,11 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
     auto features = archInfo.defaultFeatures;
     hwDirectToLDS128b =
-        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b) ||
-        isAsyncDirectToLDSSupported(arch.value());
+        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b);
     hwDirectToLDS32b =
-        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b) ||
-        isAsyncDirectToLDSSupported(arch.value());
-    if (!hwDirectToLDS128b && !hwDirectToLDS32b) {
+        bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
+    hwAsyncDirectToLDS = isAsyncDirectToLDSSupported(arch.value());
+    if (!hwDirectToLDS128b && !hwDirectToLDS32b && !hwAsyncDirectToLDS) {
       return emitError(loc) << "Direct to LDS is not supported by the hardware";
     }
   }
@@ -862,7 +861,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         assert(128 % dstBufferType.getElementTypeBitWidth() == 0);
         constantNumElements = 128 / dstBufferType.getElementTypeBitWidth();
         directToLDSType = b.getF128Type();
-        if (!hwDirectToLDS128b) {
+        if (!hwDirectToLDS128b && !hwAsyncDirectToLDS) {
           return emitError(loc)
                  << "128 bits direct to LDS is not supported by the hardware";
         }
@@ -870,7 +869,7 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
         assert(32 % dstBufferType.getElementTypeBitWidth() == 0);
         constantNumElements = 32 / dstBufferType.getElementTypeBitWidth();
         directToLDSType = b.getF32Type();
-        if (!hwDirectToLDS32b) {
+        if (!hwDirectToLDS32b && !hwAsyncDirectToLDS) {
           return emitError(loc)
                  << "32 bits direct to LDS is not supported by the hardware";
         }
