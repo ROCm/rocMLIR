@@ -1367,32 +1367,21 @@ struct GlobalLoadToLDSRewritePattern
         cond = arith::AndIOp::create(b, loc, fallsOffEnd, cond);
       }
       auto guard =
-          scf::IfOp::create(b, loc, TypeRange(), cond, /*hasThen=*/ true, /*hasElse=*/ false);
-      // Remove implicit yields from both blocks
-      llvm::errs() << "Module: " << op->getParentOfType<ModuleOp>() << "\n";
+          scf::IfOp::create(b, loc, TypeRange(), cond, /*hasThen=*/ true, /*hasElse=*/ true);
       Block *thenBlock = guard.getBody(0);
-      // Block *elseBlock = guard.getBody(1);
+      Block *elseBlock = guard.getBody(1);
+      
+      // Build the then block: move the original operation
       b.moveOpBefore(op, thenBlock, thenBlock->begin());
-      // b.eraseOp(thenBlock->getTerminator());
-      // b.eraseOp(elseBlock->getTerminator());
-
-      // b.replaceOp(op, guard);
-
-      // Clone the operation into the then block
-      // b.setInsertionPointToStart(thenBlock);
-      // auto oldOp = op;
-      // op = b.clone(*op);
-      // b.eraseOp(oldOp);
       
-      // b.setInsertionPointToEnd(guard.getBody(1));
-      // Value zeroes = createZeroConstantOp(b, loc, originalLoadedType);
-      // scf::YieldOp::create(b, loc, zeroes);
-      // b.setInsertionPointToEnd(guard.getBody(0));
-      // Value hack = createZeroConstantOp(b, loc, originalLoadedType);
-      // scf::YieldOp::create(b, loc, hack);
+      // Build the else block: store zeros to the same destination location
+      b.setInsertionPointToEnd(elseBlock);
+      Type transferType = op.getTransferType();
+      Value zeroValue = createZeroConstantOp(b, loc, transferType);
+      InBoundsStoreOp::create(b, loc, zeroValue, dest, destCoords);
+      scf::YieldOp::create(b, loc);
 
-      
-      llvm::errs() << "Module: " << op->getParentOfType<ModuleOp>() << "\n";
+      // sss
       b.setInsertionPointToEnd(thenBlock);
     }
 
