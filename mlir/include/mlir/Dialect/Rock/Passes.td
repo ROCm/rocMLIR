@@ -152,7 +152,7 @@ def RockPipelinePass : Pass<"rock-pipeline", "::mlir::func::FuncOp"> {
     Option<"removeStages", "rock-pipeline-remove-stages", "bool", "true",
       "Remove pipeline stages once the pipeline pass is completed">
   ];
-  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect"];
+  let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "ROCDL::ROCDLDialect", "amdgpu::AMDGPUDialect"];
   let summary = "Pipeline loops";
 }
 
@@ -165,6 +165,26 @@ def RockVectorizeFusionsPass : Pass<"rock-vectorize-fusions", "::mlir::func::Fun
 def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::FuncOp"> {
   let summary = "Merge identical memory loads to buffers only read. Assumes noalias.";
   let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect"];
+}
+
+def RockAnalyzeScfForOpsPass : Pass<"rock-analyze-scf-for-ops", "::mlir::func::FuncOp"> {
+  let summary = "Analyze scf.for loops and insert scheduling group barriers";
+  let description = [{
+    This pass analyzes scf.for operations, counts memory operations and MFMA
+    instructions per iteration, and inserts scheduling group barriers:
+    - Global memory loads (amdgpu.raw_buffer_load, vector.load from global memory)
+    - LDS/workgroup memory reads (memref.load from workgroup address space)
+    - LDS/workgroup memory writes (memref.store to workgroup address space)
+    - MFMA instructions (amdgpu.mfma)
+
+    The counts factor in affine.for loop trip counts to give the total number of
+    operations per scf.for iteration. Based on these counts, scheduling group
+    barriers (ROCDL::SchedGroupBarrier) are inserted to optimize instruction
+    scheduling on AMD GPUs.
+  }];
+  let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect", "::mlir::scf::SCFDialect",
+                           "::mlir::affine::AffineDialect", "::mlir::gpu::GPUDialect",
+                           "::mlir::ROCDL::ROCDLDialect"];
 }
 
 def RockTransformToMemrefPass : Pass<"rock-transform-to-memref", "::mlir::func::FuncOp"> {
