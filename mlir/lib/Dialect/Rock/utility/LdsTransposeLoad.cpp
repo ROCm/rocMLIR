@@ -324,7 +324,6 @@ LDSTransposeDecision decideLDSTransposeForOperands(
     });
   }
   // else - neither operand usable, enableA/enableB remain false.
-
   // Check if numWaves is supported (1, 2, 3, 4, 8, 16)
   // TODO: support 32 waves for WMMA
   int64_t numWaves = (mPerBlock * nPerBlock) / (mPerWave * nPerWave);
