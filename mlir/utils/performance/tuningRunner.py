@@ -1,4 +1,15 @@
 #!/usr/bin/env python3
+"""Automated performance tuning for rocMLIR generated kernels.
+
+This script tunes MLIR kernels by running them with different performance
+configurations and selecting the best one based on execution time.
+
+Usage examples:
+    python3 tuningRunner.py --op gemm --configs-file=../mlir/utils/performance/configs/tier1-gemm-configs --output=tuning_db.tsv
+    python3 tuningRunner.py --op gemm --config="-g 3 -m 1024 -k 769 -n 512 -t f32 -transA 0 -transB 0"
+    python3 tuningRunner.py --op conv --tuning-space=quick --config="conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1"
+    python3 tuningRunner.py --op fusion --test-dir=../mlir/test/fusion/resnet50-e2e --output=tuning_db.tsv
+"""
 
 import argparse
 import glob
@@ -16,7 +27,6 @@ from typing import Any, Dict, List, Optional
 import json
 import numpy as np
 import pandas as pd
-from hip import hip
 from tqdm import tqdm
 
 import perfRunner
@@ -41,6 +51,7 @@ SLEEP_US = 100  # 0.1 ms
 
 @dataclass(frozen=True)
 class Options:
+    """Configuration options for the tuning process."""
     debug: bool
     tuning_space_kind: str
     quiet: bool
@@ -53,10 +64,12 @@ class Options:
     output: str
     abort_on_error: bool
     retune: bool
+    gpu_ids: List[int]
 
 
 @dataclass
 class TuningResult:
+    """Result of tuning a single configuration."""
     test_vector: str
     success: bool
     winning_config: Optional[str] = None
@@ -67,41 +80,121 @@ class TuningResult:
 
 
 class TuningError(Exception):
+    """Raised when tuning or verification fails."""
     pass
 
 
-def get_available_gpus() -> List[int]:
-    for env_var in ["HIP_VISIBLE_DEVICES", "ROCR_VISIBLE_DEVICES"]:
-        visible_devices = os.environ.get(env_var)
-        if visible_devices is not None:
-            device_ids = []
-            for device_id in visible_devices.split(','):
-                device_id = device_id.strip()
-                if not device_id:
-                    continue
-                try:
-                    device_ids.append(int(device_id))
-                except ValueError:
-                    print(f"Warning: Ignoring invalid device id '{device_id}' in {env_var}",
-                          sys.stderr)
-            if len(device_ids) > 0:
-                return device_ids
-            else:
-                print(f"Warning: No valid device ids found in {env_var}", file=sys.stderr)
+def get_gpu_info() -> Dict[int, str]:
+    """Query physical GPU IDs and their SKUs using rocm-smi.
 
-    err, device_count = hip.hipGetDeviceCount()
-    if isinstance(err, hip.hipError_t) and err != hip.hipError_t.hipSuccess:
-        print(f"Warning: hipGetDeviceCount failed with error '{err}', defaulting to GPU 0",
-              file=sys.stderr)
-        return [0]
+    rocm-smi reports physical device IDs regardless of environment variables (e.g.,
+    ROCR_VISIBLE_DEVICES and HIP_VISIBLE_DEVICES).
+    We are assuming that SKU names are unique per GPU for identification purposes,
+    as GFX IDs are not always unique.
+    """
+    try:
+        result = subprocess.run(["rocm-smi", "--showproductname", "--json"],
+                                capture_output=True,
+                                text=True,
+                                timeout=10)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            gpu_info = {}
+            for key in data.keys():
+                if key.startswith("card"):
+                    gpu_id = int(key.replace("card", ""))
+                    gpu_info[gpu_id] = data[key].get("Card SKU", "unknown")
+            if gpu_info:
+                return gpu_info
+            print("Warning: rocm-smi returned no GPU cards", file=sys.stderr)
+        else:
+            print(f"Warning: rocm-smi failed with return code {result.returncode}", file=sys.stderr)
+    except subprocess.TimeoutExpired:
+        print("Warning: rocm-smi timed out", file=sys.stderr)
+    except FileNotFoundError:
+        print("Warning: rocm-smi not found in PATH", file=sys.stderr)
+    except json.JSONDecodeError as e:
+        print(f"Warning: Failed to parse rocm-smi JSON output: {e}", file=sys.stderr)
+    except ValueError as e:
+        print(f"Warning: Failed to extract GPU info from rocm-smi output: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"Warning: Unexpected error querying GPUs: {e}", file=sys.stderr)
 
-    return list(range(device_count)) or [0]
+    print("Warning: Could not detect GPUs, defaulting to GPU 0", file=sys.stderr)
+    return {0: "unknown"}
+
+
+def parse_gpu_ids(gpus_arg: Optional[str]) -> List[int]:
+    """Parse and validate GPU IDs from command line argument."""
+    gpu_info = get_gpu_info()
+    available_ids = sorted(gpu_info.keys())
+
+    if gpus_arg is None:
+        return available_ids
+
+    try:
+        requested_ids = [int(g.strip()) for g in gpus_arg.split(',') if g.strip()]
+    except ValueError:
+        raise ValueError(
+            f"Invalid format '{gpus_arg}'. Expected comma-separated integers (e.g., '0,2,3')")
+
+    if not requested_ids:
+        raise ValueError("GPU list cannot be empty")
+
+    if len(set(requested_ids)) != len(requested_ids):
+        raise ValueError("Duplicate GPU IDs found in the list")
+
+    invalid_ids = [g for g in requested_ids if g not in available_ids]
+    if invalid_ids:
+        raise ValueError(f"GPU(s) {invalid_ids} not found. Available: {available_ids}")
+
+    # Validate homogeneity
+    if len(requested_ids) > 1:
+        skus = {gpu_info[gpu_id] for gpu_id in requested_ids}
+        if len(skus) > 1:  # More than one unique SKU
+            details = ", ".join(f"GPU {g}: {gpu_info[g]}" for g in requested_ids)
+            raise ValueError(
+                f"Mixed GPU models not supported for parallel tuning. Found: {details}")
+
+    return requested_ids
+
+
+def make_isolated_gpu_env(gpu_id: int) -> Dict[str, str]:
+    """Create environment that isolates subprocess to one physical GPU.
+
+    Sets ROCR_VISIBLE_DEVICES at the HSA/ROCr level, providing complete
+    isolation for all higher layers including HIP.
+    """
+    env = os.environ.copy()
+    env["ROCR_VISIBLE_DEVICES"] = str(gpu_id)
+    if "HIP_VISIBLE_DEVICES" in env:
+        del env["HIP_VISIBLE_DEVICES"]  # Remove HIP_VISIBLE_DEVICES to avoid conflicts
+    return env
 
 
 def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
+    """Load previously tuned configurations from output file.
+
+    The output file format is TSV with the following structure:
+    - Header lines starting with '# ' containing tuning space kind in parentheses
+      (e.g., '# arch\tnumCUs\ttestVector\tperfConfig (quick)\tTFlops')
+    - Multiple header sections can exist in the same file from different tuning runs
+    - Data lines with tab-separated fields following each header
+    - Error lines starting with '### ' indicating errors during tuning
+
+    Only data lines under headers matching options.tuning_space_kind are loaded.
+    For example, if options.tuning_space_kind='quick', only data under headers
+    containing '(quick)' will be loaded, ignoring '(full)' or other sections.
+    """
     tuned_configs = {}
     if options.output == '-' or not os.path.exists(options.output):
         return tuned_configs
+
+    def is_header_line(line: str) -> bool:
+        return line.startswith('# ')
+
+    def is_error_line(line: str) -> bool:
+        return line.startswith('### ')
 
     try:
         is_same_tuning_space = False
@@ -111,16 +204,11 @@ def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
                 if not line:
                     continue
 
-                if line.startswith('###'):
-                    continue
-                if line.startswith('#'):
-                    if f'perfConfig ({options.tuning_space_kind})' in line:
-                        is_same_tuning_space = True
-                    else:
-                        is_same_tuning_space = False
+                if is_header_line(line):
+                    is_same_tuning_space = f"({options.tuning_space_kind})" in line
                     continue
 
-                if not is_same_tuning_space:
+                if is_error_line(line) or not is_same_tuning_space:
                     continue
 
                 parts = line.split('\t')
@@ -145,6 +233,7 @@ def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
 
 @contextmanager
 def open_output_file(output_path: str, mode='a'):
+    """Context manager for output file, supporting '-' for stdout."""
     if output_path == '-':
         yield sys.stdout
     else:
@@ -156,6 +245,7 @@ def open_output_file(output_path: str, mode='a'):
 
 
 def write_header(outfile, options: Options):
+    """Write TSV header line to output file."""
     columns = ['arch', 'numCUs', 'testVector', f'perfConfig ({options.tuning_space_kind})']
     if options.tflops:
         columns.append('TFlops')
@@ -164,6 +254,7 @@ def write_header(outfile, options: Options):
 
 
 def write_result(outfile, result: TuningResult, options: Options):
+    """Write tuning result to output file."""
     fields = [options.arch, str(options.num_cu), result.test_vector, result.winning_config or ""]
     if options.tflops:
         fields.append(f"{result.max_tflops}" if result.max_tflops else "")
@@ -172,6 +263,7 @@ def write_result(outfile, result: TuningResult, options: Options):
 
 
 def log_error(title: str, message: str, outfile=None):
+    """Log error to stderr and optionally to output file."""
     content = f"{title}\n" + '\n'.join(f"\t{line}" for line in message.split('\n'))
     print(content, file=sys.stderr)
     if outfile:
@@ -180,6 +272,7 @@ def log_error(title: str, message: str, outfile=None):
 
 
 def verify_mode_flags(verify_mode: str) -> str:
+    """Convert verify mode to rocmlir-gen flags."""
     if verify_mode == "none":
         return ""
     if verify_mode == "cpu":
@@ -190,20 +283,25 @@ def verify_mode_flags(verify_mode: str) -> str:
 
 
 def kill_process(proc):
+    """Terminate a subprocess and wait for cleanup."""
     if proc is None:
         return
     try:
         proc.kill()
-        proc.wait(timeout=5)
-    except Exception:
-        pass
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        print(f"Warning: Process {proc.pid} did not terminate in time after kill", file=sys.stderr)
+    except Exception as e:
+        print(f"Warning: Failed to kill process {proc.pid}: {e}", file=sys.stderr)
 
 
-def verify_kernel_with_perfconfig(perfconfig,
-                                  config,
-                                  paths: Paths,
-                                  options: Options,
-                                  env=None) -> float:
+def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id: int) -> float:
+    """Verify a performance config by running with profiling.
+
+    Returns the execution time in nanoseconds, or NaN if verification fails.
+    """
+    config.set_perfconfig(perfconfig)
+
     rocmlir_gen_command = paths.mlir_paths.rocmlir_gen_path + \
         verify_mode_flags(options.verify_mode) + \
         ' -print-verify-results=summary ' + \
@@ -222,38 +320,33 @@ def verify_kernel_with_perfconfig(perfconfig,
             perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--', paths.mlir_paths.cpu_runner_path
         ] + mlir_cpu_runner_args
 
-    if env is None:
-        env = os.environ.copy()
+    env = make_isolated_gpu_env(gpu_id)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         p1 = None
         p2 = None
         p3 = None
         try:
-            # invoke rocmlir-gen.
             p1 = subprocess.Popen(rocmlir_gen_command.split(),
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL,
                                   env=env,
                                   cwd=tmpdir)
-            # pipe to rocmlir-driver
             p2 = subprocess.Popen(rocmlir_driver_command,
                                   stdin=p1.stdout,
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL,
                                   env=env,
                                   cwd=tmpdir)
-            p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
-            # pipe to rocprof + mlir-runner.
+            p1.stdout.close()
             p3 = subprocess.Popen(profiler_command,
                                   stdin=p2.stdout,
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE,
                                   env=env,
                                   cwd=tmpdir)
-            p2.stdout.close()  # Allow p2 to receive a SIGPIPE if p3 exits.
+            p2.stdout.close()
 
-            # get output.
             debug_info = f"""rocmlir-gen cmd = {rocmlir_gen_command}
 rocmlir-driver cmd = {' '.join(rocmlir_driver_command)}
 rocprof cmd = {' '.join(profiler_command)}"""
@@ -293,7 +386,11 @@ stderr:
     return nano_seconds
 
 
-def get_winning_config(tuning_output, config, paths: Paths, options: Options, env=None):
+def find_best_perfconfig(tuning_output, config, paths: Paths, options: Options, gpu_id: int):
+    """Parse tuning driver output and find the best performing perfconfig.
+
+    Returns the winning config, its TFLOPS, and all entries.
+    """
     max_tflops = -np.inf
     winning_config = "None"
     entries = []
@@ -324,10 +421,9 @@ def get_winning_config(tuning_output, config, paths: Paths, options: Options, en
         entries.append(entry)
         these_tflops = entry['TFlops']
 
-        # verify that each perfconfig passes accuracy verification
         if options.verify_perfconfigs and not np.isnan(nano_seconds):
             try:
-                verify_ns = verify_kernel_with_perfconfig(perfconfig, config, paths, options, env)
+                verify_ns = verify_perfconfig(perfconfig, config, paths, options, gpu_id)
             except TuningError as e:
                 raise TuningError(
                     f"Error during verification of perf config {perfconfig}\n{str(e)}")
@@ -341,8 +437,9 @@ def get_winning_config(tuning_output, config, paths: Paths, options: Options, en
     return winning_config, max_tflops, entries
 
 
-def tune_single_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id: int,
-                       num_compile_threads: int) -> Dict[str, Any]:
+def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id: int,
+                num_compile_threads: int) -> Dict[str, Any]:
+    """Tuna a single configuration and return the results."""
     tuning_driver_args = [
         f"--tuning-space={options.tuning_space_kind}", f"--num-iterations={MLIR_N_REPEATS}",
         f"--warmup-iterations={WARMUP_ITERATIONS}", f"--sleep-us={SLEEP_US}",
@@ -350,8 +447,7 @@ def tune_single_config(test_vector, conf_class, paths: Paths, options: Options, 
         f"--num-compile-threads={num_compile_threads}", "--use-median"
     ]
 
-    env = os.environ.copy()
-    env["HIP_VISIBLE_DEVICES"] = str(gpu_id)
+    env = make_isolated_gpu_env(gpu_id)
 
     kernel_gen = None
     tuning_loop = None
@@ -378,7 +474,6 @@ def tune_single_config(test_vector, conf_class, paths: Paths, options: Options, 
                                            env=env)
             kernel_gen.stdout.close()
         else:
-            # pipe to rocmlir_gen --emit-tuning-key
             tuning_key = subprocess.Popen(
                 [paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', test_vector],
                 stdout=subprocess.PIPE,
@@ -395,8 +490,8 @@ def tune_single_config(test_vector, conf_class, paths: Paths, options: Options, 
                                            env=env)
 
         # Tune, printing progress as we go to avoid CI timeouts
-        winning_config, max_tflops, entries = get_winning_config(tuning_loop.stdout, config, paths,
-                                                                 options, env)
+        winning_config, max_tflops, entries = find_best_perfconfig(tuning_loop.stdout, config,
+                                                                   paths, options, gpu_id)
 
     except TuningError as e:
         return {'success': False, 'error': str(e)}
@@ -417,7 +512,7 @@ def tune_single_config(test_vector, conf_class, paths: Paths, options: Options, 
     verify_tflops = None
     if options.verify_mode != "none":
         try:
-            verify_ns = verify_kernel_with_perfconfig(winning_config, config, paths, options, env)
+            verify_ns = verify_perfconfig(winning_config, config, paths, options, gpu_id)
         except TuningError as e:
             return {
                 'success': False,
@@ -441,8 +536,9 @@ def tune_single_config(test_vector, conf_class, paths: Paths, options: Options, 
     }
 
 
-def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
-    gpu_ids = get_available_gpus()
+def tune_configs(configs, conf_class, paths: Paths, options: Options):
+    """Tune multiple configurations in parallel across available GPUs."""
+    gpu_ids = options.gpu_ids
     num_workers = min(len(gpu_ids), len(configs))
     num_compile_threads = math.ceil((os.cpu_count() or 1) / num_workers)
     num_compile_threads = max(1, num_compile_threads - 1)  # reserve one for the main thread
@@ -467,8 +563,8 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
     def tune_task(test_vector: str) -> TuningResult:
         try:
             gpu_id = get_gpu_id()
-            result = tune_single_config(test_vector, conf_class, paths, options, gpu_id,
-                                        num_compile_threads)
+            result = tune_config(test_vector, conf_class, paths, options, gpu_id,
+                                 num_compile_threads)
             return TuningResult(test_vector=test_vector,
                                 success=result.get('success', False),
                                 winning_config=result.get('winning_config'),
@@ -557,6 +653,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
 
 
 def extract_fusion_configs(test_dir, paths: Paths, options: Options):
+    """Extract tuning configurations from fusion E2E test files."""
     all_configs = []
     op_type = Operation.FUSION
     for filename in glob.glob(test_dir + '/*mlir'):
@@ -568,7 +665,6 @@ def extract_fusion_configs(test_dir, paths: Paths, options: Options):
         test_vector = test_entry['testVector']
         if not test_vector:
             continue
-        # skip if the best config already exists
         if test_vector in all_configs:
             if not options.quiet:
                 print("An entry already exists in the tuning DB", file=sys.stderr)
@@ -598,15 +694,7 @@ def extract_fusion_configs(test_dir, paths: Paths, options: Options):
 
 
 def main(args=None):
-    """
-    usage examples:
-
-    python3 tuningRunner.py --op gemm --configs-file=../mlir/utils/performance/configs/tier1-gemm-configs --output=tuning_db.tsv
-    python3 tuningRunner.py --op gemm --config="-g 3 -m 1024 -k 769 -n 512 -t f32 -transA 0 -transB 0"
-    python3 tuningRunner.py --op conv --tuning-space=quick --config="conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1"
-    python3 tuningRunner.py --op fusion --test-dir=../mlir/test/fusion/resnet50-e2e --output=tuning_db.tsv
-
-    """
+    """Entry point. Parses arguments and starts tuning process."""
     if args is None:
         args = sys.argv[1:]
 
@@ -737,6 +825,14 @@ def main(args=None):
         default=False,
         help="Force retuning of all configs, ignoring existing results in the output file")
 
+    parser.add_argument(
+        "--gpus",
+        type=str,
+        default=None,
+        help=
+        "Comma-separated list of physical GPU IDs to use (e.g., '0,2,3'). Defaults to all GPUs detected by rocm-smi."
+    )
+
     parsed_args = parser.parse_args(args)
 
     if parsed_args.verify_perf_configs and parsed_args.verify_mode == "none":
@@ -757,7 +853,14 @@ def main(args=None):
     paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir)
 
     if not paths.mlir_paths:
-        raise RuntimeError("rocMLIR build dir was not provided/found")
+        print("rocMLIR build dir was not provided/found", file=sys.stderr)
+        return 1
+
+    try:
+        gpu_ids = parse_gpu_ids(parsed_args.gpus)
+    except ValueError as e:
+        print(f"'--gpus' argument error: {e}", file=sys.stderr)
+        return 1
 
     options = Options(arch=arch,
                       num_cu=num_cu,
@@ -770,7 +873,8 @@ def main(args=None):
                       tflops=parsed_args.tflops,
                       output=parsed_args.output,
                       abort_on_error=parsed_args.abort_on_error,
-                      retune=parsed_args.retune)
+                      retune=parsed_args.retune,
+                      gpu_ids=gpu_ids)
 
     if op_type == Operation.FUSION:
         op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
@@ -787,7 +891,8 @@ def main(args=None):
     elif op_type == Operation.CONV_GEMM:
         conf_class = ConvGemmConfiguration
     else:
-        raise RuntimeError("Tuning operation was not provided/found")
+        print("Tuning operation was not provided/found", file=sys.stderr)
+        return 1
 
     if parsed_args.config:
         configs = parsed_args.config
@@ -805,7 +910,7 @@ def main(args=None):
     elif op_type == Operation.CONV_GEMM:
         configs = perfRunner.get_conv_gemm_configurations(paths.configuration_file_path)
 
-    return not tune_mlir_kernels(configs, conf_class, paths, options)
+    return not tune_configs(configs, conf_class, paths, options)
 
 
 if __name__ == '__main__':
