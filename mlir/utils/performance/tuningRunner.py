@@ -49,6 +49,17 @@ WARMUP_ITERATIONS = 1
 SLEEP_US = 100  # 0.1 ms
 
 
+class UniqueChoicesAction(argparse.Action):
+    """Argparse action that ensures no duplicate values."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if len(values) != len(set(values)):
+            duplicates = [v for v in values if values.count(v) > 1]
+            parser.error(
+                f"argument {option_string}: duplicate values not allowed: {set(duplicates)}")
+        setattr(namespace, self.dest, values)
+
+
 @dataclass(frozen=True)
 class Options:
     """Configuration options for the tuning process."""
@@ -124,39 +135,13 @@ def get_gpu_info() -> Dict[int, str]:
     return {0: "unknown"}
 
 
-def parse_gpu_ids(gpus_arg: Optional[str]) -> List[int]:
-    """Parse and validate GPU IDs from command line argument."""
-    gpu_info = get_gpu_info()
-    available_ids = sorted(gpu_info.keys())
+def validate_gpu_homogeneity(gpu_ids: List[int], gpu_info: Dict[int, str]) -> bool:
+    """Validate that all selected GPUs are of the same model."""
+    if len(gpu_ids) <= 1:
+        return True
 
-    if gpus_arg is None:
-        return available_ids
-
-    try:
-        requested_ids = [int(g.strip()) for g in gpus_arg.split(',') if g.strip()]
-    except ValueError:
-        raise ValueError(
-            f"Invalid format '{gpus_arg}'. Expected comma-separated integers (e.g., '0,2,3')")
-
-    if not requested_ids:
-        raise ValueError("GPU list cannot be empty")
-
-    if len(set(requested_ids)) != len(requested_ids):
-        raise ValueError("Duplicate GPU IDs found in the list")
-
-    invalid_ids = [g for g in requested_ids if g not in available_ids]
-    if invalid_ids:
-        raise ValueError(f"GPU(s) {invalid_ids} not found. Available: {available_ids}")
-
-    # Validate homogeneity
-    if len(requested_ids) > 1:
-        skus = {gpu_info[gpu_id] for gpu_id in requested_ids}
-        if len(skus) > 1:  # More than one unique SKU
-            details = ", ".join(f"GPU {g}: {gpu_info[g]}" for g in requested_ids)
-            raise ValueError(
-                f"Mixed GPU models not supported for parallel tuning. Found: {details}")
-
-    return requested_ids
+    skus = {gpu_info[gpu_id] for gpu_id in gpu_ids}
+    return len(skus) == 1
 
 
 def make_isolated_gpu_env(gpu_id: int) -> Dict[str, str]:
@@ -386,7 +371,8 @@ stderr:
     return nano_seconds
 
 
-def find_best_perfconfig(tuning_output, config, paths: Paths, options: Options, gpu_id: int):
+def find_best_perfconfig(tuning_output, config, paths: Paths, options: Options,
+                         gpu_id: int) -> tuple[str, float, List[Dict]]:
     """Parse tuning driver output and find the best performing perfconfig.
 
     Returns the winning config, its TFLOPS, and all entries.
@@ -439,7 +425,7 @@ def find_best_perfconfig(tuning_output, config, paths: Paths, options: Options, 
 
 def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id: int,
                 num_compile_threads: int) -> Dict[str, Any]:
-    """Tuna a single configuration and return the results."""
+    """Tune a single configuration and return the results."""
     tuning_driver_args = [
         f"--tuning-space={options.tuning_space_kind}", f"--num-iterations={MLIR_N_REPEATS}",
         f"--warmup-iterations={WARMUP_ITERATIONS}", f"--sleep-us={SLEEP_US}",
@@ -536,12 +522,13 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
     }
 
 
-def tune_configs(configs, conf_class, paths: Paths, options: Options):
+def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
     """Tune multiple configurations in parallel across available GPUs."""
     gpu_ids = options.gpu_ids
     num_workers = min(len(gpu_ids), len(configs))
     num_compile_threads = math.ceil((os.cpu_count() or 1) / num_workers)
-    num_compile_threads = max(1, num_compile_threads - 1)  # reserve one for the main thread
+    # Avoid oversubscribing by leaving one CPU thread free for non-compilation work
+    num_compile_threads = max(1, num_compile_threads - 1)
 
     if not options.quiet:
         print(f"Using {num_workers} GPU(s): {gpu_ids[:num_workers]}", file=sys.stderr)
@@ -588,34 +575,36 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options):
         print(f"Skipping {num_tuned_configs} out of {len(configs)} already tuned config(s)",
               file=sys.stderr)
 
+    executor = None
+    progress_bar = None
     debugfile = None
-    debug_header_written = False
-
-    has_errors = False
-
     try:
-        pbar = tqdm(total=len(configs),
-                    initial=num_tuned_configs,
-                    disable=options.quiet,
-                    file=sys.stderr,
-                    desc=f"Tuning {conf_class.__name__} ({options.tuning_space_kind})",
-                    unit="config",
-                    leave=False)
-
-        executor = ThreadPoolExecutor(max_workers=num_workers)
-        futures = {
-            executor.submit(tune_task, test_vector): test_vector for test_vector in configs_to_tune
-        }
-
-        if options.debug:
-            debugfile = open(f"{options.output}.debug", 'a')
-
         with open_output_file(options.output) as outfile:
             write_header(outfile, options)
 
+            if options.debug:
+                debug_header_written = False
+                debugfile = open(f"{options.output}.debug", 'a')
+
+            progress_bar = tqdm(total=len(configs),
+                                initial=num_tuned_configs,
+                                disable=options.quiet,
+                                file=sys.stderr,
+                                desc=f"Tuning {conf_class.__name__} ({options.tuning_space_kind})",
+                                unit="config",
+                                leave=False)
+
+            executor = ThreadPoolExecutor(max_workers=num_workers)
+            futures = {
+                executor.submit(tune_task, test_vector): test_vector
+                for test_vector in configs_to_tune
+            }
+
+            has_errors = False
+
             for future in as_completed(futures):
                 result = future.result()
-                pbar.update(1)
+                progress_bar.update(1)
 
                 if result.success:
                     write_result(outfile, result, options)
@@ -633,26 +622,24 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options):
                     log_error(f"Error tuning {result.test_vector}", result.error or "Unknown error",
                               outfile)
                     if options.abort_on_error:
-                        executor.shutdown(wait=False, cancel_futures=True)
                         return False
 
-    except KeyboardInterrupt:
-        print("\nInterrupted by user", file=sys.stderr)
-        return False
+            if has_errors:
+                print("Encountered errors during tuning", file=sys.stderr)
+            else:
+                print("Tuning completed successfully", file=sys.stderr)
+
+            return not has_errors
     finally:
+        if executor:
+            executor.shutdown(wait=False, cancel_futures=True)
+        if progress_bar:
+            progress_bar.close()
         if debugfile:
             debugfile.close()
-        pbar.close()
-
-    if has_errors:
-        print("Encountered errors during tuning", file=sys.stderr)
-    else:
-        print("Tuning completed successfully", file=sys.stderr)
-
-    return not has_errors
 
 
-def extract_fusion_configs(test_dir, paths: Paths, options: Options):
+def extract_fusion_configs(test_dir, paths: Paths, options: Options) -> Operation:
     """Extract tuning configurations from fusion E2E test files."""
     all_configs = []
     op_type = Operation.FUSION
@@ -700,9 +687,13 @@ def main(args=None):
 
     arch = perfRunner.get_arch()
     num_cu = perfRunner.get_num_cu(perfRunner.get_chip())
+
     root_dir = str(
         subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
     default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
+
+    gpu_info = get_gpu_info()
+    available_gpus = sorted(gpu_info.keys())
 
     parser = argparse.ArgumentParser(
         prog="tuningRunner.py",
@@ -825,13 +816,14 @@ def main(args=None):
         default=False,
         help="Force retuning of all configs, ignoring existing results in the output file")
 
-    parser.add_argument(
-        "--gpus",
-        type=str,
-        default=None,
-        help=
-        "Comma-separated list of physical GPU IDs to use (e.g., '0,2,3'). Defaults to all GPUs detected by rocm-smi."
-    )
+    parser.add_argument("--gpus",
+                        type=int,
+                        nargs='+',
+                        choices=available_gpus,
+                        action=UniqueChoicesAction,
+                        default=available_gpus,
+                        metavar='GPU_ID',
+                        help=f"GPUs to use for tuning (available: {available_gpus}, default: all)")
 
     parsed_args = parser.parse_args(args)
 
@@ -839,6 +831,12 @@ def main(args=None):
         print(
             "Use of `--verify-perf-configs` is not allowed with `--verify-mode=none`. Please pass `--verify-mode=cpu` or `--verify-mode=gpu`.",
             file=sys.stderr)
+        return 1
+
+    if (not validate_gpu_homogeneity(parsed_args.gpus, gpu_info)):
+        details = ", ".join(f"GPU {g}: {gpu_info[g]}" for g in parsed_args.gpus)
+        print(f"Mixed GPU models not supported for parallel tuning. Found: {details}",
+              file=sys.stderr)
         return 1
 
     rocmlir_gen_flags = ''
@@ -856,12 +854,6 @@ def main(args=None):
         print("rocMLIR build dir was not provided/found", file=sys.stderr)
         return 1
 
-    try:
-        gpu_ids = parse_gpu_ids(parsed_args.gpus)
-    except ValueError as e:
-        print(f"'--gpus' argument error: {e}", file=sys.stderr)
-        return 1
-
     options = Options(arch=arch,
                       num_cu=num_cu,
                       debug=parsed_args.debug,
@@ -874,7 +866,7 @@ def main(args=None):
                       output=parsed_args.output,
                       abort_on_error=parsed_args.abort_on_error,
                       retune=parsed_args.retune,
-                      gpu_ids=gpu_ids)
+                      gpu_ids=parsed_args.gpus)
 
     if op_type == Operation.FUSION:
         op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
@@ -910,7 +902,11 @@ def main(args=None):
     elif op_type == Operation.CONV_GEMM:
         configs = perfRunner.get_conv_gemm_configurations(paths.configuration_file_path)
 
-    return not tune_configs(configs, conf_class, paths, options)
+    try:
+        return not tune_configs(configs, conf_class, paths, options)
+    except KeyboardInterrupt:
+        print("Tuning interrupted by user", file=sys.stderr)
+        return 1
 
 
 if __name__ == '__main__':
