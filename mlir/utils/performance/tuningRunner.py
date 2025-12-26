@@ -655,12 +655,6 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
         with DebugFileWriter(
                 f"{options.output}.debug") if options.debug else nullcontext() as debug_writer:
             try:  # No context manager for executor because we need to shutdown with Wait=False
-                executor = ThreadPoolExecutor(max_workers=num_workers)
-                futures = {
-                    executor.submit(tune_task, test_vector): test_vector
-                    for test_vector in configs_to_tune
-                }
-
                 progress_bar = tqdm(
                     total=len(configs),
                     initial=num_tuned_configs,
@@ -669,6 +663,12 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
                     desc=f"Tuning {conf_class.__name__} ({options.tuning_space_kind})",
                     unit="config",
                     leave=False)
+
+                executor = ThreadPoolExecutor(max_workers=num_workers)
+                futures = {
+                    executor.submit(tune_task, test_vector): test_vector
+                    for test_vector in configs_to_tune
+                }
 
                 has_errors = False
 
