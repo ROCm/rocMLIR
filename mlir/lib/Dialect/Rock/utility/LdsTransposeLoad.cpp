@@ -250,41 +250,26 @@ LDSTransposeDecision decideLDSTransposeForOperands(
                             << (decB.usable ? "USABLE" : "NOT USABLE") << "\n");
   }
 
-  // ========================================
-  // KPACK CONSTRAINT LOGIC
-  // ========================================
-  bool bothUsable = decA.usable && decB.usable;
-  bool onlyOneUsable = decA.usable != decB.usable;
+  // Enable LDS transpose load for each operand that supports it.
+  // The K access pattern formula in AccelEmitter.cpp (useLdsTransposeLoad)
+  // ensures compatibility when mixing regular load with transpose load.
+  bool anyUsable = decA.usable || decB.usable;
 
-  if (bothUsable) {
-    // Case 1: Both operands can use LDS transpose - always enable
-    result.enableA = true;
-    result.enableB = true;
-    result.mfmaDDim = mfmaDDim;
-    result.mfmaKDim = mfmaKDim;
-    LLVM_DEBUG(llvm::dbgs()
-               << "[lds_transpose] Enabled for BOTH operands (A and B)\n");
-  } else if (onlyOneUsable && kpack == 1) {
-    // Case 2: Only one operand can use it with kpack == 1
-    // kpack == 1: Safe to enable for single operand
+  if (anyUsable) {
     result.enableA = decA.usable;
     result.enableB = decB.usable;
     result.mfmaDDim = mfmaDDim;
     result.mfmaKDim = mfmaKDim;
-    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Enabled for "
-                            << (decA.usable ? "operand A" : "operand B")
-                            << " only (kpack=1)\n");
-  } else if (onlyOneUsable) {
-    // Case 3: Only one operand usable but kpack > 1
-    // kpack > 1 with asymmetric support - disable both (current limitation)
-    result.enableA = false;
-    result.enableB = false;
-    // Geometry NOT set - avoids polluting tuning params with unused data
-    LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] DISABLED: only one "
-                               "operand eligible but kpack="
-                            << kpack << " > 1 (current limitation)\n");
+
+    LLVM_DEBUG({
+      if (decA.usable && decB.usable)
+        llvm::dbgs() << "[lds_transpose] Enabled for BOTH operands (A and B)\n";
+      else
+        llvm::dbgs() << "[lds_transpose] Enabled for "
+                     << (decA.usable ? "operand A" : "operand B") << " only\n";
+    });
   }
-  // else - implicitly: neither operand usable, enableA/enableB remain false.
+  // else - neither operand usable, enableA/enableB remain false.
 
   // Check if numWaves is supported (1, 2, 3, 4, 8, 16)
   // TODO: support 32 waves for WMMA
@@ -1188,7 +1173,7 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   auto [k_base_local, m_offset_base] =
       computeLDSBaseOffsets(b, loc, dDim, instrK, lane);
 
-  // K stride per tile: KMfma (e.g., 8)
+  // K stride per tile: instrK (MFMA K dimension)
   int64_t kTileStride = instrK;
   Value kTileStrideVal = arith::ConstantIndexOp::create(b, loc, kTileStride);
   Value ldsStrideVal = arith::ConstantIndexOp::create(b, loc, ldsStride);

@@ -425,7 +425,7 @@ llvm::FailureOr<RegsAsMatrixSubTiles> MfmaEmitter::computeOutputTransforms(
 Value MfmaEmitter::wrapLDSBufferForLoad(
     OpBuilder &b, Location loc, Value buffer,
     const BlockwiseMatrixParamsAttr &matrixParams, int64_t blockSize,
-    StringRef dName) const {
+    StringRef dName, bool useLdsTransposeLoad) const {
 
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
   StringRef otherWaveDim = dName == "m" ? "wave_n" : "wave_m";
@@ -542,20 +542,75 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
     TransformMapAttr splitWaveIdAttr = splitWaveId.get();
     transformAttrs.push_back(splitWaveIdAttr);
 
-    TopDownTMBuilder toLDSRowCol =
-        TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+    TopDownTMBuilder toLDSRowCol(b, {}, {}, loc);
 
-    // d = blk_td + d_i * waveOffset
-    toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
-                        {dRepeats, dWaves, inputSpanLen});
-    if (matrixParams.getSplitKAcrossThreadsFirst()) {
-      // k = blk_id + (waveSize / inputSpanLen) * k_i
-      toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id", "k_vec"},
-                          {kIter, waveSize / inputSpanLen, kVec});
+    // Use LDS transpose compatible K formula only when:
+    // 1. Other operand uses LDS transpose load (hybrid scenario)
+    // 2. kVec >= kBase (enough elements per load to decompose)
+    int64_t kBase = accelEmitterParams.kBase;
+    if (useLdsTransposeLoad && kVec >= kBase) {
+      // K access pattern must match the transpose load's pattern.
+      // For double-rate MFMA, properly distribute K across threads
+      MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
+      int64_t instrK = mfmaAttr.k;
+      int64_t numBlksInK = instrK / kBase;
+      int64_t numBlksInD = (waveSize / inputSpanLen) / numBlksInK;
+
+      // Split blk_id into blk_d (for D dimension) and blk_k (for K dimension)
+      TopDownTMBuilder splitBlkId =
+          TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+      splitBlkId.passThrough({"wave_m", "wave_n"}, {0, 1},
+                             {"wave_m", "wave_n"});
+      splitBlkId.merge({"blk_d", "blk_k"}, {2, 3}, "blk_id",
+                       {numBlksInD, numBlksInK});
+      splitBlkId.passThrough({"blk_td", "d_iter", "k_iter", "k_vec"},
+                             {4, 5, 6, 7},
+                             {"blk_td", "d_iter", "k_iter", "k_vec"});
+      TransformMapAttr splitBlkIdAttr = splitBlkId.get();
+      transformAttrs.push_back(splitBlkIdAttr);
+
+      // Split k_vec into k_mfma and k_base for kpack > kBase
+      int64_t numMfmaPerKVec = kVec / kBase;
+
+      TopDownTMBuilder splitKVec =
+          TopDownTMBuilder::below(splitBlkId, splitBlkIdAttr);
+      splitKVec.passThrough({"wave_m", "wave_n"}, {0, 1}, {"wave_m", "wave_n"});
+      splitKVec.passThrough({"blk_d", "blk_k", "blk_td", "d_iter", "k_iter"},
+                            {2, 3, 4, 5, 6},
+                            {"blk_d", "blk_k", "blk_td", "d_iter", "k_iter"});
+      splitKVec.merge({"k_mfma", "k_base"}, {7, 8}, "k_vec",
+                      {numMfmaPerKVec, kBase});
+      TransformMapAttr splitKVecAttr = splitKVec.get();
+      transformAttrs.push_back(splitKVecAttr);
+
+      toLDSRowCol = TopDownTMBuilder::below(splitKVec, splitKVecAttr);
+
+      // d = d_iter * dWaves * numBlksInD * inputSpanLen + wave_d * numBlksInD *
+      // inputSpanLen + blk_d * inputSpanLen + blk_td
+      toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_d", "blk_td"},
+                          {dRepeats, dWaves, numBlksInD, inputSpanLen});
+
+      // k = k_iter * (numMfmaPerKVec * instrK) + k_mfma * instrK + blk_k *
+      // kBase + k_base
+      toLDSRowCol.unmerge("k", 1, {"k_iter", "k_mfma", "blk_k", "k_base"},
+                          {kIter, numMfmaPerKVec, numBlksInK, kBase});
+
     } else {
-      // k = k_i + kpackPerBlock * blk_id
-      toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter", "k_vec"},
-                          {waveSize / inputSpanLen, kIter, kVec});
+      // Standard formula for regular load scenarios or when kVec < kBase
+      toLDSRowCol = TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
+
+      // d = blk_td + d_i * waveOffset
+      toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "blk_td"},
+                          {dRepeats, dWaves, inputSpanLen});
+      if (matrixParams.getSplitKAcrossThreadsFirst()) {
+        // k = blk_id + (waveSize / inputSpanLen) * k_i
+        toLDSRowCol.unmerge("k", 1, {"k_iter", "blk_id", "k_vec"},
+                            {kIter, waveSize / inputSpanLen, kVec});
+      } else {
+        // k = k_i + kpackPerBlock * blk_id
+        toLDSRowCol.unmerge("k", 1, {"blk_id", "k_iter", "k_vec"},
+                            {waveSize / inputSpanLen, kIter, kVec});
+      }
     }
 
     toLDSRowCol.ignore(otherWaveDim);
@@ -858,7 +913,9 @@ int64_t WmmaEmitter::getDDim(StringRef dName) const {
 Value WmmaEmitter::wrapLDSBufferForLoad(
     OpBuilder &b, Location loc, Value buffer,
     const BlockwiseMatrixParamsAttr &matrixParams, int64_t blockSize,
-    StringRef dName) const {
+    StringRef dName, bool useLdsTransposeLoad) const {
+  // Note: WMMA does not support LDS transpose load, so the parameter is unused.
+  (void)useLdsTransposeLoad;
 
   // Extract relevant tuning parameters
   int64_t mPerBlock = tuningParams.getMPerBlock();

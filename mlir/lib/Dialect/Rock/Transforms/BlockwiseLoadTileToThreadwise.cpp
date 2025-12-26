@@ -79,12 +79,14 @@ class LoweringBlockwiseLoadTileOp final
       const std::unique_ptr<rock::accel::AccelEmitter> &accelEmitterPtr,
       Value tid, StringRef dName, Value ldsView, Value regs, int64_t blockSize,
       bool forceUnroll, const BlockwiseMatrixParamsAttr &matrixParams,
-      LDSTransposeConfigAttr transposeAttr = nullptr) const {
+      LDSTransposeConfigAttr transposeAttr = nullptr,
+      bool useLdsTransposeLoad = false) const {
 
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
     Value ldsViewForLoad = accelEmitterPtr->wrapLDSBufferForLoad(
-        b, loc, ldsView, matrixParams, blockSize, dName);
+        b, loc, ldsView, matrixParams, blockSize, dName,
+        useLdsTransposeLoad);
 
     // We enhance the transformation from wrapLDSBufferForLoad using a builder
     // that, given a single index, splits it into "m"("n") and "k" and lets
@@ -452,9 +454,13 @@ class LoweringBlockwiseLoadTileOp final
             ldsViewForGemm = viewBufferAs(b, ldsByteBuffer, ldsReadType);
           }
 
+          // Determine if the other operand uses LDS transpose load
+          // If we're loading A, check if B uses transpose; if loading B, check A
+          bool useLdsTransposeLoad = isA ? matrixParamsB.getLdsTransposeEnabled()
+                                           : matrixParamsA.getLdsTransposeEnabled();
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
                            destRegisters, blockSize, forceUnroll, matrixParams,
-                           transposeAttr);
+                           transposeAttr, useLdsTransposeLoad);
           if (stageLDSReadNew)
             rock::YieldOp::create(b, loc);
         }
