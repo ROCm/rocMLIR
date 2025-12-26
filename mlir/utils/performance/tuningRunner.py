@@ -413,11 +413,12 @@ def find_best_perfconfig(tuning_output, config, paths: Paths, options: Options,
 
     for result in tuning_output:
         result = result.decode('utf-8').strip()
+        if not result:
+            continue
         try:
             parts = result.split('\t')
             if len(parts) < 2:
-                print(f"Error parsing tuning driver output line: {result}", file=sys.stderr)
-                continue
+                continue  # Skip silently - can happen during normal shutdown
             perfconfig = parts[0]
             time = parts[-1]
             if time == "N/A":
@@ -427,8 +428,7 @@ def find_best_perfconfig(tuning_output, config, paths: Paths, options: Options,
                 nano_seconds = float(time)
                 measurements = json.loads(parts[1]) if len(parts) == 3 else None
         except ValueError:
-            print(f"Error parsing tuning driver output line: {result}", file=sys.stderr)
-            continue
+            continue  # Skip silently - can happen during normal shutdown
 
         config.set_perfconfig(perfconfig)
         entry = config.table_entry(nano_seconds)
@@ -466,7 +466,7 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
     env = make_isolated_gpu_env(gpu_id)
 
     kernel_gen = None
-    tuning_loop = None
+    tuning_driver = None
     try:
         if not test_vector.endswith(".mlir"):
             command_line = test_vector.split(sep=' ')
@@ -482,12 +482,12 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                                           stdout=subprocess.PIPE,
                                           stderr=subprocess.DEVNULL,
                                           env=env)
-            tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
-                                           tuning_driver_args,
-                                           stdin=kernel_gen.stdout,
-                                           stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE,
-                                           env=env)
+            tuning_driver = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
+                                             tuning_driver_args,
+                                             stdin=kernel_gen.stdout,
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE,
+                                             env=env)
             kernel_gen.stdout.close()
         else:
             tuning_key = subprocess.Popen(
@@ -499,25 +499,25 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
             result = output.decode('utf-8').strip().split('\t')
             command_line = result[2].split(sep=' ')
             config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
-            tuning_loop = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
-                                           tuning_driver_args + [test_vector],
-                                           stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE,
-                                           env=env)
+            tuning_driver = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
+                                             tuning_driver_args + [test_vector],
+                                             stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE,
+                                             env=env)
 
         # Tune, printing progress as we go to avoid CI timeouts
-        winning_config, max_tflops, entries = find_best_perfconfig(tuning_loop.stdout, config,
+        winning_config, max_tflops, entries = find_best_perfconfig(tuning_driver.stdout, config,
                                                                    paths, options, gpu_id)
 
     except TuningError as e:
         return {'success': False, 'error': str(e)}
     finally:
         kill_process(kernel_gen)
-        kill_process(tuning_loop)
+        kill_process(tuning_driver)
 
-    if tuning_loop.returncode != 0:
-        error_msg = f"rocmlir-tuning-driver failed with return code {tuning_loop.returncode}"
-        stderr_content = tuning_loop.stderr.read().decode('utf-8').strip()
+    if tuning_driver.returncode != 0:
+        error_msg = f"rocmlir-tuning-driver failed with return code {tuning_driver.returncode}"
+        stderr_content = tuning_driver.stderr.read().decode('utf-8').strip()
         if stderr_content:
             error_msg += f"\nstderr:\n{stderr_content}"
         return {'success': False, 'error': error_msg}
@@ -610,7 +610,13 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
     with OutputFileWriter(options.output, options) as writer:
         with DebugFileWriter(
                 f"{options.output}.debug") if options.debug else nullcontext() as debug_writer:
-            try:
+            try:  # No context manager for executor because we need to shutdown with Wait=False
+                executor = ThreadPoolExecutor(max_workers=num_workers)
+                futures = {
+                    executor.submit(tune_task, test_vector): test_vector
+                    for test_vector in configs_to_tune
+                }
+
                 progress_bar = tqdm(
                     total=len(configs),
                     initial=num_tuned_configs,
@@ -619,12 +625,6 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
                     desc=f"Tuning {conf_class.__name__} ({options.tuning_space_kind})",
                     unit="config",
                     leave=False)
-
-                executor = ThreadPoolExecutor(max_workers=num_workers)
-                futures = {
-                    executor.submit(tune_task, test_vector): test_vector
-                    for test_vector in configs_to_tune
-                }
 
                 has_errors = False
 
