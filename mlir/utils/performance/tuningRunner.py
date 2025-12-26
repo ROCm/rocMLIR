@@ -545,6 +545,7 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
 
         if not options.quiet and options.debug:
             print(
+                f"GPU ID = {gpu_id}\n"
                 f"rocmlir-gen cmd = {' '.join(rocmlir_gen_command)}\n"
                 f"tuning-driver cmd = {' '.join(tuning_driver_command)}",
                 file=sys.stderr)
