@@ -98,6 +98,7 @@ if (ROCK_E2E_TEST_ENABLED)
   GemmElementwiseGemmDirectToLDS
   ConvElementwiseGemmDirectToLDS
   AttentionNonPowerOfTwoTileSize
+  LdsTransposeLoad
   )
 endif()
 # Create a list for dummy files
