@@ -130,7 +130,7 @@ class OutputFileWriter:
         self.header_written = True
 
     def write_result(self, result: TuningResult):
-        self._write_header();
+        self._write_header()
 
         fields = [
             self.options.arch,
@@ -143,7 +143,7 @@ class OutputFileWriter:
         self.file.flush()
 
     def write_error(self, content: str):
-        self._write_header();
+        self._write_header()
         print('\n'.join(f"### {line}" for line in content.split('\n')), file=self.file)
         self.file.flush()
 
@@ -192,10 +192,10 @@ def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
     """Load previously tuned configurations from output file.
 
     The output file format is TSV with the following structure:
-    - Commit line starting with '# commit: ' indicating the git commit hash of the tuning run
+    - Commit lines starting with '# commit: ' indicating the git commit hash of the tuning run
     - Header lines starting with '# ' containing tuning space kind in parentheses
       (e.g., '# arch\tnumCUs\ttestVector\tperfConfig (quick)\tTFlops')
-    - Multiple header sections can exist in the same file from different tuning runs
+    - Multiple commit and header sections can exist in the same file from different tuning runs
     - Data lines with tab-separated fields following each header
     - Error lines starting with '### ' indicating errors during tuning
 
