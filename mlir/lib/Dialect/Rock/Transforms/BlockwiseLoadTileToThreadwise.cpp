@@ -85,8 +85,7 @@ class LoweringBlockwiseLoadTileOp final
     // wrapLDSBufferForLoad is reading a single set of Ks into private memory
     // A/B[m/n, 0:kBasePerThread]
     Value ldsViewForLoad = accelEmitterPtr->wrapLDSBufferForLoad(
-        b, loc, ldsView, matrixParams, blockSize, dName,
-        useLdsTransposeLoad);
+        b, loc, ldsView, matrixParams, blockSize, dName, useLdsTransposeLoad);
 
     // We enhance the transformation from wrapLDSBufferForLoad using a builder
     // that, given a single index, splits it into "m"("n") and "k" and lets
@@ -455,9 +454,11 @@ class LoweringBlockwiseLoadTileOp final
           }
 
           // Determine if the other operand uses LDS transpose load
-          // If we're loading A, check if B uses transpose; if loading B, check A
-          bool useLdsTransposeLoad = isA ? matrixParamsB.getLdsTransposeEnabled()
-                                           : matrixParamsA.getLdsTransposeEnabled();
+          // If we're loading A, check if B uses transpose; if loading B, check
+          // A
+          bool useLdsTransposeLoad =
+              isA ? matrixParamsB.getLdsTransposeEnabled()
+                  : matrixParamsA.getLdsTransposeEnabled();
           generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
                            destRegisters, blockSize, forceUnroll, matrixParams,
                            transposeAttr, useLdsTransposeLoad);
