@@ -98,17 +98,17 @@ class TuningError(Exception):
 class OutputFileWriter:
     """Context manager for writing tuning results to TSV file."""
 
-    def __init__(self, output_path: str, options: Options):
-        self.output_path = output_path
+    def __init__(self, filepath: str, options: Options):
+        self.filepath = filepath
         self.options = options
         self.file = None
+        self.header_written = False
 
     def __enter__(self):
-        if self.output_path == '-':
+        if self.filepath == '-':
             self.file = sys.stdout
         else:
-            self.file = open(self.output_path, 'a')
-        self._write_header()
+            self.file = open(self.filepath, 'a')
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -116,13 +116,22 @@ class OutputFileWriter:
             self.file.close()
 
     def _write_header(self):
+        if self.header_written:
+            return
+
+        commit_hash = get_git_commit_hash()
+        print(f"# commit: {commit_hash}", file=self.file)
         columns = ['arch', 'numCUs', 'testVector', f'perfConfig ({self.options.tuning_space_kind})']
         if self.options.tflops:
             columns.append('TFlops')
         print("# " + "\t".join(columns), file=self.file)
+
         self.file.flush()
+        self.header_written = True
 
     def write_result(self, result: TuningResult):
+        self._write_header();
+
         fields = [
             self.options.arch,
             str(self.options.num_cu), result.test_vector, result.winning_config or ""
@@ -130,9 +139,11 @@ class OutputFileWriter:
         if self.options.tflops:
             fields.append(f"{result.max_tflops}" if result.max_tflops else "")
         print("\t".join(fields), file=self.file)
+
         self.file.flush()
 
     def write_error(self, content: str):
+        self._write_header();
         print('\n'.join(f"### {line}" for line in content.split('\n')), file=self.file)
         self.file.flush()
 
@@ -156,19 +167,32 @@ class DebugFileWriter:
     def write_entries(self, entries: List[Dict]):
         if not entries:
             return
+
         pd.DataFrame(entries).to_csv(self.file,
                                      sep='\t',
                                      mode='a',
                                      header=not self.header_written,
                                      index=False)
+
         self.file.flush()
         self.header_written = True
+
+
+def get_git_commit_hash() -> str:
+    """Get the current git commit hash."""
+    try:
+        commit_hash = subprocess.check_output(['git', 'rev-parse', 'HEAD'],
+                                              stderr=subprocess.DEVNULL).decode().strip()
+        return commit_hash
+    except Exception:
+        return "unknown"
 
 
 def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
     """Load previously tuned configurations from output file.
 
     The output file format is TSV with the following structure:
+    - Commit line starting with '# commit: ' indicating the git commit hash of the tuning run
     - Header lines starting with '# ' containing tuning space kind in parentheses
       (e.g., '# arch\tnumCUs\ttestVector\tperfConfig (quick)\tTFlops')
     - Multiple header sections can exist in the same file from different tuning runs
@@ -183,13 +207,19 @@ def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
     if options.output == '-' or not os.path.exists(options.output):
         return tuned_configs
 
+    def is_commit_line(line: str) -> bool:
+        return line.startswith('# commit: ')
+
     def is_header_line(line: str) -> bool:
         return line.startswith('# ')
 
     def is_error_line(line: str) -> bool:
         return line.startswith('### ')
 
+    current_commit = get_git_commit_hash()
+
     try:
+        file_commit = current_commit
         is_same_tuning_space = False
         with open(options.output, mode='r') as outfile:
             for line in outfile:
@@ -197,8 +227,16 @@ def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
                 if not line:
                     continue
 
+                if is_commit_line(line):
+                    file_commit = line[len('# commit: '):].strip()
+                    continue
+
                 if is_header_line(line):
                     is_same_tuning_space = f"({options.tuning_space_kind})" in line
+                    if is_same_tuning_space and file_commit != current_commit:
+                        print(
+                            f"Warning: Loading tuned configs from a different commit (file: {file_commit[:12]}, current: {current_commit[:12]})",
+                            file=sys.stderr)
                     continue
 
                 if is_error_line(line) or not is_same_tuning_space:
@@ -233,22 +271,20 @@ def get_gpu_info() -> Dict[int, str]:
     as GFX IDs are not always unique.
     """
     try:
-        result = subprocess.run(["rocm-smi", "--showproductname", "--json"],
-                                capture_output=True,
-                                text=True,
-                                timeout=10)
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            gpu_info = {}
-            for key in data.keys():
-                if key.startswith("card"):
-                    gpu_id = int(key.replace("card", ""))
-                    gpu_info[gpu_id] = data[key].get("Card SKU", "unknown")
-            if gpu_info:
-                return gpu_info
-            print("Warning: rocm-smi returned no GPU cards", file=sys.stderr)
-        else:
-            print(f"Warning: rocm-smi failed with return code {result.returncode}", file=sys.stderr)
+        output = subprocess.check_output(["rocm-smi", "--showproductname", "--json"],
+                                         text=True,
+                                         timeout=10)
+        data = json.loads(output)
+        gpu_info = {}
+        for key in data.keys():
+            if key.startswith("card"):
+                gpu_id = int(key.replace("card", ""))
+                gpu_info[gpu_id] = data[key].get("Card SKU", "unknown")
+        if gpu_info:
+            return gpu_info
+        print("Warning: rocm-smi returned no GPU cards", file=sys.stderr)
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: rocm-smi failed with return code {e.returncode}", file=sys.stderr)
     except subprocess.TimeoutExpired:
         print("Warning: rocm-smi timed out", file=sys.stderr)
     except FileNotFoundError:
