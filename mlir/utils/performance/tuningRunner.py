@@ -20,7 +20,7 @@ import sys
 import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -95,6 +95,135 @@ class TuningError(Exception):
     pass
 
 
+class OutputFileWriter:
+    """Context manager for writing tuning results to TSV file."""
+
+    def __init__(self, output_path: str, options: Options):
+        self.output_path = output_path
+        self.options = options
+        self.file = None
+
+    def __enter__(self):
+        if self.output_path == '-':
+            self.file = sys.stdout
+        else:
+            self.file = open(self.output_path, 'a')
+        self._write_header()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.file and self.file != sys.stdout:
+            self.file.close()
+
+    def _write_header(self):
+        columns = ['arch', 'numCUs', 'testVector', f'perfConfig ({self.options.tuning_space_kind})']
+        if self.options.tflops:
+            columns.append('TFlops')
+        print("# " + "\t".join(columns), file=self.file)
+        self.file.flush()
+
+    def write_result(self, result: TuningResult):
+        fields = [
+            self.options.arch,
+            str(self.options.num_cu), result.test_vector, result.winning_config or ""
+        ]
+        if self.options.tflops:
+            fields.append(f"{result.max_tflops}" if result.max_tflops else "")
+        print("\t".join(fields), file=self.file)
+        self.file.flush()
+
+    def write_error(self, content: str):
+        print('\n'.join(f"### {line}" for line in content.split('\n')), file=self.file)
+        self.file.flush()
+
+
+class DebugFileWriter:
+    """Context manager for writing debug entries to TSV file."""
+
+    def __init__(self, filepath: str):
+        self.filepath = filepath
+        self.file = None
+        self.header_written = False
+
+    def __enter__(self):
+        self.file = open(self.filepath, 'a')
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.file:
+            self.file.close()
+
+    def write_entries(self, entries: List[Dict]):
+        if not entries:
+            return
+        pd.DataFrame(entries).to_csv(self.file,
+                                     sep='\t',
+                                     mode='a',
+                                     header=not self.header_written,
+                                     index=False)
+        self.file.flush()
+        self.header_written = True
+
+
+def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
+    """Load previously tuned configurations from output file.
+
+    The output file format is TSV with the following structure:
+    - Header lines starting with '# ' containing tuning space kind in parentheses
+      (e.g., '# arch\tnumCUs\ttestVector\tperfConfig (quick)\tTFlops')
+    - Multiple header sections can exist in the same file from different tuning runs
+    - Data lines with tab-separated fields following each header
+    - Error lines starting with '### ' indicating errors during tuning
+
+    Only data lines under headers matching options.tuning_space_kind are loaded.
+    For example, if options.tuning_space_kind='quick', only data under headers
+    containing '(quick)' will be loaded, ignoring '(full)' or other sections.
+    """
+    tuned_configs = {}
+    if options.output == '-' or not os.path.exists(options.output):
+        return tuned_configs
+
+    def is_header_line(line: str) -> bool:
+        return line.startswith('# ')
+
+    def is_error_line(line: str) -> bool:
+        return line.startswith('### ')
+
+    try:
+        is_same_tuning_space = False
+        with open(options.output, mode='r') as outfile:
+            for line in outfile:
+                line = line.strip()
+                if not line:
+                    continue
+
+                if is_header_line(line):
+                    is_same_tuning_space = f"({options.tuning_space_kind})" in line
+                    continue
+
+                if is_error_line(line) or not is_same_tuning_space:
+                    continue
+
+                parts = line.split('\t')
+                if len(parts) < 4:
+                    continue
+
+                test_vector = parts[2]
+                winning_config = parts[3] if parts[3] else None
+                max_tflops = float(parts[4]) if len(parts) > 4 and parts[4] else None
+
+                if winning_config and winning_config != "None":
+                    tuned_configs[test_vector] = TuningResult(test_vector=test_vector,
+                                                              success=True,
+                                                              winning_config=winning_config,
+                                                              max_tflops=max_tflops)
+    except Exception as e:
+        print(f"Warning: Failed to load existing tuning results from {options.output}: {e}",
+              file=sys.stderr)
+
+    return tuned_configs
+
+
 def get_gpu_info() -> Dict[int, str]:
     """Query physical GPU IDs and their SKUs using rocm-smi.
 
@@ -155,105 +284,6 @@ def make_isolated_gpu_env(gpu_id: int) -> Dict[str, str]:
     if "HIP_VISIBLE_DEVICES" in env:
         del env["HIP_VISIBLE_DEVICES"]  # Remove HIP_VISIBLE_DEVICES to avoid conflicts
     return env
-
-
-def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
-    """Load previously tuned configurations from output file.
-
-    The output file format is TSV with the following structure:
-    - Header lines starting with '# ' containing tuning space kind in parentheses
-      (e.g., '# arch\tnumCUs\ttestVector\tperfConfig (quick)\tTFlops')
-    - Multiple header sections can exist in the same file from different tuning runs
-    - Data lines with tab-separated fields following each header
-    - Error lines starting with '### ' indicating errors during tuning
-
-    Only data lines under headers matching options.tuning_space_kind are loaded.
-    For example, if options.tuning_space_kind='quick', only data under headers
-    containing '(quick)' will be loaded, ignoring '(full)' or other sections.
-    """
-    tuned_configs = {}
-    if options.output == '-' or not os.path.exists(options.output):
-        return tuned_configs
-
-    def is_header_line(line: str) -> bool:
-        return line.startswith('# ')
-
-    def is_error_line(line: str) -> bool:
-        return line.startswith('### ')
-
-    try:
-        is_same_tuning_space = False
-        with open_output_file(options.output, mode='r') as outfile:
-            for line in outfile:
-                line = line.strip()
-                if not line:
-                    continue
-
-                if is_header_line(line):
-                    is_same_tuning_space = f"({options.tuning_space_kind})" in line
-                    continue
-
-                if is_error_line(line) or not is_same_tuning_space:
-                    continue
-
-                parts = line.split('\t')
-                if len(parts) < 4:
-                    continue
-
-                test_vector = parts[2]
-                winning_config = parts[3] if parts[3] else None
-                max_tflops = float(parts[4]) if len(parts) > 4 and parts[4] else None
-
-                if winning_config and winning_config != "None":
-                    tuned_configs[test_vector] = TuningResult(test_vector=test_vector,
-                                                              success=True,
-                                                              winning_config=winning_config,
-                                                              max_tflops=max_tflops)
-    except Exception as e:
-        print(f"Warning: Failed to load existing tuning results from {options.output}: {e}",
-              file=sys.stderr)
-
-    return tuned_configs
-
-
-@contextmanager
-def open_output_file(output_path: str, mode='a'):
-    """Context manager for output file, supporting '-' for stdout."""
-    if output_path == '-':
-        yield sys.stdout
-    else:
-        f = open(output_path, mode)
-        try:
-            yield f
-        finally:
-            f.close()
-
-
-def write_header(outfile, options: Options):
-    """Write TSV header line to output file."""
-    columns = ['arch', 'numCUs', 'testVector', f'perfConfig ({options.tuning_space_kind})']
-    if options.tflops:
-        columns.append('TFlops')
-    print("# " + "\t".join(columns), file=outfile)
-    outfile.flush()
-
-
-def write_result(outfile, result: TuningResult, options: Options):
-    """Write tuning result to output file."""
-    fields = [options.arch, str(options.num_cu), result.test_vector, result.winning_config or ""]
-    if options.tflops:
-        fields.append(f"{result.max_tflops}" if result.max_tflops else "")
-    print("\t".join(fields), file=outfile)
-    outfile.flush()
-
-
-def log_error(title: str, message: str, outfile=None):
-    """Log error to stderr and optionally to output file."""
-    content = f"{title}\n" + '\n'.join(f"\t{line}" for line in message.split('\n'))
-    print(content, file=sys.stderr)
-    if outfile:
-        print('\n'.join(f"### {line}" for line in content.split('\n')), file=outfile)
-        outfile.flush()
 
 
 def verify_mode_flags(verify_mode: str) -> str:
@@ -563,7 +593,7 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
             return TuningResult(test_vector=test_vector, success=False, error=str(e))
 
     tuned_configs = {}
-    if not options.retune and options.output != '-':
+    if not options.retune:
         tuned_configs = load_tuned_configs(options)
         if tuned_configs and not options.quiet:
             print(f"Found {len(tuned_configs)} tuned config(s) in {options.output}",
@@ -577,66 +607,56 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
 
     executor = None
     progress_bar = None
-    debugfile = None
-    try:
-        with open_output_file(options.output) as outfile:
-            write_header(outfile, options)
+    with OutputFileWriter(options.output, options) as writer:
+        with DebugFileWriter(
+                f"{options.output}.debug") if options.debug else nullcontext() as debug_writer:
+            try:
+                progress_bar = tqdm(
+                    total=len(configs),
+                    initial=num_tuned_configs,
+                    disable=options.quiet,
+                    file=sys.stderr,
+                    desc=f"Tuning {conf_class.__name__} ({options.tuning_space_kind})",
+                    unit="config",
+                    leave=False)
 
-            if options.debug:
-                debug_header_written = False
-                debugfile = open(f"{options.output}.debug", 'a')
+                executor = ThreadPoolExecutor(max_workers=num_workers)
+                futures = {
+                    executor.submit(tune_task, test_vector): test_vector
+                    for test_vector in configs_to_tune
+                }
 
-            progress_bar = tqdm(total=len(configs),
-                                initial=num_tuned_configs,
-                                disable=options.quiet,
-                                file=sys.stderr,
-                                desc=f"Tuning {conf_class.__name__} ({options.tuning_space_kind})",
-                                unit="config",
-                                leave=False)
+                has_errors = False
 
-            executor = ThreadPoolExecutor(max_workers=num_workers)
-            futures = {
-                executor.submit(tune_task, test_vector): test_vector
-                for test_vector in configs_to_tune
-            }
+                for future in as_completed(futures):
+                    result = future.result()
+                    progress_bar.update(1)
 
-            has_errors = False
+                    if result.success:
+                        writer.write_result(result)
+                        if debug_writer:
+                            debug_writer.write_entries(result.entries)
+                    else:
+                        has_errors = True
+                        error_message = result.error or "Unknown error"
+                        content = f"Error tuning {result.test_vector}\n" + '\n'.join(
+                            f"\t{line}" for line in error_message.split('\n'))
+                        print(content, file=sys.stderr)
+                        writer.write_error(content)
+                        if options.abort_on_error:
+                            return False
 
-            for future in as_completed(futures):
-                result = future.result()
-                progress_bar.update(1)
-
-                if result.success:
-                    write_result(outfile, result, options)
-
-                    if debugfile and result.entries:
-                        pd.DataFrame(result.entries).to_csv(debugfile,
-                                                            sep='\t',
-                                                            mode='a',
-                                                            header=not debug_header_written,
-                                                            index=False)
-                        debugfile.flush()
-                        debug_header_written = True
+                if has_errors:
+                    print("Encountered errors during tuning", file=sys.stderr)
                 else:
-                    has_errors = True
-                    log_error(f"Error tuning {result.test_vector}", result.error or "Unknown error",
-                              outfile)
-                    if options.abort_on_error:
-                        return False
+                    print("Tuning completed successfully", file=sys.stderr)
 
-            if has_errors:
-                print("Encountered errors during tuning", file=sys.stderr)
-            else:
-                print("Tuning completed successfully", file=sys.stderr)
-
-            return not has_errors
-    finally:
-        if executor:
-            executor.shutdown(wait=False, cancel_futures=True)
-        if progress_bar:
-            progress_bar.close()
-        if debugfile:
-            debugfile.close()
+                return not has_errors
+            finally:
+                if executor:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                if progress_bar:
+                    progress_bar.close()
 
 
 def extract_fusion_configs(test_dir, paths: Paths, options: Options) -> Operation:
