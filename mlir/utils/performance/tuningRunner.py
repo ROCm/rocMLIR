@@ -327,9 +327,9 @@ def verify_mode_flags(verify_mode: str) -> str:
     if verify_mode == "none":
         return ""
     if verify_mode == "cpu":
-        return " -pv"
+        return "-pv"
     if verify_mode == "gpu":
-        return " -pv_with_gpu --verifier-keep-perf-config=false"
+        return "-pv_with_gpu --verifier-keep-perf-config=false"
     raise ValueError("Unknown verification mode", verify_mode)
 
 
@@ -353,10 +353,11 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
     """
     config.set_perfconfig(perfconfig)
 
-    rocmlir_gen_command = paths.mlir_paths.rocmlir_gen_path + \
-        verify_mode_flags(options.verify_mode) + \
-        ' -print-verify-results=summary ' + \
-        config.generate_mlir_driver_commandline(options.rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS)
+    command_line_options = config.generate_mlir_driver_commandline(options.rocmlir_gen_flags,
+                                                                   kernel_repeats=MLIR_N_REPEATS)
+    rocmlir_gen_command = [
+        paths.mlir_paths.rocmlir_gen_path, '-print-verify-results=summary'
+    ] + verify_mode_flags(options.verify_mode).split() + command_line_options.split()
 
     rocmlir_driver_command = [paths.mlir_paths.rocmlir_driver_path, '-c']
 
@@ -365,7 +366,7 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
         f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path}',
         '--entry-point-result=void'
     ]
-    profiler_command = [perfRunner.ROCPROF] + perfRunner.get_metric_args_for_rocprof(
+    rocprof_command = [perfRunner.ROCPROF] + perfRunner.get_metric_args_for_rocprof(
         options.arch) + [
             '--kernel-trace', '--stats', '-f', 'csv', '-o',
             perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--', paths.mlir_paths.cpu_runner_path
@@ -378,7 +379,7 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
         p2 = None
         p3 = None
         try:
-            p1 = subprocess.Popen(rocmlir_gen_command.split(),
+            p1 = subprocess.Popen(rocmlir_gen_command,
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL,
                                   env=env,
@@ -390,7 +391,7 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
                                   env=env,
                                   cwd=tmpdir)
             p1.stdout.close()
-            p3 = subprocess.Popen(profiler_command,
+            p3 = subprocess.Popen(rocprof_command,
                                   stdin=p2.stdout,
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE,
@@ -400,7 +401,7 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
 
             debug_info = f"""rocmlir-gen cmd = {rocmlir_gen_command}
 rocmlir-driver cmd = {' '.join(rocmlir_driver_command)}
-rocprof cmd = {' '.join(profiler_command)}"""
+rocprof cmd = {' '.join(rocprof_command)}"""
 
             try:
                 outs, errs = p3.communicate(timeout=600)
@@ -501,9 +502,11 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
 
     env = make_isolated_gpu_env(gpu_id)
 
-    kernel_gen = None
+    rocmlir_gen = None
     tuning_driver = None
     try:
+        rocmlir_gen_command = [paths.mlir_paths.rocmlir_gen_path]
+        tuning_driver_command = [paths.mlir_paths.rocmlir_tuning_driver_path] + tuning_driver_args
         if not test_vector.endswith(".mlir"):
             command_line = test_vector.split(sep=' ')
             config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
@@ -513,33 +516,38 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
             # Note, we don't need the -ph, this goes to the tuning driver.
             # Because we don't set -ph, kernel_repeats is set to None.
             # This is because the kernel-repeats flag is only supported with host harness or CPU validation.
-            kernel_gen_command = paths.mlir_paths.rocmlir_gen_path + ' ' + command_line_options
-            kernel_gen = subprocess.Popen(kernel_gen_command.split(),
-                                          stdout=subprocess.PIPE,
-                                          stderr=subprocess.DEVNULL,
-                                          env=env)
-            tuning_driver = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
-                                             tuning_driver_args,
-                                             stdin=kernel_gen.stdout,
+            rocmlir_gen_command += command_line_options.split()
+            rocmlir_gen = subprocess.Popen(rocmlir_gen_command,
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.DEVNULL,
+                                           env=env)
+            tuning_driver = subprocess.Popen(tuning_driver_command,
+                                             stdin=rocmlir_gen.stdout,
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE,
                                              env=env)
-            kernel_gen.stdout.close()
+            rocmlir_gen.stdout.close()
         else:
-            tuning_key = subprocess.Popen(
-                [paths.mlir_paths.rocmlir_gen_path, '--emit-tuning-key', test_vector],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env)
+            rocmlir_gen_command += ['--emit-tuning-key', test_vector]
+            tuning_key = subprocess.Popen(rocmlir_gen_command,
+                                          stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE,
+                                          env=env)
             output, _ = tuning_key.communicate()
             result = output.decode('utf-8').strip().split('\t')
             command_line = result[2].split(sep=' ')
             config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
-            tuning_driver = subprocess.Popen([paths.mlir_paths.rocmlir_tuning_driver_path] +
-                                             tuning_driver_args + [test_vector],
+            tuning_driver_command += [test_vector]
+            tuning_driver = subprocess.Popen(tuning_driver_command,
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE,
                                              env=env)
+
+        if not options.quiet and options.debug:
+            print(
+                f"rocmlir-gen cmd = {' '.join(rocmlir_gen_command)}\n"
+                f"tuning-driver cmd = {' '.join(tuning_driver_command)}",
+                file=sys.stderr)
 
         # Tune, printing progress as we go to avoid CI timeouts
         winning_config, max_tflops, entries = find_best_perfconfig(tuning_driver.stdout, config,
@@ -548,7 +556,7 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
     except TuningError as e:
         return {'success': False, 'error': str(e)}
     finally:
-        kill_process(kernel_gen)
+        kill_process(rocmlir_gen)
         kill_process(tuning_driver)
 
     if tuning_driver.returncode != 0:
