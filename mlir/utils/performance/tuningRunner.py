@@ -144,7 +144,7 @@ class OutputFileWriter:
 
     def write_error(self, content: str):
         self._write_header()
-        print('\n'.join(f"### {line}" for line in content.split('\n')), file=self.file)
+        print('\n'.join(f"### {line}" for line in content.splitlines()), file=self.file)
         self.file.flush()
 
 
@@ -448,8 +448,8 @@ def find_best_perfconfig(tuning_output, config, paths: Paths, options: Options,
     winning_config = "None"
     entries = []
 
-    for result in tuning_output:
-        result = result.decode('utf-8').strip()
+    for line in tuning_output:
+        result = line.strip()
         if not result:
             continue
         try:
@@ -550,22 +550,24 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                 f"tuning-driver cmd = {' '.join(tuning_driver_command)}",
                 file=sys.stderr)
 
-        # Tune, printing progress as we go to avoid CI timeouts
-        winning_config, max_tflops, entries = find_best_perfconfig(tuning_driver.stdout, config,
-                                                                   paths, options, gpu_id)
+        # Note: communicate waits for process to terminate which might cuase CI timeouts if tuning takes too long
+        tuning_stdout, tuning_stderr = tuning_driver.communicate()
 
+        if tuning_driver.returncode != 0:
+            error_msg = f"rocmlir-tuning-driver failed with return code {tuning_driver.returncode}"
+            stderr_content = tuning_stderr.decode('utf-8').strip()
+            if stderr_content:
+                error_msg += f"\nstderr:\n{stderr_content}"
+            return {'success': False, 'error': error_msg}
+
+        tuning_output = tuning_stdout.decode('utf-8').splitlines()
+        winning_config, max_tflops, entries = find_best_perfconfig(tuning_output, config, paths,
+                                                                   options, gpu_id)
     except TuningError as e:
         return {'success': False, 'error': str(e)}
     finally:
         kill_process(rocmlir_gen)
         kill_process(tuning_driver)
-
-    if tuning_driver.returncode != 0:
-        error_msg = f"rocmlir-tuning-driver failed with return code {tuning_driver.returncode}"
-        stderr_content = tuning_driver.stderr.read().decode('utf-8').strip()
-        if stderr_content:
-            error_msg += f"\nstderr:\n{stderr_content}"
-        return {'success': False, 'error': error_msg}
 
     if winning_config == "None":
         return {'success': False, 'error': "No valid perf config found"}
@@ -685,7 +687,7 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
                         has_errors = True
                         error_message = result.error or "Unknown error"
                         content = f"Error tuning {result.test_vector}\n" + '\n'.join(
-                            f"\t{line}" for line in error_message.split('\n'))
+                            f"\t{line}" for line in error_message.splitlines())
                         print(content, file=sys.stderr)
                         writer.write_error(content)
                         if options.abort_on_error:
