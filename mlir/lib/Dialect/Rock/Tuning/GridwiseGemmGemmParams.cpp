@@ -15,7 +15,7 @@ using namespace mlir::rock;
 #undef GemmGemm_DEFINITIONS_GEN
 
 std::vector<GemmGemmParamsAttr>
-PopulateParamsGemmGemm::getQuickTuningRange(OpBuilder &b,
+PopulateParamsGemmGemm::getTuningParameters(OpBuilder &b,
                                             RockGemmGemmWrapperInterface op) {
   if (!rock::isAccel(rock::getFeatures(op))) {
     return {};
@@ -47,7 +47,7 @@ PopulateParamsGemmGemm::deserializePerfConfigs(OpBuilder &b,
 
 LogicalResult PopulateParamsGemmGemm::paramsProbablyValid(
     OpBuilder &b, RockGemmGemmWrapperInterface op, GemmGemmParamsAttr params) {
-  if (succeeded(getGemmGemmTuningParams(b, op, params))) {
+  if (succeeded(getAccelGemmParams(b, op, params))) {
     return success();
   } else {
     return failure();
@@ -55,9 +55,9 @@ LogicalResult PopulateParamsGemmGemm::paramsProbablyValid(
 }
 
 FailureOr<std::pair<AccelGemmParamsAttr, AccelGemmParamsAttr>>
-PopulateParamsGemmGemm::getGemmGemmTuningParams(OpBuilder &b,
-                                                RockGemmGemmWrapperInterface op,
-                                                GemmGemmParamsAttr params) {
+PopulateParamsGemmGemm::getAccelGemmParams(OpBuilder &b,
+                                           RockGemmGemmWrapperInterface op,
+                                           GemmGemmParamsAttr params) {
   auto features = rock::getFeatures(op);
   if (!rock::isAccel(features)) {
     return failure();
@@ -68,8 +68,8 @@ PopulateParamsGemmGemm::getGemmGemmTuningParams(OpBuilder &b,
     return failure();
   }
 
-  AccelGemmParamsAttr accelParams0 = getGemm0TuningParams(b, params);
-  AccelGemmParamsAttr accelParams1 = getGemm1TuningParams(b, params);
+  AccelGemmParamsAttr accelParams0 = getGemm0Params(b, params);
+  AccelGemmParamsAttr accelParams1 = getGemm1Params(b, params);
 
   auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
   LogicalResult isValidBlockwiseGemm0 =
@@ -90,8 +90,8 @@ PopulateParamsGemmGemm::getGemmGemmTuningParams(OpBuilder &b,
 }
 
 AccelGemmParamsAttr
-PopulateParamsGemmGemm::getGemm0TuningParams(OpBuilder &b,
-                                             GemmGemmParamsAttr params) {
+PopulateParamsGemmGemm::getGemm0Params(OpBuilder &b,
+                                       GemmGemmParamsAttr params) {
   constexpr auto splitKFactor = 1, gridGroupSize = 0;
   return AccelGemmParamsAttr::get(
       b.getContext(), params.getKpackPerBlock(), params.getMPerBlockG0(),
@@ -102,8 +102,8 @@ PopulateParamsGemmGemm::getGemm0TuningParams(OpBuilder &b,
 }
 
 AccelGemmParamsAttr
-PopulateParamsGemmGemm::getGemm1TuningParams(OpBuilder &b,
-                                             GemmGemmParamsAttr params) {
+PopulateParamsGemmGemm::getGemm1Params(OpBuilder &b,
+                                       GemmGemmParamsAttr params) {
   constexpr auto gridGroupSize = 0;
   return AccelGemmParamsAttr::get(
       b.getContext(), params.getMPerBlockG0() / params.getKpack(),

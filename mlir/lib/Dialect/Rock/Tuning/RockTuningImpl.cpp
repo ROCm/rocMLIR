@@ -735,7 +735,7 @@ createGemmGemmTuningRangeQuick(TuningParamSet *newSpace,
                                RockGemmGemmWrapperInterface gemmGemmOp) {
   OpBuilder b(gemmGemmOp.getContext());
   for (GemmGemmParamsAttr params :
-       PopulateParamsGemmGemm::getQuickTuningRange(b, gemmGemmOp)) {
+       PopulateParamsGemmGemm::getTuningParameters(b, gemmGemmOp)) {
     if (succeeded(PopulateParamsGemmGemm::paramsProbablyValid(b, gemmGemmOp,
                                                               params))) {
       newSpace->tuningRange.push_back(

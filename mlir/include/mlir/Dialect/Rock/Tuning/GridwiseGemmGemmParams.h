@@ -23,15 +23,15 @@ namespace rock {
 class PopulateParamsGemmGemm {
 public:
   static std::vector<GemmGemmParamsAttr>
-  getQuickTuningRange(OpBuilder &b, RockGemmGemmWrapperInterface op);
+  getTuningParameters(OpBuilder &b, RockGemmGemmWrapperInterface op);
 
   static LogicalResult paramsProbablyValid(OpBuilder &b,
                                            RockGemmGemmWrapperInterface op,
                                            GemmGemmParamsAttr params);
 
   static FailureOr<std::pair<AccelGemmParamsAttr, AccelGemmParamsAttr>>
-  getGemmGemmTuningParams(OpBuilder &b, RockGemmGemmWrapperInterface op,
-                          GemmGemmParamsAttr params);
+  getAccelGemmParams(OpBuilder &b, RockGemmGemmWrapperInterface op,
+                     GemmGemmParamsAttr params);
 
 protected:
   static GemmGemmParamsAttr
@@ -42,11 +42,11 @@ protected:
   deserializePerfConfigs(OpBuilder &b, RockGemmGemmWrapperInterface op,
                          ArrayRef<StringRef> configs);
 
-  static AccelGemmParamsAttr getGemm0TuningParams(OpBuilder &b,
-                                                  GemmGemmParamsAttr params);
+  static AccelGemmParamsAttr getGemm0Params(OpBuilder &b,
+                                            GemmGemmParamsAttr params);
 
-  static AccelGemmParamsAttr getGemm1TuningParams(OpBuilder &b,
-                                                  GemmGemmParamsAttr params);
+  static AccelGemmParamsAttr getGemm1Params(OpBuilder &b,
+                                            GemmGemmParamsAttr params);
 
 private:
 #define GemmGemm_DECLARATIONS_GEN

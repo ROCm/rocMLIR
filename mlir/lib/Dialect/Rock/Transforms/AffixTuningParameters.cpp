@@ -330,8 +330,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     return signalPassFailure();
   }
 
-  auto accelParams = PopulateParamsGemmGemm::getGemmGemmTuningParams(
-      builder, op, attnPerfConfig);
+  auto accelParams =
+      PopulateParamsGemmGemm::getAccelGemmParams(builder, op, attnPerfConfig);
   if (failed(accelParams)) {
     op.emitError("The provided perf config is not valid");
     return signalPassFailure();
