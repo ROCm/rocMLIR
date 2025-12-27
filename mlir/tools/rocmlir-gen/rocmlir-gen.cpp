@@ -1412,7 +1412,7 @@ static std::pair<int64_t, int64_t> getMandNPerBlock(OpBuilder builder,
     return {32, 32};
 
   bool isWmma = bitEnumContainsAny(params.features, rock::GemmFeatures::wmma);
-  auto attnPerfConfig = mlir::rock::AttnParamsAttr::get(
+  auto attnPerfConfig = mlir::rock::GemmGemmParamsAttr::get(
       builder.getStringAttr(params.perfConfig), isWmma);
   return {attnPerfConfig.getMPerBlockG0(), attnPerfConfig.getNPerBlockG0()};
 }

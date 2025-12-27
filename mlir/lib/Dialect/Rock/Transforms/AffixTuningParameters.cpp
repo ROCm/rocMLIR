@@ -313,7 +313,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     }
   }
   bool isWmma = bitEnumContainsAny(rock::getFeatures(op), GemmFeatures::wmma);
-  auto attnPerfConfig = AttnParamsAttr::get(perfConfigStrAttr, isWmma);
+  auto attnPerfConfig = GemmGemmParamsAttr::get(perfConfigStrAttr, isWmma);
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
     return signalPassFailure();
@@ -330,8 +330,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     return signalPassFailure();
   }
 
-  auto accelParams =
-      PopulateParamsAttn::getGemmGemmTuningParams(builder, op, attnPerfConfig);
+  auto accelParams = PopulateParamsGemmGemm::getGemmGemmTuningParams(
+      builder, op, attnPerfConfig);
   if (failed(accelParams)) {
     op.emitError("The provided perf config is not valid");
     return signalPassFailure();

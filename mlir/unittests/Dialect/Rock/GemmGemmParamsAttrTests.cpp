@@ -1,4 +1,5 @@
-//===- AttnParamsAttrTests.cpp - Tests for AttnParamsAttr -----------------===//
+//===- GemmGemmParamsAttrTests.cpp - Tests for GemmGemmParamsAttr
+//-----------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -20,15 +21,15 @@ namespace {
 // Test Fixture
 //===----------------------------------------------------------------------===//
 
-class AttnParamsAttrTest : public ::testing::Test {
+class GemmGemmParamsAttrTest : public ::testing::Test {
 protected:
   void SetUp() override {
     ctx.loadDialect<RockDialect>();
     builder = std::make_unique<OpBuilder>(&ctx);
   }
 
-  AttnParamsAttr parse(StringRef perfConfig, bool isWmma = false) {
-    return AttnParamsAttr::get(builder->getStringAttr(perfConfig), isWmma);
+  GemmGemmParamsAttr parse(StringRef perfConfig, bool isWmma = false) {
+    return GemmGemmParamsAttr::get(builder->getStringAttr(perfConfig), isWmma);
   }
 
   MLIRContext ctx;
@@ -39,7 +40,7 @@ protected:
 // v3 perfconfig tests
 //===----------------------------------------------------------------------===//
 
-TEST_F(AttnParamsAttrTest, V3ConfigFirst) {
+TEST_F(GemmGemmParamsAttrTest, V3ConfigFirst) {
   auto params = parse("attn:v3:64,64,64,8,32,32,16,4,1,3,2,0,1");
 
   ASSERT_TRUE(params);
@@ -58,7 +59,7 @@ TEST_F(AttnParamsAttrTest, V3ConfigFirst) {
   EXPECT_EQ(params.getForceUnroll(), true);
 }
 
-TEST_F(AttnParamsAttrTest, V3ConfigSecond) {
+TEST_F(GemmGemmParamsAttrTest, V3ConfigSecond) {
   auto params = parse("attn:v3:128,64,64,8,64,32,32,4,2,2,0,8,0");
 
   ASSERT_TRUE(params);
@@ -81,7 +82,7 @@ TEST_F(AttnParamsAttrTest, V3ConfigSecond) {
 // v2 perfconfig tests - MFMA
 //===----------------------------------------------------------------------===//
 
-TEST_F(AttnParamsAttrTest, V2ConfigMfmaFirst) {
+TEST_F(GemmGemmParamsAttrTest, V2ConfigMfmaFirst) {
   auto params = parse("attn:v2:64,64,64,8,32,16,4,1,3,2,1", /*isWmma=*/false);
 
   ASSERT_TRUE(params);
@@ -100,7 +101,7 @@ TEST_F(AttnParamsAttrTest, V2ConfigMfmaFirst) {
   EXPECT_EQ(params.getForceUnroll(), true);
 }
 
-TEST_F(AttnParamsAttrTest, V2ConfigMfmaSecond) {
+TEST_F(GemmGemmParamsAttrTest, V2ConfigMfmaSecond) {
   auto params = parse("attn:v2:128,64,64,8,64,32,4,2,2,0,0", /*isWmma=*/false);
 
   ASSERT_TRUE(params);
@@ -123,7 +124,7 @@ TEST_F(AttnParamsAttrTest, V2ConfigMfmaSecond) {
 // v2 perfconfig tests - WMMA
 //===----------------------------------------------------------------------===//
 
-TEST_F(AttnParamsAttrTest, V2ConfigWmmaFirst) {
+TEST_F(GemmGemmParamsAttrTest, V2ConfigWmmaFirst) {
   auto params = parse("attn:v2:64,64,64,8,32,32,4,1,3,2,1", /*isWmma=*/true);
 
   ASSERT_TRUE(params);
@@ -142,7 +143,7 @@ TEST_F(AttnParamsAttrTest, V2ConfigWmmaFirst) {
   EXPECT_EQ(params.getForceUnroll(), true);
 }
 
-TEST_F(AttnParamsAttrTest, V2ConfigWmmaSecond) {
+TEST_F(GemmGemmParamsAttrTest, V2ConfigWmmaSecond) {
   auto params = parse("attn:v2:128,64,64,8,64,32,4,2,2,0,0", /*isWmma=*/true);
 
   ASSERT_TRUE(params);
@@ -165,37 +166,37 @@ TEST_F(AttnParamsAttrTest, V2ConfigWmmaSecond) {
 // Negative tests
 //===----------------------------------------------------------------------===//
 
-TEST_F(AttnParamsAttrTest, NoPrefix) {
+TEST_F(GemmGemmParamsAttrTest, NoPrefix) {
   auto params = parse("v3:64,64,64,8,32,32,16,4,1,3,2,0,1");
   EXPECT_FALSE(params);
 }
 
-TEST_F(AttnParamsAttrTest, WrongPrefix) {
+TEST_F(GemmGemmParamsAttrTest, WrongPrefix) {
   auto params = parse("gemm:v3:64,64,64,8,32,32,16,4,1,3,2,0,1");
   EXPECT_FALSE(params);
 }
 
-TEST_F(AttnParamsAttrTest, WrongNumberOfParamsV2) {
+TEST_F(GemmGemmParamsAttrTest, WrongNumberOfParamsV2) {
   auto params = parse("attn:v2:64,64,64,8,32,16,4,1,3,2");
   EXPECT_FALSE(params);
 }
 
-TEST_F(AttnParamsAttrTest, WrongNumberOfParamsV3) {
+TEST_F(GemmGemmParamsAttrTest, WrongNumberOfParamsV3) {
   auto params = parse("attn:v3:64,64,64,8,32,32,16,4,1,3,2,0");
   EXPECT_FALSE(params);
 }
 
-TEST_F(AttnParamsAttrTest, EmptyString) {
+TEST_F(GemmGemmParamsAttrTest, EmptyString) {
   auto params = parse("");
   EXPECT_FALSE(params);
 }
 
-TEST_F(AttnParamsAttrTest, InvalidVersion) {
+TEST_F(GemmGemmParamsAttrTest, InvalidVersion) {
   auto params = parse("attn:v5:64,64,64,8,32,32,16,4,1,3,2,0,1");
   EXPECT_FALSE(params);
 }
 
-TEST_F(AttnParamsAttrTest, MalformedInput) {
+TEST_F(GemmGemmParamsAttrTest, MalformedInput) {
   auto params = parse("attn:v3:not,valid,numbers");
   EXPECT_FALSE(params);
 }

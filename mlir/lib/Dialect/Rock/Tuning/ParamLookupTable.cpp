@@ -161,14 +161,14 @@ ParamLookupTable<AccelGemmParamsAttr>::buildTable() {
 
 template <>
 std::map<StringRef, ArrayRef<StringRef>>
-ParamLookupTable<AttnParamsAttr>::buildTable() {
+ParamLookupTable<GemmGemmParamsAttr>::buildTable() {
   return {
-#define Attn_LOOKUP_TABLE_GEN
+#define GemmGemm_LOOKUP_TABLE_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef Attn_LOOKUP_TABLE_GEN
+#undef GemmGemm_LOOKUP_TABLE_GEN
   };
 }
 
 template class mlir::rock::ParamLookupTable<GeneralGemmParamsAttr>;
 template class mlir::rock::ParamLookupTable<AccelGemmParamsAttr>;
-template class mlir::rock::ParamLookupTable<AttnParamsAttr>;
+template class mlir::rock::ParamLookupTable<GemmGemmParamsAttr>;

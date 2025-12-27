@@ -3356,12 +3356,14 @@ void AttentionOp::getEffects(
 
 namespace {
 
+constexpr size_t SmallVectorInlineSize = 16;
+
 struct PerfConfigParseResult {
   int version;
-  SmallVector<int64_t> params;
+  SmallVector<int64_t, SmallVectorInlineSize> params;
 };
 
-static std::optional<PerfConfigParseResult>
+std::optional<PerfConfigParseResult>
 parsePerfConfigStr(StringRef configStr, StringRef expectedPrefix = "") {
   StringRef rest = configStr;
 
@@ -3384,10 +3386,10 @@ parsePerfConfigStr(StringRef configStr, StringRef expectedPrefix = "") {
     return std::nullopt;
 
   // Parse comma-separated parameters
-  SmallVector<StringRef> tokens;
+  SmallVector<StringRef, SmallVectorInlineSize> tokens;
   rest.split(tokens, ',');
 
-  SmallVector<int64_t> params;
+  SmallVector<int64_t, SmallVectorInlineSize> params;
   params.reserve(tokens.size());
   for (StringRef tok : tokens) {
     int64_t val;
@@ -3397,6 +3399,24 @@ parsePerfConfigStr(StringRef configStr, StringRef expectedPrefix = "") {
   }
 
   return PerfConfigParseResult{version, params};
+}
+
+std::pair<int64_t, int64_t> handleLegacyNPerWaveOrMnPerXdl(
+    const SmallVectorImpl<int64_t> &params, int64_t &idx, int64_t mPerBlock,
+    int64_t nPerBlock, int64_t &mPerWave, bool isWmma) {
+  int64_t nPerWave, mnPerXdl;
+  if (isWmma) {
+    mnPerXdl = 16; // default value 16 because older versions had no mnPerXdl
+    nPerWave = params[idx++];
+  } else {
+    mnPerXdl = params[idx++];
+    constexpr int64_t maxWavesPerWG = 4;
+    int64_t mWaves = std::min(mPerBlock / mPerWave, maxWavesPerWG);
+    int64_t nWaves = maxWavesPerWG / mWaves;
+    mPerWave = mPerBlock / mWaves;
+    nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
+  }
+  return {nPerWave, mnPerXdl};
 }
 
 } // namespace
@@ -3475,17 +3495,9 @@ AccelGemmParamsAttr AccelGemmParamsAttr::get(StringAttr perfConfigStrAttr,
   if (version > 3) {
     nPerWave = params[idx++];
     mnPerXdl = params[idx++];
-    // the code below is for compatibility with < v4
-  } else if (isWmma) {
-    mnPerXdl = 16; // default value 16 because v3 had no mnPerXdl
-    nPerWave = params[idx++];
   } else {
-    mnPerXdl = params[idx++];
-    constexpr int64_t maxWavesPerWG = 4;
-    int64_t mWaves = std::min(mPerBlock / mPerWave, maxWavesPerWG);
-    int64_t nWaves = maxWavesPerWG / mWaves;
-    mPerWave = mPerBlock / mWaves;
-    nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
+    std::tie(nPerWave, mnPerXdl) = handleLegacyNPerWaveOrMnPerXdl(
+        params, idx, mPerBlock, nPerBlock, mPerWave, isWmma);
   }
 
   int64_t kpack = params[idx++];
@@ -3503,10 +3515,11 @@ AccelGemmParamsAttr AccelGemmParamsAttr::get(StringAttr perfConfigStrAttr,
 }
 
 //===-----------------------------------------------------===//
-// AttnParamsAttr
+// GemmGemmParamsAttr
 //===-----------------------------------------------------===//
 
-AttnParamsAttr AttnParamsAttr::get(StringAttr perfConfigStrAttr, bool isWmma) {
+GemmGemmParamsAttr GemmGemmParamsAttr::get(StringAttr perfConfigStrAttr,
+                                           bool isWmma) {
   auto parsed = parsePerfConfigStr(perfConfigStrAttr.strref(), "attn");
   if (!parsed) {
     return {};
@@ -3534,17 +3547,9 @@ AttnParamsAttr AttnParamsAttr::get(StringAttr perfConfigStrAttr, bool isWmma) {
   if (version > 2) {
     nPerWave = params[idx++];
     mnPerXdl = params[idx++];
-    // the code below is for compatibility with < v3
-  } else if (isWmma) {
-    mnPerXdl = 16; // default value 16 because v2 had no mnPerXdl
-    nPerWave = params[idx++];
   } else {
-    mnPerXdl = params[idx++];
-    constexpr int64_t maxWavesPerWG = 4;
-    int64_t mWaves = std::min(mPerBlockG0 / mPerWave, maxWavesPerWG);
-    int64_t nWaves = maxWavesPerWG / mWaves;
-    mPerWave = mPerBlockG0 / mWaves;
-    nPerWave = std::max(nPerBlockG0 / nWaves, mnPerXdl);
+    std::tie(nPerWave, mnPerXdl) = handleLegacyNPerWaveOrMnPerXdl(
+        params, idx, mPerBlockG0, nPerBlockG0, mPerWave, isWmma);
   }
 
   int64_t kpack = params[idx++];
@@ -3554,7 +3559,7 @@ AttnParamsAttr AttnParamsAttr::get(StringAttr perfConfigStrAttr, bool isWmma) {
   int64_t wavesPerEU = (version > 2) ? params[idx++] : 0; // 0 -> use heuristic
   bool forceUnroll = params[idx++];
 
-  return AttnParamsAttr::get(
+  return GemmGemmParamsAttr::get(
       perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
       kpackPerBlock, mPerWave, nPerWave, mnPerXdl, kpack, splitKFactor,
       scheduleVersion, outputSwizzle, wavesPerEU, forceUnroll);

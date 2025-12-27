@@ -20,40 +20,40 @@
 namespace mlir {
 namespace rock {
 
-class PopulateParamsAttn {
+class PopulateParamsGemmGemm {
 public:
-  static std::vector<AttnParamsAttr>
+  static std::vector<GemmGemmParamsAttr>
   getQuickTuningRange(OpBuilder &b, RockGemmGemmWrapperInterface op);
 
   static LogicalResult paramsProbablyValid(OpBuilder &b,
                                            RockGemmGemmWrapperInterface op,
-                                           AttnParamsAttr params);
+                                           GemmGemmParamsAttr params);
 
   static FailureOr<std::pair<AccelGemmParamsAttr, AccelGemmParamsAttr>>
   getGemmGemmTuningParams(OpBuilder &b, RockGemmGemmWrapperInterface op,
-                          AttnParamsAttr params);
+                          GemmGemmParamsAttr params);
 
 protected:
-  static AttnParamsAttr deserializePerfConfig(OpBuilder &b,
-                                              RockGemmGemmWrapperInterface op,
-                                              StringRef config);
+  static GemmGemmParamsAttr
+  deserializePerfConfig(OpBuilder &b, RockGemmGemmWrapperInterface op,
+                        StringRef config);
 
-  static std::vector<AttnParamsAttr>
+  static std::vector<GemmGemmParamsAttr>
   deserializePerfConfigs(OpBuilder &b, RockGemmGemmWrapperInterface op,
                          ArrayRef<StringRef> configs);
 
   static AccelGemmParamsAttr getGemm0TuningParams(OpBuilder &b,
-                                                  AttnParamsAttr params);
+                                                  GemmGemmParamsAttr params);
 
   static AccelGemmParamsAttr getGemm1TuningParams(OpBuilder &b,
-                                                  AttnParamsAttr params);
+                                                  GemmGemmParamsAttr params);
 
 private:
-#define Attn_DECLARATIONS_GEN
+#define GemmGemm_DECLARATIONS_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
-#undef Attn_DECLARATIONS_GEN
+#undef GemmGemm_DECLARATIONS_GEN
 
-  friend class ParamLookupTable<AttnParamsAttr>;
+  friend class ParamLookupTable<GemmGemmParamsAttr>;
 };
 
 } // namespace rock
