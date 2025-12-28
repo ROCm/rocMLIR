@@ -76,6 +76,7 @@ class Options:
     abort_on_error: bool
     retune: bool
     gpu_ids: List[int]
+    num_compile_threads: Optional[int]
 
 
 @dataclass
@@ -603,9 +604,13 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
     """Tune multiple configurations in parallel across available GPUs."""
     gpu_ids = options.gpu_ids
     num_workers = min(len(gpu_ids), len(configs))
-    num_compile_threads = math.ceil((os.cpu_count() or 1) / num_workers)
-    # Avoid oversubscribing by leaving one CPU thread free for non-compilation work
-    num_compile_threads = max(1, num_compile_threads - 1)
+
+    if options.num_compile_threads is not None:
+        num_compile_threads = options.num_compile_threads
+    else:
+        num_compile_threads = math.ceil((os.cpu_count() or 1) / num_workers)
+        # Avoid oversubscribing by leaving one CPU thread free for non-compilation work
+        num_compile_threads = max(1, num_compile_threads - 1)
 
     if not options.quiet:
         print(f"Using {num_workers} GPU(s): {gpu_ids[:num_workers]}", file=sys.stderr)
@@ -749,9 +754,6 @@ def extract_fusion_configs(test_dir, paths: Paths, options: Options) -> Operatio
 
 def main(args=None):
     """Entry point. Parses arguments and starts tuning process."""
-    if args is None:
-        args = sys.argv[1:]
-
     arch = perfRunner.get_arch()
     num_cu = perfRunner.get_num_cu(perfRunner.get_chip())
 
@@ -892,6 +894,15 @@ def main(args=None):
                         metavar='GPU_ID',
                         help=f"GPUs to use for tuning (available: {available_gpus}, default: all)")
 
+    parser.add_argument(
+        "--num-compile-threads",
+        type=int,
+        default=None,
+        metavar='N',
+        help=
+        "Number of parallel compilation threads per GPU (default: auto-calculated based on CPU cores and GPU count)"
+    )
+
     parsed_args = parser.parse_args(args)
 
     if parsed_args.verify_perf_configs and parsed_args.verify_mode == "none":
@@ -933,7 +944,8 @@ def main(args=None):
                       output=parsed_args.output,
                       abort_on_error=parsed_args.abort_on_error,
                       retune=parsed_args.retune,
-                      gpu_ids=parsed_args.gpus)
+                      gpu_ids=parsed_args.gpus,
+                      num_compile_threads=parsed_args.num_compile_threads)
 
     if op_type == Operation.FUSION:
         op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
