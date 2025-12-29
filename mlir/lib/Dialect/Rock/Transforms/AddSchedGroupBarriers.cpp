@@ -239,27 +239,35 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
 
     // Insert sched group barriers based on the analysis
     if (numBufferLoads > 0) {
-      uint64_t dsReadsPerLoad = llvm::divideCeil(numDSReads, numBufferLoads);
-      uint64_t dsWritesPerLoad = llvm::divideCeil(numDSWrites, numBufferLoads);
-      uint64_t mfmaPerLoad = llvm::divideCeil(numMFMA, numBufferLoads);
       // Ensure we have at least 3 MFMAs to distribute (for the pattern)
-      uint64_t remainingMfma = mfmaPerLoad > 2 ? mfmaPerLoad - 2 : 0;
-
       for (uint64_t i = 0; i < numBufferLoads; i++) {
-        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1, 0); // MFMA
+        uint64_t dsReadsPerLoad = llvm::divideCeil(numDSReads, numBufferLoads);
+        uint64_t dsWritesPerLoad =
+            llvm::divideCeil(numDSWrites, numBufferLoads);
+        uint64_t mfmaPerLoad = llvm::divideCeil(numMFMA, numBufferLoads);
+        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1, 0); // VMEM
+        if (dsReadsPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
+                                           dsReadsPerLoad,
+                                           0); // DS Reads
+        }
+        uint64_t mfmaPerDSWrite =
+            llvm::divideCeil(mfmaPerLoad, dsWritesPerLoad);
+        if (dsWritesPerLoad > 0 && mfmaPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200, 1,
+                                           0); // DS Writes
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
+                                           mfmaPerDSWrite, 0); // MFMA
+          mfmaPerLoad -= mfmaPerDSWrite;
+          dsWritesPerLoad--;
+        }
+        if (mfmaPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, mfmaPerLoad,
+                                           0); // MFMA
+        }
         if (dsWritesPerLoad > 0) {
           ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
                                            dsWritesPerLoad, 0); // DS Writes
-        }
-        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1, 0); // MFMA
-        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1, 0); // VMEM
-        if (remainingMfma > 0) {
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
-                                           remainingMfma, 0); // MFMA
-        }
-        if (dsReadsPerLoad > 0) {
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
-                                           dsReadsPerLoad, 0); // DS Reads
         }
       }
     }
