@@ -253,7 +253,7 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
         }
         uint64_t mfmaPerDSWrite =
             llvm::divideCeil(mfmaPerLoad, dsWritesPerLoad);
-        if (dsWritesPerLoad > 0 && mfmaPerLoad > 0) {
+        while (dsWritesPerLoad > 0 && mfmaPerLoad > 0) {
           ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200, 1,
                                            0); // DS Writes
           ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
@@ -261,13 +261,13 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
           mfmaPerLoad -= mfmaPerDSWrite;
           dsWritesPerLoad--;
         }
-        if (mfmaPerLoad > 0) {
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, mfmaPerLoad,
-                                           0); // MFMA
-        }
         if (dsWritesPerLoad > 0) {
           ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
                                            dsWritesPerLoad, 0); // DS Writes
+        }
+        if (mfmaPerLoad > 0) {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, mfmaPerLoad,
+                                           0); // MFMA
         }
       }
     }
