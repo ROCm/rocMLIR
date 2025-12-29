@@ -160,6 +160,11 @@ static llvm::cl::opt<unsigned> numCompileThreads(
     llvm::cl::desc("Number of parallel compilation threads (0 = auto)"),
     llvm::cl::value_desc("thread count"), llvm::cl::init(0));
 
+static llvm::cl::opt<unsigned> numRotatingBuffers(
+    "num-rotating-buffers",
+    llvm::cl::desc("Number of rotating buffers to use for benchmarking"),
+    llvm::cl::value_desc("number of buffers"), llvm::cl::init(5));
+
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
                                             MLIRContext *context) {
@@ -276,6 +281,7 @@ struct BenchmarkParams {
   rock::TuningParamSetKind tuningSpaceKind;
   const unsigned numCompileThreads;
   std::string benchmarkConfig;
+  unsigned numRotatingBuffers;
 };
 
 enum class CompilationStatus {
@@ -296,23 +302,37 @@ static LogicalResult
 measureSmallKernel(unsigned iterations, hipStream_t stream,
                    const std::vector<hipFunction_t> &functions,
                    ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-                   std::vector<void *> &argPointers,
+                   MutableArrayRef<void *> gpuBuffers, unsigned numArgs,
+                   unsigned numRotatingBuffers,
                    std::vector<double> &measurements, double &smallKernelCpuMs,
                    bool benchmarkMode) {
   // Special case for small kernels, where we measure the time for all kernels
   // at once, using CPU timers.
   auto iterationStart = std::chrono::steady_clock::now();
   for (unsigned iter = 0; iter < iterations; ++iter) {
-    // Do not flush caches in benchmark mode, as we do not want to
-    // time the cache flush (it's okay if we are running in tuning mode).
-    if (!benchmarkMode) {
-      if (failed(flushInstructionCache(stream))) {
-        return failure();
-      }
+    // 1. Select which buffer set to use for this iteration.
+    unsigned bufferSet = iter % numRotatingBuffers;
+
+    // Build argPointers for this buffer set
+    std::vector<void *> argPointers;
+    argPointers.reserve(numArgs);
+    for (unsigned argIdx = 0; argIdx < numArgs; ++argIdx) {
+      size_t bufferIdx = bufferSet * numArgs + argIdx;
+      argPointers.push_back(reinterpret_cast<void *>(&gpuBuffers[bufferIdx]));
+    }
+
+    // 2. Flush instruction cache.
+    if (failed(flushInstructionCache(stream))) {
+      return failure();
+    }
+    // We only do explicit L2 flush when we are not rotating buffers.
+    if (numRotatingBuffers == 1) {
       if (failed(flushL2Cache(stream))) {
         return failure();
       }
     }
+
+    // 3. Launch the actualkernels.
     for (auto [func, blockSize, gridSize] :
          llvm::zip(functions, blockSizes, gridSizes)) {
       HIPCHECK(hipExtModuleLaunchKernel(
@@ -333,15 +353,30 @@ static LogicalResult
 measureLargeKernel(unsigned iterations, hipStream_t stream,
                    const std::vector<hipFunction_t> &functions,
                    ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-                   std::vector<void *> &argPointers,
+                   MutableArrayRef<void *> gpuBuffers, unsigned numArgs,
+                   unsigned numRotatingBuffers,
                    std::vector<double> &measurements) {
   // Measure runs normally.
   for (unsigned iter = 0; iter < iterations; ++iter) {
+    // Select which buffer set to use for this iteration
+    unsigned bufferSet = iter % numRotatingBuffers;
+
+    // Build argPointers for this buffer set
+    std::vector<void *> argPointers;
+    argPointers.reserve(numArgs);
+    for (unsigned argIdx = 0; argIdx < numArgs; ++argIdx) {
+      size_t bufferIdx = bufferSet * numArgs + argIdx;
+      argPointers.push_back(reinterpret_cast<void *>(&gpuBuffers[bufferIdx]));
+    }
+
     if (failed(flushInstructionCache(stream))) {
       return failure();
     }
-    if (failed(flushL2Cache(stream))) {
-      return failure();
+    // We only do explicit L2 flush when we are not rotating buffers.
+    if (numRotatingBuffers == 1) {
+      if (failed(flushL2Cache(stream))) {
+        return failure();
+      }
     }
 
     double totalMilliseconds = 0.0;
@@ -391,16 +426,17 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   });
 
-  // Initialize device buffers
-  for (size_t i = 0; i < bufferSizes.size(); i++) {
-    HIPCHECK(hipMemcpyAsync(gpuBuffers[i], hostBuffers[i], bufferSizes[i],
-                            hipMemcpyHostToDevice, stream));
-  }
-
-  // HIP wants an array of pointers to each argument
-  std::vector<void *> argPointers;
-  for (void *&item : gpuBuffers) {
-    argPointers.push_back(reinterpret_cast<void *>(&item));
+  // Initialize all rotating device buffers
+  // Buffer layout: [arg0_set0, arg1_set0, ..., argM-1_set0, arg0_set1, ...]
+  unsigned numArgs = bufferSizes.size();
+  unsigned numBufferSets = params.numRotatingBuffers;
+  for (unsigned bufferSet = 0; bufferSet < numBufferSets; ++bufferSet) {
+    for (size_t argIdx = 0; argIdx < numArgs; ++argIdx) {
+      size_t bufferIdx = bufferSet * numArgs + argIdx;
+      HIPCHECK(hipMemcpyAsync(gpuBuffers[bufferIdx], hostBuffers[argIdx],
+                              bufferSizes[argIdx], hipMemcpyHostToDevice,
+                              stream));
+    }
   }
 
   // Load all modules once to reduce overhead
@@ -438,12 +474,31 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   bool isSmallKernel = false;
   unsigned iterations = params.numIterations;
 
+  // We need at least as many iterations as we have rotating buffers.
+  if (iterations < numBufferSets) {
+    llvm::errs()
+        << "numIterations must be greater than or equal to numBufferSets\n";
+    return failure();
+  }
+
   if (params.warmupIterations > 0) {
     // Warmup run. We measure the warmup to get an estimate of the kernel
     // runtime. We will use this estimate to determine if the kernel is small or
     // not.
     double totalMillisecondsWarmup = 0.0;
     for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
+      // Select which buffer set to use for this warmup iteration
+      unsigned bufferSet = iter % numBufferSets;
+
+      // Build argPointers for this buffer set
+      std::vector<void *> warmupArgPointers;
+      warmupArgPointers.reserve(numArgs);
+      for (unsigned argIdx = 0; argIdx < numArgs; ++argIdx) {
+        size_t bufferIdx = bufferSet * numArgs + argIdx;
+        warmupArgPointers.push_back(
+            reinterpret_cast<void *>(&gpuBuffers[bufferIdx]));
+      }
+
       for (auto [func, blockSize, gridSize] :
            llvm::zip(functions, blockSizes, gridSizes)) {
         hipEvent_t startEvent, stopEvent;
@@ -452,7 +507,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
 
         HIPCHECK(hipExtModuleLaunchKernel(
             func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-            argPointers.data(), nullptr, startEvent, stopEvent));
+            warmupArgPointers.data(), nullptr, startEvent, stopEvent));
 
         HIPCHECK(hipStreamSynchronize(stream));
 
@@ -492,12 +547,14 @@ benchmarkKernels(ArrayRef<std::string> binaries,
 
   if (isSmallKernel) {
     if (failed(measureSmallKernel(iterations, stream, functions, blockSizes,
-                                  gridSizes, argPointers, measurements,
-                                  smallKernelCpuMs, benchmarkMode)))
+                                  gridSizes, gpuBuffers, numArgs, numBufferSets,
+                                  measurements, smallKernelCpuMs,
+                                  benchmarkMode)))
       return failure();
   } else {
     if (failed(measureLargeKernel(iterations, stream, functions, blockSizes,
-                                  gridSizes, argPointers, measurements)))
+                                  gridSizes, gpuBuffers, numArgs, numBufferSets,
+                                  measurements)))
       return failure();
   }
 
@@ -657,19 +714,30 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   });
   assert(argTypes.size() == bufferLengths.size() &&
          "number of arguments and buffer lengths must match");
+
+  // Allocate host buffers (one per argument)
   for (auto [argType, bufferLength] : llvm::zip(argTypes, bufferLengths)) {
     benchmark::DataType type = getDataType(getElementTypeOrSelf(argType));
     void *hostBuffer = benchmark::allocAndFill(type, bufferLength);
-    void *gpuBuffer = nullptr;
-    hipError_t hipStatus = hipMalloc(&gpuBuffer, bufferLength);
-    if (hipStatus != hipSuccess) {
-      free(hostBuffer);
-      llvm::errs() << "HIP error in hipMalloc(gpuBuffer): "
-                   << hipGetErrorString(hipStatus) << "\n";
-      return failure();
-    }
     hostBuffers.push_back(hostBuffer);
-    gpuBuffers.push_back(gpuBuffer);
+  }
+
+  // Allocate rotating GPU buffers (N copies of each buffer)
+  // Buffer layout: [arg0_set0, arg1_set0, ..., argM-1_set0, arg0_set1, ...]
+  unsigned numArgs = argTypes.size();
+  unsigned numBufferSets = numRotatingBuffers;
+  for (unsigned bufferSet = 0; bufferSet < numBufferSets; ++bufferSet) {
+    for (unsigned argIdx = 0; argIdx < numArgs; ++argIdx) {
+      size_t bufferLength = bufferLengths[argIdx];
+      void *gpuBuffer = nullptr;
+      hipError_t hipStatus = hipMalloc(&gpuBuffer, bufferLength);
+      if (hipStatus != hipSuccess) {
+        llvm::errs() << "HIP error in hipMalloc(gpuBuffer): "
+                     << hipGetErrorString(hipStatus) << "\n";
+        return failure();
+      }
+      gpuBuffers.push_back(gpuBuffer);
+    }
   }
 
   // 4. Multi-iteration tuning loop
@@ -681,7 +749,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   const BenchmarkParams benchmarkParams = {
       numIterations,     warmupIterations, useMedian,           trimPercent,
       sleepUs,           showStats,        showAllMeasurements, tuningSpaceKind,
-      numCompileThreads, benchmarkConfig};
+      numCompileThreads, benchmarkConfig,  numRotatingBuffers};
 
   unsigned numTuningIterations =
       rock::getNumberOfIterations(benchmarkParams.tuningSpaceKind);
