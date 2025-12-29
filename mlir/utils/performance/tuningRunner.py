@@ -373,12 +373,20 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
             perfRunner.BENCHMARKING_RESULT_FILE_NAME, '--', paths.mlir_paths.cpu_runner_path
         ] + mlir_cpu_runner_args
 
-    env = make_isolated_gpu_env(gpu_id)
+    verification_pipeline = " | ".join([
+        ' '.join(rocmlir_gen_command), ' '.join(rocmlir_driver_command), ' '.join(rocprof_command)
+    ])
+
+    debug_info = f"[GPU {gpu_id}] Verification pipeline:\n" + verification_pipeline
+
+    if not options.quiet and options.debug:
+        print(debug_info, file=sys.stderr)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         p1 = None
         p2 = None
         p3 = None
+        env = make_isolated_gpu_env(gpu_id)
         try:
             p1 = subprocess.Popen(rocmlir_gen_command,
                                   stdout=subprocess.PIPE,
@@ -399,10 +407,6 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
                                   env=env,
                                   cwd=tmpdir)
             p2.stdout.close()
-
-            debug_info = f"""rocmlir-gen cmd = {rocmlir_gen_command}
-rocmlir-driver cmd = {' '.join(rocmlir_driver_command)}
-rocprof cmd = {' '.join(rocprof_command)}"""
 
             try:
                 outs, errs = p3.communicate(timeout=600)
@@ -528,6 +532,8 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                                              stderr=subprocess.PIPE,
                                              env=env)
             rocmlir_gen.stdout.close()
+            tuning_pipeline = " | ".join(
+                [' '.join(rocmlir_gen_command), ' '.join(tuning_driver_command)])
         else:
             rocmlir_gen_command += ['--emit-tuning-key', test_vector]
             tuning_key = subprocess.Popen(rocmlir_gen_command,
@@ -543,13 +549,12 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                                              stdout=subprocess.PIPE,
                                              stderr=subprocess.PIPE,
                                              env=env)
+            tuning_pipeline = ' '.join(tuning_driver_command)
+
+        debug_info = f"[GPU {gpu_id}] Tuning pipeline:\n" + tuning_pipeline
 
         if not options.quiet and options.debug:
-            print(
-                f"GPU ID = {gpu_id}\n"
-                f"rocmlir-gen cmd = {' '.join(rocmlir_gen_command)}\n"
-                f"tuning-driver cmd = {' '.join(tuning_driver_command)}",
-                file=sys.stderr)
+            print(debug_info, file=sys.stderr)
 
         # Note: communicate waits for process to terminate which might cuase CI timeouts if tuning takes too long
         tuning_stdout, tuning_stderr = tuning_driver.communicate()
