@@ -445,6 +445,7 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
   MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
   int64_t inputSpanLen = mfmaAttr.inputSpanLen;
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
+  int64_t kBase = accelEmitterParams.kBase;
   bool isKReduction = mfmaAttr.isKReduction;
   int64_t kIter = kpackPerThread;
   int64_t kVec = 1;
@@ -547,11 +548,9 @@ Value MfmaEmitter::wrapLDSBufferForLoad(
     // Use LDS transpose compatible K formula only when:
     // 1. Other operand uses LDS transpose load (hybrid scenario)
     // 2. kVec >= kBase (enough elements per load to decompose)
-    int64_t kBase = accelEmitterParams.kBase;
     if (useLdsTransposeLoad && kVec >= kBase) {
       // K access pattern must match the transpose load's pattern.
       // For double-rate MFMA, properly distribute K across threads
-      MfmaInsnAttr mfmaAttr = mfmaGroup.getInsnAttr();
       int64_t instrK = mfmaAttr.k;
       int64_t numBlksInK = instrK / kBase;
       int64_t numBlksInD = (waveSize / inputSpanLen) / numBlksInK;
