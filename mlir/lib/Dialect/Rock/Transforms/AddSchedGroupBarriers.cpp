@@ -18,9 +18,10 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/Analysis/LoopAnalysis.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
@@ -78,6 +79,12 @@ static bool hasGlobalAddressSpace(MemRefType memrefType) {
   return false;
 }
 
+/// Check if a value is defined by an arith.select operation, which indicates
+/// double buffering (selecting between two different LDS buffers)
+static bool isDefinedBySelect(Value val) {
+  return val.getDefiningOp<arith::SelectOp>() != nullptr;
+}
+
 /// Get the trip count of an affine.for loop, returns 1 if unknown
 static uint64_t getAffineForTripCount(affine::AffineForOp affineFor) {
   std::optional<uint64_t> tripCount = affine::getConstantTripCount(affineFor);
@@ -109,6 +116,9 @@ struct ScfForAnalysisResult {
   uint64_t ldsReads = 0;
   uint64_t ldsWrites = 0;
   uint64_t mfmaOps = 0;
+  /// Indicates if the loop uses double buffering (LDS reads/writes use
+  /// arith.select to choose between two buffers)
+  bool isDoubleBuffered = false;
 };
 
 /// Analyze a single scf.for operation
@@ -149,6 +159,11 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
       if (auto memrefType = dyn_cast<MemRefType>(memrefLoad.getMemRef().getType())) {
         if (hasWorkgroupAddressSpace(memrefType)) {
           result.ldsReads += multiplier;
+          // Check for double buffering: if the memref is selected via
+          // arith.select, it indicates alternating between two LDS buffers
+          if (isDefinedBySelect(memrefLoad.getMemRef())) {
+            result.isDoubleBuffered = true;
+          }
         }
       }
       return;
@@ -159,6 +174,11 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
       if (auto memrefType = dyn_cast<MemRefType>(memrefStore.getMemRef().getType())) {
         if (hasWorkgroupAddressSpace(memrefType)) {
           result.ldsWrites += multiplier;
+          // Check for double buffering: if the memref is selected via
+          // arith.select, it indicates alternating between two LDS buffers
+          if (isDefinedBySelect(memrefStore.getMemRef())) {
+            result.isDoubleBuffered = true;
+          }
         }
       }
       return;
@@ -169,6 +189,11 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
       if (auto memrefType = dyn_cast<MemRefType>(transferWrite.getBase().getType())) {
         if (hasWorkgroupAddressSpace(memrefType)) {
           result.ldsWrites += multiplier;
+          // Check for double buffering: if the memref is selected via
+          // arith.select, it indicates alternating between two LDS buffers
+          if (isDefinedBySelect(transferWrite.getBase())) {
+            result.isDoubleBuffered = true;
+          }
         }
       }
       return;
@@ -218,6 +243,8 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
       llvm::dbgs() << "LDS reads per iteration: " << analysis.ldsReads << "\n";
       llvm::dbgs() << "LDS writes per iteration: " << analysis.ldsWrites << "\n";
       llvm::dbgs() << "MFMA operations per iteration: " << analysis.mfmaOps << "\n";
+      llvm::dbgs() << "Double buffering detected: "
+                   << (analysis.isDoubleBuffered ? "yes" : "no") << "\n";
       llvm::dbgs() << "========================\n\n";
     });
 
@@ -239,35 +266,61 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
 
     // Insert sched group barriers based on the analysis
     if (numBufferLoads > 0) {
-      // Ensure we have at least 3 MFMAs to distribute (for the pattern)
       for (uint64_t i = 0; i < numBufferLoads; i++) {
         uint64_t dsReadsPerLoad = llvm::divideCeil(numDSReads, numBufferLoads);
         uint64_t dsWritesPerLoad =
             llvm::divideCeil(numDSWrites, numBufferLoads);
         uint64_t mfmaPerLoad = llvm::divideCeil(numMFMA, numBufferLoads);
-        ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1, 0); // VMEM
-        if (dsReadsPerLoad > 0) {
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
-                                           dsReadsPerLoad,
-                                           0); // DS Reads
-        }
-        uint64_t mfmaPerDSWrite =
-            llvm::divideCeil(mfmaPerLoad, dsWritesPerLoad);
-        while (dsWritesPerLoad > 0 && mfmaPerLoad > 0) {
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200, 1,
-                                           0); // DS Writes
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
-                                           mfmaPerDSWrite, 0); // MFMA
-          mfmaPerLoad -= mfmaPerDSWrite;
-          dsWritesPerLoad--;
-        }
-        if (dsWritesPerLoad > 0) {
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
-                                           dsWritesPerLoad, 0); // DS Writes
-        }
-        if (mfmaPerLoad > 0) {
-          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, mfmaPerLoad,
-                                           0); // MFMA
+        if (analysis.isDoubleBuffered) {
+          uint64_t dsWritesPerMFMA =
+              llvm::divideCeil(dsWritesPerLoad, mfmaPerLoad);
+          if (dsWritesPerLoad > 0 && mfmaPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
+                                             dsWritesPerMFMA, 0); // DS Writes
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
+                                             0); // MFMA
+            mfmaPerLoad--;
+            dsWritesPerLoad -= dsWritesPerMFMA;
+          }
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1,
+                                           0); // VMEM
+          if (mfmaPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
+                                             mfmaPerLoad,
+                                             0); // MFMA
+          }
+          if (dsReadsPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
+                                             dsReadsPerLoad,
+                                             0); // DS Reads
+          }
+        } else {
+          ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1,
+                                           0); // VMEM
+          if (dsReadsPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x100,
+                                             dsReadsPerLoad,
+                                             0); // DS Reads
+          }
+          uint64_t mfmaPerDSWrite =
+              llvm::divideCeil(mfmaPerLoad, dsWritesPerLoad);
+          while (dsWritesPerLoad > 0 && mfmaPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200, 1,
+                                             0); // DS Writes
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
+                                             mfmaPerDSWrite, 0); // MFMA
+            mfmaPerLoad -= mfmaPerDSWrite;
+            dsWritesPerLoad--;
+          }
+          if (dsWritesPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
+                                             dsWritesPerLoad, 0); // DS Writes
+          }
+          if (mfmaPerLoad > 0) {
+            ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
+                                             mfmaPerLoad,
+                                             0); // MFMA
+          }
         }
       }
     }
