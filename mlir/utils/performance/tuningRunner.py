@@ -331,7 +331,7 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
 
                 # Tune, printing progress as we go to avoid CI timeouts
                 winning_config, max_tflops, entries = get_winning_config(
-                    tuning_loop_stdout, config, paths, options)
+                    tuning_loop_stdout.splitlines(), config, paths, options)
 
             except TuningError as e:
                 log_error(error_title, str(e), outfile)
