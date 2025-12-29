@@ -96,7 +96,7 @@ export TUNA_DIR=/tmp/MITuna
 export ROCMLIR_DIR=$(pwd)/..      # Assumes we're in the build directory
 export OUT_FILE=results.tsv
 export OP=convolution
-export TUNING_SPACE=exhaustive
+export TUNING_SPACE=greedy
 export LOAD_FACTOR=
 
 # -c configs
