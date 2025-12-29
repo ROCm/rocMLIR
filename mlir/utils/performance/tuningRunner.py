@@ -88,7 +88,10 @@ def verify_kernel_with_perfconfig(perfconfig, config, paths: Paths, options: Opt
         ] + mlir_cpu_runner_args
 
     if options.debug:
+        print('Running commands:', file=sys.stderr)
         print(rocmlir_gen_command, file=sys.stderr)
+        print(rocmlir_driver_command, file=sys.stderr)
+        print(profiler_command, file=sys.stderr)
 
     prevdir = os.getcwd()
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -275,7 +278,28 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                                                    stdin=kernel_gen.stdout,
                                                    stdout=subprocess.PIPE,
                                                    stderr=subprocess.PIPE)
-                    kernel_gen.stdout.close()
+                    # Wait for both processes to finish.
+                    tuning_loop_stdout, tuning_loop_stderr = tuning_loop.communicate()
+                    kernel_gen.communicate()
+
+                    # Make sure both processes finished successfully.
+                    if kernel_gen.returncode != 0:
+                        error_msg = f"rocmlir-gen failed with return code {kernel_gen.returncode}"
+                        log_error(error_title, error_msg, outfile)
+                        if options.abort_on_error:
+                            return False
+                        else:
+                            continue
+                    if tuning_loop.returncode != 0:
+                        error_msg = f"rocmlir-tuning-driver failed with return code {tuning_loop.returncode}"
+                        stderr_content = tuning_loop_stderr.decode('utf-8').strip()
+                        if stderr_content:
+                            error_msg += f"\nstderr:\n{stderr_content}"
+                        log_error(error_title, error_msg, outfile)
+                        if options.abort_on_error:
+                            return False
+                        else:
+                            continue
                 else:
                     # pipe to rocmlir_gen --emit-tuning-key
                     tuning_key = subprocess.Popen(
@@ -292,10 +316,22 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                                                    tuning_driver_args + [test_vector],
                                                    stdout=subprocess.PIPE,
                                                    stderr=subprocess.PIPE)
+                    # Wait and make sure the process finished successfully.
+                    tuning_loop_stdout, tuning_loop_stderr = tuning_loop.communicate()
+                    if tuning_loop.returncode != 0:
+                        error_msg = f"rocmlir-tuning-driver failed with return code {tuning_loop.returncode}"
+                        stderr_content = tuning_loop_stderr.decode('utf-8').strip()
+                        if stderr_content:
+                            error_msg += f"\nstderr:\n{stderr_content}"
+                        log_error(error_title, error_msg, outfile)
+                        if options.abort_on_error:
+                            return False
+                        else:
+                            continue
 
                 # Tune, printing progress as we go to avoid CI timeouts
                 winning_config, max_tflops, entries = get_winning_config(
-                    tuning_loop.stdout, config, paths, options)
+                    tuning_loop_stdout.splitlines(), config, paths, options)
 
             except TuningError as e:
                 log_error(error_title, str(e), outfile)
@@ -312,17 +348,6 @@ def tune_mlir_kernels(configs, conf_class, paths: Paths, options: Options):
                     if tuning_loop.poll() is None:
                         tuning_loop.terminate()
                     tuning_loop.wait()
-
-            if tuning_loop.returncode != 0:
-                error_msg = f"rocmlir-tuning-driver failed with return code {tuning_loop.returncode}"
-                stderr_content = tuning_loop.stderr.read().decode('utf-8').strip()
-                if stderr_content:
-                    error_msg += f"\nstderr:\n{stderr_content}"
-                log_error(error_title, error_msg, outfile)
-                if options.abort_on_error:
-                    return False
-                else:
-                    continue
 
             if winning_config == "None":
                 log_error(error_title, "No valid perf config found", outfile)
