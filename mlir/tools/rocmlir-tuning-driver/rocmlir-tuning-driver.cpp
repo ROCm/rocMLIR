@@ -18,6 +18,8 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -26,6 +28,7 @@
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+// #include "mlir/IR/IRBuilder.h"
 #include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -41,12 +44,17 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/FileUtilities.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/Passes.h"
 
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/Program.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <atomic>
 #include <cassert>
@@ -298,6 +306,142 @@ struct CompilationResult {
   SmallVector<uint32_t> gridSizes;
 };
 
+// Insert instruction cache flush assembly at the beginning of kernel functions
+static LogicalResult insertInstructionCacheFlush(ModuleOp module) {
+  // The assembly string for instruction cache flush (from CacheFlush.cpp)
+  constexpr const char *icacheFlushAsm = "s_icache_inv\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t"
+                                         "s_nop 0\n\t";
+
+  MLIRContext *ctx = module.getContext();
+  OpBuilder builder(ctx);
+  bool foundAnyKernel = false;
+
+  // module.dump();
+  // llvm::outs() << "module.walk()\n";
+
+  // Walk through all LLVM functions that are kernels
+  // After backend pipeline, kernels should be in LLVM dialect
+  WalkResult result = module.walk([&](LLVM::LLVMFuncOp funcOp) -> WalkResult {
+    // Check if this is a kernel function
+    // Kernels are typically in GPU modules or have specific calling conventions
+    bool isKernel = funcOp->hasAttr("gpu.kernel") &&
+                    funcOp->getParentOfType<gpu::GPUModuleOp>();
+
+    // llvm::outs() << "funcOp: ";
+    // funcOp->dump();
+    // llvm::outs() << "funcOp->getParentOfType<gpu::GPUModuleOp>(): ";
+    // funcOp->getParentOfType<gpu::GPUModuleOp>()->dump();
+    // llvm::outs() << "funcOp.getCConv(): ";
+    // // funcOp.getCConv().dump();
+
+    if (!isKernel)
+      return WalkResult::advance();
+
+    foundAnyKernel = true;
+
+    // Get the entry block
+    if (funcOp.getBody().empty())
+      return WalkResult::advance();
+
+    Block *entryBlock = &funcOp.getBody().front();
+    if (entryBlock->empty())
+      return WalkResult::advance();
+
+    // Insert the inline assembly at the beginning of the entry block
+    builder.setInsertionPointToStart(entryBlock);
+
+    // Create LLVM inline assembly operation
+    // Format: llvm.inline_asm has_side_effects asm_string, constraints,
+    // operands For our case: no operands, no return value, just side effects
+    ValueRange emptyOperands;
+    auto asmDialectAttr =
+        LLVM::AsmDialectAttr::get(ctx, LLVM::AsmDialect::AD_ATT);
+    builder.create<LLVM::InlineAsmOp>(
+        funcOp.getLoc(),
+        /*resultTypes=*/TypeRange(LLVM::LLVMVoidType::get(ctx)),
+        /*operands=*/emptyOperands,
+        /*asm_string=*/icacheFlushAsm,
+        /*constraints=*/"",
+        /*has_side_effects=*/true,
+        /*is_align_stack=*/false,
+        /*tail_call_kind=*/LLVM::TailCallKind::None,
+        /*asm_dialect=*/asmDialectAttr,
+        /*operand_attrs=*/ArrayAttr());
+
+    return WalkResult::advance();
+  });
+
+  module.dump();
+  llvm::outs() << "module.walk()\n";
+
+  return foundAnyKernel ? success() : failure();
+}
+
+// Disassemble and print binary to verify inserted assembly
+static void printDisassembly(const std::string &binaryData,
+                             const std::string &kernelName) {
+  // Write binary to temporary file
+  int tempFd = -1;
+  llvm::SmallString<128> tempFilename;
+  if (llvm::sys::fs::createTemporaryFile("kernel", "hsaco", tempFd,
+                                         tempFilename)) {
+    llvm::errs() << "Failed to create temporary file for disassembly\n";
+    return;
+  }
+  llvm::FileRemover cleanup(tempFilename);
+
+  {
+    llvm::raw_fd_ostream tempOs(tempFd, true);
+    tempOs.write(binaryData.data(), binaryData.size());
+    tempOs.flush();
+  }
+
+  // Try to find llvm-objdump or rocm-objdump
+  llvm::ErrorOr<std::string> objdumpPath =
+      llvm::sys::findProgramByName("llvm-objdump");
+  if (!objdumpPath) {
+    objdumpPath = llvm::sys::findProgramByName("rocm-objdump");
+  }
+
+  if (!objdumpPath) {
+    llvm::errs()
+        << "Could not find llvm-objdump or rocm-objdump for disassembly\n";
+    return;
+  }
+
+  // Run objdump to disassemble
+  llvm::SmallVector<llvm::StringRef, 4> args;
+  args.push_back(*objdumpPath);
+  args.push_back("-d");                 // Disassemble
+  args.push_back("--arch-name=amdgcn"); // AMD GPU architecture
+  args.push_back(tempFilename);
+
+  llvm::outs() << "\n=== Disassembly for kernel: " << kernelName << " ===\n";
+  std::string errMsg;
+  int retCode = llvm::sys::ExecuteAndWait(*objdumpPath, args, std::nullopt, {},
+                                          0, 0, &errMsg);
+  if (retCode != 0) {
+    llvm::errs() << "Failed to disassemble binary: " << errMsg << "\n";
+  }
+  llvm::outs() << "=== End disassembly ===\n\n";
+}
+
 static LogicalResult measureSmallKernel(
     unsigned iterations, hipStream_t stream,
     const std::vector<hipFunction_t> &functions, ArrayRef<uint32_t> blockSizes,
@@ -313,11 +457,6 @@ static LogicalResult measureSmallKernel(
     const std::vector<void *> &argPointers = argPointersSets[bufferSet];
 
     // 2. Flush caches.
-    if (!benchmarkMode) {
-      if (failed(flushInstructionCache(stream))) {
-        return failure();
-      }
-    }
     // We only do explicit L2 flush when we are not rotating buffers.
     if (numRotatingBuffers == 1) {
       if (failed(flushL2Cache(stream))) {
@@ -353,9 +492,6 @@ static LogicalResult measureLargeKernel(
     unsigned bufferSet = iter % numRotatingBuffers;
     const std::vector<void *> &argPointers = argPointersSets[bufferSet];
 
-    if (failed(flushInstructionCache(stream))) {
-      return failure();
-    }
     // We only do explicit L2 flush when we are not rotating buffers.
     if (numRotatingBuffers == 1) {
       if (failed(flushL2Cache(stream))) {
@@ -823,13 +959,31 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       PassManager threadApplicability(&threadCtx,
                                       PassManager::getAnyOpAnchorName(),
                                       PassManager::Nesting::Implicit);
-      PassManager threadCompilation(&threadCtx,
-                                    PassManager::getAnyOpAnchorName(),
-                                    PassManager::Nesting::Implicit);
+      PassManager threadKernelPipeline(&threadCtx,
+                                       PassManager::getAnyOpAnchorName(),
+                                       PassManager::Nesting::Implicit);
+      PassManager threadBackendPipelineLLVM(&threadCtx,
+                                            PassManager::getAnyOpAnchorName(),
+                                            PassManager::Nesting::Implicit);
+      PassManager threadBackendPipelineBinary(&threadCtx,
+                                              PassManager::getAnyOpAnchorName(),
+                                              PassManager::Nesting::Implicit);
 
       rock::buildKernelPipeline(threadApplicability, applicabilityOpts);
-      rock::buildKernelPipeline(threadCompilation, compilationKernOpts);
-      rock::buildBackendPipeline(threadCompilation, backendOpts);
+      rock::buildKernelPipeline(threadKernelPipeline, compilationKernOpts);
+
+      // Backend pipeline to generate LLVM IR (compile=false)
+      rock::BackendOptions backendOptsLLVM;
+      backendOptsLLVM.triple = backendOpts.triple;
+      backendOptsLLVM.chip = backendOpts.chip;
+      backendOptsLLVM.features = backendOpts.features;
+      backendOptsLLVM.optLevel = backendOpts.optLevel;
+      backendOptsLLVM.compile = false;
+      backendOptsLLVM.suppressDiagnostic = backendOpts.suppressDiagnostic;
+      rock::buildBackendPipeline(threadBackendPipelineLLVM, backendOptsLLVM);
+
+      // Backend pipeline to compile LLVM IR to binary (compile=true)
+      rock::buildBackendPipeline(threadBackendPipelineBinary, backendOpts);
 
       StringAttr perfConfigAttr =
           StringAttr::get(&threadCtx, result.perfConfig);
@@ -875,10 +1029,42 @@ static LogicalResult runTuningLoop(ModuleOp source) {
             tunedFunc->getAttrOfType<IntegerAttr>("grid_size").getInt());
       }
 
-      // Compilation
-      if (failed(threadCompilation.run(sourceCopy.get()))) {
+      // Run kernel pipeline first (lowers Rock to GPU/LLVM dialect)
+      if (failed(threadKernelPipeline.run(sourceCopy.get()))) {
         std::lock_guard<std::mutex> lock(outputMutex);
-        llvm::errs() << "Backend pipeline failed for config: "
+        llvm::errs() << "Kernel pipeline failed for config: "
+                     << result.perfConfig << "\n";
+        result.status = CompilationStatus::CompilationFailed;
+        compilationFailed.store(true, std::memory_order_relaxed);
+        return result;
+      }
+
+      // Run backend pipeline with compile=false to generate LLVM IR
+      if (failed(threadBackendPipelineLLVM.run(sourceCopy.get()))) {
+        std::lock_guard<std::mutex> lock(outputMutex);
+        llvm::errs() << "Backend pipeline (LLVM IR) failed for config: "
+                     << result.perfConfig << "\n";
+        result.status = CompilationStatus::CompilationFailed;
+        compilationFailed.store(true, std::memory_order_relaxed);
+        return result;
+      }
+
+      // Insert instruction cache flush assembly at the beginning of kernel
+      // functions This must be done after backend pipeline generates LLVM IR
+      if (failed(insertInstructionCacheFlush(sourceCopy.get()))) {
+        std::lock_guard<std::mutex> lock(outputMutex);
+        llvm::errs() << "Failed to insert instruction cache flush for config: "
+                     << result.perfConfig << "\n";
+        result.status = CompilationStatus::CompilationFailed;
+        compilationFailed.store(true, std::memory_order_relaxed);
+        return result;
+      }
+
+      // Run backend pipeline with compile=true to compile LLVM IR to binary
+      // (includes the inserted assembly)
+      if (failed(threadBackendPipelineBinary.run(sourceCopy.get()))) {
+        std::lock_guard<std::mutex> lock(outputMutex);
+        llvm::errs() << "Backend pipeline (binary) failed for config: "
                      << result.perfConfig << "\n";
         result.status = CompilationStatus::CompilationFailed;
         compilationFailed.store(true, std::memory_order_relaxed);
@@ -894,11 +1080,17 @@ static LogicalResult runTuningLoop(ModuleOp source) {
           compilationFailed.store(true, std::memory_order_relaxed);
           return result;
         }
-        result.hipModules.push_back(
-            cast<gpu::ObjectAttr>(binary.getObjects()[0])
-                .getObject()
-                .getValue()
-                .str());
+        std::string binaryData = cast<gpu::ObjectAttr>(binary.getObjects()[0])
+                                     .getObject()
+                                     .getValue()
+                                     .str();
+        result.hipModules.push_back(binaryData);
+
+        // Print disassembly to verify inserted assembly
+        {
+          std::lock_guard<std::mutex> lock(outputMutex);
+          printDisassembly(binaryData, fnName);
+        }
       }
 
       result.status = CompilationStatus::Success;
