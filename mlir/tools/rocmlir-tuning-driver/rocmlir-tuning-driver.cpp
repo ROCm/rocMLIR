@@ -601,14 +601,12 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   double smallKernelCpuMs = 0.0;
 
   if (isSmallKernel) {
-    llvm::errs() << "Running small kernel\n";
     if (failed(measureSmallKernel(iterations, stream, functions, blockSizes,
                                   gridSizes, argPointersSets, numBufferSets,
                                   measurements, smallKernelCpuMs,
                                   benchmarkMode)))
       return failure();
   } else {
-    llvm::errs() << "Running large kernel\n";
     if (failed(measureLargeKernel(iterations, stream, functions, blockSizes,
                                   gridSizes, argPointersSets, numBufferSets,
                                   measurements)))
