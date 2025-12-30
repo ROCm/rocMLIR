@@ -313,6 +313,39 @@ static LDSLayoutConfigDim getLDSLayoutConfigDim(Type elementType, int64_t kpack,
   return cfg;
 }
 
+// Check if any block argument of the given type has an immediate arith.extf
+// user in the region. Used to detect when GEMM0 output is immediately extended
+// to a wider type for softmax.
+static bool hasImmediateExtension(Region &region, Type inputType) {
+  bool found = false;
+  region.walk([&](linalg::GenericOp genOp) {
+    Block &body = genOp.getRegion().front();
+    for (BlockArgument arg : body.getArguments()) {
+      if (arg.getType() != inputType)
+        continue;
+      for (Operation *user : arg.getUsers()) {
+        if (isa<arith::ExtFOp>(user)) {
+          found = true;
+          return WalkResult::interrupt();
+        }
+      }
+    }
+    return WalkResult::advance();
+  });
+  return found;
+}
+
+// Replace arith.extf ops that extend a value to the target type with the
+// value itself (since the extension is now a no-op).
+static void replaceRedundantExtensions(PatternRewriter &rewriter, Value value,
+                                       Type targetType) {
+  for (Operation *user : llvm::make_early_inc_range(value.getUsers())) {
+    auto extfOp = dyn_cast<arith::ExtFOp>(user);
+    if (extfOp && extfOp.getType() == targetType)
+      rewriter.replaceOp(extfOp, value);
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // GridwiseGemm lowering.
 //===----------------------------------------------------------------------===//
@@ -1623,6 +1656,54 @@ struct GridwiseAttentionAccelRewritePattern
         mapper.map(operand, tilebuffer);
       }
       newLinalgOp = cast<linalg::GenericOp>(rewriter.clone(*genOp, mapper));
+
+      // Update block argument types to match the new buffer element types.
+      // This is needed when buffer types change (e.g., f16 -> f32 for
+      // attention with FP32 softmax) to avoid type mismatches.
+      Block &newBlock = newLinalgOp.getRegion().front();
+      for (auto [arg, buffer] :
+           llvm::zip(newBlock.getArguments(), inputTileBuffers)) {
+        Type newElemType = cast<MemRefType>(buffer.getType()).getElementType();
+        Type oldElemType = arg.getType();
+        if (oldElemType == newElemType)
+          continue;
+
+        arg.setType(newElemType);
+
+        for (Operation *user : llvm::make_early_inc_range(arg.getUsers())) {
+          // Case 1: arith.extf that's now a no-op (input already in wide type)
+          if (auto extfOp = dyn_cast<arith::ExtFOp>(user)) {
+            if (extfOp.getType() == newElemType)
+              rewriter.replaceOp(extfOp, arg);
+            continue;
+          }
+
+          // Case 2: arithmetic ops need operand extension and result update
+          rewriter.setInsertionPoint(user);
+          bool needsUpdate = false;
+
+          for (OpOperand &operand : user->getOpOperands()) {
+            if (operand.get() == arg || operand.get().getType() != oldElemType)
+              continue;
+            Value extended = arith::ExtFOp::create(rewriter, user->getLoc(),
+                                                   newElemType, operand.get());
+            operand.set(extended);
+            needsUpdate = true;
+          }
+
+          if (!needsUpdate)
+            continue;
+
+          // Update result types and clean up downstream extf ops
+          for (OpResult result : user->getResults()) {
+            if (result.getType() != oldElemType)
+              continue;
+            result.setType(newElemType);
+            replaceRedundantExtensions(rewriter, result, newElemType);
+          }
+        }
+      }
+
       SmallVector<AffineMap> indexingMaps;
       for (size_t i = 0; i < inputTileBuffers.size(); i++) {
         indexingMaps.push_back(rewriter.getMultiDimIdentityMap(1));
@@ -2237,6 +2318,14 @@ struct GridwiseAttentionAccelRewritePattern
     Type gemmOutElemType = elemTypeV;
     if (elemTypeQ == rewriter.getI8Type()) {
       gemmOutElemType = rewriter.getI32Type();
+    } else if (op.getEnableSoftmax() &&
+               hasImmediateExtension(op.getPreSoftmaxBody(), elemTypeV)) {
+      // For attention with softmax where the gemm0 output is immediately
+      // extended to a wider type, use the softmax type for the intermediate
+      // GEMM0 output buffer to avoid FP32->FP16->FP32 roundtrip precision
+      // loss. The WMMA accumulator is FP32, and truncating to FP16 before
+      // softmax causes significant precision loss on RDNA3 (gfx11xx) GPUs.
+      gemmOutElemType = elemTypeSoftmax;
     }
     Type fusionOutElemType = elemTypeV;
     op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
