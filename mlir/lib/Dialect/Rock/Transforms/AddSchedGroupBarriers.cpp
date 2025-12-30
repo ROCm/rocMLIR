@@ -275,7 +275,7 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
         if (analysis.isDoubleBuffered) {
           uint64_t dsWritesPerMFMA =
               llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
-          if (dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
+          while(dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
                                              dsWritesPerMFMA, 0); // DS Writes
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
