@@ -115,7 +115,7 @@ struct ScfForAnalysisResult {
   uint64_t globalLoads = 0;
   uint64_t ldsReads = 0;
   uint64_t ldsWrites = 0;
-  uint64_t mfmaOps = 0;
+  uint64_t matrixMultiplyOps = 0;
   /// Indicates if the loop uses double buffering (LDS reads/writes use
   /// arith.select to choose between two buffers)
   bool isDoubleBuffered = false;
@@ -199,9 +199,10 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
       return;
     }
 
-    // Count amdgpu.mfma operations
-    if (isa<amdgpu::MFMAOp>(op)) {
-      result.mfmaOps += multiplier;
+    // Count Matrix multiply operations
+    if (isa<amdgpu::MFMAOp>(op) || isa<amdgpu::ScaledMFMAOp>(op) ||
+        isa<amdgpu::WMMAOp>(op)) {
+      result.matrixMultiplyOps += multiplier;
       return;
     }
   });
@@ -232,7 +233,7 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
     ScfForAnalysisResult analysis = analyzeScfFor(op);
 
     // Skip if no meaningful operations found
-    if (analysis.globalLoads == 0 && analysis.mfmaOps == 0)
+    if (analysis.globalLoads == 0 && analysis.matrixMultiplyOps == 0)
       return failure();
 
     // Print analysis results for debugging
@@ -242,7 +243,7 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
       llvm::dbgs() << "Global memory loads per iteration: " << analysis.globalLoads << "\n";
       llvm::dbgs() << "LDS reads per iteration: " << analysis.ldsReads << "\n";
       llvm::dbgs() << "LDS writes per iteration: " << analysis.ldsWrites << "\n";
-      llvm::dbgs() << "MFMA operations per iteration: " << analysis.mfmaOps << "\n";
+      llvm::dbgs() << "Matrix multiply operations per iteration: " << analysis.matrixMultiplyOps << "\n";
       llvm::dbgs() << "Double buffering detected: "
                    << (analysis.isDoubleBuffered ? "yes" : "no") << "\n";
       llvm::dbgs() << "========================\n\n";
@@ -251,7 +252,7 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
     uint64_t numBufferLoads = analysis.globalLoads;
     uint64_t numDSReads = analysis.ldsReads;
     uint64_t numDSWrites = analysis.ldsWrites;
-    uint64_t numMFMA = analysis.mfmaOps;
+    uint64_t numMatrixMultiplyOps = analysis.matrixMultiplyOps;
 
     // Insert sched_barrier at the start of the block
     rw.setInsertionPointToStart(&block);
@@ -265,28 +266,28 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
     rw.setInsertionPointAfter(lastOp);
 
     // Insert sched group barriers based on the analysis
-    if (numBufferLoads > 0) {
+    if (numBufferLoads > 0 && numMatrixMultiplyOps > 0) {
       for (uint64_t i = 0; i < numBufferLoads; i++) {
         uint64_t dsReadsPerLoad = llvm::divideCeil(numDSReads, numBufferLoads);
         uint64_t dsWritesPerLoad =
             llvm::divideCeil(numDSWrites, numBufferLoads);
-        uint64_t mfmaPerLoad = llvm::divideCeil(numMFMA, numBufferLoads);
+        uint64_t matrixMultiplyPerLoad = llvm::divideCeil(numMatrixMultiplyOps, numBufferLoads);
         if (analysis.isDoubleBuffered) {
           uint64_t dsWritesPerMFMA =
-              llvm::divideCeil(dsWritesPerLoad, mfmaPerLoad);
-          if (dsWritesPerLoad > 0 && mfmaPerLoad > 0) {
+              llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
+          if (dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
                                              dsWritesPerMFMA, 0); // DS Writes
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
                                              0); // MFMA
-            mfmaPerLoad--;
+            matrixMultiplyPerLoad--;
             dsWritesPerLoad -= dsWritesPerMFMA;
           }
           ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x020, 1,
                                            0); // VMEM
-          if (mfmaPerLoad > 0) {
+          if (matrixMultiplyPerLoad > 0) {
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
-                                             mfmaPerLoad,
+                                             matrixMultiplyPerLoad,
                                              0); // MFMA
           }
           if (dsReadsPerLoad > 0) {
@@ -303,19 +304,19 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
                                              0); // DS Reads
           }
           uint64_t dsWritesPerMFMA =
-              llvm::divideCeil(dsWritesPerLoad, mfmaPerLoad);
-          while (dsWritesPerLoad > 0 && mfmaPerLoad > 0) {
+              llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
+          while (dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
                                              dsWritesPerMFMA,
                                              0); // DS Writes
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
                                              0); // MFMA
-            mfmaPerLoad--;
+            matrixMultiplyPerLoad--;
             dsWritesPerLoad -= dsWritesPerMFMA;
           }
-          if (mfmaPerLoad > 0) {
+          if (matrixMultiplyPerLoad > 0) {
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008,
-                                             mfmaPerLoad,
+                                             matrixMultiplyPerLoad,
                                              0); // MFMA
           }
         }
