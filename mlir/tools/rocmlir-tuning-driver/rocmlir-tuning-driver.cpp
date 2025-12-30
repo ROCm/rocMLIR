@@ -49,12 +49,8 @@
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/InitLLVM.h"
-#include "llvm/Support/Program.h"
 #include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <atomic>
 #include <cassert>
@@ -332,23 +328,10 @@ static LogicalResult insertInstructionCacheFlush(ModuleOp module) {
   OpBuilder builder(ctx);
   bool foundAnyKernel = false;
 
-  // module.dump();
-  // llvm::outs() << "module.walk()\n";
-
-  // Walk through all LLVM functions that are kernels
-  // After backend pipeline, kernels should be in LLVM dialect
+  // Walk through all LLVM functions that are kernels.
   WalkResult result = module.walk([&](LLVM::LLVMFuncOp funcOp) -> WalkResult {
-    // Check if this is a kernel function
-    // Kernels are typically in GPU modules or have specific calling conventions
     bool isKernel = funcOp->hasAttr("gpu.kernel") &&
                     funcOp->getParentOfType<gpu::GPUModuleOp>();
-
-    // llvm::outs() << "funcOp: ";
-    // funcOp->dump();
-    // llvm::outs() << "funcOp->getParentOfType<gpu::GPUModuleOp>(): ";
-    // funcOp->getParentOfType<gpu::GPUModuleOp>()->dump();
-    // llvm::outs() << "funcOp.getCConv(): ";
-    // // funcOp.getCConv().dump();
 
     if (!isKernel)
       return WalkResult::advance();
@@ -366,16 +349,12 @@ static LogicalResult insertInstructionCacheFlush(ModuleOp module) {
     // Insert the inline assembly at the beginning of the entry block
     builder.setInsertionPointToStart(entryBlock);
 
-    // Create LLVM inline assembly operation
-    // Format: llvm.inline_asm has_side_effects asm_string, constraints,
-    // operands For our case: no operands, no return value, just side effects
-    ValueRange emptyOperands;
     auto asmDialectAttr =
         LLVM::AsmDialectAttr::get(ctx, LLVM::AsmDialect::AD_ATT);
     builder.create<LLVM::InlineAsmOp>(
         funcOp.getLoc(),
         /*resultTypes=*/TypeRange(LLVM::LLVMVoidType::get(ctx)),
-        /*operands=*/emptyOperands,
+        /*operands=*/ValueRange(),
         /*asm_string=*/icacheFlushAsm,
         /*constraints=*/"",
         /*has_side_effects=*/true,
@@ -387,59 +366,7 @@ static LogicalResult insertInstructionCacheFlush(ModuleOp module) {
     return WalkResult::advance();
   });
 
-  module.dump();
-  llvm::outs() << "module.walk()\n";
-
   return foundAnyKernel ? success() : failure();
-}
-
-// Disassemble and print binary to verify inserted assembly
-static void printDisassembly(const std::string &binaryData,
-                             const std::string &kernelName) {
-  // Write binary to temporary file
-  int tempFd = -1;
-  llvm::SmallString<128> tempFilename;
-  if (llvm::sys::fs::createTemporaryFile("kernel", "hsaco", tempFd,
-                                         tempFilename)) {
-    llvm::errs() << "Failed to create temporary file for disassembly\n";
-    return;
-  }
-  llvm::FileRemover cleanup(tempFilename);
-
-  {
-    llvm::raw_fd_ostream tempOs(tempFd, true);
-    tempOs.write(binaryData.data(), binaryData.size());
-    tempOs.flush();
-  }
-
-  // Try to find llvm-objdump or rocm-objdump
-  llvm::ErrorOr<std::string> objdumpPath =
-      llvm::sys::findProgramByName("llvm-objdump");
-  if (!objdumpPath) {
-    objdumpPath = llvm::sys::findProgramByName("rocm-objdump");
-  }
-
-  if (!objdumpPath) {
-    llvm::errs()
-        << "Could not find llvm-objdump or rocm-objdump for disassembly\n";
-    return;
-  }
-
-  // Run objdump to disassemble
-  llvm::SmallVector<llvm::StringRef, 4> args;
-  args.push_back(*objdumpPath);
-  args.push_back("-d");                 // Disassemble
-  args.push_back("--arch-name=amdgcn"); // AMD GPU architecture
-  args.push_back(tempFilename);
-
-  llvm::outs() << "\n=== Disassembly for kernel: " << kernelName << " ===\n";
-  std::string errMsg;
-  int retCode = llvm::sys::ExecuteAndWait(*objdumpPath, args, std::nullopt, {},
-                                          0, 0, &errMsg);
-  if (retCode != 0) {
-    llvm::errs() << "Failed to disassemble binary: " << errMsg << "\n";
-  }
-  llvm::outs() << "=== End disassembly ===\n\n";
 }
 
 static LogicalResult measureSmallKernel(
@@ -1080,17 +1007,11 @@ static LogicalResult runTuningLoop(ModuleOp source) {
           compilationFailed.store(true, std::memory_order_relaxed);
           return result;
         }
-        std::string binaryData = cast<gpu::ObjectAttr>(binary.getObjects()[0])
-                                     .getObject()
-                                     .getValue()
-                                     .str();
-        result.hipModules.push_back(binaryData);
-
-        // Print disassembly to verify inserted assembly
-        {
-          std::lock_guard<std::mutex> lock(outputMutex);
-          printDisassembly(binaryData, fnName);
-        }
+        result.hipModules.push_back(
+            cast<gpu::ObjectAttr>(binary.getObjects()[0])
+                .getObject()
+                .getValue()
+                .str());
       }
 
       result.status = CompilationStatus::Success;
