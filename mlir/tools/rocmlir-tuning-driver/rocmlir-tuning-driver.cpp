@@ -298,32 +298,25 @@ struct CompilationResult {
   SmallVector<uint32_t> gridSizes;
 };
 
-static LogicalResult
-measureSmallKernel(unsigned iterations, hipStream_t stream,
-                   const std::vector<hipFunction_t> &functions,
-                   ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-                   MutableArrayRef<void *> gpuBuffers, unsigned numArgs,
-                   unsigned numRotatingBuffers,
-                   std::vector<double> &measurements, double &smallKernelCpuMs,
-                   bool benchmarkMode) {
+static LogicalResult measureSmallKernel(
+    unsigned iterations, hipStream_t stream,
+    const std::vector<hipFunction_t> &functions, ArrayRef<uint32_t> blockSizes,
+    ArrayRef<uint32_t> gridSizes, ArrayRef<std::vector<void *>> argPointersSets,
+    unsigned numRotatingBuffers, std::vector<double> &measurements,
+    double &smallKernelCpuMs, bool benchmarkMode) {
   // Special case for small kernels, where we measure the time for all kernels
   // at once, using CPU timers.
   auto iterationStart = std::chrono::steady_clock::now();
   for (unsigned iter = 0; iter < iterations; ++iter) {
     // 1. Select which buffer set to use for this iteration.
     unsigned bufferSet = iter % numRotatingBuffers;
+    const std::vector<void *> &argPointers = argPointersSets[bufferSet];
 
-    // Build argPointers for this buffer set
-    std::vector<void *> argPointers;
-    argPointers.reserve(numArgs);
-    for (unsigned argIdx = 0; argIdx < numArgs; ++argIdx) {
-      size_t bufferIdx = bufferSet * numArgs + argIdx;
-      argPointers.push_back(reinterpret_cast<void *>(&gpuBuffers[bufferIdx]));
-    }
-
-    // 2. Flush instruction cache.
-    if (failed(flushInstructionCache(stream))) {
-      return failure();
+    // 2. Flush caches.
+    if (!benchmarkMode) {
+      if (failed(flushInstructionCache(stream))) {
+        return failure();
+      }
     }
     // We only do explicit L2 flush when we are not rotating buffers.
     if (numRotatingBuffers == 1) {
@@ -337,7 +330,7 @@ measureSmallKernel(unsigned iterations, hipStream_t stream,
          llvm::zip(functions, blockSizes, gridSizes)) {
       HIPCHECK(hipExtModuleLaunchKernel(
           func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-          argPointers.data(), nullptr, nullptr, nullptr));
+          const_cast<void **>(argPointers.data()), nullptr, nullptr, nullptr));
     }
   }
 
@@ -349,25 +342,16 @@ measureSmallKernel(unsigned iterations, hipStream_t stream,
   return success();
 }
 
-static LogicalResult
-measureLargeKernel(unsigned iterations, hipStream_t stream,
-                   const std::vector<hipFunction_t> &functions,
-                   ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-                   MutableArrayRef<void *> gpuBuffers, unsigned numArgs,
-                   unsigned numRotatingBuffers,
-                   std::vector<double> &measurements) {
+static LogicalResult measureLargeKernel(
+    unsigned iterations, hipStream_t stream,
+    const std::vector<hipFunction_t> &functions, ArrayRef<uint32_t> blockSizes,
+    ArrayRef<uint32_t> gridSizes, ArrayRef<std::vector<void *>> argPointersSets,
+    unsigned numRotatingBuffers, std::vector<double> &measurements) {
   // Measure runs normally.
   for (unsigned iter = 0; iter < iterations; ++iter) {
     // Select which buffer set to use for this iteration
     unsigned bufferSet = iter % numRotatingBuffers;
-
-    // Build argPointers for this buffer set
-    std::vector<void *> argPointers;
-    argPointers.reserve(numArgs);
-    for (unsigned argIdx = 0; argIdx < numArgs; ++argIdx) {
-      size_t bufferIdx = bufferSet * numArgs + argIdx;
-      argPointers.push_back(reinterpret_cast<void *>(&gpuBuffers[bufferIdx]));
-    }
+    const std::vector<void *> &argPointers = argPointersSets[bufferSet];
 
     if (failed(flushInstructionCache(stream))) {
       return failure();
@@ -387,9 +371,10 @@ measureLargeKernel(unsigned iterations, hipStream_t stream,
       HIPCHECK(hipEventCreate(&startEvent));
       HIPCHECK(hipEventCreate(&stopEvent));
 
-      HIPCHECK(hipExtModuleLaunchKernel(
-          func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-          argPointers.data(), nullptr, startEvent, stopEvent));
+      HIPCHECK(hipExtModuleLaunchKernel(func, gridSize * blockSize, 1, 1,
+                                        blockSize, 1, 1, 0, stream,
+                                        const_cast<void **>(argPointers.data()),
+                                        nullptr, startEvent, stopEvent));
       HIPCHECK(hipEventSynchronize(stopEvent));
 
       float currentMilliseconds = 0.0;
@@ -471,6 +456,20 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   });
 
+  // Pre-build argPointers for all buffer sets (reused for warmup and
+  // measurement)
+  std::vector<std::vector<void *>> argPointersSets;
+  argPointersSets.reserve(numBufferSets);
+  for (unsigned bufferSet = 0; bufferSet < numBufferSets; ++bufferSet) {
+    std::vector<void *> argPointers;
+    argPointers.reserve(numArgs);
+    for (unsigned argIdx = 0; argIdx < numArgs; ++argIdx) {
+      size_t bufferIdx = bufferSet * numArgs + argIdx;
+      argPointers.push_back(reinterpret_cast<void *>(&gpuBuffers[bufferIdx]));
+    }
+    argPointersSets.push_back(std::move(argPointers));
+  }
+
   bool isSmallKernel = false;
   unsigned iterations = params.numIterations;
 
@@ -489,15 +488,7 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
       // Select which buffer set to use for this warmup iteration
       unsigned bufferSet = iter % numBufferSets;
-
-      // Build argPointers for this buffer set
-      std::vector<void *> warmupArgPointers;
-      warmupArgPointers.reserve(numArgs);
-      for (unsigned argIdx = 0; argIdx < numArgs; ++argIdx) {
-        size_t bufferIdx = bufferSet * numArgs + argIdx;
-        warmupArgPointers.push_back(
-            reinterpret_cast<void *>(&gpuBuffers[bufferIdx]));
-      }
+      const std::vector<void *> &warmupArgPointers = argPointersSets[bufferSet];
 
       for (auto [func, blockSize, gridSize] :
            llvm::zip(functions, blockSizes, gridSizes)) {
@@ -507,7 +498,8 @@ benchmarkKernels(ArrayRef<std::string> binaries,
 
         HIPCHECK(hipExtModuleLaunchKernel(
             func, gridSize * blockSize, 1, 1, blockSize, 1, 1, 0, stream,
-            warmupArgPointers.data(), nullptr, startEvent, stopEvent));
+            const_cast<void **>(warmupArgPointers.data()), nullptr, startEvent,
+            stopEvent));
 
         HIPCHECK(hipStreamSynchronize(stream));
 
@@ -546,14 +538,16 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   double smallKernelCpuMs = 0.0;
 
   if (isSmallKernel) {
+    llvm::errs() << "Running small kernel\n";
     if (failed(measureSmallKernel(iterations, stream, functions, blockSizes,
-                                  gridSizes, gpuBuffers, numArgs, numBufferSets,
+                                  gridSizes, argPointersSets, numBufferSets,
                                   measurements, smallKernelCpuMs,
                                   benchmarkMode)))
       return failure();
   } else {
+    llvm::errs() << "Running large kernel\n";
     if (failed(measureLargeKernel(iterations, stream, functions, blockSizes,
-                                  gridSizes, gpuBuffers, numArgs, numBufferSets,
+                                  gridSizes, argPointersSets, numBufferSets,
                                   measurements)))
       return failure();
   }
