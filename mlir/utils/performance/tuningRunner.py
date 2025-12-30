@@ -13,7 +13,6 @@ Usage examples:
 
 import argparse
 import glob
-import math
 import os
 import subprocess
 import sys
@@ -23,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+from collections import deque
 
 import json
 import numpy as np
@@ -76,7 +76,7 @@ class Options:
     abort_on_error: bool
     retune: bool
     gpu_ids: List[int]
-    num_compile_threads: Optional[int]
+    num_cpus: int
 
 
 @dataclass
@@ -310,16 +310,20 @@ def validate_gpu_homogeneity(gpu_ids: List[int], gpu_info: Dict[int, str]) -> bo
     return len(skus) == 1
 
 
-def make_isolated_gpu_env(gpu_id: int) -> Dict[str, str]:
-    """Create environment that isolates subprocess to one physical GPU.
+def set_isolated_gpu_env(env: Dict[str, str], gpu_id: int) -> None:
+    """Modify environment to isolate subprocess to one physical GPU.
 
     Sets ROCR_VISIBLE_DEVICES at the HSA/ROCr level, providing complete
     isolation for all higher layers including HIP.
     """
-    env = os.environ.copy()
     env["ROCR_VISIBLE_DEVICES"] = str(gpu_id)
-    if "HIP_VISIBLE_DEVICES" in env:
-        del env["HIP_VISIBLE_DEVICES"]  # Remove HIP_VISIBLE_DEVICES to avoid conflicts
+    env.pop("HIP_VISIBLE_DEVICES", None)  # Remove HIP_VISIBLE_DEVICES to avoid conflicts
+
+
+def make_isolated_gpu_env(gpu_id: int) -> Dict[str, str]:
+    """Create environment that isolates subprocess to one physical GPU."""
+    env = os.environ.copy()
+    set_isolated_gpu_env(env, gpu_id)
     return env
 
 
@@ -377,7 +381,7 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
         ' '.join(rocmlir_gen_command), ' '.join(rocmlir_driver_command), ' '.join(rocprof_command)
     ])
 
-    debug_info = f"[GPU {gpu_id}] Verification pipeline:\n" + verification_pipeline
+    debug_info = f"[GPU {gpu_id}] Verification pipeline: " + verification_pipeline
 
     if not options.quiet and options.debug:
         print(debug_info, file=sys.stderr)
@@ -551,7 +555,7 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                                              env=env)
             tuning_pipeline = ' '.join(tuning_driver_command)
 
-        debug_info = f"[GPU {gpu_id}] Tuning pipeline:\n" + tuning_pipeline
+        debug_info = f"[GPU {gpu_id}] Tuning pipeline: " + tuning_pipeline
 
         if not options.quiet and options.debug:
             print(debug_info, file=sys.stderr)
@@ -607,22 +611,15 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
 
 def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
     """Tune multiple configurations in parallel across available GPUs."""
-    gpu_ids = options.gpu_ids
-    num_workers = min(len(gpu_ids), len(configs))
-
-    if options.num_compile_threads is not None:
-        num_compile_threads = options.num_compile_threads
-    else:
-        num_compile_threads = math.ceil((os.cpu_count() or 1) / num_workers)
-        # Avoid oversubscribing by leaving one CPU thread free for non-compilation work
-        num_compile_threads = max(1, num_compile_threads - 1)
+    num_workers = min(len(options.gpu_ids), len(configs))
+    num_compile_threads = max(1, options.num_cpus // num_workers)
 
     if not options.quiet:
-        print(f"Using {num_workers} GPU(s): {gpu_ids[:num_workers]}", file=sys.stderr)
-        print(f"Using {num_compile_threads} compile thread(s) per GPU", file=sys.stderr)
+        print(f"Using {num_workers} GPU(s): {options.gpu_ids[:num_workers]}", file=sys.stderr)
+        print(f"Using {num_compile_threads} compilation thread(s) per GPU", file=sys.stderr)
 
     gpu_assignment_lock = threading.Lock()
-    available_gpus = list(gpu_ids)
+    available_gpus = deque(options.gpu_ids)
 
     def get_gpu_id():
         """Ensure each thread gets a unique GPU ID."""
@@ -630,8 +627,9 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
             with gpu_assignment_lock:
                 if not available_gpus:
                     raise RuntimeError(
-                        f"More workers than available GPUs! Expected {len(gpu_ids)} workers max.")
-                _thread_local.gpu_id = available_gpus.pop()
+                        f"More workers than available GPUs! Expected {len(options.gpu_ids)} workers max."
+                    )
+                _thread_local.gpu_id = available_gpus.popleft()
         return _thread_local.gpu_id
 
     def tune_task(test_vector: str) -> TuningResult:
@@ -687,12 +685,13 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
 
                 for future in as_completed(futures):
                     result = future.result()
-                    progress_bar.update(1)
 
                     if result.success:
                         writer.write_result(result)
                         if debug_writer:
                             debug_writer.write_entries(result.entries)
+
+                        progress_bar.update(1)
                     else:
                         has_errors = True
                         error_message = result.error or "Unknown error"
@@ -700,8 +699,11 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
                             f"\t{line}" for line in error_message.splitlines())
                         print(content, file=sys.stderr)
                         writer.write_error(content)
+
                         if options.abort_on_error:
                             return False
+
+                        progress_bar.refresh()
 
                 if has_errors:
                     print("Encountered errors during tuning", file=sys.stderr)
@@ -759,15 +761,16 @@ def extract_fusion_configs(test_dir, paths: Paths, options: Options) -> Operatio
 
 def main(args=None):
     """Entry point. Parses arguments and starts tuning process."""
-    arch = perfRunner.get_arch()
-    num_cu = perfRunner.get_num_cu(perfRunner.get_chip())
+    gpu_info = get_gpu_info()
+    available_gpus = sorted(gpu_info.keys())
+
+    # We call into perfRunner which also queries GPU info using HIP and rocminfo.
+    # To ensure consistency, we isolate the process to the first available GPU.
+    set_isolated_gpu_env(os.environ, available_gpus[0])
 
     root_dir = str(
         subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
     default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
-
-    gpu_info = get_gpu_info()
-    available_gpus = sorted(gpu_info.keys())
 
     parser = argparse.ArgumentParser(
         prog="tuningRunner.py",
@@ -815,7 +818,7 @@ def main(args=None):
         "--rocmlir-gen-flags",
         "--rocmlir_gen_flags",  # for backward compatibility
         type=str,
-        default=argparse.SUPPRESS,
+        default="",
         help="Additional flags to pass to rocmlir-gen")
 
     parser.add_argument("-d",
@@ -900,13 +903,11 @@ def main(args=None):
                         help=f"GPUs to use for tuning (available: {available_gpus}, default: all)")
 
     parser.add_argument(
-        "--num-compile-threads",
+        "--num-cpus",
         type=int,
-        default=None,
+        default=os.cpu_count() or 1,
         metavar='N',
-        help=
-        "Number of parallel compilation threads per GPU (default: auto-calculated based on CPU cores and GPU count)"
-    )
+        help="Number of CPU cores to use for compilation (default: all available cores)")
 
     parsed_args = parser.parse_args(args)
 
@@ -922,10 +923,6 @@ def main(args=None):
               file=sys.stderr)
         return 1
 
-    rocmlir_gen_flags = ''
-    if 'rocmlir_gen_flags' in parsed_args:
-        rocmlir_gen_flags = parsed_args.rocmlir_gen_flags
-
     op_type = Operation.from_name(parsed_args.op)
     if op_type == Operation.FUSION:
         configs_path = "./fusion_config_file"
@@ -937,12 +934,12 @@ def main(args=None):
         print("rocMLIR build dir was not provided/found", file=sys.stderr)
         return 1
 
-    options = Options(arch=arch,
-                      num_cu=num_cu,
+    options = Options(arch=perfRunner.get_arch(),
+                      num_cu=perfRunner.get_num_cu(perfRunner.get_chip()),
                       debug=parsed_args.debug,
                       quiet=parsed_args.quiet,
                       tuning_space_kind=parsed_args.tuning_space,
-                      rocmlir_gen_flags=rocmlir_gen_flags,
+                      rocmlir_gen_flags=parsed_args.rocmlir_gen_flags,
                       verify_mode=parsed_args.verify_mode,
                       verify_perfconfigs=parsed_args.verify_perf_configs,
                       tflops=parsed_args.tflops,
@@ -950,7 +947,7 @@ def main(args=None):
                       abort_on_error=parsed_args.abort_on_error,
                       retune=parsed_args.retune,
                       gpu_ids=parsed_args.gpus,
-                      num_compile_threads=parsed_args.num_compile_threads)
+                      num_cpus=parsed_args.num_cpus)
 
     if op_type == Operation.FUSION:
         op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
@@ -976,9 +973,8 @@ def main(args=None):
         configs = perfRunner.get_conv_configurations(paths.configuration_file_path)
     elif op_type == Operation.GEMM:
         datatypes, output_map = perfRunner.parse_data_types(parsed_args.data_type)
-        scale_types = parsed_args.scale_type if parsed_args.scale_type else None
         configs = perfRunner.get_gemm_configurations(paths.configuration_file_path, datatypes,
-                                                     output_map, scale_types)
+                                                     output_map, parsed_args.scale_type)
     elif op_type == Operation.ATTENTION:
         configs = perfRunner.get_attn_configurations(paths.configuration_file_path)
     elif op_type == Operation.GEMM_GEMM:
@@ -987,7 +983,8 @@ def main(args=None):
         configs = perfRunner.get_conv_gemm_configurations(paths.configuration_file_path)
 
     try:
-        return not tune_configs(configs, conf_class, paths, options)
+        tuning_succeeded = tune_configs(configs, conf_class, paths, options)
+        return 0 if tuning_succeeded else 1
     except KeyboardInterrupt:
         print("Tuning interrupted by user", file=sys.stderr)
         return 1
