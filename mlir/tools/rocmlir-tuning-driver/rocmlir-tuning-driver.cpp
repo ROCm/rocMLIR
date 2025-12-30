@@ -300,23 +300,24 @@ struct CompilationResult {
 
 static LogicalResult measureSmallKernel(
     unsigned iterations, hipStream_t stream,
-    ArrayRef<const std::vector<hipFunction_t>> functionsPerIteration,
-    ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-    ArrayRef<std::vector<void *>> argPointersSets, unsigned numRotatingBuffers,
-    std::vector<double> &measurements, double &smallKernelCpuMs,
-    bool benchmarkMode) {
+    const std::vector<hipFunction_t> &functions, ArrayRef<uint32_t> blockSizes,
+    ArrayRef<uint32_t> gridSizes, ArrayRef<std::vector<void *>> argPointersSets,
+    unsigned numRotatingBuffers, std::vector<double> &measurements,
+    double &smallKernelCpuMs, bool benchmarkMode) {
   // Special case for small kernels, where we measure the time for all kernels
   // at once, using CPU timers.
   auto iterationStart = std::chrono::steady_clock::now();
   for (unsigned iter = 0; iter < iterations; ++iter) {
-    // 1. Select which buffer set and function set to use for this iteration.
+    // 1. Select which buffer set to use for this iteration.
     unsigned bufferSet = iter % numRotatingBuffers;
-    unsigned functionSet = iter % iterations;
     const std::vector<void *> &argPointers = argPointersSets[bufferSet];
-    const std::vector<hipFunction_t> &functions =
-        functionsPerIteration[functionSet];
 
     // 2. Flush caches.
+    if (!benchmarkMode) {
+      if (failed(flushInstructionCache(stream))) {
+        return failure();
+      }
+    }
     // We only do explicit L2 flush when we are not rotating buffers.
     if (numRotatingBuffers == 1) {
       if (failed(flushL2Cache(stream))) {
@@ -343,18 +344,14 @@ static LogicalResult measureSmallKernel(
 
 static LogicalResult measureLargeKernel(
     unsigned iterations, hipStream_t stream,
-    ArrayRef<const std::vector<hipFunction_t>> functionsPerIteration,
-    ArrayRef<uint32_t> blockSizes, ArrayRef<uint32_t> gridSizes,
-    ArrayRef<std::vector<void *>> argPointersSets, unsigned numRotatingBuffers,
-    std::vector<double> &measurements) {
+    const std::vector<hipFunction_t> &functions, ArrayRef<uint32_t> blockSizes,
+    ArrayRef<uint32_t> gridSizes, ArrayRef<std::vector<void *>> argPointersSets,
+    unsigned numRotatingBuffers, std::vector<double> &measurements) {
   // Measure runs normally.
   for (unsigned iter = 0; iter < iterations; ++iter) {
-    // Select which buffer set and function set to use for this iteration
+    // Select which buffer set to use for this iteration
     unsigned bufferSet = iter % numRotatingBuffers;
-    unsigned functionSet = iter % iterations;
     const std::vector<void *> &argPointers = argPointersSets[bufferSet];
-    const std::vector<hipFunction_t> &functions =
-        functionsPerIteration[functionSet];
 
     if (failed(flushInstructionCache(stream))) {
       return failure();
@@ -427,67 +424,29 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     }
   }
 
-  // Create multiple copies of kernel binaries (one per iteration) to avoid
-  // cache effects from reusing the same memory location
-  // We create enough copies for the maximum possible iterations (iterations can
-  // be increased after warmup, so we use a reasonable maximum)
-  unsigned initialIterations = params.numIterations;
-  constexpr unsigned maxIterations = 100; // Reasonable maximum
-  unsigned maxPossibleIterations = std::max(initialIterations, maxIterations);
-
-  std::vector<std::vector<char>> binaryCopies;
-  binaryCopies.reserve(binaries.size() * maxPossibleIterations);
-  for (unsigned iter = 0; iter < maxPossibleIterations; ++iter) {
-    for (const std::string &binary : binaries) {
-      // Create a copy of the binary in a new memory location
-      std::vector<char> binaryCopy(binary.begin(), binary.end());
-      binaryCopies.push_back(std::move(binaryCopy));
-    }
-  }
-
-  // Load all module copies (one set per iteration, up to maxPossibleIterations)
-  std::vector<std::vector<hipModule_t>> modulesPerIteration;
-  std::vector<std::vector<hipFunction_t>> functionsPerIteration;
-  modulesPerIteration.reserve(maxPossibleIterations);
-  functionsPerIteration.reserve(maxPossibleIterations);
-
+  // Load all modules once to reduce overhead
+  std::vector<hipModule_t> modules;
+  std::vector<hipFunction_t> functions;
   auto moduleCleanup = llvm::make_scope_exit([&]() {
-    for (auto &modules : modulesPerIteration) {
-      for (hipModule_t mod : modules) {
-        if (!mod)
-          continue;
-        hipError_t status = hipModuleUnload(mod);
-        if (status != hipSuccess) {
-          llvm::errs() << "HIP error in hipModuleUnload: "
-                       << hipGetErrorString(status) << "\n";
-        }
+    for (hipModule_t mod : modules) {
+      if (!mod)
+        continue;
+      hipError_t status = hipModuleUnload(mod);
+      if (status != hipSuccess) {
+        llvm::errs() << "HIP error in hipModuleUnload: "
+                     << hipGetErrorString(status) << "\n";
       }
     }
   });
 
-  // Load modules and functions for each iteration
-  for (unsigned iter = 0; iter < maxPossibleIterations; ++iter) {
-    std::vector<hipModule_t> modules;
-    std::vector<hipFunction_t> functions;
-    modules.reserve(funcNames.size());
-    functions.reserve(funcNames.size());
+  for (auto [binary, funcName] : llvm::zip(binaries, funcNames)) {
+    hipModule_t mod;
+    HIPCHECK(hipModuleLoadData(&mod, binary.c_str()));
+    modules.push_back(mod);
 
-    for (size_t funcIdx = 0; funcIdx < funcNames.size(); ++funcIdx) {
-      size_t binaryCopyIdx = iter * funcNames.size() + funcIdx;
-      const std::vector<char> &binaryCopy = binaryCopies[binaryCopyIdx];
-      const std::string &funcName = funcNames[funcIdx];
-
-      hipModule_t mod;
-      HIPCHECK(hipModuleLoadData(&mod, binaryCopy.data()));
-      modules.push_back(mod);
-
-      hipFunction_t func;
-      HIPCHECK(hipModuleGetFunction(&func, mod, funcName.c_str()));
-      functions.push_back(func);
-    }
-
-    modulesPerIteration.push_back(std::move(modules));
-    functionsPerIteration.push_back(std::move(functions));
+    hipFunction_t func;
+    HIPCHECK(hipModuleGetFunction(&func, mod, funcName.c_str()));
+    functions.push_back(func);
   }
 
   // Sleep guard to avoid GPU throttling
@@ -512,20 +471,12 @@ benchmarkKernels(ArrayRef<std::string> binaries,
   }
 
   bool isSmallKernel = false;
-  unsigned iterations = initialIterations;
+  unsigned iterations = params.numIterations;
 
   // We need at least as many iterations as we have rotating buffers.
   if (iterations < numBufferSets) {
     llvm::errs()
         << "numIterations must be greater than or equal to numBufferSets\n";
-    return failure();
-  }
-
-  // Ensure we don't exceed the maximum number of iterations we prepared for
-  if (iterations > maxPossibleIterations) {
-    llvm::errs() << "Requested iterations (" << iterations
-                 << ") exceeds maximum prepared iterations ("
-                 << maxPossibleIterations << ")\n";
     return failure();
   }
 
@@ -535,16 +486,12 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     // not.
     double totalMillisecondsWarmup = 0.0;
     for (unsigned iter = 0; iter < params.warmupIterations; ++iter) {
-      // Select which buffer set and function set to use for this warmup
-      // iteration
+      // Select which buffer set to use for this warmup iteration
       unsigned bufferSet = iter % numBufferSets;
-      unsigned functionSet = iter % iterations;
       const std::vector<void *> &warmupArgPointers = argPointersSets[bufferSet];
-      const std::vector<hipFunction_t> &warmupFunctions =
-          functionsPerIteration[functionSet];
 
       for (auto [func, blockSize, gridSize] :
-           llvm::zip(warmupFunctions, blockSizes, gridSizes)) {
+           llvm::zip(functions, blockSizes, gridSizes)) {
         hipEvent_t startEvent, stopEvent;
         HIPCHECK(hipEventCreate(&startEvent));
         HIPCHECK(hipEventCreate(&stopEvent));
@@ -574,19 +521,9 @@ benchmarkKernels(ArrayRef<std::string> binaries,
     // (counting all iterations), so increase the number of iterations
     // if necessary.
     constexpr float minTotalMilliseconds = 1.0f;
-    unsigned newIterations = std::max<unsigned>(
+    iterations = std::max<unsigned>(
         iterations, static_cast<unsigned>(std::ceil(minTotalMilliseconds /
                                                     totalMillisecondsWarmup)));
-
-    // Ensure we don't exceed the maximum number of iterations we prepared for
-    if (newIterations > maxPossibleIterations) {
-      llvm::errs() << "Computed iterations (" << newIterations
-                   << ") exceeds maximum prepared iterations ("
-                   << maxPossibleIterations << "). Limiting to maximum.\n";
-      iterations = maxPossibleIterations;
-    } else {
-      iterations = newIterations;
-    }
 
     // Depending on the runtime of the kernel,
     // we will use a different approach to measure the runs.
@@ -602,16 +539,16 @@ benchmarkKernels(ArrayRef<std::string> binaries,
 
   if (isSmallKernel) {
     llvm::errs() << "Running small kernel\n";
-    if (failed(measureSmallKernel(iterations, stream, functionsPerIteration,
-                                  blockSizes, gridSizes, argPointersSets,
-                                  numBufferSets, measurements, smallKernelCpuMs,
+    if (failed(measureSmallKernel(iterations, stream, functions, blockSizes,
+                                  gridSizes, argPointersSets, numBufferSets,
+                                  measurements, smallKernelCpuMs,
                                   benchmarkMode)))
       return failure();
   } else {
     llvm::errs() << "Running large kernel\n";
-    if (failed(measureLargeKernel(iterations, stream, functionsPerIteration,
-                                  blockSizes, gridSizes, argPointersSets,
-                                  numBufferSets, measurements)))
+    if (failed(measureLargeKernel(iterations, stream, functions, blockSizes,
+                                  gridSizes, argPointersSets, numBufferSets,
+                                  measurements)))
       return failure();
   }
 
