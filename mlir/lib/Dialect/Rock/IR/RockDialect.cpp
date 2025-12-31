@@ -1375,6 +1375,117 @@ LogicalResult InsertSliceOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// ScatterOp
+//===-----------------------------------------------------===//
+
+LogicalResult ScatterOp::verify() {
+  auto cacheType = cast<ShapedType>(getCache().getType());
+  auto indicesType = cast<ShapedType>(getIndices().getType());
+  auto updatesType = cast<ShapedType>(getUpdates().getType());
+
+  // Cache should be 3D: [N, K, C]
+  if (cacheType.getRank() != 3)
+    return emitError("cache must be a 3D tensor [N, K, C]");
+
+  // Indices should be 2D: [N, W]
+  if (indicesType.getRank() != 2)
+    return emitError("indices must be a 2D tensor [N, W]");
+
+  // Updates should be 3D: [N, W, C]
+  if (updatesType.getRank() != 3)
+    return emitError("updates must be a 3D tensor [N, W, C]");
+
+  // If result exists (tensor mode), it should match cache shape
+  if (getResult()) {
+    auto resultType = cast<ShapedType>(getResult().getType());
+    if (resultType.getShape() != cacheType.getShape())
+      return emitError("result shape must match cache shape");
+  }
+
+  // Batch dimensions must match
+  if (cacheType.getShape()[0] != indicesType.getShape()[0] ||
+      cacheType.getShape()[0] != updatesType.getShape()[0])
+    return emitError("batch dimensions must match across cache, indices, and "
+                     "updates");
+
+  // Number of updates must match indices
+  if (indicesType.getShape()[1] != updatesType.getShape()[1])
+    return emitError(
+        "number of indices must match number of updates (dim 1)");
+
+  // Update entry size must match cache entry size
+  if (cacheType.getShape()[2] != updatesType.getShape()[2])
+    return emitError(
+        "update entry size must match cache entry size (dim 2)");
+
+  return success();
+}
+
+void ScatterOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  // In memref mode, scatter reads from cache and writes updates to it
+  effects.emplace_back(MemoryEffects::Read::get(), &getCacheMutable());
+  effects.emplace_back(MemoryEffects::Write::get(), &getCacheMutable());
+  effects.emplace_back(MemoryEffects::Read::get(), &getIndicesMutable());
+  effects.emplace_back(MemoryEffects::Read::get(), &getUpdatesMutable());
+}
+
+//===-----------------------------------------------------===//
+// GatherOp
+//===-----------------------------------------------------===//
+
+LogicalResult GatherOp::verify() {
+  auto cacheType = cast<ShapedType>(getCache().getType());
+  auto indicesType = cast<ShapedType>(getIndices().getType());
+  auto outType = cast<ShapedType>(getOut().getType());
+
+  // Cache should be 3D: [N, K, C]
+  if (cacheType.getRank() != 3)
+    return emitError("cache must be a 3D tensor [N, K, C]");
+
+  // Indices should be 2D: [N, W]
+  if (indicesType.getRank() != 2)
+    return emitError("indices must be a 2D tensor [N, W]");
+
+  // Out should be 3D: [N, W, C]
+  if (outType.getRank() != 3)
+    return emitError("out must be a 3D tensor/memref [N, W, C]");
+
+  // If result exists (tensor mode), it should match out shape
+  if (getResult()) {
+    auto resultType = cast<ShapedType>(getResult().getType());
+    if (resultType.getShape() != outType.getShape())
+      return emitError("result shape must match out shape");
+  }
+
+  // Batch dimensions must match
+  if (cacheType.getShape()[0] != indicesType.getShape()[0] ||
+      cacheType.getShape()[0] != outType.getShape()[0])
+    return emitError(
+        "batch dimensions must match across cache, indices, and out");
+
+  // Number of gathered entries must match indices
+  if (indicesType.getShape()[1] != outType.getShape()[1])
+    return emitError(
+        "number of indices must match number of gathered entries (dim 1)");
+
+  // Gathered entry size must match cache entry size
+  if (cacheType.getShape()[2] != outType.getShape()[2])
+    return emitError(
+        "gathered entry size must match cache entry size (dim 2)");
+
+  return success();
+}
+
+void GatherOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), &getCacheMutable());
+  effects.emplace_back(MemoryEffects::Read::get(), &getIndicesMutable());
+  effects.emplace_back(MemoryEffects::Read::get(), &getOutMutable());
+  effects.emplace_back(MemoryEffects::Write::get(), &getOutMutable());
+}
+
+//===-----------------------------------------------------===//
 // GpuAllocOp
 //===-----------------------------------------------------===//
 

@@ -298,6 +298,142 @@ struct TensorUntransformCastOpInterface
   }
 };
 
+/// Bufferization of rock.scatter
+/// Scatter writes updates into a cache buffer at specified indices
+struct ScatterOpInterface
+    : public BufferizableOpInterface::ExternalModel<ScatterOpInterface,
+                                                    ScatterOp> {
+  bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
+                              const AnalysisState &state) const {
+    // All operands are read (cache for unchanged values, indices, updates)
+    return true;
+  }
+
+  bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
+                               const AnalysisState &state) const {
+    auto scatterOp = mlir::cast<ScatterOp>(op);
+    // Cache is written (updates are scattered into it)
+    return (&opOperand == &scatterOp.getCacheMutable());
+  }
+
+  bool mustBufferizeInPlace(Operation *op, OpOperand &opOperand,
+                            const AnalysisState &state) const {
+    auto scatterOp = mlir::cast<ScatterOp>(op);
+    // Cache must bufferize in place - result aliases with cache
+    return (&opOperand == &scatterOp.getCacheMutable());
+  }
+
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
+                                      const AnalysisState &state) const {
+    auto scatterOp = mlir::cast<ScatterOp>(op);
+    // Cache operand aliases with result - they share the same buffer
+    if (&opOperand == &scatterOp.getCacheMutable()) {
+      AliasingValueList result;
+      for (auto opResult : op->getOpResults())
+        result.addAlias({opResult, BufferRelation::Equivalent});
+      return result;
+    }
+    return {};
+  }
+
+  BufferRelation bufferRelation(Operation *op, OpResult opResult,
+                                const AnalysisState &state) const {
+    return BufferRelation::Equivalent;
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options,
+                          BufferizationState &state) const {
+    auto scatterOp = mlir::cast<ScatterOp>(op);
+    SmallVector<Value> bufferArgs;
+    Value cacheBuffer;
+
+    for (OpOperand &operand : op->getOpOperands()) {
+      FailureOr<Value> buffer =
+          getBuffer(rewriter, operand.get(), options, state);
+      if (failed(buffer))
+        return failure();
+      bufferArgs.push_back(*buffer);
+      if (&operand == &scatterOp.getCacheMutable())
+        cacheBuffer = *buffer;
+    }
+    if (!cacheBuffer)
+      return op->emitOpError("Couldn't find cache argument");
+
+    // Clone with memref operands and no result
+    clone(rewriter, op, /*newResultTypes=*/TypeRange{}, bufferArgs);
+
+    // Replace uses of the result with the cache buffer
+    replaceOpWithBufferizedValues(rewriter, op, cacheBuffer);
+    return success();
+  }
+};
+
+/// Bufferization of rock.gather
+/// Gather reads from a cache buffer at specified indices into an output buffer
+struct GatherOpInterface
+    : public BufferizableOpInterface::ExternalModel<GatherOpInterface,
+                                                    GatherOp> {
+  bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
+                              const AnalysisState &state) const {
+    auto gatherOp = mlir::cast<GatherOp>(op);
+    return (&opOperand != gatherOp.getOutArgument());
+  }
+
+  bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
+                               const AnalysisState &state) const {
+    auto gatherOp = mlir::cast<GatherOp>(op);
+    return (&opOperand == gatherOp.getOutArgument());
+  }
+
+  bool mustBufferizeInPlace(Operation *op, OpOperand &opOperand,
+                            const AnalysisState &state) const {
+    auto gatherOp = mlir::cast<GatherOp>(op);
+    return (&opOperand == gatherOp.getOutArgument());
+  }
+
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
+                                      const AnalysisState &state) const {
+    auto gatherOp = mlir::cast<GatherOp>(op);
+    if (&opOperand == gatherOp.getOutArgument()) {
+      AliasingValueList result;
+      for (auto opResult : op->getOpResults())
+        result.addAlias({opResult, BufferRelation::Equivalent});
+      return result;
+    }
+    return {};
+  }
+
+  BufferRelation bufferRelation(Operation *op, OpResult opResult,
+                                const AnalysisState &state) const {
+    return BufferRelation::Equivalent;
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options,
+                          BufferizationState &state) const {
+    auto gatherOp = mlir::cast<GatherOp>(op);
+    SmallVector<Value> bufferArgs;
+    Value outBuffer;
+
+    for (OpOperand &operand : op->getOpOperands()) {
+      FailureOr<Value> buffer =
+          getBuffer(rewriter, operand.get(), options, state);
+      if (failed(buffer))
+        return failure();
+      bufferArgs.push_back(*buffer);
+      if (&operand == gatherOp.getOutArgument())
+        outBuffer = *buffer;
+    }
+    if (!outBuffer)
+      return op->emitOpError("Couldn't find output argument");
+
+    clone(rewriter, op, /*newResultTypes=*/TypeRange{}, bufferArgs);
+    replaceOpWithBufferizedValues(rewriter, op, outBuffer);
+    return success();
+  }
+};
+
 } // namespace
 } // namespace rock
 } // namespace mlir
@@ -325,5 +461,8 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
     TransformOp::attachInterface<TransformOpInterface>(*ctx);
     TensorUntransformCastOp::attachInterface<TensorUntransformCastOpInterface>(
         *ctx);
+
+    ScatterOp::attachInterface<ScatterOpInterface>(*ctx);
+    GatherOp::attachInterface<GatherOpInterface>(*ctx);
   });
 }

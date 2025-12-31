@@ -77,7 +77,8 @@ public:
               op.getOperatorName() != ROCK_CUSTOMOP_CONV_BWD_WEIGHT);
     });
     target.addIllegalOp<tosa::Conv2DOp, tosa::Conv3DOp, tosa::MatMulOp,
-                        tosa::ReduceSumOp, tosa::ReduceMaxOp>();
+                        tosa::ReduceSumOp, tosa::ReduceMaxOp,
+                        tosa::ScatterOp, tosa::GatherOp>();
 
     mlir::tosa::populateTosaToRockConversionPatterns(func->getContext(),
                                                      patterns);

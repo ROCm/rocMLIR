@@ -3207,14 +3207,54 @@ public:
   }
 };
 
+struct ScatterRewritePattern : public OpRewritePattern<tosa::ScatterOp> {
+  using OpRewritePattern<tosa::ScatterOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(tosa::ScatterOp op,
+                                PatternRewriter &rw) const final {
+    Value valuesIn = op.getValuesIn();  // cache
+    Value indices = op.getIndices();
+    Value input = op.getInput();        // updates
+
+    auto outputType = cast<RankedTensorType>(op.getResult().getType());
+    auto scatterOp = rock::ScatterOp::create(rw, op.getLoc(), outputType,
+                                              valuesIn, indices, input);
+    rw.replaceOp(op, scatterOp.getResult());
+    return success();
+  }
+};
+
+struct GatherRewritePattern : public OpRewritePattern<tosa::GatherOp> {
+  using OpRewritePattern<tosa::GatherOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(tosa::GatherOp op,
+                                PatternRewriter &rw) const final {
+    Location loc = op.getLoc();
+    Value values = op.getValues();  // cache
+    Value indices = op.getIndices();
+
+    auto outputType = cast<RankedTensorType>(op.getResult().getType());
+
+    // Allocate output tensor
+    Value out = bufferization::AllocTensorOp::create(rw, loc, outputType,
+                                                      ValueRange{});
+
+    // Create rock.gather op with explicit out operand
+    auto gatherOp =
+        rock::GatherOp::create(rw, loc, outputType, values, indices, out);
+    rw.replaceOp(op, gatherOp.getResult());
+    return success();
+  }
+};
+
 } // namespace
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ForwardConvConverter<tosa::Conv2DOp>,
                ForwardConvConverter<tosa::Conv3DOp>, BackwardConvConverter,
-               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
-      context);
+               MatMulConverter, ReduceSumConverter, ReduceMaxConverter,
+               ScatterRewritePattern, GatherRewritePattern>(context);
 }
 
 void tosa::populateTosaToRockAttentionConversionPatterns(

@@ -582,6 +582,84 @@ def Rock_GridwiseAttentionAccelOp
   let hasVerifier = 1;
 }
 
+def Rock_ScatterOp
+    : Rock_Op<"scatter",
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16]>:$cache,
+          TensorOrMemRefOf<[I32]>:$indices,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$updates)>,
+      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
+  let summary = "Scatter values into a cache tensor at specified indices";
+  let description = [{
+    The `rock.scatter` operation writes values from `updates` into `cache` at
+    positions specified by `indices`. This is used for paged KV cache management
+    where new key/value entries are written to specific cache slots.
+
+    The operation semantically performs: result = cache; result[indices[i]] = updates[i]
+
+    In tensor mode, `result` aliases with `cache`. After bufferization, the op
+    modifies `cache` in-place with no result.
+
+    Example:
+    ```mlir
+    // Tensor mode (has result)
+    %updated_cache = rock.scatter %cache, %indices, %updates
+      : tensor<1x10x32xf16>, tensor<1x8xi32>, tensor<1x8x32xf16>
+      -> tensor<1x10x32xf16>
+
+    // Memref mode (no result, modifies cache in-place)
+    rock.scatter %cache, %indices, %updates
+      : memref<1x10x32xf16>, memref<1x8xi32>, memref<1x8x32xf16>
+    ```
+  }];
+  let assemblyFormat = [{
+    $cache `,` $indices `,` $updates attr-dict `:`
+    type($cache) `,` type($indices) `,` type($updates)
+    (`->` type($result)^)?
+  }];
+  let hasVerifier = 1;
+}
+
+def Rock_GatherOp
+    : Rock_Op<"gather",
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16]>:$cache,
+          TensorOrMemRefOf<[I32]>:$indices,
+          TensorOrMemRefOf<[F32, F16, BF16]>:$out)>,
+      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result)> {
+  let summary = "Gather values from a cache tensor at specified indices";
+  let description = [{
+    The `rock.gather` operation reads values from `cache` at positions specified
+    by `indices` and writes them to `out`. This is used for paged KV cache
+    management where key/value entries are read from specific cache slots for
+    attention computation.
+
+    The operation semantically performs: out[i] = cache[indices[i]]
+
+    The `out` operand is the destination buffer. In tensor mode, `result` aliases
+    with `out`. After bufferization, the op writes directly to `out` with no result.
+
+    Example:
+    ```mlir
+    %gathered = rock.gather %cache, %indices, %out
+      : tensor<1x10x32xf16>, tensor<1x5xi32>, tensor<1x5x32xf16>
+      -> tensor<1x5x32xf16>
+    ```
+  }];
+  let assemblyFormat = [{
+    $cache `,` $indices `,` $out attr-dict `:`
+    type($cache) `,` type($indices) `,` type($out)
+    (`->` type($result)^)?
+  }];
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    ::mlir::OpOperand* getOutArgument() {
+      return &(*this)->getOpOperand(2);
+    }
+  }];
+}
+
 // Memory allocation on GPU memory hierachy.
 def Rock_GpuAllocOp:
     Rock_Op<"alloc">,
