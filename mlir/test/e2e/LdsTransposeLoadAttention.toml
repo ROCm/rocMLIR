@@ -1,6 +1,10 @@
 directory = "LdsTransposeLoadAttention"
 prefix = "rocmlir-gen"
+<<<<<<< HEAD
 suffix = "--operation attention --arch %arch -pv %constrained_float_range_random_data %rocmlir_gen_flags -relDiff_threshold 0.3 -absDiff_threshold 0.3 -RMS_threshold 0.15 | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+=======
+suffix = "--operation attention --arch %arch %pv %constrained_float_range_random_data %rocmlir_gen_flags -relDiff_threshold 0.3 -absDiff_threshold 0.3 -RMS_threshold 0.15 | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+>>>>>>> f042d38a2926 (Add LDS transpose E2E tests and addressed review comment)
 
 [[axis]]
 name = "data type"
@@ -48,10 +52,17 @@ config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 64 -head_dim_v 128 --transK
 config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=true -perf_config attn:v2:64,64,16,16,16,16,8,1,4,2,1"
 
 [[suite.test]]
+<<<<<<< HEAD
 config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=true -perf_config attn:v2:32,32,16,16,16,16,8,1,3,2,1"
 
 [[suite.test]]
 config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=true -perf_config attn:v2:32,32,16,32,32,16,8,1,3,2,1"
+=======
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=true -perf_config attn:v2:16,16,16,16,16,16,4,1,3,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=true -perf_config attn:v2:16,16,32,16,16,16,4,1,4,2,1"
+>>>>>>> f042d38a2926 (Add LDS transpose E2E tests and addressed review comment)
 
 # ============================================================================
 # Suite 3: transK=false, transQ=false - Only K uses LDS transpose
@@ -83,6 +94,7 @@ config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --trans
 config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 256 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v2:64,64,32,32,32,32,8,1,4,2,1"
 
 [[suite.test]]
+<<<<<<< HEAD
 config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=false -perf_config attn:v2:32,32,16,16,16,16,8,1,3,2,1"
 
 [[suite.test]]
@@ -90,6 +102,15 @@ config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --trans
 
 [[suite.test]]
 config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v2:32,32,32,32,32,32,8,1,3,2,1"
+=======
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=false -perf_config attn:v2:32,32,16,16,16,16,4,1,3,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v2:16,16,32,16,16,16,4,1,4,2,1"
+
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v2:32,32,32,32,32,32,4,1,3,2,1"
+>>>>>>> f042d38a2926 (Add LDS transpose E2E tests and addressed review comment)
 
 # ============================================================================
 # Suite 5: transK=true, transQ=true - Only Q can use LDS transpose
@@ -108,6 +129,7 @@ config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 256 -head_dim_v 256 --trans
 config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 256 -head_dim_v 64 --transK=true --transQ=true -perf_config attn:v2:32,32,16,16,16,16,8,1,3,2,1"
 
 # ============================================================================
+<<<<<<< HEAD
 # Suite 6: GEMM1 fallback - kpack=4 < kBase=8, LDS transpose disabled for V
 # Tests that the fallback to regular path works correctly when P is prefetched
 # but kpack < kBase prevents LDS transpose for V operand.
@@ -117,3 +139,21 @@ name = "lds_transpose_gemm1_fallback"
 
 [[suite.test]]
 config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=false -perf_config attn:v3:32,32,32,32,32,32,32,4,1,3,2,0,1"
+=======
+# Suite 6: GEMM1 LDS Transpose - V uses LDS transpose, P is prefetched
+# ============================================================================
+[[suite]]
+name = "lds_transpose_gemm1_v_with_p_prefetch"
+
+# 32x8 MFMA, medium dimensions
+[[suite.test]]
+config = "-seq_len_q 128 -seq_len_k 128 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=false -perf_config attn:v3:32,32,32,32,32,32,32,4,1,3,2,0,1"
+
+# 32x8 MFMA, larger dimensions
+[[suite.test]]
+config = "-seq_len_q 256 -seq_len_k 256 -head_dim_qk 128 -head_dim_v 128 --transK=false --transQ=false -perf_config attn:v3:32,32,32,32,32,32,32,4,1,3,2,0,1"
+
+# 16x16 MFMA, smaller dimensions
+[[suite.test]]
+config = "-seq_len_q 64 -seq_len_k 64 -head_dim_qk 64 -head_dim_v 64 --transK=false --transQ=false -perf_config attn:v3:16,16,16,16,16,16,16,4,1,3,2,0,1"
+>>>>>>> f042d38a2926 (Add LDS transpose E2E tests and addressed review comment)
