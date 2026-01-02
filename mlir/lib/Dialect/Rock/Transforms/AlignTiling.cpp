@@ -1076,47 +1076,53 @@ MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
   auto target = copy.getTarget();
   Location loc = copy.getLoc();
 
-  Operation *gemmStoreOp = nullptr;
+  // If the source is not from a memref.alloc, this is an input data copy
+  // (e.g., copying from transformed function arguments for scatter/gather
+  // preparation). These don't need transformation.
+  auto allocOp = src.getDefiningOp<memref::AllocOp>();
+  if (!allocOp) {
+    return success();
+  }
+
+  // Source is from an allocation - look for a ThreadwiseWriteAllOp writer
   SmallVector<TransformMapAttr> views;
-  if (auto allocOp = src.getDefiningOp<memref::AllocOp>()) {
-    if (auto twop = dyn_cast_if_present<ThreadwiseWriteAllOp>(
-            traceToWriter(src, views))) {
-      // We check the input leading to GEMM store has the current memref
-      // copy, that is being rewritten, as the unique reader. This is because if
-      // it is the unique reader, the previous memref does not need to be
-      // maintained anymore and we can directly write into the target of the
-      // memref copy.
-      bool isUniqueReader;
-      LogicalResult checkResult =
-          checkUniqueReader(src.getDefiningOp(), copy, isUniqueReader);
-      if (checkResult.failed()) {
-        return checkResult;
-      }
-      if (!isUniqueReader) {
-        gemmStoreOp =
-            static_cast<ThreadwiseWriteAllOp>(b.clone(*twop.getOperation()));
-      } else {
-        gemmStoreOp = twop;
-      }
-    }
+  auto twop = dyn_cast_if_present<ThreadwiseWriteAllOp>(
+      traceToWriter(src, views));
+  if (!twop) {
+    // No ThreadwiseWriteAllOp writer found for this allocated source.
+    // This copy doesn't fit the output fusion pattern we're looking for.
+    return failure();
   }
 
-  if (gemmStoreOp) {
-    if (ThreadwiseWriteAllOp twWriteAllOp =
-            dyn_cast<ThreadwiseWriteAllOp>(gemmStoreOp)) {
-      b.moveAfterIfNeeded(twWriteAllOp, copy);
-
-      // 1. replace memref.copy with rock.threadwise_write_all
-      target = cast<TypedValue<BaseMemRefType>>(
-          applyViewsOnDest(b, loc, target, views));
-      twWriteAllOp.getDestMutable().assign(target);
-
-      b.eraseOp(copy);
-      return success();
-    }
+  // We check the input leading to GEMM store has the current memref
+  // copy, that is being rewritten, as the unique reader. This is because if
+  // it is the unique reader, the previous memref does not need to be
+  // maintained anymore and we can directly write into the target of the
+  // memref copy.
+  bool isUniqueReader;
+  LogicalResult checkResult =
+      checkUniqueReader(src.getDefiningOp(), copy, isUniqueReader);
+  if (checkResult.failed()) {
+    return checkResult;
   }
 
-  return failure();
+  ThreadwiseWriteAllOp gemmStoreOp;
+  if (!isUniqueReader) {
+    gemmStoreOp =
+        static_cast<ThreadwiseWriteAllOp>(b.clone(*twop.getOperation()));
+  } else {
+    gemmStoreOp = twop;
+  }
+
+  b.moveAfterIfNeeded(gemmStoreOp, copy);
+
+  // Replace memref.copy with rock.threadwise_write_all
+  target = cast<TypedValue<BaseMemRefType>>(
+      applyViewsOnDest(b, loc, target, views));
+  gemmStoreOp.getDestMutable().assign(target);
+
+  b.eraseOp(copy);
+  return success();
 }
 
 // We have mutated the blockSubTile views by declaring the broadcasted

@@ -504,7 +504,7 @@ static LogicalResult isolateMultipleTransformingReaders(
 /// This function dispatches to the input fusion case and the multiple
 /// transforming readers case, and then handles inverting the transforms on the
 /// operation argument corresponding to a read from an intermediate buffer onto
-/// tho operation that writes that buffer.
+/// the operation that writes that buffer.
 static LogicalResult pushTransformsUp(memref::AllocOp allocOp,
                                       BufferDependencyAnalysis &bufferDeps,
                                       TransformPushState &state,
@@ -520,14 +520,31 @@ static LogicalResult pushTransformsUp(memref::AllocOp allocOp,
   SmallVector<OpOperand *> writeOperands =
       std::move(*maybeBufferWriterOperands);
   SmallVector<OpOperand *> readOperands = std::move(*maybeBufferReaderOperands);
-  if (writeOperands.size() != 1) {
+
+  // Filter out scatter operations from write operands - they don't
+  // participate in the fusion chain analysis. Scatter are side-effecting
+  // operations that can coexist with other writers (e.g., memref.copy
+  // initializes the buffer, then scatter updates specific positions).
+  SmallVector<OpOperand *> fusionWriteOperands;
+  for (OpOperand *writeOperand : writeOperands) {
+    Operation *writer = writeOperand->getOwner();
+    if (!isa<ScatterOp>(writer))
+      fusionWriteOperands.push_back(writeOperand);
+  }
+
+  if (fusionWriteOperands.size() != 1) {
+    // If there are no non-scatter writers, skip this
+    // buffer entirely
+    if (fusionWriteOperands.empty())
+      return success();
+
     allocOp->getParentOp()->dump();
     return allocOp.emitError(
                "expected one operation to write this buffer, but there are ")
-           << writeOperands.size();
+           << fusionWriteOperands.size();
   }
 
-  OpOperand *writeOperand = writeOperands[0];
+  OpOperand *writeOperand = fusionWriteOperands[0];
   bool isInputFusion = state.inputFusionWrites.contains(writeOperand);
   if (isInputFusion)
     return pushTransformsToInputFusionReaders(allocOp, bufferDeps, writeOperand,

@@ -103,6 +103,18 @@ def RockRegularizePass : Pass<"rock-regularize", "::mlir::func::FuncOp"> {
   let dependentDialects = ["rock::RockDialect", "linalg::LinalgDialect", "memref::MemRefDialect"];
 }
 
+def RockLowerScatterGatherPass : Pass<"rock-lower-scatter-gather", "::mlir::func::FuncOp"> {
+  let summary = "Lower rock.scatter and rock.gather ops to loops with indexed memory operations";
+  let description = [{
+    This pass lowers rock.scatter and rock.gather operations to scf loops
+    with indexed memory loads and stores.
+
+    - rock.scatter: writes values from updates into cache at positions specified by indices
+    - rock.gather: reads values from cache at positions specified by indices into output
+  }];
+  let dependentDialects = ["rock::RockDialect", "scf::SCFDialect", "memref::MemRefDialect", "arith::ArithDialect", "func::FuncDialect"];
+}
+
 def RockGridwiseGemmToBlockwisePass : Pass<"rock-gridwise-gemm-to-blockwise", "::mlir::func::FuncOp"> {
   let summary = "expand gridwise gemm into blockwise copy, blockwise gemm, and threadwise copy";
   let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect", "linalg::LinalgDialect", "scf::SCFDialect"];

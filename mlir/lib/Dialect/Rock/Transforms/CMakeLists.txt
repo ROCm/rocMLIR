@@ -25,6 +25,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   TransformToMemref.cpp
   ViewToTransform.cpp
   LowerRockReduce.cpp
+  LowerScatterGather.cpp
   RockPrepareLLVM.cpp
   VectorizeFusions.cpp
   OutputSwizzle.cpp

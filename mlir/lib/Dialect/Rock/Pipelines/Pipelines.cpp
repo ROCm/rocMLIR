@@ -183,6 +183,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockGemmToGridwisePass());
     funcPm.addPass(rock::createRockRegularizePass());
     funcPm.addPass(rock::createRockShuffleGemmForReductions());
+    funcPm.addPass(rock::createRockLowerScatterGatherPass());
     funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
     funcPm.addPass(rock::createRockBlockwiseLoadTileToThreadwisePass());
 
