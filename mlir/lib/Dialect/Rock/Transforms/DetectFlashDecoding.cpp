@@ -249,40 +249,22 @@ static FailureOr<Value> removeSplitKVFromQ(PatternRewriter &rewriter,
 
   auto [newBatch, intermediate] = maybeUnmerged.value();
   auto shape = cast<ShapedType>(qTensor.getType()).getShape();
-  int64_t M = shape[1];
-  int64_t K = shape[2];
 
   // Get the intermediate shape from the unmerged tensor
   ArrayRef<int64_t> intermediateShape =
       cast<ShapedType>(intermediate.getType()).getShape();
 
-  // Step 2: Slice the splitKV dimension to take only index [0:1], then merge
-  // away the size-1 dim. This goes from [newBatch, splitKV, M, K] to
-  // [newBatch, M, K]
-  SmallVector<int64_t> outputShape = {newBatch, M, K};
+  // Step 2: Fix the splitKV dimension to constant 0, effectively slicing
+  // [newBatch, splitKV, M, K] to [newBatch, M, K]
+  SmallVector<StringRef> step2LowerNames = {"batch", "splitKV", "M", "K"};
+  rock::BottomUpTMBuilder step2Builder(rewriter, step2LowerNames,
+                                       intermediateShape, loc);
+  step2Builder.passThrough({"batch"}, {0}, {"batch"});
+  // Fix splitKV to constant 0 (no corresponding upper dimension)
+  step2Builder.constDim("splitKV", /*constantVal=*/0);
+  step2Builder.passThrough({"M", "K"}, {1, 2}, {"M", "K"});
 
-  // Output [d0, d1, d2] maps to Input [d0, 0, d1, d2]
-  SmallVector<TransformAttr> step2Ops;
-
-  // PassThrough for batch
-  step2Ops.push_back(TransformAttr::get(rewriter.getContext(),
-                                        rock::TransformType::PassThrough, {},
-                                        {"batch"}, {0}, {"batch"}, {0}));
-
-  // ConstDim to fix splitKV to 0 (no upper dim, just fixes lower dim 1 to
-  // constant 0)
-  SmallVector<int64_t> constParams = {0, splitKV};
-  step2Ops.push_back(TransformAttr::get(rewriter.getContext(),
-                                        rock::TransformType::ConstDim,
-                                        constParams, {}, {}, {"splitKV"}, {1}));
-
-  // PassThrough for M and K (upper dims 1,2 map to lower dims 2,3)
-  step2Ops.push_back(TransformAttr::get(
-      rewriter.getContext(), rock::TransformType::PassThrough, {}, {"M", "K"},
-      {1, 2}, {"M", "K"}, {2, 3}));
-
-  TransformMapAttr step2Map =
-      TransformMapAttr::get(step2Ops, outputShape, intermediateShape);
+  TransformMapAttr step2Map = step2Builder.get();
 
   Value result =
       rewriter.create<rock::TransformOp>(loc, intermediate, step2Map);

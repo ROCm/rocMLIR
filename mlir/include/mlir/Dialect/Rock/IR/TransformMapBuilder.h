@@ -248,11 +248,10 @@ public:
   // Defines a dimension that is not mapped to any coordinates in the output
   void addDim(StringRef name, uint32_t dim, int64_t size);
 
-  // NOTE: there is no builder for constDim but you can add one if you really
-  // want to. If you do so, put some sort of warning in the name, like
-  // assumeDimIsConst(), because, when working from the bottom up,
-  // that transformation is an assertion that a given dimension has a particular
-  // constant value.
+  // Fixes an input (lower) dimension to a constant value with no corresponding
+  // output (upper) dimension. This is the opposite of ignore().
+  void constDim(StringRef lowerName, int64_t constantVal);
+  void constDim(ArrayRef<StringRef> lowerNames, ArrayRef<int64_t> constantVals);
 
   void broadcast(ArrayRef<uint32_t> endDims, ArrayRef<int64_t> endSizes);
 
@@ -300,6 +299,9 @@ struct BottomUpTMTopDimsWrapper {
            ArrayRef<int64_t> params);
 
   void addDim(StringRef name, int64_t size);
+
+  void constDim(StringRef lowerName, int64_t constantVal);
+  void constDim(ArrayRef<StringRef> lowerNames, ArrayRef<int64_t> constantVals);
 
   void embed(ArrayRef<StringRef> upperNames, ArrayRef<int64_t> upperSizes,
              StringRef lowerName, ArrayRef<int64_t> coefficients);

@@ -194,7 +194,7 @@ TEST_F(TMBuilderTest, AddDim) {
   EXPECT_EQ(resUp, resDown);
 }
 
-TEST_F(TMBuilderTest, ConstDim) {
+TEST_F(TMBuilderTest, ConstDimTopDown) {
   auto buildDown = makeTopDown({}, {});
 
   buildDown.constDim("a", 0, 0, 1);
@@ -206,6 +206,49 @@ TEST_F(TMBuilderTest, ConstDim) {
             AffineMap::get(0, 0, {affC(0), affC(1), affC(2)}, &context));
   SmallVector<int64_t> expectedLowerBounds = {1, 2, 3};
   EXPECT_ARRAY_EQ(int64_t, resDown.getLowerBounds(), expectedLowerBounds);
+}
+
+TEST_F(TMBuilderTest, ConstDimBottomUp) {
+  // BottomUpTMBuilder::constDim fixes a lower dimension to a constant value
+  // with no corresponding upper dimension
+  auto buildUp = makeBottomUp({"a", "fixed", "b"}, {2, 4, 3});
+
+  buildUp.passThrough({"a"}, {0}, {"a"});
+  buildUp.constDim("fixed", 0);
+  buildUp.passThrough({"b"}, {1}, {"b"});
+
+  TransformMapAttr resUp = buildUp.get();
+
+  // Upper shape should be [2, 3] (the "fixed" dimension is gone)
+  SmallVector<int64_t> expectedUpperBounds = {2, 3};
+  EXPECT_ARRAY_EQ(int64_t, resUp.getUpperBounds(), expectedUpperBounds);
+
+  // Lower shape should still be [2, 4, 3]
+  SmallVector<int64_t> expectedLowerBounds = {2, 4, 3};
+  EXPECT_ARRAY_EQ(int64_t, resUp.getLowerBounds(), expectedLowerBounds);
+
+  // The affine map should be (d0, d1) -> (d0, 0, d1)
+  EXPECT_EQ(resUp.getMap().getAffineMap(),
+            AffineMap::get(2, 0, {affD(0), affC(0), affD(1)}, &context));
+}
+
+TEST_F(TMBuilderTest, ConstDimBottomUpMultiple) {
+  // Test the multi-dimension version of constDim
+  auto buildUp = makeBottomUp({"a", "x", "y", "b"}, {2, 3, 4, 5});
+
+  buildUp.passThrough({"a"}, {0}, {"a"});
+  buildUp.constDim({"x", "y"}, {1, 2});
+  buildUp.passThrough({"b"}, {1}, {"b"});
+
+  TransformMapAttr resUp = buildUp.get();
+
+  // Upper shape should be [2, 5] (x and y are gone)
+  SmallVector<int64_t> expectedUpperBounds = {2, 5};
+  EXPECT_ARRAY_EQ(int64_t, resUp.getUpperBounds(), expectedUpperBounds);
+
+  // The affine map should be (d0, d1) -> (d0, 1, 2, d1)
+  EXPECT_EQ(resUp.getMap().getAffineMap(),
+            AffineMap::get(2, 0, {affD(0), affC(1), affC(2), affD(1)}, &context));
 }
 
 TEST_F(TMBuilderTest, Broadcast) {

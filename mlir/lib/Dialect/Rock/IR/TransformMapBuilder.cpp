@@ -728,6 +728,22 @@ void BottomUpTMBuilder::addDim(StringRef name, uint32_t dim, int64_t size) {
   addTransform(TransformType::AddDim, {size}, {}, {}, {name}, {dim});
 }
 
+void BottomUpTMBuilder::constDim(StringRef lowerName, int64_t constantVal) {
+  uint32_t dim = startIndex(lowerName);
+  int64_t size = startSize(dim);
+  SmallVector<int64_t> params = {constantVal, size};
+  addTransform(TransformType::ConstDim, params, {lowerName}, {dim}, {}, {});
+}
+
+void BottomUpTMBuilder::constDim(ArrayRef<StringRef> lowerNames,
+                                 ArrayRef<int64_t> constantVals) {
+  assert(lowerNames.size() == constantVals.size() &&
+         "One constant value needed per lower dimension in constDim");
+  for (auto pair : llvm::zip(lowerNames, constantVals)) {
+    constDim(std::get<0>(pair), std::get<1>(pair));
+  }
+}
+
 void BottomUpTMBuilder::broadcast(ArrayRef<uint32_t> endDims,
                                   ArrayRef<int64_t> endSizes) {
   SmallVector<int64_t, 8> params;
@@ -864,6 +880,16 @@ void BottomUpTMTopDimsWrapper::pad(ArrayRef<StringRef> outNames,
 
 void BottomUpTMTopDimsWrapper::addDim(StringRef name, int64_t size) {
   b.addDim(name, topDims[name], size);
+}
+
+void BottomUpTMTopDimsWrapper::constDim(StringRef lowerName,
+                                        int64_t constantVal) {
+  b.constDim(lowerName, constantVal);
+}
+
+void BottomUpTMTopDimsWrapper::constDim(ArrayRef<StringRef> lowerNames,
+                                        ArrayRef<int64_t> constantVals) {
+  b.constDim(lowerNames, constantVals);
 }
 
 void BottomUpTMTopDimsWrapper::embed(ArrayRef<StringRef> upperNames,
