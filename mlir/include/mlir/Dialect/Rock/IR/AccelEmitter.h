@@ -116,11 +116,14 @@ struct AccelEmitter {
   /// 3) threadSubTileView :
   /// iter --> ... --> [KPerThread, DPerThread]
   /// for each operand tile to be used with gemm accelerators.
+  /// When otherOperandUsesLdsTranspose is true, a special K access pattern
+  /// is used that is compatible with LDS transpose load on the other operand.
   virtual FailureOr<RegsAsMatrixSubTiles> createAccelGemmOperandTransforms(
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
-      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false) const = 0;
+      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false,
+      bool otherOperandUsesLdsTranspose = false) const = 0;
 
   /// Validate the accelerator structure
   virtual LogicalResult validateAcceleratorProperties() { return success(); };
@@ -197,8 +200,8 @@ struct MfmaEmitter : public AccelEmitter {
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
-      bool rotateDWithK,
-      bool doSplitKAcrossThreadsFirst = false) const override;
+      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false,
+      bool otherOperandUsesLdsTranspose = false) const override;
 
   FailureOr<RegsAsMatrixSubTiles> computeOutputTransforms(
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
@@ -251,8 +254,8 @@ struct WmmaEmitter : public AccelEmitter {
       OpBuilder &b, Location loc, int64_t kIters,
       ArrayRef<int64_t> bidGridLengths, int64_t blockSize,
       int64_t dInCopyPerThread, StringRef dName, bool isKContiguousDim,
-      bool rotateDWithK,
-      bool doSplitKAcrossThreadsFirst = false) const override;
+      bool rotateDWithK, bool doSplitKAcrossThreadsFirst = false,
+      bool otherOperandUsesLdsTranspose = false) const override;
 
   FailureOr<RegsAsMatrixSubTiles> computeOutputTransforms(
       OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,

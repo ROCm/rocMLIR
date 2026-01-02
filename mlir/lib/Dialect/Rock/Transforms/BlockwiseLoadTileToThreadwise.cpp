@@ -277,9 +277,14 @@ class LoweringBlockwiseLoadTileOp final
 
       FailureOr<RegsAsMatrixSubTiles> maybeBufferViews;
       if (loadType == GemmLoadTileType::BypassLDS) {
+        // Check if the other operand uses LDS transpose load
+        bool otherOperandUsesLdsTranspose =
+            isA ? matrixParamsB.getLdsTransposeEnabled()
+                : matrixParamsA.getLdsTransposeEnabled();
         maybeBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
             b, loc, kIters, bidGridLengths, blockSize, vecDimInfo.inDPerThread,
-            dName, isKContiguousDim, false);
+            dName, isKContiguousDim, false,
+            /*doSplitKAcrossThreadsFirst=*/false, otherOperandUsesLdsTranspose);
       } else {
         maybeBufferViews = getLoadRegsAsTileViews(
             b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
@@ -339,10 +344,16 @@ class LoweringBlockwiseLoadTileOp final
             subview = createSliceOfFirstDim(b, loc, subview, di);
           }
 
+          // Check if the other operand uses LDS transpose load
+          bool otherOperandUsesLdsTranspose =
+              isA ? matrixParamsB.getLdsTransposeEnabled()
+                  : matrixParamsA.getLdsTransposeEnabled();
           FailureOr<RegsAsMatrixSubTiles> maybeBufferViews =
               accelEmitterPtr->createAccelGemmOperandTransforms(
                   b, loc, kIters, bidGridLengths, blockSize,
-                  vecDimInfo.inDPerThread, dName, isKContiguousDim, false);
+                  vecDimInfo.inDPerThread, dName, isKContiguousDim, false,
+                  /*doSplitKAcrossThreadsFirst=*/false,
+                  otherOperandUsesLdsTranspose);
           if (failed(maybeBufferViews))
             return failure();
           // InBufferViews provide --> K x D subtile views.

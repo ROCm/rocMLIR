@@ -2127,8 +2127,8 @@ struct GridwiseAttentionAccelRewritePattern
                         loadTypeQ == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
     // Determine if Q loads from LDS (for LDS transpose decision)
-    // Q bypasses LDS only when prefetch is active
-    bool qLoadsFromLDS = !prefetchQTile;
+    // Q bypasses LDS only when loadTypeQ is BypassLDS
+    bool qLoadsFromLDS = loadTypeQ != GemmLoadTileType::BypassLDS;
 
     // Note that kPerBlock for Gemm1B is mPerBlock of Gemm0 out
     // Note that mPerBlock for Gemm1A is mPerBlock of Gemm0 out
@@ -2446,30 +2446,41 @@ struct GridwiseAttentionAccelRewritePattern
         /*accelKDim=*/ldsDecisionGemm0.mfmaKDim);
 
     // LDS Transpose Decision for GEMM1 (V x P)
-    // Only V (operand A) can use LDS transpose
+    // Note: LDS transpose for V is ONLY enabled when P is prefetched
+    // (doBypassLDSSecondGemm = true).
     hwtranspose::LDSTransposeDecision ldsDecisionGemm1 =
         hwtranspose::decideLDSTransposeForOperands(
             accelEmitterPtrGemm1.get(), arch, elemTypeV, elemTypeV, directToLDS,
             ldsLayoutCfgMG1, ldsLayoutCfgMG1, gemm1MPerBlock, gemm1NPerBlock,
             gemm1KPerBlock, gemm1TuningParams.getMPerWave(),
             gemm1TuningParams.getNPerWave(), gemm1kpack,
-            /*doubleBuffering=*/false, /*bLoadsFromLDS=*/false);
+            /*doubleBuffering=*/false,
+            /*bLoadsFromLDS=*/!doBypassLDSSecondGemm);
+
+    // Enable LDS transpose for V only when P is prefetched
+    bool enableLdsTransposeForV =
+        doBypassLDSSecondGemm && ldsDecisionGemm1.enableA;
 
     BlockwiseMatrixParamsAttr matrixParamsV = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad,
         ldsLayoutCfgMG1.doRotateWithK, ldsLayoutCfgMG1.doSwapThreadIterSubDims,
         ldsLayoutCfgMG1.ldsLayoutDxK, directToLDS, doBypassLDSSecondGemm,
         gemm0G, gemm1M, gemm1InMPerThread,
-        /*ldsTransposeEnabled=*/ldsDecisionGemm1.enableA,
+        /*ldsTransposeEnabled=*/enableLdsTransposeForV,
         /*accelDDim=*/ldsDecisionGemm1.mfmaDDim,
         /*accelKDim=*/ldsDecisionGemm1.mfmaKDim);
 
+    // P matrix (operand B) - when prefetched, uses LDS transpose compatible
+    // K formula via otherOperandUsesLdsTranspose in
+    // createAccelGemmOperandTransforms
     BlockwiseMatrixParamsAttr matrixParamsKxQ = BlockwiseMatrixParamsAttr::get(
         rewriter.getContext(), elemTypeV, elemTypeVLoad, /*rotateDWithK=*/false,
         /*swapThreadIterSubDims=*/false, /*LDSLayoutDxK=*/false,
         /*directToLDS=*/false, /*splitKAcrossThreadsFirst=*/false, gemm0G,
         gemm1N, gemm1InMPerThread,
-        /*ldsTransposeEnabled=*/false, /*accelDDim=*/0, /*accelKDim=*/0);
+        /*ldsTransposeEnabled=*/false,
+        /*accelDDim=*/ldsDecisionGemm1.mfmaDDim,
+        /*accelKDim=*/ldsDecisionGemm1.mfmaKDim);
 
     // If gemm0K is equal to gemm0KPerBlock that means
     // effectively there is no K loop. Therefore, we

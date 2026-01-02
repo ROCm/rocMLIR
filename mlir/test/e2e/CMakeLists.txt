@@ -50,6 +50,7 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrConvElementwiseGemmBF16SplitK
     PrGemmDirectToLDS
     PrLdsTransposeLoad
+    PrLdsTransposeLoadAttention
     PrConvDirectToLDS
     PrAttentionDirectToLDS
   )
@@ -99,6 +100,7 @@ if (ROCK_E2E_TEST_ENABLED)
   ConvElementwiseGemmDirectToLDS
   AttentionNonPowerOfTwoTileSize
   LdsTransposeLoad
+  LdsTransposeLoadAttention
   )
 endif()
 # Create a list for dummy files
