@@ -247,8 +247,7 @@ static FailureOr<Value> removeSplitKVFromQ(PatternRewriter &rewriter,
   if (failed(maybeUnmerged))
     return failure();
 
-  auto [newBatch, intermediate] = maybeUnmerged.value();
-  auto shape = cast<ShapedType>(qTensor.getType()).getShape();
+  auto [_, intermediate] = maybeUnmerged.value();
 
   // Get the intermediate shape from the unmerged tensor
   ArrayRef<int64_t> intermediateShape =
