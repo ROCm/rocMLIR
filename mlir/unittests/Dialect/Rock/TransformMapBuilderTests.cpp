@@ -208,13 +208,13 @@ TEST_F(TMBuilderTest, ConstDimTopDown) {
   EXPECT_ARRAY_EQ(int64_t, resDown.getLowerBounds(), expectedLowerBounds);
 }
 
-TEST_F(TMBuilderTest, ConstDimBottomUp) {
-  // BottomUpTMBuilder::constDim fixes a lower dimension to a constant value
-  // with no corresponding upper dimension
+TEST_F(TMBuilderTest, AssumeDimIsConstantBottomUp) {
+  // BottomUpTMBuilder::assumeDimIsConstant asserts a lower dimension has a
+  // constant value with no corresponding upper dimension
   auto buildUp = makeBottomUp({"a", "fixed", "b"}, {2, 4, 3});
 
   buildUp.passThrough({"a"}, {0}, {"a"});
-  buildUp.constDim("fixed", 0);
+  buildUp.assumeDimIsConstant("fixed", 0);
   buildUp.passThrough({"b"}, {1}, {"b"});
 
   TransformMapAttr resUp = buildUp.get();
@@ -232,12 +232,12 @@ TEST_F(TMBuilderTest, ConstDimBottomUp) {
             AffineMap::get(2, 0, {affD(0), affC(0), affD(1)}, &context));
 }
 
-TEST_F(TMBuilderTest, ConstDimBottomUpMultiple) {
-  // Test the multi-dimension version of constDim
+TEST_F(TMBuilderTest, AssumeDimIsConstantBottomUpMultiple) {
+  // Test the multi-dimension version of assumeDimIsConstant
   auto buildUp = makeBottomUp({"a", "x", "y", "b"}, {2, 3, 4, 5});
 
   buildUp.passThrough({"a"}, {0}, {"a"});
-  buildUp.constDim({"x", "y"}, {1, 2});
+  buildUp.assumeDimIsConstant({"x", "y"}, {1, 2});
   buildUp.passThrough({"b"}, {1}, {"b"});
 
   TransformMapAttr resUp = buildUp.get();
