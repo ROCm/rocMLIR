@@ -528,6 +528,29 @@ struct BlockwiseGemmAccelRewritePattern
       }
     }
 
+    // Helper: Transform buffer for slicing (adds unmerge transformation)
+    // This should be called ONCE before the loop
+    auto transformBufferForSlicing = [&](Value buffer, int64_t repeats,
+                                         bool isA) -> Value {
+      if (cast<ShapedType>(buffer.getType()).getRank() == 1) {
+        StringRef dk = isA ? "mk" : "nk";
+        StringRef indexStr = isA ? "iidx" : "jidx";
+        BottomUpTMBuilder regsBuilder(b, {dk}, {repeats * kBasePerThread}, loc);
+        regsBuilder.unmerge({indexStr, "k"}, {0, 1}, dk,
+                            {repeats, kBasePerThread});
+        buffer =
+            rock::transform(b, buffer, b.getArrayAttr({regsBuilder.get()}));
+      }
+      return buffer;
+    };
+
+    // Helper: Slice transformed buffer at a specific index
+    // This can be called inside the loop on an iter_arg
+    auto sliceTransformedBuffer = [&](Value transformedBuffer,
+                                      Value loopVar) -> Value {
+      return rock::createSliceOfFirstDim(b, loc, transformedBuffer, loopVar);
+    };
+
     auto loadBuffer =
         [&](Value buffer, Value wrappedLDSBufferForLoad, Value loopVar,
             Type argType, int64_t repeats, bool loadFromLDS, bool directToLDS,
@@ -572,22 +595,92 @@ struct BlockwiseGemmAccelRewritePattern
             /*useIndexDiffs=*/true,
             /*ldsTransposeConfig=*/transposeAttr);
       } else {
-        if (cast<ShapedType>(buffer.getType()).getRank() == 1) {
-          StringRef dk = isA ? "mk" : "nk";
-          StringRef indexStr = isA ? "iidx" : "jidx";
-          BottomUpTMBuilder regsBuilder(b, {dk}, {repeats * kBasePerThread},
-                                        loc);
-          regsBuilder.unmerge({indexStr, "k"}, {0, 1}, dk,
-                              {repeats, kBasePerThread});
-          buffer =
-              rock::transform(b, buffer, b.getArrayAttr({regsBuilder.get()}));
-        }
-        buffer = rock::createSliceOfFirstDim(b, loc, buffer, loopVar);
+        buffer = transformBufferForSlicing(buffer, repeats, isA);
+        buffer = sliceTransformedBuffer(buffer, loopVar);
       }
       return buffer;
     };
 
-    auto mLoop = affine::AffineForOp::create(b, loc, 0, mRepeats);
+    // For buffer reuse optimization when NOT loading from LDS:
+    // - Transform buffer ONCE before the loop (creates single use of original)
+    // - Pass transformed buffer as iter_arg
+    // - Inside loop, just slice the iter_arg
+    // This avoids multiple uses of the original buffer that conflict with
+    // multibuffer pass.
+    //
+    // For loading from LDS: buffer reuse optimization is disabled because
+    // ThreadwiseReadIntoOp writes into the buffer at specific coordinates.
+
+    // Buffer reuse optimization: always enabled
+    // Prepare buffer ONCE before the loop to create a single use of the
+    // original buffer, which is compatible with the multibuffer pass.
+
+    // Keep track of original buffer B for ThreadwiseReadIntoOp (before
+    // viewBufferAs)
+    Value originalBufferB = adaptor.getBufferB();
+
+    // Prepare buffer B ONCE before the loop
+    // This creates a single use of adaptor.getBufferB()
+    Value preparedBufferB = originalBufferB;
+    Value preparedBufferScaleB =
+        isScaledGemm ? adaptor.getBufferScaleB() : nullptr;
+
+    // For directToLDS: convert byte buffer to typed buffer once
+    SmallVector<int64_t> directToLDSShapeB;
+    // Prepare view for ThreadwiseReadIntoOp (when directToLDS && loadBFromLDS)
+    Value viewForReadIntoB = nullptr;
+    if (matrixParamsB.getDirectToLDS()) {
+      directToLDSShapeB.push_back(kBasePerThread);
+      auto memrefType = cast<MemRefType>(preparedBufferB.getType());
+      assert(memrefType.getRank() == 1);
+      assert(memrefType.getElementType() == b.getI8Type());
+      int64_t numBytes = getPackedByteSize(kBasePerThread, argTypeB);
+      if (memrefType.getShape()[0] > numBytes) {
+        assert(memrefType.getShape()[0] == numBytes * nRepeats);
+        directToLDSShapeB.insert(directToLDSShapeB.begin(), nRepeats);
+      } else {
+        assert(memrefType.getShape()[0] == numBytes);
+      }
+      // view for generateThreadwiseViewBuffer() - done once before the loop
+      preparedBufferB =
+          viewBufferAs(b, preparedBufferB, argTypeB, directToLDSShapeB);
+
+      // Prepare view for ThreadwiseReadIntoOp (when loadBFromLDS is true)
+      if (loadBFromLDS) {
+        SmallVector<int64_t> shapeForLoad(directToLDSShapeB);
+        if (auto vectorType = dyn_cast<VectorType>(argTypeB)) {
+          assert(vectorType.hasRank() == 1 && "Expected rank 1");
+          shapeForLoad[shapeForLoad.size() - 1] =
+              vectorType.getDimSize(0) * shapeForLoad[shapeForLoad.size() - 1];
+        }
+        viewForReadIntoB = viewBufferAs(
+            b, originalBufferB, getElementTypeOrSelf(argTypeB), shapeForLoad);
+      }
+    } else if (loadBFromLDS) {
+      // For loadBFromLDS without directToLDS, use the original buffer for read
+      viewForReadIntoB = originalBufferB;
+    }
+
+    // For !loadBFromLDS: transform buffer for slicing (adds unmerge)
+    if (!loadBFromLDS) {
+      preparedBufferB =
+          transformBufferForSlicing(preparedBufferB, nRepeats, false);
+      if (isScaledGemm) {
+        preparedBufferScaleB =
+            transformBufferForSlicing(preparedBufferScaleB, nRepeats, false);
+      }
+    }
+
+    // Create mLoop with iter_args for buffer reuse
+    affine::AffineForOp mLoop;
+    SmallVector<Value> mLoopIterInits = {preparedBufferB};
+    if (isScaledGemm)
+      mLoopIterInits.push_back(preparedBufferScaleB);
+    mLoop = affine::AffineForOp::create(b, loc, 0, mRepeats, 1, mLoopIterInits);
+    // Remove default yield, we will add our own
+    if (mLoop.getBody()->mightHaveTerminator())
+      b.eraseOp(mLoop.getBody()->getTerminator());
+
     {
       OpBuilder::InsertionGuard guard(b);
       b.setInsertionPointToStart(mLoop.getBody());
@@ -614,29 +707,142 @@ struct BlockwiseGemmAccelRewritePattern
             b, loc, bufferScaleA);
       }
 
-      auto nLoop = affine::AffineForOp::create(b, loc, 0, nRepeats);
+      // Constants for swizzle pattern
+      Value two = arith::ConstantIndexOp::create(b, loc, 2);
+      Value iModTwo = arith::RemUIOp::create(b, loc, i, two);
+      Value zero = arith::ConstantIndexOp::create(b, loc, 0);
+      Value isEven = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq,
+                                           iModTwo, zero);
+      Value nRepeatsMinusOne =
+          arith::ConstantIndexOp::create(b, loc, nRepeats - 1);
+
+      // === UNIFIED PATH: Use iter_args for buffer reuse ===
+      // The buffer was prepared ONCE before the loop.
+      // - For !loadBFromLDS: slice at different indices
+      // - For loadBFromLDS: load from LDS with swizzled index
+
+      // Get iter_args from mLoop (prepared buffers)
+      Value prevBufferBFromMLoop = mLoop.getRegionIterArgs()[0];
+      Value prevBufferScaleBFromMLoop =
+          isScaledGemm ? mLoop.getRegionIterArgs()[1] : nullptr;
+
+      // Detect if this is the first mLoop iteration (i == 0)
+      Value isFirstMIteration =
+          arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, i, zero);
+
+      // For loadBFromLDS: initial swizzledJ determines first load
+      // For !loadBFromLDS: initial value is slice at swizzledJ for j=0
+      // For even i: swizzledJ(0) = 0, for odd i: swizzledJ(0) = nRepeats-1
+      Value initialSwizzledJ =
+          arith::SelectOp::create(b, loc, isEven, zero, nRepeatsMinusOne);
+
+      SmallVector<Value> nLoopIterInits;
+      if (loadBFromLDS) {
+        // For loadBFromLDS: pass the prepared buffer directly
+        // ThreadwiseReadIntoOp will load data based on swizzledJ
+        nLoopIterInits.push_back(prevBufferBFromMLoop);
+        if (isScaledGemm)
+          nLoopIterInits.push_back(prevBufferScaleBFromMLoop);
+      } else {
+        // For !loadBFromLDS: slice at initial swizzledJ
+        Value initialSlicedB =
+            sliceTransformedBuffer(prevBufferBFromMLoop, initialSwizzledJ);
+        nLoopIterInits.push_back(initialSlicedB);
+        if (isScaledGemm) {
+          Value initialSlicedScaleB = sliceTransformedBuffer(
+              prevBufferScaleBFromMLoop, initialSwizzledJ);
+          nLoopIterInits.push_back(initialSlicedScaleB);
+        }
+      }
+
+      auto nLoop =
+          affine::AffineForOp::create(b, loc, 0, nRepeats, 1, nLoopIterInits);
+      // Remove default yield
+      if (nLoop.getBody()->mightHaveTerminator())
+        b.eraseOp(nLoop.getBody()->getTerminator());
+
       {
         OpBuilder::InsertionGuard guard(b);
         b.setInsertionPointToStart(nLoop.getBody());
         Value j = nLoop.getInductionVar();
 
-        Value bufferB = adaptor.getBufferB();
-        bufferB =
-            loadBuffer(bufferB, wrappedLDSBufferForLoadB, j, argTypeB, nRepeats,
-                       loadBFromLDS, matrixParamsB.getDirectToLDS(), false,
-                       transposeAttrB);
+        // Get iter_args from nLoop
+        Value prevBufferBFromNLoop = nLoop.getRegionIterArgs()[0];
+        Value prevBufferScaleBFromNLoop =
+            isScaledGemm ? nLoop.getRegionIterArgs()[1] : nullptr;
+
+        // Swizzle pattern: if i is even, j goes forward; if odd, reverse
+        Value reversedJ = arith::SubIOp::create(b, loc, nRepeatsMinusOne, j);
+        Value swizzledJ = arith::SelectOp::create(b, loc, isEven, j, reversedJ);
+
+        // Detect if this is the first iteration of nLoop (j == 0)
+        Value isFirstNIteration =
+            arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, j, zero);
+
+        // Condition to reuse buffer: first nLoop iteration AND NOT first
+        // mLoop iteration
+        Value notFirstMIteration = arith::XOrIOp::create(
+            b, loc, isFirstMIteration,
+            arith::ConstantIntOp::create(b, loc, b.getI1Type(), true));
+        Value reuseBuffer = arith::AndIOp::create(b, loc, isFirstNIteration,
+                                                  notFirstMIteration);
+
+        Value bufferB, bufferScaleB = nullptr;
+
+        if (loadBFromLDS) {
+          // For loadBFromLDS: always call ThreadwiseReadIntoOp with swizzledJ
+          // The buffer is modified in place; reuse condition determines if
+          // we're reading the same data (same swizzledJ)
+          assert(wrappedLDSBufferForLoadB != Value{} &&
+                 "Wrapped LDS buffer for load is empty");
+          assert(viewForReadIntoB != Value{} &&
+                 "View for read into B is empty");
+          ThreadwiseReadIntoOp::create(b, loc, wrappedLDSBufferForLoadB,
+                                       viewForReadIntoB, b.getArrayAttr({}),
+                                       ValueRange{tid, swizzledJ},
+                                       /*forceUnroll=*/true,
+                                       /*useIndexDiffs=*/true,
+                                       /*ldsTransposeConfig=*/transposeAttrB);
+          // The buffer is the same SSA value, content updated in place
+          bufferB = prevBufferBFromNLoop;
+
+          if (isScaledGemm) {
+            if (matrixParamsB.getDirectToLDS()) {
+              op->emitOpError(
+                  "Direct to LDS scaled GEMM is not supported yet.");
+              return failure();
+            }
+            assert(wrappedLDSBufferForScaleB != Value{} &&
+                   "Wrapped LDS buffer for scale is empty");
+            Value scaleBufferForReadInto = adaptor.getBufferScaleB();
+            ThreadwiseReadIntoOp::create(
+                b, loc, wrappedLDSBufferForScaleB, scaleBufferForReadInto,
+                b.getArrayAttr({}), ValueRange{tid, swizzledJ},
+                /*forceUnroll=*/true, /*useIndexDiffs=*/true,
+                /*ldsTransposeConfig=*/nullptr);
+            bufferScaleB = prevBufferScaleBFromNLoop;
+          }
+        } else {
+          // For !loadBFromLDS: slice the transformed buffer at swizzledJ
+          Value newSlicedB =
+              sliceTransformedBuffer(prevBufferBFromMLoop, swizzledJ);
+
+          // Select between reusing previous slice or using new slice
+          bufferB = arith::SelectOp::create(b, loc, reuseBuffer,
+                                            prevBufferBFromNLoop, newSlicedB);
+
+          if (isScaledGemm) {
+            Value newSlicedScaleB =
+                sliceTransformedBuffer(prevBufferScaleBFromMLoop, swizzledJ);
+            bufferScaleB = arith::SelectOp::create(b, loc, reuseBuffer,
+                                                   prevBufferScaleBFromNLoop,
+                                                   newSlicedScaleB);
+          }
+        }
+
         Value viewB =
             accelEmitterPtr->generateThreadwiseViewBufferB(b, loc, bufferB);
         if (isScaledGemm) {
-          if (matrixParamsB.getDirectToLDS()) {
-            op->emitOpError("Direct to LDS scaled GEMM is not supported yet.");
-            return failure();
-          }
-          Value bufferScaleB = adaptor.getBufferScaleB();
-          bufferScaleB =
-              loadBuffer(bufferScaleB, wrappedLDSBufferForScaleB, j,
-                         getElementTypeOrSelf(scaleB), nRepeats, loadBFromLDS,
-                         matrixParamsB.getDirectToLDS(), false, nullptr);
           viewScaleB = accelEmitterPtr->generateThreadwiseViewBufferB(
               b, loc, bufferScaleB);
         }
@@ -650,10 +856,22 @@ struct BlockwiseGemmAccelRewritePattern
               b, loc, adaptor.getMatrixC());
           Value k = kLoop.getInductionVar();
           ThreadwiseGemmAccelOp::create(b, loc, viewA, viewB, viewC, viewScaleA,
-                                        viewScaleB, ValueRange{i, j, k},
+                                        viewScaleB, ValueRange{i, swizzledJ, k},
                                         op.getFeaturesAttr(), tuningParams);
         }
+
+        // Yield current buffer for next nLoop iteration
+        SmallVector<Value> nLoopYieldValues = {bufferB};
+        if (isScaledGemm)
+          nLoopYieldValues.push_back(bufferScaleB);
+        affine::AffineYieldOp::create(b, loc, nLoopYieldValues);
       }
+
+      // Yield the buffer for next mLoop iteration
+      SmallVector<Value> mLoopYieldValues = {prevBufferBFromMLoop};
+      if (isScaledGemm)
+        mLoopYieldValues.push_back(prevBufferScaleBFromMLoop);
+      affine::AffineYieldOp::create(b, loc, mLoopYieldValues);
     }
     b.eraseOp(op);
     return success();
@@ -1484,7 +1702,7 @@ void RockLowerBlockwiseGemmToThreadwisePass::runOnOperation() {
   target.addIllegalOp<FillOp, BlockwiseGemmOp, BlockwiseGemmAccelOp>();
   target.addLegalDialect<arith::ArithDialect, rock::RockDialect,
                          affine::AffineDialect, vector::VectorDialect,
-                         memref::MemRefDialect>();
+                         memref::MemRefDialect, scf::SCFDialect>();
   target.addLegalOp<gpu::PrintfOp>();
 
   RewritePatternSet patterns(ctx);
