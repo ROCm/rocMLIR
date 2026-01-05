@@ -206,6 +206,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     funcPm.addPass(rock::createRockVectorizeFusionsPass());
+    funcPm.addPass(rock::createRockRemoveRedundantCastsPass());
     funcPm.addPass(rock::createRockAddAsyncWaitPass());
     // We run reuse LDS before the output swizzle pass because it uses a
     // heuristic to determine whether to swizzle or not, and that heuristic

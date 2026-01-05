@@ -162,6 +162,23 @@ def RockVectorizeFusionsPass : Pass<"rock-vectorize-fusions", "::mlir::func::Fun
   let summary = "Vectorize affine element-wise loops";
 }
 
+def RockRemoveRedundantCastsPass : Pass<"rock-remove-redundant-casts", "::mlir::func::FuncOp"> {
+  let summary = "Remove redundant truncf/extf pairs through buffers";
+  let description = [{
+    Detects patterns where wider float values are truncated to a narrower
+    float type, stored to a buffer, then loaded and extended back to the
+    original wider input type. Replaces the extf uses with the original wide
+    values, preserving precision.
+  }];
+  let dependentDialects = [
+    "rock::RockDialect",
+    "linalg::LinalgDialect",
+    "arith::ArithDialect",
+    "memref::MemRefDialect",
+    "vector::VectorDialect"
+  ];
+}
+
 def RockBufferLoadMergePass : Pass<"rock-buffer-load-merge", "::mlir::func::FuncOp"> {
   let summary = "Merge identical memory loads to buffers only read. Assumes noalias.";
   let dependentDialects = ["::mlir::amdgpu::AMDGPUDialect"];
