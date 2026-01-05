@@ -20,6 +20,10 @@
 // original wider input type. Replaces the extf uses with the original wide
 // values, preserving precision.
 //
+// Note: The simpler truncf -> extf folding with no loads/stores is already
+// handled by arith.truncf canonicalization patterns. This pass specifically
+// deals with the more complex case where the values are stored to buffers.
+//
 //===----------------------------------------------------------------------===//
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -122,8 +126,6 @@ SmallVector<TruncfStoreInfo> findTruncfWithDirectStores(func::FuncOp funcOp) {
         continue;
 
       LLVM_DEBUG(llvm::dbgs() << "  Found direct store: " << *user << "\n");
-      LLVM_DEBUG(llvm::dbgs() << "  Target buffer: " << storeInfo->first
-                              << "\n");
 
       TruncfStoreInfo info;
       info.truncfOp = truncfOp;
@@ -137,8 +139,6 @@ SmallVector<TruncfStoreInfo> findTruncfWithDirectStores(func::FuncOp funcOp) {
     return WalkResult::advance();
   });
 
-  LLVM_DEBUG(llvm::dbgs() << "Total truncf -> store pairs found: "
-                          << results.size() << "\n");
   return results;
 }
 
