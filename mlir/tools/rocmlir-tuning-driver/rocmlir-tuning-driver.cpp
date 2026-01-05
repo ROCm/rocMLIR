@@ -465,6 +465,16 @@ benchmarkKernels(ArrayRef<std::string> binaries,
         HIPCHECK(hipEventDestroy(stopEvent));
         HIPCHECK(hipEventDestroy(startEvent));
 
+        // hipEventElapsedTime seemingly can return negative values for fast
+        // kernels due to GPU clock precision issues. This is extremely relevant
+        // when we have a small number of warmup iterations (e.g., 1) for small
+        // kernels. Clamp to the documented resolution of ~1 microsecond
+        // (0.001 ms) if this is the case.
+        if (currentMilliseconds < 0.0f) {
+          constexpr float minMeasurableMs = 0.001f;
+          currentMilliseconds = minMeasurableMs;
+        }
+
         totalMillisecondsWarmup += static_cast<double>(currentMilliseconds);
       }
     }
