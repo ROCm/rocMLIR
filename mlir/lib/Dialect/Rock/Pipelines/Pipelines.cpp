@@ -322,6 +322,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // descriptors. (Mainly we want the `extractvalue` fold).
   llvmFuncPm.addPass(createCanonicalizerPass());
   llvmFuncPm.addPass(createCSEPass());
+  llvmFuncPm.addPass(rock::createRockRemoveRedundantCastsPass());
   llvmFuncPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile) {
     GpuROCDLAttachTargetOptions opts;
