@@ -215,6 +215,7 @@ def Rock_AttentionOp
           TensorOrMemRefOf<[F32, F16, BF16]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
+          Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out,
           Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse, I32Attr:$numHeadsQ,
           I32Attr:$numHeadsKV, UnitAttr:$qTransposed, UnitAttr:$kTransposed,
@@ -245,6 +246,13 @@ def Rock_AttentionOp
 
     If causal is enabled, we implement causal masking.
 
+    If causal is enabled AND prefixOffset is not null, we implement prefix
+    causal masking where: mask = key_pos > (query_pos + offset).
+    The prefixOffset can be either:
+    - A scalar (shape [1]): a single global offset applied to all sequences
+    - A tensor of shape [G]: per-group/batch offsets, allowing different prefix
+      lengths for each sequence in the batch
+
     LSE (log-sum-exp) is an optional output typically used for flash decoding.
     For flash decoding, you can pass splitKV > 1, the default value is 1, which means flash decoding is disabled. 
     Flash decoding multiplies the number of blocks by splitKV. Note that "lse" has to be non-null for splitKV > 1. 
@@ -269,6 +277,7 @@ def Rock_AttentionOp
     `{` `\n`
         ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
         (`currentSeqLen` `=` `(` $currentSeqLen^ `:` type($currentSeqLen) `)` `\n`)?
+        (`prefixOffset` `=` `(` $prefixOffset^ `:` type($prefixOffset) `)` `\n`)?
         (`causal` `\n` $causal^)?
         (`lse` `=` $lse^ `:` type($lse) `\n`)?
         (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
@@ -547,6 +556,7 @@ def Rock_GridwiseAttentionAccelOp
           MemRefRankOf<[F32, F16, BF16], [3]>:$values,
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
+          Optional<MemRefRankOf<[I32], [1]>>:$prefixOffset,
           MemRefRankOf<[F32, F16, BF16], [3]>:$out,
           Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
           I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
@@ -614,6 +624,29 @@ def Rock_LiveOutOp : Rock_Op<"live_out">, Arguments<(ins AnyMemRef:$memref)> {
     $memref attr-dict `:` type($memref)
   }];
   let hasVerifier = 1;
+}
+
+def Rock_AsyncWaitOp : Rock_Op<"async_wait">,
+                       Arguments<(ins I32Attr:$numInst)> {
+  let summary = "Wait for asynchronous global memory loads to LDS to complete";
+  let description = [{
+    The `rock.async_wait` operation waits for asynchronous global memory loads
+    to Local Data Share (LDS) instructions to complete before execution continues.
+    
+    The `numInst` attribute specifies how many async loads need to
+    complete before continuing. The value is clamped to 6 bits (maximum 63). It also
+    introduces a barrier to ensure all workitems in the workgroup synchronize at
+    this point.
+        
+    Example:
+    ```mlir
+    // Wait for 4 outstanding async loads to complete and synchronize all workitems.
+    rock.async_wait {numInst = 4 : i32}
+    ```
+  }];
+  let assemblyFormat = [{
+    attr-dict
+  }];
 }
 
 // Select one among a set of multiple buffers
@@ -764,9 +797,8 @@ def Rock_YieldOp :
   // Yoinked from affine.yield
   let arguments = (ins Variadic<AnyType>:$operands);
 
-  let builders = [
-    OpBuilder<(ins), [{ build($_builder, $_state, std::nullopt); }]>
-  ];
+  let builders = [OpBuilder<(ins),
+                            [{ build($_builder, $_state, ValueRange{}); }]>];
 
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
 }
@@ -979,8 +1011,8 @@ defvar NativeMemoryOpTypes =
      F8E4M3FN, F4E2M1FN, F8E8M0FNU,
      VectorOfLengthAndType<[2, 4, 8, 16, 32], [F32, I32, F4E2M1FN, F8E8M0FNU]>,
      VectorOfLengthAndType<[2, 4, 8, 16], [F16, BF16]>,
-     VectorOfLengthAndType<[2, 4, 8, 16], [I8, F8E5M2FNUZ, F8E4M3FNUZ, F8E5M2,
-                                           F8E4M3FN]>];
+     VectorOfLengthAndType<[2, 4, 8, 16, 32, 64], [I8, F8E5M2FNUZ, F8E4M3FNUZ,
+                                                   F8E5M2, F8E4M3FN]>];
 
 // in_bounds_load
 def Rock_InBoundsLoadOp
@@ -1023,6 +1055,26 @@ def Rock_InBoundsStoreOp
   let assemblyFormat = [{
     $data `->` $dest `[` $coords `]` attr-dict
     `:` type($data) `->` type($dest) `,` type($coords)
+  }];
+  let hasVerifier = 1;
+}
+
+// global_prefetch
+def Rock_GlobalPrefetchOp
+    : Rock_Op<"global_prefetch">,
+      Arguments<(
+          ins Arg<MemRefOf<SupportedMemoryElems>, "source memory">:$source,
+          Variadic<Index>:$sourceCoord)> {
+  let summary = "Prefetch from global memory";
+  let description = [{
+    `global_prefetch` prefetches an item from the provided memref
+    (applying no coordinate transformations), starting at `sourceCoord`. 
+
+    Note that it's ok if `sourceCoord` are out of bounds because we use Speculative Prefetch.
+  }];
+  let assemblyFormat = [{
+    $source `[` $sourceCoord `]` attr-dict
+    `:` type($source)
   }];
   let hasVerifier = 1;
 }
@@ -1141,6 +1193,38 @@ defvar SameShapeVectorOfI1 = [{
   ::mlir::VectorType::get(::llvm::cast<::mlir::ShapedType>($_self).getShape(), ::mlir::IntegerType::get($_ctxt, 1))
 }];
 
+// lds_transpose_load
+def Rock_LDSTransposeLoadOp
+    : Rock_Op<"lds_transpose_load", [DeclareOpInterfaceMethods<
+                                        MemoryEffectsOpInterface>]>,
+      Arguments<(ins Arg<MemRefOf<[F16, BF16]>, "LDS source buffer">:$source,
+          Variadic<Index>:$indices)>,
+      Results<(outs VectorOfLengthAndType<[4], [F16, BF16]>:$result)> {
+  let summary =
+      "Hardware-assisted LDS transpose load for matrix accelerator tile";
+  let description = [{
+    Loads a matrix accelerator tile of data from Local Data Share (LDS) memory
+    with hardware-assisted transpose instruction.
+    The tile dimensions match the selected matrix-multiply accelerator
+    instruction geometry (`dDim × instrK`), where:
+    - `dDim` is the accelerator M/N dimension (e.g., 16 or 32)
+    - `instrK` is the accelerator K dimension (e.g., 8, 16, or 32)
+    The operation returns a vector of 4 elements per thread containing
+    transposed elements in a layout suitable for matrix accelerator instructions.
+
+    Benefits:
+    - Reduces LDS bank conflicts through optimized access patterns
+    - Provides data in layout expected by matrix-multiply accelerators
+    - Hardware-accelerated transpose with no software overhead
+  }];
+
+  let assemblyFormat = [{
+    $source (`[` $indices^ `]`)? attr-dict `:` type($source) `->` type($result)
+  }];
+
+  let hasVerifier = 1;
+}
+
 // threadwise_read_into
 def Rock_ThreadwiseReadIntoOp
     : Rock_Op<
@@ -1165,7 +1249,8 @@ def Rock_ThreadwiseReadIntoOp
           Arg<MemRefOf<NativeMemoryOpTypes>, "destination registers">:$dest,
           Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
           TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
-          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs)>,
+          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs,
+          OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig)>,
       Results<(outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord)> {
   let summary = "Read values from transformed source into destination";
 
@@ -1198,7 +1283,7 @@ def Rock_ThreadwiseReadIntoOp
     L is the length of `%dest`, V is the maximum vectorization computed
     for MAPS.
 
-    The input to extraViews ; (the transforms on %source) must have the form
+    The input to extraViews: (the transforms on %source) must have the form
     (extraIdx0, ... , extraIdxN, iteration_number)
 
     Primarily, extraIndices would be used to pass in tid and bid. This would need
@@ -1228,19 +1313,88 @@ def Rock_ThreadwiseReadIntoOp
   }];
 
   let builders = [
-    // Alias for the common case where we aren't filling a buffer of validity checks
-    OpBuilder<(ins "Value":$source, "Value":$dest,
-                   "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
-                   "bool":$forceUnroll, "bool":$useIndexDiffs),
-      [{
-        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs);
-      }]>
-  ];
+      // Alias for the common case where we aren't filling a buffer of validity
+      // checks
+      OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
+                    "ValueRange":$extraIndices, "bool":$forceUnroll,
+                    "bool":$useIndexDiffs),
+                [{
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+      }]>,
+      // Builder with explicit ldsTransposeConfig support
+      OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
+                    "ValueRange":$extraIndices, "bool":$forceUnroll,
+                    "bool":$useIndexDiffs,
+                    "LDSTransposeConfigAttr":$ldsTransposeConfig),
+                [{
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig);
+      }]>,
+      // Builder with validityRecord but without ldsTransposeConfig
+      OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
+                    "Value":$dest, "ValueRange":$dynamicValidities,
+                    "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
+                    "bool":$forceUnroll, "bool":$useIndexDiffs),
+                [{
+        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+      }]>];
 
   let assemblyFormat = [{
     attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest
     (`if` ` ` `[` $dynamicValidities^ `]`)?
     `:` type($source) `->` type($dest) (`,` type($validityRecord)^)?
+  }];
+  let hasVerifier = 1;
+}
+
+// threadwise_prefetch
+def Rock_ThreadwisePrefetchOp
+    : Rock_Op<"threadwise_prefetch", [DeclareOpInterfaceMethods<
+                                         RockAcceptingViewOpInterface>]>,
+      Arguments<(ins Arg<MemRefOf<SupportedMemoryElems>, "source view">:$source,
+          TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
+          UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs)> {
+  let summary = "Prefetch values from transformed source";
+
+  let description = [{
+    A high-level representation of a global prefetch loop that
+    accounts for coordinate transformations.
+
+    If `%source = rock.transform #transform_mapN %buffer`
+    (with the one transformation representing an entire sequence),
+    the operation
+
+    ```mlir
+    rock.threadwise_prefetch [#transform_mapM](%source)
+    ```
+
+    will lower to
+    ```mlir
+    %bid = rock.workgroup_id
+    %tid = rock.workitem_id
+    rock.transforming_for
+      (%args, ...) = MAPS(%bid, %tid, %c0)
+      (%_, %_, %i) = [](%c0, %c0, %c0)
+      bounds = [1, 1, L], strides = [1, 1, 1] {
+        rock.global_prefetch %buffer[%args]
+    }
+    ```
+
+    where MAPS is `[#transform_mapM, #transform_mapN]`,
+    L is the length of the upper view last dimension (number of elements).
+
+    The input to extraViews ; (the transforms on %source) must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number)
+
+    Primarily, extraIndices would be used to pass in tid and bid. This would need
+    to have a matching view in [extraViews]source. The extraIndices could be used
+    to integrate loop induction vars that is outside of the op.
+    If extraIndices are used, the [extraViews]source must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)?
+    `:` type($source)
   }];
   let hasVerifier = 1;
 }

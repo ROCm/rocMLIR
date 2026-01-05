@@ -13,6 +13,7 @@
 
 #include "mlir/Conversion/GPUToROCDL/GPUToROCDLPass.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
+#include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 
@@ -26,7 +27,6 @@
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MathToROCDL/MathToROCDL.h"
-#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -36,7 +36,6 @@
 #include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/Dialect/Vector/Transforms/VectorRewritePatterns.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -392,15 +391,9 @@ struct LowerGpuOpsToROCDLOpsPass final
       iface->populateConvertToLLVMConversionPatterns(target, converter,
                                                      llvmPatterns);
     }
-    // workaround for https://ontrack-internal.amd.com/browse/SWDEV-514726
-    WalkResult walkResult =
-        getOperation()->walk([](amdgpu::GatherToLDSOp) -> WalkResult {
-          return WalkResult::interrupt();
-        });
-    bool hackForDirectToLDS = walkResult.wasInterrupted();
 
     populateAMDGPUToROCDLConversionPatterns(converter, llvmPatterns,
-                                            *maybeChipset, hackForDirectToLDS);
+                                            *maybeChipset);
     // TODO (rocmlir): remove hardcoded passes
     // related PR: https://github.com/llvm/llvm-project/pull/124439
     mlir::vector::populateVectorInsertExtractStridedSliceTransforms(
@@ -500,5 +493,5 @@ void mlir::populateGpuToROCDLConversionPatterns(
                GPUSubgroupBroadcastOpToROCDL>(converter);
   patterns.add<GPUSubgroupSizeOpToROCDL>(converter, chipset);
 
-  populateMathToROCDLConversionPatterns(converter, patterns);
+  populateMathToROCDLConversionPatterns(converter, patterns, chipset);
 }

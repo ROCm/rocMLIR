@@ -74,6 +74,20 @@ using namespace mlir::rock;
 // Utility Functions
 //===----------------------------------------------------------------------===//
 
+FailureOr<bool> mlir::rock::isWorkgroupMemorySpace(Attribute memorySpace) {
+  if (!memorySpace)
+    return failure();
+
+  if (auto gpuMemSpace = dyn_cast<gpu::AddressSpaceAttr>(memorySpace))
+    return gpuMemSpace.getValue() == gpu::AddressSpace::Workgroup;
+
+  if (auto intMemSpace = dyn_cast<IntegerAttr>(memorySpace))
+    return intMemSpace.getInt() ==
+           static_cast<int64_t>(gpu::GPUDialect::getWorkgroupAddressSpace());
+
+  return false;
+}
+
 static Type getElementTypeOrSelfRecursive(Type type) {
   while (auto shapedType = dyn_cast<ShapedType>(type)) {
     type = shapedType.getElementType();
@@ -544,6 +558,46 @@ LogicalResult TransformMapAttr::verify(
   return success();
 }
 
+// Helper function to check valid MFMA geometry for LDS transpose
+static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
+  return (dDim == 16 && (kDim == 16 || kDim == 32)) ||
+         (dDim == 32 && (kDim == 8 || kDim == 16));
+}
+
+LogicalResult LDSTransposeConfigAttr::verify(
+    function_ref<InFlightDiagnostic()> emitError, int64_t dDim, int64_t kDim,
+    int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
+    int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
+
+  // Validate MFMA geometry
+  if (!isValidLdsTransposeMfmaGeometry(dDim, kDim)) {
+    return emitError() << "invalid MFMA geometry (" << dDim << "x" << kDim
+                       << ") for LDS transpose - valid combinations: "
+                          "(16,16), (16,32), (32,8), (32,16)";
+  }
+
+  // Validate positive dimensions
+  if (dDim <= 0 || kDim <= 0 || mPerBlock <= 0 || nPerBlock <= 0 ||
+      kPerBlock <= 0 || mPerWave <= 0 || nPerWave <= 0) {
+    return emitError() << "all dimensions must be positive";
+  }
+
+  // Validate that block dimensions are divisible by MFMA dimensions
+  int64_t dPerBlock = isOperandA ? mPerBlock : nPerBlock;
+  if (dPerBlock % dDim != 0) {
+    return emitError() << (isOperandA ? "mPerBlock" : "nPerBlock") << " ("
+                       << dPerBlock << ") must be divisible by dDim (" << dDim
+                       << ")";
+  }
+
+  if (kPerBlock % kDim != 0) {
+    return emitError() << "kPerBlock (" << kPerBlock
+                       << ") must be divisible by kDim (" << kDim << ")";
+  }
+
+  return success();
+}
+
 } // namespace rock
 } // namespace mlir
 //===----------------------------------------------------------------------===//
@@ -710,20 +764,44 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
   bool isGfx11 = arch.contains("gfx11");
+  bool isGfx1250 = arch.contains("gfx1250");
   if (isa<Float8E8M0FNUType>(elemTypeA) || isa<Float8E8M0FNUType>(elemTypeB)) {
     return op->emitOpError(
         "Matrix A or B is not allowed to have Float8E8M0FNU types");
   }
   if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
-    if (!(elemTypeA.isF16() || elemTypeA.isBF16() || elemTypeA.isInteger(8))) {
+    // Validate input data types based on architecture
+    bool isValidTypeA = elemTypeA.isF16() || elemTypeA.isBF16() ||
+                        elemTypeA.isInteger(8) || isFloat8Type(elemTypeA);
+
+    // gfx1250 additionally supports F32
+    if (isGfx1250)
+      isValidTypeA = isValidTypeA || elemTypeA.isF32();
+
+    // gfx11 doesn't support float8 types
+    if (isGfx11 && isFloat8Type(elemTypeA))
+      isValidTypeA = false;
+
+    if (!isValidTypeA) {
       if (isGfx11)
         return op->emitOpError("Wmma supports only F16/BF16/int8 data types");
-      if (!isFloat8Type(elemTypeA))
+      if (isGfx1250)
         return op->emitOpError(
-            "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
+            "Wmma supports only F32/F16/BF16/int8/E4M3/E5M2 data types");
+      return op->emitOpError(
+          "Wmma supports only F16/BF16/int8/E4M3/E5M2 data types");
     }
-    if (elemTypeA != elemTypeB)
-      return op->emitOpError("Wmma does not support mixed types");
+
+    // Validate mixed types
+    if (elemTypeA != elemTypeB) {
+      // gfx1250 allows mixed precision for float8 types only
+      bool allowMixed =
+          isGfx1250 && isFloat8Type(elemTypeA) && isFloat8Type(elemTypeB);
+      if (!allowMixed)
+        return op->emitOpError(isGfx1250 ? "Wmma on gfx1250 supports mixed "
+                                           "types only for FP8/BF8 combinations"
+                                         : "Wmma does not support mixed types");
+    }
   }
   if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
     bool isGfx95 = arch.contains("gfx95");
@@ -1330,12 +1408,13 @@ LogicalResult LiveInOp::verify() {
     return emitError("The operand of rock.live_in must be the result of a "
                      "rock.alloc operation.");
 
-  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-      getMemref().getType().getMemorySpace());
-  if (!memSpace ||
-      (memSpace &&
-       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
-    return emitError("The operand of rock.live_in must a LDS memref");
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(getMemref().getType().getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("The operand of rock.live_in must have a specified "
+                     "memory space");
+  if (!memSpaceCheck.value())
+    return emitError("The operand of rock.live_in must be an LDS memref");
 
   return success();
 }
@@ -1350,12 +1429,13 @@ LogicalResult LiveOutOp::verify() {
     return emitError("The operand of rock.live_out must be the result of a "
                      "rock.alloc operation.");
 
-  auto memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-      getMemref().getType().getMemorySpace());
-  if (!memSpace ||
-      (memSpace &&
-       memSpace.getValue() != gpu::GPUDialect::getWorkgroupAddressSpace()))
-    return emitError("The operand of rock.live_out must a LDS memref");
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(getMemref().getType().getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("The operand of rock.live_out must have a specified "
+                     "memory space");
+  if (!memSpaceCheck.value())
+    return emitError("The operand of rock.live_out must be an LDS memref");
 
   return success();
 }
@@ -1836,21 +1916,41 @@ LogicalResult IndexDiffUpdateOp::verify() {
   return success();
 }
 
-template <typename Load>
-static LogicalResult verifyGlobalLoad(Load op) {
+// Common verification code for load and prefetch
+template <typename LoadOrPrefetch>
+static LogicalResult verifyGlobalLoadAndPrefetch(LoadOrPrefetch op) {
   MemRefType sourceType = op.getSource().getType();
   size_t nDims = sourceType.getRank();
 
   if (op.getSourceCoord().size() != nDims)
-    return op.emitOpError("Expected " + Twine(nDims) + " coordinates for load");
-  if (op.getCanReadOffEnd() && nDims != 1)
-    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
+    return op.emitOpError("Expected " + Twine(nDims) + " coordinates");
   Attribute memSpaceAttr = sourceType.getMemorySpace();
   auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
   if (memSpaceAttr && (!gpuMemSpaceAttr ||
                        gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
     return op.emitOpError("Source memref must live in global memory");
   return success();
+}
+
+template <typename Load>
+static LogicalResult verifyGlobalLoad(Load op) {
+  if (failed(verifyGlobalLoadAndPrefetch(op)))
+    return failure();
+
+  MemRefType sourceType = op.getSource().getType();
+  size_t nDims = sourceType.getRank();
+
+  if (op.getCanReadOffEnd() && nDims != 1)
+    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// GlobalPrefetchOp
+//===-----------------------------------------------------===//
+
+LogicalResult GlobalPrefetchOp::verify() {
+  return verifyGlobalLoadAndPrefetch(*this);
 }
 
 //===-----------------------------------------------------===//
@@ -1876,20 +1976,53 @@ LogicalResult GlobalLoadToLDSOp::verify() {
   LogicalResult res = verifyGlobalLoad(*this);
   if (failed(res))
     return res;
+  Value source = getSource();
+  Value dest = getDest();
+  SmallVector<Value> coords(getSourceCoord());
+  SmallVector<Value> destCoords(getDestCoord());
+  MemRefType sourceType = cast<MemRefType>(source.getType());
+  MemRefType destType = cast<MemRefType>(dest.getType());
 
-  MemRefType destType = getDest().getType();
-  Attribute destMemSpaceAttr = destType.getMemorySpace();
-  auto destGpuMemSpaceAttr =
-      dyn_cast_or_null<gpu::AddressSpaceAttr>(destMemSpaceAttr);
-  if (destMemSpaceAttr &&
-      (!destGpuMemSpaceAttr ||
-       destGpuMemSpaceAttr.getValue() != gpu::AddressSpace::Workgroup))
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(destType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitOpError("Destination memref must have a specified memory space");
+  if (!memSpaceCheck.value())
     return emitOpError("Destination memref must live in workgroup memory");
 
   int64_t numBits = getTransferType().getIntOrFloatBitWidth();
   if (numBits != 128 && numBits != 32)
     return emitOpError(
         "Direct to LDS is implemented for 128bit and 32bit loads only");
+  unsigned bitWidth = cast<ShapedType>(sourceType).getElementTypeBitWidth();
+  unsigned destBitWidth = cast<ShapedType>(destType).getElementTypeBitWidth();
+  // For 4-bit source types (f4, i4), add validation checks as GPU can not do
+  // sub-byte addressing
+  if (bitWidth == 4) {
+    // Check that last source coordinate is even
+    APInt coordConst(64, 0);
+    // It is possible that this is not a compile time constant and it cannot
+    // be matched. Doing runtime checks is very expensive. Given directToLDS
+    // transfers bits are multiple of 8, it should be safe to assume that last
+    // coord will be even at runtime.
+    if (matchPattern(coords.back(), m_ConstantInt(&coordConst))) {
+      if (coordConst.urem(2) != 0) { // Check if number is odd
+        return emitOpError(
+            "For 4-bit source types, last source coordinate must be even");
+      }
+    }
+  }
+
+  // For 4-bit dest types, check that last dest coordinate is even
+  if (destBitWidth == 4) {
+    APInt destCoordConst(64, 0);
+    if (matchPattern(destCoords.back(), m_ConstantInt(&destCoordConst))) {
+      if (destCoordConst.urem(2) != 0) { // Check if number is odd
+        return emitOpError(
+            "For 4-bit destination types, last dest coordinate must be even");
+      }
+    }
+  }
   return success();
 }
 
@@ -1954,6 +2087,125 @@ LogicalResult InBoundsStoreOp::verify() {
   if (isa<ShapedType>(dataType) && !isa<VectorType>(dataType))
     return emitOpError(
         "Non-scalar data types must be vectors, not other shaped types");
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// LDSTransposeLoadOp
+//===-----------------------------------------------------===//
+void LDSTransposeLoadOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  // This op only reads from LDS (workgroup) memory
+  effects.emplace_back(MemoryEffects::Read::get(), &getSourceMutable());
+
+  // Writes transposed result to destination (VGPRs)
+  effects.emplace_back(MemoryEffects::Write::get());
+}
+
+LogicalResult LDSTransposeLoadOp::verify() {
+  // Source must be memref in workgroup (LDS) address space
+  MemRefType srcType = getSource().getType();
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(srcType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitOpError("source memref must have a specified memory space");
+  if (!memSpaceCheck.value())
+    return emitOpError("source memory address space must be workgroup (LDS)");
+
+  // Result element type must match source element type
+  Type srcElemType = srcType.getElementType();
+  VectorType resultType = getResult().getType();
+  Type resultElemType = resultType.getElementType();
+
+  if (resultElemType != srcElemType) {
+    return emitOpError("result element type (")
+           << resultElemType << ") must match source element type ("
+           << srcElemType << ")";
+  }
+
+  // Check hardware support using AmdArchDb
+  StringAttr archAttr =
+      rock::getArch(*this).value_or(StringAttr::get(getContext(), "gfx00"));
+  StringRef arch = archAttr.getValue();
+  AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (!archInfo.hasLdsTransposeLoad) {
+    return emitOpError(
+               "LDS transpose load is not supported on this architecture: ")
+           << arch;
+  }
+
+  // Indices size must match rank
+  if (static_cast<int64_t>(getIndices().size()) != srcType.getRank())
+    return emitOpError("expected " + Twine(srcType.getRank()) + " indices");
+  for (Value idx : getIndices()) {
+    if (!idx.getType().isIndex())
+      return emitOpError("indices must be of index type");
+  }
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
+// ThreadwisePrefetchOp
+//===-----------------------------------------------------===//
+
+SmallPtrSet<OpOperand *, 2> ThreadwisePrefetchOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  return {operands.begin()};
+}
+
+std::optional<OperandRange>
+ThreadwisePrefetchOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return std::nullopt;
+  }
+  // Only one operand supports view
+  return getExtraIndices();
+}
+
+Operation *
+ThreadwisePrefetchOp::cloneWithExtraIndices(OpBuilder &builder,
+                                            OpOperand &operand, Value view,
+                                            ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return getOperation();
+  }
+
+  // Only one operand supports view
+  auto newOp = ThreadwisePrefetchOp::create(
+      builder, getLoc(), view, getExtraViews(), newExtraIndices,
+      getForceUnroll(), getUseIndexDiffs());
+  return newOp.getOperation();
+}
+
+LogicalResult ThreadwisePrefetchOp::verify() {
+  MemRefType srcType = getSource().getType();
+  Attribute srcMemSpaceAttr = srcType.getMemorySpace();
+  auto gpuSrcMemSpaceAttr =
+      dyn_cast_or_null<gpu::AddressSpaceAttr>(srcMemSpaceAttr);
+  if (srcMemSpaceAttr &&
+      (!gpuSrcMemSpaceAttr ||
+       gpuSrcMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
+    return emitOpError("prefetching only works for global");
+
+  // we are checking below if extra indices match the upper view bounds.
+  // we should expect zero extra indices if we are prefetching a scalar.
+  // And upperBounds.size() + 1 otherwise.
+  ArrayAttr extraViews = getExtraViews();
+  ArrayRef<int64_t> inputShape;
+  if (extraViews.empty())
+    inputShape = srcType.getShape();
+  else
+    inputShape = cast<TransformMapAttr>(extraViews[0]).getUpperBounds();
+
+  size_t extraIdxCount = getExtraIndices().size();
+  if (inputShape.empty()) {
+    if (extraIdxCount != 0)
+      return emitOpError("read from a scalar value cannot have coordinates");
+  } else if (inputShape.size() != extraIdxCount + 1) {
+    return emitOpError("source view must be extraIndices + 1");
+  }
+
   return success();
 }
 
@@ -2529,6 +2781,24 @@ LogicalResult GridwiseAttentionAccelOp::verify() {
   if (!getEnableSoftmax() && getSoftmaxType()) {
     return emitError("Setting softmax type only works for attention.");
   }
+
+  if (!getEnableSoftmax() && getCurrentSeqLen())
+    return emitError("currentSeqLen only works for attention.");
+
+  if (!getEnableSoftmax() && getPrefixOffset())
+    return emitError("prefixOffset only works for attention.");
+
+  if (!getEnableSoftmax() && getCausal())
+    return emitError("causal only works for attention.");
+
+  // Validate prefix offset constraints
+  // prefixOffset requires causal to be enabled (prefix causal = causal +
+  // prefixOffset)
+  if (getPrefixOffset() && !getCausal())
+    return emitError(
+        "prefixOffset requires causal to be enabled. "
+        "Prefix causal attention is causal masking with an offset.");
+
   return success();
 }
 
@@ -2710,14 +2980,12 @@ LogicalResult BlockwiseFillOp::verify() {
   if (memrefType.getRank() != 1) {
     return emitError("Blockwise fill expects a flat memref");
   }
-  if (gpu::AddressSpaceAttr memSpace = dyn_cast_or_null<gpu::AddressSpaceAttr>(
-          memrefType.getMemorySpace())) {
-    if (memSpace.getValue() != gpu::AddressSpace::Workgroup) {
-      return emitError("Memory space is expected to be workgroup");
-    }
-  } else {
+  FailureOr<bool> memSpaceCheck =
+      isWorkgroupMemorySpace(memrefType.getMemorySpace());
+  if (failed(memSpaceCheck))
+    return emitError("Memref must have a specified memory space");
+  if (!memSpaceCheck.value())
     return emitError("Memory space is expected to be workgroup");
-  }
   int64_t numElements = getMemref().getType().getNumElements();
   if (VectorType vecType = dyn_cast<VectorType>(getValue().getType())) {
     if (numElements % vecType.getNumElements() != 0) {
@@ -3065,6 +3333,14 @@ LogicalResult AttentionOp::verify() {
   if (getStoreMethod() != StoreMethod::Set)
     return emitError("Only set store method is supported for attention.");
 
+  // Validate prefix offset constraints
+  // prefixOffset requires causal to be enabled (prefix causal = causal +
+  // prefixOffset)
+  if (getPrefixOffset() && !getCausal())
+    return emitError(
+        "prefixOffset requires causal to be enabled. "
+        "Prefix causal attention is causal masking with an offset.");
+
   return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
                                   getNumHeadsQ(), getNumHeadsKV());
 }
@@ -3110,17 +3386,19 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
     expectedNumTokens = 11;
     break;
   case 3:
-    expectedNumTokens = 12;
+    expectedNumTokens = 13;
     break;
   default:
     llvm_unreachable("Unknown version of the perfConfig");
   }
-  SmallVector<StringRef, 11> tokens;
+  SmallVector<StringRef> tokens;
+  SmallVector<int64_t> params;
+  tokens.reserve(expectedNumTokens);
+  params.reserve(expectedNumTokens);
   rest.split(tokens, ',');
   if (tokens.size() != expectedNumTokens) {
     return {};
   }
-  SmallVector<int64_t, 11> params;
   llvm::transform(tokens, std::back_inserter(params), [](StringRef s) {
     int param;
     llvm::to_integer(s, param);
@@ -3154,11 +3432,12 @@ AttnPerfConfigAttr AttnPerfConfigAttr::get(StringAttr perfConfigStrAttr,
   int64_t splitKFactor = version > 1 ? params[lastIdx++] : 1;
   int64_t scheduleVersion = version > 1 ? params[lastIdx++] : 1;
   int64_t outputSwizzle = version > 1 ? params[lastIdx++] : 2;
+  int64_t wavesPerEU = isV3 ? params[lastIdx++] : 0; // 0 -> use heuristic
   int64_t forceUnroll = params[expectedNumTokens - 1] == 1;
   return AttnPerfConfigAttr::get(
       perfConfigStrAttr.getContext(), mPerBlockG0, mPerBlockG1, nPerBlockG0,
       kpackPerBlock, mPerWave, nPerWave, mnPerXdl, kpack, splitKFactor,
-      scheduleVersion, outputSwizzle, forceUnroll);
+      scheduleVersion, outputSwizzle, wavesPerEU, forceUnroll);
 }
 
 //===-----------------------------------------------------===//

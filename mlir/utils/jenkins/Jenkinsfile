@@ -9,6 +9,9 @@ import org.jenkinsci.plugins.workflow.support.steps.AgentOfflineException
 @Field
 ConcurrentHashMap<String,String> DOCKER_ARGS_BY_NODE = new ConcurrentHashMap<>()
 
+@Field
+String DOCKER_HUB_CREDS = "DOCKER_HUB_CREDS"
+
 void buildProject(String target, String cmakeOpts) {
     timeout(time: 60, activity: true, unit: 'MINUTES') {
         cmakeBuild generator: 'Ninja',\
@@ -73,8 +76,8 @@ void robustScmCheckout() {
                 return
             } catch (err) {
                 def msg = "${err}".toLowerCase()
-                if (!msg.contains("reference is not a tree")) {
-                    // If it's not the "reference is not a tree" error, re-throw it to be caught by the outer block
+                if (!msg.contains("reference is not a tree") && !msg.contains("could not checkout")) {
+                    // If it's not a known transient error, re-throw it to be caught by the outer block
                     throw err
                 }
 
@@ -289,6 +292,15 @@ String dockerImageCIMIGraphX() {
     return 'rocm/mlir-migraphx-ci:rocm7.0-latest'
 }
 
+// For when the docker image is in a private repo
+void explicitDockerLogin() {
+    withCredentials([usernamePassword(credentialsId: DOCKER_HUB_CREDS,
+                                      usernameVariable: 'D_USER', 
+                                      passwordVariable: 'D_PASS')]) {
+        sh "echo $D_PASS | docker login -u $D_USER --password-stdin"
+    }
+}
+
 void preMergeCheck(String codepath) {
     // Only do static check on mfma codepath during PR CI
     if ( (params.nightly == false) && (codepath == "mfma") ) {
@@ -347,7 +359,7 @@ void postProcessPerfRes(String chip) {
         alwaysLinkToLastBuild: false,
         keepAll: true,
         reportDir: 'build/reports',
-        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
+        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_hipBLASLt.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
         reportName: "Performance report for ${chip}"
     ])
 
@@ -355,6 +367,14 @@ void postProcessPerfRes(String chip) {
     plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
         csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
         title: "Test performance summary ${chip}, Conv",\
+        yaxis: 'TFlops',\
+        style: 'line',\
+        group: 'Performance plots'
+  }
+  if (fileExists("build/${chip}_mlir_vs_hipblaslt_perf_for_plot.csv")) {
+    plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
+        csvSeries: [[file: "build/${chip}_mlir_vs_hipblaslt_perf_for_plot.csv", displayTableFlag: false]],\
+        title: "Test performance summary ${chip}, GEMM",\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
@@ -403,9 +423,9 @@ String getLabelFromCodepath(String codepath) {
         label = 'mlir && (gfx942 || gfx908 || gfx90a)'
     } else if (codepath == "gfx950") {
         if (params.weekly) {
-            label = 'mlir && linux-mi355-8'
+            label = 'mlir && linux-mi350-8'
         } else {
-            label = 'mlir && linux-mi355-1'
+            label = 'mlir && linux-mi350-1'
         }
     } else if (codepath == "navi21") {
         // For non-performance related testing, use both workstations (gfx1030w)
@@ -445,9 +465,9 @@ String getLabelFromChip(String chip) {
             return "mlir && gfx942"
         case "gfx950":
             if (params.weekly) {
-                return "mlir && linux-mi355-8"
+                return "mlir && linux-mi350-8"
             } else {
-                return "mlir && linux-mi355-1"
+                return "mlir && linux-mi350-1"
             }
         case "gfx1030":
             // For [Tune MLIR Kernels] and [Performance report] stages,
@@ -478,11 +498,12 @@ int setLitWorkerCount() {
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
-    buildProject('check-mlir-build-only check-rocmlir-build-only', """
+    buildProject("check-mlir-build-only check-rocmlir-build-only${params.nightly ? ' hipblaslt-benchmark-driver' : ''}", """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+              -DROCMLIR_ENABLE_BENCHMARKS=${params.nightly ? 'hipblaslt' : ''}
               -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
@@ -1094,7 +1115,36 @@ pipeline {
                                                             if (CHIP.startsWith("gfx1")) {
                                                                 attnConfigToUse = "tier1-attention-configs-nofp32"
                                                                 sh """
-                                                                    grep -v '\\-t f32' ${attnConfig} > ${attnConfigToUse}
+                                                                    python3 - <<'PY'
+from pathlib import Path
+import re
+
+allowed = {"i8", "f16", "bf16"}
+src = Path("${attnConfig}")
+dst = Path("${attnConfigToUse}")
+
+out_lines = []
+for raw in src.read_text().splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#"):
+        out_lines.append(raw)
+        continue
+
+    dtype = None
+    match = re.search(r"-t\\s+(\\w+)", line)
+    if match:
+        dtype = match.group(1)
+
+    if dtype:
+        if dtype in allowed:
+            out_lines.append(line)
+        continue
+
+    for dt in allowed:
+        out_lines.append(f"-t {dt} {line}")
+
+dst.write_text("\\n".join(out_lines) + "\\n")
+PY
                                                                 """
                                                             }
                                                             sh """../mlir/utils/tuna/tuna-script.sh -o attention \
@@ -1129,10 +1179,10 @@ pipeline {
                                                     stage("Tune Fusion") {
                                                         dir('build') {
                                                             // Tune resnet50
-                                                            sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/tuningRunner.py --abort-on-error --op fusion --test_dir ../mlir/test/fusion/resnet50-e2e/ -o tuning_fusion_${CHIP}.tsv"""
 
                                                             // Tune bert
-                                                            sh """python3 ./bin/tuningRunner.py --op fusion --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
+                                                            sh """python3 ./bin/tuningRunner.py --abort-on-error --op fusion --test_dir ../mlir/test/xmir/bert-torch-tosa-e2e/ -o tuning_fusion_${CHIP}.tsv"""
                                                         }
                                                         sh 'rm -f build/CMakeCache.txt'
                                                     }
@@ -1255,9 +1305,10 @@ pipeline {
                                                     stage("Build MLIR") {
                                                         // Clean up build settings to disable static library and allow ROCm testing
                                                         buildProject(
-                                                            'check-rocmlir-build-only ci-performance-scripts',
+                                                            'check-rocmlir-build-only ci-performance-scripts hipblaslt-benchmark-driver',
                                                             '-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ ' +
-                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang '
+                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang ' +
+                                                            '-DROCMLIR_ENABLE_BENCHMARKS=hipblaslt'
                                                         )
                                                     }
 
@@ -1270,7 +1321,7 @@ pipeline {
                                                             target: 'build/oldData'
                                                     }
 
-                                                    stage("Test MLIR vs MIOpen") {
+                                                    stage("Test MLIR vs MIOpen/hipBLASLt") {
                                                         dir('build') {
                                                             def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
                                                             def convToUse = "${WORKSPACE}/build/tier1-conv-configs"
@@ -1289,6 +1340,11 @@ pipeline {
                                                             // Run MLIR vs MIOpen perf benchmarks.
                                                             sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
                                                                 --configs_file=${convToUse} \
+                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                            // Run MLIR vs hipBLASLt perf benchmarks
+                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                                                --configs_file=${gemmToUse} \
                                                                 --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                                                 --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                         }
@@ -1367,8 +1423,10 @@ pipeline {
                                                         dir('build') {
                                                             sh 'ls -l'
                                                             sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
+                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} hipBLASLt'
                                                             sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
                                                             sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_hipblaslt_perf.csv ./${CHIP}_mlir_vs_hipblaslt_perf.csv'
                                                             sh 'mkdir -p reports && cp ./*.html reports'
                                                         }
                                                         postProcessPerfRes("${CHIP}")
@@ -1438,6 +1496,9 @@ pipeline {
                                                 args = DOCKER_ARGS_BY_NODE[env.NODE_NAME]
                                                 // Check these args
                                                 echo "Running ${CODEPATH} on ${env.NODE_NAME} with: ${args}"
+
+                                                // Explicit docker login since this repo is private
+                                                explicitDockerLogin()
                                                 img = docker.image(dockerImageCIMIGraphX())
                                                 img?.pull()
                                             }

@@ -56,10 +56,9 @@ func.func @load_vector_oob(%mem: memref<1x2x3x4x8xf32>, %idx: index, %valid: i1)
 }
 
 // CHECK-LABEL: func.func @load_scalar
-// CHECK-SAME: (%[[mem:.*]]: memref<f32>, %[[idx:.*]]: index)
-func.func @load_scalar_empty_mem(%mem: memref<f32>, %idx: index) -> f32 {
+// CHECK-SAME: (%[[mem:.*]]: memref<f32>)
+func.func @load_scalar(%mem: memref<f32>) -> f32 {
     %true = arith.constant true
-    %c0 = arith.constant 0 : index
     // CHECK: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
     // CHECK-SAME: #gpu.address_space<global>
     // CHECK: %[[ret:.*]] = memref.load %[[cast]][] : memref<f32, #gpu.address_space<global>>
@@ -516,5 +515,40 @@ func.func @emulated_fmax_scalar_oob(%source: memref<5xf32, #gpu.address_space<pr
          {length = 1 : index}
         : memref<5xf32, #gpu.address_space<private>> -> memref<1x2x3x4x8xf32>
     return
+}
+
+// CHECK-LABEL: func.func @load_4bit_boundary_case
+// CHECK-SAME: (%[[mem:.*]]: memref<4294967295xi4>)
+func.func @load_4bit_boundary_case(%mem: memref<4294967295xi4>) -> i4 {
+    %c0 = arith.constant 0 : index
+    %true = arith.constant true
+    // 4294967295 elements * 4 bits = 17179869180 bits
+    // ceil(17179869180 / 8) = 2147483648 bytes = exactly 2^31 bytes
+    // This triggers numBytes.trunc(32).isNegative() without needs64BitIdx
+    // CHECK: %[[c0_i32:.*]] = arith.constant 0 : i32
+    // CHECK: %[[vec:.*]] = amdgpu.raw_buffer_load {boundsCheck = false} %[[mem]][%[[c0_i32]]]
+    // CHECK-SAME: memref<4294967295xi4>, i32 -> vector<2xi4>
+    // CHECK: %[[elem:.*]] = vector.extract %[[vec]][0]
+    // CHECK: return %[[elem]] : i4
+    %ret = rock.global_load %mem[%c0] if %true
+        : memref<4294967295xi4> -> i4
+    return %ret : i4
+}
+
+// CHECK-LABEL: func.func @load_4bit_vector_boundary_case
+// CHECK-SAME: (%[[mem:.*]]: memref<4294967295xi4>)
+func.func @load_4bit_vector_boundary_case(%mem: memref<4294967295xi4>) -> vector<3xi4> {
+    %c0 = arith.constant 0 : index
+    %true = arith.constant true
+    // Same as above but loading a vector
+    // CHECK: %[[c2_i32:.*]] = arith.constant 2 : i32
+    // CHECK: %[[c0_i32:.*]] = arith.constant 0 : i32
+    // CHECK: amdgpu.raw_buffer_load {boundsCheck = false} %[[mem]][%[[c0_i32]]]
+    // CHECK-SAME: memref<4294967295xi4>, i32 -> vector<2xi4>
+    // CHECK: amdgpu.raw_buffer_load {boundsCheck = false} %[[mem]][%[[c2_i32]]]
+    // CHECK-SAME: memref<4294967295xi4>, i32 -> i4
+    %ret = rock.global_load %mem[%c0] if %true
+        : memref<4294967295xi4> -> vector<3xi4>
+    return %ret : vector<3xi4>
 }
 }

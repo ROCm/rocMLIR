@@ -47,7 +47,11 @@ class PerfConfig:
     def __init__(self, config: Sequence[int], version: Version = Version.V4):
         self._config = config
         self._version = version
-        self._version_map = {PerfConfig.Version.V2: "v2", PerfConfig.Version.V3: "v3", PerfConfig.Version.V4: "v4"}
+        self._version_map = {
+            PerfConfig.Version.V2: "v2",
+            PerfConfig.Version.V3: "v3",
+            PerfConfig.Version.V4: "v4"
+        }
 
     def __str__(self):
         suffix = ','.join(str(v) for v in self._config)
@@ -428,7 +432,7 @@ WMMA_PERF_CONFIG = itertools.product(
     # NPerWave (exponent)
     range(2, 8),
     # MNPerXdl (exponent)
-    range(4, 5), # 16 only
+    range(4, 5),  # 16 only
     # KPack (exponent)
     range(2, 5),
     # splitKFactor (exponent)
@@ -462,16 +466,23 @@ MFMA_PERF_CONFIG = itertools.product(
     # GEMM Schedule Version
     range(1, 3))
 
+
 def to_wmma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
     n, g, c, hi, wi, k, y, x, sw, sh, phl, phr, pwl, pwr, dh, dw = \
         512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, m_per_block, n_per_block, k_per_block, m_per_wave, \
         n_per_wave, mn_per_xdl, kpack, split_k, gemm_schedule = params
-    # no mn_per_xdl for wmma
+    # set heuristic settings
+    # TODO: randomly perf_configs sample instead of brute force
+    output_swizzle = 2
+    waves_per_eu = 0
+    grid_group_size = 0
+
     perf_config_tuple = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block, 1 << m_per_wave,
-                         1 << n_per_wave, 1 << kpack, 1 << split_k, gemm_schedule, 2, 1, 1)
+                         1 << n_per_wave, 1 << mn_per_xdl, 1 << kpack, 1 << split_k, gemm_schedule,
+                         output_swizzle, waves_per_eu, grid_group_size, 1, 1)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl, phr, pwl, pwr, dh,
-                          dw, g, options.arch, PerfConfig(perf_config_tuple, PerfConfig.Version.V3))
+                          dw, g, options.arch, PerfConfig(perf_config_tuple, PerfConfig.Version.V4))
 
 
 def to_mfma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
@@ -479,8 +490,15 @@ def to_mfma_perf_config_test(params, options: Options) -> MLIROnlyConfig:
         512, 1, 512, 1, 1, 512, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1
     op, layout, dtype, m_per_block, n_per_block, k_per_block, m_per_wave, \
         n_per_wave, mn_per_xdl, kpack, split_k, gemm_schedule = params
+    # set heuristic settings
+    # TODO: randomly perf_configs sample instead of brute force
+    output_swizzle = 2
+    waves_per_eu = 0
+    grid_group_size = 0
+
     perf_config_tuple = (1 << m_per_block, 1 << n_per_block, 1 << k_per_block, 1 << m_per_wave,
-                         1 << n_per_wave, 1 << mn_per_xdl, 1 << kpack, 1 << split_k, gemm_schedule, 2, 1, 1)
+                         1 << n_per_wave, 1 << mn_per_xdl, 1 << kpack, 1 << split_k, gemm_schedule,
+                         output_swizzle, waves_per_eu, grid_group_size, 1, 1)
     return MLIROnlyConfig(dtype, op, layout, n, c, hi, wi, k, y, x, sh, sw, phl, phr, pwl, pwr, dh,
                           dw, g, options.arch, PerfConfig(perf_config_tuple, PerfConfig.Version.V4))
 
@@ -591,10 +609,15 @@ def main() -> bool:
     parser.add_argument(
         "--mlir-build-dir",
         type=str,
-        default=perfRunner.find_mlir_build_dir(),
+        default=None,
         help="The build directory of MLIR based kernel generator",
     )
     args = parser.parse_args()
+
+    # Set default mlir-build-dir if not provided
+    if args.mlir_build_dir is None:
+        args.mlir_build_dir = perfRunner.find_mlir_build_dir()
+
     arch = get_arch()
     supported_codepath = ['mfma', 'vanilla', 'wmma']
     # If codepath not provided or not supported, infer it from the arch

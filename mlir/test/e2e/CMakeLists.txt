@@ -49,6 +49,7 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrConvElementwiseGemmF16SplitK
     PrConvElementwiseGemmBF16SplitK
     PrGemmDirectToLDS
+    PrLdsTransposeLoad
     PrConvDirectToLDS
     PrAttentionDirectToLDS
   )
@@ -61,6 +62,7 @@ if (ROCK_E2E_TEST_ENABLED)
   GemmScaled
   GemmScaledF32
   MixedConvLayouts
+  GemmVariantsNonPowerOfTwoTileSize
   )
   list(APPEND CONFIGS
   Resnet50Config
@@ -87,6 +89,7 @@ if (ROCK_E2E_TEST_ENABLED)
   )
   list(APPEND CONFIGS
   GemmDirectToLDS
+  GemmDirectToLDSF4
   ConvDirectToLDS
   AttentionSchedule
   GemmElementwiseGemmSchedule
@@ -94,6 +97,7 @@ if (ROCK_E2E_TEST_ENABLED)
   AttentionDirectToLDS
   GemmElementwiseGemmDirectToLDS
   ConvElementwiseGemmDirectToLDS
+  AttentionNonPowerOfTwoTileSize
   )
 endif()
 # Create a list for dummy files

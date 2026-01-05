@@ -106,8 +106,8 @@ class MLIRPaths:
     libmlir_runtime_utils_path: str
     libmlir_c_runner_utils_path: str
     rocmlir_tuning_driver_path: str
-    rocblas_benchmark_driver_path: Optional[str] = None
     ck_gemm_benchmark_driver_path: Optional[str] = None
+    hipblaslt_benchmark_driver_path: Optional[str] = None
 
 
 @dataclass
@@ -208,8 +208,8 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
     if mlir_build_dir_path:
         mlir_bin_dir_path = (Path(mlir_build_dir_path) / 'bin').resolve()
         mlir_bin_dir = str(mlir_bin_dir_path)
-        rocblas_benchmark_driver_location = mlir_bin_dir_path / 'rocblas-benchmark-driver'
         ck_gemm_benchmark_driver_location = mlir_bin_dir_path / 'ck-gemm-benchmark-driver'
+        hipblaslt_benchmark_driver_location = mlir_bin_dir_path / 'hipblaslt-benchmark-driver'
         llvm_bin_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/bin').resolve())
         mlir_lib_dir = str((Path(mlir_build_dir_path) / 'lib').resolve())
         llvm_lib_dir = str((Path(mlir_build_dir_path) / 'external/llvm-project/llvm/lib').resolve())
@@ -223,10 +223,11 @@ def create_paths(config_file_path, mlir_build_dir_path) -> Paths:
             libmlir_runtime_utils_path=llvm_lib_dir + '/libmlir_runner_utils.so',
             libmlir_c_runner_utils_path=llvm_lib_dir + '/libmlir_c_runner_utils.so',
             rocmlir_tuning_driver_path=mlir_bin_dir + '/rocmlir-tuning-driver',
-            rocblas_benchmark_driver_path=(str(rocblas_benchmark_driver_location)
-                                           if rocblas_benchmark_driver_location.exists() else None),
             ck_gemm_benchmark_driver_path=(str(ck_gemm_benchmark_driver_location)
-                                           if ck_gemm_benchmark_driver_location.exists() else None))
+                                           if ck_gemm_benchmark_driver_location.exists() else None),
+            hipblaslt_benchmark_driver_path=(str(hipblaslt_benchmark_driver_location)
+                                             if hipblaslt_benchmark_driver_location.exists() else
+                                             None))
 
     return Paths(config_file_path, mlir_paths)
 
@@ -246,8 +247,7 @@ def get_nanoseconds(filename):
 
 def get_profiler_output_path(arch: str, base_out_path):
     chip = GFX_CHIP_RE.search(arch).group(0)
-    # TODO (gfx950): check if gfx950 need this
-    if (chip not in ["gfx942"]):
+    if (chip not in ["gfx950"]):
         return os.path.join('pmc_1', base_out_path)
     return base_out_path
 
@@ -257,8 +257,7 @@ def get_metric_args_for_rocprof(arch: str):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     metrics_path = os.path.join(current_dir, ROCMLIR_INPUT_METRICS_FILE_NAME)
     metrics = []
-    # TODO (gfx950): check if gfx950 supports this
-    if (chip not in ["gfx942"]):
+    if (chip not in ["gfx950"]):
         metrics = ['-i', metrics_path]
     return metrics
 
@@ -499,8 +498,9 @@ class ConvConfiguration(PerfConfiguration):
             str(self.conv_stride_w), '--padding_h',
             str(self.padding_h), '--padding_w',
             str(self.padding_w), '--groupsize',
-            str(self.group), '--kernel-repeats',
-            str(kernel_repeats), f"--perf_config={self.perfconfig}"
+            str(self.group),
+            *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
+            f"--perf_config={self.perfconfig}"
         ])
         result += ' '
         if rocmlir_gen_flags != '':
@@ -696,7 +696,7 @@ def get_gemm_configurations(filename,
 
                 # Skip unsupported datatypes
                 if datatype == 'f4E2M1FN':
-                    ## TODO: use information from AMDArchDB when it becomes available to determine supported chips
+                    # TODO: use information from AMDArchDB when it becomes available to determine supported chips
                     supported_chips = {'gfx950'}
                     if get_chip() not in supported_chips:
                         continue
@@ -843,16 +843,18 @@ def get_attn_configurations(filename):
     if DATA_TYPES_ATTENTION is None:
         initialize_dtypes_attn()
     bool_space = ['false', 'true']
+    # if not defined, set it to false
+    default_to_false = ['false']
     default_test_space = {
         "-t": DATA_TYPES_ATTENTION,
         "-transQ": bool_space,
         "-transK": bool_space,
         "-transV": bool_space,
         "-transO": bool_space,
-        "-causal": bool_space,
-        "-return_lse": bool_space,
-        "-with-attn-scale": bool_space,
-        "-with-attn-bias": bool_space
+        "-causal": default_to_false,
+        "-return_lse": default_to_false,
+        "-with-attn-scale": default_to_false,
+        "-with-attn-bias": default_to_false
     }
 
     configs = []
@@ -926,32 +928,28 @@ class GemmConfiguration(PerfConfiguration):
         self.perfconfig = perf_config
 
     def generate_mlir_driver_commandline(self, rocmlir_gen_flags, kernel_repeats=MLIR_N_REPEATS):
-        cmd_parts = [
+        result = ' '.join([
             '-operation', 'gemm', '-t', self.datatype, '-out_datatype', self.out_dtype, '--arch',
             self.arch, '--num_cu',
             str(self.num_cu), '-g',
             str(self.g), '-m',
             str(self.m), '-k',
             str(self.k), '-n',
-            str(self.n), f"-transA={self.trans_a}", f"-transB={self.trans_b}"
-        ]
+            str(self.n), f"-transA={self.trans_a}", f"-transB={self.trans_b}",
+            *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
+            f"--perf_config={self.perfconfig}"
+        ])
 
         if self.scaled_gemm:
-            cmd_parts.append('-scaledGemm')
+            result += ' -scaledGemm'
         if self.scale_a_dtype:
-            cmd_parts.extend(['-scale_a_dtype', self.scale_a_dtype])
+            result += f' -scale_a_dtype {self.scale_a_dtype}'
         if self.scale_b_dtype:
-            cmd_parts.extend(['-scale_b_dtype', self.scale_b_dtype])
+            result += f' -scale_b_dtype {self.scale_b_dtype}'
         if self.trans_scale_a:
-            cmd_parts.append(f"-transScaleA={self.trans_scale_a}")
+            result += f' -transScaleA {str(self.trans_scale_a)}'
         if self.trans_scale_b:
-            cmd_parts.append(f"-transScaleB={self.trans_scale_b}")
-
-        cmd_parts.extend(
-            ['--kernel-repeats',
-             str(kernel_repeats), f"--perf_config={self.perfconfig}"])
-
-        result = ' '.join(cmd_parts)
+            result += f' -transScaleB {str(self.trans_scale_b)}'
 
         result += ' '
         if rocmlir_gen_flags != '':
@@ -1194,7 +1192,8 @@ class ConvGemmConfiguration(PerfConfiguration):
             f'--dilation_w={self.dilation_w}', f'--conv_stride_h={self.conv_stride_h}',
             f'--conv_stride_w={self.conv_stride_w}', f'--padding_h={self.padding_h}',
             f'--padding_w={self.padding_w}', f'--groupsize={self.group}', f'--gemmO={self.o}',
-            f'--kernel-repeats={kernel_repeats}', f"--perf_config={self.perfconfig}"
+            *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
+            f"--perf_config={self.perfconfig}"
         ])
         result += ' '
         if rocmlir_gen_flags != '':
@@ -1363,8 +1362,9 @@ class GemmGemmConfiguration(PerfConfiguration):
             str(self.k), '-n',
             str(self.n), '-gemmO',
             str(self.o), f"-transA={self.trans_a}", f"-transB={self.trans_b}",
-            f"-transC={self.trans_c}", f"-transO={self.trans_o}", '--kernel-repeats',
-            str(kernel_repeats), f"--perf_config={self.perfconfig}"
+            f"-transC={self.trans_c}", f"-transO={self.trans_o}",
+            *(['--kernel-repeats', str(kernel_repeats)] if kernel_repeats is not None else []),
+            f"--perf_config={self.perfconfig}"
         ])
         result += ' '
         if rocmlir_gen_flags != '':
@@ -1632,20 +1632,20 @@ class AttentionConfiguration(PerfConfiguration):
             f"-with-attn-bias {str(self.with_attn_bias).lower()}")
 
 
-class RocBLASGemmConfig(GemmConfiguration):
-    EXTERNAL_NAME = "rocBLAS"
+class HipBLASLtGemmConfig(GemmConfiguration):
+    EXTERNAL_NAME = "hipBLASLt"
 
     @classmethod
     def benchmark_external(cls, commandline, paths: Paths, arch, num_cu):
         config = cls.from_command_line(commandline, arch, num_cu)
-        if not paths.mlir_paths.rocblas_benchmark_driver_path:
-            raise ValueError("rocblas-benchmark-driver not built")
+        if not paths.mlir_paths.hipblaslt_benchmark_driver_path:
+            raise ValueError("hipblaslt-benchmark-driver not built")
         benchmark_args = config.generate_mlir_driver_commandline("")
         # remove the result file generated by rocprof in previous benchmarking
         if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME)):
             os.remove(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
-        print(f"Running rocBLAS benchmark {config!r}")
-        profiler_cmd = [paths.mlir_paths.rocblas_benchmark_driver_path] + \
+        print(f"Running hipBLASLt benchmark {config!r}")
+        profiler_cmd = [paths.mlir_paths.hipblaslt_benchmark_driver_path] + \
             benchmark_args.split()
         outs, noerr = run_pipeline([profiler_cmd])
         nanoseconds = np.nan
@@ -1691,17 +1691,25 @@ def run_config_with_mlir(config: PerfConfiguration,
     # remove the result file generated by rocprof in previous benchmarking
     if os.path.exists(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME)):
         os.remove(get_profiler_output_path(arch, BENCHMARKING_STATS_FILE_NAME))
-    commandline_options = config.generate_mlir_driver_commandline(rocmlir_gen_flags)
+    use_tuning_driver = (not use_rocprof) and bool(config.perfconfig)
+    use_host_harness = not use_tuning_driver
+
+    rocmlir_gen_flags = rocmlir_gen_flags + ' -ph' if use_host_harness else ''
+    # We want to use kernel_repeats only if we are passing ' -ph' to rocmlir-gen, otherwise we use None.
+    # This is because the kernel-repeats flag is only supported with host harness or CPU validation.
+    kernel_repeats = MLIR_N_REPEATS if use_host_harness else None
+
+    commandline_options = config.generate_mlir_driver_commandline(rocmlir_gen_flags, kernel_repeats)
+    rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
     if debug:
         print("Running MLIR Benchmark: ", repr(config))
 
     nanoseconds = np.nan
 
     # Use HIP timing via tuning-driver if rocprof is disabled and perfconfig is present
-    if not use_rocprof and config.perfconfig:
+    if use_tuning_driver:
         if debug:
             print("Using HIP timing for benchmarking")
-        rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' ' + commandline_options
         tuning_driver_command = [
             paths.mlir_paths.rocmlir_tuning_driver_path, f'--benchmark-config={config.perfconfig}',
             f'--num-iterations={MLIR_N_REPEATS}', f'--warmup-iterations={WARMUP_ITERATIONS}',
@@ -1719,7 +1727,6 @@ def run_config_with_mlir(config: PerfConfiguration,
     else:
         if debug:
             print("Using rocprof for benchmarking")
-        rocmlir_gen_cmd = paths.mlir_paths.rocmlir_gen_path + ' -ph ' + commandline_options
         rocmlir_driver_cmd = [paths.mlir_paths.rocmlir_driver_path, '-c']
         mlir_cpu_runner_args = [
             f'--shared-libs={paths.mlir_paths.libmlir_rocm_runtime_path},{paths.mlir_paths.libconv_validation_wrappers_path},{paths.mlir_paths.libmlir_runtime_utils_path},{paths.mlir_paths.libmlir_c_runner_utils_path}',
@@ -1759,7 +1766,7 @@ def benchmark_mlir(commandline,
     return config.table_entry(nanoseconds)
 
 
-# Generate MLIR vs. MIOpen or rocBLAS performance results
+# Generate MLIR vs. MIOpen or hipBLASLt performance results
 def generate_performance_results(configs,
                                  conf_class,
                                  paths: Paths,
@@ -1830,8 +1837,8 @@ def generate_performance_results(configs,
     if tuned_df is not None and quick_tuned_df is not None:
         df["Quick Tuned/Tuned"] = df['Quick Tuned MLIR TFlops'] / df['Tuned MLIR TFlops']
     chip = GFX_CHIP_RE.search(arch).group(0)
-    if conf_class is RocBLASGemmConfig:
-        report_file = reportUtils.PERF_REPORT_FILE['rocBLAS']
+    if conf_class is HipBLASLtGemmConfig:
+        report_file = reportUtils.PERF_REPORT_FILE['hipBLASLt']
     elif conf_class is CKGemmConfig:
         report_file = reportUtils.PERF_REPORT_FILE['CK']
     else:
@@ -2188,7 +2195,7 @@ def found_external_tool(paths: Paths,
             return False
         if gemm_library == GEMMLibrary.CK and not paths.mlir_paths.ck_gemm_benchmark_driver_path:
             return False
-        if gemm_library == GEMMLibrary.ROCBLAS and not paths.mlir_paths.rocblas_benchmark_driver_path:
+        if gemm_library == GEMMLibrary.HIPBLASLT and not paths.mlir_paths.hipblaslt_benchmark_driver_path:
             return False
     return True
 
@@ -2205,7 +2212,7 @@ def main(args=None):
     # Uses results from tuning db when running MLIR benchmarks
     python3 perfRunner.py -b -t=tuning_db.tsv
     python3 perfRunner.py --batch_external
-    python3 perfRunner.py --operation gemm --external # rocblas tests
+    python3 perfRunner.py --operation gemm --external # hipBLASLt tests
     python3 perfRunner.py -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
     python3 perfRunner.py --external -- conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1
     python3 perfRunner.py --operation gemm [--external] -- -t f32 -transA true -transB true -g 1 -m 1024 -k 769 -n 512
@@ -2295,8 +2302,8 @@ def main(args=None):
 
     parser.add_argument("--external-gemm-library",
                         type=str,
-                        default="rocBLAS",
-                        help="(rocBLAS | CK) external library to run GEMM routines")
+                        default="hipBLASLt",
+                        help="(hipBLASLt | CK) external library to run GEMM routines")
 
     parser.add_argument(
         '--data-type',
@@ -2344,10 +2351,10 @@ def main(args=None):
         external_lib = None
     elif optype == Operation.GEMM:
         external_lib = GEMMLibrary.from_name(parsed_args.external_gemm_library)
-        if external_lib == GEMMLibrary.ROCBLAS:
-            conf_class = RocBLASGemmConfig
-        elif external_lib == GEMMLibrary.CK:
+        if external_lib == GEMMLibrary.CK:
             conf_class = CKGemmConfig
+        elif external_lib == GEMMLibrary.HIPBLASLT:
+            conf_class = HipBLASLtGemmConfig
     elif optype == Operation.ATTENTION:
         conf_class = AttentionConfiguration
         external_lib = None
@@ -2378,7 +2385,7 @@ def main(args=None):
     if parsed_args.external or parsed_args.batch_external or parsed_args.batch_all:
         if not found_external_tool(paths, optype, external_lib):
             raise RuntimeError(
-                "External benchmark reference (MIOpen or rocBLAS driver) needed but not found")
+                "External benchmark reference (MIOpen or hipBLASLt driver) needed but not found")
 
     if parsed_args.batch_mlir or parsed_args.batch_all:
         if not paths.mlir_paths:

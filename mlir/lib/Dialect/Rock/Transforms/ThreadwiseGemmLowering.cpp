@@ -31,18 +31,19 @@
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Passes.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
+#include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
+#include "mlir/Dialect/Rock/utility/LdsTransposeLoad.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
-
-#include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "llvm/Support/Debug.h"
 
 #include <iterator>
@@ -91,6 +92,14 @@ struct ThreadwiseReadIntoRewritePattern
   using OpConversionPattern<ThreadwiseReadIntoOp>::OpConversionPattern;
 
   LogicalResult matchAndRewrite(ThreadwiseReadIntoOp op, OpAdaptor adaptor,
+                                ConversionPatternRewriter &b) const final;
+};
+
+struct ThreadwisePrefetchRewritePattern
+    : public OpConversionPattern<ThreadwisePrefetchOp> {
+  using OpConversionPattern<ThreadwisePrefetchOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(ThreadwisePrefetchOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const final;
 };
 
@@ -182,7 +191,7 @@ struct ThreadwiseGemmRewritePattern
       ValueRange cCoords = gemmLoop.getLowerCoords(/*domain=*/2);
       Value cVal = InBoundsLoadOp::create(b, loc, dataType, bufferC, cCoords);
 
-      Value cVector = vector::SplatOp::create(b, loc, abType, cVal);
+      Value cVector = vector::BroadcastOp::create(b, loc, abType, cVal);
       Value result;
       if (isa<IntegerType>(dataType)) {
         Value mul = MulIOp::create(b, loc, aVal, bVal);
@@ -711,54 +720,33 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
   int64_t srcStride;
   VectorType dstVectorType;
 
-  // Calculate maximum allowed vectorization for Global-to-LDS based on hardware
-  Type scalarElementType = getElementTypeOrSelf(elementType);
-  int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
-  int64_t maxGlobalToLDSVectorLen =
-      archInfo.getMaxLDSVectorLength(elementBitWidth);
-
-  if (isSrcVectorBuffer) {
-    loadType = elementType;
-    vectorSrcLen = dyn_cast<VectorType>(elementType).getNumElements();
-    elementType = dyn_cast<VectorType>(elementType).getElementType();
-    collapseContiguousMerges(sourceView);
-    srcStride = 1;
-    if (!isDstVectorBuffer) {
-      numValues = numValues / vectorSrcLen;
-    }
-  } else {
-    VectorizationResult vectorSrcRes = getMaxVectorization(
-        sourceView, extraIdxCount, /*inputDimLen=*/numValues);
-    vectorSrcLen = vectorSrcRes.max;
-    // Vectorization constraint for Global-to-LDS based on hardware capabilities
-    if (isGlobalToLDS && vectorSrcLen > maxGlobalToLDSVectorLen) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "Constraining vectorization from " << vectorSrcLen << " to "
-                 << maxGlobalToLDSVectorLen
-                 << " for Global-to-LDS hardware limits\n");
-      vectorSrcLen = maxGlobalToLDSVectorLen;
-    }
-    // In the future, this might get merged into the vectorizer.
-    collapseContiguousMerges(sourceView);
-    srcStride = vectorSrcLen;
-    loadType = vectorTypeOrSelf(elementType, vectorSrcLen);
+  // Prepare vectorization helpers shared with lowering utils.
+  std::optional<int64_t> maxGlobalToLDSVectorLen;
+  if (isGlobalToLDS) {
+    Type scalarElementType = getElementTypeOrSelf(elementType);
+    int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
+    maxGlobalToLDSVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
   }
 
-  // Force the dynamic validity case down to a vectorization of 1
-  if (!adaptor.getDynamicValidities().empty()) {
-    vectorSrcLen = 1;
-    srcStride = 1;
-    loadType = elementType;
-  }
+  ThreadwiseReadIntoLoopConfigInput loopInput{
+      sourceView,        dstBufferType,
+      extraIdxCount,     elementType,
+      numValues,         isSrcVectorBuffer,
+      isDstVectorBuffer, !adaptor.getDynamicValidities().empty(),
+      isGlobalToLDS,     maxGlobalToLDSVectorLen};
+  auto maybeLoopInfo = getThreadwiseReadIntoLoopInfo(loopInput);
+  if (failed(maybeLoopInfo))
+    return b.notifyMatchFailure(loc, "failed to compute loop info");
 
-  if (isDstVectorBuffer) {
-    dstVectorType = dyn_cast<VectorType>(dstBufferType.getElementType());
-    vectorDstLen = dyn_cast<VectorType>(dstVectorType).getNumElements();
-    numValues = numValues * vectorDstLen;
-    if (isSrcVectorBuffer) {
-      numValues = numValues / vectorSrcLen;
-    }
-  }
+  ThreadwiseReadIntoLoopInfo loopInfo = maybeLoopInfo.value();
+  numValues = loopInfo.numValues;
+  vectorSrcLen = loopInfo.vectorSrcLen;
+  vectorDstLen = loopInfo.vectorDstLen;
+  srcStride = loopInfo.srcStride;
+  loadType = loopInfo.loadType;
+  elementType = loopInfo.elementType;
+  dstVectorType = loopInfo.dstVectorType;
+  collapseContiguousMerges(sourceView);
 
   LLVM_DEBUG(llvm::dbgs() << "Max vectorization for read_into = "
                           << vectorSrcLen << "\n");
@@ -796,13 +784,23 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
   auto globalToLDSTransform = maybeGlobalToLDSTransform.value();
 
+  // Check if the operation has the LDS transpose config dictionary
+  if (op.getLdsTransposeConfigAttr()) {
+    // Emit hardware transpose load sequence directly from config
+    if (failed(rock::hwtranspose::emitThreadwiseHWTranspose(b, op, blockSize,
+                                                            waveSize))) {
+      return op.emitOpError("LDS transpose load emission failed");
+    }
+    return success();
+  }
+
   bool recordsValidity =
       op.getValidityRecord() && !op.getValidityRecord().use_empty();
   Value validityInit = nullptr;
   if (recordsValidity) {
     Value trueConst =
         b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-    validityInit = vector::SplatOp::create(
+    validityInit = vector::BroadcastOp::create(
         b, loc, op.getValidityRecord().getType(), trueConst);
   }
   SmallVector<ValueRange> inits{readStartCoords, readStartCoords};
@@ -834,8 +832,8 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
       Type validityType = b.getI1Type();
       if (auto loadVecType = dyn_cast<VectorType>(loadType)) {
         validityType = loadVecType.cloneWith(std::nullopt, validityType);
-        validityToStore =
-            b.createOrFold<vector::SplatOp>(loc, validityType, validityToStore);
+        validityToStore = b.createOrFold<vector::BroadcastOp>(loc, validityType,
+                                                              validityToStore);
       }
       Value validityRecord = loadLoop.getIterArgs()[0];
       nextValidityRecord =
@@ -886,14 +884,14 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
 
       // no need to multiply blockSize by constantNumElements, because the
       // stride of the loop is already srcStride
-      Value itemConst = b.create<arith::ConstantIndexOp>(loc, blockSize);
-      Value ldsIndex = b.create<arith::MulIOp>(loc, item, itemConst);
-      Value waveIdConst =
-          b.create<arith::ConstantIndexOp>(loc, waveSize * constantNumElements);
-      Value ldsIndexWave = b.create<arith::MulIOp>(loc, waveId, waveIdConst);
+      Value itemConst = arith::ConstantIndexOp::create(b, loc, blockSize);
+      Value ldsIndex = arith::MulIOp::create(b, loc, item, itemConst);
+      Value waveIdConst = arith::ConstantIndexOp::create(
+          b, loc, waveSize * constantNumElements);
+      Value ldsIndexWave = arith::MulIOp::create(b, loc, waveId, waveIdConst);
       // LDS index is wavefront-uniform as that is needed by load to LDS
       // instruction
-      ldsIndex = b.create<arith::AddIOp>(loc, ldsIndex, ldsIndexWave);
+      ldsIndex = arith::AddIOp::create(b, loc, ldsIndex, ldsIndexWave);
       GlobalLoadToLDSOp::create(b, loc, buffer, dest, validity, directToLDSType,
                                 loadLoop.getLowerCoords(/*domain=*/0),
                                 ValueRange{ldsIndex}, needs64BitIdx);
@@ -997,6 +995,54 @@ LogicalResult ThreadwiseReadIntoRewritePattern::matchAndRewrite(
     b.replaceOp(op, ValueRange{Value{}});
   else
     b.replaceOp(op, loadLoop.getResults());
+  return success();
+}
+
+LogicalResult ThreadwisePrefetchRewritePattern::matchAndRewrite(
+    ThreadwisePrefetchOp op, OpAdaptor adaptor,
+    ConversionPatternRewriter &b) const {
+  Location loc = op.getLoc();
+  Value sourceView = adaptor.getSource();
+  ArrayAttr extraViews = op.getExtraViews();
+  sourceView =
+      cast<TypedValue<MemRefType>>(transform(b, sourceView, extraViews));
+  sourceView = addIterationIndexIfScalar(b, loc, sourceView);
+  sourceView = isolateTransforms(b, sourceView);
+
+  auto [buffer, transforms, _] = untransform(b, sourceView);
+
+  size_t extraIdxCount = op.getExtraIndices().size();
+  auto upperType = cast<ShapedType>(sourceView.getType());
+  int64_t numValues = upperType.getShape()[extraIdxCount];
+
+  bool forceUnroll = op.getForceUnroll();
+  bool useIndexDiffs = op.getUseIndexDiffs();
+
+  Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  SmallVector<Value, 3> readStartCoords =
+      llvm::to_vector<3>(op.getExtraIndices());
+  readStartCoords.push_back(zero);
+  SmallVector<int64_t, 3> bounds(readStartCoords.size() - 1, 1);
+  bounds.push_back(numValues);
+  SmallVector<int64_t, 3> strides(readStartCoords.size() - 1, 1);
+  strides.push_back(1);
+
+  SmallVector<Attribute> transformAttrs;
+
+  SmallVector<ValueRange> inits{readStartCoords};
+  SmallVector<Attribute> loopTransforms{transforms};
+
+  auto prefetchLoop =
+      TransformingForOp::create(b, loc, inits, loopTransforms, bounds, strides,
+                                forceUnroll, useIndexDiffs, ValueRange{});
+  {
+    OpBuilder::InsertionGuard guard(b);
+    b.setInsertionPointToStart(prefetchLoop.getBody());
+
+    rock::GlobalPrefetchOp::create(b, loc, buffer,
+                                   prefetchLoop.getLowerCoords(/*domain=*/0));
+  }
+  b.replaceOp(op, prefetchLoop.getResults());
   return success();
 }
 
@@ -1113,7 +1159,7 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
   {
     ConversionTarget writeAllTarget(*ctx);
     writeAllTarget.addIllegalOp<ThreadwiseReadIntoOp, ThreadwiseWriteAllOp,
-                                ThreadwiseCopyOp>();
+                                ThreadwiseCopyOp, ThreadwisePrefetchOp>();
     writeAllTarget.addLegalDialect<
         arith::ArithDialect, rock::RockDialect, memref::MemRefDialect,
         scf::SCFDialect, vector::VectorDialect, affine::AffineDialect>();
@@ -1121,7 +1167,8 @@ void RockThreadwiseGemmLoweringPass::runOnOperation() {
     RewritePatternSet writeAllPatterns(ctx);
     writeAllPatterns
         .add<ThreadwiseReadIntoRewritePattern, ThreadwiseWriteAllRewritePattern,
-             ThreadwiseCopyRewritePattern>(ctx);
+             ThreadwiseCopyRewritePattern, ThreadwisePrefetchRewritePattern>(
+            ctx);
     if (failed(applyPartialConversion(getOperation(), writeAllTarget,
                                       std::move(writeAllPatterns))))
       signalPassFailure();

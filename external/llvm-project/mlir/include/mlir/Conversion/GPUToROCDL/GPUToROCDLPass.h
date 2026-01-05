@@ -10,8 +10,6 @@
 
 #include "mlir/Conversion/GPUToROCDL/Runtimes.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
-#include "llvm/ADT/DenseSet.h"
-#include <cstddef>
 #include <memory>
 
 namespace mlir {

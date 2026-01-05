@@ -90,6 +90,26 @@ def RockAccelTuningParamAttrInterface : AttrInterface<"RockAccelTuningParamAttrI
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/""
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Return waves_per_eu, this is a hint to the backend compiler to tune the number of wavefronts that are capable of fitting within the resources of an EU.
+        }],
+        /*retType=*/"int64_t",
+        /*methodName=*/"getWavesPerEU",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
+      >,
+    InterfaceMethod<
+        /*desc=*/[{
+          Group size for layout on the distribution of the workgroups.
+        }],
+        /*retType=*/"int64_t",
+        /*methodName=*/"getGridGroupSize",
+        /*args=*/(ins),
+        /*methodBody=*/"",
+        /*defaultImplementation=*/""
       >
 
     // TODO: more methods here as needed

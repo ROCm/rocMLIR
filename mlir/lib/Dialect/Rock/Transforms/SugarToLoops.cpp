@@ -15,6 +15,8 @@
 // limitations under the License.
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
+#include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Passes.h"
@@ -62,6 +64,14 @@ namespace rock {
 using namespace mlir;
 using namespace mlir::arith;
 using namespace mlir::rock;
+
+// Helper function to convert number of bits to number of bytes (with ceiling)
+static APInt bitsToBytes(const APInt &numBits) {
+  APInt numBytes = numBits.udiv(8);
+  if (numBits.urem(8) != 0)
+    numBytes += 1;
+  return numBytes;
+}
 
 namespace {
 struct RockSugarToLoopsPass
@@ -1164,6 +1174,26 @@ Value selectDataIf4b(Location loc, PatternRewriter &b,
   return b.createOrFold<vector::ExtractOp>(loc, loadedVec, lsb);
 }
 
+struct GlobalPrefetchRewritePattern
+    : public OpRewritePattern<GlobalPrefetchOp> {
+  using OpRewritePattern<GlobalPrefetchOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(GlobalPrefetchOp op,
+                                PatternRewriter &b) const override {
+    Value source = op.getSource();
+
+    source = asGlobal(b, source);
+
+    // it's acceptable if the indices are out of bounds because we use
+    // GLOBAL_PREFETCH_B8 with Speculative Prefetch. See llvm.prefetch
+    // documentation in AMDGPUUsage.rst localityHint=3 is translated to memory
+    // scope SCOPE_SE.
+    b.replaceOpWithNewOp<memref::PrefetchOp>(
+        op, source, op.getSourceCoord(), /*isWrite=*/false, /*localityHint=*/3,
+        /*isDataCache=*/true);
+    return success();
+  }
+};
+
 struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
   using OpRewritePattern<GlobalLoadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(GlobalLoadOp op,
@@ -1186,9 +1216,10 @@ struct GlobalLoadRewritePattern : public OpRewritePattern<GlobalLoadOp> {
     bool emitOobChecks =
         !isStaticSize || !isAlwaysValid || (hasI64Idx && op.getCanReadOffEnd());
 
-    APInt numBytes =
-        numElemsConst *
-        (cast<ShapedType>(source.getType()).getElementTypeBitWidth() / 8);
+    unsigned bitWidth =
+        cast<ShapedType>(source.getType()).getElementTypeBitWidth();
+    APInt numBits = numElemsConst * bitWidth;
+    APInt numBytes = bitsToBytes(numBits);
     // In cases where we need more than 2 GB of offset to index but are still
     // using 32-bit indexing, we'll need to use buffer operations. In the
     // dymanic shape case, we'll already be in the i64 case, so we don't set
@@ -1303,15 +1334,22 @@ struct GlobalLoadToLDSRewritePattern
     bool emitOobChecks =
         !isStaticSize || !isAlwaysValid || (hasI64Idx && op.getCanReadOffEnd());
 
-    APInt numBytes =
-        numElemsConst *
-        (cast<ShapedType>(source.getType()).getElementTypeBitWidth() / 8);
+    StringRef arch = rock::getArchValue(op);
+    bool asyncDirectToLDS = rock::isAsyncDirectToLDSSupported(arch);
+
+    unsigned bitWidth =
+        cast<ShapedType>(source.getType()).getElementTypeBitWidth();
+    APInt numBits = numElemsConst * bitWidth;
+    APInt numBytes = bitsToBytes(numBits);
     // In cases where we need more than 2 GB of offset to index but are still
     // using 32-bit indexing, we'll need to use buffer operations. In the
     // dynamic shape case, we'll already be in the i64 case, so we don't set
     // this.
-    bool useBufferOps = !hasI64Idx && (numBytes.trunc(32).isNegative() ||
-                                       emitOobChecks || op.getCanReadOffEnd());
+    // gfx1250 only supports global async load to LDS, so we will use buffer
+    // load only if asyncDirectToLDS is false.
+    bool useBufferOps = !asyncDirectToLDS && !hasI64Idx &&
+                        (numBytes.trunc(32).isNegative() || emitOobChecks ||
+                         op.getCanReadOffEnd());
 
     if (emitOobChecks && !useBufferOps) {
       return op->emitError(
@@ -1344,9 +1382,14 @@ struct GlobalLoadToLDSRewritePattern
           /*resetOffset=*/false);
     }
 
-    auto gaterToLDS = amdgpu::GatherToLDSOp::create(
-        b, loc, source, coords, dest, destCoords, op.getTransferType());
-    b.replaceOp(op, gaterToLDS);
+    Operation *toLDSOp =
+        asyncDirectToLDS
+            ? amdgpu::AsyncLoadToLDSOp::create(b, loc, source, coords, dest,
+                                               destCoords, op.getTransferType())
+            : amdgpu::GatherToLDSOp::create(b, loc, source, coords, dest,
+                                            destCoords, op.getTransferType());
+
+    b.replaceOp(op, toLDSOp);
     return success();
   }
 };
@@ -1425,6 +1468,8 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
     Type elemTy = cast<MemRefType>(dest.getType()).getElementType();
     int64_t len = op.getLength().getZExtValue();
     Type storeTy = vectorTypeOrSelf(elemTy, len);
+    assert(elemTy.getIntOrFloatBitWidth() >= 8 &&
+           "GlobalStoreOp must be on 8-bit or larger elements");
 
     SmallVector<Value, 5> coords(op.getDestCoord());
     Value sourceStart = op.getSourceCoord();
@@ -1566,6 +1611,24 @@ struct GlobalStoreRewritePattern : public OpRewritePattern<GlobalStoreOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// LDSTransposeLoadOp lowering.
+//===----------------------------------------------------------------------===//
+struct LDSTransposeLoadRewritePattern
+    : public OpRewritePattern<LDSTransposeLoadOp> {
+  using OpRewritePattern<LDSTransposeLoadOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(LDSTransposeLoadOp op,
+                                PatternRewriter &b) const override {
+
+    // Replace with amdgpu.transpose_load having identical semantics.
+    auto newOp = amdgpu::TransposeLoadOp::create(
+        b, op.getLoc(), op.getResult().getType(), op.getSource(),
+        op.getIndices());
+    b.replaceOp(op, newOp.getResult());
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // InBoundsLoad lowering.
 //===----------------------------------------------------------------------===//
 struct InBoundsLoadRewritePattern : public OpRewritePattern<InBoundsLoadOp> {
@@ -1620,7 +1683,8 @@ void RockSugarToLoopsPass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<ExtractSliceRewritePattern, InsertSliceRewritePattern,
                GlobalLoadRewritePattern, GlobalLoadToLDSRewritePattern,
-               GlobalStoreRewritePattern, InBoundsLoadRewritePattern,
+               GlobalPrefetchRewritePattern, GlobalStoreRewritePattern,
+               LDSTransposeLoadRewritePattern, InBoundsLoadRewritePattern,
                InBoundsStoreRewritePattern>(ctx);
   if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
     signalPassFailure();

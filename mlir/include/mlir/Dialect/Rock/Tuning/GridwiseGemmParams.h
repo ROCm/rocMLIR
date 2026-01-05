@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Rock/IR/GemmSize.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/Tuning/ParamLookupTable.h"
 #include "mlir/Dialect/Rock/Tuning/Serializable.h"
 #include <optional>
 
@@ -141,6 +142,7 @@ struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
 };
 
 struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
+  // TODO: remove once we generate new quick tuning list
   constexpr InitParamsAccel(int64_t mPerBlock, int64_t nPerBlock,
                             int64_t kPerBlock, int64_t mPerWave,
                             int64_t nPerWave, int64_t mnPerXdl, int64_t kPack,
@@ -151,12 +153,28 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmNPerWave(nPerWave), gemmMnPerXdl(mnPerXdl),
         gemmNPerWaveOrMnPerXdl(0), gemmKPack(kPack), splitKFactor(splitKFactor),
         gemmScheduleVersion(scheduleVersion), outputSwizzle(outputSwizzle),
+        wavesPerEU(0), gridGroupSize(0),
+        gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
+        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
+
+  constexpr InitParamsAccel(int64_t mPerBlock, int64_t nPerBlock,
+                            int64_t kPerBlock, int64_t mPerWave,
+                            int64_t nPerWave, int64_t mnPerXdl, int64_t kPack,
+                            int64_t splitKFactor, int64_t scheduleVersion,
+                            int64_t outputSwizzle, int64_t wavesPerEU,
+                            int64_t gridGroupSize, bool aThreadCopyMoreGemmK,
+                            bool bThreadCopyMoreGemmKPack)
+      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
+        gemmNPerWave(nPerWave), gemmMnPerXdl(mnPerXdl),
+        gemmNPerWaveOrMnPerXdl(0), gemmKPack(kPack), splitKFactor(splitKFactor),
+        gemmScheduleVersion(scheduleVersion), outputSwizzle(outputSwizzle),
+        wavesPerEU(wavesPerEU), gridGroupSize(gridGroupSize),
         gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
         gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
 
   constexpr InitParamsAccel()
-      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL, false,
-                        false) {}
+      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL, 0LL,
+                        0LL, false, false) {}
 
   InitParamsAccel(MfmaGemmParamsAttr attr)
       : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
@@ -166,6 +184,8 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmKPack(attr.getKpack()), splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
+        wavesPerEU(attr.getWavesPerEU()),
+        gridGroupSize(attr.getGridGroupSize()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false) {};
 
@@ -177,6 +197,8 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
         gemmKPack(attr.getKpack()), splitKFactor(attr.getSplitKFactor()),
         gemmScheduleVersion(attr.getScheduleVersion()),
         outputSwizzle(attr.getOutputSwizzle()),
+        wavesPerEU(attr.getWavesPerEU()),
+        gridGroupSize(attr.getGridGroupSize()),
         gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
         gemmBThreadCopyMoreGemmKPack(false) {};
 
@@ -190,6 +212,8 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
   int64_t splitKFactor;
   int64_t gemmScheduleVersion;
   int64_t outputSwizzle;
+  int64_t wavesPerEU;
+  int64_t gridGroupSize;
   bool gemmAThreadCopyMoreGemmK;
   bool gemmBThreadCopyMoreGemmKPack;
 
@@ -212,6 +236,10 @@ struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
     if (self.version >= Version::V3) {
       f(self.gemmScheduleVersion);
       f(self.outputSwizzle);
+    }
+    if (self.version >= Version::V4) {
+      f(self.wavesPerEU);
+      f(self.gridGroupSize);
     }
     f(self.gemmAThreadCopyMoreGemmK);
     f(self.gemmBThreadCopyMoreGemmKPack);
@@ -323,6 +351,8 @@ private:
 
   LogicalResult populateDerived(const InitParamsNonAccel &validParams);
 
+  friend class ParamLookupTable<InitParamsNonAccel>;
+
 public:
   LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
                                        const StringRef perfConfig,
@@ -418,6 +448,8 @@ class PopulateParamsXDL : public PopulateParamsAccel {
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef XDL_DECLARATIONS_GEN
 
+  friend class ParamLookupTable<InitParamsAccel>;
+
 public:
   std::vector<InitParamsAccel>
   getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
@@ -444,6 +476,8 @@ private:
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Wmma_DECLARATIONS_GEN
 
+  friend class ParamLookupTable<InitParamsAccel>;
+
 public:
   std::vector<InitParamsAccel>
   getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
@@ -462,6 +496,11 @@ protected:
                                           Type dataTypeA,
                                           Type dataTypeB) override;
 };
+
+FailureOr<std::pair<RockAccelTuningParamAttrInterface,
+                    RockAccelTuningParamAttrInterface>>
+getAttentionTuningParams(OpBuilder &b, RockGemmGemmWrapperInterface gemmGemmOp,
+                         AttnPerfConfigAttr attnPerfConfig);
 
 } // namespace rock
 } // namespace mlir

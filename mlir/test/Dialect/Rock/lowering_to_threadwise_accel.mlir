@@ -48,7 +48,7 @@ func.func @rock_gemm_schedulev2(%arg0: memref<1x128x128xf16>, %arg1: memref<1x12
     // CHECK-SAME: scheduleVersion = 2
     // CHECK: name = "MMA"
     // CHECK: pipeline = #rock.pipeline<1>
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 3600 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x128xf16>, memref<1x128x115200xf16>, memref<1x128x115200xf32>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 3600 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x128x128xf16>, memref<1x128x115200xf16>, memref<1x128x115200xf32>
   return
 }
 
@@ -94,7 +94,7 @@ func.func @rock_gemm_schedulev1(%arg0: memref<1x128x128xf16>, %arg1: memref<1x12
     // CHECK-SAME: scheduleVersion = 1
     // CHECK: name = "MMA"
     // CHECK: pipeline = #rock.pipeline<2>
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 3600 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x128xf16>, memref<1x128x115200xf16>, memref<1x128x115200xf32>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 3600 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x128x128xf16>, memref<1x128x115200xf16>, memref<1x128x115200xf32>
   return
 }
 
@@ -140,7 +140,7 @@ func.func @rock_conv_gkc01_n01gc_ngk01_0_schedulev2(%arg0: memref<1x32x32xf16>, 
     // CHECK: rock.threadwise_gemm_accel %[[outReg]] +=  %[[AReg]] * %[[BReg]]
     // CHECK-SAME: scheduleVersion = 2
     // CHECK: name = "MMA"
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 400 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 64, kpack = 4, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, forceUnroll = true>} : memref<1x32x32xf16>, memref<1x32x25600xf16>, memref<1x32x25600xf32>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 400 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 64, kpack = 4, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x32x32xf16>, memref<1x32x25600xf16>, memref<1x32x25600xf32>
   return
 }
 
@@ -181,7 +181,7 @@ func.func @rock_conv_gkc01_n01gc_ngk01_0_schedulev1(%arg0: memref<1x32x32xf16>, 
     // CHECK: rock.threadwise_gemm_accel %[[outReg]] +=  %[[AReg]] * %[[BReg]]
     // CHECK-SAME: scheduleVersion = 1
     // CHECK: name = "MMA"
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 400 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 64, kpack = 4, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x32x32xf16>, memref<1x32x25600xf16>, memref<1x32x25600xf32>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2) storeMethod( set) {blockSize = 256 : i32, gridSize = 400 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 64, kpack = 4, mPerWave = 32, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x32x32xf16>, memref<1x32x25600xf16>, memref<1x32x25600xf32>
   return
 }
 
@@ -230,7 +230,7 @@ func.func @rock_scaled_gemm_transA(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memr
     // CHECK: affine.for
     // CHECK: rock.threadwise_gemm_accel {{.*}} scaled by {{.*}} * {{.*}} scaled by {{.*}} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x2xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x2xvector<32xf8E8M0FNU>, #gpu.address_space<private>> * memref<1x2xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
     // CHECK: name = "MMA"
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
   return
 }
 
@@ -266,7 +266,7 @@ func.func @rock_scaled_gemm_transB(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: memr
     // CHECK: affine.for
     // CHECK: rock.threadwise_gemm_accel {{.*}} scaled by {{.*}} * {{.*}} scaled by {{.*}} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x2xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x2xvector<32xf8E8M0FNU>, #gpu.address_space<private>> * memref<1x2xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
     // CHECK: name = "MMA"
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
   return
 }
 
@@ -302,7 +302,7 @@ func.func @rock_scaled_gemm_transAB(%arg0: memref<1x128x64xf4E2M1FN>, %arg1: mem
     // CHECK: affine.for
     // CHECK: rock.threadwise_gemm_accel {{.*}} scaled by {{.*}} * {{.*}} scaled by {{.*}} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x2xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x2xvector<32xf8E8M0FNU>, #gpu.address_space<private>> * memref<1x2xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
     // CHECK: name = "MMA"
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
   return
 }
 
@@ -338,7 +338,7 @@ func.func @rock_scaled_gemm_no_transpose(%arg0: memref<1x128x64xf4E2M1FN>, %arg1
     // CHECK: affine.for
     // CHECK: rock.threadwise_gemm_accel {{.*}} scaled by {{.*}} * {{.*}} scaled by {{.*}} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x2xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x2xvector<32xf8E8M0FNU>, #gpu.address_space<private>> * memref<1x2xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x2xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
     // CHECK: name = "MMA"
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %arg3, %arg4) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #rock.mfma_gemm_params<kpackPerBlock = 4, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x128x64xf4E2M1FN>, memref<1x128x64xf4E2M1FN>, memref<1x64x64xf32>, memref<1x128x64xf8E8M0FNU>, memref<1x128x64xf8E8M0FNU>
   return
 }
 
@@ -354,12 +354,12 @@ func.func @gridwise_attn_schedulev2(%arg0: memref<1x384x64xf32>, %arg1: memref<1
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, forceUnroll = true>,
-    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, forceUnroll = true>,
+    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 2, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
     splitKV = 1 : i32,
     storeMethod = #rock<StoreMethod set>,
-    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
+    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
   return
 }

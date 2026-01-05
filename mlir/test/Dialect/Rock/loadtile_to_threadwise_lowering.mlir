@@ -26,7 +26,7 @@ func.func @doublebuffer(%arg0: memref<1x384x64xf32>) attributes {block_size = 25
     // CHECK-NEXT: rock.yield
     // CHECK: {name = "LDSRead"}
   affine.for %arg1 = 0 to 2 {
-    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] LDS -> %lds -> %reg {elementType = f32, elementLoadType = f32, matrixParamsA = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, matrixParamsB = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, blockSize = 64 : i32, loadType = #rock<GemmLoadTileType DoubleBuffer>, params = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> LDS -> memref<4096xi8, #gpu.address_space<workgroup>> -> memref<16xf32, #gpu.address_space<private>>
+    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] LDS -> %lds -> %reg {elementType = f32, elementLoadType = f32, matrixParamsA = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, matrixParamsB = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, blockSize = 64 : i32, loadType = #rock<GemmLoadTileType DoubleBuffer>, params = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x64x384xf32> LDS -> memref<4096xi8, #gpu.address_space<workgroup>> -> memref<16xf32, #gpu.address_space<private>>
   }
   return
 }
@@ -40,6 +40,7 @@ func.func @default(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i
   // CHECK: affine.for %[[arg1:.+]] = 0 to 2
     // CHECK: rock.stage
     // CHECK: rock.threadwise_read_into
+    // CHECK-NOT: rock.threadwise_prefetch
     // CHECK-NEXT: rock.yield
     // CHECK: {name = "GlobalRead"}
 
@@ -49,7 +50,7 @@ func.func @default(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 : i
     // CHECK-NEXT: rock.yield
     // CHECK: {name = "LDSWrite"}
   affine.for %arg1 = 0 to 2 {
-    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] LDS -> %lds {elementType = f32, elementLoadType = f32, matrixParamsA = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, matrixParamsB = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, blockSize = 64 : i32, loadType = #rock<GemmLoadTileType Default>, params = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> LDS -> memref<4096xi8, #gpu.address_space<workgroup>>
+    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] LDS -> %lds {elementType = f32, elementLoadType = f32, matrixParamsA = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, matrixParamsB = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, blockSize = 64 : i32, loadType = #rock<GemmLoadTileType Default>, params = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x64x384xf32> LDS -> memref<4096xi8, #gpu.address_space<workgroup>>
   }
   return
 }
@@ -63,6 +64,7 @@ func.func @bypasslds(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 :
   // CHECK: affine.for %[[arg1:.+]] = 0 to 2
     // CHECK: rock.stage
     // CHECK: rock.threadwise_read_into
+    // CHECK-NOT: rock.threadwise_prefetch
     // CHECK-NEXT: rock.yield
     // CHECK: {name = "GlobalRead"}
 
@@ -72,7 +74,9 @@ func.func @bypasslds(%arg0: memref<1x384x64xf32>) attributes {block_size = 256 :
     // CHECK: rock.yield
     // CHECK: {name = "RegTranspose"}
   affine.for %arg1 = 0 to 2 {
-    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] -> %reg {elementType = f32, elementLoadType = f32, matrixParamsA = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, matrixParamsB = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, blockSize = 64 : i32, loadType = #rock<GemmLoadTileType BypassLDS>, params = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>} : memref<1x64x384xf32> -> memref<16xf32, #gpu.address_space<private>>
+    rock.blockwise_load_tile %0[%arg1, %c0, %c0, %c0, %c0] -> %reg {elementType = f32, elementLoadType = f32, matrixParamsA = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, matrixParamsB = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 384, inDPerThread = 4>, blockSize = 64 : i32, loadType = #rock<GemmLoadTileType BypassLDS>, params = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x64x384xf32> -> memref<16xf32, #gpu.address_space<private>>
   }
   return
 }
+
+// TODO(gfx1250): add _prefetch version of all

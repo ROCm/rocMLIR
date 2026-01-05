@@ -152,7 +152,8 @@ perfconfig_space_mfma = list(
         [4, 8, 16],  # kPack
         [1],  # splitKFactor
         [1, 2, 3, 4],  # scheduleVersion
-        [2],  # outputSwizzle
+        [0, 1, 2],  # outputSwizzle
+        [0, 1, 2, 4, 8],  # wavesPerEU
         [0, 1]  # forceUnroll
     ))
 
@@ -168,7 +169,8 @@ perfconfig_space_wmma = list(
         [4, 8, 16],  # kPack
         [1],  # splitKFactor
         [1, 2, 3, 4],  # scheduleVersion
-        [2],  # outputSwizzle
+        [0, 1, 2],  # outputSwizzle
+        [0, 1, 2, 4, 8, 16],  # wavesPerEU
         [0, 1]  # forceUnroll
     ))
 
@@ -187,11 +189,16 @@ def main():
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--jobs', type=int, default=os.cpu_count())
-    parser.add_argument('--mlir-build-dir', type=str, default=find_mlir_build_dir()),
+    parser.add_argument('--mlir-build-dir', type=str, default=None)
     parser.add_argument('--samples', type=int, default=1000)
     parser.add_argument('--log-failures', action='store_true')
 
     args = parser.parse_args()
+
+    # Set default mlir-build-dir if not provided
+    if args.mlir_build_dir is None:
+        args.mlir_build_dir = find_mlir_build_dir()
+
     arch = get_arch()
     chip_match = GFX_CHIP_RE.search(arch)
     if chip_match is None:

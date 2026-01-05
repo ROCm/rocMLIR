@@ -1,4 +1,4 @@
-//===- InitParamsAccelTests.cpp - Tests for InitParamsAccel --------------===//
+//===- InitParamsAccelTests.cpp - Tests for InitParamsAccel ---------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -21,7 +21,7 @@ namespace {
 TEST(V4Config, First) {
   InitParamsAccel validParams;
   bool isValidPerfConfig =
-      validParams.deserialize("v4:64,64,8,32,32,16,4,2,3,2,1,1");
+      validParams.deserialize("v4:64,64,8,32,32,16,4,2,3,2,0,0,1,1");
 
   EXPECT_EQ(isValidPerfConfig, true);
   EXPECT_EQ(validParams.gemmBThreadCopyMoreGemmKPack, true);
@@ -39,12 +39,14 @@ TEST(V4Config, First) {
   EXPECT_EQ(validParams.gemmMPerBlock, 64);
   EXPECT_EQ(validParams.gemmNPerBlock, 64);
   EXPECT_EQ(validParams.gemmKPerBlock, 8);
+  EXPECT_EQ(validParams.wavesPerEU, 0);
+  EXPECT_EQ(validParams.gridGroupSize, 0);
 }
 
 TEST(V4Config, Second) {
   InitParamsAccel validParams;
   bool isValidPerfConfig =
-      validParams.deserialize("v4:128,64,8,64,32,32,4,9,2,2,0,1");
+      validParams.deserialize("v4:128,64,8,64,32,32,4,9,2,0,8,64,0,1");
 
   EXPECT_EQ(isValidPerfConfig, true);
   EXPECT_EQ(validParams.gemmBThreadCopyMoreGemmKPack, true);
@@ -57,11 +59,13 @@ TEST(V4Config, Second) {
   EXPECT_EQ(validParams.gemmNPerWaveOrMnPerXdl, 0);
   EXPECT_EQ(validParams.gemmScheduleVersion, 2);
   EXPECT_EQ(validParams.gemmMnPerXdl, 32);
-  EXPECT_EQ(validParams.outputSwizzle, 2);
+  EXPECT_EQ(validParams.outputSwizzle, 0);
   EXPECT_EQ(validParams.getVersion(), InitParamsAccel::Version::V4);
   EXPECT_EQ(validParams.gemmMPerBlock, 128);
   EXPECT_EQ(validParams.gemmNPerBlock, 64);
   EXPECT_EQ(validParams.gemmKPerBlock, 8);
+  EXPECT_EQ(validParams.wavesPerEU, 8);
+  EXPECT_EQ(validParams.gridGroupSize, 64);
 }
 
 //===----------------------------------------------------------------------===//

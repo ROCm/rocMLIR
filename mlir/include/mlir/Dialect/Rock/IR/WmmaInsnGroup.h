@@ -22,9 +22,51 @@
 namespace mlir {
 namespace rock {
 
+// Type IDs for WMMA instruction selection
+// Naming convention: InputType(s)_To_OutputType_TyId
+enum class WmmaTypeId : uint32_t {
+  // F32 output
+  F32_To_F32_TyId = 0, // F32 x F32 -> F32
+  F16_To_F32_TyId,     // F16 x F16 -> F32
+  Bf16_To_F32_TyId,    // BF16 x BF16 -> F32
+  Fp8Fp8_To_F32_TyId,  // FP8 x FP8 -> F32
+  Fp8Bf8_To_F32_TyId,  // FP8 x BF8 -> F32
+  Bf8Fp8_To_F32_TyId,  // BF8 x FP8 -> F32
+  Bf8Bf8_To_F32_TyId,  // BF8 x BF8 -> F32
+
+  // F16 output
+  F16_To_F16_TyId,    // F16 x F16 -> F16
+  Fp8Fp8_To_F16_TyId, // FP8 x FP8 -> F16
+  Fp8Bf8_To_F16_TyId, // FP8 x BF8 -> F16
+  Bf8Fp8_To_F16_TyId, // BF8 x FP8 -> F16
+  Bf8Bf8_To_F16_TyId, // BF8 x BF8 -> F16
+
+  // BF16 output
+  Bf16_To_Bf16_TyId,    // BF16 x BF16 -> BF16
+  Bf16_To_Bf16F32_TyId, // BF16 x BF16 -> mixed BF16/F32
+
+  // Integer output
+  I8_To_I32_TyId, // I8 x I8 -> I32
+  I4_To_I32_TyId  // I4 x I4 -> I32
+};
+
+// Information needed to create a WMMA instruction
+struct WmmaInsnInfo {
+  StringRef insn;
+  int64_t inputVectorLen;
+  int64_t outputVectorLen;
+  int64_t mPerAccel;
+  int64_t nPerAccel;
+};
+
+// Key type for WMMA instruction maps: (TypeId, K dimension)
+using WmmaInsnKey = std::pair<WmmaTypeId, int64_t>;
+
 struct WmmaInsn {
   StringRef insn;
-  int64_t dPerAccel;
+  int64_t mPerAccel;
+  int64_t nPerAccel;
+  int64_t kDim;
   int64_t outputStride;
   int64_t mRepeats;
   int64_t nRepeats;
@@ -36,7 +78,8 @@ public:
   bool isCoherentWithK(int64_t kpack, int64_t kPerBlock);
   static FailureOr<WmmaInsn> select(Type elementTypeA, Type elementTypeB,
                                     int64_t waveSize, StringRef arch,
-                                    int64_t mPerWave, int64_t nPerWave);
+                                    int64_t mPerWave, int64_t nPerWave,
+                                    int64_t kPack, int64_t kPackPerBlock);
 };
 } // namespace rock
 } // namespace mlir

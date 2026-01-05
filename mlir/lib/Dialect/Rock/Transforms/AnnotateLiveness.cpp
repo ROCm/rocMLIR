@@ -46,84 +46,47 @@ struct LiveRange {
   LiveRange(Operation *w, Operation *r) : firstWrite(w), lastRead(r) {}
 };
 
-// Similar to findAlloc() in loweringUtils.cpp, but this function gives you a
-// list of allocs. The reason why it's a list is because if we find a
-// ExtractMultiBufferOp and the index is non-static, we can't know which one
-// will be chosen, so we trace back all of them.
-static SmallVector<GpuAllocOp> findAllocList(Value value) {
-  SmallVector<GpuAllocOp> allocs;
-  SmallVector<Operation *> worklist{value.getDefiningOp()};
-  while (!worklist.empty()) {
-    Operation *curOp = worklist.pop_back_val();
-    auto maybeAllocOp = dyn_cast_or_null<GpuAllocOp>(curOp);
-    if (maybeAllocOp) {
-      allocs.push_back(maybeAllocOp);
-    } else {
-      // Keep going until the operation that defines the value is a
-      // view-like operation
-      if (auto viewOp = dyn_cast_or_null<ViewLikeOpInterface>(curOp)) {
-        worklist.push_back(viewOp.getViewSource().getDefiningOp());
-      } else if (auto extractMultiBufferOp =
-                     dyn_cast_or_null<ExtractMultiBufferOp>(curOp)) {
-        auto buffers = extractMultiBufferOp.getBuffers();
-        auto selectIndex = dyn_cast_or_null<arith::ConstantIndexOp>(
-            extractMultiBufferOp.getSelectIndex().getDefiningOp());
-        if (buffers.size() > 1 && !selectIndex) {
-          for (auto buffer : buffers)
-            worklist.push_back(buffer.getDefiningOp());
-        } else if (buffers.size() == 1) {
-          worklist.push_back(buffers.back().getDefiningOp());
-        } else {
-          int64_t index = selectIndex.value() % buffers.size();
-          worklist.push_back(buffers[index].getDefiningOp());
-        }
+// Helper function to check if an operation has a specific memory effect on the
+// given alloc
+static bool hasEffect(
+    Operation *op, GpuAllocOp buffer,
+    llvm::function_ref<bool(const MemoryEffects::Effect *)> effectMatcher) {
+  auto memEffectInterface = dyn_cast<MemoryEffectOpInterface>(op);
+  if (!memEffectInterface)
+    return false;
+
+  SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>> effects;
+  memEffectInterface.getEffects(effects);
+
+  for (const auto &effect : effects) {
+    if (effectMatcher(effect.getEffect())) {
+      mlir::Value accessedVal = effect.getValue();
+      if (!accessedVal) {
+        LLVM_DEBUG(llvm::dbgs() << "[hasEffect] Effect value is null\n");
+        continue;
+      }
+      SmallVector<GpuAllocOp> effectAllocs =
+          rock::findAllGpuAllocs(accessedVal);
+      if (llvm::is_contained(effectAllocs, buffer)) {
+        return true;
       }
     }
   }
-
-  return allocs;
+  return false;
 }
 
 // Check if an operation writes to the given alloc
 static bool hasWriteEffect(Operation *op, GpuAllocOp buffer) {
-  auto memEffectInterface = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!memEffectInterface)
-    return false;
-
-  SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>> effects;
-  memEffectInterface.getEffects(effects);
-
-  for (const auto &effect : effects) {
-    // Check if this is a Write effect on our alloc
-    if (isa<MemoryEffects::Write>(effect.getEffect())) {
-      SmallVector<GpuAllocOp> effectAllocs = findAllocList(effect.getValue());
-      if (llvm::is_contained(effectAllocs, buffer)) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return hasEffect(op, buffer, [](const MemoryEffects::Effect *e) {
+    return isa<MemoryEffects::Write>(e);
+  });
 }
 
 // Check if an operation reads from the given alloc
 static bool hasReadEffect(Operation *op, GpuAllocOp buffer) {
-  auto memEffectInterface = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!memEffectInterface)
-    return false;
-
-  SmallVector<SideEffects::EffectInstance<MemoryEffects::Effect>> effects;
-  memEffectInterface.getEffects(effects);
-
-  for (const auto &effect : effects) {
-    // Check if this is a Read effect on our alloc
-    if (isa<MemoryEffects::Read>(effect.getEffect())) {
-      SmallVector<GpuAllocOp> effectAllocs = findAllocList(effect.getValue());
-      if (llvm::is_contained(effectAllocs, buffer)) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return hasEffect(op, buffer, [](const MemoryEffects::Effect *e) {
+    return isa<MemoryEffects::Read>(e);
+  });
 }
 
 // Collect all operations that access the buffer in program order

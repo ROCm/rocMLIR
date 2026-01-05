@@ -7,16 +7,36 @@ func.func @gridwise_attn_atomic_add_fail(%arg0: memref<1x384x64xf32>, %arg1: mem
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
-    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, forceUnroll = true>,
+    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
     storeMethod = #rock<StoreMethod atomic_add>,
     splitKV = 1 : i32,
     enableSoftmax = true,
     numHeadsKV = 1 : i32, 
     numHeadsQ = 1 : i32,
-    operand_segment_sizes = array<i32: 1, 1, 1, 0, 0, 1, 0>
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 1, 0>
   } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1x384x64xf32>
+  return
+}
+
+func.func @gridwise_attn_prefix_offset_requires_causal(%arg0: memref<1x384x64xf32>, %arg1: memref<1x64x384xf32>, %arg2: memref<1x384x64xf32>, %arg3: memref<1x384x64xf32>, %arg4: memref<1xi32>) attributes {block_size = 64 : i32, grid_size = 24 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {
+  %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0, d2, d1)> by [<PassThrough ["gemmG"] at [0] -> ["gemmG"] at [0]>, <PassThrough ["gemm0K", "gemm0M"] at [1, 2] -> ["gemm0K", "gemm0M"] at [2, 1]>] bounds = [1, 64, 384] -> [1, 384, 64]> : memref<1x384x64xf32> to memref<1x64x384xf32>
+  
+  // expected-error @below {{prefixOffset requires causal to be enabled}}
+  rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3) preSoftmaxOps = {} {
+    blockSize = 64 : i32,
+    gridSize = 24 : i32,
+    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    firstGemmIndices = array<i64: 0>,
+    storeMethod = #rock<StoreMethod set>,
+    splitKV = 1 : i32,
+    enableSoftmax = true,
+    numHeadsKV = 1 : i32, 
+    numHeadsQ = 1 : i32,
+    operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 1, 1, 0>
+  } : memref<1x64x384xf32>, memref<1x64x384xf32>, memref<1x384x64xf32>, memref<1xi32>, memref<1x384x64xf32>
   return
 }
 
@@ -62,6 +82,16 @@ func.func @attention_numheadsq_smaller_than_numheadskv(%arg0: memref<1x384x64xf1
    qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
    %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
   } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 4 : i32, numHeadsQ = 2 : i32, storeMethod = #rock<StoreMethod set>}
+  return
+}
+
+func.func @attention_prefix_offset_requires_causal(%arg0: memref<1x384x64xf16>, %arg1: memref<1x384x64xf16>, %arg2: memref<1x384x64xf16>, %arg3: memref<1x384x64xf16>, %arg4: memref<1xi32>) attributes {kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+  // expected-error @below {{prefixOffset requires causal to be enabled}}
+  rock.attention{
+   qk = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
+   prefixOffset = (%arg4 : memref<1xi32>)
+   %arg3 = softmax(qk) * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
+  } {features = #rock<GemmFeatures dot|atomic_add|atomic_fmax_f32|wmma>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
@@ -304,7 +334,7 @@ func.func @gemm_scaled_inputs_not_float4e2m1(%a: memref<2x64x128xf16>,
   mnPerXdl = 32,
   splitKFactor = 1,
   scheduleVersion = 1,
-  outputSwizzle = 2,
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
   forceUnroll = true>
 
 func.func @gridwise_gemm_accel_scale_presence_a_only(%A: memref<1x4x8xf4E2M1FN>, %B: memref<1x4x16xf4E2M1FN>, %C: memref<1x8x16xf32>, %scaleA: memref<1x4x8xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
@@ -429,7 +459,7 @@ func.func @rock_gridwise_gemm_accel_invalid_out_dtype(%A: memref<2x1024x1024xf4E
   mnPerXdl = 32,
   splitKFactor = 1,
   scheduleVersion = 1,
-  outputSwizzle = 2,
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
   forceUnroll = true>
 
 func.func @blockwise_gemm_accel_scale_buffer_presence_a_only(
@@ -949,7 +979,7 @@ func.func @blockwise_gemm_accel_invalid_arch(
   kpack = 1,
   splitKFactor = 1, 
   scheduleVersion = 1, 
-  outputSwizzle = 2,
+  outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0,
   forceUnroll = true>
 
 // Error case: Only scaleA provided
@@ -1118,5 +1148,108 @@ func.func @threadwise_gemm_accel_unsupported_arch(
       arch = "amdgcn-amd-amdhsa:gfx942", // Unsupported architecture for Float4E2M1FN
       params = #params
     } : memref<2x3xf32, 5> += memref<2x4xf4E2M1FN, 5> scaled by memref<2x4xf8E8M0FNU, 5> * memref<3x4xf4E2M1FN, 5> scaled by memref<3x4xf8E8M0FNU, 5>
+  return
+}
+
+// Error case: 4-bit source type (i4) with odd last source coordinate
+func.func @global_load_to_lds_i4_source_odd_coord(
+  %source: memref<64xi4>,
+  %dest: memref<64xi4, #gpu.address_space<workgroup>>
+) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c1 = arith.constant 1 : index  // Odd coordinate
+  %c0 = arith.constant 0 : index
+  %true = arith.constant true
+  // expected-error @+1 {{For 4-bit source types, last source coordinate must be even}}
+  rock.global_load_to_lds %source[%c1] -> %dest[%c0] if %true {transferType = f32}
+    : memref<64xi4> -> memref<64xi4, #gpu.address_space<workgroup>>
+  return
+}
+
+// Error case: 4-bit source type (f4E2M1FN) with multi-dimensional odd last coordinate
+func.func @global_load_to_lds_f4_source_multidim_odd_coord(
+  %source: memref<16x32xf4E2M1FN>,
+  %dest: memref<16x32xf4E2M1FN, #gpu.address_space<workgroup>>
+) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c5 = arith.constant 5 : index  // Odd last coordinate
+  %true = arith.constant true
+  // expected-error @+1 {{For 4-bit source types, last source coordinate must be even}}
+  rock.global_load_to_lds %source[%c0, %c5] -> %dest[%c0, %c0] if %true {transferType = f32}
+    : memref<16x32xf4E2M1FN> -> memref<16x32xf4E2M1FN, #gpu.address_space<workgroup>>
+  return
+}
+
+// Error case: 4-bit destination type (f4E2M1FN) with odd last destination coordinate
+func.func @global_load_to_lds_f4_dest_odd_coord(
+  %source: memref<128xf4E2M1FN>,
+  %dest: memref<128xf4E2M1FN, #gpu.address_space<workgroup>>
+) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c7 = arith.constant 7 : index  // Odd coordinate for destination
+  %true = arith.constant true
+  // expected-error @+1 {{For 4-bit destination types, last dest coordinate must be even}}
+  rock.global_load_to_lds %source[%c0] -> %dest[%c7] if %true {transferType = f32}
+    : memref<128xf4E2M1FN> -> memref<128xf4E2M1FN, #gpu.address_space<workgroup>>
+  return
+}
+
+// Error case: Wrong memory space (not specified)
+func.func @lds_transpose_load_wrong_memory_space(%buffer: memref<128x64xf16>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{source memref must have a specified memory space}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
+    : memref<128x64xf16> -> vector<4xf16>
+  return
+}
+
+// Error case: Wrong memory space (private)
+func.func @lds_transpose_load_private_memory(%buffer: memref<128x64xf16, #gpu.address_space<private>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{source memory address space must be workgroup (LDS)}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<private>> -> vector<4xf16>
+  return
+}
+
+// Error case: Unsupported architecture (gfx908)
+func.func @lds_transpose_load_old_arch(%buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx908"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{LDS transpose load is not supported on this architecture}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// Error case: Wrong number of indices (rank mismatch - too few)
+func.func @lds_transpose_load_wrong_indices_count(%buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{expected 2 indices}}
+  %fragment = rock.lds_transpose_load %buffer[%c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// Error case: Wrong number of indices (rank mismatch - too many)
+func.func @lds_transpose_load_too_many_indices(%buffer: memref<128x64xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  // expected-error @+1 {{expected 2 indices}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c0, %c0]
+    : memref<128x64xf16, #gpu.address_space<workgroup>> -> vector<4xf16>
+  return
+}
+
+// Error case: Mismatched element types (source f16, result bf16)
+func.func @lds_transpose_load_mismatched_types(%buffer: memref<128x32xf16, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  // expected-error @+1 {{result element type ('bf16') must match source element type ('f16')}}
+  %fragment = rock.lds_transpose_load %buffer[%c0, %c1]
+    : memref<128x32xf16, #gpu.address_space<workgroup>> -> vector<4xbf16>
   return
 }
