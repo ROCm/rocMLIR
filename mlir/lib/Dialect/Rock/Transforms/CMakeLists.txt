@@ -38,6 +38,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   BlockwiseLoadTileToThreadwise.cpp
   AnnotateLiveness.cpp
   AddAsyncWait.cpp
+  RemoveRedundantCasts.cpp
   LowerRockOpsToROCDLOps.cpp
 
   ADDITIONAL_HEADER_DIRS
