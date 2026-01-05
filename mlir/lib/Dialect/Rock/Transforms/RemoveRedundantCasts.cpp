@@ -67,27 +67,79 @@ struct LoadExtfInfo {
   SmallVector<Value> loadIndices;
 };
 
-// Collect all arith.truncf operations in the function that convert from
-// a wider float type to a narrower float type.
-SmallVector<arith::TruncFOp> findAllTruncfOps(func::FuncOp funcOp) {
-  SmallVector<arith::TruncFOp> truncfOps;
+// Helper to check if a store operation directly stores a value.
+// Returns the target buffer and indices if it's a supported store type.
+static FailureOr<std::pair<Value, SmallVector<Value>>>
+getStoreBufferAndIndices(Operation *op, Value storedValue) {
+  if (auto inBoundsStore = dyn_cast<InBoundsStoreOp>(op)) {
+    if (inBoundsStore.getData() == storedValue) {
+      return std::pair<Value, SmallVector<Value>>(
+          inBoundsStore.getDest(),
+          SmallVector<Value>(inBoundsStore.getCoords()));
+    }
+  } else if (auto vectorStore = dyn_cast<vector::StoreOp>(op)) {
+    if (vectorStore.getValueToStore() == storedValue) {
+      return std::pair<Value, SmallVector<Value>>(
+          vectorStore.getBase(),
+          SmallVector<Value>(vectorStore.getIndices()));
+    }
+  } else if (auto memrefStore = dyn_cast<memref::StoreOp>(op)) {
+    if (memrefStore.getValue() == storedValue) {
+      return std::pair<Value, SmallVector<Value>>(
+          memrefStore.getMemRef(),
+          SmallVector<Value>(memrefStore.getIndices()));
+    }
+  }
+  return failure();
+}
+
+// Find all arith.truncf operations that are directly stored to a buffer.
+// A "direct store" means the truncf result is used immediately by a store
+// operation with no intermediate operations modifying the value:
+//   Valid:   truncf -> store
+//   Invalid: truncf -> other_op -> store
+SmallVector<TruncfStoreInfo> findTruncfWithDirectStores(func::FuncOp funcOp) {
+  SmallVector<TruncfStoreInfo> results;
 
   funcOp.walk([&](arith::TruncFOp truncfOp) -> WalkResult {
     Type inputType = getElementTypeOrSelf(truncfOp.getIn().getType());
     Type outputType = getElementTypeOrSelf(truncfOp.getOut().getType());
 
-    // Check that this is a narrowing conversion (truncf)
+    // Step 1: Check that this is a narrowing conversion (truncf)
     if (outputType.getIntOrFloatBitWidth() >= inputType.getIntOrFloatBitWidth())
       return WalkResult::advance();
 
     LLVM_DEBUG(llvm::dbgs() << "Found truncf: " << truncfOp << "\n");
-    truncfOps.push_back(truncfOp);
+
+    // Step 2: Check for direct stores of the truncf result
+    Value truncfResult = truncfOp.getOut();
+    Value wideValue = truncfOp.getIn();
+
+    for (Operation *user : truncfResult.getUsers()) {
+      FailureOr<std::pair<Value, SmallVector<Value>>> storeInfo =
+          getStoreBufferAndIndices(user, truncfResult);
+      if (failed(storeInfo))
+        continue;
+
+      LLVM_DEBUG(llvm::dbgs() << "  Found direct store: " << *user << "\n");
+      LLVM_DEBUG(llvm::dbgs() << "  Target buffer: " << storeInfo->first
+                              << "\n");
+
+      TruncfStoreInfo info;
+      info.truncfOp = truncfOp;
+      info.wideValue = wideValue;
+      info.storeOp = user;
+      info.targetBuffer = storeInfo->first;
+      info.storeIndices = std::move(storeInfo->second);
+      results.push_back(info);
+    }
+
     return WalkResult::advance();
   });
 
-  LLVM_DEBUG(llvm::dbgs() << "Total truncf operations found: "
-                          << truncfOps.size() << "\n");
-  return truncfOps;
+  LLVM_DEBUG(llvm::dbgs() << "Total truncf -> store pairs found: "
+                          << results.size() << "\n");
+  return results;
 }
 
 struct RockRemoveRedundantCastsPass
@@ -101,19 +153,18 @@ struct RockRemoveRedundantCastsPass
 void RockRemoveRedundantCastsPass::runOnOperation() {
   func::FuncOp funcOp = getOperation();
 
-  // Step 1: Find all truncf operations (f32 -> narrow float)
-  SmallVector<arith::TruncFOp> truncfOps = findAllTruncfOps(funcOp);
+  SmallVector<TruncfStoreInfo> truncfStores = findTruncfWithDirectStores(funcOp);
 
-  if (truncfOps.empty()) {
-    LLVM_DEBUG(llvm::dbgs() << "No truncf operations found, nothing to do.\n");
+  if (truncfStores.empty()) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "No truncf -> store patterns found, nothing to do.\n");
     return;
   }
 
-  LLVM_DEBUG(llvm::dbgs() << "Found " << truncfOps.size()
-                          << " truncf operations to analyze.\n");
+  LLVM_DEBUG(llvm::dbgs() << "Found " << truncfStores.size()
+                          << " truncf -> store patterns to analyze.\n");
 
   // TODO: Implement remaining steps of the algorithm:
-  // Step 2: Check for direct stores
   // Step 3: Find direct extf readers
   // Step 4: Verify safety
   // Step 5: Apply the optimization
