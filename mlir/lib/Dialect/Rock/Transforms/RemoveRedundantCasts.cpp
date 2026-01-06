@@ -97,11 +97,74 @@ getStoreBufferAndIndices(Operation *op, Value storedValue) {
   return failure();
 }
 
+// Helper to check if a load operation reads from a specific buffer.
+// Returns the loaded value and indices if it's a supported load type.
+static FailureOr<std::pair<Value, SmallVector<Value>>>
+getLoadResultAndIndices(Operation *op, Value expectedBuffer) {
+  if (auto inBoundsLoad = dyn_cast<InBoundsLoadOp>(op)) {
+    if (inBoundsLoad.getSource() == expectedBuffer) {
+      return std::pair<Value, SmallVector<Value>>(
+          inBoundsLoad.getResult(),
+          SmallVector<Value>(inBoundsLoad.getCoords()));
+    }
+  } else if (auto transferRead = dyn_cast<vector::TransferReadOp>(op)) {
+    if (transferRead.getBase() == expectedBuffer) {
+      return std::pair<Value, SmallVector<Value>>(
+          transferRead.getResult(),
+          SmallVector<Value>(transferRead.getIndices()));
+    }
+  } else if (auto memrefLoad = dyn_cast<memref::LoadOp>(op)) {
+    if (memrefLoad.getMemRef() == expectedBuffer) {
+      return std::pair<Value, SmallVector<Value>>(
+          memrefLoad.getResult(),
+          SmallVector<Value>(memrefLoad.getIndices()));
+    }
+  }
+  return failure();
+}
+
+// Find all load -> extf patterns from a given buffer.
+// A "direct extf" means the load result is used immediately by an extf
+// operation with no intermediate operations modifying the value.
+SmallVector<LoadExtfInfo> findDirectExtfReaders(Value narrowBuffer,
+                                                Type wideType) {
+  SmallVector<LoadExtfInfo> results;
+
+  // Iterate over direct users of the buffer
+  for (Operation *user : narrowBuffer.getUsers()) {
+    // Check if this user is a load from our buffer
+    FailureOr<std::pair<Value, SmallVector<Value>>> loadInfo =
+        getLoadResultAndIndices(user, narrowBuffer);
+    if (failed(loadInfo))
+      continue;
+
+    Value loadResult = loadInfo->first;
+
+    // Check if the load result is used directly by an arith.extf
+    for (Operation *loadUser : loadResult.getUsers()) {
+      auto extfOp = dyn_cast<arith::ExtFOp>(loadUser);
+      if (!extfOp)
+        continue;
+
+      // Verify the extf output type matches the expected wide type
+      Type extfOutputType = getElementTypeOrSelf(extfOp.getOut().getType());
+      if (extfOutputType != wideType)
+        continue;
+
+      LoadExtfInfo info;
+      info.loadOp = user;
+      info.extfOp = extfOp;
+      info.loadIndices = std::move(loadInfo->second);
+      results.push_back(info);
+    }
+  }
+
+  return results;
+}
+
 // Find all arith.truncf operations that are directly stored to a buffer.
 // A "direct store" means the truncf result is used immediately by a store
-// operation with no intermediate operations modifying the value:
-//   Valid:   truncf -> store
-//   Invalid: truncf -> other_op -> store
+// operation with no intermediate operations modifying the value.
 SmallVector<TruncfStoreInfo> findTruncfWithDirectStores(func::FuncOp funcOp) {
   SmallVector<TruncfStoreInfo> results;
 
@@ -109,13 +172,11 @@ SmallVector<TruncfStoreInfo> findTruncfWithDirectStores(func::FuncOp funcOp) {
     Type inputType = getElementTypeOrSelf(truncfOp.getIn().getType());
     Type outputType = getElementTypeOrSelf(truncfOp.getOut().getType());
 
-    // Step 1: Check that this is a narrowing conversion (truncf)
+    // Check that this is a narrowing conversion (truncf)
     if (outputType.getIntOrFloatBitWidth() >= inputType.getIntOrFloatBitWidth())
       return WalkResult::advance();
 
-    LLVM_DEBUG(llvm::dbgs() << "Found truncf: " << truncfOp << "\n");
-
-    // Step 2: Check for direct stores of the truncf result
+    // Check for direct stores of the truncf result
     Value truncfResult = truncfOp.getOut();
     Value wideValue = truncfOp.getIn();
 
@@ -124,8 +185,6 @@ SmallVector<TruncfStoreInfo> findTruncfWithDirectStores(func::FuncOp funcOp) {
           getStoreBufferAndIndices(user, truncfResult);
       if (failed(storeInfo))
         continue;
-
-      LLVM_DEBUG(llvm::dbgs() << "  Found direct store: " << *user << "\n");
 
       TruncfStoreInfo info;
       info.truncfOp = truncfOp;
@@ -164,8 +223,24 @@ void RockRemoveRedundantCastsPass::runOnOperation() {
   LLVM_DEBUG(llvm::dbgs() << "Found " << truncfStores.size()
                           << " truncf -> store patterns to analyze.\n");
 
+  // For each truncf -> store pair, find load -> extf readers
+  for (const TruncfStoreInfo &truncfStore : truncfStores) {
+    Type wideType = getElementTypeOrSelf(truncfStore.wideValue.getType());
+    LLVM_DEBUG(llvm::dbgs() << "Analyzing buffer: " << truncfStore.targetBuffer
+                            << "\n");
+    SmallVector<LoadExtfInfo> extfReaders =
+        findDirectExtfReaders(truncfStore.targetBuffer, wideType);
+
+    if (extfReaders.empty()) {
+      LLVM_DEBUG(llvm::dbgs() << "\tNo load -> extf readers found.\n");
+      continue;
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "\tFound " << extfReaders.size()
+                            << " load -> extf readers.\n");
+  }
+
   // TODO: Implement remaining steps of the algorithm:
-  // Step 3: Find direct extf readers
-  // Step 4: Verify safety
+  // Step 4: Verify safety (dominance, no intervening writes, same indices)
   // Step 5: Apply the optimization
 }
