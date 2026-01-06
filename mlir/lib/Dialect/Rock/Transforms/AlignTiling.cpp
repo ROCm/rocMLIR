@@ -519,6 +519,50 @@ static LogicalResult checkUniqueReader(Operation *op, Operation *reader,
   return success();
 }
 
+// Try to convert a memref.subview to a TransformMapAttr (Pad transform).
+static TransformMapAttr
+subviewToPadTransform(OpBuilder &b, memref::SubViewOp subview) {
+  // Check that all offsets are zero and all strides are one
+  for (auto offset : subview.getStaticOffsets()) {
+    if (offset != 0)
+      return TransformMapAttr();
+  }
+  for (auto stride : subview.getStaticStrides()) {
+    if (stride != 1)
+      return TransformMapAttr();
+  }
+
+  // Get source and result shapes
+  auto sourceType = cast<MemRefType>(subview.getSource().getType());
+  auto resultType = cast<MemRefType>(subview.getResult().getType());
+  ArrayRef<int64_t> sourceShape = sourceType.getShape();
+  ArrayRef<int64_t> resultShape = resultType.getShape();
+
+  // Must have same rank
+  if (sourceShape.size() != resultShape.size())
+    return TransformMapAttr();
+
+  // Build Pad transform: result shape padded to source shape
+  Location loc = subview.getLoc();
+  int64_t rank = sourceShape.size();
+
+  SmallVector<StringRef> dimNames;
+  SmallVector<int64_t> padParams;
+  for (int64_t i = 0; i < rank; ++i) {
+    dimNames.push_back(b.getStringAttr(Twine("d") + Twine(i)));
+    padParams.push_back(0);                                 // leftPad
+    padParams.push_back(sourceShape[i] - resultShape[i]);   // rightPad
+  }
+
+  BottomUpTMBuilder transform(b, dimNames, resultShape, loc);
+  SmallVector<uint32_t> dims;
+  for (int64_t i = 0; i < rank; ++i)
+    dims.push_back(i);
+
+  transform.pad(dimNames, dims, dimNames, padParams);
+  return transform.get();
+}
+
 static Operation *
 traceToWriter(Value startVal,
               SmallVectorImpl<TransformMapAttr> &writerToStartValViews) {
@@ -529,6 +573,10 @@ traceToWriter(Value startVal,
   if (!startValDef)
     return nullptr;
   bool unique = true;
+
+  // Create a temporary builder for constructing Pad transforms from subviews
+  OpBuilder tempBuilder(startVal.getContext());
+
   auto setResult = [&](Value val, Operation *theResult) {
     if (result != nullptr) {
       LLVM_DEBUG(llvm::dbgs() << "Found writer " << *theResult
@@ -536,11 +584,20 @@ traceToWriter(Value startVal,
       unique = false;
     } else {
       result = theResult;
-      TransformOp trOp = dyn_cast_if_present<TransformOp>(val.getDefiningOp());
-      while (trOp && trOp != startValDef) {
-        writerToStartValViews.push_back(trOp.getTransformAttr());
-        trOp = dyn_cast_if_present<TransformOp>(
-            trOp.getViewSource().getDefiningOp());
+      // Trace back through transforms and subviews to build the view chain
+      Operation *defOp = val.getDefiningOp();
+      while (defOp && defOp != startValDef) {
+        if (auto trOp = dyn_cast<TransformOp>(defOp)) {
+          writerToStartValViews.push_back(trOp.getTransformAttr());
+          defOp = trOp.getViewSource().getDefiningOp();
+        } else if (auto subviewOp = dyn_cast<memref::SubViewOp>(defOp)) {
+          TransformMapAttr padAttr = subviewToPadTransform(tempBuilder, subviewOp);
+          if (padAttr)
+            writerToStartValViews.push_back(padAttr);
+          defOp = subviewOp.getSource().getDefiningOp();
+        } else {
+          break;
+        }
       }
     }
   };
@@ -553,6 +610,12 @@ traceToWriter(Value startVal,
     if (auto transformOp = dyn_cast<TransformOp>(use)) {
       for (Operation *transformUse : transformOp->getUsers()) {
         worklist.push_back({transformOp, transformUse});
+      }
+    } else if (auto subviewOp = dyn_cast<memref::SubViewOp>(use)) {
+      // Trace through subviews. They represent strided views that we'll
+      // capture as Pad transforms when building the view chain
+      for (Operation *subviewUse : subviewOp->getUsers()) {
+        worklist.push_back({subviewOp.getResult(), subviewUse});
       }
     } else if (auto lgop = dyn_cast<linalg::GenericOp>(use)) {
       if (llvm::is_contained(lgop.getOutputs(), val))

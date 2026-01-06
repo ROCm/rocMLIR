@@ -1420,10 +1420,34 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   Value transposed = in;
   if (!llvm::is_sorted(permutation))
     transposed = rock::tosa::getTransposeOp(rewriter, loc, in, permutationI32);
+
+  // Handle long strides by using tensor.insert_slice to place the contiguous
+  // result into a larger padded buffer.
   if (transposed.getType() != memoryLayoutType) {
-    rewriter.eraseOp(transposed.getDefiningOp());
-    return op.emitOpError(
-        "writing to tensors with long strides or broadcasts is unsupported");
+    // Check for broadcasts, which we don't support.
+    if (resultType.hasBroadcast())
+      return op.emitOpError(
+          "writing to tensors with broadcasts is unsupported");
+
+    auto transposedType = cast<RankedTensorType>(transposed.getType());
+    int64_t rank = transposedType.getRank();
+
+    // Create an empty tensor with the padded memory layout shape.
+    Value emptyDest = tensor::EmptyOp::create(rewriter, loc, memoryLayoutType,
+                                              /*dynamic_sizes=*/ValueRange{});
+
+    // Build the offsets, sizes, and strides for insert_slice.
+    SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> sizes;
+    sizes.reserve(rank);
+    for (int64_t dim : transposedType.getShape())
+      sizes.push_back(rewriter.getIndexAttr(dim));
+    SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
+
+    // Insert the contiguous result into the beginning of the padded buffer.
+    transposed = tensor::InsertSliceOp::create(rewriter, loc, transposed,
+                                               emptyDest, offsets, sizes,
+                                               strides);
   }
 
   Value collapsed = transposed;
