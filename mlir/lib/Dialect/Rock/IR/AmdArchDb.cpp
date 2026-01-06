@@ -101,7 +101,7 @@ static constexpr AmdArchInfo
                   GemmFeatures::atomic_fmax_f32 | GemmFeatures::wmma,
               /*waveSize=*/32, /*maxWavesPerEU*/ 16, /*totalSGPRPerEU*/ 800,
               /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
-              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
+              /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/2,
               /*hasFp8ConversionInstrs=*/false,
               /*hasOcpFp8ConversionInstrs=*/false, /*hasScaledGemm=*/false,
               /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false),
