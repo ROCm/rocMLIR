@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Automated performance tuning for rocMLIR generated kernels.
 
-This script tunes MLIR kernels by running them with different performance
-configurations and selecting the best one based on execution time.
+This script tunes MLIR kernels by running them with different performance configurations and selecting the best one based on execution time.
 
 Usage examples:
     python3 tuningRunner.py --op gemm --configs-file=../mlir/utils/performance/configs/tier1-gemm-configs --output=tuning_db.tsv
@@ -41,23 +40,13 @@ from perfRunner import (
     PerfConfiguration,
 )
 
-# Thread-local storage for GPU assignment
-_thread_local = threading.local()
-
 MLIR_N_REPEATS = 10
 WARMUP_ITERATIONS = 1
 SLEEP_US = 100  # 0.1 ms
 
-
-class UniqueChoicesAction(argparse.Action):
-    """Argparse action that ensures no duplicate values."""
-
-    def __call__(self, parser, namespace, values, option_string=None):
-        if len(values) != len(set(values)):
-            duplicates = [v for v in values if values.count(v) > 1]
-            parser.error(
-                f"argument {option_string}: duplicate values not allowed: {set(duplicates)}")
-        setattr(namespace, self.dest, values)
+# =============================================================================
+# Configuration & Results
+# =============================================================================
 
 
 @dataclass(frozen=True)
@@ -76,7 +65,7 @@ class Options:
     abort_on_error: bool
     retune: bool
     gpu_ids: List[int]
-    num_cpus: int
+    num_cpus: Optional[int]
 
 
 @dataclass
@@ -91,9 +80,359 @@ class TuningResult:
     error: Optional[str] = None
 
 
+# =============================================================================
+# Exceptions
+# =============================================================================
+
+
 class TuningError(Exception):
     """Raised when tuning or verification fails."""
     pass
+
+
+# =============================================================================
+# System Topology Discovery
+# =============================================================================
+
+
+@dataclass
+class Gpu:
+    """Information about a GPU."""
+    gpu_id: int
+    sku: str
+    numa_node: int
+
+
+@dataclass
+class GpuTopology:
+    """System GPU topology with NUMA mappings."""
+    gpus: Dict[int, Gpu]  # GPU ID -> Gpu
+
+    def get_numa_node(self, gpu_id: int) -> int:
+        """Get NUMA node for a GPU, defaults to 0 if unknown."""
+        if gpu_id in self.gpus:
+            return self.gpus[gpu_id].numa_node
+        return 0
+
+    def validate_homogeneity(self, gpu_ids: List[int]) -> bool:
+        """Validate that all selected GPUs are of the same model."""
+        if len(gpu_ids) <= 1:
+            return True
+        skus = {self.gpus[gpu_id].sku for gpu_id in gpu_ids if gpu_id in self.gpus}
+        return len(skus) == 1
+
+    @staticmethod
+    def discover() -> 'GpuTopology':
+        """Query GPU topology using rocm-smi.
+
+        rocm-smi reports physical device IDs regardless of environment variables
+        (e.g., ROCR_VISIBLE_DEVICES and HIP_VISIBLE_DEVICES).
+        """
+        try:
+            output = subprocess.check_output(
+                ["rocm-smi", "--showproductname", "--showtoponuma", "--json"],
+                text=True,
+                timeout=10)
+            data = json.loads(output)
+            gpus = {}
+            for key, value in data.items():
+                if key.startswith("card"):
+                    gpu_id = int(key.replace("card", ""))
+                    sku = value.get("Card SKU", "unknown")
+                    numa_node_str = value.get("(Topology) Numa Node")
+                    numa_node = int(numa_node_str) if numa_node_str is not None else 0
+                    gpus[gpu_id] = Gpu(gpu_id=gpu_id, sku=sku, numa_node=numa_node)
+            if gpus:
+                return GpuTopology(gpus=gpus)
+            print("Warning: rocm-smi returned no GPU cards", file=sys.stderr)
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: rocm-smi failed with return code {e.returncode}", file=sys.stderr)
+        except subprocess.TimeoutExpired:
+            print("Warning: rocm-smi timed out", file=sys.stderr)
+        except FileNotFoundError:
+            print("Warning: rocm-smi not found in PATH", file=sys.stderr)
+        except json.JSONDecodeError as e:
+            print(f"Warning: Failed to parse rocm-smi JSON output: {e}", file=sys.stderr)
+        except (ValueError, KeyError) as e:
+            print(f"Warning: Failed to extract GPU info from rocm-smi output: {e}", file=sys.stderr)
+
+        print("Warning: Could not detect GPUs, defaulting to GPU 0", file=sys.stderr)
+        return GpuTopology(gpus={0: Gpu(gpu_id=0, sku="unknown", numa_node=0)})
+
+
+@dataclass
+class NumaTopology:
+    """System NUMA topology with CPU mappings."""
+    numa_to_cpus: Dict[int, List[int]]  # NUMA node -> list of CPU IDs
+
+    def get_cpus_for_numa_node(self, numa_node: int) -> List[int]:
+        """Get CPUs belonging to a NUMA node."""
+        return self.numa_to_cpus.get(numa_node, [])
+
+    @staticmethod
+    def discover() -> 'NumaTopology':
+        """Discover NUMA topology for CPUs.
+
+        Returns a topology where all CPUs are on node 0 if discovery fails or system is non-NUMA.
+        """
+        numa_to_cpus: Dict[int, List[int]] = {}
+        numa_base = "/sys/devices/system/node"
+
+        if os.path.exists(numa_base):
+            for entry in os.listdir(numa_base):
+                if entry.startswith("node") and entry[4:].isdigit():
+                    node_id = int(entry[4:])
+                    cpulist_path = os.path.join(numa_base, entry, "cpulist")
+                    if os.path.exists(cpulist_path):
+                        with open(cpulist_path, 'r') as f:
+                            numa_to_cpus[node_id] = NumaTopology._parse_cpu_list(f.read())
+
+        # Fallback: single node with all CPUs
+        if not numa_to_cpus:
+            numa_to_cpus[0] = list(range(os.cpu_count() or 1))
+
+        return NumaTopology(numa_to_cpus=numa_to_cpus)
+
+    @staticmethod
+    def _parse_cpu_list(cpu_list_str: str) -> List[int]:
+        """Parse CPU list string like '0-55,112-167' into list of CPU IDs."""
+        cpus = []
+        for part in cpu_list_str.strip().split(','):
+            if '-' in part:
+                start, end = part.split('-', 1)
+                cpus.extend(range(int(start), int(end) + 1))
+            else:
+                cpus.append(int(part))
+        return cpus
+
+
+# =============================================================================
+# Tuning Infrastructure
+# =============================================================================
+
+
+@dataclass
+class TunedConfigsCache:
+    """Cache for previously tuned configurations loaded from output file."""
+    _results: Dict[str, TuningResult] = field(default_factory=dict)
+
+    def contains(self, test_vector: str) -> bool:
+        """Check if a test vector has already been tuned."""
+        return test_vector in self._results
+
+    def get(self, test_vector: str) -> Optional[TuningResult]:
+        """Get cached result for a test vector."""
+        return self._results.get(test_vector)
+
+    def count(self) -> int:
+        """Return number of cached configurations."""
+        return len(self._results)
+
+    @classmethod
+    def from_output_file(cls,
+                         filepath: str,
+                         tuning_space_kind: str,
+                         quiet: bool = False) -> 'TunedConfigsCache':
+        """Load previously tuned configurations from an output TSV file.
+
+        The output file has the following structure:
+        - Commit lines starting with '# commit: ' indicating the git commit hash of the tuning run
+        - Header lines starting with '# ' containing tuning space kind in parentheses
+          (e.g., '# arch\tnumCUs\ttestVector\tperfConfig (quick)\tTFlops')
+        - Multiple commit and header sections can exist in the same file from different tuning runs
+        - Data lines with tab-separated fields following each header
+        - Error lines starting with '### ' indicating errors during tuning
+
+        Only data lines under headers matching options.tuning_space_kind are loaded.
+        For example, if options.tuning_space_kind='quick', only data under headers containing '(quick)'
+        will be loaded, ignoring '(full)' or other sections.
+        """
+        cache = cls()
+
+        if filepath == '-' or not os.path.exists(filepath):
+            return cache
+
+        current_commit = get_git_commit_hash()
+        file_commit = current_commit
+        matching_tuning_space = False
+
+        try:
+            with open(filepath, mode='r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # Track commit hash for warning about stale results
+                    if line.startswith('# commit: '):
+                        file_commit = line[len('# commit: '):].strip()
+                        continue
+
+                    # Check if this section header matches our tuning space
+                    if line.startswith('# '):
+                        matching_tuning_space = f"({tuning_space_kind})" in line
+                        if matching_tuning_space and file_commit != current_commit and not quiet:
+                            print(
+                                f"Warning: Loading tuned configs from different commit "
+                                f"(file: {file_commit[:12]}, current: {current_commit[:12]})",
+                                file=sys.stderr)
+                        continue
+
+                    # Skip error lines and lines from non-matching sections
+                    if line.startswith('### ') or not matching_tuning_space:
+                        continue
+
+                    # Parse data line
+                    fields = line.split('\t')
+                    if len(fields) < 4:
+                        continue
+
+                    test_vector = fields[2]
+                    perf_config = fields[3] if fields[3] else None
+                    tflops_value = float(fields[4]) if len(fields) > 4 and fields[4] else None
+
+                    if perf_config and perf_config != "None":
+                        cache._results[test_vector] = TuningResult(test_vector=test_vector,
+                                                                   success=True,
+                                                                   winning_config=perf_config,
+                                                                   max_tflops=tflops_value)
+        except Exception as e:
+            if not quiet:
+                print(f"Warning: Failed to load existing tuning results from {filepath}: {e}",
+                      file=sys.stderr)
+
+        return cache
+
+
+@dataclass
+class TuningContext:
+    """Encapsulates all state and configuration needed for tuning operations."""
+    paths: Paths
+    options: Options
+    gpu_topology: GpuTopology
+    numa_topology: NumaTopology
+    _threads_per_gpu: Dict[int, int] = field(default_factory=dict, init=False)
+
+    def __post_init__(self):
+        """Compute optimal thread allocation after initialization."""
+        self._threads_per_gpu = self._compute_thread_allocation()
+
+    def _compute_thread_allocation(self) -> Dict[int, int]:
+        """Determine how many compile threads each GPU should use based on NUMA topology."""
+        # Group GPUs by their NUMA node
+        gpus_by_node: Dict[int, List[int]] = {}
+        for gpu_id in self.options.gpu_ids:
+            node = self.gpu_topology.get_numa_node(gpu_id)
+            gpus_by_node.setdefault(node, []).append(gpu_id)
+
+        # Allocate CPUs from each node proportionally to GPUs on that node
+        allocation: Dict[int, int] = {}
+        for node, gpus_on_node in gpus_by_node.items():
+            cpus_on_node = len(self.numa_topology.get_cpus_for_numa_node(node))
+            threads_each = max(1, cpus_on_node // len(gpus_on_node))
+            for gpu_id in gpus_on_node:
+                allocation[gpu_id] = threads_each
+
+        # Apply user-specified CPU limit if provided
+        if self.options.num_cpus is not None:
+            total_allocated = sum(allocation.values())
+            if self.options.num_cpus < total_allocated:
+                scale_factor = self.options.num_cpus / total_allocated
+                for gpu_id in allocation:
+                    allocation[gpu_id] = max(1, int(allocation[gpu_id] * scale_factor))
+            elif not self.options.quiet:
+                print(
+                    f"Note: --num-cpus={self.options.num_cpus} exceeds optimal {total_allocated}, "
+                    f"using optimal allocation",
+                    file=sys.stderr)
+
+        return allocation
+
+    def get_compile_threads(self, gpu_id: int) -> int:
+        """Get the number of compile threads allocated to a GPU."""
+        return self._threads_per_gpu.get(gpu_id, 1)
+
+    def print_gpu_summary(self):
+        """Print summary of GPU allocation to stderr."""
+        if self.options.quiet:
+            return
+        num_active = min(len(self.options.gpu_ids), len(self.options.gpu_ids))
+        print(f"Using {num_active} GPU(s):", file=sys.stderr)
+        for gpu_id in self.options.gpu_ids[:num_active]:
+            node = self.gpu_topology.get_numa_node(gpu_id)
+            threads = self._threads_per_gpu.get(gpu_id, 1)
+            print(f"  GPU {gpu_id}: NUMA node {node}, {threads} compile threads", file=sys.stderr)
+
+
+class GpuWorkerPool:
+    """Manages assignment of GPUs to worker threads with NUMA-aware CPU affinity."""
+
+    def __init__(self, ctx: TuningContext):
+        self._ctx = ctx
+        self._assignment_lock = threading.Lock()
+        self._unassigned_gpus = deque(ctx.options.gpu_ids)
+        self._worker_state = threading.local()
+
+    @property
+    def worker_count(self) -> int:
+        """Number of parallel workers (one per GPU)."""
+        return len(self._ctx.options.gpu_ids)
+
+    def acquire_gpu_for_thread(self) -> int:
+        """Assign a GPU to the calling thread if not already assigned.
+
+        Also pins the thread to CPUs on the GPU's NUMA node for better memory locality.
+        Returns the assigned GPU ID.
+        """
+        if hasattr(self._worker_state, 'assigned_gpu'):
+            return self._worker_state.assigned_gpu
+
+        with self._assignment_lock:
+            if not self._unassigned_gpus:
+                raise RuntimeError("No GPUs available - more workers than GPUs")
+            self._worker_state.assigned_gpu = self._unassigned_gpus.popleft()
+
+        self._apply_numa_affinity(self._worker_state.assigned_gpu)
+        return self._worker_state.assigned_gpu
+
+    def _apply_numa_affinity(self, gpu_id: int) -> None:
+        """Pin current thread to CPUs on the same NUMA node as the GPU."""
+        node = self._ctx.gpu_topology.get_numa_node(gpu_id)
+        cpu_list = self._ctx.numa_topology.get_cpus_for_numa_node(node)
+
+        if cpu_list:
+            try:
+                os.sched_setaffinity(0, set(cpu_list))
+            except OSError:
+                if not self._ctx.options.quiet:
+                    print(f"Warning: Could not set CPU affinity for GPU {gpu_id}", file=sys.stderr)
+
+        self._set_memory_policy(node)
+
+    def _set_memory_policy(self, numa_node: int) -> None:
+        """Set memory allocation policy to prefer the specified NUMA node."""
+        try:
+            import ctypes
+            libnuma = ctypes.CDLL("libnuma.so.1", mode=ctypes.RTLD_GLOBAL)
+
+            # MPOL_PREFERRED = 1 (prefer allocations on this node, fall back to others)
+            # MPOL_BIND = 2 (strict, fail if node unavailable)
+            mpol_preferred = 1
+
+            # Create a nodemask with just our node
+            # unsigned long nodemask, maxnode
+            nodemask = 1 << numa_node
+            maxnode = numa_node + 2  # Must be > highest node + 1
+
+            # int set_mempolicy(int mode, const unsigned long *nodemask, unsigned long maxnode)
+            libnuma.set_mempolicy(mpol_preferred, ctypes.byref(ctypes.c_ulong(nodemask)), maxnode)
+        except (OSError, AttributeError):
+            pass  # libnuma not available, rely on first-touch policy
+
+
+# =============================================================================
+# Output Writers
+# =============================================================================
 
 
 class OutputFileWriter:
@@ -179,6 +518,22 @@ class DebugFileWriter:
         self.header_written = True
 
 
+# =============================================================================
+# Utility Functions
+# =============================================================================
+
+
+class UniqueChoicesAction(argparse.Action):
+    """Argparse action that ensures no duplicate values."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if len(values) != len(set(values)):
+            duplicates = [v for v in values if values.count(v) > 1]
+            parser.error(
+                f"argument {option_string}: duplicate values not allowed: {set(duplicates)}")
+        setattr(namespace, self.dest, values)
+
+
 def get_git_commit_hash() -> str:
     """Get the current git commit hash."""
     try:
@@ -189,132 +544,10 @@ def get_git_commit_hash() -> str:
         return "unknown"
 
 
-def load_tuned_configs(options: Options) -> Dict[str, TuningResult]:
-    """Load previously tuned configurations from output file.
-
-    The output file format is TSV with the following structure:
-    - Commit lines starting with '# commit: ' indicating the git commit hash of the tuning run
-    - Header lines starting with '# ' containing tuning space kind in parentheses
-      (e.g., '# arch\tnumCUs\ttestVector\tperfConfig (quick)\tTFlops')
-    - Multiple commit and header sections can exist in the same file from different tuning runs
-    - Data lines with tab-separated fields following each header
-    - Error lines starting with '### ' indicating errors during tuning
-
-    Only data lines under headers matching options.tuning_space_kind are loaded.
-    For example, if options.tuning_space_kind='quick', only data under headers
-    containing '(quick)' will be loaded, ignoring '(full)' or other sections.
-    """
-    tuned_configs = {}
-    if options.output == '-' or not os.path.exists(options.output):
-        return tuned_configs
-
-    def is_commit_line(line: str) -> bool:
-        return line.startswith('# commit: ')
-
-    def is_header_line(line: str) -> bool:
-        return line.startswith('# ')
-
-    def is_error_line(line: str) -> bool:
-        return line.startswith('### ')
-
-    current_commit = get_git_commit_hash()
-
-    try:
-        file_commit = current_commit
-        is_same_tuning_space = False
-        with open(options.output, mode='r') as outfile:
-            for line in outfile:
-                line = line.strip()
-                if not line:
-                    continue
-
-                if is_commit_line(line):
-                    file_commit = line[len('# commit: '):].strip()
-                    continue
-
-                if is_header_line(line):
-                    is_same_tuning_space = f"({options.tuning_space_kind})" in line
-                    if is_same_tuning_space and file_commit != current_commit:
-                        print(
-                            f"Warning: Loading tuned configs from a different commit (file: {file_commit[:12]}, current: {current_commit[:12]})",
-                            file=sys.stderr)
-                    continue
-
-                if is_error_line(line) or not is_same_tuning_space:
-                    continue
-
-                parts = line.split('\t')
-                if len(parts) < 4:
-                    continue
-
-                test_vector = parts[2]
-                winning_config = parts[3] if parts[3] else None
-                max_tflops = float(parts[4]) if len(parts) > 4 and parts[4] else None
-
-                if winning_config and winning_config != "None":
-                    tuned_configs[test_vector] = TuningResult(test_vector=test_vector,
-                                                              success=True,
-                                                              winning_config=winning_config,
-                                                              max_tflops=max_tflops)
-    except Exception as e:
-        print(f"Warning: Failed to load existing tuning results from {options.output}: {e}",
-              file=sys.stderr)
-
-    return tuned_configs
-
-
-def get_gpu_info() -> Dict[int, str]:
-    """Query physical GPU IDs and their SKUs using rocm-smi.
-
-    rocm-smi reports physical device IDs regardless of environment variables (e.g.,
-    ROCR_VISIBLE_DEVICES and HIP_VISIBLE_DEVICES).
-    We are assuming that SKU names are unique per GPU for identification purposes,
-    as GFX IDs are not always unique.
-    """
-    try:
-        output = subprocess.check_output(["rocm-smi", "--showproductname", "--json"],
-                                         text=True,
-                                         timeout=10)
-        data = json.loads(output)
-        gpu_info = {}
-        for key in data.keys():
-            if key.startswith("card"):
-                gpu_id = int(key.replace("card", ""))
-                gpu_info[gpu_id] = data[key].get("Card SKU", "unknown")
-        if gpu_info:
-            return gpu_info
-        print("Warning: rocm-smi returned no GPU cards", file=sys.stderr)
-    except subprocess.CalledProcessError as e:
-        print(f"Warning: rocm-smi failed with return code {e.returncode}", file=sys.stderr)
-    except subprocess.TimeoutExpired:
-        print("Warning: rocm-smi timed out", file=sys.stderr)
-    except FileNotFoundError:
-        print("Warning: rocm-smi not found in PATH", file=sys.stderr)
-    except json.JSONDecodeError as e:
-        print(f"Warning: Failed to parse rocm-smi JSON output: {e}", file=sys.stderr)
-    except ValueError as e:
-        print(f"Warning: Failed to extract GPU info from rocm-smi output: {e}", file=sys.stderr)
-    except Exception as e:
-        print(f"Warning: Unexpected error querying GPUs: {e}", file=sys.stderr)
-
-    print("Warning: Could not detect GPUs, defaulting to GPU 0", file=sys.stderr)
-    return {0: "unknown"}
-
-
-def validate_gpu_homogeneity(gpu_ids: List[int], gpu_info: Dict[int, str]) -> bool:
-    """Validate that all selected GPUs are of the same model."""
-    if len(gpu_ids) <= 1:
-        return True
-
-    skus = {gpu_info[gpu_id] for gpu_id in gpu_ids}
-    return len(skus) == 1
-
-
 def set_isolated_gpu_env(env: Dict[str, str], gpu_id: int) -> None:
     """Modify environment to isolate subprocess to one physical GPU.
 
-    Sets ROCR_VISIBLE_DEVICES at the HSA/ROCr level, providing complete
-    isolation for all higher layers including HIP.
+    Sets ROCR_VISIBLE_DEVICES at the HSA/ROCr level, providing complete isolation for all higher layers including HIP.
     """
     env["ROCR_VISIBLE_DEVICES"] = str(gpu_id)
     env.pop("HIP_VISIBLE_DEVICES", None)  # Remove HIP_VISIBLE_DEVICES to avoid conflicts
@@ -338,7 +571,7 @@ def verify_mode_flags(verify_mode: str) -> str:
     raise ValueError("Unknown verification mode", verify_mode)
 
 
-def kill_process(proc):
+def kill_process(proc) -> None:
     """Terminate a subprocess and wait for cleanup."""
     if proc is None:
         return
@@ -349,6 +582,11 @@ def kill_process(proc):
         print(f"Warning: Process {proc.pid} did not terminate in time after kill", file=sys.stderr)
     except Exception as e:
         print(f"Warning: Failed to kill process {proc.pid}: {e}", file=sys.stderr)
+
+
+# =============================================================================
+# Core Tuning Logic
+# =============================================================================
 
 
 def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id: int) -> float:
@@ -545,6 +783,11 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                                           stderr=subprocess.PIPE,
                                           env=env)
             output, _ = tuning_key.communicate()
+            if tuning_key.returncode != 0:
+                return {
+                    'success': False,
+                    'error': f"rocmlir-gen failed with return code {tuning_key.returncode}"
+                }
             result = output.decode('utf-8').strip().split('\t')
             command_line = result[2].split(sep=' ')
             config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
@@ -609,34 +852,37 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
     }
 
 
-def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
+def tune_configs(configs: List[str], conf_class, ctx: TuningContext) -> bool:
     """Tune multiple configurations in parallel across available GPUs."""
-    num_workers = min(len(options.gpu_ids), len(configs))
-    num_compile_threads = max(1, options.num_cpus // num_workers)
+    # Load cached results unless retuning is forced
+    cache = TunedConfigsCache()
+    if not ctx.options.retune:
+        cache = TunedConfigsCache.from_output_file(ctx.options.output,
+                                                   ctx.options.tuning_space_kind, ctx.options.quiet)
+        if cache.count() > 0 and not ctx.options.quiet:
+            print(f"Found {cache.count()} tuned config(s) in {ctx.options.output}", file=sys.stderr)
 
-    if not options.quiet:
-        print(f"Using {num_workers} GPU(s): {options.gpu_ids[:num_workers]}", file=sys.stderr)
-        print(f"Using {num_compile_threads} compilation thread(s) per GPU", file=sys.stderr)
+    # Filter out already-tuned configs
+    pending_configs = [c for c in configs if not cache.contains(c)]
+    skipped_count = len(configs) - len(pending_configs)
+    if skipped_count > 0 and not ctx.options.quiet:
+        print(f"Skipping {skipped_count} of {len(configs)} already tuned config(s)",
+              file=sys.stderr)
 
-    gpu_assignment_lock = threading.Lock()
-    available_gpus = deque(options.gpu_ids)
+    if not pending_configs:
+        print("All configurations already tuned", file=sys.stderr)
+        return True
 
-    def get_gpu_id():
-        """Ensure each thread gets a unique GPU ID."""
-        if not hasattr(_thread_local, 'gpu_id'):
-            with gpu_assignment_lock:
-                if not available_gpus:
-                    raise RuntimeError(
-                        f"More workers than available GPUs! Expected {len(options.gpu_ids)} workers max."
-                    )
-                _thread_local.gpu_id = available_gpus.popleft()
-        return _thread_local.gpu_id
+    pool = GpuWorkerPool(ctx)
+    num_workers = min(pool.worker_count, len(configs))
+    ctx.print_gpu_summary()
 
-    def tune_task(test_vector: str) -> TuningResult:
+    def execute_tuning_task(test_vector: str) -> TuningResult:
         try:
-            gpu_id = get_gpu_id()
-            result = tune_config(test_vector, conf_class, paths, options, gpu_id,
-                                 num_compile_threads)
+            gpu_id = pool.acquire_gpu_for_thread()
+            compile_threads = ctx.get_compile_threads(gpu_id)
+            result = tune_config(test_vector, conf_class, ctx.paths, ctx.options, gpu_id,
+                                 compile_threads)
             return TuningResult(test_vector=test_vector,
                                 success=result.get('success', False),
                                 winning_config=result.get('winning_config'),
@@ -647,60 +893,46 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
         except Exception as e:
             return TuningResult(test_vector=test_vector, success=False, error=str(e))
 
-    tuned_configs = {}
-    if not options.retune:
-        tuned_configs = load_tuned_configs(options)
-        if tuned_configs and not options.quiet:
-            print(f"Found {len(tuned_configs)} tuned config(s) in {options.output}",
-                  file=sys.stderr)
-
-    configs_to_tune = [config for config in configs if config not in tuned_configs]
-    num_tuned_configs = len(configs) - len(configs_to_tune)
-    if num_tuned_configs and not options.quiet:
-        print(f"Skipping {num_tuned_configs} out of {len(configs)} already tuned config(s)",
-              file=sys.stderr)
-
     executor = None
     progress_bar = None
-    with OutputFileWriter(options.output, options) as writer:
-        with DebugFileWriter(
-                f"{options.output}.debug") if options.debug else nullcontext() as debug_writer:
+    has_errors = False
+
+    with OutputFileWriter(ctx.options.output, ctx.options) as results_writer:
+        with DebugFileWriter(f"{ctx.options.output}.debug") if ctx.options.debug else nullcontext(
+        ) as debug_writer:
             try:  # No context manager for executor because we need to shutdown with Wait=False
                 progress_bar = tqdm(
                     total=len(configs),
-                    initial=num_tuned_configs,
-                    disable=options.quiet,
+                    initial=skipped_count,
+                    disable=ctx.options.quiet,
                     file=sys.stderr,
-                    desc=f"Tuning {conf_class.__name__} ({options.tuning_space_kind})",
+                    desc=f"Tuning {conf_class.__name__} ({ctx.options.tuning_space_kind})",
                     unit="config",
                     leave=False)
 
                 executor = ThreadPoolExecutor(max_workers=num_workers)
-                futures = {
-                    executor.submit(tune_task, test_vector): test_vector
-                    for test_vector in configs_to_tune
+                pending_futures = {
+                    executor.submit(execute_tuning_task, test_vector): test_vector
+                    for test_vector in pending_configs
                 }
 
-                has_errors = False
-
-                for future in as_completed(futures):
-                    result = future.result()
+                for completed_future in as_completed(pending_futures):
+                    result = completed_future.result()
 
                     if result.success:
-                        writer.write_result(result)
+                        results_writer.write_result(result)
                         if debug_writer:
                             debug_writer.write_entries(result.entries)
-
                         progress_bar.update(1)
                     else:
                         has_errors = True
-                        error_message = result.error or "Unknown error"
-                        content = f"Error tuning {result.test_vector}\n" + '\n'.join(
-                            f"\t{line}" for line in error_message.splitlines())
-                        print(content, file=sys.stderr)
-                        writer.write_error(content)
+                        error_text = result.error or "Unknown error"
+                        formatted_error = f"Error tuning {result.test_vector}\n" + '\n'.join(
+                            f"\t{line}" for line in error_text.splitlines())
+                        print(formatted_error, file=sys.stderr)
+                        results_writer.write_error(formatted_error)
 
-                        if options.abort_on_error:
+                        if ctx.options.abort_on_error:
                             return False
 
                         progress_bar.refresh()
@@ -711,11 +943,17 @@ def tune_configs(configs, conf_class, paths: Paths, options: Options) -> bool:
                     print("Tuning completed successfully", file=sys.stderr)
 
                 return not has_errors
+
             finally:
                 if executor:
                     executor.shutdown(wait=False, cancel_futures=True)
                 if progress_bar:
                     progress_bar.close()
+
+
+# =============================================================================
+# Configuration Loading
+# =============================================================================
 
 
 def extract_fusion_configs(test_dir, paths: Paths, options: Options) -> Operation:
@@ -759,10 +997,17 @@ def extract_fusion_configs(test_dir, paths: Paths, options: Options) -> Operatio
     return op_type
 
 
+# =============================================================================
+# Entry Point
+# =============================================================================
+
+
 def main(args=None):
     """Entry point. Parses arguments and starts tuning process."""
-    gpu_info = get_gpu_info()
-    available_gpus = sorted(gpu_info.keys())
+    gpu_topology = GpuTopology.discover()
+    numa_topology = NumaTopology.discover()
+
+    available_gpus = sorted(gpu_topology.gpus.keys())
 
     # We call into perfRunner which also queries GPU info using HIP and rocminfo.
     # To ensure consistency, we isolate the process to the first available GPU.
@@ -905,9 +1150,9 @@ def main(args=None):
     parser.add_argument(
         "--num-cpus",
         type=int,
-        default=os.cpu_count() or 1,
+        default=None,
         metavar='N',
-        help="Number of CPU cores to use for compilation (default: all available cores)")
+        help="Maximum CPU threads for compilation (default: auto-detect based on NUMA topology)")
 
     parsed_args = parser.parse_args(args)
 
@@ -917,8 +1162,8 @@ def main(args=None):
             file=sys.stderr)
         return 1
 
-    if (not validate_gpu_homogeneity(parsed_args.gpus, gpu_info)):
-        details = ", ".join(f"GPU {g}: {gpu_info[g]}" for g in parsed_args.gpus)
+    if (not gpu_topology.validate_homogeneity(parsed_args.gpus)):
+        details = ", ".join(f"GPU {g}: {gpu_topology.gpus[g].sku}" for g in parsed_args.gpus)
         print(f"Mixed GPU models not supported for parallel tuning. Found: {details}",
               file=sys.stderr)
         return 1
@@ -982,8 +1227,12 @@ def main(args=None):
     elif op_type == Operation.CONV_GEMM:
         configs = perfRunner.get_conv_gemm_configurations(paths.configuration_file_path)
 
+    ctx = TuningContext(paths=paths,
+                        options=options,
+                        gpu_topology=gpu_topology,
+                        numa_topology=numa_topology)
     try:
-        tuning_succeeded = tune_configs(configs, conf_class, paths, options)
+        tuning_succeeded = tune_configs(configs, conf_class, ctx)
         return 0 if tuning_succeeded else 1
     except KeyboardInterrupt:
         print("Tuning interrupted by user", file=sys.stderr)
