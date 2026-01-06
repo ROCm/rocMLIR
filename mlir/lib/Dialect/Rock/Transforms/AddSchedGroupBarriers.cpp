@@ -259,10 +259,15 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
 
     // Analyze the scf.for loop to get operation counts
     ScfForAnalysisResult analysis = analyzeScfFor(op);
+    bool isDirectToLDS = analysis.directLoadsToLDS > 0;
+    if (isDirectToLDS) {
+      // direct to LDS is not supported yet
+      LLVM_DEBUG(llvm::dbgs() << "Direct to LDS is not supported yet\n");
+      return failure();
+    }
 
     // Skip if no meaningful operations found
-    if (analysis.globalLoads == 0 && analysis.matrixMultiplyOps == 0 &&
-        analysis.directLoadsToLDS == 0)
+    if (analysis.globalLoads == 0 && analysis.matrixMultiplyOps == 0)
       return failure();
 
     // Print analysis results for debugging
@@ -283,7 +288,7 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
       llvm::dbgs() << "========================\n\n";
     });
 
-    uint64_t numBufferLoads = analysis.globalLoads + analysis.directLoadsToLDS;
+    uint64_t numBufferLoads = analysis.globalLoads;
     uint64_t numDSReads = analysis.ldsReads;
     uint64_t numDSWrites = analysis.ldsWrites;
     uint64_t numMatrixMultiplyOps = analysis.matrixMultiplyOps;
