@@ -307,10 +307,13 @@ class TunedConfigsCache:
 @dataclass
 class TuningContext:
     """Encapsulates all state and configuration needed for tuning operations."""
+    configs: List[str]
+    conf_class: type
     paths: Paths
     options: Options
     gpu_topology: GpuTopology
     numa_topology: NumaTopology
+
     _threads_per_gpu: Dict[int, int] = field(default_factory=dict, init=False)
 
     def __post_init__(self):
@@ -519,8 +522,28 @@ class DebugFileWriter:
 
 
 # =============================================================================
-# Utility Functions
+# Utilities
 # =============================================================================
+
+
+class TuningArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser with custom validation for tuning arguments."""
+
+    def __init__(self, *args, gpu_topology: GpuTopology = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._gpu_topology = gpu_topology
+
+    def parse_args(self, args=None, namespace=None):
+        parsed = super().parse_args(args, namespace)
+
+        if parsed.verify_perf_configs and parsed.verify_mode == "none":
+            self.error("argument --verify-perf-configs: not allowed with --verify-mode=none")
+
+        if self._gpu_topology and not self._gpu_topology.validate_homogeneity(parsed.gpus):
+            details = ", ".join(f"GPU {g}: {self._gpu_topology.gpus[g].sku}" for g in parsed.gpus)
+            self.error(f"argument --gpus: mixed GPU models not supported. Found: {details}")
+
+        return parsed
 
 
 class UniqueChoicesAction(argparse.Action):
@@ -756,7 +779,10 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
         tuning_driver_command = [paths.mlir_paths.rocmlir_tuning_driver_path] + tuning_driver_args
         if not test_vector.endswith(".mlir"):
             command_line = test_vector.split(sep=' ')
-            config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
+            try:
+                config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
+            except ValueError as e:
+                return {'success': False, 'error': str(e)}
             test_vector = config.to_command_line()
             command_line_options = config.generate_mlir_driver_commandline(
                 options.rocmlir_gen_flags, kernel_repeats=None)
@@ -790,7 +816,10 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                 }
             result = output.decode('utf-8').strip().split('\t')
             command_line = result[2].split(sep=' ')
-            config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
+            try:
+                config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
+            except ValueError as e:
+                return {'success': False, 'error': str(e)}
             tuning_driver_command += [test_vector]
             tuning_driver = subprocess.Popen(tuning_driver_command,
                                              stdout=subprocess.PIPE,
@@ -852,7 +881,7 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
     }
 
 
-def tune_configs(configs: List[str], conf_class, ctx: TuningContext) -> bool:
+def tune_configs(ctx: TuningContext) -> bool:
     """Tune multiple configurations in parallel across available GPUs."""
     # Load cached results unless retuning is forced
     cache = TunedConfigsCache()
@@ -863,10 +892,10 @@ def tune_configs(configs: List[str], conf_class, ctx: TuningContext) -> bool:
             print(f"Found {cache.count()} tuned config(s) in {ctx.options.output}", file=sys.stderr)
 
     # Filter out already-tuned configs
-    pending_configs = [c for c in configs if not cache.contains(c)]
-    skipped_count = len(configs) - len(pending_configs)
+    pending_configs = [c for c in ctx.configs if not cache.contains(c)]
+    skipped_count = len(ctx.configs) - len(pending_configs)
     if skipped_count > 0 and not ctx.options.quiet:
-        print(f"Skipping {skipped_count} of {len(configs)} already tuned config(s)",
+        print(f"Skipping {skipped_count} of {len(ctx.configs)} already tuned config(s)",
               file=sys.stderr)
 
     if not pending_configs:
@@ -874,14 +903,14 @@ def tune_configs(configs: List[str], conf_class, ctx: TuningContext) -> bool:
         return True
 
     pool = GpuWorkerPool(ctx)
-    num_workers = min(pool.worker_count, len(configs))
+    num_workers = min(pool.worker_count, len(ctx.configs))
     ctx.print_gpu_summary()
 
     def execute_tuning_task(test_vector: str) -> TuningResult:
         try:
             gpu_id = pool.acquire_gpu_for_thread()
             compile_threads = ctx.get_compile_threads(gpu_id)
-            result = tune_config(test_vector, conf_class, ctx.paths, ctx.options, gpu_id,
+            result = tune_config(test_vector, ctx.conf_class, ctx.paths, ctx.options, gpu_id,
                                  compile_threads)
             return TuningResult(test_vector=test_vector,
                                 success=result.get('success', False),
@@ -902,11 +931,11 @@ def tune_configs(configs: List[str], conf_class, ctx: TuningContext) -> bool:
         ) as debug_writer:
             try:  # No context manager for executor because we need to shutdown with Wait=False
                 progress_bar = tqdm(
-                    total=len(configs),
+                    total=len(ctx.configs),
                     initial=skipped_count,
                     disable=ctx.options.quiet,
                     file=sys.stderr,
-                    desc=f"Tuning {conf_class.__name__} ({ctx.options.tuning_space_kind})",
+                    desc=f"Tuning {ctx.conf_class.__name__} ({ctx.options.tuning_space_kind})",
                     unit="config",
                     leave=False)
 
@@ -956,6 +985,15 @@ def tune_configs(configs: List[str], conf_class, ctx: TuningContext) -> bool:
 # =============================================================================
 
 
+def resolve_paths(op_type: Operation, parsed_args) -> Paths:
+    """Resolve paths based on operation type and arguments."""
+    if op_type == Operation.FUSION:
+        configs_path = "./fusion_config_file"
+    else:
+        configs_path = None if parsed_args.config else parsed_args.configs_file
+    return perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir)
+
+
 def extract_fusion_configs(test_dir, paths: Paths, options: Options) -> Operation:
     """Extract tuning configurations from fusion E2E test files."""
     all_configs = []
@@ -997,45 +1035,78 @@ def extract_fusion_configs(test_dir, paths: Paths, options: Options) -> Operatio
     return op_type
 
 
+def get_config_class(op_type: Operation) -> type:
+    """Get the configuration class for an operation type."""
+    config_classes = {
+        Operation.CONV: ConvConfiguration,
+        Operation.GEMM: GemmConfiguration,
+        Operation.ATTENTION: AttentionConfiguration,
+        Operation.GEMM_GEMM: GemmGemmConfiguration,
+        Operation.CONV_GEMM: ConvGemmConfiguration,
+    }
+
+    return config_classes.get(op_type, PerfConfiguration)
+
+
+def load_configs(op_type: Operation, parsed_args, paths: Paths) -> List[str]:
+    """Load configurations based on operation type and arguments."""
+    if parsed_args.config:
+        return parsed_args.config
+
+    loaders = {
+        Operation.CONV:
+            lambda: perfRunner.get_conv_configurations(paths.configuration_file_path),
+        Operation.GEMM:
+            lambda: perfRunner.get_gemm_configurations(
+                paths.configuration_file_path, *perfRunner.parse_data_types(parsed_args.data_type),
+                parsed_args.scale_type),
+        Operation.ATTENTION:
+            lambda: perfRunner.get_attn_configurations(paths.configuration_file_path),
+        Operation.GEMM_GEMM:
+            lambda: perfRunner.get_gemm_gemm_configurations(paths.configuration_file_path),
+        Operation.CONV_GEMM:
+            lambda: perfRunner.get_conv_gemm_configurations(paths.configuration_file_path),
+    }
+
+    loader = loaders.get(op_type)
+    if loader:
+        return loader()
+
+    raise ValueError(f"Unsupported operation type: {op_type}")
+
+
 # =============================================================================
 # Entry Point
 # =============================================================================
 
 
-def main(args=None):
-    """Entry point. Parses arguments and starts tuning process."""
-    gpu_topology = GpuTopology.discover()
-    numa_topology = NumaTopology.discover()
-
-    available_gpus = sorted(gpu_topology.gpus.keys())
-
-    # We call into perfRunner which also queries GPU info using HIP and rocminfo.
-    # To ensure consistency, we isolate the process to the first available GPU.
-    set_isolated_gpu_env(os.environ, available_gpus[0])
-
-    root_dir = str(
-        subprocess.check_output(['git', 'rev-parse', '--show-toplevel']).decode().strip())
-    default_conv_configs = root_dir + '/mlir/utils/jenkins/performance/configs/tier1-conv-configs'
-
-    parser = argparse.ArgumentParser(
+def parse_arguments(gpu_topology: GpuTopology, available_gpus: List[int], args=None):
+    """Parse and validate command-line arguments."""
+    parser = TuningArgumentParser(
         prog="tuningRunner.py",
         description="Automated performance tuning for rocMLIR generated kernels",
         allow_abbrev=False,
-    )
+        gpu_topology=gpu_topology)
 
-    parser.add_argument("--op",
-                        "--operation",
-                        choices=['conv', 'gemm', 'fusion', 'attention', 'gemm_gemm', 'conv_gemm'],
-                        default='conv',
-                        help="Operation to tune")
+    config_group = parser.add_mutually_exclusive_group(required=True)
 
-    parser.add_argument(
+    config_group.add_argument(
         "-c",
         "--configs-file",
         "--configs_file",  # for backward compatibility
         type=str,
-        default=default_conv_configs,
         help="Path to file containing list of configurations to tune")
+
+    config_group.add_argument("--config",
+                              type=str,
+                              nargs='*',
+                              help="Specific config to tune. Format depends on --op type.")
+
+    parser.add_argument("--op",
+                        "--operation",
+                        choices=['conv', 'gemm', 'fusion', 'attention', 'gemm_gemm', 'conv_gemm'],
+                        required=True,
+                        help="Operation to tune")
 
     parser.add_argument(
         "-o",
@@ -1053,11 +1124,6 @@ def main(args=None):
         help=
         "Path to rocMLIR build directory containing rocmlir-gen, rocmlir-driver, rocmlir-tuning-driver, and other build artifacts",
     )
-
-    parser.add_argument("--config",
-                        type=str,
-                        nargs='*',
-                        help="Specific config to tune. Format depends on --op type.")
 
     parser.add_argument(
         "--rocmlir-gen-flags",
@@ -1154,26 +1220,21 @@ def main(args=None):
         metavar='N',
         help="Maximum CPU threads for compilation (default: auto-detect based on NUMA topology)")
 
-    parsed_args = parser.parse_args(args)
+    return parser.parse_args(args)
 
-    if parsed_args.verify_perf_configs and parsed_args.verify_mode == "none":
-        print(
-            "Use of `--verify-perf-configs` is not allowed with `--verify-mode=none`. Please pass `--verify-mode=cpu` or `--verify-mode=gpu`.",
-            file=sys.stderr)
-        return 1
 
-    if (not gpu_topology.validate_homogeneity(parsed_args.gpus)):
-        details = ", ".join(f"GPU {g}: {gpu_topology.gpus[g].sku}" for g in parsed_args.gpus)
-        print(f"Mixed GPU models not supported for parallel tuning. Found: {details}",
-              file=sys.stderr)
-        return 1
+def main(args=None):
+    gpu_topology = GpuTopology.discover()
+    available_gpus = sorted(gpu_topology.gpus.keys())
+
+    # We call into perfRunner which also queries GPU info using HIP and rocminfo.
+    # To ensure consistency, we isolate the process to the first available GPU.
+    set_isolated_gpu_env(os.environ, available_gpus[0])
+
+    parsed_args = parse_arguments(gpu_topology, available_gpus, args)
 
     op_type = Operation.from_name(parsed_args.op)
-    if op_type == Operation.FUSION:
-        configs_path = "./fusion_config_file"
-    else:
-        configs_path = None if parsed_args.config else parsed_args.configs_file
-    paths = perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir)
+    paths = resolve_paths(op_type, parsed_args)
 
     if not paths.mlir_paths:
         print("rocMLIR build dir was not provided/found", file=sys.stderr)
@@ -1197,42 +1258,22 @@ def main(args=None):
     if op_type == Operation.FUSION:
         op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
 
-    conf_class = PerfConfiguration
-    if op_type == Operation.CONV:
-        conf_class = ConvConfiguration
-    elif op_type == Operation.GEMM:
-        conf_class = GemmConfiguration
-    elif op_type == Operation.ATTENTION:
-        conf_class = AttentionConfiguration
-    elif op_type == Operation.GEMM_GEMM:
-        conf_class = GemmGemmConfiguration
-    elif op_type == Operation.CONV_GEMM:
-        conf_class = ConvGemmConfiguration
-    else:
-        print("Tuning operation was not provided/found", file=sys.stderr)
+    try:
+        conf_class = get_config_class(op_type)
+        configs = load_configs(op_type, parsed_args, paths)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
         return 1
 
-    if parsed_args.config:
-        configs = parsed_args.config
-    elif op_type == Operation.CONV:
-        configs = perfRunner.get_conv_configurations(paths.configuration_file_path)
-    elif op_type == Operation.GEMM:
-        datatypes, output_map = perfRunner.parse_data_types(parsed_args.data_type)
-        configs = perfRunner.get_gemm_configurations(paths.configuration_file_path, datatypes,
-                                                     output_map, parsed_args.scale_type)
-    elif op_type == Operation.ATTENTION:
-        configs = perfRunner.get_attn_configurations(paths.configuration_file_path)
-    elif op_type == Operation.GEMM_GEMM:
-        configs = perfRunner.get_gemm_gemm_configurations(paths.configuration_file_path)
-    elif op_type == Operation.CONV_GEMM:
-        configs = perfRunner.get_conv_gemm_configurations(paths.configuration_file_path)
-
-    ctx = TuningContext(paths=paths,
+    ctx = TuningContext(configs=configs,
+                        conf_class=conf_class,
+                        paths=paths,
                         options=options,
                         gpu_topology=gpu_topology,
-                        numa_topology=numa_topology)
+                        numa_topology=NumaTopology.discover())
+
     try:
-        tuning_succeeded = tune_configs(configs, conf_class, ctx)
+        tuning_succeeded = tune_configs(ctx)
         return 0 if tuning_succeeded else 1
     except KeyboardInterrupt:
         print("Tuning interrupted by user", file=sys.stderr)
