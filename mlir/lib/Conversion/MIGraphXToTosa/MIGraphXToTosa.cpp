@@ -1445,9 +1445,8 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
 
     // Insert the contiguous result into the beginning of the padded buffer.
-    transposed = tensor::InsertSliceOp::create(rewriter, loc, transposed,
-                                               emptyDest, offsets, sizes,
-                                               strides);
+    transposed = tensor::InsertSliceOp::create(
+        rewriter, loc, transposed, emptyDest, offsets, sizes, strides);
   }
 
   Value collapsed = transposed;

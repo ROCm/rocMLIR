@@ -520,8 +520,8 @@ static LogicalResult checkUniqueReader(Operation *op, Operation *reader,
 }
 
 // Try to convert a memref.subview to a TransformMapAttr (Pad transform).
-static TransformMapAttr
-subviewToPadTransform(OpBuilder &b, memref::SubViewOp subview) {
+static TransformMapAttr subviewToPadTransform(OpBuilder &b,
+                                              memref::SubViewOp subview) {
   // Check that all offsets are zero and all strides are one
   for (auto offset : subview.getStaticOffsets()) {
     if (offset != 0)
@@ -550,8 +550,8 @@ subviewToPadTransform(OpBuilder &b, memref::SubViewOp subview) {
   SmallVector<int64_t> padParams;
   for (int64_t i = 0; i < rank; ++i) {
     dimNames.push_back(b.getStringAttr(Twine("d") + Twine(i)));
-    padParams.push_back(0);                                 // leftPad
-    padParams.push_back(sourceShape[i] - resultShape[i]);   // rightPad
+    padParams.push_back(0);                               // leftPad
+    padParams.push_back(sourceShape[i] - resultShape[i]); // rightPad
   }
 
   BottomUpTMBuilder transform(b, dimNames, resultShape, loc);
@@ -630,9 +630,9 @@ traceToWriter(Value startVal,
 // Build the view chain from writerDest back to sourceBuffer, handling both
 // rock::TransformOp and memref::SubViewOp. SubViewOps are converted to
 // equivalent Pad transforms.
-static void buildViewChainWithSubviews(OpBuilder &b, Value writerDest,
-                                       Value sourceBuffer,
-                                       SmallVectorImpl<TransformMapAttr> &views) {
+static void
+buildViewChainWithSubviews(OpBuilder &b, Value writerDest, Value sourceBuffer,
+                           SmallVectorImpl<TransformMapAttr> &views) {
   Operation *sourceBufferDef = sourceBuffer.getDefiningOp();
   Operation *defOp = writerDest.getDefiningOp();
   while (defOp && defOp != sourceBufferDef) {
