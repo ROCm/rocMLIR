@@ -97,7 +97,8 @@ static uint64_t getAffineForTripCount(affine::AffineForOp affineFor) {
 
 /// Compute the multiplier for an operation based on enclosing affine.for loops
 /// within the scf.for boundary
-static uint64_t computeAffineLoopMultiplier(Operation *op, scf::ForOp boundary) {
+static uint64_t computeAffineLoopMultiplier(Operation *op,
+                                            scf::ForOp boundary) {
   uint64_t multiplier = 1;
   Operation *parent = op->getParentOp();
 
@@ -116,6 +117,8 @@ struct ScfForAnalysisResult {
   uint64_t ldsReads = 0;
   uint64_t ldsWrites = 0;
   uint64_t matrixMultiplyOps = 0;
+  /// Direct loads from global memory to LDS (amdgpu.gather_to_lds)
+  uint64_t directLoadsToLDS = 0;
   /// Indicates if the loop uses double buffering (LDS reads/writes use
   /// arith.select to choose between two buffers)
   bool isDoubleBuffered = false;
@@ -134,21 +137,37 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
       return;
     }
 
-    // Count vector.load from global memory
+    // Count vector.load from global memory or workgroup memory (LDS)
     if (auto vectorLoad = dyn_cast<vector::LoadOp>(op)) {
-      if (auto memrefType = dyn_cast<MemRefType>(vectorLoad.getBase().getType())) {
+      if (auto memrefType =
+              dyn_cast<MemRefType>(vectorLoad.getBase().getType())) {
         if (hasGlobalAddressSpace(memrefType)) {
           result.globalLoads += multiplier;
+        } else if (hasWorkgroupAddressSpace(memrefType)) {
+          result.ldsReads += multiplier;
+          // Check for double buffering: if the memref is selected via
+          // arith.select, it indicates alternating between two LDS buffers
+          if (isDefinedBySelect(vectorLoad.getBase())) {
+            result.isDoubleBuffered = true;
+          }
         }
       }
       return;
     }
 
-    // Count vector.transfer_read from global memory
+    // Count vector.transfer_read from global memory or workgroup memory (LDS)
     if (auto transferRead = dyn_cast<vector::TransferReadOp>(op)) {
-      if (auto memrefType = dyn_cast<MemRefType>(transferRead.getBase().getType())) {
+      if (auto memrefType =
+              dyn_cast<MemRefType>(transferRead.getBase().getType())) {
         if (hasGlobalAddressSpace(memrefType)) {
           result.globalLoads += multiplier;
+        } else if (hasWorkgroupAddressSpace(memrefType)) {
+          result.ldsReads += multiplier;
+          // Check for double buffering: if the memref is selected via
+          // arith.select, it indicates alternating between two LDS buffers
+          if (isDefinedBySelect(transferRead.getBase())) {
+            result.isDoubleBuffered = true;
+          }
         }
       }
       return;
@@ -156,7 +175,8 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
 
     // Count memref.load from workgroup memory (LDS reads)
     if (auto memrefLoad = dyn_cast<memref::LoadOp>(op)) {
-      if (auto memrefType = dyn_cast<MemRefType>(memrefLoad.getMemRef().getType())) {
+      if (auto memrefType =
+              dyn_cast<MemRefType>(memrefLoad.getMemRef().getType())) {
         if (hasWorkgroupAddressSpace(memrefType)) {
           result.ldsReads += multiplier;
           // Check for double buffering: if the memref is selected via
@@ -171,7 +191,8 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
 
     // Count memref.store to workgroup memory (LDS writes)
     if (auto memrefStore = dyn_cast<memref::StoreOp>(op)) {
-      if (auto memrefType = dyn_cast<MemRefType>(memrefStore.getMemRef().getType())) {
+      if (auto memrefType =
+              dyn_cast<MemRefType>(memrefStore.getMemRef().getType())) {
         if (hasWorkgroupAddressSpace(memrefType)) {
           result.ldsWrites += multiplier;
           // Check for double buffering: if the memref is selected via
@@ -186,7 +207,8 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
 
     // Count vector.transfer_write to workgroup memory (LDS writes)
     if (auto transferWrite = dyn_cast<vector::TransferWriteOp>(op)) {
-      if (auto memrefType = dyn_cast<MemRefType>(transferWrite.getBase().getType())) {
+      if (auto memrefType =
+              dyn_cast<MemRefType>(transferWrite.getBase().getType())) {
         if (hasWorkgroupAddressSpace(memrefType)) {
           result.ldsWrites += multiplier;
           // Check for double buffering: if the memref is selected via
@@ -203,6 +225,12 @@ static ScfForAnalysisResult analyzeScfFor(scf::ForOp forOp) {
     if (isa<amdgpu::MFMAOp>(op) || isa<amdgpu::ScaledMFMAOp>(op) ||
         isa<amdgpu::WMMAOp>(op)) {
       result.matrixMultiplyOps += multiplier;
+      return;
+    }
+
+    // Count direct loads from global memory to LDS (amdgpu.gather_to_lds)
+    if (isa<amdgpu::GatherToLDSOp>(op)) {
+      result.directLoadsToLDS += multiplier;
       return;
     }
   });
@@ -233,23 +261,29 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
     ScfForAnalysisResult analysis = analyzeScfFor(op);
 
     // Skip if no meaningful operations found
-    if (analysis.globalLoads == 0 && analysis.matrixMultiplyOps == 0)
+    if (analysis.globalLoads == 0 && analysis.matrixMultiplyOps == 0 &&
+        analysis.directLoadsToLDS == 0)
       return failure();
 
     // Print analysis results for debugging
     LLVM_DEBUG({
       llvm::dbgs() << "=== scf.for Analysis ===\n";
       llvm::dbgs() << "Location: " << op.getLoc() << "\n";
-      llvm::dbgs() << "Global memory loads per iteration: " << analysis.globalLoads << "\n";
+      llvm::dbgs() << "Global memory loads per iteration: "
+                   << analysis.globalLoads << "\n";
+      llvm::dbgs() << "Direct loads to LDS per iteration: "
+                   << analysis.directLoadsToLDS << "\n";
       llvm::dbgs() << "LDS reads per iteration: " << analysis.ldsReads << "\n";
-      llvm::dbgs() << "LDS writes per iteration: " << analysis.ldsWrites << "\n";
-      llvm::dbgs() << "Matrix multiply operations per iteration: " << analysis.matrixMultiplyOps << "\n";
+      llvm::dbgs() << "LDS writes per iteration: " << analysis.ldsWrites
+                   << "\n";
+      llvm::dbgs() << "Matrix multiply operations per iteration: "
+                   << analysis.matrixMultiplyOps << "\n";
       llvm::dbgs() << "Double buffering detected: "
                    << (analysis.isDoubleBuffered ? "yes" : "no") << "\n";
       llvm::dbgs() << "========================\n\n";
     });
 
-    uint64_t numBufferLoads = analysis.globalLoads;
+    uint64_t numBufferLoads = analysis.globalLoads + analysis.directLoadsToLDS;
     uint64_t numDSReads = analysis.ldsReads;
     uint64_t numDSWrites = analysis.ldsWrites;
     uint64_t numMatrixMultiplyOps = analysis.matrixMultiplyOps;
@@ -271,11 +305,12 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
         uint64_t dsReadsPerLoad = llvm::divideCeil(numDSReads, numBufferLoads);
         uint64_t dsWritesPerLoad =
             llvm::divideCeil(numDSWrites, numBufferLoads);
-        uint64_t matrixMultiplyPerLoad = llvm::divideCeil(numMatrixMultiplyOps, numBufferLoads);
+        uint64_t matrixMultiplyPerLoad =
+            llvm::divideCeil(numMatrixMultiplyOps, numBufferLoads);
         if (analysis.isDoubleBuffered) {
           uint64_t dsWritesPerMFMA =
               llvm::divideCeil(dsWritesPerLoad, matrixMultiplyPerLoad);
-          while(dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
+          while (dsWritesPerLoad > 0 && matrixMultiplyPerLoad > 0) {
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x200,
                                              dsWritesPerMFMA, 0); // DS Writes
             ROCDL::SchedGroupBarrier::create(rw, op.getLoc(), 0x008, 1,
@@ -334,7 +369,8 @@ struct InsertSchedGroupBarrierPattern : public OpRewritePattern<scf::ForOp> {
 };
 
 struct RockAddSchedGroupBarriersPass final
-    : rock::impl::RockAddSchedGroupBarriersPassBase<RockAddSchedGroupBarriersPass> {
+    : rock::impl::RockAddSchedGroupBarriersPassBase<
+          RockAddSchedGroupBarriersPass> {
 
   void runOnOperation() override {
     func::FuncOp funcOp = getOperation();
@@ -350,4 +386,3 @@ struct RockAddSchedGroupBarriersPass final
 };
 
 } // end namespace
-
