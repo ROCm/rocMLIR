@@ -206,7 +206,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     funcPm.addPass(rock::createRockVectorizeFusionsPass());
-    funcPm.addPass(rock::createRockRemoveRedundantCastsPass());
     funcPm.addPass(rock::createRockAddAsyncWaitPass());
     // We run reuse LDS before the output swizzle pass because it uses a
     // heuristic to determine whether to swizzle or not, and that heuristic
@@ -320,6 +319,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
   // descriptors. (Mainly we want the `extractvalue` fold).
   llvmFuncPm.addPass(createCanonicalizerPass());
   llvmFuncPm.addPass(createCSEPass());
+  llvmFuncPm.addPass(rock::createRockRemoveRedundantCastsPass());
   llvmFuncPm.addPass(rock::createRockPrepareLLVMPass());
   if (options.compile) {
     GpuROCDLAttachTargetOptions opts;
