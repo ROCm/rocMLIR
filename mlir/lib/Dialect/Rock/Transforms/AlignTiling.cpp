@@ -520,8 +520,8 @@ static LogicalResult checkUniqueReader(Operation *op, Operation *reader,
 }
 
 // Try to convert a memref.subview to a TransformMapAttr (Pad transform).
-static FailureOr<TransformMapAttr> subviewToPadTransform(OpBuilder &b,
-                                                         memref::SubViewOp subview) {
+static FailureOr<TransformMapAttr>
+subviewToPadTransform(OpBuilder &b, memref::SubViewOp subview) {
   // Check that all offsets are zero and all strides are one
   for (auto offset : subview.getStaticOffsets()) {
     if (offset != 0)
@@ -636,9 +636,9 @@ traceToWriter(Value startVal,
 // Build the view chain from writerDest back to sourceBuffer, handling both
 // rock::TransformOp and memref::SubViewOp. SubViewOps are converted to
 // equivalent Pad transforms.
-static void buildViewChainWithSubviews(OpBuilder &b, Value writerDest,
-                                       Value sourceBuffer,
-                                       SmallVectorImpl<TransformMapAttr> &views) {
+static void
+buildViewChainWithSubviews(OpBuilder &b, Value writerDest, Value sourceBuffer,
+                           SmallVectorImpl<TransformMapAttr> &views) {
   Operation *sourceBufferDef = sourceBuffer.getDefiningOp();
   Operation *defOp = writerDest.getDefiningOp();
   while (defOp && defOp != sourceBufferDef) {
