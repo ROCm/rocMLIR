@@ -573,10 +573,6 @@ traceToWriter(Value startVal,
   if (!startValDef)
     return nullptr;
   bool unique = true;
-
-  // Create a temporary builder for constructing Pad transforms from subviews
-  OpBuilder tempBuilder(startVal.getContext());
-
   auto setResult = [&](Value val, Operation *theResult) {
     if (result != nullptr) {
       LLVM_DEBUG(llvm::dbgs() << "Found writer " << *theResult
@@ -584,20 +580,11 @@ traceToWriter(Value startVal,
       unique = false;
     } else {
       result = theResult;
-      // Trace back through transforms and subviews to build the view chain
-      Operation *defOp = val.getDefiningOp();
-      while (defOp && defOp != startValDef) {
-        if (auto trOp = dyn_cast<TransformOp>(defOp)) {
-          writerToStartValViews.push_back(trOp.getTransformAttr());
-          defOp = trOp.getViewSource().getDefiningOp();
-        } else if (auto subviewOp = dyn_cast<memref::SubViewOp>(defOp)) {
-          TransformMapAttr padAttr = subviewToPadTransform(tempBuilder, subviewOp);
-          if (padAttr)
-            writerToStartValViews.push_back(padAttr);
-          defOp = subviewOp.getSource().getDefiningOp();
-        } else {
-          break;
-        }
+      TransformOp trOp = dyn_cast_if_present<TransformOp>(val.getDefiningOp());
+      while (trOp && trOp != startValDef) {
+        writerToStartValViews.push_back(trOp.getTransformAttr());
+        trOp = dyn_cast_if_present<TransformOp>(
+            trOp.getViewSource().getDefiningOp());
       }
     }
   };
@@ -612,8 +599,8 @@ traceToWriter(Value startVal,
         worklist.push_back({transformOp, transformUse});
       }
     } else if (auto subviewOp = dyn_cast<memref::SubViewOp>(use)) {
-      // Trace through subviews. They represent strided views that we'll
-      // capture as Pad transforms when building the view chain
+      // Trace through subviews - they represent strided views that we'll
+      // handle in MemcpyRewritePattern
       for (Operation *subviewUse : subviewOp->getUsers()) {
         worklist.push_back({subviewOp.getResult(), subviewUse});
       }
@@ -638,6 +625,30 @@ traceToWriter(Value startVal,
   }
 
   return result;
+}
+
+/// Build the view chain from writerDest back to sourceBuffer, handling both
+/// rock::TransformOp and memref::SubViewOp. SubViewOps are converted to
+/// equivalent Pad transforms. This is used by MemcpyRewritePattern where
+/// subviews may appear due to long-stride output handling.
+static void buildViewChainWithSubviews(OpBuilder &b, Value writerDest,
+                                       Value sourceBuffer,
+                                       SmallVectorImpl<TransformMapAttr> &views) {
+  Operation *sourceBufferDef = sourceBuffer.getDefiningOp();
+  Operation *defOp = writerDest.getDefiningOp();
+  while (defOp && defOp != sourceBufferDef) {
+    if (auto trOp = dyn_cast<TransformOp>(defOp)) {
+      views.push_back(trOp.getTransformAttr());
+      defOp = trOp.getViewSource().getDefiningOp();
+    } else if (auto subviewOp = dyn_cast<memref::SubViewOp>(defOp)) {
+      // Convert subview to Pad transform and add to views
+      if (auto padAttr = subviewToPadTransform(b, subviewOp))
+        views.push_back(padAttr);
+      defOp = subviewOp.getSource().getDefiningOp();
+    } else {
+      break;
+    }
+  }
 }
 
 static Value makeRegs(LinalgAlignRewriter &b, MemRefType::Builder &mrb,
@@ -1142,8 +1153,13 @@ MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
   Operation *gemmStoreOp = nullptr;
   SmallVector<TransformMapAttr> views;
   if (auto allocOp = src.getDefiningOp<memref::AllocOp>()) {
+    // First find the writer without building views
+    SmallVector<TransformMapAttr> unusedViews;
     if (auto twop = dyn_cast_if_present<ThreadwiseWriteAllOp>(
-            traceToWriter(src, views))) {
+            traceToWriter(src, unusedViews))) {
+      // Build the view chain including subviews (for long-stride outputs)
+      buildViewChainWithSubviews(b, twop.getDest(), src, views);
+
       // We check the input leading to GEMM store has the current memref
       // copy, that is being rewritten, as the unique reader. This is because if
       // it is the unique reader, the previous memref does not need to be
