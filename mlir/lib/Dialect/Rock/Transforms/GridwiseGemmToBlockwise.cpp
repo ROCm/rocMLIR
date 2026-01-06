@@ -293,7 +293,8 @@ static LDSLayoutConfigDim getLDSLayoutConfigDim(Type elementType, int64_t kpack,
   // writing more contiguous kpack elements, there is a possibility to
   // vectorize that we want to preserve (i.e., we favour vectorization over
   // bank conflicts resolution)
-  bool isPossibleToVectorizeD = (kpack < maxVlen && copyDPerThread > 1) && (copyKPerThread >= kpack);
+  bool isPossibleToVectorizeD =
+      (kpack < maxVlen && copyDPerThread > 1) && (copyKPerThread >= kpack);
   cfg.doRotateWithK = isKContiguousDim && !isPossibleToVectorizeD;
   cfg.doSwapThreadIterSubDims = !isKContiguousDim && !isPossibleToVectorizeD;
   cfg.ldsLayoutDxK = false;
