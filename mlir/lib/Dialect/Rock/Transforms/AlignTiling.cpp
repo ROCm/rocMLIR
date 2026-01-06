@@ -627,10 +627,9 @@ traceToWriter(Value startVal,
   return result;
 }
 
-/// Build the view chain from writerDest back to sourceBuffer, handling both
-/// rock::TransformOp and memref::SubViewOp. SubViewOps are converted to
-/// equivalent Pad transforms. This is used by MemcpyRewritePattern where
-/// subviews may appear due to long-stride output handling.
+// Build the view chain from writerDest back to sourceBuffer, handling both
+// rock::TransformOp and memref::SubViewOp. SubViewOps are converted to
+// equivalent Pad transforms.
 static void buildViewChainWithSubviews(OpBuilder &b, Value writerDest,
                                        Value sourceBuffer,
                                        SmallVectorImpl<TransformMapAttr> &views) {
