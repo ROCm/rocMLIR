@@ -33,15 +33,15 @@ CORRECT_RESULT_RE = re.compile('\[1\s*1\s*1\]')
 
 
 class GEMMLibrary(enum.IntEnum):
-    ROCBLAS = 1
-    CK = 2
+    CK = 1
+    HIPBLASLT = 2
 
     @staticmethod
     def from_name(name: str) -> "GEMMLibrary":
         name = name.lower()
-        if name == 'rocblas':
-            return GEMMLibrary.ROCBLAS
-        elif name == 'ck':
+        if name == 'ck':
             return GEMMLibrary.CK
+        elif name == 'hipblaslt':
+            return GEMMLibrary.HIPBLASLT
         else:
             raise ValueError(f"Unknown library {name}")

@@ -45,8 +45,11 @@ struct BenchmarkArgs {
   bool transScaleB{false};
   std::string fusion{""};
   int kernelRepeats{1};
+  int warmupRuns{10};
   int splitKFactor{1};
   bool verbose{false};
+  int algoIndex{-1};
+  bool printResults{false};
 };
 
 // Parse command line arguments
