@@ -139,15 +139,23 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
     return failure();
   GeneralGemmBlockStructure derived = *maybeDerived;
 
-  if (params.getMPerThread() < 2 || params.getMPerThread() > 4)
+  if (params.getMPerThread() < 2 || params.getMPerThread() > 4) {
+    LLVM_DEBUG(llvm::dbgs() << "gemmMPerThread is not in the range [2, 4]\n");
     return failure();
+  }
 
-  if (params.getNPerThread() < 2 || params.getNPerThread() > 4)
+  if (params.getNPerThread() < 2 || params.getNPerThread() > 4) {
+    LLVM_DEBUG(llvm::dbgs() << "gemmNPerThread is not in the range [2, 4]\n");
     return failure();
+  }
 
   if (params.getMPerBlock() % params.getMPerThread() != 0 ||
-      params.getNPerBlock() % params.getNPerThread() != 0)
+      params.getNPerBlock() % params.getNPerThread() != 0) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "gemmMPerBlock or gemmNPerBlock aren't divisible by "
+                  "gemmMPerThread or gemmNPerThread\n");
     return failure();
+  }
 
   int64_t threadGemmMPerCluster = params.getMPerThread() *
                                   derived.mThreadsPerCuwave *
@@ -158,9 +166,9 @@ LogicalResult PopulateParams::calculateBlockGemmPerformanceParameters(
 
   if ((params.getMPerBlock() % threadGemmMPerCluster != 0) ||
       (params.getNPerBlock() % threadGemmNPerCluster != 0)) {
-    LLVM_DEBUG(
-        llvm::dbgs()
-        << "M per block or N per block aren't divisible by M/N per cluster\n");
+    LLVM_DEBUG(llvm::dbgs()
+               << "gemmMPerBlock or gemmNPerBlock aren't divisible by "
+                  "threadGemmMPerCluster or threadGemmNPerCluster\n");
     return failure();
   }
 
