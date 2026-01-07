@@ -247,8 +247,9 @@ TEST_F(TMBuilderTest, AssumeDimIsConstantBottomUpMultiple) {
   EXPECT_ARRAY_EQ(int64_t, resUp.getUpperBounds(), expectedUpperBounds);
 
   // The affine map should be (d0, d1) -> (d0, 1, 2, d1)
-  EXPECT_EQ(resUp.getMap().getAffineMap(),
-            AffineMap::get(2, 0, {affD(0), affC(1), affC(2), affD(1)}, &context));
+  EXPECT_EQ(
+      resUp.getMap().getAffineMap(),
+      AffineMap::get(2, 0, {affD(0), affC(1), affC(2), affD(1)}, &context));
 }
 
 TEST_F(TMBuilderTest, Broadcast) {

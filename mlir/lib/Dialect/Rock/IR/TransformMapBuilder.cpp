@@ -729,7 +729,7 @@ void BottomUpTMBuilder::addDim(StringRef name, uint32_t dim, int64_t size) {
 }
 
 void BottomUpTMBuilder::assumeDimIsConstant(StringRef lowerName,
-                                             int64_t constantVal) {
+                                            int64_t constantVal) {
   uint32_t dim = startIndex(lowerName);
   int64_t size = startSize(dim);
   assert(((constantVal >= 0) && (constantVal < size)) &&
@@ -886,7 +886,7 @@ void BottomUpTMTopDimsWrapper::addDim(StringRef name, int64_t size) {
 }
 
 void BottomUpTMTopDimsWrapper::assumeDimIsConstant(StringRef lowerName,
-                                                    int64_t constantVal) {
+                                                   int64_t constantVal) {
   b.assumeDimIsConstant(lowerName, constantVal);
 }
 
