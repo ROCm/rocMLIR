@@ -561,9 +561,8 @@ subviewToPadTransform(OpBuilder &b, memref::SubViewOp subview) {
   }
 
   BottomUpTMBuilder transform(b, dimNames, resultShape, loc);
-  SmallVector<uint32_t> dims;
-  for (int64_t i = 0; i < rank; ++i)
-    dims.push_back(i);
+  SmallVector<uint32_t> dims(rank);
+  std::iota(dims.begin(), dims.end(), 0);
 
   transform.pad(dimNames, dims, dimNames, padParams);
   return transform.get();
@@ -605,7 +604,7 @@ traceToWriter(Value startVal,
         worklist.push_back({transformOp, transformUse});
       }
     } else if (auto subviewOp = dyn_cast<memref::SubViewOp>(use)) {
-      // Trace through subviews - they represent strided views that we'll
+      // Trace through subviews, they represent strided views that we'll
       // handle in MemcpyRewritePattern
       for (Operation *subviewUse : subviewOp->getUsers()) {
         worklist.push_back({subviewOp.getResult(), subviewUse});
