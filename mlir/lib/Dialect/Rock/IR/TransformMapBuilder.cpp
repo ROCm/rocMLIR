@@ -732,6 +732,8 @@ void BottomUpTMBuilder::assumeDimIsConstant(StringRef lowerName,
                                              int64_t constantVal) {
   uint32_t dim = startIndex(lowerName);
   int64_t size = startSize(dim);
+  assert(((constantVal >= 0) && (constantVal < size)) &&
+         "constant value must be in range [0, size)");
   SmallVector<int64_t> params = {constantVal, size};
   addTransform(TransformType::ConstDim, params, {lowerName}, {dim}, {}, {});
 }
