@@ -624,6 +624,44 @@ def MIGraphX_ReduceMaxOp
   }];
 }
 
+def MIGraphX_ExpandStridesOp
+    : MIGraphX_Op<
+          "expand_strides", [AllShapesMatch<["input", "output"]>,
+                             AllElementTypesMatch<["input", "output"]>]>,
+      Arguments<(ins AnyMIXRShaped:$input)>,
+      Results<(outs AnyMIXRShaped:$output)> {
+  let summary = "Expand tensor strides to a larger layout";
+  let description = [{
+    The `migraphx.expand_strides` op takes an input tensor with a given stride
+    layout and produces an output tensor with the same logical shape but with
+    larger strides (requiring more memory).
+
+    The data from the input is written starting from index 0 in the output's
+    memory layout. The additional space introduced by the larger strides is
+    filled with uninitialized padding. This means that only the elements at
+    positions corresponding to the input's stride pattern contain valid data;
+    the gaps created by the expanded strides contain undefined values.
+
+    This operation is used to make stride expansion explicit in the IR, rather
+    than having it be implicit in operations that produce outputs with larger
+    strides than their inputs.
+
+    Example:
+    ```mlir
+    // Expand from compact strides to padded strides
+    %1 = migraphx.expand_strides %0 : <4x24x24xf16, 576x24x1> -> <4x24x24xf16, 1152x24x1>
+    ```
+
+    In this example, the first dimension's stride doubles from 576 to 1152,
+    meaning there is now uninitialized padding between each slice of the
+    first dimension.
+  }];
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `->` type($output)
+  }];
+  let hasVerifier = 1;
+}
+
 //--------- Execution layer Ops
 def MIGraphX_CodeObjOp :
     MIGraphX_Op<"code_object">,

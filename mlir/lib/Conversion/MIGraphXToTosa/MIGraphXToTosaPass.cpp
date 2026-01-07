@@ -42,8 +42,9 @@ public:
 void mlir::migraphx::populateMIGraphXToTosaDialectConversion(
     ConversionTarget &target, TypeConverter *typeConverter) {
   target.addIllegalDialect<migraphx::MIGraphXDialect>();
-  target
-      .addLegalOp<migraphx::AsLogicalShapeOp, migraphx::AsUnderlyingShapeOp>();
+  // These ops are handled in the boundary conversion stage
+  target.addLegalOp<migraphx::AsLogicalShapeOp, migraphx::AsUnderlyingShapeOp,
+                    migraphx::ExpandStridesOp>();
   target.addDynamicallyLegalDialect<tosa::TosaDialect, arith::ArithDialect>(
       [=](Operation *op) -> std::optional<bool> {
         return typeConverter->isLegal(op);
