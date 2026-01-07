@@ -1402,8 +1402,8 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   MIXRShapedType resultType = op.getOut().getType();
   RankedTensorType memoryLayoutType = resultType.asMemoryLayoutTensor();
   if (!memoryLayoutType)
-    return op.emitOpError(
-        "output type has strides that cannot be represented as a memory layout");
+    return op.emitOpError("output type has strides that cannot be represented "
+                          "as a memory layout");
   auto resultTensorType =
       cast<RankedTensorType>(getTypeConverter()->convertType(resultType));
   if (!resultTensorType)
