@@ -261,7 +261,7 @@ static FailureOr<Value> removeSplitKVFromQ(PatternRewriter &rewriter,
   step2Builder.passThrough({"batch"}, {0}, {"batch"});
 
   // Assert splitKV is constant 0 (no corresponding upper dimension)
-  step2Builder.assumeDimIsConstant("splitKV", /*constantVal=*/0);
+  step2Builder.dropDimAtIndex("splitKV", /*index=*/0);
 
   // PassThrough for M and K (upper dims 1,2 map to lower dims 2,3)
   step2Builder.passThrough({"M", "K"}, {1, 2}, {"M", "K"});

@@ -728,8 +728,8 @@ void BottomUpTMBuilder::addDim(StringRef name, uint32_t dim, int64_t size) {
   addTransform(TransformType::AddDim, {size}, {}, {}, {name}, {dim});
 }
 
-void BottomUpTMBuilder::assumeDimIsConstant(StringRef lowerName,
-                                            int64_t constantVal) {
+void BottomUpTMBuilder::dropDimAtIndex(StringRef lowerName,
+                                       int64_t constantVal) {
   uint32_t dim = startIndex(lowerName);
   int64_t size = startSize(dim);
   assert(((constantVal >= 0) && (constantVal < size)) &&
@@ -738,12 +738,12 @@ void BottomUpTMBuilder::assumeDimIsConstant(StringRef lowerName,
   addTransform(TransformType::ConstDim, params, {lowerName}, {dim}, {}, {});
 }
 
-void BottomUpTMBuilder::assumeDimIsConstant(ArrayRef<StringRef> lowerNames,
-                                            ArrayRef<int64_t> constantVals) {
+void BottomUpTMBuilder::dropDimsAtIndices(ArrayRef<StringRef> lowerNames,
+                                          ArrayRef<int64_t> constantVals) {
   assert(lowerNames.size() == constantVals.size() &&
          "One constant value needed per lower dimension");
   for (auto pair : llvm::zip(lowerNames, constantVals)) {
-    assumeDimIsConstant(std::get<0>(pair), std::get<1>(pair));
+    dropDimAtIndex(std::get<0>(pair), std::get<1>(pair));
   }
 }
 
@@ -885,14 +885,14 @@ void BottomUpTMTopDimsWrapper::addDim(StringRef name, int64_t size) {
   b.addDim(name, topDims[name], size);
 }
 
-void BottomUpTMTopDimsWrapper::assumeDimIsConstant(StringRef lowerName,
-                                                   int64_t constantVal) {
-  b.assumeDimIsConstant(lowerName, constantVal);
+void BottomUpTMTopDimsWrapper::dropDimAtIndex(StringRef lowerName,
+                                              int64_t constantVal) {
+  b.dropDimAtIndex(lowerName, constantVal);
 }
 
-void BottomUpTMTopDimsWrapper::assumeDimIsConstant(
+void BottomUpTMTopDimsWrapper::dropDimsAtIndices(
     ArrayRef<StringRef> lowerNames, ArrayRef<int64_t> constantVals) {
-  b.assumeDimIsConstant(lowerNames, constantVals);
+  b.dropDimsAtIndices(lowerNames, constantVals);
 }
 
 void BottomUpTMTopDimsWrapper::embed(ArrayRef<StringRef> upperNames,
