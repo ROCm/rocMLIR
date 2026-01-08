@@ -19,6 +19,7 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Rock/Passes.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 
