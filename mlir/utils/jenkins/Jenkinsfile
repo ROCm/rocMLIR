@@ -1164,7 +1164,7 @@ PY
                                                             // Check for errors in the tuning log
                                                             script {
                                                                 def tuneLog = readFile(tuningLog).split('\n')
-                                                                def errors = tuneLog.findAll { it =~ /(?i)\berror\b/ }
+                                                                def errors = tuneLog.findAll { it =~ /(?i)error/ }
 
                                                                 if (errors) {
                                                                     error("Tuning failed: Detected errors in tuning log")
