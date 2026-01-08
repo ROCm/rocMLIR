@@ -687,7 +687,8 @@ LogicalResult PopulateParamsWmma::isValidBlockwiseGemm(
   // Reject invalid KPACK values.
   auto maybeWmmaInsn = WmmaInsn::select(
       dataTypeA, dataTypeB, waveSize, arch, param.getMPerWave(),
-      param.getNPerWave(), param.getKpack(), param.getKpackPerBlock());
+      param.getNPerWave(), param.getKpack(), param.getKpackPerBlock(),
+      /*forScaledOp=*/false);
   if (failed(maybeWmmaInsn)) {
     LLVM_DEBUG(llvm::dbgs() << "Failed to select wmma instruction.\n");
     return failure();
@@ -716,7 +717,8 @@ PopulateParamsWmma::getTuningParameters(KernelType opType, Type dataTypeA,
       [&](const InitParamsAccel &param) {
         auto maybeWmmaInsn = WmmaInsn::select(
             dataTypeA, dataTypeB, waveSize, arch, param.gemmMPerWave,
-            param.gemmNPerWaveOrMnPerXdl, param.gemmKPack, param.gemmKPerBlock);
+            param.gemmNPerWaveOrMnPerXdl, param.gemmKPack, param.gemmKPerBlock,
+            /*forScaledOp=*/false);
         if (failed(maybeWmmaInsn)) {
           return false;
         }

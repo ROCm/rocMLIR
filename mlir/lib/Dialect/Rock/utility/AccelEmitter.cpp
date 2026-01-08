@@ -1121,7 +1121,6 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
   Value vectorD;
-
   if (wmmaInsn.isScaled) {
     // Scaled WMMA intrinsic requires scale vectors to be provided
     assert(scaleA && scaleB &&

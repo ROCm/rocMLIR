@@ -49,8 +49,12 @@ enum class WmmaTypeId : uint32_t {
   I8_To_I32_TyId, // I8 x I8 -> I32
   I4_To_I32_TyId, // I4 x I4 -> I32
 
-  // Small float scaled WMMA. All combinations map to wmma_scale_f32_*_f8f6f4
-  // with appropriate format codes
+  // Small float scaled WMMA: FP8/BF8/FP6/FP4 x FP8/BF8/FP6/FP4 -> F32
+  // "Small floats" are sub-byte or 8-bit floating point formats:
+  //   - FP8 (E4M3), BF8 (E5M2): 8-bit floats
+  //   - FP6 (E2M3, E3M2): 6-bit floats
+  //   - FP4 (E2M1): 4-bit float
+  // All combinations map to wmma_scale_f32_*_f8f6f4
   SmallFloat_To_F32_TyId
 };
 
@@ -87,7 +91,7 @@ public:
                                     int64_t waveSize, StringRef arch,
                                     int64_t mPerWave, int64_t nPerWave,
                                     int64_t kPack, int64_t kPackPerBlock,
-                                    bool forScaledOp = false);
+                                    bool forScaledOp);
 };
 } // namespace rock
 } // namespace mlir

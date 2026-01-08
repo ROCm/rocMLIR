@@ -123,7 +123,7 @@ static constexpr AmdArchInfo
                 /*totalVGPRPerEU*/ 1536, /*totalSharedMemPerCU*/ 131072,
                 /*maxSharedMemPerWG*/ 65536, /*numEUPerCU=*/4, /*minNumCU=*/12,
                 /*hasFp8ConversionInstrs=*/false,
-                /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/false,
+                /*hasOcpFp8ConversionInstrs=*/true, /*hasScaledGemm=*/true,
                 /*maxNumXCC=*/1, /*hasLdsTransposeLoad=*/false);
 
 static std::tuple<StringRef, unsigned> parseArchString(StringRef arch) {

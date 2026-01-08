@@ -218,10 +218,9 @@ getCommonEffects(OpType &op,
 
 /// Check if a type is valid for scaled GEMM matrix operands.
 /// Currently supports FP4 (Float4E2M1FN) and FP8 (Float8E4M3FN, Float8E5M2).
-/// TODO: Add support for FP6 types (Float6E2M3FN, Float6E3M2FN) when
-/// rocMLIR gains FP6 support.
 static bool isValidScaledGemmMatrixType(Type elemType) {
-  return isa<Float4E2M1FNType, Float8E4M3FNType, Float8E5M2Type>(elemType);
+  return isa<Float4E2M1FNType, Float8E4M3FNType, Float8E5M2Type,
+             Float6E2M3FNType, Float6E3M2FNType>(elemType);
 }
 
 template <typename OpType>
