@@ -134,7 +134,6 @@ findFPTruncStorePatterns(LLVMFuncOp funcOp) {
       Value narrowPtr = narrowStore.getAddr();
       Value narrowBuffer = getBasePointer(narrowPtr);
       GEPOp narrowGep = narrowPtr.getDefiningOp<GEPOp>();
-
       LLVM_DEBUG(llvm::dbgs()
                  << "\tFound narrow store: " << narrowStore << "\n");
 
@@ -154,13 +153,11 @@ findFPTruncStorePatterns(LLVMFuncOp funcOp) {
 
         Value widePtr = wideStore.getAddr();
         Value wideBuffer = getBasePointer(widePtr);
-
         if (wideBuffer == narrowBuffer)
           continue;
 
         LLVM_DEBUG(llvm::dbgs() << "\tFound existing parallel wide store: "
                                 << wideStore << "\n");
-
         info.wideBuffer = wideBuffer;
         info.wideStore = wideStore;
         break;
@@ -188,7 +185,6 @@ static SmallVector<LoadFPExtPattern> findLoadFPExtPatterns(LLVMFuncOp funcOp) {
     Value loadPtr = loadOp.getAddr();
     Value narrowBuffer = getBasePointer(loadPtr);
     GEPOp gepOp = loadPtr.getDefiningOp<GEPOp>();
-
     LLVM_DEBUG(llvm::dbgs() << "Found load+fpext pattern:\n");
     LLVM_DEBUG(llvm::dbgs() << "\tLoad: " << loadOp << "\n");
     LLVM_DEBUG(llvm::dbgs() << "\tFPExt: " << fpextOp << "\n");
@@ -242,14 +238,11 @@ isStoreFromFPTruncPattern(StoreOp store,
 struct IndexRange {
   int64_t start;
   int64_t count;
-
   bool isValid() const { return count > 0; }
-
   bool isSubsetOf(const IndexRange &other) const {
     return start >= other.start &&
            (start + count) <= (other.start + other.count);
   }
-
   bool overlaps(const IndexRange &other) const {
     return start < (other.start + other.count) && other.start < (start + count);
   }
@@ -321,7 +314,6 @@ findMatchingFPTruncStores(LoadFPExtPattern &pattern,
       continue;
 
     dominatingStores.push_back(&info);
-
     IndexRange storeRange =
         getAccessRange(info.narrowGep, info.narrowStore.getValue().getType());
     if (!storeRange.isValid())
@@ -351,9 +343,7 @@ hasNoInterveningStores(LoadFPExtPattern &pattern,
                        DominanceInfo &domInfo) {
   IndexRange loadRange =
       getAccessRange(pattern.gepOp, pattern.loadOp.getRes().getType());
-
   SmallVector<StoreOp> allStores = collectStoresToBuffer(pattern.narrowBuffer);
-
   for (auto store : allStores) {
     // Skip fptrunc stores
     if (isStoreFromFPTruncPattern(store, storeInfos))
@@ -437,7 +427,6 @@ verifySafety(LoadFPExtPattern &pattern,
 static void createWideStore(FPTruncStoreInfo *info, Value wideBuffer,
                             Type wideElemType, OpBuilder &builder) {
   builder.setInsertionPointAfter(info->narrowStore);
-
   Value widePtr;
   if (info->narrowGep) {
     SmallVector<GEPArg> gepArgs;
@@ -472,13 +461,11 @@ createWideBuffersAndStores(SmallVector<LoadFPExtPattern> &safePatterns,
                            OpBuilder &builder) {
   DenseMap<Value, Value> narrowToWideBuffer;
   DenseSet<FPTruncStoreInfo *> processedStores;
-
   for (auto &pattern : safePatterns) {
     if (pattern.matchingStores.empty())
       continue;
 
     Type wideElemType = getScalarType(pattern.fpextOp.getRes().getType());
-
     for (FPTruncStoreInfo *info : pattern.matchingStores) {
       if (processedStores.contains(info))
         continue;
@@ -510,7 +497,6 @@ createWideBuffersAndStores(SmallVector<LoadFPExtPattern> &safePatterns,
                            wideElemType, narrowAlloca.getArraySize());
 
       LLVM_DEBUG(llvm::dbgs() << "Created wide alloca: " << wideAlloca << "\n");
-
       narrowToWideBuffer[info->narrowBuffer] = wideAlloca.getResult();
       createWideStore(info, wideAlloca.getResult(), wideElemType, builder);
     }
@@ -541,11 +527,9 @@ static void applyTransformation(SmallVector<LoadFPExtPattern> &safePatterns,
 
     Type wideType = pattern.fpextOp.getRes().getType();
     Type wideElemType = getScalarType(wideType);
-
     Value newPtr;
     if (pattern.gepOp) {
       builder.setInsertionPoint(pattern.gepOp);
-
       SmallVector<GEPArg> gepArgs;
       for (auto idx : pattern.gepOp.getIndices()) {
         if (auto constIdx = dyn_cast<IntegerAttr>(idx)) {
@@ -565,7 +549,6 @@ static void applyTransformation(SmallVector<LoadFPExtPattern> &safePatterns,
     }
 
     builder.setInsertionPoint(pattern.loadOp);
-
     unsigned wideAlignment = 4;
     if (auto vecType = dyn_cast<VectorType>(wideType)) {
       unsigned elemBits = vecType.getElementType().getIntOrFloatBitWidth();
@@ -581,7 +564,6 @@ static void applyTransformation(SmallVector<LoadFPExtPattern> &safePatterns,
     // Clean up the load -> fpext
     pattern.fpextOp.getRes().replaceAllUsesWith(newLoad.getRes());
     pattern.fpextOp.erase();
-
     if (pattern.loadOp.getRes().use_empty()) {
       pattern.loadOp.erase();
     }
@@ -609,7 +591,6 @@ cleanupUnusedNarrowBufferOps(SmallVector<LoadFPExtPattern> &safePatterns) {
 
   // Track what we've already erased to avoid double-erase
   DenseSet<Operation *> erased;
-
   for (auto &[narrowBuffer, stores] : bufferToStores) {
     // Check if the narrow buffer still has uses
     // (other than the stores we're about to erase)
@@ -641,7 +622,6 @@ cleanupUnusedNarrowBufferOps(SmallVector<LoadFPExtPattern> &safePatterns) {
 
     // No other uses, so we can clean up the fptrunc stores and related ops
     LLVM_DEBUG(llvm::dbgs() << "Cleaning up unused narrow buffer ops\n");
-
     for (auto *info : stores) {
       // Capture the fptrunc op before erasing the store
       auto fptruncOp = info->narrowStore.getValue().getDefiningOp<FPTruncOp>();
