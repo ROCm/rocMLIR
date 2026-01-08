@@ -66,6 +66,7 @@ class Options:
     retune: bool
     gpu_ids: List[int]
     num_cpus: Optional[int]
+    wait_for_compiles: bool
 
 
 @dataclass
@@ -765,9 +766,9 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
     """Tune a single configuration and return the results."""
     tuning_driver_args = [
         f"--tuning-space={options.tuning_space_kind}", f"--num-iterations={MLIR_N_REPEATS}",
-        f"--warmup-iterations={WARMUP_ITERATIONS}", f"--sleep-us={SLEEP_US}",
-        f"--show-all-measurements={'true' if options.debug else 'false'}",
-        f"--num-compile-threads={num_compile_threads}", "--use-median"
+        f"--warmup-iterations={WARMUP_ITERATIONS}", "--use-median", f"--sleep-us={SLEEP_US}",
+        f"--show-all-measurements={options.debug}", f"--num-compile-threads={num_compile_threads}",
+        f"--wait-for-compiles={options.wait_for_compiles}"
     ]
 
     env = make_isolated_gpu_env(gpu_id)
@@ -1220,6 +1221,12 @@ def parse_arguments(gpu_topology: GpuTopology, available_gpus: List[int], args=N
         metavar='N',
         help="Maximum CPU threads for compilation (default: auto-detect based on NUMA topology)")
 
+    parser.add_argument("--wait-for-compiles",
+                        action='store_true',
+                        default=False,
+                        help="Wait for all compilation tasks to complete before starting tuning. "
+                        "Useful for systems with shared CPU/GPU memory (e.g., APUs).")
+
     return parser.parse_args(args)
 
 
@@ -1253,7 +1260,8 @@ def main(args=None):
                       abort_on_error=parsed_args.abort_on_error,
                       retune=parsed_args.retune,
                       gpu_ids=parsed_args.gpus,
-                      num_cpus=parsed_args.num_cpus)
+                      num_cpus=parsed_args.num_cpus,
+                      wait_for_compiles=parsed_args.wait_for_compiles)
 
     if op_type == Operation.FUSION:
         op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)

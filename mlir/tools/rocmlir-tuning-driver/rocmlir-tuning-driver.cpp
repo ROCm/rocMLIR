@@ -162,6 +162,11 @@ static llvm::cl::opt<unsigned> numCompileThreads(
     llvm::cl::desc("Number of parallel compilation threads (0 = auto)"),
     llvm::cl::value_desc("thread count"), llvm::cl::init(0));
 
+static llvm::cl::opt<bool> waitForCompiles(
+    "wait-for-compiles",
+    llvm::cl::desc("Wait for all compilations to finish before benchmarking"),
+    llvm::cl::init(false));
+
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
                                             MLIRContext *context) {
@@ -278,6 +283,7 @@ struct BenchmarkParams {
   rock::TuningParamSetKind tuningSpaceKind;
   const unsigned numCompileThreads;
   std::string benchmarkConfig;
+  bool waitForCompiles;
 };
 
 enum class CompilationStatus {
@@ -693,7 +699,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   const BenchmarkParams benchmarkParams = {
       numIterations,     warmupIterations, useMedian,           trimPercent,
       sleepUs,           showStats,        showAllMeasurements, tuningSpaceKind,
-      numCompileThreads, benchmarkConfig};
+      numCompileThreads, benchmarkConfig,  waitForCompiles};
 
   unsigned numTuningIterations =
       rock::getNumberOfIterations(benchmarkParams.tuningSpaceKind);
@@ -889,6 +895,13 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         t.join();
       }
     });
+
+    if (benchmarkParams.waitForCompiles) {
+      for (auto &t : threads) {
+        t.join();
+      }
+      threads.clear();
+    }
 
     int64_t validResults = 0;
     // Sequential benchmarking phase (must be sequential for accurate timing)
