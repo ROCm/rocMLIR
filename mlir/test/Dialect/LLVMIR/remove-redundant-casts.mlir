@@ -250,3 +250,4 @@ llvm.func @test_scalar_types() {
   %16 = llvm.fadd %15, %1 : f32
   llvm.return
 }
+

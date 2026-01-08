@@ -30,3 +30,4 @@ func.func @mlir_remove_casts(%arg0: !migraphx.shaped<1x64x5x128xf16, 40960x640x1
     return %21 : !migraphx.shaped<1x5x64x128xf16, 40960x8192x128x1>
   }
 }
+
