@@ -360,7 +360,7 @@ class TuningContext:
         """Print summary of GPU allocation to stderr."""
         if self.options.quiet:
             return
-        num_active = min(len(self.options.gpu_ids), len(self.options.gpu_ids))
+        num_active = len(self.options.gpu_ids)
         print(f"Using {num_active} GPU(s):", file=sys.stderr)
         for gpu_id in self.options.gpu_ids[:num_active]:
             node = self.gpu_topology.get_numa_node(gpu_id)
@@ -424,12 +424,12 @@ class GpuWorkerPool:
             mpol_preferred = 1
 
             # Create a nodemask with just our node
-            # unsigned long nodemask, maxnode
             nodemask = 1 << numa_node
-            maxnode = numa_node + 2  # Must be > highest node + 1
 
             # int set_mempolicy(int mode, const unsigned long *nodemask, unsigned long maxnode)
-            libnuma.set_mempolicy(mpol_preferred, ctypes.byref(ctypes.c_ulong(nodemask)), maxnode)
+            libnuma.set_mempolicy(mpol_preferred,
+                                  ctypes.byref(ctypes.c_ulong(nodemask)),
+                                  maxnode=64)
         except (OSError, AttributeError):
             pass  # libnuma not available, rely on first-touch policy
 
