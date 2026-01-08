@@ -552,11 +552,12 @@ def MIGraphX_SqueezeOp
   let hasVerifier = 1;
 }
 
-def MIGraphX_GatherOp : MIGraphX_Op<"gather">,
-                        Arguments<(ins AnyMIXRShaped:$data,
-                            MIXRShapedOf<[I32, SI32, UI32, I64, SI64, UI64, Index]>:$indices,
-                            DefaultValuedAttr<I64Attr, "0">:$axis)>,
-                        Results<(outs AnyMIXRShaped:$output)> {
+def MIGraphX_GatherOp
+    : MIGraphX_Op<"gather">,
+      Arguments<(ins AnyMIXRShaped:$data,
+          MIXRShapedOf<[I32, SI32, UI32, I64, SI64, UI64, Index]>:$indices,
+          DefaultValuedAttr<I64Attr, "0">:$axis)>,
+      Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Gather slices from data along an axis";
   let description = [{
     The `migraphx.gather` op gathers slices from `data` along the specified
@@ -583,8 +584,7 @@ def MIGraphX_ScatterNoneOp
     : MIGraphX_Op<"scatter_none">,
       Arguments<(ins AnyMIXRShaped:$data,
           MIXRShapedOf<[I32, SI32, UI32, I64, SI64, UI64, Index]>:$indices,
-          AnyMIXRShaped:$updates,
-          DefaultValuedAttr<I64Attr, "0">:$axis)>,
+          AnyMIXRShaped:$updates, DefaultValuedAttr<I64Attr, "0">:$axis)>,
       Results<(outs AnyMIXRShaped:$output)> {
   let summary = "Scatter updates into data at specified indices (no reduction)";
   let description = [{
