@@ -226,6 +226,40 @@ static SmallVector<StoreOp> collectStoresToBuffer(Value buffer) {
   return stores;
 }
 
+// Collect all loads that read from a buffer, tracing through GEPs.
+static SmallVector<LoadOp> collectLoadsFromBuffer(Value buffer) {
+  SmallVector<LoadOp> loads;
+  SmallVector<Value, 4> worklist;
+  worklist.push_back(buffer);
+
+  while (!worklist.empty()) {
+    Value ptr = worklist.pop_back_val();
+    for (Operation *user : ptr.getUsers()) {
+      if (auto load = dyn_cast<LoadOp>(user)) {
+        if (load.getAddr() == ptr) {
+          loads.push_back(load);
+        }
+      } else if (auto gep = dyn_cast<GEPOp>(user)) {
+        // Trace through GEPs that use this as base
+        if (gep.getBase() == ptr) {
+          worklist.push_back(gep.getResult());
+        }
+      }
+    }
+  }
+  return loads;
+}
+
+// Check if a load is only used by an fpext operation
+static bool isLoadOnlyUsedByFPExt(LoadOp load) {
+  Value loadResult = load.getRes();
+  // The load result should have exactly one use, and it should be fpext
+  if (!loadResult.hasOneUse())
+    return false;
+  Operation *user = *loadResult.getUsers().begin();
+  return isa<FPExtOp>(user);
+}
+
 // Check if a store is from one of our tracked fptrunc patterns.
 static bool
 isStoreFromFPTruncPattern(StoreOp store,
@@ -383,6 +417,18 @@ verifySafety(LoadFPExtPattern &pattern,
     return failure();
   }
 
+  // Check that the load uses static indices. Dynamic indices suggest the buffer
+  // is accessed in a pattern-dependent way (e.g., in a loop with runtime
+  // indexing), where the precision conversion may be algorithmically intentional.
+  IndexRange loadRange =
+      getAccessRange(pattern.gepOp, pattern.loadOp.getRes().getType());
+  if (!loadRange.isValid()) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "\tUNSAFE: Load has dynamic index - cannot verify access "
+                  "pattern matches stores\n");
+    return failure();
+  }
+
   // Find all fptrunc stores that cover this load
   SmallVector<FPTruncStoreInfo *> matchingStores =
       findMatchingFPTruncStores(pattern, storeInfos, domInfo);
@@ -392,7 +438,7 @@ verifySafety(LoadFPExtPattern &pattern,
     return failure();
   }
 
-  // Check that all matching stores have compatible element types
+  // Check that all matching stores have compatible element types.
   Type fpextElemType = getScalarType(pattern.fpextOp.getRes().getType());
   for (auto *store : matchingStores) {
     Type originalWideElemType = getScalarType(store->wideValue.getType());
@@ -411,6 +457,30 @@ verifySafety(LoadFPExtPattern &pattern,
                            pattern.loadOp.getOperation())) {
       LLVM_DEBUG(llvm::dbgs()
                  << "\tUNSAFE: Wide store does not dominate load\n");
+      return failure();
+    }
+
+    // Check that the fptrunc result is only used by the narrow store.
+    // If the f16 value has other uses, we can't eliminate the truncation.
+    auto fptruncOp = store->narrowStore.getValue().getDefiningOp<FPTruncOp>();
+    if (fptruncOp && !fptruncOp.getRes().hasOneUse()) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tUNSAFE: fptrunc result has multiple uses - the f16 "
+                    "value is used elsewhere\n");
+      return failure();
+    }
+  }
+
+  // Check that all loads from the narrow buffer are used only by fpext.
+  // If there are loads that use the f16 values directly,
+  // we can't eliminate the narrow buffer.
+  SmallVector<LoadOp> allLoads = collectLoadsFromBuffer(pattern.narrowBuffer);
+  for (LoadOp load : allLoads) {
+    if (!isLoadOnlyUsedByFPExt(load)) {
+      LLVM_DEBUG(llvm::dbgs()
+                 << "\tUNSAFE: Buffer has loads that don't go through fpext - "
+                    "f16 values are used directly: "
+                 << load << "\n");
       return failure();
     }
   }
@@ -437,8 +507,8 @@ static void createWideStore(FPTruncStoreInfo *info, Value wideBuffer,
         gepArgs.push_back(cast<Value>(idx));
     }
     auto wideGep = GEPOp::create(builder, info->narrowGep.getLoc(),
-                                 info->narrowGep.getType(), wideElemType,
-                                 wideBuffer, gepArgs);
+                                 wideBuffer.getType(), wideElemType, wideBuffer,
+                                 gepArgs);
     wideGep.setNoWrapFlags(info->narrowGep.getNoWrapFlags());
     widePtr = wideGep.getResult();
   } else {
@@ -493,8 +563,8 @@ createWideBuffersAndStores(SmallVector<LoadFPExtPattern> &safePatterns,
       builder.setInsertionPointAfter(narrowAlloca);
       auto wideAlloca =
           AllocaOp::create(builder, narrowAlloca.getLoc(),
-                           LLVM::LLVMPointerType::get(builder.getContext()),
-                           wideElemType, narrowAlloca.getArraySize());
+                           narrowAlloca.getResult().getType(), wideElemType,
+                           narrowAlloca.getArraySize());
 
       LLVM_DEBUG(llvm::dbgs() << "Created wide alloca: " << wideAlloca << "\n");
       narrowToWideBuffer[info->narrowBuffer] = wideAlloca.getResult();
@@ -540,7 +610,7 @@ static void applyTransformation(SmallVector<LoadFPExtPattern> &safePatterns,
       }
 
       auto newGep = GEPOp::create(builder, pattern.gepOp.getLoc(),
-                                  pattern.gepOp.getType(), wideElemType,
+                                  wideBuffer.getType(), wideElemType,
                                   wideBuffer, gepArgs);
       newGep.setNoWrapFlags(pattern.gepOp.getNoWrapFlags());
       newPtr = newGep.getResult();
