@@ -359,7 +359,7 @@ void postProcessPerfRes(String chip) {
         alwaysLinkToLastBuild: false,
         keepAll: true,
         reportDir: 'build/reports',
-        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
+        reportFiles: "${chip}_MLIR_Performance_Changes.html,${chip}_MLIR_vs_MIOpen.html,${chip}_MLIR_Performance_Changes_Gemm.html,${chip}_MLIR_vs_hipBLASLt.html,${chip}_MLIR_vs_CK.html,${chip}_conv_fusion.html,${chip}_gemm_fusion.html",
         reportName: "Performance report for ${chip}"
     ])
 
@@ -367,6 +367,14 @@ void postProcessPerfRes(String chip) {
     plot csvFileName: "${chip}_plot-nightly-perf-results-000001.csv",\
         csvSeries: [[file: "build/${chip}_mlir_vs_miopen_perf_for_plot.csv", displayTableFlag: false]],\
         title: "Test performance summary ${chip}, Conv",\
+        yaxis: 'TFlops',\
+        style: 'line',\
+        group: 'Performance plots'
+  }
+  if (fileExists("build/${chip}_mlir_vs_hipblaslt_perf_for_plot.csv")) {
+    plot csvFileName: "${chip}_plot-nightly-perf-results-gemm-000001.csv",\
+        csvSeries: [[file: "build/${chip}_mlir_vs_hipblaslt_perf_for_plot.csv", displayTableFlag: false]],\
+        title: "Test performance summary ${chip}, GEMM",\
         yaxis: 'TFlops',\
         style: 'line',\
         group: 'Performance plots'
@@ -490,11 +498,12 @@ int setLitWorkerCount() {
 void build_fixedE2ETests(String codepath) {
     // Limit the number of lit workers for gfx908, gfx90a to (8, 30) on CI as a workaround for issue #1845 and #1841
     int limit_lit_workers = setLitWorkerCount()
-    buildProject('check-mlir-build-only check-rocmlir-build-only', """
+    buildProject("check-mlir-build-only check-rocmlir-build-only${params.nightly ? ' hipblaslt-benchmark-driver' : ''}", """
               -DROCMLIR_DRIVER_PR_E2E_TEST_ENABLED=${params.nightly ? '0' : '1'}
               -DROCMLIR_DRIVER_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCK_E2E_TEST_ENABLED=${params.nightly ? '1' : '0'}
               -DROCMLIR_DRIVER_TEST_GPU_VALIDATION=1
+              -DROCMLIR_ENABLE_BENCHMARKS=${params.nightly ? 'hipblaslt' : ''}
               -DLLVM_LIT_ARGS='-v --time-tests --timeout=3600 --max-failures=1 -j ${limit_lit_workers}'
               -DCMAKE_EXPORT_COMPILE_COMMANDS=1
              """)
@@ -1155,7 +1164,7 @@ PY
                                                             // Check for errors in the tuning log
                                                             script {
                                                                 def tuneLog = readFile(tuningLog).split('\n')
-                                                                def errors = tuneLog.findAll { it =~ /(?i)\berror\b/ }
+                                                                def errors = tuneLog.findAll { it =~ /(?i)error/ }
 
                                                                 if (errors) {
                                                                     error("Tuning failed: Detected errors in tuning log")
@@ -1296,9 +1305,10 @@ PY
                                                     stage("Build MLIR") {
                                                         // Clean up build settings to disable static library and allow ROCm testing
                                                         buildProject(
-                                                            'check-rocmlir-build-only ci-performance-scripts',
+                                                            'check-rocmlir-build-only ci-performance-scripts hipblaslt-benchmark-driver',
                                                             '-DCMAKE_CXX_COMPILER=/opt/rocm/llvm/bin/clang++ ' +
-                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang '
+                                                            '-DCMAKE_C_COMPILER=/opt/rocm/llvm/bin/clang ' +
+                                                            '-DROCMLIR_ENABLE_BENCHMARKS=hipblaslt'
                                                         )
                                                     }
 
@@ -1311,7 +1321,7 @@ PY
                                                             target: 'build/oldData'
                                                     }
 
-                                                    stage("Test MLIR vs MIOpen") {
+                                                    stage("Test MLIR vs MIOpen/hipBLASLt") {
                                                         dir('build') {
                                                             def convInput = "${WORKSPACE}/mlir/utils/performance/configs/tier1-conv-configs"
                                                             def convToUse = "${WORKSPACE}/build/tier1-conv-configs"
@@ -1330,6 +1340,11 @@ PY
                                                             // Run MLIR vs MIOpen perf benchmarks.
                                                             sh """python3 ./bin/perfRunner.py --op=conv --batch_all \
                                                                 --configs_file=${convToUse} \
+                                                                --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
+                                                                --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
+                                                            // Run MLIR vs hipBLASLt perf benchmarks
+                                                            sh """python3 ./bin/perfRunner.py --op=gemm --batch_all \
+                                                                --configs_file=${gemmToUse} \
                                                                 --tuning_db=${WORKSPACE}/build/mlir_tuning_${CHIP}.tsv \
                                                                 --quick_tuning_db=${WORKSPACE}/build/mlir_quick_tuning_${CHIP}.tsv"""
                                                         }
@@ -1408,8 +1423,10 @@ PY
                                                         dir('build') {
                                                             sh 'ls -l'
                                                             sh 'python3 ./bin/createPerformanceReports.py ${CHIP} MIOpen'
+                                                            sh 'python3 ./bin/createPerformanceReports.py ${CHIP} hipBLASLt'
                                                             sh 'python3 ./bin/createFusionPerformanceReports.py ${CHIP}'
                                                             sh 'python3 ./bin/perfRegressionReport.py ${CHIP}'
+                                                            sh 'python3 ./bin/perfRegressionReport.py ${CHIP} ./oldData/${CHIP}_mlir_vs_hipblaslt_perf.csv ./${CHIP}_mlir_vs_hipblaslt_perf.csv'
                                                             sh 'mkdir -p reports && cp ./*.html reports'
                                                         }
                                                         postProcessPerfRes("${CHIP}")

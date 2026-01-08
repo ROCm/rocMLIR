@@ -5,21 +5,19 @@ import scipy.stats
 from typing import Tuple, List
 
 PERF_REPORT_FILE = {
-    'rocBLAS': 'mlir_vs_rocblas_perf.csv',
+    'hipBLASLt': 'mlir_vs_hipblaslt_perf.csv',
     'CK': 'mlir_vs_ck_perf.csv',
     'MIOpen': 'mlir_vs_miopen_perf.csv'
 }
 PERF_REPORT_FUSION_FILE = 'mlir_fusion_perf.csv'
-PERF_PLOT_REPORT_FILE = 'mlir_vs_miopen_perf_for_plot.csv'
 PERF_PLOT_REPORT_FILE = {
-    'rocBLAS': 'mlir_vs_rocblas_perf_for_plot.csv',
+    'hipBLASLt': 'mlir_vs_hipblaslt_perf_for_plot.csv',
     'CK': 'mlir_vs_ck_perf_for_plot.csv',
     'MIOpen': 'mlir_vs_miopen_perf_for_plot.csv'
 }
 PERF_PLOT_REPORT_FUSION_FILE = 'mlir_fusion_perf_for_plot.csv'
-PERF_STATS_REPORT_FILE = 'mlir_vs_miopen_perf_means.csv'
 PERF_STATS_REPORT_FILE = {
-    'rocBLAS': 'mlir_vs_rocblas_perf_means.csv',
+    'hipBLASLt': 'mlir_vs_hipblaslt_perf_means.csv',
     'CK': 'mlir_vs_ck_perf_means.csv',
     'MIOpen': 'mlir_vs_miopen_perf_means.csv'
 }

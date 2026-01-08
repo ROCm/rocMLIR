@@ -2,6 +2,7 @@ add_rocmlir_dialect_library(MLIRRockTuning
   GeneralGemmBlockStructure.cpp
   ConvContext.cpp
   GridwiseGemmParams.cpp
+  GridwiseGemmGemmParams.cpp
   RockTuningImpl.cpp
   ParamLookupTable.cpp
 
