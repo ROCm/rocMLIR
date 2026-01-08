@@ -3401,9 +3401,9 @@ parsePerfConfigStr(StringRef configStr, StringRef expectedPrefix = "") {
   return PerfConfigParseResult{version, params};
 }
 
-std::pair<int64_t, int64_t> handleLegacyNPerWaveOrMnPerXdl(
+std::tuple<int64_t, int64_t, int64_t> handleLegacyNPerWaveOrMnPerXdl(
     const SmallVectorImpl<int64_t> &params, int64_t &idx, int64_t mPerBlock,
-    int64_t nPerBlock, int64_t &mPerWave, bool isWmma) {
+    int64_t nPerBlock, int64_t mPerWave, bool isWmma) {
   int64_t nPerWave, mnPerXdl;
   if (isWmma) {
     mnPerXdl = 16; // default value 16 because older versions had no mnPerXdl
@@ -3416,7 +3416,7 @@ std::pair<int64_t, int64_t> handleLegacyNPerWaveOrMnPerXdl(
     mPerWave = mPerBlock / mWaves;
     nPerWave = std::max(nPerBlock / nWaves, mnPerXdl);
   }
-  return {nPerWave, mnPerXdl};
+  return {mPerWave, nPerWave, mnPerXdl};
 }
 
 } // namespace
@@ -3496,7 +3496,7 @@ AccelGemmParamsAttr AccelGemmParamsAttr::get(StringAttr perfConfigStrAttr,
     nPerWave = params[idx++];
     mnPerXdl = params[idx++];
   } else {
-    std::tie(nPerWave, mnPerXdl) = handleLegacyNPerWaveOrMnPerXdl(
+    std::tie(mPerWave, nPerWave, mnPerXdl) = handleLegacyNPerWaveOrMnPerXdl(
         params, idx, mPerBlock, nPerBlock, mPerWave, isWmma);
   }
 
@@ -3548,7 +3548,7 @@ GemmGemmParamsAttr GemmGemmParamsAttr::get(StringAttr perfConfigStrAttr,
     nPerWave = params[idx++];
     mnPerXdl = params[idx++];
   } else {
-    std::tie(nPerWave, mnPerXdl) = handleLegacyNPerWaveOrMnPerXdl(
+    std::tie(mPerWave, nPerWave, mnPerXdl) = handleLegacyNPerWaveOrMnPerXdl(
         params, idx, mPerBlockG0, nPerBlockG0, mPerWave, isWmma);
   }
 
