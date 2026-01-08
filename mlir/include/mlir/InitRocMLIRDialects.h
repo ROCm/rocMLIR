@@ -57,6 +57,7 @@
 #include "mlir/Dialect/Tensor/IR/TensorTilingInterfaceImpl.h"
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
+#include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/Dialect.h"
@@ -81,6 +82,7 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
                   math::MathDialect,
                   memref::MemRefDialect,
                   scf::SCFDialect,
+                  ub::UBDialect,
                   vector::VectorDialect,
                   ROCDL::ROCDLDialect,
                   tensor::TensorDialect,

@@ -1,4 +1,4 @@
-//===- GridwiseGemmParams.h - MLIR tuning parameter generation --------*-===//
+//===- GridwiseGemmParams.h - MLIR tuning parameter generation ------------===//
 //
 // Part of the MLIR Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This file defines MLIR tuning parameter generation
+// This file defines MLIR tuning parameter generation for single-gemm ops
 //
 //===----------------------------------------------------------------------===//
 
@@ -17,7 +17,6 @@
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Tuning/ParamLookupTable.h"
-#include "mlir/Dialect/Rock/Tuning/Serializable.h"
 #include <optional>
 
 namespace llvm {
@@ -30,12 +29,6 @@ namespace rock {
 enum class GemmDimension : uint32_t { G = 0, K = 1, MorN = 2 };
 llvm::raw_ostream &operator<<(llvm::raw_ostream &os, GemmDimension dim);
 
-struct InitParams {
-  int64_t gemmMPerBlock;
-  int64_t gemmNPerBlock;
-  int64_t gemmKPerBlock;
-};
-
 // This core function to calculate the required padding amount
 // given a gemm size.
 std::optional<GemmSize> calculatePadding(int64_t kPerBlock, int64_t mPerBlock,
@@ -43,7 +36,8 @@ std::optional<GemmSize> calculatePadding(int64_t kPerBlock, int64_t mPerBlock,
                                          const GemmSize &gemmSize,
                                          int64_t kPack = 1);
 
-GemmSize calculatePaddedGemmSize(const InitParams &params, GemmSize gemmSize,
+GemmSize calculatePaddedGemmSize(int64_t kPerBlock, int64_t mPerBlock,
+                                 int64_t nPerBlock, GemmSize gemmSize,
                                  int64_t kPack = 1);
 
 /// Given a tuning parameter struct, determine how much padding the gemm with
@@ -92,177 +86,15 @@ struct PopulateParamsInfo {
   static PopulateParamsInfo fromOp(RockGemmWrapperInterface op);
 };
 
-struct InitParamsNonAccel : InitParams, Serializable<InitParamsNonAccel> {
-  int64_t gemmMPerThread;
-  int64_t gemmNPerThread;
-  uint32_t blockSize;
-  int64_t splitKFactor;
-  int64_t gemmScheduleVersion;
-  int64_t outputSwizzle;
-
-  constexpr InitParamsNonAccel(uint32_t bSize, int64_t mPerBlock,
-                               int64_t nPerBlock, int64_t kPerBlock,
-                               int64_t mPerThread, int64_t nPerThread,
-                               int64_t splitKFactor, int64_t scheduleVersion,
-                               int64_t outputSwizzle)
-      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerThread(mPerThread),
-        gemmNPerThread(nPerThread), blockSize(bSize),
-        splitKFactor(splitKFactor), gemmScheduleVersion(scheduleVersion),
-        outputSwizzle(outputSwizzle) {}
-
-  constexpr InitParamsNonAccel()
-      : InitParamsNonAccel(0U, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL) {}
-
-  InitParamsNonAccel(GeneralGemmParamsAttr attr)
-      : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
-                   attr.getKPerBlock()},
-        gemmMPerThread(attr.getMPerThread()),
-        gemmNPerThread(attr.getNPerThread()), blockSize(attr.getBlockSize()),
-        splitKFactor(attr.getSplitKFactor()),
-        gemmScheduleVersion(attr.getScheduleVersion()),
-        outputSwizzle(attr.getOutputSwizzle()) {};
-
-  int64_t getKPack() { return 1; }
-
-  template <class Self, class F>
-  static void visit(Self &&self, F f) {
-    f(self.blockSize);
-    f(self.gemmMPerBlock);
-    f(self.gemmNPerBlock);
-    f(self.gemmKPerBlock);
-    f(self.gemmMPerThread);
-    f(self.gemmNPerThread);
-    if (self.version >= Version::V2)
-      f(self.splitKFactor);
-    if (self.version >= Version::V3) {
-      f(self.gemmScheduleVersion);
-      f(self.outputSwizzle);
-    }
-  }
-};
-
-struct InitParamsAccel : InitParams, Serializable<InitParamsAccel> {
-  // TODO: remove once we generate new quick tuning list
-  constexpr InitParamsAccel(int64_t mPerBlock, int64_t nPerBlock,
-                            int64_t kPerBlock, int64_t mPerWave,
-                            int64_t nPerWave, int64_t mnPerXdl, int64_t kPack,
-                            int64_t splitKFactor, int64_t scheduleVersion,
-                            int64_t outputSwizzle, bool aThreadCopyMoreGemmK,
-                            bool bThreadCopyMoreGemmKPack)
-      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
-        gemmNPerWave(nPerWave), gemmMnPerXdl(mnPerXdl),
-        gemmNPerWaveOrMnPerXdl(0), gemmKPack(kPack), splitKFactor(splitKFactor),
-        gemmScheduleVersion(scheduleVersion), outputSwizzle(outputSwizzle),
-        wavesPerEU(0), gridGroupSize(0),
-        gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
-        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
-
-  constexpr InitParamsAccel(int64_t mPerBlock, int64_t nPerBlock,
-                            int64_t kPerBlock, int64_t mPerWave,
-                            int64_t nPerWave, int64_t mnPerXdl, int64_t kPack,
-                            int64_t splitKFactor, int64_t scheduleVersion,
-                            int64_t outputSwizzle, int64_t wavesPerEU,
-                            int64_t gridGroupSize, bool aThreadCopyMoreGemmK,
-                            bool bThreadCopyMoreGemmKPack)
-      : InitParams{mPerBlock, nPerBlock, kPerBlock}, gemmMPerWave(mPerWave),
-        gemmNPerWave(nPerWave), gemmMnPerXdl(mnPerXdl),
-        gemmNPerWaveOrMnPerXdl(0), gemmKPack(kPack), splitKFactor(splitKFactor),
-        gemmScheduleVersion(scheduleVersion), outputSwizzle(outputSwizzle),
-        wavesPerEU(wavesPerEU), gridGroupSize(gridGroupSize),
-        gemmAThreadCopyMoreGemmK(aThreadCopyMoreGemmK),
-        gemmBThreadCopyMoreGemmKPack(bThreadCopyMoreGemmKPack) {}
-
-  constexpr InitParamsAccel()
-      : InitParamsAccel(0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 0LL, 1LL, 1LL, 2LL, 0LL,
-                        0LL, false, false) {}
-
-  InitParamsAccel(MfmaGemmParamsAttr attr)
-      : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
-                   attr.getKpackPerBlock()},
-        gemmMPerWave(attr.getMPerWave()), gemmNPerWave(attr.getNPerWave()),
-        gemmMnPerXdl(attr.getMnPerXdl()), gemmNPerWaveOrMnPerXdl(0),
-        gemmKPack(attr.getKpack()), splitKFactor(attr.getSplitKFactor()),
-        gemmScheduleVersion(attr.getScheduleVersion()),
-        outputSwizzle(attr.getOutputSwizzle()),
-        wavesPerEU(attr.getWavesPerEU()),
-        gridGroupSize(attr.getGridGroupSize()),
-        gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false) {};
-
-  InitParamsAccel(WmmaGemmParamsAttr attr)
-      : InitParams{attr.getMPerBlock(), attr.getNPerBlock(),
-                   attr.getKpackPerBlock()},
-        gemmMPerWave(attr.getMPerWave()), gemmNPerWave(attr.getNPerWave()),
-        gemmMnPerXdl(attr.getMnPerXdl()), gemmNPerWaveOrMnPerXdl(0),
-        gemmKPack(attr.getKpack()), splitKFactor(attr.getSplitKFactor()),
-        gemmScheduleVersion(attr.getScheduleVersion()),
-        outputSwizzle(attr.getOutputSwizzle()),
-        wavesPerEU(attr.getWavesPerEU()),
-        gridGroupSize(attr.getGridGroupSize()),
-        gemmAThreadCopyMoreGemmK(attr.getForceUnroll()),
-        gemmBThreadCopyMoreGemmKPack(false) {};
-
-  int64_t getKPack() { return gemmKPack; }
-
-  int64_t gemmMPerWave;
-  int64_t gemmNPerWave;
-  int64_t gemmMnPerXdl;
-  int64_t gemmNPerWaveOrMnPerXdl;
-  int64_t gemmKPack;
-  int64_t splitKFactor;
-  int64_t gemmScheduleVersion;
-  int64_t outputSwizzle;
-  int64_t wavesPerEU;
-  int64_t gridGroupSize;
-  bool gemmAThreadCopyMoreGemmK;
-  bool gemmBThreadCopyMoreGemmKPack;
-
-  template <class Self, class F>
-  static void visit(Self &&self, F f) {
-    f(self.gemmMPerBlock);
-    f(self.gemmNPerBlock);
-    f(self.gemmKPerBlock);
-    f(self.gemmMPerWave);
-    if (self.version >= Version::V4) {
-      f(self.gemmNPerWave);
-      f(self.gemmMnPerXdl);
-    } else {
-      f(self.gemmNPerWaveOrMnPerXdl);
-    }
-    f(self.gemmKPack);
-    if (self.version >= Version::V2) {
-      f(self.splitKFactor);
-    }
-    if (self.version >= Version::V3) {
-      f(self.gemmScheduleVersion);
-      f(self.outputSwizzle);
-    }
-    if (self.version >= Version::V4) {
-      f(self.wavesPerEU);
-      f(self.gridGroupSize);
-    }
-    f(self.gemmAThreadCopyMoreGemmK);
-    f(self.gemmBThreadCopyMoreGemmKPack);
-  }
-};
-
-template <typename T>
-std::string genDebugForParams(T params) {
-  std::ostringstream os;
-  params.visit(params, [&os](auto &arg) { os << arg << ","; });
-  os << "\n";
-  return os.str();
-}
-
-template <typename InitParamType>
+template <typename ParamAttrType>
 class BasePopulateParams {
 private:
-  struct InitParamData {
-    InitParamType paramSet;
+  struct ParamData {
+    ParamAttrType paramAttr;
     size_t originalPos;
     int64_t paddingAmount;
 
-    bool operator<(const InitParamData &rhs) const {
+    bool operator<(const ParamData &rhs) const {
       if (this->paddingAmount < rhs.paddingAmount) {
         return true;
       }
@@ -273,16 +105,15 @@ private:
     }
   };
 
-  std::vector<InitParamData>
-  createParamData(const ArrayRef<InitParamType> &initParams,
-                  const GemmSize &gemmSize) {
-    std::vector<InitParamData> res;
-    for (size_t pos = 0; pos < initParams.size(); pos++) {
-      InitParamType paramSet = initParams[pos];
-      InitParamData paramData;
-      paramData.paramSet = paramSet;
+  std::vector<ParamData> createParamData(ArrayRef<ParamAttrType> params,
+                                         const GemmSize &gemmSize) {
+    std::vector<ParamData> res;
+    for (size_t pos = 0; pos < params.size(); pos++) {
+      ParamAttrType paramAttr = params[pos];
+      ParamData paramData;
+      paramData.paramAttr = paramAttr;
       paramData.originalPos = pos;
-      paramData.paddingAmount = calculatePaddingAmount(paramSet, gemmSize);
+      paramData.paddingAmount = calculatePaddingAmount(paramAttr, gemmSize);
       assert(paramData.originalPos >= 0);
       assert(paramData.paddingAmount >= 0);
       res.push_back(paramData);
@@ -291,26 +122,24 @@ private:
   }
 
   // Interface function to calculate padding amount of a given param set
-  virtual int64_t calculatePaddingAmount(const InitParamType &params,
+  virtual int64_t calculatePaddingAmount(ParamAttrType params,
                                          const GemmSize &gemmSize) const = 0;
 
 public:
-  // This function will order the initParams used in a non-tuning flow to
+  // This function will order the params used in a non-tuning flow to
   // prioritize params that does not require padding to come first while
   // otherwise maintaining the provided order.
-  std::vector<InitParamType>
-  orderInitParams(const ArrayRef<InitParamType> &initParams,
-                  const GemmSize &gemmSize) {
-    std::vector<InitParamData> initParamData =
-        createParamData(initParams, gemmSize);
-    std::sort(initParamData.begin(), initParamData.end());
+  std::vector<ParamAttrType> orderParams(ArrayRef<ParamAttrType> params,
+                                         const GemmSize &gemmSize) {
+    std::vector<ParamData> paramDataVec = createParamData(params, gemmSize);
+    std::sort(paramDataVec.begin(), paramDataVec.end());
 
-    std::vector<InitParamType> orderedParams;
-    orderedParams.resize(initParams.size());
-    std::transform(initParamData.begin(), initParamData.end(),
+    std::vector<ParamAttrType> orderedParams;
+    orderedParams.resize(params.size());
+    std::transform(paramDataVec.begin(), paramDataVec.end(),
                    orderedParams.begin(),
-                   [](InitParamData paramData) -> InitParamType {
-                     return paramData.paramSet;
+                   [](ParamData paramData) -> ParamAttrType {
+                     return paramData.paramAttr;
                    });
     return orderedParams;
   }
@@ -320,24 +149,21 @@ public:
   // applicability, but it should filter out inapplicable configs.
   virtual LogicalResult paramsProbablyValid(OpBuilder &b,
                                             const PopulateParamsInfo &info,
-                                            const InitParamType &params) = 0;
+                                            ParamAttrType params) = 0;
 
-  // Succced if `params` should be included in a "full" tuning space that
-  // excludes those known to not yeild good performance on the problem described
+  // Succeed if `params` should be included in a "full" tuning space that
+  // excludes those known to not yield good performance on the problem described
   // in `info`. This function uses hardcoded heuristics.
   virtual LogicalResult couldBePerformant(const PopulateParamsInfo &info,
-                                          const InitParamType &params) = 0;
+                                          ParamAttrType params) = 0;
 
-  // Convert the provided InitParamType into an MLIR `Attribute`.
-  virtual Attribute getGemmParamsAttr(OpBuilder &b,
-                                      const InitParamType &params) const = 0;
   virtual ~BasePopulateParams() {}
 };
 
 //
 // Non acceleration parameter initialization interface
 //
-class PopulateParams : public BasePopulateParams<InitParamsNonAccel> {
+class PopulateParams : public BasePopulateParams<GeneralGemmParamsAttr> {
 private:
 #define NonAccel_DECLARATIONS_GEN
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
@@ -346,80 +172,75 @@ private:
   // padding kernel for example , GemmK/block is 16 , if your gemmK is  13 , we
   // add more 3 gemmk
 
+  friend class ParamLookupTable<GeneralGemmParamsAttr>;
+
   LogicalResult
-  calculateBlockGemmPerformanceParameters(const InitParamsNonAccel &param);
+  calculateBlockGemmPerformanceParameters(GeneralGemmParamsAttr params);
 
-  LogicalResult populateDerived(const InitParamsNonAccel &validParams);
-
-  friend class ParamLookupTable<InitParamsNonAccel>;
+  LogicalResult populateDerived(GeneralGemmParamsAttr params);
 
 public:
-  LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
+  LogicalResult obtainTuningParameters(OpBuilder &b,
+                                       RockGemmWrapperInterface op,
                                        const StringRef perfConfig,
-                                       InitParamsNonAccel &validParams);
+                                       GeneralGemmParamsAttr &validParams);
 
   LogicalResult obtainTuningParameters(OpBuilder &b,
                                        const PopulateParamsInfo &info,
                                        const StringRef perfConfig,
-                                       InitParamsNonAccel &validParams);
+                                       GeneralGemmParamsAttr &validParams);
 
-  // Return the vector of heuristic parameters for a given kernel type and dat
+  // Return the vector of heuristic parameters for a given kernel type and data
   // type.
-  std::vector<InitParamsNonAccel> getTuningParameters(KernelType opType,
-                                                      Type dataTypeA,
-                                                      Type dataTypeB,
-                                                      StringRef arch) const;
-
-  Attribute getGemmParamsAttr(OpBuilder &b,
-                              const InitParamsNonAccel &params) const override;
+  std::vector<GeneralGemmParamsAttr>
+  getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
+                      Type dataTypeB, StringRef arch) const;
 
   LogicalResult paramsProbablyValid(OpBuilder &b,
                                     const PopulateParamsInfo &info,
-                                    const InitParamsNonAccel &params) override;
+                                    GeneralGemmParamsAttr params) override;
 
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,
-                                  const InitParamsNonAccel &params) override;
+                                  GeneralGemmParamsAttr params) override;
 
-  int64_t calculatePaddingAmount(const InitParamsNonAccel &params,
+  int64_t calculatePaddingAmount(GeneralGemmParamsAttr params,
                                  const GemmSize &gemmSize) const override;
 };
 
 //
 // Acceleration parameter initialization interface
 //
-class PopulateParamsAccel : public BasePopulateParams<InitParamsAccel> {
+class PopulateParamsAccel : public BasePopulateParams<AccelGemmParamsAttr> {
 public:
   static std::unique_ptr<PopulateParamsAccel> select(GemmFeatures features);
 
-  LogicalResult obtainTuningParameters(RockGemmWrapperInterface op,
+  LogicalResult obtainTuningParameters(OpBuilder &b,
+                                       RockGemmWrapperInterface op,
                                        const StringRef perfConfig,
-                                       InitParamsAccel &validParams);
+                                       AccelGemmParamsAttr &validParams);
 
-  virtual LogicalResult obtainTuningParameters(OpBuilder &b,
-                                               const PopulateParamsInfo &info,
-                                               const StringRef perfConfig,
-                                               InitParamsAccel &validParams);
+  virtual LogicalResult
+  obtainTuningParameters(OpBuilder &b, const PopulateParamsInfo &info,
+                         const StringRef perfConfig,
+                         AccelGemmParamsAttr &validParams);
 
-  int64_t calculatePaddingAmount(const InitParamsAccel &params,
+  int64_t calculatePaddingAmount(AccelGemmParamsAttr params,
                                  const GemmSize &gemmSize) const override;
 
   // Return the set of heuristic tuning parameters for the given opType, data
   // types, and architecture.
-  virtual std::vector<InitParamsAccel>
-  getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
-                      StringRef arch) const = 0;
-  Attribute
-  getGemmParamsAttr(OpBuilder &builder,
-                    const InitParamsAccel &validParams) const override = 0;
+  virtual std::vector<AccelGemmParamsAttr>
+  getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
+                      Type dataTypeB, StringRef arch) const = 0;
 
   // Note that this is a method on the general class because the distinguishing
   // of MFMA and WMMA paths is handled under the hood in populateDerived().
   LogicalResult paramsProbablyValid(OpBuilder &b,
                                     const PopulateParamsInfo &info,
-                                    const InitParamsAccel &params) override;
+                                    AccelGemmParamsAttr params) override;
 
   LogicalResult couldBePerformant(const PopulateParamsInfo &info,
-                                  const InitParamsAccel &params) override;
+                                  AccelGemmParamsAttr params) override;
 
   virtual LogicalResult
   isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param, Type dataTypeA,
@@ -427,15 +248,15 @@ public:
 
 protected:
   LogicalResult populatePaddingKernelDerived(RockGemmWrapperInterface op,
-                                             const InitParamsAccel &validParams,
+                                             AccelGemmParamsAttr validParams,
                                              GemmSize &gemmSize,
                                              uint32_t &blockSize,
                                              uint32_t &gridSize);
 
   /// The actual implementation of couldBePerformant(), which shouldn't exist
   /// once we merge gridwise_gemm and gridwise_gemm_accel and thus flatten
-  /// out the class heirachy in this file.
-  virtual LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
+  /// out the class hierarchy in this file.
+  virtual LogicalResult specificCouldBePerformant(AccelGemmParamsAttr params,
                                                   Type dataTypeA,
                                                   Type dataTypeB) = 0;
 };
@@ -448,21 +269,19 @@ class PopulateParamsXDL : public PopulateParamsAccel {
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef XDL_DECLARATIONS_GEN
 
-  friend class ParamLookupTable<InitParamsAccel>;
+  friend class ParamLookupTable<AccelGemmParamsAttr>;
 
 public:
-  std::vector<InitParamsAccel>
-  getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
-                      StringRef arch) const override;
-  Attribute
-  getGemmParamsAttr(OpBuilder &builder,
-                    const InitParamsAccel &validParams) const override;
+  std::vector<AccelGemmParamsAttr>
+  getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
+                      Type dataTypeB, StringRef arch) const override;
+
   LogicalResult isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
                                      Type dataTypeA, Type dataTypeB,
                                      StringRef arch) override;
 
 protected:
-  LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
+  LogicalResult specificCouldBePerformant(AccelGemmParamsAttr params,
                                           Type dataTypeA,
                                           Type dataTypeB) override;
 };
@@ -476,31 +295,22 @@ private:
 #include "mlir/Dialect/Rock/Tuning/QuickTuningPerfconfigs.inc"
 #undef Wmma_DECLARATIONS_GEN
 
-  friend class ParamLookupTable<InitParamsAccel>;
+  friend class ParamLookupTable<AccelGemmParamsAttr>;
 
 public:
-  std::vector<InitParamsAccel>
-  getTuningParameters(KernelType opType, Type dataTypeA, Type dataTypeB,
-                      StringRef arch) const override;
-
-  Attribute
-  getGemmParamsAttr(OpBuilder &builder,
-                    const InitParamsAccel &validParams) const override;
+  std::vector<AccelGemmParamsAttr>
+  getTuningParameters(OpBuilder &b, KernelType opType, Type dataTypeA,
+                      Type dataTypeB, StringRef arch) const override;
 
   LogicalResult isValidBlockwiseGemm(RockAccelTuningParamAttrInterface param,
                                      Type dataTypeA, Type dataTypeB,
                                      StringRef arch) override;
 
 protected:
-  LogicalResult specificCouldBePerformant(const InitParamsAccel &params,
+  LogicalResult specificCouldBePerformant(AccelGemmParamsAttr params,
                                           Type dataTypeA,
                                           Type dataTypeB) override;
 };
-
-FailureOr<std::pair<RockAccelTuningParamAttrInterface,
-                    RockAccelTuningParamAttrInterface>>
-getAttentionTuningParams(OpBuilder &b, RockGemmGemmWrapperInterface gemmGemmOp,
-                         AttnPerfConfigAttr attnPerfConfig);
 
 } // namespace rock
 } // namespace mlir
