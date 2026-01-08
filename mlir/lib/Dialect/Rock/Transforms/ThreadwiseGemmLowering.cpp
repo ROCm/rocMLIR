@@ -259,11 +259,20 @@ struct ThreadwiseGemmAccelRewritePattern
     auto dataTypeB =
         cast<MemRefType>(adaptor.getMatrixB().getType()).getElementType();
     Type dataTypeScaleA, dataTypeScaleB;
+    // Preserve the full scale vector type from the memref for loading
+    Type scaleVectorTypeA, scaleVectorTypeB;
     if (isScaledGemm) {
-      dataTypeScaleA =
+      scaleVectorTypeA =
           cast<MemRefType>(adaptor.getScaleA().getType()).getElementType();
-      dataTypeScaleB =
+      scaleVectorTypeB =
           cast<MemRefType>(adaptor.getScaleB().getType()).getElementType();
+      // Extract scalar element type for type checking
+      dataTypeScaleA = isa<VectorType>(scaleVectorTypeA)
+                           ? cast<VectorType>(scaleVectorTypeA).getElementType()
+                           : scaleVectorTypeA;
+      dataTypeScaleB = isa<VectorType>(scaleVectorTypeB)
+                           ? cast<VectorType>(scaleVectorTypeB).getElementType()
+                           : scaleVectorTypeB;
     }
 
     if (isa<VectorType>(dataTypeA)) {
@@ -271,14 +280,6 @@ struct ThreadwiseGemmAccelRewritePattern
     }
     if (isa<VectorType>(dataTypeB)) {
       dataTypeB = cast<VectorType>(dataTypeB).getElementType();
-    }
-    if (isScaledGemm) {
-      if (isa<VectorType>(dataTypeScaleA)) {
-        dataTypeScaleA = cast<VectorType>(dataTypeScaleA).getElementType();
-      }
-      if (isa<VectorType>(dataTypeScaleB)) {
-        dataTypeScaleB = cast<VectorType>(dataTypeScaleB).getElementType();
-      }
     }
 
     Value bufferA = adaptor.getMatrixA();
@@ -296,7 +297,7 @@ struct ThreadwiseGemmAccelRewritePattern
     size_t computeIndices = op.getComputeIndices().size();
     auto emitter = rock::accel::AccelEmitter::select(
         rock::getFeatures(op), dataTypeA, dataTypeB, rock::getArchValue(op),
-        tuningParams);
+        tuningParams, isScaledGemm);
 
     if (!emitter) {
       llvm::dbgs() << rock::getFeatures(op) << "\n";
@@ -308,16 +309,11 @@ struct ThreadwiseGemmAccelRewritePattern
     rock::accel::AccelEmitterParams params = emitter->getParams();
     Type argTypeA = params.argTypeA;
     Type argTypeB = params.argTypeB;
-    Type argTypeScaleA = dataTypeScaleA, argTypeScaleB = dataTypeScaleB;
-    if (isScaledGemm) {
-      auto argAVector = dyn_cast<VectorType>(argTypeA);
-      auto argBVector = dyn_cast<VectorType>(argTypeB);
-      if (argAVector && argBVector) {
-        // clone shape of ArgTypeA but retain elementType of dataTypeScaleA
-        argTypeScaleA = VectorType::get(argAVector.getShape(), dataTypeScaleA);
-        argTypeScaleB = VectorType::get(argBVector.getShape(), dataTypeScaleB);
-      }
-    }
+    // Use the preserved scale vector types from the memref, not derived from
+    // matrix shapes. The scale vector has its own size (e.g., 4 elements for
+    // scaled WMMA) independent of the matrix vector size.
+    Type argTypeScaleA = isScaledGemm ? scaleVectorTypeA : dataTypeScaleA;
+    Type argTypeScaleB = isScaledGemm ? scaleVectorTypeB : dataTypeScaleB;
 
     Value zeroConstantOp = b.createOrFold<ConstantIndexOp>(loc, 0);
     SmallVector<Value, 4> startCoords(4, zeroConstantOp);
@@ -410,16 +406,21 @@ struct ThreadwiseGemmAccelRewritePattern
 
         argScaleA = memref::LoadOp::create(b, loc, argTypeScaleA,
                                            rawBufferScaleA, coordsScaleA);
-        if (dyn_cast<VectorType>(argScaleA.getType())) {
-          argScaleA =
-              vector::ExtractOp::create(b, loc, argScaleA, zeroConstantOp);
-        }
-
         argScaleB = memref::LoadOp::create(b, loc, argTypeScaleB,
                                            rawBufferScaleB, coordsScaleB);
-        if (dyn_cast<VectorType>(argScaleB.getType())) {
-          argScaleB =
-              vector::ExtractOp::create(b, loc, argScaleB, zeroConstantOp);
+
+        // For MFMA, extract scalar from scale vector; for WMMA, keep as vector
+        auto features = rock::getFeatures(op);
+        bool isMfma = rock::bitEnumContainsAll(features, GemmFeatures::mfma);
+        if (isMfma) {
+          if (isa<VectorType>(argScaleA.getType())) {
+            argScaleA =
+                vector::ExtractOp::create(b, loc, argScaleA, zeroConstantOp);
+          }
+          if (isa<VectorType>(argScaleB.getType())) {
+            argScaleB =
+                vector::ExtractOp::create(b, loc, argScaleB, zeroConstantOp);
+          }
         }
       } else {
         coordsC = accelLoop.getLowerCoords(/*domain=*/2);

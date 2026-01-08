@@ -1116,32 +1116,45 @@ void WmmaEmitter::emitThreadwiseLoop(OpBuilder &b, Location loc, Value argA,
                                      Value argB, Value bufferC,
                                      ValueRange regCOffset, Value scaleA,
                                      Value scaleB) {
-  bool isScaled = scaleA && scaleB;
-  if (isScaled) {
-    llvm::report_fatal_error(
-        "Scaled WMMA not implemented yet for WMMA Emitter");
-  }
-
   VectorType vectorType = wmmaInsn.retType;
   auto vectorC =
       memref::LoadOp::create(b, loc, vectorType, bufferC, regCOffset);
 
-  // WMMAOp requires explicit m, n, k dimensions as IntegerAttrs
-  auto mAttr = b.getI32IntegerAttr(wmmaInsn.mPerAccel);
-  auto nAttr = b.getI32IntegerAttr(wmmaInsn.nPerAccel);
-  auto kAttr = b.getI32IntegerAttr(wmmaInsn.kDim);
-  auto subwordOffsetAttr = b.getI32IntegerAttr(0);
+  Value vectorD;
 
-  // Clamp flag is only valid for integer output types
-  Type elementType = vectorType.getElementType();
-  UnitAttr clampAttr =
-      isa<IntegerType>(elementType) ? b.getUnitAttr() : nullptr;
+  if (wmmaInsn.isScaled) {
+    // Scaled WMMA intrinsic requires scale vectors to be provided
+    assert(scaleA && scaleB &&
+           "Scaled WMMA requires scale vectors for both A and B operands");
 
-  auto mfma = amdgpu::WMMAOp::create(b, loc, vectorType, mAttr, nAttr, kAttr,
-                                     argA, argB, vectorC, subwordOffsetAttr,
-                                     /*unsignedA=*/nullptr,
-                                     /*unsignedB=*/nullptr, clampAttr);
-  auto vectorD = mfma.getDestD();
+    // first_scale_lane selects which lane group to read scales from (0 or 16).
+    // Using 0 is always valid: it works whether scales need 16 or 32 lanes.
+    // The value 16 is only valid when scales fit in half the lanes.
+    constexpr uint32_t firstScaleLane = 0;
+
+    auto wmma = amdgpu::ScaledWMMAOp::create(
+        b, loc, vectorType, wmmaInsn.mPerAccel, wmmaInsn.nPerAccel,
+        wmmaInsn.kDim, argA, argB, vectorC, scaleA, firstScaleLane, scaleB,
+        firstScaleLane);
+    vectorD = wmma.getDestD();
+  } else {
+    // Regular (non-scaled) WMMA operation
+    auto mAttr = b.getI32IntegerAttr(wmmaInsn.mPerAccel);
+    auto nAttr = b.getI32IntegerAttr(wmmaInsn.nPerAccel);
+    auto kAttr = b.getI32IntegerAttr(wmmaInsn.kDim);
+    auto subwordOffsetAttr = b.getI32IntegerAttr(0);
+
+    // Clamp flag is only valid for integer output types
+    Type elementType = vectorType.getElementType();
+    UnitAttr clampAttr =
+        isa<IntegerType>(elementType) ? b.getUnitAttr() : nullptr;
+
+    auto wmma = amdgpu::WMMAOp::create(b, loc, vectorType, mAttr, nAttr, kAttr,
+                                       argA, argB, vectorC, subwordOffsetAttr,
+                                       /*unsignedA=*/nullptr,
+                                       /*unsignedB=*/nullptr, clampAttr);
+    vectorD = wmma.getDestD();
+  }
 
   memref::StoreOp::create(b, loc, vectorD, bufferC, regCOffset);
 }
@@ -1283,7 +1296,8 @@ llvm::FailureOr<RegsAsMatrixSubTiles> WmmaEmitter::computeOutputTransforms(
 std::unique_ptr<AccelEmitter>
 AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
                      StringRef arch,
-                     RockAccelTuningParamAttrInterface tuningParams) {
+                     RockAccelTuningParamAttrInterface tuningParams,
+                     bool forScaledOp) {
   bool isMfma = rock::bitEnumContainsAll(features, GemmFeatures::mfma);
   bool isWmma = rock::bitEnumContainsAll(features, GemmFeatures::wmma);
   if (isMfma) {
@@ -1301,7 +1315,8 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
     auto maybeWmmaInsnGroup =
         WmmaInsn::select(dataTypeA, dataTypeB, waveSize, arch,
                          wmmaParams.getMPerWave(), wmmaParams.getNPerWave(),
-                         wmmaParams.getKpack(), wmmaParams.getKpackPerBlock());
+                         wmmaParams.getKpack(), wmmaParams.getKpackPerBlock(),
+                         forScaledOp);
     if (failed(maybeWmmaInsnGroup)) {
       return nullptr;
     }

@@ -85,9 +85,12 @@ struct AccelEmitterParams {
 struct AccelEmitter {
 
   /// Select the right accelerator based on the set of features and architecture
+  /// If \p forScaledOp is true, selects the scaled WMMA instruction for types
+  /// that support both scaled and unscaled variants (e.g., FP8).
   static std::unique_ptr<AccelEmitter>
   select(GemmFeatures features, Type dataTypeA, Type dataTypeB, StringRef arch,
-         RockAccelTuningParamAttrInterface tuningParams);
+         RockAccelTuningParamAttrInterface tuningParams,
+         bool forScaledOp = false);
 
   /// Emit the actual intrinsic in the threadwise operation
   /// If scaleA and scaleB are provided, emits a scaled version
