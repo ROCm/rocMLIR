@@ -535,7 +535,6 @@ def MIGraphX_SqueezeOp
 
     Negative axis values are supported (counting from the back). Valid range
     is [-rank, rank-1].
-    
     Examples:
     ```mlir
     // Remove specific dimension 0 (which has size 1)
@@ -567,9 +566,6 @@ def MIGraphX_GatherOp : MIGraphX_Op<"gather">,
     q + (r - 1). The `axis` dimension of `data` is replaced by the shape of
     `indices` in the output.
 
-    Negative axis values are supported (counting from the back). Valid range
-    is [-rank, rank-1].
-
     Example:
     ```mlir
     %gathered = migraphx.gather %data, %indices {axis = 0}
@@ -598,14 +594,12 @@ def MIGraphX_ScatterNoneOp
 
     All three inputs must have the same rank. The `indices` and `updates` tensors
     must have the same shape. The output has the same shape as `data`.
+    For each entry in updates, the target index in data is computed by
+    combining the entry's own indices with the value from indices. For a 2-D
+    case, the update is performed as:
 
-    For each entry in `updates`, the target index in `data` is computed by
-    combining the entry's own indices with the value from `indices`:
-    - For axis=0: `output[indices[i][j]][j] = updates[i][j]`
-    - For axis=1: `output[i][indices[i][j]] = updates[i][j]`
-
-    Negative axis values are supported (counting from the back). Valid range
-    is [-rank, rank-1].
+      output[indices[i][j]][j] = updates[i][j] if axis = 0
+      output[i][indices[i][j]] = updates[i][j] if axis = 1
 
     Example:
     ```mlir

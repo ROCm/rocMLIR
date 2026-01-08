@@ -799,8 +799,8 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
   ArrayRef<int64_t> indicesShape = indicesType.getShape();
 
   // Check for dynamic dimensions in data tensor
-  for (int64_t i = 0; i < static_cast<int64_t>(dataShape.size()); ++i) {
-    if (ShapedType::isDynamic(dataShape[i]))
+  for (auto dim : dataShape) {
+    if (ShapedType::isDynamic(dim))
       return op.emitOpError("dynamic dimensions in data tensor are not "
                             "supported for gather lowering to TOSA");
   }
@@ -824,7 +824,7 @@ GatherConverter::matchAndRewrite(migraphx::GatherOp op, OpAdaptor adaptor,
   Type elemType = dataType.getElementType();
 
   // Lowering strategy for migraphx.gather -> tosa.gather:
-  // TOSA's gather op is constrained to 3D tensors:
+  // TOSA's gather op is constrained to 3D value tensors and 2D index tensors:
   //   - values:  [N, K, C]  (N batches, K rows to gather from, C channels)
   //   - indices: [N, W]     (N batches of W indices)
   //   - output:  [N, W, C]  (for each batch n, index w: out[n,w,:] =
@@ -949,13 +949,13 @@ LogicalResult ScatterNoneConverter::matchAndRewrite(
   // strides of the original MIXRShapedType - if strides are 0 for dims after
   // axis, the indices are broadcast (constant) across those dimensions.
   MIXRShapedType origIndicesType = op.getIndices().getType();
-  ArrayRef<int64_t> indicesStrides = origIndicesType.getStrides();
+  ArrayRef<int64_t> origIndicesStrides = origIndicesType.getStrides();
   for (int64_t i = axis + 1; i < dataRank; ++i) {
     // Stride must be 0 (broadcast) or the dimension size must be 1
-    if (indicesStrides[i] != 0 && origIndicesType.getShape()[i] != 1) {
+    if (origIndicesStrides[i] != 0 && origIndicesType.getShape()[i] != 1) {
       return op.emitOpError("cannot lower to TOSA scatter: indices are not "
                             "constant across dimension ")
-             << i << " (stride=" << indicesStrides[i]
+             << i << " (stride=" << origIndicesStrides[i]
              << "). TOSA scatter requires indices to be broadcast across all "
              << "dimensions after the scatter axis. Consider using a different "
              << "lowering path for this scatter pattern.";

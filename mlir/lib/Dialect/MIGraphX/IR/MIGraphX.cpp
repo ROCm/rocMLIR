@@ -424,19 +424,45 @@ static bool hasNegativeIndices(Value indices) {
 
 LogicalResult GatherOp::verify() {
   MIXRShapedType dataType = getData().getType();
-  int64_t rank = dataType.getRank();
+  MIXRShapedType indicesType = getIndices().getType();
+  MIXRShapedType outputType = getOutput().getType();
+  int64_t dataRank = dataType.getRank();
+  int64_t indicesRank = indicesType.getRank();
   int64_t axis = getAxis();
   int64_t originalAxis = axis;
 
   // Normalize negative axes
   if (axis < 0)
-    axis += rank;
+    axis += dataRank;
 
   // Check axis is in bounds [0, rank)
-  if (axis < 0 || axis >= rank)
+  if (axis < 0 || axis >= dataRank)
     return emitOpError("axis ")
-           << originalAxis << " is out of bounds for data with rank " << rank
-           << " (valid range is [" << -rank << ", " << rank - 1 << "])";
+           << originalAxis << " is out of bounds for data with rank "
+           << dataRank << " (valid range is [" << -dataRank << ", "
+           << dataRank - 1 << "])";
+
+  // Check output rank: should be indices.rank + (data.rank - 1)
+  int64_t expectedOutputRank = indicesRank + (dataRank - 1);
+  if (outputType.getRank() != expectedOutputRank)
+    return emitOpError("expected output rank ")
+           << expectedOutputRank << " (indices rank " << indicesRank
+           << " + data rank " << dataRank << " - 1), but got "
+           << outputType.getRank();
+
+  // Check output shape
+  ArrayRef<int64_t> dataShape = dataType.getShape();
+  ArrayRef<int64_t> indicesShape = indicesType.getShape();
+  ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  SmallVector<int64_t> expectedShape;
+  expectedShape.append(dataShape.begin(), dataShape.begin() + axis);
+  expectedShape.append(indicesShape.begin(), indicesShape.end());
+  expectedShape.append(dataShape.begin() + axis + 1, dataShape.end());
+
+  if (outputShape != ArrayRef<int64_t>(expectedShape))
+    return emitOpError("expected output shape [")
+           << expectedShape << "], but got [" << outputShape << "]";
 
   // Check that constant indices are non-negative (MIGraphX normalizes indices,
   // so negative values indicate an error).
@@ -452,6 +478,7 @@ LogicalResult ScatterNoneOp::verify() {
   MIXRShapedType dataType = getData().getType();
   MIXRShapedType indicesType = getIndices().getType();
   MIXRShapedType updatesType = getUpdates().getType();
+  MIXRShapedType outputType = getOutput().getType();
   int64_t dataRank = dataType.getRank();
   int64_t indicesRank = indicesType.getRank();
   int64_t updatesRank = updatesType.getRank();
@@ -479,6 +506,11 @@ LogicalResult ScatterNoneOp::verify() {
   if (indicesType.getShape() != updatesType.getShape())
     return emitOpError("indices and updates must have the same shape, got ")
            << indicesType.getShape() << " vs " << updatesType.getShape();
+
+  // Check that output shape matches data shape
+  if (outputType.getShape() != dataType.getShape())
+    return emitOpError("output shape must match data shape, got [")
+           << outputType.getShape() << "] vs [" << dataType.getShape() << "]";
 
   // Check that constant indices are non-negative (MIGraphX normalizes indices,
   // so negative values indicate an error).
