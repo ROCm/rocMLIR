@@ -74,6 +74,7 @@ class TuningResult:
     """Result of tuning a single configuration."""
     test_vector: str
     success: bool
+    gpu_id: Optional[int] = None
     winning_config: Optional[str] = None
     max_tflops: Optional[float] = None
     entries: List[Dict] = field(default_factory=list)
@@ -643,7 +644,7 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
         ' '.join(rocmlir_gen_command), ' '.join(rocmlir_driver_command), ' '.join(rocprof_command)
     ])
 
-    debug_info = f"[GPU {gpu_id}] Verification pipeline: " + verification_pipeline
+    debug_info = f"[GPU {gpu_id}] Verification pipeline:\n" + verification_pipeline
 
     if not options.quiet and options.debug:
         print(debug_info, file=sys.stderr)
@@ -828,7 +829,7 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                                              env=env)
             tuning_pipeline = ' '.join(tuning_driver_command)
 
-        debug_info = f"[GPU {gpu_id}] Tuning pipeline: " + tuning_pipeline
+        debug_info = f"[GPU {gpu_id}] Tuning '{test_vector}':\n" + tuning_pipeline
 
         if not options.quiet and options.debug:
             print(debug_info, file=sys.stderr)
@@ -915,6 +916,7 @@ def tune_configs(ctx: TuningContext) -> bool:
                                  compile_threads)
             return TuningResult(test_vector=test_vector,
                                 success=result.get('success', False),
+                                gpu_id=gpu_id,
                                 winning_config=result.get('winning_config'),
                                 max_tflops=result.get('max_tflops'),
                                 entries=result.get('entries', []),
@@ -957,7 +959,8 @@ def tune_configs(ctx: TuningContext) -> bool:
                     else:
                         has_errors = True
                         error_text = result.error or "Unknown error"
-                        formatted_error = f"Error tuning {result.test_vector}\n" + '\n'.join(
+                        gpu_prefix = f"[GPU {result.gpu_id}] " if result.gpu_id is not None else ""
+                        formatted_error = f"{gpu_prefix}Error tuning {result.test_vector}\n" + '\n'.join(
                             f"\t{line}" for line in error_text.splitlines())
                         print(formatted_error, file=sys.stderr)
                         results_writer.write_error(formatted_error)
