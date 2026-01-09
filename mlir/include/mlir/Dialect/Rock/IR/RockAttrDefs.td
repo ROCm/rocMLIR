@@ -216,6 +216,8 @@ def Rock_TransformMapAttr : Rock_Attr<"TransformMap"> {
     let genVerifyDecl = 1;
 }
 
+// Keep in sync with get_splitk_value() in
+// mlir/utils/performance/analysis/quickTuningGen.py
 def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "general_gemm_params";
   let description = [{
@@ -281,6 +283,8 @@ def Rock_GeneralGemmParamsAttr : Rock_Attr<"GeneralGemmParams", [RockTuningParam
   }];
 }
 
+// Keep in sync with get_splitk_value() in
+// mlir/utils/performance/analysis/quickTuningGen.py
 def Rock_AccelGemmParamsAttr
     : Rock_Attr<"AccelGemmParams", [RockTuningParamAttrInterface,
                                     RockAccelTuningParamAttrInterface]> {
@@ -349,6 +353,8 @@ def Rock_AccelGemmParamsAttr
   }];
 }
 
+// Keep in sync with get_splitk_value() in
+// mlir/utils/performance/analysis/quickTuningGen.py
 def Rock_GemmGemmParamsAttr
     : Rock_Attr<"GemmGemmParams", [RockTuningParamAttrInterface]> {
   let mnemonic = "gemm_gemm_params";

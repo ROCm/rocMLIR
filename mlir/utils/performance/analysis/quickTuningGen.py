@@ -70,18 +70,41 @@ def get_target_columns(op):
         raise ValueError(f"Unknown operation: {op}")
 
 
+def parse_perfconfig(perfconfig):
+    """Parse a perfconfig string into format, version, and params."""
+    parts = perfconfig.split(":")
+    if len(parts) == 3:
+        # format:vN:params
+        return parts[0], int(parts[1][1:]), parts[2].split(",")
+    elif len(parts) == 2:
+        if parts[0].startswith("v"):
+            # vN:params
+            return None, int(parts[0][1:]), parts[1].split(",")
+        else:
+            # format:params
+            return parts[0], 1, parts[1].split(",")
+    else:
+        # params only
+        return None, 1, perfconfig.split(",")
+
+
 def get_splitk_value(perfconfig):
     """Extract the split-K value from a perfconfig string."""
-    if perfconfig.startswith("attn:"):
-        idx = 8
-    elif perfconfig.startswith("v4:"):
-        idx = 7
-    else:
-        idx = 6
+    fmt, version, params = parse_perfconfig(perfconfig)
 
-    params_str = perfconfig.split(":")[-1]  # Strip version prefix
-    params = params_str.split(',')
-    if idx < len(params):
+    idx = None
+    if fmt == "attn":
+        if version >= 3:
+            idx = 8
+        elif version >= 2:
+            idx = 7
+    else:
+        if version >= 4:
+            idx = 7
+        elif version >= 2:
+            idx = 6
+
+    if idx is not None and idx < len(params):
         return params[idx]
     return None
 
@@ -91,18 +114,32 @@ def get_splitk_value(perfconfig):
 # =============================================================================
 
 
-def load_data(input_dir, no_splitk):
+def load_data(input_dir, no_splitk, pattern=None):
     """Load and combine all .debug tuning files."""
     files = glob.glob(os.path.join(input_dir, "*.debug"))
     if not files:
+        print(f"No .debug files found in '{input_dir}'", file=sys.stderr)
         return None
+
+    if pattern:
+        regex = re.compile(pattern)
+        files = [f for f in files if regex.search(os.path.basename(f))]
+        if not files:
+            print(f"No .debug files matched the pattern '{pattern}' in '{input_dir}'",
+                  file=sys.stderr)
+            return None
+
+    print(f"Found {len(files)} .debug file(s) in '{input_dir}':")
+    for f in files:
+        print(f"    - {os.path.basename(f)}")
+    print()
 
     dfs = [pd.read_csv(f, sep='\t', index_col=None) for f in files]
     df = pd.concat(dfs, ignore_index=True)
 
     if no_splitk:
         # Filter out configs where splitK != 1
-        mask = df['PerfConfig'].apply(lambda x: get_splitk_value(x) == '1')
+        mask = df['PerfConfig'].apply(lambda x: get_splitk_value(x) in (None, '1'))
         df = df[mask]
 
     return df
@@ -307,9 +344,10 @@ def update_inc_file(results, arch, op):
 def print_results(results):
     """Print selected perfconfigs."""
     for dtype, configs in results.items():
-        print(f"\nDatatype: {dtype} ({len(configs)} configs)")
+        print(f"Datatype: {dtype} ({len(configs)} configs)")
         for i, cfg in enumerate(configs, 1):
             print(f"  {i:3d}: {cfg}")
+        print()
 
 
 def main(args=None):
@@ -320,19 +358,19 @@ def main(args=None):
     parser.add_argument('--th', type=float, default=0.93, help='Threshold (default: 0.93)')
     parser.add_argument('--update', action='store_true', help='Update .inc file')
     parser.add_argument('--no-splitk', action='store_true', help='Exclude Split-K configs')
+    parser.add_argument('--pattern', help='Regex pattern to filter .debug filenames')
 
     pargs = parser.parse_args(args)
 
-    df = load_data(pargs.input_dir, pargs.no_splitk)
+    df = load_data(pargs.input_dir, pargs.no_splitk, pargs.pattern)
     if df is None or df.empty:
-        print("Error: No data found", file=sys.stderr)
         return 1
 
     results = find_perfconfigs(df, pargs.op, pargs.th)
     print_results(results)
 
     if pargs.update:
-        print(f"\nUpdating: {get_output_path()}")
+        print(f"Updating: {get_output_path()}")
         update_inc_file(results, pargs.arch, pargs.op)
         print("Done!")
 

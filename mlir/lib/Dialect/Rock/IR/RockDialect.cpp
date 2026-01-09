@@ -3371,19 +3371,20 @@ parsePerfConfigStr(StringRef configStr, StringRef expectedPrefix = "") {
   if (!expectedPrefix.empty()) {
     StringRef prefix;
     std::tie(prefix, rest) = rest.split(':');
-    if (prefix != expectedPrefix)
+    if (prefix != expectedPrefix) {
       return std::nullopt;
+    }
   }
 
-  // Parse "vN:"
-  StringRef versionStr;
-  std::tie(versionStr, rest) = rest.split(':');
-  if (!versionStr.consume_front("v"))
-    return std::nullopt;
-
-  int version;
-  if (!llvm::to_integer(versionStr, version))
-    return std::nullopt;
+  // Parse "vN:" - if not present, assume version 1
+  int version = 1;
+  if (rest.consume_front("v")) {
+    StringRef versionStr;
+    std::tie(versionStr, rest) = rest.split(':');
+    if (!llvm::to_integer(versionStr, version)) {
+      return std::nullopt;
+    }
+  }
 
   // Parse comma-separated parameters
   SmallVector<StringRef, SmallVectorInlineSize> tokens;
