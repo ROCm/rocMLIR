@@ -95,6 +95,54 @@ def inverse_filter_layouts(filter_layout):
     return "".join(map[char] for char in filter_layout)
 
 
+# This map stores the header to flag mapping and a boolean value denoting
+# if the flag require a value
+DEBUG_HEADER_TO_FLAG = {
+    'C': '-c',
+    'Causal': '-causal',
+    'Chip': '--arch',
+    'DataType': '-t',
+    'DilationH': '--dilation_h',
+    'DilationW': '--dilation_w',
+    'Direction': '-F',
+    'FilterLayout': '-f',
+    'G': '-g',
+    'H': '-h',
+    'HeadDimQK': '-head_dim_qk',
+    'HeadDimV': '-head_dim_v',
+    'InputLayout': '-I',
+    'K': '-k',
+    'M': '-m',
+    'N': '-n',
+    'numCU': '--num_cu',
+    'NumHeadsKV': '-num_heads_kv',
+    'NumHeadsQ': '-num_heads_q',
+    'O': '-gemmO',
+    'OutDataType': '-out_datatype',
+    'OutputLayout': '-O',
+    'PaddingH': '--padding_h',
+    'PaddingW': '--padding_w',
+    'PerfConfig': '--perf_config',
+    'ReturnLSE': 'return_lse',
+    'SplitKV': '-split_kv',
+    'SeqLenK': '-seq_len_k',
+    'SeqLenQ': '-seq_len_q',
+    'StrideH': '--conv_stride_h',
+    'StrideW': '--conv_stride_w',
+    'TransA': '-transA',
+    'TransB': '-transB',
+    'TransK': '-transK',
+    'TransO': '-transO',
+    'TransQ': '-transQ',
+    'TransV': '-transV',
+    'W': '-w',
+    'WithAttnBias': '-with-attn-bias',
+    'WithAttnScale': '-with-attn-scale',
+    'X': '-x',
+    'Y': '-y',
+}
+
+
 @dataclass
 class MLIRPaths:
     rocmlir_gen_path: str
@@ -283,11 +331,69 @@ def get_bank_conflict(filename):
         return result_average
 
 
+def parse_debug_db_row(row) -> str:
+    """
+    Parses a row from the debug database and returns a formatted string.
+    """
+    # Before we start, we want to ensure that all of the values in
+    # DEBUG_HEADER_TO_FLAG are up to date with what is in GEMM_TEST_PARAMETERS,
+    # CONV_TEST_PARAMETERS and ATTN_TEST_PARAMETERS in reportUtils.py
+    for param in getattr(reportUtils, "GEMM_TEST_PARAMETERS", []):
+        assert param in DEBUG_HEADER_TO_FLAG, f"{param} missing in DEBUG_HEADER_TO_FLAG"
+    for param in getattr(reportUtils, "ATTN_TEST_PARAMETERS", []):
+        assert param in DEBUG_HEADER_TO_FLAG, f"{param} missing in DEBUG_HEADER_TO_FLAG"
+    for param in getattr(reportUtils, "CONV_TEST_PARAMETERS", []):
+        assert param in DEBUG_HEADER_TO_FLAG, f"{param} missing in DEBUG_HEADER_TO_FLAG"
+
+    # Filter out Chip and numCU values as they are already accounted for and
+    # we do not want to double count them
+    args = []
+    for key, value in row.items():
+        if key in DEBUG_HEADER_TO_FLAG and (key != "Chip") and (key != "numCU"):
+            args.extend([DEBUG_HEADER_TO_FLAG[key], str(value).lower()])
+
+    # Filter out any empty strings and join with spaces
+    result_str = " ".join(filter(None, args))
+    return result_str
+
+
+# Tuning debug databases
+MaybeDebugDb = Optional[Dict[Tuple[str, str, str, str, str], str]]
+
+
+def read_debug_db(path: str) -> MaybeDebugDb:
+    try:
+        df = pd.read_csv(path, sep='\t')
+        ret = {}
+        for _, row in df.iterrows():
+            # If this was not a valid config, i.e., it did not generate a
+            # TFLOPs value, then we can skip it
+            if pd.isna(row.get('TFlops')) or row.get('TFlops') == '':
+                continue
+
+            # Extract the required fields
+            arch = row['Chip']
+            num_cu = str(row['numCU'])
+            perf_config = row['PerfConfig']
+            tflops = row['TFlops']
+            configs = parse_debug_db_row(row)
+            ret[(arch, num_cu, configs, perf_config, tflops)] = row
+
+        return ret
+    except FileNotFoundError:
+        if path:
+            print("Warning: Failed to find tuning debug database:", path)
+        return None
+    except Exception as e:
+        print(f"Error reading tuning debug database: {e}")
+        return None
+
+
 # Tuning databases
-MaybeTuningDb = Optional[Dict[Tuple[str, str], str]]
+MaybeTuningDb = Optional[Dict[Tuple[str, str, str], str]]
 
 
-def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
+def read_tuning_db(path: [str]) -> MaybeTuningDb:
     try:
         ret = {}
         with open(path, 'r') as db_file:
@@ -299,16 +405,16 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
 
                 # note: legacy format has 3 entries
                 if len(entries) == 3:
-                    arch, config, perfconfig = entries
-                    ret[arch, config] = perfconfig
+                    arch, config, perf_config = entries
+                    ret[arch, None, config] = perf_config
                 # note: new format has 4 entries
                 elif len(entries) == 4:
-                    arch, _, config, perfconfig = entries
-                    ret[arch, config] = perfconfig
+                    arch, num_cu, config, perf_config = entries
+                    ret[arch, num_cu, config] = perf_config
                 # note: 5-entry form includes tflops at end
                 elif len(entries) == 5:
-                    arch, _, config, perfconfig, _ = entries
-                    ret[arch, config] = perfconfig
+                    arch, num_cu, config, perf_config, _ = entries
+                    ret[arch, num_cu, config] = perf_config
                 else:
                     print("Warning: Malformed tuning database entry:", line)
                     continue
@@ -337,12 +443,24 @@ def run_pipeline(proc_specs):
                               stderr=subprocess.PIPE)
         procs.append(po)
     try:
-        for p in procs:
-            p.wait()
+        # Close intermediate stdout pipes
+        for p in procs[:-1]:
+            if p.stdout:
+                p.stdout.close()
+
+        # Wait for the last process to finish and collect its output
+        outs, errs = procs[-1].communicate()
+        if procs[-1].returncode != 0:
+            raise OSError(str(procs[-1].stderr.read()))
+
+        # Now check all processes for errors
+        for i, p in enumerate(procs):
+            if p.returncode is None:
+                p.wait()
             if p.returncode != 0:
                 raise OSError(str(p.stderr.read()))
-        outs, errs = p.communicate()
-        return outs, True
+
+        return outs, errs
     except Exception as err:
         print(f"Error:  {err}")
         print(f"Failing command:  {' '.join(p.args)}")
@@ -353,6 +471,26 @@ def run_pipeline(proc_specs):
 
 class PerfConfiguration:
     TABLE_COLUMNS = []
+
+    def get_total_flops(self):
+        raise NotImplementedError()
+
+    def compute_ns_from_tflops(self, tflops):
+        """
+        Calculate nanoseconds from TFlops value.
+        This is the inverse of compute_tflops().
+
+        Args:
+            tflops: TFlops value to convert to nanoseconds
+
+        Returns:
+            float: Time in nanoseconds
+        """
+        if tflops == 0 or np.isnan(tflops) or np.isinf(tflops):
+            return np.nan
+
+        total_flops = self.get_total_flops()
+        return total_flops / (tflops * 1e3)
 
     def compute_tflops(self, ns: int) -> float:
         raise NotImplementedError()
@@ -445,13 +583,15 @@ class ConvConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.CONV_TEST_PARAMETERS + ['LDSBankConflict'] + ['TFlops']
     EXTERNAL_NAME = "MIOpen"
 
+    def get_total_flops(self):
+        return (2.0 * self.n * (self.c // self.group) * self.k * self.ho * self.wo * self.y * self.x)
+
     def compute_tflops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
         assert (self.k % self.group == 0)
         assert (self.c % self.group == 0)
-        return (2.0 * self.n * (self.c // self.group) * self.k * self.ho * self.wo * self.y *
-                self.x) / (float(ns) * 1e-9) / 1e12
+        return self.get_total_flops() / (float(ns) * 1e-9) / 1e12
 
     def table_entry(self, nanoseconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
@@ -509,8 +649,11 @@ class ConvConfiguration(PerfConfiguration):
 
     @classmethod
     def from_command_line(cls, argv, arch, num_cu):
-        # determine datatype from argv[1]
+        # Determine if argv[0] is an operation type or a flag
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
+        datatype = None
+
+        # Check if argv[0] is an operation type (e.g., 'conv', 'convfp16', etc.)
         if argv[0] == 'conv':
             datatype = 'f32'
         elif argv[0] == 'convfp16':
@@ -530,32 +673,40 @@ class ConvConfiguration(PerfConfiguration):
         elif argv[0] == 'convbf8_bf8':
             datatype = 'bf8_bf8'
 
+        # If datatype was determined from operation type, skip argv[0] when parsing options
+        args_start = 1 if datatype is not None else 0
+
         try:
             # TBD:
             # implement -m ?
-            # implement -t ?
-            opts, _ = getopt.getopt(argv[1:], "F:f:I:O:n:c:H:W:k:y:x:p:q:l:j:u:v:g:m:t:")
+            # Short opts: include both uppercase and lowercase H/W
+            short_opts = "F:f:I:O:n:c:H:W:h:w:k:y:x:p:q:l:j:u:v:g:m:t:"
+            long_opts = [
+                "dilation_h=", "dilation_w=",
+                "conv_stride_h=", "conv_stride_w=",
+                "padding_h=", "padding_w=",
+                "perf_config="
+            ]
+            opts, _ = getopt.getopt(argv[args_start:], short_opts, long_opts)
         except getopt.GetoptError:
             print('getopt error')
             sys.exit(1)
 
+        # Default setting of num groups to 1
+        group = 1
+
         for opt, arg in opts:
             if opt == '-F':
-                # -F
-                # 1 fwd only
-                # 2 bwd only
-                # 4 wrw only
-                # TBD:
-                # 0 fwd+bwd+wrw
-                # 3 fwd+bwd
-                # 5 fwd+wrw
-                # 6 bwd+wrw
-                if int(arg) == 1:
-                    direction = 'fwd'
-                elif int(arg) == 2:
-                    direction = 'bwd'
-                elif int(arg) == 4:
-                    direction = 'wrw'
+                # Accept either numeric codes (1/2/4) or strings (fwd/bwd/wrw)
+                val = arg.lower()
+                num_map = {'1': 'fwd', '2': 'bwd', '4': 'wrw'}
+                str_list = ['fwd', 'bwd', 'wrw']
+                if val in num_map:
+                    direction = num_map[val]
+                elif val in str_list:
+                    direction = val
+                else:
+                    raise ValueError(f"Invalid -F argument (expected 1/2/4 or fwd/bwd/wrw): {arg}")
             elif opt == '-f':
                 filter_layout = arg
             elif opt == '-I':
@@ -566,9 +717,9 @@ class ConvConfiguration(PerfConfiguration):
                 n = int(arg)
             elif opt == '-c':
                 c = int(arg)
-            elif opt == '-H':
+            elif opt == '-H' or opt == "-h":
                 hi = int(arg)
-            elif opt == '-W':
+            elif opt == '-W' or opt == "-w":
                 wi = int(arg)
             elif opt == '-k':
                 k = int(arg)
@@ -576,20 +727,22 @@ class ConvConfiguration(PerfConfiguration):
                 y = int(arg)
             elif opt == '-x':
                 x = int(arg)
-            elif opt == '-u':
+            elif opt == '-u' or opt == '--conv_stride_h':
                 conv_stride_h = int(arg)
-            elif opt == '-v':
+            elif opt == '-v' or opt == '--conv_stride_w':
                 conv_stride_w = int(arg)
-            elif opt == '-p':
+            elif opt == '-p' or opt == '--padding_h':
                 padding_h = int(arg)
-            elif opt == '-q':
+            elif opt == '-q' or opt == '--padding_w':
                 padding_w = int(arg)
-            elif opt == '-l':
+            elif opt == '-l' or opt == '--dilation_h':
                 dilation_h = int(arg)
-            elif opt == '-j':
+            elif opt == '-j' or opt == '--dilation_w':
                 dilation_w = int(arg)
             elif opt == '-g':
                 group = int(arg)
+            elif opt == '-t' and datatype is None:
+                datatype = arg
             else:
                 continue
 
@@ -620,9 +773,10 @@ class ConvConfiguration(PerfConfiguration):
         self.datatype = dtype
         self.direction = direction
 
-        self.filter_layout = filter_layouts(filter_layout)
-        self.input_layout = input_layouts(input_layout)
-        self.output_layout = output_layouts(output_layout)
+        # Only translate if original string is all uppercase; else assume already translated/lowered.
+        self.filter_layout = filter_layouts(filter_layout) if filter_layout.isupper() else filter_layout
+        self.input_layout = input_layouts(input_layout) if input_layout.isupper() else input_layout
+        self.output_layout = output_layouts(output_layout) if output_layout.isupper() else output_layout
 
         self.n = n
         self.c = c
@@ -901,10 +1055,13 @@ def get_attn_configurations(filename):
 class GemmConfiguration(PerfConfiguration):
     TABLE_COLUMNS = reportUtils.GEMM_TEST_PARAMETERS + ['LDSBankConflict'] + ['TFlops']
 
+    def get_total_flops(self):
+        return 2.0 * self.g * self.m * self.k * self.n
+
     def compute_tflops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
-        return (2.0 * self.g * self.m * self.k * self.n) / (float(ns) * 1e-9) / 1e12
+        return self.get_total_flops() / (float(ns) * 1e-9) / 1e12
 
     def table_entry(self, nanoseconds):
         # Future(kdrewnia): This can just be a dict literal on Python 3.7+
@@ -1148,19 +1305,21 @@ class ConvGemmConfiguration(PerfConfiguration):
         self.wo = math.floor((self.wi + self.padding_w * 2 -
                               (self.x - 1) * self.dilation_w - 1) / self.conv_stride_w) + 1
 
+    def get_total_flops(self):
+        first_conv_flops = 2.0 * self.n * (self.c // self.group) * self.k * self.ho * self.wo * self.y * self.x
+        first_gemm_m = self.k
+        first_gemm_n = self.n * self.ho * self.wo
+        batch_second_gemm = 1.0
+        second_matmul_flops = 2.0 * batch_second_gemm * first_gemm_m * first_gemm_n * self.o
+        return first_conv_flops + second_matmul_flops
+
     def compute_tflops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
         assert (self.k % self.group == 0)
         assert (self.c % self.group == 0)
 
-        first_conv_flops = 2.0 * self.n * (
-            self.c // self.group) * self.k * self.ho * self.wo * self.y * self.x
-        first_gemm_m = self.k
-        first_gemm_n = self.n * self.ho * self.wo
-        batch_second_gemm = 1.0
-        second_matmul_flops = 2.0 * batch_second_gemm * first_gemm_m * first_gemm_n * self.o
-        total_flops = first_conv_flops + second_matmul_flops
+        total_flops = self.get_total_flops()
 
         return total_flops / (float(ns) * 1e-9) / 1e12
 
@@ -1329,13 +1488,15 @@ class GemmGemmConfiguration(PerfConfiguration):
         self.num_cu = num_cu
         self.perfconfig = perf_config
 
+    def get_total_flops(self):
+        first_matmul_flops = 2.0 * self.g * self.m * self.k * self.n
+        second_matmul_flops = 2.0 * self.g * self.m * self.n * self.o
+        return first_matmul_flops + second_matmul_flops
+
     def compute_tflops(self, ns):
         # NaN will propagate as expected
         # Repeats are handled by the fact that we're using avarageNs
-        first_matmul_flops = 2.0 * self.g * self.m * self.k * self.n
-        second_matmul_flops = 2.0 * self.g * self.m * self.n * self.o
-        total_flops = first_matmul_flops + second_matmul_flops
-
+        total_flops = self.get_total_flops()
         return total_flops / (float(ns) * 1e-9) / 1e12
 
     def table_entry(self, nanoseconds):
@@ -1480,9 +1641,7 @@ class AttentionConfiguration(PerfConfiguration):
         self.num_cu = num_cu
         self.perfconfig = perf_config
 
-    def compute_tflops(self, ns, only_matmul_flops=True):
-        # NaN will propagate as expected
-        # Repeats are handled by the fact that we're using avarageNs
+    def get_total_flops(self, only_matmul_flops):
         # GQA broadcasts so that both num_heads_q == num_heads_kv
         g = self.g * max(self.num_heads_q, self.num_heads_kv)
         first_matmul_flops = 2.0 * g * self.seq_len_q * self.head_dim_qk * self.seq_len_k
@@ -1502,16 +1661,40 @@ class AttentionConfiguration(PerfConfiguration):
                 total_flops += g * self.seq_len_q * self.seq_len_k
             if self.with_attn_bias:
                 total_flops += g * self.seq_len_q * self.seq_len_k
+
+        return total_flops
+
+    def compute_tflops(self, ns, only_matmul_flops=True):
+        # NaN will propagate as expected
+        # Repeats are handled by the fact that we're using avarageNs
+        total_flops = self.get_total_flops(only_matmul_flops)
         return total_flops / (float(ns) * 1e-9) / 1e12
 
-    def table_entry(self, nanoseconds):
+    def compute_ns_from_tflops(self, tflops, only_matmul_flops=True):
+        """
+        Calculate nanoseconds from TFlops value.
+        This is the inverse of compute_tflops().
+
+        Args:
+            tflops: TFlops value to convert to nanoseconds
+
+        Returns:
+            float: Time in nanoseconds
+        """
+        if tflops == 0 or np.isnan(tflops) or np.isinf(tflops):
+            return np.nan
+
+        total_flops = self.get_total_flops(only_matmul_flops)
+        return total_flops / (tflops * 1e3)
+
+    def table_entry(self, nano_seconds):
         result = {}
         values = [
             self.datatype, self.chip, self.num_cu, self.trans_q, self.trans_k, self.trans_v,
             self.trans_o, self.causal, self.return_lse, self.split_kv, self.with_attn_scale,
             self.with_attn_bias, self.g, self.seq_len_q, self.seq_len_k, self.num_heads_q,
             self.num_heads_kv, self.head_dim_qk, self.head_dim_v, self.perfconfig,
-            self.compute_tflops(nanoseconds)
+            self.compute_tflops(nano_seconds)
         ]
         assert (len(self.TABLE_COLUMNS) == len(values))
         for k, v in zip(self.TABLE_COLUMNS, values):
