@@ -1826,6 +1826,79 @@ const StringRef PopulateParamsGemmGemm::initParametersBf16AttentionGfx942[] = {
 };
 // END_ATTENTION_GemmGemm_bf16_gfx942_DEFS
 
+// BEGIN_ATTENTION_GemmGemm_f16_gfx1201_DEFS
+const StringRef PopulateParamsGemmGemm::initParametersF16AttentionGfx1201[] = {
+    "attn:v3:32,32,128,2,32,32,16,8,1,2,2,0,1",
+    "attn:v3:64,64,64,2,32,32,16,8,1,2,2,0,1",
+    "attn:v3:64,64,128,2,32,64,16,8,1,1,2,0,1",
+    "attn:v3:128,128,16,4,32,16,16,8,1,2,2,0,1",
+    "attn:v3:128,128,128,4,32,32,16,8,1,1,2,0,1",
+    "attn:v3:128,128,128,16,64,16,16,8,1,1,2,0,1",
+    "attn:v3:128,128,64,16,64,16,16,4,1,2,2,0,1",
+    "attn:v3:16,16,192,4,16,48,16,4,1,1,2,0,1",
+    "attn:v3:128,128,128,8,128,32,16,4,1,2,2,0,1",
+    "attn:v3:16,96,96,4,16,48,16,8,1,1,2,0,1",
+    "attn:v3:16,96,32,4,16,32,16,4,1,1,2,0,1",
+    "attn:v3:32,32,128,2,32,32,16,8,1,1,1,0,1",
+    "attn:v3:32,64,160,4,16,80,16,4,1,2,2,0,1",
+    "attn:v3:128,128,128,4,32,32,16,8,1,1,0,8,1",
+    "attn:v3:32,96,32,8,16,32,16,4,1,2,2,0,1",
+    "attn:v3:32,64,128,16,16,64,16,4,1,1,2,0,1",
+    "attn:v3:64,64,256,32,32,32,16,4,1,1,2,0,1",
+    "attn:v3:64,64,192,4,16,96,16,16,1,2,2,0,1",
+    "attn:v3:64,64,256,16,32,32,16,8,1,1,2,0,1",
+    "attn:v3:32,32,128,16,16,64,16,4,1,2,2,0,1",
+    "attn:v3:64,128,256,64,32,32,16,4,1,1,2,0,1",
+    "attn:v3:32,64,128,4,16,64,16,16,1,2,2,0,1",
+    "attn:v3:64,128,64,4,64,16,16,4,1,1,2,0,1",
+    "attn:v3:64,64,32,2,64,32,16,8,1,1,2,0,1",
+    "attn:v3:128,128,32,4,64,16,16,4,1,1,2,0,1",
+    "attn:v3:128,128,64,8,64,32,16,16,1,1,2,0,1",
+    "attn:v3:32,160,128,32,32,16,16,8,1,2,2,0,1",
+    "attn:v3:128,128,128,8,16,128,16,4,1,1,2,0,1"
+};
+// END_ATTENTION_GemmGemm_f16_gfx1201_DEFS
+
+// BEGIN_ATTENTION_GemmGemm_i8_gfx1201_DEFS
+const StringRef PopulateParamsGemmGemm::initParametersI8AttentionGfx1201[] = {
+    "attn:v3:64,64,128,2,64,32,16,8,1,2,2,0,1",
+    "attn:v3:32,96,64,4,32,16,16,8,1,1,2,0,1",
+    "attn:v3:32,64,128,8,32,16,16,8,1,2,2,0,1",
+    "attn:v3:64,64,48,4,16,48,16,8,1,2,2,0,1",
+    "attn:v3:16,16,48,32,16,48,16,4,1,1,2,0,1",
+    "attn:v3:16,224,32,64,16,16,16,4,1,1,2,0,1",
+    "attn:v3:128,128,48,32,16,48,16,4,1,2,2,0,1",
+    "attn:v3:16,16,96,16,16,48,16,4,1,2,2,0,1",
+    "attn:v3:128,128,64,8,64,16,16,4,1,2,2,0,1",
+    "attn:v3:128,128,32,4,32,32,16,16,1,2,2,0,1",
+    "attn:v3:128,128,128,8,32,32,16,8,1,1,1,8,1",
+    "attn:v3:32,224,256,2,32,32,16,16,1,2,2,0,1",
+    "attn:v3:32,160,32,8,32,16,16,4,1,1,2,0,1",
+    "attn:v3:32,160,256,16,16,32,16,16,1,2,2,0,1",
+    "attn:v3:128,128,64,8,32,32,16,8,1,1,1,1,1",
+    "attn:v3:128,128,64,2,64,32,16,8,1,2,2,0,1",
+    "attn:v3:128,128,16,4,32,16,16,8,1,2,1,0,1"
+};
+// END_ATTENTION_GemmGemm_i8_gfx1201_DEFS
+
+// BEGIN_ATTENTION_GemmGemm_bf16_gfx1201_DEFS
+const StringRef PopulateParamsGemmGemm::initParametersBf16AttentionGfx1201[] = {
+    "attn:v3:64,64,64,2,32,32,16,8,1,2,2,0,1",
+    "attn:v3:16,16,64,16,16,16,16,4,1,2,2,0,1",
+    "attn:v3:64,64,64,8,64,16,16,4,1,2,2,0,1",
+    "attn:v3:32,96,256,4,32,32,16,8,1,1,2,0,1",
+    "attn:v3:32,128,64,4,32,16,16,8,1,2,2,0,1",
+    "attn:v3:128,128,128,4,64,16,16,8,1,1,1,8,1",
+    "attn:v3:32,160,256,64,32,16,16,8,1,2,2,0,1",
+    "attn:v3:128,128,64,16,32,64,16,8,1,2,2,0,1",
+    "attn:v3:128,128,128,4,32,32,16,8,1,1,1,8,1",
+    "attn:v3:128,128,32,4,64,16,16,4,1,1,2,0,1",
+    "attn:v3:128,128,128,4,64,32,16,4,1,2,2,0,1",
+    "attn:v3:32,32,128,16,32,32,16,8,1,1,2,0,1",
+    "attn:v3:128,128,16,4,32,16,16,8,1,2,1,8,1"
+};
+// END_ATTENTION_GemmGemm_bf16_gfx1201_DEFS
+
 #endif // GemmGemm_DEFINITIONS_GEN
 
 #ifdef GemmGemm_DECLARATIONS_GEN
@@ -1864,6 +1937,21 @@ static const StringRef initParametersI8AttentionGfx942[nInitParametersI8Attentio
 static constexpr size_t nInitParametersBf16AttentionGfx942 = 7;
 static const StringRef initParametersBf16AttentionGfx942[nInitParametersBf16AttentionGfx942];
 // END_ATTENTION_GemmGemm_bf16_gfx942_DECS
+
+// BEGIN_ATTENTION_GemmGemm_f16_gfx1201_DECS
+static constexpr size_t nInitParametersF16AttentionGfx1201 = 28;
+static const StringRef initParametersF16AttentionGfx1201[nInitParametersF16AttentionGfx1201];
+// END_ATTENTION_GemmGemm_f16_gfx1201_DECS
+
+// BEGIN_ATTENTION_GemmGemm_i8_gfx1201_DECS
+static constexpr size_t nInitParametersI8AttentionGfx1201 = 17;
+static const StringRef initParametersI8AttentionGfx1201[nInitParametersI8AttentionGfx1201];
+// END_ATTENTION_GemmGemm_i8_gfx1201_DECS
+
+// BEGIN_ATTENTION_GemmGemm_bf16_gfx1201_DECS
+static constexpr size_t nInitParametersBf16AttentionGfx1201 = 13;
+static const StringRef initParametersBf16AttentionGfx1201[nInitParametersBf16AttentionGfx1201];
+// END_ATTENTION_GemmGemm_bf16_gfx1201_DECS
 
 #endif // GemmGemm_DECLARATIONS_GEN
 
@@ -2014,5 +2102,11 @@ static const StringRef initParametersBf16AttentionGfx942[nInitParametersBf16Atte
 {"gfx942_attention_i8", {PopulateParamsGemmGemm::initParametersI8AttentionGfx942, PopulateParamsGemmGemm::nInitParametersI8AttentionGfx942}},
 
 {"gfx942_attention_bf16", {PopulateParamsGemmGemm::initParametersBf16AttentionGfx942, PopulateParamsGemmGemm::nInitParametersBf16AttentionGfx942}},
+
+{"gfx1201_attention_f16", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1201, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1201}},
+
+{"gfx1201_attention_i8", {PopulateParamsGemmGemm::initParametersI8AttentionGfx1201, PopulateParamsGemmGemm::nInitParametersI8AttentionGfx1201}},
+
+{"gfx1201_attention_bf16", {PopulateParamsGemmGemm::initParametersBf16AttentionGfx1201, PopulateParamsGemmGemm::nInitParametersBf16AttentionGfx1201}},
 
 #endif // GemmGemm_LOOKUP_TABLE_GEN
