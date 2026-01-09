@@ -1,5 +1,5 @@
 // RUN: rocmlir-opt --rock-affix-params --rock-gemm-to-gridwise --rock-regularize \
-// RUN: --rock-gridwise-gemm-to-blockwise --rock-blockwise-load-tile-to-threadwise --rock-linalg-align \
+// RUN: --rock-gridwise-gemm-to-blockwise --rock-blockwise-load-tile-to-threadwise --rock-prepare-pipeline --rock-linalg-align \
 // RUN: --convert-linalg-to-affine-loops --rock-vectorize-fusions %s | FileCheck %s --check-prefix=VECTORIZE
 // RUN:  rocmlir-driver --kernel-pipeline=gpu,rocdl --arch=gfx942 %s | FileCheck %s --check-prefix=ROCDL
 // RUN:  rocmlir-driver --kernel-pipeline=gpu,rocdl --arch=gfx942 %s | \

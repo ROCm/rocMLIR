@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -canonicalize -verify-diagnostics %s | FileCheck %s
+// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -rock-prepare-pipeline -canonicalize -verify-diagnostics %s | FileCheck %s
 
 // CHECK-LABEL: @gridwise_attn_simple
 // CHECK-SAME: (%[[Q:.+]]: memref<1x384x64xf32>, %[[K:.+]]: memref<1x64x384xf32>, %[[V:.+]]: memref<1x384x64xf32>, %[[O:.+]]: memref<1x384x64xf32>)
@@ -18,11 +18,16 @@
 // init attentionAcc buffer
 // CHECK-DAG: rock.fill(%[[attnOutBuf:.+]], %[[zeroF32]]) : memref<2x16xf32
 
+// CHECK: %[[ldsG0B:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+// CHECK: %[[ldsG0A:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+// CHECK: %[[ldsG0AStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+// CHECK: %[[ldsG1BStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
+// CHECK: %[[ldsReductionWS:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
+// CHECK: %[[ldsReductionWS2:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
+
 // Outer N-tile loop
 // CHECK: scf.for
   // CHECK-DAG: rock.fill(%[[gemm0AccBuf:.+]], %[[zeroVecF32]])
-  // CHECK: %[[ldsG0B:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
-  // CHECK: %[[ldsG0A:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
   
   // CHECK: rock.lds_barrier
   // Inner gemm0 KpacksPerBlock loop
@@ -35,19 +40,18 @@
     // CHECK: %[[viewG0AStore:.+]] = memref.view %[[ldsG0A]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK: %[[viewG0BStore:.+]] = memref.view %[[ldsG0B]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK: rock.blockwise_gemm_accel %[[gemm0AccBuf]] += %[[preAccelRegA]] from %[[viewG0AStore]] * %[[preAccelRegB]] from %[[viewG0BStore]]
-    // CHECK: {name = "MMA"}
+    // CHECK: {name = "MMA+PostProcess"}
   
   // CHECK: {pipeline = #rock.pipeline<2>}
 
   // CHECK: rock.transforming_for
     // CHECK: %[[tmp:.+]] =  memref.load %[[gemm0AccBuf]][
     // CHECK: rock.in_bounds_store %[[tmp]] -> %[[gemm0AccBufScalar:.+]][
-  // CHECK: linalg.generic {{.*}} ins(%[[gemm0AccBufScalar]] {{.*}} outs(%[[gemm0AccBufScalar]]
+  // CHECK: linalg.generic {{.*}} ins(%[[gemm0AccBufScalar]] {{.*}} outs(%[[gemm0AccBufScalarScaled:.+]] : memref<16xf32, #gpu.address_space<private>>)
     // CHECK: %[[gemm0Scaled:.+]] = arith.mulf %in, %[[ln2Recip]] : f32
     // CHECK: linalg.yield %[[gemm0Scaled]]
-  // CHECK: %[[ldsReductionWS:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsReductionWSView:.+]] = memref.view %[[ldsReductionWS]][{{.*}}][] : memref<256xi8, #gpu.address_space<workgroup>> to memref<64xf32, #gpu.address_space<workgroup>>
-  // CHECK: rock.blockwise_broadcast_reduce max {{.*}} %[[gemm0AccBufScalar]] into %[[gemm0Max:[0-9]+]] using %[[ldsReductionWSView]]
+  // CHECK: rock.blockwise_broadcast_reduce max {{.*}} %[[gemm0AccBufScalarScaled]] into %[[gemm0Max:[0-9]+]] using %[[ldsReductionWSView]]
 
   // Compute exp(gemm0 - rowmax_j)
   // *****************************
@@ -55,12 +59,11 @@
     // CHECK-DAG: %[[rowmax:.+]] = rock.in_bounds_load %[[maxRowBuf]]
     // CHECK-DAG: %[[tilemax:.+]] = rock.in_bounds_load %[[gemm0Max]]
     // CHECK-DAG: %[[newmax:.+]] = arith.maximumf %[[rowmax]], %[[tilemax]]
-    // CHECK-DAG: %[[gemm0Val:.+]] = rock.in_bounds_load %[[gemm0AccBufScalar]]
+    // CHECK-DAG: %[[gemm0Val:.+]] = rock.in_bounds_load %[[gemm0AccBufScalarScaled]]
     // CHECK-DAG: %[[gemm0ValSubMax:.+]] = arith.subf %[[gemm0Val]], %[[newmax]]
     // CHECK-DAG: %[[gemm0ValSubMaxExp:.+]] = math.exp2 %[[gemm0ValSubMax]]
     // CHECK-DAG: rock.in_bounds_store %[[gemm0ValSubMaxExp]] -> %[[gemm0NormExp:.+]][
 
-  // CHECK: %[[ldsReductionWS2:.+]] = rock.alloc() : memref<256xi8, #gpu.address_space<workgroup>>
   // CHECK: %[[ldsReductionWS2View:.+]] = memref.view %[[ldsReductionWS2]][{{.*}}][] : memref<256xi8, #gpu.address_space<workgroup>> to memref<64xf32, #gpu.address_space<workgroup>>
   // CHECK: rock.blockwise_broadcast_reduce sum {{.*}} %[[gemm0NormExp]] into %[[gemm0NormExpSum:[0-9]+]] using %[[ldsReductionWS2View]]
 
@@ -90,8 +93,6 @@
   // CHECK-DAG: %[[gemm0NormExpTr3:.+]] = rock.transform %[[gemm0NormExpTr2]]
   // CHECK-DAG: %[[gemm0NormExpTr4:.+]] = rock.transform %[[gemm0NormExpTr3]]
   // CHECK-DAG: %[[gemm0NormExpTr5:.+]] = rock.transform %[[gemm0NormExpTr4]]
-  
-  // CHECK-DAG: %[[ldsG1BStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
 
   // Viewing another set of register with kPack packing
   // CHECK: %[[G1AregsKpackTr0:.+]] = rock.transform %[[G1AregsKpack:.+]] by
@@ -116,8 +117,6 @@
 
   // Store to LDS G1A tile buffer
   // CHECK-DAG: rock.threadwise_write_all {{.*}} %[[G1AregsKpack]] -> [](%[[viewG1AStoreTr7]])
-  
-  // CHECK-DAG: %[[ldsG0AStore:.+]] = rock.alloc() : memref<4096xi8, #gpu.address_space<workgroup>>
 
   // Gemm1
   // CHECK: scf.for %[[g1MIter:.+]]
@@ -129,7 +128,7 @@
     // CHECK: %[[view2G1AStore:.+]] = memref.view %[[ldsG0AStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK: %[[view2G1BStore:.+]] = memref.view %[[ldsG1BStore]][{{.*}}][] : memref<4096xi8, #gpu.address_space<workgroup>> to memref<1024xf32, #gpu.address_space<workgroup>>
     // CHECK: rock.blockwise_gemm_accel %[[gemm1AccBuf]] += %[[preAccelRegV]] from %[[view2G1AStore]] * %[[preAccelRegA:[0-9]+]] from %[[view2G1BStore]]
-    // CHECK: {name = "MMA"}
+    // CHECK: {name = "MMA+PostProcess"}
 
     // rock.stage
     // CHECK: rock.transforming_for
@@ -186,7 +185,7 @@ func.func @gridwise_attn_schedulev2(%arg0: memref<1x384x64xf32>, %arg1: memref<1
   // CHECK: rock.blockwise_gemm_accel 
   // CHECK-NOT: loadAfromLDS
   // CHECK-NOT: loadBfromLDS
-  // CHECK: {name = "MMA"}
+  // CHECK: {name = "MMA+PostProcess"}
 
   // scf.for
 
@@ -195,7 +194,7 @@ func.func @gridwise_attn_schedulev2(%arg0: memref<1x384x64xf32>, %arg1: memref<1
 
   // CHECK: rock.stage
   // CHECK: rock.blockwise_gemm_accel
-  // CHECK: {name = "MMA"}
+  // CHECK: {name = "MMA+PostProcess"}
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,

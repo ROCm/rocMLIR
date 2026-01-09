@@ -1,4 +1,4 @@
-// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --rock-view-to-transform -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-shuffle-gemm-for-reductions -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -rock-linalg-align -mlir-print-local-scope | FileCheck %s
+// RUN: sed s/##TOKEN_ARCH##/%arch/g %s | rocmlir-opt --rock-view-to-transform -rock-affix-params -rock-conv-to-gemm -rock-gemm-to-gridwise -rock-shuffle-gemm-for-reductions -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -rock-prepare-pipeline -rock-linalg-align -mlir-print-local-scope | FileCheck %s
 
 // CHECK: test_gemm_reduce_last_axis_fusion
 func.func @test_gemm_reduce_last_axis_fusion(%arg0: memref<1x128x64xf32>, %arg1: memref<1x64x256xf32>, %arg2: memref<1x128x1xf32>) attributes {arch = "##TOKEN_ARCH##", kernel} {

@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -rock-linalg-align -rock-blockwise-gemm-to-threadwise -rock-pipeline -canonicalize -verify-diagnostics %s | FileCheck %s
+// RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise -rock-blockwise-load-tile-to-threadwise -rock-prepare-pipeline -rock-linalg-align -rock-blockwise-gemm-to-threadwise -rock-pipeline -canonicalize -verify-diagnostics %s | FileCheck %s
 
 // CHECK-LABEL: @gridwise_attn_barriers_before_lds_write_issue_1811
 func.func @gridwise_attn_barriers_before_lds_write_issue_1811(%arg0: memref<4096xi8>, %arg1: memref<4096xi8>, %arg2: memref<4096xf16>, %arg3: memref<1xi8>, %arg4: memref<1xf16>, %arg5: memref<4096xf16>) attributes {block_size = 64 : i32, grid_size = 1 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {

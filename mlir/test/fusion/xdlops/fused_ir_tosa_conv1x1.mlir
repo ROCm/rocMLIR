@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver -kernel-pipeline highlevel %s | rocmlir-driver --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise --rock-regularize --rock-gridwise-gemm-to-blockwise --rock-blockwise-load-tile-to-threadwise --rock-linalg-align --rock-pipeline | FileCheck %s
+// RUN: rocmlir-driver -kernel-pipeline highlevel %s | rocmlir-driver --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise --rock-regularize --rock-gridwise-gemm-to-blockwise --rock-blockwise-load-tile-to-threadwise -rock-prepare-pipeline --rock-linalg-align --rock-pipeline | FileCheck %s
 
 module {
   func.func @main(%arg0: tensor<1x64x56x56xf32>, %arg1: tensor<64x64x1x1xf32>, %arg2: tensor<1x64x56x56xf32>) -> tensor<1x64x56x56xf32> attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx908"} {

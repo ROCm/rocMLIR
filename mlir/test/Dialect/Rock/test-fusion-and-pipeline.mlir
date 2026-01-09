@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver --rock-linalg-align --rock-pipeline %s | FileCheck %s
+// RUN: rocmlir-driver -rock-prepare-pipeline --rock-linalg-align --rock-pipeline %s | FileCheck %s
 
 #map = affine_map<(d0, d1, d2, d3) -> (d3)>
 #map1 = affine_map<(d0, d1, d2, d3) -> (0, 0, 0, d3)>
@@ -95,10 +95,18 @@ module {
 
 
 // To test the input argument loads in the prolog and software-pipelined kernel would use the same buffer
-// CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%{{.*}}) [{{.*}}] -> %[[BUFFER_0:.+]] : memref<36x1x8x49x64x8xi8> -> memref<8xi8, #gpu.address_space<private>>
-// CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%{{.+}}) [{{.*}}] -> %[[BUFFER_1:.+]] : memref<36x1x8x49x64x8xf16> -> memref<8xf16, #gpu.address_space<private>>
-// CHECK: linalg.generic {{{.*}}} ins(%[[BUFFER_0]], %[[BUFFER_1]]
+// CHECK: %[[EXTRACT_BUFFER_0:.+]] = rock.extract_multibuffer(%[[BUFFER_0:.+]]) [%c0]
+// CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%{{.*}}) [{{.*}}] -> %[[EXTRACT_BUFFER_0]] : memref<36x1x8x49x64x8xi8> -> memref<8xi8, #gpu.address_space<private>>
+// CHECK: %[[EXTRACT_BUFFER_1:.+]] = rock.extract_multibuffer(%[[BUFFER_1:.+]]) [%c0]
+// CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%{{.+}}) [{{.*}}] -> %[[EXTRACT_BUFFER_1]] : memref<36x1x8x49x64x8xf16> -> memref<8xf16, #gpu.address_space<private>>
+// CHECK: %[[EXTRACT_BUFFER_2:.+]] = rock.extract_multibuffer(%[[BUFFER_0]])
+// CHECK: %[[EXTRACT_BUFFER_3:.+]] = rock.extract_multibuffer(%[[BUFFER_1]])
+// CHECK: linalg.generic {{{.*}}} ins(%[[EXTRACT_BUFFER_2]], %[[EXTRACT_BUFFER_3]]
 // CHECK: scf.for
-// CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%{{.*}}) [{{.*}}] -> %[[BUFFER_0:.+]] : memref<36x1x8x49x64x8xi8> -> memref<8xi8, #gpu.address_space<private>>
-// CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%{{.+}}) [{{.*}}] -> %[[BUFFER_1:.+]] : memref<36x1x8x49x64x8xf16> -> memref<8xf16, #gpu.address_space<private>>
-// CHECK: linalg.generic {{{.*}}} ins(%[[BUFFER_0]], %[[BUFFER_1]]
+// CHECK: %[[EXTRACT_BUFFER_4:.+]] = rock.extract_multibuffer(%[[BUFFER_0]])
+// CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%{{.*}}) [{{.*}}] -> %[[EXTRACT_BUFFER_4:.+]] : memref<36x1x8x49x64x8xi8> -> memref<8xi8, #gpu.address_space<private>>
+// CHECK: %[[EXTRACT_BUFFER_5:.+]] = rock.extract_multibuffer(%[[BUFFER_1]])
+// CHECK: rock.threadwise_read_into {forceUnroll, useIndexDiffs} [](%{{.+}}) [{{.*}}] -> %[[EXTRACT_BUFFER_5:.+]] : memref<36x1x8x49x64x8xf16> -> memref<8xf16, #gpu.address_space<private>>
+// CHECK: %[[EXTRACT_BUFFER_6:.+]] = rock.extract_multibuffer(%[[BUFFER_0]])
+// CHECK: %[[EXTRACT_BUFFER_7:.+]] = rock.extract_multibuffer(%[[BUFFER_1]])
+// CHECK: linalg.generic {{{.*}}} ins(%[[EXTRACT_BUFFER_6]], %[[EXTRACT_BUFFER_7]]
