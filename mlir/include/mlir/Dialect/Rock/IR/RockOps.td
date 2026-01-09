@@ -203,6 +203,7 @@ def Rock_ReduceOp
     }
   }];
 }
+
 def Rock_AttentionOp
     : Rock_Op<
           "attention", [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
@@ -216,8 +217,11 @@ def Rock_AttentionOp
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
           Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
+          Optional<AnyTensorOrMemRef>:$keyAddresses,
+          Optional<AnyTensorOrMemRef>:$valueAddresses,
           TensorOrMemRefOf<[F32, F16, BF16]>:$out,
-          Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse, I32Attr:$numHeadsQ,
+          Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse,
+          I32Attr:$numHeadsQ,
           I32Attr:$numHeadsKV, UnitAttr:$qTransposed, UnitAttr:$kTransposed,
           UnitAttr:$vTransposed, UnitAttr:$oTransposed, UnitAttr:$causal,
           I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
@@ -264,6 +268,11 @@ def Rock_AttentionOp
     re-applying splitKV transforms when the IR is generated directly (e.g., via rocmlir-gen) 
     without flash decoding detection.
 
+    For paged attention, `keyAddresses` and `valueAddresses` optionally provide
+    i64 pointer tensors for page table addressing. When present, ToBlockwise uses
+    these pointers for tiled loading from paged memory. The keys/values operands
+    contain the same data but with transforms (GQA, normalization) applied on top.
+
     The parameters `gridSize`, and `blockSize` are optional as they can be
     inferred by a tuning process or a heuristic, but they must be set before
     the `attention` is lowered into the `gridwise_attention_accel` stage of the
@@ -278,6 +287,8 @@ def Rock_AttentionOp
         ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
         (`currentSeqLen` `=` `(` $currentSeqLen^ `:` type($currentSeqLen) `)` `\n`)?
         (`prefixOffset` `=` `(` $prefixOffset^ `:` type($prefixOffset) `)` `\n`)?
+        (`keyAddresses` `=` `(` $keyAddresses^ `:` type($keyAddresses) `)` `\n`)?
+        (`valueAddresses` `=` `(` $valueAddresses^ `:` type($valueAddresses) `)` `\n`)?
         (`causal` `\n` $causal^)?
         (`lse` `=` $lse^ `:` type($lse) `\n`)?
         (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
@@ -424,6 +435,42 @@ def Rock_ConvertingCopyKernelOp
   }];
 }
 
+def Rock_DerefOp
+    : Rock_Op<"deref", [Pure]>,
+      Arguments<(ins TensorOrMemRefOf<[I64]>:$pointers)>,
+      Results<(outs AnyTensorOrMemRef:$output)> {
+  let summary = "Gather from memory with contiguous block access";
+  let description = [{
+    Loads data from memory using page table pointers.
+
+    Layout: [batch, numBlocks, blockSize] where each pointer addresses
+    `blockSize` contiguous elements.
+
+    **Paged Attention Semantics:**
+    When used with `rock.attention` (via keyAddresses/valueAddresses),
+    the attention's `currentSeqLen` determines valid blocks:
+    - Blocks with index < currentSeqLen/blockSize load normally
+    - Blocks with index >= currentSeqLen/blockSize read from pointers[0,0,0]
+
+    This masking is applied during blockwise lowering, not materialized as a
+    tensor. The TOSA-level mask computation becomes dead code and is removed
+    by DCE.
+
+    **Example:**
+
+    ```mlir
+    // 64 blocks, each accessing 8192 contiguous f16 elements
+    %out = rock.deref %ptrs : memref<1x64x1xi64> -> memref<1x64x8192xf16>
+    ```
+  }];
+
+  let assemblyFormat = [{
+    $pointers attr-dict `:` type($pointers) `->` type($output)
+  }];
+
+  let hasVerifier = 1;
+}
+
 def Rock_TransformOp :
     Rock_Op<"transform", [Pure, ViewLikeOpInterface]>,
     Arguments<(ins AnyShaped:$input, Rock_TransformMapAttr:$transform)>,
@@ -557,8 +604,11 @@ def Rock_GridwiseAttentionAccelOp
           Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
           Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
           Optional<MemRefRankOf<[I32], [1]>>:$prefixOffset,
+          Optional<AnyMemRef>:$keyAddresses,
+          Optional<AnyMemRef>:$valueAddresses,
           MemRefRankOf<[F32, F16, BF16], [3]>:$out,
-          Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
+          Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse,
+          UnitAttr:$causal,
           I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
           StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
           UnitAttr:$disableQBypassLDS, OptionalAttr<IndexAttr>:$prePadG0M,
@@ -1250,7 +1300,8 @@ def Rock_ThreadwiseReadIntoOp
           Variadic<VectorOfNonZeroRankOf<[I1]>>:$dynamicValidities,
           TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
           UnitAttr:$forceUnroll, UnitAttr:$useIndexDiffs,
-          OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig)>,
+          OptionalAttr<Rock_LDSTransposeConfigAttr>:$ldsTransposeConfig,
+          Optional<I64>:$pageAddress)>,
       Results<(outs Optional<VectorOfNonZeroRankOf<[I1]>>:$validityRecord)> {
   let summary = "Read values from transformed source into destination";
 
@@ -1310,6 +1361,17 @@ def Rock_ThreadwiseReadIntoOp
 
     This operation is also used during fusion to represent loads from additional
     arguments like bias tensors.
+
+    **Paged Attention Support:**
+    
+    For paged attention, the optional `pageAddress` operand (i64) provides the
+    already-loaded base address for a memory page. When present, the lowering
+    will use this address directly with computed offsets to load data via
+    pointer arithmetic (inttoptr + load).
+    
+    The page address is loaded at a higher level (BlockwiseLoadTileToThreadwise)
+    using a separate ThreadwiseReadIntoOp, which properly consumes any transforms
+    on the i64 page pointer memref.
   }];
 
   let builders = [
@@ -1319,7 +1381,7 @@ def Rock_ThreadwiseReadIntoOp
                     "ValueRange":$extraIndices, "bool":$forceUnroll,
                     "bool":$useIndexDiffs),
                 [{
-        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, /*pageAddress=*/Value{});
       }]>,
       // Builder with explicit ldsTransposeConfig support
       OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
@@ -1327,7 +1389,7 @@ def Rock_ThreadwiseReadIntoOp
                     "bool":$useIndexDiffs,
                     "LDSTransposeConfigAttr":$ldsTransposeConfig),
                 [{
-        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig);
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig, /*pageAddress=*/Value{});
       }]>,
       // Builder with validityRecord but without ldsTransposeConfig
       OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
@@ -1335,12 +1397,29 @@ def Rock_ThreadwiseReadIntoOp
                     "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
                     "bool":$forceUnroll, "bool":$useIndexDiffs),
                 [{
-        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr);
+        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, /*pageAddress=*/Value{});
+      }]>,
+      // Builder with validityRecord and ldsTransposeConfig
+      OpBuilder<(ins "TypeRange":$validityRecord, "Value":$source,
+                    "Value":$dest, "ValueRange":$dynamicValidities,
+                    "ArrayAttr":$extraViews, "ValueRange":$extraIndices,
+                    "bool":$forceUnroll, "bool":$useIndexDiffs,
+                    "LDSTransposeConfigAttr":$ldsTransposeConfig),
+                [{
+        build($_builder, $_state, validityRecord, source, dest, dynamicValidities, extraViews, extraIndices, forceUnroll, useIndexDiffs, ldsTransposeConfig, /*pageAddress=*/Value{});
+      }]>,
+      // Builder with paged attention support (already-loaded page address)
+      OpBuilder<(ins "Value":$source, "Value":$dest, "ArrayAttr":$extraViews,
+                    "ValueRange":$extraIndices, "bool":$forceUnroll,
+                    "bool":$useIndexDiffs, "Value":$pageAddress),
+                [{
+        build($_builder, $_state, TypeRange{}, source, dest, ValueRange{}, extraViews, extraIndices, forceUnroll, useIndexDiffs, /*ldsTransposeConfig=*/nullptr, pageAddress);
       }]>];
 
   let assemblyFormat = [{
     attr-dict $extraViews `(` $source `)` (`[` $extraIndices^ `]`)? `->` $dest
     (`if` ` ` `[` $dynamicValidities^ `]`)?
+    (`paged` $pageAddress^)?
     `:` type($source) `->` type($dest) (`,` type($validityRecord)^)?
   }];
   let hasVerifier = 1;
@@ -1576,7 +1655,13 @@ def Rock_BlockwiseLoadTileOp
           Rock_BlockwiseMatrixParamsAttr:$matrixParamsB, UnitAttr:$isA,
           Variadic<Index>:$sourceIndices,
           OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
-          RockAccelTuningParamAttrInterface:$params)> {
+          RockAccelTuningParamAttrInterface:$params,
+          // Optional paged attention operands
+          Optional<MemRefOf<[I64]>>:$pagePointers,
+          Optional<Index>:$cachedPageIdx,
+          Optional<Index>:$neededPageIdx,
+          Optional<Index>:$tileOffsetInPage,
+          OptionalAttr<IndexAttr>:$pageSize)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
@@ -1593,11 +1678,20 @@ def Rock_BlockwiseLoadTileOp
     `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
     `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. They are data types for the Matrix A & B of the GEMMs. 
     `elementLoadType` is the element type of the global buffer this BlockwiseLoadTileOp is trying to load. 
-    `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.  
+    `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.
+
+    For paged attention, this op loads data from pages referenced by `pagePointers`:
+    - Conditionally loads entire page to destLDS when neededPageIdx != cachedPageIdx
+    - GEMM reads from destLDS at tileOffsetInPage
+    - destLDS should be page-sized (allocated in GridwiseGemmToBlockwise)
+    - loadType is forced to Default for paged attention
   }];
   let assemblyFormat = [{
-    $source (`[` $sourceIndices^ `]`)? (`LDS` `->` $destLDS^)? (`->` $destRegisters^)? attr-dict
+    $source (`[` $sourceIndices^ `]`)? (`LDS` `->` $destLDS^)? (`->` $destRegisters^)?
+    (`paged` `<` $pagePointers^ `,` $cachedPageIdx `,` $neededPageIdx `,` $tileOffsetInPage `>`)?
+    attr-dict
     `:` type($source) (`LDS` `->` type($destLDS)^)? (`->` type($destRegisters)^)?
+    (`paged` type($pagePointers)^)?
   }];
 
   let hasVerifier = 1;

@@ -21,6 +21,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/AccelEmitter.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
@@ -139,6 +140,114 @@ class LoweringBlockwiseLoadTileOp final
     return std::make_pair(stageOp, isNew);
   }
 
+  // Generate paged attention GlobalRead stage logic
+  // This implements the page-level caching: conditionally load entire page
+  // to LDS when crossing page boundaries.
+  //
+  // Uses ThreadwiseReadIntoOp with page pointer operands. The lowering of
+  // ThreadwiseReadIntoOp handles the indirect memory access and vectorization.
+  // Load a page pointer from the page table.
+  // We use untransform to get the raw buffer, then compute the linear index
+  // and use memref.load directly. The transforms become dead code after this
+  // pass since they're no longer used.
+  Value loadPagePointer(PatternRewriter &b, Location loc, Value pagePointers,
+                        Value pageIndex) const {
+    // pagePointers has shape like [batch, numBlocks, 1] after transforms
+    // The raw buffer is typically flat: memref<Nxi64>
+    // We need to compute the linear index from pageIndex
+    
+    // Get the raw buffer by untransforming
+    auto [rawBuffer, transforms, needs64BitIdx] = untransform(b, pagePointers);
+    (void)transforms;  // We compute the index directly
+    (void)needs64BitIdx;
+    
+    // The page table is typically [batch, numBlocks, 1] -> flat
+    // For a single batch, the linear index is just pageIndex
+    // Load from raw buffer at pageIndex
+    Value pageAddr = memref::LoadOp::create(b, loc, rawBuffer, ValueRange{pageIndex});
+    return pageAddr;
+  }
+
+  LogicalResult
+  emitPagedGlobalRead(rock::BlockwiseLoadTileOp op, PatternRewriter &b,
+                      Location loc, Value tid, int64_t blockSize) const {
+    Value pagePointers = op.getPagePointers();
+    Value cachedPageIdx = op.getCachedPageIdx();
+    Value neededPageIdx = op.getNeededPageIdx();
+    Value ldsByteBuffer = op.getDestLDS();
+    Value source = op.getSource();
+
+    std::optional<int64_t> pageSizeOpt = std::nullopt;
+    if (op.getPageSize())
+      pageSizeOpt = op.getPageSize()->getSExtValue();
+
+    if (!ldsByteBuffer) {
+      return op.emitOpError("Paged attention requires destLDS buffer");
+    }
+
+    Type elemType = op.getElementType();
+
+    // Page caching mode: conditionally load page when neededPageIdx !=
+    // cachedPageIdx
+    if (cachedPageIdx && neededPageIdx && pageSizeOpt) {
+      int64_t pageSize = *pageSizeOpt;
+
+      // Check if we need to load a new page
+      Value needNewPage = arith::CmpIOp::create(
+          b, loc, arith::CmpIPredicate::ne, neededPageIdx, cachedPageIdx);
+
+      // Conditional page load
+      auto ifOp =
+          scf::IfOp::create(b, loc, needNewPage, /*withElseRegion=*/false);
+      {
+        PatternRewriter::InsertionGuard guard(b);
+        b.setInsertionPointToStart(&ifOp.getThenRegion().front());
+
+        // Load the page pointer from the page table
+        // This uses ThreadwiseReadIntoOp to properly consume the transforms
+        Value pageAddress = loadPagePointer(b, loc, pagePointers, neededPageIdx);
+
+        // View the LDS buffer as element type for the destination (1D)
+        Value ldsBufferView = viewBufferAs(b, ldsByteBuffer, elemType);
+        (void)blockSize;  // Block size is used by lowering for cooperative pattern
+
+        // Create a source view with shape [1, pageSize] to match the expected
+        // pattern of (extraIdx, iter). The extra index dimension is a dummy
+        // since paged attention computes addresses differently.
+        BottomUpTMBuilder srcBuilder(b, {"offset"}, {pageSize}, loc);
+        srcBuilder.addDim("dummy", 0, 1);  // Add dummy dim at position 0 with size 1
+        // Pass through offset -> iter using index-based passThrough
+        // Upper index 1 maps to lower index 0
+        srcBuilder.passThrough(ArrayRef<uint32_t>{1}, ArrayRef<uint32_t>{0});
+        Value wrappedSource =
+            transform(b, source, b.getArrayAttr({srcBuilder.get()}));
+
+        // Use ThreadwiseReadIntoOp with the loaded page address
+        // The lowering handles:
+        // 1. Using the already-loaded page base address
+        // 2. Computing byte offsets from the iteration index
+        // 3. Indirect memory access via inttoptr/load
+        // Pass a dummy zero as extraIndex to satisfy the rank requirement
+        Value zero = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
+        ThreadwiseReadIntoOp::create(b, loc, wrappedSource, ldsBufferView,
+                                     /*extraViews=*/b.getArrayAttr({}),
+                                     /*extraIndices=*/ValueRange{zero},
+                                     /*forceUnroll=*/true,
+                                     /*useIndexDiffs=*/true,
+                                     /*pageAddress=*/pageAddress);
+
+        // Barrier after page load (inside the if - only when we loaded)
+        LDSBarrierOp::create(b, loc);
+      }
+    } else {
+      // Multi-page mode or no caching - not yet implemented
+      return op.emitOpError(
+          "Multi-page loading (pageSize < tileSize) not yet implemented");
+    }
+
+    return success();
+  }
+
   LogicalResult matchAndRewrite(rock::BlockwiseLoadTileOp op, OpAdaptor adaptor,
                                 ConversionPatternRewriter &b) const final {
     Location loc = op.getLoc();
@@ -146,6 +255,10 @@ class LoweringBlockwiseLoadTileOp final
     Value source = op.getSource();
     Value ldsByteBuffer = op.getDestLDS();
     Value destRegisters = op.getDestRegisters();
+
+    // Check if this is paged attention
+    Value pagePointers = op.getPagePointers();
+    bool isPagedAttention = pagePointers != nullptr;
 
     auto features = rock::getFeatures(op);
     StringRef arch = rock::getArchValue(op);
@@ -268,52 +381,77 @@ class LoweringBlockwiseLoadTileOp final
     if (isa<LoopLikeOpInterface>(parentOp))
       b.setInsertionPoint(op);
 
-    auto [stageGlobalRead, stageGlobalReadNew] =
-        createOrGetStage(b, loc, "GlobalRead", parentOp);
-    {
-      PatternRewriter::InsertionGuard guard(b);
-      b.setInsertionPointToStart(&stageGlobalRead.getRegion().back());
-
-      FailureOr<RegsAsMatrixSubTiles> maybeBufferViews;
-      if (loadType == GemmLoadTileType::BypassLDS) {
-        maybeBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
-            b, loc, kIters, bidGridLengths, blockSize, vecDimInfo.inDPerThread,
-            dName, isKContiguousDim, false);
-      } else {
-        maybeBufferViews = getLoadRegsAsTileViews(
-            b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
-            kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
-            vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
-      }
-      if (failed(maybeBufferViews))
-        return failure();
-
-      Value wrappedSource = transform(b, source, maybeBufferViews->gridSubTile);
-
-      ThreadwiseReadIntoOp::create(b, loc, vectorOfBoolShapedLike(loadBuffer),
-                                   wrappedSource, loadBuffer,
-                                   /*dynamicValidities=*/ValueRange{},
-                                   /*extraViews=*/b.getArrayAttr({}),
-                                   /*extraIndices=*/indices, forceUnroll, true,
-                                   /*ldsTransposeConfig=*/nullptr);
-
-      if (rock::isGlobalPrefetchSupported(arch)) {
-        // add one to k_loop to prefetch next iteration
-        SmallVector<Value> indicesNext(indices.begin(), indices.end());
-        Value one = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
-        indicesNext[0] =
-            arith::AddIOp::create(b, loc, indicesNext[0], one).getResult();
-
-        // it's acceptable if the indices are out of bounds because we use
-        // GLOBAL_PREFETCH_B8 with Speculative Prefetch. See llvm.prefetch
-        // documentation in AMDGPUUsage.rst
-        rock::ThreadwisePrefetchOp::create(b, loc, wrappedSource,
-                                           /*extraViews=*/b.getArrayAttr({}),
-                                           /*extraIndices=*/indicesNext,
-                                           forceUnroll, true);
-      }
-      if (stageGlobalReadNew)
+    // For paged attention, create a separate stage at the current op's position.
+    // This is necessary because:
+    // 1. The paged op's operands (neededPageIdx, etc.) are defined after any
+    //    previous blockwise_load_tile ops, so they don't dominate a shared stage
+    // 2. We still need a stage to satisfy pipeline pass requirements
+    if (isPagedAttention) {
+      // Create a new stage at current position for paged global read
+      auto stagePagedGlobalRead =
+          StageOp::create(b, loc, "GlobalRead_Paged");
+      stagePagedGlobalRead.getRegion().emplaceBlock();
+      {
+        PatternRewriter::InsertionGuard guard(b);
+        b.setInsertionPointToStart(&stagePagedGlobalRead.getRegion().back());
+        auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
+        if (failed(emitPagedGlobalRead(op, b, loc, tid, blockSize)))
+          return failure();
         rock::YieldOp::create(b, loc);
+      }
+    } else {
+      auto [stageGlobalRead, stageGlobalReadNew] =
+          createOrGetStage(b, loc, "GlobalRead", parentOp);
+      {
+        PatternRewriter::InsertionGuard guard(b);
+        Block &globalReadBlock = stageGlobalRead.getRegion().back();
+        // For new stages, insert at start. For existing stages, insert before
+        // terminator to maintain dominance.
+        if (stageGlobalReadNew || globalReadBlock.empty())
+          b.setInsertionPointToStart(&globalReadBlock);
+        else
+          b.setInsertionPoint(globalReadBlock.getTerminator());
+        FailureOr<RegsAsMatrixSubTiles> maybeBufferViews;
+        if (loadType == GemmLoadTileType::BypassLDS) {
+          maybeBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
+              b, loc, kIters, bidGridLengths, blockSize, vecDimInfo.inDPerThread,
+              dName, isKContiguousDim, false);
+        } else {
+          maybeBufferViews = getLoadRegsAsTileViews(
+              b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
+              kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
+              vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
+        }
+        if (failed(maybeBufferViews))
+          return failure();
+
+        Value wrappedSource = transform(b, source, maybeBufferViews->gridSubTile);
+
+        ThreadwiseReadIntoOp::create(b, loc, vectorOfBoolShapedLike(loadBuffer),
+                                     wrappedSource, loadBuffer,
+                                     /*dynamicValidities=*/ValueRange{},
+                                     /*extraViews=*/b.getArrayAttr({}),
+                                     /*extraIndices=*/indices, forceUnroll, true,
+                                     /*ldsTransposeConfig=*/nullptr);
+
+        if (rock::isGlobalPrefetchSupported(arch)) {
+          // add one to k_loop to prefetch next iteration
+          SmallVector<Value> indicesNext(indices.begin(), indices.end());
+          Value one = b.createOrFold<arith::ConstantIndexOp>(loc, 1);
+          indicesNext[0] =
+              arith::AddIOp::create(b, loc, indicesNext[0], one).getResult();
+
+          // it's acceptable if the indices are out of bounds because we use
+          // GLOBAL_PREFETCH_B8 with Speculative Prefetch. See llvm.prefetch
+          // documentation in AMDGPUUsage.rst
+          rock::ThreadwisePrefetchOp::create(b, loc, wrappedSource,
+                                             /*extraViews=*/b.getArrayAttr({}),
+                                             /*extraIndices=*/indicesNext,
+                                             forceUnroll, true);
+        }
+        if (stageGlobalReadNew)
+          rock::YieldOp::create(b, loc);
+      }
     }
 
     if (loadType == GemmLoadTileType::BypassLDS) {
@@ -321,7 +459,11 @@ class LoweringBlockwiseLoadTileOp final
           createOrGetStage(b, loc, "RegTranspose", parentOp);
       {
         PatternRewriter::InsertionGuard guard(b);
-        b.setInsertionPointToStart(&stageRegTranspose.getRegion().back());
+        Block &regTransposeBlock = stageRegTranspose.getRegion().back();
+        if (stageRegTransposeNew || regTransposeBlock.empty())
+          b.setInsertionPointToStart(&regTransposeBlock);
+        else
+          b.setInsertionPoint(regTransposeBlock.getTerminator());
 
         accel::AccelEmitterParams accelEmitterParams =
             accelEmitterPtr->getParams();
@@ -360,12 +502,16 @@ class LoweringBlockwiseLoadTileOp final
           rock::YieldOp::create(b, loc);
       }
     } else {
-      if (!directToLDS) {
+      if (!directToLDS && !isPagedAttention) {
         auto [stageLDSWrite, stageLDSWriteNew] =
             createOrGetStage(b, loc, "LDSWrite", parentOp);
         {
           PatternRewriter::InsertionGuard guard(b);
-          b.setInsertionPointToStart(&stageLDSWrite.getRegion().back());
+          Block &ldsWriteBlock = stageLDSWrite.getRegion().back();
+          if (stageLDSWriteNew || ldsWriteBlock.empty())
+            b.setInsertionPointToStart(&ldsWriteBlock);
+          else
+            b.setInsertionPoint(ldsWriteBlock.getTerminator());
 
           // Get current workitem ID.
           auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
@@ -427,7 +573,48 @@ class LoweringBlockwiseLoadTileOp final
         }
       }
 
-      if (doubleBuffer) {
+      // LDSRead stage: needed for doubleBuffer OR paged attention
+      // For paged attention, we've loaded page data to LDS in GlobalRead,
+      // now we use generateReadLoop to read tile data from LDS to registers
+      if (isPagedAttention) {
+        // Create a new stage at current position for paged LDS read.
+        // This avoids dominance issues with tileOffsetInPage operand while
+        // still satisfying pipeline pass requirements.
+        // Barrier is already inside the conditional page load in GlobalRead.
+        auto stagePagedLDSRead = StageOp::create(b, loc, "LDSRead_Paged");
+        stagePagedLDSRead.getRegion().emplaceBlock();
+        {
+          PatternRewriter::InsertionGuard guard(b);
+          b.setInsertionPointToStart(&stagePagedLDSRead.getRegion().back());
+
+          auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
+
+          Value tileOffsetInPage = op.getTileOffsetInPage();
+          Value ldsViewForGemm = viewBufferAs(b, ldsByteBuffer, elementType);
+
+          // Create a subview at the tile offset within the page
+          if (tileOffsetInPage) {
+            // The page is laid out as [pageSize] elements
+            // The tile starts at tileOffsetInPage
+            // We need to read dPerBlock * kPerBlock elements
+            int64_t tileSize = dPerBlock * kPerBlock;
+
+            // Create subview: ldsViewForGemm[tileOffsetInPage :
+            // tileOffsetInPage + tileSize]
+            SmallVector<OpFoldResult> offsets = {tileOffsetInPage};
+            SmallVector<OpFoldResult> sizes = {b.getIndexAttr(tileSize)};
+            SmallVector<OpFoldResult> strides = {b.getIndexAttr(1)};
+
+            ldsViewForGemm = memref::SubViewOp::create(b, loc, ldsViewForGemm,
+                                                       offsets, sizes, strides);
+          }
+
+          generateReadLoop(loc, b, accelEmitterPtr, tid, dName, ldsViewForGemm,
+                           destRegisters, blockSize, forceUnroll, matrixParams,
+                           transposeAttr);
+          rock::YieldOp::create(b, loc);
+        }
+      } else if (doubleBuffer) {
         // Pipeline pass will remove this if the loop uses pipelining
         LDSBarrierOp::create(b, loc);
 
@@ -439,7 +626,11 @@ class LoweringBlockwiseLoadTileOp final
         {
           // Read from LDS into registers
           PatternRewriter::InsertionGuard guard(b);
-          b.setInsertionPointToStart(&stageLDSRead.getRegion().back());
+          Block &ldsReadBlock = stageLDSRead.getRegion().back();
+          if (stageLDSReadNew || ldsReadBlock.empty())
+            b.setInsertionPointToStart(&ldsReadBlock);
+          else
+            b.setInsertionPoint(ldsReadBlock.getTerminator());
 
           // Get current workitem ID.
           auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
@@ -471,7 +662,8 @@ void RockBlockwiseLoadTileToThreadwisePass::runOnOperation() {
   ConversionTarget target(ctx);
 
   target.addLegalDialect<rock::RockDialect, affine::AffineDialect,
-                         arith::ArithDialect, memref::MemRefDialect>();
+                         arith::ArithDialect, memref::MemRefDialect,
+                         scf::SCFDialect>();
   target.addIllegalOp<rock::BlockwiseLoadTileOp>();
   auto func = getOperation();
 

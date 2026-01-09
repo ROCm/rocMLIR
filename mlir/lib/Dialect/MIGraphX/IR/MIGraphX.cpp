@@ -433,3 +433,18 @@ LogicalResult QuantDotOp::verify() {
   }
   return success();
 }
+
+LogicalResult DerefOp::verify() {
+  MIXRShapedType inputType = getInput().getType();
+  MIXRShapedType outputType = getOutput().getType();
+
+  // Shapes must match
+  if (inputType.getShape() != outputType.getShape())
+    return emitOpError("input and output shapes must match");
+
+  // Strides must match
+  if (inputType.getStrides() != outputType.getStrides())
+    return emitOpError("input and output strides must match");
+
+  return success();
+}

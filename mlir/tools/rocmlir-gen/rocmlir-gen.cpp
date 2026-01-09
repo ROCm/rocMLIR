@@ -3353,7 +3353,9 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
       TypeAttr::get(typeFromString(softmaxDataType.getValue(), ctx));
   auto attention = rock::AttentionOp::create(
       builder, loc, TypeRange{}, queries, keys, values, elemwiseInputs,
-      currentSeqLenTensor, prefixOffsetTensor, output, lse, numHeadsQ,
+      currentSeqLenTensor, prefixOffsetTensor,
+      /*keyAddresses=*/nullptr, /*valueAddresses=*/nullptr, output, lse,
+      numHeadsQ,
       numHeadsKV, transposeQ, transposeK, transposeV, transposeO, actualCausal,
       splitKV,
       rock::GemmFeaturesAttr::get(builder.getContext(), params.features),

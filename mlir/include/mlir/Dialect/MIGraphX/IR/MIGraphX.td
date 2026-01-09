@@ -218,6 +218,33 @@ def MIGraphX_UnpackOp : MIGraphX_Op<"unpack">,
   let hasVerifier = 1;
 }
 
+def MIGraphX_DerefOp : MIGraphX_Op<"deref">,
+    Arguments<(ins MIXRShapedOf<[UI64]>:$input)>,
+    Results<(outs AnyMIXRShaped:$output)> {
+  let summary = "Dereference pointer addresses to load values";
+  let description = [{
+    The `migraphx.deref` operation performs an indirect memory load for each
+    element. Each element of the input tensor is interpreted as a memory address
+    (pointer), and the operation loads the scalar value at that address.
+
+    Note, this is a true pointer dereference, not a tensor gather operation. The
+    addresses are absolute GPU memory pointers, not indices into a tensor.
+    Behavior is undefined for invalid or misaligned addresses.
+
+    Example:
+    ```mlir
+    %result = migraphx.deref %addrs {target_type = 1 : i64}
+        : <1x64x8192xui64, 524288x8192x1> to <1x64x8192xf16, 524288x8192x1>
+    ```
+  }];
+
+  let assemblyFormat = [{
+    $input attr-dict `:` type($input) `to` type($output)
+  }];
+
+  let hasVerifier = 1;
+}
+
 // Quantization operations.
 
 def MIGraphX_QuantizeLinearOp :

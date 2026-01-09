@@ -492,7 +492,8 @@ static LogicalResult commonAttentionGemmElmtGemm(
     TypeAttr softmaxType, int64_t numHeadsQ, int64_t numHeadsKV,
     std::optional<std::reference_wrapper<const BufferDependencyAnalysis>>
         bufferDeps,
-    BoolAttr preSoftmaxHasSplitKVTransforms) {
+    BoolAttr preSoftmaxHasSplitKVTransforms,
+    Value keyAddresses = nullptr, Value valueAddresses = nullptr) {
   Location loc = op->getLoc();
 
   if (!isa<MemRefType>(op.getAType()))
@@ -608,9 +609,10 @@ static LogicalResult commonAttentionGemmElmtGemm(
   }
 
   auto newOp = GridwiseAttentionAccelOp::create(
-      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, prefixOffset, out,
-      lse, causal, splitKV, op.getGemmFeaturesAttr(), op.getStoreMethodAttr(),
-      blockSizeAttr, gridSizeAttr,
+      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, prefixOffset,
+      keyAddresses, valueAddresses, out, lse, causal, splitKV,
+      op.getGemmFeaturesAttr(), op.getStoreMethodAttr(), blockSizeAttr,
+      gridSizeAttr,
       /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
       numRepeatsGQA, softmaxType, params0, params1,
       rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
@@ -1073,7 +1075,8 @@ AttentionRewritePattern::matchAndRewrite(AttentionOp op,
       /*enableSoftmax=*/true, op.getSoftmaxTypeAttr(), adaptor.getNumHeadsQ(),
       adaptor.getNumHeadsKV(),
       /*bufferDeps=*/std::nullopt,
-      adaptor.getPreSoftmaxHasSplitKVTransformsAttr());
+      adaptor.getPreSoftmaxHasSplitKVTransformsAttr(),
+      adaptor.getKeyAddresses(), adaptor.getValueAddresses());
 }
 
 LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
