@@ -117,7 +117,8 @@ static void blockwiseGemmAccel(
 }
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
-                                 Value end, GemmLoadTileType loadType) {
+                                 Value start, Value end,
+                                 GemmLoadTileType loadType) {
   bool doubleBuffering = loadType == GemmLoadTileType::DoubleBuffer ||
                          loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
 
@@ -126,7 +127,6 @@ static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
   int64_t initiationInterval = doubleBuffering ? 1 : 2;
 
   Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
-  Value start = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
   scf::ForOp loopOp = scf::ForOp::create(rewriter, loc, start, end, one);
   loopOp->setAttr(
       PipelineAttr::getMnemonic(),
@@ -626,8 +626,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     Value nIterations = ConstantIndexOp::create(b, loc, K / kPerBlock);
 
     // double buffer not implemented for non-accel
+    Value start = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
     scf::ForOp loopOp =
-        createMainLoop(b, loc, nIterations, GemmLoadTileType::Default);
+        createMainLoop(b, loc, start, nIterations, GemmLoadTileType::Default);
     {
       // inside the loop.
       PatternRewriter::InsertionGuard guard(b);
@@ -1359,16 +1360,16 @@ struct GridwiseAttentionAccelRewritePattern
   template <typename ElementwiseOpType>
   void postProcessFirstGemmSplat(PatternRewriter &rewriter, Location loc,
                                  layout::GridCoordinates gridCoords,
-                                 Value gemm0OutBuffer,
+                                 Value inputBuffer, Value outputBuffer,
                                  RegsAsMatrixSubTiles gemm0OutViews,
                                  TypedAttr splatVal) const {
-    MemRefType bufType = cast<MemRefType>(gemm0OutBuffer.getType());
+    MemRefType bufType = cast<MemRefType>(inputBuffer.getType());
     SmallVector<AffineMap, 2> indexingMaps{
         2, rewriter.getMultiDimIdentityMap(bufType.getRank())};
     SmallVector<utils::IteratorType> iteratorTypes(
         bufType.getRank(), utils::IteratorType::parallel);
     linalg::GenericOp::create(
-        rewriter, loc, ValueRange(gemm0OutBuffer), ValueRange(gemm0OutBuffer),
+        rewriter, loc, ValueRange(inputBuffer), ValueRange(outputBuffer),
         indexingMaps, iteratorTypes,
         [&](OpBuilder &nestedBuilder, Location nestedLoc, ValueRange args) {
           Value splatScalarConst = arith::ConstantOp::create(
@@ -2195,6 +2196,18 @@ struct GridwiseAttentionAccelRewritePattern
         getLowerShape(gemm0OutSubTileViews.threadSubTile)[1];
     int64_t gemm1InNPerThread = gemm0NPerThread;
 
+    // Create unpad transforms
+    int64_t prePadG0M = gemm0M;
+    if (op.getPrePadG0M().has_value()) {
+      prePadG0M = op.getPrePadG0M().value().getSExtValue();
+    }
+    int64_t prePadG0N = gemm0N;
+    if (op.getPrePadG0N().has_value()) {
+      prePadG0N = op.getPrePadG0N().value().getSExtValue();
+    }
+    RegsAsMatrixSubTiles gemm0OutSubTileViewsTrUnPadded = unpadGridSubTileView(
+        rewriter, loc, gemm0OutSubTileViewsTr, prePadG0N, prePadG0M);
+
     // Create shared buffers accross gemms and reductions
     int64_t ldsByteBufferQSize = gemm0KPerBlock * gemm0NPerBlock;
     if (doBypassLDSForQ) {
@@ -2247,11 +2260,13 @@ struct GridwiseAttentionAccelRewritePattern
 
     Value gemm0OutBuffer = createBufferForGemmOut(loc, gemmOutElemType,
                                                   accelParamsGemm0, rewriter);
-    Value softmaxInputBuffer;
+    Value outputFirstGemm;
     if (fusionOutElemType != elemTypeSoftmax) {
-      softmaxInputBuffer = createBufferForGemmOut(loc, elemTypeSoftmax,
-                                                  accelParamsGemm0, rewriter);
+      outputFirstGemm = createBufferForGemmOut(loc, elemTypeSoftmax,
+                                               accelParamsGemm0, rewriter);
     }
+    Value softmaxInputBuffer = createBufferForGemmOut(
+        loc, elemTypeSoftmax, accelParamsGemm0, rewriter);
     SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
 
     Value fusionOutBuffer = createBufferForGemmOut(loc, fusionOutElemType,
@@ -2470,29 +2485,58 @@ struct GridwiseAttentionAccelRewritePattern
           matrixParamsK, matrixParamsQ);
     }
 
-    bool dynamicMLoop = splitKV != 1 || isCausal || isKVCache;
+    // LDS buffers
+    Value ldsByteBufferQ;
+    if (!prefetchQTile) {
+      ldsByteBufferQ =
+          createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
+    }
 
-    Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
-    scf::ForOp mLoopOp = scf::ForOp::create(rewriter, loc, start, end, one);
+    Value ldsByteBufferK = createLDSByteBuffer(
+        rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
+
+    Value ldsByteBufferV = createLDSByteBuffer(
+        rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
+    Value gemm1LDSByteBufferB = nullptr;
+    if (!doBypassLDSSecondGemm)
+      gemm1LDSByteBufferB = createLDSByteBuffer(
+          rewriter, loc, gemm1LDSByteBufferBSize, elemTypeV);
+    Value ldsReductionWorkspaceByteBuffer = nullptr;
+    Value ldsReductionWorkspaceByteSecondBuffer = nullptr;
+    if (op.getEnableSoftmax()) {
+      ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
+          rewriter, loc, reductionWorkspaceSize, elemTypeSoftmax);
+      ldsReductionWorkspaceByteSecondBuffer = createLDSByteBuffer(
+          rewriter, loc, reductionWorkspaceSize, elemTypeSoftmax);
+    }
+
+    bool dynamicMLoop = splitKV != 1 || isCausal || isKVCache;
+    Value endG1MLoop =
+        rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
+
+    layout::GridCoordinates gridCoordsGemm0 = layout::makeGxNGridLayout(
+        rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch,
+        rock::getNumCUValue(op), splitKVConst);
+    layout::GridCoordinates gridCoordsGemm1 = layout::makeGxNGridLayout(
+        rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch,
+        rock::getNumCUValue(op), splitKVConst);
+
+    scf::ForOp mLoopOp = createMainLoop(rewriter, loc, start, end, loadType);
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(mLoopOp.getBody());
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value mLoopIV = mLoopOp.getInductionVar();
-      zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-      layout::GridCoordinates gridCoordsGemm0 = layout::makeGxNGridLayout(
-          rewriter, loc, bid, mLoopIV, gemm0NBlocks, gridSize, arch,
-          rock::getNumCUValue(op), splitKVConst);
 
-      // LDS buffers
-      Value ldsByteBufferQ;
-      if (!prefetchQTile) {
-        ldsByteBufferQ =
-            createLDSByteBuffer(rewriter, loc, ldsByteBufferQSize, elemTypeQ);
+      auto initGemm0Stage = StageOp::create(rewriter, loc, "InitGemm0");
+      {
+        PatternRewriter::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPointToStart(
+            &initGemm0Stage.getRegion().emplaceBlock());
+
+        zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
+        rock::YieldOp::create(rewriter, loc);
       }
-
-      Value ldsByteBufferK = createLDSByteBuffer(
-          rewriter, loc, gemm0KPerBlock * gemm0MPerBlock, elemTypeK);
 
       // LDS Barrier (issue 1811): some threads might be loading from LDS
       // while others are in the next iteration (here), writing to LDS. This
@@ -2511,9 +2555,12 @@ struct GridwiseAttentionAccelRewritePattern
         LDSBarrierOp::create(rewriter, loc);
       }
 
+      gridCoordsGemm0.m_block = mLoopIV;
+
       Value endKLoop =
           rewriter.createOrFold<arith::ConstantIndexOp>(loc, kIterationsGemm0);
-      scf::ForOp kLoopOp = createMainLoop(rewriter, loc, endKLoop, loadType);
+      scf::ForOp kLoopOp =
+          createMainLoop(rewriter, loc, zero, endKLoop, loadType);
       {
         PatternRewriter::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(kLoopOp.getBody());
@@ -2584,234 +2631,228 @@ struct GridwiseAttentionAccelRewritePattern
         // optimized barriers when pipelining.
         LDSBarrierOp::create(rewriter, loc);
       }
-      accelEmitterPtrGemm0->computeOutputConversion(
-          rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
+      auto postprocessGemm0Stage =
+          StageOp::create(rewriter, loc, "PostProcessGemm0");
+      {
+        PatternRewriter::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPointToStart(
+            &postprocessGemm0Stage.getRegion().emplaceBlock());
 
-      int64_t prePadG0M = gemm0M;
-      if (op.getPrePadG0M().has_value()) {
-        prePadG0M = op.getPrePadG0M().value().getSExtValue();
-      }
-      int64_t prePadG0N = gemm0N;
-      if (op.getPrePadG0N().has_value()) {
-        prePadG0N = op.getPrePadG0N().value().getSExtValue();
-      }
-      RegsAsMatrixSubTiles gemm0OutSubTileViewsTrUnPadded =
-          unpadGridSubTileView(rewriter, loc, gemm0OutSubTileViewsTr, prePadG0N,
-                               prePadG0M);
+        accelEmitterPtrGemm0->computeOutputConversion(
+            rewriter, loc, accRegBufferGemm0, gemm0OutBuffer, forceUnroll);
 
-      // undo Grouped-Query Attention (GQA) transforms
-      // This is needed because the preSoftmaxElementWise inputs (if any), don't
-      // have the GQA transformed applied to them. So, we undo the transform to
-      // the output of the first GEMM. See postProcessFirstGemm() to understand
-      // the transforms done to preSoftmaxElementWise inputs.
-      ArrayRef<int64_t> unpaddedShape =
-          getLowerShape(gemm0OutSubTileViewsTrUnPadded.gridSubTile);
-      ArrayAttr undoGQA = undoGQATransforms(rewriter, loc, op, unpaddedShape);
+        // undo Grouped-Query Attention (GQA) transforms
+        // This is needed because the preSoftmaxElementWise inputs (if any),
+        // don't have the GQA transformed applied to them. So, we undo the
+        // transform to the output of the first GEMM. See postProcessFirstGemm()
+        // to understand the transforms done to preSoftmaxElementWise inputs.
+        ArrayRef<int64_t> unpaddedShape =
+            getLowerShape(gemm0OutSubTileViewsTrUnPadded.gridSubTile);
+        ArrayAttr undoGQA = undoGQATransforms(rewriter, loc, op, unpaddedShape);
 
-      // undo the GQA transforms for postProcessFirstGemm()
-      if (undoGQA) {
-        ArrayAttr linalgGridSubTileMaps =
-            gemm0OutSubTileViewsTrUnPadded.gridSubTile;
-        linalgGridSubTileMaps =
-            prependUpperViews(rewriter, linalgGridSubTileMaps, undoGQA);
-        gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
-      }
-
-      // Apply splitKV transforms if needed
-      // This transforms the GEMM0 output from [B*H, SeqQ, SeqK] to
-      // [B*H*splitKV, SeqQ, SeqK/splitKV] to match the preSoftmax inputs.
-      int64_t splitKV = op.getSplitKV();
-      if (splitKV > 1 && op.getPreSoftmaxHasSplitKVTransforms()) {
-        ArrayAttr splitKVTransforms = createSplitKVTransformsForGemm0Out(
-            rewriter, loc, unpaddedShape, splitKV);
-        assert(splitKVTransforms && "splitKV transforms should be non-null");
-        ArrayAttr linalgGridSubTileMaps =
-            gemm0OutSubTileViewsTrUnPadded.gridSubTile;
-        linalgGridSubTileMaps = prependUpperViews(
-            rewriter, linalgGridSubTileMaps, splitKVTransforms);
-        gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
-      }
-
-      // Align the preSoftmaxElementWise (if any) linalg.generic to
-      // be performed on the output of the first gemm.
-      FailureOr<Value> maybeFusionOutBuffer = postProcessFirstGemm(
-          rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer, fusionOutBuffer,
-          gemm0OutSubTileViewsTrUnPadded);
-      if (failed(maybeFusionOutBuffer)) {
-        return op.emitError("post processing first gemm failed.\n");
-      }
-      gemm0OutBuffer = maybeFusionOutBuffer.value();
-      if (fusionOutElemType == elemTypeSoftmax)
-        softmaxInputBuffer = gemm0OutBuffer;
-
-      // Softmax
-      if (op.getEnableSoftmax()) {
-        // convert gemm0OutBuffer to elemTypeSoftmax
-        if (fusionOutElemType != elemTypeSoftmax) {
-          createTypeConversionFlatAndStore(rewriter, loc, gemm0OutBuffer,
-                                           softmaxInputBuffer);
-        }
-        // Scale gemm0 output by (1/ln2)
-        // So that we can use exp2 instead of exp.
-        Value ln2Recip = createConstantFloatOp(
-            rewriter, loc, elemTypeSoftmax, elemTypeSoftmax, 1.44269504f,
-            elemTypeSoftmax.getIntOrFloatBitWidth() >= 32 ? APFloat::opOK
-                                                          : APFloat::opInexact);
-        postProcessFirstGemmSplat<ElementwiseMultOp>(
-            rewriter, loc, gridCoordsGemm0, softmaxInputBuffer,
-            gemm0OutSubTileViews,
-            ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
-
-        // Handle padding
-        bool hasPadding =
-            op.getPrePadG0M().has_value() || op.getPrePadG0N().has_value();
-        if (hasPadding) {
-          createFirstGemmNegInfPadding(rewriter, loc, gridCoordsGemm0,
-                                       softmaxInputBuffer,
-                                       gemm0OutSubTileViewsTrUnPadded);
-        }
-        // Negative Infinite for extra values based on masking type
-        // KV cache masking is independent of causal masking - it masks out
-        // positions beyond currentSeqLen (padding). Apply it whenever KV
-        // cache is enabled, regardless of causal/prefix-causal mode.
-        if (isKVCache) {
-          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
-                                   gridCoordsGemm0, softmaxInputBuffer,
-                                   gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
-                                   gemm0MBlocksLastIter, currentSeqLen,
-                                   /*prefixOffset=*/nullptr,
-                                   /*numRepeatsGQA=*/nullptr);
+        // undo the GQA transforms for postProcessFirstGemm()
+        if (undoGQA) {
+          ArrayAttr linalgGridSubTileMaps =
+              gemm0OutSubTileViewsTrUnPadded.gridSubTile;
+          linalgGridSubTileMaps =
+              prependUpperViews(rewriter, linalgGridSubTileMaps, undoGQA);
+          gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
         }
 
-        // Causal masking: either prefix-causal or standard causal
-        if (isPrefixCausal) {
-          // Prefix causal: mask when key > (query + offset).
-          // This combines causal masking with a prefix offset
-          setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::PrefixCausal,
-                                   gridCoordsGemm0, softmaxInputBuffer,
-                                   gemm0OutSubTileViewsTr, isPrefixCausal,
-                                   mLoopIV, gemm0MBlocksLastIter,
-                                   /*currentSeqLen=*/nullptr, prefixOffset,
-                                   op.getNumRepeatsGQAAttr());
-        } else if (isCausal) {
-          // Standard causal masking: mask when key > query
-          setGemm0OutputOutOfScope(
-              rewriter, loc, OutOfScopeType::Causal, gridCoordsGemm0,
-              softmaxInputBuffer, gemm0OutSubTileViewsTr, isCausal, mLoopIV,
-              gemm0MBlocksLastIter,
-              /*currentSeqLen=*/nullptr,
-              /*prefixOffset=*/nullptr, op.getNumRepeatsGQAAttr());
+        // Apply splitKV transforms if needed
+        // This transforms the GEMM0 output from [B*H, SeqQ, SeqK] to
+        // [B*H*splitKV, SeqQ, SeqK/splitKV] to match the preSoftmax inputs.
+        int64_t splitKV = op.getSplitKV();
+        if (splitKV > 1 && op.getPreSoftmaxHasSplitKVTransforms()) {
+          ArrayAttr splitKVTransforms = createSplitKVTransformsForGemm0Out(
+              rewriter, loc, unpaddedShape, splitKV);
+          assert(splitKVTransforms && "splitKV transforms should be non-null");
+          ArrayAttr linalgGridSubTileMaps =
+              gemm0OutSubTileViewsTrUnPadded.gridSubTile;
+          linalgGridSubTileMaps = prependUpperViews(
+              rewriter, linalgGridSubTileMaps, splitKVTransforms);
+          gemm0OutSubTileViewsTrUnPadded.gridSubTile = linalgGridSubTileMaps;
         }
 
-        APInt reductionAxis = APInt(64, 1);
-        // Softmax max reduction
-        Value ldsReductionWorkspaceByteBuffer = createLDSByteBuffer(
-            rewriter, loc, reductionWorkspaceSize, elemTypeSoftmax);
-        TypedValue<MemRefType> ldsReductionWorkspaceBuffer = viewBufferAs(
-            rewriter, ldsReductionWorkspaceByteBuffer, elemTypeSoftmax);
-        BlockwiseBroadcastReduceOp::create(
-            rewriter, loc, softmaxInputBuffer, ldsReductionWorkspaceBuffer,
-            softmaxBufferMax,
-            /*extraOut=*/nullptr, reductionAxis, rock::ReduceMethod::Max,
-            gemm0OutSubTileViewsTr.blockSubTile,
-            gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
-            gemm0OutSubTileViewsTr.threadSubTile, /*extraViews=*/nullptr,
-            blockSize);
+        // Align the preSoftmaxElementWise (if any) linalg.generic to
+        // be performed on the output of the first gemm.
+        FailureOr<Value> maybeFusionOutBuffer = postProcessFirstGemm(
+            rewriter, loc, op, gridCoordsGemm0, gemm0OutBuffer, fusionOutBuffer,
+            gemm0OutSubTileViewsTrUnPadded);
+        if (failed(maybeFusionOutBuffer)) {
+          return op.emitError("post processing first gemm failed.\n");
+        }
+        gemm0OutBuffer = maybeFusionOutBuffer.value();
+        if (fusionOutElemType == elemTypeSoftmax)
+          outputFirstGemm = gemm0OutBuffer;
 
-        // softmax normalization.
-        Value gemm0MNThreadwiseView =
-            transform(rewriter, softmaxInputBuffer,
-                      invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
-        Value gemm0MNExpThreadwiseView =
-            transform(rewriter, softmaxBufferExp,
-                      invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
-        Value gemm0MNMaxThreadwiseView =
-            transform(rewriter, softmaxBufferMax,
-                      invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
-        expSubstractMaxFromGemm0(rewriter, loc, gemm0MNThreadwiseView,
-                                 gemm0MNExpThreadwiseView,
-                                 gemm0MNMaxThreadwiseView, maxRowBuffer);
+        // Softmax
+        if (op.getEnableSoftmax()) {
+          // convert gemm0OutBuffer to elemTypeSoftmax
+          if (fusionOutElemType != elemTypeSoftmax) {
+            createTypeConversionFlatAndStore(rewriter, loc, gemm0OutBuffer,
+                                             outputFirstGemm);
+          }
+          // Scale gemm0 output by (1/ln2)
+          // So that we can use exp2 instead of exp.
+          Value ln2Recip = createConstantFloatOp(
+              rewriter, loc, elemTypeSoftmax, elemTypeSoftmax, 1.44269504f,
+              elemTypeSoftmax.getIntOrFloatBitWidth() >= 32
+                  ? APFloat::opOK
+                  : APFloat::opInexact);
+          postProcessFirstGemmSplat<ElementwiseMultOp>(
+              rewriter, loc, gridCoordsGemm0, outputFirstGemm,
+              softmaxInputBuffer, gemm0OutSubTileViews,
+              ln2Recip.getDefiningOp<arith::ConstantOp>().getValue());
 
-        // Softmax sum reduction
-        Value ldsReductionWorkspaceByteSecondBuffer = createLDSByteBuffer(
-            rewriter, loc, reductionWorkspaceSize, elemTypeSoftmax);
-        TypedValue<MemRefType> ldsReductionWorkspaceSecondBuffer = viewBufferAs(
-            rewriter, ldsReductionWorkspaceByteSecondBuffer, elemTypeSoftmax);
-        BlockwiseBroadcastReduceOp::create(
-            rewriter, loc, softmaxBufferExp, ldsReductionWorkspaceSecondBuffer,
-            softmaxBufferSum, /*extraOut=*/nullptr, reductionAxis,
-            rock::ReduceMethod::Sum, gemm0OutSubTileViewsTr.blockSubTile,
-            gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
-            gemm0OutSubTileViewsTr.threadSubTile,
-            /*extraViews=*/nullptr, blockSize);
-        Value gemm0SumThreadwiseView =
-            transform(rewriter, softmaxBufferSum,
-                      invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
-        Value gemm0MaxThreadwiseView =
-            transform(rewriter, softmaxBufferMax,
-                      invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
-        updateRowSum(rewriter, loc, gemm0SumThreadwiseView,
-                     gemm0MaxThreadwiseView, sumRowBuffer, maxRowBuffer,
-                     expMaxDiffRowBuffer);
+          // Handle padding
+          bool hasPadding =
+              op.getPrePadG0M().has_value() || op.getPrePadG0N().has_value();
+          if (hasPadding) {
+            createFirstGemmNegInfPadding(rewriter, loc, gridCoordsGemm0,
+                                         softmaxInputBuffer,
+                                         gemm0OutSubTileViewsTrUnPadded);
+          }
+
+          // Negative Infinite for extra values based on masking type
+          // KV cache masking is independent of causal masking - it masks out
+          // positions beyond currentSeqLen (padding). Apply it whenever KV
+          // cache is enabled, regardless of causal/prefix-causal mode.
+          if (isKVCache) {
+            setGemm0OutputOutOfScope(rewriter, loc, OutOfScopeType::KVCache,
+                                     gridCoordsGemm0, softmaxInputBuffer,
+                                     gemm0OutSubTileViewsTr, isKVCache, mLoopIV,
+                                     gemm0MBlocksLastIter, currentSeqLen,
+                                     /*prefixOffset=*/nullptr,
+                                     /*numRepeatsGQA=*/nullptr);
+          }
+
+          // Causal masking: either prefix-causal or standard causal
+          if (isPrefixCausal) {
+            // Prefix causal: mask when key > (query + offset).
+            // This combines causal masking with a prefix offset
+            setGemm0OutputOutOfScope(
+                rewriter, loc, OutOfScopeType::PrefixCausal, gridCoordsGemm0,
+                softmaxInputBuffer, gemm0OutSubTileViewsTr, isPrefixCausal,
+                mLoopIV, gemm0MBlocksLastIter,
+                /*currentSeqLen=*/nullptr, prefixOffset,
+                op.getNumRepeatsGQAAttr());
+          } else if (isCausal) {
+            // Standard causal masking: mask when key > query
+            setGemm0OutputOutOfScope(
+                rewriter, loc, OutOfScopeType::Causal, gridCoordsGemm0,
+                softmaxInputBuffer, gemm0OutSubTileViewsTr, isCausal, mLoopIV,
+                gemm0MBlocksLastIter,
+                /*currentSeqLen=*/nullptr,
+                /*prefixOffset=*/nullptr, op.getNumRepeatsGQAAttr());
+          }
+
+          APInt reductionAxis = APInt(64, 1);
+          // Softmax max reduction
+          TypedValue<MemRefType> ldsReductionWorkspaceBuffer = viewBufferAs(
+              rewriter, ldsReductionWorkspaceByteBuffer, elemTypeSoftmax);
+          BlockwiseBroadcastReduceOp::create(
+              rewriter, loc, softmaxInputBuffer, ldsReductionWorkspaceBuffer,
+              softmaxBufferMax,
+              /*extraOut=*/nullptr, reductionAxis, rock::ReduceMethod::Max,
+              gemm0OutSubTileViewsTr.blockSubTile,
+              gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
+              gemm0OutSubTileViewsTr.threadSubTile, /*extraViews=*/nullptr,
+              blockSize);
+
+          // softmax normalization.
+          Value gemm0MNThreadwiseView =
+              transform(rewriter, softmaxInputBuffer,
+                        invertTransforms(rewriter, loc,
+                                         gemm0OutSubTileViewsTr.threadSubTile));
+          Value gemm0MNExpThreadwiseView =
+              transform(rewriter, softmaxBufferExp,
+                        invertTransforms(rewriter, loc,
+                                         gemm0OutSubTileViewsTr.threadSubTile));
+          Value gemm0MNMaxThreadwiseView =
+              transform(rewriter, softmaxBufferMax,
+                        invertTransforms(rewriter, loc,
+                                         gemm0OutSubTileViewsTr.threadSubTile));
+          expSubstractMaxFromGemm0(rewriter, loc, gemm0MNThreadwiseView,
+                                   gemm0MNExpThreadwiseView,
+                                   gemm0MNMaxThreadwiseView, maxRowBuffer);
+
+          // Softmax sum reduction
+          TypedValue<MemRefType> ldsReductionWorkspaceSecondBuffer =
+              viewBufferAs(rewriter, ldsReductionWorkspaceByteSecondBuffer,
+                           elemTypeSoftmax);
+          BlockwiseBroadcastReduceOp::create(
+              rewriter, loc, softmaxBufferExp,
+              ldsReductionWorkspaceSecondBuffer, softmaxBufferSum,
+              /*extraOut=*/nullptr, reductionAxis, rock::ReduceMethod::Sum,
+              gemm0OutSubTileViewsTr.blockSubTile,
+              gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
+              gemm0OutSubTileViewsTr.threadSubTile,
+              /*extraViews=*/nullptr, blockSize);
+          Value gemm0SumThreadwiseView =
+              transform(rewriter, softmaxBufferSum,
+                        invertTransforms(rewriter, loc,
+                                         gemm0OutSubTileViewsTr.threadSubTile));
+          Value gemm0MaxThreadwiseView =
+              transform(rewriter, softmaxBufferMax,
+                        invertTransforms(rewriter, loc,
+                                         gemm0OutSubTileViewsTr.threadSubTile));
+          updateRowSum(rewriter, loc, gemm0SumThreadwiseView,
+                       gemm0MaxThreadwiseView, sumRowBuffer, maxRowBuffer,
+                       expMaxDiffRowBuffer);
+        }
+        rock::YieldOp::create(rewriter, loc);
       }
 
       // Emit blockwise GEMM 1.
       {
-        auto gemm0Out =
-            op.getEnableSoftmax() ? softmaxBufferExp : softmaxInputBuffer;
-        if (elemTypeV != elemTypeSoftmax) {
-          createTypeConversionFlatAndStore(rewriter, loc, gemm0Out,
-                                           gemm1RegBufferB);
-        } else {
-          gemm1RegBufferB = gemm0Out;
-        }
-        Value gemm1LDSByteBufferB;
-        // TODO: extend BlockwiseLoadTileOp to support loading from register
-        // buffer (as below)
-        if (!doBypassLDSSecondGemm) {
-          // The output RegsAsSubTile views are N x M where N is reduction dim
-          RegsAsMatrixSubTiles gemm0OutSubTileNxMViews = gemm0OutSubTileViews;
-          ArrayAttr gemm0ThreadwiseSubtileViewNxMMaps = invertTransforms(
-              rewriter, loc, gemm0OutSubTileNxMViews.threadSubTile);
-          Value gemm0ExpNMThreadwiseView = transform(
-              rewriter, gemm1RegBufferB, gemm0ThreadwiseSubtileViewNxMMaps);
-          // TODO: Correct the below toLDSViews to be max LDS vectorizable
-          // (For now just hacked in the existing view)
-          // Copy copyKPerThread is set to 1 because
-          // K is not packed as kpack vectors. Therefore, setting
-          // copyKPerThread to be 1 will always make the LDS write
-          // to be scalars -- which makes the following layout agnostic.
-          // We should get rid of storing to LDS altogether with
-          // the transposed layout for this gemm.
-          gemm1LDSByteBufferB = createLDSByteBuffer(
-              rewriter, loc, gemm1LDSByteBufferBSize, elemTypeV);
+        auto initGemm1Stage = StageOp::create(rewriter, loc, "InitGemm1");
+        {
+          PatternRewriter::InsertionGuard guard(rewriter);
+          rewriter.setInsertionPointToStart(
+              &initGemm1Stage.getRegion().emplaceBlock());
 
-          LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
-              rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView,
-              gemm0OutSubTileNxMViews, gemm0ExpOutBufferToLDS,
-              gemm1LDSByteBufferB, gemm1KpacksPerBlock, "n", gemm1KPerBlock,
-              gemm1NPerBlock, /*copyKPerThread=*/1, gemm1InNPerThread,
-              forceUnroll, false);
-          if (failed(storeGemm1ATileStatus)) {
-            return failure();
+          auto gemm0Out =
+              op.getEnableSoftmax() ? softmaxBufferExp : outputFirstGemm;
+          if (elemTypeV != elemTypeSoftmax) {
+            createTypeConversionFlatAndStore(rewriter, loc, gemm0Out,
+                                             gemm1RegBufferB);
+          } else {
+            gemm1RegBufferB = gemm0Out;
           }
+          // TODO: extend BlockwiseLoadTileOp to support loading from register
+          // buffer (as below)
+          if (!doBypassLDSSecondGemm) {
+            // The output RegsAsSubTile views are N x M where N is reduction dim
+            RegsAsMatrixSubTiles gemm0OutSubTileNxMViews = gemm0OutSubTileViews;
+            ArrayAttr gemm0ThreadwiseSubtileViewNxMMaps = invertTransforms(
+                rewriter, loc, gemm0OutSubTileNxMViews.threadSubTile);
+            Value gemm0ExpNMThreadwiseView = transform(
+                rewriter, gemm1RegBufferB, gemm0ThreadwiseSubtileViewNxMMaps);
+            // TODO: Correct the below toLDSViews to be max LDS vectorizable
+            // (For now just hacked in the existing view)
+            // Copy copyKPerThread is set to 1 because
+            // K is not packed as kpack vectors. Therefore, setting
+            // copyKPerThread to be 1 will always make the LDS write
+            // to be scalars -- which makes the following layout agnostic.
+            // We should get rid of storing to LDS altogether with
+            // the transposed layout for this gemm.
+            LogicalResult storeGemm1ATileStatus = storeGemmInputTile(
+                rewriter, loc, gemm1kpack, gemm0ExpNMThreadwiseView,
+                gemm0OutSubTileNxMViews, gemm0ExpOutBufferToLDS,
+                gemm1LDSByteBufferB, gemm1KpacksPerBlock, "n", gemm1KPerBlock,
+                gemm1NPerBlock, /*copyKPerThread=*/1, gemm1InNPerThread,
+                forceUnroll, false);
+            if (failed(storeGemm1ATileStatus)) {
+              return failure();
+            }
+          }
+
+          rock::YieldOp::create(rewriter, loc);
         }
 
-        Value ldsByteBufferV = createLDSByteBuffer(
-            rewriter, loc, gemm1KPerBlock * gemm1MPerBlock, elemTypeV);
-        Value endG1MLoop =
-            rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
-
-        auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-            rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch,
-            rock::getNumCUValue(op), splitKVConst);
         scf::ForOp g1MLoopOp =
-            createMainLoop(rewriter, loc, endG1MLoop, loadType);
+            createMainLoop(rewriter, loc, zero, endG1MLoop, loadType);
         {
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(g1MLoopOp.getBody());
@@ -3009,17 +3050,18 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Note that we don't use splitKV here because that dimension belongs to the
     // batch size already for output tensors
-    auto gridCoordsGemm1 =
+    auto gridCoordsGemm1Output =
         layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks,
                                   gridSize, arch, rock::getNumCUValue(op));
     Value outAccBufferOutTypedFlat =
         getFlattenedMemref(rewriter, outAccBufferOutTyped);
-    ThreadwiseWriteAllOp::create(
-        rewriter, loc, outAccBufferOutTypedFlat, trOut, outGridSubTile,
-        /*extraIndices=*/
-        ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
-        op.getStoreMethod(), forceUnroll,
-        /*useIndexDiffs=*/true);
+    ThreadwiseWriteAllOp::create(rewriter, loc, outAccBufferOutTypedFlat, trOut,
+                                 outGridSubTile,
+                                 /*extraIndices=*/
+                                 ValueRange{gridCoordsGemm1Output.g_block,
+                                            gridCoordsGemm1Output.n_block, tid},
+                                 op.getStoreMethod(), forceUnroll,
+                                 /*useIndexDiffs=*/true);
 
     // store LSE to device memory
     if (lse) {
@@ -3051,12 +3093,13 @@ struct GridwiseAttentionAccelRewritePattern
       ArrayAttr outGridSubTile = prependUpperViews(
           rewriter, flatToMiterSlice, gemm1OutSubTileViews.gridSubTile);
       ArrayAttr lseMap = prependUpperViews(rewriter, outGridSubTile, dropM);
-      ThreadwiseWriteAllOp::create(
-          rewriter, loc, lseBuffer, lse, lseMap,
-          /*extraIndices=*/
-          ValueRange{gridCoordsGemm1.g_block, gridCoordsGemm1.n_block, tid},
-          rock::StoreMethod::Set, forceUnroll,
-          /*useIndexDiffs=*/true);
+      ThreadwiseWriteAllOp::create(rewriter, loc, lseBuffer, lse, lseMap,
+                                   /*extraIndices=*/
+                                   ValueRange{gridCoordsGemm1Output.g_block,
+                                              gridCoordsGemm1Output.n_block,
+                                              tid},
+                                   rock::StoreMethod::Set, forceUnroll,
+                                   /*useIndexDiffs=*/true);
     }
 
     rewriter.eraseOp(op);
@@ -3387,10 +3430,10 @@ struct GridwiseGemmAccelRewritePattern
     }
 
     // Emit loop.
-    int64_t kIterations = K / kPerBlock;
-    Value nIterations = ConstantIndexOp::create(b, loc, kIterations);
+    Value nIterations = ConstantIndexOp::create(b, loc, K / kPerBlock);
+    Value start = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
 
-    scf::ForOp loopOp = createMainLoop(b, loc, nIterations, loadType);
+    scf::ForOp loopOp = createMainLoop(b, loc, start, nIterations, loadType);
     {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());

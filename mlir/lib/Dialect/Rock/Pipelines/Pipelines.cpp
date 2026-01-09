@@ -185,6 +185,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(rock::createRockShuffleGemmForReductions());
     funcPm.addPass(rock::createRockGridwiseGemmToBlockwisePass());
     funcPm.addPass(rock::createRockBlockwiseLoadTileToThreadwisePass());
+    funcPm.addPass(rock::createRockPreparePipelinePass());
 
     // align linalg tiling
     /* rocmlir-opt --rock-linalg-align --canonicalize

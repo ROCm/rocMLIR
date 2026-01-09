@@ -199,23 +199,6 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
                         unsigned multiBufferingFactor,
                         bool skipOverrideAnalysis) {
   LLVM_DEBUG(DBGS() << "Start multibuffering: " << allocOp << "\n");
-  if (!allocOp.getType().getElementType().isInteger(8)) {
-    LLVM_DEBUG(DBGS() << "-- Not a int8 buffer -> fail\n");
-    return failure();
-  }
-  if (allocOp.getType().getShape().size() != 1) {
-    LLVM_DEBUG(DBGS() << "-- Not a flat buffer -> fail\n");
-    return failure();
-  }
-
-  bool isUsedByViews = llvm::all_of(allocOp->getUsers(), [](Operation *user) {
-    return dyn_cast<memref::ViewOp>(user) != nullptr;
-  });
-  if (!isUsedByViews) {
-    LLVM_DEBUG(DBGS() << "-- Cannot detect the raw i8 buffer alloc followed by "
-                         "a memref.viewOp\n");
-    return failure();
-  }
 
   DominanceInfo dom(allocOp->getParentOp());
   LoopLikeOpInterface candidateLoop;
@@ -279,19 +262,10 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
 
   LLVM_DEBUG(DBGS() << "Start multibuffering loop: " << candidateLoop << "\n");
 
-  // 1. Construct the multi-buffered memref type.
+  // Construct the multi-buffered memref type.
   LLVM_DEBUG(DBGS() << "--original type: " << allocOp.getType() << "\n");
 
-  if (!allocOp.getType().getElementType().isInteger(8)) {
-    // We only apply multibuffering on raw bytes allocs
-    return failure();
-  }
-  if (allocOp.getType().getShape().size() > 1) {
-    // We only apply multibuffering on raw bytes allocs
-    return failure();
-  }
-
-  // 2. Create the multiple buffers alloc.
+  // 1. Create the multiple buffers alloc.
   newAllocs.resize(multiBufferingFactor);
   Location loc = allocOp->getLoc();
   OpBuilder::InsertionGuard g(rewriter);
@@ -301,14 +275,14 @@ mlir::rock::multiBuffer(RewriterBase &rewriter, rock::GpuAllocOp allocOp,
                                             ValueRange{}, allocOp->getAttrs());
   }
 
-  // 3. RAUW with the particular slice, taking modular rotation into account.
+  // 2. RAUW with the particular slice, taking modular rotation into account.
   SmallVector<Value> startingValues;
   for (auto alloc : newAllocs)
     startingValues.push_back(alloc);
 
   replaceUsesAndPropagateType(rewriter, loc, allocOp, startingValues,
                               candidateLoop);
-  // 4. Finally, erase the old allocOp.
+  // 3. Finally, erase the old allocOp.
   rewriter.eraseOp(allocOp);
 
   return success();

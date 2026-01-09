@@ -379,6 +379,11 @@ void createSchedule(SmallVector<rock::StageOp> &stages,
           if (type == WAR && getAddressSpace(res) == AddressSpace::Private)
             continue;
 
+          // The DAG is built using "resources", not multibuffers.
+          // So, it is possible that thisMultiBuffers[res] does not exist
+          if (!thisMultiBuffers.contains(res))
+            thisMultiBuffers[res] = 1;
+
           thisMultiBuffers[res]++;
         }
       }

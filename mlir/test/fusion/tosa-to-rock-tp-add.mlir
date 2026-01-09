@@ -1,4 +1,4 @@
-// RUN: rocmlir-driver -kernel-pipeline highlevel %s | rocmlir-opt --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise -rock-regularize --rock-gridwise-gemm-to-blockwise --rock-blockwise-load-tile-to-threadwise --rock-linalg-align | FileCheck %s
+// RUN: rocmlir-driver -kernel-pipeline highlevel %s | rocmlir-opt --rock-affix-params --rock-conv-to-gemm --rock-gemm-to-gridwise -rock-regularize --rock-gridwise-gemm-to-blockwise --rock-blockwise-load-tile-to-threadwise --rock-prepare-pipeline --rock-linalg-align | FileCheck %s
 
 // CHECK-DAG: #[[MAP2:.*]] = #rock.transform_map<#map{{.*}} by [<PassThrough ["{{.*}}", "{{.*}}", "{{.*}}", "{{.*}}"] at [0, 1, 2, 3] -> ["{{.*}}", "{{.*}}", "{{.*}}", "{{.*}}"] at [0, 2, 3, 1]>] bounds = [256, 28, 28, 64] -> [256, 64, 28, 28]>
 // CHECK-COUNT-2: rock.threadwise_read_into {{.*}}
