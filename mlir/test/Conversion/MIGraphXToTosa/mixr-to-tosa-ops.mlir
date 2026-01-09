@@ -866,4 +866,22 @@ module {
     %0 = migraphx.softmax %arg0 {axis = 1 : i64} : <16x16x16x16xf32, 4096x256x16x1> -> <16x16x16x16xf32, 4096x256x16x1>
      return %0 : !migraphx.shaped<16x16x16x16xf32, 4096x256x16x1>
   }
+
+  // CHECK-LABEL: func.func @func_deref_f16
+  // CHECK: tosa.custom
+  // CHECK-SAME: {domain_name = "rocmlir", implementation_attrs = "", operator_name = "deref"}
+  // CHECK-SAME: (tensor<1x64x8192xi64>) -> tensor<1x64x8192xf16>
+  func.func @func_deref_f16(%arg0: !migraphx.shaped<1x64x8192xui64, 524288x8192x1>) -> !migraphx.shaped<1x64x8192xf16, 524288x8192x1> attributes {kernel, arch = ""} {
+    %0 = migraphx.deref %arg0 : <1x64x8192xui64, 524288x8192x1> to <1x64x8192xf16, 524288x8192x1>
+    return %0 : !migraphx.shaped<1x64x8192xf16, 524288x8192x1>
+  }
+
+  // CHECK-LABEL: func.func @func_deref_f32
+  // CHECK: tosa.custom
+  // CHECK-SAME: {domain_name = "rocmlir", implementation_attrs = "", operator_name = "deref"}
+  // CHECK-SAME: (tensor<2x32x64xi64>) -> tensor<2x32x64xf32>
+  func.func @func_deref_f32(%arg0: !migraphx.shaped<2x32x64xui64, 2048x64x1>) -> !migraphx.shaped<2x32x64xf32, 2048x64x1> attributes {kernel, arch = ""} {
+    %0 = migraphx.deref %arg0 : <2x32x64xui64, 2048x64x1> to <2x32x64xf32, 2048x64x1>
+    return %0 : !migraphx.shaped<2x32x64xf32, 2048x64x1>
+  }
 }

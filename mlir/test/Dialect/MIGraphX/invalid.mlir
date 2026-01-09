@@ -225,3 +225,27 @@ func.func @migraphx_quant_dot_f4_n_scales(%arg0: !migraphx.shaped<1x16x512xf4E2M
     -> <1x16x16xf32, 256x16x1>
   return %0 : !migraphx.shaped<1x16x16xf32, 256x16x1>
 }
+
+// -----
+
+func.func @deref_wrong_input_type(%arg0: !migraphx.shaped<1x64x8192xf32, 524288x8192x1>) -> !migraphx.shaped<1x64x8192xf16, 524288x8192x1> {
+  // expected-error @+1 {{'migraphx.deref' op operand #0 must be !migraphx.shaped of 64-bit unsigned integer values}}
+  %0 = migraphx.deref %arg0 : <1x64x8192xf32, 524288x8192x1> to <1x64x8192xf16, 524288x8192x1>
+  return %0 : !migraphx.shaped<1x64x8192xf16, 524288x8192x1>
+}
+
+// -----
+
+func.func @deref_shape_mismatch(%arg0: !migraphx.shaped<1x64x8192xui64, 524288x8192x1>) -> !migraphx.shaped<1x64x4096xf16, 262144x4096x1> {
+  // expected-error @+1 {{input and output shapes must match}}
+  %0 = migraphx.deref %arg0 : <1x64x8192xui64, 524288x8192x1> to <1x64x4096xf16, 262144x4096x1>
+  return %0 : !migraphx.shaped<1x64x4096xf16, 262144x4096x1>
+}
+
+// -----
+
+func.func @deref_stride_mismatch(%arg0: !migraphx.shaped<1x64x8192xui64, 524288x8192x1>) -> !migraphx.shaped<1x64x8192xf16, 524288x4096x1> {
+  // expected-error @+1 {{input and output strides must match}}
+  %0 = migraphx.deref %arg0 : <1x64x8192xui64, 524288x8192x1> to <1x64x8192xf16, 524288x4096x1>
+  return %0 : !migraphx.shaped<1x64x8192xf16, 524288x4096x1>
+}
