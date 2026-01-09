@@ -171,9 +171,9 @@ getFinetuningParams(int64_t maxWavesPerEU) {
     wavesPerEUList.push_back(wavesPerEU);
   }
   std::vector<std::vector<int64_t>> finetuningParams = {
-      {0, 1},                 // outputSwizzle
-      wavesPerEUList,         // wavesPerEU
-      {0, 4, 8, 16, 32, 64}}; // gridGroupSize
+      {0, 1},                       // outputSwizzle
+      wavesPerEUList,               // wavesPerEU
+      {0, 1, 2, 4, 8, 16, 32, 64}}; // gridGroupSize
   return finetuningParams;
 }
 
