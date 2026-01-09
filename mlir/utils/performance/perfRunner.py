@@ -607,6 +607,10 @@ class ConvConfiguration(PerfConfiguration):
             f"-y {self.y} -x {self.x} -p {self.padding_h} -q {self.padding_w} " +
             f"-u {self.conv_stride_h} -v {self.conv_stride_w} -l {self.dilation_h} " +
             f"-j {self.dilation_w} -m conv -g {self.group} -t 1")
+    
+    def to_tuning_key(self):
+        """Returns the full problem key including fusion info for tuning DB lookups."""
+        return getattr(self, '_original_command_line', self.to_command_line())
 
     def __init__(self, dtype: str, direction: str, filter_layout: str, input_layout: str,
                  output_layout: str, n: int, c: int, hi: int, wi: int, k: int, y: int, x: int,
@@ -973,6 +977,11 @@ class GemmConfiguration(PerfConfiguration):
         scale_b_dtype = None
         trans_scale_a = False
         trans_scale_b = False
+        
+        # Store the original command line for accurate tuning DB lookups
+        # (including fusion info which we don't parse but need for cache key)
+        original_command_line = ' '.join(argv)
+        
         i = 0
         while i < len(argv):
             opt = argv[i]
@@ -981,6 +990,9 @@ class GemmConfiguration(PerfConfiguration):
                 scaled_gemm = True
                 i += 1
                 continue
+            # Fusion info is always at the end, so we can stop parsing here
+            if opt == '-fusion_reduce':
+                break
             # Handle flags with values
             if i + 1 >= len(argv):
                 raise ValueError(f"Missing value for argument {opt}")
@@ -1018,8 +1030,11 @@ class GemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete GEMM configuration")
 
-        return cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, scaled_gemm, scale_a_dtype,
-                   scale_b_dtype, trans_scale_a, trans_scale_b, arch, num_cu, perf_config)
+        config = cls(dtype, out_dtype, g, m, k, n, trans_a, trans_b, scaled_gemm, scale_a_dtype,
+                     scale_b_dtype, trans_scale_a, trans_scale_b, arch, num_cu, perf_config)
+        # Store the full original command line for tuning DB lookups
+        config._original_command_line = original_command_line
+        return config
 
     def to_command_line(self):
         result = (f"-t {self.datatype} -out_datatype {self.out_dtype} " +
@@ -1036,6 +1051,10 @@ class GemmConfiguration(PerfConfiguration):
         if self.trans_scale_b:
             result += f" -transScaleB {str(self.trans_scale_b).lower()}"
         return result
+    
+    def to_tuning_key(self):
+        """Returns the full problem key including fusion info for tuning DB lookups."""
+        return getattr(self, '_original_command_line', self.to_command_line())
 
     def __init__(self,
                  dtype: str,
@@ -1224,9 +1243,16 @@ class ConvGemmConfiguration(PerfConfiguration):
         input_layout = None
         trans_c = False
         trans_o = False
+        
+        # Store the original command line for accurate tuning DB lookups
+        original_command_line = ' '.join(argv)
+        
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         for i in range(0, len(argv), 2):
             opt = argv[i]
+            # Fusion info is always at the end, so we can stop parsing here
+            if opt == '-fusion_reduce':
+                break
             val = argv[i + 1]
             if opt.endswith("-t"):
                 dtype = val
@@ -1279,9 +1305,11 @@ class ConvGemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete conv+gemm configuration")
 
-        return cls(dtype, filter_layout, input_layout, trans_c, trans_o, n, c, hi, wi, k, y, x, o,
-                   conv_stride_h, conv_stride_w, padding_h, padding_w, dilation_h, dilation_w,
-                   group, arch, num_cu, perf_config)
+        config = cls(dtype, filter_layout, input_layout, trans_c, trans_o, n, c, hi, wi, k, y, x, o,
+                     conv_stride_h, conv_stride_w, padding_h, padding_w, dilation_h, dilation_w,
+                     group, arch, num_cu, perf_config)
+        config._original_command_line = original_command_line
+        return config
 
     def to_command_line(self):
         return (f"-t {self.datatype} " +
@@ -1291,6 +1319,10 @@ class ConvGemmConfiguration(PerfConfiguration):
                 f"-y {self.y} -x {self.x} -p {self.padding_h} -q {self.padding_w} " +
                 f"-u {self.conv_stride_h} -v {self.conv_stride_w} -l {self.dilation_h} " +
                 f"-j {self.dilation_w} -g {self.group}" + f"-gemmO {str(self.o)}")
+    
+    def to_tuning_key(self):
+        """Returns the full problem key including fusion info for tuning DB lookups."""
+        return getattr(self, '_original_command_line', self.to_command_line())
 
 
 class GemmGemmConfiguration(PerfConfiguration):
@@ -1385,9 +1417,16 @@ class GemmGemmConfiguration(PerfConfiguration):
         trans_b = False
         trans_c = False
         trans_o = False
+        
+        # Store the original command line for accurate tuning DB lookups
+        original_command_line = ' '.join(argv)
+        
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         for i in range(0, len(argv), 2):
             opt = argv[i]
+            # Fusion info is always at the end, so we can stop parsing here
+            if opt == '-fusion_reduce':
+                break
             val = argv[i + 1]
             if opt.endswith("-t"):
                 dtype = val
@@ -1417,8 +1456,10 @@ class GemmGemmConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete gemm+gemm configuration")
 
-        return cls(dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o, arch, num_cu,
-                   perf_config)
+        config = cls(dtype, g, m, k, n, o, trans_a, trans_b, trans_c, trans_o, arch, num_cu,
+                     perf_config)
+        config._original_command_line = original_command_line
+        return config
 
     def to_command_line(self):
         return (f"-t {self.datatype} " +
@@ -1426,6 +1467,10 @@ class GemmGemmConfiguration(PerfConfiguration):
                 f"-transC {str(self.trans_c).lower()} -transO {str(self.trans_o).lower()} " +
                 f"-g {self.g} " +
                 f"-m {str(self.m)} -k {str(self.k)} -n {str(self.n)} -gemmO {str(self.o)}")
+    
+    def to_tuning_key(self):
+        """Returns the full problem key including fusion info for tuning DB lookups."""
+        return getattr(self, '_original_command_line', self.to_command_line())
 
 
 class AttentionConfiguration(PerfConfiguration):
@@ -1565,9 +1610,16 @@ class AttentionConfiguration(PerfConfiguration):
         split_kv = 1
         with_attn_scale = False
         with_attn_bias = False
+        
+        # Store the original command line for accurate tuning DB lookups
+        original_command_line = ' '.join(argv)
+        
         # Please keep this in sync with mlir::rock::getTuningProblemStr()
         for i in range(0, len(argv), 2):
             opt = argv[i]
+            # Fusion info is always at the end, so we can stop parsing here
+            if opt == '-fusion_reduce':
+                break
             val = argv[i + 1]
             if opt.endswith("-t"):
                 dtype = val
@@ -1615,9 +1667,11 @@ class AttentionConfiguration(PerfConfiguration):
             if v is None:
                 raise ValueError("Incomplete Attention configuration")
 
-        return cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk,
-                   head_dim_v, with_attn_scale, with_attn_bias, trans_q, trans_k, trans_v, trans_o,
-                   causal, return_lse, split_kv, arch, num_cu, perf_config)
+        config = cls(dtype, g, seq_len_q, seq_len_k, num_heads_q, num_heads_kv, head_dim_qk,
+                     head_dim_v, with_attn_scale, with_attn_bias, trans_q, trans_k, trans_v, trans_o,
+                     causal, return_lse, split_kv, arch, num_cu, perf_config)
+        config._original_command_line = original_command_line
+        return config
 
     def to_command_line(self):
         return (
@@ -1630,6 +1684,10 @@ class AttentionConfiguration(PerfConfiguration):
             f"-seq_len_q {str(self.seq_len_q)} -seq_len_k {str(self.seq_len_k)} -num_heads_q {str(self.num_heads_q)} -num_heads_kv {str(self.num_heads_kv)} -head_dim_qk {str(self.head_dim_qk)} -head_dim_v {str(self.head_dim_v)} "
             + f"-with-attn-scale {str(self.with_attn_scale).lower()} " +
             f"-with-attn-bias {str(self.with_attn_bias).lower()}")
+    
+    def to_tuning_key(self):
+        """Returns the full problem key including fusion info for tuning DB lookups."""
+        return getattr(self, '_original_command_line', self.to_command_line())
 
 
 class HipBLASLtGemmConfig(GemmConfiguration):
@@ -1755,10 +1813,11 @@ def benchmark_mlir(commandline,
                    rocmlir_gen_flags,
                    use_rocprof=False):
     config = conf_class.from_command_line(commandline, arch, num_cu)
-    config_str = config.to_command_line()
+    # Use to_tuning_key() which includes fusion info for accurate DB lookups
+    config_key = config.to_tuning_key() if hasattr(config, 'to_tuning_key') else config.to_command_line()
     if tuning_db:
-        if (arch, config_str) in tuning_db:
-            config.set_perfconfig(tuning_db[arch, config_str])
+        if (arch, config_key) in tuning_db:
+            config.set_perfconfig(tuning_db[arch, config_key])
         else:  # Tuning DB present but doesn't contain config, return N/A
             return config.table_entry(np.nan)
 
@@ -2078,9 +2137,10 @@ def benchmark_fusion_kernels(test_dir,
         # Find the best perf_config
         best_perf = ""
         if tuning_db:
-            config_str = config.to_command_line()
-            if (arch, config_str) in tuning_db:
-                best_perf = tuning_db[arch, config_str]
+            # Use to_tuning_key() which includes fusion info for accurate DB lookups
+            config_key = config.to_tuning_key() if hasattr(config, 'to_tuning_key') else config.to_command_line()
+            if (arch, config_key) in tuning_db:
+                best_perf = tuning_db[arch, config_key]
                 config.set_perfconfig(best_perf)
             else:  # Tuning DB present but doesn't contain config, add a NaN entry
                 if test_vector not in perf_results:

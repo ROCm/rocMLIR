@@ -11,6 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/Analysis/BufferDependencyAnalysis.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/GetRockInfo.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -23,9 +25,12 @@
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
+#include "mlir/Dialect/Rock/utility/transformMapUtils.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/Interfaces/ViewLikeInterface.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -1164,6 +1169,197 @@ extractLayouts(Operation *op, llvm::StringMap<unsigned> &fLayoutMap,
   return success();
 }
 
+// Structure to hold information about a single reduction operation
+struct ReductionInfo {
+  ReduceMethod method;
+  int64_t axis;
+  int64_t rank;
+  int64_t stride; // Stride of the reduction dimension
+  bool hasPointwiseBefore;
+
+  bool operator<(const ReductionInfo &other) const {
+    // Sort by method first, then rank, then axis, then stride, then
+    // hasPointwiseBefore
+    if (method != other.method)
+      return method < other.method;
+    if (rank != other.rank)
+      return rank < other.rank;
+    if (axis != other.axis)
+      return axis < other.axis;
+    if (stride != other.stride)
+      return stride < other.stride;
+    return hasPointwiseBefore > other.hasPointwiseBefore;
+  }
+
+  bool operator==(const ReductionInfo &other) const {
+    return method == other.method && axis == other.axis && rank == other.rank &&
+           stride == other.stride &&
+           hasPointwiseBefore == other.hasPointwiseBefore;
+  }
+};
+
+// Structure to hold fusion information for problem key generation
+struct FusionInfo {
+  SmallVector<ReductionInfo> reductions;
+
+  bool hasReduction() const { return !reductions.empty(); }
+  int numReductionOutputs() const { return reductions.size(); }
+};
+
+// Helper to get the base value (allocation or block argument) from a value
+static FailureOr<Value> getBaseValue(Value v) {
+  FailureOr<memref::AllocOp> maybeAlloc = rock::findMemrefAlloc(v);
+  if (succeeded(maybeAlloc)) {
+    return maybeAlloc.value().getResult();
+  }
+
+  FailureOr<BlockArgument> maybeBlockArg = rock::findBlockArgument(v);
+  if (succeeded(maybeBlockArg)) {
+    return maybeBlockArg.value();
+  }
+
+  return failure();
+}
+
+// Helper to trace backwards from a value to see if it reaches the target
+// Returns success(hasPointwise) if target is reached, failure otherwise
+static FailureOr<bool> tracesToTarget(Value start, Value target,
+                                      const BufferDependencyAnalysis &deps,
+                                      DenseSet<Value> &visited) {
+  if (!visited.insert(start).second) {
+    return failure(); // Avoid cycles
+  }
+
+  FailureOr<Value> baseValue = getBaseValue(start);
+  if (failed(baseValue))
+    return failure(); // Could not find base value
+
+  if (*baseValue == target) {
+    return false; // Found target, no pointwise
+  }
+
+  // For allocations, use BufferDependencyAnalysis to find writers
+  if (auto allocOp = baseValue->getDefiningOp<memref::AllocOp>()) {
+    std::optional<SmallVector<OpOperand *>> writers = deps.getWriters(allocOp);
+    if (writers) {
+      for (OpOperand *writerOperand : *writers) {
+        auto genericOp = dyn_cast<linalg::GenericOp>(writerOperand->getOwner());
+        if (!genericOp) {
+          continue;
+        }
+
+        // Trace through inputs of the linalg.generic (assumed to be pointwise)
+        for (Value input : genericOp.getInputs()) {
+          FailureOr<bool> maybeHasPointwise =
+              tracesToTarget(input, target, deps, visited);
+          if (succeeded(maybeHasPointwise)) {
+            return true; // Found target through pointwise
+          }
+        }
+      }
+    }
+  }
+
+  return failure();
+}
+
+// Find all reductions and check if they trace back to our GEMM output
+static FusionInfo getFusionInfo(Value gemmResult, GemmFeatures features) {
+  FusionInfo info;
+
+  // Find the target (allocation or block argument)
+  FailureOr<Value> maybeTarget = getBaseValue(gemmResult);
+  if (failed(maybeTarget))
+    return info; // None found
+
+  Value target = *maybeTarget;
+
+  // Get the parent function
+  auto defOp = gemmResult.getDefiningOp();
+  auto funcOp = defOp ? rock::getParentFuncOp(defOp) : nullptr;
+  if (!funcOp) {
+    return info;
+  }
+
+  // Walk all reduce operations and check if they trace back to our GEMM.
+  // Note, we are assuming that all reduce operations are returned here.
+  BufferDependencyAnalysis deps(funcOp);
+  funcOp->walk([&](rock::ReduceOp reduceOp) {
+    DenseSet<Value> visited;
+    FailureOr<bool> maybeHasPointwise =
+        tracesToTarget(reduceOp.getIn(), target, deps, visited);
+
+    if (succeeded(maybeHasPointwise)) {
+      ReductionInfo redInfo;
+      redInfo.method = reduceOp.getReduceMethod();
+      redInfo.axis = reduceOp.getAxis().getSExtValue();
+      auto memrefType = cast<MemRefType>(reduceOp.getIn().getType());
+      redInfo.rank = memrefType.getRank();
+
+      // Extract stride for the reduction dimension
+      SmallVector<int64_t> strides;
+      int64_t offset;
+      if (succeeded(memrefType.getStridesAndOffset(strides, offset))) {
+        redInfo.stride = strides[redInfo.axis];
+      } else {
+        // If we can't determine stride, use dynamic sentinel
+        redInfo.stride = ShapedType::kDynamic;
+      }
+
+      redInfo.hasPointwiseBefore = *maybeHasPointwise;
+      info.reductions.push_back(redInfo);
+    }
+  });
+
+  // Sort reductions for consistent ordering in problem key
+  std::sort(info.reductions.begin(), info.reductions.end());
+
+  return info;
+}
+
+// Append fusion information to the problem key string
+static void appendOutputFusionInfo(llvm::raw_svector_ostream &problemOS,
+                                   const FusionInfo &fusionInfo) {
+  constexpr char sep = ' ';
+
+  if (!fusionInfo.hasReduction())
+    return;
+
+  problemOS << sep << "-fusion_reduce" << sep
+            << "count=" << fusionInfo.numReductionOutputs();
+
+  // Encode each reduction in format: method:rank:axis:stride[:hasPointwise]
+  for (const auto &reduction : fusionInfo.reductions) {
+    problemOS << sep;
+
+    // Add reduction method
+    switch (reduction.method) {
+    case ReduceMethod::Sum:
+      problemOS << "sum";
+      break;
+    case ReduceMethod::Max:
+      problemOS << "max";
+      break;
+    }
+
+    // Add rank, axis, and stride with colon separators
+    problemOS << ":rank" << reduction.rank;
+    problemOS << ":axis" << reduction.axis;
+
+    // Add stride (use '?' for dynamic/unknown strides)
+    if (reduction.stride == ShapedType::kDynamic) {
+      problemOS << ":stride?";
+    } else {
+      problemOS << ":stride" << reduction.stride;
+    }
+
+    // Add pointwise flag for this specific reduction
+    if (reduction.hasPointwiseBefore) {
+      problemOS << ":hasPointwise";
+    }
+  }
+}
+
 static LogicalResult
 getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
                     SmallVectorImpl<char> &out) {
@@ -1339,6 +1535,13 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
     problemOS << "-k " << headDimQK << sep;
     problemOS << "-gemmO " << headDimV;
   }
+
+  // Analyze and append fusion information
+  Value gemmGemmOutput = gemmGemmOp.getOutArgument()->get();
+  GemmFeatures features = rock::getFeatures(gemmGemmOp);
+  FusionInfo fusionInfo = getFusionInfo(gemmGemmOutput, features);
+  appendOutputFusionInfo(problemOS, fusionInfo);
+
   return success();
 }
 
@@ -1555,6 +1758,12 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
     // Unknown op type, unreachable.
     return failure();
   }
+
+  // Analyze and append fusion information
+  Value gemmOutput = gemmIF.getOutArgument()->get();
+  GemmFeatures features = rock::getFeatures(gemmIF);
+  FusionInfo fusionInfo = getFusionInfo(gemmOutput, features);
+  appendOutputFusionInfo(problemOS, fusionInfo);
 
   while (out.back() == sep) {
     // remove trailing whitespace
