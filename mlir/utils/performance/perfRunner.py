@@ -293,25 +293,22 @@ def read_tuning_db(path: Optional[str]) -> MaybeTuningDb:
         with open(path, 'r') as db_file:
             for line in db_file:
                 line = line.strip()
-                if line.startswith('#'):
+                if not line or line.startswith('#'):
                     continue
                 entries = line.split('\t')
 
                 # note: legacy format has 3 entries
                 if len(entries) == 3:
                     arch, config, perfconfig = entries
-                    ret[arch, config] = perfconfig
-                # note: new format has 4 entries
-                elif len(entries) == 4:
-                    arch, _, config, perfconfig = entries
-                    ret[arch, config] = perfconfig
-                # note: 5-entry form includes tflops at end
-                elif len(entries) == 5:
-                    arch, _, config, perfconfig, _ = entries
-                    ret[arch, config] = perfconfig
+                # note: new format has 4+ entries
+                elif len(entries) >= 4:
+                    arch, _, config, perfconfig = entries[:4]
                 else:
                     print("Warning: Malformed tuning database entry:", line)
                     continue
+
+                ret[arch, config] = perfconfig
+
         return ret
     except FileNotFoundError:
         if path:

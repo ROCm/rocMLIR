@@ -247,11 +247,8 @@ class TunedConfigsCache:
     def from_output_file(cls, options: Options) -> 'TunedConfigsCache':
         """Load previously tuned configurations from an output TSV file.
 
-        Supports both old and new file formats:
-        - Old format: header starts with '# '; tuning space embedded in column name (e.g., perfConfig (quick))
-        - New format: proper tsv header (no #); metadata in ## comments before header
-
-        Only data lines that match the current tuning space, arch, and numCUs are loaded.
+        Format: # arch\tnumCUs\ttestVector\tperfConfig (tuning_space)\t[TFlops]\t[elapsedSeconds]
+        Only loads entries matching current arch, numCUs, and tuning space.
         """
         cache = cls()
 
@@ -260,13 +257,8 @@ class TunedConfigsCache:
 
         current_commit = get_git_commit_hash()
 
-        # Pending metadata
-        file_commit: Optional[str] = None
-        file_tuning_space: Optional[str] = None
-        file_arch: Optional[str] = None
-        file_num_cu: Optional[int] = None
-
         # Active section state
+        metadata: Dict[str, Optional[Any]] = {}
         matching_section = False
         column_indices: Dict[str, int] = {}
 
@@ -279,52 +271,31 @@ class TunedConfigsCache:
 
                     # Check for metadata line
                     if line.startswith('## '):
-                        key_value = line[3:]
-                        if ':' in key_value:
-                            key, value = key_value.split(':', 1)
-                            key = key.strip()
-                            value = value.strip()
-                            if key == 'commit':
-                                file_commit = value
-                            elif key == 'tuningSpace':
-                                file_tuning_space = value
-                            elif key == 'arch':
-                                file_arch = value
-                            elif key == 'numCUs':
-                                try:
-                                    file_num_cu = int(value)
-                                except ValueError:
-                                    pass
+                        parts = line[3:].split(':', 1)
+                        if len(parts) == 2:
+                            key = parts[0].strip()
+                            value = parts[1].strip()
+                            metadata[key] = value
                         continue
 
                     # Check for header line
                     if cls._is_header_line(line):
-                        # Determine if this section matches based on metadata or old format
-                        if file_tuning_space is not None:
-                            # New format: use metadata
-                            matching_section = (file_tuning_space == options.tuning_space_kind and
-                                                (file_arch is None or file_arch == options.arch) and
-                                                (file_num_cu is None or
-                                                 file_num_cu == options.num_cu))
-                        elif f'({options.tuning_space_kind})' in line:
-                            # Old format: tuning space embedded in header
-                            matching_section = True
-                        else:
-                            matching_section = False
+                        # Determine if this section matches based on tuning space
+                        matching_section = f'({options.tuning_space_kind})' in line
 
                         if matching_section:
                             column_indices = cls._parse_header_line(line)
-                            if file_commit and file_commit != current_commit and not options.quiet:
+
+                            # Warn if commit hashes differ
+                            file_commit = metadata.get('commit', 'unknown')
+                            if file_commit != current_commit:
                                 print(
                                     f"Warning: Loading tuned configs from different commit "
                                     f"(file: {file_commit[:8]}, current: {current_commit[:8]})",
                                     file=sys.stderr)
 
-                        # Reset pending metadata for next section
-                        file_commit = None
-                        file_tuning_space = None
-                        file_arch = None
-                        file_num_cu = None
+                        # Reset metadata for next section
+                        metadata = {}
                         continue
 
                     # Skip other comment lines
@@ -350,21 +321,20 @@ class TunedConfigsCache:
 
     @staticmethod
     def _is_header_line(line: str) -> bool:
-        """Check if line is a column header (old or new format)."""
-        # Old format: '# arch\t...'
-        if line.startswith('# '):
-            return line[2:].startswith('arch\t')
-        # New format: 'testVector\t...'
-        return line.startswith('testVector\t')
+        """Check if line is a column header."""
+        return line.startswith('# arch\t')
 
     @staticmethod
     def _parse_header_line(line: str) -> Dict[str, int]:
         """Parse column header and return name -> index mapping."""
+        # Strip leading '# ' if present
         header_text = line[2:] if line.startswith('# ') else line
         indices = {}
         for i, col in enumerate(header_text.split('\t')):
             if col:
-                indices[col.split()[0]] = i
+                # Exctract base column name (handles 'perfConfig (tuning_space)')
+                col_name = col.split()[0]
+                indices[col_name] = i
         return indices
 
     @staticmethod
@@ -385,14 +355,10 @@ class TunedConfigsCache:
                 return fields[idx]
             return None
 
-        # Old format: arch and numCUs are columns
-        if 'arch' in column_indices:
-            if get_field('arch') != arch:
-                return None
-
-        if 'numCUs' in column_indices:
-            if get_field('numCUs') != str(num_cu):
-                return None
+        if get_field('arch') != arch:
+            return None
+        if get_field('numCUs') != str(num_cu):
+            return None
 
         test_vector = get_field('testVector')
         if not test_vector:
@@ -652,33 +618,37 @@ class OutputFileWriter:
         if self.header_written:
             return
 
-        # Add a blank line if appending
         if self._is_appending:
-            print("", file=self.file)
+            print("", file=self.file)  # Blank line before new section
 
         # Metadata comments
         print(f"## commit: {get_git_commit_hash()}", file=self.file)
-        print(f"## tuningSpace: {self.options.tuning_space_kind}", file=self.file)
-        print(f'## arch: {self.options.arch}', file=self.file)
-        print(f'## numCUs: {self.options.num_cu}', file=self.file)
-        print(f'## numChiplets: {self.options.num_chiplets}', file=self.file)
 
-        # TSV header
-        columns = ['testVector', 'perfConfig']
+        # TSV header with '# ' prefix
+        columns = [
+            'arch', 'numCUs', 'numChiplets', 'testVector',
+            f'perfConfig ({self.options.tuning_space_kind})'
+        ]
         if self.options.tflops:
             columns.append('TFlops')
         columns.append('elapsedSeconds')
-        print("\t".join(columns), file=self.file)
+        print("# " + "\t".join(columns), file=self.file)
 
         self.file.flush()
         self.header_written = True
 
     def write_result(self, result: TuningResult):
+        assert result.success and result.winning_config and result.max_tflops, "write_result called with failed result"
+
         self._write_header()
 
-        fields = [result.test_vector, result.winning_config or ""]
+        fields = [
+            self.options.arch,
+            str(self.options.num_cu),
+            str(self.options.num_chiplets), result.test_vector, result.winning_config
+        ]
         if self.options.tflops:
-            fields.append(f"{result.max_tflops}" if result.max_tflops else "")
+            fields.append(str(result.max_tflops))
         fields.append(f"{result.elapsed_seconds:.1f}")
         print("\t".join(fields), file=self.file)
 
@@ -1499,21 +1469,21 @@ def main(args=None):
         num_chiplets = perfRunner.get_num_chiplets(chip, num_cu)
 
         options = Options(arch=arch,
-                        num_cu=num_cu,
-                        num_chiplets=num_chiplets,
-                        debug=parsed_args.debug,
-                        quiet=parsed_args.quiet,
-                        tuning_space_kind=parsed_args.tuning_space,
-                        rocmlir_gen_flags=parsed_args.rocmlir_gen_flags,
-                        verify_mode=parsed_args.verify_mode,
-                        verify_perfconfigs=parsed_args.verify_perf_configs,
-                        tflops=parsed_args.tflops,
-                        output=ensure_tsv_extension(parsed_args.output),
-                        abort_on_error=parsed_args.abort_on_error,
-                        retune=parsed_args.retune,
-                        gpu_ids=parsed_args.gpus,
-                        num_cpus=parsed_args.num_cpus,
-                        wait_for_compiles=parsed_args.wait_for_compiles)
+                          num_cu=num_cu,
+                          num_chiplets=num_chiplets,
+                          debug=parsed_args.debug,
+                          quiet=parsed_args.quiet,
+                          tuning_space_kind=parsed_args.tuning_space,
+                          rocmlir_gen_flags=parsed_args.rocmlir_gen_flags,
+                          verify_mode=parsed_args.verify_mode,
+                          verify_perfconfigs=parsed_args.verify_perf_configs,
+                          tflops=parsed_args.tflops,
+                          output=ensure_tsv_extension(parsed_args.output),
+                          abort_on_error=parsed_args.abort_on_error,
+                          retune=parsed_args.retune,
+                          gpu_ids=parsed_args.gpus,
+                          num_cpus=parsed_args.num_cpus,
+                          wait_for_compiles=parsed_args.wait_for_compiles)
 
         if op_type == Operation.FUSION:
             op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
