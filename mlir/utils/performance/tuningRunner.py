@@ -73,6 +73,7 @@ class Options:
     output: str
     abort_on_error: bool
     retune: bool
+    retry_failed: bool
     gpu_ids: List[int]
     num_cpus: Optional[int]
     wait_for_compiles: bool
@@ -652,6 +653,7 @@ class ETATracker:
     num_workers: int
     initial_times: List[float] = field(default_factory=list)
     initial_ok_count: int = 0
+    initial_fail_count: int = 0
     _success_times: List[float] = field(default_factory=list, init=False)
     _processed: int = field(default=0, init=False)
     _ok_count: int = field(default=0, init=False)
@@ -660,6 +662,7 @@ class ETATracker:
     def __post_init__(self):
         self._success_times = list(self.initial_times)
         self._ok_count = self.initial_ok_count
+        self._fail_count = self.initial_fail_count
 
     def record(self, result: TuningResult) -> None:
         self._processed += 1
@@ -1324,32 +1327,31 @@ def tune_configs(ctx: TuningContext) -> bool:
                                        num_cu=ctx.options.num_cu,
                                        tuning_space=ctx.options.tuning_space_kind)
     state_file = TuningStateFile(get_state_filepath(ctx.options.output))
-
-    if ctx.options.retune:
-        state_file.delete()
-
     state_file.load(state_context, ctx.options.quiet)
     state = state_file.state
 
-    if not ctx.options.retune:
-        crashed_count = state.crashed_count()
-        if crashed_count > 0 and not ctx.options.quiet:
-            print(f"Detected {crashed_count} crashed config(s) from previous run", file=sys.stderr)
+    crashed_count = state.crashed_count()
+    if crashed_count > 0 and not ctx.options.quiet:
+        print(f"Detected {crashed_count} crashed config(s) from previous run", file=sys.stderr)
 
-        if state.skip_count() > 0 and not ctx.options.quiet:
-            print(f"Found {state.skip_count()} failed/crashed config(s) in state file",
-                  file=sys.stderr)
+    if state.skip_count() > 0 and not ctx.options.quiet:
+        print(f"Found {state.skip_count()} failed/crashed config(s) in state file", file=sys.stderr)
 
     state_file.save()
 
-    # Filter out already-tuned configs
-    pending_configs = [c for c in ctx.configs if not cache.contains(c)]
-    skipped_success = len(ctx.configs) - len(pending_configs)
+    # Filter out already-tuned configs (unless --retune)
+    pending_configs = ctx.configs
+    skipped_success = 0
+    if not ctx.options.retune:
+        pending_configs = [c for c in pending_configs if not cache.contains(c)]
+        skipped_success = len(ctx.configs) - len(pending_configs)
 
-    # Filter out failed/crashed configs from state file
-    before_filter = len(pending_configs)
-    pending_configs = [c for c in pending_configs if not state.should_skip(c)]
-    skipped_failed = before_filter - len(pending_configs)
+    # Filter out failed/crashed configs (unless --retry-failed or --retune)
+    skipped_failed = 0
+    if not ctx.options.retry_failed and not ctx.options.retune:
+        before_filter = len(pending_configs)
+        pending_configs = [c for c in pending_configs if not state.should_skip(c)]
+        skipped_failed = before_filter - len(pending_configs)
 
     total_skipped = skipped_success + skipped_failed
 
@@ -1398,7 +1400,8 @@ def tune_configs(ctx: TuningContext) -> bool:
                 eta_tracker = ETATracker(total_configs=len(pending_configs),
                                          num_workers=num_workers,
                                          initial_times=initial_times,
-                                         initial_ok_count=cache.count())
+                                         initial_ok_count=skipped_success,
+                                         initial_fail_count=skipped_failed)
 
                 progress_bar = tqdm(
                     total=len(ctx.configs),
@@ -1703,6 +1706,11 @@ def parse_arguments(gpu_topology: GpuTopology, available_gpus: List[int], args=N
         default=False,
         help="Force retuning of all configs, ignoring existing results in the output file")
 
+    parser.add_argument("--retry-failed",
+                        action='store_true',
+                        default=False,
+                        help="Retry previously failed/crashed configs instead of skipping them")
+
     parser.add_argument("--gpus",
                         type=int,
                         nargs='+',
@@ -1770,6 +1778,7 @@ def main(args=None):
                           output=ensure_tsv_extension(parsed_args.output),
                           abort_on_error=parsed_args.abort_on_error,
                           retune=parsed_args.retune,
+                          retry_failed=parsed_args.retry_failed,
                           gpu_ids=parsed_args.gpus,
                           num_cpus=parsed_args.num_cpus,
                           wait_for_compiles=parsed_args.wait_for_compiles)
