@@ -432,6 +432,66 @@ class TunedConfigsCache:
 
 
 @dataclass
+class ETATracker:
+    """Track completion times for accurate ETA estimation using median of successful configs."""
+    total_configs: int
+    num_workers: int
+    initial_times: List[float] = field(default_factory=list)
+    initial_ok_count: int = 0
+    _success_times: List[float] = field(default_factory=list, init=False)
+    _processed: int = field(default=0, init=False)
+    _ok_count: int = field(default=0, init=False)
+    _fail_count: int = field(default=0, init=False)
+
+    def __post_init__(self):
+        self._success_times = list(self.initial_times)
+        self._ok_count = self.initial_ok_count
+
+    def record(self, result: TuningResult) -> None:
+        self._processed += 1
+        if result.success:
+            self._ok_count += 1
+            self._success_times.append(result.elapsed_seconds)
+        else:
+            self._fail_count += 1
+
+    def _format_rate(self, seconds: float) -> str:
+        if seconds < 60:
+            return f"{seconds:.1f}s/cfg"
+        elif seconds < 3600:
+            return f"{seconds / 60:.1f}m/cfg"
+        else:
+            return f"{seconds / 3600:.1f}h/cfg"
+
+    def _format_eta(self, seconds: float) -> str:
+        if seconds < 60:
+            return "<1m"
+        elif seconds < 3600:
+            return f"{int(seconds // 60)}m"
+        elif seconds < 86400:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h{minutes}m"
+        else:
+            days = int(seconds // 86400)
+            hours = int((seconds % 86400) // 3600)
+            return f"{days}d{hours}h"
+
+    def get_postfix_str(self) -> str:
+        remaining = self.total_configs - self._processed
+
+        rate = "n/a"
+        eta = "n/a"
+        if len(self._success_times) >= 3:
+            median = statistics.median(self._success_times)
+            eta_seconds = (remaining / self.num_workers) * median
+            rate = self._format_rate(median)
+            eta = self._format_eta(eta_seconds)
+
+        return f"ok={self._ok_count}, fail={self._fail_count}, rate={rate}, eta={eta}"
+
+
+@dataclass
 class TuningContext:
     """Encapsulates all state and configuration needed for tuning operations."""
     configs: List[str]
@@ -558,66 +618,6 @@ class GpuWorkerPool:
                                   maxnode=64)
         except (OSError, AttributeError):
             pass  # libnuma not available, rely on first-touch policy
-
-
-@dataclass
-class ETATracker:
-    """Track completion times for accurate ETA estimation using median of successful configs."""
-    total_configs: int
-    num_workers: int
-    initial_times: List[float] = field(default_factory=list)
-    initial_ok_count: int = 0
-    _success_times: List[float] = field(default_factory=list, init=False)
-    _processed: int = field(default=0, init=False)
-    _ok_count: int = field(default=0, init=False)
-    _fail_count: int = field(default=0, init=False)
-
-    def __post_init__(self):
-        self._success_times = list(self.initial_times)
-        self._ok_count = self.initial_ok_count
-
-    def record(self, result: TuningResult) -> None:
-        self._processed += 1
-        if result.success:
-            self._ok_count += 1
-            self._success_times.append(result.elapsed_seconds)
-        else:
-            self._fail_count += 1
-
-    def _format_rate(self, seconds: float) -> str:
-        if seconds < 60:
-            return f"{seconds:.1f}s/cfg"
-        elif seconds < 3600:
-            return f"{seconds / 60:.1f}m/cfg"
-        else:
-            return f"{seconds / 3600:.1f}h/cfg"
-
-    def _format_eta(self, seconds: float) -> str:
-        if seconds < 60:
-            return "<1m"
-        elif seconds < 3600:
-            return f"{int(seconds // 60)}m"
-        elif seconds < 86400:
-            hours = int(seconds // 3600)
-            minutes = int((seconds % 3600) // 60)
-            return f"{hours}h{minutes}m"
-        else:
-            days = int(seconds // 86400)
-            hours = int((seconds % 86400) // 3600)
-            return f"{days}d{hours}h"
-
-    def get_postfix_str(self) -> str:
-        remaining = self.total_configs - self._processed
-
-        rate = "n/a"
-        eta = "n/a"
-        if len(self._success_times) >= 3:
-            median = statistics.median(self._success_times)
-            eta_seconds = (remaining / self.num_workers) * median
-            rate = self._format_rate(median)
-            eta = self._format_eta(eta_seconds)
-
-        return f"ok={self._ok_count}, fail={self._fail_count}, rate={rate}, eta={eta}"
 
 
 # =============================================================================
@@ -1218,8 +1218,10 @@ def resolve_paths(op_type: Operation, parsed_args) -> Paths:
     """Resolve paths based on operation type and arguments."""
     if op_type == Operation.FUSION:
         configs_path = "./fusion_config_file"
+    elif parsed_args.config:
+        configs_path = None
     else:
-        configs_path = None if parsed_args.config else parsed_args.configs_file
+        configs_path = parsed_args.configs_file
     return perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir)
 
 
@@ -1275,6 +1277,15 @@ def get_config_class(op_type: Operation) -> type:
     }
 
     return config_classes.get(op_type, PerfConfiguration)
+
+
+def load_configs_from_stdin() -> str:
+    """Read configs from stdin and return path to a temporary file."""
+    content = sys.stdin.read()
+    fd, path = tempfile.mkstemp(suffix='.txt', prefix='tuning_configs_')
+    with os.fdopen(fd, 'w') as f:
+        f.write(content)
+    return path
 
 
 def load_configs(op_type: Operation, parsed_args, paths: Paths) -> List[str]:
@@ -1468,58 +1479,64 @@ def main(args=None):
 
     parsed_args = parse_arguments(gpu_topology, available_gpus, args)
 
-    op_type = Operation.from_name(parsed_args.op)
-    paths = resolve_paths(op_type, parsed_args)
-
-    if not paths.mlir_paths:
-        print("rocMLIR build dir was not provided/found", file=sys.stderr)
-        return 1
-
-    arch = perfRunner.get_arch()
-    chip = perfRunner.get_chip()
-    num_cu = perfRunner.get_num_cu(chip)
-    num_chiplets = perfRunner.get_num_chiplets(chip, num_cu)
-
-    options = Options(arch=arch,
-                      num_cu=num_cu,
-                      num_chiplets=num_chiplets,
-                      debug=parsed_args.debug,
-                      quiet=parsed_args.quiet,
-                      tuning_space_kind=parsed_args.tuning_space,
-                      rocmlir_gen_flags=parsed_args.rocmlir_gen_flags,
-                      verify_mode=parsed_args.verify_mode,
-                      verify_perfconfigs=parsed_args.verify_perf_configs,
-                      tflops=parsed_args.tflops,
-                      output=ensure_tsv_extension(parsed_args.output),
-                      abort_on_error=parsed_args.abort_on_error,
-                      retune=parsed_args.retune,
-                      gpu_ids=parsed_args.gpus,
-                      num_cpus=parsed_args.num_cpus,
-                      wait_for_compiles=parsed_args.wait_for_compiles)
-
-    if op_type == Operation.FUSION:
-        op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
-
+    stdin_temp_file = None
     try:
+        # Handle stdin for configs file
+        if parsed_args.configs_file == '-':
+            stdin_temp_file = load_configs_from_stdin()
+            parsed_args.configs_file = stdin_temp_file
+
+        op_type = Operation.from_name(parsed_args.op)
+        paths = resolve_paths(op_type, parsed_args)
+
+        if not paths.mlir_paths:
+            print("rocMLIR build dir was not provided/found", file=sys.stderr)
+            return 1
+
+        arch = perfRunner.get_arch()
+        chip = perfRunner.get_chip()
+        num_cu = perfRunner.get_num_cu(chip)
+        num_chiplets = perfRunner.get_num_chiplets(chip, num_cu)
+
+        options = Options(arch=arch,
+                        num_cu=num_cu,
+                        num_chiplets=num_chiplets,
+                        debug=parsed_args.debug,
+                        quiet=parsed_args.quiet,
+                        tuning_space_kind=parsed_args.tuning_space,
+                        rocmlir_gen_flags=parsed_args.rocmlir_gen_flags,
+                        verify_mode=parsed_args.verify_mode,
+                        verify_perfconfigs=parsed_args.verify_perf_configs,
+                        tflops=parsed_args.tflops,
+                        output=ensure_tsv_extension(parsed_args.output),
+                        abort_on_error=parsed_args.abort_on_error,
+                        retune=parsed_args.retune,
+                        gpu_ids=parsed_args.gpus,
+                        num_cpus=parsed_args.num_cpus,
+                        wait_for_compiles=parsed_args.wait_for_compiles)
+
+        if op_type == Operation.FUSION:
+            op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
+
         conf_class = get_config_class(op_type)
         configs = load_configs(op_type, parsed_args, paths)
-    except ValueError as e:
-        print(str(e), file=sys.stderr)
-        return 1
 
-    ctx = TuningContext(configs=configs,
-                        conf_class=conf_class,
-                        paths=paths,
-                        options=options,
-                        gpu_topology=gpu_topology,
-                        numa_topology=NumaTopology.discover())
+        ctx = TuningContext(configs=configs,
+                            conf_class=conf_class,
+                            paths=paths,
+                            options=options,
+                            gpu_topology=gpu_topology,
+                            numa_topology=NumaTopology.discover())
 
-    try:
         tuning_succeeded = tune_configs(ctx)
         return 0 if tuning_succeeded else 1
+
     except KeyboardInterrupt:
         print("Tuning interrupted by user", file=sys.stderr)
-        return 1
+        return 130  # 128 + SIGINT
+    finally:
+        if stdin_temp_file:
+            os.unlink(stdin_temp_file)
 
 
 if __name__ == '__main__':
