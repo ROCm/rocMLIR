@@ -13,10 +13,12 @@ Usage examples:
 import argparse
 import glob
 import os
+import statistics
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from dataclasses import dataclass, field
@@ -40,9 +42,14 @@ from perfRunner import (
     PerfConfiguration,
 )
 
+# =============================================================================
+# Constants
+# =============================================================================
+
 MLIR_N_REPEATS = 10
 WARMUP_ITERATIONS = 1
 SLEEP_US = 100  # 0.1 ms
+MAX_FAILURES = 10
 
 # =============================================================================
 # Configuration & Results
@@ -75,7 +82,8 @@ class TuningResult:
     """Result of tuning a single configuration."""
     test_vector: str
     success: bool
-    gpu_id: Optional[int] = None
+    gpu_id: int
+    elapsed_seconds: float
     winning_config: Optional[str] = None
     max_tflops: Optional[float] = None
     entries: List[Dict] = field(default_factory=list)
@@ -227,84 +235,200 @@ class TunedConfigsCache:
         """Get cached result for a test vector."""
         return self._results.get(test_vector)
 
+    def get_all_results(self) -> List[TuningResult]:
+        """Get all cached tuning results."""
+        return list(self._results.values())
+
     def count(self) -> int:
         """Return number of cached configurations."""
         return len(self._results)
 
     @classmethod
-    def from_output_file(cls,
-                         filepath: str,
-                         tuning_space_kind: str,
-                         quiet: bool = False) -> 'TunedConfigsCache':
+    def from_output_file(cls, options: Options) -> 'TunedConfigsCache':
         """Load previously tuned configurations from an output TSV file.
 
-        The output file has the following structure:
-        - Commit lines starting with '# commit: ' indicating the git commit hash of the tuning run
-        - Header lines starting with '# ' containing tuning space kind in parentheses
-          (e.g., '# arch\tnumCUs\ttestVector\tperfConfig (quick)\tTFlops')
-        - Multiple commit and header sections can exist in the same file from different tuning runs
-        - Data lines with tab-separated fields following each header
-        - Error lines starting with '### ' indicating errors during tuning
+        Supports both old and new file formats:
+        - Old format: header starts with '# '; tuning space embedded in column name (e.g., perfConfig (quick))
+        - New format: proper tsv header (no #); metadata in ## comments before header
 
-        Only data lines under headers matching options.tuning_space_kind are loaded.
-        For example, if options.tuning_space_kind='quick', only data under headers containing '(quick)'
-        will be loaded, ignoring '(full)' or other sections.
+        Only data lines that match the current tuning space, arch, and numCUs are loaded.
         """
         cache = cls()
 
-        if filepath == '-' or not os.path.exists(filepath):
+        if options.output == '-' or not os.path.exists(options.output):
             return cache
 
         current_commit = get_git_commit_hash()
-        file_commit = current_commit
-        matching_tuning_space = False
+
+        # Pending metadata
+        file_commit: Optional[str] = None
+        file_tuning_space: Optional[str] = None
+        file_arch: Optional[str] = None
+        file_num_cu: Optional[int] = None
+
+        # Active section state
+        matching_section = False
+        column_indices: Dict[str, int] = {}
 
         try:
-            with open(filepath, mode='r') as f:
+            with open(options.output, mode='r') as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
 
-                    # Track commit hash for warning about stale results
-                    if line.startswith('# commit: '):
-                        file_commit = line[len('# commit: '):].strip()
+                    # Check for metadata line
+                    if line.startswith('## '):
+                        key_value = line[3:]
+                        if ':' in key_value:
+                            key, value = key_value.split(':', 1)
+                            key = key.strip()
+                            value = value.strip()
+                            if key == 'commit':
+                                file_commit = value
+                            elif key == 'tuningSpace':
+                                file_tuning_space = value
+                            elif key == 'arch':
+                                file_arch = value
+                            elif key == 'numCUs':
+                                try:
+                                    file_num_cu = int(value)
+                                except ValueError:
+                                    pass
                         continue
 
-                    # Check if this section header matches our tuning space
-                    if line.startswith('# '):
-                        matching_tuning_space = f"({tuning_space_kind})" in line
-                        if matching_tuning_space and file_commit != current_commit and not quiet:
-                            print(
-                                f"Warning: Loading tuned configs from different commit "
-                                f"(file: {file_commit[:12]}, current: {current_commit[:12]})",
-                                file=sys.stderr)
+                    # Check for header line
+                    if cls._is_header_line(line):
+                        # Determine if this section matches based on metadata or old format
+                        if file_tuning_space is not None:
+                            # New format: use metadata
+                            matching_section = (file_tuning_space == options.tuning_space_kind and
+                                                (file_arch is None or file_arch == options.arch) and
+                                                (file_num_cu is None or
+                                                 file_num_cu == options.num_cu))
+                        elif f'({options.tuning_space_kind})' in line:
+                            # Old format: tuning space embedded in header
+                            matching_section = True
+                        else:
+                            matching_section = False
+
+                        if matching_section:
+                            column_indices = cls._parse_header_line(line)
+                            if file_commit and file_commit != current_commit and not options.quiet:
+                                print(
+                                    f"Warning: Loading tuned configs from different commit "
+                                    f"(file: {file_commit[:8]}, current: {current_commit[:8]})",
+                                    file=sys.stderr)
+
+                        # Reset pending metadata for next section
+                        file_commit = None
+                        file_tuning_space = None
+                        file_arch = None
+                        file_num_cu = None
                         continue
 
-                    # Skip error lines and lines from non-matching sections
-                    if line.startswith('### ') or not matching_tuning_space:
+                    # Skip other comment lines
+                    if line.startswith('#'):
+                        continue
+
+                    # Skip data lines from non-matching sections
+                    if not matching_section or not column_indices:
                         continue
 
                     # Parse data line
-                    fields = line.split('\t')
-                    if len(fields) < 4:
-                        continue
+                    result = cls._parse_data_line(line.split('\t'), column_indices, options.arch,
+                                                  options.num_cu)
+                    if result:
+                        cache._results[result.test_vector] = result
 
-                    test_vector = fields[2]
-                    perf_config = fields[3] if fields[3] else None
-                    tflops_value = float(fields[4]) if len(fields) > 4 and fields[4] else None
-
-                    if perf_config and perf_config != "None":
-                        cache._results[test_vector] = TuningResult(test_vector=test_vector,
-                                                                   success=True,
-                                                                   winning_config=perf_config,
-                                                                   max_tflops=tflops_value)
         except Exception as e:
-            if not quiet:
-                print(f"Warning: Failed to load existing tuning results from {filepath}: {e}",
+            if not options.quiet:
+                print(f"Warning: Failed to load existing tuning results from {options.output}: {e}",
                       file=sys.stderr)
 
         return cache
+
+    @staticmethod
+    def _is_header_line(line: str) -> bool:
+        """Check if line is a column header (old or new format)."""
+        # Old format: '# arch\t...'
+        if line.startswith('# '):
+            return line[2:].startswith('arch\t')
+        # New format: 'testVector\t...'
+        return line.startswith('testVector\t')
+
+    @staticmethod
+    def _parse_header_line(line: str) -> Dict[str, int]:
+        """Parse column header and return name -> index mapping."""
+        header_text = line[2:] if line.startswith('# ') else line
+        indices = {}
+        for i, col in enumerate(header_text.split('\t')):
+            if col:
+                indices[col.split()[0]] = i
+        return indices
+
+    @staticmethod
+    def _parse_data_line(fields: List[str], column_indices: Dict[str, int], arch: str,
+                         num_cu: int) -> Optional[TuningResult]:
+        """Parse a data line and return TuningResult if valid.
+
+        A line is valid if:
+        - arch and numCUs match current system (if columns exist, for old format)
+        - testVector is present
+        - perfConfig is present and not 'None'
+        - TFlops is a valid finite number (if column exists)
+        """
+
+        def get_field(name: str) -> Optional[str]:
+            idx = column_indices.get(name)
+            if idx is not None and idx < len(fields) and fields[idx]:
+                return fields[idx]
+            return None
+
+        # Old format: arch and numCUs are columns
+        if 'arch' in column_indices:
+            if get_field('arch') != arch:
+                return None
+
+        if 'numCUs' in column_indices:
+            if get_field('numCUs') != str(num_cu):
+                return None
+
+        test_vector = get_field('testVector')
+        if not test_vector:
+            return None
+
+        perf_config = get_field('perfConfig')
+        if not perf_config or perf_config == 'None':
+            return None
+
+        max_tflops = None
+        if 'TFlops' in column_indices:
+            tflops_str = get_field('TFlops')
+            if not tflops_str:
+                return None
+            try:
+                tflops_val = float(tflops_str)
+                if np.isnan(tflops_val) or np.isinf(tflops_val):
+                    return None
+                max_tflops = tflops_val
+            except ValueError:
+                return None
+
+        elapsed_seconds = 0.0
+        elapsed_str = get_field('elapsedSeconds')
+        if elapsed_str:
+            try:
+                elapsed_seconds = float(elapsed_str)
+            except ValueError:
+                pass
+
+        return TuningResult(test_vector=test_vector,
+                            success=True,
+                            gpu_id=-1,
+                            elapsed_seconds=elapsed_seconds,
+                            winning_config=perf_config,
+                            max_tflops=max_tflops)
 
 
 @dataclass
@@ -436,6 +560,66 @@ class GpuWorkerPool:
             pass  # libnuma not available, rely on first-touch policy
 
 
+@dataclass
+class ETATracker:
+    """Track completion times for accurate ETA estimation using median of successful configs."""
+    total_configs: int
+    num_workers: int
+    initial_times: List[float] = field(default_factory=list)
+    initial_ok_count: int = 0
+    _success_times: List[float] = field(default_factory=list, init=False)
+    _processed: int = field(default=0, init=False)
+    _ok_count: int = field(default=0, init=False)
+    _fail_count: int = field(default=0, init=False)
+
+    def __post_init__(self):
+        self._success_times = list(self.initial_times)
+        self._ok_count = self.initial_ok_count
+
+    def record(self, result: TuningResult) -> None:
+        self._processed += 1
+        if result.success:
+            self._ok_count += 1
+            self._success_times.append(result.elapsed_seconds)
+        else:
+            self._fail_count += 1
+
+    def _format_rate(self, seconds: float) -> str:
+        if seconds < 60:
+            return f"{seconds:.1f}s/cfg"
+        elif seconds < 3600:
+            return f"{seconds / 60:.1f}m/cfg"
+        else:
+            return f"{seconds / 3600:.1f}h/cfg"
+
+    def _format_eta(self, seconds: float) -> str:
+        if seconds < 60:
+            return "<1m"
+        elif seconds < 3600:
+            return f"{int(seconds // 60)}m"
+        elif seconds < 86400:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h{minutes}m"
+        else:
+            days = int(seconds // 86400)
+            hours = int((seconds % 86400) // 3600)
+            return f"{days}d{hours}h"
+
+    def get_postfix_str(self) -> str:
+        remaining = self.total_configs - self._processed
+
+        rate = "n/a"
+        eta = "n/a"
+        if len(self._success_times) >= 3:
+            median = statistics.median(self._success_times)
+            eta_seconds = (remaining / self.num_workers) * median
+            rate = self._format_rate(median)
+            eta = self._format_eta(eta_seconds)
+
+        return f"ok={self._ok_count}, fail={self._fail_count}, rate={rate}, eta={eta}"
+
+
 # =============================================================================
 # Output Writers
 # =============================================================================
@@ -449,11 +633,14 @@ class OutputFileWriter:
         self.options = options
         self.file = None
         self.header_written = False
+        self._is_appending = False
 
     def __enter__(self):
         if self.filepath == '-':
             self.file = sys.stdout
         else:
+            self._is_appending = os.path.exists(self.filepath) and os.path.getsize(
+                self.filepath) > 0
             self.file = open(self.filepath, 'a')
         return self
 
@@ -465,15 +652,23 @@ class OutputFileWriter:
         if self.header_written:
             return
 
-        commit_hash = get_git_commit_hash()
-        print(f"# commit: {commit_hash}", file=self.file)
-        columns = [
-            'arch', 'numCUs', 'numChiplets', 'testVector',
-            f'perfConfig ({self.options.tuning_space_kind})'
-        ]
+        # Add a blank line if appending
+        if self._is_appending:
+            print("", file=self.file)
+
+        # Metadata comments
+        print(f"## commit: {get_git_commit_hash()}", file=self.file)
+        print(f"## tuningSpace: {self.options.tuning_space_kind}", file=self.file)
+        print(f'## arch: {self.options.arch}', file=self.file)
+        print(f'## numCUs: {self.options.num_cu}', file=self.file)
+        print(f'## numChiplets: {self.options.num_chiplets}', file=self.file)
+
+        # TSV header
+        columns = ['testVector', 'perfConfig']
         if self.options.tflops:
             columns.append('TFlops')
-        print("# " + "\t".join(columns), file=self.file)
+        columns.append('elapsedSeconds')
+        print("\t".join(columns), file=self.file)
 
         self.file.flush()
         self.header_written = True
@@ -481,13 +676,10 @@ class OutputFileWriter:
     def write_result(self, result: TuningResult):
         self._write_header()
 
-        fields = [
-            self.options.arch,
-            str(self.options.num_cu),
-            str(self.options.num_chiplets), result.test_vector, result.winning_config or ""
-        ]
+        fields = [result.test_vector, result.winning_config or ""]
         if self.options.tflops:
             fields.append(f"{result.max_tflops}" if result.max_tflops else "")
+        fields.append(f"{result.elapsed_seconds:.1f}")
         print("\t".join(fields), file=self.file)
 
         self.file.flush()
@@ -562,6 +754,15 @@ class UniqueChoicesAction(argparse.Action):
             parser.error(
                 f"argument {option_string}: duplicate values not allowed: {set(duplicates)}")
         setattr(namespace, self.dest, values)
+
+
+def ensure_tsv_extension(filepath: str) -> str:
+    """Ensure filepath has .tsv extension, unless it's stdout."""
+    if filepath == '-':
+        return filepath
+    if not filepath.endswith('.tsv'):
+        return filepath + '.tsv'
+    return filepath
 
 
 def get_git_commit_hash() -> str:
@@ -895,8 +1096,7 @@ def tune_configs(ctx: TuningContext) -> bool:
     # Load cached results unless retuning is forced
     cache = TunedConfigsCache()
     if not ctx.options.retune:
-        cache = TunedConfigsCache.from_output_file(ctx.options.output,
-                                                   ctx.options.tuning_space_kind, ctx.options.quiet)
+        cache = TunedConfigsCache.from_output_file(ctx.options)
         if cache.count() > 0 and not ctx.options.quiet:
             print(f"Found {cache.count()} tuned config(s) in {ctx.options.output}", file=sys.stderr)
 
@@ -916,30 +1116,36 @@ def tune_configs(ctx: TuningContext) -> bool:
     ctx.print_gpu_summary()
 
     def execute_tuning_task(test_vector: str) -> TuningResult:
-        try:
-            gpu_id = pool.acquire_gpu_for_thread()
-            compile_threads = ctx.get_compile_threads(gpu_id)
-            result = tune_config(test_vector, ctx.conf_class, ctx.paths, ctx.options, gpu_id,
-                                 compile_threads)
-            return TuningResult(test_vector=test_vector,
-                                success=result.get('success', False),
-                                gpu_id=gpu_id,
-                                winning_config=result.get('winning_config'),
-                                max_tflops=result.get('max_tflops'),
-                                entries=result.get('entries', []),
-                                verify_tflops=result.get('verify_tflops'),
-                                error=result.get('error'))
-        except Exception as e:
-            return TuningResult(test_vector=test_vector, success=False, error=str(e))
+        gpu_id = pool.acquire_gpu_for_thread()
+        start_time = time.time()
+        compile_threads = ctx.get_compile_threads(gpu_id)
+        result = tune_config(test_vector, ctx.conf_class, ctx.paths, ctx.options, gpu_id,
+                             compile_threads)
+        return TuningResult(test_vector=test_vector,
+                            success=result.get('success', False),
+                            gpu_id=gpu_id,
+                            elapsed_seconds=time.time() - start_time,
+                            winning_config=result.get('winning_config'),
+                            max_tflops=result.get('max_tflops'),
+                            entries=result.get('entries', []),
+                            verify_tflops=result.get('verify_tflops'),
+                            error=result.get('error'))
 
     executor = None
     progress_bar = None
-    has_errors = False
 
     with OutputFileWriter(ctx.options.output, ctx.options) as results_writer:
         with DebugFileWriter(f"{ctx.options.output}.debug") if ctx.options.debug else nullcontext(
         ) as debug_writer:
             try:  # No context manager for executor because we need to shutdown with wait=False
+                initial_times = [
+                    r.elapsed_seconds for r in cache.get_all_results() if r.elapsed_seconds > 0.0
+                ]
+                eta_tracker = ETATracker(total_configs=len(pending_configs),
+                                         num_workers=num_workers,
+                                         initial_times=initial_times,
+                                         initial_ok_count=cache.count())
+
                 progress_bar = tqdm(
                     total=len(ctx.configs),
                     initial=skipped_count,
@@ -947,7 +1153,10 @@ def tune_configs(ctx: TuningContext) -> bool:
                     file=sys.stderr,
                     desc=f"Tuning {ctx.conf_class.__name__} ({ctx.options.tuning_space_kind})",
                     unit="config",
-                    leave=False)
+                    leave=False,
+                    bar_format=
+                    '{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [t={elapsed}{postfix}]')
+                progress_bar.set_postfix_str(eta_tracker.get_postfix_str())
 
                 executor = ThreadPoolExecutor(max_workers=num_workers)
                 pending_futures = {
@@ -955,19 +1164,22 @@ def tune_configs(ctx: TuningContext) -> bool:
                     for test_vector in pending_configs
                 }
 
+                has_errors = False
+                consecutive_failures = 0
+
                 for completed_future in as_completed(pending_futures):
                     result = completed_future.result()
 
                     if result.success:
+                        consecutive_failures = 0
                         results_writer.write_result(result)
                         if debug_writer:
                             debug_writer.write_entries(result.entries)
-                        progress_bar.update(1)
                     else:
                         has_errors = True
+                        consecutive_failures += 1
                         error_text = result.error or "Unknown error"
-                        gpu_prefix = f"[GPU {result.gpu_id}] " if result.gpu_id is not None else ""
-                        formatted_error = f"{gpu_prefix}Error tuning {result.test_vector}\n" + '\n'.join(
+                        formatted_error = f"[GPU {result.gpu_id}] Error tuning {result.test_vector}\n" + '\n'.join(
                             f"\t{line}" for line in error_text.splitlines())
                         print(formatted_error, file=sys.stderr)
                         results_writer.write_error(formatted_error)
@@ -975,7 +1187,13 @@ def tune_configs(ctx: TuningContext) -> bool:
                         if ctx.options.abort_on_error:
                             return False
 
-                        progress_bar.refresh()
+                        if consecutive_failures >= MAX_FAILURES:
+                            print("Aborting due to too many consecutive failures", file=sys.stderr)
+                            return False
+
+                    eta_tracker.record(result)
+                    progress_bar.update(1)
+                    progress_bar.set_postfix_str(eta_tracker.get_postfix_str())
 
                 if has_errors:
                     print("Encountered errors during tuning", file=sys.stderr)
@@ -1272,7 +1490,7 @@ def main(args=None):
                       verify_mode=parsed_args.verify_mode,
                       verify_perfconfigs=parsed_args.verify_perf_configs,
                       tflops=parsed_args.tflops,
-                      output=parsed_args.output,
+                      output=ensure_tsv_extension(parsed_args.output),
                       abort_on_error=parsed_args.abort_on_error,
                       retune=parsed_args.retune,
                       gpu_ids=parsed_args.gpus,
