@@ -22,6 +22,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Dict, List, Optional
 from collections import deque
 
@@ -49,7 +50,7 @@ from perfRunner import (
 MLIR_N_REPEATS = 10
 WARMUP_ITERATIONS = 1
 SLEEP_US = 100  # 0.1 ms
-MAX_FAILURES = 10
+MAX_FAILURES = 20
 
 # =============================================================================
 # Configuration & Results
@@ -215,6 +216,253 @@ class NumaTopology:
             else:
                 cpus.append(int(part))
         return cpus
+
+
+# =============================================================================
+# State Management
+# =============================================================================
+
+
+class ConfigState(Enum):
+    """Possible states for a tuning configuration in the state file.
+
+    State transitions:
+        PENDING (implicit) -> RUNNING: Config starts tuning
+        RUNNING -> SUCCESS (implicit): Tuning completes successfully (removed from state, written to output)
+        RUNNING -> FAILED: Tuning completes with error
+        RUNNING -> INTERRUPTED: User interrupted (Ctrl+C) during tuning
+        RUNNING -> CRASHED: Detected on next startup (stale RUNNING state)
+        FAILED/CRASHED -> PENDING: User requests retry with --retry-failed
+
+    Note: PENDING and SUCCESS are implicit states:
+        - PENDING: not in state file AND not in output file
+        - SUCCESS: in output file (not tracked in state file)
+    """
+    RUNNING = "running"  # Currently being tuned
+    FAILED = "failed"  # Tuning completed with error
+    INTERRUPTED = "interrupted"  # User interrupted during tuning (Ctrl+C)
+    CRASHED = "crashed"  # Process crashed while tuning (detected on startup)
+
+
+@dataclass
+class TuningStateContext:
+    """Context that identifies a tuning run. State is invalidated if context changes."""
+    arch: str
+    num_cu: int
+    tuning_space: str
+
+    def matches(self, other: 'TuningStateContext') -> bool:
+        return (self.arch == other.arch and self.num_cu == other.num_cu and
+                self.tuning_space == other.tuning_space)
+
+
+@dataclass
+class TuningState:
+    """Persistent state for tuning runs, survives crashes and interrupts."""
+    context: TuningStateContext
+    configs: Dict[str, ConfigState] = field(default_factory=dict)
+
+    def set_running(self, test_vector: str) -> None:
+        """Mark a config as currently running."""
+        self.configs[test_vector] = ConfigState.RUNNING
+
+    def set_failed(self, test_vector: str) -> None:
+        """Mark a config as failed."""
+        self.configs[test_vector] = ConfigState.FAILED
+
+    def set_interrupted(self, test_vector: str) -> None:
+        """Mark a config as interrupted by user."""
+        self.configs[test_vector] = ConfigState.INTERRUPTED
+
+    def set_crashed(self, test_vector: str) -> None:
+        """Mark a config as crashed."""
+        self.configs[test_vector] = ConfigState.CRASHED
+
+    def remove(self, test_vector: str) -> None:
+        """Remove a config from state (e.g., on success)."""
+        self.configs.pop(test_vector, None)
+
+    def should_skip(self, test_vector: str) -> bool:
+        """Check if a config should be skipped (failed or crashed)."""
+        return self.configs.get(test_vector) in (ConfigState.FAILED, ConfigState.CRASHED)
+
+    def _count_by_state(self, *states: ConfigState) -> int:
+        """Count configs in any of the given states."""
+        return sum(1 for s in self.configs.values() if s in states)
+
+    def failed_count(self) -> int:
+        """Count of failed configs."""
+        return self._count_by_state(ConfigState.FAILED)
+
+    def crashed_count(self) -> int:
+        """Count of crashed configs."""
+        return self._count_by_state(ConfigState.CRASHED)
+
+    def skip_count(self) -> int:
+        """Count of configs that should be skipped (failed + crashed)."""
+        return self._count_by_state(ConfigState.FAILED, ConfigState.CRASHED)
+
+    def promote_running_to_crashed(self) -> int:
+        """Move all RUNNING configs to CRASHED (crash recovery). Returns count."""
+        count = 0
+        for tv in self.configs:
+            if self.configs[tv] == ConfigState.RUNNING:
+                self.configs[tv] = ConfigState.CRASHED
+                count += 1
+        return count
+
+    def promote_running_to_interrupted(self) -> int:
+        """Move all RUNNING configs to INTERRUPTED (clean shutdown). Returns count."""
+        count = 0
+        for tv in self.configs:
+            if self.configs[tv] == ConfigState.RUNNING:
+                self.configs[tv] = ConfigState.INTERRUPTED
+                count += 1
+        return count
+
+
+class TuningStateFile:
+    """Manages reading and writing of tuning state to a JSON file.
+
+    If filepath is None, all operations are no-ops (null object pattern).
+    """
+
+    def __init__(self, filepath: Optional[str]):
+        self.filepath = filepath
+        self._lock = threading.Lock()
+        self._state: Optional[TuningState] = None
+
+    def load(self, expected_context: TuningStateContext, quiet: bool = False) -> 'TuningStateFile':
+        """Load state from file. Returns self for chaining.
+
+        On load:
+        - INTERRUPTED configs are demoted to PENDING (removed from state)
+        - RUNNING configs are promoted to CRASHED (indicates previous crash)
+        """
+        if not self.filepath:
+            self._state = TuningState(context=expected_context)
+            return self
+
+        if not os.path.exists(self.filepath):
+            self._state = TuningState(context=expected_context)
+            return self
+
+        try:
+            with open(self.filepath, 'r') as f:
+                data = json.load(f)
+
+            file_context = TuningStateContext(arch=data.get('arch', ''),
+                                              num_cu=data.get('numCUs', 0),
+                                              tuning_space=data.get('tuningSpace', ''))
+
+            if not file_context.matches(expected_context):
+                if not quiet:
+                    print("State file context mismatch, starting fresh", file=sys.stderr)
+                self._state = TuningState(context=expected_context)
+                return self
+
+            configs = {}
+            for tv, state_str in data.get('configs', {}).items():
+                try:
+                    config_state = ConfigState(state_str)
+                    # Demote INTERRUPTED to PENDING (don't add to configs)
+                    if config_state == ConfigState.INTERRUPTED:
+                        continue
+                    # Promote RUNNING to CRASHED (stale running = crash)
+                    if config_state == ConfigState.RUNNING:
+                        config_state = ConfigState.CRASHED
+                    configs[tv] = config_state
+                except ValueError:
+                    pass  # Skip invalid states
+
+            self._state = TuningState(context=expected_context, configs=configs)
+            return self
+
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            if not quiet:
+                print(f"Warning: Failed to load state file: {e}", file=sys.stderr)
+            self._state = TuningState(context=expected_context)
+            return self
+
+    @property
+    def state(self) -> TuningState:
+        """Get the current state. Must call load() first."""
+        if self._state is None:
+            raise RuntimeError("State not loaded. Call load() first.")
+        return self._state
+
+    def _save_locked(self) -> None:
+        """Save state to file atomically. Assumes lock is held."""
+        if not self.filepath or not self._state:
+            return
+
+        data = {
+            'arch': self._state.context.arch,
+            'numCUs': self._state.context.num_cu,
+            'tuningSpace': self._state.context.tuning_space,
+            'configs': {
+                tv: s.value for tv, s in self._state.configs.items()
+            }
+        }
+
+        # Write to temp file then rename for atomicity
+        temp_path = self.filepath + '.tmp'
+        with open(temp_path, 'w') as f:
+            json.dump(data, f, indent=2)
+        os.replace(temp_path, self.filepath)
+
+    def save(self) -> None:
+        """Save state to file atomically. No-op if filepath is None."""
+        with self._lock:
+            self._save_locked()
+
+    def delete(self) -> None:
+        """Delete the state file. No-op if filepath is None."""
+        if not self.filepath:
+            return
+
+        with self._lock:
+            if os.path.exists(self.filepath):
+                os.remove(self.filepath)
+            self._state = None
+
+    def set_running(self, test_vector: str) -> None:
+        """Mark a config as running and save."""
+        if self._state:
+            with self._lock:
+                self._state.set_running(test_vector)
+                self._save_locked()
+
+    def set_failed(self, test_vector: str) -> None:
+        """Mark a config as failed and save."""
+        if self._state:
+            with self._lock:
+                self._state.set_failed(test_vector)
+                self._save_locked()
+
+    def set_success(self, test_vector: str) -> None:
+        """Remove a config from state (success) and save."""
+        if self._state:
+            with self._lock:
+                self._state.remove(test_vector)
+                self._save_locked()
+
+    def finalize_interrupted(self, quiet: bool = False) -> None:
+        """Mark any RUNNING configs as INTERRUPTED and save. Called on clean shutdown."""
+        if self._state:
+            with self._lock:
+                interrupted_count = self._state.promote_running_to_interrupted()
+                if interrupted_count > 0 and not quiet:
+                    print(f"Marked {interrupted_count} running config(s) as interrupted",
+                          file=sys.stderr)
+                self._save_locked()
+
+
+def get_state_filepath(output_filepath: str) -> Optional[str]:
+    """Get the state file path for a given output file."""
+    if output_filepath == '-':
+        return None
+    return f"{output_filepath}.state"
 
 
 # =============================================================================
@@ -669,6 +917,7 @@ class DebugFileWriter:
         self.header_written = False
 
     def __enter__(self):
+        self.header_written = os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0
         self.file = open(self.filepath, 'a')
         return self
 
@@ -1070,12 +1319,44 @@ def tune_configs(ctx: TuningContext) -> bool:
         if cache.count() > 0 and not ctx.options.quiet:
             print(f"Found {cache.count()} tuned config(s) in {ctx.options.output}", file=sys.stderr)
 
+    # Load state file
+    state_context = TuningStateContext(arch=ctx.options.arch,
+                                       num_cu=ctx.options.num_cu,
+                                       tuning_space=ctx.options.tuning_space_kind)
+    state_file = TuningStateFile(get_state_filepath(ctx.options.output))
+
+    if ctx.options.retune:
+        state_file.delete()
+
+    state_file.load(state_context, ctx.options.quiet)
+    state = state_file.state
+
+    if not ctx.options.retune:
+        crashed_count = state.crashed_count()
+        if crashed_count > 0 and not ctx.options.quiet:
+            print(f"Detected {crashed_count} crashed config(s) from previous run", file=sys.stderr)
+
+        if state.skip_count() > 0 and not ctx.options.quiet:
+            print(f"Found {state.skip_count()} failed/crashed config(s) in state file",
+                  file=sys.stderr)
+
+    state_file.save()
+
     # Filter out already-tuned configs
     pending_configs = [c for c in ctx.configs if not cache.contains(c)]
-    skipped_count = len(ctx.configs) - len(pending_configs)
-    if skipped_count > 0 and not ctx.options.quiet:
-        print(f"Skipping {skipped_count} of {len(ctx.configs)} already tuned config(s)",
-              file=sys.stderr)
+    skipped_success = len(ctx.configs) - len(pending_configs)
+
+    # Filter out failed/crashed configs from state file
+    before_filter = len(pending_configs)
+    pending_configs = [c for c in pending_configs if not state.should_skip(c)]
+    skipped_failed = before_filter - len(pending_configs)
+
+    total_skipped = skipped_success + skipped_failed
+
+    if skipped_success > 0 and not ctx.options.quiet:
+        print(f"Skipping {skipped_success} already tuned config(s)", file=sys.stderr)
+    if skipped_failed > 0 and not ctx.options.quiet:
+        print(f"Skipping {skipped_failed} failed/crashed config(s)", file=sys.stderr)
 
     if not pending_configs:
         print("All configurations already tuned", file=sys.stderr)
@@ -1087,6 +1368,9 @@ def tune_configs(ctx: TuningContext) -> bool:
 
     def execute_tuning_task(test_vector: str) -> TuningResult:
         gpu_id = pool.acquire_gpu_for_thread()
+
+        state_file.set_running(test_vector)
+
         start_time = time.time()
         compile_threads = ctx.get_compile_threads(gpu_id)
         result = tune_config(test_vector, ctx.conf_class, ctx.paths, ctx.options, gpu_id,
@@ -1118,7 +1402,7 @@ def tune_configs(ctx: TuningContext) -> bool:
 
                 progress_bar = tqdm(
                     total=len(ctx.configs),
-                    initial=skipped_count,
+                    initial=total_skipped,
                     disable=ctx.options.quiet,
                     file=sys.stderr,
                     desc=f"Tuning {ctx.conf_class.__name__} ({ctx.options.tuning_space_kind})",
@@ -1145,9 +1429,12 @@ def tune_configs(ctx: TuningContext) -> bool:
                         results_writer.write_result(result)
                         if debug_writer:
                             debug_writer.write_entries(result.entries)
+                        state_file.set_success(result.test_vector)
                     else:
                         has_errors = True
                         consecutive_failures += 1
+                        state_file.set_failed(result.test_vector)
+
                         error_text = result.error or "Unknown error"
                         formatted_error = f"[GPU {result.gpu_id}] Error tuning {result.test_vector}\n" + '\n'.join(
                             f"\t{line}" for line in error_text.splitlines())
@@ -1177,6 +1464,8 @@ def tune_configs(ctx: TuningContext) -> bool:
                     executor.shutdown(wait=False, cancel_futures=True)
                 if progress_bar:
                     progress_bar.close()
+
+                state_file.finalize_interrupted(ctx.options.quiet)
 
 
 # =============================================================================
