@@ -12,6 +12,8 @@ Usage examples:
 
 import argparse
 import glob
+import json
+import logging
 import os
 import statistics
 import subprocess
@@ -26,7 +28,6 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from collections import deque
 
-import json
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -53,6 +54,46 @@ SLEEP_US = 100  # 0.1 ms
 MAX_FAILURES = 20
 
 # =============================================================================
+# Logging Setup
+# =============================================================================
+
+
+class TqdmLoggingHandler(logging.Handler):
+    """Logging handler that uses tqdm.write() to avoid corrupting progress bars."""
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            tqdm.write(msg, file=sys.stderr)
+        except Exception:
+            self.handleError(record)
+
+
+def setup_logger(verbose: bool = False) -> logging.Logger:
+    """Configure and return a logger for tuningRunner."""
+    log = logging.getLogger("tuningRunner")
+    log.setLevel(logging.DEBUG if verbose else logging.INFO)
+
+    # Clear any existing handlers
+    log.handlers.clear()
+
+    # Use tqdm-aware handler
+    handler = TqdmLoggingHandler()
+    handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+
+    # Simple format: level and message
+    formatter = logging.Formatter('%(levelname)s: %(message)s')
+    handler.setFormatter(formatter)
+
+    log.addHandler(handler)
+
+    return log
+
+
+# Module-level logger
+logger: logging.Logger = setup_logger()
+
+# =============================================================================
 # Configuration & Results
 # =============================================================================
 
@@ -62,7 +103,7 @@ class Options:
     """Configuration options for the tuning process."""
     debug: bool
     tuning_space_kind: str
-    quiet: bool
+    verbose: bool
     arch: str
     num_cu: int
     num_chiplets: int
@@ -157,19 +198,19 @@ class GpuTopology:
                     gpus[gpu_id] = Gpu(gpu_id=gpu_id, sku=sku, numa_node=numa_node)
             if gpus:
                 return GpuTopology(gpus=gpus)
-            print("Warning: rocm-smi returned no GPU cards", file=sys.stderr)
+            logger.warning("rocm-smi returned no GPU cards")
         except subprocess.CalledProcessError as e:
-            print(f"Warning: rocm-smi failed with return code {e.returncode}", file=sys.stderr)
+            logger.warning(f"rocm-smi failed with return code {e.returncode}")
         except subprocess.TimeoutExpired:
-            print("Warning: rocm-smi timed out", file=sys.stderr)
+            logger.warning("rocm-smi timed out")
         except FileNotFoundError:
-            print("Warning: rocm-smi not found in PATH", file=sys.stderr)
+            logger.warning("rocm-smi not found in PATH")
         except json.JSONDecodeError as e:
-            print(f"Warning: Failed to parse rocm-smi JSON output: {e}", file=sys.stderr)
+            logger.warning(f"Failed to parse rocm-smi JSON output: {e}")
         except (ValueError, KeyError) as e:
-            print(f"Warning: Failed to extract GPU info from rocm-smi output: {e}", file=sys.stderr)
+            logger.warning(f"Failed to extract GPU info from rocm-smi output: {e}")
 
-        print("Warning: Could not detect GPUs, defaulting to GPU 0", file=sys.stderr)
+        logger.warning("Could not detect GPUs, defaulting to GPU 0")
         return GpuTopology(gpus={0: Gpu(gpu_id=0, sku="unknown", numa_node=0)})
 
 
@@ -199,6 +240,8 @@ class NumaTopology:
                     if os.path.exists(cpulist_path):
                         with open(cpulist_path, 'r') as f:
                             numa_to_cpus[node_id] = NumaTopology._parse_cpu_list(f.read())
+                    else:
+                        logger.warning(f"Missing cpulist for NUMA node {node_id}")
 
         # Fallback: single node with all CPUs
         if not numa_to_cpus:
@@ -303,15 +346,6 @@ class TuningState:
         """Count of configs that should be skipped (failed + crashed)."""
         return self._count_by_state(ConfigState.FAILED, ConfigState.CRASHED)
 
-    def promote_running_to_crashed(self) -> int:
-        """Move all RUNNING configs to CRASHED (crash recovery). Returns count."""
-        count = 0
-        for tv in self.configs:
-            if self.configs[tv] == ConfigState.RUNNING:
-                self.configs[tv] = ConfigState.CRASHED
-                count += 1
-        return count
-
     def promote_running_to_interrupted(self) -> int:
         """Move all RUNNING configs to INTERRUPTED (clean shutdown). Returns count."""
         count = 0
@@ -333,7 +367,7 @@ class TuningStateFile:
         self._lock = threading.Lock()
         self._state: Optional[TuningState] = None
 
-    def load(self, expected_context: TuningStateContext, quiet: bool = False) -> 'TuningStateFile':
+    def load(self, expected_context: TuningStateContext) -> 'TuningStateFile':
         """Load state from file. Returns self for chaining.
 
         On load:
@@ -357,8 +391,7 @@ class TuningStateFile:
                                               tuning_space=data.get('tuningSpace', ''))
 
             if not file_context.matches(expected_context):
-                if not quiet:
-                    print("State file context mismatch, starting fresh", file=sys.stderr)
+                logger.info("State file context mismatch, starting fresh")
                 self._state = TuningState(context=expected_context)
                 return self
 
@@ -380,8 +413,7 @@ class TuningStateFile:
             return self
 
         except (json.JSONDecodeError, KeyError, TypeError) as e:
-            if not quiet:
-                print(f"Warning: Failed to load state file: {e}", file=sys.stderr)
+            logger.warning(f"Failed to load state file: {e}")
             self._state = TuningState(context=expected_context)
             return self
 
@@ -448,14 +480,13 @@ class TuningStateFile:
                 self._state.remove(test_vector)
                 self._save_locked()
 
-    def finalize_interrupted(self, quiet: bool = False) -> None:
+    def finalize_interrupted(self) -> None:
         """Mark any RUNNING configs as INTERRUPTED and save. Called on clean shutdown."""
         if self._state:
             with self._lock:
                 interrupted_count = self._state.promote_running_to_interrupted()
-                if interrupted_count > 0 and not quiet:
-                    print(f"Marked {interrupted_count} running config(s) as interrupted",
-                          file=sys.stderr)
+                if interrupted_count > 0:
+                    logger.info(f"Marked {interrupted_count} running config(s) as interrupted")
                 self._save_locked()
 
 
@@ -538,10 +569,9 @@ class TunedConfigsCache:
                             # Warn if commit hashes differ
                             file_commit = metadata.get('commit', 'unknown')
                             if file_commit != current_commit:
-                                print(
-                                    f"Warning: Loading tuned configs from different commit "
-                                    f"(file: {file_commit[:8]}, current: {current_commit[:8]})",
-                                    file=sys.stderr)
+                                logger.warning(
+                                    f"Loading tuned configs from different commit "
+                                    f"(file: {file_commit[:8]}, current: {current_commit[:8]})")
 
                         # Reset metadata for next section
                         metadata = {}
@@ -562,9 +592,7 @@ class TunedConfigsCache:
                         cache._results[result.test_vector] = result
 
         except Exception as e:
-            if not options.quiet:
-                print(f"Warning: Failed to load existing tuning results from {options.output}: {e}",
-                      file=sys.stderr)
+            logger.warning(f"Failed to load existing tuning results from {options.output}: {e}")
 
         return cache
 
@@ -747,11 +775,10 @@ class TuningContext:
                 scale_factor = self.options.num_cpus / total_allocated
                 for gpu_id in allocation:
                     allocation[gpu_id] = max(1, int(allocation[gpu_id] * scale_factor))
-            elif not self.options.quiet:
-                print(
-                    f"Note: --num-cpus={self.options.num_cpus} exceeds optimal {total_allocated}, "
-                    f"using optimal allocation",
-                    file=sys.stderr)
+            else:
+                logger.info(
+                    f"--num-cpus={self.options.num_cpus} exceeds optimal {total_allocated}, "
+                    f"using optimal allocation")
 
         return allocation
 
@@ -760,15 +787,13 @@ class TuningContext:
         return self._threads_per_gpu.get(gpu_id, 1)
 
     def print_gpu_summary(self):
-        """Print summary of GPU allocation to stderr."""
-        if self.options.quiet:
-            return
+        """Print summary of GPU allocation."""
         num_active = len(self.options.gpu_ids)
-        print(f"Using {num_active} GPU(s):", file=sys.stderr)
+        logger.info(f"Using {num_active} GPU(s):")
         for gpu_id in self.options.gpu_ids[:num_active]:
             node = self.gpu_topology.get_numa_node(gpu_id)
             threads = self._threads_per_gpu.get(gpu_id, 1)
-            print(f"  GPU {gpu_id}: NUMA node {node}, {threads} compile threads", file=sys.stderr)
+            logger.info(f"  GPU {gpu_id}: NUMA node {node}, {threads} compile threads")
 
 
 class GpuWorkerPool:
@@ -811,8 +836,7 @@ class GpuWorkerPool:
             try:
                 os.sched_setaffinity(0, set(cpu_list))
             except OSError:
-                if not self._ctx.options.quiet:
-                    print(f"Warning: Could not set CPU affinity for GPU {gpu_id}", file=sys.stderr)
+                logger.warning(f"Could not set CPU affinity for GPU {gpu_id}")
 
         self._set_memory_policy(node)
 
@@ -849,7 +873,7 @@ class OutputFileWriter:
         self.filepath = filepath
         self.options = options
         self.file = None
-        self.header_written = False
+        self._header_written = False
         self._is_appending = False
 
     def __enter__(self):
@@ -866,7 +890,7 @@ class OutputFileWriter:
             self.file.close()
 
     def _write_header(self):
-        if self.header_written:
+        if self._header_written:
             return
 
         if self._is_appending:
@@ -886,7 +910,7 @@ class OutputFileWriter:
         print("# " + "\t".join(columns), file=self.file)
 
         self.file.flush()
-        self.header_written = True
+        self._header_written = True
 
     def write_result(self, result: TuningResult):
         assert result.success and result.winning_config and result.max_tflops, "write_result called with failed result"
@@ -905,11 +929,6 @@ class OutputFileWriter:
 
         self.file.flush()
 
-    def write_error(self, content: str):
-        self._write_header()
-        print('\n'.join(f"### {line}" for line in content.splitlines()), file=self.file)
-        self.file.flush()
-
 
 class DebugFileWriter:
     """Context manager for writing debug entries to TSV file."""
@@ -917,10 +936,10 @@ class DebugFileWriter:
     def __init__(self, filepath: str):
         self.filepath = filepath
         self.file = None
-        self.header_written = False
+        self._header_written = False
 
     def __enter__(self):
-        self.header_written = os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0
+        self._header_written = os.path.exists(self.filepath) and os.path.getsize(self.filepath) > 0
         self.file = open(self.filepath, 'a')
         return self
 
@@ -935,11 +954,11 @@ class DebugFileWriter:
         pd.DataFrame(entries).to_csv(self.file,
                                      sep='\t',
                                      mode='a',
-                                     header=not self.header_written,
+                                     header=not self._header_written,
                                      index=False)
 
         self.file.flush()
-        self.header_written = True
+        self._header_written = True
 
 
 # =============================================================================
@@ -976,15 +995,6 @@ class UniqueChoicesAction(argparse.Action):
             parser.error(
                 f"argument {option_string}: duplicate values not allowed: {set(duplicates)}")
         setattr(namespace, self.dest, values)
-
-
-def ensure_tsv_extension(filepath: str) -> str:
-    """Ensure filepath has .tsv extension, unless it's stdout."""
-    if filepath == '-':
-        return filepath
-    if not filepath.endswith('.tsv'):
-        return filepath + '.tsv'
-    return filepath
 
 
 def get_git_commit_hash() -> str:
@@ -1032,9 +1042,9 @@ def kill_process(proc) -> None:
         proc.kill()
         proc.wait(timeout=10)
     except subprocess.TimeoutExpired:
-        print(f"Warning: Process {proc.pid} did not terminate in time after kill", file=sys.stderr)
+        logger.warning(f"Process {proc.pid} did not terminate in time after kill")
     except Exception as e:
-        print(f"Warning: Failed to kill process {proc.pid}: {e}", file=sys.stderr)
+        logger.warning(f"Failed to kill process {proc.pid}: {e}")
 
 
 # =============================================================================
@@ -1073,9 +1083,7 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
     ])
 
     debug_info = f"[GPU {gpu_id}] Verification pipeline:\n" + verification_pipeline
-
-    if not options.quiet and options.debug:
-        print(debug_info, file=sys.stderr)
+    logger.debug(debug_info)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         p1 = None
@@ -1260,9 +1268,7 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
             tuning_pipeline = ' '.join(tuning_driver_command)
 
         debug_info = f"[GPU {gpu_id}] Tuning '{test_vector}':\n" + tuning_pipeline
-
-        if not options.quiet and options.debug:
-            print(debug_info, file=sys.stderr)
+        logger.debug(debug_info)
 
         # Note: communicate waits for process to terminate which might cause CI timeouts if tuning takes too long
         tuning_stdout, tuning_stderr = tuning_driver.communicate()
@@ -1319,23 +1325,24 @@ def tune_configs(ctx: TuningContext) -> bool:
     cache = TunedConfigsCache()
     if not ctx.options.retune:
         cache = TunedConfigsCache.from_output_file(ctx.options)
-        if cache.count() > 0 and not ctx.options.quiet:
-            print(f"Found {cache.count()} tuned config(s) in {ctx.options.output}", file=sys.stderr)
+        if cache.count() > 0:
+            logger.info(f"Found {cache.count()} tuned config(s) in {ctx.options.output}")
 
     # Load state file
     state_context = TuningStateContext(arch=ctx.options.arch,
                                        num_cu=ctx.options.num_cu,
                                        tuning_space=ctx.options.tuning_space_kind)
     state_file = TuningStateFile(get_state_filepath(ctx.options.output))
-    state_file.load(state_context, ctx.options.quiet)
+    state_file.load(state_context)
     state = state_file.state
 
     crashed_count = state.crashed_count()
-    if crashed_count > 0 and not ctx.options.quiet:
-        print(f"Detected {crashed_count} crashed config(s) from previous run", file=sys.stderr)
+    if crashed_count > 0:
+        logger.warning(f"Detected {crashed_count} crashed config(s) from previous run")
 
-    if state.skip_count() > 0 and not ctx.options.quiet:
-        print(f"Found {state.skip_count()} failed/crashed config(s) in state file", file=sys.stderr)
+    failed_count = state.failed_count()
+    if failed_count > 0:
+        logger.info(f"Found {failed_count} failed config(s) in state file")
 
     state_file.save()
 
@@ -1355,13 +1362,13 @@ def tune_configs(ctx: TuningContext) -> bool:
 
     total_skipped = skipped_success + skipped_failed
 
-    if skipped_success > 0 and not ctx.options.quiet:
-        print(f"Skipping {skipped_success} already tuned config(s)", file=sys.stderr)
-    if skipped_failed > 0 and not ctx.options.quiet:
-        print(f"Skipping {skipped_failed} failed/crashed config(s)", file=sys.stderr)
+    if skipped_success > 0:
+        logger.info(f"Skipping {skipped_success} already tuned config(s)")
+    if skipped_failed > 0:
+        logger.info(f"Skipping {skipped_failed} failed/crashed config(s)")
 
     if not pending_configs:
-        print("All configurations already tuned", file=sys.stderr)
+        logger.info("No configurations to tune")
         return True
 
     pool = GpuWorkerPool(ctx)
@@ -1390,6 +1397,8 @@ def tune_configs(ctx: TuningContext) -> bool:
     executor = None
     progress_bar = None
 
+    has_errors = False
+
     with OutputFileWriter(ctx.options.output, ctx.options) as results_writer:
         with DebugFileWriter(f"{ctx.options.output}.debug") if ctx.options.debug else nullcontext(
         ) as debug_writer:
@@ -1406,7 +1415,7 @@ def tune_configs(ctx: TuningContext) -> bool:
                 progress_bar = tqdm(
                     total=len(ctx.configs),
                     initial=total_skipped,
-                    disable=ctx.options.quiet,
+                    disable=not sys.stderr.isatty(),
                     file=sys.stderr,
                     desc=f"Tuning {ctx.conf_class.__name__} ({ctx.options.tuning_space_kind})",
                     unit="config",
@@ -1421,7 +1430,6 @@ def tune_configs(ctx: TuningContext) -> bool:
                     for test_vector in pending_configs
                 }
 
-                has_errors = False
                 consecutive_failures = 0
 
                 for completed_future in as_completed(pending_futures):
@@ -1441,34 +1449,36 @@ def tune_configs(ctx: TuningContext) -> bool:
                         error_text = result.error or "Unknown error"
                         formatted_error = f"[GPU {result.gpu_id}] Error tuning {result.test_vector}\n" + '\n'.join(
                             f"\t{line}" for line in error_text.splitlines())
-                        print(formatted_error, file=sys.stderr)
-                        results_writer.write_error(formatted_error)
+                        logger.error(formatted_error)
 
                         if ctx.options.abort_on_error:
                             return False
 
                         if consecutive_failures >= MAX_FAILURES:
-                            print("Aborting due to too many consecutive failures", file=sys.stderr)
+                            logger.error("Aborting due to too many consecutive failures")
                             return False
 
                     eta_tracker.record(result)
                     progress_bar.update(1)
                     progress_bar.set_postfix_str(eta_tracker.get_postfix_str())
 
-                if has_errors:
-                    print("Encountered errors during tuning", file=sys.stderr)
-                else:
-                    print("Tuning completed successfully", file=sys.stderr)
-
-                return not has_errors
-
+            except KeyboardInterrupt:
+                logger.info("Tuning interrupted by user")
+                raise
             finally:
                 if executor:
                     executor.shutdown(wait=False, cancel_futures=True)
                 if progress_bar:
                     progress_bar.close()
 
-                state_file.finalize_interrupted(ctx.options.quiet)
+                state_file.finalize_interrupted()
+
+    if has_errors:
+        logger.warning("Encountered errors during tuning")
+    else:
+        logger.info("Tuning completed successfully")
+
+    return not has_errors
 
 
 # =============================================================================
@@ -1487,13 +1497,12 @@ def resolve_paths(op_type: Operation, parsed_args) -> Paths:
     return perfRunner.create_paths(configs_path, parsed_args.mlir_build_dir)
 
 
-def extract_fusion_configs(test_dir, paths: Paths, options: Options) -> Operation:
+def extract_fusion_configs(test_dir, paths: Paths) -> Operation:
     """Extract tuning configurations from fusion E2E test files."""
     all_configs = []
     op_type = Operation.FUSION
     for filename in glob.glob(test_dir + '/*mlir'):
-        if not options.quiet:
-            print("Extract from:", filename, file=sys.stderr)
+        logger.info(f"Extract from: {filename}")
         test_entry = perfRunner.get_fusion_test_info(filename, paths)
         if not test_entry:
             continue
@@ -1501,23 +1510,20 @@ def extract_fusion_configs(test_dir, paths: Paths, options: Options) -> Operatio
         if not test_vector:
             continue
         if test_vector in all_configs:
-            if not options.quiet:
-                print("An entry already exists in the tuning DB", file=sys.stderr)
+            logger.info("An entry already exists in the tuning DB")
             continue
         command_line = test_vector.split(sep=' ')
         if command_line[0].startswith('conv'):
             if op_type == Operation.FUSION:
                 op_type = Operation.CONV
             elif op_type != Operation.CONV:
-                if not options.quiet:
-                    print("Invalid config op: ", test_vector, file=sys.stderr)
+                logger.warning(f"Invalid config op: {test_vector}")
                 continue
         else:
             if op_type == Operation.FUSION:
                 op_type = Operation.GEMM
             elif op_type != Operation.GEMM:
-                if not options.quiet:
-                    print("Invalid config op: ", test_vector, file=sys.stderr)
+                logger.warning(f"Invalid config op: {test_vector}")
                 continue
         all_configs.append(test_vector)
 
@@ -1645,12 +1651,11 @@ def parse_arguments(gpu_topology: GpuTopology, available_gpus: List[int], args=N
                         choices=["quick", "full", "greedy", "exhaustive"],
                         help="Tuning space kind to use")
 
-    parser.add_argument(
-        "-q",
-        "--quiet",
-        action='store_true',
-        default=False,
-        help="Suppress progress bars and informational messages, showing only errors")
+    parser.add_argument("-v",
+                        "--verbose",
+                        action='store_true',
+                        default=False,
+                        help="Enable verbose output, including commands being executed")
 
     parser.add_argument("--verify-mode",
                         default="gpu",
@@ -1737,6 +1742,8 @@ def parse_arguments(gpu_topology: GpuTopology, available_gpus: List[int], args=N
 
 
 def main(args=None):
+    global logger
+
     gpu_topology = GpuTopology.discover()
     available_gpus = sorted(gpu_topology.gpus.keys())
 
@@ -1745,6 +1752,9 @@ def main(args=None):
     set_isolated_gpu_env(os.environ, available_gpus[0])
 
     parsed_args = parse_arguments(gpu_topology, available_gpus, args)
+
+    if parsed_args.verbose:
+        logger = setup_logger(verbose=parsed_args.verbose)
 
     stdin_temp_file = None
     try:
@@ -1757,7 +1767,7 @@ def main(args=None):
         paths = resolve_paths(op_type, parsed_args)
 
         if not paths.mlir_paths:
-            print("rocMLIR build dir was not provided/found", file=sys.stderr)
+            logger.error("rocMLIR build dir was not provided/found")
             return 1
 
         arch = perfRunner.get_arch()
@@ -1769,13 +1779,13 @@ def main(args=None):
                           num_cu=num_cu,
                           num_chiplets=num_chiplets,
                           debug=parsed_args.debug,
-                          quiet=parsed_args.quiet,
+                          verbose=parsed_args.verbose,
                           tuning_space_kind=parsed_args.tuning_space,
                           rocmlir_gen_flags=parsed_args.rocmlir_gen_flags,
                           verify_mode=parsed_args.verify_mode,
                           verify_perfconfigs=parsed_args.verify_perf_configs,
                           tflops=parsed_args.tflops,
-                          output=ensure_tsv_extension(parsed_args.output),
+                          output=parsed_args.output,
                           abort_on_error=parsed_args.abort_on_error,
                           retune=parsed_args.retune,
                           retry_failed=parsed_args.retry_failed,
@@ -1784,7 +1794,7 @@ def main(args=None):
                           wait_for_compiles=parsed_args.wait_for_compiles)
 
         if op_type == Operation.FUSION:
-            op_type = extract_fusion_configs(parsed_args.test_dir, paths, options)
+            op_type = extract_fusion_configs(parsed_args.test_dir, paths)
 
         conf_class = get_config_class(op_type)
         configs = load_configs(op_type, parsed_args, paths)
@@ -1800,7 +1810,6 @@ def main(args=None):
         return 0 if tuning_succeeded else 1
 
     except KeyboardInterrupt:
-        print("Tuning interrupted by user", file=sys.stderr)
         return 130  # 128 + SIGINT
     finally:
         if stdin_temp_file:
