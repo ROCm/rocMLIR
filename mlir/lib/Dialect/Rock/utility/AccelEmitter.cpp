@@ -1436,7 +1436,7 @@ AccelEmitter::select(GemmFeatures features, Type dataTypeA, Type dataTypeB,
     return std::make_unique<MfmaEmitter>(*maybeMfmaInsnGroup, arch,
                                          tuningParams);
   } else if (isWmma) {
-    WmmaGemmParamsAttr wmmaParams = cast<WmmaGemmParamsAttr>(tuningParams);
+    AccelGemmParamsAttr wmmaParams = cast<AccelGemmParamsAttr>(tuningParams);
     int64_t waveSize = rock::lookupArchInfo(arch).waveSize;
     auto maybeWmmaInsnGroup =
         WmmaInsn::select(dataTypeA, dataTypeB, waveSize, arch,

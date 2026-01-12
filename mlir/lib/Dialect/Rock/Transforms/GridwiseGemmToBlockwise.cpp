@@ -536,8 +536,8 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     int64_t gridGroupSize = 0;
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType,
-         gridGroupSize},
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op),
+         rock::getNumChipletsValue(op), elementTypeA, destType, gridGroupSize},
         maybeArch->getValue());
 
     Value storeBufferA = GpuAllocOp::create(b, loc, loadBufferA.getType());
@@ -2388,6 +2388,7 @@ struct GridwiseAttentionAccelRewritePattern
       zeroAccBuffer(rewriter, loc, accRegBufferGemm1);
     }
 
+    int64_t numChiplets = rock::getNumChipletsValue(op);
     // if splitKV == 1, we define nullptr, and makeGxNGridLayout() will use
     // fewer instructions
     Value splitKVConst =
@@ -2396,7 +2397,7 @@ struct GridwiseAttentionAccelRewritePattern
     auto gridCoordsGemm0mIter0 = layout::makeGxNGridLayout(
         rewriter, loc, bid,
         rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0), gemm0NBlocks,
-        gridSize, arch, rock::getNumCUValue(op), splitKVConst);
+        gridSize, arch, numChiplets, splitKVConst);
 
     Value gemm0MBlocksLastIter;
     Value currentSeqLen;
@@ -2495,9 +2496,9 @@ struct GridwiseAttentionAccelRewritePattern
 
       // it is fine m iteration to be zero as it irrelevant to Q tensor
       // as the first gemm is Kt x Qt.
-      auto gridCoordsGemm0LoadQ = layout::makeGxNGridLayout(
-          rewriter, loc, bid, zero, gemm0NBlocks, gridSize, arch,
-          rock::getNumCUValue(op), splitKVConst);
+      auto gridCoordsGemm0LoadQ =
+          layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm0NBlocks,
+                                    gridSize, arch, numChiplets, splitKVConst);
 
       Value ldsByteBufferQ = nullptr;
       if (!doBypassLDSForQ)
@@ -2521,9 +2522,9 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kIterationsGemm0 = gemm0K / gemm0KPerBlock;
       Value mLoopIV = mLoopOp.getInductionVar();
       zeroAccBuffer(rewriter, loc, accRegBufferGemm0);
-      layout::GridCoordinates gridCoordsGemm0 = layout::makeGxNGridLayout(
-          rewriter, loc, bid, mLoopIV, gemm0NBlocks, gridSize, arch,
-          rock::getNumCUValue(op), splitKVConst);
+      layout::GridCoordinates gridCoordsGemm0 =
+          layout::makeGxNGridLayout(rewriter, loc, bid, mLoopIV, gemm0NBlocks,
+                                    gridSize, arch, numChiplets, splitKVConst);
 
       // LDS buffers
       Value ldsByteBufferQ;
@@ -2849,8 +2850,8 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter.createOrFold<ConstantIndexOp>(loc, gemm1MBlocks);
 
         auto gridCoordsGemm1 = layout::makeGxNGridLayout(
-            rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch,
-            rock::getNumCUValue(op), splitKVConst);
+            rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch, numChiplets,
+            splitKVConst);
         scf::ForOp g1MLoopOp =
             createMainLoop(rewriter, loc, endG1MLoop, loadType);
         {
@@ -3050,9 +3051,8 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Note that we don't use splitKV here because that dimension belongs to the
     // batch size already for output tensors
-    auto gridCoordsGemm1 =
-        layout::makeGxNGridLayout(rewriter, loc, bid, zero, gemm1NBlocks,
-                                  gridSize, arch, rock::getNumCUValue(op));
+    auto gridCoordsGemm1 = layout::makeGxNGridLayout(
+        rewriter, loc, bid, zero, gemm1NBlocks, gridSize, arch, numChiplets);
     Value outAccBufferOutTypedFlat =
         getFlattenedMemref(rewriter, outAccBufferOutTyped);
     ThreadwiseWriteAllOp::create(
@@ -3250,8 +3250,8 @@ struct GridwiseGemmAccelRewritePattern
     int64_t gridGroupSize = tuningParams.getGridGroupSize();
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
-        {G, mBlocks, nBlocks, rock::getNumCUValue(op), elementTypeA, destType,
-         gridGroupSize},
+        {G, mBlocks, nBlocks, rock::getNumCUValue(op),
+         rock::getNumChipletsValue(op), elementTypeA, destType, gridGroupSize},
         arch);
 
     // wavesPerEU is needed in RockToGPU pass and OutputSwizzle for the

@@ -7,8 +7,8 @@ func.func @gridwise_attn_atomic_add_fail(%arg0: memref<1x384x64xf32>, %arg1: mem
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
-    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params1 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
     storeMethod = #rock<StoreMethod atomic_add>,
     splitKV = 1 : i32,
@@ -27,8 +27,8 @@ func.func @gridwise_attn_prefix_offset_requires_causal(%arg0: memref<1x384x64xf3
   rock.gridwise_attention_accel(%0, %arg1, %arg2, %arg4, %arg3) preSoftmaxOps = {} {
     blockSize = 64 : i32,
     gridSize = 24 : i32,
-    params0 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
-    params1 = #rock.mfma_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
+    params1 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>,
     firstGemmIndices = array<i64: 0>,
     storeMethod = #rock<StoreMethod set>,
     splitKV = 1 : i32,
@@ -324,7 +324,7 @@ func.func @gemm_scaled_inputs_not_float4e2m1(%a: memref<2x64x128xf16>,
 // Gridwise gemm accel tests 
 // -----------------------------------------------------------------------------
 
-#common_params = #rock.mfma_gemm_params<
+#common_params = #rock.accel_gemm_params<
   kpackPerBlock = 4,
   kpack = 4,
   mPerBlock = 64,
@@ -449,7 +449,7 @@ func.func @rock_gridwise_gemm_accel_invalid_out_dtype(%A: memref<2x1024x1024xf4E
 // -----------------------------------------------------------------------------
 // Blockwise gemm accel tests 
 // -----------------------------------------------------------------------------
-#blockwise_params = #rock.mfma_gemm_params<
+#blockwise_params = #rock.accel_gemm_params<
   kpackPerBlock = 2,
   kpack = 2,
   mPerBlock = 128,
@@ -969,7 +969,7 @@ func.func @blockwise_gemm_accel_invalid_arch(
 // Test cases for rock.threadwise_gemm_accel
 //===----------------------------------------------------------------------===//
 
-#params = #rock.mfma_gemm_params<
+#params = #rock.accel_gemm_params<
   mPerBlock = 256,
   nPerBlock = 256,
   kpackPerBlock = 16,

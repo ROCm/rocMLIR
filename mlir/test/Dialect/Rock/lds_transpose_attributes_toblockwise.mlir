@@ -1,12 +1,12 @@
 // RUN: rocmlir-opt -split-input-file -rock-gridwise-gemm-to-blockwise %s | FileCheck %s
 
-#params_16 = #rock.mfma_gemm_params<
+#params_16 = #rock.accel_gemm_params<
   kpackPerBlock = 32, mPerBlock = 256, nPerBlock = 256,
   kpack = 1, mPerWave = 64, nPerWave = 64,
   mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 4,
   outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
 
-#params_8 = #rock.mfma_gemm_params<
+#params_8 = #rock.accel_gemm_params<
   kpackPerBlock = 32, mPerBlock = 256, nPerBlock = 128,
   kpack = 1, mPerWave = 64, nPerWave = 64,
   mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 4,

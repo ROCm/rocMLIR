@@ -878,7 +878,7 @@ pipeline {
                                                             buildProject('ci-performance-scripts', '')
                                                             // How to check out into specific directory, according to stackoverflow.
                                                             dir('MITuna') {
-                                                                git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                                                git branch: "num_chiplets", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                                                             }
                                                             dir('build') {
                                                                 timeout(time: 60, activity: true, unit: 'MINUTES') {
@@ -1094,7 +1094,7 @@ pipeline {
                                                     stage("Tune rocMLIR") {
                                                         buildProject('check-rocmlir-build-only ci-performance-scripts', '')
                                                         dir('MITuna') {
-                                                            git branch: "pf-tuna-rocmlir-3", poll: false, url: 'https://github.com/ROCm/MITuna.git'
+                                                            git branch: "num_chiplets", poll: false, url: 'https://github.com/ROCm/MITuna.git'
                                                         }
                                                         dir('build') {
                                                             def tuningLog = "tune_rocmlir_${CHIP}.log"
@@ -1164,7 +1164,7 @@ PY
                                                             // Check for errors in the tuning log
                                                             script {
                                                                 def tuneLog = readFile(tuningLog).split('\n')
-                                                                def errors = tuneLog.findAll { it =~ /(?i)\berror\b/ }
+                                                                def errors = tuneLog.findAll { it =~ /(?i)error/ }
 
                                                                 if (errors) {
                                                                     error("Tuning failed: Detected errors in tuning log")

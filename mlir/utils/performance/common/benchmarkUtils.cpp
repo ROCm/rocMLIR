@@ -259,7 +259,8 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
   // specific form:
   //
   // -operation gemm -t dataType --arch arch -out_datatype dataType --num_cu
-  // numCU -g G -m M -k K -n N -transA={True/False} -transB={True/False}
+  // numCU --num_chiplets numChiplets -g G -m M -k K -n N -transA={True/False}
+  // -transB={True/False}
   // --kernel-repeats=reps --fusion --perf_config=
   //
   // issued by the perfRunner.py script
@@ -302,8 +303,8 @@ BenchmarkArgs parseCommandLine(const std::string &name, int argc, char **argv) {
       std::string value = arg.substr(lenScaleBDType);
       res.scaleBDataType = strToDataType(value);
     } else if (arg == "--perf_config=" || arg == "--arch" ||
-               arg == "--num_cu" || arg == "-operation" ||
-               arg == "--scaledGemm") {
+               arg == "--num_cu" || arg == "--num_chiplets" ||
+               arg == "-operation" || arg == "--scaledGemm") {
       i++;
     } else if (arg == "--kernel-repeats") {
       res.kernelRepeats = atoi(argv[++i]);
