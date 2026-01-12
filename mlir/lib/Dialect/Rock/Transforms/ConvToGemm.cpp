@@ -517,7 +517,8 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   bool isAccel = archInfo.isAccel(op.getInput().getType().getElementType(),
-                                   op.getFilter().getType().getElementType());
+                                   op.getFilter().getType().getElementType(),
+                                   op.getGemmFeaturesAttr());
 
   // Determine whether to use workspace.
   bool hasWorkspace =
@@ -1110,8 +1111,7 @@ static FailureOr<std::tuple<Value, Value, Value>>
 commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
                   ConvOpType convOpType) {
   StringAttr arch = rock::getArchValue(op);
-  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  GemmFeatures features = archInfo.defaultFeatures;
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);  
 
   Type dataType = op.getInput().getType().getElementType();
   if (ConvOpType::BwdData == convOpType) {
@@ -1173,7 +1173,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
     }
 
     if (ConvOpType::BwdWeight == convOpType &&
-        isWrWAtomicKernel(features, dataType, maybeGemmExtraPad.has_value())) {
+        isWrWAtomicKernel(op.getFeaturesAttr().getValue(), dataType, maybeGemmExtraPad.has_value())) {
       return backwardWeightAtomicAdd(cast<ConvBwdWeightOp>(op), b);
     }
   }

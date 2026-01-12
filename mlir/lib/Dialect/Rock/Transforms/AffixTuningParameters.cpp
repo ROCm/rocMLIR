@@ -199,7 +199,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
   StringRef archStr = rock::getArchValue(op);
   rock::AmdArchInfo archInfo2 = rock::lookupArchInfo(archStr);
-  if (archInfo2.isAccel(op.getAType(), op.getBType())) {
+  if (archInfo2.isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr())) {
     llvm::errs() << "affixTuningParametersImpl 2.5\n";
     // Get features for PopulateParamsAccel::select - this still needs features
     // TODO: Refactor PopulateParamsAccel::select to use archInfo instead
@@ -315,7 +315,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   OpBuilder builder(op.getContext());
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType());
+  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
   if (!isAccel) {
     op.emitError("Currently, attention/gemm+gemm/conv+gemm op is only "
                  "supported on GPUs "

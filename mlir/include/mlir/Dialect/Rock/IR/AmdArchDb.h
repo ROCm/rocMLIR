@@ -62,12 +62,13 @@ struct AmdArchInfo {
   int64_t getMaxLDSVectorLength(int64_t elementBitWidth);
 
   // Feature check methods
+  bool isAccelEnabled(GemmFeaturesAttr featuresAttr);
 
-  /// Check if accelerator (mfma/wmma) is supported for given types
-  bool isAccel(Type dataTypeA, Type dataTypeB);
+  /// Check if accelerator (mfma/wmma) is supported for given types and features
+  bool isAccel(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr);
 
-  /// Check if mfma is supported for given types
-  bool isMfma(Type dataTypeA, Type dataTypeB);
+  /// Check if mfma is supported for given types and features
+  bool isMfma(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr);
 
   /// Check if wmma is supported for given types
   bool isWmma(Type dataTypeA, Type dataTypeB);

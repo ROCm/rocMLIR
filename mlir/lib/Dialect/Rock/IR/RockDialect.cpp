@@ -760,9 +760,10 @@ static bool isFloat8Type(Type type) {
   return isa<FloatType>(type) && type.getIntOrFloatBitWidth() == 8;
 }
 
-static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo, GemmFeatures features,
+static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo, GemmFeaturesAttr featuresAttr,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
+  GemmFeatures features = featuresAttr.getValue();
   llvm::errs() << "verifyGemmTypes: " << features << "\n";
   bool isGfx11 = arch.contains("gfx11");
   bool isGfx1250 = arch.contains("gfx1250");
@@ -805,7 +806,7 @@ static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo, GemmFe
                                          : "Wmma does not support mixed types");
     }
   }
-  if (archInfo.isMfma(elemTypeA, elemTypeB)) {
+  if (archInfo.isMfma(elemTypeA, elemTypeB, featuresAttr)) {
     bool isGfx95 = arch.contains("gfx95");
     if (isGfx95 && (isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeA) ||
                     isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeB))) {
@@ -846,16 +847,10 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
 
   StringAttr arch = rock::getArchValue(gemmOp);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  GemmFeatures features = archInfo.defaultFeatures;
-  // GemmFeatures features = rock::getFeatures(gemmOp);
-  // auto maybeFeatures = rock::getFeaturesFromGemmOp(gemmOp);
-  // if (failed(maybeFeatures)) {
-  //   return gemmOp->emitOpError("No features attribute found");
-  // }
-  // GemmFeatures features = maybeFeatures.value();
+  GemmFeaturesAttr featuresAttr = gemmOp.getGemmFeaturesAttr();
   llvm::errs() << "arch: " << arch << "\n";
 
-  return verifyGemmTypes(gemmOp, archInfo, features, arch, elemTypeA, elemTypeB,
+  return verifyGemmTypes(gemmOp, archInfo, featuresAttr, arch, elemTypeA, elemTypeB,
                          elemTypeC);
 }
 
@@ -868,7 +863,7 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
 
   StringAttr arch = rock::getArchValue(gemmOp);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(gemmOp.getAType(), gemmOp.getBType());
+  bool isAccel = archInfo.isAccel(gemmOp.getAType(), gemmOp.getBType(), gemmOp.getGemmFeaturesAttr());
   if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
@@ -1186,7 +1181,7 @@ LogicalResult GemmOp::verify() {
   }
   StringAttr arch = rock::getArchValue(this->getOperation());
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isMfma = archInfo.isMfma(this->getAType(), this->getBType());
+  bool isMfma = archInfo.isMfma(this->getAType(), this->getBType(), this->getGemmFeaturesAttr());
   bool isWmma = archInfo.isWmma(this->getAType(), this->getBType());
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isMfma && !isa<AccelGemmParamsAttr>(params))
@@ -1256,9 +1251,9 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   Type cElemType = getElementTypeOrSelfRecursive(cType);
   StringRef arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  GemmFeatures features = archInfo.defaultFeatures;
+  GemmFeaturesAttr featuresAttr = op.getFeaturesAttr();
   if (failed(
-          verifyGemmTypes(op, archInfo, features, arch, aElemType, bElemType, cElemType)))
+          verifyGemmTypes(op, archInfo, featuresAttr, arch, aElemType, bElemType, cElemType)))
     return failure();
   if (aElemType.isInteger(8) &&
       !(cElemType.isInteger(32) || cElemType.isInteger(8)))
@@ -2561,7 +2556,8 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   if (hasA && hasB) {
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     GemmFeatures features = archInfo.defaultFeatures;
-    if (failed(verifyGemmTypes(*this, archInfo, features, arch, aType, bType,
+    GemmFeaturesAttr featuresAttr = GemmFeaturesAttr::get(getContext(), features);
+    if (failed(verifyGemmTypes(*this, archInfo, featuresAttr, arch, aType, bType,
                                directToLDS ? nullptr : cType)))
       return failure();
   }
@@ -2743,7 +2739,8 @@ LogicalResult ThreadwiseGemmAccelOp::verify() {
   StringRef arch = rock::getArchValue(*this);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   GemmFeatures features = archInfo.defaultFeatures;
-  if (failed(verifyGemmTypes(*this, archInfo, features, arch, aElemType, bElemType,
+  GemmFeaturesAttr featuresAttr = GemmFeaturesAttr::get(getContext(), features);
+  if (failed(verifyGemmTypes(*this, archInfo, featuresAttr, arch, aElemType, bElemType,
                              cElemType)))
     return failure();
 

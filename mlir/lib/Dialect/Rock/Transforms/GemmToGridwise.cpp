@@ -500,7 +500,7 @@ static LogicalResult commonAttentionGemmElmtGemm(
 
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType());
+  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
   if (!isAccel) {
     return op.emitError("Currently, op is only supported on GPUs "
                         "with matrix accelerator extensions");
@@ -801,7 +801,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType());
+  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
 
   if (isAccel && !blockSize)
     return op.emitOpError("block size must be set at lowering");
@@ -1047,17 +1047,20 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
 
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType());
+  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr()) && archInfo.isAccelEnabled(op.getFeaturesAttr());
   if (isAccel) {
+    LLVM_DEBUG(llvm::dbgs() << "computeGridSize: isAccel\n");
     auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   } else {
+    LLVM_DEBUG(llvm::dbgs() << "computeGridSize: not isAccel\n");
     auto tuningParams = cast<GeneralGemmParamsAttr>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   }
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
+  LLVM_DEBUG(llvm::dbgs() << "computeGridSize: gridSize=" << gridSize << "(M=" << M << ", N=" << N << ", G=" << G << ", mPerBlock=" << mPerBlock << ", nPerBlock=" << nPerBlock << ")\n");
 
   op.setGridSizeAttr(rw.getI32IntegerAttr(gridSize));
 

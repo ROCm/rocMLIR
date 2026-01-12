@@ -507,15 +507,21 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(ArrayRef<Type> types) {
   return features.value();
 }
 
-bool mlir::rock::AmdArchInfo::isAccel(Type dataTypeA, Type dataTypeB) {
-  // GemmFeatures features = defaultFeatures;
-  auto features = getDefaultFeatures({dataTypeA, dataTypeB});
+bool mlir::rock::AmdArchInfo::isAccelEnabled(GemmFeaturesAttr featuresAttr) {
+  GemmFeatures features = featuresAttr.getValue();
+  LLVM_DEBUG(llvm::dbgs() << "isAccelEnabled: features=" << features << "\n");
   return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
 }
 
-bool mlir::rock::AmdArchInfo::isMfma(Type dataTypeA, Type dataTypeB) {
-  // GemmFeatures features = defaultFeatures;
-  auto features = getDefaultFeatures({dataTypeA, dataTypeB});
+bool mlir::rock::AmdArchInfo::isAccel(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr) {
+  GemmFeatures features = featuresAttr.getValue();
+  LLVM_DEBUG(llvm::dbgs() << "isAccel: features=" << features << "\n");
+  return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
+}
+
+bool mlir::rock::AmdArchInfo::isMfma(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr) {
+  GemmFeatures features = featuresAttr.getValue();
+  LLVM_DEBUG(llvm::dbgs() << "isMfma: features=" << features << "\n");
   return bitEnumContainsAll(features, GemmFeatures::mfma);
 }
 
