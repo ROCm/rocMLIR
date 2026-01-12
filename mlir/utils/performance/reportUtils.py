@@ -29,27 +29,27 @@ MIOPEN_UNTUNED_REPORT_FILE = 'miopen_untuned_perf.csv'
 # In order to prevent issues with the tuning data reporting, 'PerfConfig'
 # MUST STAY LAST!
 CONV_TEST_PARAMETERS = [
-    'Direction', 'DataType', 'Chip', 'numCU', 'FilterLayout', 'InputLayout', 'OutputLayout', 'N',
-    'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH',
-    'PaddingW', 'PerfConfig'
+    'Direction', 'DataType', 'Chip', 'numCU', 'numChiplets', 'FilterLayout', 'InputLayout',
+    'OutputLayout', 'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH',
+    'StrideW', 'PaddingH', 'PaddingW', 'PerfConfig'
 ]
 GEMM_TEST_PARAMETERS = [
-    'DataType', 'OutDataType', 'Chip', 'numCU', 'TransA', 'TransB', 'G', 'M', 'K', 'N',
-    'ScaledGemm', 'ScaleADtype', 'ScaleBDtype', 'TransScaleA', 'TransScaleB', 'PerfConfig'
+    'DataType', 'OutDataType', 'Chip', 'numCU', 'numChiplets', 'TransA', 'TransB', 'G', 'M', 'K',
+    'N', 'ScaledGemm', 'ScaleADtype', 'ScaleBDtype', 'TransScaleA', 'TransScaleB', 'PerfConfig'
 ]
 ATTN_TEST_PARAMETERS = [
-    'DataType', 'Chip', 'numCU', 'TransQ', 'TransK', 'TransV', 'TransO', 'Causal', 'ReturnLSE',
-    'SplitKV', 'WithAttnScale', 'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ',
+    'DataType', 'Chip', 'numCU', 'numChiplets', 'TransQ', 'TransK', 'TransV', 'TransO', 'Causal',
+    'ReturnLSE', 'SplitKV', 'WithAttnScale', 'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ',
     'NumHeadsKV', 'HeadDimQK', 'HeadDimV', 'PerfConfig'
 ]
 GEMM_GEMM_TEST_PARAMETERS = [
-    'DataType', 'Chip', 'numCU', 'TransA', 'TransB', 'TransC', 'TransO', 'G', 'M', 'K', 'N', 'O',
-    'PerfConfig'
+    'DataType', 'Chip', 'numCU', 'numChiplets', 'TransA', 'TransB', 'TransC', 'TransO', 'G', 'M',
+    'K', 'N', 'O', 'PerfConfig'
 ]
 CONV_GEMM_TEST_PARAMETERS = [
-    'DataType', 'Chip', 'numCU', 'FilterLayout', 'InputLayout', 'TransC', 'TransO', 'N', 'C', 'H',
-    'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH', 'PaddingW', 'O',
-    'PerfConfig'
+    'DataType', 'Chip', 'numCU', 'numChiplets', 'FilterLayout', 'InputLayout', 'TransC', 'TransO',
+    'N', 'C', 'H', 'W', 'K', 'Y', 'X', 'DilationH', 'DilationW', 'StrideH', 'StrideW', 'PaddingH',
+    'PaddingW', 'O', 'PerfConfig'
 ]
 ROUND_DIGITS = 2
 

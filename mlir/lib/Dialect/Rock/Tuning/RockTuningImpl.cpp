@@ -1167,10 +1167,8 @@ extractLayouts(Operation *op, llvm::StringMap<unsigned> &fLayoutMap,
 static LogicalResult
 getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
                     SmallVectorImpl<char> &out) {
-  int32_t numCU = rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).minNumCU;
-  if (succeeded(rock::getNumCU(gemmGemmOp))) {
-    numCU = rock::getNumCU(gemmGemmOp).value();
-  }
+  int64_t numCU = rock::getNumCUValue(gemmGemmOp);
+  int64_t numChiplets = rock::getNumChipletsValue(gemmGemmOp);
   constexpr char sep = ' ';
   constexpr char tab = '\t';
   int64_t headDimQK;
@@ -1180,8 +1178,10 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
   llvm::raw_svector_ostream problemOS(out);
   // ARCH string
   problemOS << StringRef(rock::getArchValue(gemmGemmOp)) << tab;
-  // Num of Compute Units
+  // Number of Compute Units
   problemOS << numCU << tab;
+  // Number of chiplets
+  problemOS << numChiplets << tab;
 
   ArrayRef<int64_t> qShape = cast<MemRefType>(gemmGemmOp.getAType()).getShape();
   ArrayRef<int64_t> kShape = cast<MemRefType>(gemmGemmOp.getBType()).getShape();
@@ -1344,9 +1344,8 @@ getTuningProblemStr(RockGemmGemmWrapperInterface gemmGemmOp,
 
 static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
                                          SmallVectorImpl<char> &out) {
-  int32_t numCU = rock::lookupArchInfo(rock::getArchValue(gemmIF)).minNumCU;
-  if (succeeded(rock::getNumCU(gemmIF)))
-    numCU = rock::getNumCU(gemmIF).value();
+  int64_t numCU = rock::getNumCUValue(gemmIF);
+  int64_t numChiplets = rock::getNumChipletsValue(gemmIF);
   constexpr char sep = ' ';
   constexpr char tab = '\t';
   llvm::raw_svector_ostream problemOS(out);
@@ -1364,8 +1363,10 @@ static LogicalResult getTuningProblemStr(rock::RockGemmWrapperInterface gemmIF,
 
   // ARCH string
   problemOS << StringRef(rock::getArchValue(gemmIF)).trim("\"") << tab;
-  // Num of Compute Units
+  // Number of Compute Units
   problemOS << numCU << tab;
+  // Number of chiplets
+  problemOS << numChiplets << tab;
 
   if (opType == KernelType::Conv || opType == KernelType::ConvBwdData ||
       opType == KernelType::ConvBwdWeight) { // conv cases

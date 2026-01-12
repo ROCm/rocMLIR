@@ -124,6 +124,11 @@ static llvm::cl::opt<int> num_cu(
                    "gfx906(60/64), gfx908(120)"),
     llvm::cl::value_desc("compute unit value"), llvm::cl::init(0));
 
+static llvm::cl::opt<int> numChiplets("num_chiplets",
+                                      llvm::cl::desc("Number of chiplets"),
+                                      llvm::cl::value_desc("chiplets value"),
+                                      llvm::cl::init(0));
+
 static llvm::cl::opt<std::string> perfConfig(
     "perf_config", llvm::cl::desc("performance config data used for tuning"),
     llvm::cl::value_desc("Serialized tuning parameters"), llvm::cl::init(""));
@@ -2528,12 +2533,21 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
            ? b.getI64IntegerAttr(num_cu)
            : b.getI64IntegerAttr(
                  rock::lookupArchInfo(archAttr.getValue()).minNumCU));
+
+  IntegerAttr numChipletsAttr =
+      (numChiplets.getNumOccurrences() > 0
+           ? b.getI64IntegerAttr(numChiplets)
+           : b.getI64IntegerAttr(
+                 rock::lookupArchInfo(archAttr.getValue()).maxNumXCC));
   SmallVector<NamedAttribute> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
       b.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(b.getNamedAttr("num_chiplets", numChipletsAttr));
 
   SmallVector<Type, 5> flatTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
@@ -3280,15 +3294,24 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   bool isQuantized = params.types[0] == IntegerType::get(ctx, 8);
   SmallVector<Type, 5> flatArgTypes =
       llvm::map_to_vector(argTypes, rock::getFlattenedType);
+
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
                                       : nullptr);
+
+  IntegerAttr numChipletsAttr = (numChiplets.getNumOccurrences() > 0
+                                     ? builder.getI32IntegerAttr(numChiplets)
+                                     : nullptr);
+
   SmallVector<NamedAttribute, 3> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_attention");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -3444,12 +3467,20 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
                                       : nullptr);
+
+  IntegerAttr numChipletsAttr = (numChiplets.getNumOccurrences() > 0
+                                     ? builder.getI32IntegerAttr(numChiplets)
+                                     : nullptr);
+
   SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_conv_gemm");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -3558,12 +3589,19 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   IntegerAttr numCUAttr =
       (num_cu.getNumOccurrences() > 0 ? builder.getI32IntegerAttr(num_cu)
                                       : nullptr);
+
+  IntegerAttr numChipletsAttr = (numChiplets.getNumOccurrences() > 0
+                                     ? builder.getI32IntegerAttr(numChiplets)
+                                     : nullptr);
   SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
       builder.getNamedAttr("mhal.arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
+
+  if (numChipletsAttr)
+    funcAttrs.push_back(builder.getNamedAttr("num_chiplets", numChipletsAttr));
 
   constexpr StringLiteral kernelName("rock_gemm_gemm");
   auto func = func::FuncOp::create(builder, loc, kernelName,
@@ -5449,6 +5487,9 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           perfConfig.getValue(),
           num_cu.getNumOccurrences() ? std::optional<int>(num_cu.getValue())
                                      : std::nullopt,
+          numChiplets.getNumOccurrences()
+              ? std::optional<int>(numChiplets.getValue())
+              : std::nullopt,
           enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilations, strides, paddingLeft,
