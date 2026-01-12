@@ -2511,23 +2511,23 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       op->moveAfter(expandedOutLse);
   }
 
-  // This function identifies when the currentSeqLen is a block argument
-  // that is one dimensional, and broadcasts it to the correct shape, and with
-  // the correct batch, numHeads, and optionally splitKV, values
+  // This function identifies when the currentSeqLen or prefixOffset is a block
+  // argument that is one dimensional, and broadcasts it to the correct shape,
+  // and with the correct batch, numHeads, and optionally splitKV, values.
   FailureOr<Value> addBroadcastForBlockArg(PatternRewriter &rewriter,
-                                           Value currentSeqLen,
+                                           Value possibleBlockArg,
                                            Value matrixQ) const {
-    // Exit early if there is no currentSeqLen (no kv-cache)
-    if (!currentSeqLen)
+    // Exit early if there is no possibleBlockArg (no kv-cache or prefix offset)
+    if (!possibleBlockArg)
       return failure();
 
-    // Exit early if currentSeqLen is not a 1D block argument
-    if (!isa<BlockArgument>(currentSeqLen) ||
-        cast<ShapedType>(currentSeqLen.getType()).getRank() != 1)
+    // Exit early if possibleBlockArg is not a 1D block argument
+    if (!isa<BlockArgument>(possibleBlockArg) ||
+        cast<ShapedType>(possibleBlockArg.getType()).getRank() != 1)
       return failure();
 
     // Extract the shape information
-    auto origShape = cast<ShapedType>(currentSeqLen.getType()).getShape()[0];
+    auto origShape = cast<ShapedType>(possibleBlockArg.getType()).getShape()[0];
 
     // Find the original shape of matrixQ (before reshaping) to get the batch
     // and numHeads values
@@ -2553,10 +2553,10 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     if (srcShape.size() < numCollapsedDims)
       return failure();
 
-    auto loc = currentSeqLen.getLoc();
-    auto elemTy = cast<ShapedType>(currentSeqLen.getType()).getElementType();
+    auto loc = possibleBlockArg.getLoc();
+    auto elemTy = cast<ShapedType>(possibleBlockArg.getType()).getElementType();
 
-    // Lambda to expand and broadcast currentSeqLen to match the given shape
+    // Lambda to expand and broadcast possibleBlockArg to match the given shape
     auto expandAndBroadcast = [&](ArrayRef<int64_t> broadcastShape) -> Value {
       // Build expanded shape: [origShape, 1, 1, ...] with trailing 1s
       SmallVector<int64_t> expandedShape{origShape};
@@ -2571,7 +2571,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
           ReassociationIndices(indices.begin(), indices.end())};
 
       Value expanded = tensor::ExpandShapeOp::create(
-          rewriter, loc, expandedType, currentSeqLen, reassoc);
+          rewriter, loc, expandedType, possibleBlockArg, reassoc);
 
       // Create a tosa.const with all ones in the broadcast shape
       auto broadcastTy = RankedTensorType::get(broadcastShape, elemTy);
@@ -3023,6 +3023,7 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
         val = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), val,
                                               reassocIndices);
       } else if (rank == 3) {
+        // We will only have rank == 3 when we have flash decoding.
         SmallVector<ReassociationIndices> reassocIndices = {{0, 1, 2}};
         val = tensor::CollapseShapeOp::create(rewriter, op.getLoc(), val,
                                               reassocIndices);

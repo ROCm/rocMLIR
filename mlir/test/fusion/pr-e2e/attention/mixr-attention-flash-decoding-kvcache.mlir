@@ -1,6 +1,11 @@
-// RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx,highlevel -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -fut mlir_attention_wrapper -relDiff_threshold 0.00001  --verifier clone - -pr | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
+// RUN: rocmlir-gen -fut mlir_attention --arch %arch --clone-harness %s | rocmlir-driver -kernel-pipeline=migraphx,highlevel -host-pipeline=migraphx,highlevel | rocmlir-gen -ph -fut mlir_attention_wrapper -relDiff_threshold 0.00001 -rand_min_int 0 -rand_max_int 4 -rand_type_int_for_inputs=2 --verifier clone - -pr | rocmlir-driver -host-pipeline mhal -kernel-pipeline full | xmir-runner --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext,%linalg_test_lib_dir/libmlir_c_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_async_runtime%shlibext --entry-point-result=void | FileCheck %s
 
-// Check output tensor (only that values that are not masked out):
+// CPU and GPU results may differ for masked-out positions. This is expected
+// because flash decoding splits computation across splitKV blocks, each
+// computing partial results that are combined using LSE (log-sum-exp)
+// reduction. The LSE reduction takes place in a separate kernel that is
+// provided by MIGraphX.
+
 // CHECK: [0.583496,  -0.498047,  0.127441,  0.588867
 
 module {
@@ -51,3 +56,4 @@ module {
     return %37, %39 : !migraphx.shaped<2x2x1x4xf16, 8x4x4x1>, !migraphx.shaped<2x2x2x1x1xf32, 4x2x1x1x1>
   }
 }
+

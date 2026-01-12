@@ -6,6 +6,7 @@
 // CHECK-NEXT: prefixOffset = ({{.*}} : tensor<8xi32>)
 // CHECK-NEXT: causal
 // CHECK-NEXT: lse = {{.*}} : tensor<8x2xf32>
+// CHECK: splitKV = 1
 
 module {
   func.func @mlir_attention(%arg0: tensor<48xf16>, %arg1: tensor<32xf16>, %arg2: tensor<2xi32>, %arg3: tensor<32xf16>, %arg4: tensor<2xi32>) -> (tensor<32xf16>, tensor<16xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
@@ -79,3 +80,4 @@ module {
     return %collapsed_10, %collapsed_11 : tensor<32xf16>, tensor<16xf32>
   }
 }
+

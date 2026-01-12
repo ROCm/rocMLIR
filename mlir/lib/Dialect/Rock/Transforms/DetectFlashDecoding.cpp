@@ -119,9 +119,12 @@ static std::pair<int64_t, int64_t> detectSplitKVFromQ(Value qTensor) {
 }
 
 // Detect splitKV from K or V tensor by finding the Unmerge with splitKV
-// dimension This works for both K and V since they have similar patterns.
+// dimension. This works for both K and V since they have similar patterns.
 // Returns (splitKV, dimensionality), where dimensionality is 4 or 5
-// Returns (1, 0) if not found
+// Returns (1, 0) if not found. E.g.,
+// - 5D: flat --Unmerge--> [B, H, D, SplitKV, N/SplitKV] (splitKV at position 3)
+// - 4D: flat --Unmerge--> [BH, D, SplitKV, N/SplitKV] (splitKV at position 2)
+// - 4D: flat --Unmerge--> [B, SplitKV, D, N/SplitKV] (splitKV at position 1)
 static std::pair<int64_t, int64_t> detectSplitKVFromKV(Value tensor,
                                                        StringRef tensorName) {
   SmallVector<TransformMapAttr> transforms;
@@ -255,20 +258,19 @@ unmergeBackForSplitKV(PatternRewriter &rewriter, Location loc, Value tensor,
 // For 1D tensors: [batch*splitKV] -> [batch]
 static FailureOr<Value>
 sliceSplitKVFromBatch(PatternRewriter &rewriter, Location loc, Value tensor,
-                      int64_t splitKV, StringRef tensorName,
-                      ArrayRef<StringRef> trailingDimNames) {
+                      int64_t splitKV, ArrayRef<StringRef> trailingDimNames) {
   auto tensorType = cast<ShapedType>(tensor.getType());
   ArrayRef<int64_t> shape = tensorType.getShape();
 
   if (shape.empty()) {
-    LLVM_DEBUG(llvm::dbgs() << tensorName << ": Cannot process 0D tensor\n");
+    LLVM_DEBUG(llvm::dbgs() << "Cannot process 0D tensor\n");
     return failure();
   }
 
   int64_t currentBatch = shape[0];
   if (currentBatch % splitKV != 0) {
     LLVM_DEBUG(llvm::dbgs()
-               << tensorName << ": Batch dimension " << currentBatch
+               << "Batch dimension " << currentBatch
                << " not divisible by splitKV " << splitKV << "\n");
     return failure();
   }
@@ -455,7 +457,7 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
 
     // Add transforms to remove splitKV from batch dimension of inputs
     auto maybeNewQueries = sliceSplitKVFromBatch(rewriter, op.getLoc(), queries,
-                                                 splitKVFromQ, "Q", {"M", "K"});
+                                                 splitKVFromQ, {"M", "K"});
     auto maybeNewKeys =
         removeSplitKVWithMerge(rewriter, op.getLoc(), keys, splitKVFromQ, "K",
                                "K", /*featureFirst=*/true);
@@ -476,31 +478,31 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     Type resultType = op.getResult().getType();
     Type lseOutType = op.getLseOut().getType();
 
-    // Transform currentSeqLen if present
-    Value newCurrentSeqLen = nullptr;
-    if (auto currentSeqLen = op.getCurrentSeqLen()) {
-      auto maybeNewSeqLen =
-          sliceSplitKVFromBatch(rewriter, op.getLoc(), currentSeqLen,
-                                splitKVFromQ, "currentSeqLen", {});
-      if (failed(maybeNewSeqLen)) {
-        op.emitError("Failed to transform currentSeqLen");
+    // Lambda to transform optional batch tensors (E.g., currentSeqLen,
+    // prefixOffset).
+    auto splitKVVal = splitKVFromQ;
+    auto transformOptionalTensor = [&](Value tensor) -> FailureOr<Value> {
+      if (!tensor)
+        return Value(nullptr);
+      auto maybeNew = sliceSplitKVFromBatch(rewriter, op.getLoc(), tensor,
+                                            splitKVVal, {});
+      if (failed(maybeNew)) {
+        op.emitOpError("Failed to transform ") << tensor;
         return failure();
       }
-      newCurrentSeqLen = maybeNewSeqLen.value();
-    }
+      return maybeNew.value();
+    };
 
-    // Transform prefixOffset if present
-    Value newPrefixOffset = nullptr;
-    if (auto prefixOffset = op.getPrefixOffset()) {
-      auto maybeNewPrefixOffset =
-          sliceSplitKVFromBatch(rewriter, op.getLoc(), prefixOffset,
-                                splitKVFromQ, "prefixOffset", {});
-      if (failed(maybeNewPrefixOffset)) {
-        op.emitError("Failed to transform prefixOffset");
-        return failure();
-      }
-      newPrefixOffset = maybeNewPrefixOffset.value();
-    }
+    auto maybeNewCurrentSeqLen =
+        transformOptionalTensor(op.getCurrentSeqLen());
+    if (failed(maybeNewCurrentSeqLen))
+      return failure();
+    Value newCurrentSeqLen = maybeNewCurrentSeqLen.value();
+
+    auto maybeNewPrefixOffset = transformOptionalTensor(op.getPrefixOffset());
+    if (failed(maybeNewPrefixOffset))
+      return failure();
+    Value newPrefixOffset = maybeNewPrefixOffset.value();
 
     auto newOp = rock::AttentionOp::create(
         rewriter, op->getLoc(), resultType, lseOutType, newQueries, newKeys,

@@ -4,6 +4,7 @@
 // CHECK: rock.attention
 // CHECK: currentSeqLen = ({{.*}} : tensor<8xi32>)
 // CHECK: lse = {{.*}} : tensor<8x1xf32>
+// CHECK: splitKV = 1 
 
 module {
   func.func @mlir_attention(%arg0: tensor<24xf16>, %arg1: tensor<32xf16>, %arg2: tensor<2xi32>, %arg3: tensor<32xf16>) -> (tensor<16xf16>, tensor<8xf32>) attributes {arch = "##TOKEN_ARCH##", kernel = "mixr"} {
@@ -70,3 +71,4 @@ module {
     return %collapsed_10, %collapsed_11 : tensor<16xf16>, tensor<8xf32>
   }
 }
+

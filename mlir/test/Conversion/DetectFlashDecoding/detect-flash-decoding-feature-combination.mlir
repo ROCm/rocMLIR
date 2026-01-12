@@ -54,11 +54,14 @@ module {
     // CHECK: rock.attention{
     // CHECK-NEXT: qk = %{{.*}} * %{{.*}} : tensor<4x2x2xf16>, tensor<4x2x4xf16>
     // CHECK-NEXT: currentSeqLen = (%{{.*}} : tensor<4xi32>)
-    // CHECK-NEXT: prefixOffset = ({{.*}} : tensor<4xi32>)
+    // CHECK-NEXT: prefixOffset = (%{{.*}} : tensor<4xi32>)
     // CHECK-NEXT: causal
-    // CHECK-NEXT: lse = %11 : tensor<8x2xf32>
+    // CHECK-NEXT: lse = %{{.*}} : tensor<8x2xf32>
+    // CHECK-NEXT: qk = elementwise
     // CHECK: softmax(qk) * %{{.*}} : tensor<4x4x2xf16> -> tensor<8x2x2xf16>
-    // CHECK: splitKV = 2
+    // CHECK: preSoftmaxHasSplitKVTransforms = true
+    // CHECK-SAME: softmaxType = f32
+    // CHECK-SAME: splitKV = 2
 
     %result, %lseOut = rock.attention{
      qk = %7 * %8 : tensor<8x2x2xf16>, tensor<8x2x2xf16>
@@ -85,3 +88,4 @@ module {
     return %22, %19 : tensor<32xf16>, tensor<16xf32>
   }
 }
+
