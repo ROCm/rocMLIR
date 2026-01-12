@@ -57,6 +57,7 @@ class Options:
     quiet: bool
     arch: str
     num_cu: int
+    num_chiplets: int
     rocmlir_gen_flags: str
     verify_mode: str
     verify_perfconfigs: bool
@@ -466,7 +467,10 @@ class OutputFileWriter:
 
         commit_hash = get_git_commit_hash()
         print(f"# commit: {commit_hash}", file=self.file)
-        columns = ['arch', 'numCUs', 'testVector', f'perfConfig ({self.options.tuning_space_kind})']
+        columns = [
+            'arch', 'numCUs', 'numChiplets', 'testVector',
+            f'perfConfig ({self.options.tuning_space_kind})'
+        ]
         if self.options.tflops:
             columns.append('TFlops')
         print("# " + "\t".join(columns), file=self.file)
@@ -479,7 +483,8 @@ class OutputFileWriter:
 
         fields = [
             self.options.arch,
-            str(self.options.num_cu), result.test_vector, result.winning_config or ""
+            str(self.options.num_cu),
+            str(self.options.num_chiplets), result.test_vector, result.winning_config or ""
         ]
         if self.options.tflops:
             fields.append(f"{result.max_tflops}" if result.max_tflops else "")
@@ -782,7 +787,8 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
         if not test_vector.endswith(".mlir"):
             command_line = test_vector.split(sep=' ')
             try:
-                config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
+                config = conf_class.from_command_line(command_line, options.arch, options.num_cu,
+                                                      options.num_chiplets)
             except ValueError as e:
                 return {'success': False, 'error': str(e)}
             test_vector = config.to_command_line()
@@ -819,7 +825,8 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
             result = output.decode('utf-8').strip().split('\t')
             command_line = result[2].split(sep=' ')
             try:
-                config = conf_class.from_command_line(command_line, options.arch, options.num_cu)
+                config = conf_class.from_command_line(command_line, options.arch, options.num_cu,
+                                                      options.num_chiplets)
             except ValueError as e:
                 return {'success': False, 'error': str(e)}
             tuning_driver_command += [test_vector]
@@ -1250,8 +1257,14 @@ def main(args=None):
         print("rocMLIR build dir was not provided/found", file=sys.stderr)
         return 1
 
-    options = Options(arch=perfRunner.get_arch(),
-                      num_cu=perfRunner.get_num_cu(perfRunner.get_chip()),
+    arch = perfRunner.get_arch()
+    chip = perfRunner.get_chip()
+    num_cu = perfRunner.get_num_cu(chip)
+    num_chiplets = perfRunner.get_num_chiplets(chip, num_cu)
+
+    options = Options(arch=arch,
+                      num_cu=num_cu,
+                      num_chiplets=num_chiplets,
                       debug=parsed_args.debug,
                       quiet=parsed_args.quiet,
                       tuning_space_kind=parsed_args.tuning_space,

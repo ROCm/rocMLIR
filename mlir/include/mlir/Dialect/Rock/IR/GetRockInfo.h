@@ -44,6 +44,12 @@ FailureOr<int64_t> getNumCU(Operation *op);
 // Get the num_cu from the op, and error out if it cannot be found
 int64_t getNumCUValue(Operation *op);
 
+// Get the num_chiplets from the op
+FailureOr<int64_t> getNumChiplets(Operation *op);
+
+// Get the num_chiplets from the op, and error out if it cannot be found
+int64_t getNumChipletsValue(Operation *op);
+
 inline rock::GemmFeatures intersectGemmFeatures(rock::GemmFeatures a,
                                                 rock::GemmFeatures b) {
   return a & b;

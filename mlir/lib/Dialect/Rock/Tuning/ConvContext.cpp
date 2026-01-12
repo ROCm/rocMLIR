@@ -78,6 +78,7 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
   }
   auto archVal = llvm::SmallString<8>(rock::getArchValue(op));
   int numCu = rock::getNumCUValue(op);
+  int numChiplets = rock::getNumChipletsValue(op);
   int gemmId = getOptionalIntAttribute(op, "gemmId", 0);
 
   llvm::StringMap<DimIndexAndSize> dimIndexAndSize;
@@ -106,14 +107,16 @@ ConvolutionContext mlir::rock::populateConvContext(Operation *op) {
   auto gemmIface = cast<RockGemmWrapperInterface>(op);
   Type dataTypeA = gemmIface.getAType(), dataTypeB = gemmIface.getBType();
 
-  return {archVal,     numCu,      opType, dimIndexAndSize, strideVal,
-          dilationVal, paddingVal, gemmId, dataTypeA,       dataTypeB};
+  return {archVal,         numCu,     numChiplets, opType,
+          dimIndexAndSize, strideVal, dilationVal, paddingVal,
+          gemmId,          dataTypeA, dataTypeB};
 }
 
 ConvolutionContext
 mlir::rock::populateConvContextFromConvGemm(ConvElementwiseGemmOp op) {
   auto archVal = llvm::SmallString<8>(rock::getArchValue(op));
   int numCu = rock::getNumCUValue(op);
+  int numChiplets = rock::getNumChipletsValue(op);
   int gemmId = getOptionalIntAttribute(op, "gemmId", 0);
 
   llvm::StringMap<DimIndexAndSize> dimIndexAndSize;
@@ -173,6 +176,7 @@ mlir::rock::populateConvContextFromConvGemm(ConvElementwiseGemmOp op) {
   }
   Type dataTypeA = op.getAType(), dataTypeB = op.getBType();
 
-  return {archVal,     numCu,      ConvOpType::Fwd, dimIndexAndSize, strideVal,
-          dilationVal, paddingVal, gemmId,          dataTypeA,       dataTypeB};
+  return {archVal,         numCu,     numChiplets, ConvOpType::Fwd,
+          dimIndexAndSize, strideVal, dilationVal, paddingVal,
+          gemmId,          dataTypeA, dataTypeB};
 }
