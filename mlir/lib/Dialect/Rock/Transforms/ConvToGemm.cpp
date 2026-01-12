@@ -516,9 +516,7 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
 
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(op.getInput().getType().getElementType(),
-                                   op.getFilter().getType().getElementType(),
-                                   op.getGemmFeaturesAttr());
+  bool isAccel = archInfo.isAccel(op);
 
   // Determine whether to use workspace.
   bool hasWorkspace =

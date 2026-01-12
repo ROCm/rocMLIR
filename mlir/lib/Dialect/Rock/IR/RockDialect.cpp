@@ -863,7 +863,7 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
 
   StringAttr arch = rock::getArchValue(gemmOp);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(gemmOp.getAType(), gemmOp.getBType(), gemmOp.getGemmFeaturesAttr());
+  bool isAccel = archInfo.isAccel(gemmOp);
   if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
@@ -1181,7 +1181,7 @@ LogicalResult GemmOp::verify() {
   }
   StringAttr arch = rock::getArchValue(this->getOperation());
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isMfma = archInfo.isMfma(this->getAType(), this->getBType(), this->getGemmFeaturesAttr());
+  bool isMfma = archInfo.isMfma(*this);
   bool isWmma = archInfo.isWmma(this->getAType(), this->getBType());
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isMfma && !isa<AccelGemmParamsAttr>(params))

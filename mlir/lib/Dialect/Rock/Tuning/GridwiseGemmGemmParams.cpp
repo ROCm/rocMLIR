@@ -19,7 +19,7 @@ PopulateParamsGemmGemm::getTuningParameters(OpBuilder &b,
                                             RockGemmGemmWrapperInterface op) {
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  if (!archInfo.isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr())) {
+  if (!archInfo.isAccel(op)) {
     return {};
   }
   auto perfConfigs = ParamLookupTable<GemmGemmParamsAttr>::lookup(
@@ -64,7 +64,7 @@ PopulateParamsGemmGemm::getAccelGemmParams(OpBuilder &b,
                                            GemmGemmParamsAttr params) {
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  if (!archInfo.isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr())) {
+  if (!archInfo.isAccel(op)) {
     return failure();
   }
 

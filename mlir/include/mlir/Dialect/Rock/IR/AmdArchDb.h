@@ -10,6 +10,8 @@
 #define MLIR_DIALECT_ROCK_IR_AMDARCHDB_H
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -67,8 +69,18 @@ struct AmdArchInfo {
   /// Check if accelerator (mfma/wmma) is supported for given types and features
   bool isAccel(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr);
 
+  /// Check if accelerator (mfma/wmma) is supported for given operation
+  /// Uses the operation's features attribute internally
+  bool isAccel(RockGemmWrapperInterface op);
+  bool isAccel(RockGemmGemmWrapperInterface op);
+
   /// Check if mfma is supported for given types and features
   bool isMfma(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr);
+
+  /// Check if mfma is supported for given operation
+  /// Uses the operation's features attribute internally
+  bool isMfma(RockGemmWrapperInterface op);
+  bool isMfma(RockGemmGemmWrapperInterface op);
 
   /// Check if wmma is supported for given types
   bool isWmma(Type dataTypeA, Type dataTypeB);

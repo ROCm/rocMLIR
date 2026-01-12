@@ -500,7 +500,7 @@ static LogicalResult commonAttentionGemmElmtGemm(
 
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+  bool isAccel = archInfo.isAccel(op);
   if (!isAccel) {
     return op.emitError("Currently, op is only supported on GPUs "
                         "with matrix accelerator extensions");
@@ -801,7 +801,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+  bool isAccel = archInfo.isAccel(op);
 
   if (isAccel && !blockSize)
     return op.emitOpError("block size must be set at lowering");
@@ -1047,7 +1047,7 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
 
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr()) && archInfo.isAccelEnabled(op.getFeaturesAttr());
+  bool isAccel = archInfo.isAccel(op) && archInfo.isAccelEnabled(op.getFeaturesAttr());
   if (isAccel) {
     LLVM_DEBUG(llvm::dbgs() << "computeGridSize: isAccel\n");
     auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);

@@ -9,6 +9,8 @@
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 
 #include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -523,6 +525,22 @@ bool mlir::rock::AmdArchInfo::isMfma(Type dataTypeA, Type dataTypeB, GemmFeature
   GemmFeatures features = featuresAttr.getValue();
   LLVM_DEBUG(llvm::dbgs() << "isMfma: features=" << features << "\n");
   return bitEnumContainsAll(features, GemmFeatures::mfma);
+}
+
+bool mlir::rock::AmdArchInfo::isAccel(RockGemmWrapperInterface op) {
+  return isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+}
+
+bool mlir::rock::AmdArchInfo::isAccel(RockGemmGemmWrapperInterface op) {
+  return isAccel(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+}
+
+bool mlir::rock::AmdArchInfo::isMfma(RockGemmWrapperInterface op) {
+  return isMfma(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+}
+
+bool mlir::rock::AmdArchInfo::isMfma(RockGemmGemmWrapperInterface op) {
+  return isMfma(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
 }
 
 bool mlir::rock::AmdArchInfo::isWmma(Type dataTypeA, Type dataTypeB) {
