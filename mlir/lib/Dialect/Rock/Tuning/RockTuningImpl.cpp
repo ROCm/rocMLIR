@@ -985,7 +985,6 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
         // greedy is not implemented for non-accel
         if (!archInfo.isAccel(op) && kind == TuningParamSetKind::Greedy) {
           kind = TuningParamSetKind::Exhaustive;
-          // TODO: tuningRunner hides this warning
           llvm::errs() << "Greedy tuning not implemented for non-accel, using "
                           "Exhaustive instead\n";
         }

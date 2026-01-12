@@ -1356,12 +1356,17 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                 'success':
                     False,
                 'error':
-                    format_error("Tuning failed",
+                    format_error("Tuning pipeline failed",
                                  command=tuning_pipeline,
                                  stderr=tuning_stderr.decode('utf-8'),
                                  exit_code=tuning_driver.returncode,
                                  gpu_id=gpu_id)
             }
+        else:
+            # Log any stderr output from tuning driver because it may contain warnings
+            tuning_stderr_str = tuning_stderr.decode('utf-8').strip()
+            if tuning_stderr_str:
+                logger.debug(f"[GPU {gpu_id}] rocmlir-tuning-driver stderr:\n{tuning_stderr_str}")
 
         tuning_output = tuning_stdout.decode('utf-8').splitlines()
         winning_config, max_tflops, entries = find_best_perfconfig(tuning_output, config, paths,
