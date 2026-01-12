@@ -1351,16 +1351,44 @@ struct GlobalLoadToLDSRewritePattern
                         (numBytes.trunc(32).isNegative() || emitOobChecks ||
                          op.getCanReadOffEnd());
 
-    if (emitOobChecks && !useBufferOps) {
-      return op->emitError(
-          "If we need to emit OOB checks, we must use buffer ops");
-    }
-
     source = asGlobal(b, source);
     if (useBufferOps && emitOobChecks && coords.empty()) {
       source = zeroDMemrefAsOneD(b, source);
       coords.push_back(b.createOrFold<ConstantIndexOp>(loc, 0));
     }
+
+    Type originalLoadedType = op.getTransferType();
+    PatternRewriter::InsertionGuard insertGuard(b);
+    if (emitOobChecks && !useBufferOps) {
+      if (!asyncDirectToLDS) {
+        return op->emitError(
+            "If we need to emit OOB checks, we must use buffer ops");
+      }
+      Value cond = valid;
+      if (op.getCanReadOffEnd()) {
+        Value fallsOffEnd = arith::CmpIOp::create(
+            b, loc, arith::CmpIPredicate::uge, coords[0], numElems);
+        cond = arith::AndIOp::create(b, loc, fallsOffEnd, cond);
+      }
+      auto guard = scf::IfOp::create(b, loc, TypeRange(), cond,
+                                     /*hasThen=*/true, /*hasElse=*/true);
+      Block *thenBlock = guard.getBody(0);
+      Block *elseBlock = guard.getBody(1);
+
+      // Build the then block: move the GlobalLoadToLDSOp inside.
+      b.moveOpBefore(op, thenBlock, thenBlock->begin());
+
+      // Build the else block: store zeros to the GlobalLoadToLDSOp destination.
+      b.setInsertionPointToEnd(elseBlock);
+      Type transferType = op.getTransferType();
+      Value zeroValue = createZeroConstantOp(b, loc, transferType);
+      InBoundsStoreOp::create(b, loc, zeroValue, dest, destCoords);
+      scf::YieldOp::create(b, loc);
+
+      // Reset insertion point to the end of the then block.
+      b.setInsertionPointToEnd(thenBlock);
+    }
+
     if (useBufferOps) {
       // Implement bounds checks for buffer ops by sending any out of bounds
       // write off the end of the buffer, causing the hardware to return 0
@@ -1389,6 +1417,9 @@ struct GlobalLoadToLDSRewritePattern
             : amdgpu::GatherToLDSOp::create(b, loc, source, coords, dest,
                                             destCoords, op.getTransferType());
 
+    if (asyncDirectToLDS && emitOobChecks && !useBufferOps) {
+      scf::YieldOp::create(b, loc);
+    }
     b.replaceOp(op, toLDSOp);
     return success();
   }
@@ -1660,8 +1691,66 @@ struct InBoundsStoreRewritePattern : public OpRewritePattern<InBoundsStoreOp> {
           op, op.getData(), op.getDest(), op.getCoords(),
           /*inbounds=*/ArrayRef<bool>(true));
     } else {
-      b.replaceOpWithNewOp<memref::StoreOp>(op, op.getData(), op.getDest(),
-                                            op.getCoords());
+      Location loc = op.getLoc();
+      Value data = op.getData();
+      Value dest = op.getDest();
+      auto coords = op.getCoords();
+
+      // Get element types
+      Type srcElemType = getElementTypeOrSelf(data.getType());
+      MemRefType destMemRefType = cast<MemRefType>(dest.getType());
+      Type destElemType = destMemRefType.getElementType();
+
+      // Get bit widths
+      unsigned srcBits = srcElemType.getIntOrFloatBitWidth();
+      unsigned destBits = destElemType.getIntOrFloatBitWidth();
+
+      if (srcBits == destBits) {
+        b.replaceOpWithNewOp<memref::StoreOp>(op, op.getData(), op.getDest(),
+                                              op.getCoords());
+      } else if (srcBits > destBits && (srcBits % destBits == 0)) {
+        unsigned ratio = srcBits / destBits;
+
+        // Bitcast the source operand to a vector<1 x srcType>
+        VectorType singleElemVecType = VectorType::get({1}, srcElemType);
+        Value dataToBitcast =
+            b.create<vector::BroadcastOp>(loc, singleElemVecType, data);
+
+        // Create a vector type with smaller elements for bitcasting
+        // vector<ratio x destType>
+        VectorType bitcastType = VectorType::get({ratio}, destElemType);
+
+        // Bitcast the source data to the smaller element type
+        Value bitcastData =
+            b.create<vector::BitCastOp>(loc, bitcastType, dataToBitcast);
+
+        // Create stores for each element
+        int64_t lastDim = coords.size() - 1;
+        Value baseLastCoord = coords[lastDim];
+
+        for (unsigned i = 0; i < ratio; ++i) {
+          // Extract the i-th element from the bitcast vector
+          Value index = b.create<arith::ConstantIndexOp>(loc, i);
+          Value elem = b.create<vector::ExtractOp>(loc, bitcastData, index);
+
+          // Calculate new coordinates: increment the last coordinate by i
+          SmallVector<Value> newCoords(coords.begin(), coords.end());
+          if (i > 0) {
+            Value offset = b.create<arith::ConstantIndexOp>(loc, i);
+            newCoords[lastDim] =
+                b.create<arith::AddIOp>(loc, baseLastCoord, offset);
+          }
+
+          // Create the store operation - use StoreOp for scalar elements
+          b.create<memref::StoreOp>(loc, elem, dest, newCoords);
+        }
+
+        b.eraseOp(op);
+      } else {
+        return op.emitError(
+            "Source element type is larger than destination, but not a "
+            "multiple of the destination element type");
+      }
     }
     return success();
   }

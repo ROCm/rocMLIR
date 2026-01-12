@@ -1991,9 +1991,8 @@ LogicalResult GlobalLoadToLDSOp::verify() {
     return emitOpError("Destination memref must live in workgroup memory");
 
   int64_t numBits = getTransferType().getIntOrFloatBitWidth();
-  if (numBits != 128 && numBits != 32)
-    return emitOpError(
-        "Direct to LDS is implemented for 128bit and 32bit loads only");
+  if (numBits != 128 && numBits != 64 && numBits != 32 && numBits != 8)
+    return emitOpError("only 8, 32, 64 and 128 bit loads are supported");
   unsigned bitWidth = cast<ShapedType>(sourceType).getElementTypeBitWidth();
   unsigned destBitWidth = cast<ShapedType>(destType).getElementTypeBitWidth();
   // For 4-bit source types (f4, i4), add validation checks as GPU can not do

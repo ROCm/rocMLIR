@@ -867,11 +867,9 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
   int64_t mPerWave = tuningParams.getMPerWave();
   int64_t nPerWave = tuningParams.getNPerWave();
   int64_t kPack = tuningParams.getKpack();
-  // TODO: gfx10 supports directToLDS. Implement it.
-  assert(!matrixParams.getDirectToLDS() &&
-         "direct to LDS not supported for WMMA");
-  assert(!matrixParams.getLDSLayoutDxK() &&
-         "WMMA only supports LDS layout KxD for now");
+  bool rotateDWithK = matrixParams.getRotateDWithK();
+  bool ldsLayoutDxK = matrixParams.getLDSLayoutDxK();
+  int64_t dPerThread = matrixParams.getInDPerThread();
 
   // Extract relevant emitter parameters
   int64_t kpackPerThread = accelEmitterParams.kpackPerThread;
@@ -879,6 +877,19 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
                                    : accelEmitterParams.nRepeats);
   int64_t dPerAccel = (dName == "m" ? accelEmitterParams.mPerAccel
                                     : accelEmitterParams.nPerAccel);
+  int64_t kIter = kpackPerThread;
+  int64_t kVec = 1;
+  // Note that when directToLDS is disabled, we are loading vector<kpackxdtype>
+  // from LDS, so we load kpackPerThread. When directToLDS is enabled, we
+  // load vector<1xdtype>, so each thread will load kpackPerThread * kPack.
+  if (matrixParams.getDirectToLDS()) {
+    // kVec is kPack for directToLDS because as explained above, the
+    // non-directToLDS case, has a dtype=vector<kpackxdtype>. So, we need to
+    // handle both cases.
+    kVec = kPack;
+    kPerBlock *= kPack;
+    assert(!rotateDWithK && "rotateDWithK must not be enabled for directToLds");
+  }
 
   // Extract relevant derived parameters
   StringRef thisWaveDim = dName == "m" ? "wave_m" : "wave_n";
@@ -893,27 +904,29 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
   // Compute source offset as
   // sourceOffset = k_i * MN + (laneId % wmmaInputLen) + waveOffset * mn_i;
   TopDownTMBuilder splitTid(b, {"tid", "d_iter", "k_iter"},
-                            {blockSize, dRepeats, kpackPerThread});
+                            {blockSize, dRepeats, kIter * kVec});
   splitTid.merge({"wave_id", "lane_id"}, {0, 1}, "tid",
                  {blockSize / waveSize, waveSize});
+  splitTid.merge({"k_iter", "k_vec"}, {3, 4}, "k_iter", {kIter, kVec});
 
-  splitTid.passThrough({"d_iter", "k_iter"}, {2, 3}, {"d_iter", "k_iter"});
+  splitTid.passThrough({"d_iter"}, {2}, {"d_iter"});
   TransformMapAttr splitTidAttr = splitTid.get();
   transformAttrs.push_back(splitTidAttr);
 
   TopDownTMBuilder splitWaveId =
       TopDownTMBuilder::below(splitTid, splitTidAttr);
   splitWaveId.merge({"wave_m", "wave_n"}, {0, 1}, "wave_id", {mWaves, nWaves});
-  splitWaveId.passThrough({"lane_id", "d_iter", "k_iter"}, {2, 3, 4},
-                          {"lane_id", "d_iter", "k_iter"});
+  splitWaveId.passThrough({"lane_id", "d_iter", "k_iter", "k_vec"},
+                          {2, 3, 4, 5},
+                          {"lane_id", "d_iter", "k_iter", "k_vec"});
   TransformMapAttr splitWaveIdAttr = splitWaveId.get();
   transformAttrs.push_back(splitWaveIdAttr);
 
   TopDownTMBuilder replicateLanes =
       TopDownTMBuilder::below(splitWaveId, splitWaveIdAttr);
-  replicateLanes.passThrough({"wave_m", "wave_n", "d_iter", "k_iter"},
-                             {0, 1, 4, 5},
-                             {"wave_m", "wave_n", "d_iter", "k_iter"});
+  replicateLanes.passThrough({"wave_m", "wave_n", "d_iter", "k_iter", "k_vec"},
+                             {0, 1, 4, 5, 6},
+                             {"wave_m", "wave_n", "d_iter", "k_iter", "k_vec"});
 
   replicateLanes.merge({"block_id", "block_td"}, {2, 3}, "lane_id",
                        {waveSize / dPerAccel, dPerAccel});
@@ -923,11 +936,13 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
   TopDownTMBuilder toLDSRowCol =
       TopDownTMBuilder::below(replicateLanes, replicateLanesAttr);
   if (isGfx11) {
-    toLDSRowCol.passThrough({"k"}, {1}, {"k_iter"});
+    // k = k_iter * k_vec
+    toLDSRowCol.unmerge({"k"}, 1, {"k_iter", "k_vec"}, {kIter, kVec});
     toLDSRowCol.ignore("block_id");
   } else {
-    toLDSRowCol.unmerge({"k"}, 1, {"block_id", "k_iter"},
-                        {wmmaInsn.outputStride, kpackPerThread});
+    // k = block_id * outputStride + k_iter * k_vec
+    toLDSRowCol.unmerge({"k"}, 1, {"block_id", "k_iter", "k_vec"},
+                        {wmmaInsn.outputStride, kIter, kVec});
   }
   toLDSRowCol.unmerge("d", 0, {"d_iter", thisWaveDim, "block_td"},
                       {dRepeats, dWaves, dPerAccel});
@@ -936,12 +951,15 @@ Value WmmaEmitter::wrapLDSBufferForLoad(
   TransformMapAttr toLDSRowColAttr = toLDSRowCol.get();
   transformAttrs.push_back(toLDSRowColAttr);
 
-  int64_t stride = (kPack == 1 ? matrixParams.getInDPerThread() : 1);
+  int64_t stride = (kPack == 1 ? dPerThread : 1);
   auto offset = rotateIf(matrixParams.getRotateDWithK(), toLDSRowCol,
                          toLDSRowColAttr, stride, "d", dPerBlock, 0, "k",
                          kPerBlock, {}, {"k"}, transformAttrs);
 
-  offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
+  if (ldsLayoutDxK)
+    offset.unmerge("source_offset", 0, {"d", "k"}, {dPerBlock, kPerBlock});
+  else
+    offset.unmerge("source_offset", 0, {"k", "d"}, {kPerBlock, dPerBlock});
 
   TransformMapAttr offsetAttr = offset.get();
   transformAttrs.push_back(offsetAttr);
