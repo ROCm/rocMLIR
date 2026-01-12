@@ -301,38 +301,29 @@ sliceSplitKVFromBatch(PatternRewriter &rewriter, Location loc, Value tensor,
   ArrayRef<int64_t> intermediateShape =
       cast<ShapedType>(intermediate.getType()).getShape();
 
-  // Step 2: Slice splitKV to index 0 using ConstDim
-  SmallVector<int64_t> outputShape = {newBatch};
-  for (size_t i = 1; i < shape.size(); ++i)
-    outputShape.push_back(shape[i]);
+  // Step 2: Drop splitKV dimension by fixing it to index 0
+  SmallVector<StringRef> intermediateNames = {"batch", "splitKV"};
+  intermediateNames.append(trailingDimNames.begin(), trailingDimNames.end());
 
-  SmallVector<TransformAttr> sliceOps;
+  rock::BottomUpTMBuilder sliceBuilder(rewriter, intermediateNames,
+                                       intermediateShape, loc);
 
   // PassThrough for batch
-  sliceOps.push_back(TransformAttr::get(rewriter.getContext(),
-                                        rock::TransformType::PassThrough, {},
-                                        {"batch"}, {0}, {"batch"}, {0}));
+  sliceBuilder.passThrough({"batch"}, {0}, {"batch"});
 
-  // ConstDim to fix splitKV to 0
-  SmallVector<int64_t> constParams = {0, splitKV};
-  sliceOps.push_back(TransformAttr::get(rewriter.getContext(),
-                                        rock::TransformType::ConstDim,
-                                        constParams, {}, {}, {"splitKV"}, {1}));
+  // Drop splitKV dimension by fixing it to index 0
+  sliceBuilder.dropDimAtIndex("splitKV", 0);
 
   // PassThrough for trailing dimensions
   if (!trailingDimNames.empty()) {
-    SmallVector<uint32_t> upperDims, lowerDims;
+    SmallVector<uint32_t> upperDims;
     for (size_t i = 0; i < trailingDimNames.size(); ++i) {
       upperDims.push_back(1 + i);
-      lowerDims.push_back(2 + i);
     }
-    sliceOps.push_back(TransformAttr::get(
-        rewriter.getContext(), rock::TransformType::PassThrough, {},
-        trailingDimNames, upperDims, trailingDimNames, lowerDims));
+    sliceBuilder.passThrough(trailingDimNames, upperDims, trailingDimNames);
   }
 
-  TransformMapAttr sliceMap =
-      TransformMapAttr::get(sliceOps, outputShape, intermediateShape);
+  TransformMapAttr sliceMap = sliceBuilder.get();
 
   return rock::TransformOp::create(rewriter, loc, intermediate, sliceMap)
       .getResult();
