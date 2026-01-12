@@ -269,9 +269,8 @@ sliceSplitKVFromBatch(PatternRewriter &rewriter, Location loc, Value tensor,
 
   int64_t currentBatch = shape[0];
   if (currentBatch % splitKV != 0) {
-    LLVM_DEBUG(llvm::dbgs()
-               << "Batch dimension " << currentBatch
-               << " not divisible by splitKV " << splitKV << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "Batch dimension " << currentBatch
+                            << " not divisible by splitKV " << splitKV << "\n");
     return failure();
   }
 
@@ -484,8 +483,8 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
     auto transformOptionalTensor = [&](Value tensor) -> FailureOr<Value> {
       if (!tensor)
         return Value(nullptr);
-      auto maybeNew = sliceSplitKVFromBatch(rewriter, op.getLoc(), tensor,
-                                            splitKVVal, {});
+      auto maybeNew =
+          sliceSplitKVFromBatch(rewriter, op.getLoc(), tensor, splitKVVal, {});
       if (failed(maybeNew)) {
         op.emitOpError("Failed to transform ") << tensor;
         return failure();
@@ -493,8 +492,7 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
       return maybeNew.value();
     };
 
-    auto maybeNewCurrentSeqLen =
-        transformOptionalTensor(op.getCurrentSeqLen());
+    auto maybeNewCurrentSeqLen = transformOptionalTensor(op.getCurrentSeqLen());
     if (failed(maybeNewCurrentSeqLen))
       return failure();
     Value newCurrentSeqLen = maybeNewCurrentSeqLen.value();
