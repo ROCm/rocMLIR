@@ -12,7 +12,6 @@ Usage:
 import os
 import sys
 from typing import Iterable, Optional
-from perfRunner import get_arch, get_chip, get_num_cu
 from perfCommonUtils import Operation
 
 # Global variables
@@ -31,11 +30,6 @@ GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_FILE_NAME}"
 GEMM_GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{GEMM_GEMM_FILE_NAME}"
 CONV_GEMM_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{CONV_GEMM_FILE_NAME}"
 ATTENTION_CONFIGS_DEFAULT = f"../../mlir/utils/performance/configs/{ATTENTION_FILE_NAME}"
-
-# Get the architecture and number of CUs from the environment
-ARCH = get_arch()
-CHIP = get_chip()
-NUM_CU = get_num_cu(CHIP)
 
 # ---------------------------------------------------
 
