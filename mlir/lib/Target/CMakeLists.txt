@@ -13,9 +13,11 @@ llvm_canonicalize_cmake_booleans(
     )
 
 if("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
-  if (NOT ("lld" IN_LIST LLVM_ENABLE_PROJECTS))
+  # Find LLD package
+  find_package(LLD CONFIG QUIET)
+  if(NOT LLD_FOUND)
     message(SEND_ERROR
-      "LLD is not enabled, please reconfigure llvm build")
+      "LLD is not found, please ensure LLD was built with LLVM")
   endif()
 
   ### rocMLIR-specific incantations to embed device libraries statically.
@@ -78,9 +80,17 @@ if("AMDGPU" IN_LIST LLVM_TARGETS_TO_BUILD)
   endif()
   ### End rocMLIR-specific hackery
 
+  # Get LLD include directory - derive from LLVM source dir
+  get_filename_component(LLVM_PROJECT_SRC_DIR "${LLVM_INCLUDE_DIRS}" DIRECTORY)
+  get_filename_component(LLVM_PROJECT_SRC_DIR "${LLVM_PROJECT_SRC_DIR}" DIRECTORY)
+  set(LLD_INCLUDE_DIR "${LLVM_PROJECT_SRC_DIR}/lld/include")
+  if(NOT EXISTS "${LLD_INCLUDE_DIR}")
+    # Fallback: try using LLD_INCLUDE_DIRS from find_package
+    set(LLD_INCLUDE_DIR "${LLD_INCLUDE_DIRS}")
+  endif()
   target_include_directories(obj.MLIRRocTarget
     PUBLIC
-    ${LLVM_EXTERNAL_SRC_DIR}/lld/include
+    ${LLD_INCLUDE_DIR}
   )
   target_link_libraries(MLIRRocTarget
     PRIVATE

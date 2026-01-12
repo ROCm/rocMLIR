@@ -21,13 +21,10 @@
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 
 // MLIR includes
-#include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/Func/Transforms/Passes.h"
-#include "mlir/Dialect/GPU/Transforms/Passes.h"
-#include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Math/Transforms/Passes.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
@@ -35,24 +32,25 @@
 #include "mlir/Dialect/Tensor/Transforms/Passes.h"
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Dialect/Vector/Transforms/Passes.h"
-#include "mlir/InitMHALPasses.h"
 #include "mlir/Transforms/Passes.h"
+
+// TODO: Re-enable when MHAL is updated for newer LLVM
+// #include "mlir/InitMHALPasses.h"
+
+// TODO: Add Triton passes when integration is complete
+// #include "triton/Dialect/Triton/Transforms/Passes.h"
+// #include "triton/Dialect/TritonGPU/Transforms/Passes.h"
 
 #include <cstdlib>
 
 namespace mlir {
 
 inline void registerUpstreamPasses() {
-
   // Conversion passes
   registerLowerAffinePass();
-  registerArithToAMDGPUConversionPass();
-  registerConvertAMDGPUToROCDLPass();
   registerArithToLLVMConversionPass();
   registerConvertFuncToLLVMPass();
-  registerConvertGpuOpsToROCDLOps();
   registerConvertMathToLLVMPass();
-  registerFinalizeMemRefToLLVMConversionPass();
   registerReconcileUnrealizedCastsPass();
   registerSCFToControlFlowPass();
   registerTosaToArithPass();
@@ -61,16 +59,19 @@ inline void registerUpstreamPasses() {
   registerTosaToSCFPass();
   registerConvertControlFlowToLLVMPass();
 
+  // TODO: These require GPU/ROCDL dialects - evaluate for Triton backend
+  // registerArithToAMDGPUConversionPass();
+  // registerConvertAMDGPUToROCDLPass();
+  // registerConvertGpuOpsToROCDLOps();
+  // registerFinalizeMemRefToLLVMConversionPass();
+
   // MLIR passes
   registerTransformsPasses();
-  amdgpu::registerAMDGPUPasses();
   affine::registerAffinePasses();
   arith::registerArithPasses();
   bufferization::registerBufferizationPasses();
   func::registerFuncPasses();
-  registerGPUPasses();
   registerLinalgPasses();
-  LLVM::registerLLVMPasses();
   math::registerMathPasses();
   memref::registerMemRefPasses();
   registerSCFPasses();
@@ -79,6 +80,17 @@ inline void registerUpstreamPasses() {
   tosa::registerTosaOptPasses();
   tosa::registerTosaAttachTargetPass();
   vector::registerVectorPasses();
+
+  // TODO: These require GPU/ROCDL - evaluate for Triton backend
+  // amdgpu::registerAMDGPUPasses();
+  // registerGPUPasses();
+  // LLVM::registerLLVMPasses();
+}
+
+// TODO: Add Triton pass registration
+inline void registerTritonPasses() {
+  // triton::registerTritonPasses();
+  // triton::gpu::registerTritonGPUPasses();
 }
 
 // This function may be called to register the rocMLIR passes with the
@@ -94,9 +106,11 @@ inline void registerRocMLIRPasses() {
   rock::registerPasses();
   rock::registerPipelines();
 
-  registerMHALPasses();
+  // TODO: Re-enable when MHAL is updated for newer LLVM
+  // registerMHALPasses();
 
   registerUpstreamPasses();
+  registerTritonPasses();
 }
 
 } // namespace mlir

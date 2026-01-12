@@ -11,7 +11,7 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
   MLIRParser
-  MLIRMHALPipeline
+  # MLIRMHALPipeline
 )
 
 add_rocmlir_tool(rocmlir-tuning-driver

@@ -18,7 +18,7 @@ add_rocmlir_public_c_api_library(MLIRCAPIRock
   MLIRCAPIIR
   MLIRRockOps
   MLIRRockTuning
-  MLIRMHAL
-  MLIRMHALUtility
+  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
+  # MLIRMHALUtility
   MLIRRockUtility
 )

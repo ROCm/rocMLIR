@@ -14,7 +14,7 @@ add_rocmlir_conversion_library(MLIRMIGraphXToTosa
   MLIRIR
   MLIRPass
   MLIRTosaDialect
-  MLIRMHAL
+  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
   MLIRTosaTransforms
   MLIRRockTransforms
   MLIRTransforms

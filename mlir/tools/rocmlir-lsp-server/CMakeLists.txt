@@ -15,8 +15,8 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
   MLIRLspServerLib
-  MLIRMHAL
-  MLIRMHALTransforms
+  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
+  # MLIRMHALTransforms
   )
 
 add_rocmlir_tool(rocmlir-lsp-server

@@ -20,7 +20,7 @@ add_rocmlir_dialect_library(MLIRRockUtility
   MLIRMemRefDialect
   MLIRSupport
   MLIRRockAnalysis
-  MLIRMHAL
+  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
   MLIRLLVMDialect
 )
 

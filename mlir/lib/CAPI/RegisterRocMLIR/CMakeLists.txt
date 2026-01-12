@@ -8,8 +8,8 @@ add_rocmlir_public_c_api_library(MLIRCAPIRegisterRocMLIR
   ${rocmlir_dialect_libs}
   ${rocmlir_conversion_libs}
 
-  MLIRMHAL
-  MLIRMHALTransforms
-  MLIRMHALPipeline
+  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
+  # MLIRMHALTransforms
+  # MLIRMHALPipeline
   MLIRCAPIIR
 )

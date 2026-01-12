@@ -75,6 +75,6 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRTosaDialect
   MLIRUBDialect
   MLIRVectorTransforms
-  MLIRMHAL
-  MLIRMHALTransforms
+  # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
+  # MLIRMHALTransforms
 )

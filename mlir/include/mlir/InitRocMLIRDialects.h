@@ -30,7 +30,6 @@
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
 #include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
-#include "mlir/Dialect/AMDGPU/IR/AMDGPUDialect.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
@@ -41,10 +40,8 @@
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/LLVMIR/ROCDLDialect.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/Transforms/TilingInterfaceImpl.h"
@@ -61,20 +58,24 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/Dialect.h"
-#include "mlir/InitMHALDialects.h"
+
+// TODO: Re-enable when MHAL is updated for newer LLVM
+// #include "mlir/InitMHALDialects.h"
+
+// TODO: Add Triton dialects when integration is complete
+// #include "triton/Dialect/Triton/IR/Dialect.h"
+// #include "triton/Dialect/TritonGPU/IR/Dialect.h"
 
 namespace mlir {
 
 inline void registerUpstreamDialects(DialectRegistry &registry) {
   // clang-format off
   registry.insert<affine::AffineDialect,
-                  amdgpu::AMDGPUDialect,
                   arith::ArithDialect,
                   async::AsyncDialect,
                   bufferization::BufferizationDialect,
                   cf::ControlFlowDialect,
                   DLTIDialect,
-                  gpu::GPUDialect,
                   index::IndexDialect,
                   func::FuncDialect,
                   LLVM::LLVMDialect,
@@ -84,10 +85,15 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
                   scf::SCFDialect,
                   ub::UBDialect,
                   vector::VectorDialect,
-                  ROCDL::ROCDLDialect,
                   tensor::TensorDialect,
                   tosa::TosaDialect>();
   // clang-format on
+
+  // TODO: Re-enable GPU/AMDGPU/ROCDL dialects for Triton backend
+  // These are handled by Triton now
+  // registry.insert<amdgpu::AMDGPUDialect,
+  //                 gpu::GPUDialect,
+  //                 ROCDL::ROCDLDialect>();
 
   // Register bufferization hooks for rock interfaces
   rock::registerBufferizableOpInterfaceExternalModels(registry);
@@ -119,16 +125,25 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
   index::registerConvertIndexToLLVMInterface(registry);
 }
 
+// TODO: Add Triton dialect registration
+inline void registerTritonDialects(DialectRegistry &registry) {
+  // registry.insert<triton::TritonDialect,
+  //                 triton::gpu::TritonGPUDialect>();
+}
+
 // Add all the MLIR dialects to the provided registry.
 inline void registerRocMLIRDialects(DialectRegistry &registry) {
   // Register rocMLIR specific dialects
   registry.insert<rock::RockDialect, migraphx::MIGraphXDialect>();
 
-  // Register MHAL dialect
-  registerMHALDialects(registry);
+  // TODO: Re-enable when MHAL is updated for newer LLVM
+  // registerMHALDialects(registry);
 
   // Register auxiliary Upstream dialects
   registerUpstreamDialects(registry);
+
+  // Register Triton dialects
+  registerTritonDialects(registry);
 
   // Register the target serialization interface
   registerRocTarget(registry);
