@@ -130,8 +130,19 @@ void AffixTuningParameters::runOnOperation() {
   // constantly needing to recompute this value at later points in the pipeline.
   SmallVector<rock::GemmFeatures> allFeatures;
   func.walk([&](Operation *op) {
-    if (isa<RockGemmFeaturesInterface>(op))
-      allFeatures.push_back(rock::getFeatures(op));
+    if (isa<RockGemmFeaturesInterface>(op)) {
+      StringAttr arch = rock::getArchValue(op);
+      rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+      SmallVector<Type> types;
+      if (auto gemmOp = dyn_cast<RockGemmWrapperInterface>(op)) {
+        types = {gemmOp.getAType(), gemmOp.getBType()};
+      } else if (auto gemmGemmOp = dyn_cast<RockGemmGemmWrapperInterface>(op)) {
+        types = {gemmGemmOp.getAType(), gemmGemmOp.getBType()};
+      } else if (auto opWithFeatures = dyn_cast<RockGemmFeaturesInterface>(op)) {
+        types = opWithFeatures.getTypesForFeature();
+      }
+      allFeatures.push_back(archInfo.defaultFeatures);
+    }
   });
 
   if (allFeatures.size() >= 1) {
@@ -170,6 +181,7 @@ void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
 
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmWrapperInterface op) {
+  llvm::errs() << "affixTuningParametersImpl 1\n";
   OpBuilder b(op.getContext());
   auto funcParent = op->getParentOfType<func::FuncOp>();
   std::string perfConfig;
@@ -182,11 +194,16 @@ void AffixTuningParameters::affixTuningParametersImpl(
   if (failed(maybeScheduleVersion))
     return signalPassFailure();
 
+  llvm::errs() << "affixTuningParametersImpl 2\n";
   std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
 
-  StringRef arch = rock::getArchValue(op);
-  GemmFeatures features = rock::getFeatures(op);
-  if (isAccel(features)) {
+  StringRef archStr = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo2 = rock::lookupArchInfo(archStr);
+  if (archInfo2.isAccel(op.getAType(), op.getBType())) {
+    llvm::errs() << "affixTuningParametersImpl 2.5\n";
+    // Get features for PopulateParamsAccel::select - this still needs features
+    // TODO: Refactor PopulateParamsAccel::select to use archInfo instead
+    GemmFeatures features = archInfo2.defaultFeatures;
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     AccelGemmParamsAttr validParams;
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
@@ -197,8 +214,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (scheduleVersion.has_value())
       validParams = validParams.withScheduleVersion(scheduleVersion.value());
 
+    SmallVector<Type> types = {op.getAType(), op.getBType()};
     if (failed(isScheduleVersionSupported(validParams.getScheduleVersion(),
-                                          features, arch))) {
+                                        archInfo2, types, archStr))) {
       op->emitError("schedule version not supported\n");
       return signalPassFailure();
     }
@@ -206,6 +224,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
+        LLVM_DEBUG(llvm::dbgs() << "Calling obtainTuningParameters fallBack with no perf config\n");
         perfConfig.clear();
         status = populateParamsAccelPtr->obtainTuningParameters(
             b, op, perfConfig, validParams);
@@ -238,6 +257,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
         return signalPassFailure();
       }
     }
+
+    llvm::errs() << "affixTuningParametersImpl 4\n";
 
     // Set kblocks attribute only for backward weight convolutions.
     if (auto bwdOp = dyn_cast<ConvBwdWeightOp>(op.getOperation()))
@@ -272,22 +293,29 @@ void AffixTuningParameters::affixTuningParametersImpl(
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.getBlockSize()));
   }
+
+  llvm::errs() << "affixTuningParametersImpl 5\n";
   // check for fusion legality with SplitK for both accel and non-accel path
   // this check should happen after perfConfig is picked either through
   // heuristics or user provided
-  if (rock::isSplitKRequested(rock::getFeatures(op),
-                              b.getStringAttr(perfConfig))) {
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeatures features = archInfo.defaultFeatures;
+  if (rock::isSplitKRequested(features, b.getStringAttr(perfConfig))) {
     if (failed(testFusionLegalitySplitK(funcParent))) {
       op->emitError("Fusion with SplitK perfConfig is not legal");
       return signalPassFailure();
     }
   }
+  llvm::errs() << "affixTuningParametersImpl 6 (All OK)\n";
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmGemmWrapperInterface op) {
   OpBuilder builder(op.getContext());
-  bool isAccel = rock::isAccel(rock::getFeatures(op));
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op.getAType(), op.getBType());
   if (!isAccel) {
     op.emitError("Currently, attention/gemm+gemm/conv+gemm op is only "
                  "supported on GPUs "
@@ -312,7 +340,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
       perfConfigStrAttr = mayBePerfConfigStrAttr;
     }
   }
-  bool isWmma = bitEnumContainsAny(rock::getFeatures(op), GemmFeatures::wmma);
+  StringAttr arch2 = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo3 = rock::lookupArchInfo(arch2);
+  bool isWmma = archInfo3.isWmma(op.getAType(), op.getBType());
   auto attnPerfConfig = GemmGemmParamsAttr::get(perfConfigStrAttr, isWmma);
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
@@ -323,9 +353,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     attnPerfConfig =
         attnPerfConfig.withScheduleVersion(scheduleVersion.value());
 
+  SmallVector<Type> types2 = {op.getAType(), op.getBType()};
   if (failed(isScheduleVersionSupported(attnPerfConfig.getScheduleVersion(),
-                                        rock::getFeatures(op),
-                                        rock::getArchValue(op)))) {
+                                        archInfo3, types2, arch2))) {
     op->emitError("schedule version not supported\n");
     return signalPassFailure();
   }
@@ -337,7 +367,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     return signalPassFailure();
   }
   // check for splitK legality
-  if (rock::isSplitKRequested(rock::getFeatures(op), perfConfigStrAttr)) {
+  GemmFeatures features2 = archInfo3.defaultFeatures;
+  if (rock::isSplitKRequested(features2, perfConfigStrAttr)) {
     if (failed(testFusionLegalitySplitK(funcParent))) {
       op->emitError("Fusion with SplitK perfConfig is not legal");
       return signalPassFailure();

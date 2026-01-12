@@ -1497,13 +1497,11 @@ static LogicalResult insertBlockwiseReduction(
       ldsWorkspaceSize *= size;
     }
   }
-  auto maybeArch = getArch(reduceOp);
-  if (succeeded(maybeArch)) {
-    if (failed(checkLDSSize(maybeArch.value(), ldsWorkspaceSize))) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "lds size for blockwise reduction does not fit.\n");
-      return failure();
-    }
+  StringAttr arch = getArchValue(reduceOp);
+  if (failed(checkLDSSize(arch, ldsWorkspaceSize))) {
+    LLVM_DEBUG(llvm::dbgs()
+               << "lds size for blockwise reduction does not fit.\n");
+    return failure();
   }
   TypedValue<MemRefType> src = threadwiseWriteOp.getSource();
   auto broadcastReducedSrc = GpuAllocOp::create(rewriter, loc, src.getType());

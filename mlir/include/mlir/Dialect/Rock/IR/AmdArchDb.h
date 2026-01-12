@@ -10,7 +10,9 @@
 #define MLIR_DIALECT_ROCK_IR_AMDARCHDB_H
 
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/ArrayRef.h"
 
 namespace mlir {
 namespace rock {
@@ -52,9 +54,44 @@ struct AmdArchInfo {
   /// Get the default features for the pair <arch, datatype>
   GemmFeatures getDefaultFeatures(Type dataType);
 
+  /// Get the default features for multiple types (intersects features)
+  GemmFeatures getDefaultFeatures(ArrayRef<Type> types);
+
   /// Get the maximum LDS vector length for the given architecture and element
   /// bit width
   int64_t getMaxLDSVectorLength(int64_t elementBitWidth);
+
+  // Feature check methods
+
+  /// Check if accelerator (mfma/wmma) is supported for given types
+  bool isAccel(Type dataTypeA, Type dataTypeB);
+
+  /// Check if mfma is supported for given types
+  bool isMfma(Type dataTypeA, Type dataTypeB);
+
+  /// Check if wmma is supported for given types
+  bool isWmma(Type dataTypeA, Type dataTypeB);
+
+  /// Check if direct-to-LDS is supported for given type and numBytes
+  bool isDirectToLDS(Type dataType, int64_t numBytes = 0);
+
+  /// Check if async direct-to-LDS is supported (needs arch string + type)
+  bool isAsyncDirectToLDS(StringRef arch, Type dataType, int64_t numBytes);
+
+  /// Check if dot product is supported (arch-only, no type dependency)
+  bool hasDot() const;
+
+  /// Check if atomic add is supported for given type
+  bool hasAtomicAdd(Type dataType);
+
+  /// Check if f16 atomic add is supported (arch-only)
+  bool hasAtomicAddF16() const;
+
+  /// Check if bf16 atomic add is supported (arch-only)
+  bool hasAtomicAddBF16() const;
+
+  /// Check if f32 atomic fmax is supported (arch-only)
+  bool hasAtomicFmaxF32() const;
 };
 
 AmdArchInfo lookupArchInfo(StringRef arch);

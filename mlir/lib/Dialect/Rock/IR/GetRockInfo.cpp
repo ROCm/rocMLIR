@@ -11,6 +11,8 @@
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
+#include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
+#include "mlir/Dialect/Rock/IR/RockGemmWrapperInterface.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Value.h"
@@ -79,24 +81,24 @@ FailureOr<RetAttrType> getAttrFromOpOrParents(
   return attr;
 }
 
-bool mlir::rock::isAccel(rock::GemmFeatures features) {
-  return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
-}
-
-FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
+static FailureOr<StringAttr> getArchInternal(Operation *op) {
   return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
 }
 
 StringAttr mlir::rock::getArchValue(Operation *op) {
-  auto maybeArch = rock::getArch(op);
+  // llvm::errs() << "getArchValue\n";
+  auto maybeArch = getArchInternal(op);
   if (failed(maybeArch))
     llvm_unreachable("No 'arch' attribute on kernel");
 
+  if (maybeArch.value().getValue().empty())
+    llvm_unreachable("Empty 'arch' attribute on kernel");
+  
   return maybeArch.value();
 }
 
 FailureOr<int64_t> mlir::rock::getNumCU(Operation *op) {
-  FailureOr<StringAttr> maybeArch = getArch(op);
+  FailureOr<StringAttr> maybeArch = getArchInternal(op);
   if (failed(maybeArch)) {
     LLVM_DEBUG(llvm::dbgs() << "arch not found\n");
     return failure();
@@ -133,12 +135,7 @@ int64_t mlir::rock::getNumCUValue(Operation *op) {
 }
 
 FailureOr<int64_t> mlir::rock::getNumChiplets(Operation *op) {
-  FailureOr<StringAttr> maybeArch = getArch(op);
-  if (failed(maybeArch)) {
-    LLVM_DEBUG(llvm::dbgs() << "arch not found\n");
-    return failure();
-  }
-  StringAttr arch = maybeArch.value();
+  StringAttr arch = rock::getArchValue(op);
   FailureOr<IntegerAttr> maybeNumChiplets =
       getAttrFromOpOrParents<IntegerAttr>(op, "num_chiplets");
   if (failed(maybeNumChiplets)) {
@@ -174,62 +171,9 @@ int64_t mlir::rock::getNumChipletsValue(Operation *op) {
   return maxChiplets;
 }
 
-mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
-  // First, check to see if the func has a 'features' attribute.
-  auto func = getParentFuncOp(op);
-  if (func) {
-    if (auto features = func->getAttrOfType<rock::GemmFeaturesAttr>("features"))
-      return features.getValue();
-
-    // If the initial op is a func and there is no `features` attribute, then
-    // we cannot proceed
-    if (isa<func::FuncOp>(op) || isa<gpu::GPUFuncOp>(op))
-      llvm_unreachable("Trying to get 'features' for an invalid func op");
-  }
-
-  // Next, check to see if the op has a 'features' attribute.
-  if (auto features = op->getAttrOfType<rock::GemmFeaturesAttr>("features"))
-    return features.getValue();
-
-  // In this case, the op does not have a 'Features' attribute, so we can
-  // calculate the default features based on the architecture.
-  rock::AmdArchInfo archInfo = rock::lookupArchInfo(rock::getArchValue(op));
-  // Get the types needed for feature calculation using TypeSwitch
-  SmallVector<Type> typesForFeature =
-      llvm::TypeSwitch<Operation *, SmallVector<Type>>(op)
-          .Case<RockGemmFeaturesInterface, rock::ReduceOp>(
-              [](auto opWithFeatures) {
-                return opWithFeatures.getTypesForFeature();
-              })
-          .Default([](Operation *op) -> SmallVector<Type> {
-            llvm_unreachable("Trying to get feature type on unsupported op");
-          });
-
-  std::optional<rock::GemmFeatures> features = std::nullopt;
-  for (auto &ty : typesForFeature) {
-    // If features is not yet set, then we can update features without having to
-    // do an set intersection first
-    auto newFeatures = archInfo.getDefaultFeatures(ty);
-    if (!features.has_value()) {
-      features = newFeatures;
-      continue;
-    }
-
-    // For all other types, we need to do a set intersection
-    features = intersectGemmFeatures(features.value(), newFeatures);
-  }
-
-  // Handle the case where no types were found, and we could not calculate
-  // features
-  if (!features.has_value()) {
-    llvm_unreachable("Unable to calculate features for the operation");
-  }
-
-  return features.value();
-}
-
 LogicalResult mlir::rock::isScheduleVersionSupported(int64_t scheduleVersion,
-                                                     GemmFeatures features,
+                                                     AmdArchInfo archInfo,
+                                                     ArrayRef<Type> types,
                                                      StringRef arch) {
   std::optional<GemmLoadTileType> maybeLoadType =
       rock::symbolizeGemmLoadTileType(scheduleVersion);
@@ -241,12 +185,19 @@ LogicalResult mlir::rock::isScheduleVersionSupported(int64_t scheduleVersion,
   auto loadType = maybeLoadType.value();
   bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
                      loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-  if (directToLDS && !isDirectToLDSSupported(features) &&
-      !isAsyncDirectToLDSSupported(arch)) {
-    LLVM_DEBUG(
-        llvm::dbgs()
-        << "Requested direct to LDS but not supported by the hardware\n");
-    return failure();
+  if (directToLDS) {
+    // Check if direct-to-LDS is supported (use first type if available)
+    Type dataType = types.empty() ? Type() : types[0];
+    int64_t numBytes = 0; // Check for any direct-to-LDS support
+    bool supported = archInfo.isDirectToLDS(dataType, numBytes) ||
+                     archInfo.isAsyncDirectToLDS(arch, dataType, numBytes);
+    
+    if (!supported) {
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "Requested direct to LDS but not supported by the hardware\n");
+      return failure();
+    }
   }
   return success();
 }

@@ -5645,6 +5645,7 @@ int main(int argc, char **argv) {
 
   amdgpu::Chipset chipset;
   if (!arch.getValue().empty()) {
+    llvm::errs() << "arch: " << arch.getValue() << "\n";
     FailureOr<amdgpu::Chipset> maybeChipset =
         amdgpu::Chipset::parse(archChip());
     if (failed(maybeChipset)) {
@@ -5654,6 +5655,7 @@ int main(int argc, char **argv) {
     }
     chipset = *maybeChipset;
     bool archPrefersOCP = amdgpu::hasOcpFp8(chipset);
+    llvm::errs() << "archPrefersOCP: " << archPrefersOCP << "\n";
     DenseMap<F8TypesChoice, std::string> f8e4m3TypeNames{
         {F8TypesChoice::Arch, archPrefersOCP ? "f8E4M3FN" : "f8E4M3FNUZ"},
         {F8TypesChoice::Nanoo, "f8E4M3FNUZ"},
@@ -5674,6 +5676,10 @@ int main(int argc, char **argv) {
     filterDataType = canonicaliseF8Type(filterDataType);
     inputDataType = canonicaliseF8Type(inputDataType);
     outputDataType = canonicaliseF8Type(outputDataType);
+
+    llvm::errs() << "filterDataType: " << filterDataType << "\n";
+    llvm::errs() << "inputDataType: " << inputDataType << "\n";
+    llvm::errs() << "outputDataType: " << outputDataType << "\n";
   }
 
   if (isConv(operation))
@@ -5805,6 +5811,9 @@ int main(int argc, char **argv) {
     kernels.emplace_back(func); // +++pf: should it be a kernel?
     rootIFs.emplace_back(func);
   }
+
+  llvm::errs() << "module: " << *module << "\n";
+  module->dump();
 
   // populate host logic.
   if (genHostHarness.getValue()) {

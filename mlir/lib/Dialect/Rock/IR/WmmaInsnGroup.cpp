@@ -179,8 +179,10 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
                           << "kPackPerBlock: " << kPackPerBlock << "\n");
 
   // WMMA only supports wave32
-  if (waveSize != 32)
+  if (waveSize != 32) {
+    llvm::errs() << "waveSize: " << waveSize << "\n";
     return failure();
+  }
 
   // Architecture detection
   bool isGfx11 = arch.contains("gfx11");
@@ -263,8 +265,10 @@ FailureOr<WmmaInsn> WmmaInsn::select(mlir::Type elementTypeA,
     }
   }
 
-  if (!insnInfo)
+  if (!insnInfo) {
+    llvm::errs() << "No instruction selected\n";
     return failure();
+  }
 
   // Extract instruction info
   int64_t inputVectorLen = insnInfo->inputVectorLen;

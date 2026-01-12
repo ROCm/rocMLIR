@@ -273,7 +273,8 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
-  if (isAccel(config.features)) {
+  bool isAccel = bitEnumContainsAny(config.features, GemmFeatures::wmma | GemmFeatures::mfma);
+  if (isAccel) {
     bool needExtraPad = false;
     if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
       return failure();
@@ -367,7 +368,8 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*batchSize=*/convDims.n,
                           /*numCU=*/getNumCU()};
 
-  if (isAccel(config.features)) {
+  bool isAccel2 = bitEnumContainsAny(config.features, GemmFeatures::wmma | GemmFeatures::mfma);
+  if (isAccel2) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
     AccelGemmParamsAttr validParams;
     auto res = populateParamsAccelPtr->obtainTuningParameters(
@@ -405,7 +407,8 @@ LogicalResult ConvGenerator::hasWorkspace(OpBuilder &builder,
   if (config.operation.has_value()) {
     Type dataType = getInputDataType(builder);
     ConvOpType dir = config.operation.value();
-    if ((dir == ConvOpType::BwdWeight) && isAccel(config.features) &&
+    bool isAccel3 = bitEnumContainsAny(config.features, GemmFeatures::wmma | GemmFeatures::mfma);
+    if ((dir == ConvOpType::BwdWeight) && isAccel3 &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       bool needPadding = false;
@@ -995,7 +998,8 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
 
     bool needsZeroInit = false;
     bool needExtraPad = false;
-    if (rock::isAccel(config.features) &&
+    bool isAccel4 = bitEnumContainsAny(config.features, GemmFeatures::wmma | GemmFeatures::mfma);
+    if (isAccel4 &&
         succeeded(needExtraPadBwdWeight(builder, needExtraPad))) {
       if (!needExtraPad) {
         auto dataType = getInputDataType(builder);

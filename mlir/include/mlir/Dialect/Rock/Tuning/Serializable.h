@@ -98,6 +98,7 @@ struct Serializable {
         s = std::string(s.begin() + matches[0].size(), s.end());
       } else {
         // unknown perf config version
+        llvm::errs() << "deserialize: unknown perf config version: " << value << "\n";
         return false;
       }
     } else {
@@ -106,6 +107,7 @@ struct Serializable {
 
     if (!checkVersionFormat(s)) {
       // incorrect perf config format
+      llvm::errs() << "deserialize: incorrect perf config format: " << s << "\n";
       return false;
     }
 
@@ -117,8 +119,10 @@ struct Serializable {
                    std::bind(DeserializeField{}, std::ref(ok), std::ref(ss),
                              Seperator, std::placeholders::_1));
 
-    if (!ok)
+    if (!ok) {
+      llvm::errs() << "deserialize: failed to deserialize perf config: " << s << "\n";
       return false;
+    }
 
     static_cast<Derived &>(*this) = out;
     return true;

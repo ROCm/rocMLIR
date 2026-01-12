@@ -760,16 +760,18 @@ static bool isFloat8Type(Type type) {
   return isa<FloatType>(type) && type.getIntOrFloatBitWidth() == 8;
 }
 
-static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
+static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo, GemmFeatures features,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
+  llvm::errs() << "verifyGemmTypes: " << features << "\n";
   bool isGfx11 = arch.contains("gfx11");
   bool isGfx1250 = arch.contains("gfx1250");
+  bool isRdna4 = arch.contains("gfx12") && !isGfx1250; 
   if (isa<Float8E8M0FNUType>(elemTypeA) || isa<Float8E8M0FNUType>(elemTypeB)) {
     return op->emitOpError(
         "Matrix A or B is not allowed to have Float8E8M0FNU types");
   }
-  if (bitEnumContainsAll(features, GemmFeatures::wmma)) {
+  if (archInfo.isWmma(elemTypeA, elemTypeB)) {
     // Validate input data types based on architecture
     bool isValidTypeA = elemTypeA.isF16() || elemTypeA.isBF16() ||
                         elemTypeA.isInteger(8) || isFloat8Type(elemTypeA);
@@ -796,14 +798,14 @@ static LogicalResult verifyGemmTypes(Operation *op, GemmFeatures features,
     if (elemTypeA != elemTypeB) {
       // gfx1250 allows mixed precision for float8 types only
       bool allowMixed =
-          isGfx1250 && isFloat8Type(elemTypeA) && isFloat8Type(elemTypeB);
+          (isGfx1250 || isRdna4) && isFloat8Type(elemTypeA) && isFloat8Type(elemTypeB);
       if (!allowMixed)
         return op->emitOpError(isGfx1250 ? "Wmma on gfx1250 supports mixed "
                                            "types only for FP8/BF8 combinations"
                                          : "Wmma does not support mixed types");
     }
   }
-  if (bitEnumContainsAll(features, GemmFeatures::mfma)) {
+  if (archInfo.isMfma(elemTypeA, elemTypeB)) {
     bool isGfx95 = arch.contains("gfx95");
     if (isGfx95 && (isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeA) ||
                     isa<Float8E4M3FNUZType, Float8E5M2FNUZType>(elemTypeB))) {
@@ -843,9 +845,17 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
        elemTypeC = gemmOp.getCType();
 
   StringAttr arch = rock::getArchValue(gemmOp);
-  GemmFeatures features = rock::getFeatures(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeatures features = archInfo.defaultFeatures;
+  // GemmFeatures features = rock::getFeatures(gemmOp);
+  // auto maybeFeatures = rock::getFeaturesFromGemmOp(gemmOp);
+  // if (failed(maybeFeatures)) {
+  //   return gemmOp->emitOpError("No features attribute found");
+  // }
+  // GemmFeatures features = maybeFeatures.value();
+  llvm::errs() << "arch: " << arch << "\n";
 
-  return verifyGemmTypes(gemmOp, features, arch, elemTypeA, elemTypeB,
+  return verifyGemmTypes(gemmOp, archInfo, features, arch, elemTypeA, elemTypeB,
                          elemTypeC);
 }
 
@@ -856,10 +866,9 @@ static LogicalResult verifyConvOp(RockConvInterface convOp) {
   if (failed(verifyGemmTypes(gemmOp)))
     return failure();
 
-  auto features = rock::getFeatures(gemmOp);
-
-  // Only perform this check for ops that have a feature attribute
-  bool isAccel = rock::isAccel(features);
+  StringAttr arch = rock::getArchValue(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(gemmOp.getAType(), gemmOp.getBType());
   if (gemmOp.getDerivedBlockSize().has_value() && !isAccel) {
     return op->emitOpError(
         "general kernels shouldn't have derived block size.");
@@ -1175,14 +1184,16 @@ LogicalResult GemmOp::verify() {
           "Scaled GEMMs are only supported for Float4E2M1FN input type");
     }
   }
-  auto features = rock::getFeatures(this->getOperation());
-  bool isMfma = bitEnumContainsAll(features, GemmFeatures::mfma);
-  bool isWmma = bitEnumContainsAll(features, GemmFeatures::wmma);
+  StringAttr arch = rock::getArchValue(this->getOperation());
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isMfma = archInfo.isMfma(this->getAType(), this->getBType());
+  bool isWmma = archInfo.isWmma(this->getAType(), this->getBType());
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isMfma && !isa<AccelGemmParamsAttr>(params))
       return emitOpError("a mfma GEMM has non-mfma tuning parameters");
-    if (getFeatures() == GemmFeatures::none &&
-        !isa<GeneralGemmParamsAttr>(params))
+    GemmFeatures features =
+        archInfo.defaultFeatures;
+    if (features == GemmFeatures::none && !isa<GeneralGemmParamsAttr>(params))
       return emitOpError("an all-hardware gemm must used the general gemm "
                          "tuning parameters");
     if (getDerivedBlockSize().has_value() &&
@@ -1196,6 +1207,8 @@ LogicalResult GemmOp::verify() {
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
   }
+
+  llvm::errs() << "verifyGemmTypes 1\n";
 
   RockGemmWrapperInterface gemmIfaceOp =
       cast<RockGemmWrapperInterface>(this->getOperation());
@@ -1241,10 +1254,11 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   Type aElemType = getElementTypeOrSelfRecursive(aType);
   Type bElemType = getElementTypeOrSelfRecursive(bType);
   Type cElemType = getElementTypeOrSelfRecursive(cType);
-  StringAttr archAttr =
-      rock::getArch(op).value_or(StringAttr::get(op.getContext(), "gfx00"));
-  if (failed(verifyGemmTypes(op, rock::getFeatures(op), archAttr, aElemType,
-                             bElemType, cElemType)))
+  StringRef arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeatures features = archInfo.defaultFeatures;
+  if (failed(
+          verifyGemmTypes(op, archInfo, features, arch, aElemType, bElemType, cElemType)))
     return failure();
   if (aElemType.isInteger(8) &&
       !(cElemType.isInteger(32) || cElemType.isInteger(8)))
@@ -2124,9 +2138,7 @@ LogicalResult LDSTransposeLoadOp::verify() {
   }
 
   // Check hardware support using AmdArchDb
-  StringAttr archAttr =
-      rock::getArch(*this).value_or(StringAttr::get(getContext(), "gfx00"));
-  StringRef arch = archAttr.getValue();
+  StringRef arch = rock::getArchValue(*this);
   AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   if (!archInfo.hasLdsTransposeLoad) {
     return emitOpError(
@@ -2544,13 +2556,15 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   Type bType = getElementTypeOrSelfRecursive(bBufferType);
   Type cType = getElementTypeOrSelfRecursive(cBufferType);
 
-  StringAttr archAttr = rock::getArch(*this).value_or(
-      StringAttr::get(this->getContext(), "gfx00"));
+  StringRef arch = rock::getArchValue(*this);
 
-  if (hasA && hasB)
-    if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr, aType,
-                               bType, directToLDS ? nullptr : cType)))
+  if (hasA && hasB) {
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    GemmFeatures features = archInfo.defaultFeatures;
+    if (failed(verifyGemmTypes(*this, archInfo, features, arch, aType, bType,
+                               directToLDS ? nullptr : cType)))
       return failure();
+  }
   auto verifyMatrixAndScale = [&](bool loadFromLds, Value matrix, Value lds,
                                   Value bufferScale, ShapedType bufferType,
                                   const char *matrixName) -> LogicalResult {
@@ -2726,11 +2740,11 @@ LogicalResult ThreadwiseGemmAccelOp::verify() {
   if (getComputeIndices().size() != 3)
     return emitOpError("ComputeIndices need to be a <i,j,k> tuple");
 
-  StringAttr archAttr = rock::getArch(*this).value_or(
-      StringAttr::get(this->getContext(), "gfx00"));
-
-  if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr,
-                             aElemType, bElemType, cElemType)))
+  StringRef arch = rock::getArchValue(*this);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeatures features = archInfo.defaultFeatures;
+  if (failed(verifyGemmTypes(*this, archInfo, features, arch, aElemType, bElemType,
+                             cElemType)))
     return failure();
 
   bool hasScaleA = getScaleA() != nullptr;

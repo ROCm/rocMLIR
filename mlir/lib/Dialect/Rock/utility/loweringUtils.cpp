@@ -45,7 +45,9 @@ bool mlir::rock::isValidBlockSize(int64_t blockSize, int64_t kPerBlock,
 
 bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, Type dataType,
                                    bool requiredPadding) {
-  return isAccel(features) &&
+  // Check if features contain accelerator (mfma or wmma)
+  bool isAccel = bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
+  return isAccel &&
          bitEnumContainsAll(features, GemmFeatures::atomic_add) &&
          (dataType.isF32() || dataType.isF16()) && !requiredPadding;
 }
@@ -1171,15 +1173,13 @@ mlir::rock::getVectorDim(Location loc, Value matrix, Type elemType,
       failure();
   int64_t copyPerThread = (kPerBlock * dPerBlock) / blockSize;
   if (directToLDS) {
-    auto arch = getArch(matrix.getDefiningOp());
-    if (failed(arch))
-      return emitError(loc) << "can't get arch\n";
     // TODO: Implement this for WMMA.
     StringRef archValue = rock::getArchValue(matrix.getDefiningOp());
     if (archValue.contains("gfx1250")) {
       return emitError(loc) << "AsyncDirectToLDS is not implemented for WMMA";
     }
-    auto features = rock::lookupArchInfo(arch.value()).defaultFeatures;
+    StringAttr arch = getArchValue(matrix.getDefiningOp());
+    auto features = rock::lookupArchInfo(arch).defaultFeatures;
     bool directToLDS128b =
         bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b);
     bool directToLDS32b =
@@ -1374,10 +1374,8 @@ mlir::rock::predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op) {
 
   std::optional<int64_t> maxGlobalToLDSVectorLen;
   if (isGlobalToLDS) {
-    auto arch = rock::getArch(op);
-    if (failed(arch))
-      return failure();
-    auto archInfo = rock::lookupArchInfo(arch.value());
+    StringAttr arch = rock::getArchValue(op);
+    auto archInfo = rock::lookupArchInfo(arch);
     Type scalarElementType = getElementTypeOrSelf(elementType);
     int64_t elementBitWidth = scalarElementType.getIntOrFloatBitWidth();
     maxGlobalToLDSVectorLen = archInfo.getMaxLDSVectorLength(elementBitWidth);
