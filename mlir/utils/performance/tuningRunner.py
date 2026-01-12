@@ -4,10 +4,23 @@
 This script tunes MLIR kernels by running them with different performance configurations and selecting the best one based on execution time.
 
 Usage examples:
-    python3 tuningRunner.py --op gemm --configs-file=../mlir/utils/performance/configs/tier1-gemm-configs --output=tuning_db.tsv
-    python3 tuningRunner.py --op gemm --config="-g 3 -m 1024 -k 769 -n 512 -t f32 -transA 0 -transB 0"
-    python3 tuningRunner.py --op conv --tuning-space=quick --config="conv -F 1 -f NCHW -I NCHW -O NCHW -n 256 -c 1024 -H 14 -W 14 -k 2048 -y 1 -x 1 -p 0 -q 0 -u 2 -v 2 -l 1 -j 1 -m conv -g 1 -t 1"
-    python3 tuningRunner.py --op fusion --test-dir=../mlir/test/fusion/resnet50-e2e --output=tuning_db.tsv
+    # Tune GEMM configs from a file
+    python3 tuningRunner.py --op gemm -c configs/tier1-gemm-configs -o tuning_db.tsv
+
+    # Tune a single GEMM config
+    python3 tuningRunner.py --op gemm --config "-g 3 -m 1024 -k 769 -n 512 -t f32 -transA 0 -transB 0"
+
+    # Quick-tune CONV configs from a file
+    python3 tuningRunner.py --op conv -c configs/tier1-conv-configs --tuning-space quick
+
+    # Use a subset of available GPUs
+    python3 tuningRunner.py --op gemm -c configs/tier1-gemm-configs --gpus 2 3
+
+    # Tune fusion ops from E2E test directory
+    python3 tuningRunner.py --op fusion --test-dir ../mlir/test/fusion/resnet50-e2e
+
+    # Pipe configs from stdin
+    cat configs/tier1-gemm-configs | python3 tuningRunner.py --op gemm -c - -o tuning_db.tsv
 """
 
 import argparse
@@ -57,14 +70,44 @@ MAX_FAILURES = 20
 # Logging Setup
 # =============================================================================
 
+# ANSI color codes
+_LOG_COLORS = {
+    logging.DEBUG: '\033[36m',  # Cyan
+    logging.INFO: '\033[34m',  # Blue
+    logging.WARNING: '\033[33m',  # Yellow
+    logging.ERROR: '\033[91m',  # Red
+    logging.CRITICAL: '\033[91m',  # Red
+}
+_COLOR_RESET = '\033[0m'
+
 
 class TqdmLoggingHandler(logging.Handler):
     """Logging handler that uses tqdm.write() to avoid corrupting progress bars."""
 
+    def __init__(self, use_color: bool = False):
+        super().__init__()
+        self.use_color = use_color
+
     def emit(self, record):
         try:
-            msg = self.format(record)
-            tqdm.write(msg, file=sys.stderr)
+            msg = record.getMessage()
+            levelname = record.levelname
+
+            if self.use_color:
+                color = _LOG_COLORS.get(record.levelno, '')
+                prefix = f"{color}{levelname}{_COLOR_RESET}: "
+            else:
+                prefix = f"{levelname}: "
+
+            indent = ' ' * 4
+            lines = msg.splitlines()
+            if len(lines) == 1:
+                formatted = prefix + lines[0]
+            else:
+                formatted = prefix + lines[0] + '\n' + '\n'.join(
+                    indent + line for line in lines[1:])
+
+            tqdm.write(formatted, file=sys.stderr)
         except Exception:
             self.handleError(record)
 
@@ -74,16 +117,11 @@ def setup_logger(verbose: bool = False) -> logging.Logger:
     log = logging.getLogger("tuningRunner")
     log.setLevel(logging.DEBUG if verbose else logging.INFO)
 
-    # Clear any existing handlers
     log.handlers.clear()
 
-    # Use tqdm-aware handler
-    handler = TqdmLoggingHandler()
+    use_color = sys.stderr.isatty()
+    handler = TqdmLoggingHandler(use_color=use_color)
     handler.setLevel(logging.DEBUG if verbose else logging.INFO)
-
-    # Simple format: level and message
-    formatter = logging.Formatter('%(levelname)s: %(message)s')
-    handler.setFormatter(formatter)
 
     log.addHandler(handler)
 
@@ -179,8 +217,7 @@ class GpuTopology:
     def discover() -> 'GpuTopology':
         """Query GPU topology using rocm-smi.
 
-        rocm-smi reports physical device IDs regardless of environment variables
-        (e.g., ROCR_VISIBLE_DEVICES and HIP_VISIBLE_DEVICES).
+        rocm-smi reports physical device IDs regardless of environment variables (e.g., ROCR_VISIBLE_DEVICES and HIP_VISIBLE_DEVICES).
         """
         try:
             output = subprocess.check_output(
@@ -570,8 +607,8 @@ class TunedConfigsCache:
                             file_commit = metadata.get('commit', 'unknown')
                             if file_commit != current_commit:
                                 logger.warning(
-                                    f"Loading tuned configs from different commit "
-                                    f"(file: {file_commit[:8]}, current: {current_commit[:8]})")
+                                    f"Loading tuned configs from different commit (file: {file_commit[:8]}, current: {current_commit[:8]})"
+                                )
 
                         # Reset metadata for next section
                         metadata = {}
@@ -777,8 +814,8 @@ class TuningContext:
                     allocation[gpu_id] = max(1, int(allocation[gpu_id] * scale_factor))
             else:
                 logger.info(
-                    f"--num-cpus={self.options.num_cpus} exceeds optimal {total_allocated}, "
-                    f"using optimal allocation")
+                    f"--num-cpus={self.options.num_cpus} exceeds optimal {total_allocated}, using optimal allocation"
+                )
 
         return allocation
 
@@ -789,11 +826,12 @@ class TuningContext:
     def print_gpu_summary(self):
         """Print summary of GPU allocation."""
         num_active = len(self.options.gpu_ids)
-        logger.info(f"Using {num_active} GPU(s):")
+        lines = [f"Using {num_active} GPU(s)"]
         for gpu_id in self.options.gpu_ids[:num_active]:
             node = self.gpu_topology.get_numa_node(gpu_id)
             threads = self._threads_per_gpu.get(gpu_id, 1)
-            logger.info(f"  GPU {gpu_id}: NUMA node {node}, {threads} compile threads")
+            lines.append(f"GPU {gpu_id}: NUMA node {node}, {threads} compile threads")
+        logger.info("\n".join(lines))
 
 
 class GpuWorkerPool:
@@ -814,7 +852,6 @@ class GpuWorkerPool:
         """Assign a GPU to the calling thread if not already assigned.
 
         Also pins the thread to CPUs on the GPU's NUMA node for better memory locality.
-        Returns the assigned GPU ID.
         """
         if hasattr(self._worker_state, 'assigned_gpu'):
             return self._worker_state.assigned_gpu
@@ -1047,6 +1084,47 @@ def kill_process(proc) -> None:
         logger.warning(f"Failed to kill process {proc.pid}: {e}")
 
 
+def format_error(context: str,
+                 command: str = None,
+                 stdout: str = None,
+                 stderr: str = None,
+                 exit_code: int = None,
+                 gpu_id: int = None,
+                 max_lines: int = 10) -> str:
+    """Format an error message with optional details."""
+
+    def truncate(text: str) -> str:
+        if not text or not text.strip():
+            return None
+        lines = text.strip().splitlines()
+        if len(lines) <= max_lines:
+            return text.strip()
+        half = max_lines // 2
+        return '\n'.join(lines[:half] + [f'... ({len(lines) - max_lines} lines omitted) ...'] +
+                         lines[-half:])
+
+    parts = [context]
+
+    if exit_code is not None:
+        parts.append(f"Exit code: {exit_code}")
+
+    if command:
+        if gpu_id is not None:
+            parts.append(f"Reproduce: ROCR_VISIBLE_DEVICES={gpu_id} {command}")
+        else:
+            parts.append(f"Reproduce: {command}")
+
+    truncated_stdout = truncate(stdout)
+    if truncated_stdout:
+        parts.append("stdout:\n" + truncated_stdout)
+
+    truncated_stderr = truncate(stderr)
+    if truncated_stderr:
+        parts.append("stderr:\n" + truncated_stderr)
+
+    return '\n'.join(parts)
+
+
 # =============================================================================
 # Core Tuning Logic
 # =============================================================================
@@ -1081,9 +1159,7 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
     verification_pipeline = " | ".join([
         ' '.join(rocmlir_gen_command), ' '.join(rocmlir_driver_command), ' '.join(rocprof_command)
     ])
-
-    debug_info = f"[GPU {gpu_id}] Verification pipeline:\n" + verification_pipeline
-    logger.debug(debug_info)
+    logger.debug(f"[GPU {gpu_id}] Verifying perfconfig '{perfconfig}'\n{verification_pipeline}")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         p1 = None
@@ -1115,22 +1191,23 @@ def verify_perfconfig(perfconfig, config, paths: Paths, options: Options, gpu_id
                 outs, errs = p3.communicate(timeout=600)
                 outs = outs.decode('utf-8')
                 if p3.returncode != 0 or not CORRECT_RESULT_RE.search(outs):
-                    raise TuningError(f"""Verification failed
-{debug_info}
-stdout:
-{outs}
-stderr:
-{errs.decode('utf-8')}""")
+                    raise TuningError(
+                        format_error(f"Verification failed for perfconfig '{perfconfig}'",
+                                     command=verification_pipeline,
+                                     stdout=outs,
+                                     stderr=errs.decode('utf-8'),
+                                     exit_code=p3.returncode,
+                                     gpu_id=gpu_id))
 
             except subprocess.TimeoutExpired:
                 kill_process(p3)
                 outs, errs = p3.communicate()
-                raise TuningError(f"""Verification timed out
-{debug_info}
-stdout:
-{outs.decode('utf-8')}
-stderr:
-{errs.decode('utf-8')}""")
+                raise TuningError(
+                    format_error(f"Verification timed out for perfconfig '{perfconfig}'",
+                                 command=verification_pipeline,
+                                 stdout=outs.decode('utf-8'),
+                                 stderr=errs.decode('utf-8'),
+                                 gpu_id=gpu_id))
 
             stats_file = os.path.join(
                 tmpdir,
@@ -1183,13 +1260,9 @@ def find_best_perfconfig(tuning_output, config, paths: Paths, options: Options,
         these_tflops = entry['TFlops']
 
         if options.verify_perfconfigs and not np.isnan(nano_seconds):
-            try:
-                verify_ns = verify_perfconfig(perfconfig, config, paths, options, gpu_id)
-            except TuningError as e:
-                raise TuningError(
-                    f"Error during verification of perf config {perfconfig}\n{str(e)}")
+            verify_ns = verify_perfconfig(perfconfig, config, paths, options, gpu_id)
             if np.isnan(verify_ns):
-                raise TuningError(f"Verification failed for perf config {perfconfig}")
+                raise TuningError(f"Verification returned NaN for perfconfig '{perfconfig}'")
 
         if not np.isnan(these_tflops) and these_tflops > max_tflops:
             max_tflops = these_tflops
@@ -1247,11 +1320,17 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                                           stdout=subprocess.PIPE,
                                           stderr=subprocess.PIPE,
                                           env=env)
-            output, _ = tuning_key.communicate()
+            output, err = tuning_key.communicate()
             if tuning_key.returncode != 0:
                 return {
-                    'success': False,
-                    'error': f"rocmlir-gen failed with return code {tuning_key.returncode}"
+                    'success':
+                        False,
+                    'error':
+                        format_error("Failed to generate tuning key",
+                                     command=' '.join(rocmlir_gen_command),
+                                     stderr=err.decode('utf-8'),
+                                     exit_code=tuning_key.returncode,
+                                     gpu_id=gpu_id)
                 }
             result = output.decode('utf-8').strip().split('\t')
             command_line = result[2].split(sep=' ')
@@ -1267,18 +1346,22 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
                                              env=env)
             tuning_pipeline = ' '.join(tuning_driver_command)
 
-        debug_info = f"[GPU {gpu_id}] Tuning '{test_vector}':\n" + tuning_pipeline
-        logger.debug(debug_info)
+        logger.debug(f"[GPU {gpu_id}] Tuning '{test_vector}'\n{tuning_pipeline}")
 
         # Note: communicate waits for process to terminate which might cause CI timeouts if tuning takes too long
         tuning_stdout, tuning_stderr = tuning_driver.communicate()
 
         if tuning_driver.returncode != 0:
-            error_msg = f"rocmlir-tuning-driver failed with return code {tuning_driver.returncode}"
-            stderr_content = tuning_stderr.decode('utf-8').strip()
-            if stderr_content:
-                error_msg += f"\nstderr:\n{stderr_content}"
-            return {'success': False, 'error': error_msg}
+            return {
+                'success':
+                    False,
+                'error':
+                    format_error("Tuning failed",
+                                 command=tuning_pipeline,
+                                 stderr=tuning_stderr.decode('utf-8'),
+                                 exit_code=tuning_driver.returncode,
+                                 gpu_id=gpu_id)
+            }
 
         tuning_output = tuning_stdout.decode('utf-8').splitlines()
         winning_config, max_tflops, entries = find_best_perfconfig(tuning_output, config, paths,
@@ -1297,15 +1380,12 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
         try:
             verify_ns = verify_perfconfig(winning_config, config, paths, options, gpu_id)
         except TuningError as e:
-            return {
-                'success': False,
-                'error': f"Error during verification of winning config {winning_config}\n{str(e)}"
-            }
+            return {'success': False, 'error': str(e)}
 
         if np.isnan(verify_ns):
             return {
                 'success': False,
-                'error': f"Verification failed for winning config {winning_config}"
+                'error': f"Verification returned NaN for winning perfconfig '{winning_config}'"
             }
 
         verify_tflops = config.compute_tflops(verify_ns)
@@ -1375,6 +1455,14 @@ def tune_configs(ctx: TuningContext) -> bool:
     num_workers = min(pool.worker_count, len(ctx.configs))
     ctx.print_gpu_summary()
 
+    # Prepare ETA tracker with historical data
+    initial_times = [r.elapsed_seconds for r in cache.get_all_results() if r.elapsed_seconds > 0.0]
+    eta_tracker = ETATracker(total_configs=len(pending_configs),
+                             num_workers=num_workers,
+                             initial_times=initial_times,
+                             initial_ok_count=skipped_success,
+                             initial_fail_count=skipped_failed)
+
     def execute_tuning_task(test_vector: str) -> TuningResult:
         gpu_id = pool.acquire_gpu_for_thread()
 
@@ -1394,24 +1482,14 @@ def tune_configs(ctx: TuningContext) -> bool:
                             verify_tflops=result.get('verify_tflops'),
                             error=result.get('error'))
 
-    executor = None
-    progress_bar = None
-
-    has_errors = False
-
     with OutputFileWriter(ctx.options.output, ctx.options) as results_writer:
         with DebugFileWriter(f"{ctx.options.output}.debug") if ctx.options.debug else nullcontext(
         ) as debug_writer:
-            try:  # No context manager for executor because we need to shutdown with wait=False
-                initial_times = [
-                    r.elapsed_seconds for r in cache.get_all_results() if r.elapsed_seconds > 0.0
-                ]
-                eta_tracker = ETATracker(total_configs=len(pending_configs),
-                                         num_workers=num_workers,
-                                         initial_times=initial_times,
-                                         initial_ok_count=skipped_success,
-                                         initial_fail_count=skipped_failed)
 
+            executor = None
+            progress_bar = None
+
+            try:  # No context manager for executor because we need to shutdown with wait=False
                 progress_bar = tqdm(
                     total=len(ctx.configs),
                     initial=total_skipped,
@@ -1430,6 +1508,7 @@ def tune_configs(ctx: TuningContext) -> bool:
                     for test_vector in pending_configs
                 }
 
+                has_errors = False
                 consecutive_failures = 0
 
                 for completed_future in as_completed(pending_futures):
@@ -1446,10 +1525,10 @@ def tune_configs(ctx: TuningContext) -> bool:
                         consecutive_failures += 1
                         state_file.set_failed(result.test_vector)
 
-                        error_text = result.error or "Unknown error"
-                        formatted_error = f"[GPU {result.gpu_id}] Error tuning {result.test_vector}\n" + '\n'.join(
-                            f"\t{line}" for line in error_text.splitlines())
-                        logger.error(formatted_error)
+                        error_msg = f"[GPU {result.gpu_id}] Tuning failed for '{result.test_vector}'"
+                        if result.error:
+                            error_msg += "\n" + result.error
+                        logger.error(error_msg)
 
                         if ctx.options.abort_on_error:
                             return False
@@ -1732,11 +1811,13 @@ def parse_arguments(gpu_topology: GpuTopology, available_gpus: List[int], args=N
         metavar='N',
         help="Maximum CPU threads for compilation (default: auto-detect based on NUMA topology)")
 
-    parser.add_argument("--wait-for-compiles",
-                        action='store_true',
-                        default=False,
-                        help="Wait for all compilation tasks to complete before starting tuning. "
-                        "Useful for systems with shared CPU/GPU memory (e.g., APUs).")
+    parser.add_argument(
+        "--wait-for-compiles",
+        action='store_true',
+        default=False,
+        help=
+        "Wait for all compilation tasks to complete before starting tuning. Useful for systems with shared CPU/GPU memory (e.g., APUs)."
+    )
 
     return parser.parse_args(args)
 
@@ -1770,50 +1851,52 @@ def main(args=None):
             logger.error("rocMLIR build dir was not provided/found")
             return 1
 
-        arch = perfRunner.get_arch()
-        chip = perfRunner.get_chip()
-        num_cu = perfRunner.get_num_cu(chip)
-        num_chiplets = perfRunner.get_num_chiplets(chip, num_cu)
-
-        options = Options(arch=arch,
-                          num_cu=num_cu,
-                          num_chiplets=num_chiplets,
-                          debug=parsed_args.debug,
-                          verbose=parsed_args.verbose,
-                          tuning_space_kind=parsed_args.tuning_space,
-                          rocmlir_gen_flags=parsed_args.rocmlir_gen_flags,
-                          verify_mode=parsed_args.verify_mode,
-                          verify_perfconfigs=parsed_args.verify_perf_configs,
-                          tflops=parsed_args.tflops,
-                          output=parsed_args.output,
-                          abort_on_error=parsed_args.abort_on_error,
-                          retune=parsed_args.retune,
-                          retry_failed=parsed_args.retry_failed,
-                          gpu_ids=parsed_args.gpus,
-                          num_cpus=parsed_args.num_cpus,
-                          wait_for_compiles=parsed_args.wait_for_compiles)
-
         if op_type == Operation.FUSION:
             op_type = extract_fusion_configs(parsed_args.test_dir, paths)
 
         conf_class = get_config_class(op_type)
         configs = load_configs(op_type, parsed_args, paths)
 
-        ctx = TuningContext(configs=configs,
-                            conf_class=conf_class,
-                            paths=paths,
-                            options=options,
-                            gpu_topology=gpu_topology,
-                            numa_topology=NumaTopology.discover())
-
-        tuning_succeeded = tune_configs(ctx)
-        return 0 if tuning_succeeded else 1
-
-    except KeyboardInterrupt:
-        return 130  # 128 + SIGINT
     finally:
         if stdin_temp_file:
             os.unlink(stdin_temp_file)
+
+    arch = perfRunner.get_arch()
+    chip = perfRunner.get_chip()
+    num_cu = perfRunner.get_num_cu(chip)
+    num_chiplets = perfRunner.get_num_chiplets(chip, num_cu)
+
+    options = Options(arch=arch,
+                      num_cu=num_cu,
+                      num_chiplets=num_chiplets,
+                      debug=parsed_args.debug,
+                      verbose=parsed_args.verbose,
+                      tuning_space_kind=parsed_args.tuning_space,
+                      rocmlir_gen_flags=parsed_args.rocmlir_gen_flags,
+                      verify_mode=parsed_args.verify_mode,
+                      verify_perfconfigs=parsed_args.verify_perf_configs,
+                      tflops=parsed_args.tflops,
+                      output=parsed_args.output,
+                      abort_on_error=parsed_args.abort_on_error,
+                      retune=parsed_args.retune,
+                      retry_failed=parsed_args.retry_failed,
+                      gpu_ids=parsed_args.gpus,
+                      num_cpus=parsed_args.num_cpus,
+                      wait_for_compiles=parsed_args.wait_for_compiles)
+
+    ctx = TuningContext(configs=configs,
+                        conf_class=conf_class,
+                        paths=paths,
+                        options=options,
+                        gpu_topology=gpu_topology,
+                        numa_topology=NumaTopology.discover())
+
+    try:
+        tuning_succeeded = tune_configs(ctx)
+    except KeyboardInterrupt:
+        return 130  # 128 + SIGINT
+
+    return 0 if tuning_succeeded else 1
 
 
 if __name__ == '__main__':
