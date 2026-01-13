@@ -244,8 +244,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
     int64_t gemmKBlocks = 1;
     PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
     auto maybeWrwOp = (info.kernelType == KernelType::ConvBwdWeight);
+    // I dont like this hack.
+    GemmFeaturesAttr featuresAttr = GemmFeaturesAttr::get(op.getContext(), info.gemmFeatures);
     if (maybeWrwOp &&
-        isWrWAtomicKernel(info.gemmFeatures, info.gemmAType, requiredPadding)) {
+        isWrWAtomicKernel(archInfo2, featuresAttr, info.gemmAType, requiredPadding)) {
       auto res = calculateKBlockNum(
           info.batchSize, paddedGemmSize, validParams.getMPerBlock(),
           validParams.getNPerBlock(), validParams.getKpackPerBlock(),
@@ -315,6 +317,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   OpBuilder builder(op.getContext());
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  op.dump();
   bool isAccel = archInfo.isAccel(op);
   if (!isAccel) {
     op.emitError("Currently, attention/gemm+gemm/conv+gemm op is only "

@@ -11,6 +11,7 @@
 
 #include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/IR/TransformMapBuilder.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
@@ -134,7 +135,7 @@ FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
     int64_t dPerThread, int64_t kpack, bool isKContiguousDim,
     bool doSwapThreadIterSubDimsForD = false);
 
-bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
+bool isWrWAtomicKernel(AmdArchInfo archInfo, GemmFeaturesAttr featuresAttr, Type dataType,
                        bool requiredPadding);
 
 // Returns true if the provided memory space attribute encodes GPU workgroup

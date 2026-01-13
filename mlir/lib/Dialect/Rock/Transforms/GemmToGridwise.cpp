@@ -1047,14 +1047,20 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
 
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isAccel = archInfo.isAccel(op) && archInfo.isAccelEnabled(op.getFeaturesAttr());
+  bool isAccel = archInfo.isAccel(op);
   if (isAccel) {
     LLVM_DEBUG(llvm::dbgs() << "computeGridSize: isAccel\n");
+    if (!isa<RockAccelTuningParamAttrInterface>(params)) {
+      return op.emitError("gemm is accel, but does not have RockAccelTuningParamAttrInterface");
+    }
     auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   } else {
     LLVM_DEBUG(llvm::dbgs() << "computeGridSize: not isAccel\n");
+    if (!isa<GeneralGemmParamsAttr>(params)) {
+      return op.emitError("gemm is not accel, but does not have GeneralGemmParamsAttr");
+    }
     auto tuningParams = cast<GeneralGemmParamsAttr>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();

@@ -763,8 +763,8 @@ static bool isFloat8Type(Type type) {
 static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo, GemmFeaturesAttr featuresAttr,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
-  GemmFeatures features = featuresAttr.getValue();
-  llvm::errs() << "verifyGemmTypes: " << features << "\n";
+  // GemmFeatures features = archInfo.getFeaturesFromAttr(featuresAttr);
+  // llvm::errs() << "verifyGemmTypes: " << features << "\n";
   bool isGfx11 = arch.contains("gfx11");
   bool isGfx1250 = arch.contains("gfx1250");
   bool isRdna4 = arch.contains("gfx12") && !isGfx1250; 

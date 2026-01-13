@@ -509,20 +509,29 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(ArrayRef<Type> types) {
   return features.value();
 }
 
+GemmFeatures mlir::rock::AmdArchInfo::getFeaturesFromAttr(ArrayRef<Type> types, GemmFeaturesAttr featuresAttr) {
+  LLVM_DEBUG(llvm::dbgs() << "getFeaturesFromAttr: types=" << types << ", featuresAttr=" << featuresAttr << "\n");
+  // The attribute has precedence over the types. If it is present, use it. Otherwise, use the default features.
+  if (featuresAttr)
+    return featuresAttr.getValue();
+  return getDefaultFeatures(types);
+}
+
 bool mlir::rock::AmdArchInfo::isAccelEnabled(GemmFeaturesAttr featuresAttr) {
-  GemmFeatures features = featuresAttr.getValue();
-  LLVM_DEBUG(llvm::dbgs() << "isAccelEnabled: features=" << features << "\n");
-  return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
+  // GemmFeatures features = getFeaturesFromAttr({}, featuresAttr);
+  // LLVM_DEBUG(llvm::dbgs() << "isAccelEnabled: features=" << features << "\n");
+  // return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
+  llvm_unreachable("isAccelEnabled: not implemented");
 }
 
 bool mlir::rock::AmdArchInfo::isAccel(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr) {
-  GemmFeatures features = featuresAttr.getValue();
+  GemmFeatures features = getFeaturesFromAttr({dataTypeA, dataTypeB}, featuresAttr);
   LLVM_DEBUG(llvm::dbgs() << "isAccel: features=" << features << "\n");
   return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
 }
 
 bool mlir::rock::AmdArchInfo::isMfma(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr) {
-  GemmFeatures features = featuresAttr.getValue();
+  GemmFeatures features = getFeaturesFromAttr({dataTypeA, dataTypeB}, featuresAttr);
   LLVM_DEBUG(llvm::dbgs() << "isMfma: features=" << features << "\n");
   return bitEnumContainsAll(features, GemmFeatures::mfma);
 }

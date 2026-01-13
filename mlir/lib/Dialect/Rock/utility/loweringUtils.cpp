@@ -43,12 +43,12 @@ bool mlir::rock::isValidBlockSize(int64_t blockSize, int64_t kPerBlock,
   return (aCopyPerThread != 0 && bCopyPerThread != 0);
 }
 
-bool mlir::rock::isWrWAtomicKernel(GemmFeatures features, Type dataType,
+bool mlir::rock::isWrWAtomicKernel(AmdArchInfo archInfo, GemmFeaturesAttr featuresAttr, Type dataType,
                                    bool requiredPadding) {
   // Check if features contain accelerator (mfma or wmma)
-  bool isAccel = bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
+  bool isAccel = archInfo.isAccel(dataType, dataType, featuresAttr);
   return isAccel &&
-         bitEnumContainsAll(features, GemmFeatures::atomic_add) &&
+          archInfo.hasAtomicAdd(dataType) &&
          (dataType.isF32() || dataType.isF16()) && !requiredPadding;
 }
 

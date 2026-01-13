@@ -1171,7 +1171,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
     }
 
     if (ConvOpType::BwdWeight == convOpType &&
-        isWrWAtomicKernel(op.getFeaturesAttr().getValue(), dataType, maybeGemmExtraPad.has_value())) {
+        isWrWAtomicKernel(archInfo, op.getFeaturesAttr(), dataType, maybeGemmExtraPad.has_value())) {
       return backwardWeightAtomicAdd(cast<ConvBwdWeightOp>(op), b);
     }
   }
@@ -1431,6 +1431,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     if (gemmFilter == nullptr && gemmInput == nullptr &&
         gemmOutput == nullptr) {
       assert(convOpType != ConvOpType::Fwd);
+      llvm::errs() << "ConvRewritePattern: backward conv, no need to keep running the pass\n";
       return success();
     }
 
@@ -1444,6 +1445,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     // Emit rock.gemm op.
     Location loc = op.getLoc();
     auto tuningParams = op.getParamsAttr();
+    op.dump();
     auto storeMethod = b.getAttr<StoreMethodAttr>(StoreMethod::Set);
     GemmOp::create(b, loc, getResultType(op, gemmC), gemmA, gemmB, gemmC,
                    /*scaleA=*/nullptr, /*scaleB=*/nullptr,
@@ -1452,6 +1454,8 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
                    /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
                    storeMethod, op.getDerivedBlockSizeAttr(),
                    op.getGridSizeAttr(), tuningParams);
+
+    llvm::errs() << "ConvRewritePattern: gemm op created\n";               
 
     // Finally, erase the original Conv op.
     b.eraseOp(op);
