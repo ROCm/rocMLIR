@@ -450,49 +450,6 @@ def Rock_GemmFeatures
 
 def Rock_GemmFeaturesAttr : EnumAttr<Rock_Dialect, Rock_GemmFeatures, "GemmFeatures">;
 
-// GEMM load tile types
-def Rock_GemmLoadTileBypassLDS : I32EnumAttrCase<"BypassLDS", 0>;
-def Rock_GemmLoadTileDefault : I32EnumAttrCase<"Default", 1>;
-def Rock_GemmLoadTileDoubleBuffer : I32EnumAttrCase<"DoubleBuffer", 2>;
-def Rock_GemmLoadTileDirectToLDSDefault
-    : I32EnumAttrCase<"DirectToLDSDefault", 3>;
-def Rock_GemmLoadTileDirectToLDSDoubleBuffer
-    : I32EnumAttrCase<"DirectToLDSDoubleBuffer", 4>;
-
-def Rock_GemmLoadTileType
-    : Rock_I32Enum<"GemmLoadTileType", "GEMM load tile types",
-                   [Rock_GemmLoadTileBypassLDS, Rock_GemmLoadTileDefault,
-                    Rock_GemmLoadTileDoubleBuffer,
-                    Rock_GemmLoadTileDirectToLDSDefault,
-                    Rock_GemmLoadTileDirectToLDSDoubleBuffer]> {
-  let cppNamespace = "::mlir::rock";
-  let genSpecializedAttr = 0;
-}
-
-def Rock_GemmLoadTileTypeAttr
-    : EnumAttr<Rock_Dialect, Rock_GemmLoadTileType, "GemmLoadTileType">;
-
-// Misc Attrs
-def Rock_PipelineAttr : Rock_Attr<"Pipeline"> {
-  let mnemonic = "pipeline";
-  let parameters = (ins
-    "int64_t":$InitiationInterval
-  );
-  let assemblyFormat = "`<` params `>`";
-  let description = [{
-    An attribute to express the properties of a loop to be pipelined
-  }];
-}
-
-def Rock_ScheduleVersionAttr : Rock_Attr<"ScheduleVersion"> {
-  let mnemonic = "schedule_version";
-  let parameters = (ins "int64_t":$ScheduleVersion);
-  let assemblyFormat = "`<` params `>`";
-  let description = [{
-    Attribute to express which GEMM Scheduling strategies a kernel lowering should use inside rocMLIR
-  }];
-}
-
 def Rock_EnableSplitKForTuning : Rock_Attr<"EnableSplitKForTuning"> {
   let mnemonic = "enable_splitk_for_tuning";
   let description = [{
@@ -504,13 +461,6 @@ def Rock_WavesPerEU : Rock_Attr<"WavesPerEU"> {
   let mnemonic = "waves_per_eu";
   let description = [{
     This is a hint to the backend compiler to tune the number of wavefronts that are capable of fitting within the resources of an EU.
-  }];
-}
-
-def Rock_OutputSwizzle : Rock_Attr<"OutputSwizzle"> {
-  let mnemonic = "output_swizzle";
-  let description = [{
-    Whether we run the output swizzle pass. 0 -> disabled, 1 -> enabled, 2 -> heuristic.
   }];
 }
 
@@ -531,62 +481,6 @@ def Rock_PrefillAttr : Rock_Attr<"Prefill"> {
     "TypedAttr":$initValue
   );
   let assemblyFormat = "`<` params `>`";
-}
-
-def Rock_BlockwiseMatrixParamsAttr : Rock_Attr<"BlockwiseMatrixParams", []> {
-  let mnemonic = "blockwise_matrix_params";
-  let description = [{
-    Encapsulates rock.blockwise_load_tile and rock.blockwise_gemm_accel parameters.
-    - elementType: Element type of the matrix operation.
-    - elementTypeLoad: Element type of that was actually loaded from memory (before any input fusion).
-    - rotateDWithK: Trick to reduce LDS bank conflicts (see more info here: https://github.com/ROCm/rocMLIR/pull/1209)
-    - swapThreadIterSubDims: Trick to reduce LDS bank conflicts (see more info here: https://github.com/ROCm/rocMLIR/pull/1209)
-    - LDSLayoutDxK: Wheter the layout in LDS is DxK
-    - directToLDS: Wheter direct to LDS is enabled
-    - splitKAcrossThreadsFirst: Used for attention, when bypassing LDS for the result of the first GEMM, explanation here: https://github.com/ROCm/rocMLIR-internal/issues/1201#issuecomment-1898925539
-    - g: gemm parameter G
-    - d: gemm parameter D (could be M or N)
-    - inDPerThread: How many elements of D (M or N) each thread is going to load from memory.
-    - accelKDim: Accelerator instruction K dimension (for LDS transpose support).
-  }];
-  let parameters = (ins "Type":$elementType, "Type":$elementTypeLoad,
-      "bool":$rotateDWithK, "bool":$swapThreadIterSubDims, "bool":$LDSLayoutDxK,
-      "bool":$directToLDS, "bool":$splitKAcrossThreadsFirst, "int64_t":$g,
-      "int64_t":$d, "int64_t":$inDPerThread,
-      DefaultValuedParameter<"bool", "false">:$ldsTransposeEnabled,
-      DefaultValuedParameter<"int64_t", "0">:$accelKDim);
-
-  let assemblyFormat = [{
-    `<` struct(params) `>`
-  }];
-}
-
-def Rock_LDSTransposeConfigAttr : Rock_Attr<"LDSTransposeConfig", []> {
-  let mnemonic = "lds_transpose_config";
-  let description = [{
-    Configuration parameters for hardware-assisted LDS transpose loads.
-    This attribute encapsulates all the necessary information to emit
-    rock.lds_transpose_load operations with the correct accelerator geometry
-    and tiling parameters.
-    
-    - DDim: Matrix-multiply accelerator instruction D dimension (M or N, typically 16 or 32)
-    - KDim: Matrix-multiply accelerator instruction K dimension (typically 8, 16, or 32)
-    - mPerBlock: M dimension size per block
-    - nPerBlock: N dimension size per block
-    - kPerBlock: K dimension size per block
-    - mPerWave: M dimension size per wave
-    - nPerWave: N dimension size per wave
-    - doubleBuffering: Whether double buffering is enabled
-    - isOperandA: True if this is operand A, false if operand B
-  }];
-  let parameters = (ins "int64_t":$dDim, "int64_t":$kDim, "int64_t":$mPerBlock,
-      "int64_t":$nPerBlock, "int64_t":$kPerBlock, "int64_t":$mPerWave,
-      "int64_t":$nPerWave, "bool":$doubleBuffering, "bool":$isOperandA);
-
-  let assemblyFormat = [{
-    `<` struct(params) `>`
-  }];
-  let genVerifyDecl = 1;
 }
 
 #endif

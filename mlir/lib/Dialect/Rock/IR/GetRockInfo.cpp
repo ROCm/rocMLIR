@@ -227,26 +227,3 @@ mlir::rock::GemmFeatures mlir::rock::getFeatures(Operation *op) {
 
   return features.value();
 }
-
-LogicalResult mlir::rock::isScheduleVersionSupported(int64_t scheduleVersion,
-                                                     GemmFeatures features,
-                                                     StringRef arch) {
-  std::optional<GemmLoadTileType> maybeLoadType =
-      rock::symbolizeGemmLoadTileType(scheduleVersion);
-  if (!maybeLoadType.has_value()) {
-    LLVM_DEBUG(llvm::dbgs() << "Schedule version value is incorrect\n");
-    return failure();
-  }
-
-  auto loadType = maybeLoadType.value();
-  bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
-                     loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-  if (directToLDS && !isDirectToLDSSupported(features) &&
-      !isAsyncDirectToLDSSupported(arch)) {
-    LLVM_DEBUG(
-        llvm::dbgs()
-        << "Requested direct to LDS but not supported by the hardware\n");
-    return failure();
-  }
-  return success();
-}

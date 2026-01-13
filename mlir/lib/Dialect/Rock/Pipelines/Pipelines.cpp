@@ -324,8 +324,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      * --convert-linalg-to-affine-loops
      */
     funcPm.addPass(rock::createRockLinalgAlignPass());
-    funcPm.addPass(createConvertLinalgToAffineLoopsPass());
-    funcPm.addPass(rock::createRockVectorizeFusionsPass());
+    // funcPm.addPass(createConvertLinalgToAffineLoopsPass());
   }
 
   if (options.applicabilityMode == rock::ApplicabilityMode::NonApplicability ||
@@ -337,27 +336,11 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     // This converts Rock dialect to Triton IR and compiles to LLVM
 
     // 1. Convert Rock to Triton
-    pm.addPass(rock::createRockToTritonPass());
+    // pm.addPass(rock::createRockToTritonPass());
 
-    // 2. Triton dialect optimizations
-    pm.addPass(triton::createCombineOpsPass());
-    pm.addPass(triton::createReorderBroadcastPass());
-    pm.addPass(triton::createRewriteTensorPointerPass());
-
-    // 3. Convert to TritonGPU dialect (target-specific GPU ops)
-    pm.addPass(triton::createConvertTritonToTritonGPUPass());
-
-    // 4. TritonGPU optimizations
-    pm.addPass(triton::gpu::createTritonGPUCoalescePass());
-    pm.addPass(triton::gpu::createTritonGPURemoveLayoutConversionsPass());
-    pm.addPass(triton::gpu::createTritonGPUOptimizeDotOperandsPass());
-    pm.addPass(triton::gpu::createTritonGPUOptimizeThreadLocalityPass());
-    pm.addPass(triton::gpu::createTritonGPUReorderInstructionsPass());
-    pm.addPass(triton::gpu::createTritonGPUAccelerateMatmulPass());
-    pm.addPass(triton::gpu::createTritonGPUPipelinePass());
-
-    // 5. Convert to LLVM dialect
-    pm.addPass(triton::createConvertTritonGPUToLLVMPass());
+    makeTTIR(pm);
+    makeTTGIR(pm, rocm_cc, numWarps, numCtas, numStages);
+    makeLLIR(pm, rocm_cc, numStages);
   }
 }
 

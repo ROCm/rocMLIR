@@ -871,11 +871,6 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   builder.getUnitAttr());
   }
-  if (config.scheduleVersion != 1) {
-    func->setAttr(rock::ScheduleVersionAttr::getMnemonic(),
-                  rock::ScheduleVersionAttr::get(builder.getContext(),
-                                                 config.scheduleVersion));
-  }
   module.push_back(func);
   if (!isVerifier)
     module->setAttr(archAttr.getName(), archAttr.getValue());

@@ -558,46 +558,6 @@ LogicalResult TransformMapAttr::verify(
   return success();
 }
 
-// Helper function to check valid MFMA geometry for LDS transpose
-static bool isValidLdsTransposeMfmaGeometry(int64_t dDim, int64_t kDim) {
-  return (dDim == 16 && (kDim == 16 || kDim == 32)) ||
-         (dDim == 32 && (kDim == 8 || kDim == 16));
-}
-
-LogicalResult LDSTransposeConfigAttr::verify(
-    function_ref<InFlightDiagnostic()> emitError, int64_t dDim, int64_t kDim,
-    int64_t mPerBlock, int64_t nPerBlock, int64_t kPerBlock, int64_t mPerWave,
-    int64_t nPerWave, bool doubleBuffering, bool isOperandA) {
-
-  // Validate MFMA geometry
-  if (!isValidLdsTransposeMfmaGeometry(dDim, kDim)) {
-    return emitError() << "invalid MFMA geometry (" << dDim << "x" << kDim
-                       << ") for LDS transpose - valid combinations: "
-                          "(16,16), (16,32), (32,8), (32,16)";
-  }
-
-  // Validate positive dimensions
-  if (dDim <= 0 || kDim <= 0 || mPerBlock <= 0 || nPerBlock <= 0 ||
-      kPerBlock <= 0 || mPerWave <= 0 || nPerWave <= 0) {
-    return emitError() << "all dimensions must be positive";
-  }
-
-  // Validate that block dimensions are divisible by MFMA dimensions
-  int64_t dPerBlock = isOperandA ? mPerBlock : nPerBlock;
-  if (dPerBlock % dDim != 0) {
-    return emitError() << (isOperandA ? "mPerBlock" : "nPerBlock") << " ("
-                       << dPerBlock << ") must be divisible by dDim (" << dDim
-                       << ")";
-  }
-
-  if (kPerBlock % kDim != 0) {
-    return emitError() << "kPerBlock (" << kPerBlock
-                       << ") must be divisible by kDim (" << kDim << ")";
-  }
-
-  return success();
-}
-
 } // namespace rock
 } // namespace mlir
 //===----------------------------------------------------------------------===//
@@ -1417,53 +1377,13 @@ void BlockwiseLoadTileOp::getEffects(
     SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
   auto *read = MemoryEffects::Read::get();
   auto *write = MemoryEffects::Write::get();
-  GemmLoadTileType loadType = getLoadType();
-  bool doubleBuffer = loadType == GemmLoadTileType::DoubleBuffer ||
-                      loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-  bool singleBuffer = loadType == GemmLoadTileType::Default ||
-                      loadType == GemmLoadTileType::DirectToLDSDefault;
 
   effects.emplace_back(read, &getSourceMutable());
-  if (loadType != GemmLoadTileType::BypassLDS) {
-    assert(getDestLDS() != nullptr);
-    effects.emplace_back(write, &getDestLDSMutable()[0]);
-    // DoubleBuffer means we write to LDS and then, load from it
-    if (doubleBuffer)
-      effects.emplace_back(read, &getDestLDSMutable()[0]);
-  }
-  if (!singleBuffer) {
-    assert(getDestRegisters() != nullptr);
-    effects.emplace_back(write, &getDestRegistersMutable()[0]);
-  }
-}
-
-LogicalResult BlockwiseLoadTileOp::verify() {
-  Value destLDS = getDestLDS();
-  Value destRegisters = getDestRegisters();
-  GemmLoadTileType loadType = getLoadType();
-  bool singleBuffer = loadType == GemmLoadTileType::Default ||
-                      loadType == GemmLoadTileType::DirectToLDSDefault;
-  bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
-                     loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-
-  bool paramsDirectToLDS = getIsA() ? getMatrixParamsA().getDirectToLDS()
-                                    : getMatrixParamsB().getDirectToLDS();
-
-  if (paramsDirectToLDS != directToLDS)
-    return emitOpError("Inconsistency between params and load type");
-
-  if (!destLDS && loadType != GemmLoadTileType::BypassLDS)
-    return emitOpError("destLDS must be set unless loadType is BypassLDS");
-
-  if (!destRegisters && !singleBuffer)
-    return emitOpError("destRegisters must be set unless loadType is "
-                       "Default/DirectToLDSDefault");
-
-  return success();
+  effects.emplace_back(write, &getDestRegistersMutable());
 }
 
 SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
-  return {getElementType()};
+  return {getSource().getType().getElementType()};
 }
 
 //===----------------------------------------------------------------------===//
@@ -1471,23 +1391,10 @@ SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
 //===----------------------------------------------------------------------===//
 
 LogicalResult BlockwiseGemmAccelOp::verify() {
-  bool hasA = getMatrixA() != nullptr;
-  bool hasB = getMatrixB() != nullptr;
-  bool directToLDS = getMatrixParamsA().getDirectToLDS() ||
-                     getMatrixParamsB().getDirectToLDS();
-
-  if (hasA && getElementTypeOrSelfRecursive(getMatrixA()) !=
-                  getMatrixParamsA().getElementType())
-    return emitOpError("ElementTypeA and matrixA element type don't match");
-
-  if (hasB && getElementTypeOrSelfRecursive(getMatrixB()) !=
-                  getMatrixParamsB().getElementType())
-    return emitOpError("ElementTypeA and matrixA element type don't match");
-
-  bool hasScaleABuffer = getBufferScaleA() != nullptr;
-  bool hasScaleBBuffer = getBufferScaleB() != nullptr;
-  ShapedType aBufferType = cast<ShapedType>(getBufferA().getType());
-  ShapedType bBufferType = cast<ShapedType>(getBufferB().getType());
+  bool hasScaleABuffer = getMatrixScaleA() != nullptr;
+  bool hasScaleBBuffer = getMatrixScaleB() != nullptr;
+  ShapedType aBufferType = cast<ShapedType>(getMatrixA().getType());
+  ShapedType bBufferType = cast<ShapedType>(getMatrixB().getType());
   ShapedType cBufferType = cast<ShapedType>(getMatrixC().getType());
   Type aType = getElementTypeOrSelfRecursive(aBufferType);
   Type bType = getElementTypeOrSelfRecursive(bBufferType);
@@ -1496,53 +1403,12 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   StringAttr archAttr = rock::getArch(*this).value_or(
       StringAttr::get(this->getContext(), "gfx00"));
 
-  if (hasA && hasB)
-    if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr, aType,
-                               bType, directToLDS ? nullptr : cType)))
-      return failure();
-  auto verifyMatrixAndScale = [&](bool loadFromLds, Value matrix, Value lds,
-                                  Value bufferScale, ShapedType bufferType,
+  if (failed(verifyGemmTypes(*this, rock::getFeatures(*this), archAttr, aType,
+                             bType, cType)))
+    return failure();
+  auto verifyMatrixAndScale = [&](Value bufferScale, ShapedType bufferType,
                                   const char *matrixName) -> LogicalResult {
-    bool hasMatrix = matrix != nullptr;
-    bool hasLdsScale = lds != nullptr;
     bool hasBufferScale = bufferScale != nullptr;
-
-    if (loadFromLds) {
-      if (!hasMatrix)
-        return emitOpError(llvm::formatv(
-            "If load{0}FromLDS is enabled, matrix{0} must be non-null.",
-            matrixName));
-      if (hasBufferScale && !hasLdsScale)
-        return emitOpError(llvm::formatv(
-            "If load{0}FromLDS is enabled, scale{0} must be loaded from LDS.",
-            matrixName));
-      if (hasLdsScale && !hasBufferScale)
-        return emitOpError(llvm::formatv(
-            "If scale{0} is loaded from LDS, scale{0} buffer must be non-null.",
-            matrixName));
-      if (hasLdsScale) {
-        ShapedType ldsScaleType = cast<ShapedType>(lds.getType());
-        ShapedType ldsType = cast<ShapedType>(matrix.getType());
-        if (ldsType.getShape() != ldsScaleType.getShape()) {
-          return emitOpError(llvm::formatv(
-              "If scale{0} is loaded from LDS, its shape must match "
-              "matrix{0}'s shape.",
-              matrixName));
-        }
-        Type ldsScaleElemType = getElementTypeOrSelfRecursive(ldsScaleType);
-        if (!isa<Float8E8M0FNUType>(ldsScaleElemType)) {
-          return emitOpError(llvm::formatv(
-              "Scale{0} must be of type Float8E8M0FNU.", matrixName));
-        }
-        Type ldsElemType = getElementTypeOrSelfRecursive(ldsType);
-        if (!isa<Float4E2M1FNType>(ldsElemType)) {
-          return emitOpError(
-              llvm::formatv("For the scaled GEMMs, matrix{0} must be of "
-                            "type Float4E2M1FNType.",
-                            matrixName));
-        }
-      }
-    }
 
     if (hasBufferScale) {
       ShapedType bufferScaleType = cast<ShapedType>(bufferScale.getType());
@@ -1570,13 +1436,11 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   };
 
   // Verify matrix A and its scales
-  if (failed(verifyMatrixAndScale(hasA, getMatrixA(), getScaleA(),
-                                  getBufferScaleA(), aBufferType, "A")))
+  if (failed(verifyMatrixAndScale(getMatrixScaleA(), aBufferType, "A")))
     return failure();
 
   // Verify matrix B and its scales
-  if (failed(verifyMatrixAndScale(hasB, getMatrixB(), getScaleB(),
-                                  getBufferScaleB(), bBufferType, "B")))
+  if (failed(verifyMatrixAndScale(getMatrixScaleB(), bBufferType, "B")))
     return failure();
 
   if (hasScaleABuffer ^ hasScaleBBuffer)
@@ -1587,7 +1451,7 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
 }
 
 SmallVector<mlir::Type> BlockwiseGemmAccelOp::getTypesForFeature() {
-  return {getMatrixParamsA().getElementType()};
+  return {getMatrixA().getType().getElementType()};
 }
 
 void BlockwiseGemmAccelOp::getEffects(
@@ -1598,28 +1462,11 @@ void BlockwiseGemmAccelOp::getEffects(
   effects.emplace_back(read, &getMatrixCMutable());
   effects.emplace_back(write, &getMatrixCMutable());
 
-  effects.emplace_back(read, &getBufferAMutable());
-  effects.emplace_back(read, &getBufferBMutable());
-  if (getBufferScaleA() && getBufferScaleB()) {
-    effects.emplace_back(read, &getBufferScaleAMutable()[0]);
-    effects.emplace_back(read, &getBufferScaleBMutable()[0]);
-  }
-  // if we load from LDS, we need to write to registers
-  if (getMatrixA() != nullptr) {
-    effects.emplace_back(read, &getMatrixAMutable()[0]);
-    effects.emplace_back(write, &getBufferAMutable());
-    if (getScaleA()) {
-      effects.emplace_back(read, &getScaleAMutable()[0]);
-      effects.emplace_back(write, &getBufferScaleAMutable()[0]);
-    }
-  }
-  if (getMatrixB() != nullptr) {
-    effects.emplace_back(read, &getMatrixBMutable()[0]);
-    effects.emplace_back(write, &getBufferBMutable());
-    if (getScaleB()) {
-      effects.emplace_back(read, &getScaleBMutable()[0]);
-      effects.emplace_back(write, &getBufferScaleBMutable()[0]);
-    }
+  effects.emplace_back(read, &getMatrixAMutable());
+  effects.emplace_back(read, &getMatrixBMutable());
+  if (getMatrixScaleA() && getMatrixScaleB()) {
+    effects.emplace_back(read, &getMatrixScaleAMutable()[0]);
+    effects.emplace_back(read, &getMatrixScaleBMutable()[0]);
   }
 }
 

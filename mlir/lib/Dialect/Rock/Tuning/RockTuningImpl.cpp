@@ -140,29 +140,6 @@ computeOptimalSplitKFactors(RockGemmGemmWrapperInterface gemmGemmOp,
   return {1, 3, 4};
 }
 
-// only enable tuning over gemm schedules when doing exhaustive/greedy tuning
-static std::vector<uint32_t>
-getSchedules(Operation *op, const TuningParamSetKind &tuningKind) {
-  auto features = rock::lookupArchInfo(rock::getArchValue(op)).defaultFeatures;
-  bool directToLDS = isDirectToLDSSupported(features);
-
-  std::vector<GemmLoadTileType> loadTypes{GemmLoadTileType::Default};
-  if (tuningKind != TuningParamSetKind::Full) {
-    loadTypes.push_back(GemmLoadTileType::DoubleBuffer);
-    if (directToLDS) {
-      loadTypes.push_back(GemmLoadTileType::DirectToLDSDefault);
-      loadTypes.push_back(GemmLoadTileType::DirectToLDSDoubleBuffer);
-    }
-  }
-  std::vector<uint32_t> schedules;
-  schedules.reserve(loadTypes.size());
-
-  for (auto loadType : loadTypes)
-    schedules.push_back(static_cast<uint32_t>(loadType));
-
-  return schedules;
-}
-
 static std::vector<std::vector<int64_t>>
 getFinetuningParams(int64_t maxWavesPerEU) {
   std::vector<int64_t> wavesPerEUList;
@@ -181,22 +158,22 @@ static std::vector<std::vector<uint32_t>>
 getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
   auto dPerBlock = computeDPerBlock(kind);
   std::vector<std::vector<uint32_t>> validRangeAccelGemmParams = {
-      dPerBlock,                  // M/block
-      dPerBlock,                  // N/block
-      {1, 2, 4, 8},               // K/block
-      {16, 32},                   // MnPerXdl
-      {1, 4, 8, 16, 32},          // kPack
-      getSchedules(gemmOp, kind), // scheduleVersion
-      {0, 1}};                    // forceUnroll
+      dPerBlock,         // M/block
+      dPerBlock,         // N/block
+      {1, 2, 4, 8},      // K/block
+      {16, 32},          // MnPerXdl
+      {1, 4, 8, 16, 32}, // kPack
+      {0},               // scheduleVersion
+      {0, 1}};           // forceUnroll
 
   std::vector<std::vector<uint32_t>> validRangeAccelGemmParams8BitReduction = {
-      dPerBlock,                  // M/block
-      dPerBlock,                  // N/block
-      {4, 8, 16, 32},             // K/block
-      {16, 32},                   // MnPerXdl
-      {1, 4, 8, 16},              // kPack
-      getSchedules(gemmOp, kind), // scheduleVersion
-      {0, 1}};                    // forceUnroll
+      dPerBlock,      // M/block
+      dPerBlock,      // N/block
+      {4, 8, 16, 32}, // K/block
+      {16, 32},       // MnPerXdl
+      {1, 4, 8, 16},  // kPack
+      {0},            // scheduleVersion
+      {0, 1}};        // forceUnroll
 
   Type inTypeA = gemmOp.getAType();
   bool is8BitReduction =
@@ -207,13 +184,13 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
                       : validRangeAccelGemmParams;
 
   std::vector<std::vector<uint32_t>> validRangeWmmaGemmParams = {
-      dPerBlock,                  // M/block
-      dPerBlock,                  // N/block
-      {1, 2, 4, 8},               // K/block
-      {16},                       // MnPerXdl
-      {4, 8, 16},                 // kPack
-      getSchedules(gemmOp, kind), // scheduleVersion
-      {0, 1}};                    // forceUnroll
+      dPerBlock,    // M/block
+      dPerBlock,    // N/block
+      {1, 2, 4, 8}, // K/block
+      {16},         // MnPerXdl
+      {4, 8, 16},   // kPack
+      {0},          // scheduleVersion
+      {0, 1}};      // forceUnroll
 
   GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
   if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma))
@@ -232,14 +209,14 @@ getAccelRangeGemmGemm(RockGemmGemmWrapperInterface gemmGemmOp,
        /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
        /*mnPerXdl=*/{4, 16, 32},
        /*kPack=*/{4, 8, 16},
-       getSchedules(gemmGemmOp, kind)};
+       {0}};
   static const std::vector<std::vector<uint32_t>> validRangeGemmGemmParamsWMMA =
       {/*gemm0MPerBlock=*/dPerBlock,
        /*gemm0NPerBlock=*/dPerBlock,
        /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
        /*mnPerXdl=*/{16},
        /*kPack=*/{4, 8, 16},
-       getSchedules(gemmGemmOp, kind)};
+       {0}};
   GemmFeatures features = rock::getFeatures(gemmGemmOp);
 
   std::vector<std::vector<uint32_t>> validRangeGemmGemmParams;

@@ -2658,11 +2658,6 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   b.getUnitAttr());
 
-  if (gemmScheduleVersion.getValue() != GEMMScheduleVersion::V1)
-    func->setAttr(rock::ScheduleVersionAttr::getMnemonic(),
-                  rock::ScheduleVersionAttr::get(
-                      b.getContext(), int(gemmScheduleVersion.getValue())));
-
   module.push_back(func);
   return func;
 }
@@ -3271,13 +3266,6 @@ static Value broadcastBatchTensorRock(OpBuilder builder, Location loc,
   return rock::TransformOp::create(builder, loc, tensorBroadcast, mergerAttr);
 }
 
-static void setScheduleVersion(MLIRContext *ctx, func::FuncOp func) {
-  if (gemmScheduleVersion.getValue() != GEMMScheduleVersion::V1)
-    func->setAttr(rock::ScheduleVersionAttr::getMnemonic(),
-                  rock::ScheduleVersionAttr::get(
-                      ctx, int(gemmScheduleVersion.getValue())));
-}
-
 static func::FuncOp createGpuAttentionKernel(ModuleOp module,
                                              const GenParams &params) {
   MLIRContext *ctx = module.getContext();
@@ -3441,8 +3429,6 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   if (!params.perfConfig.empty())
     attention->setAttr("perf_config", builder.getStringAttr(params.perfConfig));
 
-  setScheduleVersion(ctx, func);
-
   func::ReturnOp::create(builder, loc);
   module.push_back(func);
   return func;
@@ -3564,8 +3550,6 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   if (!disableSplitKForTuning)
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   builder.getUnitAttr());
-
-  setScheduleVersion(ctx, func);
 
   module.push_back(func);
   return func;

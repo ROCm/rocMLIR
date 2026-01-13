@@ -59,10 +59,6 @@ inline rock::GemmFeatures intersectGemmFeatures(rock::GemmFeatures a,
 // the architecture being used, and the type of the op.
 rock::GemmFeatures getFeatures(Operation *op);
 
-// Check if a schedule version is supported by the hardware
-LogicalResult isScheduleVersionSupported(int64_t scheduleVersion,
-                                         GemmFeatures features, StringRef arch);
-
 } // End namespace rock
 } // End namespace mlir
 #endif // MLIR_DIALECT_ROCK_IR_GETROCKINFO_H

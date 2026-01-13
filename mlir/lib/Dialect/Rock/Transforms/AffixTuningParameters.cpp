@@ -56,41 +56,6 @@ private:
 };
 } // anonymous namespace
 
-static FailureOr<std::optional<int64_t>> getScheduleVersion(func::FuncOp funcOp,
-                                                            Operation *op) {
-  auto scheduleVersionAttrName = rock::ScheduleVersionAttr::getMnemonic();
-
-  std::optional<int64_t> scheduleVersion = std::nullopt;
-  bool hasPerfConfig = op->hasAttrOfType<StringAttr>("perf_config");
-  if (funcOp->hasAttrOfType<rock::ScheduleVersionAttr>(
-          scheduleVersionAttrName) &&
-      hasPerfConfig) {
-    return op->emitError(
-        "kernel has both perf_config and schedule_version attribute "
-        "set. Please modify schedule version directly inside "
-        "perf_config and remove schedule_version\n");
-  }
-  if (funcOp->hasAttrOfType<rock::ScheduleVersionAttr>(
-          scheduleVersionAttrName)) {
-    scheduleVersion = dyn_cast<rock::ScheduleVersionAttr>(
-                          funcOp->removeAttr(scheduleVersionAttrName))
-                          .getScheduleVersion();
-  } else if (!hasPerfConfig) {
-    // set default schedule
-    scheduleVersion = static_cast<int64_t>(GemmLoadTileType::Default);
-  }
-
-  // check scheduleVersion is valid
-  if (scheduleVersion.has_value()) {
-    std::optional<GemmLoadTileType> maybeLoadType =
-        rock::symbolizeGemmLoadTileType(scheduleVersion.value());
-    if (!maybeLoadType.has_value())
-      return op->emitOpError("schedule version value is incorrect");
-  }
-
-  return scheduleVersion;
-}
-
 void AffixTuningParameters::runOnOperation() {
   func::FuncOp func = getOperation();
   // currently, in rocMLIR we only support one Fusion Root per function.
@@ -174,31 +139,13 @@ void AffixTuningParameters::affixTuningParametersImpl(
           op->template getAttrOfType<StringAttr>("perf_config")) {
     perfConfig = perfConfigAttr.getValue().str();
   }
-  FailureOr<std::optional<int64_t>> maybeScheduleVersion =
-      getScheduleVersion(funcParent, op);
-  if (failed(maybeScheduleVersion))
-    return signalPassFailure();
 
-  std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
-
-  StringRef arch = rock::getArchValue(op);
   GemmFeatures features = rock::getFeatures(op);
   if (isAccel(features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     AccelGemmParamsAttr validParams;
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
         b, op, perfConfig, validParams);
-    // update schedule version to what is provided by the user if and only if
-    // user hasn't provided perfConfig, otherwise just keep whatever is inside
-    // perfConfig
-    if (scheduleVersion.has_value())
-      validParams = validParams.withScheduleVersion(scheduleVersion.value());
-
-    if (failed(isScheduleVersionSupported(validParams.getScheduleVersion(),
-                                          features, arch))) {
-      op->emitError("schedule version not supported\n");
-      return signalPassFailure();
-    }
 
     if (failed(status)) {
       // Try again if allowed.
@@ -257,11 +204,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (failed(status)) {
       return signalPassFailure();
     }
-    // update schedule version to what is provided by the user if and only if
-    // user hasn't provided perfConfig, otherwise just keep whatever was
-    // obtained from perfConfig
-    if (scheduleVersion.has_value())
-      validParams = validParams.withScheduleVersion(scheduleVersion.value());
 
     op.setGemmParamsAttr(validParams);
 
@@ -292,12 +234,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
     return signalPassFailure();
   }
   auto funcParent = op->getParentOfType<func::FuncOp>();
-  FailureOr<std::optional<int64_t>> maybeScheduleVersion =
-      getScheduleVersion(funcParent, op);
-  if (failed(maybeScheduleVersion))
-    return signalPassFailure();
-
-  std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
 
   Attribute params0 = op.getGemm0Params().value_or(nullptr);
   // set a default one if params is not provided
@@ -313,17 +249,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
   auto attnPerfConfig = GemmGemmParamsAttr::get(perfConfigStrAttr, isWmma);
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
-    return signalPassFailure();
-  }
-
-  if (scheduleVersion.has_value())
-    attnPerfConfig =
-        attnPerfConfig.withScheduleVersion(scheduleVersion.value());
-
-  if (failed(isScheduleVersionSupported(attnPerfConfig.getScheduleVersion(),
-                                        rock::getFeatures(op),
-                                        rock::getArchValue(op)))) {
-    op->emitError("schedule version not supported\n");
     return signalPassFailure();
   }
 

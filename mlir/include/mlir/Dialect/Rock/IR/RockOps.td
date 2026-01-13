@@ -707,32 +707,24 @@ def Rock_BlockwiseGemmAccelOp
               [AttrSizedOperandSegments,
                DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
-      Arguments<(ins MemRefOf<LdsBufferTypes>:$bufferA,
-          MemRefOf<LdsBufferTypes>:$bufferB, MemRefOf<AccelResTypes>:$matrixC,
-          Rock_BlockwiseMatrixParamsAttr:$matrixParamsA,
-          Rock_BlockwiseMatrixParamsAttr:$matrixParamsB,
-          Optional<MemRefOf<LdsBufferTypes>>:$matrixA,
-          Optional<MemRefOf<LdsBufferTypes>>:$matrixB,
-          Optional<MemRefOf<LdsBufferTypes>>:$scaleA,
-          Optional<MemRefOf<LdsBufferTypes>>:$scaleB,
-          Optional<MemRefOf<LdsBufferTypes>>:$bufferScaleA,
-          Optional<MemRefOf<LdsBufferTypes>>:$bufferScaleB,
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
-          RockAccelTuningParamAttrInterface:$params)> {
+      Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
+          MemRefOf<LdsBufferTypes>:$matrixB, MemRefOf<AccelResTypes>:$matrixC,
+          Optional<MemRefOf<LdsBufferTypes>>:$matrixScaleA,
+          Optional<MemRefOf<LdsBufferTypes>>:$matrixScaleB)> {
   let summary = "Blockwise GEMM accelerated version";
   let description = [{
     The `rock.blockwise_gemm_accel` op does GEMM at workgroup (block) level.
-    - Matrix A and Matrix B shall reside on registers (if matrixA or matrixB are passed, we load them from LDS).
+    - Matrix A and Matrix B shall reside on registers.
     - Matrix C shall be vectors.
 
     The elements of matrices A and B should be vectors of length kpack, or
     scalars when kpack is 1.
   }];
   let assemblyFormat = [{
-    $matrixC `+` `` `=` $bufferA (`from` $matrixA^)?  (`scaled` `by` $bufferScaleA^)? (`from` $scaleA^)? `*`
-                        $bufferB (`from` $matrixB^)? (`scaled` `by` $bufferScaleB^)? (`from` $scaleB^)? (`features` `=` $features^)? attr-dict
-    `:` type($matrixC) `+` `` `=` type($bufferA) (`from` type($matrixA)^)? (`scaled` `by` type($bufferScaleA)^)? (`from` type($scaleA)^)? `*`
-                                  type($bufferB) (`from` type($matrixB)^)? (`scaled` `by` type($bufferScaleB)^)? (`from` type($scaleB)^)?
+    $matrixC `+` `` `=` $matrixA  (`scaled` `by` $matrixScaleA^)? `*`
+                        $matrixB (`scaled` `by` $matrixScaleB^)? attr-dict
+    `:` type($matrixC) `+` `` `=` type($matrixA) (`scaled` `by` type($matrixScaleA)^)? `*`
+                                  type($matrixB) (`scaled` `by` type($matrixScaleB)^)?
   }];
   let hasVerifier = 1;
 }
@@ -740,21 +732,13 @@ def Rock_BlockwiseGemmAccelOp
 // blockwise_load_tile
 def Rock_BlockwiseLoadTileOp
     : Rock_Op<"blockwise_load_tile",
-              [AttrSizedOperandSegments,
-               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+              [DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
       Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
                          "source global memory">:$source,
-          Arg<Optional<MemRefOf<LdsBufferTypes>>, "destination LDS">:$destLDS,
-          Arg<Optional<MemRefOf<NativeMemoryOpTypes>>,
+          Arg<MemRefOf<NativeMemoryOpTypes>,
               "destination registers">:$destRegisters,
-          Rock_GemmLoadTileTypeAttr:$loadType, TypeAttr:$elementType,
-          TypeAttr:$elementLoadType,
-          Rock_BlockwiseMatrixParamsAttr:$matrixParamsA,
-          Rock_BlockwiseMatrixParamsAttr:$matrixParamsB, UnitAttr:$isA,
-          Variadic<Index>:$sourceIndices,
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features, I32Attr:$blockSize,
-          RockAccelTuningParamAttrInterface:$params)> {
+          Variadic<Index>:$sourceIndices)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
@@ -774,11 +758,9 @@ def Rock_BlockwiseLoadTileOp
     `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.  
   }];
   let assemblyFormat = [{
-    $source (`[` $sourceIndices^ `]`)? (`LDS` `->` $destLDS^)? (`->` $destRegisters^)? attr-dict
-    `:` type($source) (`LDS` `->` type($destLDS)^)? (`->` type($destRegisters)^)?
+    $source (`[` $sourceIndices^ `]`)? `->` $destRegisters attr-dict
+    `:` type($source) `->` type($destRegisters)
   }];
-
-  let hasVerifier = 1;
 }
 
 // blockwise_broadcasting_reduction
