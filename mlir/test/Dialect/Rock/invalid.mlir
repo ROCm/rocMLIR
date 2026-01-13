@@ -97,3 +97,12 @@ func.func @expand_strides_element_type_mismatch(%input: tensor<4x24x24xf16>, %ou
   %result = rock.expand_strides %input into %output : tensor<4x24x24xf16> into tensor<4x48x24xf32> -> tensor<4x48x24xf32>
   return %result : tensor<4x48x24xf32>
 }
+
+// -----
+
+func.func @expand_strides_not_multiple(%input: tensor<4x24x24xf16>, %output: tensor<4x50x24xf16>) -> tensor<4x50x24xf16> {
+  // expected-error@+1 {{'rock.expand_strides' op output dimension 50 is not a multiple of input dimension 24}}
+  %result = rock.expand_strides %input into %output : tensor<4x24x24xf16> into tensor<4x50x24xf16> -> tensor<4x50x24xf16>
+  return %result : tensor<4x50x24xf16>
+}
+

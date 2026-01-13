@@ -542,3 +542,4 @@ func.func @rock_expand_strides_tensor(%input: tensor<4x24x24xf16>, %output: tens
   %result = rock.expand_strides %input into %output : tensor<4x24x24xf16> into tensor<4x48x24xf16> -> tensor<4x48x24xf16>
   return %result : tensor<4x48x24xf16>
 }
+

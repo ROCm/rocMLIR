@@ -31,3 +31,4 @@ func.func @expand_strides_different_types(%arg0: tensor<2x8x8xf32>) -> tensor<2x
   %0 = tosa.custom %arg0 {domain_name = "rocmlir", implementation_attrs = "", operator_name = "expand_strides"} : (tensor<2x8x8xf32>) -> tensor<2x16x16xf32>
   return %0 : tensor<2x16x16xf32>
 }
+

@@ -3221,10 +3221,6 @@ public:
       return rw.notifyMatchFailure(op, "domain isn't rocmlir");
     if (op.getOperatorName() != ROCK_CUSTOMOP_EXPAND_STRIDES)
       return rw.notifyMatchFailure(op, "isn't an expand_strides op");
-    if (op.getNumOperands() != 1)
-      return rw.notifyMatchFailure(op, "should have 1 operand");
-    if (op.getNumResults() != 1)
-      return rw.notifyMatchFailure(op, "should have 1 result");
 
     Location loc = op.getLoc();
     Value input = op->getOperand(0);
@@ -3233,9 +3229,6 @@ public:
     // Allocate the destination tensor with the larger (padded) size
     Value dest =
         bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
-
-    // Create rock.expand_strides op in destination-passing style
-    // At tensor level, it returns the result. After bufferization, it writes to dest directly.
     rw.replaceOpWithNewOp<rock::ExpandStridesOp>(op, outputType, input, dest);
 
     return success();

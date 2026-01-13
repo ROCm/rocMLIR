@@ -59,3 +59,4 @@ func.func @stride_not_multiple(%arg0: !migraphx.shaped<4x24x24xf16, 576x24x1>) -
   %0 = migraphx.sigmoid %arg0 : <4x24x24xf16, 576x24x1> -> <4x24x24xf16, 1200x24x1>
   return %0 : !migraphx.shaped<4x24x24xf16, 1200x24x1>
 }
+

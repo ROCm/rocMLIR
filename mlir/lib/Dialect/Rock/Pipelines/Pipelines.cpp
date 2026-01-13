@@ -159,9 +159,6 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
   if (!noRock) {
     auto &funcPm4 = pm.nest<func::FuncOp>();
     funcPm4.addPass(createRockRemoveOutputAllocPass());
-    // Lower rock.expand_strides to rock.transform + memref.copy
-    // This must happen after bufferization but before any passes that expect
-    // clean rock.transform operations (e.g., GridwiseGemmToBlockwise)
     funcPm4.addPass(rock::createRockExpandStridesLoweringPass());
     funcPm4.addPass(createRockFindFirstGemmIndexPass());
     funcPm4.addPass(createRockSortDimensionsMemoryLayoutPass());

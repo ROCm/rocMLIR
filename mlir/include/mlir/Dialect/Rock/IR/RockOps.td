@@ -431,13 +431,9 @@ def Rock_ExpandStridesOp :
     Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "Expand tensor strides by copying into padded buffer";
   let description = [{
-    Copy the contiguous `input` tensor into the beginning of the `output` tensor,
-    which must be >= input in all dimensions. This effectively expands strides
-    by creating a padded representation.
-    
-    At the tensor level, this takes a destination buffer and returns a tensor.
-    At the memref level (after bufferization), this writes to the destination
-    and returns no result.
+    Copies a contiguous `input` tensor into the beginning of a larger `output` 
+    tensor, effectively expanding the memory strides. The remaining space in the 
+    `output` tensor is left as uninitialized padding.
   }];
   let assemblyFormat = [{
     $input `into` $output attr-dict `:` type($input) `into` type($output) (`->` type($result)^)?
