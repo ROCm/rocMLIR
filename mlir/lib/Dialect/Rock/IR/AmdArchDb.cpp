@@ -525,14 +525,6 @@ mlir::rock::AmdArchInfo::getFeaturesFromAttr(ArrayRef<Type> types,
   return getDefaultFeatures(types);
 }
 
-bool mlir::rock::AmdArchInfo::isAccelEnabled(GemmFeaturesAttr featuresAttr) {
-  // GemmFeatures features = getFeaturesFromAttr({}, featuresAttr);
-  // LLVM_DEBUG(llvm::dbgs() << "isAccelEnabled: features=" << features <<
-  // "\n"); return bitEnumContainsAny(features, GemmFeatures::wmma |
-  // GemmFeatures::mfma);
-  llvm_unreachable("isAccelEnabled: not implemented");
-}
-
 bool mlir::rock::AmdArchInfo::isAccel(Type dataTypeA, Type dataTypeB,
                                       GemmFeaturesAttr featuresAttr) {
   GemmFeatures features =

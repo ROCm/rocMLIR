@@ -197,11 +197,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
   std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
 
   StringRef archStr = rock::getArchValue(op);
-  rock::AmdArchInfo archInfo2 = rock::lookupArchInfo(archStr);
-  if (archInfo2.isAccel(op)) {
-    // Get features for PopulateParamsAccel::select - this still needs features
-    // TODO: Refactor PopulateParamsAccel::select to use archInfo instead
-    GemmFeatures features = archInfo2.defaultFeatures;
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(archStr);
+  if (archInfo.isAccel(op)) {
+    GemmFeatures features = archInfo.defaultFeatures;
     auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
     AccelGemmParamsAttr validParams;
     LogicalResult status = populateParamsAccelPtr->obtainTuningParameters(
@@ -214,7 +212,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
     SmallVector<Type> types = {op.getAType(), op.getBType()};
     if (failed(isScheduleVersionSupported(validParams.getScheduleVersion(),
-                                          archInfo2, types, archStr))) {
+                                          archInfo, types, archStr))) {
       op->emitError("schedule version not supported\n");
       return signalPassFailure();
     }
@@ -247,8 +245,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // I dont like this hack.
     GemmFeaturesAttr featuresAttr =
         GemmFeaturesAttr::get(op.getContext(), info.gemmFeatures);
-    if (maybeWrwOp && archInfo2.isWrWAtomicKernel(featuresAttr, info.gemmAType,
-                                                  requiredPadding)) {
+    if (maybeWrwOp && archInfo.isWrWAtomicKernel(featuresAttr, info.gemmAType,
+                                                 requiredPadding)) {
       auto res = calculateKBlockNum(
           info.batchSize, paddedGemmSize, validParams.getMPerBlock(),
           validParams.getNPerBlock(), validParams.getKpackPerBlock(),
@@ -294,7 +292,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
     getOperation()->setAttr("block_size",
                             b.getI32IntegerAttr(validParams.getBlockSize()));
   }
-
   // check for fusion legality with SplitK for both accel and non-accel path
   // this check should happen after perfConfig is picked either through
   // heuristics or user provided

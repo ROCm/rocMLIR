@@ -3147,9 +3147,9 @@ struct GridwiseGemmAccelRewritePattern
     int64_t scheduleVersion = tuningParams.getScheduleVersion();
 
     // Check if the schedule version is supported by the hardware
-    SmallVector<Type> types2 = {elementTypeA, elementTypeB};
-    if (failed(isScheduleVersionSupported(scheduleVersion, archInfo, types2,
-                                          arch)))
+    SmallVector<Type> types = {elementTypeA, elementTypeB};
+    if (failed(
+            isScheduleVersionSupported(scheduleVersion, archInfo, types, arch)))
       return op.emitOpError("schedule version not supported");
 
     std::optional<GemmLoadTileType> maybeLoadType =
