@@ -433,33 +433,3 @@ LogicalResult QuantDotOp::verify() {
   }
   return success();
 }
-
-LogicalResult ExpandStridesOp::verify() {
-  MIXRShapedType inputType = getInput().getType();
-  MIXRShapedType outputType = getOutput().getType();
-
-  ArrayRef<int64_t> inputStrides = inputType.getStrides();
-  ArrayRef<int64_t> outputStrides = outputType.getStrides();
-
-  if (inputStrides.size() != outputStrides.size())
-    return emitOpError("input and output must have the same number of strides");
-
-  // Check that all output strides are >= input strides
-  // and at least one output stride is strictly greater
-  bool hasExpansion = false;
-  for (auto [inStride, outStride] : llvm::zip(inputStrides, outputStrides)) {
-    if (outStride < inStride)
-      return emitOpError("output strides must be greater than or equal to "
-                         "input strides for expansion; found output stride ")
-             << outStride << " < input stride " << inStride;
-    if (outStride > inStride)
-      hasExpansion = true;
-  }
-
-  if (!hasExpansion)
-    return emitOpError(
-        "expand_strides requires at least one output stride to be strictly "
-        "greater than the corresponding input stride");
-
-  return success();
-}

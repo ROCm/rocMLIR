@@ -1316,15 +1316,6 @@ struct AsUnderlyingShapeConverter final
                   ConversionPatternRewriter &rewriter) const final;
 };
 
-struct ExpandStridesConverter final
-    : public OpConversionPattern<migraphx::ExpandStridesOp> {
-  using OpConversionPattern<migraphx::ExpandStridesOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(migraphx::ExpandStridesOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final;
-};
-
 /// This mirrors the call op conversion pattern but works for mhal.launch.
 struct MHALLaunchConverter final : public OpConversionPattern<mhal::LaunchOp> {
   using OpConversionPattern<mhal::LaunchOp>::OpConversionPattern;
@@ -1410,6 +1401,9 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   Location loc = op.getLoc();
   MIXRShapedType resultType = op.getOut().getType();
   RankedTensorType memoryLayoutType = resultType.asMemoryLayoutTensor();
+  if (!memoryLayoutType)
+    return op.emitOpError("output type has strides that cannot be represented "
+                          "as a memory layout");
   auto resultTensorType =
       cast<RankedTensorType>(getTypeConverter()->convertType(resultType));
   if (!resultTensorType)
@@ -1430,12 +1424,47 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   if (!llvm::is_sorted(permutation))
     transposed = rock::tosa::getTransposeOp(rewriter, loc, in, permutationI32);
 
-  // Stride expansion should have been handled by migraphx.expand_strides.
-  // If we get here with a stride mismatch, it means the IR is malformed.
+  // Handle long strides by using tensor.insert_slice to place the contiguous
+  // result into a larger padded buffer.
   if (transposed.getType() != memoryLayoutType) {
-    rewriter.eraseOp(transposed.getDefiningOp());
-    return op.emitOpError(
-        "writing to tensors with long strides or broadcasts is unsupported");
+    // Check for broadcasts, which we don't support.
+    if (resultType.hasBroadcast())
+      return op.emitOpError(
+          "writing to tensors with broadcasts is unsupported");
+
+    auto transposedType = cast<RankedTensorType>(transposed.getType());
+    int64_t rank = transposedType.getRank();
+
+    // Verify that memoryLayoutType is >= transposedType in all dimensions,
+    // and that each memory dimension is a multiple of the logical dimension.
+    // A non-multiple indicates a non-integer stride expansion factor.
+    for (auto [memDim, transDim] : llvm::zip_equal(memoryLayoutType.getShape(),
+                                                   transposedType.getShape())) {
+      if (memDim < transDim)
+        return op.emitOpError("memory layout dimension ")
+               << memDim << " is smaller than logical dimension " << transDim
+               << "; this indicates invalid strides";
+      if (memDim % transDim != 0)
+        return op.emitOpError("memory layout dimension ")
+               << memDim << " is not a multiple of logical dimension "
+               << transDim << "; this indicates invalid strides";
+    }
+
+    // Create an empty tensor with the padded memory layout shape.
+    Value emptyDest = tensor::EmptyOp::create(rewriter, loc, memoryLayoutType,
+                                              /*dynamic_sizes=*/ValueRange{});
+
+    // Build the offsets, sizes, and strides for insert_slice.
+    SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
+    SmallVector<OpFoldResult> sizes;
+    sizes.reserve(rank);
+    for (int64_t dim : transposedType.getShape())
+      sizes.push_back(rewriter.getIndexAttr(dim));
+    SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
+
+    // Insert the contiguous result into the beginning of the padded buffer.
+    transposed = tensor::InsertSliceOp::create(
+        rewriter, loc, transposed, emptyDest, offsets, sizes, strides);
   }
 
   Value collapsed = transposed;
@@ -1445,90 +1474,6 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     collapsed = tosa::ReshapeOp::create(rewriter, loc, transposed, shapeValue);
   }
   rewriter.replaceOp(op, collapsed);
-  return success();
-}
-
-LogicalResult ExpandStridesConverter::matchAndRewrite(
-    migraphx::ExpandStridesOp op, OpAdaptor adaptor,
-    ConversionPatternRewriter &rewriter) const {
-  Location loc = op.getLoc();
-  MIXRShapedType inputType = op.getInput().getType();
-  MIXRShapedType outputType = op.getOutput().getType();
-
-  // Get the memory layout tensors for input and output.
-  RankedTensorType inputMemoryLayoutType = inputType.asMemoryLayoutTensor();
-  RankedTensorType outputMemoryLayoutType = outputType.asMemoryLayoutTensor();
-
-  if (!inputMemoryLayoutType)
-    return op.emitOpError("input type has strides that cannot be represented "
-                          "as a memory layout");
-  if (!outputMemoryLayoutType)
-    return op.emitOpError("output type has strides that cannot be represented "
-                          "as a memory layout");
-
-  // Check for broadcasts, which we don't support.
-  if (inputType.hasBroadcast() || outputType.hasBroadcast())
-    return op.emitOpError("expand_strides with broadcasts is unsupported");
-
-  Value in = adaptor.getInput();
-  int64_t rank = inputMemoryLayoutType.getRank();
-
-  // The input from the adaptor is a flat 1D tensor (from the boundary type
-  // converter). We need to reshape it to the input's memory layout shape.
-  auto inType = cast<RankedTensorType>(in.getType());
-  if (inType.getRank() == 1 && inputMemoryLayoutType.getRank() > 1) {
-    auto shapeValue = tosa::getTosaConstShape(rewriter, loc,
-                                              inputMemoryLayoutType.getShape());
-    in = tosa::ReshapeOp::create(rewriter, loc, inputMemoryLayoutType, in,
-                                 shapeValue);
-  }
-
-  // Verify that outputMemoryLayoutType is >= inputMemoryLayoutType in all
-  // dimensions, and that each output dimension is a multiple of the input
-  // dimension. A non-multiple indicates a non-integer stride expansion factor.
-  for (auto [outDim, inDim] :
-       llvm::zip_equal(outputMemoryLayoutType.getShape(),
-                       inputMemoryLayoutType.getShape())) {
-    if (outDim < inDim)
-      return op.emitOpError("output memory layout dimension ")
-             << outDim << " is smaller than input dimension " << inDim
-             << "; this indicates invalid strides";
-    if (outDim % inDim != 0)
-      return op.emitOpError("output memory layout dimension ")
-             << outDim << " is not a multiple of input dimension " << inDim
-             << "; this indicates invalid strides";
-  }
-
-  // Create an empty tensor with the padded output memory layout shape.
-  Value emptyDest = tensor::EmptyOp::create(
-      rewriter, loc, outputMemoryLayoutType, /*dynamic_sizes=*/ValueRange{});
-
-  // Build the offsets, sizes, and strides for insert_slice.
-  // We always insert at offset 0 (beginning of the buffer).
-  SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
-  SmallVector<OpFoldResult> sizes;
-  sizes.reserve(rank);
-  for (int64_t dim : inputMemoryLayoutType.getShape())
-    sizes.push_back(rewriter.getIndexAttr(dim));
-  SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
-
-  // Insert the contiguous input into the beginning of the padded buffer.
-  Value inserted = tensor::InsertSliceOp::create(rewriter, loc, in, emptyDest,
-                                                 offsets, sizes, strides);
-
-  // Flatten to the final 1D result type expected by the type converter.
-  auto resultTensorType =
-      cast<RankedTensorType>(getTypeConverter()->convertType(outputType));
-  if (!resultTensorType)
-    return op.emitOpError("unsupported conversion of output type");
-
-  Value result = inserted;
-  if (inserted.getType() != resultTensorType) {
-    auto shapeValue =
-        tosa::getTosaConstShape(rewriter, loc, resultTensorType.getShape());
-    result = tosa::ReshapeOp::create(rewriter, loc, inserted, shapeValue);
-  }
-  rewriter.replaceOp(op, result);
   return success();
 }
 
@@ -1588,7 +1533,6 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
   patterns.add<AsLogicalShapeConverter, AsUnderlyingShapeConverter,
-               ExpandStridesConverter,
                TrivialConverter<func::ReturnOp, func::ReturnOp>,
                MHALLaunchConverter>(typeConverter, patterns.getContext());
   // Add upstream patterns that take care of func.func and its friends.
