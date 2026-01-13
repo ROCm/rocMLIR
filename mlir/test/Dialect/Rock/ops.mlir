@@ -535,3 +535,10 @@ func.func @test_threadwise_read_into_without_lds_transpose(%src: memref<8192xf16
     : memref<8192xf16, #gpu.address_space<workgroup>> -> memref<8xf16, #gpu.address_space<private>>
   return
 }
+
+// CHECK-LABEL: func.func @rock_expand_strides_tensor
+// CHECK-NEXT: rock.expand_strides
+func.func @rock_expand_strides_tensor(%input: tensor<4x24x24xf16>, %output: tensor<4x48x24xf16>) -> tensor<4x48x24xf16> {
+  %result = rock.expand_strides %input into %output : tensor<4x24x24xf16> into tensor<4x48x24xf16> -> tensor<4x48x24xf16>
+  return %result : tensor<4x48x24xf16>
+}

@@ -53,6 +53,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
+#include <numeric>
 #include <tuple>
 #include <utility>
 
@@ -3207,6 +3208,40 @@ public:
   }
 };
 
+// Convert expand_strides custom op to rock.expand_strides
+// This will be bufferized using the GemmLikeInterface, creating the destination-passing style
+// After bufferization, a separate lowering pass will convert it to rock.transform + rock.threadwise_write_all
+class ExpandStridesConverter final : public OpRewritePattern<tosa::CustomOp> {
+public:
+  using OpRewritePattern<tosa::CustomOp>::OpRewritePattern;
+  LogicalResult matchAndRewrite(tosa::CustomOp op,
+                                PatternRewriter &rw) const final {
+    // Match only expand_strides custom ops
+    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
+      return rw.notifyMatchFailure(op, "domain isn't rocmlir");
+    if (op.getOperatorName() != ROCK_CUSTOMOP_EXPAND_STRIDES)
+      return rw.notifyMatchFailure(op, "isn't an expand_strides op");
+    if (op.getNumOperands() != 1)
+      return rw.notifyMatchFailure(op, "should have 1 operand");
+    if (op.getNumResults() != 1)
+      return rw.notifyMatchFailure(op, "should have 1 result");
+
+    Location loc = op.getLoc();
+    Value input = op->getOperand(0);
+    auto outputType = cast<RankedTensorType>(op.getResult(0).getType());
+
+    // Allocate the destination tensor with the larger (padded) size
+    Value dest =
+        bufferization::AllocTensorOp::create(rw, loc, outputType, ValueRange{});
+
+    // Create rock.expand_strides op in destination-passing style
+    // At tensor level, it returns the result. After bufferization, it writes to dest directly.
+    rw.replaceOpWithNewOp<rock::ExpandStridesOp>(op, outputType, input, dest);
+
+    return success();
+  }
+};
+
 } // namespace
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
@@ -3235,5 +3270,5 @@ void tosa::populateTosaToRockConvGemmConversionPatterns(
 void tosa::populateTosaToRockTensorConversionPatterns(
     MLIRContext *context, RewritePatternSet &patterns) {
   patterns.add<TransposeRewritePattern, CollapseExpandRewritePattern,
-               MulSplatOneRewritePattern>(context);
+               MulSplatOneRewritePattern, ExpandStridesConverter>(context);
 }

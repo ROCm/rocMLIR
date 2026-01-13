@@ -874,6 +874,39 @@ LogicalResult ConvBwdDataOp::verify() { return verifyConvOp(*this); }
 
 LogicalResult ConvBwdWeightOp::verify() { return verifyConvOp(*this); }
 
+//===----------------------------------------------------------------------===//
+// ExpandStridesOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ExpandStridesOp::verify() {
+  auto inputType = cast<ShapedType>(getInput().getType());
+  auto outputType = cast<ShapedType>(getOutput().getType());
+  
+  if (inputType.getRank() != outputType.getRank())
+    return emitOpError("input and output must have the same rank");
+  
+  // Verify that output is >= input in all dimensions
+  for (auto [outDim, inDim] : llvm::zip_equal(outputType.getShape(), inputType.getShape())) {
+    if (outDim < inDim)
+      return emitOpError("output dimension ") << outDim 
+             << " is smaller than input dimension " << inDim;
+  }
+  
+  // Verify element types match
+  if (inputType.getElementType() != outputType.getElementType())
+    return emitOpError("input and output must have the same element type");
+  
+  return success();
+}
+
+void ExpandStridesOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+  effects.emplace_back(read, &(*this)->getOpOperand(0));
+  effects.emplace_back(write, getOutArgument());
+}
+
 KernelType ConvOp::getKernelType() { return KernelType::Conv; }
 
 KernelType ConvBwdDataOp::getKernelType() { return KernelType::ConvBwdData; }

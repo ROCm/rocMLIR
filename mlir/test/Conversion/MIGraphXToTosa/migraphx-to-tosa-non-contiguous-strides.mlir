@@ -8,9 +8,8 @@ func.func @mlir_dot_sigmoid(%arg0: !migraphx.shaped<4x24x16xf16, 384x16x1>, %arg
   // CHECK: %[[SIGMOID:.*]] = tosa.sigmoid
   // CHECK-SAME: -> tensor<4x24x24xf16>
   %1 = migraphx.sigmoid %0 : <4x24x24xf16, 576x24x1> -> <4x24x24xf16, 1152x24x1>
-  // CHECK: %[[EMPTY:.*]] = tensor.empty() : tensor<4x48x24xf16>
-  // CHECK: tensor.insert_slice %[[SIGMOID]] into %[[EMPTY]]
-  // CHECK-SAME: tensor<4x24x24xf16> into tensor<4x48x24xf16>
+  // CHECK: tosa.custom %[[SIGMOID]] {domain_name = "rocmlir", implementation_attrs = "", operator_name = "expand_strides"}
+  // CHECK-SAME: (tensor<4x24x24xf16>) -> tensor<4x48x24xf16>
   // CHECK: tosa.reshape
   // CHECK-SAME: -> tensor<4608xf16>
   return %1 : !migraphx.shaped<4x24x24xf16, 1152x24x1>

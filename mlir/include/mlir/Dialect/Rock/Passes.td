@@ -125,6 +125,11 @@ def RockThreadwiseGemmLoweringPass : Pass<"rock-threadwise-gemm-lowering", "::ml
   let dependentDialects = ["gpu::GPUDialect", "rock::RockDialect", "amdgpu::AMDGPUDialect", "vector::VectorDialect", "affine::AffineDialect", "memref::MemRefDialect", "scf::SCFDialect"];
 }
 
+def RockExpandStridesLoweringPass : Pass<"rock-expand-strides-lowering", "::mlir::func::FuncOp"> {
+  let summary = "Lower rock.expand_strides to rock.transform + memref.copy";
+  let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
+}
+
 def RockAnalyzeMemoryUsePass : Pass<"rock-analyze-memory-use", "::mlir::func::FuncOp"> {
   let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect", "LLVM::LLVMDialect"];

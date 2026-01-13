@@ -519,55 +519,6 @@ static LogicalResult checkUniqueReader(Operation *op, Operation *reader,
   return success();
 }
 
-// Try to convert a memref.subview to a TransformMapAttr (Pad transform).
-static FailureOr<TransformMapAttr>
-subviewToPadTransform(OpBuilder &b, memref::SubViewOp subview) {
-  // Check that all offsets are zero and all strides are one
-  for (auto offset : subview.getStaticOffsets()) {
-    if (offset != 0)
-      return failure();
-  }
-  for (auto stride : subview.getStaticStrides()) {
-    if (stride != 1)
-      return failure();
-  }
-
-  // Get source and result shapes
-  auto sourceType = cast<MemRefType>(subview.getSource().getType());
-  auto resultType = cast<MemRefType>(subview.getResult().getType());
-  ArrayRef<int64_t> sourceShape = sourceType.getShape();
-  ArrayRef<int64_t> resultShape = resultType.getShape();
-
-  // Must have same rank
-  if (sourceShape.size() != resultShape.size())
-    return failure();
-
-  // Source shape must be >= result shape in all dimensions for valid padding
-  for (size_t i = 0; i < sourceShape.size(); ++i) {
-    if (sourceShape[i] < resultShape[i])
-      return failure();
-  }
-
-  // Build Pad transform: result shape padded to source shape
-  Location loc = subview.getLoc();
-  int64_t rank = sourceShape.size();
-
-  SmallVector<StringRef> dimNames;
-  SmallVector<int64_t> padParams;
-  for (int64_t i = 0; i < rank; ++i) {
-    dimNames.push_back(b.getStringAttr(Twine("d") + Twine(i)));
-    padParams.push_back(0);
-    padParams.push_back(sourceShape[i] - resultShape[i]);
-  }
-
-  BottomUpTMBuilder transform(b, dimNames, resultShape, loc);
-  SmallVector<uint32_t> dims(rank);
-  std::iota(dims.begin(), dims.end(), 0);
-
-  transform.pad(dimNames, dims, dimNames, padParams);
-  return transform.get();
-}
-
 static Operation *
 traceToWriter(Value startVal,
               SmallVectorImpl<TransformMapAttr> &writerToStartValViews) {
@@ -603,12 +554,6 @@ traceToWriter(Value startVal,
       for (Operation *transformUse : transformOp->getUsers()) {
         worklist.push_back({transformOp, transformUse});
       }
-    } else if (auto subviewOp = dyn_cast<memref::SubViewOp>(use)) {
-      // Trace through subviews, they represent strided views that we'll
-      // handle in MemcpyRewritePattern
-      for (Operation *subviewUse : subviewOp->getUsers()) {
-        worklist.push_back({subviewOp.getResult(), subviewUse});
-      }
     } else if (auto lgop = dyn_cast<linalg::GenericOp>(use)) {
       if (llvm::is_contained(lgop.getOutputs(), val))
         setResult(val, use);
@@ -630,31 +575,6 @@ traceToWriter(Value startVal,
   }
 
   return result;
-}
-
-// Build the view chain from writerDest back to sourceBuffer, handling both
-// rock::TransformOp and memref::SubViewOp. SubViewOps are converted to
-// equivalent Pad transforms.
-static void
-buildViewChainWithSubviews(OpBuilder &b, Value writerDest, Value sourceBuffer,
-                           SmallVectorImpl<TransformMapAttr> &views) {
-  Operation *sourceBufferDef = sourceBuffer.getDefiningOp();
-  Operation *defOp = writerDest.getDefiningOp();
-  while (defOp && defOp != sourceBufferDef) {
-    if (auto trOp = dyn_cast<TransformOp>(defOp)) {
-      views.push_back(trOp.getTransformAttr());
-      defOp = trOp.getViewSource().getDefiningOp();
-    } else if (auto subviewOp = dyn_cast<memref::SubViewOp>(defOp)) {
-      // Convert subview to Pad transform and add to views
-      auto padAttr = subviewToPadTransform(b, subviewOp);
-      if (failed(padAttr))
-        break;
-      views.push_back(*padAttr);
-      defOp = subviewOp.getSource().getDefiningOp();
-    } else {
-      break;
-    }
-  }
 }
 
 static Value makeRegs(LinalgAlignRewriter &b, MemRefType::Builder &mrb,
@@ -1159,13 +1079,8 @@ MemcpyRewritePattern::matchAndRewrite(memref::CopyOp copy,
   Operation *gemmStoreOp = nullptr;
   SmallVector<TransformMapAttr> views;
   if (auto allocOp = src.getDefiningOp<memref::AllocOp>()) {
-    // First find the writer without building views
-    SmallVector<TransformMapAttr> unusedViews;
     if (auto twop = dyn_cast_if_present<ThreadwiseWriteAllOp>(
-            traceToWriter(src, unusedViews))) {
-      // Build the view chain including subviews (for long-stride outputs)
-      buildViewChainWithSubviews(b, twop.getDest(), src, views);
-
+            traceToWriter(src, views))) {
       // We check the input leading to GEMM store has the current memref
       // copy, that is being rewritten, as the unique reader. This is because if
       // it is the unique reader, the previous memref does not need to be

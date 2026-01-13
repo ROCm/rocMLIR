@@ -73,3 +73,27 @@ func.func @gridwise_gemm_m_too_big(%a: memref<1x1x1xf32>,
   : memref<1x1x2147483648xf32> = memref<1x1x1xf32> * memref<1x1x2147483648xf32>
   func.return
 }
+
+// -----
+
+func.func @expand_strides_rank_mismatch(%input: tensor<4x24xf16>, %output: tensor<4x48x24xf16>) -> tensor<4x48x24xf16> {
+  // expected-error@+1 {{'rock.expand_strides' op input and output must have the same rank}}
+  %result = rock.expand_strides %input into %output : tensor<4x24xf16> into tensor<4x48x24xf16> -> tensor<4x48x24xf16>
+  return %result : tensor<4x48x24xf16>
+}
+
+// -----
+
+func.func @expand_strides_output_too_small(%input: tensor<4x24x24xf16>, %output: tensor<4x20x24xf16>) -> tensor<4x20x24xf16> {
+  // expected-error@+1 {{'rock.expand_strides' op output dimension 20 is smaller than input dimension 24}}
+  %result = rock.expand_strides %input into %output : tensor<4x24x24xf16> into tensor<4x20x24xf16> -> tensor<4x20x24xf16>
+  return %result : tensor<4x20x24xf16>
+}
+
+// -----
+
+func.func @expand_strides_element_type_mismatch(%input: tensor<4x24x24xf16>, %output: tensor<4x48x24xf32>) -> tensor<4x48x24xf32> {
+  // expected-error@+1 {{'rock.expand_strides' op input and output must have the same element type}}
+  %result = rock.expand_strides %input into %output : tensor<4x24x24xf16> into tensor<4x48x24xf32> -> tensor<4x48x24xf32>
+  return %result : tensor<4x48x24xf32>
+}

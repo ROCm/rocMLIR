@@ -424,6 +424,32 @@ def Rock_ConvertingCopyKernelOp
   }];
 }
 
+def Rock_ExpandStridesOp :
+    Rock_Op<"expand_strides", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+    Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16, I8]>:$input,
+                   TensorOrMemRefOf<[F32, F16, BF16, I8]>:$output)>,
+    Results<(outs Optional<AnyRankedTensor>:$result)> {
+  let summary = "Expand tensor strides by copying into padded buffer";
+  let description = [{
+    Copy the contiguous `input` tensor into the beginning of the `output` tensor,
+    which must be >= input in all dimensions. This effectively expands strides
+    by creating a padded representation.
+    
+    At the tensor level, this takes a destination buffer and returns a tensor.
+    At the memref level (after bufferization), this writes to the destination
+    and returns no result.
+  }];
+  let assemblyFormat = [{
+    $input `into` $output attr-dict `:` type($input) `into` type($output) (`->` type($result)^)?
+  }];
+  let hasVerifier = 1;
+  
+  // Declaration to enable the bufferization implementation to work like gemm ops
+  let extraClassDeclaration = [{
+    ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
+  }];
+}
+
 def Rock_TransformOp :
     Rock_Op<"transform", [Pure, ViewLikeOpInterface]>,
     Arguments<(ins AnyShaped:$input, Rock_TransformMapAttr:$transform)>,
