@@ -424,6 +424,51 @@ def Rock_ConvertingCopyKernelOp
   }];
 }
 
+def Rock_PagedDerefOp
+    : Rock_Op<"paged_deref", [Pure]>,
+      Arguments<(ins
+          TensorOrMemRefOf<[I64]>:$pagePointers,
+          Optional<TensorOrMemRefOf<[I1]>>:$addressMask
+      )>,
+      Results<(outs AnyTensorOrMemRef:$output)> {
+  let summary = "Gather from paged memory with contiguous page access";
+  let description = [{
+    Loads data from paged memory where each pointer in `pagePointers` addresses
+    a contiguous block of memory.
+
+    The tensor has a fixed 3D layout: [batch, blocksPerLayer, blockSize]
+    - Dimension 0: batch
+    - Dimension 1: blocks per layer (page indices)
+    - Dimension 2: block size/page size (contiguous elements within each block)
+
+    Each pointer addresses a contiguous block of `blockSize` elements.
+
+    If `addressMask` is provided, it is a boolean tensor where `true` indicates
+    positions that should use a fallback (safe) address instead of the computed
+    address. The fallback address is inferred as `pagePointers[0, 0, 0]` (the
+    first page pointer), which is always valid. This handles variable sequence
+    lengths in paged attention where positions beyond the valid sequence length
+    should not access real memory.
+
+    **Example:**
+
+    ```mlir
+    // 64 blocks, each accessing 8192 contiguous f16 elements
+    %out = rock.paged_deref %ptrs : <1x64x1xi64> -> <1x64x8192xf16>
+
+    // With mask: positions where mask=true read from pagePointers[0,0,0]
+    %out = rock.paged_deref %ptrs, %mask : <1x64x1xi64>, <1x64x8192xi1> -> <1x64x8192xf16>
+    ```
+  }];
+
+  let assemblyFormat = [{
+    $pagePointers (`,` $addressMask^)? attr-dict
+    `:` type($pagePointers) (`,` type($addressMask)^)? `->` type($output)
+  }];
+
+  let hasVerifier = 1;
+}
+
 def Rock_TransformOp :
     Rock_Op<"transform", [Pure, ViewLikeOpInterface]>,
     Arguments<(ins AnyShaped:$input, Rock_TransformMapAttr:$transform)>,

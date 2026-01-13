@@ -1375,6 +1375,68 @@ LogicalResult InsertSliceOp::verify() {
 }
 
 //===-----------------------------------------------------===//
+// PagedDerefOp
+//===-----------------------------------------------------===//
+LogicalResult PagedDerefOp::verify() {
+  auto ptrType = cast<ShapedType>(getPagePointers().getType());
+  auto outType = cast<ShapedType>(getOutput().getType());
+
+  // Verify rank is 3 (fixed layout: [batch, blocksPerLayer, blockSize])
+  if (ptrType.getRank() != 3)
+    return emitOpError("pagePointers must be rank 3 "
+                       "[batch, blocksPerLayer, 1], got rank ")
+           << ptrType.getRank();
+
+  if (outType.getRank() != 3)
+    return emitOpError("output must be rank 3 "
+                       "[batch, blocksPerLayer, blockSize], got rank ")
+           << outType.getRank();
+
+  ArrayRef<int64_t> ptrShape = ptrType.getShape();
+  ArrayRef<int64_t> outShape = outType.getShape();
+
+  // Verify pagePointers has size 1 in dimension 2. The block size is inferred
+  // from the output shape (output.shape[2]), and pagePointers provides one
+  // base pointer per block that gets expanded with an implicit iota pattern.
+  if (ptrShape[2] != 1)
+    return emitOpError("pagePointers dimension 2 must be 1 (block size is "
+                       "inferred from output.shape[2]), got ")
+           << ptrShape[2];
+
+  // Verify batch and blocksPerLayer dimensions match
+  if (ptrShape[0] != outShape[0] || ptrShape[1] != outShape[1])
+    return emitOpError("shape mismatch: pagePointers [")
+           << ptrShape[0] << "x" << ptrShape[1]
+           << "x1] must match output [" << outShape[0] << "x" << outShape[1]
+           << "x" << outShape[2] << "] in dimensions 0 and 1";
+
+  // Verify output block size is >= 1
+  if (outShape[2] < 1)
+    return emitOpError("output block size (dimension 2) must be >= 1, got ")
+           << outShape[2];
+
+  // Verify addressMask shape if provided
+  if (Value mask = getAddressMask()) {
+    auto maskType = cast<ShapedType>(mask.getType());
+    if (maskType.getRank() != 3)
+      return emitOpError("addressMask must be rank 3, got rank ")
+             << maskType.getRank();
+
+    ArrayRef<int64_t> maskShape = maskType.getShape();
+    // addressMask should be broadcastable to the output shape (the mask is
+    // applied per-element of the output, not per-block)
+    for (size_t i = 0; i < 3; ++i) {
+      if (maskShape[i] != 1 && maskShape[i] != outShape[i])
+        return emitOpError("addressMask dimension ")
+               << i << " must be 1 or match output (" << outShape[i]
+               << "), got " << maskShape[i];
+    }
+  }
+
+  return success();
+}
+
+//===-----------------------------------------------------===//
 // GpuAllocOp
 //===-----------------------------------------------------===//
 

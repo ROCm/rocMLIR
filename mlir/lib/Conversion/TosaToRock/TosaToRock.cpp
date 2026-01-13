@@ -3207,14 +3207,121 @@ public:
   }
 };
 
+// Result of matching the paged deref input pattern.
+struct PagedDerefMatchResult {
+  Value pagePointers;
+  Value addressMask; // May be null if no masking
+};
+
+// Attempt to match the paged deref input pattern.
+// The pattern is: select(mask, fallback, add(broadcast(ptrs), broadcast(iota)))
+// or just: add(broadcast(ptrs), broadcast(iota))
+static FailureOr<PagedDerefMatchResult>
+matchPagedDerefInputPattern(Value derefInput) {
+  // Ops to skip when tracing back to find the source values
+  static const DenseSet<StringRef> viewOps{
+      rock::TransformOp::getOperationName(),
+      tensor::ExpandShapeOp::getOperationName(),
+      tensor::CollapseShapeOp::getOperationName(),
+      tensor::ExtractSliceOp::getOperationName()};
+
+  Value addressTensor = derefInput;
+  Value addressMask = nullptr;
+
+  // Check if input comes from a select (masking pattern)
+  // select(pred, on_true, on_false) where:
+  //   pred = getInput1(), on_true = getInput2(), on_false = getInput3()
+  // In paged attention: select(mask, fallback, realAddresses)
+  // The real addresses are in on_false (positions beyond mask use fallback)
+  if (auto selectOp = derefInput.getDefiningOp<tosa::SelectOp>()) {
+    addressTensor = selectOp.getInput3(); // on_false = real addresses
+    addressMask = selectOp.getInput1();   // pred = mask
+  }
+
+  // Now check if addressTensor comes from an add
+  auto maybeAddOp = getDefiningOpSkipping<tosa::AddOp>(addressTensor, viewOps);
+  if (failed(maybeAddOp))
+    return failure();
+  auto addOp = maybeAddOp.value();
+
+  // The add should be: broadcast(pagePointers) + broadcast(iota)
+  // We need to find the page pointers (the one with shape [batch, blocks, 1])
+  Value lhs = addOp.getInput1();
+  Value rhs = addOp.getInput2();
+
+  // Helper to get the pre-broadcast source of a value
+  auto getPreBroadcastSource = [](Value v) -> Value {
+    if (auto transformOp = v.getDefiningOp<rock::TransformOp>())
+      return transformOp.getInput();
+    return v;
+  };
+
+  Value lhsSource = getPreBroadcastSource(lhs);
+  Value rhsSource = getPreBroadcastSource(rhs);
+
+  Value pagePointers = nullptr;
+  auto lhsType = cast<ShapedType>(lhsSource.getType());
+  auto rhsType = cast<ShapedType>(rhsSource.getType());
+
+  // Check which one has last dimension = 1 (page pointers)
+  // The page pointers tensor should have shape [batch, blocks, 1]
+  if (lhsType.getRank() == 3 && lhsType.getShape()[2] == 1)
+    pagePointers = lhsSource;
+  else if (rhsType.getRank() == 3 && rhsType.getShape()[2] == 1)
+    pagePointers = rhsSource;
+  else
+    return failure();
+
+  return PagedDerefMatchResult{pagePointers, addressMask};
+}
+
+class PagedDerefConverter final : public OpConversionPattern<tosa::CustomOp> {
+public:
+  using OpConversionPattern<tosa::CustomOp>::OpConversionPattern;
+
+  LogicalResult matchAndRewrite(tosa::CustomOp op,
+                                tosa::CustomOp::Adaptor adaptor,
+                                ConversionPatternRewriter &rw) const final {
+    // Check if this is a deref custom op
+    if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
+      return rw.notifyMatchFailure(op, "domain isn't rocmlir");
+    if (op.getOperatorName() != ROCK_CUSTOMOP_DEREF)
+      return rw.notifyMatchFailure(op, "operator_name isn't deref");
+    if (op.getNumOperands() != 1)
+      return rw.notifyMatchFailure(op, "deref must have exactly 1 operand");
+    if (op.getNumResults() != 1)
+      return rw.notifyMatchFailure(op, "deref must have exactly 1 result");
+
+    Location loc = op.getLoc();
+    Value input = adaptor.getInputList()[0];
+    RankedTensorType outputType = cast<RankedTensorType>(op.getType(0));
+
+    // Try to match the paged attention pattern
+    FailureOr<PagedDerefMatchResult> matchResult =
+        matchPagedDerefInputPattern(input);
+    if (failed(matchResult))
+      return rw.notifyMatchFailure(op,
+                                   "input doesn't match paged deref pattern");
+
+    Value pagePointers = matchResult->pagePointers;
+    Value addressMask = matchResult->addressMask;
+
+    // Create the rock.paged_deref op
+    Value result = rock::PagedDerefOp::create(rw, loc, outputType, pagePointers,
+                                              addressMask);
+    rw.replaceOp(op, result);
+    return success();
+  }
+};
+
 } // namespace
 
 void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ForwardConvConverter<tosa::Conv2DOp>,
                ForwardConvConverter<tosa::Conv3DOp>, BackwardConvConverter,
-               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(
-      context);
+               MatMulConverter, ReduceSumConverter, ReduceMaxConverter,
+               PagedDerefConverter>(context);
 }
 
 void tosa::populateTosaToRockAttentionConversionPatterns(
