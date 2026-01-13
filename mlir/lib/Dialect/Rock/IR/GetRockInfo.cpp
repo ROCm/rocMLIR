@@ -86,7 +86,6 @@ static FailureOr<StringAttr> getArchInternal(Operation *op) {
 }
 
 StringAttr mlir::rock::getArchValue(Operation *op) {
-  // llvm::errs() << "getArchValue\n";
   auto maybeArch = getArchInternal(op);
   if (failed(maybeArch))
     llvm_unreachable("No 'arch' attribute on kernel");

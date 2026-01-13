@@ -764,8 +764,6 @@ static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo,
                                      GemmFeaturesAttr featuresAttr,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
-  // GemmFeatures features = archInfo.getFeaturesFromAttr(featuresAttr);
-  // llvm::errs() << "verifyGemmTypes: " << features << "\n";
   bool isGfx11 = arch.contains("gfx11");
   bool isGfx1250 = arch.contains("gfx1250");
   bool isRdna4 = arch.contains("gfx12") && !isGfx1250;
@@ -849,7 +847,6 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
   StringAttr arch = rock::getArchValue(gemmOp);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   GemmFeaturesAttr featuresAttr = gemmOp.getGemmFeaturesAttr();
-  llvm::errs() << "arch: " << arch << "\n";
 
   return verifyGemmTypes(gemmOp, archInfo, featuresAttr, arch, elemTypeA,
                          elemTypeB, elemTypeC);
@@ -1202,8 +1199,6 @@ LogicalResult GemmOp::verify() {
     return emitOpError(
         "general gemm kernels shouldn't have derived block size.");
   }
-
-  llvm::errs() << "verifyGemmTypes 1\n";
 
   RockGemmWrapperInterface gemmIfaceOp =
       cast<RockGemmWrapperInterface>(this->getOperation());

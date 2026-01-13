@@ -436,9 +436,6 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
           llvm::dbgs()
           << "Disabling mfma accel for Float4E2M1FN or Float8E8M0FNU type: "
           << elementType << "\n");
-      llvm::errs()
-          << "Disabling mfma accel for Float4E2M1FN or Float8E8M0FNU type: "
-          << elementType << "\n";
     }
   }
   return theseFeatures;

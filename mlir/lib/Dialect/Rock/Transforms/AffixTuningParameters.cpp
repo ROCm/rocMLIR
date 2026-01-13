@@ -182,7 +182,6 @@ void AffixTuningParameters::setUtilityKernelSizes(Value arg, T utilityOp) {
 
 void AffixTuningParameters::affixTuningParametersImpl(
     RockGemmWrapperInterface op) {
-  llvm::errs() << "affixTuningParametersImpl 1\n";
   OpBuilder b(op.getContext());
   auto funcParent = op->getParentOfType<func::FuncOp>();
   std::string perfConfig;
@@ -195,13 +194,11 @@ void AffixTuningParameters::affixTuningParametersImpl(
   if (failed(maybeScheduleVersion))
     return signalPassFailure();
 
-  llvm::errs() << "affixTuningParametersImpl 2\n";
   std::optional<int64_t> scheduleVersion = maybeScheduleVersion.value();
 
   StringRef archStr = rock::getArchValue(op);
   rock::AmdArchInfo archInfo2 = rock::lookupArchInfo(archStr);
   if (archInfo2.isAccel(op)) {
-    llvm::errs() << "affixTuningParametersImpl 2.5\n";
     // Get features for PopulateParamsAccel::select - this still needs features
     // TODO: Refactor PopulateParamsAccel::select to use archInfo instead
     GemmFeatures features = archInfo2.defaultFeatures;
@@ -264,8 +261,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
       }
     }
 
-    llvm::errs() << "affixTuningParametersImpl 4\n";
-
     // Set kblocks attribute only for backward weight convolutions.
     if (auto bwdOp = dyn_cast<ConvBwdWeightOp>(op.getOperation()))
       bwdOp->setAttr(bwdOp.getKBlocksAttrName(), b.getIndexAttr(gemmKBlocks));
@@ -300,7 +295,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
                             b.getI32IntegerAttr(validParams.getBlockSize()));
   }
 
-  llvm::errs() << "affixTuningParametersImpl 5\n";
   // check for fusion legality with SplitK for both accel and non-accel path
   // this check should happen after perfConfig is picked either through
   // heuristics or user provided
