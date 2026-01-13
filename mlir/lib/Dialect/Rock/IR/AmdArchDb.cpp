@@ -521,14 +521,19 @@ mlir::rock::AmdArchInfo::getFeaturesFromAttr(ArrayRef<Type> types,
                                              GemmFeaturesAttr featuresAttr) {
   LLVM_DEBUG(llvm::dbgs() << "getFeaturesFromAttr: types=" << types
                           << ", featuresAttr=" << featuresAttr << "\n");
-  // Start with default features, then clear any disabled features from the
-  // attribute. The featuresAttr now indicates which features are disabled.
-  GemmFeatures defaultFeatures = getDefaultFeatures(types);
-  if (featuresAttr) {
-    // Clear all features that are set in featuresAttr (disabled features)
-    return defaultFeatures & ~featuresAttr.getValue();
-  }
-  return defaultFeatures;
+  // The attribute has precedence over the types. If it is present, use it.
+  // Otherwise, use the default features.
+  if (featuresAttr)
+    return featuresAttr.getValue();
+  return getDefaultFeatures(types);
+}
+
+bool mlir::rock::AmdArchInfo::isAccelEnabled(GemmFeaturesAttr featuresAttr) {
+  // GemmFeatures features = getFeaturesFromAttr({}, featuresAttr);
+  // LLVM_DEBUG(llvm::dbgs() << "isAccelEnabled: features=" << features <<
+  // "\n"); return bitEnumContainsAny(features, GemmFeatures::wmma |
+  // GemmFeatures::mfma);
+  llvm_unreachable("isAccelEnabled: not implemented");
 }
 
 bool mlir::rock::AmdArchInfo::isAccel(Type dataTypeA, Type dataTypeB,

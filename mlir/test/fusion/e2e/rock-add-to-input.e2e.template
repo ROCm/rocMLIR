@@ -12,7 +12,7 @@ module attributes {{mhal.arch = "##ARCH##"}} {{
       %1 = arith.addf %arg3, %cst : {type}
       linalg.yield %1 : {type}
     }}
-    rock.gemm %arg2 = %0 * %arg1 storeMethod = set {{arch = "##ARCH##"}} : !unit = !unit * !unit
+    rock.gemm %arg2 = %0 * %arg1 features = none storeMethod = set {{arch = "##ARCH##"}} : !unit = !unit * !unit
     return
   }}
 }}

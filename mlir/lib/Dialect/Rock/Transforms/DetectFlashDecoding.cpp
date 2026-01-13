@@ -418,7 +418,7 @@ struct DetectFlashDecodingPattern : public OpRewritePattern<AttentionOp> {
         op.getNumHeadsKVAttr(), op.getQTransposedAttr(),
         op.getKTransposedAttr(), op.getVTransposedAttr(),
         op.getOTransposedAttr(), op.getCausalAttr(),
-        rewriter.getI32IntegerAttr(splitKVFromQ), op.getDisabledFeaturesAttr(),
+        rewriter.getI32IntegerAttr(splitKVFromQ), op.getFeaturesAttr(),
         op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(), op.getParams0Attr(),
         op.getParams1Attr(), op.getFirstGemmIndicesAttr(),
         /*preSoftmaxHasSplitKVTransforms=*/rewriter.getBoolAttr(true));

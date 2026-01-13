@@ -73,7 +73,7 @@
 // CHECK-NEXT: linalg.yield %{{.*}} : f32
 // CHECK-NEXT: }
 // CHECK: rock.gemm
-// CHECK-SAME: storeMethod = set
+// CHECK-SAME: features = {{.*}} storeMethod = set
 // CHECK: return
 
 // CHECK-LABEL: func.func @rock_gemm_ver_gpu

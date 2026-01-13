@@ -152,7 +152,7 @@ void AffixTuningParameters::runOnOperation() {
                          return features == allFeatures[0];
                        }) &&
            "All features in func should be identical");
-    func->setAttr("disabledFeatures",
+    func->setAttr("features",
                   rock::GemmFeaturesAttr::get(&getContext(), allFeatures[0]));
   }
 }

@@ -28,6 +28,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
     // CHECK-NOT: ldsTransposeEnabled
     rock.gridwise_gemm_accel(%a, %b, %c)
       storeMethod(set)
+      features = mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b
       {blockSize = 1024 : i32, gridSize = 1 : i32, params = #params_16}
       : memref<1x32x64xf16>, memref<1x32x64xf16>, memref<1x64x64xf16>
     return
@@ -48,6 +49,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
     // CHECK-NOT: ldsTransposeEnabled
     rock.gridwise_gemm_accel(%a, %b, %c)
       storeMethod(set)
+      features = mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b
       {blockSize = 512 : i32, gridSize = 1 : i32, params = #params_8}
       : memref<1x32x64xf16>, memref<1x32x64xf16>, memref<1x64x64xf16>
     return

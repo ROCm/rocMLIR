@@ -11,7 +11,7 @@ module {
     %2 = rock.transform %arg1 by <affine_map<(d0, d1, d2, d3, d4) -> (d0, d1 * 3 + d2, d3, d4)> by [<PassThrough ["n", "h", "w"] at [0, 3, 4] -> ["n", "h", "w"] at [0, 2, 3]>, <Unmerge{1, 3} ["g", "c"] at [1, 2] -> ["c"] at [1]>] bounds = [256, 1, 3, 230, 230] -> [256, 3, 230, 230]> : memref<256x1x3x230x230xf32> to memref<256x1x3x230x230xf32>  
     %3 = rock.transform %arg0 by <affine_map<(d0, d1, d2, d3, d4) -> (d0 * 64 + d1, d2, d3, d4)> by [<PassThrough ["c", "y", "x"] at [2, 3, 4] -> ["c", "y", "x"] at [1, 2, 3]>, <Unmerge{1, 64} ["g", "k"] at [0, 1] -> ["k"] at [0]>] bounds = [1, 64, 3, 7, 7] -> [64, 3, 7, 7]> : memref<1x64x3x7x7xf32> to memref<1x64x3x7x7xf32>  
     %4 = rock.transform %alloc by <affine_map<(d0, d1, d2, d3, d4) -> (d0, d1 * 64 + d2, d3, d4)> by [<PassThrough ["n", "h", "w"] at [0, 3, 4] -> ["n", "h", "w"] at [0, 2, 3]>, <Unmerge{1, 64} ["g", "k"] at [1, 2] -> ["k"] at [1]>] bounds = [256, 1, 64, 112, 112] -> [256, 64, 112, 112]> : memref<256x1x64x112x112xf32> to memref<256x1x64x112x112xf32>  
-    rock.conv_bwd_data(%3, %2, %4) {  
+    rock.conv_bwd_data(%3, %2, %4) features = mfma|dot|atomic_add|atomic_add_f16 {  
       arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-",   
       kernelId = 1 : index,  
       dilations = [1 : index, 1 : index],   

@@ -76,7 +76,7 @@ func.func @rock_scaled_gemm(%a : memref<32x64xf4E2M1FN>, %b : memref<1x32x128xf4
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
-  rock.gemm %c = tr %a scaled by tr %scaleA * %b scaled by %scaleB storeMethod = set
+  rock.gemm %c = tr %a scaled by tr %scaleA * %b scaled by %scaleB features = none storeMethod = set
   : memref<64x128xf32> = memref<32x64xf4E2M1FN> scaled by memref<32x64xf8E8M0FNU> * memref<1x32x128xf4E2M1FN> scaled by memref<1x32x128xf8E8M0FNU>
   func.return
 }
@@ -143,7 +143,7 @@ func.func @rock_gridwise_scaled_gemm_accel(%A : memref<2x1024x1024xf4E2M1FN>, %B
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
-  rock.gridwise_gemm_accel(%A, %B, %C, %scaleA, %scaleB) storeMethod (set) {
+  rock.gridwise_gemm_accel(%A, %B, %C, %scaleA, %scaleB) storeMethod (set) features = none {
     blockSize = 256 : i32,
     gridSize = 1 : i32,
     params = #rock.accel_gemm_params<
@@ -270,7 +270,7 @@ func.func @rock_blockwise_gemm_accel(%bufferA : memref<4xvector<8xf8E4M3FN>, #gp
   // expected-remark @below {{found an instance of 'write' on op operand 2, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 0, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
-  rock.blockwise_gemm_accel %matrixC += %bufferA * %bufferB {
+  rock.blockwise_gemm_accel %matrixC += %bufferA * %bufferB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f8E4M3FN, elementTypeLoad = f8E4M3FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
@@ -306,7 +306,7 @@ func.func @rock_blockwise_gemm_accel_lds(%matrixA : memref<1024xvector<8xf8E4M3F
   // expected-remark @below {{found an instance of 'write' on op operand 0, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 1, on resource '<Default>'}}
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f8E4M3FN, elementTypeLoad = f8E4M3FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
@@ -353,7 +353,7 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
   // expected-remark @below {{found an instance of 'write' on op operand 1, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 6, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'write' on op operand 8, on resource '<Default>'}}
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA scaled by %bufferScaleA from %matrixScaleA * %bufferB from %matrixB scaled by %bufferScaleB from %matrixScaleB {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA scaled by %bufferScaleA from %matrixScaleA * %bufferB from %matrixB scaled by %bufferScaleB from %matrixScaleB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
@@ -427,7 +427,7 @@ func.func @rock_threadwise_gemm_accel_scaled(%matrixA : memref<1x4xvector<4xf4E2
   // expected-remark @below {{found an instance of 'read' on op operand 1, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 3, on resource '<Default>'}}
   // expected-remark @below {{found an instance of 'read' on op operand 4, on resource '<Default>'}}
-  rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] {
+  rock.threadwise_gemm_accel %matrixC += %matrixA scaled by %scaleA * %matrixB scaled by %scaleB at [%c0, %c0, %c0] features = mfma{
     arch = "amdgcn-amd-amdhsa:gfx950",
     params = #rock.accel_gemm_params<
       mPerBlock = 256,

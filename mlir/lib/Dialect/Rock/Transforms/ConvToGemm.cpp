@@ -727,7 +727,7 @@ backwardWeightAtomicAdd(ConvBwdWeightOp op, PatternRewriter &b) {
                  gemmFilter, /*scaleA=*/nullptr, /*scaleB=*/nullptr,
                  /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                  /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-                 /*bScaleTransposed=*/nullptr, op.getDisabledFeaturesAttr(),
+                 /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
                  storeMethod, op.getDerivedBlockSizeAttr(),
                  op.getGridSizeAttr(), op.getParamsAttr());
 
@@ -1091,7 +1091,7 @@ FailureOr<std::tuple<Value, Value, Value>> backwardDataV4R1(ConvBwdDataOp op,
       /*scaleA=*/nullptr, /*scaleB=*/nullptr,
       /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
       /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-      /*bScaleTransposed=*/nullptr, op.getDisabledFeaturesAttr(), storeMethod,
+      /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(), storeMethod,
       op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
   // Bounced along for debugging purposes, not used below
   gemm->setAttr("kernelId", b.getIndexAttr(kernelId));
@@ -1171,7 +1171,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
     }
 
     if (ConvOpType::BwdWeight == convOpType &&
-        archInfo.isWrWAtomicKernel(op.getDisabledFeaturesAttr(), dataType,
+        archInfo.isWrWAtomicKernel(op.getFeaturesAttr(), dataType,
                                    maybeGemmExtraPad.has_value())) {
       return backwardWeightAtomicAdd(cast<ConvBwdWeightOp>(op), b);
     }
@@ -1395,9 +1395,9 @@ struct ConvGemmRewritePattern : public OpRewritePattern<ConvElementwiseGemmOp> {
         b, loc, op->getResultTypes(), gemmInput, gemmFilter, op.getC(),
         op.getElemwiseInputs(), op.getOut(),
         /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
-        op.getCTransposedAttr(), op.getOTransposedAttr(),
-        op.getDisabledFeaturesAttr(), op.getStoreMethodAttr(),
-        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr());
+        op.getCTransposedAttr(), op.getOTransposedAttr(), op.getFeaturesAttr(),
+        op.getStoreMethodAttr(), op.getParams0Attr(), op.getParams1Attr(),
+        op.getFirstGemmIndicesAttr());
 
     // copy linalg::GenericOp if there's any
     bool linalgOpFound = false;
@@ -1453,7 +1453,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
                    /*scaleA=*/nullptr, /*scaleB=*/nullptr,
                    /*aTransposed=*/b.getUnitAttr(), /*bTransposed=*/nullptr,
                    /*cTransposed=*/nullptr, /*aScaleTransposed=*/nullptr,
-                   /*bScaleTransposed=*/nullptr, op.getDisabledFeaturesAttr(),
+                   /*bScaleTransposed=*/nullptr, op.getFeaturesAttr(),
                    storeMethod, op.getDerivedBlockSizeAttr(),
                    op.getGridSizeAttr(), tuningParams);
 

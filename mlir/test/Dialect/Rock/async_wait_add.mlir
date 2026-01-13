@@ -1,5 +1,5 @@
 // RUN: rocmlir-opt --rock-add-async-wait --split-input-file --verify-diagnostics %s | FileCheck %s
-func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf16>, %arg2: memref<3145728xbf16>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, grid_size = 768 : i32, kernel, arch = "gfx950:sramecc+:xnack-", num_cu = 256 : i64} {
+func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf16>, %arg2: memref<3145728xbf16>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 768 : i32, kernel, arch = "gfx950:sramecc+:xnack-", num_cu = 256 : i64} {
   %c11 = arith.constant 11 : index
   %c2 = arith.constant 2 : index
   %c10 = arith.constant 10 : index
@@ -121,7 +121,7 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
         %115 = rock.transform %subview_19 by <affine_map<(d0, d1) -> (d1)> by [<AddDim{1} ["j"] at [0] -> [] at []>, <PassThrough ["k"] at [1] -> ["k"] at [0]>] bounds = [1, 4] -> [4]> : memref<4xvector<8xbf16>, strided<[1], offset: ?>, #gpu.address_space<private>> to memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
         affine.for %arg6 = 0 to 4 {
           %116 = rock.transform %27 by <affine_map<(d0, d1) -> (d0 + d1)> by [<Unmerge{1, 1} ["i", "j"] at [0, 1] -> ["offset"] at [0]>] bounds = [1, 1] -> [1]> : memref<1xvector<16xf32>, #gpu.address_space<private>> to memref<1x1xvector<16xf32>, #gpu.address_space<private>>
-          rock.threadwise_gemm_accel %116 += %112 * %115 at[%arg4, %arg5, %arg6] {params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 4, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xbf16>, #gpu.address_space<private>> * memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
+          rock.threadwise_gemm_accel %116 += %112 * %115 at[%arg4, %arg5, %arg6] features =  mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b {params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 4, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xbf16>, #gpu.address_space<private>> * memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
         }
       }
     }
@@ -169,7 +169,7 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
       %83 = rock.transform %subview_15 by <affine_map<(d0, d1) -> (d1)> by [<AddDim{1} ["j"] at [0] -> [] at []>, <PassThrough ["k"] at [1] -> ["k"] at [0]>] bounds = [1, 4] -> [4]> : memref<4xvector<8xbf16>, strided<[1], offset: ?>, #gpu.address_space<private>> to memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
       affine.for %arg5 = 0 to 4 {
         %84 = rock.transform %27 by <affine_map<(d0, d1) -> (d0 + d1)> by [<Unmerge{1, 1} ["i", "j"] at [0, 1] -> ["offset"] at [0]>] bounds = [1, 1] -> [1]> : memref<1xvector<16xf32>, #gpu.address_space<private>> to memref<1x1xvector<16xf32>, #gpu.address_space<private>>
-        rock.threadwise_gemm_accel %84 += %80 * %83 at[%arg3, %arg4, %arg5] {params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 4, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xbf16>, #gpu.address_space<private>> * memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
+        rock.threadwise_gemm_accel %84 += %80 * %83 at[%arg3, %arg4, %arg5] features =  mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b {params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 4, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xbf16>, #gpu.address_space<private>> * memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
       }
     }
   }
@@ -211,7 +211,7 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
       %83 = rock.transform %subview_15 by <affine_map<(d0, d1) -> (d1)> by [<AddDim{1} ["j"] at [0] -> [] at []>, <PassThrough ["k"] at [1] -> ["k"] at [0]>] bounds = [1, 4] -> [4]> : memref<4xvector<8xbf16>, strided<[1], offset: ?>, #gpu.address_space<private>> to memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
       affine.for %arg5 = 0 to 4 {
         %84 = rock.transform %27 by <affine_map<(d0, d1) -> (d0 + d1)> by [<Unmerge{1, 1} ["i", "j"] at [0, 1] -> ["offset"] at [0]>] bounds = [1, 1] -> [1]> : memref<1xvector<16xf32>, #gpu.address_space<private>> to memref<1x1xvector<16xf32>, #gpu.address_space<private>>
-        rock.threadwise_gemm_accel %84 += %80 * %83 at[%arg3, %arg4, %arg5] {params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 4, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xbf16>, #gpu.address_space<private>> * memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
+        rock.threadwise_gemm_accel %84 += %80 * %83 at[%arg3, %arg4, %arg5] features =  mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b {params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 4, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xbf16>, #gpu.address_space<private>> * memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
       }
     }
   }  
@@ -221,7 +221,7 @@ func.func @gemm_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf
 
 // -----
 
-func.func @gemm_no_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf16>, %arg2: memref<3145728xbf16>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, grid_size = 768 : i32, kernel, arch = "gfx950:sramecc+:xnack-", num_cu = 256 : i64} {
+func.func @gemm_no_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296xbf16>, %arg2: memref<3145728xbf16>) attributes {block_size = 256 : i32, enable_splitk_for_tuning, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 768 : i32, kernel, arch = "gfx950:sramecc+:xnack-", num_cu = 256 : i64} {
   %c1 = arith.constant 1 : index
   %c12 = arith.constant 12 : index
   %cst = arith.constant dense<0.000000e+00> : vector<16xf32>
@@ -306,7 +306,7 @@ func.func @gemm_no_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296
           %51 = rock.transform %50 by <affine_map<(d0, d1) -> (d1)> by [<AddDim{1} ["i"] at [0] -> [] at []>, <PassThrough ["k"] at [1] -> ["k"] at [0]>] bounds = [1, 4] -> [4]> : memref<4xvector<8xbf16>, #gpu.address_space<private>> to memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
           %52 = rock.extract_multibuffer(%view_5) [%arg5](memref<4xvector<8xbf16>, #gpu.address_space<private>>) : memref<4xvector<8xbf16>, #gpu.address_space<private>>
           %53 = rock.transform %52 by <affine_map<(d0, d1) -> (d1)> by [<AddDim{1} ["j"] at [0] -> [] at []>, <PassThrough ["k"] at [1] -> ["k"] at [0]>] bounds = [1, 4] -> [4]> : memref<4xvector<8xbf16>, #gpu.address_space<private>> to memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
-          rock.threadwise_gemm_accel %49 += %51 * %53 at[%arg4, %arg5, %arg6] {params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 3, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xbf16>, #gpu.address_space<private>> * memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
+          rock.threadwise_gemm_accel %49 += %51 * %53 at[%arg4, %arg5, %arg6] features =  mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b {params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 8, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 3, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>} : memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x4xvector<8xbf16>, #gpu.address_space<private>> * memref<1x4xvector<8xbf16>, #gpu.address_space<private>>
         }
       }
     }
@@ -317,7 +317,7 @@ func.func @gemm_no_pipelining(%arg0: memref<2359296xbf16>, %arg1: memref<2359296
 
 // -----
 
-func.func @async_wait_simple_test(%arg0: memref<4x256xf32>, %arg1: memref<4x256xf32>, %arg2: memref<4x256xf32>, %arg3: memref<4x256xf32>) attributes {arch = "gfx950:sramecc+:xnack-", block_size = 256 : i32, grid_size = 1 : i32, kernel, num_cu = 256 : i64} {
+func.func @async_wait_simple_test(%arg0: memref<4x256xf32>, %arg1: memref<4x256xf32>, %arg2: memref<4x256xf32>, %arg3: memref<4x256xf32>) attributes {arch = "gfx950:sramecc+:xnack-", block_size = 256 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 1 : i32, kernel, num_cu = 256 : i64} {
   %tid = rock.workitem_id : index
   %1 = rock.alloc() : memref<1x256xf32, #gpu.address_space<workgroup>>
   %2 = rock.alloc() : memref<1x256xf32, #gpu.address_space<workgroup>>
@@ -349,7 +349,7 @@ func.func @async_wait_simple_test(%arg0: memref<4x256xf32>, %arg1: memref<4x256x
 
 // -----
 
-func.func @async_wait_error(%arg0: memref<4x256xf32>, %arg1: memref<4x256xf32>, %arg2: memref<4x256xf32>, %arg3: memref<4x256xf32>) attributes {arch = "gfx950:sramecc+:xnack-", block_size = 256 : i32, grid_size = 1 : i32, kernel, num_cu = 256 : i64} {
+func.func @async_wait_error(%arg0: memref<4x256xf32>, %arg1: memref<4x256xf32>, %arg2: memref<4x256xf32>, %arg3: memref<4x256xf32>) attributes {arch = "gfx950:sramecc+:xnack-", block_size = 256 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 1 : i32, kernel, num_cu = 256 : i64} {
   %tid = rock.workitem_id : index
   %1 = rock.alloc() : memref<1x256xf32, #gpu.address_space<workgroup>>
   

@@ -70,7 +70,7 @@ module {
   // CHECK: scf.if %[[MASK_COND]]
   // CHECK:   rock.in_bounds_store %{{.*}} -> %{{.*}}
 
-  func.func @mlir_attention(%arg0: memref<1xi32>, %arg1: memref<4608xf16>, %arg2: memref<2048xf16>, %arg3: memref<14336xf16>, %arg4: memref<3584xf16>) attributes {arch = "gfx950", block_size = 64 : i32, grid_size = 14 : i32, kernel} {
+  func.func @mlir_attention(%arg0: memref<1xi32>, %arg1: memref<4608xf16>, %arg2: memref<2048xf16>, %arg3: memref<14336xf16>, %arg4: memref<3584xf16>) attributes {arch = "gfx950", block_size = 64 : i32, features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b>, grid_size = 14 : i32, kernel} {
     %cst = arith.constant 1.250000e-01 : f16
     %0 = rock.transform %arg2 by #transform_map : memref<2048xf16> to memref<1x2x1x16x64xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<4608xf16> to memref<1x4x18x64xf16>

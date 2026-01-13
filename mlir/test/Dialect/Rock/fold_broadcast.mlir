@@ -20,7 +20,7 @@ func.func @mlir_dot_add_1(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
   // CHECK: %[[foldC:.*]] = rock.transform %[[alloc]] by {{.*}} : tensor<4x8x32xf16> to tensor<32x32xf16>
   // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] * %[[unbroadcastB]] {{.*}} : tensor<32x32xf16> = tensor<32x16xf16> * tensor<16x32xf16>
   // CHECK: %[[untransform:.*]] = rock.tensor_untransform_cast %[[gemmOut]] aka %[[foldC]] : tensor<32x32xf16> to tensor<4x8x32xf16>
-  %5 = rock.gemm %4 = %arg1 * %3 storeMethod =  set : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
+  %5 = rock.gemm %4 = %arg1 * %3 features =  none storeMethod =  set : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
   %6 = tensor.empty() : tensor<4x8x32xf16>
   // CHECK: linalg.generic {{.*}} ins(%[[untransform]], {{.*}}, {{.*}})
   %7 = linalg.generic {indexing_maps = [#map3, #map3, #map3], iterator_types = ["parallel", "parallel", "parallel"]} ins(%5, %1 : tensor<4x8x32xf16>, tensor<4x8x32xf16>) outs(%6 : tensor<4x8x32xf16>) {
@@ -50,9 +50,9 @@ func.func @mlir_dot_add_2(%arg0: tensor<8x32x1xf16>, %arg1: tensor<4x8x16xf16>, 
   // CHECK: %[[foldA:.*]] = rock.transform %arg1 by {{.*}} : tensor<4x8x16xf16> to tensor<32x16xf16>
   // CHECK: %[[unbroadcastB:.*]] = rock.transform {{.*}} by {{.*}} : tensor<4x16x32xf16> to tensor<16x32xf16>
   // CHECK: %[[foldC:.*]] = rock.transform %[[alloc]] by {{.*}} : tensor<4x8x32xf16> to tensor<32x32xf16>
-  // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] * %[[unbroadcastB]] storeMethod =  set {perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<32x32xf16> = tensor<32x16xf16> * tensor<16x32xf16>
+  // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[foldA]] * %[[unbroadcastB]] features =  none storeMethod =  set {perf_config = "v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<32x32xf16> = tensor<32x16xf16> * tensor<16x32xf16>
   // CHECK: %[[untransform:.*]] = rock.tensor_untransform_cast %[[gemmOut]] aka %[[foldC]] : tensor<32x32xf16> to tensor<4x8x32xf16>
-  %5 = rock.gemm %4 = %arg1 * %p storeMethod =  set {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
+  %5 = rock.gemm %4 = %arg1 * %p features =  none storeMethod =  set {perf_config="v3:16,32,4,16,16,4,4,1,2,1,1"} : tensor<4x8x32xf16> = tensor<4x8x16xf16> * tensor<4x16x32xf16> -> tensor<4x8x32xf16>
   %6 = tensor.empty() : tensor<4x8x32xf16>
   // CHECK: linalg.generic {{.*}} ins(%[[untransform]], {{.*}}, {{.*}})
   %7 = linalg.generic {indexing_maps = [#map3, #map3, #map3], iterator_types = ["parallel", "parallel", "parallel"]} ins(%5, %1 : tensor<4x8x32xf16>, tensor<4x8x32xf16>) outs(%6 : tensor<4x8x32xf16>) {
@@ -105,7 +105,7 @@ func.func @mlir_dot_broadcastA(%arg0: tensor<1x2x3xf16>, %arg1: tensor<3x3x4xf16
   // CHECK: %[[gemmOut:.*]] = rock.gemm %[[foldC]] = %[[unbroadcastA]] * %[[foldB]] {{.*}} : tensor<2x12xf16> = tensor<2x3xf16> * tensor<3x12xf16>
   %0 = rock.transform %arg0 by #transform_map10 : tensor<1x2x3xf16> to tensor<3x2x3xf16>
   %1 = bufferization.alloc_tensor() : tensor<3x2x4xf16>
-  %2 = rock.gemm %1 = %0 * %arg1 storeMethod =  set : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
+  %2 = rock.gemm %1 = %0 * %arg1 features =  none storeMethod =  set : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
   return %2 : tensor<3x2x4xf16>
 }
 
@@ -119,7 +119,7 @@ func.func @mlir_dot_both_broadcast(%arg0: tensor<1x2x3xf16>, %arg1: tensor<1x3x4
   %0 = rock.transform %arg0 by #transform_map10 : tensor<1x2x3xf16> to tensor<3x2x3xf16>
   %1 = rock.transform %arg1 by #transform_map11 : tensor<1x3x4xf16> to tensor<3x3x4xf16>
   %2 = bufferization.alloc_tensor() : tensor<3x2x4xf16>
-  %3 = rock.gemm %2 = %0 * %1 storeMethod =  set : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
+  %3 = rock.gemm %2 = %0 * %1 features =  none storeMethod =  set : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
   return %3 : tensor<3x2x4xf16>
 }
 
@@ -134,7 +134,7 @@ func.func @mlir_dot_broadcastA_addDim(%arg0: tensor<6xf16>, %arg1: tensor<3x3x4x
   %0 = rock.transform %arg0 by #transform_map12 : tensor<6xf16> to tensor<1x2x3xf16>
   %1 = rock.transform %0 by #transform_map10 : tensor<1x2x3xf16> to tensor<3x2x3xf16>
   %2 = bufferization.alloc_tensor() : tensor<3x2x4xf16>
-  %3 = rock.gemm %2 = %1 * %arg1 storeMethod =  set : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
+  %3 = rock.gemm %2 = %1 * %arg1 features =  none storeMethod =  set : tensor<3x2x4xf16> = tensor<3x2x3xf16> * tensor<3x3x4xf16> -> tensor<3x2x4xf16>
   return %3 : tensor<3x2x4xf16>
 }
 
@@ -152,7 +152,7 @@ func.func @mlir_dot_scaled_broadcastB(%arg0: tensor<4x8x16xf4E2M1FN>, %arg1: ten
   %0 = rock.transform %arg1 by #transform_map3 : tensor<1x16x32xf4E2M1FN> to tensor<4x16x32xf4E2M1FN>
   %1 = rock.transform %scaleB by #transform_map3 : tensor<1x16x32xf8E8M0FNU> to tensor<4x16x32xf8E8M0FNU>
   %2 = bufferization.alloc_tensor() : tensor<4x8x32xf16>
-  %3 = rock.gemm %2 = %arg0 scaled by %scaleA * %0 scaled by %1 storeMethod =  set : 
+  %3 = rock.gemm %2 = %arg0 scaled by %scaleA * %0 scaled by %1 features =  none storeMethod =  set : 
        tensor<4x8x32xf16> = tensor<4x8x16xf4E2M1FN> scaled by tensor<4x8x16xf8E8M0FNU> * tensor<4x16x32xf4E2M1FN> scaled by tensor<4x16x32xf8E8M0FNU> -> tensor<4x8x32xf16>
   return %3 : tensor<4x8x32xf16>
 }
@@ -173,7 +173,7 @@ func.func @mlir_dot_scaled_broadcastA(%arg0: tensor<1x2x3xf4E2M1FN>, %arg1: tens
   %0 = rock.transform %arg0 by #transform_map10 : tensor<1x2x3xf4E2M1FN> to tensor<3x2x3xf4E2M1FN>
   %1 = rock.transform %scaleA by #transform_map10 : tensor<1x2x3xf8E8M0FNU> to tensor<3x2x3xf8E8M0FNU>
   %2 = bufferization.alloc_tensor() : tensor<3x2x4xf16>
-  %3 = rock.gemm %2 = %0 scaled by %1 * %arg1 scaled by %scaleB storeMethod =  set : 
+  %3 = rock.gemm %2 = %0 scaled by %1 * %arg1 scaled by %scaleB features =  none storeMethod =  set : 
        tensor<3x2x4xf16> = tensor<3x2x3xf4E2M1FN> scaled by tensor<3x2x3xf8E8M0FNU> * tensor<3x3x4xf4E2M1FN> scaled by tensor<3x3x4xf8E8M0FNU> -> tensor<3x2x4xf16>
   return %3 : tensor<3x2x4xf16>
 }

@@ -21,6 +21,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
 
     rock.gridwise_gemm_accel(%a, %b, %c)
       storeMethod(set)
+      features = mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b
       {blockSize = 256 : i32, gridSize = 1 : i32, params = #params}
       : memref<1x16x64xf16>, memref<1x16x64xf16>, memref<1x64x64xf16>
     return
@@ -53,6 +54,7 @@ module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx950"} {
 
     rock.gridwise_gemm_accel(%a, %b, %c)
       storeMethod(set)
+      features = mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b
       {blockSize = 256 : i32, gridSize = 1 : i32, params = #params_double}
       : memref<1x32x64xf16>, memref<1x32x64xf16>, memref<1x64x64xf16>
     return

@@ -273,8 +273,7 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
-  AmdArchInfo archInfo = lookupArchInfo(config.arch);
-  if (rock::isAccel(archInfo.defaultFeatures)) {
+  if (rock::isAccel(config.features)) {
     bool needExtraPad = false;
     if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
       return failure();
@@ -368,10 +367,8 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*batchSize=*/convDims.n,
                           /*numCU=*/getNumCU()};
 
-  AmdArchInfo archInfo = lookupArchInfo(config.arch);
-  if (rock::isAccel(archInfo.defaultFeatures)) {
-    auto populateParamsAccelPtr =
-        PopulateParamsAccel::select(archInfo.defaultFeatures);
+  if (rock::isAccel(config.features)) {
+    auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
     AccelGemmParamsAttr validParams;
     auto res = populateParamsAccelPtr->obtainTuningParameters(
         builder, info, config.perfConfig, validParams);
@@ -404,15 +401,11 @@ LogicalResult ConvGenerator::hasWorkspace(OpBuilder &builder,
   // - use XDLOPS.
   // - No need to pad along Gemm M/N/K dimension.
 
-  llvm::errs() << "hasWorkspace: config.features=" << config.features << "\n";
-
   needWorkspace = false;
   if (config.operation.has_value()) {
     Type dataType = getInputDataType(builder);
     ConvOpType dir = config.operation.value();
-    AmdArchInfo archInfo = lookupArchInfo(config.arch);
-    if ((dir == ConvOpType::BwdWeight) &&
-        rock::isAccel(archInfo.defaultFeatures) &&
+    if ((dir == ConvOpType::BwdWeight) && rock::isAccel(config.features) &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       bool needPadding = false;
@@ -932,7 +925,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
   // features
   GemmFeaturesAttr features =
       builder.getAttr<GemmFeaturesAttr>(config.features);
-  attributes.push_back(builder.getNamedAttr("disabledFeatures", features));
+  attributes.push_back(builder.getNamedAttr("features", features));
 
   SmallVector<int64_t, 8> paddingArray;
   for (const auto &[left, right] :
@@ -1002,8 +995,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
 
     bool needsZeroInit = false;
     bool needExtraPad = false;
-    AmdArchInfo archInfo = lookupArchInfo(config.arch);
-    if (rock::isAccel(archInfo.defaultFeatures) &&
+    if (rock::isAccel(config.features) &&
         succeeded(needExtraPadBwdWeight(builder, needExtraPad))) {
       if (!needExtraPad) {
         auto dataType = getInputDataType(builder);

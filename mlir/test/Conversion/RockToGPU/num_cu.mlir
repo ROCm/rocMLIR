@@ -15,7 +15,7 @@
 // CHECK-SAME: rocdl.waves_per_eu = 2 : i32
 // CHECK-SAME: rock.shared_buffer_size = 256 : i32
 module {
-  func.func @misckernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>) attributes {block_size = 128 : i32, enable_splitk_for_tuning, grid_size = 256 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100", num_cu = 96 : i64} {
+  func.func @misckernel(%arg0: memref<?xf32>, %arg1: memref<?xf32>) attributes {block_size = 128 : i32, enable_splitk_for_tuning, features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, grid_size = 256 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100", num_cu = 96 : i64} {
     %lds = rock.alloc() : memref<64xf32, #gpu.address_space<workgroup>>
     
     // CHECK: gpu.barrier

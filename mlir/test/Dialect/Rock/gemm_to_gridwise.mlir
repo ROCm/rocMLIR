@@ -18,7 +18,7 @@
 // CHECK-SAME: grid_size = 4
 func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx906"} {
   // CHECK-NEXT: rock.gridwise_gemm %[[c]] = %[[a]] * %[[b]]
-  rock.gemm %c = tr %a * %b storeMethod = set {
+  rock.gemm %c = tr %a * %b features = none storeMethod = set {
     gridSize = 4 : i32,
     params = #general_gemm_params0
   } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
@@ -31,7 +31,7 @@ func.func @gemm_easy_case_from_conv(%a: memref<1x72x128xf32>, %b: memref<1x72x51
 func.func @gemm_splitk(%a: memref<1x72x128xf32>, %b: memref<1x72x512xf32>, %c: memref<1x128x512xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx1100"} {
   // CHECK: rock.gridwise_gemm
   // CHECK-SAME: storeMethod( atomic_add)
-  rock.gemm %c = tr %a * %b storeMethod = set {
+  rock.gemm %c = tr %a * %b features = atomic_add storeMethod = set {
     gridSize = 4 : i32,
     params = #general_gemm_params_splitk
   } : memref<1x128x512xf32> = memref<1x72x128xf32> * memref<1x72x512xf32>
@@ -59,7 +59,7 @@ func.func @gemm_most_general_padding_case(%a: memref<1x1x1xf32>, %b: memref<1x1x
   // CHECK-DAG: %[[padB:.*]] = rock.transform %[[b]] by {{.*}} : memref<1x1x1xf32> to memref<1x16x64xf32{{.*}}>
   // CHECK-DAG: %[[padC:.*]] = rock.transform %[[c]] by {{.*}} : memref<1x1x1xf32> to memref<1x64x64xf32{{.*}}>
   // CHECK: rock.gridwise_gemm %[[padC]] = %[[padA]] * %[[padB]]
-  rock.gemm %c = tr %a * %b storeMethod = set {
+  rock.gemm %c = tr %a * %b features = none storeMethod = set {
     gridSize = 1 : i32,
     params = #general_gemm_params1
   } : memref<1x1x1xf32> = memref<1x1x1xf32> * memref<1x1x1xf32>
@@ -74,7 +74,7 @@ func.func @gemm_in_standard_form(%a: memref<128x72xf32>, %b: memref<72x512xf32>,
   // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] by {{.*}} : memref<72x512xf32> to memref<1x72x512xf32{{.*}}>
   // CHECK-DAG: %[[normalizeC:.*]] = rock.transform %[[c]] by {{.*}} : memref<128x512xf32> to memref<1x128x512xf32{{.*}}>
   // CHECK: rock.gridwise_gemm %[[normalizeC]] = %[[normalizeA]] * %[[normalizeB]]
-  rock.gemm %c = %a * %b storeMethod = set {
+  rock.gemm %c = %a * %b features = none storeMethod = set {
     gridSize = 4 : i32,
     params = #general_gemm_params0
   } : memref<128x512xf32> = memref<128x72xf32> * memref<72x512xf32>
@@ -89,7 +89,7 @@ func.func @gemm_transposed_from_gridwise(%a: memref<1x128x72xf32>, %b: memref<1x
   // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] {{.*}} : memref<1x512x72xf32> to memref<1x72x512xf32{{.*}}>
   // CHECK-DAG: %[[normalizeC:.*]] = rock.transform %[[c]] {{.*}} : memref<1x512x128xf32> to memref<1x128x512xf32{{.*}}>
   // CHECK: rock.gridwise_gemm %[[normalizeC]] = %[[normalizeA]] * %[[normalizeB]]
-  rock.gemm tr %c = %a * tr %b storeMethod = set {
+  rock.gemm tr %c = %a * tr %b features = none storeMethod = set {
     gridSize = 4 : i32,
     params = #general_gemm_params0
   } : memref<1x512x128xf32> = memref<1x128x72xf32> * memref<1x512x72xf32>
@@ -552,7 +552,7 @@ func.func @rock_attention_gqa(%arg0: memref<64x1x128xf16>, %arg1: memref<8x128x8
       rock.yield
     }
      %arg4 = softmax(qk) * %arg2 : memref<8x8192x128xf16> -> memref<256x1x128xf16>
-  } {firstGemmIndices = array<i64: 0>, numHeadsKV = 8 : i32, numHeadsQ = 64 : i32, params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll  = true>, params1 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll  = true>, softmaxType = f32, splitKV = 4 : i32, storeMethod = #rock<StoreMethod set>}
+  } {features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, firstGemmIndices = array<i64: 0>, numHeadsKV = 8 : i32, numHeadsQ = 64 : i32, params0 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll  = true>, params1 = #rock.accel_gemm_params<kpackPerBlock = 32, mPerBlock = 32, nPerBlock = 32, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll  = true>, softmaxType = f32, splitKV = 4 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
@@ -566,7 +566,7 @@ func.func @rock_attention_gqa(%arg0: memref<64x1x128xf16>, %arg1: memref<8x128x8
 func.func @gemm_scaled_fp4_already_f8e8m0(%a: memref<1x72x128xf4E2M1FN>, %b: memref<1x72x512xf4E2M1FN>, %c: memref<1x128x512xf32>, %scaleA: memref<1x128x72xf8E8M0FNU>, %scaleB: memref<1x72x512xf8E8M0FNU>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
   // CHECK: %[[normalizeScaleA:.*]] = rock.transform %[[scaleA]] by {{.*}} : memref<1x128x72xf8E8M0FNU> to memref<1x72x128xf8E8M0FNU{{.*}}>
   // CHECK: rock.gridwise_gemm_accel(%[[a]], %[[b]], %[[c]], %[[normalizeScaleA]], %[[scaleB]])
-  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB storeMethod = set {
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 16 : i32,
     params = #xdlops_gemm_params0
@@ -584,7 +584,7 @@ func.func @gemm_scaled_fp4_with_padding(%a: memref<1x1x1xf4E2M1FN>, %b: memref<1
   // CHECK-DAG: %[[padScaleA:.*]] = rock.transform %[[scaleA]] by {{.*}} : memref<1x1x1xf8E8M0FNU> to memref<1x8x64xf8E8M0FNU{{.*}}>
   // CHECK-DAG: %[[padScaleB:.*]] = rock.transform %[[scaleB]] by {{.*}} : memref<1x1x1xf8E8M0FNU> to memref<1x8x64xf8E8M0FNU{{.*}}>
   // CHECK: rock.gridwise_gemm_accel(%[[padA]], %[[padB]], %[[padC]], %[[padScaleA]], %[[padScaleB]])
-  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB storeMethod = set {
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 1 : i32,
     params = #xdlops_gemm_params0
@@ -600,7 +600,7 @@ func.func @gemm_scaled_fp4_transposed(%a: memref<1x128x72xf4E2M1FN>, %b: memref<
   // CHECK-DAG: %[[normalizeB:.*]] = rock.transform %[[b]] {{.*}} : memref<1x512x72xf4E2M1FN> to memref<1x72x512xf4E2M1FN{{.*}}>
   // CHECK-DAG: %[[normalizeC:.*]] = rock.transform %[[c]] {{.*}} : memref<1x512x128xf32> to memref<1x128x512xf32{{.*}}>
   // CHECK: rock.gridwise_gemm_accel(%[[normalizeA]], %[[normalizeB]], %[[normalizeC]], %[[scaleA]], %[[scaleB]])
-  rock.gemm tr %c = %a scaled by tr %scaleA * tr %b scaled by %scaleB storeMethod = set {
+  rock.gemm tr %c = %a scaled by tr %scaleA * tr %b scaled by %scaleB features = mfma storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 16 : i32,
     params = #xdlops_gemm_params0
@@ -620,7 +620,7 @@ func.func @gemm_scaled_fp4_with_f32_scales(%a: memref<1x72x128xf4E2M1FN>, %b: me
   // CHECK: %[[allocScaleB:.*]] = memref.alloc() : memref<1x72x512xf8E8M0FNU>
   // CHECK: linalg.generic {{{.*}}} ins(%[[scaleB]] : memref<1x72x512xf32>) outs(%[[allocScaleB]] : memref<1x72x512xf8E8M0FNU>)
   // CHECK: rock.gridwise_gemm_accel(%[[a]], %[[b]], %[[c]], %[[allocScaleA]], %[[allocScaleB]])
-  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB storeMethod = set {
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 16 : i32,
     params = #xdlops_gemm_params0
@@ -655,8 +655,8 @@ func.func @gemm_scaled_fp4_splitk(%a: memref<1x72x128xf4E2M1FN>, %b: memref<1x72
   // CHECK-DAG: rock.transform %[[c]] by {{.*}} : memref<1x128x512xf32> to memref<1x2x128x512xf32>
   // CHECK-DAG: rock.transform {{.*}} : memref<1x2x128x512xf32> to memref<2x128x512xf32>
   
-  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod( atomic_add) {{.*}} : memref<2x48x128xf4E2M1FN>, memref<2x48x512xf4E2M1FN>, memref<2x128x512xf32>, memref<2x48x128xf8E8M0FNU>, memref<2x48x512xf8E8M0FNU>
-  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB storeMethod = set {
+  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod( atomic_add) features =  mfma {{.*}} : memref<2x48x128xf4E2M1FN>, memref<2x48x512xf4E2M1FN>, memref<2x128x512xf32>, memref<2x48x128xf8E8M0FNU>, memref<2x48x512xf8E8M0FNU>
+  rock.gemm %c = tr %a scaled by %scaleA * %b scaled by %scaleB features = mfma storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 16 : i32,
     params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 64, kpack = 1, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, forceUnroll = true, splitKFactor = 2, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0>
@@ -712,7 +712,7 @@ func.func @gemm_scaled_fp4_splitk_odd(%arg0: memref<589824xf4E2M1FN>, %arg1: mem
   // CHECK-DAG: rock.transform {{.*}} : memref<15x160x256xf8E8M0FNU> to memref<15x512x256xf8E8M0FNU>
   // CHECK-DAG: rock.transform {{.*}} : memref<15x160x256xf8E8M0FNU> to memref<15x512x256xf8E8M0FNU>
   
-  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod( atomic_add) {{.*}} : memref<15x512x256xf4E2M1FN>, memref<15x512x256xf4E2M1FN>, memref<15x256x256xf32>, memref<15x512x256xf8E8M0FNU>, memref<15x512x256xf8E8M0FNU>
+  // CHECK: rock.gridwise_gemm_accel({{.*}}, {{.*}}, {{.*}}, {{.*}}, {{.*}}) storeMethod( atomic_add) features =  mfma {{.*}} : memref<15x512x256xf4E2M1FN>, memref<15x512x256xf4E2M1FN>, memref<15x256x256xf32>, memref<15x512x256xf8E8M0FNU>, memref<15x512x256xf8E8M0FNU>
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> ((d0 * 256 + d1) * 768 + d2)> by [<Unmerge{3, 256, 768} ["g", "m", "k"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 256, 768] -> [589824]> : memref<589824xf4E2M1FN> to memref<3x256x768xf4E2M1FN>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 768 + d1) * 256 + d2)> by [<Unmerge{3, 768, 256} ["g", "k", "n"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 768, 256] -> [589824]> : memref<589824xf4E2M1FN> to memref<3x768x256xf4E2M1FN>
   %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 256 + d1) * 256 + d2)> by [<Unmerge{3, 256, 256} ["g", "m", "n"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [3, 256, 256] -> [196608]> : memref<196608xf32> to memref<3x256x256xf32>
@@ -724,7 +724,7 @@ func.func @gemm_scaled_fp4_splitk_odd(%arg0: memref<589824xf4E2M1FN>, %arg1: mem
   %8 = rock.transform %4 by <affine_map<(d0, d1, d2, d3) -> (d0, d1, d3)> by [<AddDim{1} ["block"] at [2] -> [] at []>, <PassThrough ["g", "kScale", "n"] at [0, 1, 3] -> ["g", "kScale", "n"] at [0, 1, 2]>] bounds = [3, 24, 1, 256] -> [3, 24, 256]> : memref<3x24x256xf8E8M0FNU> to memref<3x24x1x256xf8E8M0FNU>
   %9 = rock.transform %8 by <affine_map<(d0, d1, d2, d3) -> (d0, d1, 0, d3)> by [<Broadcast{1} ["block"] at [2] -> ["block"] at [2]>, <PassThrough ["g", "kScale", "n"] at [0, 1, 3] -> ["g", "kScale", "n"] at [0, 1, 3]>] bounds = [3, 24, 32, 256] -> [3, 24, 1, 256]> : memref<3x24x1x256xf8E8M0FNU> to memref<3x24x32x256xf8E8M0FNU>
   %10 = rock.transform %9 by <affine_map<(d0, d1, d2) -> (d0, d1 floordiv 32, d1 mod 32, d2)> by [<PassThrough ["g", "n"] at [0, 2] -> ["g", "n"] at [0, 3]>, <Merge{24, 32} ["k"] at [1] -> ["kScale", "block"] at [1, 2]>] bounds = [3, 768, 256] -> [3, 24, 32, 256]> : memref<3x24x32x256xf8E8M0FNU> to memref<3x768x256xf8E8M0FNU>
-  rock.gemm %2 = %0 scaled by %7 * %1 scaled by %10 storeMethod = set {
+  rock.gemm %2 = %0 scaled by %7 * %1 scaled by %10 features = mfma storeMethod = set {
     derivedBlockSize = 256 : i32,
     gridSize = 12 : i32,
     params = #rock.accel_gemm_params<kpackPerBlock = 16, mPerBlock = 64, nPerBlock = 64, kpack = 32, mPerWave = 32, nPerWave = 32, mnPerXdl = 32, forceUnroll = true, splitKFactor = 5, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0>

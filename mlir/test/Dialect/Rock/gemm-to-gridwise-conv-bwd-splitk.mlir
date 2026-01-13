@@ -12,7 +12,7 @@ module attributes {mhal.arch = "##TOKEN_ARCH##"} {
     %0 = rock.transform %arg0 by #transform_map : memref<4608xf16> to memref<1x24x12x4x4xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<1728xf16> to memref<1x1x12x12x12xf16>
     %2 = rock.transform %arg2 by #transform_map2 : memref<864xf16> to memref<1x1x24x6x6xf16>
-    rock.conv_bwd_data(%0, %1, %2) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [1 : index, 1 : index, 1 : index, 1 : index], perf_config = "v3:32,64,8,32,32,4,4,1,2,1,1", strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x24x12x4x4xf16>, memref<1x1x12x12x12xf16>, memref<1x1x24x6x6xf16>
+    rock.conv_bwd_data(%0, %1, %2) features =  mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [1 : index, 1 : index, 1 : index, 1 : index], perf_config = "v3:32,64,8,32,32,4,4,1,2,1,1", strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x24x12x4x4xf16>, memref<1x1x12x12x12xf16>, memref<1x1x24x6x6xf16>
     return
   }
   // CHECK-NOT: @rock_conv_bwd_data_gkc01_ngc01_ngk01_1(%arg0 {{{.*}}rock.prefill = 0.000000e+00 : f16
@@ -20,7 +20,7 @@ module attributes {mhal.arch = "##TOKEN_ARCH##"} {
     %0 = rock.transform %arg0 by #transform_map : memref<4608xf16> to memref<1x24x12x4x4xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<1728xf16> to memref<1x1x12x12x12xf16>
     %2 = rock.transform %arg2 by #transform_map2 : memref<864xf16> to memref<1x1x24x6x6xf16>
-    rock.conv_bwd_data(%0, %1, %2) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 1 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [1 : index, 1 : index, 1 : index, 1 : index], perf_config = "v3:32,64,8,32,32,4,4,1,2,1,1", strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x24x12x4x4xf16>, memref<1x1x12x12x12xf16>, memref<1x1x24x6x6xf16>
+    rock.conv_bwd_data(%0, %1, %2) features =  mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 1 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [1 : index, 1 : index, 1 : index, 1 : index], perf_config = "v3:32,64,8,32,32,4,4,1,2,1,1", strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x24x12x4x4xf16>, memref<1x1x12x12x12xf16>, memref<1x1x24x6x6xf16>
     return
   }
   // CHECK-NOT: @rock_conv_bwd_data_gkc01_ngc01_ngk01_2(%arg0 {{{.*}}rock.prefill = 0.000000e+00 : f16
@@ -28,7 +28,7 @@ module attributes {mhal.arch = "##TOKEN_ARCH##"} {
     %0 = rock.transform %arg0 by #transform_map : memref<4608xf16> to memref<1x24x12x4x4xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<1728xf16> to memref<1x1x12x12x12xf16>
     %2 = rock.transform %arg2 by #transform_map2 : memref<864xf16> to memref<1x1x24x6x6xf16>
-    rock.conv_bwd_data(%0, %1, %2) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 2 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [1 : index, 1 : index, 1 : index, 1 : index], perf_config = "v3:32,64,8,32,32,4,4,1,2,1,1", strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x24x12x4x4xf16>, memref<1x1x12x12x12xf16>, memref<1x1x24x6x6xf16>
+    rock.conv_bwd_data(%0, %1, %2) features =  mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 2 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [1 : index, 1 : index, 1 : index, 1 : index], perf_config = "v3:32,64,8,32,32,4,4,1,2,1,1", strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x24x12x4x4xf16>, memref<1x1x12x12x12xf16>, memref<1x1x24x6x6xf16>
     return
   }
   // CHECK-NOT: @rock_conv_bwd_data_gkc01_ngc01_ngk01_3(%arg0 {{{.*}}rock.prefill = 0.000000e+00 : f16
@@ -36,7 +36,7 @@ module attributes {mhal.arch = "##TOKEN_ARCH##"} {
     %0 = rock.transform %arg0 by #transform_map : memref<4608xf16> to memref<1x24x12x4x4xf16>
     %1 = rock.transform %arg1 by #transform_map1 : memref<1728xf16> to memref<1x1x12x12x12xf16>
     %2 = rock.transform %arg2 by #transform_map2 : memref<864xf16> to memref<1x1x24x6x6xf16>
-    rock.conv_bwd_data(%0, %1, %2) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 3 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [1 : index, 1 : index, 1 : index, 1 : index], perf_config = "v3:32,64,8,32,32,4,4,1,2,1,1", strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x24x12x4x4xf16>, memref<1x1x12x12x12xf16>, memref<1x1x24x6x6xf16>
+    rock.conv_bwd_data(%0, %1, %2) features =  mfma|dot|atomic_add|atomic_add_bf16|atomic_add_f16|direct_to_lds_32b|direct_to_lds_128b {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 3 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [1 : index, 1 : index, 1 : index, 1 : index], perf_config = "v3:32,64,8,32,32,4,4,1,2,1,1", strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x24x12x4x4xf16>, memref<1x1x12x12x12xf16>, memref<1x1x24x6x6xf16>
     return
   }
 }

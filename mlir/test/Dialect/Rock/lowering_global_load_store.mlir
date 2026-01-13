@@ -248,7 +248,7 @@ func.func @store_scalar_oob_large(%source: memref<5xf32, #gpu.address_space<priv
 
 // CHECK-LABEL: func.func @add_scalar_in_bounds
 // CHECK-SAME: (%[[source:.*]]: memref<5xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf32>)
-func.func @add_scalar_in_bounds(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>) attributes {} {
+func.func @add_scalar_in_bounds(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>) attributes {features = #rock<GemmFeatures atomic_add>} {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
@@ -263,7 +263,7 @@ func.func @add_scalar_in_bounds(%source: memref<5xf32, #gpu.address_space<privat
 
 // CHECK-LABEL: func.func @add_scalar_oob
 // CHECK-SAME: (%[[source:.*]]: memref<5xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf32>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @add_scalar_oob(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>, %idx: index, %valid: i1) attributes {} {
+func.func @add_scalar_oob(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_add>} {
     %c0 = arith.constant 0 : index
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]
@@ -277,7 +277,7 @@ func.func @add_scalar_oob(%source: memref<5xf32, #gpu.address_space<private>>, %
 
 // CHECK-LABEL: func.func @add_scalar_oob_fp16
 // CHECK-SAME: (%[[source:.*]]: memref<5xf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @add_scalar_oob_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf16>, %idx: index, %valid: i1) attributes {} {
+func.func @add_scalar_oob_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf16>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_add_f16>} {
     %c0 = arith.constant 0 : index
     // CHECK: %[[mod:.*]] = arith.remui
     // CHECK: %[[cmp:.*]] = arith.cmpi ne, %[[mod]]
@@ -291,7 +291,7 @@ func.func @add_scalar_oob_fp16(%source: memref<5xf16, #gpu.address_space<private
 
 // CHECK-LABEL: func.func @add_scalar_oob_bf16
 // CHECK-SAME: (%[[source:.*]]: memref<5xbf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xbf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @add_scalar_oob_bf16(%source: memref<5xbf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xbf16>, %idx: index, %valid: i1) attributes {} {
+func.func @add_scalar_oob_bf16(%source: memref<5xbf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xbf16>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_add_bf16>} {
     %c0 = arith.constant 0 : index
     // CHECK: %[[mod:.*]] = arith.remui
     // CHECK: %[[cmp:.*]] = arith.cmpi ne, %[[mod]]
@@ -305,7 +305,7 @@ func.func @add_scalar_oob_bf16(%source: memref<5xbf16, #gpu.address_space<privat
 
 // CHECK-LABEL:  func.func @add_scalar_last_dim_odd_fp16
 // CHECK-SAME  (%[[source:.*]]: memref<5xf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x16x15xf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @add_scalar_last_dim_odd_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x16x15xf16>, %idx: index, %valid: i1) attributes {} {
+func.func @add_scalar_last_dim_odd_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x16x15xf16>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_add_f16>} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     // CHECK: %[[c16:.*]] = arith.constant 16 : i32
@@ -332,7 +332,7 @@ func.func @add_scalar_last_dim_odd_fp16(%source: memref<5xf16, #gpu.address_spac
 
 // CHECK-LABEL:  func.func @add_scalar_last_dim_odd_bf16
 // CHECK-SAME  (%[[source:.*]]: memref<5xbf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x16x15xbf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @add_scalar_last_dim_odd_bf16(%source: memref<5xbf16, #gpu.address_space<private>>, %mem: memref<1x16x15xbf16>, %idx: index, %valid: i1) attributes {} {
+func.func @add_scalar_last_dim_odd_bf16(%source: memref<5xbf16, #gpu.address_space<private>>, %mem: memref<1x16x15xbf16>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_add_bf16>} {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
     // CHECK: %[[c16:.*]] = arith.constant 16 : i32
@@ -359,7 +359,7 @@ func.func @add_scalar_last_dim_odd_bf16(%source: memref<5xbf16, #gpu.address_spa
 
 // CHECK-LABEL:  func.func @add_scalar_all_dims_odd_fp16
 // CHECK-SAME:  (%[[source:.*]]: memref<5xf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x15x15xf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @add_scalar_all_dims_odd_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x15x15xf16>, %idx: index, %valid: i1) attributes {} {
+func.func @add_scalar_all_dims_odd_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x15x15xf16>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_add_f16>} {
     // CHECK: %[[c224:.*]] = arith.constant 224 : i32
     // CHECK: %[[notlastelem:.*]] = arith.cmpi ult, {{.*}}, %[[c224]] : i32
     // CHECK: scf.if %[[notlastelem]]
@@ -376,7 +376,7 @@ func.func @add_scalar_all_dims_odd_fp16(%source: memref<5xf16, #gpu.address_spac
 
 // CHECK-LABEL:  func.func @add_scalar_all_dims_odd_bf16
 // CHECK-SAME:  (%[[source:.*]]: memref<5xbf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x15x15xbf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @add_scalar_all_dims_odd_bf16(%source: memref<5xbf16, #gpu.address_space<private>>, %mem: memref<1x15x15xbf16>, %idx: index, %valid: i1) attributes {} {
+func.func @add_scalar_all_dims_odd_bf16(%source: memref<5xbf16, #gpu.address_space<private>>, %mem: memref<1x15x15xbf16>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_add_bf16>} {
     // CHECK: %[[c224:.*]] = arith.constant 224 : i32
     // CHECK: %[[notlastelem:.*]] = arith.cmpi ult, {{.*}}, %[[c224]] : i32
     // CHECK: scf.if %[[notlastelem]]
@@ -393,7 +393,7 @@ func.func @add_scalar_all_dims_odd_bf16(%source: memref<5xbf16, #gpu.address_spa
 
 // CHECK-LABEL: func.func @add_packed_oob_fp16
 // CHECK-SAME: (%[[source:.*]]: memref<5xf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @add_packed_oob_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf16>, %idx: index, %valid: i1) attributes {} {
+func.func @add_packed_oob_fp16(%source: memref<5xf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf16>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_add_f16>} {
     %c0 = arith.constant 0 : index
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]
@@ -407,7 +407,7 @@ func.func @add_packed_oob_fp16(%source: memref<5xf16, #gpu.address_space<private
 
 // CHECK-LABEL: func.func @add_packed_oob_bf16
 // CHECK-SAME: (%[[source:.*]]: memref<5xbf16, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xbf16>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @add_packed_oob_bf16(%source: memref<5xbf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xbf16>, %idx: index, %valid: i1) attributes {} {
+func.func @add_packed_oob_bf16(%source: memref<5xbf16, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xbf16>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_add_bf16>} {
     %c0 = arith.constant 0 : index
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]
@@ -420,7 +420,7 @@ func.func @add_packed_oob_bf16(%source: memref<5xbf16, #gpu.address_space<privat
 }
 
 // CHECK-LABEL: func.func @add_vector_in_bounds
-func.func @add_vector_in_bounds(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>) attributes {} {
+func.func @add_vector_in_bounds(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>) attributes {features = #rock<GemmFeatures atomic_add>} {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     // CHECK-5: amdgpu.raw_buffer_atomic_fadd
@@ -432,7 +432,7 @@ func.func @add_vector_in_bounds(%source: memref<5xf32, #gpu.address_space<privat
 
 // CHECK-LABEL: func.func @add_scalar_to_scalar_valid
 // CHECK-SAME: (%[[source:.*]]: memref<1xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<f32>)
-func.func @add_scalar_to_scalar_valid(%source: memref<1xf32, #gpu.address_space<private>>, %mem: memref<f32>) attributes {} {
+func.func @add_scalar_to_scalar_valid(%source: memref<1xf32, #gpu.address_space<private>>, %mem: memref<f32>) attributes {features = #rock<GemmFeatures atomic_add>} {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
@@ -448,7 +448,7 @@ func.func @add_scalar_to_scalar_valid(%source: memref<1xf32, #gpu.address_space<
 
 // CHECK-LABEL: func.func @add_scalar_to_scalar_maybe_valid
 // CHECK-SAME: (%[[source:.*]]: memref<1xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<f32>, %[[valid:.*]]: i1)
-func.func @add_scalar_to_scalar_maybe_valid(%source: memref<1xf32, #gpu.address_space<private>>, %mem: memref<f32>, %valid: i1) attributes {} {
+func.func @add_scalar_to_scalar_maybe_valid(%source: memref<1xf32, #gpu.address_space<private>>, %mem: memref<f32>, %valid: i1) attributes {features = #rock<GemmFeatures atomic_add>} {
     %c0 = arith.constant 0 : index
     // CHECK-DAG: %[[val:.*]] = memref.load %[[source]]
     // CHECK-DAG: %[[exp:.*]] = memref.expand_shape %[[mem]] []
@@ -461,7 +461,7 @@ func.func @add_scalar_to_scalar_maybe_valid(%source: memref<1xf32, #gpu.address_
 
 // CHECK-LABEL: func.func @native_fmax_scalar_in_bounds
 // CHECK-SAME: (%[[source:.*]]: memref<5xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf32>)
-func.func @native_fmax_scalar_in_bounds(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>) attributes {} {
+func.func @native_fmax_scalar_in_bounds(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>) attributes {features = #rock<GemmFeatures atomic_fmax_f32>} {
     %c0 = arith.constant 0 : index
     %true = arith.constant true
     // CHECK-DAG: %[[cast:.*]] = memref.memory_space_cast %[[mem]]
@@ -476,7 +476,7 @@ func.func @native_fmax_scalar_in_bounds(%source: memref<5xf32, #gpu.address_spac
 
 // CHECK-LABEL: func.func @native_fmax_scalar_oob
 // CHECK-SAME: (%[[source:.*]]: memref<5xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf32>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @native_fmax_scalar_oob(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>, %idx: index, %valid: i1) attributes {} {
+func.func @native_fmax_scalar_oob(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_fmax_f32>} {
     %c0 = arith.constant 0 : index
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]
@@ -505,7 +505,7 @@ func.func @emulated_fmax_scalar_in_bounds(%source: memref<5xf32, #gpu.address_sp
 
 // CHECK-LABEL: func.func @emulated_fmax_scalar_oob
 // CHECK-SAME: (%[[source:.*]]: memref<5xf32, #gpu.address_space<private>>, %[[mem:.*]]: memref<1x2x3x4x8xf32>, %[[idx:.*]]: index, %[[valid:.*]]: i1)
-func.func @emulated_fmax_scalar_oob(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>, %idx: index, %valid: i1) attributes {} {
+func.func @emulated_fmax_scalar_oob(%source: memref<5xf32, #gpu.address_space<private>>, %mem: memref<1x2x3x4x8xf32>, %idx: index, %valid: i1) attributes {features = #rock<GemmFeatures atomic_fmax_f32>} {
     %c0 = arith.constant 0 : index
     // CHECK-DAG: %[[c192:.*]] = arith.constant 192
     // CHECK-DAG: arith.select %[[valid]], %[[idx]], %[[c192]]

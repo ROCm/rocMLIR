@@ -214,8 +214,9 @@ func.func @scaled_gemm_fp4_basic(%arg0: memref<1x512x16xf4E2M1FN>, %arg1: memref
   // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<256xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
   
   // 12. Verify blockwise_gemm_accel is called with scaled operands
-  // CHECK: rock.blockwise_gemm_accel {{.*}} scaled by {{.*}} from {{.*}} * {{.*}} scaled by {{.*}} from {{.*}} 
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %scaleA, %scaleB) storeMethod( set) {blockSize = 64 : i32, gridSize = 1 : i32, params = #xdlops_gemm_params_scaled} : memref<1x512x16xf4E2M1FN>, memref<1x512x16xf4E2M1FN>, memref<1x16x16xf32>, memref<1x512x16xf8E8M0FNU>, memref<1x512x16xf8E8M0FNU>
+  // CHECK: rock.blockwise_gemm_accel {{.*}} scaled by {{.*}} from {{.*}} * {{.*}} scaled by {{.*}} from {{.*}} features = mfma
+  
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %scaleA, %scaleB) storeMethod( set) features =  mfma {blockSize = 64 : i32, gridSize = 1 : i32, params = #xdlops_gemm_params_scaled} : memref<1x512x16xf4E2M1FN>, memref<1x512x16xf4E2M1FN>, memref<1x16x16xf32>, memref<1x512x16xf8E8M0FNU>, memref<1x512x16xf8E8M0FNU>
   return
 }
 
@@ -268,8 +269,9 @@ func.func @scaled_gemm_fp4_larger(%arg0: memref<1x512x32xf4E2M1FN>, %arg1: memre
   // CHECK-DAG: rock.extract_multibuffer({{.*}}) {{.*}}: memref<{{[0-9]+}}xvector<32xf8E8M0FNU>, #gpu.address_space<workgroup>>
   
   // 10. Verify blockwise_gemm_accel with scaled operands
-  // CHECK: rock.blockwise_gemm_accel {{.*}} scaled by {{.*}} from {{.*}} * {{.*}} scaled by {{.*}} from {{.*}} 
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %scaleA, %scaleB) storeMethod( set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #xdlops_gemm_params_scaled2} : memref<1x512x32xf4E2M1FN>, memref<1x512x32xf4E2M1FN>, memref<1x32x32xf32>, memref<1x512x32xf8E8M0FNU>, memref<1x512x32xf8E8M0FNU>
+  // CHECK: rock.blockwise_gemm_accel {{.*}} scaled by {{.*}} from {{.*}} * {{.*}} scaled by {{.*}} from {{.*}} features = mfma
+  
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %scaleA, %scaleB) storeMethod( set) features =  mfma {blockSize = 256 : i32, gridSize = 1 : i32, params = #xdlops_gemm_params_scaled2} : memref<1x512x32xf4E2M1FN>, memref<1x512x32xf4E2M1FN>, memref<1x32x32xf32>, memref<1x512x32xf8E8M0FNU>, memref<1x512x32xf8E8M0FNU>
   return
 }
 

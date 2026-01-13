@@ -16,4 +16,4 @@
 // CHECK-NEXT: [[$Out:%.+]] = rock.transform [[arg2]]
 // CHECK-SAME: ["no", "ko", "0o", "1o"]
 // CHECK-SAME: ["go"]
-// CHECK-NEXT: rock.conv([[fil]], [[$In]], [[$Out]]) disabledFeatures = mfma|wmma|atomic_add|atomic_add_f16|atomic_fmax_f32 {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x128x8x3x3x[[$ITYPE]]>, memref<128x1x8x32x32x[[$ITYPE]]>, memref<128x1x128x30x30x[[$OTYPE]]>
+// CHECK-NEXT: rock.conv([[fil]], [[$In]], [[$Out]])  features = dot {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index]} : memref<1x128x8x3x3x[[$ITYPE]]>, memref<128x1x8x32x32x[[$ITYPE]]>, memref<128x1x128x30x30x[[$OTYPE]]>

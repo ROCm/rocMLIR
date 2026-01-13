@@ -3,7 +3,7 @@
 // NOSPLITK: fusible:0
 // SPLITK: fusible:0
 module {  
-  func.func @mlir_conv_bwd_data_add_relu(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>, %arg3: memref<64x1x1x1xf32>, %arg4: memref<256x1x64x112x112xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-"} {  
+  func.func @mlir_conv_bwd_data_add_relu(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>, %arg3: memref<64x1x1x1xf32>, %arg4: memref<256x1x64x112x112xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx908:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|atomic_fmax_f32>} {  
     %cst = arith.constant 0.000000e+00 : f32  
     %0 = rock.transform %arg3 by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3, d0)> by [<PassThrough ["dim3", "dim0", "dim1", "dim2"] at [0, 1, 2, 3] -> ["dim3", "dim0", "dim1", "dim2"] at [3, 0, 1, 2]>] bounds = [1, 64, 1, 1] -> [64, 1, 1, 1]> : memref<64x1x1x1xf32> to memref<1x64x1x1xf32>  
     %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d0, d1, 0, 0)> by [<PassThrough ["dim0"] at [0] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [1]>, <Broadcast{112} ["dim2"] at [2] -> ["dim2"] at [2]>, <Broadcast{112} ["dim3"] at [3] -> ["dim3"] at [3]>] bounds = [1, 64, 112, 112] -> [1, 64, 1, 1]> : memref<1x64x1x1xf32> to memref<1x64x112x112xf32>  

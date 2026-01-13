@@ -8,7 +8,7 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
                                                 %bufferA : memref<4xf32, #priv>, %bufferB : memref<4xf32, #priv>,
                                                 %matrixC : memref<4xvector<16xf32>, #priv>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx90a"} {
   // CHECK:  rock.threadwise_gemm_accel
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize= 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
@@ -34,7 +34,7 @@ func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<128xvector<8xi
                                                %bufferA : memref<1xvector<4xi8>, #priv>, %bufferB : memref<1xvector<4xi8>, #priv>,
                                                %matrixC : memref<1xvector<16xi32>, #priv>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx90a"} {
   // CHECK:  rock.threadwise_gemm_accel
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = i8, elementTypeLoad = i8, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
@@ -62,7 +62,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8(%matrixA : memref<1024xvector<8xf8E
                                           %bufferB : memref<4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>>,
                                           %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx942"} {
   // CHECK:  rock.threadwise_gemm_accel
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx942",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f8E4M3FNUZ, elementTypeLoad = f8E4M3FNUZ, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
@@ -90,7 +90,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp(%matrixA : memref<1024xvector<8
                                           %bufferB : memref<4xvector<8xf8E5M2>, #gpu.address_space<private>>,
                                           %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx950"} {
   // CHECK:  rock.threadwise_gemm_accel
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f8E4M3FN, elementTypeLoad = f8E4M3FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
@@ -120,7 +120,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp_double_buffer(%bufferA : memref
   // CHECK: affine.for {{.*}} = 0 to 2
   // CHECK-NOT: rock.threadwise_read_into
   // CHECK: rock.threadwise_gemm_accel
-  rock.blockwise_gemm_accel %matrixC += %bufferA * %bufferB {
+  rock.blockwise_gemm_accel %matrixC += %bufferA * %bufferB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f8E4M3FN, elementTypeLoad = f8E4M3FN, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 
@@ -160,7 +160,7 @@ func.func @rock_blockwise_gemm_accel_scaled_schedule_v2(
   // CHECK: rock.threadwise_gemm_accel {{.*}} += {{.*}} scaled by {{.*}} * {{.*}} scaled by {{.*}} features = {{.*}} : 
   // CHECK-SAME: memref<1x1xvector<16xf32>, #gpu.address_space<private>> += memref<1x8xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x8xvector<32xf8E8M0FNU>, #gpu.address_space<private>> * memref<1x8xvector<32xf4E2M1FN>, #gpu.address_space<private>> scaled by memref<1x8xvector<32xf8E8M0FNU>, #gpu.address_space<private>>
   rock.blockwise_gemm_accel %matrixC += %bufferA scaled by %bufferScaleA from %matrixScaleA
-                                      * %bufferB scaled by %bufferScaleB from %matrixScaleB {
+                                      * %bufferB scaled by %bufferScaleB from %matrixScaleB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950",
     blockSize = 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f4E2M1FN, elementTypeLoad = f4E2M1FN, rotateDWithK = false, swapThreadIterSubDims = true, LDSLayoutDxK = false, directToLDS = false, splitKAcrossThreadsFirst = false, g = 1, d = 32, inDPerThread = 2>, 
@@ -188,7 +188,7 @@ func.func @rock_blockwise_gemm_accel_direct_to_lds(%matrixA : memref<256xvector<
 
   %c0 = arith.constant 0 : index
   // CHECK:  rock.threadwise_gemm_accel
-  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB {
+  rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950:sramecc+:xnack-",
     blockSize= 256 : i32,
     matrixParamsA = #rock.blockwise_matrix_params<elementType = f32, elementTypeLoad = f32, rotateDWithK = false, swapThreadIterSubDims = false, LDSLayoutDxK = true, directToLDS = true, splitKAcrossThreadsFirst = false, g = 1, d = 64, inDPerThread = 2>, 

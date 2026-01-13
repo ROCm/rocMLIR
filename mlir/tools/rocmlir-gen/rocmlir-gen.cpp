@@ -5341,40 +5341,57 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
     }
     Type elemType = inputElemType;
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-    // Build list of disabled features from user input
-    rock::GemmFeatures disabledFeatures = rock::GemmFeatures::none;
+    rock::GemmFeatures enabledFeatures = archInfo.getDefaultFeatures(elemType);
     // toggle feature list according to llvm::cl::opt inputs
-    if (mfmaFeature == FeatureToggle::off)
-      disabledFeatures =
-          bitEnumSet(disabledFeatures, rock::GemmFeatures::mfma, true);
-    if (dotFeature == FeatureToggle::off)
-      disabledFeatures =
-          bitEnumSet(disabledFeatures, rock::GemmFeatures::dot, true);
-    if (atomicAddFeature == FeatureToggle::off)
-      disabledFeatures =
-          bitEnumSet(disabledFeatures, rock::GemmFeatures::atomic_add, true);
-    if (atomicAddF16Feature == FeatureToggle::off)
-      disabledFeatures = bitEnumSet(disabledFeatures,
-                                    rock::GemmFeatures::atomic_add_f16, true);
-    if (atomicAddBF16Feature == FeatureToggle::off)
-      disabledFeatures = bitEnumSet(disabledFeatures,
-                                    rock::GemmFeatures::atomic_add_bf16, true);
-    if (atomicFMaxF32Feature == FeatureToggle::off)
-      disabledFeatures = bitEnumSet(disabledFeatures,
-                                    rock::GemmFeatures::atomic_fmax_f32, true);
-    if (directToLDS32BFeature == FeatureToggle::off)
-      disabledFeatures = bitEnumSet(
-          disabledFeatures, rock::GemmFeatures::direct_to_lds_32b, true);
-    if (directToLDS128BFeature == FeatureToggle::off)
-      disabledFeatures = bitEnumSet(
-          disabledFeatures, rock::GemmFeatures::direct_to_lds_128b, true);
-    if (wmmaFeature == FeatureToggle::off)
-      disabledFeatures =
-          bitEnumSet(disabledFeatures, rock::GemmFeatures::wmma, true);
-    // Get enabled features: default features minus disabled features
-    rock::GemmFeatures defaultFeatures = archInfo.getDefaultFeatures(elemType);
+    if (mfmaFeature == FeatureToggle::infer) {
+      // Disable acceleration for mixed types
+      if (filterElemType.getIntOrFloatBitWidth() !=
+          inputElemType.getIntOrFloatBitWidth()) {
+        enabledFeatures =
+            bitEnumClear(enabledFeatures, rock::GemmFeatures::mfma);
+      }
+    } else
+      enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::mfma,
+                                   mfmaFeature == FeatureToggle::on);
+    if (dotFeature != FeatureToggle::infer)
+      enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::dot,
+                                   dotFeature == FeatureToggle::on);
+    if (atomicAddFeature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add,
+                     atomicAddFeature == FeatureToggle::on);
+    if (atomicAddF16Feature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add_f16,
+                     atomicAddF16Feature == FeatureToggle::on);
+    if (atomicAddBF16Feature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_add_bf16,
+                     atomicAddBF16Feature == FeatureToggle::on);
+    if (atomicFMaxF32Feature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::atomic_fmax_f32,
+                     atomicFMaxF32Feature == FeatureToggle::on);
+    if (directToLDS32BFeature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_32b,
+                     directToLDS32BFeature == FeatureToggle::on);
+    if (directToLDS128BFeature != FeatureToggle::infer)
+      enabledFeatures =
+          bitEnumSet(enabledFeatures, rock::GemmFeatures::direct_to_lds_128b,
+                     directToLDS128BFeature == FeatureToggle::on);
+
+    if (wmmaFeature == FeatureToggle::infer) {
+      // Disable acceleration for mixed types
+      if (filterElemType != inputElemType) {
+        enabledFeatures =
+            bitEnumClear(enabledFeatures, rock::GemmFeatures::wmma);
+      }
+    } else
+      enabledFeatures = bitEnumSet(enabledFeatures, rock::GemmFeatures::wmma,
+                                   wmmaFeature == FeatureToggle::on);
     genParams.operation = operation;
-    genParams.features = disabledFeatures;
+    genParams.features = enabledFeatures;
     genParams.arch = arch;
     genParams.perfConfig = perfConfig;
     if (isGemm) {
@@ -5473,8 +5490,7 @@ static void generateKernel(MLIRContext *context, GenParams &genParams,
           numChiplets.getNumOccurrences()
               ? std::optional<int>(numChiplets.getValue())
               : std::nullopt,
-          disabledFeatures,
-          rock::convOpTypeFromKernelType(operation.getValue()),
+          enabledFeatures, rock::convOpTypeFromKernelType(operation.getValue()),
           filterDataType.getValue(), inputDataType.getValue(),
           outputDataType.getValue(), dilations, strides, paddingLeft,
           paddingRight, filterLayout.getValue(), inputLayout.getValue(),

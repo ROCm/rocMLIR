@@ -43,8 +43,8 @@
 // TRC-SAME:   tr %[[c]] =
 // NOTRA-SAME: %[[a]] *
 // TRA-SAME:   tr %[[a]] *
-// NOTRB-SAME: %[[b]] storeMethod = set
-// TRB-SAME:   tr %[[b]] storeMethod = set
+// NOTRB-SAME: %[[b]] features = {{.*}} storeMethod = set
+// TRB-SAME:   tr %[[b]] features = {{.*}} storeMethod = set
 // CHECK-SAME arch = "[[$ARCH]]"
 // CHECK-NEXT: return
 

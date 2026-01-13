@@ -37,7 +37,7 @@
 #transform_map14 = #rock.transform_map<#map15 by [<Merge{2, 32, 1, 1} ["dim0"] at [0] -> ["col0", "col1", "col2", "col3"] at [0, 1, 2, 3]>] bounds = [64] -> [2, 32, 1, 1]>
 #transform_map15 = #rock.transform_map<#map16 by [<Merge{2, 32, 1} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [64] -> [2, 32, 1]>
 module {
-  func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg5: memref<2621440xf32>) attributes {arch = "gfx942:sramecc+:xnack-", enable_splitk_for_tuning, kernel = "mixr"} {
+  func.func @mlir_convolution_multi_reduce(%arg0: memref<320xf32>, %arg1: memref<32768xf32>, %arg2: memref<11520xf32>, %arg3: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg4: memref<64xf32> {mhal.read_access, rock.prefill = 0.000000e+00 : f32}, %arg5: memref<2621440xf32>) attributes {arch = "gfx942:sramecc+:xnack-", enable_splitk_for_tuning, kernel = "mixr", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>} {
     %cst = arith.constant 2.44140629E-5 : f32
     %0 = rock.transform %arg0 by #transform_map : memref<320xf32> to memref<32x10x1x1x1xf32>
     %1 = rock.transform %0 by #transform_map1 : memref<32x10x1x1x1xf32> to memref<1x32x10x1x1xf32>

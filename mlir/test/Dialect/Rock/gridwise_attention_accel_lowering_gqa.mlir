@@ -1,7 +1,7 @@
 // RUN: rocmlir-opt -mlir-print-local-scope -split-input-file -rock-gridwise-gemm-to-blockwise -canonicalize -verify-diagnostics %s | FileCheck %s
 
 // CHECK-LABEL: @gridwise_attn_causal_scale_gqa
-func.func @gridwise_attn_causal_scale_gqa(%arg0: memref<8192xf16>, %arg1: memref<8388608xf16>, %arg2: memref<8388608xf16>, %arg3: memref<524288xf16>, %arg4: memref<64xf16>, %arg5: memref<8192xf16>) attributes {block_size = 32 : i32, grid_size = 8 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
+func.func @gridwise_attn_causal_scale_gqa(%arg0: memref<8192xf16>, %arg1: memref<8388608xf16>, %arg2: memref<8388608xf16>, %arg3: memref<524288xf16>, %arg4: memref<64xf16>, %arg5: memref<8192xf16>) attributes {block_size = 32 : i32, features = #rock<GemmFeatures wmma|dot|atomic_add|atomic_fmax_f32>, grid_size = 8 : i32, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx1100"} {
   %0 = rock.transform %arg0 by <affine_map<(d0, d1, d2) -> (d0 * 128 + d2)> by [<Unmerge{64, 128} ["g", "head_qk"] at [0, 2] -> ["raw"] at [0]>, <AddDim{1} ["seq_q"] at [1] -> [] at []>] bounds = [64, 1, 128] -> [8192]> : memref<8192xf16> to memref<64x1x128xf16>
   %1 = rock.transform %arg1 by <affine_map<(d0, d1, d2) -> ((d0 * 128 + d1) * 8192 + d2)> by [<Unmerge{8, 128, 8192} ["g", "head_qk", "seq_k"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [8, 128, 8192] -> [8388608]> : memref<8388608xf16> to memref<8x128x8192xf16>
   %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 8192 + d1) * 128 + d2)> by [<Unmerge{8, 8192, 128} ["g", "seq_k", "head_v"] at [0, 1, 2] -> ["raw"] at [0]>] bounds = [8, 8192, 128] -> [8388608]> : memref<8388608xf16> to memref<8x8192x128xf16>
@@ -50,7 +50,7 @@ func.func @gridwise_attn_causal_scale_gqa(%arg0: memref<8192xf16>, %arg1: memref
   // CHECK-NEXT: %[[causalSecondComparison:.+]] = arith.cmpi ugt, %[[dim2]], %[[NIndexDivByNumRepeatsGQA]] : index
   // CHECK-NEXT: scf.if %[[causalSecondComparison]] {
   // CHECK-NEXT: rock.in_bounds_store
-  rock.gridwise_attention_accel(%13, %1, %2, %3, %14, %15) preSoftmaxOps = {
+  rock.gridwise_attention_accel(%13, %1, %2, %3, %14, %15) features =  wmma|dot|atomic_add|atomic_fmax_f32 preSoftmaxOps = {
   ^bb0(%arg6: memref<64x1x8192xf16>, %arg7: memref<64x1x8192xf16>, %arg8: memref<64x1x8192xf16>):
     %16 = rock.transform %arg6 by <affine_map<(d0, d1) -> (d0, 0, d1)> by [<Merge{64, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>] bounds = [64, 8192] -> [64, 1, 8192]> : memref<64x1x8192xf16> to memref<64x8192xf16>
     %17 = rock.transform %arg7 by <affine_map<(d0, d1) -> (d0, 0, d1)> by [<Merge{64, 1} ["dim0"] at [0] -> ["col0", "col1"] at [0, 1]>, <PassThrough ["dim1"] at [1] -> ["dim1"] at [2]>] bounds = [64, 8192] -> [64, 1, 8192]> : memref<64x1x8192xf16> to memref<64x8192xf16>
