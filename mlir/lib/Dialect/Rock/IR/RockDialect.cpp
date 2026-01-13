@@ -881,26 +881,27 @@ LogicalResult ConvBwdWeightOp::verify() { return verifyConvOp(*this); }
 LogicalResult ExpandStridesOp::verify() {
   auto inputType = cast<ShapedType>(getInput().getType());
   auto outputType = cast<ShapedType>(getOutput().getType());
-  
+
   if (inputType.getRank() != outputType.getRank())
     return emitOpError("input and output must have the same rank");
-  
+
   // Verify that output is >= input in all dimensions,
   // and that each output dimension is a multiple of the input dimension.
   // A non-multiple indicates a non-integer stride expansion factor.
-  for (auto [outDim, inDim] : llvm::zip_equal(outputType.getShape(), inputType.getShape())) {
+  for (auto [outDim, inDim] :
+       llvm::zip_equal(outputType.getShape(), inputType.getShape())) {
     if (outDim < inDim)
-      return emitOpError("output dimension ") << outDim 
-             << " is smaller than input dimension " << inDim;
+      return emitOpError("output dimension ")
+             << outDim << " is smaller than input dimension " << inDim;
     if (outDim % inDim != 0)
-      return emitOpError("output dimension ") << outDim 
-             << " is not a multiple of input dimension " << inDim;
+      return emitOpError("output dimension ")
+             << outDim << " is not a multiple of input dimension " << inDim;
   }
-  
+
   // Verify element types match
   if (inputType.getElementType() != outputType.getElementType())
     return emitOpError("input and output must have the same element type");
-  
+
   return success();
 }
 

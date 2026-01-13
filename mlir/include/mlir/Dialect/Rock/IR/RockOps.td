@@ -424,11 +424,12 @@ def Rock_ConvertingCopyKernelOp
   }];
 }
 
-def Rock_ExpandStridesOp :
-    Rock_Op<"expand_strides", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
-    Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16, I8]>:$input,
-                   TensorOrMemRefOf<[F32, F16, BF16, I8]>:$output)>,
-    Results<(outs Optional<AnyRankedTensor>:$result)> {
+def Rock_ExpandStridesOp
+    : Rock_Op<"expand_strides", [DeclareOpInterfaceMethods<
+                                    MemoryEffectsOpInterface>]>,
+      Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16, I8]>:$input,
+          TensorOrMemRefOf<[F32, F16, BF16, I8]>:$output)>,
+      Results<(outs Optional<AnyRankedTensor>:$result)> {
   let summary = "Expand tensor strides by copying into padded buffer";
   let description = [{
     Copies a contiguous `input` tensor into the beginning of a larger `output` 
@@ -439,8 +440,9 @@ def Rock_ExpandStridesOp :
     $input `into` $output attr-dict `:` type($input) `into` type($output) (`->` type($result)^)?
   }];
   let hasVerifier = 1;
-  
-  // Declaration to enable the bufferization implementation to work like gemm ops
+
+  // Declaration to enable the bufferization implementation to work like gemm
+  // ops
   let extraClassDeclaration = [{
     ::mlir::OpOperand* getOutArgument() { return &(*this)->getOpOperand(1); }
   }];

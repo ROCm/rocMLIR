@@ -1449,13 +1449,16 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
                << transDim << "; this indicates invalid strides";
     }
 
-    transposed = tosa::CustomOp::create(
-        rewriter, loc,
-        /*output_list=*/TypeRange{memoryLayoutType},
-        /*operator_name=*/rewriter.getStringAttr(ROCK_CUSTOMOP_EXPAND_STRIDES),
-        /*domain_name=*/rewriter.getStringAttr(ROCK_CUSTOMOP_DOMAIN_NAME),
-        /*implementation_attrs=*/rewriter.getStringAttr(""),
-        /*input_list=*/ValueRange{transposed}).getResult(0);
+    transposed =
+        tosa::CustomOp::create(
+            rewriter, loc,
+            /*output_list=*/TypeRange{memoryLayoutType},
+            /*operator_name=*/
+            rewriter.getStringAttr(ROCK_CUSTOMOP_EXPAND_STRIDES),
+            /*domain_name=*/rewriter.getStringAttr(ROCK_CUSTOMOP_DOMAIN_NAME),
+            /*implementation_attrs=*/rewriter.getStringAttr(""),
+            /*input_list=*/ValueRange{transposed})
+            .getResult(0);
   }
 
   Value collapsed = transposed;

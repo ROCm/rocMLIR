@@ -53,10 +53,10 @@ struct ExpandStridesLoweringPattern
     Location loc = op.getLoc();
     Value input = op.getInput();
     Value output = op.getOutput();
-    
+
     auto inputType = cast<MemRefType>(input.getType());
     auto outputType = cast<MemRefType>(output.getType());
-    
+
     ArrayRef<int64_t> inputShape = inputType.getShape();
     ArrayRef<int64_t> outputShape = outputType.getShape();
     int64_t rank = inputType.getRank();
@@ -74,19 +74,19 @@ struct ExpandStridesLoweringPattern
     // Create the transform: output[4,48,24] -> view[4,24,24] using Slice
     // Start with the output dimensions
     BottomUpTMBuilder builder(rewriter, lowerDims, outputShape, loc);
-    
+
     // Apply Slice to get the smaller view matching input shape
     builder.slice(upperDims, lowerDims, begins, ends);
-    
+
     TransformMapAttr transform = builder.get();
-    
+
     // Create transform view of output
-    Value outputView = rock::TransformOp::create(
-        rewriter, loc, output, transform);
+    Value outputView =
+        rock::TransformOp::create(rewriter, loc, output, transform);
 
     // Copy input into the transformed view
     memref::CopyOp::create(rewriter, loc, input, outputView);
-    
+
     rewriter.eraseOp(op);
     return success();
   }

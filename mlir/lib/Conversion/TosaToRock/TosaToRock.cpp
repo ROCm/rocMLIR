@@ -3209,8 +3209,9 @@ public:
 };
 
 // Convert expand_strides custom op to rock.expand_strides
-// This will be bufferized using the GemmLikeInterface, creating the destination-passing style
-// After bufferization, a separate lowering pass will convert it to rock.transform + rock.threadwise_write_all
+// This will be bufferized using the GemmLikeInterface, creating the
+// destination-passing style After bufferization, a separate lowering pass will
+// convert it to rock.transform + rock.threadwise_write_all
 class ExpandStridesConverter final : public OpRewritePattern<tosa::CustomOp> {
 public:
   using OpRewritePattern<tosa::CustomOp>::OpRewritePattern;
