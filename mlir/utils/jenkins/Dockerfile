@@ -8,6 +8,9 @@ ARG ROCM_BUILD_NAME=jammy
 ARG ROCM_BUILD_NUM=main
 ARG ROCM_PATH=/opt/rocm-${ROCM_VERSION}
 
+# Trigger rebuild: 2026-01-13
+ARG CACHE_BUST=1
+
 ENV DEBIAN_FRONTEND noninteractive
 
 RUN apt-get clean all
