@@ -307,7 +307,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
       return signalPassFailure();
     }
   }
-  llvm::errs() << "affixTuningParametersImpl 6 (All OK)\n";
 }
 
 void AffixTuningParameters::affixTuningParametersImpl(
@@ -315,7 +314,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
   OpBuilder builder(op.getContext());
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  op.dump();
   bool isAccel = archInfo.isAccel(op);
   if (!isAccel) {
     op.emitError("Currently, attention/gemm+gemm/conv+gemm op is only "
@@ -341,9 +339,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
       perfConfigStrAttr = mayBePerfConfigStrAttr;
     }
   }
-  StringAttr arch2 = rock::getArchValue(op);
-  rock::AmdArchInfo archInfo3 = rock::lookupArchInfo(arch2);
-  bool isWmma = archInfo3.isWmma(op);
+  bool isWmma = archInfo.isWmma(op);
   auto attnPerfConfig = GemmGemmParamsAttr::get(perfConfigStrAttr, isWmma);
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");
@@ -354,9 +350,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     attnPerfConfig =
         attnPerfConfig.withScheduleVersion(scheduleVersion.value());
 
-  SmallVector<Type> types2 = {op.getAType(), op.getBType()};
+  SmallVector<Type> types = {op.getAType(), op.getBType()};
   if (failed(isScheduleVersionSupported(attnPerfConfig.getScheduleVersion(),
-                                        archInfo3, types2, arch2))) {
+                                        archInfo, types, arch))) {
     op->emitError("schedule version not supported\n");
     return signalPassFailure();
   }
@@ -368,8 +364,8 @@ void AffixTuningParameters::affixTuningParametersImpl(
     return signalPassFailure();
   }
   // check for splitK legality
-  GemmFeatures features2 = archInfo3.defaultFeatures;
-  if (rock::isSplitKRequested(features2, perfConfigStrAttr)) {
+  GemmFeatures features = archInfo.defaultFeatures;
+  if (rock::isSplitKRequested(features, perfConfigStrAttr)) {
     if (failed(testFusionLegalitySplitK(funcParent))) {
       op->emitError("Fusion with SplitK perfConfig is not legal");
       return signalPassFailure();

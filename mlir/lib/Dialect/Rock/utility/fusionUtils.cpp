@@ -187,13 +187,11 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
           if (failed(inputAlloc))
             return WalkResult::interrupt();
 
-          StringAttr arch2 = rock::getArchValue(gemmOp);
-          rock::AmdArchInfo archInfo2 = rock::lookupArchInfo(arch2);
-          GemmFeatures features2 = archInfo2.getDefaultFeatures(
+          GemmFeatures features = archInfo.getDefaultFeatures(
               {gemmOp.getAType(), gemmOp.getBType()});
           if (failed(checkValidOutputFusion(
                   cast<linalg::GenericOp>(genericOpOperand->getOwner()),
-                  inputAlloc.value(), features2, adds)))
+                  inputAlloc.value(), features, adds)))
             return WalkResult::interrupt();
         }
 
@@ -211,15 +209,15 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
 
         // Verify hardware compatibility (split-k) for kernel output.
         // Checks if atomic_add operations are supported by the target hardware.
-        StringAttr arch3 = rock::getArchValue(gemmGemmOp);
-        rock::AmdArchInfo archInfo3 = rock::lookupArchInfo(arch3);
-        GemmFeatures features3 = archInfo3.getDefaultFeatures(
+        StringAttr arch = rock::getArchValue(gemmGemmOp);
+        rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+        GemmFeatures features = archInfo.getDefaultFeatures(
             {gemmGemmOp.getAType(), gemmGemmOp.getBType()});
         auto blockArgs = maybeBlockArgs.value();
         for (auto blockArg : blockArgs) {
           auto outElementType =
               cast<ShapedType>(blockArg.getType()).getElementType();
-          if (failed(validOutputAtomicAdd(outElementType, features3)))
+          if (failed(validOutputAtomicAdd(outElementType, features)))
             return WalkResult::interrupt();
         }
 
