@@ -228,8 +228,8 @@ struct FoldBroadcast : public OpRewritePattern<rock::GemmOp> {
         rw, op.getLoc(), newC.getType(), newA, newB, newC, newScaleA, newScaleB,
         op.getATransposed(), op.getBTransposed(), op.getCTransposed(),
         op.getAScaleTransposed(), op.getBScaleTransposed(),
-        op.getFeaturesAttr(), op.getStoreMethod(), op.getDerivedBlockSizeAttr(),
-        op.getGridSizeAttr(), op.getParamsAttr());
+        op.getDisabledFeaturesAttr(), op.getStoreMethod(),
+        op.getDerivedBlockSizeAttr(), op.getGridSizeAttr(), op.getParamsAttr());
 
     // Convert optional attributes
     if (auto attr = (*op).template getAttrOfType<StringAttr>("perf_config"))

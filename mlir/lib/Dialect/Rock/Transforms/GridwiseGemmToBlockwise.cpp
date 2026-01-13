@@ -2006,7 +2006,7 @@ struct GridwiseAttentionAccelRewritePattern
     // Get 'features' from arch
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     auto features = archInfo.defaultFeatures;
-    auto featuresAttr = op.getFeaturesAttr();
+    auto featuresAttr = op.getDisabledFeaturesAttr();
 
     TypedValue<MemRefType> inV = op.getValues();
     Type elemTypeV = inV.getType().getElementType();
@@ -3100,7 +3100,7 @@ struct GridwiseGemmAccelRewritePattern
     StringRef arch = rock::getArchValue(op);
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     auto features = archInfo.defaultFeatures;
-    auto featuresAttr = op.getFeaturesAttr();
+    auto featuresAttr = op.getDisabledFeaturesAttr();
 
     // Prepare some useful constants.
     Value matA = op.getA();

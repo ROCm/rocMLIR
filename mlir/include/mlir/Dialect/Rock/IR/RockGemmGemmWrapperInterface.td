@@ -151,7 +151,7 @@ def RockGemmGemmWrapperInterface : OpInterface<"RockGemmGemmWrapperInterface"> {
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/[{
-          return $_op.getFeatures();
+          return $_op.getDisabledFeatures();
         }]
       >,
     InterfaceMethod<
@@ -163,7 +163,7 @@ def RockGemmGemmWrapperInterface : OpInterface<"RockGemmGemmWrapperInterface"> {
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/[{
-          return $_op.getFeaturesAttr();
+          return $_op.getDisabledFeaturesAttr();
         }]
       >,
 

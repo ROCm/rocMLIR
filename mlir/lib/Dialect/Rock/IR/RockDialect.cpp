@@ -1251,7 +1251,7 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   Type cElemType = getElementTypeOrSelfRecursive(cType);
   StringRef arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  GemmFeaturesAttr featuresAttr = op.getFeaturesAttr();
+  GemmFeaturesAttr featuresAttr = op.getDisabledFeaturesAttr();
   if (failed(verifyGemmTypes(op, archInfo, featuresAttr, arch, aElemType,
                              bElemType, cElemType)))
     return failure();

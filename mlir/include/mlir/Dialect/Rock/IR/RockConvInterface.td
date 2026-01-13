@@ -64,14 +64,6 @@ def RockConvInterface : OpInterface<"RockConvInterface"> {
         /*args=*/(ins),
         /*methodBody=*/"",
         /*defaultImplementation=*/[{ return $_op.getDilations(); }]>,
-    InterfaceMethod<
-        /*desc=*/[{Return features attr values.}],
-        /*retType=*/"std::optional<GemmFeatures>",
-        /*methodName=*/"getFeatures",
-        /*args=*/(ins),
-        /*methodBody=*/"",
-        /*defaultImplementation=*/"">,
-
     // TODO: more methods here as needed
   ];
 
