@@ -61,9 +61,7 @@ LogicalResult isScheduleVersionSupported(int64_t scheduleVersion,
 // This is a helper function that should only be used from
 // rocmlir-gen.cpp, which is the only place where we need to check
 // raw features (not taking into account types).
-inline bool isAccel(GemmFeatures features) {
-  return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
-}
+bool isAccel(GemmFeatures features);
 
 } // End namespace rock
 } // End namespace mlir

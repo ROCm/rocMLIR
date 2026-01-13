@@ -171,6 +171,10 @@ int64_t mlir::rock::getNumChipletsValue(Operation *op) {
   return maxChiplets;
 }
 
+bool mlir::rock::isAccel(GemmFeatures features) {
+  return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
+}
+
 LogicalResult mlir::rock::isScheduleVersionSupported(int64_t scheduleVersion,
                                                      AmdArchInfo archInfo,
                                                      ArrayRef<Type> types,

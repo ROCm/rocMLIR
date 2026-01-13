@@ -1652,7 +1652,7 @@ static int64_t retrieveSplitKValue(rock::GemmFeatures features,
                                    StringAttr perfConfig) {
   // TODO: This is a hack, we should not be checking features here.
   bool isWmma = bitEnumContainsAny(features, GemmFeatures::wmma);
-  bool isAccel = bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
+  bool isAccel = rock::isAccel(features);
   auto gemmGemmPerfConfig = GemmGemmParamsAttr::get(perfConfig, isWmma);
   if (gemmGemmPerfConfig)
     return gemmGemmPerfConfig.getSplitKFactor();

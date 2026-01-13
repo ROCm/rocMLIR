@@ -273,8 +273,7 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
-  bool isAccel = bitEnumContainsAny(config.features, GemmFeatures::wmma | GemmFeatures::mfma);
-  if (isAccel) {
+  if (rock::isAccel(config.features)) {
     bool needExtraPad = false;
     if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
       return failure();
@@ -368,8 +367,7 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*batchSize=*/convDims.n,
                           /*numCU=*/getNumCU()};
 
-  bool isAccel2 = bitEnumContainsAny(config.features, GemmFeatures::wmma | GemmFeatures::mfma);
-  if (isAccel2) {
+  if (rock::isAccel(config.features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
     AccelGemmParamsAttr validParams;
     auto res = populateParamsAccelPtr->obtainTuningParameters(
@@ -407,8 +405,7 @@ LogicalResult ConvGenerator::hasWorkspace(OpBuilder &builder,
   if (config.operation.has_value()) {
     Type dataType = getInputDataType(builder);
     ConvOpType dir = config.operation.value();
-    bool isAccel3 = bitEnumContainsAny(config.features, GemmFeatures::wmma | GemmFeatures::mfma);
-    if ((dir == ConvOpType::BwdWeight) && isAccel3 &&
+    if ((dir == ConvOpType::BwdWeight) && rock::isAccel(config.features) &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       bool needPadding = false;
@@ -998,8 +995,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
 
     bool needsZeroInit = false;
     bool needExtraPad = false;
-    bool isAccel4 = bitEnumContainsAny(config.features, GemmFeatures::wmma | GemmFeatures::mfma);
-    if (isAccel4 &&
+    if (rock::isAccel(config.features) &&
         succeeded(needExtraPadBwdWeight(builder, needExtraPad))) {
       if (!needExtraPad) {
         auto dataType = getInputDataType(builder);

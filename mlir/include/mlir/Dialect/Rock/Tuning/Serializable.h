@@ -117,9 +117,8 @@ struct Serializable {
                    std::bind(DeserializeField{}, std::ref(ok), std::ref(ss),
                              Seperator, std::placeholders::_1));
 
-    if (!ok) {
+    if (!ok)
       return false;
-    }
 
     static_cast<Derived &>(*this) = out;
     return true;
