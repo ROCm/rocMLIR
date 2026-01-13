@@ -387,7 +387,6 @@ createGemmGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
                                   StringRef winningConfig) {
   StringAttr arch = rock::getArchValue(gemmGemmOp);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isWMMA = archInfo.isWmma(gemmGemmOp.getAType(), gemmGemmOp.getBType());
   if (!archInfo.isAccel(gemmGemmOp)) {
     // We only support GPUs with matrix accelerator extensions
     return;
@@ -1651,12 +1650,14 @@ LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
 
 static int64_t retrieveSplitKValue(rock::GemmFeatures features,
                                    StringAttr perfConfig) {
+  // TODO: This is a hack, we should not be checking features here.
   bool isWmma = bitEnumContainsAny(features, GemmFeatures::wmma);
+  bool isAccel = bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
   auto gemmGemmPerfConfig = GemmGemmParamsAttr::get(perfConfig, isWmma);
   if (gemmGemmPerfConfig)
     return gemmGemmPerfConfig.getSplitKFactor();
 
-  if (isAccel(features)) {
+  if (isAccel) {
     auto params = AccelGemmParamsAttr::get(perfConfig, isWmma);
     return params ? params.getSplitKFactor() : 1;
   }

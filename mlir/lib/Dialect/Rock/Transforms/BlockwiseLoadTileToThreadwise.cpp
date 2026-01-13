@@ -153,8 +153,6 @@ class LoweringBlockwiseLoadTileOp final
     
     StringRef arch = rock::getArchValue(op);
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-    Type elemTypeA = matrixParamsA.getElementType();
-    Type elemTypeB = matrixParamsB.getElementType();
     GemmFeatures features = archInfo.defaultFeatures;
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
     uint32_t blockSize = op.getBlockSize();

@@ -214,8 +214,6 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     // Make sure that the function has the necessary attributes.
     auto blockSizeAttr = theFunc->getAttr("block_size");
     auto gridSizeAttr = theFunc->getAttr("grid_size");
-    auto archAttr = theFunc->getAttr("arch");
-    auto mhalArchAttr = theFunc->getAttr("mhal.arch");
     if (!blockSizeAttr) {
       return theFunc->emitError()
              << "kernel func op '" << theFunc.getName() << "' is missing the block_size attribute";
@@ -224,10 +222,6 @@ void LowerRockOpsToGPUPass::runOnOperation() {
       return theFunc->emitError()
              << "kernel func op '" << theFunc.getName() << "' is missing the grid_size attribute";
     }
-    // if (!archAttr && !mhalArchAttr) {
-    //   return theFunc->emitError()
-    //          << "kernel func op '" << theFunc.getName() << "' is missing both arch and mhal.arch attributes";
-    // }
 
     // Set up the symbol table for the GPU ModuleOp.
     SymbolTable gpuModuleSymbolTable(gpuMod);

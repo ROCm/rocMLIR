@@ -58,7 +58,9 @@ LogicalResult isScheduleVersionSupported(int64_t scheduleVersion,
                                          StringRef arch);
 
 // Check if features contain accelerator (mfma or wmma)
-// This is a helper function for code that still has GemmFeatures
+// This is a helper function that should only be used from
+// rocmlir-gen.cpp, which is the only place where we need to check
+// raw features (not taking into account types).
 inline bool isAccel(GemmFeatures features) {
   return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
 }
