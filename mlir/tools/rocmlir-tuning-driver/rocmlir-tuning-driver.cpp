@@ -933,12 +933,12 @@ static LogicalResult runTuningLoop(ModuleOp source) {
       ThreadResources &myRes = threadResources[myThreadId];
 
       while (true) {
+        if (compilationResults.isTerminated())
+          break; // Avoid unnecessary work
+
         size_t idx = nextIdx.fetch_add(1, std::memory_order_relaxed);
         if (idx >= configs.size())
           break;
-
-        if (compilationResults.isTerminated())
-          break; // Avoid unnecessary work
 
         if (!compilationResults.push(compileConfig(idx, myRes)))
           break; // Queue terminated

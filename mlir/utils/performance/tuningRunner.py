@@ -841,7 +841,7 @@ def tune_config(test_vector, conf_class, paths: Paths, options: Options, gpu_id:
         if not options.quiet and options.debug:
             print(debug_info, file=sys.stderr)
 
-        # Note: communicate waits for process to terminate which might cuase CI timeouts if tuning takes too long
+        # Note: communicate waits for process to terminate which might cause CI timeouts if tuning takes too long
         tuning_stdout, tuning_stderr = tuning_driver.communicate()
 
         if tuning_driver.returncode != 0:
@@ -939,7 +939,7 @@ def tune_configs(ctx: TuningContext) -> bool:
     with OutputFileWriter(ctx.options.output, ctx.options) as results_writer:
         with DebugFileWriter(f"{ctx.options.output}.debug") if ctx.options.debug else nullcontext(
         ) as debug_writer:
-            try:  # No context manager for executor because we need to shutdown with Wait=False
+            try:  # No context manager for executor because we need to shutdown with wait=False
                 progress_bar = tqdm(
                     total=len(ctx.configs),
                     initial=skipped_count,
