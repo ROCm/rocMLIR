@@ -69,9 +69,6 @@ struct AmdArchInfo {
   GemmFeatures getFeaturesFromAttr(ArrayRef<Type> types,
                                    GemmFeaturesAttr featuresAttr);
 
-  // Feature check methods
-  bool isAccelEnabled(GemmFeaturesAttr featuresAttr);
-
   /// Check if accelerator (mfma/wmma) is supported for given types and features
   bool isAccel(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr);
 
