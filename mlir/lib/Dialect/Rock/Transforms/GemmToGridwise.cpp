@@ -1051,7 +1051,8 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   if (isAccel) {
     LLVM_DEBUG(llvm::dbgs() << "computeGridSize: isAccel\n");
     if (!isa<RockAccelTuningParamAttrInterface>(params)) {
-      return op.emitError("gemm is accel, but does not have RockAccelTuningParamAttrInterface");
+      return op.emitError(
+          "gemm is accel, but does not have RockAccelTuningParamAttrInterface");
     }
     auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
     mPerBlock = tuningParams.getMPerBlock();
@@ -1059,14 +1060,18 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   } else {
     LLVM_DEBUG(llvm::dbgs() << "computeGridSize: not isAccel\n");
     if (!isa<GeneralGemmParamsAttr>(params)) {
-      return op.emitError("gemm is not accel, but does not have GeneralGemmParamsAttr");
+      return op.emitError(
+          "gemm is not accel, but does not have GeneralGemmParamsAttr");
     }
     auto tuningParams = cast<GeneralGemmParamsAttr>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   }
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
-  LLVM_DEBUG(llvm::dbgs() << "computeGridSize: gridSize=" << gridSize << "(M=" << M << ", N=" << N << ", G=" << G << ", mPerBlock=" << mPerBlock << ", nPerBlock=" << nPerBlock << ")\n");
+  LLVM_DEBUG(llvm::dbgs() << "computeGridSize: gridSize=" << gridSize
+                          << "(M=" << M << ", N=" << N << ", G=" << G
+                          << ", mPerBlock=" << mPerBlock
+                          << ", nPerBlock=" << nPerBlock << ")\n");
 
   op.setGridSizeAttr(rw.getI32IntegerAttr(gridSize));
 

@@ -560,7 +560,8 @@ static MfmaTypeId convertTypesToId(Type dataTypeA, Type dataTypeB) {
   if (isa<Float4E2M1FNType>(dataTypeA) && isa<Float4E2M1FNType>(dataTypeB)) {
     return MfmaTypeId::Fp4TyId;
   }
-  llvm::errs() << "Unsupported input argument type: " << dataTypeA << " and " << dataTypeB << "\n";
+  llvm::errs() << "Unsupported input argument type: " << dataTypeA << " and "
+               << dataTypeB << "\n";
   llvm_unreachable("Unsupported input argument type.");
 }
 

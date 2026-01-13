@@ -2002,7 +2002,7 @@ struct GridwiseAttentionAccelRewritePattern
     FailureOr<Type> maybeElemTypeKLoad = getInputFusionElementType(inK);
     Type elemTypeKLoad =
         failed(maybeElemTypeKLoad) ? elemTypeK : maybeElemTypeKLoad.value();
-    
+
     // Get 'features' from arch
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     auto features = archInfo.defaultFeatures;
@@ -2063,7 +2063,8 @@ struct GridwiseAttentionAccelRewritePattern
 
     // Check if the schedule version is supported by the hardware
     SmallVector<Type> types = {elemTypeQ, elemTypeK};
-    if (failed(isScheduleVersionSupported(scheduleVersion, archInfo, types, arch)))
+    if (failed(
+            isScheduleVersionSupported(scheduleVersion, archInfo, types, arch)))
       return op.emitOpError("schedule version not supported");
 
     std::optional<GemmLoadTileType> maybeLoadType =
@@ -3147,7 +3148,8 @@ struct GridwiseGemmAccelRewritePattern
 
     // Check if the schedule version is supported by the hardware
     SmallVector<Type> types2 = {elementTypeA, elementTypeB};
-    if (failed(isScheduleVersionSupported(scheduleVersion, archInfo, types2, arch)))
+    if (failed(isScheduleVersionSupported(scheduleVersion, archInfo, types2,
+                                          arch)))
       return op.emitOpError("schedule version not supported");
 
     std::optional<GemmLoadTileType> maybeLoadType =

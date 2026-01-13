@@ -138,7 +138,8 @@ void AffixTuningParameters::runOnOperation() {
         types = {gemmOp.getAType(), gemmOp.getBType()};
       } else if (auto gemmGemmOp = dyn_cast<RockGemmGemmWrapperInterface>(op)) {
         types = {gemmGemmOp.getAType(), gemmGemmOp.getBType()};
-      } else if (auto opWithFeatures = dyn_cast<RockGemmFeaturesInterface>(op)) {
+      } else if (auto opWithFeatures =
+                     dyn_cast<RockGemmFeaturesInterface>(op)) {
         types = opWithFeatures.getTypesForFeature();
       }
       allFeatures.push_back(archInfo.defaultFeatures);
@@ -216,7 +217,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
 
     SmallVector<Type> types = {op.getAType(), op.getBType()};
     if (failed(isScheduleVersionSupported(validParams.getScheduleVersion(),
-                                        archInfo2, types, archStr))) {
+                                          archInfo2, types, archStr))) {
       op->emitError("schedule version not supported\n");
       return signalPassFailure();
     }
@@ -224,7 +225,9 @@ void AffixTuningParameters::affixTuningParametersImpl(
     if (failed(status)) {
       // Try again if allowed.
       if (fallBackNoConfig) {
-        LLVM_DEBUG(llvm::dbgs() << "Calling obtainTuningParameters fallBack with no perf config\n");
+        LLVM_DEBUG(
+            llvm::dbgs()
+            << "Calling obtainTuningParameters fallBack with no perf config\n");
         perfConfig.clear();
         status = populateParamsAccelPtr->obtainTuningParameters(
             b, op, perfConfig, validParams);
@@ -245,9 +248,10 @@ void AffixTuningParameters::affixTuningParametersImpl(
     PopulateParamsInfo info = PopulateParamsInfo::fromOp(op);
     auto maybeWrwOp = (info.kernelType == KernelType::ConvBwdWeight);
     // I dont like this hack.
-    GemmFeaturesAttr featuresAttr = GemmFeaturesAttr::get(op.getContext(), info.gemmFeatures);
-    if (maybeWrwOp &&
-        archInfo2.isWrWAtomicKernel(featuresAttr, info.gemmAType, requiredPadding)) {
+    GemmFeaturesAttr featuresAttr =
+        GemmFeaturesAttr::get(op.getContext(), info.gemmFeatures);
+    if (maybeWrwOp && archInfo2.isWrWAtomicKernel(featuresAttr, info.gemmAType,
+                                                  requiredPadding)) {
       auto res = calculateKBlockNum(
           info.batchSize, paddedGemmSize, validParams.getMPerBlock(),
           validParams.getNPerBlock(), validParams.getKpackPerBlock(),

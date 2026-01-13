@@ -76,7 +76,8 @@ PopulateParamsGemmGemm::getAccelGemmParams(OpBuilder &b,
   AccelGemmParamsAttr accelParams0 = getGemm0Params(b, params);
   AccelGemmParamsAttr accelParams1 = getGemm1Params(b, params);
 
-  auto populateParamsAccelPtr = PopulateParamsAccel::select(archInfo.defaultFeatures);
+  auto populateParamsAccelPtr =
+      PopulateParamsAccel::select(archInfo.defaultFeatures);
   LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
           accelParams0, cast<MemRefType>(op.getAType()).getElementType(),

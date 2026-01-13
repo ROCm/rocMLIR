@@ -240,7 +240,7 @@ getAccelRangeGemmGemm(RockGemmGemmWrapperInterface gemmGemmOp,
        /*kPackPerBlock=*/{2, 4, 8, 16, 32, 64},
        /*mnPerXdl=*/{16},
        /*kPack=*/{4, 8, 16},
-       getSchedules(gemmGemmOp, kind)};  
+       getSchedules(gemmGemmOp, kind)};
   StringAttr arch = rock::getArchValue(gemmGemmOp);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
 
@@ -383,8 +383,8 @@ createGemmGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
 // brute force (greedy tuning, phase 3)
 static void
 createGemmGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
-                                  RockGemmGemmWrapperInterface gemmGemmOp,
-                                  StringRef winningConfig) {
+                                      RockGemmGemmWrapperInterface gemmGemmOp,
+                                      StringRef winningConfig) {
   StringAttr arch = rock::getArchValue(gemmGemmOp);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   if (!archInfo.isAccel(gemmGemmOp)) {
@@ -432,8 +432,8 @@ createGemmGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
 // Keep in sync with attentionSweeps.py
 // The full space is a brute-force search for attention kernels
 static void createGemmGemmTuningRangeBF(TuningParamSet *newSpace,
-                                    RockGemmGemmWrapperInterface gemmGemmOp,
-                                    TuningParamSetKind kind) {
+                                        RockGemmGemmWrapperInterface gemmGemmOp,
+                                        TuningParamSetKind kind) {
   StringAttr arch = rock::getArchValue(gemmGemmOp);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   GemmFeatures features = archInfo.defaultFeatures;
@@ -978,45 +978,47 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
   newSpace = new TuningParamSet();
 
   // create range and heuristic
-  WalkResult findPrimary = mod->walk([&](rock::RockGemmWrapperInterface op)
-                                         -> WalkResult {
-    StringAttr arch = rock::getArchValue(op);
-    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-    // greedy is not implemented for non-accel
-    if (!archInfo.isAccel(op) && kind == TuningParamSetKind::Greedy) {
-      kind = TuningParamSetKind::Exhaustive;
-      // TODO: tuningRunner hides this warning
-      llvm::errs() << "Greedy tuning not implemented for non-accel, using "
-                      "Exhaustive instead\n";
-    }
-    switch (kind) {
-    case TuningParamSetKind::Full:
-    case TuningParamSetKind::Exhaustive:
-      createGemmTuningRangeBF(newSpace, op, kind);
-      break;
-    case TuningParamSetKind::Greedy:
-      if (settings.iteration == 0) {
-        // First iteration: random configs per tile size
-        createGemmTuningRangeGreedyPhase1(
-            newSpace, op, NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
-      } else if (settings.iteration == 1) {
-        // Second iteration: brute force (except waves_per_eu,
-        // output_swizzle and grid_group_size, which we hardcode to use the
-        // heuristic) with winning tile sizes
-        createGemmTuningRangeGreedyPhase2(newSpace, op, settings.winningConfig);
-      } else {
-        // Third iteration: brute force the remaining configs (waves_per_eu,
-        // output_swizzle and grid_group_size)
-        createGemmTuningRangeGreedyPhase3(newSpace, op, settings.winningConfig);
-      }
-      break;
-    case TuningParamSetKind::Quick:
-      createGemmTuningRangeQuick(newSpace, op);
-      break;
-    }
-    newSpace->primaryOpType = op.getKernelType();
-    return WalkResult::interrupt();
-  });
+  WalkResult findPrimary =
+      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+        StringAttr arch = rock::getArchValue(op);
+        rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+        // greedy is not implemented for non-accel
+        if (!archInfo.isAccel(op) && kind == TuningParamSetKind::Greedy) {
+          kind = TuningParamSetKind::Exhaustive;
+          // TODO: tuningRunner hides this warning
+          llvm::errs() << "Greedy tuning not implemented for non-accel, using "
+                          "Exhaustive instead\n";
+        }
+        switch (kind) {
+        case TuningParamSetKind::Full:
+        case TuningParamSetKind::Exhaustive:
+          createGemmTuningRangeBF(newSpace, op, kind);
+          break;
+        case TuningParamSetKind::Greedy:
+          if (settings.iteration == 0) {
+            // First iteration: random configs per tile size
+            createGemmTuningRangeGreedyPhase1(
+                newSpace, op, NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
+          } else if (settings.iteration == 1) {
+            // Second iteration: brute force (except waves_per_eu,
+            // output_swizzle and grid_group_size, which we hardcode to use the
+            // heuristic) with winning tile sizes
+            createGemmTuningRangeGreedyPhase2(newSpace, op,
+                                              settings.winningConfig);
+          } else {
+            // Third iteration: brute force the remaining configs (waves_per_eu,
+            // output_swizzle and grid_group_size)
+            createGemmTuningRangeGreedyPhase3(newSpace, op,
+                                              settings.winningConfig);
+          }
+          break;
+        case TuningParamSetKind::Quick:
+          createGemmTuningRangeQuick(newSpace, op);
+          break;
+        }
+        newSpace->primaryOpType = op.getKernelType();
+        return WalkResult::interrupt();
+      });
   WalkResult findGemmGemm =
       mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
         switch (kind) {

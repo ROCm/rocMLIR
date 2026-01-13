@@ -54,8 +54,7 @@ inline rock::GemmFeatures intersectGemmFeatures(rock::GemmFeatures a,
 // Check if a schedule version is supported by the hardware
 LogicalResult isScheduleVersionSupported(int64_t scheduleVersion,
                                          AmdArchInfo archInfo,
-                                         ArrayRef<Type> types,
-                                         StringRef arch);
+                                         ArrayRef<Type> types, StringRef arch);
 
 // Check if features contain accelerator (mfma or wmma)
 // This is a helper function that should only be used from

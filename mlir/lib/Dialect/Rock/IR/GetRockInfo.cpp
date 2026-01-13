@@ -93,7 +93,7 @@ StringAttr mlir::rock::getArchValue(Operation *op) {
 
   if (maybeArch.value().getValue().empty())
     llvm_unreachable("Empty 'arch' attribute on kernel");
-  
+
   return maybeArch.value();
 }
 
@@ -195,7 +195,7 @@ LogicalResult mlir::rock::isScheduleVersionSupported(int64_t scheduleVersion,
     int64_t numBytes = 0; // Check for any direct-to-LDS support
     bool supported = archInfo.isDirectToLDS(dataType, numBytes) ||
                      archInfo.isAsyncDirectToLDS(arch, dataType, numBytes);
-    
+
     if (!supported) {
       LLVM_DEBUG(
           llvm::dbgs()

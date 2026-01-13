@@ -432,8 +432,13 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(Type dataType) {
     if (isa<Float4E2M1FNType>(elementType) ||
         isa<Float8E8M0FNUType>(elementType)) {
       theseFeatures = bitEnumClear(theseFeatures, GemmFeatures::mfma);
-      LLVM_DEBUG(llvm::dbgs() << "Disabling mfma accel for Float4E2M1FN or Float8E8M0FNU type: " << elementType << "\n");
-      llvm::errs() << "Disabling mfma accel for Float4E2M1FN or Float8E8M0FNU type: " << elementType << "\n";
+      LLVM_DEBUG(
+          llvm::dbgs()
+          << "Disabling mfma accel for Float4E2M1FN or Float8E8M0FNU type: "
+          << elementType << "\n");
+      llvm::errs()
+          << "Disabling mfma accel for Float4E2M1FN or Float8E8M0FNU type: "
+          << elementType << "\n";
     }
   }
   return theseFeatures;
@@ -485,10 +490,12 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(ArrayRef<Type> types) {
       }
 
       // Keep in sync with convertTypesToId in MfmaInsnGroup.cpp
-      if (isa<Float8E4M3FNUZType>(elemTypeA) && isa<Float8E5M2FNUZType>(elemTypeB)) {
+      if (isa<Float8E4M3FNUZType>(elemTypeA) &&
+          isa<Float8E5M2FNUZType>(elemTypeB)) {
         validMixedTypesMfma = true;
       }
-      if (isa<Float8E5M2FNUZType>(elemTypeA) && isa<Float8E4M3FNUZType>(elemTypeB)) {
+      if (isa<Float8E5M2FNUZType>(elemTypeA) &&
+          isa<Float8E4M3FNUZType>(elemTypeB)) {
         validMixedTypesMfma = true;
       }
       if (isa<Float8E4M3FNType>(elemTypeA) && isa<Float8E5M2Type>(elemTypeB)) {
@@ -509,9 +516,13 @@ GemmFeatures mlir::rock::AmdArchInfo::getDefaultFeatures(ArrayRef<Type> types) {
   return features.value();
 }
 
-GemmFeatures mlir::rock::AmdArchInfo::getFeaturesFromAttr(ArrayRef<Type> types, GemmFeaturesAttr featuresAttr) {
-  LLVM_DEBUG(llvm::dbgs() << "getFeaturesFromAttr: types=" << types << ", featuresAttr=" << featuresAttr << "\n");
-  // The attribute has precedence over the types. If it is present, use it. Otherwise, use the default features.
+GemmFeatures
+mlir::rock::AmdArchInfo::getFeaturesFromAttr(ArrayRef<Type> types,
+                                             GemmFeaturesAttr featuresAttr) {
+  LLVM_DEBUG(llvm::dbgs() << "getFeaturesFromAttr: types=" << types
+                          << ", featuresAttr=" << featuresAttr << "\n");
+  // The attribute has precedence over the types. If it is present, use it.
+  // Otherwise, use the default features.
   if (featuresAttr)
     return featuresAttr.getValue();
   return getDefaultFeatures(types);
@@ -519,19 +530,24 @@ GemmFeatures mlir::rock::AmdArchInfo::getFeaturesFromAttr(ArrayRef<Type> types, 
 
 bool mlir::rock::AmdArchInfo::isAccelEnabled(GemmFeaturesAttr featuresAttr) {
   // GemmFeatures features = getFeaturesFromAttr({}, featuresAttr);
-  // LLVM_DEBUG(llvm::dbgs() << "isAccelEnabled: features=" << features << "\n");
-  // return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
+  // LLVM_DEBUG(llvm::dbgs() << "isAccelEnabled: features=" << features <<
+  // "\n"); return bitEnumContainsAny(features, GemmFeatures::wmma |
+  // GemmFeatures::mfma);
   llvm_unreachable("isAccelEnabled: not implemented");
 }
 
-bool mlir::rock::AmdArchInfo::isAccel(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr) {
-  GemmFeatures features = getFeaturesFromAttr({dataTypeA, dataTypeB}, featuresAttr);
+bool mlir::rock::AmdArchInfo::isAccel(Type dataTypeA, Type dataTypeB,
+                                      GemmFeaturesAttr featuresAttr) {
+  GemmFeatures features =
+      getFeaturesFromAttr({dataTypeA, dataTypeB}, featuresAttr);
   LLVM_DEBUG(llvm::dbgs() << "isAccel: features=" << features << "\n");
   return bitEnumContainsAny(features, GemmFeatures::wmma | GemmFeatures::mfma);
 }
 
-bool mlir::rock::AmdArchInfo::isMfma(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr) {
-  GemmFeatures features = getFeaturesFromAttr({dataTypeA, dataTypeB}, featuresAttr);
+bool mlir::rock::AmdArchInfo::isMfma(Type dataTypeA, Type dataTypeB,
+                                     GemmFeaturesAttr featuresAttr) {
+  GemmFeatures features =
+      getFeaturesFromAttr({dataTypeA, dataTypeB}, featuresAttr);
   LLVM_DEBUG(llvm::dbgs() << "isMfma: features=" << features << "\n");
   return bitEnumContainsAll(features, GemmFeatures::mfma);
 }
@@ -633,9 +649,9 @@ bool mlir::rock::isGlobalPrefetchSupported(StringRef arch) {
   return arch.contains("gfx1250");
 }
 
-bool mlir::rock::AmdArchInfo::isWrWAtomicKernel(GemmFeaturesAttr featuresAttr, Type dataType,
-                                                 bool requiredPadding) {
-  return isAccel(dataType, dataType, featuresAttr) &&
-         hasAtomicAdd(dataType) &&
+bool mlir::rock::AmdArchInfo::isWrWAtomicKernel(GemmFeaturesAttr featuresAttr,
+                                                Type dataType,
+                                                bool requiredPadding) {
+  return isAccel(dataType, dataType, featuresAttr) && hasAtomicAdd(dataType) &&
          (dataType.isF32() || dataType.isF16()) && !requiredPadding;
 }

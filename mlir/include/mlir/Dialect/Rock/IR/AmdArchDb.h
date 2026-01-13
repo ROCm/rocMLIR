@@ -63,9 +63,11 @@ struct AmdArchInfo {
   /// bit width
   int64_t getMaxLDSVectorLength(int64_t elementBitWidth);
 
-  /// Get features from attribute, falling back to defaultFeatures if attribute is null
+  /// Get features from attribute, falling back to defaultFeatures if attribute
+  /// is null
   // TODO: There are methods like this that should be marked as private.
-  GemmFeatures getFeaturesFromAttr(ArrayRef<Type> types, GemmFeaturesAttr featuresAttr);
+  GemmFeatures getFeaturesFromAttr(ArrayRef<Type> types,
+                                   GemmFeaturesAttr featuresAttr);
 
   // Feature check methods
   bool isAccelEnabled(GemmFeaturesAttr featuresAttr);

@@ -760,14 +760,15 @@ static bool isFloat8Type(Type type) {
   return isa<FloatType>(type) && type.getIntOrFloatBitWidth() == 8;
 }
 
-static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo, GemmFeaturesAttr featuresAttr,
+static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo,
+                                     GemmFeaturesAttr featuresAttr,
                                      StringRef arch, Type elemTypeA,
                                      Type elemTypeB, Type elemTypeC) {
   // GemmFeatures features = archInfo.getFeaturesFromAttr(featuresAttr);
   // llvm::errs() << "verifyGemmTypes: " << features << "\n";
   bool isGfx11 = arch.contains("gfx11");
   bool isGfx1250 = arch.contains("gfx1250");
-  bool isRdna4 = arch.contains("gfx12") && !isGfx1250; 
+  bool isRdna4 = arch.contains("gfx12") && !isGfx1250;
   if (isa<Float8E8M0FNUType>(elemTypeA) || isa<Float8E8M0FNUType>(elemTypeB)) {
     return op->emitOpError(
         "Matrix A or B is not allowed to have Float8E8M0FNU types");
@@ -798,8 +799,8 @@ static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo, GemmFe
     // Validate mixed types
     if (elemTypeA != elemTypeB) {
       // gfx1250 allows mixed precision for float8 types only
-      bool allowMixed =
-          (isGfx1250 || isRdna4) && isFloat8Type(elemTypeA) && isFloat8Type(elemTypeB);
+      bool allowMixed = (isGfx1250 || isRdna4) && isFloat8Type(elemTypeA) &&
+                        isFloat8Type(elemTypeB);
       if (!allowMixed)
         return op->emitOpError(isGfx1250 ? "Wmma on gfx1250 supports mixed "
                                            "types only for FP8/BF8 combinations"
@@ -850,8 +851,8 @@ static LogicalResult verifyGemmTypes(RockGemmWrapperInterface gemmOp) {
   GemmFeaturesAttr featuresAttr = gemmOp.getGemmFeaturesAttr();
   llvm::errs() << "arch: " << arch << "\n";
 
-  return verifyGemmTypes(gemmOp, archInfo, featuresAttr, arch, elemTypeA, elemTypeB,
-                         elemTypeC);
+  return verifyGemmTypes(gemmOp, archInfo, featuresAttr, arch, elemTypeA,
+                         elemTypeB, elemTypeC);
 }
 
 static LogicalResult verifyConvOp(RockConvInterface convOp) {
@@ -1186,8 +1187,7 @@ LogicalResult GemmOp::verify() {
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isMfma && !isa<AccelGemmParamsAttr>(params))
       return emitOpError("a mfma GEMM has non-mfma tuning parameters");
-    GemmFeatures features =
-        archInfo.defaultFeatures;
+    GemmFeatures features = archInfo.defaultFeatures;
     if (features == GemmFeatures::none && !isa<GeneralGemmParamsAttr>(params))
       return emitOpError("an all-hardware gemm must used the general gemm "
                          "tuning parameters");
@@ -1252,8 +1252,8 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
   StringRef arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   GemmFeaturesAttr featuresAttr = op.getFeaturesAttr();
-  if (failed(
-          verifyGemmTypes(op, archInfo, featuresAttr, arch, aElemType, bElemType, cElemType)))
+  if (failed(verifyGemmTypes(op, archInfo, featuresAttr, arch, aElemType,
+                             bElemType, cElemType)))
     return failure();
   if (aElemType.isInteger(8) &&
       !(cElemType.isInteger(32) || cElemType.isInteger(8)))
@@ -2556,9 +2556,10 @@ LogicalResult BlockwiseGemmAccelOp::verify() {
   if (hasA && hasB) {
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     GemmFeatures features = archInfo.defaultFeatures;
-    GemmFeaturesAttr featuresAttr = GemmFeaturesAttr::get(getContext(), features);
-    if (failed(verifyGemmTypes(*this, archInfo, featuresAttr, arch, aType, bType,
-                               directToLDS ? nullptr : cType)))
+    GemmFeaturesAttr featuresAttr =
+        GemmFeaturesAttr::get(getContext(), features);
+    if (failed(verifyGemmTypes(*this, archInfo, featuresAttr, arch, aType,
+                               bType, directToLDS ? nullptr : cType)))
       return failure();
   }
   auto verifyMatrixAndScale = [&](bool loadFromLds, Value matrix, Value lds,
@@ -2740,8 +2741,8 @@ LogicalResult ThreadwiseGemmAccelOp::verify() {
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   GemmFeatures features = archInfo.defaultFeatures;
   GemmFeaturesAttr featuresAttr = GemmFeaturesAttr::get(getContext(), features);
-  if (failed(verifyGemmTypes(*this, archInfo, featuresAttr, arch, aElemType, bElemType,
-                             cElemType)))
+  if (failed(verifyGemmTypes(*this, archInfo, featuresAttr, arch, aElemType,
+                             bElemType, cElemType)))
     return failure();
 
   bool hasScaleA = getScaleA() != nullptr;

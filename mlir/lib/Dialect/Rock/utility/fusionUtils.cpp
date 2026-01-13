@@ -189,7 +189,8 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
 
           StringAttr arch2 = rock::getArchValue(gemmOp);
           rock::AmdArchInfo archInfo2 = rock::lookupArchInfo(arch2);
-          GemmFeatures features2 = archInfo2.getDefaultFeatures({gemmOp.getAType(), gemmOp.getBType()});
+          GemmFeatures features2 = archInfo2.getDefaultFeatures(
+              {gemmOp.getAType(), gemmOp.getBType()});
           if (failed(checkValidOutputFusion(
                   cast<linalg::GenericOp>(genericOpOperand->getOwner()),
                   inputAlloc.value(), features2, adds)))
@@ -212,7 +213,8 @@ LogicalResult mlir::rock::testFusionLegalitySplitK(func::FuncOp func) {
         // Checks if atomic_add operations are supported by the target hardware.
         StringAttr arch3 = rock::getArchValue(gemmGemmOp);
         rock::AmdArchInfo archInfo3 = rock::lookupArchInfo(arch3);
-        GemmFeatures features3 = archInfo3.getDefaultFeatures({gemmGemmOp.getAType(), gemmGemmOp.getBType()});
+        GemmFeatures features3 = archInfo3.getDefaultFeatures(
+            {gemmGemmOp.getAType(), gemmGemmOp.getBType()});
         auto blockArgs = maybeBlockArgs.value();
         for (auto blockArg : blockArgs) {
           auto outElementType =
@@ -275,7 +277,7 @@ LogicalResult mlir::rock::testFusionLegalityReduce(func::FuncOp func) {
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     SmallVector<Type> types = reduceOp.getTypesForFeature();
     GemmFeatures features = archInfo.defaultFeatures;
-    
+
     if (reduceOp.getReduceMethod() == ReduceMethod::Max) {
       if (!isa<Float32Type>(outElemType))
         return WalkResult::interrupt();

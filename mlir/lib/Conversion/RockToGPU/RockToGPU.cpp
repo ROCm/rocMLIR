@@ -166,13 +166,12 @@ static void runWavesPerEUHeuristic(OpBuilder b, gpu::GPUFuncOp gpuFunc,
   LLVM_DEBUG(llvm::dbgs() << "  gridSize:" << gridSize << "\n");
   LLVM_DEBUG(llvm::dbgs() << "  numCU:" << numCU << "\n");
   LLVM_DEBUG(llvm::dbgs() << "  numEUPerCU:" << archInfo.numEUPerCU << "\n");
-  LLVM_DEBUG(llvm::dbgs()
-             << "maxSharedMemPerWG:" << archInfo.maxSharedMemPerWG << "\n");
+  LLVM_DEBUG(llvm::dbgs() << "maxSharedMemPerWG:" << archInfo.maxSharedMemPerWG
+                          << "\n");
   LLVM_DEBUG(llvm::dbgs() << "ldsUsage:" << ldsUsage << "\n");
   // limit wavesPerEU based on lds usage
   if (ldsUsage > 0) {
-    wavesPerEU =
-        std::min(wavesPerEU, archInfo.totalSharedMemPerCU / ldsUsage);
+    wavesPerEU = std::min(wavesPerEU, archInfo.totalSharedMemPerCU / ldsUsage);
   }
   // Currently limiting wavesPerEU to be two
   // it is a future to ticket to remove this constraint with further
@@ -215,12 +214,12 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     auto blockSizeAttr = theFunc->getAttr("block_size");
     auto gridSizeAttr = theFunc->getAttr("grid_size");
     if (!blockSizeAttr) {
-      return theFunc->emitError()
-             << "kernel func op '" << theFunc.getName() << "' is missing the block_size attribute";
+      return theFunc->emitError() << "kernel func op '" << theFunc.getName()
+                                  << "' is missing the block_size attribute";
     }
     if (!gridSizeAttr) {
-      return theFunc->emitError()
-             << "kernel func op '" << theFunc.getName() << "' is missing the grid_size attribute";
+      return theFunc->emitError() << "kernel func op '" << theFunc.getName()
+                                  << "' is missing the grid_size attribute";
     }
 
     // Set up the symbol table for the GPU ModuleOp.
@@ -277,10 +276,12 @@ void LowerRockOpsToGPUPass::runOnOperation() {
     // blockSize and gridSize are greater than zero and less than the max
     // workgroupd size.
     if (blockSize <= 0 || blockSize > rock::maxHardwareWorkgroupSize) {
-      return theFunc->emitError() << "kernel func op '" << theFunc.getName() << "' has an invalid block size";
+      return theFunc->emitError() << "kernel func op '" << theFunc.getName()
+                                  << "' has an invalid block size";
     }
     if (gridSize <= 0) {
-      return theFunc->emitError() << "kernel func op '" << theFunc.getName() << "' has an invalid grid size";
+      return theFunc->emitError() << "kernel func op '" << theFunc.getName()
+                                  << "' has an invalid grid size";
     }
 
     // move prefill attributes from func::FuncOp to gpu::GPUModuleOp

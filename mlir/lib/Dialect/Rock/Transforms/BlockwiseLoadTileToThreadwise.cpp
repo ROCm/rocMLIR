@@ -150,7 +150,7 @@ class LoweringBlockwiseLoadTileOp final
     BlockwiseMatrixParamsAttr matrixParamsB = op.getMatrixParamsB();
     BlockwiseMatrixParamsAttr matrixParams =
         op.getIsA() ? matrixParamsA : matrixParamsB;
-    
+
     StringRef arch = rock::getArchValue(op);
     rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
     GemmFeatures features = archInfo.defaultFeatures;

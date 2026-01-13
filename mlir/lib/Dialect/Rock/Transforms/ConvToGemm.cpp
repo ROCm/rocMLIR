@@ -1109,7 +1109,7 @@ static FailureOr<std::tuple<Value, Value, Value>>
 commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
                   ConvOpType convOpType) {
   StringAttr arch = rock::getArchValue(op);
-  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);  
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
 
   Type dataType = op.getInput().getType().getElementType();
   if (ConvOpType::BwdData == convOpType) {
@@ -1171,7 +1171,8 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
     }
 
     if (ConvOpType::BwdWeight == convOpType &&
-        archInfo.isWrWAtomicKernel(op.getFeaturesAttr(), dataType, maybeGemmExtraPad.has_value())) {
+        archInfo.isWrWAtomicKernel(op.getFeaturesAttr(), dataType,
+                                   maybeGemmExtraPad.has_value())) {
       return backwardWeightAtomicAdd(cast<ConvBwdWeightOp>(op), b);
     }
   }
@@ -1431,7 +1432,8 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
     if (gemmFilter == nullptr && gemmInput == nullptr &&
         gemmOutput == nullptr) {
       assert(convOpType != ConvOpType::Fwd);
-      llvm::errs() << "ConvRewritePattern: backward conv, no need to keep running the pass\n";
+      llvm::errs() << "ConvRewritePattern: backward conv, no need to keep "
+                      "running the pass\n";
       return success();
     }
 
@@ -1455,7 +1457,7 @@ struct ConvRewritePattern : public OpRewritePattern<T> {
                    storeMethod, op.getDerivedBlockSizeAttr(),
                    op.getGridSizeAttr(), tuningParams);
 
-    llvm::errs() << "ConvRewritePattern: gemm op created\n";               
+    llvm::errs() << "ConvRewritePattern: gemm op created\n";
 
     // Finally, erase the original Conv op.
     b.eraseOp(op);
