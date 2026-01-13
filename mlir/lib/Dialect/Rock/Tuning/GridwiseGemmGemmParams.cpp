@@ -33,7 +33,7 @@ GemmGemmParamsAttr PopulateParamsGemmGemm::deserializePerfConfig(
   auto stringAttr = b.getStringAttr(config);
   StringAttr arch = rock::getArchValue(op);
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
-  bool isWmma = archInfo.isWmma(op.getAType(), op.getBType());
+  bool isWmma = archInfo.isWmma(op);
   return GemmGemmParamsAttr::get(stringAttr, isWmma);
 }
 

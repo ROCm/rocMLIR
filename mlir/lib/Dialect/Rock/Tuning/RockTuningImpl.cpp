@@ -247,7 +247,7 @@ getAccelRangeGemmGemm(RockGemmGemmWrapperInterface gemmGemmOp,
   std::vector<std::vector<uint32_t>> validRangeGemmGemmParams;
   if (archInfo.isMfma(gemmGemmOp)) {
     validRangeGemmGemmParams = validRangeGemmGemmParamsMFMA;
-  } else if (archInfo.isWmma(gemmGemmOp.getAType(), gemmGemmOp.getBType())) {
+  } else if (archInfo.isWmma(gemmGemmOp)) {
     validRangeGemmGemmParams = validRangeGemmGemmParamsWMMA;
   }
   return validRangeGemmGemmParams;
@@ -332,7 +332,7 @@ createGemmGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
   }
   const std::vector<std::vector<uint32_t>> validRangeGemmGemmParams =
       getAccelRangeGemmGemm(gemmGemmOp, TuningParamSetKind::Greedy);
-  bool isWmma = archInfo.isWmma(gemmGemmOp.getAType(), gemmGemmOp.getBType());
+  bool isWmma = archInfo.isWmma(gemmGemmOp);
   int64_t waveSize =
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).waveSize;
   int64_t outputSwizzle{2}, wavesPerEU{0};
@@ -391,7 +391,7 @@ createGemmGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
     // We only support GPUs with matrix accelerator extensions
     return;
   }
-  bool isWmma = archInfo.isWmma(gemmGemmOp.getAType(), gemmGemmOp.getBType());
+  bool isWmma = archInfo.isWmma(gemmGemmOp);
   OpBuilder b(gemmGemmOp.getContext());
 
   auto gemmGemmPerfConfig =
@@ -439,7 +439,7 @@ static void createGemmGemmTuningRangeBF(TuningParamSet *newSpace,
   GemmFeatures features = archInfo.defaultFeatures;
   // int64_t numEUPerCU =
   //     rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).numEUPerCU;
-  bool isWMMA = archInfo.isWmma(gemmGemmOp.getAType(), gemmGemmOp.getBType());
+  bool isWMMA = archInfo.isWmma(gemmGemmOp);
   llvm::errs() << "isWMMA: " << isWMMA << "\n";
   llvm::errs() << "features: " << features << "\n";
   if (!archInfo.isAccel(gemmGemmOp)) {
@@ -718,7 +718,7 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
         newSpace->tuningRange.push_back(
             cast<RockTuningParamAttrInterface>(param));
     }
-  } else if (archInfo.isWmma(gemmOp.getAType(), gemmOp.getBType())) {
+  } else if (archInfo.isWmma(gemmOp)) {
     // Wmma
     PopulateParamsWmma tuningInfo;
     for (AccelGemmParamsAttr param : tuningInfo.orderParams(

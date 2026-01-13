@@ -88,8 +88,13 @@ struct AmdArchInfo {
   bool isMfma(RockGemmWrapperInterface op);
   bool isMfma(RockGemmGemmWrapperInterface op);
 
-  /// Check if wmma is supported for given types
-  bool isWmma(Type dataTypeA, Type dataTypeB);
+  /// Check if wmma is supported for given types and features
+  bool isWmma(Type dataTypeA, Type dataTypeB, GemmFeaturesAttr featuresAttr);
+
+  /// Check if wmma is supported for given operation
+  /// Uses the operation's features attribute internally
+  bool isWmma(RockGemmWrapperInterface op);
+  bool isWmma(RockGemmGemmWrapperInterface op);
 
   /// Check if direct-to-LDS is supported for given type and numBytes
   bool isDirectToLDS(Type dataType, int64_t numBytes = 0);

@@ -773,7 +773,7 @@ static LogicalResult verifyGemmTypes(Operation *op, AmdArchInfo archInfo,
     return op->emitOpError(
         "Matrix A or B is not allowed to have Float8E8M0FNU types");
   }
-  if (archInfo.isWmma(elemTypeA, elemTypeB)) {
+  if (archInfo.isWmma(elemTypeA, elemTypeB, featuresAttr)) {
     // Validate input data types based on architecture
     bool isValidTypeA = elemTypeA.isF16() || elemTypeA.isBF16() ||
                         elemTypeA.isInteger(8) || isFloat8Type(elemTypeA);
@@ -1183,7 +1183,7 @@ LogicalResult GemmOp::verify() {
   StringAttr arch = rock::getArchValue(this->getOperation());
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   bool isMfma = archInfo.isMfma(*this);
-  bool isWmma = archInfo.isWmma(this->getAType(), this->getBType());
+  bool isWmma = archInfo.isWmma(*this);
   if (Attribute params = this->getParams().value_or(nullptr)) {
     if (isMfma && !isa<AccelGemmParamsAttr>(params))
       return emitOpError("a mfma GEMM has non-mfma tuning parameters");

@@ -349,7 +349,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   }
   StringAttr arch2 = rock::getArchValue(op);
   rock::AmdArchInfo archInfo3 = rock::lookupArchInfo(arch2);
-  bool isWmma = archInfo3.isWmma(op.getAType(), op.getBType());
+  bool isWmma = archInfo3.isWmma(op);
   auto attnPerfConfig = GemmGemmParamsAttr::get(perfConfigStrAttr, isWmma);
   if (!attnPerfConfig) {
     op.emitError("perf config string has an incorrect format.");

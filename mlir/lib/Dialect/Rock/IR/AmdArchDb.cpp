@@ -568,13 +568,20 @@ bool mlir::rock::AmdArchInfo::isMfma(RockGemmGemmWrapperInterface op) {
   return isMfma(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
 }
 
-bool mlir::rock::AmdArchInfo::isWmma(Type dataTypeA, Type dataTypeB) {
-  // GemmFeatures features = defaultFeatures;
-  auto features = getDefaultFeatures({dataTypeA, dataTypeB});
-  llvm::errs() << "isWmma: features:" << features << "\n";
-  llvm::errs() << "dataTypeA: " << dataTypeA << "\n";
-  llvm::errs() << "dataTypeB: " << dataTypeB << "\n";
+bool mlir::rock::AmdArchInfo::isWmma(Type dataTypeA, Type dataTypeB,
+                                     GemmFeaturesAttr featuresAttr) {
+  GemmFeatures features =
+      getFeaturesFromAttr({dataTypeA, dataTypeB}, featuresAttr);
+  LLVM_DEBUG(llvm::dbgs() << "isWmma: features=" << features << "\n");
   return bitEnumContainsAll(features, GemmFeatures::wmma);
+}
+
+bool mlir::rock::AmdArchInfo::isWmma(RockGemmWrapperInterface op) {
+  return isWmma(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
+}
+
+bool mlir::rock::AmdArchInfo::isWmma(RockGemmGemmWrapperInterface op) {
+  return isWmma(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
 }
 
 bool mlir::rock::AmdArchInfo::isDirectToLDS(Type dataType, int64_t numBytes) {
