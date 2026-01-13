@@ -8,11 +8,11 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/GridwiseGemmParams.h"
+#include "mlir/Dialect/Rock/utility/RocmDeviceName.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/math.h"
 #include "mlir/Dialect/Rock/utility/transformMapUtils.h"
-#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
@@ -851,7 +851,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
 
   // Annotate kernel attribute to the FuncOp.
   StringAttr archStrAttr = builder.getStringAttr(config.arch);
-  NamedAttribute archAttr = builder.getNamedAttr("mhal.arch", archStrAttr);
+  NamedAttribute archAttr = builder.getNamedAttr("arch", archStrAttr);
   IntegerAttr numCUIntAttr =
       builder.getIntegerAttr(builder.getI32Type(), getNumCU());
   NamedAttribute numCUAttr = builder.getNamedAttr("num_cu", numCUIntAttr);
@@ -1005,11 +1005,11 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
 
     if (kernelId == 1) {
       // Workspace -> filter tensor
-      ConvertingCopyKernelOp::create(
-          builder, builder.getUnknownLoc(), /*resultType=*/TypeRange{},
-          func.getArgument(3), func.getArgument(0),
-          /*blockSize=*/nullptr, /*gridSize=*/nullptr,
-          /*elemsPerThread=*/nullptr);
+      // ConvertingCopyKernelOp::create(
+      //     builder, builder.getUnknownLoc(), /*resultType=*/TypeRange{},
+      //     func.getArgument(3), func.getArgument(0),
+      //     /*blockSize=*/nullptr, /*gridSize=*/nullptr,
+      //     /*elemsPerThread=*/nullptr);
     } else {
       // TODO: This is okay for right now since we are not doing any fusions.
       // When we do handle fusions in the future there is no guarantee that

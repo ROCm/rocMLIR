@@ -30,7 +30,6 @@ enum class AddressSpace : uint32_t;
 }
 
 namespace rock {
-class ThreadwiseReadIntoOp;
 struct ConvolutionDims;
 struct GemmSize;
 
@@ -75,36 +74,6 @@ struct VectorDimInfo {
   int64_t inKPerThread;
   int64_t inDPerThread;
   GemmDimension vectorTiebreaker;
-};
-
-/// Helper struct to encapsulate the data needed by
-/// `ThreadwiseReadIntoOp` to perform the lowering (vectorization choices,
-/// bounds, etc.).
-struct ThreadwiseReadIntoLoopConfigInput {
-  Value sourceView;
-  MemRefType dstBufferType;
-  size_t extraIdxCount;
-  Type elementType;
-  int64_t numValues;
-  bool isSrcVectorBuffer;
-  bool isDstVectorBuffer;
-  bool hasDynamicValidities;
-  bool isGlobalToLDS;
-  std::optional<int64_t> maxGlobalToLDSVectorLen;
-};
-
-/// Summary of the loop parameters computed from
-/// `ThreadwiseReadIntoLoopConfigInput`, containing the
-/// bound (`numValues`), stride (`srcStride`), and the vectorization layout
-/// (`vectorSrcLen`, `vectorDstLen`, `loadType`, etc.).
-struct ThreadwiseReadIntoLoopInfo {
-  int64_t numValues;
-  int64_t srcStride;
-  int64_t vectorSrcLen;
-  int64_t vectorDstLen;
-  Type elementType;
-  Type loadType;
-  VectorType dstVectorType;
 };
 
 // The rows and columns of subtile view needs to
@@ -302,18 +271,6 @@ FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
 
 // Get the LDS size of the memref
 std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
-
-/// Replicates the loop-shape analysis performed by
-/// `ThreadwiseReadIntoRewritePattern`. Returns a ThreadwiseReadIntoLoopInfo
-/// struct, representingthe iteration bounds, strides, and vectorization details
-/// so other passes (e.g. add-async-wait) can reason about how many iterations a
-/// `rock.threadwise_read_into` executes without duplicating lowering logic.
-FailureOr<ThreadwiseReadIntoLoopInfo>
-getThreadwiseReadIntoLoopInfo(const ThreadwiseReadIntoLoopConfigInput &input);
-
-/// Returns a prediction of the loop count after the ThreadwiseReadIntoOp op is
-/// lowered.
-FailureOr<int64_t> predictThreadwiseReadIntoLoopCount(ThreadwiseReadIntoOp op);
 
 } // end namespace rock
 } // end namespace mlir

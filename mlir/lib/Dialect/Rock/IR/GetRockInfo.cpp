@@ -84,7 +84,7 @@ bool mlir::rock::isAccel(rock::GemmFeatures features) {
 }
 
 FailureOr<StringAttr> mlir::rock::getArch(Operation *op) {
-  return getAttrFromOpOrParents<StringAttr>(op, "arch", "mhal.arch");
+  return getAttrFromOpOrParents<StringAttr>(op, "arch", "arch");
 }
 
 StringAttr mlir::rock::getArchValue(Operation *op) {

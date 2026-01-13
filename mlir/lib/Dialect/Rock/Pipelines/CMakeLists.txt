@@ -14,7 +14,6 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   MLIRTosaToLinalg
   MLIRTosaToSCF
   MLIRTosaToTensor
-  MLIRRockToGPU
   MLIRRockOps
   MLIRRockTransforms
   MLIRRockUtility

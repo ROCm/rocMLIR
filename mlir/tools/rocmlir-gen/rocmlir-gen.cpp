@@ -27,6 +27,7 @@
 #include "mlir/Dialect/Rock/IR/RockTypes.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "mlir/Dialect/Rock/utility/RocmDeviceName.h"
 #include "mlir/Dialect/Rock/utility/builderUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
 #include "mlir/Dialect/Rock/utility/tosaUtils.h"
@@ -37,7 +38,6 @@
 #include "mlir/Dialect/Utils/IndexingUtils.h"
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
-#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/Attributes.h"
@@ -2518,10 +2518,10 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
   Location loc = module->getLoc();
   OpBuilder b(ctx);
 
-  // Set mhal.arch on module to make compilation pipeline work
+  // Set arch on module to make compilation pipeline work
   StringAttr archAttr = b.getStringAttr(params.arch);
-  if (!module->hasAttr("mhal.arch"))
-    module->setAttr("mhal.arch", archAttr);
+  if (!module->hasAttr("arch"))
+    module->setAttr("arch", archAttr);
 
   SmallVector<Type, 5> argTypes;
   getGemmTypes(params.types, argTypes,
@@ -2541,7 +2541,7 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
                  rock::lookupArchInfo(archAttr.getValue()).maxNumXCC));
   SmallVector<NamedAttribute> funcAttrs = {
       b.getNamedAttr("kernel", b.getUnitAttr()),
-      b.getNamedAttr("mhal.arch", archAttr)};
+      b.getNamedAttr("arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(b.getNamedAttr("num_cu", numCUAttr));
@@ -3284,10 +3284,10 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
   Location loc = module->getLoc();
   OpBuilder builder(ctx);
 
-  // Set mhal.arch on module to make compilation pipeline work
+  // Set arch on module to make compilation pipeline work
   StringAttr archAttr = builder.getStringAttr(params.arch);
-  if (!module->hasAttr("mhal.arch"))
-    module->setAttr("mhal.arch", archAttr);
+  if (!module->hasAttr("arch"))
+    module->setAttr("arch", archAttr);
 
   SmallVector<Type, 5> argTypes;
   getAttentionTypes(argTypes, params.types);
@@ -3305,7 +3305,7 @@ static func::FuncOp createGpuAttentionKernel(ModuleOp module,
 
   SmallVector<NamedAttribute, 3> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
-      builder.getNamedAttr("mhal.arch", archAttr)};
+      builder.getNamedAttr("arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
@@ -3453,10 +3453,10 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   Location loc = module->getLoc();
   OpBuilder builder(ctx);
 
-  // Set mhal.arch on module to make compilation pipeline work
+  // Set arch on module to make compilation pipeline work
   StringAttr archAttr = builder.getStringAttr(params.arch);
-  if (!module->hasAttr("mhal.arch"))
-    module->setAttr("mhal.arch", archAttr);
+  if (!module->hasAttr("arch"))
+    module->setAttr("arch", archAttr);
 
   const auto *config = params.convConfig.value();
   SmallVector<Type, 5> argTypes;
@@ -3474,7 +3474,7 @@ createGpuConvElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
 
   SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
-      builder.getNamedAttr("mhal.arch", archAttr)};
+      builder.getNamedAttr("arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
@@ -3577,10 +3577,10 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
   Location loc = module->getLoc();
   OpBuilder builder(ctx);
 
-  // Set mhal.arch on module to make compilation pipeline work
+  // Set arch on module to make compilation pipeline work
   StringAttr archAttr = builder.getStringAttr(params.arch);
-  if (!module->hasAttr("mhal.arch"))
-    module->setAttr("mhal.arch", archAttr);
+  if (!module->hasAttr("arch"))
+    module->setAttr("arch", archAttr);
 
   SmallVector<Type, 5> argTypes;
   getGemmElementwiseGemmTypes(argTypes, params.types);
@@ -3595,7 +3595,7 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
                                      : nullptr);
   SmallVector<NamedAttribute> funcAttrs = {
       builder.getNamedAttr("kernel", builder.getUnitAttr()),
-      builder.getNamedAttr("mhal.arch", archAttr)};
+      builder.getNamedAttr("arch", archAttr)};
 
   if (numCUAttr)
     funcAttrs.push_back(builder.getNamedAttr("num_cu", numCUAttr));
@@ -5614,7 +5614,7 @@ static void populateCloneHarnessLogic(ModuleOp module) {
   module.push_back(wrapperFunc);
 
   auto xmoduleOp = ModuleOp::create(loc, "__xmodule_");
-  xmoduleOp->setAttr("mhal.arch", archAttr);
+  xmoduleOp->setAttr("arch", archAttr);
   xmoduleOp->setAttr("mhal.module", b.getUnitAttr());
   auto *cloneFunc = originalFunc->clone();
   auto cloneFuncOp = dyn_cast<func::FuncOp>(cloneFunc);

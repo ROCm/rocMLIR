@@ -24,9 +24,9 @@
 #include "mlir/Dialect/Rock/IR/RockGemmGemmWrapperInterface.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
+#include "mlir/Dialect/Rock/utility/RocmDeviceName.h"
 #include "mlir/Dialect/Rock/utility/fusionUtils.h"
 #include "mlir/Dialect/Rock/utility/loweringUtils.h"
-#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -612,9 +612,8 @@ static int toKernelOrder(Attribute attr) {
 
 static LogicalResult extractFuncOps(ModuleOp op,
                                     SmallVectorImpl<func::FuncOp> &kernels) {
-  if (!op->hasAttr("mhal.arch")) {
-    return op->emitOpError(
-        "no architecture set, set mhal.arch on the input module");
+  if (!op->hasAttr("arch")) {
+    return op->emitOpError("no architecture set, set arch on the input module");
   }
   op.walk([&kernels](func::FuncOp f) {
     Attribute kernel = f->getAttr("kernel");
@@ -682,8 +681,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   compilationKernOpts.tuningFallback = false;
 
   RocmDeviceName deviceName;
-  StringRef archName =
-      source->getAttrOfType<StringAttr>("mhal.arch").getValue();
+  StringRef archName = source->getAttrOfType<StringAttr>("arch").getValue();
   if (failed(deviceName.parse(archName)))
     return source->emitOpError("could not parse arch name: " + archName);
   rock::BackendOptions backendOpts;
@@ -1035,14 +1033,14 @@ int main(int argc, char **argv) {
     FailureOr<StringAttr> mayBeArch = rock::getArch(op);
     if (succeeded(mayBeArch)) {
       module = op->getParentOfType<ModuleOp>();
-      module->setAttr("mhal.arch", mayBeArch.value());
+      module->setAttr("arch", mayBeArch.value());
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   });
   if (!findModule.wasInterrupted()) {
     source->emitOpError(
-        "no architecture set, set mhal.arch on the input module or func");
+        "no architecture set, set arch on the input module or func");
     llvm::errs() << "Tuning loop failed\n";
     return EXIT_FAILURE;
   }

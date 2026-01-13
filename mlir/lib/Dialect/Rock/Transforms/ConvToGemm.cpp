@@ -212,15 +212,6 @@ Type getResultType(Operation *convOp, Value outArg) {
   return nullptr;
 }
 
-static int64_t getUtilityVectorizationLen(ShapedType shape,
-                                          int64_t elemsPerThread) {
-  int64_t numElems = shape.getNumElements();
-  constexpr int64_t kMaxVectorOpLen = 4; // words
-  int64_t elemsPerWord = (32 / shape.getElementTypeBitWidth());
-  return math_util::gcd(math_util::gcd(numElems, elemsPerThread),
-                        kMaxVectorOpLen * elemsPerWord);
-}
-
 /// Create an elementwise utility kernel.
 /// The callback has type (builder, location, collapsedBuffers, coordinate).
 /// Note: you are expected to handle out of bounds, such as by using
@@ -286,74 +277,6 @@ LogicalResult createElementwiseLoop(
   }
   return success();
 }
-
-/// Create a private buffer that can hold type `type`.
-static Value makePrivateGpuAlloc(OpBuilder &b, Location loc, Type type) {
-  Type elemTy = type;
-  int64_t numElems = 1;
-  if (auto vecTy = dyn_cast<VectorType>(type)) {
-    elemTy = vecTy.getElementType();
-    numElems = vecTy.getNumElements();
-  }
-  auto memrefTy =
-      MemRefType::get(numElems, elemTy, nullptr,
-                      gpu::AddressSpaceAttr::get(type.getContext(),
-                                                 gpu::AddressSpace::Private));
-  Value memref = rock::GpuAllocOp::create(b, loc, memrefTy);
-  return memref;
-}
-
-/// Element-wise conversion from the workspace to the output (filter tensor)
-/// for a backward weight convolution which uses atomic adds.
-struct ConvertingCopyKernelRewritePattern final
-    : public OpConversionPattern<ConvertingCopyKernelOp> {
-  using OpConversionPattern<ConvertingCopyKernelOp>::OpConversionPattern;
-
-  LogicalResult matchAndRewrite(ConvertingCopyKernelOp op,
-                                ConvertingCopyKernelOpAdaptor adaptor,
-                                ConversionPatternRewriter &b) const override {
-    Location loc = op.getLoc();
-    auto input = cast<TypedValue<ShapedType>>(adaptor.getInput());
-    auto output = cast<TypedValue<ShapedType>>(adaptor.getOutput());
-    Type inputDataType = input.getType().getElementType();
-    Type outputDataType = output.getType().getElementType();
-    if (!op.getElemsPerThread().has_value())
-      return op->emitOpError("elems per thread not set");
-
-    int64_t conversionVectorLen = getUtilityVectorizationLen(
-        input.getType(), op.getElemsPerThread()->getZExtValue());
-
-    Type loadType = vectorTypeOrSelf(inputDataType, conversionVectorLen);
-    Type storeType = vectorTypeOrSelf(outputDataType, conversionVectorLen);
-    Value trueOp = arith::ConstantIntOp::create(b, loc, b.getI1Type(), true);
-    bool needs64BitIdx =
-        is4GBMemoryType(input.getType()) || is4GBMemoryType(output.getType());
-    Value storeMemref = makePrivateGpuAlloc(b, loc, storeType);
-    Value zeroIndex = b.createOrFold<arith::ConstantIndexOp>(loc, 0);
-    auto loopBody = [&loadType, &storeType, &conversionVectorLen, &trueOp,
-                     &storeMemref, &zeroIndex,
-                     &needs64BitIdx](OpBuilder &b, Location loc,
-                                     ValueRange collapsed, Value index) {
-      Value loaded =
-          GlobalLoadOp::create(b, loc, loadType, collapsed[0], /*valid=*/trueOp,
-                               index, needs64BitIdx,
-                               /*canReadOffEnd=*/true);
-      Value converted = createTypeConversionOp(b, loc, loaded, storeType);
-      InBoundsStoreOp::create(b, loc, converted, storeMemref, zeroIndex);
-      GlobalStoreOp::create(
-          b, loc, storeMemref, collapsed[1], APInt(64, conversionVectorLen),
-          StoreMethod::Set, /*sourceCoord=*/zeroIndex,
-          /*valid=*/trueOp, index, needs64BitIdx, /*canWriteOffEnd=*/true);
-    };
-    LogicalResult res = createElementwiseLoop(b, loc, op, {input, output},
-                                              conversionVectorLen, loopBody);
-    if (failed(res))
-      return failure();
-
-    b.eraseOp(op);
-    return success();
-  }
-};
 
 /// Layout normalization.
 
@@ -1504,11 +1427,9 @@ void RockConvToGemmPass::runOnOperation() {
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::ConvOp, rock::ConvBwdDataOp, rock::ConvBwdWeightOp,
-                      rock::ConvertingCopyKernelOp,
                       rock::ConvElementwiseGemmOp>();
   target.addLegalOp<rock::TransformOp, rock::GemmOp, rock::WorkgroupIdOp,
-                    rock::WorkitemIdOp, rock::GlobalLoadOp, rock::GlobalStoreOp,
-                    rock::GpuAllocOp, rock::InBoundsStoreOp,
+                    rock::WorkitemIdOp, rock::GpuAllocOp,
                     rock::GemmElementwiseGemmOp>();
   // Below are required legalize for the lowering of ConvBwdWeightOp
   target.addLegalDialect<arith::ArithDialect, memref::MemRefDialect,
@@ -1516,8 +1437,8 @@ void RockConvToGemmPass::runOnOperation() {
 
   RewritePatternSet patterns(ctx);
   patterns.add<ConvRewritePattern<ConvOp>, ConvRewritePattern<ConvBwdDataOp>,
-               ConvRewritePattern<ConvBwdWeightOp>, ConvGemmRewritePattern,
-               ConvertingCopyKernelRewritePattern>(ctx);
+               ConvRewritePattern<ConvBwdWeightOp>, ConvGemmRewritePattern>(
+      ctx);
 
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {

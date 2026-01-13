@@ -120,9 +120,6 @@ void AffixTuningParameters::runOnOperation() {
       funcOp->setAttr("grid_size", op.getGridSizeAttr());
     }
   });
-  func.walk([&](ConvertingCopyKernelOp op) {
-    setUtilityKernelSizes(op.getInput(), op);
-  });
 
   // For all ops that can take a 'features' attribute, we want to get or
   // calculate those features and then take the intersection of them and

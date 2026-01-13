@@ -330,7 +330,7 @@ static LogicalResult setSplitKAttrs(OpT op, rock::GemmFeatures features,
       Attribute outputInitVal = rw.getFloatAttr(elementType, 0.0);
       func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
                          outputInitVal);
-      func.setResultAttr(resNumber, "mhal.read_access", rw.getUnitAttr());
+      func.setResultAttr(resNumber, "read_access", rw.getUnitAttr());
       // The original function also need the read access attr for the output.
       if (func->hasAttr("original_func")) {
         if (ModuleOp rootMod = func->getParentOfType<ModuleOp>()
@@ -340,7 +340,7 @@ static LogicalResult setSplitKAttrs(OpT op, rock::GemmFeatures features,
               func->getAttrOfType<SymbolRefAttr>("original_func");
           if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
                   symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
-            originalFunc.setResultAttr(resNumber, "mhal.read_access",
+            originalFunc.setResultAttr(resNumber, "read_access",
                                        rw.getUnitAttr());
           }
         }
@@ -3116,7 +3116,7 @@ typename std::enable_if_t<
   for (int64_t resNumber : resIndices) {
     func.setResultAttr(resNumber, rock::PrefillAttr::getMnemonic(),
                        outputInitVal);
-    func.setResultAttr(resNumber, "mhal.read_access", rw.getUnitAttr());
+    func.setResultAttr(resNumber, "read_access", rw.getUnitAttr());
     // The original function also need the read access attr for the output.
     if (func->hasAttr("original_func")) {
       if (ModuleOp rootMod =
@@ -3126,7 +3126,7 @@ typename std::enable_if_t<
             func->getAttrOfType<SymbolRefAttr>("original_func");
         if (func::FuncOp originalFunc = dyn_cast<func::FuncOp>(
                 symTable.lookupSymbolIn(rootMod, originalFuncAttr))) {
-          originalFunc.setResultAttr(resNumber, "mhal.read_access",
+          originalFunc.setResultAttr(resNumber, "read_access",
                                      rw.getUnitAttr());
         }
       }

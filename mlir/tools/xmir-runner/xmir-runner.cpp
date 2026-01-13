@@ -15,10 +15,10 @@
 #include "mlir/Dialect/MHAL/Pipelines/Pipelines.h"
 
 #include "mlir/Dialect/LLVMIR/Transforms/Passes.h"
+#include "mlir/Dialect/Rock/utility/RocmDeviceName.h"
 #include "mlir/ExecutionEngine/CpuSystemDetect.h"
 #include "mlir/ExecutionEngine/JitRunner.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
-#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "mlir/ExecutionEngine/RocmSystemDetect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/InitRocMLIRCLOptions.h"

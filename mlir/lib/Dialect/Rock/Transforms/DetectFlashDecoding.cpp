@@ -231,7 +231,7 @@ unmergeBackForSplitKV(PatternRewriter &rewriter, Location loc, Value tensor,
 
   TransformMapAttr transformMap = builder.get();
   Value intermediate =
-      rewriter.create<rock::TransformOp>(loc, tensor, transformMap);
+      rock::TransformOp::create(rewriter, loc, tensor, transformMap);
 
   return std::make_pair(newBatch, intermediate);
 }
@@ -269,7 +269,7 @@ static FailureOr<Value> removeSplitKVFromQ(PatternRewriter &rewriter,
   TransformMapAttr step2Map = step2Builder.get();
 
   Value result =
-      rewriter.create<rock::TransformOp>(loc, intermediate, step2Map);
+      rock::TransformOp::create(rewriter, loc, intermediate, step2Map);
   return result;
 }
 
@@ -327,7 +327,7 @@ removeSplitKVWithMerge(PatternRewriter &rewriter, Location loc, Value tensor,
 
   TransformMapAttr transformMap = builder.get();
   Value result =
-      rewriter.create<rock::TransformOp>(loc, intermediate, transformMap);
+      rock::TransformOp::create(rewriter, loc, intermediate, transformMap);
 
   return result;
 }

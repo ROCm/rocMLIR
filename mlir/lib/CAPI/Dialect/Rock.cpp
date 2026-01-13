@@ -13,7 +13,7 @@
 #include "mlir/CAPI/Wrap.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/MHAL/Utility/Utils.h"
+// #include "mlir/Dialect/MHAL/Utility/Utils.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Tuning/ConvContext.h"
 #include "mlir/Dialect/Rock/Tuning/RockTuning.h"
@@ -174,8 +174,11 @@ size_t mlirGetNumPrefillArgs(MlirModule module) {
   mod.walk([&](gpu::BinaryOp op) { binary = op; });
   if (!binary.has_value())
     return 0;
-  auto attrs = mhal::getStoredPrefillAttributes(binary.value());
-  return attrs.size();
+
+  // TODO(roctriton): fix this
+  return 0;
+  // auto attrs = mhal::getStoredPrefillAttributes(binary.value());
+  // return attrs.size();
 }
 
 MLIR_CAPI_EXPORTED
@@ -189,13 +192,14 @@ void mlirGetPrefillArgsInfo(MlirModule module, size_t *indices,
   mod.walk([&](gpu::BinaryOp op) { binary = op; });
   if (!binary.has_value())
     return;
-  auto attrs = mhal::getStoredPrefillAttributes(binary.value());
+  // TODO(roctriton): fix this
+  // auto attrs = mhal::getStoredPrefillAttributes(binary.value());
 
-  assert(attrs.size() >= length && "length cannot exceed the attr size");
-  for (size_t i = 0; i < length; ++i) {
-    indices[i] = attrs[i].getArgIndex();
-    initValues[i] = wrap(attrs[i].getInitValue());
-  }
+  // assert(attrs.size() >= length && "length cannot exceed the attr size");
+  // for (size_t i = 0; i < length; ++i) {
+  //   indices[i] = attrs[i].getArgIndex();
+  //   initValues[i] = wrap(attrs[i].getInitValue());
+  // }
 }
 
 MLIR_CAPI_EXPORTED

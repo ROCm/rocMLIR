@@ -6,7 +6,7 @@ if(FALSE AND NOT WIN32)
     # Use MLIR's Python detection from the found MLIR installation
     include(MLIRDetectPythonEnv OPTIONAL)
     if(COMMAND mlir_detect_pybind11_install)
-        mlir_detect_pybind11_install()
+    mlir_detect_pybind11_install()
     endif()
 
     find_package(pybind11 CONFIG REQUIRED)

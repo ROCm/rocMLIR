@@ -365,7 +365,8 @@ public:
           rewriter.getDenseI64ArrayAttr(convPad),
           rewriter.getDenseI64ArrayAttr(stride),
           rewriter.getDenseI64ArrayAttr(dilationVals),
-          /* acc_type = */ accType, op->getAttrOfType<IntegerAttr>("group"));
+          /* acc_type = */ accType);
+      // TODO(roctriton): group convolution
     } else {
       Value reverse3 =
           tosa::ReverseOp::create(rewriter, loc, weightTy, reverse2,
@@ -695,15 +696,15 @@ public:
     }
 
     // Perform the convolution using the zero bias.
-    Value conv2d =
-        CreateOpAndInferShape<tosa::Conv2DOp>(
-            rewriter, loc, UnrankedTensorType::get(resultETy), input, weight,
-            zeroBias, inputZp.value(), weightZp.value(),
-            /*pad=*/rewriter.getDenseI64ArrayAttr({0, 0, 0, 0}),
-            /*stride=*/rewriter.getDenseI64ArrayAttr({1, 1}),
-            /*dilation=*/rewriter.getDenseI64ArrayAttr({1, 1}),
-            /* acc_type = */ accType, op->getAttrOfType<IntegerAttr>("group"))
-            .getResult();
+    Value conv2d = CreateOpAndInferShape<tosa::Conv2DOp>(
+                       rewriter, loc, UnrankedTensorType::get(resultETy), input,
+                       weight, zeroBias, inputZp.value(), weightZp.value(),
+                       /*pad=*/rewriter.getDenseI64ArrayAttr({0, 0, 0, 0}),
+                       /*stride=*/rewriter.getDenseI64ArrayAttr({1, 1}),
+                       /*dilation=*/rewriter.getDenseI64ArrayAttr({1, 1}),
+                       /* acc_type = */ accType)
+                       .getResult();
+    // TODO(roctriton): group convolution
 
     // Factor the resulting width / height.
     ShapedType convTy = cast<ShapedType>(conv2d.getType());

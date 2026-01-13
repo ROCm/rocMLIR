@@ -1,11 +1,12 @@
 add_rocmlir_dialect_library(MLIRRockUtility
-  AccelEmitter.cpp
   builderUtils.cpp
-  LdsTransposeLoad.cpp
   loweringUtils.cpp
   transformMapUtils.cpp
   fusionUtils.cpp
   tosaUtils.cpp
+  RocmDeviceName.cpp
+  RocmSystemDetect.cpp
+  SystemDevices.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock

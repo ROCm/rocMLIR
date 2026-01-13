@@ -149,12 +149,12 @@ include(cmake/triton.cmake)
 if(NOT WIN32)
   # Add library paths to RPATH
   list(PREPEND CMAKE_BUILD_RPATH "${TRITON_EXTERNAL_LIB_DIR}")
-  list(PREPEND CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR}")
+    list(PREPEND CMAKE_BUILD_RPATH "${ROCMLIR_LIB_DIR}")
   # Also add LLVM library dir if available
   if(DEFINED LLVM_LIBRARY_DIR)
     list(PREPEND CMAKE_BUILD_RPATH "${LLVM_LIBRARY_DIR}")
   endif()
-  message(STATUS "Final CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
+    message(STATUS "Final CMAKE_BUILD_RPATH: ${CMAKE_BUILD_RPATH}")
 endif()
 
 #===----------------------------------------------------------------------===//

@@ -16,7 +16,6 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
@@ -1315,8 +1314,10 @@ struct AsUnderlyingShapeConverter final
   matchAndRewrite(migraphx::AsUnderlyingShapeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final;
 };
+} // namespace
 
 /// This mirrors the call op conversion pattern but works for mhal.launch.
+/*
 struct MHALLaunchConverter final : public OpConversionPattern<mhal::LaunchOp> {
   using OpConversionPattern<mhal::LaunchOp>::OpConversionPattern;
 
@@ -1393,7 +1394,7 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   }
   rewriter.replaceOp(op, maybeBroadcast);
   return success();
-}
+}*/
 
 LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     migraphx::AsUnderlyingShapeOp op, OpAdaptor adaptor,
@@ -1435,7 +1436,7 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   rewriter.replaceOp(op, collapsed);
   return success();
 }
-
+/*
 LogicalResult MHALLaunchConverter::matchAndRewrite(
     mhal::LaunchOp op, OpAdaptor adaptor,
     ConversionPatternRewriter &rewriter) const {
@@ -1454,7 +1455,7 @@ LogicalResult MHALLaunchConverter::matchAndRewrite(
   rewriter.replaceOpWithNewOp<mhal::LaunchOp>(
       op, op.getCalleeAttr(), resultTypes, adaptor.getOperands());
   return success();
-}
+}*/
 
 //===----------------------------------------------------------------------===//
 // External interface
@@ -1492,8 +1493,8 @@ void migraphx::populateMIGraphXToTosaConversionPatterns(
 void mlir::migraphx::populateMIGraphXFuncBoundaryToTosaConversionPatterns(
     RewritePatternSet &patterns, TypeConverter &typeConverter) {
   patterns.add<AsLogicalShapeConverter, AsUnderlyingShapeConverter,
-               TrivialConverter<func::ReturnOp, func::ReturnOp>,
-               MHALLaunchConverter>(typeConverter, patterns.getContext());
+               TrivialConverter<func::ReturnOp, func::ReturnOp>>(
+      typeConverter, patterns.getContext());
   // Add upstream patterns that take care of func.func and its friends.
   populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
   populateCallOpTypeConversionPattern(patterns, typeConverter);

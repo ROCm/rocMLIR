@@ -25,7 +25,6 @@
 #include "mlir/Conversion/EmulateFp8ExtTrunc/EmulateFp8ExtTrunc.h"
 #include "mlir/Conversion/LLVMCommon/LoweringOptions.h"
 #include "mlir/Conversion/Passes.h"
-#include "mlir/Conversion/RockToGPU/RockToGPU.h"
 #include "mlir/Dialect/AMDGPU/Transforms/Passes.h"
 #include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
@@ -48,12 +47,146 @@
 #include "mlir/Dialect/Tosa/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
+
+// Triton includes (for backend pipeline)
 #include "mlir/Transforms/Passes.h"
+#include "triton/Conversion/TritonGPUToLLVM/Passes.h"
+#include "triton/Conversion/TritonToTritonGPU/Passes.h"
+#include "triton/Dialect/Triton/Transforms/Passes.h"
+#include "triton/Dialect/TritonGPU/IR/Dialect.h"
+#include "triton/Dialect/TritonGPU/Transforms/Passes.h"
 
 #include "llvm/Support/TargetSelect.h"
 #include <optional>
 
 using namespace mlir;
+
+namespace mt = ::mlir::triton;
+
+// Based on make_ttir() in
+// @triton//:third_party/amd/backend/compiler.py
+static void makeTTIR(mlir::OpPassManager *pm) {
+  pm->addPass(mlir::createInlinerPass());
+  pm->addPass(mt::createTritonRewriteTensorPointer());
+  pm->addPass(mt::createTritonRewriteTensorDescriptorToPointer());
+  pm->addPass(mlir::createCanonicalizerPass());
+  pm->addPass(mt::createTritonCombineOps());
+  pm->addPass(mt::createTritonReorderBroadcast());
+  pm->addPass(mlir::createCSEPass());
+  pm->addPass(mlir::createLoopInvariantCodeMotionPass());
+  pm->addPass(mlir::createSymbolDCEPass());
+  pm->addPass(mt::createTritonLoopUnroll());
+}
+
+static bool
+isPingpongScheduleEnabled(const stream_executor::RocmComputeCapability &rocm_cc,
+                          bool use_async_copy) {
+  return rocm_cc.gfx9_mi300() || (rocm_cc.gfx9_mi350() && use_async_copy);
+}
+
+static bool isInThreadTransposeEnabled(
+    const stream_executor::RocmComputeCapability &rocm_cc) {
+  return rocm_cc.gfx9_mi300();
+}
+
+// Based on make_ttgir() in
+// @triton//:third_party/amd/backend/compiler.py
+static void makeTTGIR(mlir::OpPassManager *pm,
+                      const stream_executor::RocmComputeCapability &rocm_cc,
+                      int num_warps, int num_ctas, int num_stages) {
+  pm->addPass(mt::createConvertTritonToTritonGPU(
+      {absl::StrCat("hip:", rocm_cc.gfx_version()), num_warps,
+       rocm_cc.threads_per_warp(), num_ctas}));
+  pm->addPass(mt::gpu::createTritonGPUCoalesce());
+  pm->addPass(mt::gpu::createTritonGPUF32DotTC({false}));
+  pm->addPass(mt::gpu::createTritonGPURemoveLayoutConversions());
+  pm->addPass(mt::gpu::createTritonGPUOptimizeThreadLocality());
+  pm->addPass(
+      mlir::createTritonAMDGPUAccelerateMatmul({rocm_cc.gfx_version()}));
+  pm->addPass(mt::gpu::createTritonGPURemoveLayoutConversions());
+  // TODO ROCm Check if we want to compare MI100 and greater
+  pm->addPass(mlir::createTritonAMDGPUOptimizeEpilogue());
+  pm->addPass(mt::amdgpu::createTritonAMDGPUOptimizeDotOperands(
+      {rocm_cc.gfx_version()}));
+  pm->addNestedPass<mlir::triton::FuncOp>(
+      mlir::createTritonAMDGPUHoistLayoutConversions());
+
+  pm->addPass(mt::gpu::createTritonGPUFuseNestedLoops());
+  pm->addPass(mlir::createCanonicalizerPass());
+  pm->addPass(mlir::createLoopInvariantCodeMotionPass());
+  pm->addPass(mlir::createCanonicalizerPass());
+
+  // TODO(ROCm) Modify when corresponding run time flags are introduced.
+  std::string schedule_hint = "none";
+
+  bool use_async_copy = false; // Not enabled by default.
+  bool use_block_pingpong = isPingpongScheduleEnabled(rocm_cc, use_async_copy);
+
+  pm->addPass(mlir::createTritonAMDGPUScheduleLoops({num_stages}));
+  pm->addPass(
+      mlir::createTritonAMDGPUPipeline({use_async_copy, use_block_pingpong}));
+  if (use_async_copy) {
+    pm->addPass(
+        mlir::createTritonAMDGPUCoalesceAsyncCopy({rocm_cc.gfx_version()}));
+  }
+  pm->addPass(mlir::createCanonicalizerPass());
+  if (schedule_hint != "none") {
+    pm->addPass(
+        mt::createTritonAMDGPUInsertInstructionSchedHintsPass({schedule_hint}));
+  }
+  pm->addPass(mt::gpu::createTritonGPURemoveLayoutConversions());
+  pm->addPass(mt::gpu::createTritonGPUReduceDataDuplication());
+  if (isInThreadTransposeEnabled(rocm_cc)) {
+    pm->addNestedPass<mlir::triton::FuncOp>(
+        mlir::createTritonAMDGPUInThreadTranspose());
+    pm->addPass(mt::gpu::createTritonGPURemoveLayoutConversions());
+  }
+  pm->addPass(mlir::createTritonAMDGPUReorderInstructions());
+  if (use_block_pingpong && num_stages > 1) {
+    pm->addPass(mlir::createTritonAMDGPUBlockPingpong({num_stages}));
+  }
+
+  pm->addNestedPass<mlir::triton::FuncOp>(
+      mlir::createTritonAMDGPUCanonicalizePointers());
+  pm->addPass(mlir::createCanonicalizerPass());
+  pm->addPass(mlir::createTritonAMDGPUConvertToBufferOps(
+      {rocm_cc.gfx_version(), /*allowBufferAtomics*/ true,
+       /*analyzeSmallTensorOfst*/ false}));
+
+  pm->addPass(mlir::createTritonAMDFoldTrueCmpI());
+  pm->addPass(mlir::createCanonicalizerPass());
+  pm->addPass(mlir::createCSEPass());
+  pm->addPass(mlir::createSymbolDCEPass());
+}
+
+// Based on make_llir() in
+// @triton//:third_party/amd/backend/compiler.py
+static void makeLLIR(mlir::OpPassManager *pm,
+                     const stream_executor::RocmComputeCapability &rocm_cc,
+                     int num_stages) {
+  const int custom_lds_size = 0;
+  pm->addPass(mlir::createTritonAMDGPUUpdateAsyncWaitCount());
+  pm->addPass(mlir::triton::AMD::createOptimizeLDSUsagePass(
+      rocm_cc.gfx_version(), custom_lds_size));
+  pm->addPass(mlir::createSCFToControlFlowPass());
+  pm->addPass(mlir::createConvertIndexToLLVMPass());
+  pm->addPass(mt::gpu::createAllocateSharedMemory());
+  pm->addPass(
+      mt::createConvertTritonAMDGPUToLLVMPass(rocm_cc.gfx_version(), true));
+  pm->addPass(mlir::createCanonicalizerPass());
+  pm->addPass(mlir::createCSEPass());
+  // Note: translateTritonGPUToLLVMIR adds line info with LLVMDIScopePass.
+  pm->addPass(mlir::createConvertControlFlowToLLVMPass());
+  pm->addPass(mlir::createArithToLLVMConversionPass());
+  pm->addPass(mlir::createCanonicalizerPass());
+  pm->addPass(mlir::createCSEPass());
+  pm->addPass(mlir::createSymbolDCEPass());
+  if (/*(instruction_sched_variant=="none") == */ /* DISABLES CODE */ (false)) {
+    pm->addPass(mt::createTritonAMDGPULowerInstructionSchedHintsPass(
+        rocm_cc.gfx_version(), num_stages));
+  }
+  pm->addPass(mt::createConvertBuiltinFuncToLLVMPass(/*ftz=*/true));
+}
 
 //===- Consolidate the Rock Pipelines here ---------------------===//
 
@@ -191,57 +324,40 @@ void rock::buildKernelPipeline(OpPassManager &pm,
      * --convert-linalg-to-affine-loops
      */
     funcPm.addPass(rock::createRockLinalgAlignPass());
-    funcPm.addPass(rock::createRockBlockwiseGemmToThreadwisePass());
-    funcPm.addPass(rock::createRockPipelinePass());
-    funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createConvertLinalgToAffineLoopsPass());
     funcPm.addPass(rock::createRockVectorizeFusionsPass());
-    funcPm.addPass(rock::createRockAddAsyncWaitPass());
-    // We run reuse LDS before the output swizzle pass because it uses a
-    // heuristic to determine whether to swizzle or not, and that heuristic
-    // needs the actual LDS usage. After running output swizzle, we'll create a
-    // new LDS buffer and we need to run reuse LDS again to be able to reuse LDS
-    // memory.
-    funcPm.addPass(rock::createRockAnnotateLivenessPass());
-    funcPm.addPass(rock::createRockReuseLDSPass());
-    funcPm.addPass(rock::createRockOutputSwizzlePass());
-    funcPm.addPass(rock::createRockAnnotateLivenessPass());
-    funcPm.addPass(rock::createRockReuseLDSPass());
   }
 
   if (options.applicabilityMode == rock::ApplicabilityMode::NonApplicability ||
       options.applicabilityMode == rock::ApplicabilityMode::Full) {
-    // rock lowering for reductions
-    /* rocmlir-opt --rock-lower-reduce
-     */
-    funcPm.addPass(rock::createRockLowerReducePass());
-
-    // rock lowering (block to thread)
-    /* rocmlir-opt --rock-lowering-blockwise-gemm-to-threadwise
-     *   --canonicalize --rock-threadwise-gemm-lowering
-     *   --rock-analyze-memory-use --rock-sugar-to-loops --rock-clean-math
-     *   --math-extend-to-supported-types="source-types=f64,f32,f16
-     * target-type=f32"
-     *   --rock-buffer-load-merge --rock-transform-to-memref
-     *   --rock-emulate-narrow-type --rock-pack-4bit-gpu-ops-to-8bit
-     * --rock-loops-to-cf
-     *    --convert-rock-to-gpu
-     */
-    funcPm.addPass(rock::createRockThreadwiseGemmLoweringPass());
-    funcPm.addPass(rock::createRockAnalyzeMemoryUsePass());
     funcPm.addPass(rock::createRockSugarToLoopsPass());
-    funcPm.addPass(rock::createRockCleanMathPass());
-    math::MathExtendToSupportedTypesOptions extendToLLVMTypesOptions;
-    extendToLLVMTypesOptions.extraTypeStrs = {"f16"};
-    extendToLLVMTypesOptions.targetTypeStr = "f32";
-    funcPm.addPass(
-        math::createMathExtendToSupportedTypes(extendToLLVMTypesOptions));
-    funcPm.addPass(rock::createRockBufferLoadMergePass());
-    funcPm.addPass(rock::createRockTransformToMemrefPass());
-    funcPm.addPass(rock::createRockEmulateNarrowTypePass());
-    funcPm.addPass(rock::createRockPack4BitGpuOpsTo8BitPass());
-    funcPm.addPass(rock::createRockLoopsToCfPass());
-    pm.addPass(createConvertRockToGPUPass());
+    // TODO: RockToTriton
+
+    // Triton backend pipeline
+    // This converts Rock dialect to Triton IR and compiles to LLVM
+
+    // 1. Convert Rock to Triton
+    pm.addPass(rock::createRockToTritonPass());
+
+    // 2. Triton dialect optimizations
+    pm.addPass(triton::createCombineOpsPass());
+    pm.addPass(triton::createReorderBroadcastPass());
+    pm.addPass(triton::createRewriteTensorPointerPass());
+
+    // 3. Convert to TritonGPU dialect (target-specific GPU ops)
+    pm.addPass(triton::createConvertTritonToTritonGPUPass());
+
+    // 4. TritonGPU optimizations
+    pm.addPass(triton::gpu::createTritonGPUCoalescePass());
+    pm.addPass(triton::gpu::createTritonGPURemoveLayoutConversionsPass());
+    pm.addPass(triton::gpu::createTritonGPUOptimizeDotOperandsPass());
+    pm.addPass(triton::gpu::createTritonGPUOptimizeThreadLocalityPass());
+    pm.addPass(triton::gpu::createTritonGPUReorderInstructionsPass());
+    pm.addPass(triton::gpu::createTritonGPUAccelerateMatmulPass());
+    pm.addPass(triton::gpu::createTritonGPUPipelinePass());
+
+    // 5. Convert to LLVM dialect
+    pm.addPass(triton::createConvertTritonGPUToLLVMPass());
   }
 }
 

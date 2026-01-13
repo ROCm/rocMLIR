@@ -13,27 +13,6 @@ include "mlir/Pass/PassBase.td"
 
 
 //===----------------------------------------------------------------------===//
-// RockToGPU
-//===----------------------------------------------------------------------===//
-
-def ConvertRockToGPUPass : Pass<"convert-rock-to-gpu", "ModuleOp"> {
-  let summary = "Lower the operations from the Rock dialect into the GPU "
-                "dialect";
-  let dependentDialects = [
-    "rock::RockDialect",
-    "amdgpu::AMDGPUDialect",
-    "cf::ControlFlowDialect",
-    "DLTIDialect",
-    "func::FuncDialect",
-    "gpu::GPUDialect",
-    "LLVM::LLVMDialect",
-    "memref::MemRefDialect",
-    "affine::AffineDialect",
-    "mhal::MHALDialect"
-  ];
-}
-
-//===----------------------------------------------------------------------===//
 // RocmlirCustomTosaDecomposePass
 //===----------------------------------------------------------------------===//
 
@@ -93,7 +72,7 @@ def MIGraphXToTosaPass : Pass<"migraphx-to-tosa", "::mlir::func::FuncOp"> {
   let dependentDialects = [
     "func::FuncDialect",
     "tosa::TosaDialect",
-    "mhal::MHALDialect",
+    //"mhal::MHALDialect",
   ];
 }
 

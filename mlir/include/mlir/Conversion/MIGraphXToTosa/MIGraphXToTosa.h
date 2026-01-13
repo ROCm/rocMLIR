@@ -17,7 +17,6 @@
 #define MLIR_CONVERSION_MIGRAPHXTOTOSA_H
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/MHAL/IR/MHAL.h"
 #include "mlir/Dialect/MIGraphX/IR/MIGraphX.h"
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/PatternMatch.h"

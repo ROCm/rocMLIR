@@ -1,43 +1,21 @@
 add_rocmlir_dialect_library(MLIRRockTransforms
-  AddDirectToLDSAliasInfo.cpp
   AffixTuningParameters.cpp
   AlignTiling.cpp
-  AnalyzeMemoryUse.cpp
-  BlockwiseGemmToThreadwise.cpp
-  BufferLoadMerge.cpp
   BufferizableOpInterfaceImpl.cpp
-  CheckResidency.cpp
-  CleanMath.cpp
   ConvToGemm.cpp
   DetectFlashDecoding.cpp
-  Pack4BitGpuOpsTo8Bit.cpp
-  EmulateNarrowType.cpp
   FoldBroadcast.cpp
   GemmToGridwise.cpp
-  RockMultibuffer.cpp
-  RockPipeline.cpp
   Regularize.cpp
   SugarToLoops.cpp
   GridwiseGemmToBlockwise.cpp
   GridLayoutEmitter.cpp
-  LoopsToCf.cpp
-  ThreadwiseGemmLowering.cpp
-  TransformToMemref.cpp
   ViewToTransform.cpp
-  LowerRockReduce.cpp
-  RockPrepareLLVM.cpp
-  VectorizeFusions.cpp
-  OutputSwizzle.cpp
-  ReuseLDS.cpp
   ShuffleGemmForReductions.cpp
   GemmLinalgSplitkNormalizationPass.cpp
   SortDimensionsMemoryLayout.cpp
   FindFirstGemmIndex.cpp
   RemoveOutputAlloc.cpp
-  BlockwiseLoadTileToThreadwise.cpp
-  AnnotateLiveness.cpp
-  AddAsyncWait.cpp
-  LowerRockOpsToROCDLOps.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock

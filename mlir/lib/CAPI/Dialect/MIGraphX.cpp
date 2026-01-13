@@ -17,8 +17,8 @@
 #include "mlir/Dialect/MIGraphX/Pipeline/Pipeline.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/Dialect/Rock/Pipelines/Pipelines.h"
+#include "mlir/Dialect/Rock/utility/RocmDeviceName.h"
 #include "mlir/ExecutionEngine/OptUtils.h"
-#include "mlir/ExecutionEngine/RocmDeviceName.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TargetSelect.h"
 #include <mutex>

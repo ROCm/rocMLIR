@@ -242,7 +242,6 @@ MLIRRockConvGenerator
 MLIRRockOps
 MLIRRockPipeline
 MLIRRockThin
-MLIRRockToGPU
 MLIRRockTransforms
 MLIRRockTuning
 MLIRRockUtility
