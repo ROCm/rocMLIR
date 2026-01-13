@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""
-Quick Tuning Generator - Generates QuickTuningPerfconfigs.inc from tuning data.
+"""Quick Tuning Generator
 
-Usage:
-    python3 quickTuningGen.py --input-dir tunedData --op conv --arch gfx90a --update --no-splitk
-    python3 quickTuningGen.py --input-dir tunedData --op attention --arch gfx942 --update
+Generates QuickTuningPerfconfigs.inc from tuning data produced by tuningRunner.py.
 """
 
 import argparse
-import glob
 import os
 import re
 import sys
@@ -28,6 +24,10 @@ ATTENTION_COLUMNS = [
     'TransQ', 'TransK', 'TransV', 'TransO', 'Causal', 'ReturnLSE', 'SplitKV', 'WithAttnScale',
     'WithAttnBias', 'G', 'SeqLenQ', 'SeqLenK', 'NumHeadsQ', 'NumHeadsKV', 'HeadDimQK', 'HeadDimV'
 ]
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
 
 
 def get_instruction_type(arch, dtype, op):
@@ -89,7 +89,7 @@ def parse_perfconfig(perfconfig):
 
 
 def get_splitk_value(perfconfig):
-    """Extract the split-K value from a perfconfig string."""
+    """Extract the Split-K value from a perfconfig string."""
     fmt, version, params = parse_perfconfig(perfconfig)
 
     idx = None
@@ -114,40 +114,51 @@ def get_splitk_value(perfconfig):
 # =============================================================================
 
 
-def load_data(input_dir, no_splitk, pattern=None):
-    """Load and combine all .debug tuning files."""
-    files = glob.glob(os.path.join(input_dir, "*.debug"))
-    if not files:
-        print(f"No .debug files found in '{input_dir}'", file=sys.stderr)
-        return None
-
-    if pattern:
-        regex = re.compile(pattern)
-        files = [f for f in files if regex.search(os.path.basename(f))]
-        if not files:
-            print(f"No .debug files matched the pattern '{pattern}' in '{input_dir}'",
-                  file=sys.stderr)
-            return None
-
-    print(f"Found {len(files)} .debug file(s) in '{input_dir}':")
+def validate_files(files):
+    """Validate that all files exist and are .debug files."""
+    errors = []
     for f in files:
-        print(f"    - {os.path.basename(f)}")
-    print()
+        if not f.endswith('.debug'):
+            errors.append(f"{f} is not a .debug file")
+        elif not os.path.isfile(f):
+            errors.append(f"{f} not found")
 
-    dfs = [pd.read_csv(f, sep='\t', index_col=None) for f in files]
-    df = pd.concat(dfs, ignore_index=True)
+    for e in errors:
+        print(f"ERROR: {e}", file=sys.stderr)
+
+    if errors:
+        sys.exit(1)
+
+
+def load_data(files, no_splitk):
+    """Load tuning data from files or stdin."""
+    if files:
+        validate_files(files)
+
+        print(f"Processing {len(files)} file(s):")
+        for f in files:
+            print(f"    {f}")
+
+        dfs = [pd.read_csv(f, sep='\t', index_col=None) for f in files]
+        df = pd.concat(dfs, ignore_index=True)
+    else:
+        # Read TSV content from stdin
+        print("Reading from stdin...")
+        df = pd.read_csv(sys.stdin, sep='\t', index_col=None)
 
     if no_splitk:
-        # Filter out configs where splitK != 1
+        # Filter out configs where Split-K != 1
+        before = len(df)
         mask = df['PerfConfig'].apply(lambda x: get_splitk_value(x) in (None, '1'))
         df = df[mask]
+        if len(df) < before:
+            print(f"Filtered out {before - len(df)} out of {before} Split-K configs")
 
     return df
 
 
-def find_perfconfigs(df, op, threshold=0.93):
-    """
-    Find minimal covering set of perfconfigs using set cover optimization.
+def find_perfconfigs(df, op, threshold):
+    """Find minimal covering set of perfconfigs using set cover optimization.
 
     For each problem (unique combination of problem dimensions), we identify
     configs that achieve >= threshold * best_tflops. We then solve a set cover
@@ -341,38 +352,74 @@ def update_inc_file(results, arch, op):
 # =============================================================================
 
 
-def print_results(results):
-    """Print selected perfconfigs."""
+def print_results(results, arch):
+    """Print selected perfconfigs for an architecture."""
+    print(f"=== {arch} ===")
     for dtype, configs in results.items():
-        print(f"Datatype: {dtype} ({len(configs)} configs)")
+        print(f"{dtype}: {len(configs)} configs")
         for i, cfg in enumerate(configs, 1):
             print(f"  {i:3d}: {cfg}")
-        print()
+    print()
+
+
+def process_arch(df, arch, op, threshold, update):
+    """Process data for a single architecture."""
+    df_arch = df[df['Chip'] == arch]
+
+    results = find_perfconfigs(df_arch, op, threshold)
+    print_results(results, arch)
+
+    if update:
+        update_inc_file(results, arch, op)
 
 
 def main(args=None):
-    parser = argparse.ArgumentParser(prog='quickTuningGen.py')
-    parser.add_argument('--input-dir', required=True, help='Directory with .debug files')
-    parser.add_argument('--op', required=True, choices=['gemm', 'conv', 'attention'])
-    parser.add_argument('--arch', required=True, help='Target arch (e.g., gfx90a)')
-    parser.add_argument('--th', type=float, default=0.93, help='Threshold (default: 0.93)')
-    parser.add_argument('--update', action='store_true', help='Update .inc file')
-    parser.add_argument('--no-splitk', action='store_true', help='Exclude Split-K configs')
-    parser.add_argument('--pattern', help='Regex pattern to filter .debug filenames')
+    parser = argparse.ArgumentParser(
+        prog='quickTuningGen.py',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description='Generate QuickTuningPerfconfigs.inc from tuning data.',
+        epilog='''
+Examples:
+    %(prog)s tuningData/*.debug --op conv --update
+    %(prog)s gfx90a/*.debug gfx942/*.debug --op gemm --update
+    cat data.debug | %(prog)s --op attention --update
+    find . -name "*.debug" | xargs %(prog)s --op gemm --update
+''')
+    
+    parser.add_argument(
+        'files',
+        nargs='*',
+        metavar='FILE',
+        help='.debug files produced by tuningRunner.py (reads TSV from stdin if none provided)')
+    parser.add_argument('--op',
+                        required=True,
+                        choices=['gemm', 'conv', 'attention'],
+                        help='Operation')
+    parser.add_argument('--th',
+                        type=float,
+                        default=0.93,
+                        metavar='THRESHOLD',
+                        help='Coverage threshold (default: 0.93)')
+    parser.add_argument('--update', action='store_true', help='Update QuickTuningPerfconfigs.inc')
+    parser.add_argument('--no-splitk', action='store_true', help='Exclude Split-K configurations')
 
     pargs = parser.parse_args(args)
 
-    df = load_data(pargs.input_dir, pargs.no_splitk, pargs.pattern)
-    if df is None or df.empty:
+    df = load_data(pargs.files, pargs.no_splitk)
+    if df.empty:
+        print("ERROR: No data loaded", file=sys.stderr)
         return 1
 
-    results = find_perfconfigs(df, pargs.op, pargs.th)
-    print_results(results)
+    # Process each architecture found in the data
+    archs = sorted(df['Chip'].unique())
+    print(f"Processing {len(archs)} architecture(s): {', '.join(archs)}")
+    print()
+
+    for arch in archs:
+        process_arch(df, arch, pargs.op, pargs.th, pargs.update)
 
     if pargs.update:
-        print(f"Updating: {get_output_path()}")
-        update_inc_file(results, pargs.arch, pargs.op)
-        print("Done!")
+        print(f"Updated: {get_output_path()}")
 
     return 0
 
