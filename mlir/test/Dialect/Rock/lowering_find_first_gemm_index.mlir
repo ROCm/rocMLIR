@@ -40,7 +40,7 @@ func.func @find_first_gemm_index_change(%arg0: memref<12288xf16>, %arg1: memref<
     rock.yield
   }
     %alloc = softmax(qk) * %7 : memref<32x2048x128xf16> -> memref<32x1x128xf16>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIndices = array<i64: 1>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f16, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 1>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f16, storeMethod = #rock<StoreMethod set>}
   // CHECK: firstGemmIndices = array<i64: 2> 
   %8 = rock.transform %alloc by <affine_map<(d0, d1, d2, d3) -> (d1, d2, d3)> by [<Unmerge{32} ["exp1"] at [1] -> ["dim0"] at [0]>, <PassThrough ["dim1"] at [2] -> ["dim1"] at [1]>, <PassThrough ["dim2"] at [3] -> ["dim2"] at [2]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 32, 1, 128] -> [32, 1, 128]> : memref<32x1x128xf16> to memref<1x32x1x128xf16>
   %9 = rock.transform %8 by <affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)> by [<PassThrough ["dim0", "dim2", "dim1", "dim3"] at [0, 1, 2, 3] -> ["dim0", "dim2", "dim1", "dim3"] at [0, 2, 1, 3]>] bounds = [1, 1, 32, 128] -> [1, 32, 1, 128]> : memref<1x32x1x128xf16> to memref<1x1x32x128xf16>
@@ -63,7 +63,7 @@ func.func @find_no_change(%arg0: memref<4096xf32>, %arg1: memref<4096xf32>, %arg
     rock.yield
   }
     %alloc = softmax(qk) * %0 : memref<1x64x64xf32> -> memref<1x64x64xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
   // CHECK: firstGemmIndices = array<i64: 0> 
   %3 = rock.transform %alloc by <affine_map<(d0) -> (0, d0 floordiv 64, d0 mod 64)> by [<Merge{1, 64, 64} ["dim0"] at [0] -> ["col0", "col1", "col2"] at [0, 1, 2]>] bounds = [4096] -> [1, 64, 64]> : memref<1x64x64xf32> to memref<4096xf32>
   memref.copy %3, %arg3 : memref<4096xf32> to memref<4096xf32>
@@ -94,7 +94,7 @@ func.func @basic_transformed_inputs(%arg0: memref<16x16xf32>, %arg1: memref<16x1
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
   
   memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
   return
@@ -123,7 +123,7 @@ func.func @test_first_gemm_at_index_1_in_block(%arg0: memref<16x16xf32>, %arg1: 
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 1>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 1>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
   
   memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
   return
@@ -152,7 +152,7 @@ func.func @test_first_gemm_at_index_1_in_block_at_1_in_linalg_op(%arg0: memref<1
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 1>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 1>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
   
   memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
   return
@@ -191,7 +191,7 @@ func.func @multiple_linalg_ops_gemm_at_0_0(%arg0: memref<16x16xf32>, %arg1: memr
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
 
   memref.copy %alloc, %arg5 : memref<16x16xf32> to memref<16x16xf32>
   return
@@ -230,7 +230,7 @@ func.func @multiple_linalg_ops_gemm_at_0_1(%arg0: memref<16x16xf32>, %arg1: memr
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
 
   memref.copy %alloc, %arg5 : memref<16x16xf32> to memref<16x16xf32>
   return
@@ -269,7 +269,7 @@ func.func @multiple_linalg_ops_gemm_at_0_1_block_arg_1(%arg0: memref<16x16xf32>,
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 1>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 1>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
 
   memref.copy %alloc, %arg5 : memref<16x16xf32> to memref<16x16xf32>
   return
@@ -308,7 +308,7 @@ func.func @multiple_linalg_generics_with_converts(%arg0: memref<32x64xf16>, %arg
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<32x32xf16> -> memref<32x32xf16>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f16, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f16, storeMethod = #rock<StoreMethod set>}
   
   memref.copy %alloc, %arg4 : memref<32x32xf16> to memref<32x32xf16>
   return
@@ -366,7 +366,7 @@ func.func @multiple_transforms_between_linalg_generics(%arg0: memref<32x64xf16>,
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<32x32xf16> -> memref<32x32xf16>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f16, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f16, storeMethod = #rock<StoreMethod set>}
   
   memref.copy %alloc, %arg4 : memref<32x32xf16> to memref<32x32xf16>
   return
@@ -399,7 +399,7 @@ func.func @nested_transforms_chain(%arg0: memref<16x16xf32>, %arg1: memref<16x16
       rock.yield
     }
     %alloc = softmax(qk) * %arg2 : memref<16x16xf32> -> memref<16x16xf32>
-  } {arch = "gfx942:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add>, firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
+  } {arch = "gfx942:sramecc+:xnack-", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, numHeadsKV = 1 : i32, numHeadsQ = 1 : i32, softmaxType = f32, storeMethod = #rock<StoreMethod set>}
   
   memref.copy %alloc, %arg4 : memref<16x16xf32> to memref<16x16xf32>
   return

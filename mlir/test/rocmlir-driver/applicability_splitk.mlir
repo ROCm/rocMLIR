@@ -37,7 +37,7 @@ func.func @gemm_gemm_splitk_valid(%arg0: memref<1x384x64xf16>, %arg1: memref<1x3
   rock.gemm_elementwise_gemm{
     ab = %arg0 * tr %arg1 : memref<1x384x64xf16>, memref<1x384x64xf16>
     %arg3 = ab * %arg2 : memref<1x384x64xf16> -> memref<1x384x64xf16>
-  } {features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v3:32,32,32,32,32,32,16,8,2,1,2,0,1", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
+  } {perf_config = "attn:v3:32,32,32,32,32,32,16,8,2,1,2,0,1", firstGemmIndices = array<i64: 0>, splitKV = 1 : i32, storeMethod = #rock<StoreMethod set>}
   return
 }
 
@@ -51,7 +51,7 @@ func.func @conv_gemm_splitk_valid(%arg0: memref<1x128x256x1x1xf16>, %arg1: memre
   rock.conv_elementwise_gemm{
     ab = conv(%arg0, %arg1) : memref<1x128x256x1x1xf16>, memref<2x1x256x32x32xf16>
     %arg3 = ab * %arg2 : memref<1x128x64xf16> -> memref<1x2048x64xf16>
-  } {dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v3:32,32,32,32,32,32,16,8,2,1,2,0,1", filter_layout = ["g", "k", "c", "0", "1"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [0 : index, 0 : index, 0 : index, 0 : index], storeMethod = #rock<StoreMethod set>, strides = [1 : index, 1 : index]}
+  } {dilations = [1 : index, 1 : index], perf_config = "attn:v3:32,32,32,32,32,32,16,8,2,1,2,0,1", filter_layout = ["g", "k", "c", "0", "1"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [0 : index, 0 : index, 0 : index, 0 : index], storeMethod = #rock<StoreMethod set>, strides = [1 : index, 1 : index]}
   return
 }
 
@@ -61,6 +61,6 @@ func.func @conv_gemm_nosplit_valid(%arg0: memref<1x128x256x3x3xf32>, %arg1: memr
   rock.conv_elementwise_gemm{
     ab = conv(%arg0, %arg1) : memref<1x128x256x3x3xf32>, memref<2x1x256x128x128xf32>
     %arg3 = ab * %arg2 : memref<1x128x128xf32> -> memref<1x32768x128xf32>
-  } {dilations = [1 : index, 1 : index], features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>, perf_config = "attn:v3:32,32,32,32,32,32,16,8,1,1,2,0,1", filter_layout = ["g", "k", "c", "0", "1"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [1 : index, 1 : index, 1 : index, 1 : index], storeMethod = #rock<StoreMethod set>, strides = [1 : index, 1 : index]}
+  } {dilations = [1 : index, 1 : index], perf_config = "attn:v3:32,32,32,32,32,32,16,8,1,1,2,0,1", filter_layout = ["g", "k", "c", "0", "1"], firstGemmIndices = array<i64: 0>, input_layout = ["ni", "gi", "ci", "0i", "1i"], padding = [1 : index, 1 : index, 1 : index, 1 : index], storeMethod = #rock<StoreMethod set>, strides = [1 : index, 1 : index]}
   return
 }

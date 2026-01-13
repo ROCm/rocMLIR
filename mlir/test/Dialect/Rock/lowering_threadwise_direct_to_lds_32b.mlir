@@ -24,11 +24,10 @@
 #transform_map11 = #rock.transform_map<#map8 by [<PassThrough ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3] -> ["k_loop", "g_block", "m_block", "n_block"] at [0, 1, 2, 3]>, <Merge{1, 64} ["tid"] at [4] -> ["n_thread", "k_thread"] at [4, 5]>, <Merge{16, 1} ["iter"] at [5] -> ["n_iter", "k_iter"] at [6, 7]>] bounds = [4, 1, 16, 25, 64, 16] -> [4, 1, 16, 25, 1, 64, 16, 1]>
 
 // CHECK-LABEL: func.func @direct_to_lds_32b_test
-// CHECK-SAME: features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>
+// CHECK-SAME: mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>
 module attributes {mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-"} {
   func.func @direct_to_lds_32b_test(%arg0: memref<65536xf32>, %arg1: memref<102400xf32>, %arg2: memref<102400xf32>) 
     attributes {block_size = 64 : i32, 
-                features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16|direct_to_lds_32b>, 
                 grid_size = 400 : i32, 
                 kernel = 0 : i32, 
                 mhal.arch = "amdgcn-amd-amdhsa:gfx942:sramecc+:xnack-", 

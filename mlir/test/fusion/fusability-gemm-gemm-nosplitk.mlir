@@ -3,7 +3,7 @@
 // RUN: rocmlir-gen -emit-module-fusibility-for=attn:v2:32,128,32,32,32,16,8,1,1,2,1 - < %s | FileCheck %s --check-prefixes=CHECK-NONSPLITK
 // CHECK-NONSPLITK: fusible:1
 module {
-  func.func @mlir_gemm_gemm(%arg0: memref<4096xf32>, %arg1: memref<4096xf32>, %arg2: memref<4096xf32>, %arg3: memref<4096xf32>, %arg4: memref<4096xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-", features = #rock<GemmFeatures mfma|dot|atomic_add|atomic_add_f16>} {
+  func.func @mlir_gemm_gemm(%arg0: memref<4096xf32>, %arg1: memref<4096xf32>, %arg2: memref<4096xf32>, %arg3: memref<4096xf32>, %arg4: memref<4096xf32>) attributes {enable_splitk_for_tuning, kernel, mhal.arch = "amdgcn-amd-amdhsa:gfx90a:sramecc+:xnack-"} {
     %0 = rock.transform %arg3 by <affine_map<(d0, d1, d2, d3) -> ((d1 * 32 + d2) * 32 + d3)> by [<Unmerge{4, 32, 32} ["exp1", "exp2", "exp3"] at [1, 2, 3] -> ["dim0"] at [0]>, <AddDim{1} ["unit0"] at [0] -> [] at []>] bounds = [1, 4, 32, 32] -> [4096]> : memref<4096xf32> to memref<1x4x32x32xf32>
     %1 = rock.transform %0 by <affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)> by [<PassThrough ["dim0", "dim1", "dim3", "dim2"] at [0, 1, 2, 3] -> ["dim0", "dim1", "dim3", "dim2"] at [0, 1, 3, 2]>] bounds = [1, 4, 32, 32] -> [1, 4, 32, 32]> : memref<1x4x32x32xf32> to memref<1x4x32x32xf32>
     %2 = rock.transform %arg2 by <affine_map<(d0, d1, d2) -> ((d0 * 32 + d1) * 32 + d2)> by [<Unmerge{4, 32, 32} ["exp0", "exp1", "exp2"] at [0, 1, 2] -> ["dim0"] at [0]>] bounds = [4, 32, 32] -> [4096]> : memref<4096xf32> to memref<4x32x32xf32>

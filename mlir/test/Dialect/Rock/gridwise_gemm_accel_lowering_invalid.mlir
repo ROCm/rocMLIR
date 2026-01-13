@@ -41,7 +41,7 @@ func.func @gfx950_lds_exceeded(%arg0: memref<1x128x512xf32>, %arg1: memref<1x128
 func.func @scaled_gemm_lds_exceeded(%arg0: memref<1x1024x256xf4E2M1FN>, %arg1: memref<1x1024x256xf4E2M1FN>, %arg2: memref<1x256x256xf32>, %scaleA: memref<1x1024x256xf8E8M0FNU>, %scaleB: memref<1x1024x256xf8E8M0FNU>) attributes {block_size = 256 : i32, grid_size = 1 : i32, arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
   // expected-error @+2 {{requires too much LDS}}
   // expected-error @+1 {{failed to legalize operation 'rock.gridwise_gemm_accel'}}
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %scaleA, %scaleB) storeMethod(set) features = mfma {blockSize = 256 : i32, gridSize = 1 : i32, params = #xdlops_gemm_params_scaled_lds_exceeded} : memref<1x1024x256xf4E2M1FN>, memref<1x1024x256xf4E2M1FN>, memref<1x256x256xf32>, memref<1x1024x256xf8E8M0FNU>, memref<1x1024x256xf8E8M0FNU>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %scaleA, %scaleB) storeMethod(set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #xdlops_gemm_params_scaled_lds_exceeded} : memref<1x1024x256xf4E2M1FN>, memref<1x1024x256xf4E2M1FN>, memref<1x256x256xf32>, memref<1x1024x256xf8E8M0FNU>, memref<1x1024x256xf8E8M0FNU>
   return
 }
 
@@ -55,7 +55,7 @@ func.func @scaled_gemm_lds_exceeded(%arg0: memref<1x1024x256xf4E2M1FN>, %arg1: m
 func.func @scaled_gemm_lds_exceeded_alt(%arg0: memref<1x1024x512xf4E2M1FN>, %arg1: memref<1x1024x512xf4E2M1FN>, %arg2: memref<1x512x512xf32>, %scaleA: memref<1x1024x512xf8E8M0FNU>, %scaleB: memref<1x1024x512xf8E8M0FNU>) attributes {block_size = 256 : i32, grid_size = 1 : i32, arch = "amdgcn-amd-amdhsa:gfx950", numCU = 256 : i32} {
   // expected-error @+2 {{requires too much LDS}}
   // expected-error @+1 {{failed to legalize operation 'rock.gridwise_gemm_accel'}}
-  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %scaleA, %scaleB) storeMethod(set) features = mfma {blockSize = 256 : i32, gridSize = 1 : i32, params = #xdlops_gemm_params_scaled_lds_exceeded2} : memref<1x1024x512xf4E2M1FN>, memref<1x1024x512xf4E2M1FN>, memref<1x512x512xf32>, memref<1x1024x512xf8E8M0FNU>, memref<1x1024x512xf8E8M0FNU>
+  rock.gridwise_gemm_accel(%arg0, %arg1, %arg2, %scaleA, %scaleB) storeMethod(set) {blockSize = 256 : i32, gridSize = 1 : i32, params = #xdlops_gemm_params_scaled_lds_exceeded2} : memref<1x1024x512xf4E2M1FN>, memref<1x1024x512xf4E2M1FN>, memref<1x512x512xf32>, memref<1x1024x512xf8E8M0FNU>, memref<1x1024x512xf8E8M0FNU>
   return
 }
 

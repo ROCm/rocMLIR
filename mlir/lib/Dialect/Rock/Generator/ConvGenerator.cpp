@@ -932,7 +932,7 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
   // features
   GemmFeaturesAttr features =
       builder.getAttr<GemmFeaturesAttr>(config.features);
-  attributes.push_back(builder.getNamedAttr("features", features));
+  attributes.push_back(builder.getNamedAttr("disabledFeatures", features));
 
   SmallVector<int64_t, 8> paddingArray;
   for (const auto &[left, right] :

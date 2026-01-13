@@ -11,7 +11,7 @@
 // BIN1: ELF
 // TUNING1: globalSize{{.*}}localSize{{.*}}
 // DRIVER1-COUNT-3: rock.transform %{{.+}} by
-// DRIVER1: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index], usesV4R1 = true} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
+// DRIVER1: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [1 : index, 1 : index], usesV4R1 = true} : memref<1x1024x1024x1x1xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x14x14xf32>
 
 ////////////////////////////////////////////
 // Test case which depends on 4 GPU kernels.
@@ -35,13 +35,13 @@
 // TUNING4_2: globalSize{{.*}}localSize{{.*}}
 // TUNING4_3: globalSize{{.*}}localSize{{.*}}
 // DRIVER4-COUNT-3: rock.transform %{{.+}} by
-// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
+// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
 // DRIVER4-COUNT-3: rock.transform %{{.+}} by
-// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 1 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
+// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 1 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
 // DRIVER4-COUNT-3: rock.transform %{{.+}} by
-// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 2 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
+// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 2 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
 // DRIVER4-COUNT-3: rock.transform %{{.+}} by
-// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 3 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
+// DRIVER4-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 3 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x1024x1024x3x3xf32>, memref<64x1x1024x14x14xf32>, memref<64x1x1024x6x6xf32>
 
 ////////////////////////////////////////////
 // Test case which depends on 1 GPU kernel
@@ -58,4 +58,4 @@
 // ZEROINIT_TUNING: globalSize=100352, localSize=64
 // ZEROINIT_DRIVER: %arg1: memref<{{.*}}xf16> {rock.prefill = 0.000000e+00 : f16}
 // ZEROINIT_DRIVER-COUNT-3: rock.transform %{{.+}} by
-// ZEROINIT_DRIVER-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) features = dot {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x2048x1024x1x1xf16>, memref<256x1x1024x14x14xf16>, memref<256x1x2048x7x7xf16>
+// ZEROINIT_DRIVER-NEXT: rock.conv_bwd_data(%{{.+}}, %{{.+}}, %{{.+}}) {dilations = [1 : index, 1 : index], filter_layout = ["g", "k", "c", "0", "1"], input_layout = ["ni", "gi", "ci", "0i", "1i"], kernelId = 0 : index, output_layout = ["no", "go", "ko", "0o", "1o"], padding = [0 : index, 0 : index, 0 : index, 0 : index], strides = [2 : index, 2 : index], usesV4R1 = true} : memref<1x2048x1024x1x1xf16>, memref<256x1x1024x14x14xf16>, memref<256x1x2048x7x7xf16>
