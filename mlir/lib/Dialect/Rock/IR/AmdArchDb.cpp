@@ -632,3 +632,10 @@ mlir::rock::AmdArchInfo::getMaxLDSVectorLength(int64_t elementBitWidth) {
 bool mlir::rock::isGlobalPrefetchSupported(StringRef arch) {
   return arch.contains("gfx1250");
 }
+
+bool mlir::rock::AmdArchInfo::isWrWAtomicKernel(GemmFeaturesAttr featuresAttr, Type dataType,
+                                                 bool requiredPadding) {
+  return isAccel(dataType, dataType, featuresAttr) &&
+         hasAtomicAdd(dataType) &&
+         (dataType.isF32() || dataType.isF16()) && !requiredPadding;
+}

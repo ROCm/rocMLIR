@@ -1171,7 +1171,7 @@ commonConvRewrite(T op, PatternRewriter &b, ConvolutionContext &ctx,
     }
 
     if (ConvOpType::BwdWeight == convOpType &&
-        isWrWAtomicKernel(archInfo, op.getFeaturesAttr(), dataType, maybeGemmExtraPad.has_value())) {
+        archInfo.isWrWAtomicKernel(op.getFeaturesAttr(), dataType, maybeGemmExtraPad.has_value())) {
       return backwardWeightAtomicAdd(cast<ConvBwdWeightOp>(op), b);
     }
   }

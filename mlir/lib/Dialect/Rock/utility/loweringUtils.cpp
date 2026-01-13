@@ -43,15 +43,6 @@ bool mlir::rock::isValidBlockSize(int64_t blockSize, int64_t kPerBlock,
   return (aCopyPerThread != 0 && bCopyPerThread != 0);
 }
 
-bool mlir::rock::isWrWAtomicKernel(AmdArchInfo archInfo, GemmFeaturesAttr featuresAttr, Type dataType,
-                                   bool requiredPadding) {
-  // Check if features contain accelerator (mfma or wmma)
-  bool isAccel = archInfo.isAccel(dataType, dataType, featuresAttr);
-  return isAccel &&
-          archInfo.hasAtomicAdd(dataType) &&
-         (dataType.isF32() || dataType.isF16()) && !requiredPadding;
-}
-
 bool mlir::rock::is4GBMemoryType(ShapedType type) {
   if (!type.hasStaticShape())
     return true;

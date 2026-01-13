@@ -247,7 +247,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
     // I dont like this hack.
     GemmFeaturesAttr featuresAttr = GemmFeaturesAttr::get(op.getContext(), info.gemmFeatures);
     if (maybeWrwOp &&
-        isWrWAtomicKernel(archInfo2, featuresAttr, info.gemmAType, requiredPadding)) {
+        archInfo2.isWrWAtomicKernel(featuresAttr, info.gemmAType, requiredPadding)) {
       auto res = calculateKBlockNum(
           info.batchSize, paddedGemmSize, validParams.getMPerBlock(),
           validParams.getNPerBlock(), validParams.getKpackPerBlock(),
