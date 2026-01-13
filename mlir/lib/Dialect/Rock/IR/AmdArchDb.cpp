@@ -597,10 +597,6 @@ bool mlir::rock::AmdArchInfo::isAsyncDirectToLDS(StringRef arch, Type dataType,
   return isDirectToLDS(dataType, numBytes);
 }
 
-bool mlir::rock::AmdArchInfo::hasDot() const {
-  return bitEnumContainsAll(defaultFeatures, GemmFeatures::dot);
-}
-
 bool mlir::rock::AmdArchInfo::hasAtomicAdd(Type dataType) {
   auto features = getDefaultFeatures(dataType);
   return bitEnumContainsAll(features, GemmFeatures::atomic_add);
