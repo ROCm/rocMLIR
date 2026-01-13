@@ -95,10 +95,6 @@ static Type getElementTypeOrSelfRecursive(Type type) {
   return type;
 }
 
-static Type getElementTypeOrSelfRecursive(Value val) {
-  return getElementTypeOrSelfRecursive(val.getType());
-}
-
 template <int N>
 struct rank : rank<N - 1> {};
 
@@ -1386,6 +1382,68 @@ SmallVector<mlir::Type> BlockwiseLoadTileOp::getTypesForFeature() {
   return {getSource().getType().getElementType()};
 }
 
+//===-----------------------------------------------------===//
+// BlockwiseStoreTileOp
+//===-----------------------------------------------------===//
+
+SmallPtrSet<OpOperand *, 2> BlockwiseStoreTileOp::getAcceptingViewOperands() {
+  auto operands = getOperation()->getOpOperands();
+  return {operands.begin() + 1};
+}
+
+std::optional<OperandRange>
+BlockwiseStoreTileOp::getExtraIndices(OpOperand &operand) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return std::nullopt;
+  }
+  // Only one operand supports view
+  return getExtraIndices();
+}
+
+Operation *
+BlockwiseStoreTileOp::cloneWithExtraIndices(OpBuilder &builder,
+                                            OpOperand &operand, Value view,
+                                            ArrayRef<Value> newExtraIndices) {
+  if (!getAcceptingViewOperands().contains(&operand)) {
+    return getOperation();
+  }
+
+  // Only one operand supports view
+  auto newOp = BlockwiseStoreTileOp::create(
+      builder, getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
+      getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
+  return newOp.getOperation();
+}
+
+void BlockwiseStoreTileOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  getCommonEffects(*this, effects);
+}
+
+LogicalResult BlockwiseStoreTileOp::verify() {
+  MemRefType sourceType = getSource().getType();
+  Attribute memSpaceAttr = sourceType.getMemorySpace();
+  auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
+  if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
+                                               gpu::AddressSpace::Private))
+    return emitOpError("source must be private registers");
+  ArrayAttr extraViews = getExtraViews();
+  ArrayRef<int64_t> outputShape;
+  if (extraViews.empty())
+    outputShape = getDest().getType().getShape();
+  else
+    outputShape = cast<TransformMapAttr>(extraViews[0]).getUpperBounds();
+
+  size_t extraIdxCount = getExtraIndices().size();
+  if (outputShape.empty()) {
+    if (extraIdxCount != 0)
+      return emitOpError("write to a scalar must have no coordinates");
+  } else if (outputShape.size() != extraIdxCount + 1) {
+    return emitOpError("dest view must be extraIndices + 1");
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmAccelOp
 //===----------------------------------------------------------------------===//
@@ -1679,30 +1737,6 @@ LogicalResult BlockwiseBroadcastReduceOp::verify() {
   if (blockwiseInputPartialReductionTensorElements > wsShape[0]) {
     return emitError(
         "workspace should be at least the size of elements per block ");
-  }
-  return success();
-}
-
-//===-----------------------------------------------------===//
-// BlockwiseFillOp
-//===-----------------------------------------------------===//
-
-LogicalResult BlockwiseFillOp::verify() {
-  MemRefType memrefType = getMemref().getType();
-  if (memrefType.getRank() != 1) {
-    return emitError("Blockwise fill expects a flat memref");
-  }
-  FailureOr<bool> memSpaceCheck =
-      isWorkgroupMemorySpace(memrefType.getMemorySpace());
-  if (failed(memSpaceCheck))
-    return emitError("Memref must have a specified memory space");
-  if (!memSpaceCheck.value())
-    return emitError("Memory space is expected to be workgroup");
-  int64_t numElements = getMemref().getType().getNumElements();
-  if (VectorType vecType = dyn_cast<VectorType>(getValue().getType())) {
-    if (numElements % vecType.getNumElements() != 0) {
-      return emitError("The vector length is not a factor in memref size.");
-    }
   }
   return success();
 }

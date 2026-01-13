@@ -1,6 +1,5 @@
 add_rocmlir_dialect_library(MLIRRockTransforms
   AffixTuningParameters.cpp
-  AlignTiling.cpp
   BufferizableOpInterfaceImpl.cpp
   ConvToGemm.cpp
   DetectFlashDecoding.cpp

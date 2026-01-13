@@ -3647,8 +3647,6 @@ createGpuGemmElementwiseGemmKernel(ModuleOp module, const GenParams &params) {
     func->setAttr(rock::EnableSplitKForTuningAttr::getMnemonic(),
                   builder.getUnitAttr());
 
-  setScheduleVersion(ctx, func);
-
   module.push_back(func);
   return func;
 }
@@ -3953,8 +3951,9 @@ createCpuConvElementwiseGemmKernelWithMlir(ModuleOp module,
       builder, loc, convOutElemType, inputTensor, filterTensor, biasTensor,
       inputZp, weightZp, builder.getDenseI64ArrayAttr(pads),
       builder.getDenseI64ArrayAttr(config->strideDims),
-      builder.getDenseI64ArrayAttr(config->dilationDims), firstAccType,
-      builder.getI64IntegerAttr(groupSize));
+      builder.getDenseI64ArrayAttr(config->dilationDims), firstAccType);
+  // TODO(roctriton): group conv
+  // builder.getI64IntegerAttr(groupSize));
 
   // convert conv output to matmul A matrix
   // tensor<bxhxwxkxf16> -> tensor<1x(b*h*w)xkxf16>
@@ -4648,51 +4647,54 @@ static void insertPrefills(func::FuncOp fut) {
   fut->getParentOfType<ModuleOp>().walk(
       [&](ModuleOp module) { innerModules.push_back(module); });
   innerModules.push_back(fut->getParentOfType<ModuleOp>());
-  fut.walk([&](mhal::LaunchOp launchOp) {
-    Location loc = launchOp->getLoc();
-    DenseMap<int, Attribute> argInitValues;
-    StringRef callee = launchOp.getCallee();
-    OpBuilder builder(launchOp);
-    for (ModuleOp module : innerModules) {
-      if (func::FuncOp calleeFunc = module.lookupSymbol<func::FuncOp>(callee)) {
-        size_t argCount = calleeFunc.getArguments().size();
-        for (size_t i = 0; i < argCount; i++) {
-          if (Attribute initAttr =
-                  calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic())) {
-            argInitValues[i] = initAttr;
-          } else if (!argInitValues.contains(i) &&
-                     calleeFunc.getArgAttr(i, "mhal.write_access")) {
-            // initialize to 100 by default
-            // This ensures failure if the output tensor requires prefill,
-            // helping to detect uninitialized output in GPU vs CPU execution.
-            auto type = calleeFunc.getArgumentTypes()[i];
-            auto elementType = cast<MemRefType>(type).getElementType();
-            Attribute init;
-            if (llvm::isa<FloatType>(elementType)) {
-              init = builder.getFloatAttr(elementType, 100.0);
-            } else {
-              assert(llvm::isa<IntegerType>(elementType) &&
-                     "expecting `int` element type");
-              init = builder.getIntegerAttr(elementType, 100);
-            }
-            argInitValues[i] = init;
-          }
-        }
-      }
-    }
-    {
-      OpBuilder::InsertionGuard guard(builder);
-      for (auto argIdxAndValueAttr : argInitValues) {
-        int argIdx = argIdxAndValueAttr.first;
-        auto valueAttr = argIdxAndValueAttr.second;
-        auto fillValue =
-            arith::ConstantOp::create(builder, loc, cast<TypedAttr>(valueAttr));
-        Value originalArg = launchOp.getArgOperands()[argIdx];
-        linalg::FillOp::create(builder, loc, ValueRange{fillValue},
-                               ValueRange{originalArg});
-      }
-    }
-  });
+  // TODO(roctriton): mhal
+  // fut.walk([&](mhal::LaunchOp launchOp) {
+  //   Location loc = launchOp->getLoc();
+  //   DenseMap<int, Attribute> argInitValues;
+  //   StringRef callee = launchOp.getCallee();
+  //   OpBuilder builder(launchOp);
+  //   for (ModuleOp module : innerModules) {
+  //     if (func::FuncOp calleeFunc =
+  //     module.lookupSymbol<func::FuncOp>(callee)) {
+  //       size_t argCount = calleeFunc.getArguments().size();
+  //       for (size_t i = 0; i < argCount; i++) {
+  //         if (Attribute initAttr =
+  //                 calleeFunc.getArgAttr(i, rock::PrefillAttr::getMnemonic()))
+  //                 {
+  //           argInitValues[i] = initAttr;
+  //         } else if (!argInitValues.contains(i) &&
+  //                    calleeFunc.getArgAttr(i, "mhal.write_access")) {
+  //           // initialize to 100 by default
+  //           // This ensures failure if the output tensor requires prefill,
+  //           // helping to detect uninitialized output in GPU vs CPU
+  //           execution. auto type = calleeFunc.getArgumentTypes()[i]; auto
+  //           elementType = cast<MemRefType>(type).getElementType(); Attribute
+  //           init; if (llvm::isa<FloatType>(elementType)) {
+  //             init = builder.getFloatAttr(elementType, 100.0);
+  //           } else {
+  //             assert(llvm::isa<IntegerType>(elementType) &&
+  //                    "expecting `int` element type");
+  //             init = builder.getIntegerAttr(elementType, 100);
+  //           }
+  //           argInitValues[i] = init;
+  //         }
+  //       }
+  //     }
+  //   }
+  //   {
+  //     OpBuilder::InsertionGuard guard(builder);
+  //     for (auto argIdxAndValueAttr : argInitValues) {
+  //       int argIdx = argIdxAndValueAttr.first;
+  //       auto valueAttr = argIdxAndValueAttr.second;
+  //       auto fillValue =
+  //           arith::ConstantOp::create(builder, loc,
+  //           cast<TypedAttr>(valueAttr));
+  //       Value originalArg = launchOp.getArgOperands()[argIdx];
+  //       linalg::FillOp::create(builder, loc, ValueRange{fillValue},
+  //                              ValueRange{originalArg});
+  //     }
+  //   }
+  // });
 }
 
 // Convert the mhal.launch/mhal.await pattern back to func.call.
@@ -4700,6 +4702,8 @@ static void undoAsyncLaunchPass(Operation *cloneFunc) {
   SymbolTableCollection symbolTable;
   auto walker = [&](Operation *op) {
     OpBuilder builder(op);
+    // TODO(roctriton): mhal
+    /*
     if (auto launch = dyn_cast<mhal::LaunchOp>(op)) {
       SymbolRefAttr calleeAttr = launch->getAttrOfType<SymbolRefAttr>("callee");
       CallOpInterface callInt = dyn_cast<CallOpInterface>(op);
@@ -4715,7 +4719,7 @@ static void undoAsyncLaunchPass(Operation *cloneFunc) {
     if (auto launch = dyn_cast<mhal::AwaitOp>(op)) {
       op->erase();
       return WalkResult::interrupt();
-    }
+    }*/
     return WalkResult::advance();
   };
   while (cloneFunc->walk(walker).wasInterrupted()) {
@@ -5577,24 +5581,27 @@ static void populateCloneHarnessLogic(ModuleOp module) {
   StringAttr archAttr = b.getStringAttr(arch);
   if (originalFunc->hasAttr("arch"))
     originalFunc->setAttr("arch", archAttr);
-  auto readAttr = b.getNamedAttr(mhal::MHALDialect::getReadAccessAttrName(),
-                                 b.getUnitAttr());
-  auto writeAttr = b.getNamedAttr(mhal::MHALDialect::getWriteAccessAttrName(),
-                                  b.getUnitAttr());
-  for (size_t index = 0; index < originalFunc.getArguments().size(); index++)
-    originalFunc.setArgAttrs(index, readAttr);
-  for (size_t index = 0; index < originalFunc.getNumResults(); index++)
-    originalFunc.setResultAttrs(index, writeAttr);
+  // TODO(roctriton): mhal
+  // auto readAttr = b.getNamedAttr(mhal::MHALDialect::getReadAccessAttrName(),
+  //                                b.getUnitAttr());
+  // auto writeAttr =
+  // b.getNamedAttr(mhal::MHALDialect::getWriteAccessAttrName(),
+  //                                 b.getUnitAttr());
+  // for (size_t index = 0; index < originalFunc.getArguments().size(); index++)
+  //   originalFunc.setArgAttrs(index, readAttr);
+  // for (size_t index = 0; index < originalFunc.getNumResults(); index++)
+  //   originalFunc.setResultAttrs(index, writeAttr);
   auto loc = originalFunc->getLoc();
   auto wrapperFunc = func::FuncOp::create(loc, testFuncName + "_wrapper",
                                           originalFunc.getFunctionType());
   Block *block = wrapperFunc.addEntryBlock();
   b.setInsertionPointToStart(block);
-  auto launchOp = mhal::LaunchOp::create(b, loc, originalFunc, ValueRange{},
-                                         block->getArguments());
-  auto results = launchOp->getResults();
-  mhal::AwaitOp::create(b, loc, results.front());
-  func::ReturnOp::create(b, loc, ValueRange{results.drop_front()});
+  // TODO(roctriton): mhal
+  // auto launchOp = mhal::LaunchOp::create(b, loc, originalFunc, ValueRange{},
+  //                                        block->getArguments());
+  // auto results = launchOp->getResults();
+  // mhal::AwaitOp::create(b, loc, results.front());
+  // func::ReturnOp::create(b, loc, ValueRange{results.drop_front()});
   module.push_back(wrapperFunc);
 
   auto xmoduleOp = ModuleOp::create(loc, "__xmodule_");
@@ -5619,7 +5626,8 @@ int main(int argc, char **argv) {
                       affine::AffineDialect, memref::MemRefDialect,
                       math::MathDialect, arith::ArithDialect,
                       vector::VectorDialect, gpu::GPUDialect,
-                      linalg::LinalgDialect, mhal::MHALDialect,
+                      linalg::LinalgDialect,
+                      // mhal::MHALDialect, TODO(roctriton): mhal
                       bufferization::BufferizationDialect, tosa::TosaDialect,
                       mlir::LLVM::LLVMDialect>();
 

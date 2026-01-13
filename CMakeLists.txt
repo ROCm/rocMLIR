@@ -55,11 +55,15 @@ endif()
 # rocMLIR Options
 #===----------------------------------------------------------------------===//
 
-set(ROCMLIR_DRIVER_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build E2E tests for Rock driver")
+# Enable tests by default so that check-rocmlir-build-only target is available
+set(MLIR_INCLUDE_TESTS ON CACHE BOOL "Include MLIR tests")
+# Disable E2E tests by default since they require JIT runner
+set(ROCMLIR_DRIVER_E2E_TEST_ENABLED OFF CACHE BOOL "Enable build E2E tests for Rock driver")
 set(ROCMLIR_DRIVER_RANDOM_DATA_SEED "none" CACHE STRING "Enable E2E tests using random data")
 set(ROCMLIR_GEN_FLAGS "" CACHE BOOL "Set feature flag for rocmlir-gen")
 set(ROCMLIR_DRIVER_TEST_GPU_VALIDATION 1 CACHE BOOL "Enable E2E tests with GPU validation")
-set(ROCK_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build rock E2E tests")
+# Disable E2E tests by default since they require JIT runner
+set(ROCK_E2E_TEST_ENABLED OFF CACHE BOOL "Enable build rock E2E tests")
 set(ROCMLIR_ENABLE_BENCHMARKS "" CACHE STRING "List of enabled benchmarks")
 
 set(ROCMLIR_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/bin" CACHE PATH "")
@@ -84,14 +88,14 @@ endif()
 
 if(BUILD_FAT_LIBROCKCOMPILER)
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
-  set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 0 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
+  set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED OFF CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
   if(NOT WIN32)
     set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE STRING "")
     list(APPEND CMAKE_IGNORE_PATH /opt/conda)
   endif()
 else()
   set(BUILD_SHARED_LIBS ON CACHE BOOL "")
-  set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED 1 CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
+  set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED OFF CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
 endif()
 
 #===----------------------------------------------------------------------===//

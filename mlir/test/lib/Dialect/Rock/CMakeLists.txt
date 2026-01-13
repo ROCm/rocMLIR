@@ -1,7 +1,6 @@
 add_rocmlir_test_library(MLIRRockTestPasses
   TestCollapseContiguousMerges.cpp
   TestVectorizationInference.cpp
-  TestRockMultibuffer.cpp
   TestBufferDependencyAnalysis.cpp
   TestFunctionFusibility.cpp
   TestTransformationMapsUtils.cpp

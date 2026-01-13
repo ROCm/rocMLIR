@@ -1326,6 +1326,7 @@ struct MHALLaunchConverter final : public OpConversionPattern<mhal::LaunchOp> {
                   ConversionPatternRewriter &rewriter) const final;
 };
 } // namespace
+*/
 
 LogicalResult AsLogicalShapeConverter::matchAndRewrite(
     migraphx::AsLogicalShapeOp op, OpAdaptor adaptor,
@@ -1394,7 +1395,7 @@ LogicalResult AsLogicalShapeConverter::matchAndRewrite(
   }
   rewriter.replaceOp(op, maybeBroadcast);
   return success();
-}*/
+}
 
 LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
     migraphx::AsUnderlyingShapeOp op, OpAdaptor adaptor,

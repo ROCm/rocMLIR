@@ -586,21 +586,6 @@ def Rock_FillOp:
   }];
 }
 
-def Rock_BlockwiseFillOp:
-    Rock_Op<"blockwise_fill", [AllElementTypesMatch<["memref", "value"]>]>,
-    Arguments<(ins AnyMemRef:$memref,
-                   AnyTypeOf<[AnyInteger, AnyFloat, AnyVectorOfNonZeroRank]>:$value,
-                   I32Attr:$blockSize)> {
-  let summary = "Fill memory with constant value on GPU";
-  let description = [{
-    The `rock.blockwise_fill` op fills a LDS memref on GPU with a constant value.
-  }];
-  let assemblyFormat = [{
-    `(` operands `)` attr-dict `:` type(operands)
-  }];
-  let hasVerifier = 1;
-}
-
 def Rock_WorkgroupIdOp:
     Rock_Op<"workgroup_id", [Pure,
       DeclareOpInterfaceMethods<InferIntRangeInterface,["inferResultRanges"]>]>,
@@ -761,6 +746,80 @@ def Rock_BlockwiseLoadTileOp
     $source (`[` $sourceIndices^ `]`)? `->` $destRegisters attr-dict
     `:` type($source) `->` type($destRegisters)
   }];
+}
+
+// blockwise_store_tile
+def Rock_BlockwiseStoreTileOp
+    : Rock_Op<"blockwise_store_tile",
+              [DeclareOpInterfaceMethods<RockAcceptingViewOpInterface>,
+               DeclareOpInterfaceMethods<RockWriterOpInterface>,
+               DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      AllElementTypesMatch<["source", "dest"]>,
+      Arguments<(ins Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
+                         "source registers">:$source,
+          Arg<MemRefOf<NativeMemoryOpTypes>, "detination view">:$dest,
+          TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
+          StoreMethodAttr:$storeMethod, UnitAttr:$forceUnroll,
+          UnitAttr:$useIndexDiffs)> {
+  let summary = "Write out values in registers to transformed destination";
+
+  let description = [{
+    A high-level representation of a register -> somewhere write loop that
+    accounts for coordinate transformations.
+
+    If `%dest = rock.transform #transform_mapN %buffer`
+    (with the one transformation representing an entire sequence),
+    and `%buffer` is in global memory, the operation
+
+    ```mlir
+    rock.threadwise_write_all %source -> [#transform_mapM](%dest) by set
+    ```
+
+    will lower to
+    ```mlir
+    %bid = rock.workgroup_id
+    %tid = rock.workitem_id
+    rock.transforming_for (%_, %_, %i) = [](%c0, %c0, %c0)
+      (%args, ...) = MAPS(%bid, %tid, %c0)
+      (%na, %isValid) = validity
+      bounds = [1, 1, L], strides = [1, 1, V] {
+        rock.global_store set {length = V} %source[%i] -> %buffer[%args] if %isValid
+    }
+    ```
+    where MAPS is `[#transform_mapM, #transform_mapN]`,
+    L is the length of `%source`, V is the maximum vectorization computed
+    for MAPS, and the oob dimensions are those combputed on MAPS.
+
+    The input to extraViews ; (the transforms on %dest) must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
+
+    Primarily, extraIndices would be used to pass in tid and bid. This would need
+    to have a matching view in [extraViews]dest. The extraIndices could be used
+    to integrate loop induction vars that is outside of the op.
+
+    If extraIndices are used, the [extraViews]dest must have the form
+    (extraIdx0, ... , extraIdxN, iteration_number).
+
+    This is used during fusion to allow rewriting
+    ```mlir
+    %tmp = memref.alloc()
+    ...
+    rock.threadwise_write_all [...](%result) -> %tmp
+    linalg.generic (%tmp) -> (%output) { ... }
+    ```
+
+    to
+    ```mlir
+    linalg.generic (%result) -> (%result_2) { ... }
+    rock.threadwise_write_all [...](%result_2) -> %out
+    ```
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $source  `->` $extraViews `(` $dest `)` (`[` $extraIndices^ `]`)? `by` $storeMethod
+    `:` type($source) `->` type($dest)
+  }];
+  let hasVerifier = 1;
 }
 
 // blockwise_broadcasting_reduction

@@ -107,6 +107,23 @@ static void loadAndStoreGemmInputTile(PatternRewriter &rewriter, Location loc,
                                       Value in, Value kIter, Value tid,
                                       rock::layout::GridCoordinates gridCoords,
                                       Value destRegs) {
+  // FailureOr<RegsAsMatrixSubTiles> maybeBufferViews;
+  // if (loadType == GemmLoadTileType::BypassLDS) {
+  //   maybeBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
+  //       b, loc, kIters, bidGridLengths, blockSize, vecDimInfo.inDPerThread,
+  //       dName, isKContiguousDim, false);
+  // } else {
+  //   maybeBufferViews = getLoadRegsAsTileViews(
+  //       b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
+  //       kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
+  //       vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
+  // }
+  FailureOr<RegsAsMatrixSubTiles> maybeBufferViews = getLoadRegsAsTileViews(
+      rewriter, loc, in, dName, bidGridOrder, bidGridLengths, blockSize,
+      kPerBlock, dPerBlock, vecDimInfo.inKPerThread, vecDimInfo.inDPerThread,
+      isKContiguousDim, directToLDS);
+  Value wrappedSource = transform(rewriter, in, maybeBufferViews->gridSubTile);
+
   // Load from global memory to LDS or register buffer.
   BlockwiseLoadTileOp::create(rewriter, loc, in, destRegs,
                               ValueRange{kIter, gridCoords.g_block,
@@ -128,88 +145,32 @@ static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
 
 // This fuction creates interrim register buffers to store data in once
 // loaded from the LDS before accelerator intrinsics are called
-static std::pair<Value, Value>
-createRegInterrimBufferForAccel(PatternRewriter &rewriter, Location loc,
-                                Type argType, int64_t kBasePerThread,
-                                int64_t repeats, bool directToLDS) {
+static Value createRegInterrimBufferForAccel(PatternRewriter &rewriter,
+                                             Location loc, Type argType,
+                                             int64_t dPerBlock,
+                                             int64_t kPerBlock) {
   Value array;
-  Value arrayForLoad;
-  SmallVector<int64_t> shape{kBasePerThread};
-  if (repeats > 1) {
-    shape.insert(shape.begin(), repeats);
-  }
-  if (directToLDS) {
-    int64_t length = std::accumulate(shape.begin(), shape.end(), int64_t{1},
-                                     std::multiplies<>());
+  SmallVector<int64_t> shape{dPerBlock, kPerBlock};
+  auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
+      gpu::GPUDialect::getPrivateAddressSpace());
 
-    array = gpuAlloc(rewriter, loc, getPackedByteSize(length, argType),
-                     rewriter.getI8Type(), gpu::AddressSpace::Private);
-
-    SmallVector<int64_t> shapeForLoad(shape);
-    if (auto vectorType = dyn_cast<VectorType>(argType)) {
-      assert(vectorType.hasRank() == 1 && "Expected rank 1");
-      shapeForLoad.back() = vectorType.getDimSize(0) * shapeForLoad.back();
-    }
-    arrayForLoad = viewBufferAs(rewriter, array, getElementTypeOrSelf(argType),
-                                shapeForLoad);
-  } else {
-    auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-        gpu::GPUDialect::getPrivateAddressSpace());
-
-    auto arrayType =
-        MemRefType::get(shape, argType, AffineMap{}, privateMemoryAddressSpace);
-    array = GpuAllocOp::create(rewriter, loc, arrayType);
-    arrayForLoad = array;
-  }
-  return {arrayForLoad, array};
+  auto arrayType =
+      MemRefType::get(shape, argType, AffineMap{}, privateMemoryAddressSpace);
+  array = GpuAllocOp::create(rewriter, loc, arrayType);
+  return array;
 }
 
 // This function creates the accumulator register buffer
-static Value createBufferForAccelGemmOut(Location loc,
-                                         rock::accel::AccelEmitterParams params,
-                                         PatternRewriter &rewriter,
-                                         int64_t numBuffers = 1) {
+static Value createBufferForAccelGemmOut(PatternRewriter &rewriter,
+                                         Location loc, int64_t mPerBlock,
+                                         int64_t nPerBlock, Type accType) {
   auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getPrivateAddressSpace());
-  int64_t nResultVectors = params.nResultVectors;
-  int64_t mRepeats = params.mRepeats;
-  int64_t nRepeats = params.nRepeats;
-  VectorType accVectorType = params.accVectorType;
-  int64_t nOutputVectors = nResultVectors * mRepeats * nRepeats;
-  MemRefType regCAllocType;
-  if (numBuffers > 1) {
-    regCAllocType = MemRefType::get({numBuffers, nOutputVectors}, accVectorType,
-                                    AffineMap{},
-                                    /*memorySpace=*/privateMemoryAddressSpace);
-  } else {
-    regCAllocType = MemRefType::get(nOutputVectors, accVectorType, AffineMap{},
-                                    /*memorySpace=*/privateMemoryAddressSpace);
-  }
+  MemRefType regCAllocType =
+      MemRefType::get({mPerBlock, nPerBlock}, accType, AffineMap{},
+                      /*memorySpace=*/privateMemoryAddressSpace);
   Value regCAllocOp = GpuAllocOp::create(rewriter, loc, regCAllocType);
   return regCAllocOp;
-}
-
-// This function creates a simple scalar reg buffer (i.e. without vectors)
-static Value createBufferForGemmOut(Location loc, Type gemmOutElemType,
-                                    rock::accel::AccelEmitterParams params,
-                                    PatternRewriter &rewriter,
-                                    int64_t numBuffers = 1) {
-  auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-      gpu::GPUDialect::getPrivateAddressSpace());
-  int64_t numOutputElements = params.numOutputVectorElements();
-  MemRefType gemmOutScalarBufferType;
-  if (numBuffers > 1) {
-    gemmOutScalarBufferType = MemRefType::get(
-        {numBuffers, numOutputElements}, gemmOutElemType, AffineMap{},
-        /*memorySpace=*/privateMemoryAddressSpace);
-  } else {
-    gemmOutScalarBufferType =
-        MemRefType::get({numOutputElements}, gemmOutElemType, AffineMap{},
-                        /*memorySpace=*/privateMemoryAddressSpace);
-  }
-  Value gemmOutScalarBuffer =
-      GpuAllocOp::create(rewriter, loc, gemmOutScalarBufferType);
-  return gemmOutScalarBuffer;
 }
 
 static void zeroAccBuffer(PatternRewriter &rewriter, Location loc,
@@ -396,42 +357,29 @@ struct GridwiseGemmAccelRewritePattern
                             << "mPerWave: " << mPerWave << "\n"
                             << "nPerWave: " << nPerWave << "\n");
 
-    auto [arrayAForLoad, arrayA] = createRegInterrimBufferForAccel(
-        b, loc, params.argTypeA, params.kBasePerThread,
-        doubleBuffering ? params.mRepeats : 1, directToLDS);
-    auto [arrayBForLoad, arrayB] = createRegInterrimBufferForAccel(
-        b, loc, params.argTypeB, params.kBasePerThread,
-        doubleBuffering ? params.nRepeats : 1, directToLDS);
-    Value regCAllocOp = createBufferForAccelGemmOut(loc, params, b);
-    zeroAccBuffer(b, loc, regCAllocOp);
-    Value arrayScaleA, arrayScaleB, arrayScaleAForLoad, arrayScaleBForLoad;
-    if (isScaledGemm) {
-      Type argTypeScaleA = elementTypeScaleA;
-      Type argTypeScaleB = elementTypeScaleB;
-      if (VectorType argAVector = dyn_cast<VectorType>(params.argTypeA)) {
-        argTypeScaleA =
-            VectorType::get(argAVector.getNumElements(), elementTypeScaleA);
-      }
-      if (VectorType argBVector = dyn_cast<VectorType>(params.argTypeB)) {
-        argTypeScaleB =
-            VectorType::get(argBVector.getNumElements(), elementTypeScaleB);
-      }
+    auto arrayA = createRegInterrimBufferForAccel(b, loc, elementTypeA,
+                                                  mPerBlock, kPerBlock);
+    auto arrayB = createRegInterrimBufferForAccel(b, loc, elementTypeB,
+                                                  nPerBlock, kPerBlock);
 
-      std::tie(arrayScaleAForLoad, arrayScaleA) =
-          createRegInterrimBufferForAccel(
-              b, loc, argTypeScaleA, params.kBasePerThread,
-              doubleBuffering ? params.mRepeats : 1, directToLDS);
-      std::tie(arrayScaleBForLoad, arrayScaleB) =
-          createRegInterrimBufferForAccel(
-              b, loc, argTypeScaleB, params.kBasePerThread,
-              doubleBuffering ? params.nRepeats : 1, directToLDS);
+    // TODO(roctriton): f32 if float, i32 if int
+    Type accType = b.getF32Type();
+    Value regCAllocOp =
+        createBufferForAccelGemmOut(b, loc, mPerBlock, nPerBlock, accType);
+    zeroAccBuffer(b, loc, regCAllocOp);
+    Value arrayScaleA, arrayScaleB;
+    if (isScaledGemm) {
+      arrayScaleA = createRegInterrimBufferForAccel(b, loc, elementTypeScaleA,
+                                                    mPerBlock, kPerBlock);
+      arrayScaleB = createRegInterrimBufferForAccel(b, loc, elementTypeScaleB,
+                                                    nPerBlock, kPerBlock);
     }
 
     // Emit loop.
     int64_t kIterations = K / kPerBlock;
     Value nIterations = ConstantIndexOp::create(b, loc, kIterations);
 
-    scf::ForOp loopOp = createMainLoop(b, loc, nIterations, loadType);
+    scf::ForOp loopOp = createMainLoop(b, loc, nIterations);
     {
       PatternRewriter::InsertionGuard guard(b);
       b.setInsertionPointToStart(loopOp.getBody());
@@ -439,14 +387,14 @@ struct GridwiseGemmAccelRewritePattern
 
       // Load from global memory to LDS
       loadAndStoreGemmInputTile(b, loc, matB, /*kiter=*/iv, tid, gridCoords,
-                                arrayBForLoad);
+                                arrayB);
       loadAndStoreGemmInputTile(b, loc, matA, /*kiter=*/iv, tid, gridCoords,
-                                arrayAForLoad);
+                                arrayA);
       if (isScaledGemm) {
         loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, tid, gridCoords,
-                                  arrayScaleBForLoad);
+                                  arrayScaleB);
         loadAndStoreGemmInputTile(b, loc, scaleA, /*kiter=*/iv, tid, gridCoords,
-                                  arrayScaleAForLoad);
+                                  arrayScaleA);
       }
 
       // Emit blockwise GEMM. This will load data from LDS (or registers) and
@@ -456,25 +404,19 @@ struct GridwiseGemmAccelRewritePattern
                          /*bufferScaleB=*/arrayScaleB);
     }
 
-    // Matrix C write out logic.
-    Value convertedC = createBufferForGemmOut(loc, destType, params, b);
-
     FailureOr<RegsAsMatrixSubTiles> maybeIdToMatrixCMaps =
-        accelEmitterPtr->computeOutputTransforms(
-            b, loc, M, N, blockSize, bidGridLengths,
-            maybeVecDimInfoA->inDPerThread, maybeVecDimInfoB->inDPerThread,
-            ldsLayoutConfigA.doSwapThreadIterSubDims,
-            ldsLayoutConfigB.doSwapThreadIterSubDims);
+        computeOutputTransforms(b, loc, M, N, blockSize, bidGridLengths,
+                                maybeVecDimInfoA->inDPerThread,
+                                maybeVecDimInfoB->inDPerThread,
+                                ldsLayoutConfigA.doSwapThreadIterSubDims,
+                                ldsLayoutConfigB.doSwapThreadIterSubDims);
     if (failed(maybeIdToMatrixCMaps)) {
       return failure();
     }
     ArrayAttr idToMatrixCMaps = maybeIdToMatrixCMaps.value().gridSubTile;
 
-    accelEmitterPtr->computeOutputConversion(b, loc, regCAllocOp, convertedC,
-                                             forceUnroll);
-
-    ThreadwiseWriteAllOp::create(
-        b, loc, convertedC, op.getC(), idToMatrixCMaps,
+    BlockwiseStoreTileOp::create(
+        b, loc, regCAllocOp, op.getC(), idToMatrixCMaps,
         /*extraIndices=*/
         ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
                    tid},

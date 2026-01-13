@@ -1217,3 +1217,172 @@ std::optional<int64_t> mlir::rock::getWorkgroupMemorySize(MemRefType type) {
   }
   return std::nullopt;
 }
+
+llvm::FailureOr<RegsAsMatrixSubTiles> mlir::rock::computeOutputTransforms(
+    OpBuilder &b, Location loc, int64_t mLen, int64_t nLen, int64_t blockSize,
+    ArrayRef<int64_t> bidGridLengths, int64_t inMPerThread,
+    int64_t inNPerThread, bool doSwapThreadIterSubDimsForM,
+    bool doSwapThreadIterSubDimsForN) {
+
+  // // Extract relevant tuning parameters
+  // int64_t mPerBlock = tuningParams.getMPerBlock();
+  // int64_t nPerBlock = tuningParams.getNPerBlock();
+  // int64_t mPerWave = tuningParams.getMPerWave();
+  // int64_t nPerWave = tuningParams.getNPerWave();
+
+  // // Extract relevant emitter parameters
+  // int64_t mRepeats = accelEmitterParams.mRepeats;
+  // int64_t nRepeats = accelEmitterParams.nRepeats;
+  // int64_t nResultVectors = accelEmitterParams.nResultVectors;
+  // VectorType accVectorType = accelEmitterParams.accVectorType;
+  // int64_t mPerAccel = accelEmitterParams.mPerAccel;
+  // int64_t nPerAccel = accelEmitterParams.nPerAccel;
+
+  // auto mfmaAttr = mfmaGroup.getInsnAttr();
+  // int64_t mPerRepeat = mPerWave / mRepeats;
+  // int64_t nPerRepeat = nPerWave / nRepeats;
+  // int64_t nWaves = nPerBlock / nPerWave;
+  // int64_t mWaves = mPerBlock / mPerWave;
+  // int64_t rowGroupSize = mfmaAttr.rowGroupSize;
+  // int64_t rowGroupsPerBlock = mfmaAttr.rowGroupsPerBlock;
+  // int64_t inputSpanLen = mfmaAttr.inputSpanLen;
+  // int64_t m = mfmaAttr.mfmaDDim;
+
+  // // Note n has the 4x4 => 4x64 behavior that necessitated
+  // // inputSpansPerMfmaIn
+  // int64_t n = mfmaAttr.inputSpanLen;
+  // int64_t inputSpansPerMfmaIn = mfmaAttr.inputSpansPerMfmaIn;
+  // int64_t blocksInOutRegs = mfmaAttr.blocksInOutRegs;
+  // int64_t blocksPerRepeat = (mPerRepeat * nPerRepeat) / (m * n);
+
+  // int64_t retNumElements = accVectorType.getNumElements();
+  // int64_t numElements = retNumElements * mRepeats * nRepeats *
+  // nResultVectors; int64_t wavesInKernelBlock = blockSize / waveSize;
+
+  // // Note that `wave_m` and `wave_n` are strided by mPerAccel/nPerAccel,
+  // i.e.,
+  // // all the waves will compute next to each other and then they will move to
+  // // the next subtile in the workgroup
+
+  // // M sub dims
+  // Dim mBlock{"m_block", mLen / mPerBlock};
+  // Dim mi{"m_i", mPerWave / mPerAccel};
+  // Dim waveM{"wave_m", mWaves};
+  // Dim blkRow{"blk_row", mPerAccel / m};
+  // Dim vecGroup{"vec_group", m / (inputSpansPerMfmaIn * rowGroupSize)};
+  // Dim mTid{"m_tid", inputSpansPerMfmaIn};
+  // Dim vecItem{"vec_item", rowGroupSize};
+
+  // SmallVector<StringRef> dimNamesM;
+  // SmallVector<int64_t, 7> dimSizesM;
+  // std::tie(dimNamesM, dimSizesM) =
+  //     getDimNamesAndSize({mi, waveM, blkRow, vecGroup, mTid, vecItem});
+
+  // // N sub dims
+  // Dim nBlock{"n_block", nLen / nPerBlock};
+  // Dim ni{"n_i", nPerWave / nPerAccel};
+  // Dim waveN{"wave_n", nWaves};
+  // Dim blkCol{"blk_col", (nPerAccel / n)};
+  // Dim nTid{"n_tid", n};
+  // SmallVector<StringRef> dimNamesN;
+  // SmallVector<int64_t, 7> dimSizesN;
+  // std::tie(dimNamesN, dimSizesN) =
+  //     getDimNamesAndSize({ni, waveN, blkCol, nTid});
+
+  // RegsAsMatrixSubTiles ret;
+  // {
+  //   // Create views as gridwise sub-tile of C
+  //   TopDownTMBuilder splitMemoryCoords(
+  //       b, {"g_block", "m_block", "n_block", "tid", "item"},
+  //       {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], blockSize,
+  //        numElements},
+  //       loc);
+  //   splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
+  //   splitMemoryCoords.merge(
+  //       {"wave", "m_tid", "n_tid"}, {3, 4, 5}, "tid",
+  //       {wavesInKernelBlock, waveSize / inputSpanLen, inputSpanLen});
+  //   splitMemoryCoords.merge(
+  //       {"i", "j", "vec_group", "vec_item"}, {6, 7, 8, 9}, "item",
+  //       {numElements / (blocksPerRepeat * rowGroupsPerBlock * rowGroupSize),
+  //        blocksPerRepeat, rowGroupsPerBlock, rowGroupSize});
+  //   TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
+  //   auto toRowsAndCols =
+  //       TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
+  //   // "blkMajor" and "blkMinor" are placeholder names because we don't know
+  //   // if they'll be column or row until we check for broadcast-ness.
+  //   llvm::StringMap<uint32_t> rowsAndColsIdxs = expandNamesInPlace(
+  //       splitMemoryCoords, {{"wave", {"wave_m", "wave_n"}},
+  //                           {"i", {"m_i", "n_i"}},
+  //                           {"j", {"blkMajor", "blkMinor"}}});
+  //   TopDownTMBottomDimsWrapper rowsAndColsWrap(toRowsAndCols,
+  //   rowsAndColsIdxs); rowsAndColsWrap.passThrough({"g_block", "m_block",
+  //   "n_block"}); rowsAndColsWrap.merge({"wave_m", "wave_n"}, "wave",
+  //                         {wavesInKernelBlock / nWaves, nWaves});
+  //   rowsAndColsWrap.passThrough({"m_tid", "n_tid"});
+  //   rowsAndColsWrap.merge(
+  //       {"m_i", "n_i"}, "i",
+  //       {splitMemoryCoords.endSize("i") / nRepeats, nRepeats});
+  //   makeViewsForRowsAndCols(toRowsAndCols, mPerRepeat, nPerRepeat,
+  //                           rowsAndColsIdxs, splitMemoryCoords.endSize("j"),
+  //                           blocksInOutRegs);
+  //   TransformMapAttr toRowsAndColsAttr = toRowsAndCols.get();
+  //   auto toMatrixC = TopDownTMBuilder::below(toRowsAndCols,
+  //   toRowsAndColsAttr); toMatrixC.passThrough({"g_block", mBlock.name,
+  //   nBlock.name}); toMatrixC.unmerge("gemmBlockM", 3, dimNamesM, dimSizesM);
+  //   toMatrixC.unmerge("gemmBlockN", 4, dimNamesN, dimSizesN);
+
+  //   // Before returning the output view, if necessary, swap back the
+  //   // threadid/iter dimensions on both the M/N axis.
+  //   SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr,
+  //                                         toRowsAndColsAttr};
+  //   FailureOr<TopDownTMBuilder> swapRes =
+  //   mlir::rock::swapThreadIdAndIteration(
+  //       toMatrixC, /*mBlocks=*/bidGridLengths[1],
+  //       /*nBlocks=*/bidGridLengths[2], inMPerThread, inNPerThread, mPerBlock,
+  //       nPerBlock, doSwapThreadIterSubDimsForM, doSwapThreadIterSubDimsForN,
+  //       /*isBlockwise=*/false, transformAttrs);
+  //   if (failed(swapRes))
+  //     return failure();
+
+  //   ret.gridSubTile = b.getArrayAttr(transformAttrs);
+  // }
+
+  // {
+  //   // Create views as blockwise sub-tile of C
+  //   StringSet<> dimensionsToRemove{"g_block", "m_block", "n_block"};
+  //   FailureOr<ArrayAttr> maybeBlockSubTile =
+  //       removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
+
+  //   if (failed(maybeBlockSubTile)) {
+  //     return failure();
+  //   }
+  //   ret.blockSubTile = maybeBlockSubTile.value();
+  // }
+
+  // {
+  //   // Create views for tid slice of blockwise sub-tile of C
+  //   StringSet<> dimensionsToRemove{"g_block", "m_block", "n_block", "item"};
+  //   FailureOr<ArrayAttr> maybeBlockSubTileTidSlice =
+  //       removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
+
+  //   if (failed(maybeBlockSubTileTidSlice)) {
+  //     return failure();
+  //   }
+  //   ret.blockSubTileTidSlice = maybeBlockSubTileTidSlice.value();
+  // }
+
+  // {
+  //   // Create views as threadwise sub-tile of C
+  //   StringSet<> dimensionsToRemove{"g_block", "m_block", "n_block", "tid"};
+  //   FailureOr<ArrayAttr> maybeThreadSubTile =
+  //       removeUpperDims(b, ret.gridSubTile, dimensionsToRemove);
+
+  //   if (failed(maybeThreadSubTile)) {
+  //     return failure();
+  //   }
+  //   ret.threadSubTile = maybeThreadSubTile.value();
+  // }
+
+  // return ret;
+  return failure();
+}

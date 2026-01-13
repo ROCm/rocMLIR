@@ -272,6 +272,13 @@ FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
 // Get the LDS size of the memref
 std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
 
+llvm::FailureOr<RegsAsMatrixSubTiles>
+computeOutputTransforms(OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
+                        int64_t blockSize, ArrayRef<int64_t> bidGridLengths,
+                        int64_t inMPerThread, int64_t inNPerThread,
+                        bool doSwapThreadIterSubDimsForM,
+                        bool doSwapThreadIterSubDimsForN);
+
 } // end namespace rock
 } // end namespace mlir
 #endif
