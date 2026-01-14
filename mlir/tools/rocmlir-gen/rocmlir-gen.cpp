@@ -2520,8 +2520,8 @@ static func::FuncOp createGpuGemmKernel(ModuleOp module,
 
   // Set arch on module to make compilation pipeline work
   StringAttr archAttr = b.getStringAttr(params.arch);
-  if (!module->hasAttr("arch"))
-    module->setAttr("arch", archAttr);
+  // if (!module->hasAttr("arch"))
+  //   module->setAttr("arch", archAttr);
 
   SmallVector<Type, 5> argTypes;
   getGemmTypes(params.types, argTypes,

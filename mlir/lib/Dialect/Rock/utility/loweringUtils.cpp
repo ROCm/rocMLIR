@@ -220,66 +220,12 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
 
   RegsAsMatrixSubTiles gpuViews;
   {
-<<<<<<< Updated upstream
-    TopDownTMBuilder toGlobalIdx(b,
-                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
-                                  bidGridOrder[2], dIterName, "k_iter"},
-                                 {kIters, bidGridLengths[0], bidGridLengths[1],
-                                  bidGridLengths[2], dPerBlock, kPerBlock},
-                                 loc);
-=======
-<<<<<<< Updated upstream
-    TopDownTMBuilder toGlobalIdx(b,
-                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
-                                  bidGridOrder[2], dIterName, "k_iter"},
-                                 {kIters, bidGridLengths[0], bidGridLengths[1],
-                                  bidGridLengths[2], dPerBlock, kPerBlock},
-                                 loc);
-=======
-<<<<<<< Updated upstream
-    TopDownTMBuilder toGlobalIdx(b,
-                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
-                                  bidGridOrder[2], dIterName, "k_iter"},
-                                 {kIters, bidGridLengths[0], bidGridLengths[1],
-                                  bidGridLengths[2], dPerBlock, kPerBlock},
-                                 loc);
-=======
-<<<<<<< Updated upstream
-    TopDownTMBuilder toGlobalIdx(b,
-                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
-                                  bidGridOrder[2], dIterName, "k_iter"},
-                                 {kIters, bidGridLengths[0], bidGridLengths[1],
-                                  bidGridLengths[2], dPerBlock, kPerBlock},
-                                 loc);
-=======
-<<<<<<< Updated upstream
-    TopDownTMBuilder toGlobalIdx(b,
-                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
-                                  bidGridOrder[2], dIterName, "k_iter"},
-                                 {kIters, bidGridLengths[0], bidGridLengths[1],
-                                  bidGridLengths[2], dPerBlock, kPerBlock},
-                                 loc);
-=======
-<<<<<<< Updated upstream
-    TopDownTMBuilder toGlobalIdx(b,
-                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
-                                  bidGridOrder[2], dIterName, "k_iter"},
-                                 {kIters, bidGridLengths[0], bidGridLengths[1],
-                                  bidGridLengths[2], dPerBlock, kPerBlock},
-                                 loc);
-=======
     TopDownTMBuilder toGlobalIdx(
         b,
         {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2], dIterName, "k_iter"},
         {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[2],
          dPerBlock, kPerBlock},
         loc);
->>>>>>> Stashed changes
->>>>>>> Stashed changes
->>>>>>> Stashed changes
->>>>>>> Stashed changes
->>>>>>> Stashed changes
->>>>>>> Stashed changes
 
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     toGlobalIdx.unmerge("k", 1, {"k_loop", "k_iter"}, {kIters, kPerBlock});
@@ -1078,37 +1024,7 @@ mlir::rock::computeOutputTransforms(OpBuilder &b, Location loc,
     // Create views as gridwise sub-tile of C
     TopDownTMBuilder toMatrixC(
         b, {"g_block", "m_block", "n_block", "m_iter", "n_iter"},
-<<<<<<< Updated upstream
-        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
-         nPerBlock},
-=======
-<<<<<<< Updated upstream
-        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
-         nPerBlock},
-=======
-<<<<<<< Updated upstream
-        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
-         nPerBlock},
-=======
-<<<<<<< Updated upstream
-        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
-         nPerBlock},
-=======
-<<<<<<< Updated upstream
-        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
-         nPerBlock},
-=======
-<<<<<<< Updated upstream
-        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
-         nPerBlock},
-=======
         {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock, nPerBlock},
->>>>>>> Stashed changes
->>>>>>> Stashed changes
->>>>>>> Stashed changes
->>>>>>> Stashed changes
->>>>>>> Stashed changes
->>>>>>> Stashed changes
         loc);
 
     toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
