@@ -793,8 +793,8 @@ const StringRef PopulateParamsXDL::initParametersI8GemmGfx950[] = {
 };
 // END_GEMM_XDL_i8_gfx950_DEFS
 
-// BEGIN_GEMM_XDL_f4_gfx950_DEFS
-const StringRef PopulateParamsXDL::initParametersF4GemmGfx950[] = {
+// BEGIN_GEMM_XDL_fp4_gfx950_DEFS
+const StringRef PopulateParamsXDL::initParametersFp4GemmGfx950[] = {
     "v4:64,64,16,32,32,32,32,1,1,2,0,0,1,1",
     "v4:32,64,16,32,16,16,32,1,1,2,0,0,1,1",
     "v4:32,16,16,16,16,16,32,1,1,2,0,0,1,1",
@@ -810,7 +810,7 @@ const StringRef PopulateParamsXDL::initParametersF4GemmGfx950[] = {
     "v4:32,32,32,16,16,16,32,1,1,2,0,0,1,1",
     "v4:16,16,32,16,16,16,32,1,1,2,0,0,1,1"
 };
-// END_GEMM_XDL_f4_gfx950_DEFS
+// END_GEMM_XDL_fp4_gfx950_DEFS
 
 // BEGIN_CONV_XDL_i8_gfx908_DEFS
 const StringRef PopulateParamsXDL::initParametersI8ConvGfx908[] = {
@@ -995,10 +995,10 @@ static constexpr size_t nInitParametersI8GemmGfx950 = 14;
 static const StringRef initParametersI8GemmGfx950[nInitParametersI8GemmGfx950];
 // END_GEMM_XDL_i8_gfx950_DECS
 
-// BEGIN_GEMM_XDL_F4_gfx950_DECS
-static constexpr size_t nInitParametersF4GemmGfx950 = 14;
-static const StringRef initParametersF4GemmGfx950[nInitParametersF4GemmGfx950];
-// END_GEMM_XDL_F4_gfx950_DECS
+// BEGIN_GEMM_XDL_fp4_gfx950_DECS
+static constexpr size_t nInitParametersFp4GemmGfx950 = 14;
+static const StringRef initParametersFp4GemmGfx950[nInitParametersFp4GemmGfx950];
+// END_GEMM_XDL_fp4_gfx950_DECS
 
 // BEGIN_CONV_XDL_i8_gfx908_DECS
 static constexpr size_t nInitParametersI8ConvGfx908 = 8;
@@ -2392,7 +2392,7 @@ static const StringRef initParametersBf16AttentionGfx1101[nInitParametersBf16Att
 
 {"gfx950_conv_i8", {PopulateParamsXDL::initParametersI8ConvGfx950, PopulateParamsXDL::nInitParametersI8ConvGfx950}},
 
-{"gfx950_gemm_f4", {PopulateParamsXDL::initParametersF4GemmGfx950, PopulateParamsXDL::nInitParametersF4GemmGfx950}},
+{"gfx950_gemm_fp4", {PopulateParamsXDL::initParametersFp4GemmGfx950, PopulateParamsXDL::nInitParametersFp4GemmGfx950}},
 
 {"gfx1000_gemm_f16", {PopulateParamsWmma::initParametersF16GemmGfx1000, PopulateParamsWmma::nInitParametersF16GemmGfx1000}},
 

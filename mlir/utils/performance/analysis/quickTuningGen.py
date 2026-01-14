@@ -123,10 +123,9 @@ def validate_files(files):
         elif not os.path.isfile(f):
             errors.append(f"{f} not found")
 
-    for e in errors:
-        print(f"ERROR: {e}", file=sys.stderr)
-
     if errors:
+        for e in errors:
+            print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -137,7 +136,7 @@ def load_data(files, no_splitk):
 
         print(f"Processing {len(files)} file(s):")
         for f in files:
-            print(f"    {f}")
+            print(f"  {f}")
 
         dfs = [pd.read_csv(f, sep='\t', index_col=None) for f in files]
         df = pd.concat(dfs, ignore_index=True)
@@ -354,11 +353,11 @@ def update_inc_file(results, arch, op):
 
 def print_results(results, arch):
     """Print selected perfconfigs for an architecture."""
-    print(f"=== {arch} ===")
+    print(f"\n=== {arch} ===")
     for dtype, configs in results.items():
-        print(f"{dtype}: {len(configs)} configs")
+        print(f"\n{dtype}: {len(configs)} configs")
         for i, cfg in enumerate(configs, 1):
-            print(f"  {i:3d}: {cfg}")
+            print(f"{i:4d}: {cfg}")
     print()
 
 
@@ -371,6 +370,7 @@ def process_arch(df, arch, op, threshold, update):
 
     if update:
         update_inc_file(results, arch, op)
+        print(f"Updated {get_output_path()} for {arch}")
 
 
 def main(args=None):
@@ -410,16 +410,11 @@ Examples:
         print("ERROR: No data loaded", file=sys.stderr)
         return 1
 
-    # Process each architecture found in the data
     archs = sorted(df['Chip'].unique())
     print(f"Processing {len(archs)} architecture(s): {', '.join(archs)}")
-    print()
 
     for arch in archs:
         process_arch(df, arch, pargs.op, pargs.th, pargs.update)
-
-    if pargs.update:
-        print(f"Updated: {get_output_path()}")
 
     return 0
 
