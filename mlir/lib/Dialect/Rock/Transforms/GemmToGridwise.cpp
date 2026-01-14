@@ -498,7 +498,9 @@ static LogicalResult commonAttentionGemmElmtGemm(
   if (!isa<MemRefType>(op.getAType()))
     return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
-  bool isAccel = rock::isAccel(rock::getFeatures(op));
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op);
   if (!isAccel) {
     return op.emitError("Currently, op is only supported on GPUs "
                         "with matrix accelerator extensions");
@@ -797,7 +799,9 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
 
   IntegerAttr blockSize = op.getDerivedBlockSizeAttr();
 
-  bool isAccel = rock::isAccel(rock::getFeatures(op));
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op);
 
   if (isAccel && !blockSize)
     return op.emitOpError("block size must be set at lowering");
@@ -1029,7 +1033,6 @@ GemmRewritePattern::arrangeSplitKTransform(OpBuilder &builder, GemmOp op,
 LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
                                                   GemmOp op, Value a,
                                                   Value b) const {
-  GemmFeatures features = rock::getFeatures(op);
   Attribute params = op.getParams().value();
 
   const auto aShape = cast<MemRefType>(a.getType()).getShape();
@@ -1042,16 +1045,33 @@ LogicalResult GemmRewritePattern::computeGridSize(ConversionPatternRewriter &rw,
   auto mPerBlock{0};
   auto nPerBlock{0};
 
-  if (isAccel(features)) {
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isAccel = archInfo.isAccel(op);
+  if (isAccel) {
+    LLVM_DEBUG(llvm::dbgs() << "computeGridSize: isAccel\n");
+    if (!isa<RockAccelTuningParamAttrInterface>(params)) {
+      return op.emitError(
+          "gemm is accel, but does not have RockAccelTuningParamAttrInterface");
+    }
     auto tuningParams = cast<RockAccelTuningParamAttrInterface>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   } else {
+    LLVM_DEBUG(llvm::dbgs() << "computeGridSize: not isAccel\n");
+    if (!isa<GeneralGemmParamsAttr>(params)) {
+      return op.emitError(
+          "gemm is not accel, but does not have GeneralGemmParamsAttr");
+    }
     auto tuningParams = cast<GeneralGemmParamsAttr>(params);
     mPerBlock = tuningParams.getMPerBlock();
     nPerBlock = tuningParams.getNPerBlock();
   }
   const auto gridSize = (M / mPerBlock) * (N / nPerBlock) * G;
+  LLVM_DEBUG(llvm::dbgs() << "computeGridSize: gridSize=" << gridSize
+                          << "(M=" << M << ", N=" << N << ", G=" << G
+                          << ", mPerBlock=" << mPerBlock
+                          << ", nPerBlock=" << nPerBlock << ")\n");
 
   op.setGridSizeAttr(rw.getI32IntegerAttr(gridSize));
 

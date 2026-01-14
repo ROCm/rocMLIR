@@ -6,7 +6,7 @@
 // CHECK-LABEL: @rock_blockwise_gemm_accel_two_results
 func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2xf32>, #wg>, %matrixB : memref<256xvector<2xf32>, #wg>,
                                                 %bufferA : memref<4xf32, #priv>, %bufferB : memref<4xf32, #priv>,
-                                                %matrixC : memref<4xvector<16xf32>, #priv>) {
+                                                %matrixC : memref<4xvector<16xf32>, #priv>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx90a"} {
   // CHECK:  rock.threadwise_gemm_accel
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
@@ -32,7 +32,7 @@ func.func @rock_blockwise_gemm_accel_two_results(%matrixA : memref<256xvector<2x
 // CHECK-LABEL: @rock_blockwise_gemm_accel_one_result
 func.func @rock_blockwise_gemm_accel_one_result(%matrixA : memref<128xvector<8xi8>, #wg>, %matrixB : memref<128xvector<8xi8>, #wg>,
                                                %bufferA : memref<1xvector<4xi8>, #priv>, %bufferB : memref<1xvector<4xi8>, #priv>,
-                                               %matrixC : memref<1xvector<16xi32>, #priv>) {
+                                               %matrixC : memref<1xvector<16xi32>, #priv>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx90a"} {
   // CHECK:  rock.threadwise_gemm_accel
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx90a",
@@ -60,7 +60,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8(%matrixA : memref<1024xvector<8xf8E
                                           %matrixB : memref<1024xvector<8xf8E5M2FNUZ>, #gpu.address_space<workgroup>>,
                                           %bufferA : memref<4xvector<8xf8E4M3FNUZ>, #gpu.address_space<private>>,
                                           %bufferB : memref<4xvector<8xf8E5M2FNUZ>, #gpu.address_space<private>>,
-                                          %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
+                                          %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx942"} {
   // CHECK:  rock.threadwise_gemm_accel
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx942",
@@ -88,7 +88,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp(%matrixA : memref<1024xvector<8
                                           %matrixB : memref<1024xvector<8xf8E5M2>, #gpu.address_space<workgroup>>,
                                           %bufferA : memref<4xvector<8xf8E4M3FN>, #gpu.address_space<private>>,
                                           %bufferB : memref<4xvector<8xf8E5M2>, #gpu.address_space<private>>,
-                                          %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
+                                          %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx950"} {
   // CHECK:  rock.threadwise_gemm_accel
   rock.blockwise_gemm_accel %matrixC += %bufferA from %matrixA * %bufferB from %matrixB features = mfma {
     arch = "amdgcn-amd-amdhsa:gfx950",
@@ -114,7 +114,7 @@ func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp(%matrixA : memref<1024xvector<8
 // CHECK-LABEL: @rock_blockwise_gemm_accel_fp8_bf8_ocp_double_buffer
 func.func @rock_blockwise_gemm_accel_fp8_bf8_ocp_double_buffer(%bufferA : memref<4xvector<8xf8E4M3FN>, #gpu.address_space<private>>,
                                           %bufferB : memref<4xvector<8xf8E5M2>, #gpu.address_space<private>>,
-                                          %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) {
+                                          %matrixC : memref<4xvector<16xf32>, #gpu.address_space<private>>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx950"} {
   // CHECK: affine.for {{.*}} = 0 to 2
   // CHECK-NOT: rock.threadwise_read_into
   // CHECK: affine.for {{.*}} = 0 to 2
@@ -149,7 +149,7 @@ func.func @rock_blockwise_gemm_accel_scaled_schedule_v2(
     %bufferScaleB : memref<8xvector<32xf8E8M0FNU>, #priv>,
     %matrixScaleA : memref<512xvector<32xf8E8M0FNU>, #wg>,
     %matrixScaleB : memref<512xvector<32xf8E8M0FNU>, #wg>,
-    %matrixC : memref<1xvector<16xf32>, #priv>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+    %matrixC : memref<1xvector<16xf32>, #priv>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx950"} {
   // CHECK: affine.for
   // CHECK-NOT: rock.threadwise_read_into
   // CHECK: rock.transform {{.*}} : memref<8xvector<32xf4E2M1FN>, #gpu.address_space<private>> to memref<1x8xvector<32xf4E2M1FN>, #gpu.address_space<private>>
@@ -184,7 +184,7 @@ func.func @rock_blockwise_gemm_accel_scaled_schedule_v2(
 // CHECK-LABEL: @rock_blockwise_gemm_accel_direct_to_lds
 func.func @rock_blockwise_gemm_accel_direct_to_lds(%matrixA : memref<256xvector<2xf32>, #wg>, %matrixB : memref<256xvector<2xf32>, #wg>,
                                                 %bufferA : memref<16xi8, #priv>, %bufferB : memref<16xi8, #priv>,
-                                                %matrixC : memref<4xvector<16xf32>, #priv>) {
+                                                %matrixC : memref<4xvector<16xf32>, #priv>) attributes {kernel, arch = "amdgcn-amd-amdhsa:gfx950:sramecc+:xnack-"} {
 
   %c0 = arith.constant 0 : index
   // CHECK:  rock.threadwise_gemm_accel
