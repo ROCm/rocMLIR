@@ -573,30 +573,6 @@ bool mlir::rock::AmdArchInfo::isWmma(RockGemmGemmWrapperInterface op) {
   return isWmma(op.getAType(), op.getBType(), op.getGemmFeaturesAttr());
 }
 
-bool mlir::rock::AmdArchInfo::isDirectToLDS(Type dataType, int64_t numBytes) {
-  GemmFeatures features = defaultFeatures;
-  bool has128b = bitEnumContainsAll(features, GemmFeatures::direct_to_lds_128b);
-  bool has32b = bitEnumContainsAll(features, GemmFeatures::direct_to_lds_32b);
-
-  if (numBytes == 0)
-    return has128b || has32b;
-  if (numBytes == 128)
-    return has128b;
-  if (numBytes == 32)
-    return has32b;
-  return false;
-}
-
-bool mlir::rock::AmdArchInfo::isAsyncDirectToLDS(StringRef arch, Type dataType,
-                                                 int64_t numBytes) {
-  // First check arch string
-  if (!arch.contains("gfx1250"))
-    return false;
-
-  // Then check type supports direct-to-LDS
-  return isDirectToLDS(dataType, numBytes);
-}
-
 bool mlir::rock::AmdArchInfo::hasAtomicAdd(Type dataType) const {
   // Get the underlying element type. We may have to do this recursively if the
   // initial dataType is a nested vector.

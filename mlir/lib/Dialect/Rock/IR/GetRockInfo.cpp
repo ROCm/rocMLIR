@@ -188,19 +188,12 @@ LogicalResult mlir::rock::isScheduleVersionSupported(int64_t scheduleVersion,
   auto loadType = maybeLoadType.value();
   bool directToLDS = loadType == GemmLoadTileType::DirectToLDSDefault ||
                      loadType == GemmLoadTileType::DirectToLDSDoubleBuffer;
-  if (directToLDS) {
-    // Check if direct-to-LDS is supported (use first type if available)
-    Type dataType = types.empty() ? Type() : types[0];
-    int64_t numBytes = 0; // Check for any direct-to-LDS support
-    bool supported = archInfo.isDirectToLDS(dataType, numBytes) ||
-                     archInfo.isAsyncDirectToLDS(arch, dataType, numBytes);
-
-    if (!supported) {
-      LLVM_DEBUG(
-          llvm::dbgs()
-          << "Requested direct to LDS but not supported by the hardware\n");
-      return failure();
-    }
+  if (directToLDS && !isAsyncDirectToLDSSupported(arch) &&
+      !isDirectToLDSSupported(archInfo.defaultFeatures)) {
+    LLVM_DEBUG(
+        llvm::dbgs()
+        << "Requested direct to LDS but not supported by the hardware\n");
+    return failure();
   }
   return success();
 }

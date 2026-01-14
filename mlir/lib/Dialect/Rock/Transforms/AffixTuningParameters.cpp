@@ -298,7 +298,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   GemmFeatures features = archInfo.defaultFeatures;
   if (rock::isSplitKRequested(features, b.getStringAttr(perfConfig))) {
     if (failed(testFusionLegalitySplitK(funcParent))) {
-      op->emitError("Fusion with SplitK perfConfig is not legal");
+      op->emitError("gemm: Fusion with SplitK perfConfig is not legal");
       return signalPassFailure();
     }
   }
@@ -362,7 +362,7 @@ void AffixTuningParameters::affixTuningParametersImpl(
   GemmFeatures features = archInfo.defaultFeatures;
   if (rock::isSplitKRequested(features, perfConfigStrAttr)) {
     if (failed(testFusionLegalitySplitK(funcParent))) {
-      op->emitError("Fusion with SplitK perfConfig is not legal");
+      op->emitError("gemm+gemm: Fusion with SplitK perfConfig is not legal");
       return signalPassFailure();
     }
   }
