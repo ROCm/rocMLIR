@@ -89,7 +89,7 @@ template <typename ParamsType>
 StringRef ParamLookupTable<ParamsType>::normalizeArch(StringRef arch) {
   auto gfxPos = arch.find("gfx");
   if (gfxPos == StringRef::npos) {
-    llvm_unreachable("Invalid architecture string");
+    llvm::report_fatal_error("Invalid architecture string");
   }
   auto remaining = arch.substr(gfxPos);
   auto endPos =

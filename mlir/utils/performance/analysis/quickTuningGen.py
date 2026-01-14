@@ -385,7 +385,7 @@ Examples:
     cat data.debug | %(prog)s --op attention --update
     find . -name "*.debug" | xargs %(prog)s --op gemm --update
 ''')
-    
+
     parser.add_argument(
         'files',
         nargs='*',
