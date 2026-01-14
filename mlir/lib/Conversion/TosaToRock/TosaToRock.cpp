@@ -1632,6 +1632,131 @@ struct AttentionMatcherValues {
   ElementwiseRegionFinder<tosa::MatMulOp> preSoftmaxElementwiseFinder;
 };
 
+// Result of finding a PagedDerefOp when tracing back through a value.
+struct PagedDerefTraceResult {
+  rock::PagedDerefOp derefOp;
+  // Operations between deref and consumer (in topological order, closest to
+  // deref first). These need to be cloned into the loadFromKVCache region.
+  SmallVector<Operation *> opsToClone;
+};
+
+// Attempt to find a PagedDerefOp by tracing back through reshape/transform ops.
+// Returns the deref op and the chain of operations that need to be cloned.
+static FailureOr<PagedDerefTraceResult> traceToPagedDeref(Value value) {
+  static const DenseSet<StringRef> viewOps{
+      rock::TransformOp::getOperationName(),
+      tensor::ExpandShapeOp::getOperationName(),
+      tensor::CollapseShapeOp::getOperationName(),
+      tensor::ExtractSliceOp::getOperationName(),
+      tosa::TransposeOp::getOperationName(),
+      tosa::MulOp::getOperationName()};
+
+  SmallVector<Operation *> opsToClone;
+  Value current = value;
+
+  LLVM_DEBUG(llvm::dbgs() << "traceToPagedDeref: starting from " << value
+                          << "\n");
+
+  while (current) {
+    Operation *defOp = current.getDefiningOp();
+    if (!defOp) {
+      LLVM_DEBUG(llvm::dbgs() << "  -> no defining op, returning failure\n");
+      return failure();
+    }
+
+    LLVM_DEBUG(llvm::dbgs() << "  -> tracing through: "
+                            << defOp->getName().getStringRef() << "\n");
+
+    // Check if we found the PagedDerefOp
+    if (auto derefOp = dyn_cast<rock::PagedDerefOp>(defOp)) {
+      LLVM_DEBUG(llvm::dbgs() << "  -> found PagedDerefOp!\n");
+      // Reverse the ops so they're in topological order (deref output first)
+      std::reverse(opsToClone.begin(), opsToClone.end());
+      return PagedDerefTraceResult{derefOp, opsToClone};
+    }
+
+    // Check if this is a view op we can trace through
+    if (!viewOps.contains(defOp->getName().getStringRef())) {
+      LLVM_DEBUG(llvm::dbgs() << "  -> op not in viewOps, returning failure\n");
+      return failure();
+    }
+
+    opsToClone.push_back(defOp);
+
+    // Get the input of this view op
+    if (defOp->getNumOperands() == 0) {
+      LLVM_DEBUG(llvm::dbgs() << "  -> op has no operands, returning failure\n");
+      return failure();
+    }
+    current = defOp->getOperand(0);
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "  -> loop ended without finding deref\n");
+  return failure();
+}
+
+// Populates the loadFromKVCache region of a PagedAttentionOp by cloning
+// the deref ops and any intermediate transforms.
+static void populateLoadFromKVCacheRegion(
+    PatternRewriter &rewriter, Location loc, Block *kvCacheBlock,
+    const PagedDerefTraceResult &keyDerefResult,
+    const PagedDerefTraceResult &valueDerefResult) {
+  PatternRewriter::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPointToStart(kvCacheBlock);
+
+  rock::PagedDerefOp keyDeref = keyDerefResult.derefOp;
+  rock::PagedDerefOp valueDeref = valueDerefResult.derefOp;
+
+  // Add block arguments for page pointers and masks
+  Value keyPtrArg =
+      kvCacheBlock->addArgument(keyDeref.getPagePointers().getType(), loc);
+  Value keyMaskArg =
+      keyDeref.getAddressMask()
+          ? kvCacheBlock->addArgument(keyDeref.getAddressMask().getType(), loc)
+          : Value();
+  Value valuePtrArg =
+      kvCacheBlock->addArgument(valueDeref.getPagePointers().getType(), loc);
+  Value valueMaskArg = valueDeref.getAddressMask()
+                           ? kvCacheBlock->addArgument(
+                                 valueDeref.getAddressMask().getType(), loc)
+                           : Value();
+
+  // Clone key deref and transforms into the region
+  IRMapping keyMapper;
+  keyMapper.map(keyDeref.getPagePointers(), keyPtrArg);
+  if (keyDeref.getAddressMask())
+    keyMapper.map(keyDeref.getAddressMask(), keyMaskArg);
+
+  auto *clonedKeyDeref = rewriter.clone(*keyDeref, keyMapper);
+  Value keyResult = clonedKeyDeref->getResult(0);
+
+  // Clone any transforms after the key deref
+  for (Operation *op : keyDerefResult.opsToClone) {
+    keyMapper.map(op->getOperand(0), keyResult);
+    auto *clonedOp = rewriter.clone(*op, keyMapper);
+    keyResult = clonedOp->getResult(0);
+  }
+
+  // Clone value deref and transforms into the region
+  IRMapping valueMapper;
+  valueMapper.map(valueDeref.getPagePointers(), valuePtrArg);
+  if (valueDeref.getAddressMask())
+    valueMapper.map(valueDeref.getAddressMask(), valueMaskArg);
+
+  auto *clonedValueDeref = rewriter.clone(*valueDeref, valueMapper);
+  Value valueResult = clonedValueDeref->getResult(0);
+
+  // Clone any transforms after the value deref
+  for (Operation *op : valueDerefResult.opsToClone) {
+    valueMapper.map(op->getOperand(0), valueResult);
+    auto *clonedOp = rewriter.clone(*op, valueMapper);
+    valueResult = clonedOp->getResult(0);
+  }
+
+  // Yield the keys and values
+  rock::YieldOp::create(rewriter, loc, ValueRange{keyResult, valueResult});
+}
+
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -3016,35 +3141,102 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
     std::tie(queries, keys, values, numHeadsQ, numHeadsKV) = getGQAValues(
         rewriter, firstMatMulOp.getA(), firstMatMulOp.getB(), op.getB());
 
-    rock::AttentionOp attnOp = rock::AttentionOp::create(
-        rewriter, loc, outputType, lseType, queries, keys, values,
-        elementwiseOtherArgs, currentSeqLen, prefixOffset, output, lseOut,
-        /*numHeadsQ=*/numHeadsQ,
-        /*numHeadsKV=*/numHeadsKV,
-        /*qTransposed=*/nullptr,
-        /*kTransposed=*/nullptr,
-        /*vTransposed=*/nullptr,
-        /*oTransposed=*/nullptr, causalAttr,
-        /*splitKV=*/rewriter.getI32IntegerAttr(1),
-        /*features=*/nullptr,
-        rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
-        softmaxTypeAttr,
-        /*params0=*/nullptr, /*params1=*/nullptr,
-        /*firstGemmIndices=*/
-        rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
-    Block *preSoftmaxElemwiseBlock = &attnOp.getPreSoftmaxBody().emplaceBlock();
+    // Check if K and V come from PagedDerefOp - if so, create PagedAttentionOp
+    LLVM_DEBUG(llvm::dbgs() << "Attention: checking for paged K/V\n");
+    LLVM_DEBUG(llvm::dbgs() << "  keys = " << keys << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "  values = " << values << "\n");
+    auto keyDerefResult = traceToPagedDeref(keys);
+    auto valueDerefResult = traceToPagedDeref(values);
+    LLVM_DEBUG(llvm::dbgs() << "  keyDerefResult: "
+                            << (succeeded(keyDerefResult) ? "success" : "failure")
+                            << "\n");
+    LLVM_DEBUG(llvm::dbgs() << "  valueDerefResult: "
+                            << (succeeded(valueDerefResult) ? "success" : "failure")
+                            << "\n");
+
+    tosa::AddOp addOp;
+    Value expandedOutLse;
+    Value attnResult;
+    Value attnLseResult;
+    Operation *attnOp = nullptr;
+    Region *preSoftmaxBody = nullptr;
+
+    if (succeeded(keyDerefResult) && succeeded(valueDerefResult)) {
+      // Create PagedAttentionOp
+      rock::PagedDerefOp keyDeref = keyDerefResult->derefOp;
+      rock::PagedDerefOp valueDeref = valueDerefResult->derefOp;
+
+      rock::PagedAttentionOp pagedAttnOp = rock::PagedAttentionOp::create(
+          rewriter, loc, outputType, lseType, queries,
+          keyDeref.getPagePointers(), keyDeref.getAddressMask(),
+          valueDeref.getPagePointers(), valueDeref.getAddressMask(),
+          elementwiseOtherArgs, currentSeqLen, prefixOffset, output, lseOut,
+          /*numHeadsQ=*/numHeadsQ,
+          /*numHeadsKV=*/numHeadsKV,
+          /*qTransposed=*/nullptr,
+          /*kTransposed=*/nullptr,
+          /*vTransposed=*/nullptr,
+          /*oTransposed=*/nullptr, causalAttr,
+          /*splitKV=*/rewriter.getI32IntegerAttr(1),
+          /*features=*/nullptr,
+          rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
+          softmaxTypeAttr,
+          /*params0=*/nullptr, /*params1=*/nullptr,
+          /*firstGemmIndices=*/
+          rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
+
+      // Populate loadFromKVCache region
+      Block *kvCacheBlock = &pagedAttnOp.getLoadFromKVCache().emplaceBlock();
+      populateLoadFromKVCacheRegion(rewriter, loc, kvCacheBlock,
+                                    *keyDerefResult, *valueDerefResult);
+
+      attnOp = pagedAttnOp;
+      preSoftmaxBody = &pagedAttnOp.getPreSoftmaxBody();
+
+      // Note: Don't erase the original deref ops - they may still have uses
+      // from the transform chain. Let dead code elimination clean them up.
+    } else {
+      // Create regular AttentionOp
+      rock::AttentionOp regularAttnOp = rock::AttentionOp::create(
+          rewriter, loc, outputType, lseType, queries, keys, values,
+          elementwiseOtherArgs, currentSeqLen, prefixOffset, output, lseOut,
+          /*numHeadsQ=*/numHeadsQ,
+          /*numHeadsKV=*/numHeadsKV,
+          /*qTransposed=*/nullptr,
+          /*kTransposed=*/nullptr,
+          /*vTransposed=*/nullptr,
+          /*oTransposed=*/nullptr, causalAttr,
+          /*splitKV=*/rewriter.getI32IntegerAttr(1),
+          /*features=*/nullptr,
+          rewriter.getAttr<rock::StoreMethodAttr>(rock::StoreMethod::Set),
+          softmaxTypeAttr,
+          /*params0=*/nullptr, /*params1=*/nullptr,
+          /*firstGemmIndices=*/
+          rewriter.getDenseI64ArrayAttr(firstGemmBlockIndex));
+
+      attnOp = regularAttnOp;
+      preSoftmaxBody = &regularAttnOp.getPreSoftmaxBody();
+    }
+
+    // Common logic for both paged and regular attention
+    Block *preSoftmaxElemwiseBlock = &preSoftmaxBody->emplaceBlock();
     {
       PatternRewriter::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToStart(preSoftmaxElemwiseBlock);
       elemwiseRegion.rewrite(causalMaskInput, rewriter, preSoftmaxElemwiseBlock,
                              loc);
     }
-    tosa::AddOp addOp;
-    Value expandedOutLse;
+
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      attnOp->setAttr("perf_config", attr);
+
+    attnResult = attnOp->getResult(0);
+    attnLseResult = lse ? attnOp->getResult(1) : Value();
+
     if (lse) {
       // Reverse the collapse operation
       expandedOutLse = tensor::ExpandShapeOp::create(
-          rewriter, op.getLoc(), lseOrig.getType(), attnOp->getResult(1),
+          rewriter, op.getLoc(), lseOrig.getType(), attnLseResult,
           reassocIndicesLSE);
 
       // collecting AddOp before the first replace
@@ -3054,10 +3246,8 @@ struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {
       moveUsersAfterExpandShape(rewriter, op.getLoc(),
                                 expandedOutLse.getDefiningOp(), addOp);
     }
-    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
-      attnOp->setAttr("perf_config", attr);
 
-    rewriter.replaceOp(op, attnOp->getResult(0));
+    rewriter.replaceOp(op, attnResult);
     if (lse) {
       rewriter.replaceOp(addOp, expandedOutLse);
     }
@@ -3249,10 +3439,29 @@ matchPagedDerefInputPattern(Value derefInput) {
   Value lhs = addOp.getInput1();
   Value rhs = addOp.getInput2();
 
-  // Helper to get the pre-broadcast source of a value
-  auto getPreBroadcastSource = [](Value v) -> Value {
+  // Helper to check if a value is a splat constant of 1s
+  auto isConstantOnes = [](Value v) -> bool {
+    auto constOp = v.getDefiningOp<tosa::ConstOp>();
+    if (!constOp)
+      return false;
+    auto attr = dyn_cast<DenseElementsAttr>(constOp.getValuesAttr());
+    return attr && attr.isSplat() && attr.getSplatValue<APInt>() == 1;
+  };
+
+  // Helper to get the pre-broadcast source of a value.
+  // Broadcasts can be implemented as:
+  // 1. rock::TransformOp (after Rock lowering)
+  // 2. tosa.mul with a constant of 1s (at TOSA level)
+  auto getPreBroadcastSource = [&isConstantOnes](Value v) -> Value {
     if (auto transformOp = v.getDefiningOp<rock::TransformOp>())
       return transformOp.getInput();
+    // Handle TOSA broadcast pattern: tosa.mul(source, ones, shift)
+    if (auto mulOp = v.getDefiningOp<tosa::MulOp>()) {
+      if (isConstantOnes(mulOp.getInput2()))
+        return mulOp.getInput1();
+      if (isConstantOnes(mulOp.getInput1()))
+        return mulOp.getInput2();
+    }
     return v;
   };
 
@@ -3275,33 +3484,31 @@ matchPagedDerefInputPattern(Value derefInput) {
   return PagedDerefMatchResult{pagePointers, addressMask};
 }
 
-class PagedDerefConverter final : public OpConversionPattern<tosa::CustomOp> {
+class PagedDerefConverter final : public OpRewritePattern<tosa::CustomOp> {
 public:
-  using OpConversionPattern<tosa::CustomOp>::OpConversionPattern;
+  using OpRewritePattern<tosa::CustomOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(tosa::CustomOp op,
-                                tosa::CustomOp::Adaptor adaptor,
-                                ConversionPatternRewriter &rw) const final {
+                                PatternRewriter &rw) const override {
     // Check if this is a deref custom op
     if (op.getDomainName() != ROCK_CUSTOMOP_DOMAIN_NAME)
-      return rw.notifyMatchFailure(op, "domain isn't rocmlir");
+      return failure();
     if (op.getOperatorName() != ROCK_CUSTOMOP_DEREF)
-      return rw.notifyMatchFailure(op, "operator_name isn't deref");
+      return failure();
     if (op.getNumOperands() != 1)
-      return rw.notifyMatchFailure(op, "deref must have exactly 1 operand");
+      return failure();
     if (op.getNumResults() != 1)
-      return rw.notifyMatchFailure(op, "deref must have exactly 1 result");
+      return failure();
 
     Location loc = op.getLoc();
-    Value input = adaptor.getInputList()[0];
+    Value input = op.getInputList()[0];
     RankedTensorType outputType = cast<RankedTensorType>(op.getType(0));
 
     // Try to match the paged attention pattern
     FailureOr<PagedDerefMatchResult> matchResult =
         matchPagedDerefInputPattern(input);
     if (failed(matchResult))
-      return rw.notifyMatchFailure(op,
-                                   "input doesn't match paged deref pattern");
+      return failure();
 
     Value pagePointers = matchResult->pagePointers;
     Value addressMask = matchResult->addressMask;
@@ -3320,8 +3527,12 @@ void tosa::populateTosaToRockConversionPatterns(MLIRContext *context,
                                                 RewritePatternSet &patterns) {
   patterns.add<ForwardConvConverter<tosa::Conv2DOp>,
                ForwardConvConverter<tosa::Conv3DOp>, BackwardConvConverter,
-               MatMulConverter, ReduceSumConverter, ReduceMaxConverter,
-               PagedDerefConverter>(context);
+               MatMulConverter, ReduceSumConverter, ReduceMaxConverter>(context);
+}
+
+void tosa::populateTosaToRockDerefPatterns(MLIRContext *context,
+                                           RewritePatternSet &patterns) {
+  patterns.add<PagedDerefConverter>(context);
 }
 
 void tosa::populateTosaToRockAttentionConversionPatterns(

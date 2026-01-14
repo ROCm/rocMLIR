@@ -42,6 +42,9 @@ void populateTosaToRockGemmGemmConversionPatterns(MLIRContext *context,
 
 void populateTosaToRockConvGemmConversionPatterns(MLIRContext *context,
                                                   RewritePatternSet &patterns);
+
+void populateTosaToRockDerefPatterns(MLIRContext *context,
+                                     RewritePatternSet &patterns);
 } // namespace tosa
 
 } // namespace mlir
