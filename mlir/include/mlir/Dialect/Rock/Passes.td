@@ -87,25 +87,4 @@ def RockGemmLinalgSplitkNormalizationPass : Pass<"rock-gemm-linalg-splitk-normal
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
-def RockSortDimensionsMemoryLayoutPass : Pass<"rock-sort-dimensions-memory-layout", "::mlir::func::FuncOp"> {
-  let summary = "Sort dimensions by stride of the underlying memory layout";
-  let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "arith::ArithDialect", "linalg::LinalgDialect"];
-}
-
-def RockFindFirstGemmIndexPass
-    : Pass<"rock-find-first-gemm-index", "::mlir::func::FuncOp"> {
-  let summary = "Fusions input arguments and linalg.generic input arguments "
-                "don't have to match. This pass sets the first gemm index of "
-                "the linalg.generic correctly.";
-  let dependentDialects = ["rock::RockDialect", "func::FuncDialect",
-                           "linalg::LinalgDialect"];
-}
-
-def RockRemoveOutputAllocPass
-    : Pass<"rock-remove-output-alloc", "::mlir::func::FuncOp"> {
-  let summary = "Remove the alloc assigned for output tensors once the output "
-                "tensor has already been added to the list of function args";
-  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
-}
-
 #endif // MLIR_DIALECT_ROCK_PASSES

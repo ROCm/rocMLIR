@@ -86,22 +86,11 @@ RegsAsMatrixSubTiles transposeSubTileViews(PatternRewriter &rewriter,
 // This function will create views of the register buffer of the loaded tile
 // of a matrix in global memory. Those views will provide sub-tiles of the
 // respective hierarchy within the GPU. See above about RegsAsMatrixSubTiles
-FailureOr<RegsAsMatrixSubTiles> getLoadRegsAsTileViews(
-    OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
-    ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
-    int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, bool isKContiguousDim, bool directToLDS);
-
-// This function will create views of the register buffer of the loaded tile
-// but packed as kOuterPerThread, dPerThread and kPackPerThread for max
-// vectorization of LDS storing. Those views will provide sub-tiles of the
-// respective hierarchy within the GPU. See above about RegsAsMatrixSubTiles
-FailureOr<RegsAsMatrixSubTiles> getPackedRegsAsTileViews(
-    OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
-    ArrayRef<StringRef> bidGridOrder, ArrayRef<int64_t> bidGridLengths,
-    int64_t blockSize, int64_t kPerBlock, int64_t dPerBlock, int64_t kPerThread,
-    int64_t dPerThread, int64_t kpack, bool isKContiguousDim,
-    bool doSwapThreadIterSubDimsForD = false);
+FailureOr<RegsAsMatrixSubTiles>
+getLoadRegsAsTileViews(OpBuilder &b, Location loc, Value globalBuffer,
+                       StringRef dName, ArrayRef<int64_t> bidGridLengths,
+                       int64_t kPerBlock, int64_t dPerBlock,
+                       bool isKContiguousDim);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);
@@ -264,20 +253,14 @@ FailureOr<Value> wrapLDSBufferForStore(OpBuilder &b, Location loc, Value buffer,
                                        int64_t kPerThread, int64_t dPerThread,
                                        bool rotateDWithK = false);
 
-FailureOr<VectorDimInfo> getVectorDim(Location loc, Value matrix, Type elemType,
-                                      int64_t blockSize, int64_t kPerBlock,
-                                      int64_t dPerBlock, int64_t kpack,
-                                      bool directToLDS);
+GemmDimension getVectorDim(Value matrix);
 
 // Get the LDS size of the memref
 std::optional<int64_t> getWorkgroupMemorySize(MemRefType type);
 
 llvm::FailureOr<RegsAsMatrixSubTiles>
-computeOutputTransforms(OpBuilder &b, Location loc, int64_t mLen, int64_t nLen,
-                        int64_t blockSize, ArrayRef<int64_t> bidGridLengths,
-                        int64_t inMPerThread, int64_t inNPerThread,
-                        bool doSwapThreadIterSubDimsForM,
-                        bool doSwapThreadIterSubDimsForN);
+computeOutputTransforms(OpBuilder &b, Location loc, int64_t mPerBlock,
+                        int64_t nPerBlock, ArrayRef<int64_t> bidGridLengths);
 
 } // end namespace rock
 } // end namespace mlir

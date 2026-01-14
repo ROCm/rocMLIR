@@ -288,12 +288,11 @@ void rock::buildBufferizePipeline(OpPassManager &pm,
       bufferResultToOutOptions));
 
   // Sort dimensions according to the underlying memory layout strides
-  if (!noRock) {
-    auto &funcPm4 = pm.nest<func::FuncOp>();
-    funcPm4.addPass(createRockRemoveOutputAllocPass());
-    funcPm4.addPass(createRockFindFirstGemmIndexPass());
-    funcPm4.addPass(createRockSortDimensionsMemoryLayoutPass());
-  }
+  // TODO(roctriton): RockFindFirstGemmIndexPass for attention fusion support
+  // if (!noRock) {
+  //   auto &funcPm4 = pm.nest<func::FuncOp>();
+  //   funcPm4.addPass(createRockFindFirstGemmIndexPass());
+  // }
 }
 
 void rock::buildKernelPipeline(OpPassManager &pm,

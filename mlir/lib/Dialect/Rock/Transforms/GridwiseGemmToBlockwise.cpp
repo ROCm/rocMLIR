@@ -60,6 +60,7 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/LogicalResult.h"
 #include <cstdint>
 #include <optional>
 #include <tuple>
@@ -104,31 +105,22 @@ static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
 // This function will process a tile of gemm input into LDS (or register)
 // buffer in a way it could be fed to blockwise_gemm_accel op
 static void loadAndStoreGemmInputTile(PatternRewriter &rewriter, Location loc,
-                                      Value in, Value kIter, Value tid,
+                                      Value in, Value kIter, StringRef dName,
                                       rock::layout::GridCoordinates gridCoords,
-                                      Value destRegs) {
-  // FailureOr<RegsAsMatrixSubTiles> maybeBufferViews;
-  // if (loadType == GemmLoadTileType::BypassLDS) {
-  //   maybeBufferViews = accelEmitterPtr->createAccelGemmOperandTransforms(
-  //       b, loc, kIters, bidGridLengths, blockSize, vecDimInfo.inDPerThread,
-  //       dName, isKContiguousDim, false);
-  // } else {
-  //   maybeBufferViews = getLoadRegsAsTileViews(
-  //       b, loc, source, dName, bidGridOrder, bidGridLengths, blockSize,
-  //       kPerBlock, dPerBlock, vecDimInfo.inKPerThread,
-  //       vecDimInfo.inDPerThread, isKContiguousDim, directToLDS);
-  // }
-  FailureOr<RegsAsMatrixSubTiles> maybeBufferViews = getLoadRegsAsTileViews(
-      rewriter, loc, in, dName, bidGridOrder, bidGridLengths, blockSize,
-      kPerBlock, dPerBlock, vecDimInfo.inKPerThread, vecDimInfo.inDPerThread,
-      isKContiguousDim, directToLDS);
+                                      Value destRegs, int64_t kPerBlock,
+                                      int64_t dPerBlock, bool isKContiguousDim,
+                                      SmallVector<int64_t, 3> &bidGridLengths) {
+  FailureOr<RegsAsMatrixSubTiles> maybeBufferViews =
+      getLoadRegsAsTileViews(rewriter, loc, in, dName, bidGridLengths,
+                             kPerBlock, dPerBlock, isKContiguousDim);
+  assert(succeeded(maybeBufferViews));
   Value wrappedSource = transform(rewriter, in, maybeBufferViews->gridSubTile);
 
   // Load from global memory to LDS or register buffer.
-  BlockwiseLoadTileOp::create(rewriter, loc, in, destRegs,
+  BlockwiseLoadTileOp::create(rewriter, loc, wrappedSource, destRegs,
                               ValueRange{kIter, gridCoords.g_block,
-                                         gridCoords.m_block, gridCoords.n_block,
-                                         tid});
+                                         gridCoords.m_block,
+                                         gridCoords.n_block});
 }
 
 static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
@@ -150,7 +142,7 @@ static Value createRegInterrimBufferForAccel(PatternRewriter &rewriter,
                                              int64_t dPerBlock,
                                              int64_t kPerBlock) {
   Value array;
-  SmallVector<int64_t> shape{dPerBlock, kPerBlock};
+  SmallVector<int64_t> shape{dPerBlock * kPerBlock};
   auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getPrivateAddressSpace());
 
@@ -167,7 +159,7 @@ static Value createBufferForAccelGemmOut(PatternRewriter &rewriter,
   auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getPrivateAddressSpace());
   MemRefType regCAllocType =
-      MemRefType::get({mPerBlock, nPerBlock}, accType, AffineMap{},
+      MemRefType::get({mPerBlock * nPerBlock}, accType, AffineMap{},
                       /*memorySpace=*/privateMemoryAddressSpace);
   Value regCAllocOp = GpuAllocOp::create(rewriter, loc, regCAllocType);
   return regCAllocOp;
@@ -342,6 +334,12 @@ struct GridwiseGemmAccelRewritePattern
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
 
+    GemmDimension vecDimA = getVectorDim(matA);
+    bool isKContiguousDimA = vecDimA == GemmDimension::K;
+
+    GemmDimension vecDimB = getVectorDim(matB);
+    bool isKContiguousDimB = vecDimB == GemmDimension::K;
+
     bool useIndexDiffs = true;
 
     LLVM_DEBUG(llvm::dbgs() << "M: " << M << "\n"
@@ -386,15 +384,19 @@ struct GridwiseGemmAccelRewritePattern
       Value iv = loopOp.getInductionVar();
 
       // Load from global memory to LDS
-      loadAndStoreGemmInputTile(b, loc, matB, /*kiter=*/iv, tid, gridCoords,
-                                arrayB);
-      loadAndStoreGemmInputTile(b, loc, matA, /*kiter=*/iv, tid, gridCoords,
-                                arrayA);
+      loadAndStoreGemmInputTile(b, loc, matB, /*kiter=*/iv, "n", gridCoords,
+                                arrayB, kPerBlock, nPerBlock, isKContiguousDimB,
+                                bidGridLengths);
+      loadAndStoreGemmInputTile(b, loc, matA, /*kiter=*/iv, "m", gridCoords,
+                                arrayA, kPerBlock, mPerBlock, isKContiguousDimA,
+                                bidGridLengths);
       if (isScaledGemm) {
-        loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, tid, gridCoords,
-                                  arrayScaleB);
-        loadAndStoreGemmInputTile(b, loc, scaleA, /*kiter=*/iv, tid, gridCoords,
-                                  arrayScaleA);
+        loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, "n", gridCoords,
+                                  arrayScaleB, kPerBlock, nPerBlock,
+                                  isKContiguousDimB, bidGridLengths);
+        loadAndStoreGemmInputTile(b, loc, scaleA, /*kiter=*/iv, "m", gridCoords,
+                                  arrayScaleA, kPerBlock, mPerBlock,
+                                  isKContiguousDimA, bidGridLengths);
       }
 
       // Emit blockwise GEMM. This will load data from LDS (or registers) and
@@ -405,11 +407,7 @@ struct GridwiseGemmAccelRewritePattern
     }
 
     FailureOr<RegsAsMatrixSubTiles> maybeIdToMatrixCMaps =
-        computeOutputTransforms(b, loc, M, N, blockSize, bidGridLengths,
-                                maybeVecDimInfoA->inDPerThread,
-                                maybeVecDimInfoB->inDPerThread,
-                                ldsLayoutConfigA.doSwapThreadIterSubDims,
-                                ldsLayoutConfigB.doSwapThreadIterSubDims);
+        computeOutputTransforms(b, loc, mPerBlock, nPerBlock, bidGridLengths);
     if (failed(maybeIdToMatrixCMaps)) {
       return failure();
     }
@@ -418,8 +416,7 @@ struct GridwiseGemmAccelRewritePattern
     BlockwiseStoreTileOp::create(
         b, loc, regCAllocOp, op.getC(), idToMatrixCMaps,
         /*extraIndices=*/
-        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block,
-                   tid},
+        ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block},
         op.getStoreMethod(), forceUnroll, useIndexDiffs);
     b.eraseOp(op);
     return success();
