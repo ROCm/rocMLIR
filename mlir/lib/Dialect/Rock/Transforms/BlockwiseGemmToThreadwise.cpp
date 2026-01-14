@@ -424,7 +424,8 @@ struct BlockwiseGemmAccelRewritePattern
     Type dataTypeA = matrixParamsA.getElementType();
     Type dataTypeB = matrixParamsB.getElementType();
 
-    auto features = rock::getFeatures(op);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    GemmFeatures features = archInfo.defaultFeatures;
     auto accelEmitterPtr = rock::accel::AccelEmitter::select(
         features, dataTypeA, dataTypeB, arch, tuningParams);
 

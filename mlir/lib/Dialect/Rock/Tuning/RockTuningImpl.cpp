@@ -215,8 +215,9 @@ getAccelRangeGemm(RockGemmWrapperInterface gemmOp, TuningParamSetKind kind) {
       getSchedules(gemmOp, kind), // scheduleVersion
       {0, 1}};                    // forceUnroll
 
-  GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
-  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma))
+  StringAttr arch = rock::getArchValue(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (archInfo.isMfma(gemmOp))
     return xdlopsParams;
 
   return validRangeWmmaGemmParams;
@@ -240,12 +241,13 @@ getAccelRangeGemmGemm(RockGemmGemmWrapperInterface gemmGemmOp,
        /*mnPerXdl=*/{16},
        /*kPack=*/{4, 8, 16},
        getSchedules(gemmGemmOp, kind)};
-  GemmFeatures features = rock::getFeatures(gemmGemmOp);
+  StringAttr arch = rock::getArchValue(gemmGemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
 
   std::vector<std::vector<uint32_t>> validRangeGemmGemmParams;
-  if (bitEnumContainsAny(features, GemmFeatures::mfma)) {
+  if (archInfo.isMfma(gemmGemmOp)) {
     validRangeGemmGemmParams = validRangeGemmGemmParamsMFMA;
-  } else if (bitEnumContainsAny(features, GemmFeatures::wmma)) {
+  } else if (archInfo.isWmma(gemmGemmOp)) {
     validRangeGemmGemmParams = validRangeGemmGemmParamsWMMA;
   }
   return validRangeGemmGemmParams;
@@ -255,8 +257,9 @@ getAccelRangeGemmGemm(RockGemmGemmWrapperInterface gemmGemmOp,
 static void createGemmGemmTuningRangeGreedyPhase1(
     TuningParamSet *newSpace, RockGemmGemmWrapperInterface gemmGemmOp,
     unsigned numRandomPerTileSize, unsigned int seed) {
-  GemmFeatures features = rock::getFeatures(gemmGemmOp);
-  if (!rock::isAccel(features)) {
+  StringAttr arch = rock::getArchValue(gemmGemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (!archInfo.isAccel(gemmGemmOp)) {
     // We only support GPUs with matrix accelerator extensions
     return;
   }
@@ -321,14 +324,15 @@ static void
 createGemmGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
                                       RockGemmGemmWrapperInterface gemmGemmOp,
                                       StringRef winningConfig) {
-  GemmFeatures features = rock::getFeatures(gemmGemmOp);
-  if (!rock::isAccel(features)) {
+  StringAttr arch = rock::getArchValue(gemmGemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (!archInfo.isAccel(gemmGemmOp)) {
     // We only support GPUs with matrix accelerator extensions
     return;
   }
   const std::vector<std::vector<uint32_t>> validRangeGemmGemmParams =
       getAccelRangeGemmGemm(gemmGemmOp, TuningParamSetKind::Greedy);
-  bool isWmma = bitEnumContainsAny(features, GemmFeatures::wmma);
+  bool isWmma = archInfo.isWmma(gemmGemmOp);
   int64_t waveSize =
       rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).waveSize;
   int64_t outputSwizzle{2}, wavesPerEU{0};
@@ -381,12 +385,13 @@ static void
 createGemmGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
                                       RockGemmGemmWrapperInterface gemmGemmOp,
                                       StringRef winningConfig) {
-  GemmFeatures features = rock::getFeatures(gemmGemmOp);
-  if (!rock::isAccel(features)) {
+  StringAttr arch = rock::getArchValue(gemmGemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (!archInfo.isAccel(gemmGemmOp)) {
     // We only support GPUs with matrix accelerator extensions
     return;
   }
-  bool isWmma = bitEnumContainsAny(features, GemmFeatures::wmma);
+  bool isWmma = archInfo.isWmma(gemmGemmOp);
   OpBuilder b(gemmGemmOp.getContext());
 
   auto gemmGemmPerfConfig =
@@ -429,15 +434,22 @@ createGemmGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
 static void createGemmGemmTuningRangeBF(TuningParamSet *newSpace,
                                         RockGemmGemmWrapperInterface gemmGemmOp,
                                         TuningParamSetKind kind) {
-  GemmFeatures features = rock::getFeatures(gemmGemmOp);
-  if (!rock::isAccel(features)) {
+  StringAttr arch = rock::getArchValue(gemmGemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeatures features = archInfo.defaultFeatures;
+  // int64_t numEUPerCU =
+  //     rock::lookupArchInfo(rock::getArchValue(gemmGemmOp)).numEUPerCU;
+  bool isWMMA = archInfo.isWmma(gemmGemmOp);
+  llvm::errs() << "isWMMA: " << isWMMA << "\n";
+  llvm::errs() << "features: " << features << "\n";
+  if (!archInfo.isAccel(gemmGemmOp)) {
     // We only support GPUs with matrix accelerator extensions
     return;
   }
   const std::vector<std::vector<uint32_t>> validRangeGemmGemmParams =
       getAccelRangeGemmGemm(gemmGemmOp, kind);
   bool isWmma = bitEnumContainsAny(features, GemmFeatures::wmma);
-  auto archInfo = rock::lookupArchInfo(rock::getArchValue(gemmGemmOp));
+  // auto archInfo = rock::lookupArchInfo(rock::getArchValue(gemmGemmOp));
   int64_t waveSize = archInfo.waveSize;
   int64_t numEUPerCU = archInfo.numEUPerCU;
   int64_t outputSwizzle{2}, wavesPerEU{0};
@@ -595,9 +607,10 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   const std::vector<std::vector<uint32_t>> accelParams =
       getAccelRangeGemm(gemmOp, kind);
 
-  GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
+  StringAttr arch = rock::getArchValue(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   std::unique_ptr<PopulateParamsAccel> tuningInfo;
-  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma))
+  if (archInfo.isMfma(gemmOp))
     tuningInfo = std::make_unique<PopulateParamsXDL>();
   else
     tuningInfo = std::make_unique<PopulateParamsWmma>();
@@ -606,8 +619,8 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
   // hardcode to use heuristics
   int64_t outputSwizzle{2}, wavesPerEU{0}, gridGroupSize{0};
   OpBuilder b(gemmOp.getContext());
-  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma) ||
-      bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
+  if (archInfo.isAccel(gemmOp)) {
+    llvm::errs() << "createGemmTuningRangeBF: accel\n";
     for (uint32_t gemmMPerBlock : accelParams[0]) {
       SmallVector<uint32_t> mPerWaveRange =
           computeDPerWave(kind, gemmMPerBlock, waveSize);
@@ -652,6 +665,7 @@ static void createGemmTuningRangeBF(TuningParamSet *newSpace,
       }
     }
   } else {
+    llvm::errs() << "createGemmTuningRangeBF: non-accel\n";
     // Non-accel
     PopulateParams tuningInfo;
     for (uint32_t blockSize : validRangeGeneralGemmParams[0]) {
@@ -690,8 +704,9 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
                                        RockGemmWrapperInterface gemmOp) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   OpBuilder b(gemmOp.getContext());
-  GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
-  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma)) {
+  StringAttr arch = rock::getArchValue(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (archInfo.isMfma(gemmOp)) {
     PopulateParamsXDL tuningInfo;
 
     for (AccelGemmParamsAttr param : tuningInfo.orderParams(
@@ -703,7 +718,7 @@ static void createGemmTuningRangeQuick(TuningParamSet *newSpace,
         newSpace->tuningRange.push_back(
             cast<RockTuningParamAttrInterface>(param));
     }
-  } else if (bitEnumContainsAll(currentFeatures, GemmFeatures::wmma)) {
+  } else if (archInfo.isWmma(gemmOp)) {
     // Wmma
     PopulateParamsWmma tuningInfo;
     for (AccelGemmParamsAttr param : tuningInfo.orderParams(
@@ -774,14 +789,15 @@ static void createGemmTuningRangeGreedyPhase1(TuningParamSet *newSpace,
                                               RockGemmWrapperInterface gemmOp,
                                               unsigned numRandomPerTileSize,
                                               unsigned int seed) {
-  GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
+  StringAttr arch = rock::getArchValue(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   OpBuilder b(gemmOp.getContext());
   const std::vector<std::vector<uint32_t>> params =
       getAccelRangeGemm(gemmOp, TuningParamSetKind::Greedy);
   std::mt19937 rng(seed);
   std::unique_ptr<PopulateParamsAccel> tuningInfo;
-  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma))
+  if (archInfo.isMfma(gemmOp))
     tuningInfo = std::make_unique<PopulateParamsXDL>();
   else
     tuningInfo = std::make_unique<PopulateParamsWmma>();
@@ -838,7 +854,9 @@ static void createGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
                                               StringRef winningConfig) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   OpBuilder b(gemmOp.getContext());
-  GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
+  StringAttr arch = rock::getArchValue(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeatures currentFeatures = archInfo.defaultFeatures;
 
   uint32_t winningMPerBlock, winningNPerBlock;
   AccelGemmParamsAttr validParams;
@@ -853,7 +871,7 @@ static void createGemmTuningRangeGreedyPhase2(TuningParamSet *newSpace,
   const std::vector<std::vector<uint32_t>> params =
       getAccelRangeGemm(gemmOp, TuningParamSetKind::Greedy);
   std::unique_ptr<PopulateParamsAccel> tuningInfo;
-  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma))
+  if (archInfo.isMfma(gemmOp))
     tuningInfo = std::make_unique<PopulateParamsXDL>();
   else
     tuningInfo = std::make_unique<PopulateParamsWmma>();
@@ -905,7 +923,9 @@ static void createGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
                                               StringRef winningConfig) {
   auto info = PopulateParamsInfo::fromOp(gemmOp);
   OpBuilder b(gemmOp.getContext());
-  GemmFeatures currentFeatures = rock::getFeatures(gemmOp);
+  StringAttr arch = rock::getArchValue(gemmOp);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  GemmFeatures currentFeatures = archInfo.defaultFeatures;
 
   AccelGemmParamsAttr validParams;
   auto populateParamsAccelPtr = PopulateParamsAccel::select(currentFeatures);
@@ -924,8 +944,10 @@ static void createGemmTuningRangeGreedyPhase3(TuningParamSet *newSpace,
   uint32_t scheduleVersion = validParams.getScheduleVersion();
   uint32_t forceUnroll = validParams.getForceUnroll();
 
+  // StringAttr arch = rock::getArchValue(gemmOp);
+  // rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   std::unique_ptr<PopulateParamsAccel> tuningInfo;
-  if (bitEnumContainsAll(currentFeatures, GemmFeatures::mfma))
+  if (archInfo.isMfma(gemmOp))
     tuningInfo = std::make_unique<PopulateParamsXDL>();
   else
     tuningInfo = std::make_unique<PopulateParamsWmma>();
@@ -956,44 +978,47 @@ createTunableParamSpace(ModuleOp mod, TuningParamSetKind kind,
   newSpace = new TuningParamSet();
 
   // create range and heuristic
-  WalkResult findPrimary = mod->walk([&](rock::RockGemmWrapperInterface op)
-                                         -> WalkResult {
-    GemmFeatures currentFeatures = rock::getFeatures(op);
-    // greedy is not implemented for non-accel
-    if (!rock::isAccel(currentFeatures) && kind == TuningParamSetKind::Greedy) {
-      kind = TuningParamSetKind::Exhaustive;
-      // TODO: tuningRunner hides this warning
-      llvm::errs() << "Greedy tuning not implemented for non-accel, using "
-                      "Exhaustive instead\n";
-    }
-    switch (kind) {
-    case TuningParamSetKind::Full:
-    case TuningParamSetKind::Exhaustive:
-      createGemmTuningRangeBF(newSpace, op, kind);
-      break;
-    case TuningParamSetKind::Greedy:
-      if (settings.iteration == 0) {
-        // First iteration: random configs per tile size
-        createGemmTuningRangeGreedyPhase1(
-            newSpace, op, NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
-      } else if (settings.iteration == 1) {
-        // Second iteration: brute force (except waves_per_eu,
-        // output_swizzle and grid_group_size, which we hardcode to use the
-        // heuristic) with winning tile sizes
-        createGemmTuningRangeGreedyPhase2(newSpace, op, settings.winningConfig);
-      } else {
-        // Third iteration: brute force the remaining configs (waves_per_eu,
-        // output_swizzle and grid_group_size)
-        createGemmTuningRangeGreedyPhase3(newSpace, op, settings.winningConfig);
-      }
-      break;
-    case TuningParamSetKind::Quick:
-      createGemmTuningRangeQuick(newSpace, op);
-      break;
-    }
-    newSpace->primaryOpType = op.getKernelType();
-    return WalkResult::interrupt();
-  });
+  WalkResult findPrimary =
+      mod->walk([&](rock::RockGemmWrapperInterface op) -> WalkResult {
+        StringAttr arch = rock::getArchValue(op);
+        rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+        // greedy is not implemented for non-accel
+        if (!archInfo.isAccel(op) && kind == TuningParamSetKind::Greedy) {
+          kind = TuningParamSetKind::Exhaustive;
+          // TODO: tuningRunner hides this warning
+          llvm::errs() << "Greedy tuning not implemented for non-accel, using "
+                          "Exhaustive instead\n";
+        }
+        switch (kind) {
+        case TuningParamSetKind::Full:
+        case TuningParamSetKind::Exhaustive:
+          createGemmTuningRangeBF(newSpace, op, kind);
+          break;
+        case TuningParamSetKind::Greedy:
+          if (settings.iteration == 0) {
+            // First iteration: random configs per tile size
+            createGemmTuningRangeGreedyPhase1(
+                newSpace, op, NUM_RANDOM_PERFCONFIGS_PER_TILE_SIZE, RND_SEED);
+          } else if (settings.iteration == 1) {
+            // Second iteration: brute force (except waves_per_eu,
+            // output_swizzle and grid_group_size, which we hardcode to use the
+            // heuristic) with winning tile sizes
+            createGemmTuningRangeGreedyPhase2(newSpace, op,
+                                              settings.winningConfig);
+          } else {
+            // Third iteration: brute force the remaining configs (waves_per_eu,
+            // output_swizzle and grid_group_size)
+            createGemmTuningRangeGreedyPhase3(newSpace, op,
+                                              settings.winningConfig);
+          }
+          break;
+        case TuningParamSetKind::Quick:
+          createGemmTuningRangeQuick(newSpace, op);
+          break;
+        }
+        newSpace->primaryOpType = op.getKernelType();
+        return WalkResult::interrupt();
+      });
   WalkResult findGemmGemm =
       mod->walk([&](rock::RockGemmGemmWrapperInterface op) -> WalkResult {
         switch (kind) {
@@ -1627,12 +1652,14 @@ LogicalResult tuningTableLookup(TuningTable *perfTable, ModuleOp &mod,
 
 static int64_t retrieveSplitKValue(rock::GemmFeatures features,
                                    StringAttr perfConfig) {
+  // TODO: This is a hack, we should not be checking features here.
   bool isWmma = bitEnumContainsAny(features, GemmFeatures::wmma);
+  bool isAccel = rock::isAccel(features);
   auto gemmGemmPerfConfig = GemmGemmParamsAttr::get(perfConfig, isWmma);
   if (gemmGemmPerfConfig)
     return gemmGemmPerfConfig.getSplitKFactor();
 
-  if (isAccel(features)) {
+  if (isAccel) {
     auto params = AccelGemmParamsAttr::get(perfConfig, isWmma);
     return params ? params.getSplitKFactor() : 1;
   }
@@ -1647,9 +1674,13 @@ bool isSplitKRequested(rock::GemmFeatures features, StringAttr perfConfig) {
 bool isSplitKRequested(ModuleOp mod, StringRef perfConfig) {
   auto perfConfigAttr = StringAttr::get(mod->getContext(), perfConfig);
   WalkResult walkResult = mod.walk([&](Operation *op) -> WalkResult {
-    if (isa<RockGemmWrapperInterface, RockGemmGemmWrapperInterface>(op) &&
-        isSplitKRequested(rock::getFeatures(op), perfConfigAttr))
-      return WalkResult::interrupt();
+    if (isa<RockGemmWrapperInterface, RockGemmGemmWrapperInterface>(op)) {
+      StringAttr arch = rock::getArchValue(op);
+      rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+      GemmFeatures features = archInfo.defaultFeatures;
+      if (isSplitKRequested(features, perfConfigAttr))
+        return WalkResult::interrupt();
+    }
 
     return WalkResult::advance();
   });
