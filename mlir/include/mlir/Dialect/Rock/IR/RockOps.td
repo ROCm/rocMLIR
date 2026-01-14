@@ -203,39 +203,53 @@ def Rock_ReduceOp
     }
   }];
 }
-def Rock_AttentionOp
-    : Rock_Op<
-          "attention", [DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
-                        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-                        DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-                        RockFusionRoot, AttrSizedOperandSegments,
-                        AttrSizedResultSegments]>,
-      Arguments<(ins TensorOrMemRefOf<[F32, F16, BF16, I8]>:$queries,
-          TensorOrMemRefOf<[F32, F16, BF16, I8]>:$keys,
-          TensorOrMemRefOf<[F32, F16, BF16]>:$values,
-          Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
-          Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
-          Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
-          TensorOrMemRefOf<[F32, F16, BF16]>:$out,
-          Optional<TensorOrMemRefOf<[F32, F16, BF16]>>:$lse, I32Attr:$numHeadsQ,
-          I32Attr:$numHeadsKV, UnitAttr:$qTransposed, UnitAttr:$kTransposed,
-          UnitAttr:$vTransposed, UnitAttr:$oTransposed, UnitAttr:$causal,
-          I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          StoreMethodAttr:$storeMethod, OptionalAttr<TypeAttr>:$softmaxType,
-          OptionalAttr<RockTuningParamAttrInterface>:$params0,
-          OptionalAttr<RockTuningParamAttrInterface>:$params1,
-          DenseI64ArrayAttr:$firstGemmIndices,
-          DefaultValuedOptionalAttr<BoolAttr,
-                                    "false">:$preSoftmaxHasSplitKVTransforms)>,
-      Results<(outs Optional<TensorOf<[F32, F16, BF16]>>:$result,
-          Optional<TensorOf<[F32, F16, BF16]>>:$lseOut)> {
-  let summary = "Attention operation of transformer models";
-  let description = [{
-    Performs the operation out = SOFTMAX(preSoftmaxBody(queries * keys, preSoftmaxElemWiseInputs)) * values.
 
-    This operation performs attention mechanism of transformer models. There is an optional element-wise 
-    fusion just before the softmax, defined by `preSoftmaxBody` with inputs `preSoftmaxElemWiseInputs`.
+//===----------------------------------------------------------------------===//
+// Attention Op Base Class
+//===----------------------------------------------------------------------===//
 
+defvar AttentionQKTypes = [F32, F16, BF16, I8];
+defvar AttentionVOutTypes = [F32, F16, BF16];
+
+class Rock_AttentionOpBase<string mnemonic, list<Trait> extraTraits = []>
+    : Rock_Op<mnemonic, !listconcat([
+        DeclareOpInterfaceMethods<RockGemmGemmWrapperInterface>,
+        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+        DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+        RockFusionRoot,
+        AttrSizedOperandSegments,
+        AttrSizedResultSegments
+    ], extraTraits)> {
+
+  // Common attention attributes shared across all variants
+  dag commonAttentionAttrs = (ins
+      I32Attr:$numHeadsQ,
+      I32Attr:$numHeadsKV,
+      UnitAttr:$qTransposed,
+      UnitAttr:$kTransposed,
+      UnitAttr:$vTransposed,
+      UnitAttr:$oTransposed,
+      UnitAttr:$causal,
+      I32Attr:$splitKV,
+      OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+      StoreMethodAttr:$storeMethod,
+      OptionalAttr<TypeAttr>:$softmaxType,
+      OptionalAttr<RockTuningParamAttrInterface>:$params0,
+      OptionalAttr<RockTuningParamAttrInterface>:$params1,
+      DenseI64ArrayAttr:$firstGemmIndices,
+      DefaultValuedOptionalAttr<BoolAttr, "false">:$preSoftmaxHasSplitKVTransforms
+  );
+
+  dag commonAttentionResults = (outs
+      Optional<TensorOf<AttentionVOutTypes>>:$result,
+      Optional<TensorOf<AttentionVOutTypes>>:$lseOut
+  );
+
+  let hasVerifier = 1;
+
+  // Common description for attention semantics - child ops should reference this
+  // and add their specific input descriptions.
+  string commonAttentionDescription = [{
     If none of the `transposed` attributes are set, then `queries` is [G] x seq_q x head_qk,
     `keys` is [G] x head_qk x seq_k, `values` is [G] x seq_k x head_v and `out` is [G] x seq_q x head_v, 
     where G is the optional group dimension (which is assumed to be 1 if not set).
@@ -264,15 +278,44 @@ def Rock_AttentionOp
     re-applying splitKV transforms when the IR is generated directly (e.g., via rocmlir-gen) 
     without flash decoding detection.
 
-    The parameters `gridSize`, and `blockSize` are optional as they can be
-    inferred by a tuning process or a heuristic, but they must be set before
-    the `attention` is lowered into the `gridwise_attention_accel` stage of the
-    code generation pipeline.
+    The parameters `params0` and `params1` are optional as they can be inferred by a tuning 
+    process or a heuristic, but they must be set before the attention op is lowered into 
+    the `gridwise_attention_accel` stage of the code generation pipeline.
 
     `features` specifies what hardware features can be used in the generated code.
   }];
-  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// Attention Op
+//===----------------------------------------------------------------------===//
+
+def Rock_AttentionOp : Rock_AttentionOpBase<"attention"> {
+  dag attentionArgs = (ins
+      TensorOrMemRefOf<AttentionQKTypes>:$queries,
+      TensorOrMemRefOf<AttentionQKTypes>:$keys,
+      TensorOrMemRefOf<AttentionVOutTypes>:$values,
+      Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
+      Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
+      Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
+      TensorOrMemRefOf<AttentionVOutTypes>:$out,
+      Optional<TensorOrMemRefOf<AttentionVOutTypes>>:$lse
+  );
+
+  let arguments = !con(attentionArgs, commonAttentionAttrs);
+  let results = commonAttentionResults;
+
   let regions = (region AnyRegion:$preSoftmaxBody);
+
+  let summary = "Attention operation of transformer models";
+  let description = [{
+    Performs the operation out = SOFTMAX(preSoftmaxBody(queries * keys, preSoftmaxElemWiseInputs)) * values.
+
+    This operation performs attention mechanism of transformer models. There is an optional element-wise 
+    fusion just before the softmax, defined by `preSoftmaxBody` with inputs `preSoftmaxElemWiseInputs`.
+
+  }] # commonAttentionDescription;
+
   let assemblyFormat = [{
     `{` `\n`
         ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` (`tr` $kTransposed^)? $keys `:` type($queries) `,` type($keys) `\n`
@@ -285,9 +328,113 @@ def Rock_AttentionOp
     `}` attr-dict (`->` type($result)^)? (`,` type($lseOut)^)?
   }];
 
-  // Return operand of LSE if it exists.
   let extraClassDeclaration = [{
+    // Return operand of LSE if it exists.
     ::mlir::OpOperand* getOutLseArgument() { return getLse() ? &(*this)->getOpOperand(getNumOperands() - 1) : nullptr; }
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Paged Attention Op
+//===----------------------------------------------------------------------===//
+
+def Rock_PagedAttentionOp : Rock_AttentionOpBase<"paged_attention"> {
+  dag pagedAttentionArgs = (ins
+      TensorOrMemRefOf<AttentionQKTypes>:$queries,
+      TensorOrMemRefOf<[I64]>:$keyPagePointers,
+      Optional<TensorOrMemRefOf<[I1]>>:$keyAddressMask,
+      TensorOrMemRefOf<[I64]>:$valuePagePointers,
+      Optional<TensorOrMemRefOf<[I1]>>:$valueAddressMask,
+      Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
+      Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
+      Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
+      TensorOrMemRefOf<AttentionVOutTypes>:$out,
+      Optional<TensorOrMemRefOf<AttentionVOutTypes>>:$lse
+  );
+
+  let arguments = !con(pagedAttentionArgs, commonAttentionAttrs);
+  let results = commonAttentionResults;
+
+  let regions = (region
+      AnyRegion:$loadFromKVCache,
+      AnyRegion:$preSoftmaxBody
+  );
+
+  let summary = "Paged attention operation with KV cache";
+  let description = [{
+    Performs attention where keys and values are loaded from paged KV cache.
+
+    This op computes: out = SOFTMAX(preSoftmaxBody(Q * K^T)) * V
+    where K and V are loaded from paged memory via the `loadFromKVCache` region.
+
+    The `loadFromKVCache` region defines how to load K and V tensors from 
+    page pointers. It receives the page pointers and address masks as block 
+    arguments and must yield exactly two tensors (keys, values) via `rock.yield`.
+
+    Block arguments (in order, masks present only if provided to op):
+    - keyPagePointers: tensor of i64 pointers to key pages
+    - keyAddressMask: optional i1 mask for key address safety
+    - valuePagePointers: tensor of i64 pointers to value pages
+    - valueAddressMask: optional i1 mask for value address safety
+
+    The address masks are for memory safety only (avoiding invalid loads for 
+    variable-length sequences). They do not affect attention computation.
+
+    **Example:**
+
+    ```mlir
+    rock.paged_attention {
+      qk = %queries * pagedKeys : tensor<1x14x1500x64xf16>
+      keyPagePointers = %kPtrs : tensor<1x64x1xi64> mask %kMask : tensor<1x64x8192xi1>
+      valuePagePointers = %vPtrs : tensor<1x64x1xi64> mask %vMask : tensor<1x64x8192xi1>
+      loadFromKVCache {
+      ^bb0(%kp: tensor<1x64x1xi64>, %km: tensor<1x64x8192xi1>,
+           %vp: tensor<1x64x1xi64>, %vm: tensor<1x64x8192xi1>):
+        %k_raw = rock.paged_deref %kp, %km : ... -> tensor<1x64x8192xf16>
+        %k = rock.transform %k_raw by ... : ... -> tensor<1x14x64x4096xf16>
+        %v_raw = rock.paged_deref %vp, %vm : ... -> tensor<1x64x8192xf16>
+        %v = rock.transform %v_raw by ... : ... -> tensor<1x14x4096x64xf16>
+        rock.yield %k, %v : tensor<1x14x64x4096xf16>, tensor<1x14x4096x64xf16>
+      }
+      %out = softmax(qk) * pagedValues -> tensor<1x14x1500x64xf16>
+    }
+    ```
+
+  }] # commonAttentionDescription;
+
+  let assemblyFormat = [{
+    `{` `\n`
+        ` ` `qk` `=` (`tr` $qTransposed^)? $queries `*` `pagedKeys` `:` type($queries) `\n`
+        ` ` `keyPagePointers` `=` $keyPagePointers `:` type($keyPagePointers)
+            (`mask` $keyAddressMask^ `:` type($keyAddressMask))? `\n`
+        ` ` `valuePagePointers` `=` $valuePagePointers `:` type($valuePagePointers)
+            (`mask` $valueAddressMask^ `:` type($valueAddressMask))? `\n`
+        (`currentSeqLen` `=` `(` $currentSeqLen^ `:` type($currentSeqLen) `)` `\n`)?
+        (`prefixOffset` `=` `(` $prefixOffset^ `:` type($prefixOffset) `)` `\n`)?
+        (`causal` `\n` $causal^)?
+        (`lse` `=` $lse^ `:` type($lse) `\n`)?
+        ` ` `loadFromKVCache` $loadFromKVCache `\n`
+        (`qk` `=` `elementwise` (`otherIns` `(` $preSoftmaxElemWiseInputs^ `:` type($preSoftmaxElemWiseInputs) `)`)? $preSoftmaxBody^ `\n`)?
+        (`tr` $oTransposed^)? $out `=` `softmax` `(` `qk` `)` `*` (`tr` $vTransposed^)? `pagedValues` `->` type($out) `\n`
+    `}` attr-dict (`->` type($result)^)? (`,` type($lseOut)^)?
+  }];
+
+  let extraClassDeclaration = [{
+    // Return operand of LSE if it exists.
+    ::mlir::OpOperand* getOutLseArgument() {
+      return getLse() ? &(*this)->getOpOperand(getNumOperands() - 1) : nullptr;
+    }
+
+    // Get the number of expected block arguments for loadFromKVCache region.
+    unsigned getExpectedKVCacheBlockArgCount() {
+      return 2 + (getKeyAddressMask() ? 1 : 0) + (getValueAddressMask() ? 1 : 0);
+    }
+
+    // Get the keys type from the loadFromKVCache region yield.
+    ::mlir::Type getKeysType();
+
+    // Get the values type from the loadFromKVCache region yield.
+    ::mlir::Type getValuesType();
   }];
 }
 

@@ -3413,6 +3413,225 @@ void AttentionOp::getEffects(
 }
 
 //===-----------------------------------------------------===//
+// PagedAttentionOp
+//===-----------------------------------------------------===//
+
+KernelType PagedAttentionOp::getKernelType() {
+  return KernelType::Attention;
+}
+
+Region &PagedAttentionOp::getPreSecondGemmRegion() {
+  return getPreSoftmaxBody();
+}
+
+Type PagedAttentionOp::getKeysType() {
+  Region &kvCacheRegion = getLoadFromKVCache();
+  if (kvCacheRegion.empty())
+    return nullptr;
+  Block &block = kvCacheRegion.front();
+  if (block.empty())
+    return nullptr;
+  auto yieldOp = dyn_cast<YieldOp>(block.getTerminator());
+  if (!yieldOp || yieldOp.getNumOperands() < 1)
+    return nullptr;
+  return yieldOp.getOperand(0).getType();
+}
+
+Type PagedAttentionOp::getValuesType() {
+  Region &kvCacheRegion = getLoadFromKVCache();
+  if (kvCacheRegion.empty())
+    return nullptr;
+  Block &block = kvCacheRegion.front();
+  if (block.empty())
+    return nullptr;
+  auto yieldOp = dyn_cast<YieldOp>(block.getTerminator());
+  if (!yieldOp || yieldOp.getNumOperands() < 2)
+    return nullptr;
+  return yieldOp.getOperand(1).getType();
+}
+
+OpOperand *PagedAttentionOp::getOutArgument() {
+  // The output is the last operand unless LSE is used.
+  // In that case, the output is the second to last operand.
+  int64_t outIndex = getLse() ? 2 : 1;
+  return &(*this)->getOpOperand(getNumOperands() - outIndex);
+}
+
+Type PagedAttentionOp::getOutType() { return getOut().getType(); }
+
+Type PagedAttentionOp::getAType() { return getQueries().getType(); }
+
+Type PagedAttentionOp::getBType() { return getKeysType(); }
+
+Type PagedAttentionOp::getCType() { return getValuesType(); }
+
+bool PagedAttentionOp::getTransposedA() { return getQTransposed(); }
+
+bool PagedAttentionOp::getTransposedB() { return getKTransposed(); }
+
+bool PagedAttentionOp::getTransposedC() { return getVTransposed(); }
+
+bool PagedAttentionOp::getTransposedOut() { return getOTransposed(); }
+
+GemmGemmSize PagedAttentionOp::getGemmGemmSize() {
+  Type keysType = getKeysType();
+  Type valuesType = getValuesType();
+  if (!keysType || !valuesType)
+    return GemmGemmSize(0, 0, 0, 0, 0);
+
+  ArrayRef<int64_t> dimsQ = cast<ShapedType>(getQueries().getType()).getShape();
+  ArrayRef<int64_t> dimsK = cast<ShapedType>(keysType).getShape();
+  ArrayRef<int64_t> dimsV = cast<ShapedType>(valuesType).getShape();
+
+  int64_t offsetQ = dimsQ.size() == 3 ? 1 : 0;
+  int64_t offsetK = dimsK.size() == 3 ? 1 : 0;
+  int64_t offsetV = dimsV.size() == 3 ? 1 : 0;
+
+  int64_t g = dimsQ.size() == 3 ? dimsQ[0] : 1,
+          m = dimsQ[offsetQ + (getQTransposed() ? 1 : 0)],
+          k = dimsQ[offsetQ + (getQTransposed() ? 0 : 1)],
+          n = dimsK[offsetK + (getKTransposed() ? 0 : 1)],
+          o = dimsV[offsetV + (getVTransposed() ? 0 : 1)];
+  return GemmGemmSize(g, m, k, n, o);
+}
+
+SmallVector<Type> PagedAttentionOp::getTypesForFeature() {
+  return {getAType(), getCType()};
+}
+
+LogicalResult PagedAttentionOp::verify() {
+  // Basic attention validation
+  if (getSplitKV() != 1 && !getLse())
+    return emitError("Flash decoding needs LSE output");
+
+  if (getSplitKV() <= 0)
+    return emitError("Negative or zero split-kv does not make sense");
+
+  if (getStoreMethod() != StoreMethod::Set)
+    return emitError("Only set store method is supported for paged attention.");
+
+  if (getPrefixOffset() && !getCausal())
+    return emitError(
+        "prefixOffset requires causal to be enabled. "
+        "Prefix causal attention is causal masking with an offset.");
+
+  // Verify loadFromKVCache region
+  Region &kvCacheRegion = getLoadFromKVCache();
+  if (kvCacheRegion.empty())
+    return emitError("loadFromKVCache region cannot be empty");
+
+  Block &kvBlock = kvCacheRegion.front();
+  unsigned expectedBlockArgs = getExpectedKVCacheBlockArgCount();
+  if (kvBlock.getNumArguments() != expectedBlockArgs)
+    return emitError("loadFromKVCache region expects ")
+           << expectedBlockArgs << " block arguments, got "
+           << kvBlock.getNumArguments();
+
+  // Verify block argument types match operand types
+  unsigned argIdx = 0;
+
+  // keyPagePointers
+  if (kvBlock.getArgument(argIdx).getType() != getKeyPagePointers().getType())
+    return emitError("loadFromKVCache block argument ")
+           << argIdx << " type mismatch: expected "
+           << getKeyPagePointers().getType() << ", got "
+           << kvBlock.getArgument(argIdx).getType();
+  argIdx++;
+
+  // keyAddressMask (if present)
+  if (getKeyAddressMask()) {
+    if (kvBlock.getArgument(argIdx).getType() != getKeyAddressMask().getType())
+      return emitError("loadFromKVCache block argument ")
+             << argIdx << " type mismatch: expected "
+             << getKeyAddressMask().getType() << ", got "
+             << kvBlock.getArgument(argIdx).getType();
+    argIdx++;
+  }
+
+  // valuePagePointers
+  if (kvBlock.getArgument(argIdx).getType() != getValuePagePointers().getType())
+    return emitError("loadFromKVCache block argument ")
+           << argIdx << " type mismatch: expected "
+           << getValuePagePointers().getType() << ", got "
+           << kvBlock.getArgument(argIdx).getType();
+  argIdx++;
+
+  // valueAddressMask (if present)
+  if (getValueAddressMask()) {
+    if (kvBlock.getArgument(argIdx).getType() !=
+        getValueAddressMask().getType())
+      return emitError("loadFromKVCache block argument ")
+             << argIdx << " type mismatch: expected "
+             << getValueAddressMask().getType() << ", got "
+             << kvBlock.getArgument(argIdx).getType();
+  }
+
+  // Verify the region has a yield terminator with exactly 2 results
+  if (kvBlock.empty())
+    return emitError("loadFromKVCache region block cannot be empty");
+
+  auto yieldOp = dyn_cast<YieldOp>(kvBlock.getTerminator());
+  if (!yieldOp)
+    return emitError(
+        "loadFromKVCache region must terminate with rock.yield");
+
+  if (yieldOp.getNumOperands() != 2)
+    return emitError("loadFromKVCache region must yield exactly 2 values "
+                     "(keys, values), got ")
+           << yieldOp.getNumOperands();
+
+  // Verify yielded types are shaped types (keys and values)
+  Type keysType = yieldOp.getOperand(0).getType();
+  Type valuesType = yieldOp.getOperand(1).getType();
+
+  if (!isa<ShapedType>(keysType))
+    return emitError("loadFromKVCache must yield a shaped type for keys, got ")
+           << keysType;
+
+  if (!isa<ShapedType>(valuesType))
+    return emitError(
+               "loadFromKVCache must yield a shaped type for values, got ")
+           << valuesType;
+
+  // Now run the common gemm-gemm verification with the K/V types from the
+  // region
+  return verifyGemmPlusGemmLikeOp(*this, getCurrentSeqLen(), getLse(),
+                                  getNumHeadsQ(), getNumHeadsKV());
+}
+
+void PagedAttentionOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+
+  effects.emplace_back(read, &getQueriesMutable());
+  effects.emplace_back(read, &getKeyPagePointersMutable());
+  effects.emplace_back(read, &getValuePagePointersMutable());
+
+  if (getKeyAddressMask())
+    effects.emplace_back(read, &getKeyAddressMaskMutable()[0]);
+  if (getValueAddressMask())
+    effects.emplace_back(read, &getValueAddressMaskMutable()[0]);
+
+  for (auto &regionArg : getPreSoftmaxElemWiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
+
+  if (getLse()) {
+    effects.emplace_back(read, &getLseMutable()[0]);
+    effects.emplace_back(write, &getLseMutable()[0]);
+  }
+
+  if (getCurrentSeqLen())
+    effects.emplace_back(read, &getCurrentSeqLenMutable()[0]);
+
+  if (getPrefixOffset())
+    effects.emplace_back(read, &getPrefixOffsetMutable()[0]);
+}
+
+//===-----------------------------------------------------===//
 // PerfConfigStr parsing
 //===-----------------------------------------------------===//
 
