@@ -12,6 +12,7 @@
 
 #include "mlir/Analysis/BufferDependencyAnalysis.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -643,6 +644,246 @@ struct AttentionRewritePattern : public OpRewritePattern<rock::AttentionOp> {
   }
 };
 
+// Result of analyzing a K/V path in loadFromKVCache region
+struct KVCachePathResult {
+  rock::PagedDerefOp derefOp;
+  SmallVector<rock::TransformMapAttr> transforms;
+  memref::CopyOp copyOp;
+
+  explicit operator bool() const { return derefOp != nullptr; }
+};
+
+// Find the deref op and transform chain for a K or V path in the region.
+// The region structure is:
+//   bufferization.to_tensor -> rock.paged_deref -> rock.transform* ->
+//   bufferization.to_buffer -> memref.copy
+static FailureOr<KVCachePathResult>
+analyzeKVCachePath(Block *kvCacheBlock, bool isKey) {
+  KVCachePathResult result;
+
+  // Find the deref ops in the region (should be exactly 2: one for K, one for
+  // V)
+  SmallVector<rock::PagedDerefOp> derefOps;
+  for (Operation &op : *kvCacheBlock) {
+    if (auto deref = dyn_cast<rock::PagedDerefOp>(&op))
+      derefOps.push_back(deref);
+  }
+
+  if (derefOps.size() != 2)
+    return failure();
+
+  // First deref is keys, second is values
+  result.derefOp = isKey ? derefOps[0] : derefOps[1];
+
+  // Trace from deref output through transforms to find the copy
+  Value current = result.derefOp.getOutput();
+  while (current) {
+    bool foundNext = false;
+    // Check all users of current value
+    for (Operation *user : current.getUsers()) {
+      if (auto transformOp = dyn_cast<rock::TransformOp>(user)) {
+        result.transforms.push_back(transformOp.getTransformAttr());
+        current = transformOp.getResult();
+        foundNext = true;
+        break;
+      } else if (auto toBuffer =
+                     dyn_cast<bufferization::ToBufferOp>(user)) {
+        // Next should be memref.copy
+        for (Operation *bufferUser : toBuffer.getResult().getUsers()) {
+          if (auto copy = dyn_cast<memref::CopyOp>(bufferUser)) {
+            result.copyOp = copy;
+            return result;
+          }
+        }
+        return failure();
+      }
+    }
+    // If no next found in the chain, break
+    if (!foundNext)
+      break;
+  }
+
+  return failure();
+}
+
+// Compute the transpose attribute for K or V based on the transform chain
+// from the deref output. The deref output has layout [batch, blocksPerLayer,
+// blockSize] with blockSize being stride-1 (fastest varying):
+// For K: expected non-transposed layout has seq_k (N) as innermost
+// For V: expected non-transposed layout has head_v (N) as innermost
+static FailureOr<UnitAttr>
+computeTransposeFromDerefChain(PatternRewriter &b,
+                               KVCachePathResult &pathResult) {
+  if (!pathResult)
+    return failure();
+
+  // The deref output is [batch, blocksPerLayer, blockSize]
+  // blockSize has stride 1 (innermost in memory)
+  auto derefOutputType =
+      cast<MemRefType>(pathResult.derefOp.getOutput().getType());
+  ArrayRef<int64_t> derefShape = derefOutputType.getShape();
+
+  if (derefShape.size() != 3)
+    return failure();
+
+  // Compute base strides for deref output
+  // blockSize (dim 2) has stride 1
+  // blocksPerLayer (dim 1) has stride blockSize
+  // batch (dim 0) has stride blocksPerLayer * blockSize
+  int64_t blockSize = derefShape[2];
+  int64_t blocksPerLayer = derefShape[1];
+  SmallVector<uint32_t> baseStrides = {
+      static_cast<uint32_t>(blocksPerLayer * blockSize), // batch
+      static_cast<uint32_t>(blockSize),                  // blocksPerLayer
+      1                                                  // blockSize
+  };
+
+  // If no transforms, use base strides directly
+  if (pathResult.transforms.empty()) {
+    // For 3D tensor going to attention, default to not transposed
+    return UnitAttr(nullptr);
+  }
+
+  // Build the transform chain as ArrayAttr for getLowerSubDimensions
+  SmallVector<Attribute> transformAttrs;
+  for (auto transform : pathResult.transforms)
+    transformAttrs.push_back(transform);
+  ArrayAttr transforms = b.getArrayAttr(transformAttrs);
+
+  // Get the final (upper) rank from the last transform
+  rock::TransformMapAttr lastTransform = pathResult.transforms.back();
+  int64_t finalRank = lastTransform.getUpperBounds().size();
+
+  // We expect final rank to be 3 for attention K/V: [G, dim0, dim1]
+  if (finalRank != 3)
+    return failure();
+
+  // Compute effective strides at the final layout
+  // We need to trace each upper dimension back to the lower dimensions
+  // and compute the minimum stride
+  SmallVector<uint32_t> finalStrides(finalRank);
+  for (int64_t idx = 0; idx < finalRank; idx++) {
+    FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<rock::SubDimInfo>>>
+        maybeLowerSubDims = rock::getLowerSubDimensions(b, transforms, idx);
+    if (failed(maybeLowerSubDims))
+      return failure();
+
+    auto lowerSubDims = maybeLowerSubDims.value();
+    uint32_t minStride =
+        lowerSubDims.empty() ? 1 : std::numeric_limits<uint32_t>::max();
+
+    for (auto [dim, subDimInfos] : lowerSubDims) {
+      for (auto subDim : subDimInfos) {
+        // The subDim.stride is relative to the base, we need to multiply
+        // by the base stride for that dimension
+        uint32_t effectiveStride = subDim.stride;
+        if (dim < static_cast<int64_t>(baseStrides.size()))
+          effectiveStride *= baseStrides[dim];
+        minStride = std::min(minStride, effectiveStride);
+      }
+    }
+    finalStrides[idx] = minStride;
+  }
+
+  LLVM_DEBUG(llvm::dbgs() << "KV cache path strides: ");
+  LLVM_DEBUG(llvm::interleaveComma(finalStrides, llvm::dbgs()));
+  LLVM_DEBUG(llvm::dbgs() << "\n");
+
+  // For K/V in attention, the layout is [G, dim0, dim1]
+  // We need to determine if the layout is transposed based on which
+  // dimension has the smallest stride (is innermost)
+
+  // Find which of the last two dimensions has the smallest stride
+  // (ignoring G which should be slowest)
+  uint32_t strideDim1 = finalStrides[1]; // First non-batch dim
+  uint32_t strideDim2 = finalStrides[2]; // Second non-batch dim
+
+  // The innermost dimension (smallest stride) determines the layout
+  // If dim2 has smaller stride -> standard layout (not transposed)
+  // If dim1 has smaller stride -> transposed
+  bool isTransposed = (strideDim1 < strideDim2);
+
+  return isTransposed ? b.getUnitAttr() : UnitAttr(nullptr);
+}
+
+struct PagedAttentionRewritePattern
+    : public OpRewritePattern<rock::PagedAttentionOp> {
+  using OpRewritePattern<rock::PagedAttentionOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::PagedAttentionOp op,
+                                PatternRewriter &b) const final {
+    // Process queries tensor (same as regular attention)
+    auto q = op.getQueries();
+    auto resultQ =
+        processTensorLayout(b, q, {"G", "M", "K"}, op.getQTransposed(),
+                            cast<ShapedType>(q.getType()).getRank(), "TensorQ");
+
+    if (!resultQ)
+      return op.emitOpError("sortByMemoryLayout failed for TensorQ");
+
+    // Analyze the loadFromKVCache region to compute K/V transpose
+    Block &kvCacheBlock = op.getLoadFromKVCache().front();
+
+    auto keyPathResult = analyzeKVCachePath(&kvCacheBlock, /*isKey=*/true);
+    auto valuePathResult = analyzeKVCachePath(&kvCacheBlock, /*isKey=*/false);
+
+    UnitAttr kTransposed = op.getKTransposedAttr();
+    UnitAttr vTransposed = op.getVTransposedAttr();
+
+    // Try to compute K transpose from deref chain
+    if (succeeded(keyPathResult)) {
+      auto maybeKTransposed = computeTransposeFromDerefChain(b, *keyPathResult);
+      if (succeeded(maybeKTransposed))
+        kTransposed = *maybeKTransposed;
+    }
+
+    // Try to compute V transpose from deref chain
+    if (succeeded(valuePathResult)) {
+      auto maybeVTransposed =
+          computeTransposeFromDerefChain(b, *valuePathResult);
+      if (succeeded(maybeVTransposed))
+        vTransposed = *maybeVTransposed;
+    }
+
+    // Check if any layout changed
+    bool qLayoutChanged = resultQ.finalLayout != resultQ.initialLayout;
+    bool kTransposeChanged = kTransposed != op.getKTransposedAttr();
+    bool vTransposeChanged = vTransposed != op.getVTransposedAttr();
+
+    if (!qLayoutChanged && !kTransposeChanged && !vTransposeChanged)
+      return failure();
+
+    // Create new op with updated attributes
+    auto newOp = rock::PagedAttentionOp::create(
+        b, op->getLoc(), op->getResultTypes(), resultQ.tensor,
+        op.getKeyPagePointers(), op.getKeyAddressMask(),
+        op.getValuePagePointers(), op.getValueAddressMask(),
+        op.getPreSoftmaxElemWiseInputs(), op.getCurrentSeqLen(),
+        op.getPrefixOffset(), op.getOut(), op.getLse(), op.getNumHeadsQAttr(),
+        op.getNumHeadsKVAttr(), resultQ.transposed, kTransposed, vTransposed,
+        op.getOTransposedAttr(), op.getCausalAttr(), op.getSplitKVAttr(),
+        op.getFeaturesAttr(), op.getStoreMethodAttr(), op.getSoftmaxTypeAttr(),
+        op.getParams0Attr(), op.getParams1Attr(), op.getFirstGemmIndicesAttr(),
+        op.getPreSoftmaxHasSplitKVTransformsAttr());
+
+    // Copy loadFromKVCache region
+    b.inlineRegionBefore(op.getLoadFromKVCache(), newOp.getLoadFromKVCache(),
+                         newOp.getLoadFromKVCache().begin());
+
+    // Copy preSoftmaxBody region if non-empty
+    if (!op.getPreSoftmaxBody().empty()) {
+      b.inlineRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
+                           newOp.getPreSoftmaxBody().begin());
+    }
+
+    if (auto attr = op->getAttrOfType<StringAttr>("perf_config"))
+      newOp->setAttr("perf_config", attr);
+
+    b.replaceOp(op, newOp->getResults());
+    return success();
+  }
+};
+
 struct ConvElementwiseGemmRewritePattern
     : public OpRewritePattern<rock::ConvElementwiseGemmOp> {
   using OpRewritePattern<rock::ConvElementwiseGemmOp>::OpRewritePattern;
@@ -771,6 +1012,13 @@ void RockSortDimensionsMemoryLayoutPass::runOnOperation() {
   patternsAttention.add<AttentionRewritePattern>(&ctx);
   if (failed(applyOpPatternsGreedily(getOperations<rock::AttentionOp>(func),
                                      std::move(patternsAttention), config)))
+    return signalPassFailure();
+
+  RewritePatternSet patternsPagedAttention(&ctx);
+  patternsPagedAttention.add<PagedAttentionRewritePattern>(&ctx);
+  if (failed(applyOpPatternsGreedily(
+          getOperations<rock::PagedAttentionOp>(func),
+          std::move(patternsPagedAttention), config)))
     return signalPassFailure();
 
   RewritePatternSet patternsGemmElementwiseGemm(&ctx);

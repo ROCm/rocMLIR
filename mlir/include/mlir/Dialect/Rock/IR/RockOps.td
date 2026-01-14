@@ -425,12 +425,7 @@ def Rock_PagedAttentionOp : Rock_AttentionOpBase<"paged_attention"> {
       return getLse() ? &(*this)->getOpOperand(getNumOperands() - 1) : nullptr;
     }
 
-    // Get the number of expected block arguments for loadFromKVCache region.
-    unsigned getExpectedKVCacheBlockArgCount() {
-      return 2 + (getKeyAddressMask() ? 1 : 0) + (getValueAddressMask() ? 1 : 0);
-    }
-
-    // Get the keys type from the loadFromKVCache region yield.
+    // Get the keys type from the loadFromKVCache region.
     ::mlir::Type getKeysType();
 
     // Get the values type from the loadFromKVCache region yield.

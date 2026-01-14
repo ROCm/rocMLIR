@@ -1709,34 +1709,21 @@ static void processKVCachePath(PatternRewriter &rewriter, Location loc,
                                const PagedDerefTraceResult &derefResult) {
   rock::PagedDerefOp derefOp = derefResult.derefOp;
 
-  // Add memref block arguments for page pointers and optional mask
+  // Add memref block argument for page pointers only
+  // (mask is captured from parent op, not passed as block arg)
   MemRefType ptrMemRefType =
       tensorToMemRefType(derefOp.getPagePointers().getType());
   Value ptrArg = block->addArgument(ptrMemRefType, loc);
 
-  Value maskArg;
-  if (derefOp.getAddressMask()) {
-    MemRefType maskMemRefType =
-        tensorToMemRefType(derefOp.getAddressMask().getType());
-    maskArg = block->addArgument(maskMemRefType, loc);
-  }
-
-  // Convert memref block arguments to tensors
+  // Convert memref block argument to tensor
   Value ptrTensor = bufferization::ToTensorOp::create(
       rewriter, loc, derefOp.getPagePointers().getType(), ptrArg,
       /*restrict=*/rewriter.getUnitAttr(), /*writable=*/nullptr);
-  Value maskTensor;
-  if (maskArg) {
-    maskTensor = bufferization::ToTensorOp::create(
-        rewriter, loc, derefOp.getAddressMask().getType(), maskArg,
-        /*restrict=*/rewriter.getUnitAttr(), /*writable=*/nullptr);
-  }
 
-  // Clone deref op with remapped operands
+  // Clone deref op with remapped page pointers
+  // The mask (if present) will reference the parent op's operand
   IRMapping mapper;
   mapper.map(derefOp.getPagePointers(), ptrTensor);
-  if (derefOp.getAddressMask())
-    mapper.map(derefOp.getAddressMask(), maskTensor);
 
   auto *clonedDeref = rewriter.clone(*derefOp, mapper);
   Value result = clonedDeref->getResult(0);

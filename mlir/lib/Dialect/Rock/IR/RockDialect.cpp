@@ -3429,12 +3429,10 @@ Type PagedAttentionOp::getKeysType() {
   if (kvCacheRegion.empty())
     return nullptr;
   Block &block = kvCacheRegion.front();
-  if (block.empty())
+  if (block.getNumArguments() < 2)
     return nullptr;
-  auto yieldOp = dyn_cast<YieldOp>(block.getTerminator());
-  if (!yieldOp || yieldOp.getNumOperands() < 1)
-    return nullptr;
-  return yieldOp.getOperand(0).getType();
+  // keyOut is at index 1
+  return block.getArgument(1).getType();
 }
 
 Type PagedAttentionOp::getValuesType() {
@@ -3442,12 +3440,10 @@ Type PagedAttentionOp::getValuesType() {
   if (kvCacheRegion.empty())
     return nullptr;
   Block &block = kvCacheRegion.front();
-  if (block.empty())
+  if (block.getNumArguments() < 4)
     return nullptr;
-  auto yieldOp = dyn_cast<YieldOp>(block.getTerminator());
-  if (!yieldOp || yieldOp.getNumOperands() < 2)
-    return nullptr;
-  return yieldOp.getOperand(1).getType();
+  // valueOut is at index 3
+  return block.getArgument(3).getType();
 }
 
 OpOperand *PagedAttentionOp::getOutArgument() {
@@ -3521,76 +3517,65 @@ LogicalResult PagedAttentionOp::verify() {
     return emitError("loadFromKVCache region cannot be empty");
 
   Block &kvBlock = kvCacheRegion.front();
-  unsigned expectedBlockArgs = getExpectedKVCacheBlockArgCount();
+  constexpr unsigned expectedBlockArgs = 4;
   if (kvBlock.getNumArguments() != expectedBlockArgs)
     return emitError("loadFromKVCache region expects ")
            << expectedBlockArgs << " block arguments, got "
            << kvBlock.getNumArguments();
 
-  // Verify block argument types match operand types
-  unsigned argIdx = 0;
+  // Verify block argument types.
+  // The region has 4 memref block args: [keyPtr, keyOut, valuePtr, valueOut]
+  auto getExpectedPtrMemRefType = [](Type operandType) -> MemRefType {
+    // Handle both tensor (before bufferization) and memref (after) operand types
+    if (auto memrefType = dyn_cast<MemRefType>(operandType))
+      return memrefType;
+    auto ranked = cast<RankedTensorType>(operandType);
+    return MemRefType::get(ranked.getShape(), ranked.getElementType());
+  };
 
-  // keyPagePointers
-  if (kvBlock.getArgument(argIdx).getType() != getKeyPagePointers().getType())
-    return emitError("loadFromKVCache block argument ")
-           << argIdx << " type mismatch: expected "
-           << getKeyPagePointers().getType() << ", got "
-           << kvBlock.getArgument(argIdx).getType();
-  argIdx++;
+  // arg0: keyPtr
+  MemRefType expectedKeyPtrType = getExpectedPtrMemRefType(getKeyPagePointers().getType());
+  if (kvBlock.getArgument(0).getType() != expectedKeyPtrType)
+    return emitError("loadFromKVCache block argument 0 type mismatch: expected ")
+           << expectedKeyPtrType << ", got " << kvBlock.getArgument(0).getType();
 
-  // keyAddressMask (if present)
-  if (getKeyAddressMask()) {
-    if (kvBlock.getArgument(argIdx).getType() != getKeyAddressMask().getType())
-      return emitError("loadFromKVCache block argument ")
-             << argIdx << " type mismatch: expected "
-             << getKeyAddressMask().getType() << ", got "
-             << kvBlock.getArgument(argIdx).getType();
-    argIdx++;
-  }
+  // arg1: keyOut, just verify it's a memref
+  if (!isa<MemRefType>(kvBlock.getArgument(1).getType()))
+    return emitError("loadFromKVCache block argument 1 must be a memref type");
 
-  // valuePagePointers
-  if (kvBlock.getArgument(argIdx).getType() != getValuePagePointers().getType())
-    return emitError("loadFromKVCache block argument ")
-           << argIdx << " type mismatch: expected "
-           << getValuePagePointers().getType() << ", got "
-           << kvBlock.getArgument(argIdx).getType();
-  argIdx++;
+  // arg2: valuePtr
+  MemRefType expectedValuePtrType = getExpectedPtrMemRefType(getValuePagePointers().getType());
+  if (kvBlock.getArgument(2).getType() != expectedValuePtrType)
+    return emitError("loadFromKVCache block argument 2 type mismatch: expected ")
+           << expectedValuePtrType << ", got " << kvBlock.getArgument(2).getType();
 
-  // valueAddressMask (if present)
-  if (getValueAddressMask()) {
-    if (kvBlock.getArgument(argIdx).getType() !=
-        getValueAddressMask().getType())
-      return emitError("loadFromKVCache block argument ")
-             << argIdx << " type mismatch: expected "
-             << getValueAddressMask().getType() << ", got "
-             << kvBlock.getArgument(argIdx).getType();
-  }
+  // arg3: valueOut, just verify it's a memref
+  if (!isa<MemRefType>(kvBlock.getArgument(3).getType()))
+    return emitError("loadFromKVCache block argument 3 must be a memref type");
 
-  // Verify the region has a yield terminator with exactly 2 results
+  // Verify the region has a yield terminator with no operands
   if (kvBlock.empty())
     return emitError("loadFromKVCache region block cannot be empty");
 
   auto yieldOp = dyn_cast<YieldOp>(kvBlock.getTerminator());
   if (!yieldOp)
-    return emitError(
-        "loadFromKVCache region must terminate with rock.yield");
+    return emitError("loadFromKVCache region must terminate with rock.yield");
 
-  if (yieldOp.getNumOperands() != 2)
-    return emitError("loadFromKVCache region must yield exactly 2 values "
-                     "(keys, values), got ")
+  if (yieldOp.getNumOperands() != 0)
+    return emitError("loadFromKVCache region yield must have no operands "
+                     "(outputs are written via memref.copy), got ")
            << yieldOp.getNumOperands();
 
-  // Verify yielded types are shaped types (keys and values)
-  Type keysType = yieldOp.getOperand(0).getType();
-  Type valuesType = yieldOp.getOperand(1).getType();
+  // Verify the output block args have shaped types
+  Type keysType = kvBlock.getArgument(1).getType();
+  Type valuesType = kvBlock.getArgument(3).getType();
 
   if (!isa<ShapedType>(keysType))
-    return emitError("loadFromKVCache must yield a shaped type for keys, got ")
+    return emitError("loadFromKVCache keyOut must be a shaped type, got ")
            << keysType;
 
   if (!isa<ShapedType>(valuesType))
-    return emitError(
-               "loadFromKVCache must yield a shaped type for values, got ")
+    return emitError("loadFromKVCache valueOut must be a shaped type, got ")
            << valuesType;
 
   // Now run the common gemm-gemm verification with the K/V types from the
