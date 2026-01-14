@@ -1438,9 +1438,12 @@ LogicalResult BlockwiseStoreTileOp::verify() {
   if (outputShape.empty()) {
     if (extraIdxCount != 0)
       return emitOpError("write to a scalar must have no coordinates");
-  } else if (outputShape.size() != extraIdxCount + 1) {
-    return emitOpError("dest view must be extraIndices + 1");
   }
+  // TODO(roctriton): check that it matches the register allocation!
+
+  // } else if (outputShape.size() != extraIdxCount + 1) {
+  //   return emitOpError("dest view must be extraIndices + 1");
+  // }
   return success();
 }
 

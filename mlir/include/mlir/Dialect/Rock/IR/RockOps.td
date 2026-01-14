@@ -693,7 +693,7 @@ def Rock_BlockwiseGemmAccelOp
                DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
       Arguments<(ins MemRefOf<LdsBufferTypes>:$matrixA,
-          MemRefOf<LdsBufferTypes>:$matrixB, MemRefOf<AccelResTypes>:$matrixC,
+          MemRefOf<LdsBufferTypes>:$matrixB, MemRefOf<LdsBufferTypes>:$matrixC,
           Optional<MemRefOf<LdsBufferTypes>>:$matrixScaleA,
           Optional<MemRefOf<LdsBufferTypes>>:$matrixScaleB)> {
   let summary = "Blockwise GEMM accelerated version";
@@ -755,7 +755,7 @@ def Rock_BlockwiseStoreTileOp
                DeclareOpInterfaceMethods<RockWriterOpInterface>,
                DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
       AllElementTypesMatch<["source", "dest"]>,
-      Arguments<(ins Arg<MemRefRankOf<SupportedMemoryElems, [1]>,
+      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
                          "source registers">:$source,
           Arg<MemRefOf<NativeMemoryOpTypes>, "detination view">:$dest,
           TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
