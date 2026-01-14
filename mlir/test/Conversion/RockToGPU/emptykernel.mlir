@@ -1,4 +1,4 @@
-// RUN: rocmlir-opt -convert-rock-to-gpu --split-input-file %s | FileCheck %s
+// RUN: rocmlir-opt -convert-rock-to-gpu %s | FileCheck %s
 
 // CHECK: module attributes {gpu.container_module}
 // CHECK-NEXT: gpu.module @emptykernel_module
