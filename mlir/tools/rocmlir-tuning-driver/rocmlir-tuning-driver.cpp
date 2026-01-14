@@ -1047,13 +1047,10 @@ int main(int argc, char **argv) {
 
   ModuleOp module;
   WalkResult findModule = source->walk([&](func::FuncOp op) -> WalkResult {
-    FailureOr<StringAttr> mayBeArch = rock::getArch(op);
-    if (succeeded(mayBeArch)) {
-      module = op->getParentOfType<ModuleOp>();
-      module->setAttr("mhal.arch", mayBeArch.value());
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
+    StringAttr arch = rock::getArchValue(op);
+    module = op->getParentOfType<ModuleOp>();
+    module->setAttr("mhal.arch", arch);
+    return WalkResult::interrupt();
   });
   if (!findModule.wasInterrupted()) {
     source->emitOpError(

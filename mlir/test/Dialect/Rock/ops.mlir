@@ -192,7 +192,7 @@ func.func @rock_transform_1_to_n(%memref : memref<?x?x?x?x?xf32>) {
 // CHECK-LABEL: func.func @rock_transform_1_to_n
 //  CHECK-NEXT: rock.transform
 
-func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) {
+func.func @rock_gridwise_gemm(%A : memref<2x72x128xf32>, %B : memref<2x72x256xf32>, %C : memref<2x128x256xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx942"} {
   rock.gridwise_gemm %C = %A * %B storeMethod(set) features = none {
     blockSize = 256 : i32,
     gridSize = 1 : i32,

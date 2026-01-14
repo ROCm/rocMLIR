@@ -114,11 +114,7 @@ static Value expandTensor(PatternRewriter &rw, Operation *op, Value operand,
 
 static rock::GemmFeatures getGemmFeaturesFromOp(Operation *op, Type inputType) {
   // Start by getting the arch from the Tosa op
-  StringAttr arch = StringAttr::get(op->getContext(), "");
-  FailureOr<StringAttr> maybeArch = rock::getArch(op);
-  if (succeeded(maybeArch)) {
-    arch = maybeArch.value();
-  }
+  StringAttr arch = rock::getArchValue(op);
 
   // Now we can lookup the default features from the arch
   rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);

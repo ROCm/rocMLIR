@@ -273,7 +273,7 @@ LogicalResult ConvGenerator::getBwdWeightKernelCount(OpBuilder &builder,
   assert(config.operation.value() == ConvOpType::BwdWeight);
 
   kernelCount = 1;
-  if (isAccel(config.features)) {
+  if (rock::isAccel(config.features)) {
     bool needExtraPad = false;
     if (failed(needExtraPadBwdWeight(builder, needExtraPad))) {
       return failure();
@@ -367,7 +367,7 @@ LogicalResult ConvGenerator::needExtraPadBwdWeight(OpBuilder &builder,
                           /*batchSize=*/convDims.n,
                           /*numCU=*/getNumCU()};
 
-  if (isAccel(config.features)) {
+  if (rock::isAccel(config.features)) {
     auto populateParamsAccelPtr = PopulateParamsAccel::select(config.features);
     AccelGemmParamsAttr validParams;
     auto res = populateParamsAccelPtr->obtainTuningParameters(
@@ -405,7 +405,7 @@ LogicalResult ConvGenerator::hasWorkspace(OpBuilder &builder,
   if (config.operation.has_value()) {
     Type dataType = getInputDataType(builder);
     ConvOpType dir = config.operation.value();
-    if ((dir == ConvOpType::BwdWeight) && isAccel(config.features) &&
+    if ((dir == ConvOpType::BwdWeight) && rock::isAccel(config.features) &&
         (dataType == builder.getF16Type())) {
       // In case we need extra padding, do not use workspace.
       bool needPadding = false;
