@@ -1695,8 +1695,73 @@ static FailureOr<PagedDerefTraceResult> traceToPagedDeref(Value value) {
   return failure();
 }
 
+// Helper to convert a tensor type to its corresponding memref type
+static MemRefType tensorToMemRefType(Type tensorType) {
+  auto ranked = cast<RankedTensorType>(tensorType);
+  return MemRefType::get(ranked.getShape(), ranked.getElementType());
+}
+
+// Processes one K or V path: adds memref block arguments, converts to tensors,
+// clones the deref and transforms, and returns the final tensor result.
+// The output memref argument is added and the result is copied to it.
+static void processKVCachePath(PatternRewriter &rewriter, Location loc,
+                               Block *block,
+                               const PagedDerefTraceResult &derefResult) {
+  rock::PagedDerefOp derefOp = derefResult.derefOp;
+
+  // Add memref block arguments for page pointers and optional mask
+  MemRefType ptrMemRefType =
+      tensorToMemRefType(derefOp.getPagePointers().getType());
+  Value ptrArg = block->addArgument(ptrMemRefType, loc);
+
+  Value maskArg;
+  if (derefOp.getAddressMask()) {
+    MemRefType maskMemRefType =
+        tensorToMemRefType(derefOp.getAddressMask().getType());
+    maskArg = block->addArgument(maskMemRefType, loc);
+  }
+
+  // Convert memref block arguments to tensors
+  Value ptrTensor = bufferization::ToTensorOp::create(
+      rewriter, loc, derefOp.getPagePointers().getType(), ptrArg,
+      /*restrict=*/rewriter.getUnitAttr(), /*writable=*/nullptr);
+  Value maskTensor;
+  if (maskArg) {
+    maskTensor = bufferization::ToTensorOp::create(
+        rewriter, loc, derefOp.getAddressMask().getType(), maskArg,
+        /*restrict=*/rewriter.getUnitAttr(), /*writable=*/nullptr);
+  }
+
+  // Clone deref op with remapped operands
+  IRMapping mapper;
+  mapper.map(derefOp.getPagePointers(), ptrTensor);
+  if (derefOp.getAddressMask())
+    mapper.map(derefOp.getAddressMask(), maskTensor);
+
+  auto *clonedDeref = rewriter.clone(*derefOp, mapper);
+  Value result = clonedDeref->getResult(0);
+
+  // Clone any transforms after the deref
+  for (Operation *op : derefResult.opsToClone) {
+    mapper.map(op->getOperand(0), result);
+    auto *clonedOp = rewriter.clone(*op, mapper);
+    result = clonedOp->getResult(0);
+  }
+
+  // Add output memref block argument
+  MemRefType outMemRefType = tensorToMemRefType(result.getType());
+  Value outArg = block->addArgument(outMemRefType, loc);
+
+  // Convert tensor result to memref and copy to output argument
+  Value resultBuffer =
+      bufferization::ToBufferOp::create(rewriter, loc, outMemRefType, result);
+  memref::CopyOp::create(rewriter, loc, resultBuffer, outArg);
+}
+
 // Populates the loadFromKVCache region of a PagedAttentionOp by cloning
-// the deref ops and any intermediate transforms.
+// the deref ops and any intermediate transforms. Follows the same pattern as
+// preSoftmaxBody: uses memref block arguments and writes results via
+// memref.copy, with rock.yield having no operands.
 static void populateLoadFromKVCacheRegion(
     PatternRewriter &rewriter, Location loc, Block *kvCacheBlock,
     const PagedDerefTraceResult &keyDerefResult,
@@ -1704,57 +1769,17 @@ static void populateLoadFromKVCacheRegion(
   PatternRewriter::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointToStart(kvCacheBlock);
 
-  rock::PagedDerefOp keyDeref = keyDerefResult.derefOp;
-  rock::PagedDerefOp valueDeref = valueDerefResult.derefOp;
+  // Process key path (adds block args, clones ops, writes to output memref)
+  processKVCachePath(rewriter, loc, kvCacheBlock, keyDerefResult);
 
-  // Add block arguments for page pointers and masks
-  Value keyPtrArg =
-      kvCacheBlock->addArgument(keyDeref.getPagePointers().getType(), loc);
-  Value keyMaskArg =
-      keyDeref.getAddressMask()
-          ? kvCacheBlock->addArgument(keyDeref.getAddressMask().getType(), loc)
-          : Value();
-  Value valuePtrArg =
-      kvCacheBlock->addArgument(valueDeref.getPagePointers().getType(), loc);
-  Value valueMaskArg = valueDeref.getAddressMask()
-                           ? kvCacheBlock->addArgument(
-                                 valueDeref.getAddressMask().getType(), loc)
-                           : Value();
+  // Move insertion point to end for value path
+  rewriter.setInsertionPointToEnd(kvCacheBlock);
 
-  // Clone key deref and transforms into the region
-  IRMapping keyMapper;
-  keyMapper.map(keyDeref.getPagePointers(), keyPtrArg);
-  if (keyDeref.getAddressMask())
-    keyMapper.map(keyDeref.getAddressMask(), keyMaskArg);
+  // Process value path
+  processKVCachePath(rewriter, loc, kvCacheBlock, valueDerefResult);
 
-  auto *clonedKeyDeref = rewriter.clone(*keyDeref, keyMapper);
-  Value keyResult = clonedKeyDeref->getResult(0);
-
-  // Clone any transforms after the key deref
-  for (Operation *op : keyDerefResult.opsToClone) {
-    keyMapper.map(op->getOperand(0), keyResult);
-    auto *clonedOp = rewriter.clone(*op, keyMapper);
-    keyResult = clonedOp->getResult(0);
-  }
-
-  // Clone value deref and transforms into the region
-  IRMapping valueMapper;
-  valueMapper.map(valueDeref.getPagePointers(), valuePtrArg);
-  if (valueDeref.getAddressMask())
-    valueMapper.map(valueDeref.getAddressMask(), valueMaskArg);
-
-  auto *clonedValueDeref = rewriter.clone(*valueDeref, valueMapper);
-  Value valueResult = clonedValueDeref->getResult(0);
-
-  // Clone any transforms after the value deref
-  for (Operation *op : valueDerefResult.opsToClone) {
-    valueMapper.map(op->getOperand(0), valueResult);
-    auto *clonedOp = rewriter.clone(*op, valueMapper);
-    valueResult = clonedOp->getResult(0);
-  }
-
-  // Yield the keys and values
-  rock::YieldOp::create(rewriter, loc, ValueRange{keyResult, valueResult});
+  // Yield with no operands (following preSoftmaxBody pattern)
+  rock::YieldOp::create(rewriter, loc);
 }
 
 struct AttentionRewritePattern : public OpRewritePattern<tosa::MatMulOp> {

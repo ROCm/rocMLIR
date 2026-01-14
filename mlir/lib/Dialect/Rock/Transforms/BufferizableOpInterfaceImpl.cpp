@@ -26,42 +26,43 @@ namespace mlir {
 namespace rock {
 namespace {
 
-/// Bufferization of attention op
-struct AttentionOpInterface
-    : public BufferizableOpInterface::ExternalModel<AttentionOpInterface,
-                                                    AttentionOp> {
+/// Bufferization of attention-like ops (AttentionOp, PagedAttentionOp).
+template <typename AttentionOpTy>
+struct AttentionLikeInterface
+    : public BufferizableOpInterface::ExternalModel<
+          AttentionLikeInterface<AttentionOpTy>, AttentionOpTy> {
   bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
                               const AnalysisState &state) const {
-    auto cop = mlir::cast<AttentionOp>(op);
-    return (&opOperand != cop.getOutArgument() &&
-            &opOperand != cop.getOutLseArgument());
+    auto attnOp = mlir::cast<AttentionOpTy>(op);
+    return (&opOperand != attnOp.getOutArgument() &&
+            &opOperand != attnOp.getOutLseArgument());
   }
 
   bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
                                const AnalysisState &state) const {
-    auto cop = mlir::cast<AttentionOp>(op);
-    return (&opOperand == cop.getOutArgument() ||
-            &opOperand == cop.getOutLseArgument());
+    auto attnOp = mlir::cast<AttentionOpTy>(op);
+    return (&opOperand == attnOp.getOutArgument() ||
+            &opOperand == attnOp.getOutLseArgument());
   }
 
   // The buffer corresponding to the destination must equal the buffer
   // corresponding to the returned tensor
   bool mustBufferizeInPlace(Operation *op, OpOperand &opOperand,
                             const AnalysisState &state) const {
-    auto cop = mlir::cast<AttentionOp>(op);
-    return (&opOperand == cop.getOutArgument() ||
-            &opOperand == cop.getOutLseArgument());
+    auto attnOp = mlir::cast<AttentionOpTy>(op);
+    return (&opOperand == attnOp.getOutArgument() ||
+            &opOperand == attnOp.getOutLseArgument());
   }
 
   AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
                                       const AnalysisState &state) const {
-    auto cop = mlir::cast<AttentionOp>(op);
+    auto attnOp = mlir::cast<AttentionOpTy>(op);
     AliasingValueList result;
 
-    if (&opOperand == cop.getOutArgument()) {
+    if (&opOperand == attnOp.getOutArgument()) {
       // First output argument aliases with first result
       result.addAlias({op->getResult(0), BufferRelation::Equivalent});
-    } else if (&opOperand == cop.getOutLseArgument()) {
+    } else if (&opOperand == attnOp.getOutLseArgument()) {
       // Second output argument aliases with second result
       result.addAlias({op->getResult(1), BufferRelation::Equivalent});
     }
@@ -78,23 +79,38 @@ struct AttentionOpInterface
   LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
                           const BufferizationOptions &options,
                           BufferizationState &state) const {
-    auto cop = mlir::cast<AttentionOp>(op);
+    auto attnOp = mlir::cast<AttentionOpTy>(op);
+
+    // If the op already has 0 results, it's the bufferized clone
+    if (op->getNumResults() == 0)
+      return success();
+
     SmallVector<Value> bufferArgs;
     Value outBuffer, outLseBuffer;
 
     for (OpOperand &operand : op->getOpOperands()) {
-      FailureOr<Value> buffer =
-          getBuffer(rewriter, operand.get(), options, state);
-      if (failed(buffer)) {
-        LLVM_DEBUG(llvm::dbgs()
-                   << "Failed to bufferize value " << operand.get() << "\n");
-        return failure();
+      Value val = operand.get();
+      Value buffer;
+
+      // If already a memref, use it directly. Otherwise, get the buffer.
+      if (isa<MemRefType>(val.getType())) {
+        buffer = val;
+      } else {
+        FailureOr<Value> bufferResult =
+            getBuffer(rewriter, val, options, state);
+        if (failed(bufferResult)) {
+          LLVM_DEBUG(llvm::dbgs()
+                     << "Failed to bufferize value " << val << "\n");
+          return failure();
+        }
+        buffer = *bufferResult;
       }
-      bufferArgs.push_back(*buffer);
-      if (&operand == cop.getOutArgument())
-        outBuffer = *buffer;
-      else if (&operand == cop.getOutLseArgument())
-        outLseBuffer = *buffer;
+
+      bufferArgs.push_back(buffer);
+      if (&operand == attnOp.getOutArgument())
+        outBuffer = buffer;
+      else if (&operand == attnOp.getOutLseArgument())
+        outLseBuffer = buffer;
     }
     if (!outBuffer) {
       return op->emitOpError("Couldn't find output argument");
@@ -298,6 +314,83 @@ struct TensorUntransformCastOpInterface
   }
 };
 
+/// Bufferization of rock.paged_deref op.
+/// This op reads page pointers and an optional mask, and produces a new tensor
+/// containing the dereferenced data. Similar to rock.transform, it supports
+/// both tensor and memref types.
+struct PagedDerefOpInterface
+    : public BufferizableOpInterface::ExternalModel<PagedDerefOpInterface,
+                                                    PagedDerefOp> {
+  bool bufferizesToMemoryRead(Operation *op, OpOperand &opOperand,
+                              const AnalysisState &state) const {
+    // Both pagePointers and addressMask are read
+    return true;
+  }
+
+  bool bufferizesToMemoryWrite(Operation *op, OpOperand &opOperand,
+                               const AnalysisState &state) const {
+    // This op doesn't write to any of its inputs - it produces a new result
+    return false;
+  }
+
+  bool mustBufferizeInPlace(Operation *op, OpOperand &opOperand,
+                            const AnalysisState &state) const {
+    // No in-place requirement since we produce a new buffer
+    return false;
+  }
+
+  AliasingValueList getAliasingValues(Operation *op, OpOperand &opOperand,
+                                      const AnalysisState &state) const {
+    // The inputs don't alias with the output - we produce a new result
+    return {};
+  }
+
+  BufferRelation bufferRelation(Operation *op, OpResult opResult,
+                                const AnalysisState &state) const {
+    // Result is a new value, not equivalent to any input
+    return BufferRelation::Unknown;
+  }
+
+  LogicalResult bufferize(Operation *op, RewriterBase &rewriter,
+                          const BufferizationOptions &options,
+                          BufferizationState &state) const {
+    auto derefOp = mlir::cast<PagedDerefOp>(op);
+
+    // Get buffers for input operands
+    FailureOr<Value> pagePointersBuffer =
+        getBuffer(rewriter, derefOp.getPagePointers(), options, state);
+    if (failed(pagePointersBuffer))
+      return failure();
+
+    Value addressMaskBuffer;
+    if (derefOp.getAddressMask()) {
+      FailureOr<Value> maskBuffer =
+          getBuffer(rewriter, derefOp.getAddressMask(), options, state);
+      if (failed(maskBuffer))
+        return failure();
+      addressMaskBuffer = *maskBuffer;
+    }
+
+    // Determine the result memref type from the tensor type
+    auto resultType = derefOp.getOutput().getType();
+    MemRefType resultMemRefType;
+    if (auto tensorType = dyn_cast<RankedTensorType>(resultType)) {
+      resultMemRefType = MemRefType::get(tensorType.getShape(),
+                                         tensorType.getElementType());
+    } else if (auto memrefType = dyn_cast<MemRefType>(resultType)) {
+      // Already a memref (shouldn't happen during bufferization, but handle it)
+      resultMemRefType = memrefType;
+    } else {
+      return op->emitOpError("expected tensor or memref result type");
+    }
+
+    // Create new op with memref types
+    replaceOpWithNewBufferizedOp<PagedDerefOp>(
+        rewriter, op, resultMemRefType, *pagePointersBuffer, addressMaskBuffer);
+    return success();
+  }
+};
+
 } // namespace
 } // namespace rock
 } // namespace mlir
@@ -320,7 +413,13 @@ void mlir::rock::registerBufferizableOpInterfaceExternalModels(
     ConvElementwiseGemmOp::attachInterface<
         GemmLikeInterface<ConvElementwiseGemmOp>>(*ctx);
 
-    AttentionOp::attachInterface<AttentionOpInterface>(*ctx);
+    // Attention-like ops (regular and paged)
+    AttentionOp::attachInterface<AttentionLikeInterface<AttentionOp>>(*ctx);
+    PagedAttentionOp::attachInterface<
+        AttentionLikeInterface<PagedAttentionOp>>(*ctx);
+
+    // Paged deref op
+    PagedDerefOp::attachInterface<PagedDerefOpInterface>(*ctx);
 
     TransformOp::attachInterface<TransformOpInterface>(*ctx);
     TensorUntransformCastOp::attachInterface<TensorUntransformCastOpInterface>(
