@@ -60,24 +60,24 @@ module {
       %t24 = rock.transform %1 by #transform_map4 : memref<1x3072x768xf16> to memref<48x1x12x12x64x64xf16>
       %t25 = rock.transform %3 by #transform_map5 : memref<1x3072x384xf16> to memref<48x1x12x12x32x64xf16>
 
-      %mask_tensor_a, %24 = rock.transforms_to_ptr %t24[%arg3, %11, %18, %20] : memref<48x1x12x12x64x64xf16> to ptr, memref<64x64xi1>
-      %mask_tensor_b, %25 = rock.transforms_to_ptr %t25[%arg3, %11, %18, %20] : memref<48x1x12x12x32x64xf16> to ptr, memref<32x64xi1>
+      %mask_tensor_a, %24 = rock.transforms_to_ptr %t24[%arg3, %11, %18, %20] : memref<48x1x12x12x64x64xf16> to memref<64x64xindex>, memref<64x64xi1>
+      %mask_tensor_b, %25 = rock.transforms_to_ptr %t25[%arg3, %11, %18, %20] : memref<48x1x12x12x32x64xf16> to memref<32x64xindex>, memref<32x64xi1>
 
       // Step 1. Translate blockwise_load_tile into transforms_to_ptr + blockwise_load_ptr
+      // [OLD IR] rock.blockwise_load_tile %24[%arg3, %11, %18, %20] -> %22 : memref<48x1x12x12x64x64xf16> -> memref<64x64xf16, #gpu.address_space<private>>
+      // [OLD IR] rock.blockwise_load_tile %25[%arg3, %11, %18, %20] -> %21 : memref<48x1x12x12x32x64xf16> -> memref<32x64xf16, #gpu.address_space<private>>
 
-      // rock.blockwise_load_tile %24[%arg3, %11, %18, %20] -> %22 : memref<48x1x12x12x64x64xf16> -> memref<64x64xf16, #gpu.address_space<private>>
-      // rock.blockwise_load_tile %25[%arg3, %11, %18, %20] -> %21 : memref<48x1x12x12x32x64xf16> -> memref<32x64xf16, #gpu.address_space<private>>
-      rock.blockwise_load_ptr(%24, %mask_tensor_a) -> %22 : (ptr, memref<64x64xi1>) -> memref<64x64xf16, #gpu.address_space<private>>
-      rock.blockwise_load_ptr(%25, %mask_tensor_b) -> %21 : (ptr, memref<32x64xi1>) -> memref<32x64xf16, #gpu.address_space<private>>|
+      rock.blockwise_load_ptr(%24, %mask_tensor_a) -> %22 : (memref<64x64xindex>, memref<64x64xi1>) -> memref<64x64xf16, #gpu.address_space<private>>
+      rock.blockwise_load_ptr(%25, %mask_tensor_b) -> %21 : (memref<32x64xindex>, memref<32x64xi1>) -> memref<32x64xf16, #gpu.address_space<private>>|
 
       rock.blockwise_gemm_accel %23 += %21 * %22 : memref<32x64xf32, #gpu.address_space<private>> += memref<32x64xf16, #gpu.address_space<private>> * memref<64x64xf16, #gpu.address_space<private>>
     }
 
     // Step 2. Translate blockwise_store_tile into transforms_to_ptr + blockwise_store_ptr
-    // rock.blockwise_store_tile {forceUnroll, useIndexDiffs} %23 -> [#transform_map6](%2) [%11, %18, %20] by  set : memref<32x64xf32, #gpu.address_space<private>> -> memref<1x384x768xf32>
+    // [OLD IR] rock.blockwise_store_tile {forceUnroll, useIndexDiffs} %23 -> [#transform_map6](%2) [%11, %18, %20] by  set : memref<32x64xf32, #gpu.address_space<private>> -> memref<1x384x768xf32>
 
-    %mask_tensor_c, %c_out_ptr = rock.transforms_to_ptr %2 by #transform_map6 : memref<1x384x768xf32> to ptr
-    rock.blockwise_store_ptr(%23, %mask_tensor_c) -> %c_out_ptr : memref<32x64xf32, #gpu.address_space<private>> -> ptr
+    %mask_tensor_c, %c_out_ptr = rock.transforms_to_ptr %2[%11, %18, %20] : memref<1x384x768xf32> to memref<32x64xindex>, memref<32x64xi1>
+    rock.blockwise_store_ptr %23 -> (%c_out_ptr, %mask_tensor_c) : memref<32x64xf32, #gpu.address_space<private>> -> (memref<32x64xindex>, memref<32x64xi1>)
 
     return
   }
