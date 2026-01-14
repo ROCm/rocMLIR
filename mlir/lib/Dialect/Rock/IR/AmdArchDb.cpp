@@ -597,17 +597,24 @@ bool mlir::rock::AmdArchInfo::isAsyncDirectToLDS(StringRef arch, Type dataType,
   return isDirectToLDS(dataType, numBytes);
 }
 
-bool mlir::rock::AmdArchInfo::hasAtomicAdd(Type dataType) {
-  auto features = getDefaultFeatures(dataType);
-  return bitEnumContainsAll(features, GemmFeatures::atomic_add);
-}
+bool mlir::rock::AmdArchInfo::hasAtomicAdd(Type dataType) const {
+  // Get the underlying element type. We may have to do this recursively if the
+  // initial dataType is a nested vector.
+  Type elementType = getElementTypeOrSelf(dataType);
+  while (isa<ShapedType>(elementType)) {
+    elementType = getElementTypeOrSelf(elementType);
+  }
 
-bool mlir::rock::AmdArchInfo::hasAtomicAddF16() const {
-  return bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_add_f16);
-}
-
-bool mlir::rock::AmdArchInfo::hasAtomicAddBF16() const {
-  return bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_add_bf16);
+  // Check based on the element type
+  if (elementType.isF32()) {
+    return bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_add);
+  } else if (elementType.isF16()) {
+    return bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_add_f16);
+  } else if (elementType.isBF16()) {
+    return bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_add_bf16);
+  }
+  llvm_unreachable("Unsupported element type for atomic add");
+  return false;
 }
 
 bool mlir::rock::AmdArchInfo::hasAtomicFmaxF32() const {

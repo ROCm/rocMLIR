@@ -102,14 +102,8 @@ struct AmdArchInfo {
   /// Check if dot product is supported (arch-only, no type dependency)
   bool hasDot() const;
 
-  /// Check if atomic add is supported for given type
-  bool hasAtomicAdd(Type dataType);
-
-  /// Check if f16 atomic add is supported (arch-only)
-  bool hasAtomicAddF16() const;
-
-  /// Check if bf16 atomic add is supported (arch-only)
-  bool hasAtomicAddBF16() const;
+  /// Check if atomic add is supported for given type (f32, f16, or bf16)
+  bool hasAtomicAdd(Type dataType) const;
 
   /// Check if f32 atomic fmax is supported (arch-only)
   bool hasAtomicFmaxF32() const;
