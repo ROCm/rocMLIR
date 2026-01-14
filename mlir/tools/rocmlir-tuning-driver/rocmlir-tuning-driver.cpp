@@ -58,7 +58,9 @@
 
 // Utilities to allocate buffers
 #include "../utils/performance/common/benchmarkUtils.h"
+
 #include "CacheFlush.h"
+#include "ConcurrentQueue.h"
 
 #include <hip/hip_runtime.h>
 
@@ -159,6 +161,11 @@ static llvm::cl::opt<unsigned> numCompileThreads(
     "num-compile-threads",
     llvm::cl::desc("Number of parallel compilation threads (0 = auto)"),
     llvm::cl::value_desc("thread count"), llvm::cl::init(0));
+
+static llvm::cl::opt<bool> waitForCompiles(
+    "wait-for-compiles",
+    llvm::cl::desc("Wait for all compilations to finish before benchmarking"),
+    llvm::cl::init(false));
 
 // Ripped out of JitRunner.cpp
 static OwningOpRef<ModuleOp> parseMLIRInput(StringRef inputFilename,
@@ -276,6 +283,7 @@ struct BenchmarkParams {
   rock::TuningParamSetKind tuningSpaceKind;
   const unsigned numCompileThreads;
   std::string benchmarkConfig;
+  bool waitForCompiles;
 };
 
 enum class CompilationStatus {
@@ -740,7 +748,7 @@ static LogicalResult runTuningLoop(ModuleOp source) {
   const BenchmarkParams benchmarkParams = {
       numIterations,     warmupIterations, useMedian,           trimPercent,
       sleepUs,           showStats,        showAllMeasurements, tuningSpaceKind,
-      numCompileThreads, benchmarkConfig};
+      numCompileThreads, benchmarkConfig,  waitForCompiles};
 
   unsigned numTuningIterations =
       rock::getNumberOfIterations(benchmarkParams.tuningSpaceKind);
@@ -827,10 +835,8 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     }
 
     // PHASE 3: Parallel compilation phase using pre-initialized resources
-    std::vector<CompilationResult> compilationResults(configs.size());
+    ConcurrentQueue<CompilationResult> compilationResults;
     std::mutex outputMutex; // For thread-safe console output
-    std::atomic<bool> compilationFailed{
-        false}; // Flag to signal early termination
 
     // Compile a single config using pre-initialized thread resources
     auto compileConfig = [&](size_t idx,
@@ -876,7 +882,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         auto tunedFunc = sourceCopy->lookupSymbol<func::FuncOp>(fnName);
         if (!tunedFunc) {
           result.status = CompilationStatus::CompilationFailed;
-          compilationFailed.store(true, std::memory_order_relaxed);
           return result;
         }
         result.blockSizes.push_back(
@@ -891,7 +896,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
         llvm::errs() << "Backend pipeline failed for config: "
                      << result.perfConfig << "\n";
         result.status = CompilationStatus::CompilationFailed;
-        compilationFailed.store(true, std::memory_order_relaxed);
         return result;
       }
 
@@ -901,7 +905,6 @@ static LogicalResult runTuningLoop(ModuleOp source) {
             sourceCopy->lookupSymbol<gpu::BinaryOp>(fnName + "_module");
         if (!binary) {
           result.status = CompilationStatus::CompilationFailed;
-          compilationFailed.store(true, std::memory_order_relaxed);
           return result;
         }
         result.hipModules.push_back(
@@ -920,52 +923,64 @@ static LogicalResult runTuningLoop(ModuleOp source) {
     // compilation times vary dramatically between configs (NotApplicable is
     // fast, full compilation is slow). Dynamic work stealing provides better
     // load balancing by allowing fast threads to pick up more work.
-    {
-      std::atomic<size_t> nextIdx{0};
-      std::atomic<unsigned> nextThreadId{0};
+    std::atomic<size_t> nextIdx{0};
+    std::atomic<unsigned> nextThreadId{0};
+    std::atomic<size_t> activeThreads{numThreads};
+    auto worker = [&] {
+      // Each worker gets assigned a unique thread ID for its resources
+      unsigned myThreadId =
+          nextThreadId.fetch_add(1, std::memory_order_relaxed);
+      ThreadResources &myRes = threadResources[myThreadId];
 
-      auto worker = [&]() {
-        // Each worker gets assigned a unique thread ID for its resources
-        unsigned myThreadId =
-            nextThreadId.fetch_add(1, std::memory_order_relaxed);
-        ThreadResources &myRes = threadResources[myThreadId];
+      while (true) {
+        if (compilationResults.isTerminated())
+          break; // Avoid unnecessary work
 
-        while (true) {
-          if (compilationFailed.load(std::memory_order_relaxed))
-            break;
+        size_t idx = nextIdx.fetch_add(1, std::memory_order_relaxed);
+        if (idx >= configs.size())
+          break;
 
-          size_t idx = nextIdx.fetch_add(1, std::memory_order_relaxed);
-          if (idx >= configs.size())
-            break;
-
-          compilationResults[idx] = compileConfig(idx, myRes);
-        }
-      };
-
-      std::vector<std::thread> threads;
-      threads.reserve(numThreads);
-      for (unsigned i = 0; i < numThreads; ++i) {
-        threads.emplace_back(worker);
+        if (!compilationResults.push(compileConfig(idx, myRes)))
+          break; // Queue terminated
       }
 
+      if (activeThreads.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        // Last thread - signal termination
+        compilationResults.terminate();
+      }
+    };
+
+    std::vector<std::thread> threads;
+    threads.reserve(numThreads);
+    for (unsigned i = 0; i < numThreads; ++i) {
+      threads.emplace_back(worker);
+    }
+
+    auto threadCleanup = llvm::make_scope_exit([&] {
+      // In case of early termination, signal all threads to stop
+      compilationResults.terminate();
       for (auto &t : threads) {
         t.join();
       }
-    }
+    });
 
-    // Check if any compilation failed and terminate early
-    if (compilationFailed.load(std::memory_order_relaxed)) {
-      llvm::errs()
-          << "Compilation failed for one or more configs. Terminating.\n";
-      return failure();
+    if (benchmarkParams.waitForCompiles) {
+      for (auto &t : threads) {
+        t.join();
+      }
+      threads.clear();
     }
 
     int64_t validResults = 0;
     // Sequential benchmarking phase (must be sequential for accurate timing)
-    // Note: Due to early exit on compilation failures, only NotApplicable and
-    // Success statuses are possible here.
-    for (const auto &result : compilationResults) {
+    CompilationResult result;
+    while (compilationResults.pop(result)) {
       llvm::outs() << result.perfConfig << "\t";
+
+      if (result.status == CompilationStatus::CompilationFailed) {
+        llvm::errs() << "Compilation failed\n";
+        return failure();
+      }
 
       if (result.status == CompilationStatus::NotApplicable) {
         llvm::outs() << "N/A\n";
