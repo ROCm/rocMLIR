@@ -627,6 +627,11 @@ bool mlir::rock::isGlobalPrefetchSupported(StringRef arch) {
 bool mlir::rock::AmdArchInfo::isWrWAtomicKernel(GemmFeaturesAttr featuresAttr,
                                                 Type dataType,
                                                 bool requiredPadding) {
-  return isAccel(dataType, dataType, featuresAttr) && hasAtomicAdd(dataType) &&
+  // We check only for GemmFeatures::atomic_add (f32) even though we accept
+  // dataType to be either f32 or f16. This is because f16 WrW atomic uses f32
+  // workspace, computing atomic adds in f32 and later a second kernel converts
+  // from f32 to f16.
+  return isAccel(dataType, dataType, featuresAttr) &&
+         bitEnumContainsAll(defaultFeatures, GemmFeatures::atomic_add) &&
          (dataType.isF32() || dataType.isF16()) && !requiredPadding;
 }
