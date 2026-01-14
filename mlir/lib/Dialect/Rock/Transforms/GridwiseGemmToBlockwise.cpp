@@ -272,13 +272,9 @@ static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
   int64_t ldsBytes =
       aBufferBytes + bBufferBytes + aBufferScaleBytes + bBufferScaleBytes;
   // Check for arch limitations exceeded
-  FailureOr<StringAttr> maybeArch = getArch(op);
-  if (succeeded(maybeArch)) {
-    StringAttr arch = maybeArch.value();
-    const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
-    return success(ldsBytes <= ldsSize);
-  }
-  return success();
+  StringAttr arch = getArchValue(op);
+  const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
+  return success(ldsBytes <= ldsSize);
 }
 
 static LDSLayoutConfigDim getLDSLayoutConfigDim(Type elementType, int64_t kpack,
@@ -528,17 +524,14 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     GpuAllocOp loadBufferB = makeRegs(bCopyPerThread, elementTypeB);
 
     // Compute grid coordinates
-    FailureOr<mlir::StringAttr> maybeArch = getArch(op);
-    if (failed(maybeArch)) {
-      return op.emitError("arch needs to be set.");
-    }
+    StringAttr arch = getArchValue(op);
     // always use heuristic for non-accel path
     int64_t gridGroupSize = 0;
     auto gridCoords = layout::makeGroupedGridLayout(
         b, loc, bid,
         {G, mBlocks, nBlocks, rock::getNumCUValue(op),
          rock::getNumChipletsValue(op), elementTypeA, destType, gridGroupSize},
-        maybeArch->getValue());
+        arch);
 
     Value storeBufferA = GpuAllocOp::create(b, loc, loadBufferA.getType());
     Value storeBufferB = GpuAllocOp::create(b, loc, loadBufferB.getType());
@@ -1670,9 +1663,11 @@ struct GridwiseAttentionAccelRewritePattern
         cast<MemRefType>(op.getQueries().getType()).getElementType();
     Type elemTypeK = cast<MemRefType>(op.getKeys().getType()).getElementType();
     StringRef arch = rock::getArchValue(op);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    GemmFeatures features = archInfo.defaultFeatures;
     RockAccelTuningParamAttrInterface gemm0TuningParams = op.getParams0();
     auto accelEmitterPtrGemm0 = accel::AccelEmitter::select(
-        rock::getFeatures(op), elemTypeQ, elemTypeK, arch, gemm0TuningParams);
+        features, elemTypeQ, elemTypeK, arch, gemm0TuningParams);
     if (auto mfmaEmitter =
             dyn_cast<accel::MfmaEmitter>(accelEmitterPtrGemm0.get())) {
       if (!mfmaEmitter->isKReduction()) {
@@ -1994,10 +1989,6 @@ struct GridwiseAttentionAccelRewritePattern
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
 
-    // Get 'features' from the op
-    auto features = rock::getFeatures(op);
-    auto featuresAttr = op.getFeaturesAttr();
-
     TypedValue<MemRefType> inQ = op.getQueries();
     ArrayRef<int64_t> qShape = cast<MemRefType>(inQ.getType()).getShape();
     Type elemTypeQ = cast<MemRefType>(inQ.getType()).getElementType();
@@ -2011,6 +2002,11 @@ struct GridwiseAttentionAccelRewritePattern
     FailureOr<Type> maybeElemTypeKLoad = getInputFusionElementType(inK);
     Type elemTypeKLoad =
         failed(maybeElemTypeKLoad) ? elemTypeK : maybeElemTypeKLoad.value();
+
+    // Get 'features' from arch
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    auto features = archInfo.defaultFeatures;
+    auto featuresAttr = op.getFeaturesAttr();
 
     TypedValue<MemRefType> inV = op.getValues();
     Type elemTypeV = inV.getType().getElementType();
@@ -2066,7 +2062,9 @@ struct GridwiseAttentionAccelRewritePattern
     assert(scheduleVersion == scheduleVersionG1);
 
     // Check if the schedule version is supported by the hardware
-    if (failed(isScheduleVersionSupported(scheduleVersion, features, arch)))
+    SmallVector<Type> types = {elemTypeQ, elemTypeK};
+    if (failed(
+            isScheduleVersionSupported(scheduleVersion, archInfo, types, arch)))
       return op.emitOpError("schedule version not supported");
 
     std::optional<GemmLoadTileType> maybeLoadType =
@@ -3098,8 +3096,10 @@ struct GridwiseGemmAccelRewritePattern
     auto elementTypeScaleB =
         isScaledGemm ? scaleB.getType().getElementType() : nullptr;
 
-    // Get 'features' from the op
-    auto features = rock::getFeatures(op);
+    // Get 'features' from arch
+    StringRef arch = rock::getArchValue(op);
+    rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+    auto features = archInfo.defaultFeatures;
     auto featuresAttr = op.getFeaturesAttr();
 
     // Prepare some useful constants.
@@ -3117,7 +3117,6 @@ struct GridwiseGemmAccelRewritePattern
     int64_t N = bShape[2];
 
     // Obtain critical tuning parameters.
-    StringRef arch = rock::getArchValue(op);
     uint32_t blockSize = op.getBlockSize();
     uint32_t gridSize = op.getGridSize();
     RockAccelTuningParamAttrInterface tuningParams = op.getParams();
@@ -3148,7 +3147,9 @@ struct GridwiseGemmAccelRewritePattern
     int64_t scheduleVersion = tuningParams.getScheduleVersion();
 
     // Check if the schedule version is supported by the hardware
-    if (failed(isScheduleVersionSupported(scheduleVersion, features, arch)))
+    SmallVector<Type> types = {elementTypeA, elementTypeB};
+    if (failed(
+            isScheduleVersionSupported(scheduleVersion, archInfo, types, arch)))
       return op.emitOpError("schedule version not supported");
 
     std::optional<GemmLoadTileType> maybeLoadType =

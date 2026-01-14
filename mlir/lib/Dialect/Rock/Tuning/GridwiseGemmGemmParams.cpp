@@ -17,11 +17,13 @@ using namespace mlir::rock;
 std::vector<GemmGemmParamsAttr>
 PopulateParamsGemmGemm::getTuningParameters(OpBuilder &b,
                                             RockGemmGemmWrapperInterface op) {
-  if (!rock::isAccel(rock::getFeatures(op))) {
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (!archInfo.isAccel(op)) {
     return {};
   }
   auto perfConfigs = ParamLookupTable<GemmGemmParamsAttr>::lookup(
-      rock::getArchValue(op), op.getKernelType(),
+      arch, op.getKernelType(),
       cast<MemRefType>(op.getAType()).getElementType());
   return deserializePerfConfigs(b, op, perfConfigs);
 }
@@ -29,7 +31,9 @@ PopulateParamsGemmGemm::getTuningParameters(OpBuilder &b,
 GemmGemmParamsAttr PopulateParamsGemmGemm::deserializePerfConfig(
     OpBuilder &b, RockGemmGemmWrapperInterface op, StringRef config) {
   auto stringAttr = b.getStringAttr(config);
-  auto isWmma = bitEnumContainsAll(rock::getFeatures(op), GemmFeatures::wmma);
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  bool isWmma = archInfo.isWmma(op);
   return GemmGemmParamsAttr::get(stringAttr, isWmma);
 }
 
@@ -58,8 +62,9 @@ FailureOr<std::pair<AccelGemmParamsAttr, AccelGemmParamsAttr>>
 PopulateParamsGemmGemm::getAccelGemmParams(OpBuilder &b,
                                            RockGemmGemmWrapperInterface op,
                                            GemmGemmParamsAttr params) {
-  auto features = rock::getFeatures(op);
-  if (!rock::isAccel(features)) {
+  StringAttr arch = rock::getArchValue(op);
+  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
+  if (!archInfo.isAccel(op)) {
     return failure();
   }
 
@@ -71,7 +76,8 @@ PopulateParamsGemmGemm::getAccelGemmParams(OpBuilder &b,
   AccelGemmParamsAttr accelParams0 = getGemm0Params(b, params);
   AccelGemmParamsAttr accelParams1 = getGemm1Params(b, params);
 
-  auto populateParamsAccelPtr = PopulateParamsAccel::select(features);
+  auto populateParamsAccelPtr =
+      PopulateParamsAccel::select(archInfo.defaultFeatures);
   LogicalResult isValidBlockwiseGemm0 =
       populateParamsAccelPtr->isValidBlockwiseGemm(
           accelParams0, cast<MemRefType>(op.getAType()).getElementType(),

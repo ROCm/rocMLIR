@@ -235,7 +235,7 @@ func.func @rock_conv_bwd_weight_padALL_f16(%filter : memref<1x20x8x3x3xf16>, %in
 
 // CHECK-LABEL: @rock_conv_7x7_tuning
 // GRID-LABEL: @rock_conv_7x7_tuning
-func.func @rock_conv_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx906"} {
+func.func @rock_conv_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx908"} {
   // CHECK: rock.conv
   // CHECK-SAME: derivedBlockSize = 256
   // CHECK-SAME: params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 64, nPerBlock = 256, kpack = 1, mPerWave = 64, nPerWave = 64, mnPerXdl = 64, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
@@ -257,7 +257,7 @@ func.func @rock_conv_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256
 
 // CHECK-LABEL: @rock_conv_7x7
 // GRID-LABEL: @rock_conv_7x7
-func.func @rock_conv_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx906"} {
+func.func @rock_conv_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {arch = "amdgcn-amd-amdhsa:gfx908"} {
   // CHECK: rock.conv
   // CHECK-SAME: derivedBlockSize = 64
   // CHECK-SAME: params = #rock.accel_gemm_params<kpackPerBlock = 2, mPerBlock = 64, nPerBlock = 32, kpack = 1, mPerWave = 64, nPerWave = 32, mnPerXdl = 32, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
@@ -276,7 +276,7 @@ func.func @rock_conv_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x23
 
 // CHECK-LABEL: @rock_conv_bwd_weight_7x7
 // GRID-LABEL: @rock_conv_bwd_weight_7x7
-func.func @rock_conv_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {kernel = 0 : i32, arch = "amdgcn-amd-amdhsa:gfx906", numCU = 120 : i32} {
+func.func @rock_conv_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {kernel = 0 : i32, arch = "amdgcn-amd-amdhsa:gfx908", numCU = 120 : i32} {
   // CHECK: rock.conv_bwd_weight
   // CHECK-SAME: derivedBlockSize = 256
   // CHECK-SAME: params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 32, nPerBlock = 32, kpack = 4, mPerWave = 16, nPerWave = 16, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
@@ -295,7 +295,7 @@ func.func @rock_conv_bwd_weight_7x7(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref
 
 // CHECK-LABEL: @rock_conv_bwd_data_7x7_tuning
 // GRID-LABEL: @rock_conv_bwd_data_7x7_tuning
-func.func @rock_conv_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {kernel = 1 : i32, arch = "amdgcn-amd-amdhsa:gfx906"} {
+func.func @rock_conv_bwd_data_7x7_tuning(%arg0: memref<1x64x3x7x7xf32>, %arg1: memref<256x1x3x230x230xf32>, %arg2: memref<256x1x64x112x112xf32>) attributes {kernel = 1 : i32, arch = "amdgcn-amd-amdhsa:gfx908"} {
   // CHECK: rock.conv_bwd_data
   // CHECK-SAME: derivedBlockSize = 256
   // CHECK-SAME: params = #rock.accel_gemm_params<kpackPerBlock = 8, mPerBlock = 16, nPerBlock = 128, kpack = 4, mPerWave = 16, nPerWave = 32, mnPerXdl = 16, splitKFactor = 1, scheduleVersion = 1, outputSwizzle = 2, wavesPerEU = 0, gridGroupSize = 0, forceUnroll = true>
