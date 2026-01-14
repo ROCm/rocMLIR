@@ -123,18 +123,6 @@ static void loadAndStoreGemmInputTile(PatternRewriter &rewriter, Location loc,
                                          gridCoords.n_block});
 }
 
-static Value createLDSByteBuffer(PatternRewriter &rewriter, Location loc,
-                                 int64_t numElements, Type elementType) {
-  int64_t ldsBlockSize = getPackedByteSize(numElements, elementType);
-  auto workgroupMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
-      gpu::GPUDialect::getWorkgroupAddressSpace());
-  auto ldsMemRefType =
-      MemRefType::get({ldsBlockSize}, rewriter.getI8Type(), AffineMap{},
-                      workgroupMemoryAddressSpace);
-  Value ldsByteBuffer = GpuAllocOp::create(rewriter, loc, ldsMemRefType);
-  return ldsByteBuffer;
-}
-
 // This fuction creates interrim register buffers to store data in once
 // loaded from the LDS before accelerator intrinsics are called
 static Value createRegInterrimBufferForAccel(PatternRewriter &rewriter,
@@ -142,7 +130,7 @@ static Value createRegInterrimBufferForAccel(PatternRewriter &rewriter,
                                              int64_t dPerBlock,
                                              int64_t kPerBlock) {
   Value array;
-  SmallVector<int64_t> shape{dPerBlock * kPerBlock};
+  SmallVector<int64_t> shape{dPerBlock, kPerBlock};
   auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getPrivateAddressSpace());
 
@@ -159,7 +147,7 @@ static Value createBufferForAccelGemmOut(PatternRewriter &rewriter,
   auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getPrivateAddressSpace());
   MemRefType regCAllocType =
-      MemRefType::get({mPerBlock * nPerBlock}, accType, AffineMap{},
+      MemRefType::get({mPerBlock, nPerBlock}, accType, AffineMap{},
                       /*memorySpace=*/privateMemoryAddressSpace);
   Value regCAllocOp = GpuAllocOp::create(rewriter, loc, regCAllocType);
   return regCAllocOp;
@@ -171,54 +159,6 @@ static void zeroAccBuffer(PatternRewriter &rewriter, Location loc,
   Value zeroConstantCOp =
       createZeroConstantOp(rewriter, loc, accBufferType.getElementType());
   FillOp::create(rewriter, loc, accBuffer, zeroConstantCOp);
-}
-
-static LogicalResult checkLDSSize(Operation *op, int64_t aBufferBytes,
-                                  int64_t bBufferBytes,
-                                  int64_t aBufferScaleBytes = 0,
-                                  int64_t bBufferScaleBytes = 0) {
-  int64_t ldsBytes =
-      aBufferBytes + bBufferBytes + aBufferScaleBytes + bBufferScaleBytes;
-  // Check for arch limitations exceeded
-  FailureOr<StringAttr> maybeArch = getArch(op);
-  if (succeeded(maybeArch)) {
-    StringAttr arch = maybeArch.value();
-    const int64_t ldsSize = rock::lookupArchInfo(arch).maxSharedMemPerWG;
-    return success(ldsBytes <= ldsSize);
-  }
-  return success();
-}
-
-static LDSLayoutConfigDim getLDSLayoutConfigDim(Type elementType, int64_t kpack,
-                                                const VectorDimInfo &vecDimInfo,
-                                                bool directToLDS) {
-  LDSLayoutConfigDim cfg;
-  int64_t maxVlen = 128 / elementType.getIntOrFloatBitWidth();
-  int64_t copyDPerThread = vecDimInfo.inDPerThread;
-  bool isKContiguousDim = vecDimInfo.vectorDim == GemmDimension::K;
-  // If kpack is less than the hardware max vector length, and we are
-  // writing more contiguous kpack elements, there is a possibility to
-  // vectorize that we want to preserve (i.e., we favour vectorization over
-  // bank conflicts resolution)
-  bool isPossibleToVectorizeD = (kpack < maxVlen && copyDPerThread > 1);
-  cfg.doRotateWithK = isKContiguousDim && !isPossibleToVectorizeD;
-  cfg.doSwapThreadIterSubDims = !isKContiguousDim && !isPossibleToVectorizeD;
-  cfg.ldsLayoutDxK = false;
-
-  // For direct to LDS, we can't use rotateWithK or swapThreadIterSubDims
-  // because we there's no LDS write instruction.
-  // Also, we use the same memory layout as the global memory layout (KxD or
-  // DxK).
-  if (directToLDS) {
-    cfg.doRotateWithK = false;
-    cfg.doSwapThreadIterSubDims = false;
-    cfg.ldsLayoutDxK = isKContiguousDim;
-  }
-  LLVM_DEBUG(llvm::dbgs() << "rotateWithK: " << cfg.doRotateWithK << "\n"
-                          << "doSwapThreadIterSubDimsForM: "
-                          << cfg.doSwapThreadIterSubDims << "\n"
-                          << "ldsLayoutDxK: " << cfg.ldsLayoutDxK << "\n");
-  return cfg;
 }
 
 //===----------------------------------------------------------------------===//

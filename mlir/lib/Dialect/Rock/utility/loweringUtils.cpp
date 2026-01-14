@@ -215,26 +215,72 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
   int64_t dGlobal = matrixShape[2];
 
   int64_t kIters = kGlobal / kPerBlock;
-  int64_t dataPerThread = kPerBlock * dPerBlock;
 
   SmallString<8> dIterName = llvm::formatv("{0}_iter", dName);
 
   RegsAsMatrixSubTiles gpuViews;
   {
-    TopDownTMBuilder gridwiseSplitId(
+<<<<<<< Updated upstream
+    TopDownTMBuilder toGlobalIdx(b,
+                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                  bidGridOrder[2], dIterName, "k_iter"},
+                                 {kIters, bidGridLengths[0], bidGridLengths[1],
+                                  bidGridLengths[2], dPerBlock, kPerBlock},
+                                 loc);
+=======
+<<<<<<< Updated upstream
+    TopDownTMBuilder toGlobalIdx(b,
+                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                  bidGridOrder[2], dIterName, "k_iter"},
+                                 {kIters, bidGridLengths[0], bidGridLengths[1],
+                                  bidGridLengths[2], dPerBlock, kPerBlock},
+                                 loc);
+=======
+<<<<<<< Updated upstream
+    TopDownTMBuilder toGlobalIdx(b,
+                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                  bidGridOrder[2], dIterName, "k_iter"},
+                                 {kIters, bidGridLengths[0], bidGridLengths[1],
+                                  bidGridLengths[2], dPerBlock, kPerBlock},
+                                 loc);
+=======
+<<<<<<< Updated upstream
+    TopDownTMBuilder toGlobalIdx(b,
+                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                  bidGridOrder[2], dIterName, "k_iter"},
+                                 {kIters, bidGridLengths[0], bidGridLengths[1],
+                                  bidGridLengths[2], dPerBlock, kPerBlock},
+                                 loc);
+=======
+<<<<<<< Updated upstream
+    TopDownTMBuilder toGlobalIdx(b,
+                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                  bidGridOrder[2], dIterName, "k_iter"},
+                                 {kIters, bidGridLengths[0], bidGridLengths[1],
+                                  bidGridLengths[2], dPerBlock, kPerBlock},
+                                 loc);
+=======
+<<<<<<< Updated upstream
+    TopDownTMBuilder toGlobalIdx(b,
+                                 {"k_loop", bidGridOrder[0], bidGridOrder[1],
+                                  bidGridOrder[2], dIterName, "k_iter"},
+                                 {kIters, bidGridLengths[0], bidGridLengths[1],
+                                  bidGridLengths[2], dPerBlock, kPerBlock},
+                                 loc);
+=======
+    TopDownTMBuilder toGlobalIdx(
         b,
-        {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2], "iter"},
+        {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2], dIterName, "k_iter"},
         {kIters, bidGridLengths[0], bidGridLengths[1], bidGridLengths[2],
-         dataPerThread},
+         dPerBlock, kPerBlock},
         loc);
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
 
-    gridwiseSplitId.passThrough(
-        {"k_loop", bidGridOrder[0], bidGridOrder[1], bidGridOrder[2]});
-    makeLoadRegsIterMerge(gridwiseSplitId, dIterName, dPerBlock, kPerBlock,
-                          {4, 5}, isKContiguousDim);
-    TransformMapAttr splitIdAttr = gridwiseSplitId.get();
-
-    auto toGlobalIdx = TopDownTMBuilder::below(gridwiseSplitId, splitIdAttr);
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
     toGlobalIdx.unmerge("k", 1, {"k_loop", "k_iter"}, {kIters, kPerBlock});
     toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName},
@@ -242,7 +288,7 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
 
     toGlobalIdx.ignore(otherBlockDim);
     TransformMapAttr toGlobalIdxAttr = toGlobalIdx.get();
-    gpuViews.gridSubTile = b.getArrayAttr({splitIdAttr, toGlobalIdxAttr});
+    gpuViews.gridSubTile = b.getArrayAttr({toGlobalIdxAttr});
   }
   {
     StringSet<> dimensionsToRemove{"k_loop", bidGridOrder[0], bidGridOrder[1],
@@ -1027,23 +1073,44 @@ llvm::FailureOr<RegsAsMatrixSubTiles>
 mlir::rock::computeOutputTransforms(OpBuilder &b, Location loc,
                                     int64_t mPerBlock, int64_t nPerBlock,
                                     ArrayRef<int64_t> bidGridLengths) {
-  int64_t numElements = mPerBlock * nPerBlock;
-
   RegsAsMatrixSubTiles ret;
   {
     // Create views as gridwise sub-tile of C
-    TopDownTMBuilder splitMemoryCoords(
-        b, {"g_block", "m_block", "n_block", "item"},
-        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], numElements},
+    TopDownTMBuilder toMatrixC(
+        b, {"g_block", "m_block", "n_block", "m_iter", "n_iter"},
+<<<<<<< Updated upstream
+        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
+         nPerBlock},
+=======
+<<<<<<< Updated upstream
+        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
+         nPerBlock},
+=======
+<<<<<<< Updated upstream
+        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
+         nPerBlock},
+=======
+<<<<<<< Updated upstream
+        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
+         nPerBlock},
+=======
+<<<<<<< Updated upstream
+        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
+         nPerBlock},
+=======
+<<<<<<< Updated upstream
+        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock,
+         nPerBlock},
+=======
+        {bidGridLengths[0], bidGridLengths[1], bidGridLengths[2], mPerBlock, nPerBlock},
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
+>>>>>>> Stashed changes
         loc);
-    splitMemoryCoords.passThrough({"g_block", "m_block", "n_block"});
-    splitMemoryCoords.merge({"m_iter", "n_iter"}, {3, 4}, "iter",
-                            {mPerBlock, nPerBlock});
 
-    TransformMapAttr splitMemoryCoordsAttr = splitMemoryCoords.get();
-
-    auto toMatrixC =
-        TopDownTMBuilder::below(splitMemoryCoords, splitMemoryCoordsAttr);
     toMatrixC.passThrough({"gemmG"}, {0}, {"g_block"});
     toMatrixC.unmerge("gemmM", 1, {"m_block", "m_iter"},
                       {bidGridLengths[1], mPerBlock});
@@ -1053,7 +1120,7 @@ mlir::rock::computeOutputTransforms(OpBuilder &b, Location loc,
     TransformMapAttr toMatrixCAttr = toMatrixC.get();
     // Before returning the output view, if necessary, swap back the
     // threadid/iter dimensions on both the M/N axis.
-    SmallVector<Attribute> transformAttrs{splitMemoryCoordsAttr, toMatrixCAttr};
+    SmallVector<Attribute> transformAttrs{toMatrixCAttr};
 
     ret.gridSubTile = b.getArrayAttr(transformAttrs);
   }
