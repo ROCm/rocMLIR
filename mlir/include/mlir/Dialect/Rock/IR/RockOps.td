@@ -748,6 +748,38 @@ def Rock_BlockwiseLoadTileOp
   }];
 }
 
+// blockwise_load_tile
+def Rock_BlockwiseLoadTilePtrOp
+    : Rock_Op<"blockwise_load_tile_ptr",
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
+      Arguments<(ins Arg<AnyRankedTensor, "Pointer tensor">:$pointerTensor,
+          Arg<AnyRankedTensor, "Mask tensor">:$maskTensor,
+          Arg<MemRefOf<NativeMemoryOpTypes>,
+              "destination registers">:$destRegisters)> {
+  let summary =
+      "Blockwise load tile from global memory to LDS and/or registers";
+  let description = [{
+    The `rock.blockwise_load_tile` op does tile loading at workgroup (block) level.
+    We will load a tile of data from global memory into LDS and/or registers.
+
+    There are different load types:
+    - Default: Creates two stages, (1) load from memory, (2) write to LDS.
+    - BypassLDS: Bypasses LDS and loads from device memory to registers directly (only one stage).
+    - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
+    - DirectToLDSDefault: Same as Default, but a single stage loads from memory and writes to LDS.
+    - DirectToLDSDoubleBuffer: Same as DoubleBuffer, but a single stage loads from memory and writes to LDS.
+
+    `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
+    `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. They are data types for the Matrix A & B of the GEMMs. 
+    `elementLoadType` is the element type of the global buffer this BlockwiseLoadTileOp is trying to load. 
+    `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.  
+  }];
+  let assemblyFormat = [{
+    $pointerTensor `[` $maskTensor `]` `->` $destRegisters attr-dict
+    `:` type($pointerTensor) `,` type($maskTensor) `->` type($destRegisters)
+  }];
+}
+
 // blockwise_store_tile
 def Rock_BlockwiseStoreTileOp
     : Rock_Op<"blockwise_store_tile",
@@ -820,6 +852,53 @@ def Rock_BlockwiseStoreTileOp
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
+}
+
+def Rock_TransformsToPtrOp
+    : Rock_Op<"transforms_to_ptr",
+              []>,
+      Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
+                         "source">:$source,
+          Arg<MemRefOf<NativeMemoryOpTypes>, "pointers">:$pointers,
+          Arg<MemRefOf<NativeMemoryOpTypes>, "mask">:$mask, Variadic<Index>:$extraIndices)> {
+  let summary = "Write out values in registers to transformed destination";
+
+  let description = [{
+    ```
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $source  `->` $pointers `,` $mask (`[` $extraIndices^ `]`)?
+    `:` type($source) `->` type($pointers) `,` type($mask)
+  }];
+}
+
+def Rock_MakeRangeOp : 
+    Rock_Op<"make_range", [Pure]> {
+  let summary = "Create a 1D tensor range";
+
+  let description = [{
+    The `rock.make_range` op creates a 1D tensor with integer values 
+    spanning from `start` to `end` (exclusive), with step = 1.
+    
+    Values: [start, start+1, start+2, ..., end-1]
+    
+    This operation is used in the tensor-based Rock dialect for 
+    generating indices and coordinate ranges for GPU computations.
+  }];
+
+  let arguments = (ins 
+    I32Attr:$start,
+    I32Attr:$end
+  );
+
+  let results = (outs 
+    AnyRankedTensor:$result
+  );
+
+  let assemblyFormat = [{
+    $start `to` $end attr-dict `:` type($result)
+  }];
 }
 
 // blockwise_broadcasting_reduction
