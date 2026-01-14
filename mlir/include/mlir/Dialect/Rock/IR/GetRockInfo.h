@@ -10,12 +10,14 @@
 #define MLIR_DIALECT_ROCK_IR_GETROCKINFO_H
 
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/Rock/IR/AmdArchDb.h"
 #include "mlir/Dialect/Rock/IR/Rock.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Matchers.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -28,12 +30,6 @@ namespace rock {
 
 // This function returns the func or gpu.func of a given op
 Operation *getParentFuncOp(Operation *op);
-
-// Return a boolean if the features contain accel properties
-bool isAccel(rock::GemmFeatures features);
-
-// Get the arch from the op
-FailureOr<StringAttr> getArch(Operation *op);
 
 // Get the arch from the op and error out if it cannot be found
 StringAttr getArchValue(Operation *op);
@@ -55,13 +51,16 @@ inline rock::GemmFeatures intersectGemmFeatures(rock::GemmFeatures a,
   return a & b;
 }
 
-// Get the features enabled for the specified op. These will be dependent on
-// the architecture being used, and the type of the op.
-rock::GemmFeatures getFeatures(Operation *op);
-
 // Check if a schedule version is supported by the hardware
 LogicalResult isScheduleVersionSupported(int64_t scheduleVersion,
-                                         GemmFeatures features, StringRef arch);
+                                         AmdArchInfo archInfo,
+                                         ArrayRef<Type> types, StringRef arch);
+
+// Check if features contain accelerator (mfma or wmma)
+// This is a helper function that should only be used from
+// rocmlir-gen.cpp, which is the only place where we need to check
+// raw features (not taking into account types).
+bool isAccel(GemmFeatures features);
 
 } // End namespace rock
 } // End namespace mlir

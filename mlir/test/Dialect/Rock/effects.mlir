@@ -390,7 +390,7 @@ func.func @rock_threadwise_gemm(%lhs : memref<4x8x1xf32, 5>,
 
 func.func @rock_threadwise_gemm_accel(%matrixA : memref<1x16xf32, 5>,
                            %matrixB : memref<1x16xf32, 5>,
-                           %matrixC : memref<1x1xvector<32xf32>, 5>) attributes {arch = "##TOKEN_ARCH##"} {
+                           %matrixC : memref<1x1xvector<32xf32>, 5>) attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
   // expected-remark @below {{operation has no memory effects}}
   %c0 = arith.constant 0 : index
   // expected-remark @below {{found an instance of 'read' on op operand 2, on resource '<Default>'}}
