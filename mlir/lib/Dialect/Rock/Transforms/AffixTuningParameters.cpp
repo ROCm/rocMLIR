@@ -295,8 +295,6 @@ void AffixTuningParameters::affixTuningParametersImpl(
   // check for fusion legality with SplitK for both accel and non-accel path
   // this check should happen after perfConfig is picked either through
   // heuristics or user provided
-  StringAttr arch = rock::getArchValue(op);
-  rock::AmdArchInfo archInfo = rock::lookupArchInfo(arch);
   GemmFeatures features = archInfo.defaultFeatures;
   if (rock::isSplitKRequested(features, b.getStringAttr(perfConfig))) {
     if (failed(testFusionLegalitySplitK(funcParent))) {
