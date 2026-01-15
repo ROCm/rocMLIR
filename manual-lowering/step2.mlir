@@ -57,11 +57,9 @@ module {
     %23 = rock.alloc() : memref<32x64xf32, #gpu.address_space<private>>
     rock.fill(%23, %cst) : memref<32x64xf32, #gpu.address_space<private>>, f32
     
-    // Step 0. Make sure transforms are hoisted out of the loop.
-    %t24 = rock.transform %1 by #transform_map4 : memref<1x3072x768xf16> to memref<48x1x12x12x64x64xf16>
-    %t25 = rock.transform %3 by #transform_map5 : memref<1x3072x384xf16> to memref<48x1x12x12x32x64xf16>
-
     scf.for %arg3 = %c0 to %c48 step %c1 {
+      %t24 = rock.transform %1 by #transform_map4 : memref<1x3072x768xf16> to memref<48x1x12x12x64x64xf16>
+      %t25 = rock.transform %3 by #transform_map5 : memref<1x3072x384xf16> to memref<48x1x12x12x32x64xf16>
 
       %mask_tensor_a, %24 = rock.transforms_to_ptr %t24[%arg3, %11, %18, %20] : memref<48x1x12x12x64x64xf16> to memref<64x64xindex>, memref<64x64xi1>
       %mask_tensor_b, %25 = rock.transforms_to_ptr %t25[%arg3, %11, %18, %20] : memref<48x1x12x12x32x64xf16> to memref<32x64xindex>, memref<32x64xi1>
