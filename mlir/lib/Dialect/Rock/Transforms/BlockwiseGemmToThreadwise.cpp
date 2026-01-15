@@ -1028,7 +1028,7 @@ struct BlockwiseReduceRewritePattern
     constexpr size_t nrDim = 0;
     constexpr size_t rDim = 1;
     ArrayAttr inputThreadSubTile2dViewInv =
-        invertTransforms(rewriter, loc, inputThreadSubTile2dView);
+        invertTransforms(rewriter, loc, inputThreadSubTile2dView).value();
     ArrayRef<int64_t> threadSubTile2DShape =
         getLowerShape(inputThreadSubTile2dView);
     WorkitemIdOp tid =

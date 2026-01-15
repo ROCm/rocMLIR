@@ -521,7 +521,7 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     storeBufferLoadIdxsAttr = storeBufferViews.back();
   }
   auto storeBufferViewInverted =
-      invertTransforms(b, loc, storeBufferViewForInverse);
+      invertTransforms(b, loc, storeBufferViewForInverse).value();
   if (storeBufferViewInverted) {
     Value srcToDestView = transform(b, sourceView, storeBufferViewInverted);
     // It may be the case that we had an isolated transform stack and didn't

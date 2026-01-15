@@ -112,12 +112,12 @@ void RockRemoveOutputAllocPass::runOnOperation() {
 
     // There are some transforms that are not invertible. If we hit this case,
     // then there is nothing further we can do here.
-    if (!result)
+    if (failed(result))
       return;
 
     // Create a new rock::Transform op that applies the inverse transforms
     // to the output arg of the bwdData op
-    auto newTransformOp = rock::transform(b, copyOp->getTarget(), result);
+    auto newTransformOp = rock::transform(b, copyOp->getTarget(), result.value());
     allocOp.replaceAllUsesWith(newTransformOp);
 
     // We are safe to add the allocOp to the list of ops to delete since

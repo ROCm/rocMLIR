@@ -1703,14 +1703,14 @@ ArrayAttr mlir::rock::prependUpperViews(OpBuilder &b, ArrayAttr viewsToPrepend,
   return b.getArrayAttr(views);
 }
 
-ArrayAttr mlir::rock::invertTransforms(OpBuilder &b, Location loc,
+FailureOr<ArrayAttr> mlir::rock::invertTransforms(OpBuilder &b, Location loc,
                                        ArrayAttr transforms) {
   SmallVector<Attribute, 4> invertedTrs;
   for (Attribute tr : llvm::reverse(transforms)) {
     auto trMap = cast<TransformMapAttr>(tr);
     TransformMapAttr invertedTrMap = invertTransformMap(b, trMap, loc);
     if (!invertedTrMap)
-      return nullptr;
+      return LogicalResult::failure();
     invertedTrs.push_back(invertedTrMap);
   }
   return b.getArrayAttr(invertedTrs);

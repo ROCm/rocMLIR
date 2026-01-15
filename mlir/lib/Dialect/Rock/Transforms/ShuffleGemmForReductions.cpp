@@ -514,7 +514,7 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       return failure();
     }
     IRRewriter rewriter(rOp.getContext());
-    ArrayAttr invertedViews = invertTransforms(rewriter, rOp.getLoc(), views);
+    ArrayAttr invertedViews = invertTransforms(rewriter, rOp.getLoc(), views).value();
     LLVM_DEBUG(llvm::dbgs()
                << "inv(gemmToReduceViews)=" << invertedViews << "\n");
     if (!invertedViews || invertedViews.empty()) {
@@ -578,7 +578,7 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     rewriter.setInsertionPointAfterValue(gemmOut);
     Value trGemmOut = gemmOut;
     ArrayAttr invertedOutViews =
-        invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews);
+        invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews).value();
     for (Attribute trMap : invertedOutViews) {
       trGemmOut = TransformOp::create(rewriter, rOp.getLoc(), trGemmOut,
                                       cast<TransformMapAttr>(trMap));

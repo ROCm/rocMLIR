@@ -350,7 +350,7 @@ class LoweringBlockwiseLoadTileOp final
               transposeSubTileViews(b, loc, maybeBufferViews.value());
           Value viewLoadedBuffer = transform(
               b, loadBuffer,
-              invertTransforms(b, loc, inBufferViewsTr.threadSubTile));
+              invertTransforms(b, loc, inBufferViewsTr.threadSubTile).value());
           ThreadwiseReadIntoOp::create(b, loc, viewLoadedBuffer, subview,
                                        b.getArrayAttr({}), ValueRange{di},
                                        forceUnroll, true);
@@ -381,7 +381,7 @@ class LoweringBlockwiseLoadTileOp final
           // We invert the transforms that are iter --> K x D slice of the
           // tensor so that we can view loadBuffer as a K x D tensor
           ArrayAttr loadBufferViews =
-              invertTransforms(b, loc, maybeBufferViews->threadSubTile);
+              invertTransforms(b, loc, maybeBufferViews->threadSubTile).value();
           Value viewLoadBuffer = transform(b, loadBuffer, loadBufferViews);
 
           FailureOr<RegsAsMatrixSubTiles> maybeLdsStoreViews =
@@ -394,7 +394,7 @@ class LoweringBlockwiseLoadTileOp final
             return failure();
 
           ArrayAttr storeBufferViews =
-              invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile);
+              invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile).value();
           Value viewStoreBuffer = transform(b, storeBuffer, storeBufferViews);
 
           Type ldsReadType = vectorTypeOrSelf(elementType, kpack);

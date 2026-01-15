@@ -551,7 +551,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
     ArrayAttr loadBufferAViews =
-        invertTransforms(b, loc, maybeABufferViews->threadSubTile);
+        invertTransforms(b, loc, maybeABufferViews->threadSubTile).value();
     Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews);
     // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
     // vectorization Hence, creating the view w.r.t global that correspond to
@@ -567,10 +567,10 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       return failure();
     }
     ArrayAttr storeBufferAViews =
-        invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
+        invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile).value();
     Value viewStoreBufferA = transform(b, storeBufferA, storeBufferAViews);
     ArrayAttr loadBufferBViews =
-        invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
+        invertTransforms(b, loc, maybeBBufferViews->threadSubTile).value();
     Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews);
     // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
     // vectorization Hence, creating the view w.r.t global that correspond to
@@ -586,7 +586,7 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       return failure();
     }
     ArrayAttr storeBufferBViews =
-        invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile);
+        invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile).value();
     Value viewStoreBufferB = transform(b, storeBufferB, storeBufferBViews);
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
@@ -781,7 +781,7 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t copyDPerThread, bool forceUnroll, bool rotateDWithK) const {
     Type elemType = cast<MemRefType>(regBuffer.getType()).getElementType();
     ArrayAttr storeBufferViews =
-        invertTransforms(rewriter, loc, toLDSViews.threadSubTile);
+        invertTransforms(rewriter, loc, toLDSViews.threadSubTile).value();
     Value viewStoreBuffer = transform(rewriter, storeBuffer, storeBufferViews);
     // The following is fine for software pipelining optimization as it could be
     // considered "compute". In future, consider refactoring the following loop
@@ -1533,7 +1533,7 @@ struct GridwiseAttentionAccelRewritePattern
       //                         > invertTr(linalg input to gemmOutput maps)
       //                         > (linalgOtherInput to op arg maps)
       ArrayAttr gemmOutToLinalgMaps =
-          invertTransforms(rewriter, loc, linalgToGemmOutMaps);
+          invertTransforms(rewriter, loc, linalgToGemmOutMaps).value();
 
       if (!gemmOutToLinalgMaps) {
         genOp.emitError("We can't invert linalg input to gemmOutput maps");
@@ -2344,7 +2344,7 @@ struct GridwiseAttentionAccelRewritePattern
             loc, elemTypeOut, accelParamsGemm1, rewriter, gemm1MBlocks);
       }
       attentionOutAccBufferThreadSubTileViewMaps =
-          invertTransforms(rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
+          invertTransforms(rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile).value();
       // m buffer; this only contains a reduced single value per row
       auto reducedBufferType =
           MemRefType::get({gemm1MPerThread}, elemTypeSoftmax, AffineMap{},
@@ -2723,15 +2723,15 @@ struct GridwiseAttentionAccelRewritePattern
         Value gemm0MNThreadwiseView =
             transform(rewriter, softmaxInputBuffer,
                       invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
+                                       gemm0OutSubTileViewsTr.threadSubTile).value());
         Value gemm0MNExpThreadwiseView =
             transform(rewriter, softmaxBufferExp,
                       invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
+                                       gemm0OutSubTileViewsTr.threadSubTile).value());
         Value gemm0MNMaxThreadwiseView =
             transform(rewriter, softmaxBufferMax,
                       invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
+                                       gemm0OutSubTileViewsTr.threadSubTile).value());
         expSubstractMaxFromGemm0(rewriter, loc, gemm0MNThreadwiseView,
                                  gemm0MNExpThreadwiseView,
                                  gemm0MNMaxThreadwiseView, maxRowBuffer);
@@ -2751,11 +2751,11 @@ struct GridwiseAttentionAccelRewritePattern
         Value gemm0SumThreadwiseView =
             transform(rewriter, softmaxBufferSum,
                       invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
+                                       gemm0OutSubTileViewsTr.threadSubTile).value());
         Value gemm0MaxThreadwiseView =
             transform(rewriter, softmaxBufferMax,
                       invertTransforms(rewriter, loc,
-                                       gemm0OutSubTileViewsTr.threadSubTile));
+                                       gemm0OutSubTileViewsTr.threadSubTile).value());
         updateRowSum(rewriter, loc, gemm0SumThreadwiseView,
                      gemm0MaxThreadwiseView, sumRowBuffer, maxRowBuffer,
                      expMaxDiffRowBuffer);
@@ -2778,7 +2778,7 @@ struct GridwiseAttentionAccelRewritePattern
           // The output RegsAsSubTile views are N x M where N is reduction dim
           RegsAsMatrixSubTiles gemm0OutSubTileNxMViews = gemm0OutSubTileViews;
           ArrayAttr gemm0ThreadwiseSubtileViewNxMMaps = invertTransforms(
-              rewriter, loc, gemm0OutSubTileNxMViews.threadSubTile);
+              rewriter, loc, gemm0OutSubTileNxMViews.threadSubTile).value();
           Value gemm0ExpNMThreadwiseView = transform(
               rewriter, gemm1RegBufferB, gemm0ThreadwiseSubtileViewNxMMaps);
           // TODO: Correct the below toLDSViews to be max LDS vectorizable
@@ -2851,7 +2851,7 @@ struct GridwiseAttentionAccelRewritePattern
 
             if (doBypassLDSSecondGemm) {
               ArrayAttr gemm1ThreadwiseSubtileViewDxKMaps = invertTransforms(
-                  rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
+                  rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile).value();
               Value gemm1BDxKThreadwiseView = transform(
                   rewriter, gemm1RegBufferB, gemm1ThreadwiseSubtileViewDxKMaps);
               affine::AffineForOp nRepeatsLoop = affine::AffineForOp::create(
@@ -2926,7 +2926,7 @@ struct GridwiseAttentionAccelRewritePattern
                     rewriter, loc, attentionOutAccBuffer, g1MLoopIndVar);
               }
               ArrayAttr invertedGemm1threadSubTileMaps = invertTransforms(
-                  rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
+                  rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile).value();
               Value gemm1MNThreadwiseView =
                   transform(rewriter, gemm1OutBufferPerG1MBlock,
                             invertedGemm1threadSubTileMaps);
