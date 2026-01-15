@@ -394,7 +394,8 @@ class LoweringBlockwiseLoadTileOp final
             return failure();
 
           ArrayAttr storeBufferViews =
-              invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile).value();
+              invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile)
+                  .value();
           Value viewStoreBuffer = transform(b, storeBuffer, storeBufferViews);
 
           Type ldsReadType = vectorTypeOrSelf(elementType, kpack);

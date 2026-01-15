@@ -1704,7 +1704,7 @@ ArrayAttr mlir::rock::prependUpperViews(OpBuilder &b, ArrayAttr viewsToPrepend,
 }
 
 FailureOr<ArrayAttr> mlir::rock::invertTransforms(OpBuilder &b, Location loc,
-                                       ArrayAttr transforms) {
+                                                  ArrayAttr transforms) {
   SmallVector<Attribute, 4> invertedTrs;
   for (Attribute tr : llvm::reverse(transforms)) {
     auto trMap = cast<TransformMapAttr>(tr);
