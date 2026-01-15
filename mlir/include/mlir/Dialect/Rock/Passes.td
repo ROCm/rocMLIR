@@ -71,12 +71,6 @@ def RockGridwiseGemmToBlockwisePass : Pass<"rock-gridwise-gemm-to-blockwise", ":
   let dependentDialects = ["rock::RockDialect", "affine::AffineDialect", "gpu::GPUDialect", "vector::VectorDialect", "memref::MemRefDialect", "linalg::LinalgDialect", "scf::SCFDialect"];
 }
 
-def RockSugarToLoopsPass : Pass<"rock-sugar-to-loops", "::mlir::func::FuncOp"> {
-  let summary = "Expand shorthand, like transforming_for and extract_slice, to other dialects";
-  let dependentDialects = ["rock::RockDialect", "vector::VectorDialect", "arith::ArithDialect",
-    "gpu::GPUDialect", "memref::MemRefDialect", "affine::AffineDialect", "amdgpu::AMDGPUDialect", "LLVM::LLVMDialect", "scf::SCFDialect"];
-}
-
 def RockShuffleGemmForReductions : Pass<"rock-shuffle-gemm-for-reductions", "::mlir::func::FuncOp"> {
   let summary = "This pass shuffles parallel gemm dimensions for equally block splits for fused reductions (if any)";
   let dependentDialects = ["rock::RockDialect", "memref::MemRefDialect"];
@@ -88,6 +82,11 @@ def RockGemmLinalgSplitkNormalizationPass : Pass<"rock-gemm-linalg-splitk-normal
 }
 
 def RockTransformsToPtrPass : Pass<"rock-transforms-to-ptr", "::mlir::func::FuncOp"> {
+  let summary = "";
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+}
+
+def RockTransformsToPointerArithPass : Pass<"rock-transforms-to-pointer-arith", "::mlir::func::FuncOp"> {
   let summary = "";
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }

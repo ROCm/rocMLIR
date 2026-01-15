@@ -776,7 +776,7 @@ def Rock_BlockwiseStoreTileOp
       Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
                          "source registers">:$source,
           Arg<MemRefOf<NativeMemoryOpTypes>, "detination view">:$dest,
-          TransformMapArrayAttr:$extraViews, Variadic<Index>:$extraIndices,
+          Variadic<Index>:$extraIndices,
           StoreMethodAttr:$storeMethod, UnitAttr:$forceUnroll,
           UnitAttr:$useIndexDiffs)> {
   let summary = "Write out values in registers to transformed destination";
@@ -785,7 +785,7 @@ def Rock_BlockwiseStoreTileOp
   }];
 
   let assemblyFormat = [{
-    attr-dict $source  `->` $extraViews `(` $dest `)` (`[` $extraIndices^ `]`)? `by` $storeMethod
+    attr-dict $source  `->` $dest (`[` $extraIndices^ `]`)? `by` $storeMethod
     `:` type($source) `->` type($dest)
   }];
   let hasVerifier = 1;
@@ -843,10 +843,10 @@ def Rock_MakeRangeOp :
     generating indices and coordinate ranges for GPU computations.
   }];
 
-  let arguments = (ins Arg<MemRefOf<NativeMemoryOpTypes>,
+  let arguments = (ins Arg<AnyMemRef,
                          "source">:$out,
-    I32Attr:$start,
-    I32Attr:$end
+    IndexAttr:$start,
+    IndexAttr:$end
   );
 
   let assemblyFormat = [{
@@ -901,6 +901,53 @@ def Rock_BlockwiseBroadcastReduceOp:
   }];
 
   let hasVerifier = 1;
+}
+
+def Rock_SplatOp : Rock_Op<"splat", [Pure]> {
+  let summary = "Splat a scalar to a memref";
+
+  let description = [{
+    For a given scalar value, splat creates a memref filled with that value,
+    e.g. %scalar : i32 -> memref<1x64xi32>.
+  }];
+
+  let arguments = (ins AnyType:$src);
+
+  let results = (outs AnyMemRef:$result);
+
+  let assemblyFormat = "$src attr-dict `:` type($src) `->` type($result)";
+}
+
+def Rock_ArithOp : Rock_Op<"arith_op", []> {
+  let summary = "Generic arithmetic operation wrapper";
+
+  let description = [{
+    A generic wrapper for arithmetic operations that will be lowered
+    when converting memrefs to tensors. The 'name' attribute specifies
+    which arithmetic operation to perform.
+  }];
+
+  let arguments = (ins StrAttr:$name, OptionalAttr<IndexAttr>:$constantValue, Variadic<AnyType>:$operands);
+
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "`{` $name `}` $operands attr-dict `:` functional-type($operands, $result)";
+}
+
+def Rock_BroadcastOp : Rock_Op<"broadcast", [Pure]> {
+  let summary = "Broadcast a memref to a new shape";
+
+  let description = [{
+    For a given memref, broadcast changes one or more dimensions with size 1
+    to a new size, e.g. memref<1x32x1xf32> -> memref<2x32x4xf32>. You cannot
+    change the size of a non-1 dimension.
+  }];
+
+  let arguments = (ins AnyMemRef:$src);
+
+  let results = (outs AnyMemRef:$result);
+
+  let assemblyFormat = "$src attr-dict `:` type($src) `->` type($result)";
 }
 
 #endif // ROCK_OPS

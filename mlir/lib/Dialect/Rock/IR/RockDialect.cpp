@@ -1421,8 +1421,8 @@ BlockwiseStoreTileOp::cloneWithExtraIndices(OpBuilder &builder,
 
   // Only one operand supports view
   auto newOp = BlockwiseStoreTileOp::create(
-      builder, getLoc(), getSource(), view, getExtraViews(), newExtraIndices,
-      getStoreMethod(), getForceUnroll(), getUseIndexDiffs());
+      builder, getLoc(), getSource(), view, newExtraIndices, getStoreMethod(),
+      getForceUnroll(), getUseIndexDiffs());
   return newOp.getOperation();
 }
 
@@ -1438,12 +1438,7 @@ LogicalResult BlockwiseStoreTileOp::verify() {
   if (memSpaceAttr && (!gpuMemSpaceAttr || gpuMemSpaceAttr.getValue() !=
                                                gpu::AddressSpace::Private))
     return emitOpError("source must be private registers");
-  ArrayAttr extraViews = getExtraViews();
-  ArrayRef<int64_t> outputShape;
-  if (extraViews.empty())
-    outputShape = getDest().getType().getShape();
-  else
-    outputShape = cast<TransformMapAttr>(extraViews[0]).getUpperBounds();
+  ArrayRef<int64_t> outputShape = getDest().getType().getShape();
 
   size_t extraIdxCount = getExtraIndices().size();
   if (outputShape.empty()) {
@@ -1461,7 +1456,6 @@ LogicalResult BlockwiseStoreTileOp::verify() {
 //===-----------------------------------------------------===//
 // BlockwiseStoreTilePtrOp
 //===-----------------------------------------------------===//
-
 
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmAccelOp

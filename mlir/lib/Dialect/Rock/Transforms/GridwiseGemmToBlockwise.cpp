@@ -353,8 +353,9 @@ struct GridwiseGemmAccelRewritePattern
     }
     ArrayAttr idToMatrixCMaps = maybeIdToMatrixCMaps.value().gridSubTile;
 
+    Value wrappedOut = transform(b, op.getC(), idToMatrixCMaps);
     BlockwiseStoreTileOp::create(
-        b, loc, regCAllocOp, op.getC(), idToMatrixCMaps,
+        b, loc, regCAllocOp, wrappedOut,
         /*extraIndices=*/
         ValueRange{gridCoords.g_block, gridCoords.m_block, gridCoords.n_block},
         op.getStoreMethod(), forceUnroll, useIndexDiffs);
