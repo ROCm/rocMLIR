@@ -323,6 +323,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
 
   if (options.applicabilityMode == rock::ApplicabilityMode::NonApplicability ||
       options.applicabilityMode == rock::ApplicabilityMode::Full) {
+    funcPm.addPass(rock::createRockTransformsToPtrPass());
     funcPm.addPass(rock::createRockSugarToLoopsPass());
     // TODO: RockToTriton
 

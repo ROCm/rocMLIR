@@ -1283,21 +1283,18 @@ void GridwiseGemmAccelOp::getEffects(
 // GpuAllocOp
 //===-----------------------------------------------------===//
 
-static int64_t getByteSize(MemRefType memref) {
-  int64_t elementBitWidth = 0;
+static bool nonZero(MemRefType memref) {
+  int64_t numElements = 1;
   Type type = memref.getElementType();
   if (auto vecType = dyn_cast<VectorType>(type)) {
-    elementBitWidth =
-        (vecType.getElementTypeBitWidth() * vecType.getNumElements());
-  } else {
-    elementBitWidth = type.getIntOrFloatBitWidth();
+    numElements = vecType.getNumElements();
   }
-  return (memref.getNumElements() * elementBitWidth) / 8;
+  return memref.getNumElements() * numElements > 0;
 }
 
 LogicalResult GpuAllocOp::verify() {
   // Make sure the size is bigger than 0
-  if (getByteSize(getOutput().getType()) > 0) {
+  if (nonZero(getOutput().getType())) {
     return success();
   }
   return emitError("The size of rock.alloc should be greather than zero.");
@@ -1460,6 +1457,11 @@ LogicalResult BlockwiseStoreTileOp::verify() {
   // }
   return success();
 }
+
+//===-----------------------------------------------------===//
+// BlockwiseStoreTilePtrOp
+//===-----------------------------------------------------===//
+
 
 //===----------------------------------------------------------------------===//
 // BlockwiseGemmAccelOp

@@ -87,4 +87,9 @@ def RockGemmLinalgSplitkNormalizationPass : Pass<"rock-gemm-linalg-splitk-normal
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
+def RockTransformsToPtrPass : Pass<"rock-transforms-to-ptr", "::mlir::func::FuncOp"> {
+  let summary = "";
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

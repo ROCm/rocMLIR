@@ -752,27 +752,13 @@ def Rock_BlockwiseLoadTileOp
 def Rock_BlockwiseLoadTilePtrOp
     : Rock_Op<"blockwise_load_tile_ptr",
               [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]>,
-      Arguments<(ins Arg<AnyRankedTensor, "Pointer tensor">:$pointerTensor,
-          Arg<AnyRankedTensor, "Mask tensor">:$maskTensor,
+      Arguments<(ins Arg<AnyMemRef, "Pointer tensor">:$pointerTensor,
+          Arg<AnyMemRef, "Mask tensor">:$maskTensor,
           Arg<MemRefOf<NativeMemoryOpTypes>,
               "destination registers">:$destRegisters)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
-    The `rock.blockwise_load_tile` op does tile loading at workgroup (block) level.
-    We will load a tile of data from global memory into LDS and/or registers.
-
-    There are different load types:
-    - Default: Creates two stages, (1) load from memory, (2) write to LDS.
-    - BypassLDS: Bypasses LDS and loads from device memory to registers directly (only one stage).
-    - DoubleBuffer: Creates three stages, (1) load from memory, (2) write to LDS, (3) load to registers.
-    - DirectToLDSDefault: Same as Default, but a single stage loads from memory and writes to LDS.
-    - DirectToLDSDoubleBuffer: Same as DoubleBuffer, but a single stage loads from memory and writes to LDS.
-
-    `isA` determines if we are loading an A matrix or B matrix. `G`, `M` and `N` are the GEMM sizes.
-    `elementTypeA` and `elementTypeB` are used to construct AccelEmitter. They are data types for the Matrix A & B of the GEMMs. 
-    `elementLoadType` is the element type of the global buffer this BlockwiseLoadTileOp is trying to load. 
-    `elementType` is the elementType in the registers.  Note that it may differ from `elementLoadType` because of input fusions.  
   }];
   let assemblyFormat = [{
     $pointerTensor `[` $maskTensor `]` `->` $destRegisters attr-dict
@@ -796,55 +782,6 @@ def Rock_BlockwiseStoreTileOp
   let summary = "Write out values in registers to transformed destination";
 
   let description = [{
-    A high-level representation of a register -> somewhere write loop that
-    accounts for coordinate transformations.
-
-    If `%dest = rock.transform #transform_mapN %buffer`
-    (with the one transformation representing an entire sequence),
-    and `%buffer` is in global memory, the operation
-
-    ```mlir
-    rock.threadwise_write_all %source -> [#transform_mapM](%dest) by set
-    ```
-
-    will lower to
-    ```mlir
-    %bid = rock.workgroup_id
-    %tid = rock.workitem_id
-    rock.transforming_for (%_, %_, %i) = [](%c0, %c0, %c0)
-      (%args, ...) = MAPS(%bid, %tid, %c0)
-      (%na, %isValid) = validity
-      bounds = [1, 1, L], strides = [1, 1, V] {
-        rock.global_store set {length = V} %source[%i] -> %buffer[%args] if %isValid
-    }
-    ```
-    where MAPS is `[#transform_mapM, #transform_mapN]`,
-    L is the length of `%source`, V is the maximum vectorization computed
-    for MAPS, and the oob dimensions are those combputed on MAPS.
-
-    The input to extraViews ; (the transforms on %dest) must have the form
-    (extraIdx0, ... , extraIdxN, iteration_number).
-
-    Primarily, extraIndices would be used to pass in tid and bid. This would need
-    to have a matching view in [extraViews]dest. The extraIndices could be used
-    to integrate loop induction vars that is outside of the op.
-
-    If extraIndices are used, the [extraViews]dest must have the form
-    (extraIdx0, ... , extraIdxN, iteration_number).
-
-    This is used during fusion to allow rewriting
-    ```mlir
-    %tmp = memref.alloc()
-    ...
-    rock.threadwise_write_all [...](%result) -> %tmp
-    linalg.generic (%tmp) -> (%output) { ... }
-    ```
-
-    to
-    ```mlir
-    linalg.generic (%result) -> (%result_2) { ... }
-    rock.threadwise_write_all [...](%result_2) -> %out
-    ```
   }];
 
   let assemblyFormat = [{
@@ -854,13 +791,32 @@ def Rock_BlockwiseStoreTileOp
   let hasVerifier = 1;
 }
 
+// blockwise_store_tile
+def Rock_BlockwiseStoreTilePtrOp
+    : Rock_Op<"blockwise_store_tile_ptr",
+              []>,
+      Arguments<(ins Arg<AnyMemRef, "Pointer tensor">:$pointerTensor,
+          Arg<AnyMemRef, "Mask tensor">:$maskTensor,
+          Arg<MemRefOf<NativeMemoryOpTypes>,
+              "source registers">:$source, StoreMethodAttr:$storeMethod)> {
+  let summary = "Write out values in registers to transformed destination";
+
+  let description = [{
+  }];
+
+  let assemblyFormat = [{
+    attr-dict $source  `->` $pointerTensor `(` $maskTensor `)` `by` $storeMethod
+    `:` type($source) `->` type($pointerTensor) `(` type($maskTensor) `)`
+  }];
+}
+
 def Rock_TransformsToPtrOp
     : Rock_Op<"transforms_to_ptr",
               []>,
       Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
                          "source">:$source,
-          Arg<MemRefOf<NativeMemoryOpTypes>, "pointers">:$pointers,
-          Arg<MemRefOf<NativeMemoryOpTypes>, "mask">:$mask, Variadic<Index>:$extraIndices)> {
+          Arg<AnyMemRef, "pointers">:$pointers,
+          Arg<AnyMemRef, "mask">:$mask, Variadic<Index>:$extraIndices)> {
   let summary = "Write out values in registers to transformed destination";
 
   let description = [{
@@ -887,17 +843,14 @@ def Rock_MakeRangeOp :
     generating indices and coordinate ranges for GPU computations.
   }];
 
-  let arguments = (ins 
+  let arguments = (ins Arg<MemRefOf<NativeMemoryOpTypes>,
+                         "source">:$out,
     I32Attr:$start,
     I32Attr:$end
   );
 
-  let results = (outs 
-    AnyRankedTensor:$result
-  );
-
   let assemblyFormat = [{
-    $start `to` $end attr-dict `:` type($result)
+    $start `to` $end `->` $out attr-dict `:` type($out)
   }];
 }
 
