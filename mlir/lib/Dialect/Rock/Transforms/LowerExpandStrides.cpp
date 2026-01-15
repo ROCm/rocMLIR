@@ -46,7 +46,7 @@ struct ExpandStridesLoweringPattern
 
   LogicalResult matchAndRewrite(rock::ExpandStridesOp op,
                                 PatternRewriter &rewriter) const override {
-    // Only lower memref version (no result means post-bufferization)
+    // Only lower memref version (no result means pre-bufferization)
     if (op.getResult())
       return rewriter.notifyMatchFailure(op, "tensor version, skip");
 
