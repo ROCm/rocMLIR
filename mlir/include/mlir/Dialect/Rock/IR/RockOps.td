@@ -769,6 +769,113 @@ def Rock_GridwiseAttentionAccelOp
   let hasVerifier = 1;
 }
 
+// gridwise_paged_attention_accel
+def Rock_GridwisePagedAttentionAccelOp
+    : Rock_Op<"gridwise_paged_attention_accel",
+              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+               RockFusionRoot, AttrSizedOperandSegments,
+]>,
+      Arguments<(ins
+          // Queries (normalized, padded in GemmToGridwise)
+          MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
+
+          // Paged K/V pointers and optional address masks
+          AnyMemRef:$keyPagePointers,
+          Optional<AnyMemRef>:$keyAddressMask,
+          AnyMemRef:$valuePagePointers,
+          Optional<AnyMemRef>:$valueAddressMask,
+
+          // Elementwise inputs for pre-softmax fusion
+          Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
+
+          // Sequence length / prefix (for KV cache and causal masking)
+          Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
+          Optional<MemRefRankOf<[I32], [1]>>:$prefixOffset,
+
+          // Output
+          MemRefRankOf<[F32, F16, BF16], [3]>:$out,
+          Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse,
+
+          // Attention attributes
+          UnitAttr:$causal,
+          I32Attr:$splitKV,
+
+          // Gemm features and store method
+          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+          StoreMethodAttr:$storeMethod,
+
+          // Grid/block size
+          I32Attr:$blockSize,
+          I32Attr:$gridSize,
+
+          // Padding info for K/V (to be applied in ToBlockwise)
+          // These store the pre-pad dimensions so padding transforms can be built
+          OptionalAttr<IndexAttr>:$prePadG0M,  // gemm0 M dimension (keys)
+          OptionalAttr<IndexAttr>:$prePadG0N,  // gemm0 N dimension (queries seq)
+          OptionalAttr<IndexAttr>:$prePadG1K,  // gemm1 K dimension (values seq)
+          OptionalAttr<IndexAttr>:$prePadG1M,  // gemm1 M dimension (values head)
+
+          // GQA (Grouped Query Attention)
+          OptionalAttr<IndexAttr>:$numRepeatsGQA,
+
+          // Softmax type
+          OptionalAttr<TypeAttr>:$softmaxType,
+
+          // Tuning parameters for both gemms
+          RockAccelTuningParamAttrInterface:$params0,
+          RockAccelTuningParamAttrInterface:$params1,
+
+          // First gemm indices for fusion
+          DenseI64ArrayAttr:$firstGemmIndices,
+
+          // Flags
+          DefaultValuedOptionalAttr<BoolAttr, "false">:$preSoftmaxHasSplitKVTransforms
+      )> {
+  let summary = "Gridwise paged attention with matrix accelerator";
+  let description = [{
+    The `rock.gridwise_paged_attention_accel` op computes gridwise attention
+    with paged K/V cache support using matrix acceleration.
+
+    Unlike `gridwise_attention_accel` which takes K/V as direct memref operands,
+    this op takes page pointers and a `loadFromKVCache` region that defines how
+    to dereference and transform the paged data into K/V tensors.
+
+    The `loadFromKVCache` region contains:
+    - `rock.paged_deref` ops to dereference page pointers
+    - `rock.transform` ops to reshape the dereferenced data to K/V format
+
+    The actual dereferencing and K/V materialization happens during ToBlockwise
+    lowering, allowing the paged access pattern to be optimized for the GPU
+    memory hierarchy.
+
+    K/V padding (specified by prePadG0M, prePadG0N, prePadG1K, prePadG1M) is
+    applied during ToBlockwise, after the paged data is dereferenced.
+  }];
+
+  let regions = (region
+    AnyRegion:$loadFromKVCache,
+    AnyRegion:$preSoftmaxBody
+  );
+
+  let assemblyFormat = [{
+    `(` operands `)` (`features` `=` $features^)?
+    `loadFromKVCache` `=` $loadFromKVCache
+    `preSoftmaxOps` `=` $preSoftmaxBody
+    attr-dict `:` type(operands)
+  }];
+
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    // Get the keys type from the loadFromKVCache region output.
+    ::mlir::Type getKeysType();
+
+    // Get the values type from the loadFromKVCache region output.
+    ::mlir::Type getValuesType();
+  }];
+}
+
 // Memory allocation on GPU memory hierachy.
 def Rock_GpuAllocOp:
     Rock_Op<"alloc">,

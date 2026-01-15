@@ -2874,6 +2874,110 @@ void GridwiseAttentionAccelOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// GridwisePagedAttentionAccelOp
+//===----------------------------------------------------------------------===//
+LogicalResult GridwisePagedAttentionAccelOp::verify() {
+  if (getStoreMethod() != StoreMethod::Set)
+    return emitError("Only set store method is supported for paged attention.");
+
+  RockAccelTuningParamAttrInterface gemm0TuningParams = getParams0();
+  int64_t gemm0kpack = gemm0TuningParams.getKpack();
+  int64_t gemm0NPerBlock = gemm0TuningParams.getNPerBlock();
+  if (gemm0NPerBlock % gemm0kpack != 0) {
+    return emitError("NPerBlock should be divisible by kpack.");
+  }
+
+  if (getSplitKV() <= 0)
+    return emitError("Negative or zero split-kv does not make sense.");
+
+  // Validate prefix offset constraints
+  if (getPrefixOffset() && !getCausal())
+    return emitError(
+        "prefixOffset requires causal to be enabled. "
+        "Prefix causal attention is causal masking with an offset.");
+
+  // Verify loadFromKVCache region exists and has content
+  Region &kvCacheRegion = getLoadFromKVCache();
+  if (kvCacheRegion.empty())
+    return emitError("loadFromKVCache region cannot be empty");
+
+  return success();
+}
+
+Type GridwisePagedAttentionAccelOp::getKeysType() {
+  Region &kvCacheRegion = getLoadFromKVCache();
+  if (kvCacheRegion.empty())
+    return nullptr;
+  Block &block = kvCacheRegion.front();
+  if (block.getNumArguments() < 2)
+    return nullptr;
+  // keyOut is at index 1
+  return block.getArgument(1).getType();
+}
+
+Type GridwisePagedAttentionAccelOp::getValuesType() {
+  Region &kvCacheRegion = getLoadFromKVCache();
+  if (kvCacheRegion.empty())
+    return nullptr;
+  Block &block = kvCacheRegion.front();
+  if (block.getNumArguments() < 4)
+    return nullptr;
+  // valueOut is at index 3
+  return block.getArgument(3).getType();
+}
+
+SmallVector<mlir::Type> GridwisePagedAttentionAccelOp::getTypesForFeature() {
+  Type keysType = getKeysType();
+  Type valuesType = getValuesType();
+  if (!keysType || !valuesType)
+    return {getQueries().getType()};
+  return {keysType, valuesType};
+}
+
+void GridwisePagedAttentionAccelOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  auto *read = MemoryEffects::Read::get();
+  auto *write = MemoryEffects::Write::get();
+
+  // Output is read and written
+  effects.emplace_back(read, &getOutMutable());
+  effects.emplace_back(write, &getOutMutable());
+
+  // LSE if present
+  if (getLse()) {
+    effects.emplace_back(read, &getLseMutable()[0]);
+    effects.emplace_back(write, &getLseMutable()[0]);
+  }
+
+  // Sequence length info
+  if (getCurrentSeqLen()) {
+    effects.emplace_back(read, &getCurrentSeqLenMutable()[0]);
+  }
+  if (getPrefixOffset()) {
+    effects.emplace_back(read, &getPrefixOffsetMutable()[0]);
+  }
+
+  // Queries are read
+  effects.emplace_back(read, &getQueriesMutable());
+
+  // Page pointers are read
+  effects.emplace_back(read, &getKeyPagePointersMutable());
+  effects.emplace_back(read, &getValuePagePointersMutable());
+
+  // Address masks if present
+  if (getKeyAddressMask()) {
+    effects.emplace_back(read, &getKeyAddressMaskMutable()[0]);
+  }
+  if (getValueAddressMask()) {
+    effects.emplace_back(read, &getValueAddressMaskMutable()[0]);
+  }
+
+  // Pre-softmax elementwise inputs
+  for (auto &regionArg : getPreSoftmaxElemWiseInputsMutable())
+    effects.emplace_back(read, &regionArg);
+}
+
+//===----------------------------------------------------------------------===//
 // WorkgroupIdOp and WorkitemIdOp
 //===----------------------------------------------------------------------===//
 static ConstantIntRanges
