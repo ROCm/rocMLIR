@@ -74,18 +74,23 @@ module {
     // Step 2. Compute the offsets for the input buffers.
     // [OLD IR]  %21 = rock.alloc() : memref<32x64xf16, #gpu.address_space<private>>
     %offs_1 = rock.make_range {end = 64 : i32, start = 0 : i32} : memref<64xi32>
-    // Here it goes the IR to compute the offset depending on the workgroup id.
+    // Here it goes the IR to compute the A offset depending on the workgroup id.
     // ...
     %offs_a = arith.addi %offs_1, %whatever : memref<64xi32>
 
     // [OLD IR]  %22 = rock.alloc() : memref<64x64xf16, #gpu.address_space<private>>
     %offs_2 = rock.make_range {end = 64 : i32, start = 0 : i32} : memref<64xi32>
-    // Here it goes the IR to compute the offset depending on the workgroup id.
+    // Here it goes the IR to compute the B offset depending on the workgroup id.
     // ...
     %offs_b = arith.addi %offs_2, %whatever : memref<64xi32>
 
-    // %23 = rock.alloc() : memref<32x64xf32, #gpu.address_space<private>>
-    // rock.fill(%23, %cst) : memref<32x64xf32, #gpu.address_space<private>>, f32
+    // [OLD IR] %23 = rock.alloc() : memref<32x64xf32, #gpu.address_space<private>>
+    // [OLD IR] rock.fill(%23, %cst) : memref<32x64xf32, #gpu.address_space<private>>, f32
+    // Note: Triton assumes that the output buffer is already filled with 0 I think?
+    %offs_3 = rock.make_range {end = 64 : i32, start = 0 : i32} : memref<32xi32>
+    // Here it goes the IR to compute the C offset depending on the workgroup id.
+    // ...
+    %offs_c = arith.addi %offs_3, %whatever : memref<32xi32>
     
     scf.for %arg3 = %c0 to %c48 step %c1 {
       // [OLD IR] %t24 = rock.transform %1 by #transform_map4 : memref<1x3072x768xf16> to memref<48x1x12x12x64x64xf16>
@@ -112,14 +117,18 @@ module {
       %22 = rock.blockwise_load_ptr(%24, %mask_tensor_a) : (memref<64x64xindex>, memref<64x64xi1>) to memref<64x64xf16, #gpu.address_space<private>>
       %21 = rock.blockwise_load_ptr(%25, %mask_tensor_b) : (memref<64x64xindex>, memref<64x64xi1>) to memref<32x64xf16, #gpu.address_space<private>>
 
+      // TODO: This should also return the value...
       rock.blockwise_gemm_accel %23 += %21 * %22 : memref<32x64xf32, #gpu.address_space<private>> += memref<32x64xf16, #gpu.address_space<private>> * memref<64x64xf16, #gpu.address_space<private>>
     }
-    
+
     // [OLD IR] %mask_tensor_c, %c_out_ptr = rock.transforms_to_ptr %2[%11, %18, %20] : memref<1x384x768xf32> to memref<32x64xindex>, memref<32x64xi1>
     %stride_cm = arith.constant 1 : i32
     %stride_cn = arith.constant 1 : i32
     %c_ptrs_39 = tt.splat %stride_cm : i32 -> tensor<64x1xi32>
     %c_ptrs_44 = tt.splat %stride_cn : i32 -> tensor<1x64xi32>
+
+    %c_ptr = rock.expand_dims %offs_c {axis = 1 : i32} : memref<64xi32> -> memref<64x1xi32>
+    %c_ptrs_39 = arith.muli %c_ptrs, %c_ptrs_39 : tensor<64x1xi32> loc(#loc112)
 
     // Here it goes the IR to compute the pointer and the mask...
     // ... the output for C is %c_out_ptr
