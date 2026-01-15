@@ -1401,6 +1401,9 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   Location loc = op.getLoc();
   MIXRShapedType resultType = op.getOut().getType();
   RankedTensorType memoryLayoutType = resultType.asMemoryLayoutTensor();
+  if (!memoryLayoutType)
+    return op.emitOpError("output type has strides that cannot be represented "
+                          "as a memory layout");
   auto resultTensorType =
       cast<RankedTensorType>(getTypeConverter()->convertType(resultType));
   if (!resultTensorType)
@@ -1420,10 +1423,42 @@ LogicalResult AsUnderlyingShapeConverter::matchAndRewrite(
   Value transposed = in;
   if (!llvm::is_sorted(permutation))
     transposed = rock::tosa::getTransposeOp(rewriter, loc, in, permutationI32);
+
+  // Handle long strides by using a custom TOSA op to expand strides,
+  // placing the contiguous result into a larger padded buffer.
   if (transposed.getType() != memoryLayoutType) {
-    rewriter.eraseOp(transposed.getDefiningOp());
-    return op.emitOpError(
-        "writing to tensors with long strides or broadcasts is unsupported");
+    // Check for broadcasts, which we don't support.
+    if (resultType.hasBroadcast())
+      return op.emitOpError(
+          "writing to tensors with broadcasts is unsupported");
+
+    auto transposedType = cast<RankedTensorType>(transposed.getType());
+
+    // Verify that memoryLayoutType is >= transposedType in all dimensions,
+    // and that each memory dimension is a multiple of the logical dimension.
+    // A non-multiple indicates a non-integer stride expansion factor.
+    for (auto [memDim, transDim] : llvm::zip_equal(memoryLayoutType.getShape(),
+                                                   transposedType.getShape())) {
+      if (memDim < transDim)
+        return op.emitOpError("memory layout dimension ")
+               << memDim << " is smaller than logical dimension " << transDim
+               << "; this indicates invalid strides";
+      if (memDim % transDim != 0)
+        return op.emitOpError("memory layout dimension ")
+               << memDim << " is not a multiple of logical dimension "
+               << transDim << "; this indicates invalid strides";
+    }
+
+    transposed =
+        tosa::CustomOp::create(
+            rewriter, loc,
+            /*output_list=*/TypeRange{memoryLayoutType},
+            /*operator_name=*/
+            rewriter.getStringAttr(ROCK_CUSTOMOP_EXPAND_STRIDES),
+            /*domain_name=*/rewriter.getStringAttr(ROCK_CUSTOMOP_DOMAIN_NAME),
+            /*implementation_attrs=*/rewriter.getStringAttr(""),
+            /*input_list=*/ValueRange{transposed})
+            .getResult(0);
   }
 
   Value collapsed = transposed;
