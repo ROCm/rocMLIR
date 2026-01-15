@@ -1532,17 +1532,17 @@ struct GridwiseAttentionAccelRewritePattern
       //  (bid, tid, iter) > ... > [gemmOutput: k x d]
       //                         > invertTr(linalg input to gemmOutput maps)
       //                         > (linalgOtherInput to op arg maps)
-      ArrayAttr gemmOutToLinalgMaps =
-          invertTransforms(rewriter, loc, linalgToGemmOutMaps).value();
+      FailureOr<ArrayAttr> gemmOutToLinalgMaps =
+          invertTransforms(rewriter, loc, linalgToGemmOutMaps);
 
-      if (!gemmOutToLinalgMaps) {
+      if (failed(gemmOutToLinalgMaps)) {
         genOp.emitError("We can't invert linalg input to gemmOutput maps");
         return WalkResult::interrupt();
       }
 
-      if (!gemmOutToLinalgMaps.empty()) {
+      if (!gemmOutToLinalgMaps.value().empty()) {
         linalgGridSubTileMaps = prependUpperViews(
-            rewriter, linalgGridSubTileMaps, gemmOutToLinalgMaps);
+            rewriter, linalgGridSubTileMaps, gemmOutToLinalgMaps.value());
       }
 
       for (auto [idx, genOpInput] : llvm::enumerate(genOp.getInputs())) {
@@ -2343,8 +2343,12 @@ struct GridwiseAttentionAccelRewritePattern
         outAccBufferOutTyped = createBufferForGemmOut(
             loc, elemTypeOut, accelParamsGemm1, rewriter, gemm1MBlocks);
       }
-      attentionOutAccBufferThreadSubTileViewMaps =
-          invertTransforms(rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile).value();
+
+      FailureOr<ArrayAttr> invertedThreadSubTileViews =
+          invertTransforms(rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
+      if(succeeded(invertedThreadSubTileViews)){
+          attentionOutAccBufferThreadSubTileViewMaps = invertedThreadSubTileViews.value();
+      }
       // m buffer; this only contains a reduced single value per row
       auto reducedBufferType =
           MemRefType::get({gemm1MPerThread}, elemTypeSoftmax, AffineMap{},
