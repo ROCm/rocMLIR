@@ -14,7 +14,7 @@ template <typename ParamsType>
 ArrayRef<StringRef> ParamLookupTable<ParamsType>::lookup(StringRef arch,
                                                          KernelType op,
                                                          Type dataType) {
-  if (dataType.getIntOrFloatBitWidth() == 4 && isa<FloatType>(dataType) &&
+  if (dataType.getIntOrFloatBitWidth() == 4 && dataType.isFloat() &&
       op == KernelType::Gemm && !lookupArchInfo(arch).hasScaledGemm)
     llvm::report_fatal_error(Twine("fp4 gemm is not supported on ") + arch);
 
@@ -115,8 +115,11 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
   if constexpr (std::is_same_v<ParamsType, GeneralGemmParamsAttr>) {
     // For non-accel params, we only support f32
     return "f32";
-  } else if (isa<FloatType>(dataType)) {
-    // Normalize float types by bitwidth only
+  } else if (dataType.isBF16()) {
+    // Special case for bf16
+    return "bf16";
+  } else if (dataType.isF16()) {
+    // Normalize other float types by bitwidth
     unsigned bitwidth = dataType.getIntOrFloatBitWidth();
     switch (bitwidth) {
     case 4:
@@ -128,11 +131,8 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
     default:
       llvm::report_fatal_error("Unsupported float bitwidth");
     }
-  } else if (isa<BFloat16Type>(dataType)) {
-    // Special case for bfloat16
-    return "bf16";
   } else if (dataType.isInteger()) {
-    // Normalize integer types by bitwidth only
+    // Normalize integer types by bitwidth
     unsigned bitwidth = dataType.getIntOrFloatBitWidth();
     switch (bitwidth) {
     case 8:
