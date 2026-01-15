@@ -91,4 +91,9 @@ def RockTransformsToPointerArithPass : Pass<"rock-transforms-to-pointer-arith", 
   let dependentDialects = ["rock::RockDialect", "func::FuncDialect"];
 }
 
+def RockToTTIRPass : Pass<"rock-to-ttir", "::mlir::func::FuncOp"> {
+  let summary = "Convert Rock dialect operations to Triton IR";
+  let dependentDialects = ["rock::RockDialect", "func::FuncDialect", "triton::TritonDialect"];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

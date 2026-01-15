@@ -325,7 +325,11 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       options.applicabilityMode == rock::ApplicabilityMode::Full) {
     funcPm.addPass(rock::createRockTransformsToPtrPass());
     funcPm.addPass(rock::createRockTransformsToPointerArithPass());
-    // TODO: RockToTriton
+    // Canonicalize and CSE the Rock IR before converting to Triton IR.
+    // TODO: Does it break something?
+    funcPm.addPass(createCanonicalizerPass());
+    funcPm.addPass(createCSEPass());
+    funcPm.addPass(rock::createRockToTTIRPass());
 
     // Triton backend pipeline
     // This converts Rock dialect to Triton IR and compiles to LLVM

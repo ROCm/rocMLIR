@@ -13,6 +13,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   GemmLinalgSplitkNormalizationPass.cpp
   TransformsToPtr.cpp
   TransformsToPointerArith.cpp
+  RockToTTIR.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock
@@ -52,4 +53,45 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRVectorTransforms
   # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
   # MLIRMHALTransforms
+  # Triton dependencies
+  # TritonIR depends on TritonGPUIR because Traits.cpp uses MemDescType
+  # TritonGPUIR depends on TritonNvidiaGPUIR because it references NVIDIA types/ops
+  TritonIR
+  TritonGPUIR
+  TritonNvidiaGPUIR
 )
+
+# Add Triton include directories for compilation
+target_include_directories(MLIRRockTransforms PRIVATE
+  ${TRITON_PROJECT_DIR}/include
+  ${TRITON_BINARY_DIR}/include
+  ${TRITON_PROJECT_DIR}/third_party
+  ${TRITON_BINARY_DIR}/third_party
+)
+
+# Fix build order: TritonIR and TritonGPUIR include headers that need generated files
+# This ensures tablegen runs before these libraries build
+if(TARGET TritonIR)
+  foreach(target IN ITEMS
+      TritonGPUTableGen
+      TritonGPUAttrDefsIncGen
+      TritonGPUCGAAttrIncGen
+      TritonGPUTypeInterfacesIncGen
+      TritonGPUOpInterfacesIncGen)
+    if(TARGET ${target})
+      add_dependencies(TritonIR ${target})
+    endif()
+  endforeach()
+endif()
+
+# TritonGPUIR unconditionally includes NVIDIA headers, so we need NVIDIA tablegen
+if(TARGET TritonGPUIR)
+  foreach(target IN ITEMS
+      TritonNvidiaGPUTableGen
+      TritonNvidiaGPUAttrDefsIncGen
+      TritonNvidiaGPUOpInterfacesIncGen)
+    if(TARGET ${target})
+      add_dependencies(TritonGPUIR ${target})
+    endif()
+  endforeach()
+endif()
