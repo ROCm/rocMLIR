@@ -2334,7 +2334,7 @@ struct GridwiseAttentionAccelRewritePattern
     // we just need another buffer to do the special accumulation
     Value attentionOutAccBuffer, outAccBufferOutTyped, sumRowBuffer,
         maxRowBuffer, expMaxDiffRowBuffer, lseBuffer;
-    ArrayAttr attentionOutAccBufferThreadSubTileViewMaps;
+    ArrayAttr attentionOutAccBufferThreadSubTileViewMaps = nullptr;
     if (op.getEnableSoftmax()) {
       attentionOutAccBuffer = createBufferForGemmOut(
           loc, elemTypeSoftmax, accelParamsGemm1, rewriter, gemm1MBlocks);
