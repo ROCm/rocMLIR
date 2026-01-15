@@ -272,7 +272,7 @@ const StringRef PopulateParams::initParametersF32ConvGfx1150[] = {
 };
 // END_CONV_NonAccel_f32_gfx1150_DEFS
 
-#endif // NonAccel_DEFINITIONS_GEN
+#endif  // NonAccel_DEFINITIONS_GEN
 
 #ifdef NonAccel_DECLARATIONS_GEN
 
@@ -326,7 +326,7 @@ static constexpr size_t nInitParametersF32ConvGfx1150 = 42;
 static const StringRef initParametersF32ConvGfx1150[nInitParametersF32ConvGfx1150];
 // END_CONV_NonAccel_f32_gfx1150_DECS
 
-#endif // NonAccel_DECLARATIONS_GEN
+#endif  // NonAccel_DECLARATIONS_GEN
 
 #ifdef XDL_DEFINITIONS_GEN
 
@@ -881,7 +881,7 @@ const StringRef PopulateParamsXDL::initParametersI8ConvGfx950[] = {
 };
 // END_CONV_XDL_i8_gfx950_DEFS
 
-#endif // XDL_DEFINITIONS_GEN
+#endif  // XDL_DEFINITIONS_GEN
 
 #ifdef XDL_DECLARATIONS_GEN
 
@@ -1020,7 +1020,7 @@ static constexpr size_t nInitParametersI8ConvGfx950 = 21;
 static const StringRef initParametersI8ConvGfx950[nInitParametersI8ConvGfx950];
 // END_CONV_XDL_i8_gfx950_DECS
 
-#endif // XDL_DECLARATIONS_GEN
+#endif  // XDL_DECLARATIONS_GEN
 
 #ifdef Wmma_DEFINITIONS_GEN
 
@@ -1618,7 +1618,7 @@ const StringRef PopulateParamsWmma::initParametersI8ConvGfx1150[] = {
 };
 // END_CONV_Wmma_i8_gfx1150_DEFS
 
-#endif // Wmma_DEFINITIONS_GEN
+#endif  // Wmma_DEFINITIONS_GEN
 
 #ifdef Wmma_DECLARATIONS_GEN
 
@@ -1732,7 +1732,7 @@ static constexpr size_t nInitParametersI8ConvGfx1150 = 21;
 static const StringRef initParametersI8ConvGfx1150[nInitParametersI8ConvGfx1150];
 // END_CONV_Wmma_i8_gfx1150_DECS
 
-#endif // Wmma_DECLARATIONS_GEN
+#endif  // Wmma_DECLARATIONS_GEN
 
 #ifdef GemmGemm_DEFINITIONS_GEN
 
@@ -2183,7 +2183,7 @@ const StringRef PopulateParamsGemmGemm::initParametersBf16AttentionGfx1101[] = {
 };
 // END_ATTENTION_GemmGemm_bf16_gfx1101_DEFS
 
-#endif // GemmGemm_DEFINITIONS_GEN
+#endif  // GemmGemm_DEFINITIONS_GEN
 
 #ifdef GemmGemm_DECLARATIONS_GEN
 
@@ -2312,7 +2312,7 @@ static constexpr size_t nInitParametersBf16AttentionGfx1101 = 15;
 static const StringRef initParametersBf16AttentionGfx1101[nInitParametersBf16AttentionGfx1101];
 // END_ATTENTION_GemmGemm_bf16_gfx1101_DECS
 
-#endif // GemmGemm_DECLARATIONS_GEN
+#endif  // GemmGemm_DECLARATIONS_GEN
 
 #ifdef NonAccel_LOOKUP_TABLE_GEN
 
@@ -2336,7 +2336,7 @@ static const StringRef initParametersBf16AttentionGfx1101[nInitParametersBf16Att
 
 {"gfx1150_conv_f32", {PopulateParams::initParametersF32ConvGfx1150, PopulateParams::nInitParametersF32ConvGfx1150}},
 
-#endif // NonAccel_LOOKUP_TABLE_GEN
+#endif  // NonAccel_LOOKUP_TABLE_GEN
 
 #ifdef Accel_LOOKUP_TABLE_GEN
 
@@ -2438,7 +2438,43 @@ static const StringRef initParametersBf16AttentionGfx1101[nInitParametersBf16Att
 
 {"gfx1150_conv_i8", {PopulateParamsWmma::initParametersI8ConvGfx1150, PopulateParamsWmma::nInitParametersI8ConvGfx1150}},
 
-#endif // Accel_LOOKUP_TABLE_GEN
+{"gfx908_gemm_bf16", {PopulateParamsXDL::initParametersF16GemmGfx908, PopulateParamsXDL::nInitParametersF16GemmGfx908}},  // alias -> f16
+
+{"gfx90a_gemm_bf16", {PopulateParamsXDL::initParametersF16GemmGfx90a, PopulateParamsXDL::nInitParametersF16GemmGfx90a}},  // alias -> f16
+
+{"gfx942_gemm_bf16", {PopulateParamsXDL::initParametersF16GemmGfx942, PopulateParamsXDL::nInitParametersF16GemmGfx942}},  // alias -> f16
+
+{"gfx950_gemm_bf16", {PopulateParamsXDL::initParametersF16GemmGfx950, PopulateParamsXDL::nInitParametersF16GemmGfx950}},  // alias -> f16
+
+{"gfx908_conv_bf16", {PopulateParamsXDL::initParametersF16ConvGfx908, PopulateParamsXDL::nInitParametersF16ConvGfx908}},  // alias -> f16
+
+{"gfx90a_conv_bf16", {PopulateParamsXDL::initParametersF16ConvGfx90a, PopulateParamsXDL::nInitParametersF16ConvGfx90a}},  // alias -> f16
+
+{"gfx942_conv_bf16", {PopulateParamsXDL::initParametersF16ConvGfx942, PopulateParamsXDL::nInitParametersF16ConvGfx942}},  // alias -> f16
+
+{"gfx950_conv_bf16", {PopulateParamsXDL::initParametersF16ConvGfx950, PopulateParamsXDL::nInitParametersF16ConvGfx950}},  // alias -> f16
+
+{"gfx1000_gemm_bf16", {PopulateParamsWmma::initParametersF16GemmGfx1000, PopulateParamsWmma::nInitParametersF16GemmGfx1000}},  // alias -> f16
+
+{"gfx1100_gemm_bf16", {PopulateParamsWmma::initParametersF16GemmGfx1100, PopulateParamsWmma::nInitParametersF16GemmGfx1100}},  // alias -> f16
+
+{"gfx1000_conv_bf16", {PopulateParamsWmma::initParametersF16ConvGfx1000, PopulateParamsWmma::nInitParametersF16ConvGfx1000}},  // alias -> f16
+
+{"gfx1100_conv_bf16", {PopulateParamsWmma::initParametersF16ConvGfx1100, PopulateParamsWmma::nInitParametersF16ConvGfx1100}},  // alias -> f16
+
+{"gfx1201_gemm_bf16", {PopulateParamsWmma::initParametersF16GemmGfx1201, PopulateParamsWmma::nInitParametersF16GemmGfx1201}},  // alias -> f16
+
+{"gfx1201_conv_bf16", {PopulateParamsWmma::initParametersF16ConvGfx1201, PopulateParamsWmma::nInitParametersF16ConvGfx1201}},  // alias -> f16
+
+{"gfx1151_gemm_bf16", {PopulateParamsWmma::initParametersF16GemmGfx1151, PopulateParamsWmma::nInitParametersF16GemmGfx1151}},  // alias -> f16
+
+{"gfx1151_conv_bf16", {PopulateParamsWmma::initParametersF16ConvGfx1151, PopulateParamsWmma::nInitParametersF16ConvGfx1151}},  // alias -> f16
+
+{"gfx1150_gemm_bf16", {PopulateParamsWmma::initParametersF16GemmGfx1150, PopulateParamsWmma::nInitParametersF16GemmGfx1150}},  // alias -> f16
+
+{"gfx1150_conv_bf16", {PopulateParamsWmma::initParametersF16ConvGfx1150, PopulateParamsWmma::nInitParametersF16ConvGfx1150}},  // alias -> f16
+
+#endif  // Accel_LOOKUP_TABLE_GEN
 
 #ifdef GemmGemm_LOOKUP_TABLE_GEN
 
@@ -2446,13 +2482,13 @@ static const StringRef initParametersBf16AttentionGfx1101[nInitParametersBf16Att
 
 {"gfx900_attention_f16", {PopulateParamsGemmGemm::initParametersF16AttentionGfx900, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx900}},
 
-{"gfx900_attention_i8", {PopulateParamsGemmGemm::initParametersF32AttentionGfx900, PopulateParamsGemmGemm::nInitParametersF32AttentionGfx900}},
+{"gfx900_attention_i8", {PopulateParamsGemmGemm::initParametersF32AttentionGfx900, PopulateParamsGemmGemm::nInitParametersF32AttentionGfx900}},  // alias -> f32
 
-{"gfx1000_attention_f32", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1000, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1000}},
+{"gfx1000_attention_f32", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1000, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1000}},  // alias -> f16
 
 {"gfx1000_attention_f16", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1000, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1000}},
 
-{"gfx1000_attention_i8", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1000, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1000}},
+{"gfx1000_attention_i8", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1000, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1000}},  // alias -> f16
 
 {"gfx942_attention_f32", {PopulateParamsGemmGemm::initParametersF32AttentionGfx942, PopulateParamsGemmGemm::nInitParametersF32AttentionGfx942}},
 
@@ -2498,4 +2534,8 @@ static const StringRef initParametersBf16AttentionGfx1101[nInitParametersBf16Att
 
 {"gfx1101_attention_bf16", {PopulateParamsGemmGemm::initParametersBf16AttentionGfx1101, PopulateParamsGemmGemm::nInitParametersBf16AttentionGfx1101}},
 
-#endif // GemmGemm_LOOKUP_TABLE_GEN
+{"gfx900_attention_bf16", {PopulateParamsGemmGemm::initParametersF16AttentionGfx900, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx900}},  // alias -> f16
+
+{"gfx1000_attention_bf16", {PopulateParamsGemmGemm::initParametersF16AttentionGfx1000, PopulateParamsGemmGemm::nInitParametersF16AttentionGfx1000}},  // alias -> f16
+
+#endif  // GemmGemm_LOOKUP_TABLE_GEN

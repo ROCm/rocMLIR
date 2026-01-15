@@ -118,7 +118,7 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
   } else if (dataType.isBF16()) {
     // Special case for bf16
     return "bf16";
-  } else if (dataType.isF16()) {
+  } else if (dataType.isFloat()) {
     // Normalize other float types by bitwidth
     unsigned bitwidth = dataType.getIntOrFloatBitWidth();
     switch (bitwidth) {
