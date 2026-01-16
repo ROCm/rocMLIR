@@ -221,6 +221,16 @@ class Rock_AttentionOpBase<string mnemonic, list<Trait> extraTraits = []>
         AttrSizedResultSegments
     ], extraTraits)> {
 
+  // Common attention operands shared across all variants
+  // These come after the op-specific input operands
+  dag commonAttentionOperands = (ins
+      Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
+      Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
+      Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
+      TensorOrMemRefOf<AttentionVOutTypes>:$out,
+      Optional<TensorOrMemRefOf<AttentionVOutTypes>>:$lse
+  );
+
   // Common attention attributes shared across all variants
   dag commonAttentionAttrs = (ins
       I32Attr:$numHeadsQ,
@@ -291,18 +301,17 @@ class Rock_AttentionOpBase<string mnemonic, list<Trait> extraTraits = []>
 //===----------------------------------------------------------------------===//
 
 def Rock_AttentionOp : Rock_AttentionOpBase<"attention"> {
-  dag attentionArgs = (ins
+  // Op-specific input operands (before common operands).
+  // Note: queries is duplicated across ops rather than shared because the
+  // other input operands differ significantly (direct K/V vs page pointers),
+  // and grouping queries with its related inputs improves readability.
+  dag attentionInputs = (ins
       TensorOrMemRefOf<AttentionQKTypes>:$queries,
       TensorOrMemRefOf<AttentionQKTypes>:$keys,
-      TensorOrMemRefOf<AttentionVOutTypes>:$values,
-      Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
-      Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
-      Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
-      TensorOrMemRefOf<AttentionVOutTypes>:$out,
-      Optional<TensorOrMemRefOf<AttentionVOutTypes>>:$lse
+      TensorOrMemRefOf<AttentionVOutTypes>:$values
   );
 
-  let arguments = !con(attentionArgs, commonAttentionAttrs);
+  let arguments = !con(attentionInputs, commonAttentionOperands, commonAttentionAttrs);
   let results = commonAttentionResults;
 
   let regions = (region AnyRegion:$preSoftmaxBody);
@@ -339,20 +348,19 @@ def Rock_AttentionOp : Rock_AttentionOpBase<"attention"> {
 //===----------------------------------------------------------------------===//
 
 def Rock_PagedAttentionOp : Rock_AttentionOpBase<"paged_attention"> {
-  dag pagedAttentionArgs = (ins
+  // Op-specific input operands (before common operands).
+  // Note: queries is duplicated across ops rather than shared because the
+  // other input operands differ significantly (direct K/V vs page pointers),
+  // and grouping queries with its related inputs improves readability.
+  dag pagedAttentionInputs = (ins
       TensorOrMemRefOf<AttentionQKTypes>:$queries,
       TensorOrMemRefOf<[I64]>:$keyPagePointers,
       Optional<TensorOrMemRefOf<[I1]>>:$keyAddressMask,
       TensorOrMemRefOf<[I64]>:$valuePagePointers,
-      Optional<TensorOrMemRefOf<[I1]>>:$valueAddressMask,
-      Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
-      Optional<TensorOrMemRefOf<[I32]>>:$currentSeqLen,
-      Optional<TensorOrMemRefOf<[I32]>>:$prefixOffset,
-      TensorOrMemRefOf<AttentionVOutTypes>:$out,
-      Optional<TensorOrMemRefOf<AttentionVOutTypes>>:$lse
+      Optional<TensorOrMemRefOf<[I1]>>:$valueAddressMask
   );
 
-  let arguments = !con(pagedAttentionArgs, commonAttentionAttrs);
+  let arguments = !con(pagedAttentionInputs, commonAttentionOperands, commonAttentionAttrs);
   let results = commonAttentionResults;
 
   let regions = (region
@@ -731,107 +739,124 @@ def Rock_GridwiseGemmAccelOp
   let hasVerifier = 1;
 }
 
-// gridwise_attention_accel
+//===----------------------------------------------------------------------===//
+// Gridwise Attention Accel Op Base Class
+//===----------------------------------------------------------------------===//
+
+class Rock_GridwiseAttentionAccelOpBase<string mnemonic, list<Trait> extraTraits = []>
+    : Rock_Op<mnemonic, !listconcat([
+        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+        DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
+        RockFusionRoot,
+        AttrSizedOperandSegments
+    ], extraTraits)> {
+
+  // Common gridwise attention operands shared across all variants
+  // These come after the op-specific input operands
+  dag commonGridwiseAttentionOperands = (ins
+      Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
+      Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
+      Optional<MemRefRankOf<[I32], [1]>>:$prefixOffset,
+      MemRefRankOf<[F32, F16, BF16], [3]>:$out,
+      Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse
+  );
+
+  // Common gridwise attention attributes shared across all variants
+  dag commonGridwiseAttentionAttrs = (ins
+      UnitAttr:$causal,
+      I32Attr:$splitKV,
+      OptionalAttr<Rock_GemmFeaturesAttr>:$features,
+      StoreMethodAttr:$storeMethod,
+      I32Attr:$blockSize,
+      I32Attr:$gridSize,
+      UnitAttr:$disableQBypassLDS,
+      OptionalAttr<IndexAttr>:$prePadG0M,
+      OptionalAttr<IndexAttr>:$prePadG0N,
+      OptionalAttr<IndexAttr>:$numRepeatsGQA,
+      OptionalAttr<TypeAttr>:$softmaxType,
+      RockAccelTuningParamAttrInterface:$params0,
+      RockAccelTuningParamAttrInterface:$params1,
+      DenseI64ArrayAttr:$firstGemmIndices,
+      DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax,
+      DefaultValuedOptionalAttr<BoolAttr, "false">:$preSoftmaxHasSplitKVTransforms
+  );
+
+  let hasVerifier = 1;
+
+  // Common description for gridwise attention semantics
+  string commonGridwiseAttentionDescription = [{
+    This is a gridwise-level attention operation that has been lowered from
+    a high-level attention op. At this level:
+
+    - Layouts have been normalized (transpose flags resolved into transforms)
+    - Grid and block sizes have been computed
+    - Padding for hardware alignment has been applied (or deferred for paged ops)
+    - GQA (Grouped Query Attention) processing has been applied
+
+    The `preSoftmaxBody` region contains optional elementwise operations to be
+    fused before the softmax computation.
+
+    The `preSoftmaxHasSplitKVTransforms` attribute indicates whether the
+    preSoftmaxBody inputs have splitKV transforms applied.
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Gridwise Attention Accel Op
+//===----------------------------------------------------------------------===//
+
 def Rock_GridwiseAttentionAccelOp
-    : Rock_Op<"gridwise_attention_accel",
-              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               RockFusionRoot, AttrSizedOperandSegments,
-]>,
-      Arguments<(ins MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
-          MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
-          MemRefRankOf<[F32, F16, BF16], [3]>:$values,
-          Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
-          Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
-          Optional<MemRefRankOf<[I32], [1]>>:$prefixOffset,
-          MemRefRankOf<[F32, F16, BF16], [3]>:$out,
-          Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse, UnitAttr:$causal,
-          I32Attr:$splitKV, OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          StoreMethodAttr:$storeMethod, I32Attr:$blockSize, I32Attr:$gridSize,
-          UnitAttr:$disableQBypassLDS, OptionalAttr<IndexAttr>:$prePadG0M,
-          OptionalAttr<IndexAttr>:$prePadG0N,
-          OptionalAttr<IndexAttr>:$numRepeatsGQA,
-          OptionalAttr<TypeAttr>:$softmaxType,
-          RockAccelTuningParamAttrInterface:$params0,
-          RockAccelTuningParamAttrInterface:$params1,
-          DenseI64ArrayAttr:$firstGemmIndices,
-          DefaultValuedOptionalAttr<BoolAttr, "true">:$enableSoftmax,
-          DefaultValuedOptionalAttr<BoolAttr,
-                                    "false">:$preSoftmaxHasSplitKVTransforms)> {
+    : Rock_GridwiseAttentionAccelOpBase<"gridwise_attention_accel"> {
+
+  // Op-specific input operands (before common operands).
+  // Note: queries is duplicated across ops rather than shared because the
+  // other input operands differ significantly (direct K/V vs page pointers),
+  // and grouping queries with its related inputs improves readability.
+  dag gridwiseAttentionInputs = (ins
+      MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
+      MemRefRankOf<[F32, F16, BF16, I8], [3]>:$keys,
+      MemRefRankOf<[F32, F16, BF16], [3]>:$values
+  );
+
+  let arguments = !con(gridwiseAttentionInputs, commonGridwiseAttentionOperands,
+                       commonGridwiseAttentionAttrs);
+
   let summary = "Gridwise attention accelerated version";
   let description = [{
     The `rock.gridwise_attention_accel` op computes gridwise attention with acceleration.
-  }];
+
+    This op takes queries, keys, and values as direct 3D memref operands.
+  }] # commonGridwiseAttentionDescription;
+
   let regions = (region AnyRegion:$preSoftmaxBody);
+
   let assemblyFormat = [{
     `(` operands `)` (`features` `=` $features^)? `preSoftmaxOps` `=` $preSoftmaxBody attr-dict `:` type(operands)
   }];
-  let hasVerifier = 1;
 }
 
-// gridwise_paged_attention_accel
+//===----------------------------------------------------------------------===//
+// Gridwise Paged Attention Accel Op
+//===----------------------------------------------------------------------===//
+
 def Rock_GridwisePagedAttentionAccelOp
-    : Rock_Op<"gridwise_paged_attention_accel",
-              [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-               DeclareOpInterfaceMethods<RockGemmFeaturesInterface>,
-               RockFusionRoot, AttrSizedOperandSegments,
-]>,
-      Arguments<(ins
-          // Queries (normalized, padded in GemmToGridwise)
-          MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
+    : Rock_GridwiseAttentionAccelOpBase<"gridwise_paged_attention_accel"> {
 
-          // Paged K/V pointers and optional address masks
-          AnyMemRef:$keyPagePointers,
-          Optional<AnyMemRef>:$keyAddressMask,
-          AnyMemRef:$valuePagePointers,
-          Optional<AnyMemRef>:$valueAddressMask,
+  // Op-specific input operands (before common operands).
+  // Note: queries is duplicated across ops rather than shared because the
+  // other input operands differ significantly (direct K/V vs page pointers),
+  // and grouping queries with its related inputs improves readability.
+  dag gridwisePagedAttentionInputs = (ins
+      MemRefRankOf<[F32, F16, BF16, I8], [3]>:$queries,
+      AnyMemRef:$keyPagePointers,
+      Optional<AnyMemRef>:$keyAddressMask,
+      AnyMemRef:$valuePagePointers,
+      Optional<AnyMemRef>:$valueAddressMask
+  );
 
-          // Elementwise inputs for pre-softmax fusion
-          Variadic<AnyTensorOrMemRef>:$preSoftmaxElemWiseInputs,
+  let arguments = !con(gridwisePagedAttentionInputs, commonGridwiseAttentionOperands,
+                       commonGridwiseAttentionAttrs);
 
-          // Sequence length / prefix (for KV cache and causal masking)
-          Optional<MemRefRankOf<[I32], [1]>>:$currentSeqLen,
-          Optional<MemRefRankOf<[I32], [1]>>:$prefixOffset,
-
-          // Output
-          MemRefRankOf<[F32, F16, BF16], [3]>:$out,
-          Optional<MemRefRankOf<[F32, F16, BF16], [2]>>:$lse,
-
-          // Attention attributes
-          UnitAttr:$causal,
-          I32Attr:$splitKV,
-
-          // Gemm features and store method
-          OptionalAttr<Rock_GemmFeaturesAttr>:$features,
-          StoreMethodAttr:$storeMethod,
-
-          // Grid/block size
-          I32Attr:$blockSize,
-          I32Attr:$gridSize,
-
-          // Padding info for K/V (to be applied in ToBlockwise)
-          // These store the pre-pad dimensions so padding transforms can be built
-          OptionalAttr<IndexAttr>:$prePadG0M,  // gemm0 M dimension (keys)
-          OptionalAttr<IndexAttr>:$prePadG0N,  // gemm0 N dimension (queries seq)
-          OptionalAttr<IndexAttr>:$prePadG1K,  // gemm1 K dimension (values seq)
-          OptionalAttr<IndexAttr>:$prePadG1M,  // gemm1 M dimension (values head)
-
-          // GQA (Grouped Query Attention)
-          OptionalAttr<IndexAttr>:$numRepeatsGQA,
-
-          // Softmax type
-          OptionalAttr<TypeAttr>:$softmaxType,
-
-          // Tuning parameters for both gemms
-          RockAccelTuningParamAttrInterface:$params0,
-          RockAccelTuningParamAttrInterface:$params1,
-
-          // First gemm indices for fusion
-          DenseI64ArrayAttr:$firstGemmIndices,
-
-          // Flags
-          DefaultValuedOptionalAttr<BoolAttr, "false">:$preSoftmaxHasSplitKVTransforms
-      )> {
   let summary = "Gridwise paged attention with matrix accelerator";
   let description = [{
     The `rock.gridwise_paged_attention_accel` op computes gridwise attention
@@ -844,14 +869,7 @@ def Rock_GridwisePagedAttentionAccelOp
     The `loadFromKVCache` region contains:
     - `rock.paged_deref` ops to dereference page pointers
     - `rock.transform` ops to reshape the dereferenced data to K/V format
-
-    The actual dereferencing and K/V materialization happens during ToBlockwise
-    lowering, allowing the paged access pattern to be optimized for the GPU
-    memory hierarchy.
-
-    K/V padding (specified by prePadG0M, prePadG0N, prePadG1K, prePadG1M) is
-    applied during ToBlockwise, after the paged data is dereferenced.
-  }];
+  }] # commonGridwiseAttentionDescription;
 
   let regions = (region
     AnyRegion:$loadFromKVCache,
@@ -864,8 +882,6 @@ def Rock_GridwisePagedAttentionAccelOp
     `preSoftmaxOps` `=` $preSoftmaxBody
     attr-dict `:` type(operands)
   }];
-
-  let hasVerifier = 1;
 
   let extraClassDeclaration = [{
     // Get the keys type from the loadFromKVCache region output.
