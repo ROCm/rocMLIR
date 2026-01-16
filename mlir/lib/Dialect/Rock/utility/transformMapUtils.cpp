@@ -1041,7 +1041,7 @@ void mlir::rock::collapseContiguousMerges(Value transformed) {
 /// subtraction. The second is the case where
 /// [coifficient] * [max size of upper dim] > [lower bound] for any upper
 /// dimension.
-static bool embedCanBeInvalid(TransformMapAttr map, TransformAttr op) {
+bool mlir::rock::embedCanBeInvalid(TransformMapAttr map, TransformAttr op) {
   assert(op.getType() == TransformType::Embed);
   int64_t lowerBound = map.getLowerBounds()[op.getLowerDims()[0]];
   ArrayRef<int64_t> dimSizes = map.getUpperBounds();
@@ -1069,49 +1069,6 @@ bool mlir::rock::mapImpactsValidity(TransformMapAttr map) {
     }
   }
   return result;
-}
-
-Value mlir::rock::updateValidityAfter(OpBuilder &b, Location loc,
-                                      TransformMapAttr map,
-                                      ValueRange outputs) {
-  Value isValid =
-      b.createOrFold<arith::ConstantIntOp>(loc, b.getI1Type(), true);
-  ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
-
-  // unsigned < catches both negatives (as all negatives are > the bound)
-  // and being too large on the right.
-  auto addLowerDimUltClamp = [&](uint32_t lowerDim) {
-    int64_t bound = lowerBounds[lowerDim];
-    Value boundConst = b.createOrFold<arith::ConstantIndexOp>(loc, bound);
-    Value output = outputs[lowerDim];
-    Value inBounds = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
-                                           output, boundConst);
-    isValid =
-        b.createOrFold<arith::AndIOp>(loc, b.getI1Type(), inBounds, isValid);
-  };
-
-  for (TransformAttr op : map.getOps()) {
-    TransformType type = op.getType();
-    ArrayRef<uint32_t> lowerDims = op.getLowerDims();
-    ArrayRef<int64_t> params = op.getParams();
-    if (type == TransformType::Pad) {
-      for (const auto &pair : llvm::enumerate(lowerDims)) {
-        size_t leftParam = 2 * pair.index();
-        size_t rightParam = leftParam + 1;
-        uint32_t lowerDim = pair.value();
-
-        if (params[leftParam] == 0 && params[rightParam] == 0)
-          continue;
-        addLowerDimUltClamp(lowerDim);
-      }
-    }
-    if (type == TransformType::Embed) {
-      if (!embedCanBeInvalid(map, op))
-        continue;
-      addLowerDimUltClamp(op.getLowerDims()[0]);
-    }
-  }
-  return isValid;
 }
 
 AffineMap mlir::rock::composeTransforms(ArrayRef<TransformMapAttr> transforms) {

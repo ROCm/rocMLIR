@@ -927,7 +927,7 @@ def Rock_ArithOp : Rock_Op<"arith_op", []> {
     which arithmetic operation to perform.
   }];
 
-  let arguments = (ins StrAttr:$name, OptionalAttr<IndexAttr>:$constantValue, Variadic<AnyType>:$operands);
+  let arguments = (ins StrAttr:$name, OptionalAttr<AnyAttr>:$constantValue, Variadic<AnyType>:$operands);
 
   let results = (outs AnyType:$result);
 

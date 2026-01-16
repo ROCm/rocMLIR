@@ -92,13 +92,93 @@ struct RockTransformsToPointerArithPass
 namespace {
 
 // Helper to create ArithOp with OperationState
-static  Value createArithOp(OpBuilder &builder, Location loc, Type resultType, StringRef name, IntegerAttr constantValue,
+static  Value createArithOp(OpBuilder &builder, Location loc, Type resultType, StringRef name, Attribute constantValue,
                       ValueRange operands) {
-     OperationState state(loc, rock::ArithOp::getOperationName());
-     rock::ArithOp::build(builder, state, TypeRange{resultType},
-                          builder.getStringAttr(name), constantValue, operands);
-     return cast<rock::ArithOp>(builder.create(state)).getResult();
-   }
+  OperationState state(loc, rock::ArithOp::getOperationName());
+  rock::ArithOp::build(builder, state, TypeRange{resultType},
+                      builder.getStringAttr(name), constantValue, operands);
+  return cast<rock::ArithOp>(builder.create(state)).getResult();
+}
+
+// Helper function to broadcast tensors to compatible shapes
+static std::pair<Value, Value> broadcastTensors(OpBuilder &builder, Location loc, Value lhs, Value rhs) {
+  auto memrefLhsType = cast<MemRefType>(lhs.getType());
+  auto memrefRhsType = cast<MemRefType>(rhs.getType());
+
+  auto lhsShape = memrefLhsType.getShape();
+  auto rhsShape = memrefRhsType.getShape();
+  auto rank = lhsShape.size();
+
+  // Check if we need broadcasting
+  bool needsBroadcast = false;
+  SmallVector<int64_t> resultShape(rank);
+  for (size_t i = 0; i < rank; ++i) {
+    if (lhsShape[i] == 1 && rhsShape[i] != 1) {
+      resultShape[i] = rhsShape[i];
+      needsBroadcast = true;
+    } else if (rhsShape[i] == 1 && lhsShape[i] != 1) {
+      resultShape[i] = lhsShape[i];
+      needsBroadcast = true;
+    } else if (lhsShape[i] == rhsShape[i]) {
+      resultShape[i] = lhsShape[i];
+    } else {
+      // Incompatible shapes - for now, assume they're compatible
+      resultShape[i] = std::max(lhsShape[i], rhsShape[i]);
+    }
+  }
+
+  if (!needsBroadcast) {
+    // No broadcasting needed
+    return {lhs, rhs};
+  }
+
+  // Create the broadcast result type
+  auto resultType = MemRefType::get(resultShape, memrefLhsType.getElementType(),
+                                    AffineMap{}, memrefLhsType.getMemorySpace());
+
+  // Broadcast lhs if needed
+  Value broadcastedLhs = lhs;
+  if (!llvm::equal(lhsShape, resultShape)) {
+    broadcastedLhs = rock::BroadcastOp::create(builder, loc, resultType, lhs);
+  }
+
+  // Broadcast rhs if needed
+  Value broadcastedRhs = rhs;
+  if (!llvm::equal(rhsShape, resultShape)) {
+    broadcastedRhs = rock::BroadcastOp::create(builder, loc, resultType, rhs);
+  }
+
+  return {broadcastedLhs, broadcastedRhs};
+}
+// Helper function to broadcast a scalar to match a tensor's shape
+static Value broadcastScalarToTensor(OpBuilder &builder, Location loc, Value scalar, Value tensor) {
+  auto memrefType = cast<MemRefType>(tensor.getType());
+
+  // Create a splat operation to broadcast the scalar to the memref shape
+  return rock::SplatOp::create(builder, loc, memrefType, scalar);
+}
+
+// Helper function to ensure operands have compatible shapes
+static std::pair<Value, Value> ensureCompatibleShapes(OpBuilder &builder, Location loc, Value lhs, Value rhs) {
+  auto lhsType = lhs.getType();
+  auto rhsType = rhs.getType();
+
+  auto lhsMemrefType = dyn_cast<MemRefType>(lhsType);
+  auto rhsMemrefType = dyn_cast<MemRefType>(rhsType);
+
+  if (!lhsMemrefType && !rhsMemrefType) {
+    // Both scalars, no broadcasting needed
+    return {lhs, rhs};
+  } else if (lhsMemrefType && !rhsMemrefType) {
+    // LHS is tensor, RHS is scalar - broadcast RHS
+    return {lhs, broadcastScalarToTensor(builder, loc, rhs, lhs)};
+  } else if (!lhsMemrefType && rhsMemrefType) {
+    // LHS is scalar, RHS is tensor - broadcast LHS
+    return {broadcastScalarToTensor(builder, loc, lhs, rhs), rhs};
+  } else {
+    return broadcastTensors(builder, loc, lhs, rhs);
+  }
+}
 
 /// Visit affine expressions recursively and build the sequence of operations
 /// that correspond to it.  Visitation functions return an Value of the
@@ -113,87 +193,6 @@ public:
       : builder(builder), dimValues(dimValues), symbolValues(symbolValues),
         loc(loc) {}
 
-  // Helper function to broadcast tensors to compatible shapes
-  std::pair<Value, Value> broadcastTensors(Value lhs, Value rhs) {
-    auto memrefLhsType = cast<MemRefType>(lhs.getType());
-    auto memrefRhsType = cast<MemRefType>(rhs.getType());
-
-    auto lhsShape = memrefLhsType.getShape();
-    auto rhsShape = memrefRhsType.getShape();
-    auto rank = lhsShape.size();
-
-    // Check if we need broadcasting
-    bool needsBroadcast = false;
-    SmallVector<int64_t> resultShape(rank);
-    for (size_t i = 0; i < rank; ++i) {
-      if (lhsShape[i] == 1 && rhsShape[i] != 1) {
-        resultShape[i] = rhsShape[i];
-        needsBroadcast = true;
-      } else if (rhsShape[i] == 1 && lhsShape[i] != 1) {
-        resultShape[i] = lhsShape[i];
-        needsBroadcast = true;
-      } else if (lhsShape[i] == rhsShape[i]) {
-        resultShape[i] = lhsShape[i];
-      } else {
-        // Incompatible shapes - for now, assume they're compatible
-        resultShape[i] = std::max(lhsShape[i], rhsShape[i]);
-      }
-    }
-
-    if (!needsBroadcast) {
-      // No broadcasting needed
-      return {lhs, rhs};
-    }
-
-    // Create the broadcast result type
-    auto resultType = MemRefType::get(resultShape, memrefLhsType.getElementType(),
-                                      AffineMap{}, memrefLhsType.getMemorySpace());
-
-    // Broadcast lhs if needed
-    Value broadcastedLhs = lhs;
-    if (!llvm::equal(lhsShape, resultShape)) {
-      broadcastedLhs = rock::BroadcastOp::create(builder, loc, resultType, lhs);
-    }
-
-    // Broadcast rhs if needed
-    Value broadcastedRhs = rhs;
-    if (!llvm::equal(rhsShape, resultShape)) {
-      broadcastedRhs = rock::BroadcastOp::create(builder, loc, resultType, rhs);
-    }
-
-    return {broadcastedLhs, broadcastedRhs};
-  }
-  // Helper function to broadcast a scalar to match a tensor's shape
-  Value broadcastScalarToTensor(Value scalar, Value tensor) {
-    auto memrefType = cast<MemRefType>(tensor.getType());
-
-    // Create a splat operation to broadcast the scalar to the memref shape
-    return rock::SplatOp::create(builder, loc, memrefType, scalar);
-  }
-
-
-  // Helper function to ensure operands have compatible shapes
-  std::pair<Value, Value> ensureCompatibleShapes(Value lhs, Value rhs) {
-    auto lhsType = lhs.getType();
-    auto rhsType = rhs.getType();
-
-    auto lhsMemrefType = dyn_cast<MemRefType>(lhsType);
-    auto rhsMemrefType = dyn_cast<MemRefType>(rhsType);
-
-    if (!lhsMemrefType && !rhsMemrefType) {
-      // Both scalars, no broadcasting needed
-      return {lhs, rhs};
-    } else if (lhsMemrefType && !rhsMemrefType) {
-      // LHS is tensor, RHS is scalar - broadcast RHS
-      return {lhs, broadcastScalarToTensor(rhs, lhs)};
-    } else if (!lhsMemrefType && rhsMemrefType) {
-      // LHS is scalar, RHS is tensor - broadcast LHS
-      return {broadcastScalarToTensor(lhs, rhs), rhs};
-    } else {
-      return broadcastTensors(lhs, rhs);
-    }
-  }
-
   Value buildBinaryExpr(AffineBinaryOpExpr expr, const std::string& opName,
                         arith::IntegerOverflowFlags overflowFlags =
                             arith::IntegerOverflowFlags::none) {
@@ -203,7 +202,7 @@ public:
       return nullptr;
 
     // Ensure operands have compatible shapes
-    auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(lhs, rhs);
+    auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(builder, loc, lhs, rhs);
 
     // Always use the rock.arith_op wrapper
     return createArithOp(builder, loc, broadcastedLhs.getType(), opName, nullptr,
@@ -240,7 +239,7 @@ public:
     assert(lhs && rhs && "unexpected affine expr lowering failure");
 
     // Ensure operands have compatible shapes
-    auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(lhs, rhs);
+    auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(builder, loc, lhs, rhs);
 
     Value remainder = createArithOp(builder, loc, broadcastedLhs.getType(), "RemSIOp", nullptr,
                                     ValueRange{broadcastedLhs, broadcastedRhs});
@@ -284,7 +283,7 @@ public:
     assert(lhs && rhs && "unexpected affine expr lowering failure");
 
     // Ensure operands have compatible shapes
-    auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(lhs, rhs);
+    auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(builder, loc, lhs, rhs);
 
     Value zeroCst = createArithOp(builder, loc, builder.getIndexType(), "ConstantIndexOp",
                                  builder.getIndexAttr(0), ValueRange{});
@@ -330,7 +329,7 @@ public:
     assert(lhs && rhs && "unexpected affine expr lowering failure");
 
     // Ensure operands have compatible shapes
-    auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(lhs, rhs);
+    auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(builder, loc, lhs, rhs);
 
     Value zeroCst = createArithOp(builder, loc, builder.getIndexType(), "ConstantIndexOp",
                                           builder.getIndexAttr(0), ValueRange{});
@@ -405,6 +404,53 @@ expandAffineMap(OpBuilder &builder, Location loc,
   if (llvm::all_of(expanded, [](Value v) { return v; }))
     return expanded;
   return std::nullopt;
+}
+
+static Value updateValidityAfter(OpBuilder &b, Location loc,
+                                      TransformMapAttr map,
+                                      ValueRange outputs) {
+    // auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(builder, loc, lhs, rhs);
+    // Value isValid = createArithOp(b, loc, b.getI1Type(), "ConstantIntOp", b.getBoolAttr(true), ValueRange{})
+  Value isValid = createArithOp(b, loc, b.getI1Type(), "ConstantIntOp", b.getBoolAttr(true), ValueRange{});
+  ArrayRef<int64_t> lowerBounds = map.getLowerBounds();
+
+  // unsigned < catches both negatives (as all negatives are > the bound)
+  // and being too large on the right.
+  auto addLowerDimUltClamp = [&](uint32_t lowerDim) {
+    int64_t bound = lowerBounds[lowerDim];
+    Value boundConst = createArithOp(b, loc, b.getIndexType(), "ConstantIndexOp", b.getIndexAttr(bound), ValueRange{});
+    Value output = outputs[lowerDim];
+    auto [broadcastedOutput, broadcastedBoundConst] = ensureCompatibleShapes(b, loc, output, boundConst);
+    auto memrefType = cast<MemRefType>(broadcastedOutput.getType());
+    auto inBoundsType = MemRefType::get(memrefType.getShape(), b.getI1Type(), AffineMap{}, memrefType.getMemorySpace());
+    Value inBounds = createArithOp(b, loc, inBoundsType, "CmpIOp_ult", nullptr,
+                                              ValueRange{broadcastedOutput, broadcastedBoundConst});
+    auto [broadcastedInBounds, broadcastedIsValid] = ensureCompatibleShapes(b, loc, inBounds, isValid);
+    isValid = createArithOp(b, loc, broadcastedInBounds.getType(), "AndIOp", nullptr, ValueRange{broadcastedInBounds, broadcastedIsValid});
+  };
+
+  for (TransformAttr op : map.getOps()) {
+    TransformType type = op.getType();
+    ArrayRef<uint32_t> lowerDims = op.getLowerDims();
+    ArrayRef<int64_t> params = op.getParams();
+    if (type == TransformType::Pad) {
+      for (const auto &pair : llvm::enumerate(lowerDims)) {
+        size_t leftParam = 2 * pair.index();
+        size_t rightParam = leftParam + 1;
+        uint32_t lowerDim = pair.value();
+
+        if (params[leftParam] == 0 && params[rightParam] == 0)
+          continue;
+        addLowerDimUltClamp(lowerDim);
+      }
+    }
+    if (type == TransformType::Embed) {
+      if (!embedCanBeInvalid(map, op))
+        continue;
+      addLowerDimUltClamp(op.getLowerDims()[0]);
+    }
+  }
+  return isValid;
 }
 
 //===----------------------------------------------------------------------===//
@@ -505,8 +551,7 @@ struct TransformsToPtrRewritePattern
     
     // Create code to actually transform the coordinates
     AffineResults computed(initValues);
-    Value isValid =
-        arith::ConstantIntOp::create(b, loc, b.getI1Type(), true);
+    Value isValid = createArithOp(b, loc, b.getI1Type(), "ConstantIntOp", b.getBoolAttr(true), ValueRange{});
     for (const auto &[composedMap, transform] : composedMaps) {
       if (!composedMap) // empty transformations
         continue;
@@ -518,8 +563,8 @@ struct TransformsToPtrRewritePattern
       if (transform) { // Time for bounds checks or other validity updates
         Value validityUpdate =
             updateValidityAfter(b, loc, transform, computed);
-        isValid =
-            b.createOrFold<arith::AndIOp>(loc, validityUpdate, isValid);
+        auto [broadcastedValidityUpdate, broadcastedIsValid] = ensureCompatibleShapes(b, loc, validityUpdate, isValid);
+        isValid = createArithOp(b, loc, broadcastedValidityUpdate.getType(), "AndIOp", nullptr, ValueRange{broadcastedValidityUpdate, broadcastedIsValid});
       }
     }
                                   llvm::errs() << "debug7\n";
@@ -540,7 +585,8 @@ struct TransformsToPtrRewritePattern
     // Store the validity mask into the mask memref
                                   llvm::errs() << "isValid="<<isValid<<"\n";
     // For mask, we need to handle it similarly - isValid should be a memref that we copy
-    // memref::CopyOp::create(b, loc, isValid, mask);
+    auto [broadcastedIsValid, _] = ensureCompatibleShapes(b, loc, isValid, mask);
+    memref::CopyOp::create(b, loc, broadcastedIsValid, mask);
     //////
     b.eraseOp(op);
                                   llvm::errs() << "debug9\n";

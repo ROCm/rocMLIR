@@ -150,14 +150,7 @@ void collapseContiguousMerges(Value transformed);
 /// values) to the map.
 bool mapImpactsValidity(TransformMapAttr map);
 
-/// Constructs code to determine if the results from the application of `map`
-/// are still valid values. If this function returns the `false` value, then
-/// the values in `outputs` (which must be the results of `map` being applied
-/// to some input) are not valid indices into the underlying buffer.
-/// Further computations using `outputs` may be performed but may yield
-/// incorrect results.
-Value updateValidityAfter(OpBuilder &b, Location loc, TransformMapAttr map,
-                          ValueRange outputs);
+bool embedCanBeInvalid(TransformMapAttr map, TransformAttr op);
 
 /// Get the affine map corresponding to the composition of these affine maps.
 /// Returns null when passed an empty array.
