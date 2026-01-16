@@ -32,6 +32,9 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   TritonAnalysis
   TritonAMDGPUToLLVM
   TritonAMDGPUTransforms
+  TritonAMDAnalysis
+  TritonAMDGPUDialectToLLVM
+  TritonAMDUtils
 )
 
 # Add Triton include directories for compilation
