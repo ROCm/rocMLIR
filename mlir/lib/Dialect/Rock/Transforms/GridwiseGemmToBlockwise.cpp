@@ -570,9 +570,9 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
       return failure();
     }
     FailureOr<ArrayAttr> storeBufferAViews =
-        invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile).value();
+        invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
     FailureOr<ArrayAttr> loadBufferBViews =
-        invertTransforms(b, loc, maybeBBufferViews->threadSubTile).value();
+        invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
     if (failed(storeBufferAViews) || failed(loadBufferBViews)) {
       return failure();
     }
@@ -788,9 +788,12 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kPerBlock, int64_t dPerBlock, int64_t copyKPerThread,
       int64_t copyDPerThread, bool forceUnroll, bool rotateDWithK) const {
     Type elemType = cast<MemRefType>(regBuffer.getType()).getElementType();
-    ArrayAttr storeBufferViews =
-        invertTransforms(rewriter, loc, toLDSViews.threadSubTile).value();
-    Value viewStoreBuffer = transform(rewriter, storeBuffer, storeBufferViews);
+    FailureOr<ArrayAttr> storeBufferViews =
+        invertTransforms(rewriter, loc, toLDSViews.threadSubTile);
+    if(failed(storeBufferViews)){
+        return failure();
+    }
+    Value viewStoreBuffer = transform(rewriter, storeBuffer, storeBufferViews.value());
     // The following is fine for software pipelining optimization as it could be
     // considered "compute". In future, consider refactoring the following loop
     // to be a single reg->reg op avoid verbose IR at this level.
@@ -2869,10 +2872,12 @@ struct GridwiseAttentionAccelRewritePattern
             }
 
             if (doBypassLDSSecondGemm) {
-              ArrayAttr gemm1ThreadwiseSubtileViewDxKMaps =
+              FailureOr<ArrayAttr> gemm1ThreadwiseSubtileViewDxKMaps =
                   invertTransforms(rewriter, loc,
-                                   gemm0OutSubTileViewsTr.threadSubTile)
-                      .value();
+                                   gemm0OutSubTileViewsTr.threadSubTile);
+              if(failed(gemm1ThreadwiseSubtileViewDxKMaps)){
+                  return failure();
+              }
               Value gemm1BDxKThreadwiseView = transform(
                   rewriter, gemm1RegBufferB, gemm1ThreadwiseSubtileViewDxKMaps);
               affine::AffineForOp nRepeatsLoop = affine::AffineForOp::create(

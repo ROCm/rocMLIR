@@ -384,9 +384,12 @@ class LoweringBlockwiseLoadTileOp final
             return failure();
           // We invert the transforms that are iter --> K x D slice of the
           // tensor so that we can view loadBuffer as a K x D tensor
-          ArrayAttr loadBufferViews =
-              invertTransforms(b, loc, maybeBufferViews->threadSubTile).value();
-          Value viewLoadBuffer = transform(b, loadBuffer, loadBufferViews);
+          FailureOr<ArrayAttr> loadBufferViews =
+              invertTransforms(b, loc, maybeBufferViews->threadSubTile);
+          if(failed(loadBufferViews)){
+              return failure();
+          }
+          Value viewLoadBuffer = transform(b, loadBuffer, loadBufferViews.value());
 
           FailureOr<RegsAsMatrixSubTiles> maybeLdsStoreViews =
               getPackedRegsAsTileViews(
@@ -397,7 +400,7 @@ class LoweringBlockwiseLoadTileOp final
           if (failed(maybeLdsStoreViews))
             return failure();
 
-          FailureOr<ArrayAttr> storeBufferViews =
+          FailureOr<ArrayAttr>a storeBufferViews =
               invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile);
           if (failed(storeBuffer)) {
             return failure();
