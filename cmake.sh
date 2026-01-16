@@ -14,5 +14,5 @@ cmake .. -G Ninja \
   -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
   -DCMAKE_MODULE_LINKER_FLAGS="-fuse-ld=lld"
 
-# ninja triton-opt
-ninja check-rocmlir-build-only
+# triton-opt build may fail, its ok
+ninja triton-opt; ninja check-rocmlir-build-only
