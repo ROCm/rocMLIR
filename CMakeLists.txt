@@ -98,6 +98,8 @@ else()
   set(ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED OFF CACHE BOOL "Enable build PR-triggered E2E tests for Rock driver")
 endif()
 
+message(BUILD_SHARED_LIBS="${BUILD_SHARED_LIBS}")
+
 #===----------------------------------------------------------------------===//
 # Triton paths for RPATH
 #===----------------------------------------------------------------------===//

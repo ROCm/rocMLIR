@@ -56,9 +56,25 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   # Triton dependencies
   # TritonIR depends on TritonGPUIR because Traits.cpp uses MemDescType
   # TritonGPUIR depends on TritonNvidiaGPUIR because it references NVIDIA types/ops
+  # TritonAnalysis provides supportMMA, getReshapeDecomposition
+  # TritonGPUTransforms provides inferDstEncoding, verifyBarrierType
+  # TritonIR
+  # TritonGPUIR
+  # TritonNvidiaGPUIR
+  # TritonAnalysis
+  TritonGPUTransforms
+
   TritonIR
   TritonGPUIR
-  TritonNvidiaGPUIR
+  TritonAnalysis
+  
+  # TritonGPUToLLVM  
+  # TritonInstrumentTransforms
+  # TritonLLVMIR
+  # TritonNvidiaGPUTransforms
+  # TritonToTritonGPU  
+  # TritonTransforms
+  
 )
 
 # Add Triton include directories for compilation
@@ -92,6 +108,18 @@ if(TARGET TritonGPUIR)
       TritonNvidiaGPUOpInterfacesIncGen)
     if(TARGET ${target})
       add_dependencies(TritonGPUIR ${target})
+    endif()
+  endforeach()
+endif()
+
+# TritonGPUTransforms includes NVWS headers that need generated files
+# This ensures NVWS tablegen runs before TritonGPUTransforms builds
+if(TARGET TritonGPUTransforms)
+  foreach(target IN ITEMS
+      NVWSTableGen
+      NVWSAttrDefsIncGen)
+    if(TARGET ${target})
+      add_dependencies(TritonGPUTransforms ${target})
     endif()
   endforeach()
 endif()
