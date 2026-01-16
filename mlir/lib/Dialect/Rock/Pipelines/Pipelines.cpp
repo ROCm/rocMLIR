@@ -122,30 +122,29 @@ static void makeTTGIR(mlir::OpPassManager *pm,
   pm->addNestedPass<mlir::triton::FuncOp>(
       mlir::createTritonAMDGPUSinkLayoutConversions());
 
-  pm->addPass(mt::gpu::createTritonGPUFuseNestedLoops());
+  pm->addPass(mlir::triton::gpu::createTritonGPUFuseNestedLoops());
   pm->addPass(mlir::createCanonicalizerPass());
   pm->addPass(mlir::createLoopInvariantCodeMotionPass());
   pm->addPass(mlir::createCanonicalizerPass());
 
   // TODO(ROCm) Modify when corresponding run time flags are introduced.
-  std::string schedule_hint = "none";
+  std::string scheduleHint = "none";
 
-  bool use_async_copy = isAsyncCopyEnabled(arch);
-  bool use_block_pingpong = isPingpongScheduleEnabled(arch,
-  use_async_copy);
+  bool useAsyncCopy = isAsyncCopyEnabled(arch);
+  bool useBlockPingpong = isPingpongScheduleEnabled(arch, useAsyncCopy);
 
   pm->addPass(mlir::createTritonAMDGPUScheduleLoops({numStages}));
   pm->addPass(
-      mlir::createTritonAMDGPUPipeline({use_async_copy,
-      use_block_pingpong}));
-  if (use_async_copy) {
+      mlir::createTritonAMDGPUPipeline({useAsyncCopy,
+      useBlockPingpong}));
+  if (useAsyncCopy) {
     pm->addPass(
         mlir::createTritonAMDGPUCoalesceAsyncCopy({arch}));
   }
   pm->addPass(mlir::createCanonicalizerPass());
-  if (schedule_hint != "none") {
+  if (scheduleHint != "none") {
     pm->addPass(
-        mlir::triton::createTritonAMDGPUInsertInstructionSchedHintsPass({schedule_hint}));
+        mlir::triton::createTritonAMDGPUInsertInstructionSchedHintsPass({scheduleHint}));
   }
   pm->addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
   pm->addPass(mlir::triton::gpu::createTritonGPUReduceDataDuplication());
@@ -155,7 +154,7 @@ static void makeTTGIR(mlir::OpPassManager *pm,
     pm->addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
   }
   pm->addPass(mlir::createTritonAMDGPUReorderInstructions());
-  if (use_block_pingpong && numStages > 1) {
+  if (useBlockPingpong && numStages > 1) {
     pm->addPass(mlir::createTritonAMDGPUBlockPingpong({numStages}));
   }
 
@@ -176,15 +175,14 @@ static void makeTTGIR(mlir::OpPassManager *pm,
 // Based on make_llir() in
 // @triton//:third_party/amd/backend/compiler.py
 static void makeLLIR(mlir::OpPassManager *pm,
-                     std::string arch, int numStages) {
-  const int custom_lds_size = 0;
-  pm->addPass(mlir::createTritonAMDGPUUpdateAsyncWaitCount(arch));
-  pm->addPass(mlir::triton::AMD::createConvertWarpPipelinePass())
+                     const std::string& arch, int numStages) {
+  // pm->addPass(mlir::createTritonAMDGPUUpdateAsyncWaitCount(arch));
+  pm->addPass(mlir::triton::AMD::createConvertWarpPipelinePass());
   pm->addPass(mlir::createSCFToControlFlowPass());
-  pm->addPass(gluon::createGluonInline());
+  // pm->addPass(gluon::createGluonInline());
   pm->addPass(mlir::createConvertIndexToLLVMPass());
 
-  pm->addPass(mt::gpu::createAllocateSharedMemory());
+  pm->addPass(mlir::triton::createAllocateAMDGPUSharedMemory());
   
 // ## __HIP_FTZ is used to control the denorm flushing behavior of exp2 op as follows:
 // ## 1. If __HIP_FTZ = 1, exp2 flushes denorms in input and output regardless
@@ -194,7 +192,7 @@ static void makeLLIR(mlir::OpPassManager *pm,
 // ## 3. __HIP_FTZ is default to 1 and not exposed as a kernel argument.
 // ##    For now it is used as a controller for developers only.
   pm->addPass(
-      mt::createConvertTritonAMDGPUToLLVMPass(arch, /*ftz=*/true));
+      mlir::triton::createConvertTritonAMDGPUToLLVMPass(arch, /*ftz=*/true));
   pm->addPass(mlir::triton::AMD::createTritonAMDGPUConvertWarpSpecializeToLLVMPass(arch));
   pm->addPass(mlir::createCanonicalizerPass());
   pm->addPass(mlir::createCSEPass());
@@ -207,13 +205,13 @@ static void makeLLIR(mlir::OpPassManager *pm,
   pm->addPass(mlir::createSymbolDCEPass());
   if (/*(instruction_sched_variant=="none") == */ /* DISABLES CODE */
   (false)) {
-    pm->addPass(mt::createTritonAMDGPULowerInstructionSchedHintsPass(
+    pm->addPass(mlir::triton::createTritonAMDGPULowerInstructionSchedHintsPass(
         arch, numStages));
   }
 
   // TODO: add_di_scope
 
-  pm->addPass(mt::createConvertBuiltinFuncToLLVMPass(/*ftz=*/true));
+  pm->addPass(mlir::triton::createConvertBuiltinFuncToLLVMPass(/*ftz=*/true));
 }
 
 //===- Consolidate the Rock Pipelines here ---------------------===//
@@ -366,7 +364,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     // 1. Convert Rock to Triton
     // pm.addPass(rock::createRockToTritonPass());
 
-    makeTTIR(pm);
+    makeTTIR(&pm);
     std::string arch = "gfx1100";
     int numWarps = 4;
     int numCTAs = 1;
@@ -374,7 +372,7 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     int threadPerWarp = 32;
     int matrixInstrNonkdim = 16;
     int kpack = 1;
-    makeTTGIR(pm, arch, numWarps, numCTAs, numStages, threadPerWarp, matrixInstrNonkdim, kpack);
+    makeTTGIR(&pm, arch, numWarps, numCTAs, numStages, threadPerWarp, matrixInstrNonkdim, kpack);
   }
 }
 
@@ -384,7 +382,7 @@ void rock::buildBackendPipeline(OpPassManager &pm,
     std::string arch = "gfx1100";
     int numStages = 2;
 
-    makeLLIR(pm, arch, numStages);
+    makeLLIR(&pm, arch, numStages);
 
 }
 
