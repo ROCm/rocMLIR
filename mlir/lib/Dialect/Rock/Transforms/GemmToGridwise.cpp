@@ -119,6 +119,14 @@ struct AttentionRewritePattern : public OpConversionPattern<AttentionOp> {
                                 ConversionPatternRewriter &rw) const override;
 };
 
+struct PagedAttentionRewritePattern
+    : public OpConversionPattern<PagedAttentionOp> {
+  using OpConversionPattern<PagedAttentionOp>::OpConversionPattern;
+  LogicalResult matchAndRewrite(PagedAttentionOp op,
+                                PagedAttentionOpAdaptor adaptor,
+                                ConversionPatternRewriter &rw) const override;
+};
+
 // Move num_heads dimension to sequence length dimension. This is useful for the
 // decoding phase, when batch=1, seq_len_q = 1 and GQA (example: num_heads_q=64,
 // num_heads_kv=8), we can move numRepeat=num_heads_q/num_heads_kv = 8, to the
@@ -244,20 +252,152 @@ static Value moveNumHeadsToSeqLenOut(OpBuilder builder, Location loc,
 struct GQAResult {
   IntegerAttr numRepeats;
   Value queries;
-  Value keys;
-  Value values;
   Value out;
   Value lse;
   Value currentSeqLen;
   Value prefixOffset;
 };
 
+// Result of common attention padding and grid computation
+struct AttentionPaddingResult {
+  GemmSize gemm0Size;
+  GemmSize gemm1Size;
+  GemmSize gemm0ExtraPad;
+  GemmSize gemm1ExtraPad;
+  Value queries;
+  Value out;
+  Value lse;
+  IntegerAttr prePadG0MAttr;
+  IntegerAttr prePadG0NAttr;
+  IntegerAttr blockSizeAttr;
+  IntegerAttr gridSizeAttr;
+};
+
+// Result of tuning params validation
+struct TuningParamsResult {
+  RockAccelTuningParamAttrInterface params0;
+  RockAccelTuningParamAttrInterface params1;
+};
+
+// Validate that op is on accelerator and get tuning params.
+// Shared between regular AttentionOp and PagedAttentionOp lowering.
+static FailureOr<TuningParamsResult>
+validateAccelAndGetTuningParams(RockGemmGemmWrapperInterface op) {
+  bool isAccel = rock::isAccel(rock::getFeatures(op));
+  if (!isAccel) {
+    return op.emitError("Currently, op is only supported on GPUs "
+                        "with matrix accelerator extensions");
+  }
+  if (!op.getGemm0Params().has_value()) {
+    return op.emitError("gemm0 params is missing and it should've been "
+                        "assigned by affix-tuning-params");
+  }
+  RockAccelTuningParamAttrInterface params0 =
+      cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
+  if (!op.getGemm1Params().has_value()) {
+    return op.emitError("gemm1 params is missing and it should've been "
+                        "assigned by affix-tuning-params");
+  }
+  RockAccelTuningParamAttrInterface params1 =
+      cast<RockAccelTuningParamAttrInterface>(op.getGemm1Params().value());
+
+  return TuningParamsResult{params0, params1};
+}
+
+// Result of Q/out normalization
+struct NormalizedQOutResult {
+  Value queries;
+  Value out;
+};
+
+// Normalize Q and output matrices.
+// Shared between regular AttentionOp and PagedAttentionOp lowering.
+static NormalizedQOutResult
+normalizeQAndOut(ConversionPatternRewriter &rw, Location loc, Value queries,
+                 Value out, bool transposeQ, bool transposeOut) {
+  // Note: the gridwise ops take K x M layout, so Q must be transposed if
+  // it's in the natural M x K form
+  queries = normalizeMatrix(queries, rw, loc, !transposeQ, "gemm0K", "gemm0M");
+  out = normalizeMatrix(out, rw, loc, transposeOut, "gemm1M", "gemm1N");
+  return NormalizedQOutResult{queries, out};
+}
+
+// Apply transforms (normalization, padding) to K/V inside the loadFromKVCache
+// region. This modifies the region in place by inserting rock.transform ops
+// between the final transform and memref.copy operations.
+static LogicalResult applyTransformsInLoadFromKVCacheRegion(
+    OpBuilder &builder, Location loc, Region &region, bool transposeK,
+    bool transposeV, GemmSize gemm0ExtraPad, GemmSize gemm1ExtraPad) {
+  if (region.empty())
+    return failure();
+
+  Block &block = region.front();
+
+  // Collect memref.copy operations
+  SmallVector<memref::CopyOp> copyOps;
+  block.walk([&](memref::CopyOp copyOp) { copyOps.push_back(copyOp); });
+
+  if (copyOps.size() != 2)
+    return failure(); // Expected exactly 2 copy ops (K and V)
+
+  // Process each copy op
+  for (size_t i = 0; i < copyOps.size(); ++i) {
+    memref::CopyOp copyOp = copyOps[i];
+    Value source = copyOp.getSource();
+    Value target = copyOp.getTarget();
+
+    // Determine if this is K (first) or V (second)
+    bool isKeys = (i == 0);
+    bool transpose = isKeys ? transposeK : transposeV;
+    GemmSize extraPad = isKeys ? gemm0ExtraPad : gemm1ExtraPad;
+
+    // Set insertion point before the memref.copy
+    builder.setInsertionPoint(copyOp);
+
+    // 1. Apply normalization (transpose handling)
+    // For keys: gemm0K x gemm0N layout (K x seqLen)
+    // For values: gemm1K x gemm1N layout (seqLen x headDim)
+    if (transpose) {
+      StringRef dim0Name = isKeys ? "gemm0K" : "gemm1K";
+      StringRef dim1Name = isKeys ? "gemm0N" : "gemm1N";
+      source = normalizeMatrix(source, builder, loc, transpose, dim0Name,
+                               dim1Name);
+    }
+
+    // 2. Apply padding
+    int64_t padDim0 = isKeys ? extraPad.k : extraPad.k;
+    int64_t padDim1 = isKeys ? extraPad.m : extraPad.m;
+    if (padDim0 > 0 || padDim1 > 0) {
+      StringRef dim0Name = isKeys ? "gemm0K" : "gemm1K";
+      StringRef dim1Name = isKeys ? "gemm0M" : "gemm1M";
+      source = padMatrix(source, builder, loc, dim0Name, padDim0, dim1Name,
+                         padDim1);
+    }
+
+    // 3. Update the memref.copy source if transforms were applied
+    if (source != copyOp.getSource()) {
+      // Get the new shape from the transformed source
+      MemRefType newSourceType = cast<MemRefType>(source.getType());
+
+      // Update the block argument type to match
+      BlockArgument targetArg = cast<BlockArgument>(target);
+      targetArg.setType(newSourceType);
+
+      // Create a new copy op with the transformed source
+      memref::CopyOp::create(builder, loc, source, target);
+      copyOp.erase();
+    }
+  }
+
+  return success();
+}
+
 // This function will implement GQA, moving numRepeat=num_heads_q/num_heads_kv
 // to the seq_len_q dimension. See moveNumHeadsToSeqLenQ() comment for more
 // details.
 static GQAResult processGQA(ConversionPatternRewriter &rw, Location loc,
-                            Value queries, Value keys, Value values, Value out,
-                            Value lse, Value currentSeqLen, Value prefixOffset,
+                            Value queries, Value out, Value lse,
+                            Value currentSeqLen, Value prefixOffset,
                             int64_t numHeadsQ, int64_t numHeadsKV,
                             int64_t splitKV) {
   assert(numHeadsQ % numHeadsKV == 0);
@@ -279,38 +419,62 @@ static GQAResult processGQA(ConversionPatternRewriter &rw, Location loc,
       lse = moveNumHeadsToSeqLenOut(rw, loc, lse, numRepeats, splitKV);
   }
 
-  return GQAResult{numRepeatsAttr, queries,     keys, values, out, lse,
-                   currentSeqLen,  prefixOffset};
+  return GQAResult{numRepeatsAttr, queries, out, lse, currentSeqLen,
+                   prefixOffset};
 }
 
-template <typename Op>
-static LogicalResult
-computeGridSizeAttentionGemmElmtGemm(ConversionPatternRewriter &rw, Op op,
-                                     Value a, Value b, Value c,
-                                     int64_t splitKV) {
-  RockAccelTuningParamAttrInterface accelParams0 =
-      cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
+// Compute padding requirements and apply padding to Q, out, lse.
+// Also computes grid size and prePad attributes.
+// This is shared between regular AttentionOp and PagedAttentionOp lowering.
+static AttentionPaddingResult computeAttentionPaddingAndGridSize(
+    ConversionPatternRewriter &rw, Location loc, func::FuncOp func, Value a,
+    ArrayRef<int64_t> bShape, ArrayRef<int64_t> cShape, Value out, Value lse,
+    RockAccelTuningParamAttrInterface params0,
+    RockAccelTuningParamAttrInterface params1, int64_t splitKVNum) {
 
-  SmallVector<int64_t, 3> aShape =
-      llvm::to_vector<3>(cast<MemRefType>(a.getType()).getShape());
-
-  SmallVector<int64_t, 3> bShape =
-      llvm::to_vector<3>(cast<MemRefType>(b.getType()).getShape());
-
-  SmallVector<int64_t, 3> cShape =
-      llvm::to_vector<3>(cast<MemRefType>(c.getType()).getShape());
-
+  ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
   GemmSize gemm0Size(/*g=*/aShape[0], /*m=*/bShape[2],
                      /*k=*/aShape[1],
                      /*n=*/aShape[2]);
+  GemmSize gemm1Size(/*g=*/aShape[0], /*m=*/cShape[2],
+                     /*k=*/cShape[1],
+                     /*n=*/aShape[2]);
+  GemmSize gemm0ExtraPad = requiredPadding(params0, gemm0Size, 1, splitKVNum)
+                               .value_or(GemmSize{0, 0, 0, 0});
+  GemmSize gemm1ExtraPad = requiredPadding(params1, gemm1Size, splitKVNum)
+                               .value_or(GemmSize{0, 0, 0, 0});
 
+  // Pad Q
+  a = padMatrix(a, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0N",
+                gemm0ExtraPad.n);
+
+  // Pad output and LSE
+  out = padMatrix(out, rw, loc, "gemm1N", gemm1ExtraPad.n, "gemm1M",
+                  gemm1ExtraPad.m);
+  if (lse)
+    lse = padVector(lse, rw, loc, "gemm1N", gemm1ExtraPad.n);
+
+  // Compute grid size
   int64_t gridSize =
-      (gemm0Size.n / accelParams0.getNPerBlock()) * gemm0Size.g * splitKV;
-
+      (gemm0Size.n / params0.getNPerBlock()) * gemm0Size.g * splitKVNum;
   IntegerAttr gridSizeAttr = rw.getI32IntegerAttr(gridSize);
-  func::FuncOp funcOp = cast<func::FuncOp>(op->getParentOp());
-  funcOp->setAttr("grid_size", gridSizeAttr);
-  return success();
+  func->setAttr("grid_size", gridSizeAttr);
+  IntegerAttr blockSizeAttr = cast<IntegerAttr>(func->getAttr("block_size"));
+
+  // Compute prePad attributes
+  IntegerAttr prePadG0MAttr;
+  if (gemm0ExtraPad.m) {
+    prePadG0MAttr = rw.getIndexAttr(gemm0Size.m);
+  }
+  IntegerAttr prePadG0NAttr;
+  if (gemm0ExtraPad.n) {
+    prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
+  }
+
+  return AttentionPaddingResult{gemm0Size,      gemm1Size,      gemm0ExtraPad,
+                                gemm1ExtraPad,  a,              out,
+                                lse,            prePadG0MAttr,  prePadG0NAttr,
+                                blockSizeAttr,  gridSizeAttr};
 }
 
 static FailureOr<std::tuple<Value, Value, Value, Value>>
@@ -498,32 +662,25 @@ static LogicalResult commonAttentionGemmElmtGemm(
   if (!isa<MemRefType>(op.getAType()))
     return op.emitOpError("Cannot lower unbufferized gemm to gridwise");
 
-  bool isAccel = rock::isAccel(rock::getFeatures(op));
-  if (!isAccel) {
-    return op.emitError("Currently, op is only supported on GPUs "
-                        "with matrix accelerator extensions");
-  }
-  if (!op.getGemm0Params().has_value()) {
-    return op.emitError("gemm0 params is missing and it should've been "
-                        "assigned by affix-tuning-params");
-  }
-  RockAccelTuningParamAttrInterface params0 =
-      cast<RockAccelTuningParamAttrInterface>(op.getGemm0Params().value());
-  if (!op.getGemm1Params().has_value()) {
-    return op.emitError("gemm1 params is missing and it should've been "
-                        "assigned by affix-tuning-params");
-  }
-  RockAccelTuningParamAttrInterface params1 =
-      cast<RockAccelTuningParamAttrInterface>(op.getGemm1Params().value());
+  // Validate and get tuning params using shared helper
+  auto tuningResult = validateAccelAndGetTuningParams(op);
+  if (failed(tuningResult))
+    return failure();
+  RockAccelTuningParamAttrInterface params0 = tuningResult->params0;
+  RockAccelTuningParamAttrInterface params1 = tuningResult->params1;
 
-  // Note: the gridwise ops take K x M and K x N, so A must be transposed if
-  // it's in the natural M x K form
-  a = normalizeMatrix(a, rw, loc, !op.getTransposedA(), "gemm0K", "gemm0M");
+  // Normalize Q and output using shared helper
+  auto normalized = normalizeQAndOut(rw, loc, a, out, op.getTransposedA(),
+                                     op.getTransposedOut());
+  a = normalized.queries;
+  out = normalized.out;
+
+  // Normalize K/V (specific to regular attention - paged attention handles
+  // this in the loadFromKVCache region)
   b = normalizeMatrix(b, rw, loc, op.getTransposedB(), "gemm0K", "gemm0N");
   c = normalizeMatrix(c, rw, loc, op.getTransposedC(), "gemm1K", "gemm1N");
-  out =
-      normalizeMatrix(out, rw, loc, op.getTransposedOut(), "gemm1M", "gemm1N");
 
+  // Split-K handling (for GemmElementwiseGemm, not attention)
   const int64_t splitKFactor = params1.getSplitKFactor();
   if (splitKFactor > 1) {
     if (enableSoftmax)
@@ -542,79 +699,45 @@ static LogicalResult commonAttentionGemmElmtGemm(
 
   int64_t splitKVNum = splitKV.getInt();
 
-  // Grouped-Query Attention (GQA)
+  // Grouped-Query Attention (GQA) - only for attention ops
   IntegerAttr numRepeatsGQA = nullptr;
   if (enableSoftmax) {
     GQAResult gqa =
-        processGQA(rw, op.getLoc(), a, b, c, out, lse, currentSeqLen,
-                   prefixOffset, numHeadsQ, numHeadsKV, splitKVNum);
+        processGQA(rw, loc, a, out, lse, currentSeqLen, prefixOffset,
+                        numHeadsQ, numHeadsKV, splitKVNum);
     numRepeatsGQA = gqa.numRepeats;
     a = gqa.queries;
-    b = gqa.keys;
-    c = gqa.values;
     out = gqa.out;
     lse = gqa.lse;
     currentSeqLen = gqa.currentSeqLen;
     prefixOffset = gqa.prefixOffset;
+    // Note: K/V (b, c) are not transformed in GQA - they are broadcast
   }
 
-  // Note, matrix dimension correctness is handled in the verifier
-  ArrayRef<int64_t> aShape = cast<MemRefType>(a.getType()).getShape();
+  // Compute padding and grid size using shared helper
   ArrayRef<int64_t> bShape = cast<MemRefType>(b.getType()).getShape();
   ArrayRef<int64_t> cShape = cast<MemRefType>(c.getType()).getShape();
-  assert(cShape[1] == bShape[2]);
-  GemmSize gemm0Size(/*g=*/aShape[0], /*m=*/bShape[2],
-                     /*k=*/aShape[1],
-                     /*n=*/aShape[2]);
-  GemmSize gemm1Size(/*g=*/aShape[0], /*m=*/cShape[2],
-                     /*k=*/cShape[1],
-                     /*n=*/aShape[2]);
-  GemmSize gemm0ExtraPad = requiredPadding(params0, gemm0Size, 1, splitKVNum)
-                               .value_or(GemmSize{0, 0, 0, 0});
-  GemmSize gemm1ExtraPad = requiredPadding(params1, gemm1Size, splitKVNum)
-                               .value_or(GemmSize{0, 0, 0, 0});
-
-  a = padMatrix(a, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0N",
-                gemm0ExtraPad.n);
-  b = padMatrix(b, rw, loc, "gemm0K", gemm0ExtraPad.k, "gemm0M",
-                gemm0ExtraPad.m);
-  c = padMatrix(c, rw, loc, "gemm1K", gemm1ExtraPad.k, "gemm1M",
-                gemm1ExtraPad.m);
-  // In the transposed layout, from a tuning params point of view
-  // the output dimensions are swapped. Though we will only be
-  // swapping them inside gridwise lowering to keep the surrounding
-  // fusions legit. So the extra pad needs to be swapped and applied.
-  out = padMatrix(out, rw, loc, "gemm1N", gemm1ExtraPad.n, "gemm1M",
-                  gemm1ExtraPad.m);
-  if (lse)
-    lse = padVector(lse, rw, loc, "gemm1N", gemm1ExtraPad.n);
-
-  if (failed(
-          computeGridSizeAttentionGemmElmtGemm(rw, op, a, b, c, splitKVNum))) {
-    return op.emitError("failed to compute the grid size of "
-                        "`GemmElementwiseGemmOp`/`AttentionOp`");
-  }
-
   func::FuncOp func = op->template getParentOfType<func::FuncOp>();
-  IntegerAttr blockSizeAttr = cast<IntegerAttr>(func->getAttr("block_size"));
-  IntegerAttr gridSizeAttr = cast<IntegerAttr>(func->getAttr("grid_size"));
-  IntegerAttr prePadG0MAttr;
-  if (gemm0ExtraPad.m) {
-    prePadG0MAttr = rw.getIndexAttr(gemm0Size.m);
-  }
-  IntegerAttr prePadG0NAttr;
-  if (gemm0ExtraPad.n) {
-    prePadG0NAttr = rw.getIndexAttr(gemm0Size.n);
-  }
+  AttentionPaddingResult padding = computeAttentionPaddingAndGridSize(
+      rw, loc, func, a, bShape, cShape, out, lse, params0, params1, splitKVNum);
+
+  // Pad K/V (not done by shared helper since paged attention handles this in
+  // the loadFromKVCache region)
+  b = padMatrix(b, rw, loc, "gemm0K", padding.gemm0ExtraPad.k, "gemm0M",
+                padding.gemm0ExtraPad.m);
+  c = padMatrix(c, rw, loc, "gemm1K", padding.gemm1ExtraPad.k, "gemm1M",
+                padding.gemm1ExtraPad.m);
 
   auto newOp = GridwiseAttentionAccelOp::create(
-      rw, loc, a, b, c, elementwiseInputs, currentSeqLen, prefixOffset, out,
-      lse, causal, splitKV, op.getGemmFeaturesAttr(), op.getStoreMethodAttr(),
-      blockSizeAttr, gridSizeAttr,
-      /*disableQBypassLDS=*/nullptr, prePadG0MAttr, prePadG0NAttr,
-      numRepeatsGQA, softmaxType, params0, params1,
+      rw, loc, padding.queries, b, c, elementwiseInputs, currentSeqLen,
+      prefixOffset, padding.out, padding.lse, causal, splitKV,
+      op.getGemmFeaturesAttr(), op.getStoreMethodAttr(), padding.blockSizeAttr,
+      padding.gridSizeAttr,
+      /*disableQBypassLDS=*/nullptr, padding.prePadG0MAttr,
+      padding.prePadG0NAttr, numRepeatsGQA, softmaxType, params0, params1,
       rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
       rw.getBoolAttr(enableSoftmax), preSoftmaxHasSplitKVTransforms);
+
   bool linalgOpFound = false;
   preSecondOpRegion.walk(
       [&](linalg::GenericOp genOp) { linalgOpFound = true; });
@@ -1090,16 +1213,109 @@ LogicalResult GemmElementwiseGemmRewritePattern::matchAndRewrite(
       /*preSoftmaxHasSplitKVTransforms=*/rw.getBoolAttr(false));
 }
 
+LogicalResult PagedAttentionRewritePattern::matchAndRewrite(
+    PagedAttentionOp op, PagedAttentionOpAdaptor adaptor,
+    ConversionPatternRewriter &rw) const {
+  Location loc = op->getLoc();
+
+  if (!isa<MemRefType>(adaptor.getQueries().getType())) {
+    return op.emitOpError(
+        "Cannot lower unbufferized paged attention to gridwise");
+  }
+
+  // Validate and get tuning params using shared helper
+  auto tuningResult = validateAccelAndGetTuningParams(op);
+  if (failed(tuningResult))
+    return failure();
+  RockAccelTuningParamAttrInterface params0 = tuningResult->params0;
+  RockAccelTuningParamAttrInterface params1 = tuningResult->params1;
+
+  // Get K/V types from the loadFromKVCache region
+  Type keysType = op.getKeysType();
+  Type valuesType = op.getValuesType();
+  if (!keysType || !valuesType) {
+    return op.emitError("Could not determine keys/values types from "
+                        "loadFromKVCache region");
+  }
+  ArrayRef<int64_t> bShape = cast<MemRefType>(keysType).getShape();
+  ArrayRef<int64_t> cShape = cast<MemRefType>(valuesType).getShape();
+
+  // Normalize Q and output using shared helper
+  auto normalized = normalizeQAndOut(rw, loc, adaptor.getQueries(),
+                                     adaptor.getOut(), op.getQTransposed(),
+                                     op.getOTransposed());
+  Value a = normalized.queries;
+  Value out = normalized.out;
+
+  // GQA processing for Q, out, lse, currentSeqLen, prefixOffset
+  // (K/V transforms are handled in the loadFromKVCache region)
+  int64_t splitKVNum = adaptor.getSplitKVAttr().getInt();
+  GQAResult gqa = processGQA(
+      rw, loc, a, out, adaptor.getLse(), adaptor.getCurrentSeqLen(),
+      adaptor.getPrefixOffset(), adaptor.getNumHeadsQ(), adaptor.getNumHeadsKV(),
+      splitKVNum);
+
+  // Compute padding and grid size using shared helper
+  func::FuncOp func = op->getParentOfType<func::FuncOp>();
+  AttentionPaddingResult padding = computeAttentionPaddingAndGridSize(
+      rw, loc, func, gqa.queries, bShape, cShape, gqa.out, gqa.lse, params0,
+      params1, splitKVNum);
+
+  // Create the gridwise paged attention op
+  auto newOp = GridwisePagedAttentionAccelOp::create(
+      rw, loc, padding.queries, adaptor.getKeyPagePointers(),
+      adaptor.getKeyAddressMask(), adaptor.getValuePagePointers(),
+      adaptor.getValueAddressMask(), adaptor.getPreSoftmaxElemWiseInputs(),
+      gqa.currentSeqLen, gqa.prefixOffset, padding.out, padding.lse,
+      adaptor.getCausalAttr(), adaptor.getSplitKVAttr(),
+      op.getGemmFeaturesAttr(), op.getStoreMethodAttr(), padding.blockSizeAttr,
+      padding.gridSizeAttr,
+      /*disableQBypassLDS=*/nullptr, padding.prePadG0MAttr,
+      padding.prePadG0NAttr, gqa.numRepeats, op.getSoftmaxTypeAttr(), params0,
+      params1, rw.getDenseI64ArrayAttr(op.getFirstGemmIndices()),
+      /*enableSoftmax=*/rw.getBoolAttr(true),
+      adaptor.getPreSoftmaxHasSplitKVTransformsAttr());
+
+  // Clone the loadFromKVCache region and apply K/V transforms
+  rw.cloneRegionBefore(op.getLoadFromKVCache(), newOp.getLoadFromKVCache(),
+                       newOp.getLoadFromKVCache().begin());
+
+  // Apply transforms (normalization, padding) inside the loadFromKVCache region
+  if (failed(applyTransformsInLoadFromKVCacheRegion(
+          rw, loc, newOp.getLoadFromKVCache(), op.getKTransposed(),
+          op.getVTransposed(), padding.gemm0ExtraPad, padding.gemm1ExtraPad))) {
+    return op.emitError("Failed to apply transforms in loadFromKVCache region");
+  }
+
+  // Clone the preSoftmaxBody region if it has content
+  // NOTE: Use cloneRegionBefore (not inlineRegionBefore) to COPY rather than
+  // MOVE. Moving the region would leave the old op in an invalid state before
+  // the conversion framework removes it.
+  bool linalgOpFound = false;
+  op.getPreSoftmaxBody().walk(
+      [&](linalg::GenericOp genOp) { linalgOpFound = true; });
+  if (linalgOpFound) {
+    rw.cloneRegionBefore(op.getPreSoftmaxBody(), newOp.getPreSoftmaxBody(),
+                         newOp.getPreSoftmaxBody().begin());
+  }
+
+  rw.replaceOp(op, newOp);
+  return success();
+}
+
 void RockGemmToGridwisePass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   ConversionTarget target(*ctx);
 
   target.addIllegalOp<rock::GemmOp, rock::AttentionOp,
-                      rock::GemmElementwiseGemmOp>();
+                      rock::PagedAttentionOp, rock::GemmElementwiseGemmOp>();
   target.addLegalOp<rock::TransformOp, rock::GridwiseGemmOp,
                     rock::GridwiseGemmAccelOp, rock::GridwiseAttentionAccelOp,
-                    memref::AllocOp, linalg::GenericOp, arith::TruncIOp,
-                    arith::ExtFOp, arith::ExtSIOp, arith::TruncFOp>();
+                    rock::GridwisePagedAttentionAccelOp, memref::AllocOp,
+                    linalg::GenericOp, arith::TruncIOp, arith::ExtFOp,
+                    arith::ExtSIOp, arith::TruncFOp>();
+  // Additional ops needed for paged attention's loadFromKVCache region
+  target.addLegalOp<rock::PagedDerefOp, rock::YieldOp, memref::CopyOp>();
 
   target.addLegalDialect<linalg::LinalgDialect, arith::ArithDialect>();
 
@@ -1109,10 +1325,9 @@ void RockGemmToGridwisePass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<GemmRewritePattern, GemmElementwiseGemmRewritePattern>(
       ctx, bufferDeps);
-  patterns.add<AttentionRewritePattern>(ctx);
+  patterns.add<AttentionRewritePattern, PagedAttentionRewritePattern>(ctx);
 
-  if (failed(applyPartialConversion(getOperation(), target,
-                                    std::move(patterns)))) {
+  if (failed(
+          applyPartialConversion(getOperation(), target, std::move(patterns))))
     signalPassFailure();
-  }
-} // namespace
+}
