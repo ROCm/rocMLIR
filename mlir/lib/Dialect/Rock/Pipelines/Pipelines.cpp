@@ -176,18 +176,29 @@ static void makeTTGIR(mlir::OpPassManager *pm,
 // Based on make_llir() in
 // @triton//:third_party/amd/backend/compiler.py
 static void makeLLIR(mlir::OpPassManager *pm,
-                     int numStages) {
+                     std::string arch, int numStages) {
   const int custom_lds_size = 0;
-  pm->addPass(mlir::createTritonAMDGPUUpdateAsyncWaitCount());
-  pm->addPass(mlir::triton::AMD::createOptimizeLDSUsagePass(
-      arch, custom_lds_size));
+  pm->addPass(mlir::createTritonAMDGPUUpdateAsyncWaitCount(arch));
+  pm->addPass(mlir::triton::AMD::createConvertWarpPipelinePass())
   pm->addPass(mlir::createSCFToControlFlowPass());
+  pm->addPass(gluon::createGluonInline());
   pm->addPass(mlir::createConvertIndexToLLVMPass());
+
   pm->addPass(mt::gpu::createAllocateSharedMemory());
+  
+// ## __HIP_FTZ is used to control the denorm flushing behavior of exp2 op as follows:
+// ## 1. If __HIP_FTZ = 1, exp2 flushes denorms in input and output regardless
+// ##    of the value of kernel arg `allow_flush_denorm`.
+// ## 2. If __HIP_FTZ = 0, whether exp2 flushes denorms in input and output
+// ##    depends on the value of kernel arg `allow_flush_denorm`.
+// ## 3. __HIP_FTZ is default to 1 and not exposed as a kernel argument.
+// ##    For now it is used as a controller for developers only.
   pm->addPass(
-      mt::createConvertTritonAMDGPUToLLVMPass(arch, true));
+      mt::createConvertTritonAMDGPUToLLVMPass(arch, /*ftz=*/true));
+  pm->addPass(mlir::triton::AMD::createTritonAMDGPUConvertWarpSpecializeToLLVMPass(arch));
   pm->addPass(mlir::createCanonicalizerPass());
   pm->addPass(mlir::createCSEPass());
+
   // Note: translateTritonGPUToLLVMIR adds line info with LLVMDIScopePass.
   pm->addPass(mlir::createConvertControlFlowToLLVMPass());
   pm->addPass(mlir::createArithToLLVMConversionPass());
@@ -199,6 +210,9 @@ static void makeLLIR(mlir::OpPassManager *pm,
     pm->addPass(mt::createTritonAMDGPULowerInstructionSchedHintsPass(
         arch, numStages));
   }
+
+  // TODO: add_di_scope
+
   pm->addPass(mt::createConvertBuiltinFuncToLLVMPass(/*ftz=*/true));
 }
 
@@ -352,84 +366,26 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     // 1. Convert Rock to Triton
     // pm.addPass(rock::createRockToTritonPass());
 
-    // makeTTIR(pm);
-    // makeTTGIR(pm, rocm_cc, numWarps, numCtas, numStages);
-    // makeLLIR(pm, rocm_cc, numStages);
+    makeTTIR(pm);
+    std::string arch = "gfx1100";
+    int numWarps = 4;
+    int numCTAs = 1;
+    int numStages = 2;
+    int threadPerWarp = 32;
+    int matrixInstrNonkdim = 16;
+    int kpack = 1;
+    makeTTGIR(pm, arch, numWarps, numCTAs, numStages, threadPerWarp, matrixInstrNonkdim, kpack);
   }
 }
 
 void rock::buildBackendPipeline(OpPassManager &pm,
                                 const rock::BackendOptions &options) {
-  // lowering ROCDL (LLVM) to binary.
-  // Leave off --convert-arith-to-amdgpu if not targetting gfx94x+.
-  /* rocmlir-opt --strip-debuginfo
-   *   --convert-arith-to-amdgpu
-   *   --emulate-fp8-ext-trunc
-   *   "--amdgpu-emulate-atomics=chipset=$chip"
-   *   --arith-emulate-unsupported-floats="source-types=bf16 target-type=f32"
-   *   "--convert-gpu-to-rocdl=chipset=$chip index-bitwidth=32"
-   *   "--gpu-to-hsaco=triple=$triple chip=$chip features=$features opt-level=3"
-   */
-  pm.addPass(createStripDebugInfoPass());
-  AmdArchInfo archInfo = lookupArchInfo(options.chip);
-  auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
-  gpuPm.addPass(amdgpu::createAmdgpuEmulateAtomicsPass({options.chip}));
-  arith::ArithEmulateUnsupportedFloatsOptions floatEmuOpts;
-  floatEmuOpts.sourceTypeStrs.assign(
-      {"f8E4M3FNUZ", "f8E5M2FNUZ", "f8E4M3FN", "f8E5M2", "f8E8M0FNU"});
-  floatEmuOpts.targetTypeStr = "f32";
-  gpuPm.addPass(arith::createArithEmulateUnsupportedFloats(floatEmuOpts));
-  arith::ArithExpandOpsPassOptions arithExpandOpsOptions;
-  // emulate truncf(f32)->f8E8M0FNU types. This is used when scales are passed
-  // in as f32 for the scaledGemms
-  arithExpandOpsOptions.includeF8E8M0 = true;
-  gpuPm.addPass(arith::createArithExpandOpsPass(arithExpandOpsOptions));
-  ArithToAMDGPUConversionPassOptions arithOptions;
-  arithOptions.chipset = options.chip;
-  // disable packed truncation to fp16 with rtz (round towards zero) as it
-  // generates less accurate results.
-  arithOptions.allowPackedF16Rtz = false;
-  arithOptions.saturateFP8Truncf = true;
-  gpuPm.addPass(createArithToAMDGPUConversionPass(arithOptions));
-  EmulateFp8ExtTruncPassOptions f8ConversionOptions;
-  f8ConversionOptions.hasFp8ConversionInstrs = archInfo.hasFp8ConversionInstrs;
-  f8ConversionOptions.hasOcpFp8ConversionInstrs =
-      archInfo.hasOcpFp8ConversionInstrs;
-  gpuPm.addPass(createEmulateFp8ExtTruncPass(f8ConversionOptions));
-  gpuPm.addPass(memref::createExpandStridedMetadataPass());
-  // We need to lower affine again, because the expand strided metadata pass
-  // adds back affine.apply for memref.subview
-  gpuPm.addPass(createLowerAffinePass());
-  ConvertGpuOpsToROCDLOpsOptions rocdlOpts;
-  rocdlOpts.chipset = options.chip;
-  rocdlOpts.indexBitwidth = kDeriveIndexBitwidthFromDataLayout;
-  rocdlOpts.useBarePtrCallConv = true;
-  rocdlOpts.runtime = gpu::amd::Runtime::HIP;
-  rocdlOpts.allowedDialects.assign(
-      {"memref", "math", "cf", "func", "vector", "arith"});
-  gpuPm.addPass(createConvertGpuOpsToROCDLOps(rocdlOpts));
-  // ConvertRockOpsToROCDLOpsOptions rockToROCDLOpts;
-  // rockToROCDLOpts.chipset = options.chip;
-  // gpuPm.addPass(rock::createConvertRockOpsToROCDLOps(rockToROCDLOpts));
-  // Ensure we only run passes on LLVM functions inside GPU modules.
-  auto &llvmFuncPm = gpuPm.nest<LLVM::LLVMFuncOp>();
-  // -canonicalize -cse so that we don't have to crawl through memref
-  // descriptors. (Mainly we want the `extractvalue` fold).
-  llvmFuncPm.addPass(createCanonicalizerPass());
-  llvmFuncPm.addPass(createCSEPass());
-  if (options.compile) {
-    GpuROCDLAttachTargetOptions opts;
-    opts.triple = options.triple;
-    opts.chip = options.chip;
-    opts.features = options.features;
-    opts.optLevel = options.optLevel;
-    pm.addPass(createGpuROCDLAttachTarget(opts));
-    pm.addPass(createGpuModuleToBinaryPass());
-  }
-  // Quick hack around the fact that our host code runner pipeline can't
-  // include our fp8 extf implmenentation becasue of MHAL's organization. That
-  // pass will ideally be nicely implemented and upstreamed Later (tm).
-  pm.addPass(createEmulateFp8ExtTruncPass());
+
+    std::string arch = "gfx1100";
+    int numStages = 2;
+
+    makeLLIR(pm, arch, numStages);
+
 }
 
 //===----------------------------------------------------------------------===//
