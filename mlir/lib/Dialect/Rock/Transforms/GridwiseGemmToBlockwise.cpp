@@ -2805,7 +2805,7 @@ struct GridwiseAttentionAccelRewritePattern
               invertTransforms(rewriter, loc,
                                gemm0OutSubTileNxMViews.threadSubTile);
           if (failed(gemm0ThreadwiseSubtileViewNxMMaps)) {
-            return failure();
+            return op.emitError("invertTransforms failed");
           }
           Value gemm0ExpNMThreadwiseView =
               transform(rewriter, gemm1RegBufferB,
