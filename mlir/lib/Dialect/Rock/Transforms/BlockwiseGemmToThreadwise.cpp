@@ -1030,7 +1030,7 @@ struct BlockwiseReduceRewritePattern
     FailureOr<ArrayAttr> maybeInputThreadSubTile2dViewInv =
         invertTransforms(rewriter, loc, inputThreadSubTile2dView);
     assert(succeeded(maybeInputThreadSubTile2dViewInv) &&
-           "This must work for partial reduction");
+           "inputThreadSubTile2dView must be invertible");
     ArrayAttr inputThreadSubTile2dViewInv =
         maybeInputThreadSubTile2dViewInv.value();
     ArrayRef<int64_t> threadSubTile2DShape =

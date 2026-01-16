@@ -517,8 +517,7 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     FailureOr<ArrayAttr> maybeInvertedViews =
         invertTransforms(rewriter, rOp.getLoc(), views);
     if (failed(maybeInvertedViews) || maybeInvertedViews.value().empty()) {
-      LLVM_DEBUG(llvm::dbgs() << "gemm to reduce view inversion failed.\n");
-      return failure();
+      return rOp.emitError("gemm to reduce view inversion failed.");
     }
     LLVM_DEBUG(llvm::dbgs()
                << "inv(gemmToReduceViews)=" << maybeInvertedViews.value() << "\n");
