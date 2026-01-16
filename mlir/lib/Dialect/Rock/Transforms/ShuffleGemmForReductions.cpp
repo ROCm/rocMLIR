@@ -578,9 +578,12 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
         mnPerBlock.value().NPerBlock, reductionSubDimsinGemmSpace.value());
     rewriter.setInsertionPointAfterValue(gemmOut);
     Value trGemmOut = gemmOut;
-    ArrayAttr invertedOutViews =
-        invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews).value();
-    for (Attribute trMap : invertedOutViews) {
+    FailureOr<ArrayAttr> invertedOutViews =
+        invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews);
+    if (failed(invertedOutViews)) {
+      return failure();
+    }
+    for (Attribute trMap : invertedOutViews.value()) {
       trGemmOut = TransformOp::create(rewriter, rOp.getLoc(), trGemmOut,
                                       cast<TransformMapAttr>(trMap));
     }

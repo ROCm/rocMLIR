@@ -348,9 +348,13 @@ class LoweringBlockwiseLoadTileOp final
           // Since we are iterating on D dimension, we need to transpose it.
           RegsAsMatrixSubTiles inBufferViewsTr =
               transposeSubTileViews(b, loc, maybeBufferViews.value());
-          Value viewLoadedBuffer = transform(
-              b, loadBuffer,
-              invertTransforms(b, loc, inBufferViewsTr.threadSubTile).value());
+          FailureOr<ArrayAttr> inBufferViewsTrAttr =
+              invertTransforms(b, loc, inBufferViewsTr.threadSubTile);
+          if (failed(inBufferViewsTrAttr)) {
+            return failure();
+          }
+          Value viewLoadedBuffer =
+              transform(b, loadBuffer, inBufferViewsTrAttr.value());
           ThreadwiseReadIntoOp::create(b, loc, viewLoadedBuffer, subview,
                                        b.getArrayAttr({}), ValueRange{di},
                                        forceUnroll, true);
@@ -393,10 +397,13 @@ class LoweringBlockwiseLoadTileOp final
           if (failed(maybeLdsStoreViews))
             return failure();
 
-          ArrayAttr storeBufferViews =
-              invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile)
-                  .value();
-          Value viewStoreBuffer = transform(b, storeBuffer, storeBufferViews);
+          FailureOr<ArrayAttr> storeBufferViews =
+              invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile);
+          if (failed(storeBuffer)) {
+            return failure();
+          }
+          Value viewStoreBuffer =
+              transform(b, storeBuffer, storeBufferViews.value());
 
           Type ldsReadType = vectorTypeOrSelf(elementType, kpack);
           FailureOr<Value> maybeWrappedLds = wrapLDSBufferForStore(

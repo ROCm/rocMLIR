@@ -1710,7 +1710,7 @@ FailureOr<ArrayAttr> mlir::rock::invertTransforms(OpBuilder &b, Location loc,
     auto trMap = cast<TransformMapAttr>(tr);
     TransformMapAttr invertedTrMap = invertTransformMap(b, trMap, loc);
     if (!invertedTrMap)
-      return LogicalResult::failure();
+      return failure();
     invertedTrs.push_back(invertedTrMap);
   }
   return b.getArrayAttr(invertedTrs);
