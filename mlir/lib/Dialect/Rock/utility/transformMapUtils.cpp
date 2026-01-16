@@ -1755,10 +1755,10 @@ FailureOr<Value> mlir::rock::addPassThroughIndices(OpBuilder &b,
   std::iota(backPoses.begin(), backPoses.end(), pos + numberOfIndices);
   if (!backNames.empty())
     addDimBuilder.passThrough(backNames, backPoses, backNames);
+  SmallVector<SmallString<8>, 8> extraNames; 
   for (auto [idx, len] : llvm::enumerate(lengths)) {
-    SmallString<8> extraName;
-    ("extra_" + Twine(idx)).toVector(extraName);
-    addDimBuilder.addDim(extraName, pos + idx, len);
+    extraNames.emplace_back(("extra_" + Twine(idx)).str());
+    addDimBuilder.addDim(extraNames.back(), pos + idx, len);
   }
   TransformMapAttr addDimAttr = addDimBuilder.get();
   ret = TransformOp::create(b, ret.getLoc(), ret, addDimAttr);
