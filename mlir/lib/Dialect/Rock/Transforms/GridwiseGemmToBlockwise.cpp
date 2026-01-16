@@ -2345,7 +2345,7 @@ struct GridwiseAttentionAccelRewritePattern
     // we just need another buffer to do the special accumulation
     Value attentionOutAccBuffer, outAccBufferOutTyped, sumRowBuffer,
         maxRowBuffer, expMaxDiffRowBuffer, lseBuffer;
-    ArrayAttr attentionOutAccBufferThreadSubTileViewMaps = nullptr;
+    FailureOr<ArrayAttr> attentionOutAccBufferThreadSubTileViewMaps = failure();
     if (op.getEnableSoftmax()) {
       attentionOutAccBuffer = createBufferForGemmOut(
           loc, elemTypeSoftmax, accelParamsGemm1, rewriter, gemm1MBlocks);
@@ -2960,13 +2960,13 @@ struct GridwiseAttentionAccelRewritePattern
               Value gemm1MNThreadwiseView =
                   transform(rewriter, gemm1OutBufferPerG1MBlock,
                             invertedGemm1threadSubTileMaps.value());
-              if (!attentionOutAccBufferThreadSubTileViewMaps) {
+              if (failed(attentionOutAccBufferThreadSubTileViewMaps)) {
                 return failure();
               }
               // Rescale/correct output, rowMax and rowSums
               Value attentionOutAccBufferView =
                   transform(rewriter, attentionOutAccBufferPerG1MBlock,
-                            attentionOutAccBufferThreadSubTileViewMaps);
+                            attentionOutAccBufferThreadSubTileViewMaps.value());
               createAttentionRowStateCorrections(
                   rewriter, loc, gemm1MNThreadwiseView,
                   attentionOutAccBufferView, expMaxDiffRowBuffer);
@@ -2995,12 +2995,12 @@ struct GridwiseAttentionAccelRewritePattern
           attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(
               rewriter, loc, attentionOutAccBuffer, g1MLoopIndVar);
         }
-        if (!attentionOutAccBufferThreadSubTileViewMaps) {
+        if (failed(attentionOutAccBufferThreadSubTileViewMaps)) {
           return failure();
         }
         Value attentionOutAccBufferView =
             transform(rewriter, attentionOutAccBufferPerG1MBlock,
-                      attentionOutAccBufferThreadSubTileViewMaps);
+                      attentionOutAccBufferThreadSubTileViewMaps.value());
         scaleFinalOutput(rewriter, loc, attentionOutAccBufferView,
                          sumRowBuffer);
       }
