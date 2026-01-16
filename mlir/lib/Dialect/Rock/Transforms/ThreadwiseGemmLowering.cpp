@@ -520,11 +520,11 @@ LogicalResult ThreadwiseCopyRewritePattern::matchAndRewrite(
     storeBufferViewForInverse = b.getArrayAttr(storeBufferViews.drop_back());
     storeBufferLoadIdxsAttr = storeBufferViews.back();
   }
-  FailureOr<ArrayAttr> storeBufferViewInverted =
+  FailureOr<ArrayAttr> maybeStoreBufferViewInverted =
       invertTransforms(b, loc, storeBufferViewForInverse);
-  if (succeeded(storeBufferViewInverted)) {
+  if (succeeded(maybeStoreBufferViewInverted)) {
     Value srcToDestView =
-        transform(b, sourceView, storeBufferViewInverted.value());
+        transform(b, sourceView, maybeStoreBufferViewInverted.value());
     // It may be the case that we had an isolated transform stack and didn't
     // need to add extra indices. In that case, all the possible sources of
     // cloning will have declined to trigger on account of everything already

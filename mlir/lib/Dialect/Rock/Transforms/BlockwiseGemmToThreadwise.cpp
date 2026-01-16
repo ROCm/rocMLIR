@@ -1027,8 +1027,12 @@ struct BlockwiseReduceRewritePattern
     Type elemType = cast<MemRefType>(reducedBuffer.getType()).getElementType();
     constexpr size_t nrDim = 0;
     constexpr size_t rDim = 1;
+    FailureOr<ArrayAttr> maybeInputThreadSubTile2dViewInv =
+        invertTransforms(rewriter, loc, inputThreadSubTile2dView);
+    assert(succeeded(maybeInputThreadSubTile2dViewInv) &&
+           "This must work for partial reduction");
     ArrayAttr inputThreadSubTile2dViewInv =
-        invertTransforms(rewriter, loc, inputThreadSubTile2dView).value();
+        maybeInputThreadSubTile2dViewInv.value();
     ArrayRef<int64_t> threadSubTile2DShape =
         getLowerShape(inputThreadSubTile2dView);
     WorkitemIdOp tid =

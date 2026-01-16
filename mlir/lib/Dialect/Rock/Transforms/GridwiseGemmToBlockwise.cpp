@@ -550,12 +550,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
 
     // We invert the transforms that are iter --> K x D slice of the tensor
     // so that we can view loadBuffer as a K x D tensor
-    FailureOr<ArrayAttr> loadBufferAViews =
+    FailureOr<ArrayAttr> maybeLoadBufferAViews =
         invertTransforms(b, loc, maybeABufferViews->threadSubTile);
-    if (failed(loadBufferAViews)) {
+    if (failed(maybeLoadBufferAViews)) {
       return failure();
     }
-    Value viewLoadBufferA = transform(b, loadBufferA, loadBufferAViews.value());
+    Value viewLoadBufferA =
+        transform(b, loadBufferA, maybeLoadBufferAViews.value());
     // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
     // vectorization Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
@@ -569,16 +570,17 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
     if (failed(maybeALdsStoreViews)) {
       return failure();
     }
-    FailureOr<ArrayAttr> storeBufferAViews =
+    FailureOr<ArrayAttr> maybeStoreBufferAViews =
         invertTransforms(b, loc, maybeALdsStoreViews->threadSubTile);
-    FailureOr<ArrayAttr> loadBufferBViews =
+    FailureOr<ArrayAttr> maybeLoadBufferBViews =
         invertTransforms(b, loc, maybeBBufferViews->threadSubTile);
-    if (failed(storeBufferAViews) || failed(loadBufferBViews)) {
+    if (failed(maybeStoreBufferAViews) || failed(maybeLoadBufferBViews)) {
       return failure();
     }
     Value viewStoreBufferA =
-        transform(b, storeBufferA, storeBufferAViews.value());
-    Value viewLoadBufferB = transform(b, loadBufferB, loadBufferBViews.value());
+        transform(b, storeBufferA, maybeStoreBufferAViews.value());
+    Value viewLoadBufferB =
+        transform(b, loadBufferB, maybeLoadBufferBViews.value());
     // Prior to LDS store, we need re-arrange register buffer to maxmize LDS
     // vectorization Hence, creating the view w.r.t global that correspond to
     // such re-arranged register buffer
@@ -589,13 +591,13 @@ struct GridwiseGemmRewritePattern : public OpRewritePattern<GridwiseGemmOp> {
             maybeVecDimInfoB->inDPerThread, kpack,
             maybeVecDimInfoB->vectorDim == GemmDimension::K,
             ldsLayoutConfigB.doSwapThreadIterSubDims);
-    FailureOr<ArrayAttr> storeBufferBViews =
+    FailureOr<ArrayAttr> maybeStoreBufferBViews =
         invertTransforms(b, loc, maybeBLdsStoreViews->threadSubTile).value();
-    if (failed(maybeBLdsStoreViews) || failed(storeBufferBViews)) {
+    if (failed(maybeBLdsStoreViews) || failed(maybeStoreBufferBViews)) {
       return failure();
     }
     Value viewStoreBufferB =
-        transform(b, storeBufferB, storeBufferBViews.value());
+        transform(b, storeBufferB, maybeStoreBufferBViews.value());
 
     Type ldsReadTypeA = vectorTypeOrSelf(elementTypeA, kpack);
     FailureOr<Value> maybeWrappedLdsA = wrapLDSBufferForStore(
@@ -788,12 +790,13 @@ struct GridwiseAttentionAccelRewritePattern
       int64_t kPerBlock, int64_t dPerBlock, int64_t copyKPerThread,
       int64_t copyDPerThread, bool forceUnroll, bool rotateDWithK) const {
     Type elemType = cast<MemRefType>(regBuffer.getType()).getElementType();
-    FailureOr<ArrayAttr> storeBufferViews =
+    FailureOr<ArrayAttr> maybeStoreBufferViews =
         invertTransforms(rewriter, loc, toLDSViews.threadSubTile);
-    if(failed(storeBufferViews)){
-        return failure();
+    if (failed(maybeStoreBufferViews)) {
+      return failure();
     }
-    Value viewStoreBuffer = transform(rewriter, storeBuffer, storeBufferViews.value());
+    Value viewStoreBuffer =
+        transform(rewriter, storeBuffer, maybeStoreBufferViews.value());
     // The following is fine for software pipelining optimization as it could be
     // considered "compute". In future, consider refactoring the following loop
     // to be a single reg->reg op avoid verbose IR at this level.
@@ -1543,17 +1546,17 @@ struct GridwiseAttentionAccelRewritePattern
       //  (bid, tid, iter) > ... > [gemmOutput: k x d]
       //                         > invertTr(linalg input to gemmOutput maps)
       //                         > (linalgOtherInput to op arg maps)
-      FailureOr<ArrayAttr> gemmOutToLinalgMaps =
+      FailureOr<ArrayAttr> maybeGemmOutToLinalgMaps =
           invertTransforms(rewriter, loc, linalgToGemmOutMaps);
 
-      if (failed(gemmOutToLinalgMaps)) {
+      if (failed(maybeGemmOutToLinalgMaps)) {
         genOp.emitError("We can't invert linalg input to gemmOutput maps");
         return WalkResult::interrupt();
       }
 
-      if (!gemmOutToLinalgMaps.value().empty()) {
+      if (!maybeGemmOutToLinalgMaps.value().empty()) {
         linalgGridSubTileMaps = prependUpperViews(
-            rewriter, linalgGridSubTileMaps, gemmOutToLinalgMaps.value());
+            rewriter, linalgGridSubTileMaps, maybeGemmOutToLinalgMaps.value());
       }
 
       for (auto [idx, genOpInput] : llvm::enumerate(genOp.getInputs())) {
@@ -2345,7 +2348,8 @@ struct GridwiseAttentionAccelRewritePattern
     // we just need another buffer to do the special accumulation
     Value attentionOutAccBuffer, outAccBufferOutTyped, sumRowBuffer,
         maxRowBuffer, expMaxDiffRowBuffer, lseBuffer;
-    FailureOr<ArrayAttr> attentionOutAccBufferThreadSubTileViewMaps = failure();
+    FailureOr<ArrayAttr> maybeAttentionOutAccBufferThreadSubTileViewMaps =
+        failure();
     if (op.getEnableSoftmax()) {
       attentionOutAccBuffer = createBufferForGemmOut(
           loc, elemTypeSoftmax, accelParamsGemm1, rewriter, gemm1MBlocks);
@@ -2358,7 +2362,7 @@ struct GridwiseAttentionAccelRewritePattern
       FailureOr<ArrayAttr> invertedThreadSubTileViews =
           invertTransforms(rewriter, loc, gemm1OutSubTileViewsTr.threadSubTile);
       if (succeeded(invertedThreadSubTileViews)) {
-        attentionOutAccBufferThreadSubTileViewMaps =
+        maybeAttentionOutAccBufferThreadSubTileViewMaps =
             invertedThreadSubTileViews.value();
       }
       // m buffer; this only contains a reduced single value per row
@@ -2735,19 +2739,20 @@ struct GridwiseAttentionAccelRewritePattern
             gemm0OutSubTileViewsTr.threadSubTile, /*extraViews=*/nullptr,
             blockSize);
 
-        FailureOr<ArrayAttr> gemm0ThreadSubTileInvert = invertTransforms(
+        FailureOr<ArrayAttr> maybeGemm0ThreadSubTileInvert = invertTransforms(
             rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
-        if (failed(gemm0ThreadSubTileInvert)) {
+        if (failed(maybeGemm0ThreadSubTileInvert)) {
           return failure();
         }
 
         // softmax normalization.
-        Value gemm0MNThreadwiseView = transform(
-            rewriter, softmaxInputBuffer, gemm0ThreadSubTileInvert.value());
+        Value gemm0MNThreadwiseView =
+            transform(rewriter, softmaxInputBuffer,
+                      maybeGemm0ThreadSubTileInvert.value());
         Value gemm0MNExpThreadwiseView = transform(
-            rewriter, softmaxBufferExp, gemm0ThreadSubTileInvert.value());
+            rewriter, softmaxBufferExp, maybeGemm0ThreadSubTileInvert.value());
         Value gemm0MNMaxThreadwiseView = transform(
-            rewriter, softmaxBufferMax, gemm0ThreadSubTileInvert.value());
+            rewriter, softmaxBufferMax, maybeGemm0ThreadSubTileInvert.value());
         expSubstractMaxFromGemm0(rewriter, loc, gemm0MNThreadwiseView,
                                  gemm0MNExpThreadwiseView,
                                  gemm0MNMaxThreadwiseView, maxRowBuffer);
@@ -2764,15 +2769,15 @@ struct GridwiseAttentionAccelRewritePattern
             gemm0OutSubTileViewsTr.blockSubTileTidSlice.value(),
             gemm0OutSubTileViewsTr.threadSubTile,
             /*extraViews=*/nullptr, blockSize);
-        FailureOr<ArrayAttr> threadSubTileAttr = invertTransforms(
+        FailureOr<ArrayAttr> maybeThreadSubTileAttr = invertTransforms(
             rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
-        if (failed(threadSubTileAttr)) {
+        if (failed(maybeThreadSubTileAttr)) {
           return failure();
         }
-        Value gemm0SumThreadwiseView =
-            transform(rewriter, softmaxBufferSum, threadSubTileAttr.value());
-        Value gemm0MaxThreadwiseView =
-            transform(rewriter, softmaxBufferMax, threadSubTileAttr.value());
+        Value gemm0SumThreadwiseView = transform(
+            rewriter, softmaxBufferSum, maybeThreadSubTileAttr.value());
+        Value gemm0MaxThreadwiseView = transform(
+            rewriter, softmaxBufferMax, maybeThreadSubTileAttr.value());
         updateRowSum(rewriter, loc, gemm0SumThreadwiseView,
                      gemm0MaxThreadwiseView, sumRowBuffer, maxRowBuffer,
                      expMaxDiffRowBuffer);
@@ -2960,13 +2965,13 @@ struct GridwiseAttentionAccelRewritePattern
               Value gemm1MNThreadwiseView =
                   transform(rewriter, gemm1OutBufferPerG1MBlock,
                             invertedGemm1threadSubTileMaps.value());
-              if (failed(attentionOutAccBufferThreadSubTileViewMaps)) {
+              if (failed(maybeAttentionOutAccBufferThreadSubTileViewMaps)) {
                 return failure();
               }
               // Rescale/correct output, rowMax and rowSums
-              Value attentionOutAccBufferView =
-                  transform(rewriter, attentionOutAccBufferPerG1MBlock,
-                            attentionOutAccBufferThreadSubTileViewMaps.value());
+              Value attentionOutAccBufferView = transform(
+                  rewriter, attentionOutAccBufferPerG1MBlock,
+                  maybeAttentionOutAccBufferThreadSubTileViewMaps.value());
               createAttentionRowStateCorrections(
                   rewriter, loc, gemm1MNThreadwiseView,
                   attentionOutAccBufferView, expMaxDiffRowBuffer);
@@ -2995,12 +3000,12 @@ struct GridwiseAttentionAccelRewritePattern
           attentionOutAccBufferPerG1MBlock = createSliceOfFirstDim(
               rewriter, loc, attentionOutAccBuffer, g1MLoopIndVar);
         }
-        if (failed(attentionOutAccBufferThreadSubTileViewMaps)) {
+        if (failed(maybeAttentionOutAccBufferThreadSubTileViewMaps)) {
           return failure();
         }
         Value attentionOutAccBufferView =
             transform(rewriter, attentionOutAccBufferPerG1MBlock,
-                      attentionOutAccBufferThreadSubTileViewMaps.value());
+                      maybeAttentionOutAccBufferThreadSubTileViewMaps.value());
         scaleFinalOutput(rewriter, loc, attentionOutAccBufferView,
                          sumRowBuffer);
       }
@@ -3017,8 +3022,9 @@ struct GridwiseAttentionAccelRewritePattern
       // it must be guaranteed by the verifier
       assert(op.getEnableSoftmax());
       assert(lseBuffer);
-      Value lseBufferView = transform(
-          rewriter, lseBuffer, attentionOutAccBufferThreadSubTileViewMaps.value());
+      Value lseBufferView =
+          transform(rewriter, lseBuffer,
+                    maybeAttentionOutAccBufferThreadSubTileViewMaps.value());
       computeLse(rewriter, loc, lseBufferView, sumRowBuffer, maxRowBuffer);
     }
 

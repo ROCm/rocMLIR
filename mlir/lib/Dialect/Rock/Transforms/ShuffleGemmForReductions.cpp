@@ -514,17 +514,17 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
       return failure();
     }
     IRRewriter rewriter(rOp.getContext());
-    FailureOr<ArrayAttr> invertedViews =
+    FailureOr<ArrayAttr> maybeInvertedViews =
         invertTransforms(rewriter, rOp.getLoc(), views);
     LLVM_DEBUG(llvm::dbgs()
-               << "inv(gemmToReduceViews)=" << invertedViews << "\n");
-    if (failed(invertedViews) || invertedViews.value().empty()) {
+               << "inv(gemmToReduceViews)=" << maybeInvertedViews << "\n");
+    if (failed(maybeInvertedViews) || maybeInvertedViews.value().empty()) {
       LLVM_DEBUG(llvm::dbgs() << "gemm to reduce view inversion failed.\n");
       return failure();
     }
     FailureOr<llvm::SmallDenseMap<int64_t, SmallVector<mlir::rock::SubDimInfo>>>
         reductionSubDimsinGemmSpace = getLowerSubDimensions(
-            rewriter, invertedViews.value(), rOp.getAxis().getZExtValue());
+            rewriter, maybeInvertedViews.value(), rOp.getAxis().getZExtValue());
     if (failed(reductionSubDimsinGemmSpace) ||
         reductionSubDimsinGemmSpace.value().empty()) {
       LLVM_DEBUG(llvm::dbgs()
@@ -578,12 +578,12 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
         mnPerBlock.value().NPerBlock, reductionSubDimsinGemmSpace.value());
     rewriter.setInsertionPointAfterValue(gemmOut);
     Value trGemmOut = gemmOut;
-    FailureOr<ArrayAttr> invertedOutViews =
+    FailureOr<ArrayAttr> maybeInvertedOutViews =
         invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews);
-    if (failed(invertedOutViews)) {
+    if (failed(maybeInvertedOutViews)) {
       return failure();
     }
-    for (Attribute trMap : invertedOutViews.value()) {
+    for (Attribute trMap : maybeInvertedOutViews.value()) {
       trGemmOut = TransformOp::create(rewriter, rOp.getLoc(), trGemmOut,
                                       cast<TransformMapAttr>(trMap));
     }
