@@ -2879,7 +2879,7 @@ struct GridwiseAttentionAccelRewritePattern
                   return failure();
               }
               Value gemm1BDxKThreadwiseView = transform(
-                  rewriter, gemm1RegBufferB, gemm1ThreadwiseSubtileViewDxKMaps);
+                  rewriter, gemm1RegBufferB, gemm1ThreadwiseSubtileViewDxKMaps.value());
               affine::AffineForOp nRepeatsLoop = affine::AffineForOp::create(
                   rewriter, loc, 0, accelParamsGemm1.nRepeats, 1);
               {
@@ -3018,7 +3018,7 @@ struct GridwiseAttentionAccelRewritePattern
       assert(op.getEnableSoftmax());
       assert(lseBuffer);
       Value lseBufferView = transform(
-          rewriter, lseBuffer, attentionOutAccBufferThreadSubTileViewMaps);
+          rewriter, lseBuffer, attentionOutAccBufferThreadSubTileViewMaps.value());
       computeLse(rewriter, loc, lseBufferView, sumRowBuffer, maxRowBuffer);
     }
 

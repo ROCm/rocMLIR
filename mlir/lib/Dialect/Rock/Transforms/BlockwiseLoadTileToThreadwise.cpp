@@ -400,9 +400,9 @@ class LoweringBlockwiseLoadTileOp final
           if (failed(maybeLdsStoreViews))
             return failure();
 
-          FailureOr<ArrayAttr>a storeBufferViews =
+          FailureOr<ArrayAttr> storeBufferViews =
               invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile);
-          if (failed(storeBuffer)) {
+          if (failed(storeBufferViews)) {
             return failure();
           }
           Value viewStoreBuffer =
