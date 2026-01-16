@@ -4,7 +4,6 @@ rm -rf build
 mkdir build
 cd build
 
-
 cmake .. -G Ninja \
   -DCMAKE_BUILD_TYPE=RelWithDebInfo \
   -DLLD_BUILD_TOOLS=ON \
@@ -15,10 +14,5 @@ cmake .. -G Ninja \
   -DCMAKE_SHARED_LINKER_FLAGS="-fuse-ld=lld" \
   -DCMAKE_MODULE_LINKER_FLAGS="-fuse-ld=lld"
 
-ninja NVGPUToLLVM NVGPUConversionPassIncGen NVHopperTransformsIncGen TritonPluginsIncGen
-ninja triton-opt
-
-#ninja check-rocmlir-build-only
-#ls -lh bin/rocmlir-gen
-
-#ninja check-rocmlir-build-only > err 2>&1
+# ninja triton-opt
+ninja check-rocmlir-build-only

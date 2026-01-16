@@ -8,18 +8,6 @@ message(STATUS "Adding Triton src dependency")
 set(TRITON_PROJECT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/triton")
 set(TRITON_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/external/triton")
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-include_directories(${CMAKE_CURRENT_BINARY_DIR}/include) # Tablegen'd files
-
-# Triton's include directories are needed for tablegen to find Triton's .td files
-# (e.g., triton/Dialect/Triton/IR/TritonTypes.td)
-include_directories("${TRITON_PROJECT_DIR}/include")
-include_directories("${TRITON_BINARY_DIR}/include") # Tablegen'd files
-include_directories("${TRITON_PROJECT_DIR}/third_party")
-include_directories("${TRITON_BINARY_DIR}/third_party") # Tablegen'd files
-
-message("TRITON_PROJECT_DIR: ${TRITON_PROJECT_DIR}")
-
 #===----------------------------------------------------------------------===//
 # LLVM/MLIR Configuration
 # Triton uses find_package(MLIR) - must be provided externally
@@ -94,7 +82,7 @@ set(TRITON_BUILD_PROTON OFF CACHE BOOL "Don't build Proton profiler")
 set(TRITON_BUILD_UT OFF CACHE BOOL "Don't build Triton unit tests")
 
 # Enable AMD backend via TRITON_CODEGEN_BACKENDS
-set(TRITON_CODEGEN_BACKENDS "amd" CACHE STRING "Enable AMD codegen backend")
+set(TRITON_CODEGEN_BACKENDS "amd" "nvidia" CACHE STRING "Enable AMD codegen backend")
 
 #===----------------------------------------------------------------------===//
 # Include Directories
@@ -108,23 +96,6 @@ list(APPEND TRITON_INCLUDE_DIRS
   ${TRITON_BINARY_DIR}/third_party
 )
 
-# Set up global include directories for tablegen (needed before any subdirectories)
-# These are required by mlir_tablegen to find MLIR tablegen files like mlir/IR/OpBase.td
-include_directories(${LLVM_INCLUDE_DIRS})
-include_directories(${MLIR_INCLUDE_DIRS})
-
-# Triton uses its own bundled LLVM/MLIR, so we also need to include those paths
-# for tablegen to work correctly when using Triton's mlir-tblgen
-if(EXISTS "${TRITON_PROJECT_DIR}/llvm-project/mlir/include")
-  include_directories("${TRITON_PROJECT_DIR}/llvm-project/mlir/include")
-endif()
-if(EXISTS "${TRITON_PROJECT_DIR}/llvm-project/llvm/include")
-  include_directories("${TRITON_PROJECT_DIR}/llvm-project/llvm/include")
-endif()
-if(EXISTS "${TRITON_PROJECT_DIR}/llvm-project/build/tools/mlir/include")
-  include_directories("${TRITON_PROJECT_DIR}/llvm-project/build/tools/mlir/include")
-endif()
-
 #===----------------------------------------------------------------------===//
 # For lit testing configuration
 #===----------------------------------------------------------------------===//
@@ -137,98 +108,6 @@ set(MLIR_TABLEGEN_EXE mlir-tblgen)
 #===----------------------------------------------------------------------===//
 
 add_subdirectory("${TRITON_PROJECT_DIR}" "external/triton" EXCLUDE_FROM_ALL)
-
-#===----------------------------------------------------------------------===//
-# Always include NVIDIA tablegen targets
-# RegisterTritonDialects.h unconditionally includes NVIDIA headers, so we need
-# the tablegen files even when NVIDIA backend is not enabled
-#===----------------------------------------------------------------------===//
-
-# Check if NVIDIA backend is not in TRITON_CODEGEN_BACKENDS
-string(FIND "${TRITON_CODEGEN_BACKENDS}" "nvidia" NVIDIA_BACKEND_INDEX)
-if(NVIDIA_BACKEND_INDEX EQUAL -1)
-  # NVIDIA backend not enabled, but we still need tablegen and some libraries for headers
-  # Include just the Dialect tablegen CMakeLists.txt files
-  set(NVIDIA_INCLUDE_DIR "${TRITON_PROJECT_DIR}/third_party/nvidia/include")
-  set(NVIDIA_BINARY_INCLUDE_DIR "${TRITON_BINARY_DIR}/third_party/nvidia/include")
-  set(NVIDIA_LIB_DIR "${TRITON_PROJECT_DIR}/third_party/nvidia/lib")
-  set(NVIDIA_BINARY_LIB_DIR "${TRITON_BINARY_DIR}/third_party/nvidia/lib")
-  
-  # Set up include directories for NVIDIA tablegen
-  # Ensure third_party is in include path for files that use third_party/nvidia/include/... paths
-  include_directories(${TRITON_PROJECT_DIR}/third_party)
-  include_directories(${TRITON_BINARY_DIR}/third_party)
-  include_directories(${NVIDIA_INCLUDE_DIR})
-  include_directories(${NVIDIA_BINARY_INCLUDE_DIR})
-  include_directories(${TRITON_PROJECT_DIR})
-  include_directories(${TRITON_PROJECT_DIR}/third_party/nvidia/lib/TritonNVIDIAGPUToLLVM)
-  include_directories(${TRITON_PROJECT_DIR}/include)  
-  include_directories(/home/pamartin/rocTriton/build/external/triton/include/)
-  
-  # Set MLIR_BINARY_DIR for tablegen (needed by the CMakeLists.txt files)
-  set(MLIR_BINARY_DIR ${CMAKE_BINARY_DIR})
-  
-  # Include the Dialect CMakeLists.txt which sets up NVGPU and NVWS tablegen
-  # This includes both IR and Transforms tablegen for NVWS
-  add_subdirectory("${NVIDIA_INCLUDE_DIR}/Dialect" "${NVIDIA_BINARY_INCLUDE_DIR}/Dialect" EXCLUDE_FROM_ALL)
-  
-  # Also include TritonNVIDIAGPUToLLVM tablegen - needed by TritonNVIDIAGPUToLLVM library
-  if(EXISTS "${NVIDIA_INCLUDE_DIR}/TritonNVIDIAGPUToLLVM/CMakeLists.txt")
-    add_subdirectory("${NVIDIA_INCLUDE_DIR}/TritonNVIDIAGPUToLLVM" "${NVIDIA_BINARY_INCLUDE_DIR}/TritonNVIDIAGPUToLLVM" EXCLUDE_FROM_ALL)
-  endif()
-  
-  # Also include NVGPUToLLVM tablegen - needed by NVGPUToLLVM library
-  if(EXISTS "${NVIDIA_INCLUDE_DIR}/NVGPUToLLVM/CMakeLists.txt")
-    add_subdirectory("${NVIDIA_INCLUDE_DIR}/NVGPUToLLVM" "${NVIDIA_BINARY_INCLUDE_DIR}/NVGPUToLLVM" EXCLUDE_FROM_ALL)
-  endif()
-  
-  # Also include hopper tablegen - RegisterTritonDialects.h includes hopper headers
-  # Hopper is normally included via third_party/nvidia/CMakeLists.txt -> hopper/CMakeLists.txt
-  # but we need it even when NVIDIA backend is not enabled
-  set(HOPPER_INCLUDE_DIR "${TRITON_PROJECT_DIR}/third_party/nvidia/hopper/include")
-  set(HOPPER_BINARY_INCLUDE_DIR "${TRITON_BINARY_DIR}/third_party/nvidia/hopper/include")
-  if(EXISTS "${HOPPER_INCLUDE_DIR}/Transforms/CMakeLists.txt")
-    add_subdirectory("${HOPPER_INCLUDE_DIR}/Transforms" "${HOPPER_BINARY_INCLUDE_DIR}/Transforms" EXCLUDE_FROM_ALL)
-  endif()
-  
-  # Also include NVWS libraries - TritonGPUTransforms depends on NVWSIR and NVWSTransforms
-  # These are needed even when NVIDIA backend is not enabled
-  if(EXISTS "${NVIDIA_LIB_DIR}/Dialect/NVWS/CMakeLists.txt")
-    add_subdirectory("${NVIDIA_LIB_DIR}/Dialect/NVWS" "${NVIDIA_BINARY_LIB_DIR}/Dialect/NVWS" EXCLUDE_FROM_ALL)
-  endif()
-  
-  # Also include NVGPUIR and TritonNVIDIAGPUToLLVM libraries
-  # TritonInstrumentToLLVM depends on NVGPUIR
-  # Proton and other components depend on TritonNVIDIAGPUToLLVM
-  if(EXISTS "${NVIDIA_LIB_DIR}/Dialect/NVGPU/IR/CMakeLists.txt")
-    add_subdirectory("${NVIDIA_LIB_DIR}/Dialect/NVGPU/IR" "${NVIDIA_BINARY_LIB_DIR}/Dialect/NVGPU/IR" EXCLUDE_FROM_ALL)
-  endif()
-  if(EXISTS "${NVIDIA_LIB_DIR}/TritonNVIDIAGPUToLLVM/CMakeLists.txt")
-    add_subdirectory("${NVIDIA_LIB_DIR}/TritonNVIDIAGPUToLLVM" "${NVIDIA_BINARY_LIB_DIR}/TritonNVIDIAGPUToLLVM" EXCLUDE_FROM_ALL)
-  endif()
-
-  # Also include NVGPUToLLVM library - RegisterTritonDialects.h calls registerConvertNVGPUToLLVMPass()
-  # which requires createConvertNVGPUToLLVM() from this library
-  if(EXISTS "${NVIDIA_LIB_DIR}/NVGPUToLLVM/CMakeLists.txt")
-    add_subdirectory("${NVIDIA_LIB_DIR}/NVGPUToLLVM" "${NVIDIA_BINARY_LIB_DIR}/NVGPUToLLVM" EXCLUDE_FROM_ALL)
-  endif()
-  
-  # Ensure third_party is in include path for NVIDIA libraries
-  # This allows includes like "third_party/nvidia/include/Dialect/..." to work
-  # Do this after all subdirectories are added to ensure targets exist
-  if(TARGET NVGPUIR)
-    target_include_directories(NVGPUIR PRIVATE
-      ${TRITON_PROJECT_DIR}/third_party
-      ${TRITON_BINARY_DIR}/third_party
-    )
-  endif()
-  if(TARGET TritonNVIDIAGPUToLLVM)
-    target_include_directories(TritonNVIDIAGPUToLLVM PRIVATE
-      ${TRITON_PROJECT_DIR}/third_party
-      ${TRITON_BINARY_DIR}/third_party
-    )
-  endif()
-endif()
 
 #===----------------------------------------------------------------------===//
 # Create dummy targets for MLIR tablegen dependencies
