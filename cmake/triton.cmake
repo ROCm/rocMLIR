@@ -155,8 +155,15 @@ if(NVIDIA_BACKEND_INDEX EQUAL -1)
   set(NVIDIA_BINARY_LIB_DIR "${TRITON_BINARY_DIR}/third_party/nvidia/lib")
   
   # Set up include directories for NVIDIA tablegen
+  # Ensure third_party is in include path for files that use third_party/nvidia/include/... paths
+  include_directories(${TRITON_PROJECT_DIR}/third_party)
+  include_directories(${TRITON_BINARY_DIR}/third_party)
   include_directories(${NVIDIA_INCLUDE_DIR})
   include_directories(${NVIDIA_BINARY_INCLUDE_DIR})
+  include_directories(${TRITON_PROJECT_DIR})
+  include_directories(${TRITON_PROJECT_DIR}/third_party/nvidia/lib/TritonNVIDIAGPUToLLVM)
+  include_directories(${TRITON_PROJECT_DIR}/include)  
+  include_directories(/home/pamartin/rocTriton/build/external/triton/include/)
   
   # Set MLIR_BINARY_DIR for tablegen (needed by the CMakeLists.txt files)
   set(MLIR_BINARY_DIR ${CMAKE_BINARY_DIR})
@@ -168,6 +175,11 @@ if(NVIDIA_BACKEND_INDEX EQUAL -1)
   # Also include TritonNVIDIAGPUToLLVM tablegen - needed by TritonNVIDIAGPUToLLVM library
   if(EXISTS "${NVIDIA_INCLUDE_DIR}/TritonNVIDIAGPUToLLVM/CMakeLists.txt")
     add_subdirectory("${NVIDIA_INCLUDE_DIR}/TritonNVIDIAGPUToLLVM" "${NVIDIA_BINARY_INCLUDE_DIR}/TritonNVIDIAGPUToLLVM" EXCLUDE_FROM_ALL)
+  endif()
+  
+  # Also include NVGPUToLLVM tablegen - needed by NVGPUToLLVM library
+  if(EXISTS "${NVIDIA_INCLUDE_DIR}/NVGPUToLLVM/CMakeLists.txt")
+    add_subdirectory("${NVIDIA_INCLUDE_DIR}/NVGPUToLLVM" "${NVIDIA_BINARY_INCLUDE_DIR}/NVGPUToLLVM" EXCLUDE_FROM_ALL)
   endif()
   
   # Also include hopper tablegen - RegisterTritonDialects.h includes hopper headers
@@ -193,6 +205,28 @@ if(NVIDIA_BACKEND_INDEX EQUAL -1)
   endif()
   if(EXISTS "${NVIDIA_LIB_DIR}/TritonNVIDIAGPUToLLVM/CMakeLists.txt")
     add_subdirectory("${NVIDIA_LIB_DIR}/TritonNVIDIAGPUToLLVM" "${NVIDIA_BINARY_LIB_DIR}/TritonNVIDIAGPUToLLVM" EXCLUDE_FROM_ALL)
+  endif()
+
+  # Also include NVGPUToLLVM library - RegisterTritonDialects.h calls registerConvertNVGPUToLLVMPass()
+  # which requires createConvertNVGPUToLLVM() from this library
+  if(EXISTS "${NVIDIA_LIB_DIR}/NVGPUToLLVM/CMakeLists.txt")
+    add_subdirectory("${NVIDIA_LIB_DIR}/NVGPUToLLVM" "${NVIDIA_BINARY_LIB_DIR}/NVGPUToLLVM" EXCLUDE_FROM_ALL)
+  endif()
+  
+  # Ensure third_party is in include path for NVIDIA libraries
+  # This allows includes like "third_party/nvidia/include/Dialect/..." to work
+  # Do this after all subdirectories are added to ensure targets exist
+  if(TARGET NVGPUIR)
+    target_include_directories(NVGPUIR PRIVATE
+      ${TRITON_PROJECT_DIR}/third_party
+      ${TRITON_BINARY_DIR}/third_party
+    )
+  endif()
+  if(TARGET TritonNVIDIAGPUToLLVM)
+    target_include_directories(TritonNVIDIAGPUToLLVM PRIVATE
+      ${TRITON_PROJECT_DIR}/third_party
+      ${TRITON_BINARY_DIR}/third_party
+    )
   endif()
 endif()
 
