@@ -112,10 +112,16 @@ class TqdmLoggingHandler(logging.Handler):
             self.handleError(record)
 
 
-def setup_logger(verbose: bool = False) -> logging.Logger:
+def setup_logger(quiet: bool = False, verbose: bool = False) -> logging.Logger:
     """Configure and return a logger for tuningRunner."""
     log = logging.getLogger("tuningRunner")
-    log.setLevel(logging.DEBUG if verbose else logging.INFO)
+
+    if quiet:
+        log.setLevel(logging.ERROR)
+    elif verbose:
+        log.setLevel(logging.DEBUG)
+    else:
+        log.setLevel(logging.INFO)
 
     log.handlers.clear()
 
@@ -141,6 +147,7 @@ class Options:
     """Configuration options for the tuning process."""
     debug: bool
     tuning_space_kind: str
+    quiet: bool
     verbose: bool
     arch: str
     num_cu: int
@@ -428,7 +435,7 @@ class TuningStateFile:
                                               tuning_space=data.get('tuningSpace', ''))
 
             if not file_context.matches(expected_context):
-                logger.info("State file context mismatch, starting fresh")
+                logger.warning("State file context mismatch, starting fresh")
                 self._state = TuningState(context=expected_context)
                 return self
 
@@ -1498,7 +1505,7 @@ def tune_configs(ctx: TuningContext) -> bool:
                 progress_bar = tqdm(
                     total=len(ctx.configs),
                     initial=total_skipped,
-                    disable=not sys.stderr.isatty(),
+                    disable=ctx.options.quiet or not sys.stderr.isatty(),
                     file=sys.stderr,
                     desc=f"Tuning {ctx.conf_class.__name__} ({ctx.options.tuning_space_kind})",
                     unit="config",
@@ -1558,7 +1565,7 @@ def tune_configs(ctx: TuningContext) -> bool:
                 state_file.finalize_interrupted()
 
     if has_errors:
-        logger.warning("Encountered errors during tuning")
+        logger.error("Encountered errors during tuning")
     else:
         logger.info("Tuning completed successfully")
 
@@ -1735,6 +1742,12 @@ def parse_arguments(gpu_topology: GpuTopology, available_gpus: List[int], args=N
                         choices=["quick", "full", "greedy", "exhaustive"],
                         help="Tuning space kind to use")
 
+    parser.add_argument("-q",
+                        "--quiet",
+                        action='store_true',
+                        default=False,
+                        help="Suppress non-error output")
+
     parser.add_argument("-v",
                         "--verbose",
                         action='store_true',
@@ -1839,8 +1852,7 @@ def main(args=None):
 
     parsed_args = parse_arguments(gpu_topology, available_gpus, args)
 
-    if parsed_args.verbose:
-        logger = setup_logger(verbose=parsed_args.verbose)
+    logger = setup_logger(quiet=parsed_args.quiet, verbose=parsed_args.verbose)
 
     stdin_temp_file = None
     try:
@@ -1875,6 +1887,7 @@ def main(args=None):
                       num_cu=num_cu,
                       num_chiplets=num_chiplets,
                       debug=parsed_args.debug,
+                      quiet=parsed_args.quiet,
                       verbose=parsed_args.verbose,
                       tuning_space_kind=parsed_args.tuning_space,
                       rocmlir_gen_flags=parsed_args.rocmlir_gen_flags,
