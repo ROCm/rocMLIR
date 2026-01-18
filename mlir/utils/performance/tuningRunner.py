@@ -571,7 +571,7 @@ class TunedConfigsCache:
         for i, col in enumerate(header_text.split('\t')):
             if not col:
                 continue
-            # Exctract base column name (handles 'perfConfig (tuning_space)')
+            # Extract base column name (handles 'perfConfig (tuning_space)')
             col_name = col.split()[0]
             indices[col_name] = i
 
@@ -835,9 +835,6 @@ class OutputFileWriter:
             self.file.close()
 
     def _write_header(self):
-        if self._header_written:
-            return
-
         if self._is_appending:
             print("", file=self.file)  # Blank line before new section
 
@@ -852,15 +849,17 @@ class OutputFileWriter:
         if self.options.tflops:
             columns.append('TFlops')
         columns.append('elapsedSeconds')
-        print("# " + "\t".join(columns), file=self.file)
 
+        print("# " + "\t".join(columns), file=self.file)
         self.file.flush()
+
         self._header_written = True
 
     def write_result(self, result: TuningResult):
         assert result.success and result.winning_config and result.max_tflops, "write_result called with invalid result"
 
-        self._write_header()
+        if not self._header_written:
+            self._write_header()
 
         fields = [
             self.options.arch,
@@ -870,8 +869,8 @@ class OutputFileWriter:
         if self.options.tflops:
             fields.append(str(result.max_tflops))
         fields.append(f"{result.elapsed_seconds:.1f}")
-        print("\t".join(fields), file=self.file)
 
+        print("\t".join(fields), file=self.file)
         self.file.flush()
 
 
@@ -899,8 +898,8 @@ class DebugFileWriter:
                                             sep='\t',
                                             header=not self._header_written,
                                             index=False)
-
         self.file.flush()
+
         self._header_written = True
 
 
@@ -999,7 +998,7 @@ def format_error(context: str,
                  max_lines: int = 10) -> str:
     """Format an error message with optional details."""
 
-    def truncate(text: str) -> str:
+    def truncate(text: Optional[str]) -> Optional[str]:
         if not text or not text.strip():
             return None
         lines = text.strip().splitlines()
