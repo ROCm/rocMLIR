@@ -336,8 +336,29 @@ struct RockBroadCastOpRewritePattern
 
     // BroadcastOp returns a tensor, we need to convert it to memref
     Value resultMemref = ToBufferOp::create(rewriter, loc, resultType, result);
-    
+
     rewriter.replaceOp(op, resultMemref);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// RockWorkgroupIdOpRewritePattern - Convert rock.workgroup_id to tt.get_program_id
+//===----------------------------------------------------------------------===//
+struct RockWorkgroupIdOpRewritePattern
+    : public OpRewritePattern<rock::WorkgroupIdOp> {
+  using OpRewritePattern<rock::WorkgroupIdOp>::OpRewritePattern;
+ 
+  LogicalResult matchAndRewrite(rock::WorkgroupIdOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    // tt.get_program_id returns i32, but rock.workgroup_id returns index
+    Value programId = triton::GetProgramIdOp::create(
+        rewriter, loc, triton::ProgramIDDim::X);
+    // Cast i32 to index to match the expected result type
+    Value indexResult =
+        arith::IndexCastOp::create(rewriter, loc, rewriter.getIndexType(), programId);
+    rewriter.replaceOp(op, indexResult);
     return success();
   }
 };
@@ -480,6 +501,7 @@ void RockToTTIRPass::runOnOperation() {
   target.addIllegalOp<rock::ArithOp>();
   target.addIllegalOp<rock::SplatOp>();
   target.addIllegalOp<rock::BroadcastOp>();
+  target.addIllegalOp<rock::WorkgroupIdOp>();
   // target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
   
   // Triton and Rock dialects are legal (Rock for now, will be converted later)
@@ -494,6 +516,7 @@ void RockToTTIRPass::runOnOperation() {
   patterns.add<RockArithOpRewritePattern>(ctx);
   patterns.add<RockSplatOpRewritePattern>(ctx);
   patterns.add<RockBroadCastOpRewritePattern>(ctx);
+  patterns.add<RockWorkgroupIdOpRewritePattern>(ctx);
   // patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
   
   // Apply partial conversion - convert RockArithOp, RockSplatOp, and RockLoadTilePtrOp, keep rest as-is
