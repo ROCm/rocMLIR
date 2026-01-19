@@ -1313,7 +1313,7 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
                         verify_tflops=verify_tflops)
 
 
-def tune_configs(ctx: TuningContext) -> bool:
+def tune_configs(ctx: TuningContext, status_only: bool) -> bool:
     """Tune multiple configurations in parallel across available GPUs."""
     # Load tuned configs from output file (unless --retune)
     if ctx.options.retune:
@@ -1355,6 +1355,10 @@ def tune_configs(ctx: TuningContext) -> bool:
     if skipped_failed > 0:
         logger.info(
             f"Skipping {skipped_failed} failed/crashed config(s) - use '--retry-failed' to retune")
+
+    if status_only:
+        logger.info(f"{len(pending_configs)}/{len(ctx.configs)} config(s) pending tuning")
+        return True
 
     if not pending_configs:
         logger.info("No configurations to tune")
@@ -1480,7 +1484,7 @@ def extract_fusion_configs(test_dir: str, paths: Paths) -> Operation:
     op_type = Operation.FUSION
 
     for filename in glob.glob(test_dir + '/*mlir'):
-        logger.info(f"Extract from: {filename}")
+        logger.info(f"Extracting fusion configs from: {filename}")
         test_entry = perfRunner.get_fusion_test_info(filename, paths)
         if not test_entry:
             continue
@@ -1588,10 +1592,11 @@ def parse_arguments(gpu_topology: GpuTopology,
         metavar='FILE',
         help="Path to file containing list of configurations to tune. Use '-' for stdin.")
 
-    config_group.add_argument("--config",
-                              type=str,
-                              metavar='CONFIG',
-                              help="Specific config to tune. Format depends on --op type.")
+    config_group.add_argument(
+        "--config",
+        type=str,
+        metavar='CONFIG',
+        help="Specific config to tune. Can be a config string or path to an .mlir file.")
 
     parser.add_argument("--op",
                         "--operation",
@@ -1737,11 +1742,16 @@ def parse_arguments(gpu_topology: GpuTopology,
         "Wait for all compilation tasks to complete before starting tuning. Useful for systems with shared CPU/GPU memory (e.g., APUs)."
     )
 
+    parser.add_argument("-s",
+                        "--status",
+                        action='store_true',
+                        default=False,
+                        help="Only show tuning status without performing any tuning")
+
     return parser.parse_args(args)
 
 
 def main(args=None):
-    numa_topology = NumaTopology.discover()
     gpu_topology = GpuTopology.discover()
     available_gpus = sorted(gpu_topology.gpus.keys())
 
@@ -1753,16 +1763,15 @@ def main(args=None):
 
     setup_logger(quiet=parsed_args.quiet, verbose=parsed_args.verbose)
 
+    op_type = Operation.from_name(parsed_args.op)
+
+    # Handle stdin for configs file
     stdin_temp_file = None
+    if parsed_args.configs_file == '-':
+        parsed_args.configs_file = load_configs_from_stdin()
+
     try:
-        # Handle stdin for configs file
-        if parsed_args.configs_file == '-':
-            stdin_temp_file = load_configs_from_stdin()
-            parsed_args.configs_file = stdin_temp_file
-
-        op_type = Operation.from_name(parsed_args.op)
         paths = resolve_paths(op_type, parsed_args)
-
         if not paths.mlir_paths:
             logger.error("rocMLIR build dir was not provided/found")
             return 1
@@ -1770,9 +1779,7 @@ def main(args=None):
         if op_type == Operation.FUSION:
             op_type = extract_fusion_configs(parsed_args.test_dir, paths)
 
-        conf_class = get_config_class(op_type)
         configs = load_configs(op_type, parsed_args, paths)
-
     finally:
         if stdin_temp_file:
             os.unlink(stdin_temp_file)
@@ -1802,14 +1809,14 @@ def main(args=None):
                       wait_for_compiles=parsed_args.wait_for_compiles)
 
     ctx = TuningContext(configs=configs,
-                        conf_class=conf_class,
+                        conf_class=get_config_class(op_type),
                         paths=paths,
                         options=options,
                         gpu_topology=gpu_topology,
-                        numa_topology=numa_topology)
+                        numa_topology=NumaTopology.discover())
 
     try:
-        tuning_succeeded = tune_configs(ctx)
+        tuning_succeeded = tune_configs(ctx, status_only=parsed_args.status)
     except KeyboardInterrupt:
         return 130  # 128 + SIGINT
 
