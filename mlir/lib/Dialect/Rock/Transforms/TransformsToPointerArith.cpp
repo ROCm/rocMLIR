@@ -573,7 +573,7 @@ struct TransformsToPtrRewritePattern
 
     // add `baseAddr`
     Value baseAddrSplat = rock::SplatOp::create(b, loc, computed[0].getType(), baseAddr);
-    Value pointerTensor = createArithOp(b, loc, computed[0].getType(), "AddIOp", nullptr,
+    Value pointerTensor = createArithOp(b, loc, computed[0].getType(), "AddPtrOp", nullptr,
                       {baseAddrSplat, computed[0]});
 
                                   llvm::errs() << "debug8 op="<<op<<"\n";
