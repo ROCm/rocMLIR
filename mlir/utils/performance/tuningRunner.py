@@ -658,7 +658,9 @@ class ETATracker:
             return f"{seconds / 3600:.1f}h/cfg"
 
     def _format_eta(self, seconds: float) -> str:
-        if seconds < 60:
+        if seconds == 0:
+            return "0s"
+        elif seconds < 60:
             return "<1m"
         elif seconds < 3600:
             return f"{int(seconds // 60)}m"
@@ -678,7 +680,7 @@ class ETATracker:
         eta = "n/a"
         if len(self.success_times) >= 3:
             median = statistics.median(self.success_times)
-            eta_seconds = (remaining / self.num_workers) * median
+            eta_seconds = (remaining / self.num_workers) * median if self.num_workers > 0 else 0
             rate = self._format_rate(median)
             eta = self._format_eta(eta_seconds)
 
@@ -735,9 +737,9 @@ class TuningContext:
         """Get the number of compile threads allocated to a GPU."""
         return self._threads_per_gpu[gpu_id]
 
-    def print_gpu_summary(self):
+    def print_gpu_summary(self, num_workers: Optional[int] = None) -> None:
         """Print summary of GPU allocation."""
-        num_active = len(self.options.gpu_ids)
+        num_active = num_workers or len(self.options.gpu_ids)
         lines = [f"Using {num_active} GPU(s)"]
         for gpu_id in self.options.gpu_ids[:num_active]:
             node = self.gpu_topology.get_numa_node(gpu_id)
@@ -1255,20 +1257,23 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
         # Note: communicate waits for process to terminate which might cause CI timeouts if tuning takes too long
         tuning_stdout, tuning_stderr = tuning_driver.communicate()
 
+        tuning_output = tuning_stdout.decode('utf-8').splitlines()
+        tuning_errors = tuning_stderr.decode('utf-8')
+
         if tuning_driver.returncode != 0:
-            error = format_error("Tuning pipeline failed",
-                                 command=tuning_pipeline,
-                                 stderr=tuning_stderr.decode('utf-8'),
-                                 exit_code=tuning_driver.returncode,
-                                 gpu_id=gpu_id)
+            error = format_error(
+                "Tuning pipeline failed",
+                command=tuning_pipeline,
+                stdout=tuning_output[-10:],  # Last 10 lines of stdout
+                stderr=tuning_errors,
+                exit_code=tuning_driver.returncode,
+                gpu_id=gpu_id)
             return TuningResult(test_vector=test_vector, success=False, gpu_id=gpu_id, error=error)
         else:
             # Log any stderr output from tuning driver because it may contain warnings
-            tuning_stderr_str = tuning_stderr.decode('utf-8').strip()
-            if tuning_stderr_str:
-                logger.debug(f"[GPU {gpu_id}] rocmlir-tuning-driver stderr:\n{tuning_stderr_str}")
+            if tuning_errors.strip():
+                logger.warning(f"[GPU {gpu_id}] rocmlir-tuning-driver stderr:\n{tuning_errors}")
 
-        tuning_output = tuning_stdout.decode('utf-8').splitlines()
         winning_config, max_tflops, entries = find_best_perfconfig(tuning_output, config, paths,
                                                                    options, gpu_id)
     except TuningError as e:
@@ -1310,29 +1315,27 @@ def tune_config(test_vector: str, conf_class: type, paths: Paths, options: Optio
 
 def tune_configs(ctx: TuningContext) -> bool:
     """Tune multiple configurations in parallel across available GPUs."""
-    # Load cached results unless retuning is forced
+    # Load tuned configs from output file (unless --retune)
     if ctx.options.retune:
         cache = TunedConfigsCache()
     else:
         cache = TunedConfigsCache.from_output_file(ctx.options)
-        if cache.count() > 0:
-            logger.info(f"Found {cache.count()} tuned config(s) in {ctx.options.output}")
 
     # Load state file
     state_file = TuningStateFile(get_state_filepath(ctx.options.output), ctx.options.arch,
                                  ctx.options.tuning_space_kind)
     state = state_file.state
 
-    crashed_count = state.crashed_count()
-    if crashed_count > 0:
-        logger.warning(f"Found {crashed_count} crashed config(s) in state file")
+    if cache.count() > 0:
+        logger.info(f"Found {cache.count()} tuned config(s) in {ctx.options.output}")
+    if state.crashed_count() > 0:
+        logger.warning(f"Found {state.crashed_count()} crashed config(s) in state file")
+    if state.failed_count() > 0:
+        logger.warning(f"Found {state.failed_count()} failed config(s) in state file")
 
-    failed_count = state.failed_count()
-    if failed_count > 0:
-        logger.warning(f"Found {failed_count} failed config(s) in state file")
+    pending_configs = ctx.configs
 
     # Filter out already-tuned configs (unless --retune)
-    pending_configs = ctx.configs
     skipped_success = 0
     if not ctx.options.retune:
         pending_configs = [c for c in pending_configs if not cache.contains(c)]
@@ -1359,7 +1362,7 @@ def tune_configs(ctx: TuningContext) -> bool:
 
     pool = GpuWorkerPool(ctx)
     num_workers = min(pool.worker_count, len(pending_configs))
-    ctx.print_gpu_summary()
+    ctx.print_gpu_summary(num_workers=num_workers)
 
     # Prepare ETA tracker with historical data
     initial_times = [r.elapsed_seconds for r in cache.get_all_results() if r.elapsed_seconds > 0.0]
@@ -1369,27 +1372,14 @@ def tune_configs(ctx: TuningContext) -> bool:
                              ok_count=skipped_success,
                              fail_count=skipped_failed)
 
-    def execute_tuning_task(test_vector: str) -> TuningResult:
-        gpu_id = pool.acquire_gpu_for_thread()
-
-        state_file.set_running(test_vector)
-
-        start_time = time.time()
-        compile_threads = ctx.get_compile_threads(gpu_id)
-        result = tune_config(test_vector, ctx.conf_class, ctx.paths, ctx.options, gpu_id,
-                             compile_threads)
-        result.elapsed_seconds = time.time() - start_time
-
-        return result
-
     has_errors = False
 
     with (OutputFileWriter(ctx.options.output, ctx.options) as results_writer,
           DebugFileWriter(f"{ctx.options.output}.debug") if ctx.options.debug else nullcontext() as
           debug_writer):
+
         executor = None
         progress_bar = None
-
         try:  # No context manager for executor because we need to shutdown with wait=False
             progress_bar = tqdm(
                 total=len(ctx.configs),
@@ -1402,6 +1392,19 @@ def tune_configs(ctx: TuningContext) -> bool:
                 bar_format=
                 '{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [t={elapsed}{postfix}]')
             progress_bar.set_postfix_str(eta_tracker.get_postfix_str())
+
+            def execute_tuning_task(test_vector: str) -> TuningResult:
+                gpu_id = pool.acquire_gpu_for_thread()
+
+                state_file.set_running(test_vector)
+
+                start_time = time.time()
+                compile_threads = ctx.get_compile_threads(gpu_id)
+                result = tune_config(test_vector, ctx.conf_class, ctx.paths, ctx.options, gpu_id,
+                                     compile_threads)
+                result.elapsed_seconds = time.time() - start_time
+
+                return result
 
             executor = ThreadPoolExecutor(max_workers=num_workers)
             pending_futures = {
