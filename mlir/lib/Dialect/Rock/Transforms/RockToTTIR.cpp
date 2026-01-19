@@ -423,7 +423,7 @@ struct RockLoadTilePtrOpRewritePattern
 
     // Convert pointerTensor from memref<...xindex> to tensor<...xindex>
     auto ptrMemrefType = dyn_cast<MemRefType>(pointerTensor.getType());
-    if (!ptrMemrefType || !ptrMemrefType.getElementType().isIndex())
+    if (!ptrMemrefType || !ptrMemrefType.getElementType().isInteger(32))
       return failure();
 
     Type ptrTensorType = getTensorTypeFromMemRefType(ptrMemrefType);
@@ -454,18 +454,14 @@ struct RockLoadTilePtrOpRewritePattern
         RankedTensorType::get(ptrTensorRankedType.getShape(), ptrType,
                               ptrTensorRankedType.getEncoding());
 
-    rewriter.eraseOp(op);
-    return success();
-
-    // Convert index tensor to pointer tensor using unrealized_conversion_cast
-    // This is a temporary cast that will be resolved by type conversion passes
-    Value ptrTensorOfPtrs = rewriter
-                                .create<UnrealizedConversionCastOp>(
-                                    loc, ptrTensorOfPtrsType, ptrTensor)
-                                .getResult(0);
-    // Value ptrTensorOfPtrs = rewriter.create<arith::IndexCastOp>(loc,
-    // ptrTensorOfPtrsType, ptrTensor);
-
+    // WORKS
+    // rewriter.eraseOp(op);
+    // return success();                                         
+    
+    // Convert tensor of i32 to tensor of pointers
+    Value ptrTensorOfPtrs = rewriter.create<rock::CastToPtrOp>(
+        loc, ptrTensorOfPtrsType, ptrTensor);
+    
     // Convert destRegisters type from memref to tensor
     Type resultTensorType = getTensorTypeFromMemRefType(destMemrefType);
 
@@ -491,8 +487,8 @@ struct RockLoadTilePtrOpRewritePattern
     llvm::errs() << "====> result:\n";
     result.dump();
 
-    // Convert result back to memref if needed (destRegisters is a memref)
-    Value finalResult = result;
+    // The output of tt.load is a tensor, but the gemm will require a memref.
+    Value memrefResult = ToBufferOp::create(rewriter, loc, destMemrefType, result);
     // if (isa<MemRefType>(destRegisters.getType()) &&
     // isa<TensorType>(result.getType())) {
     //   finalResult = ToBufferOp::create(rewriter, loc,
@@ -500,21 +496,39 @@ struct RockLoadTilePtrOpRewritePattern
     // }
 
     // Replace all uses of destRegisters with the result from tt.load
-    rewriter.replaceAllUsesExcept(destRegisters, finalResult, op);
+    // TODO: ???
+    // rewriter.replaceAllUsesExcept(destRegisters, finalResult, op);
 
     // for (OpOperand &use : destRegisters.getUses()) {
     //   llvm::errs() << "use:\n";
     //   use.getOwner()->dump();
     // }
 
-    llvm::errs() << "replaceAllUsesWith:\n";
-    result.getDefiningOp()->getParentOfType<func::FuncOp>().dump();
+    // Here we should be using the rewriter.replaceAllUsesExcept method, but
+    // it crashes...
+    for (Operation* user : destRegisters.getUsers()) {
+      if (user == op) {
+        continue;
+      }
+      if (isa<rock::BlockwiseGemmAccelOp>(user)) {
+        // Search for the operand index of destRegisters in the gemm op
+        for (OpOperand &operand : user->getOpOperands()) {
+          if (operand.get() == destRegisters) {
+            operand.set(memrefResult);
+            break;
+          }
+        }
+      }
+    }
+
+    // llvm::errs() << "replaceAllUsesWith:\n";
+    // result.getDefiningOp()->getParentOfType<func::FuncOp>().dump();
     rewriter.eraseOp(op);
 
     // Erase the original BlockwiseLoadTilePtrOp
 
-    llvm::errs() << "Im done:\n";
-    result.getDefiningOp()->getParentOfType<func::FuncOp>().dump();
+    // llvm::errs() << "Im done:\n";
+    // result.getDefiningOp()->getParentOfType<func::FuncOp>().dump();
 
     return success();
   }
@@ -532,8 +546,8 @@ void RockToTTIRPass::runOnOperation() {
   target.addIllegalOp<rock::SplatOp>();
   target.addIllegalOp<rock::BroadcastOp>();
   target.addIllegalOp<rock::WorkgroupIdOp>();
-  // target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
-
+  target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
+  
   // Triton and Rock dialects are legal (Rock for now, will be converted later)
   target.addLegalDialect<triton::TritonDialect>();
   target.addLegalDialect<rock::RockDialect>();
@@ -547,10 +561,9 @@ void RockToTTIRPass::runOnOperation() {
   patterns.add<RockSplatOpRewritePattern>(ctx);
   patterns.add<RockBroadCastOpRewritePattern>(ctx);
   patterns.add<RockWorkgroupIdOpRewritePattern>(ctx);
-  // patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
-
-  // Apply partial conversion - convert RockArithOp, RockSplatOp, and
-  // RockLoadTilePtrOp, keep rest as-is
+  patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
+  
+  // Apply partial conversion - convert RockArithOp, RockSplatOp, and RockLoadTilePtrOp, keep rest as-is
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
     signalPassFailure();

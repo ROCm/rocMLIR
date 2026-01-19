@@ -909,4 +909,18 @@ def Rock_BroadcastOp : Rock_Op<"broadcast", [Pure]> {
   let assemblyFormat = "$src attr-dict `:` type($src) `->` type($result)";
 }
 
+def Rock_CastToPtrOp : Rock_Op<"cast_to_ptr", [Pure]> {
+  let summary = "Cast a tensor to a pointer tensor";
+
+  let description = [{
+    Casts a tensor to a pointer tensor representation.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$src);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let assemblyFormat = "$src attr-dict `:` type($src) `->` type($result)";
+}
+
 #endif // ROCK_OPS
