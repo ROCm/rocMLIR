@@ -1300,68 +1300,6 @@ LogicalResult GpuAllocOp::verify() {
   return emitError("The size of rock.alloc should be greather than zero.");
 }
 
-//===-----------------------------------------------------===//
-// IndexDiffUpdateOp
-//===-----------------------------------------------------===//
-void IndexDiffUpdateOp::build(OpBuilder &b, OperationState &state,
-                              TransformMapAttr transform, ValueRange upperDiff,
-                              ValueRange lowerOrig) {
-  llvm::SmallVector<Type> resultTypes(lowerOrig.size(), b.getIndexType());
-  IndexDiffUpdateOp::build(b, state, resultTypes, resultTypes, transform,
-                           upperDiff, lowerOrig);
-}
-
-LogicalResult IndexDiffUpdateOp::verify() {
-  TransformMapAttr transform = getMap();
-  size_t nLowerIn = getLowerOrig().size();
-  size_t nLowerOut = getLowerIndices().size();
-
-  if (nLowerIn != nLowerOut)
-    return emitOpError("Got " + Twine(nLowerIn) + " lower inputs but " +
-                       Twine(nLowerOut) + " lower outputs");
-
-  size_t nUpper = getUpperDiffs().size();
-  size_t nMapIn = transform.getUpperBounds().size();
-  size_t nMapOut = transform.getLowerBounds().size();
-
-  if (nUpper != nMapIn)
-    return emitOpError("Expected " + Twine(nMapIn) + " upper diffs but got " +
-                       Twine(nUpper));
-  if (nMapOut != nLowerIn)
-    return emitOpError("Expected " + Twine(nMapOut) +
-                       " lower coordinates but got " + Twine(nLowerIn));
-  return success();
-}
-
-// Common verification code for load and prefetch
-template <typename LoadOrPrefetch>
-static LogicalResult verifyGlobalLoadAndPrefetch(LoadOrPrefetch op) {
-  MemRefType sourceType = op.getSource().getType();
-  size_t nDims = sourceType.getRank();
-
-  if (op.getSourceCoord().size() != nDims)
-    return op.emitOpError("Expected " + Twine(nDims) + " coordinates");
-  Attribute memSpaceAttr = sourceType.getMemorySpace();
-  auto gpuMemSpaceAttr = dyn_cast_or_null<gpu::AddressSpaceAttr>(memSpaceAttr);
-  if (memSpaceAttr && (!gpuMemSpaceAttr ||
-                       gpuMemSpaceAttr.getValue() != gpu::AddressSpace::Global))
-    return op.emitOpError("Source memref must live in global memory");
-  return success();
-}
-
-template <typename Load>
-static LogicalResult verifyGlobalLoad(Load op) {
-  if (failed(verifyGlobalLoadAndPrefetch(op)))
-    return failure();
-
-  MemRefType sourceType = op.getSource().getType();
-  size_t nDims = sourceType.getRank();
-
-  if (op.getCanReadOffEnd() && nDims != 1)
-    return op.emitOpError("can only have one dimension in canReadOffEnd loads");
-  return success();
-}
-
 //===----------------------------------------------------------------------===//
 // BlockwiseLoadTileOp
 //===----------------------------------------------------------------------===//
@@ -1595,7 +1533,7 @@ void GridwiseAttentionAccelOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// WorkgroupIdOp and WorkitemIdOp
+// WorkgroupIdOp
 //===----------------------------------------------------------------------===//
 static ConstantIntRanges
 getIdRange(StringRef idName, Operation *op,
@@ -1617,11 +1555,6 @@ getIdRange(StringRef idName, Operation *op,
 void WorkgroupIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
                                       SetIntRangeFn setResultRanges) {
   setResultRanges(getResult(), getIdRange("grid_size", getOperation()));
-}
-
-void WorkitemIdOp::inferResultRanges(ArrayRef<ConstantIntRanges> argRanges,
-                                     SetIntRangeFn setResultRanges) {
-  setResultRanges(getResult(), getIdRange("block_size", getOperation()));
 }
 
 //===-----------------------------------------------------===//

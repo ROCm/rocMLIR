@@ -589,21 +589,10 @@ def Rock_FillOp:
 def Rock_WorkgroupIdOp:
     Rock_Op<"workgroup_id", [Pure,
       DeclareOpInterfaceMethods<InferIntRangeInterface,["inferResultRanges"]>]>,
-    Results<(outs Index:$id)> {
+    Results<(outs I32:$id)> {
   let summary = "Get current workgroup ID";
   let description = [{
     The `rock.workgroup_id` op gets the current workgroup ID.
-  }];
-  let assemblyFormat = "attr-dict `:` type($id)";
-}
-
-def Rock_WorkitemIdOp:
-    Rock_Op<"workitem_id", [Pure,
-      DeclareOpInterfaceMethods<InferIntRangeInterface,["inferResultRanges"]>]>,
-    Results<(outs Index:$id)> {
-  let summary = "Get current workitem ID";
-  let description = [{
-    The `rock.workgroup_id` op gets the current workitem ID.
   }];
   let assemblyFormat = "attr-dict `:` type($id)";
 }
@@ -630,36 +619,6 @@ def Rock_YieldOp :
                             [{ build($_builder, $_state, ValueRange{}); }]>];
 
   let assemblyFormat = "attr-dict ($operands^ `:` type($operands))?";
-}
-
-// index_diff_update
-def Rock_IndexDiffUpdateOp :
-    Rock_Op<"index_diff_update", [Pure, AttrSizedOperandSegments,
-      SameVariadicResultSize, AllTypesMatch<["lowerIndices", "lowerDiff"]>]>,
-    Arguments<(ins Rock_TransformMapAttr:$map,
-      Variadic<Index>:$upperDiffs,
-      Variadic<Index>:$lowerOrig)>,
-    Results<(outs Variadic<Index>:$lowerIndices,
-      Variadic<Index>:$lowerDiff)> {
-  let summary = "Compute change in lower indices (map output) using index diffs";
-  let description = [{
-    `rock.index_diff_update' computes the change in the output of a transform_map
-    from adding `upperDiffs` to the inputs that produced the output `lowerOrig'.
-
-    The operation returns both `lowerIndices`, the new indices, and `lowerDiff`,
-    the change in the lower indices compared to `lowerOrig'.
-  }];
-
-  let builders = [
-    OpBuilder<(ins "TransformMapAttr":$transform, "ValueRange":$upperDiffs,
-      "ValueRange":$lowerOrig)>
-  ];
-
-  let assemblyFormat = [{
-    attr-dict $map `(` $upperDiffs `)` `+` `(` $lowerOrig `)` `:`
-      type($lowerIndices)
-  }];
-  let hasVerifier = 1;
 }
 
 defvar SupportedMemoryElems = [F32, F16, BF16, I1, I<4>, I8, I16, I32,
@@ -723,7 +682,7 @@ def Rock_BlockwiseLoadTileOp
                          "source global memory">:$source,
           Arg<MemRefOf<NativeMemoryOpTypes>,
               "destination registers">:$destRegisters,
-          Variadic<Index>:$sourceIndices)> {
+          Variadic<I32>:$sourceIndices)> {
   let summary =
       "Blockwise load tile from global memory to LDS and/or registers";
   let description = [{
@@ -776,7 +735,7 @@ def Rock_BlockwiseStoreTileOp
       Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
                          "source registers">:$source,
           Arg<MemRefOf<NativeMemoryOpTypes>, "detination view">:$dest,
-          Variadic<Index>:$extraIndices,
+          Variadic<I32>:$extraIndices,
           StoreMethodAttr:$storeMethod, UnitAttr:$forceUnroll,
           UnitAttr:$useIndexDiffs)> {
   let summary = "Write out values in registers to transformed destination";
@@ -816,7 +775,7 @@ def Rock_TransformsToPtrOp
       Arguments<(ins Arg<MemRefOf<NativeMemoryOpTypes>,
                          "source">:$source,
           Arg<AnyMemRef, "pointers">:$pointers,
-          Arg<AnyMemRef, "mask">:$mask, Variadic<Index>:$extraIndices)> {
+          Arg<AnyMemRef, "mask">:$mask, Variadic<I32>:$extraIndices)> {
   let summary = "Write out values in registers to transformed destination";
 
   let description = [{
@@ -845,8 +804,8 @@ def Rock_MakeRangeOp :
 
   let arguments = (ins Arg<AnyMemRef,
                          "source">:$out,
-    IndexAttr:$start,
-    IndexAttr:$end
+    I32Attr:$start,
+    I32Attr:$end
   );
 
   let assemblyFormat = [{

@@ -98,7 +98,6 @@ struct RockArithOpRewritePattern
         return failure();
       
       // Convert memref operands to tensors if needed, handling index to i32 conversion
-      Type i32Type = rewriter.getI32Type();
       SmallVector<Value> tensorOperands;
       tensorOperands.reserve(operands.size());
       for (Value operand : operands) {
@@ -108,18 +107,18 @@ struct RockArithOpRewritePattern
                                             /*restrict=*/true, /*writable=*/false);
           
           // If memref element type is index, convert tensor<...xindex> to tensor<...xi32>
-          if (memrefType.getElementType().isIndex()) {
-            auto tensorRankedType = cast<RankedTensorType>(tensorType);
-            auto i32TensorType = RankedTensorType::get(
-                tensorRankedType.getShape(), i32Type, tensorRankedType.getEncoding());
-            tensor = rewriter.create<arith::IndexCastOp>(loc, i32TensorType, tensor);
-          }
+          // if (memrefType.getElementType().isIndex()) {
+          //   auto tensorRankedType = cast<RankedTensorType>(tensorType);
+          //   tensor = RankedTensorType::get(
+          //       tensorRankedType.getShape(), rewriter.getIndexType(), tensorRankedType.getEncoding());
+          //   // tensor = rewriter.create<arith::IndexCastOp>(loc, i32TensorType, tensor);
+          // }
           
           tensorOperands.push_back(tensor);
-        } else if (operand.getType().isIndex()) {
+        // } else if (operand.getType().isIndex()) {
           // Convert scalar index to i32
-          Value i32Value = rewriter.create<arith::IndexCastOp>(loc, i32Type, operand);
-          tensorOperands.push_back(i32Value);
+          // Value i32Value = rewriter.create<arith::IndexCastOp>(loc, rewriter.getIndexType(), operand);
+          // tensorOperands.push_back(i32Value);
         } else {
           tensorOperands.push_back(operand);
         }
@@ -148,7 +147,7 @@ struct RockArithOpRewritePattern
         return failure();
       
       // Convert memref operands to tensors if needed, handling index to i32 conversion
-      Type i32Type = rewriter.getI32Type();
+      // Type i32Type = rewriter.getI32Type();
       SmallVector<Value> tensorOperands;
       tensorOperands.reserve(operands.size());
       for (Value operand : operands) {
@@ -158,18 +157,18 @@ struct RockArithOpRewritePattern
                                             /*restrict=*/true, /*writable=*/false);
           
           // If memref element type is index, convert tensor<...xindex> to tensor<...xi32>
-          if (memrefType.getElementType().isIndex()) {
-            auto tensorRankedType = cast<RankedTensorType>(tensorType);
-            auto i32TensorType = RankedTensorType::get(
-                tensorRankedType.getShape(), i32Type, tensorRankedType.getEncoding());
-            tensor = rewriter.create<arith::IndexCastOp>(loc, i32TensorType, tensor);
-          }
+          // if (memrefType.getElementType().isIndex()) {
+          //   auto tensorRankedType = cast<RankedTensorType>(tensorType);
+          //   auto i32TensorType = RankedTensorType::get(
+          //       tensorRankedType.getShape(), i32Type, tensorRankedType.getEncoding());
+          //   tensor = rewriter.create<arith::IndexCastOp>(loc, i32TensorType, tensor);
+          // }
           
           tensorOperands.push_back(tensor);
-        } else if (operand.getType().isIndex()) {
+        // } else if (operand.getType().isIndex()) {
           // Convert scalar index to i32
-          Value i32Value = rewriter.create<arith::IndexCastOp>(loc, i32Type, operand);
-          tensorOperands.push_back(i32Value);
+          // Value i32Value = rewriter.create<arith::IndexCastOp>(loc, i32Type, operand);
+          // tensorOperands.push_back(i32Value);
         } else {
           tensorOperands.push_back(operand);
         }
@@ -257,8 +256,8 @@ struct RockSplatOpRewritePattern
         
         // Convert index to i32
         // TODO: Does triton use i32? Or should we use i64?
-        srcToSplat = rewriter.create<arith::IndexCastOp>(
-            loc, i32Type, src);
+        // srcToSplat = rewriter.create<arith::IndexCastOp>(
+        //     loc, i32Type, src);
       }
       
       // Create tt.splat operation
@@ -312,24 +311,24 @@ struct RockBroadCastOpRewritePattern
     Type resultTensorType = getTensorTypeFromMemRefType(resultMemrefType);
     
     // Handle index to i32 conversion for both source and result
-    Type i32Type = rewriter.getI32Type();
+    // Type i32Type = rewriter.getI32Type();
     Value finalSrcTensor = srcTensor;
     Type finalResultTensorType = resultTensorType;
     
-    if (srcMemrefType.getElementType().isIndex()) {
+    // if (srcMemrefType.getElementType().isIndex()) {
       // Convert source tensor from index to i32
-      auto srcTensorRankedType = cast<RankedTensorType>(srcTensorType);
-      auto i32SrcTensorType = RankedTensorType::get(
-          srcTensorRankedType.getShape(), i32Type, srcTensorRankedType.getEncoding());
-      finalSrcTensor = rewriter.create<arith::IndexCastOp>(loc, i32SrcTensorType, srcTensor);
-    }
+      // auto srcTensorRankedType = cast<RankedTensorType>(srcT ensorType);
+      // finalSrcTensor = RankedTensorType::get(
+          // srcTensorRankedType.getShape(), rewriter.getIndexType(), srcTensorRankedType.getEncoding());
+      // finalSrcTensor = rewriter.create<arith::IndexCastOp>(loc, i32SrcTensorType, srcTensor);
+    // }
     
-    if (resultMemrefType.getElementType().isIndex()) {
-      // Convert result tensor type from index to i32
-      auto resultTensorRankedType = cast<RankedTensorType>(resultTensorType);
-      finalResultTensorType = RankedTensorType::get(
-          resultTensorRankedType.getShape(), i32Type, resultTensorRankedType.getEncoding());
-    }
+    // if (resultMemrefType.getElementType().isIndex()) {
+    //   // Convert result tensor type from index to i32
+    //   auto resultTensorRankedType = cast<RankedTensorType>(resultTensorType);
+    //   finalResultTensorType = RankedTensorType::get(
+    //       resultTensorRankedType.getShape(), rewriter.getIndexType(), resultTensorRankedType.getEncoding());
+    // }
     
     // Create tt.broadcast operation
     Value result = triton::BroadcastOp::create(rewriter, loc, finalResultTensorType, finalSrcTensor);

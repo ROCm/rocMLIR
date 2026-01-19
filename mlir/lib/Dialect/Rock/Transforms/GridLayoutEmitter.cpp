@@ -39,9 +39,9 @@ static Value rearrangeWorkgroupsForXCC(Location loc, PatternRewriter &b,
                                        Value bid, int64_t gridSize,
                                        int64_t numChipletsPerGroup) {
   Value numChipletsVal =
-      b.createOrFold<ConstantIndexOp>(loc, numChipletsPerGroup);
+      b.createOrFold<ConstantIntOp>(loc, b.getIntegerType(32), numChipletsPerGroup);
   int64_t wgsPerChiplet = (gridSize) / numChipletsPerGroup;
-  Value wgsPerChipletVal = b.createOrFold<ConstantIndexOp>(loc, wgsPerChiplet);
+  Value wgsPerChipletVal = b.createOrFold<ConstantIntOp>(loc, b.getIntegerType(32), wgsPerChiplet);
   Value logicalChipletId = RemUIOp::create(b, loc, bid, numChipletsVal);
   Value wgIdPerLogicalChiplet = DivUIOp::create(b, loc, bid, numChipletsVal);
   Value rearrangedBid = AddIOp::create(
@@ -50,7 +50,7 @@ static Value rearrangeWorkgroupsForXCC(Location loc, PatternRewriter &b,
   int64_t lastNumChipletMultiple =
       (gridSize - 1) - (gridSize % numChipletsPerGroup);
   Value lastNumChipletMultipleVal =
-      b.createOrFold<ConstantIndexOp>(loc, lastNumChipletMultiple);
+      b.createOrFold<ConstantIntOp>(loc, b.getIntegerType(32), lastNumChipletMultiple);
   Value isBidLargerThanlastNumChipletMultiple = arith::CmpIOp::create(
       b, loc, arith::CmpIPredicate::sgt, bid, lastNumChipletMultipleVal);
   bid = arith::SelectOp::create(b, loc, isBidLargerThanlastNumChipletMultiple,
@@ -94,14 +94,14 @@ GridCoordinates rock::layout::makeGroupedGridLayout(PatternRewriter &b,
                << "Using heuristic to set groupSize to " << groupSize << "\n");
   }
 
-  Value mBlocksPerGroup = b.createOrFold<ConstantIndexOp>(loc, groupSize);
+  Value mBlocksPerGroup = b.createOrFold<ConstantIntOp>(loc, b.getIntegerType(32), groupSize);
   Value blocksPerGroup =
-      b.createOrFold<ConstantIndexOp>(loc, groupSize * info.nBlocks);
-  Value mBlocksValue = b.createOrFold<ConstantIndexOp>(loc, info.mBlocks);
+      b.createOrFold<ConstantIntOp>(loc, b.getIntegerType(32), groupSize * info.nBlocks);
+  Value mBlocksValue = b.createOrFold<ConstantIntOp>(loc, b.getIntegerType(32), info.mBlocks);
 
   // Compute g_block first and the bid in the actual group g_block
   Value mnBlocks =
-      b.createOrFold<ConstantIndexOp>(loc, info.mBlocks * info.nBlocks);
+      b.createOrFold<ConstantIntOp>(loc, b.getIntegerType(32), info.mBlocks * info.nBlocks);
   Value g_block = DivUIOp::create(b, loc, bid, mnBlocks);
   bid = RemUIOp::create(b, loc, bid, mnBlocks);
 
@@ -135,7 +135,7 @@ AttnGridCoordinates rock::layout::makeGxNGridLayout(
     int64_t numChipletsPerGroup = std::ceil(numChiplets / 2);
     bid = rearrangeWorkgroupsForXCC(loc, b, bid, gridSize, numChipletsPerGroup);
   }
-  Value g1NBlockCountVal = b.createOrFold<ConstantIndexOp>(loc, nBlocks);
+  Value g1NBlockCountVal = b.createOrFold<ConstantIntOp>(loc, b.getIntegerType(32), nBlocks);
 
   Value gBlockIdx, nBlockIdx, splitKVIdx;
   if (splitKV) {

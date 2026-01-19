@@ -212,72 +212,6 @@ Type getResultType(Operation *convOp, Value outArg) {
   return nullptr;
 }
 
-/// Create an elementwise utility kernel.
-/// The callback has type (builder, location, collapsedBuffers, coordinate).
-/// Note: you are expected to handle out of bounds, such as by using
-/// rock.buffer_store
-template <typename OpType>
-LogicalResult createElementwiseLoop(
-    OpBuilder &b, Location loc, OpType kernelOp, ValueRange memrefs,
-    int64_t vectorLen,
-    function_ref<void(OpBuilder &, Location, ValueRange, Value)> emitBodyFunc) {
-  if (!kernelOp.getBlockSize().has_value())
-    return kernelOp.emitOpError("block size not defined for utility kernel");
-  if (!kernelOp.getGridSize().has_value())
-    return kernelOp.emitOpError("grid size not defined for utility kernel");
-  if (!kernelOp.getElemsPerThread().has_value())
-    return kernelOp.emitOpError(
-        "elemsPerThread not defined fer utility kernel");
-  uint32_t blockSize = *kernelOp.getBlockSize();
-  int64_t elemsPerThread = kernelOp.getElemsPerThread()->getSExtValue();
-  if (elemsPerThread % vectorLen != 0)
-    return kernelOp.emitOpError("unevenly vectorized elementwise kernel");
-
-  Value workgroupId = WorkgroupIdOp::create(b, loc, b.getIndexType());
-  Value workgroupDim = ConstantIndexOp::create(b, loc, blockSize);
-  Value elemsPerThreadOp = ConstantIndexOp::create(b, loc, elemsPerThread);
-  Value workitemId = WorkitemIdOp::create(b, loc, b.getIndexType());
-
-  SmallVector<Value, 2> collapsedBufs;
-  for (Value memref : memrefs) {
-    if (!isa<MemRefType>(memref.getType())) {
-      // TODO: determine if we can relax this if we push bufferization down
-      return kernelOp.emitOpError(
-          "arguments to utility kernels must be memrefs");
-    }
-    if (auto transform =
-            dyn_cast_or_null<TransformOp>(memref.getDefiningOp())) {
-      return kernelOp.emitOpError(
-          "arguments to utility kernels must be pure memrefs");
-    }
-    Value collapsed = createCollapseShapeOp(b, loc, memref);
-    collapsedBufs.push_back(collapsed);
-  }
-  int64_t collapsedLen =
-      cast<MemRefType>(collapsedBufs[0].getType()).getShape()[0];
-  for (Value c : collapsedBufs)
-    if (cast<MemRefType>(c.getType()).getNumElements() != collapsedLen)
-      return kernelOp.emitOpError(
-          "utility kernel arguments have different lengths");
-
-  Value offset = MulIOp::create(
-      b, loc,
-      AddIOp::create(b, loc, MulIOp::create(b, loc, workgroupId, workgroupDim),
-                     workitemId),
-      elemsPerThreadOp);
-
-  Value zero = arith::ConstantIndexOp::create(b, loc, 0);
-  Value vectorLenOp = arith::ConstantIndexOp::create(b, loc, vectorLen);
-  auto loop = scf::ForOp::create(b, loc, zero, elemsPerThreadOp, vectorLenOp);
-  {
-    OpBuilder::InsertionGuard guard(b);
-    b.setInsertionPointToStart(loop.getBody());
-    Value index = arith::AddIOp::create(b, loc, offset, loop.getInductionVar());
-    emitBodyFunc(b, loc, collapsedBufs, index);
-  }
-  return success();
-}
-
 /// Layout normalization.
 
 /// Make the dimensions that are the values in `mapping` and exist within
@@ -1429,7 +1363,7 @@ void RockConvToGemmPass::runOnOperation() {
   target.addIllegalOp<rock::ConvOp, rock::ConvBwdDataOp, rock::ConvBwdWeightOp,
                       rock::ConvElementwiseGemmOp>();
   target.addLegalOp<rock::TransformOp, rock::GemmOp, rock::WorkgroupIdOp,
-                    rock::WorkitemIdOp, rock::GpuAllocOp,
+                    rock::GpuAllocOp,
                     rock::GemmElementwiseGemmOp>();
   // Below are required legalize for the lowering of ConvBwdWeightOp
   target.addLegalDialect<arith::ArithDialect, memref::MemRefDialect,

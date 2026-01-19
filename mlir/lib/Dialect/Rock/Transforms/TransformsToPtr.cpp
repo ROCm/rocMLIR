@@ -95,8 +95,8 @@ static std::pair<Value, Value> createPointerAndMaskTensors(
   auto privateMemoryAddressSpace = b.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getPrivateAddressSpace());
 
-  // Create pointer tensor allocation (index type)
-  auto pointerTensorType = MemRefType::get(shape, b.getIndexType(), AffineMap{},
+  // Create pointer tensor allocation (i32 type)
+  auto pointerTensorType = MemRefType::get(shape, b.getI32Type(), AffineMap{},
                                            privateMemoryAddressSpace);
   Value pointerTensor = GpuAllocOp::create(b, loc, pointerTensorType);
 

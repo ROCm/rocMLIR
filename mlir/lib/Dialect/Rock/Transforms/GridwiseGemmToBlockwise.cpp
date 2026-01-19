@@ -96,8 +96,8 @@ static void blockwiseGemmAccel(PatternRewriter &rewriter, Location loc,
 
 static scf::ForOp createMainLoop(PatternRewriter &rewriter, Location loc,
                                  Value end) {
-  Value one = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 1);
-  Value start = rewriter.createOrFold<arith::ConstantIndexOp>(loc, 0);
+  Value one = rewriter.createOrFold<arith::ConstantIntOp>(loc, rewriter.getI32Type(), 1);
+  Value start = rewriter.createOrFold<arith::ConstantIntOp>(loc, rewriter.getI32Type(), 0);
   scf::ForOp loopOp = scf::ForOp::create(rewriter, loc, start, end, one);
   return loopOp;
 }
@@ -251,9 +251,7 @@ struct GridwiseGemmAccelRewritePattern
     SmallVector<int64_t, 3> bidGridLengths = {G, mBlocks, nBlocks};
 
     // Get current workgroup ID.
-    auto bid = WorkgroupIdOp::create(b, loc, b.getIndexType());
-    // Get current workitem ID.
-    // auto tid = WorkitemIdOp::create(b, loc, b.getIndexType());
+    auto bid = WorkgroupIdOp::create(b, loc, b.getI32Type());
 
     // Compute grid coordinates
     int64_t gridGroupSize = tuningParams.getGridGroupSize();
@@ -315,7 +313,7 @@ struct GridwiseGemmAccelRewritePattern
 
     // Emit loop.
     int64_t kIterations = K / kPerBlock;
-    Value nIterations = ConstantIndexOp::create(b, loc, kIterations);
+    Value nIterations = ConstantIntOp::create(b, loc, b.getI32Type(), kIterations);
 
     scf::ForOp loopOp = createMainLoop(b, loc, nIterations);
     {

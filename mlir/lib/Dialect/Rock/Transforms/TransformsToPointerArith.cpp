@@ -243,8 +243,8 @@ public:
 
     Value remainder = createArithOp(builder, loc, broadcastedLhs.getType(), "RemSIOp", nullptr,
                                     ValueRange{broadcastedLhs, broadcastedRhs});
-    Value zeroCst = createArithOp(builder, loc, builder.getIndexType(), "ConstantIndexOp",
-                                 builder.getIndexAttr(0), ValueRange{});
+    Value zeroCst = createArithOp(builder, loc, builder.getI32Type(), "ConstantIntOp",
+                                 builder.getIntegerAttr(builder.getI32Type(), 0), ValueRange{});
     Value isRemainderNegative = createArithOp(builder, loc, builder.getI1Type(), "CmpIOp_slt", nullptr,
                                               ValueRange{remainder, zeroCst});
     Value correctedRemainder = createArithOp(builder, loc, broadcastedLhs.getType(), "AddIOp", nullptr,
@@ -285,10 +285,10 @@ public:
     // Ensure operands have compatible shapes
     auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(builder, loc, lhs, rhs);
 
-    Value zeroCst = createArithOp(builder, loc, builder.getIndexType(), "ConstantIndexOp",
-                                 builder.getIndexAttr(0), ValueRange{});
-    Value noneCst = createArithOp(builder, loc, builder.getIndexType(), "ConstantIndexOp",
-                                 builder.getIndexAttr(-1), ValueRange{});
+    Value zeroCst = createArithOp(builder, loc, builder.getI32Type(), "ConstantIntOp",
+                                 builder.getIntegerAttr(builder.getI32Type(), 0), ValueRange{});
+    Value noneCst = createArithOp(builder, loc, builder.getI32Type(), "ConstantIntOp",
+                                 builder.getIntegerAttr(builder.getI32Type(), -1), ValueRange{});
     Value negative = createArithOp(builder, loc, builder.getI1Type(), "CmpIOp_slt", nullptr,
                                            ValueRange{broadcastedLhs, zeroCst});
     Value negatedDecremented = createArithOp(builder, loc, broadcastedLhs.getType(), "SubIOp", nullptr,
@@ -331,10 +331,10 @@ public:
     // Ensure operands have compatible shapes
     auto [broadcastedLhs, broadcastedRhs] = ensureCompatibleShapes(builder, loc, lhs, rhs);
 
-    Value zeroCst = createArithOp(builder, loc, builder.getIndexType(), "ConstantIndexOp",
-                                          builder.getIndexAttr(0), ValueRange{});
-    Value oneCst = createArithOp(builder, loc, builder.getIndexType(), "ConstantIndexOp",
-                                 builder.getIndexAttr(1), ValueRange{});
+    Value zeroCst = createArithOp(builder, loc, builder.getI32Type(), "ConstantIntOp",
+                                          builder.getIntegerAttr(builder.getI32Type(), 0), ValueRange{});
+    Value oneCst = createArithOp(builder, loc, builder.getI32Type(), "ConstantIntOp",
+                                 builder.getIntegerAttr(builder.getI32Type(), 1), ValueRange{});
     Value nonPositive = createArithOp(builder, loc, builder.getI1Type(), "CmpIOp_sle", nullptr,
                                       ValueRange{broadcastedLhs, zeroCst});
     Value negated = createArithOp(builder, loc, broadcastedLhs.getType(), "SubIOp", nullptr,
@@ -355,8 +355,8 @@ public:
   }
 
   Value visitConstantExpr(AffineConstantExpr expr) {
-    return createArithOp(builder, loc, builder.getIndexType(), "ConstantIndexOp",
-                        builder.getIndexAttr(expr.getValue()), ValueRange{});
+    return createArithOp(builder, loc, builder.getI32Type(), "ConstantIntOp",
+                        builder.getIntegerAttr(builder.getI32Type(), expr.getValue()), ValueRange{});
   }
 
   Value visitDimExpr(AffineDimExpr expr) {
@@ -418,7 +418,7 @@ static Value updateValidityAfter(OpBuilder &b, Location loc,
   // and being too large on the right.
   auto addLowerDimUltClamp = [&](uint32_t lowerDim) {
     int64_t bound = lowerBounds[lowerDim];
-    Value boundConst = createArithOp(b, loc, b.getIndexType(), "ConstantIndexOp", b.getIndexAttr(bound), ValueRange{});
+    Value boundConst = createArithOp(b, loc, b.getI32Type(), "ConstantIntOp", b.getIntegerAttr(b.getI32Type(), bound), ValueRange{});
     Value output = outputs[lowerDim];
     auto [broadcastedOutput, broadcastedBoundConst] = ensureCompatibleShapes(b, loc, output, boundConst);
     auto memrefType = cast<MemRefType>(broadcastedOutput.getType());
@@ -503,11 +503,12 @@ struct TransformsToPtrRewritePattern
           gpu::GPUDialect::getPrivateAddressSpace());
 
       auto memrefType =
-          MemRefType::get(memrefShape, b.getIndexType(), AffineMap{}, privateMemoryAddressSpace);
+          MemRefType::get(memrefShape, b.getI32Type(), AffineMap{}, privateMemoryAddressSpace);
       // Allocate the memref
       Value rangeMemref = rock::GpuAllocOp::create(b, loc, memrefType);
       // Create the range values in the memref
-      rock::MakeRangeOp::create(b, loc, rangeMemref, b.getIndexAttr(0), b.getIndexAttr(shape[dimension]));
+      
+      rock::MakeRangeOp::create(b, loc, rangeMemref, b.getIntegerAttr(b.getI32Type(), 0), b.getIntegerAttr(b.getI32Type(), shape[dimension]));
       initValues.push_back(rangeMemref);
     }
     llvm::errs() << "initValues=";
@@ -520,6 +521,7 @@ struct TransformsToPtrRewritePattern
     Value baseAddr =
         memref::ExtractAlignedPointerAsIndexOp::create(b, loc, buffer);
                                   llvm::errs() << "debug5\n";
+    baseAddr = b.create<arith::IndexCastOp>(loc, b.getI32Type(), baseAddr);
 
     ////// Init
     
