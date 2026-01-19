@@ -488,6 +488,52 @@ struct RockLoadTilePtrOpRewritePattern
   }
 };
 
+//===----------------------------------------------------------------------===//
+// RockBlockwiseGemmAccelOpRewritePattern - Convert rock.blockwise_gemm_accel to
+// tt.blockwise_gemm_accel
+//===----------------------------------------------------------------------===//
+struct RockBlockwiseGemmAccelOpRewritePattern
+    : public OpRewritePattern<rock::BlockwiseGemmAccelOp> {
+  using OpRewritePattern<rock::BlockwiseGemmAccelOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::BlockwiseGemmAccelOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    // Get operands
+    Value a = op.getMatrixA();
+    Value b = op.getMatrixB();
+    Value c = op.getMatrixC();
+
+    // Get the element type from c
+    auto aMemrefType = dyn_cast<MemRefType>(a.getType());
+    auto bMemrefType = dyn_cast<MemRefType>(b.getType());
+    auto cMemrefType = dyn_cast<MemRefType>(c.getType());
+    if (!aMemrefType || !bMemrefType || !cMemrefType)
+      return failure();
+
+    Type aTensorType = getTensorTypeFromMemRefType(aMemrefType);
+    Type bTensorType = getTensorTypeFromMemRefType(bMemrefType);
+    Type cTensorType = getTensorTypeFromMemRefType(cMemrefType);
+
+    Value cTensor = ToTensorOp::create(rewriter, loc, cTensorType, c,
+                                       /*restrict=*/true, /*writable=*/false);
+    Value aTensor = ToTensorOp::create(rewriter, loc, aTensorType, a,
+                                       /*restrict=*/true, /*writable=*/false);
+    Value bTensor = ToTensorOp::create(rewriter, loc, bTensorType, b,
+                                       /*restrict=*/true, /*writable=*/false);
+
+    // Create tt.blockwise_gemm_accel operation
+    Value result = rewriter.create<triton::DotOp>(
+        loc, cTensorType, aTensor, bTensor, cTensor,
+        /*inputPrecision=*/triton::InputPrecision::IEEE,
+        /*maxNumImpreciseAcc=*/0);
+
+    // We dont use replaceOp because result has one result whereas op has none.
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
 } // end anonymous namespace
 
 void RockToTTIRPass::runOnOperation() {
@@ -501,6 +547,7 @@ void RockToTTIRPass::runOnOperation() {
   target.addIllegalOp<rock::BroadcastOp>();
   target.addIllegalOp<rock::WorkgroupIdOp>();
   target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
+  target.addIllegalOp<rock::BlockwiseGemmAccelOp>();
 
   // Triton and Rock dialects are legal (Rock for now, will be converted later)
   target.addLegalDialect<triton::TritonDialect>();
@@ -516,6 +563,7 @@ void RockToTTIRPass::runOnOperation() {
   patterns.add<RockBroadCastOpRewritePattern>(ctx);
   patterns.add<RockWorkgroupIdOpRewritePattern>(ctx);
   patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
+  patterns.add<RockBlockwiseGemmAccelOpRewritePattern>(ctx);
 
   // Apply partial conversion - convert RockArithOp, RockSplatOp, and
   // RockLoadTilePtrOp, keep rest as-is
