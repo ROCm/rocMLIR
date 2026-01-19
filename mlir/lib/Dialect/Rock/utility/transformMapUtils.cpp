@@ -1248,6 +1248,7 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
       assert(inpIdxMap.getNumInputs() - inpIdxMap.getNumResults() == diff);
       MutableAffineMap newInpIdxMap(b.getMultiDimIdentityMap(outShape.size()));
       BottomUpTMBuilder addDimtransform(b, inpShape, loc);
+      SmallVector<SmallString<8>, 8> names;
       for (uint32_t i = 0; i < outShape.size(); ++i) {
         if (inpIdxMap.isFunctionOfDim(i)) {
           // find location in results
@@ -1255,9 +1256,8 @@ Value mlir::rock::insertTransposeAndBroadcastTransforms(
           addDimtransform.passThrough({i}, {inpIdx});
           newInpIdxMap.setResult(i, b.getAffineDimExpr(i));
         } else {
-          SmallString<8> name;
-          ("exp" + Twine(i)).toVector(name);
-          addDimtransform.addDim(name, i, 1);
+          names.emplace_back("exp" + Twine(i).str());
+          addDimtransform.addDim(names.back(), i, 1);
           newInpIdxMap.setResult(i, b.getAffineConstantExpr(0));
         }
       }
@@ -1559,6 +1559,7 @@ TransformMapAttr mlir::rock::transformExpandShape(
   }
 
   // Dimensions not defined by the expansion rules are ignored unit dimensions.
+  SmallVector<SmallString<8>, 8> unitDimStoreNames; 
   for (size_t i = 0, e = outShape.size(); i < e; ++i) {
     if (dimDefined[i])
       continue;
@@ -1567,10 +1568,8 @@ TransformMapAttr mlir::rock::transformExpandShape(
                                  "dimension in the view, can't happen\n");
       return TransformMapAttr();
     }
-    SmallString<8> unitDimNameStore;
-    StringRef unitDimName =
-        (Twine("unit") + Twine(i)).toStringRef(unitDimNameStore);
-    transform.addDim(unitDimName, i, 1);
+    unitDimStoreNames.emplace_back((Twine("unit") + Twine(i)).str());
+    transform.addDim(unitDimStoreNames.back(), i, 1);
   }
   return transform.get();
 }
