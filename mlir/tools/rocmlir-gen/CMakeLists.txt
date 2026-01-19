@@ -12,6 +12,7 @@ set(LIBS
   # MLIRMHALTransforms
   # MLIRMHALPipeline
   MLIRAnalysis
+  MLIRFuncInlinerExtension
 
   TritonIR
   TritonGPUIR

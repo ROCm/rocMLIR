@@ -20,6 +20,7 @@ target_link_libraries(mlir-mixr-capi-test
   MLIRCAPIIR
   MLIRCAPIMIGraphX
   MLIRCAPIRegisterRocMLIR
+  MLIRFuncInlinerExtension
 )
 
 # NOTE: This test is being archived and it might be fully removed in the future.
@@ -66,6 +67,7 @@ target_link_libraries(mlir-mixr-fullc-test
   MLIRCAPIMIGraphX
   MLIRCAPIRock
   MLIRCAPIGPU
+  MLIRFuncInlinerExtension
 )
 
 add_llvm_executable(mlir-mixr-split-k-test
@@ -84,6 +86,7 @@ target_link_libraries(mlir-mixr-split-k-test
   MLIRMIGraphXPipeline
   MLIRRockPipeline
   MLIRAnalysis
+  MLIRFuncInlinerExtension
 
   TritonIR
   TritonGPUIR
@@ -120,6 +123,7 @@ target_link_libraries(mlir-reduce-fusible-test
   MLIRCAPIRock
   MLIRCAPIGPU
   MLIRRockPipeline
+  MLIRFuncInlinerExtension
 )
 
 # Add Triton include directories for compilation

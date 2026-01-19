@@ -18,6 +18,7 @@ set(LIBS
   # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
   # MLIRMHALTransforms
   MLIRAnalysis
+  MLIRFuncInlinerExtension
 
   TritonIR
   TritonGPUIR

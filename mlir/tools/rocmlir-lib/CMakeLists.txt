@@ -5,6 +5,7 @@ set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_capi_libs}
   MLIRAnalysis
+  MLIRFuncInlinerExtension
 
   TritonIR
   TritonGPUIR

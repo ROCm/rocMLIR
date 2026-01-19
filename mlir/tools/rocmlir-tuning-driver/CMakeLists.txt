@@ -13,6 +13,7 @@ set(LIBS
   MLIRParser
   # MLIRMHALPipeline
   MLIRAnalysis
+  MLIRFuncInlinerExtension
 
   TritonIR
   TritonGPUIR

@@ -25,6 +25,7 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     MLIRJitRunner
     MLIRGPUToLLVMIRTranslation
     MLIRAnalysis
+    MLIRFuncInlinerExtension
 
     TritonIR
     TritonGPUIR

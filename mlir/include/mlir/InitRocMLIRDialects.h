@@ -39,6 +39,7 @@
 #include "mlir/Dialect/Bufferization/Transforms/FuncBufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Index/IR/IndexDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -58,7 +59,6 @@
 #include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/Dialect/Vector/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/IR/Dialect.h"
-
 
 #include "amd/include/Dialect/TritonAMDGPU/IR/Dialect.h"
 #include "amd/include/TritonAMDGPUTransforms/Passes.h"
@@ -146,6 +146,7 @@ inline void registerUpstreamDialects(DialectRegistry &registry) {
 
   // Register all dialect extensions.
   bufferization::registerTransformDialectExtension(registry);
+  func::registerInlinerExtension(registry);
 
   // Register all conversions to LLVM extensions.
   arith::registerConvertArithToLLVMInterface(registry);

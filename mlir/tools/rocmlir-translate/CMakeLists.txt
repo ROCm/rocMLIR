@@ -17,6 +17,7 @@ target_link_libraries(rocmlir-translate
   MLIRROCDLToLLVMIRTranslation
   GpuModuleToRocdlirTranslation
   MLIRAnalysis
+  MLIRFuncInlinerExtension
 
   TritonIR
   TritonGPUIR
