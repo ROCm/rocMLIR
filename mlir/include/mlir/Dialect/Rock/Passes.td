@@ -102,4 +102,33 @@ def RockToTTIRPass : Pass<"rock-to-ttir", "::mlir::func::FuncOp"> {
   ];
 }
 
+def RockMemrefToTensorPass : Pass<"rock-memref-to-tensor", "::mlir::func::FuncOp"> {
+  let summary = "Convert Memref to Tensor";
+  let dependentDialects = [
+    "rock::RockDialect",
+    "func::FuncDialect",
+    "arith::ArithDialect",
+    "triton::TritonDialect",
+    "bufferization::BufferizationDialect",
+  ];
+}
+
+def RockUnbufferizePass : Pass<"rock-unbufferize", "::mlir::func::FuncOp"> {
+  let summary = "Remove bufferization artifacts and convert to pure tensor operations";
+  let description = [{
+    This pass removes remaining bufferization operations after pointer conversion:
+    - Folds to_tensor(to_buffer(x)) -> x
+    - Removes dead rock.alloc() and memref.copy operations
+    - Converts rock.fill to tensor splat operations
+  }];
+  let dependentDialects = [
+    "rock::RockDialect",
+    "func::FuncDialect",
+    "arith::ArithDialect",
+    "triton::TritonDialect",
+    "bufferization::BufferizationDialect",
+    "memref::MemRefDialect",
+  ];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

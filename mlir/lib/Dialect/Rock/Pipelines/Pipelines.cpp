@@ -359,6 +359,10 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createCSEPass());
     funcPm.addPass(rock::createRockToTTIRPass());
+    funcPm.addPass(rock::createRockMemrefToTensorPass());
+    funcPm.addPass(rock::createRockUnbufferizePass());
+    funcPm.addPass(createCanonicalizerPass());
+    funcPm.addPass(createCSEPass());
 
     // Triton backend pipeline
     // This converts Rock dialect to Triton IR and compiles to LLVM
