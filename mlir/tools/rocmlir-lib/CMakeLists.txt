@@ -4,6 +4,28 @@ get_property(rocmlir_capi_libs GLOBAL PROPERTY ROCMLIR_PUBLIC_C_API_LIBS)
 set(LIBS
   ${rocmlir_dialect_libs}
   ${rocmlir_capi_libs}
+  MLIRAnalysis
+
+  TritonIR
+  TritonGPUIR
+  TritonAnalysis
+  TritonGPUTransforms
+  TritonAMDGPUToLLVM
+  TritonAMDGPUTransforms
+  TritonAMDAnalysis
+  TritonAMDGPUDialectToLLVM
+  TritonAMDUtils
+  GluonTransforms
+  TritonInstrumentToLLVM
+  NVHopperTransforms
+  ProtonToProtonGPU
+  ProtonGPUToLLVM
+  ProtonNVIDIAGPUToLLVM
+  ProtonAMDGPUToLLVM
+  ProtonGPUTransforms
+  TritonLLVMIR
+  NVGPUToLLVM
+  TritonInstrumentTransforms
 )
 
 set(CMAKE_BUILD_RPATH ${CMAKE_BUILD_DIR}/external/llvm-project/llvm/lib)
@@ -17,6 +39,21 @@ PARTIAL_SOURCES_INTENDED
   ${LIBS}
   )
 
+# Add Triton include directories for compilation
+target_include_directories(MLIRRockThin PRIVATE
+  ${TRITON_PROJECT_DIR}/include
+  ${TRITON_BINARY_DIR}/include
+  ${TRITON_PROJECT_DIR}/third_party/amd
+  ${TRITON_BINARY_DIR}/third_party/amd
+  ${TRITON_PROJECT_DIR}/third_party/nvidia
+  ${TRITON_BINARY_DIR}/third_party/nvidia
+  ${TRITON_PROJECT_DIR}/third_party
+  ${TRITON_PROJECT_DIR}
+  ${TRITON_BINARY_DIR}/third_party
+  ${TRITON_BINARY_DIR}/third_party/amd/include
+  ${TRITON_BINARY_DIR}/third_party/nvidia/include
+)
+
 add_llvm_executable(rocmlir-lib-test
   PARTIAL_SOURCES_INTENDED
 
@@ -28,6 +65,22 @@ add_llvm_executable(rocmlir-lib-test
 )
 
 llvm_update_compile_flags(rocmlir-lib-test)
+
+# Add Triton include directories for compilation
+target_include_directories(rocmlir-lib-test PRIVATE
+  ${TRITON_PROJECT_DIR}/include
+  ${TRITON_BINARY_DIR}/include
+  ${TRITON_PROJECT_DIR}/third_party/amd
+  ${TRITON_BINARY_DIR}/third_party/amd
+  ${TRITON_PROJECT_DIR}/third_party/nvidia
+  ${TRITON_BINARY_DIR}/third_party/nvidia
+  ${TRITON_PROJECT_DIR}/third_party
+  ${TRITON_PROJECT_DIR}
+  ${TRITON_BINARY_DIR}/third_party
+  ${TRITON_BINARY_DIR}/third_party/amd/include
+  ${TRITON_BINARY_DIR}/third_party/nvidia/include
+)
+
 target_link_libraries(rocmlir-lib-test PRIVATE MLIRRockThin ${LIBS})
 mlir_check_link_libraries(rocmlir-lib-test)
 

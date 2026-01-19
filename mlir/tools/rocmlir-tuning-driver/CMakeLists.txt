@@ -12,6 +12,28 @@ set(LIBS
   ${rocmlir_conversion_libs}
   MLIRParser
   # MLIRMHALPipeline
+  MLIRAnalysis
+
+  TritonIR
+  TritonGPUIR
+  TritonAnalysis
+  TritonGPUTransforms
+  TritonAMDGPUToLLVM
+  TritonAMDGPUTransforms
+  TritonAMDAnalysis
+  TritonAMDGPUDialectToLLVM
+  TritonAMDUtils
+  GluonTransforms
+  TritonInstrumentToLLVM
+  NVHopperTransforms
+  ProtonToProtonGPU
+  ProtonGPUToLLVM
+  ProtonNVIDIAGPUToLLVM
+  ProtonAMDGPUToLLVM
+  ProtonGPUTransforms
+  TritonLLVMIR
+  NVGPUToLLVM
+  TritonInstrumentTransforms
 )
 
 add_rocmlir_tool(rocmlir-tuning-driver
@@ -70,4 +92,20 @@ target_link_libraries(rocmlir-tuning-driver PRIVATE ${LIBS})
 target_link_libraries(rocmlir-tuning-driver PUBLIC benchmark-driver-utils)
 target_link_libraries(rocmlir-tuning-driver PUBLIC hip::host hip::amdhip64 hiprtc::hiprtc)
 llvm_update_compile_flags(rocmlir-tuning-driver)
+
+# Add Triton include directories for compilation
+target_include_directories(rocmlir-tuning-driver PRIVATE
+  ${TRITON_PROJECT_DIR}/include
+  ${TRITON_BINARY_DIR}/include
+  ${TRITON_PROJECT_DIR}/third_party/amd
+  ${TRITON_BINARY_DIR}/third_party/amd
+  ${TRITON_PROJECT_DIR}/third_party/nvidia
+  ${TRITON_BINARY_DIR}/third_party/nvidia
+  ${TRITON_PROJECT_DIR}/third_party
+  ${TRITON_PROJECT_DIR}
+  ${TRITON_BINARY_DIR}/third_party
+  ${TRITON_BINARY_DIR}/third_party/amd/include
+  ${TRITON_BINARY_DIR}/third_party/nvidia/include
+)
+
 endif()

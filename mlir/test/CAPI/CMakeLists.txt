@@ -83,6 +83,28 @@ target_link_libraries(mlir-mixr-split-k-test
   MLIRCAPIGPU
   MLIRMIGraphXPipeline
   MLIRRockPipeline
+  MLIRAnalysis
+
+  TritonIR
+  TritonGPUIR
+  TritonAnalysis
+  TritonGPUTransforms
+  TritonAMDGPUToLLVM
+  TritonAMDGPUTransforms
+  TritonAMDAnalysis
+  TritonAMDGPUDialectToLLVM
+  TritonAMDUtils
+  GluonTransforms
+  TritonInstrumentToLLVM
+  NVHopperTransforms
+  ProtonToProtonGPU
+  ProtonGPUToLLVM
+  ProtonNVIDIAGPUToLLVM
+  ProtonAMDGPUToLLVM
+  ProtonGPUTransforms
+  TritonLLVMIR
+  NVGPUToLLVM
+  TritonInstrumentTransforms
 )
 
 add_llvm_executable(mlir-reduce-fusible-test
@@ -100,3 +122,17 @@ target_link_libraries(mlir-reduce-fusible-test
   MLIRRockPipeline
 )
 
+# Add Triton include directories for compilation
+target_include_directories(mlir-mixr-split-k-test PRIVATE
+  ${TRITON_PROJECT_DIR}/include
+  ${TRITON_BINARY_DIR}/include
+  ${TRITON_PROJECT_DIR}/third_party/amd
+  ${TRITON_BINARY_DIR}/third_party/amd
+  ${TRITON_PROJECT_DIR}/third_party/nvidia
+  ${TRITON_BINARY_DIR}/third_party/nvidia
+  ${TRITON_PROJECT_DIR}/third_party
+  ${TRITON_PROJECT_DIR}
+  ${TRITON_BINARY_DIR}/third_party
+  ${TRITON_BINARY_DIR}/third_party/amd/include
+  ${TRITON_BINARY_DIR}/third_party/nvidia/include
+)

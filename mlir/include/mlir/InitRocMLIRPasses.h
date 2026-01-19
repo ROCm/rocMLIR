@@ -80,18 +80,8 @@ inline void registerUpstreamPasses() {
   tosa::registerTosaOptPasses();
   tosa::registerTosaAttachTargetPass();
   vector::registerVectorPasses();
-
-  // TODO: These require GPU/ROCDL - evaluate for Triton backend
-  // amdgpu::registerAMDGPUPasses();
-  // registerGPUPasses();
-  // LLVM::registerLLVMPasses();
 }
 
-// TODO: Add Triton pass registration
-inline void registerTritonPasses() {
-  // triton::registerTritonPasses();
-  // triton::gpu::registerTritonGPUPasses();
-}
 
 // This function may be called to register the rocMLIR passes with the
 // global registry.
@@ -110,7 +100,6 @@ inline void registerRocMLIRPasses() {
   // registerMHALPasses();
 
   registerUpstreamPasses();
-  registerTritonPasses();
 }
 
 } // namespace mlir

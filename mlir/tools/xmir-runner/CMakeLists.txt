@@ -24,6 +24,28 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     MLIRRocmExecutionEngineUtils
     MLIRJitRunner
     MLIRGPUToLLVMIRTranslation
+    MLIRAnalysis
+
+    TritonIR
+    TritonGPUIR
+    TritonAnalysis
+    TritonGPUTransforms
+    TritonAMDGPUToLLVM
+    TritonAMDGPUTransforms
+    TritonAMDAnalysis
+    TritonAMDGPUDialectToLLVM
+    TritonAMDUtils
+    GluonTransforms
+    TritonInstrumentToLLVM
+    NVHopperTransforms
+    ProtonToProtonGPU
+    ProtonGPUToLLVM
+    ProtonNVIDIAGPUToLLVM
+    ProtonAMDGPUToLLVM
+    ProtonGPUTransforms
+    TritonLLVMIR
+    NVGPUToLLVM
+    TritonInstrumentTransforms
   )
 
   add_rocmlir_tool(xmir-runner
@@ -31,6 +53,22 @@ if(MLIR_ENABLE_ROCM_RUNNER)
     )
 
   target_link_libraries(xmir-runner PRIVATE ${LIBS})
+  
+  # Add Triton include directories for compilation
+  target_include_directories(xmir-runner PRIVATE
+    ${TRITON_PROJECT_DIR}/include
+    ${TRITON_BINARY_DIR}/include
+    ${TRITON_PROJECT_DIR}/third_party/amd
+    ${TRITON_BINARY_DIR}/third_party/amd
+    ${TRITON_PROJECT_DIR}/third_party/nvidia
+    ${TRITON_BINARY_DIR}/third_party/nvidia
+    ${TRITON_PROJECT_DIR}/third_party
+    ${TRITON_PROJECT_DIR}
+    ${TRITON_BINARY_DIR}/third_party
+    ${TRITON_BINARY_DIR}/third_party/amd/include
+    ${TRITON_BINARY_DIR}/third_party/nvidia/include
+  )
+
   llvm_update_compile_flags(xmir-runner)
 
 endif()
