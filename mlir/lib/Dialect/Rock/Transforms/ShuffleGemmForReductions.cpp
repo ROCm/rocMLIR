@@ -580,7 +580,7 @@ rearrangeGemmParallelDimsForReduction(ReduceOp rOp,
     FailureOr<ArrayAttr> maybeInvertedOutViews =
         invertTransforms(rewriter, rOp.getLoc(), additionalOutputViews);
     if (failed(maybeInvertedOutViews)) {
-        return rOp.emitError("invertTransforms failed");
+      return rOp.emitError("cannot invert additionalOutputViews");
     }
     for (Attribute trMap : maybeInvertedOutViews.value()) {
       trGemmOut = TransformOp::create(rewriter, rOp.getLoc(), trGemmOut,

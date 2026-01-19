@@ -351,7 +351,7 @@ class LoweringBlockwiseLoadTileOp final
           FailureOr<ArrayAttr> maybeInBufferViewsTrAttr =
               invertTransforms(b, loc, inBufferViewsTr.threadSubTile);
           if (failed(maybeInBufferViewsTrAttr)) {
-            return op.emitError("invertTransforms failed");
+            return op.emitError("cannot invert inBufferViewsTr.threadSubTile");
           }
           Value viewLoadedBuffer =
               transform(b, loadBuffer, maybeInBufferViewsTrAttr.value());
@@ -387,7 +387,8 @@ class LoweringBlockwiseLoadTileOp final
           FailureOr<ArrayAttr> maybeLoadBufferViews =
               invertTransforms(b, loc, maybeBufferViews->threadSubTile);
           if (failed(maybeLoadBufferViews)) {
-            return op.emitError("invertTransforms failed");
+            return op.emitError(
+                "cannot invert maybeBufferViews->threadSubTile");
           }
           Value viewLoadBuffer =
               transform(b, loadBuffer, maybeLoadBufferViews.value());
@@ -404,7 +405,8 @@ class LoweringBlockwiseLoadTileOp final
           FailureOr<ArrayAttr> maybeStoreBufferViews =
               invertTransforms(b, loc, maybeLdsStoreViews->threadSubTile);
           if (failed(maybeStoreBufferViews)) {
-            return op.emitError("invertTransforms failed");
+            return op.emitError(
+                "cannot invert maybeLdsStoreViews->threadSubTile");
           }
           Value viewStoreBuffer =
               transform(b, storeBuffer, maybeStoreBufferViews.value());
