@@ -2745,7 +2745,7 @@ struct GridwiseAttentionAccelRewritePattern
             rewriter, loc, gemm0OutSubTileViewsTr.threadSubTile);
         if (failed(maybeGemm0ThreadSubTileInvert)) {
           return op.emitError(
-              "cannot invert gemm0OutSubTileViewsTr.threadSubTile ");
+              "cannot invert gemm0OutSubTileViewsTr.threadSubTile");
         }
 
         // softmax normalization.
@@ -2975,7 +2975,7 @@ struct GridwiseAttentionAccelRewritePattern
                             maybeInvertedGemm1threadSubTileMaps.value());
               if (failed(maybeAttentionOutAccBufferThreadSubTileViewMaps)) {
                 return op.emitError(
-                    "cannot invert maybeInvertedGemm1threadSubTileMaps");
+                    "cannot invert attention buffer");
               }
               // Rescale/correct output, rowMax and rowSums
               Value attentionOutAccBufferView = transform(
