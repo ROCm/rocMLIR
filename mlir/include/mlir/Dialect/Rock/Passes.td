@@ -97,7 +97,8 @@ def RockToTTIRPass : Pass<"rock-to-ttir", "::mlir::func::FuncOp"> {
     "rock::RockDialect",
     "func::FuncDialect",
     "arith::ArithDialect",
-    "triton::TritonDialect"
+    "triton::TritonDialect",
+    "bufferization::BufferizationDialect",
   ];
 }
 
