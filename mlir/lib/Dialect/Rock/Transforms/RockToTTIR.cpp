@@ -68,169 +68,151 @@ struct RockArithOpRewritePattern
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     StringRef opName = op.getName();
-    
-    // Get operands and result type
-    ValueRange operands = op.getOperands();
     Type resultType = op.getResult().getType();
-    
-    // Convert memref types to tensor types, converting index to i32
-    SmallVector<Value> tensorOperands;
-    tensorOperands.reserve(operands.size());
-    Type i32Type = rewriter.getI32Type();
-    
-    for (Value operand : operands) {
-      Type operandType = operand.getType();
-      if (auto memrefType = dyn_cast<MemRefType>(operandType)) {
-        // Convert memref to tensor first
-        Type originalTensorType = getTensorTypeFromMemRefType(memrefType);
-        Value tensor = ToTensorOp::create(rewriter, loc, originalTensorType, operand,
-                                          /*restrict=*/true, /*writable=*/false);
-        
-        // If memref element type is index, convert tensor<...xindex> to tensor<...xi32>
-        if (memrefType.getElementType().isIndex()) {
-          auto tensorRankedType = cast<RankedTensorType>(originalTensorType);
-          auto i32TensorType = RankedTensorType::get(
-              tensorRankedType.getShape(), i32Type, tensorRankedType.getEncoding());
-          tensor = rewriter.create<arith::IndexCastOp>(loc, i32TensorType, tensor);
-        }
-        
-        tensorOperands.push_back(tensor);
-      } else if (operandType.isIndex()) {
-        // Convert scalar index to i32
-        Value i32Value = rewriter.create<arith::IndexCastOp>(loc, i32Type, operand);
-        tensorOperands.push_back(i32Value);
-      } else {
-        // Keep non-memref, non-index operands as-is
-        tensorOperands.push_back(operand);
-      }
-    }
-    
-    // Convert result type from memref to tensor if needed, converting index to i32
-    Type tensorResultType = resultType;
-    if (auto memrefType = dyn_cast<MemRefType>(resultType)) {
-      tensorResultType = getTensorTypeFromMemRefType(memrefType);
-      // If memref element type is index, convert to i32 tensor
-      if (memrefType.getElementType().isIndex()) {
-        auto tensorRankedType = cast<RankedTensorType>(tensorResultType);
-        tensorResultType = RankedTensorType::get(
-            tensorRankedType.getShape(), i32Type, tensorRankedType.getEncoding());
-      }
-    } else if (resultType.isIndex()) {
-      // If result is scalar index, convert to i32
-      tensorResultType = i32Type;
-    }
-    
-    // Create the corresponding arith operation based on the name
     Value result;
     
-    if (opName == "AddIOp") {
-      if (tensorOperands.size() != 2)
+    // Handle ConstantIntOp
+    if (opName == "ConstantIntOp") {
+      auto constantValueOpt = op.getConstantValue();
+      if (!constantValueOpt.has_value())
         return failure();
-      result = rewriter.create<AddIOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "SubIOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<SubIOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "MulIOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<MulIOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "DivSIOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<DivSIOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "DivUIOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<DivUIOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "RemSIOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<RemSIOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "RemUIOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<RemUIOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "AddFOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<AddFOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "SubFOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<SubFOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "MulFOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<MulFOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "DivFOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<DivFOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "RemFOp") {
-      if (tensorOperands.size() != 2)
-        return failure();
-      result = rewriter.create<RemFOp>(loc, tensorOperands[0], tensorOperands[1]);
-    } else if (opName == "ConstantIndexOp") {
-      // ConstantIndexOp uses the constantValue attribute
-      // Convert to i32 constant instead of index
+      Attribute constantValue = constantValueOpt.value();
+      result = rewriter.create<arith::ConstantOp>(loc, cast<TypedAttr>(constantValue));
+    }
+    // Handle ConstantIndexOp
+    else if (opName == "ConstantIndexOp") {
       auto constantValueOpt = op.getConstantValue();
       if (!constantValueOpt.has_value())
         return failure();
       Attribute constantValue = constantValueOpt.value();
       if (auto intAttr = dyn_cast<IntegerAttr>(constantValue)) {
-        // Create i32 constant instead of index constant
-        Value indexConst = rewriter.create<ConstantIndexOp>(loc, intAttr.getInt());
-        result = rewriter.create<arith::IndexCastOp>(loc, i32Type, indexConst);
+        result = rewriter.create<arith::ConstantIndexOp>(loc, intAttr.getInt());
       } else {
         return failure();
       }
-    } else if (opName == "ConstantIntOp") {
-      // ConstantOp uses the constantValue attribute
-      auto constantValueOpt = op.getConstantValue();
-      if (!constantValueOpt.has_value())
+    }
+    // Handle MulIOp
+    else if (opName == "MulIOp") {
+      ValueRange operands = op.getOperands();
+      if (operands.size() != 2)
         return failure();
-      Attribute constantValue = constantValueOpt.value();
-      result = rewriter.create<ConstantOp>(loc, cast<TypedAttr>(constantValue));
-    } else {
+      
+      // Convert memref operands to tensors if needed, handling index to i32 conversion
+      Type i32Type = rewriter.getI32Type();
+      SmallVector<Value> tensorOperands;
+      tensorOperands.reserve(operands.size());
+      for (Value operand : operands) {
+        if (auto memrefType = dyn_cast<MemRefType>(operand.getType())) {
+          Type tensorType = getTensorTypeFromMemRefType(memrefType);
+          Value tensor = ToTensorOp::create(rewriter, loc, tensorType, operand,
+                                            /*restrict=*/true, /*writable=*/false);
+          
+          // If memref element type is index, convert tensor<...xindex> to tensor<...xi32>
+          if (memrefType.getElementType().isIndex()) {
+            auto tensorRankedType = cast<RankedTensorType>(tensorType);
+            auto i32TensorType = RankedTensorType::get(
+                tensorRankedType.getShape(), i32Type, tensorRankedType.getEncoding());
+            tensor = rewriter.create<arith::IndexCastOp>(loc, i32TensorType, tensor);
+          }
+          
+          tensorOperands.push_back(tensor);
+        } else if (operand.getType().isIndex()) {
+          // Convert scalar index to i32
+          Value i32Value = rewriter.create<arith::IndexCastOp>(loc, i32Type, operand);
+          tensorOperands.push_back(i32Value);
+        } else {
+          tensorOperands.push_back(operand);
+        }
+      }
+      
+      result = rewriter.create<arith::MulIOp>(loc, tensorOperands[0], tensorOperands[1]);
+      
+      // If result type is memref with index element type, convert result tensor to i32
+      // if (auto resultMemrefType = dyn_cast<MemRefType>(resultType)) {
+      //   if (resultMemrefType.getElementType().isIndex()) {
+      //     auto resultTensorType = cast<RankedTensorType>(result.getType());
+      //     auto i32ResultTensorType = RankedTensorType::get(
+      //         resultTensorType.getShape(), i32Type, resultTensorType.getEncoding());
+      //     result = rewriter.create<arith::IndexCastOp>(loc, i32ResultTensorType, result);
+      //   }
+      // } else if (resultType.isIndex()) {
+      //   // If result is scalar index, convert to i32
+      //   result = rewriter.create<arith::IndexCastOp>(loc, i32Type, result);
+      // }
+
+    }
+    // Handle AddIOp
+    else if (opName == "AddIOp") {
+      ValueRange operands = op.getOperands();
+      if (operands.size() != 2)
+        return failure();
+      
+      // Convert memref operands to tensors if needed, handling index to i32 conversion
+      Type i32Type = rewriter.getI32Type();
+      SmallVector<Value> tensorOperands;
+      tensorOperands.reserve(operands.size());
+      for (Value operand : operands) {
+        if (auto memrefType = dyn_cast<MemRefType>(operand.getType())) {
+          Type tensorType = getTensorTypeFromMemRefType(memrefType);
+          Value tensor = ToTensorOp::create(rewriter, loc, tensorType, operand,
+                                            /*restrict=*/true, /*writable=*/false);
+          
+          // If memref element type is index, convert tensor<...xindex> to tensor<...xi32>
+          if (memrefType.getElementType().isIndex()) {
+            auto tensorRankedType = cast<RankedTensorType>(tensorType);
+            auto i32TensorType = RankedTensorType::get(
+                tensorRankedType.getShape(), i32Type, tensorRankedType.getEncoding());
+            tensor = rewriter.create<arith::IndexCastOp>(loc, i32TensorType, tensor);
+          }
+          
+          tensorOperands.push_back(tensor);
+        } else if (operand.getType().isIndex()) {
+          // Convert scalar index to i32
+          Value i32Value = rewriter.create<arith::IndexCastOp>(loc, i32Type, operand);
+          tensorOperands.push_back(i32Value);
+        } else {
+          tensorOperands.push_back(operand);
+        }
+      }
+      
+      result = rewriter.create<arith::AddIOp>(loc, tensorOperands[0], tensorOperands[1]);
+      
+      // If result type is memref with index element type, convert result tensor to i32
+      // if (auto resultMemrefType = dyn_cast<MemRefType>(resultType)) {
+      //   if (resultMemrefType.getElementType().isIndex()) {
+      //     auto resultTensorType = cast<RankedTensorType>(result.getType());
+      //     auto i32ResultTensorType = RankedTensorType::get(
+      //         resultTensorType.getShape(), i32Type, resultTensorType.getEncoding());
+      //     result = rewriter.create<arith::IndexCastOp>(loc, i32ResultTensorType, result);
+      //   }
+      // } else if (resultType.isIndex()) {
+      //   // If result is scalar index, convert to i32
+      //   result = rewriter.create<arith::IndexCastOp>(loc, i32Type, result);
+      // }
+    }
+    else {
       // Unknown operation name
-      return op.emitError() << "Unknown arith operation: " << opName;
+      return failure();
     }
-    
-    // If result is a tensor of index, convert to i32 tensor
-    if (auto resultTensorType = dyn_cast<RankedTensorType>(result.getType())) {
-      if (resultTensorType.getElementType().isIndex()) {
-        auto i32TensorType = RankedTensorType::get(
-            resultTensorType.getShape(), i32Type, resultTensorType.getEncoding());
-        result = rewriter.create<arith::IndexCastOp>(loc, i32TensorType, result);
+
+    SmallVector<Operation *> users;
+    for (Operation *user : op->getUsers()) {
+      users.push_back(user);
+    }
+    bool allUsersExpectMemref = true;
+    for (Operation *user : users) {
+      if (user->getNumOperands() == 0 || !isa<MemRefType>(user->getOperand(0).getType())) {
+        allUsersExpectMemref = false;
+        break;
       }
-    } else if (result.getType().isIndex()) {
-      // If result is scalar index, convert to i32
-      result = rewriter.create<arith::IndexCastOp>(loc, i32Type, result);
+    }
+    if (allUsersExpectMemref) {
+      // We need to insert a bufferization.to_buffer op after the result
+      Value resultBufferized = ToBufferOp::create(rewriter, loc, resultType, result);
+      result = resultBufferized;
     }
     
-    // If the result type is a memref but we got a tensor, convert back
-    // (though typically we want to keep tensors for Triton)
-    if (isa<MemRefType>(resultType) && isa<TensorType>(result.getType())) {
-      // If original result was memref<...xindex>, we need to convert i32 tensor back to index memref
-      auto originalMemrefType = cast<MemRefType>(resultType);
-      if (originalMemrefType.getElementType().isIndex()) {
-        // Convert i32 tensor back to index tensor, then to memref
-        auto resultTensorType = cast<RankedTensorType>(result.getType());
-        auto indexTensorType = RankedTensorType::get(
-            resultTensorType.getShape(), rewriter.getIndexType(), resultTensorType.getEncoding());
-        Value indexTensor = rewriter.create<arith::IndexCastOp>(loc, indexTensorType, result);
-        Value memrefResult = ToBufferOp::create(rewriter, loc, resultType, indexTensor);
-        rewriter.replaceOp(op, memrefResult);
-        return success();
-      }
-      // Convert tensor back to memref if needed
-      Value memrefResult = ToBufferOp::create(rewriter, loc, resultType, result);
-      rewriter.replaceOp(op, memrefResult);
-    } else {
-      rewriter.replaceOp(op, result);
-    }
-    
+    rewriter.replaceOp(op, result);
     return success();
   }
 };
@@ -263,6 +245,7 @@ struct RockSplatOpRewritePattern
       Value srcToSplat = src;
       Type finalTensorType = tensorType;
       
+      // By definition, SplatOp operand must be an integer type, it cannot be index!
       if (src.getType().isIndex() && memrefType.getElementType().isIndex()) {
         // Convert index to i32
         Type i32Type = rewriter.getI32Type();
@@ -283,8 +266,11 @@ struct RockSplatOpRewritePattern
 
       // llvm::errs() << "====> result:\n";
       // result.dump();
-      
-      rewriter.replaceOp(op, result);
+
+      // Because now splat returns a tensor and user expected a memref, we need to convert it back to memref
+      Value resultMemref = ToBufferOp::create(rewriter, loc, resultType, result);
+
+      rewriter.replaceOp(op, resultMemref);
       return success();
     }
     
@@ -362,6 +348,10 @@ struct RockLoadTilePtrOpRewritePattern
 
   LogicalResult matchAndRewrite(rock::BlockwiseLoadTilePtrOp op,
                                 PatternRewriter &rewriter) const override {
+
+    // rewriter.eraseOp(op);
+    // return success();
+
     llvm::errs() << "### RockLoadTilePtrOpRewritePattern\n";
 
     Location loc = op.getLoc();
@@ -377,6 +367,10 @@ struct RockLoadTilePtrOpRewritePattern
     auto destMemrefType = dyn_cast<MemRefType>(destRegisters.getType());
     if (!destMemrefType)
       return failure();
+
+    // WORKS
+    // rewriter.eraseOp(op);
+    // return success();
     
     Type elementType = destMemrefType.getElementType();
     
@@ -397,6 +391,9 @@ struct RockLoadTilePtrOpRewritePattern
     Type maskTensorType = getTensorTypeFromMemRefType(maskMemrefType);
     Value maskTensorValue = ToTensorOp::create(rewriter, loc, maskTensorType, maskTensor,
                                              /*restrict=*/true, /*writable=*/false);
+    // WORKS
+    // rewriter.eraseOp(op);
+    // return success();                                         
     
     // Create pointer type: !tt.ptr<elementType>
     // Use address space 1 (global) as default for Triton
@@ -406,14 +403,22 @@ struct RockLoadTilePtrOpRewritePattern
     auto ptrTensorRankedType = cast<RankedTensorType>(ptrTensorType);
     RankedTensorType ptrTensorOfPtrsType = RankedTensorType::get(
         ptrTensorRankedType.getShape(), ptrType, ptrTensorRankedType.getEncoding());
+
+    rewriter.eraseOp(op);
+    return success();                                         
     
     // Convert index tensor to pointer tensor using unrealized_conversion_cast
     // This is a temporary cast that will be resolved by type conversion passes
     Value ptrTensorOfPtrs = rewriter.create<UnrealizedConversionCastOp>(
         loc, ptrTensorOfPtrsType, ptrTensor).getResult(0);
+    // Value ptrTensorOfPtrs = rewriter.create<arith::IndexCastOp>(loc, ptrTensorOfPtrsType, ptrTensor);
     
     // Convert destRegisters type from memref to tensor
     Type resultTensorType = getTensorTypeFromMemRefType(destMemrefType);
+
+    // Nope
+    // rewriter.eraseOp(op);
+    // return success();
     
     // Create tt.load operation
     // LoadOp takes: ptr, mask (optional), other (optional), boundaryCheck, padding, cache, evict, isVolatile
@@ -471,8 +476,8 @@ void RockToTTIRPass::runOnOperation() {
   // Mark RockArithOp, RockSplatOp, RockBroadcastOp, and RockLoadTilePtrOp as illegal - they should be converted
   target.addIllegalOp<rock::ArithOp>();
   target.addIllegalOp<rock::SplatOp>();
-  target.addIllegalOp<rock::BroadcastOp>();
-  target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
+  // target.addIllegalOp<rock::BroadcastOp>();
+  // target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
   
   // Triton and Rock dialects are legal (Rock for now, will be converted later)
   target.addLegalDialect<triton::TritonDialect>();
@@ -485,8 +490,8 @@ void RockToTTIRPass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<RockArithOpRewritePattern>(ctx);
   patterns.add<RockSplatOpRewritePattern>(ctx);
-  patterns.add<RockBroadCastOpRewritePattern>(ctx);
-  patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
+  // patterns.add<RockBroadCastOpRewritePattern>(ctx);
+  // patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
   
   // Apply partial conversion - convert RockArithOp, RockSplatOp, and RockLoadTilePtrOp, keep rest as-is
   if (failed(applyPartialConversion(getOperation(), target,
