@@ -1559,7 +1559,7 @@ TransformMapAttr mlir::rock::transformExpandShape(
   }
 
   // Dimensions not defined by the expansion rules are ignored unit dimensions.
-  SmallVector<SmallString<8>, 8> unitDimStoreNames; 
+  SmallVector<SmallString<8>, 8> unitDimStoreNames;
   for (size_t i = 0, e = outShape.size(); i < e; ++i) {
     if (dimDefined[i])
       continue;
@@ -1754,7 +1754,7 @@ FailureOr<Value> mlir::rock::addPassThroughIndices(OpBuilder &b,
   std::iota(backPoses.begin(), backPoses.end(), pos + numberOfIndices);
   if (!backNames.empty())
     addDimBuilder.passThrough(backNames, backPoses, backNames);
-  SmallVector<SmallString<8>, 8> extraNames; 
+  SmallVector<SmallString<8>, 8> extraNames;
   for (auto [idx, len] : llvm::enumerate(lengths)) {
     extraNames.emplace_back(("extra_" + Twine(idx)).str());
     addDimBuilder.addDim(extraNames.back(), pos + idx, len);
