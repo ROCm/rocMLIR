@@ -105,23 +105,7 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
           Value tensor =
               ToTensorOp::create(rewriter, loc, tensorType, operand,
                                  /*restrict=*/true, /*writable=*/false);
-
-          // If memref element type is index, convert tensor<...xindex> to
-          // tensor<...xi32> if (memrefType.getElementType().isIndex()) {
-          //   auto tensorRankedType = cast<RankedTensorType>(tensorType);
-          //   tensor = RankedTensorType::get(
-          //       tensorRankedType.getShape(), rewriter.getIndexType(),
-          //       tensorRankedType.getEncoding());
-          //   // tensor = rewriter.create<arith::IndexCastOp>(loc,
-          //   i32TensorType, tensor);
-          // }
-
           tensorOperands.push_back(tensor);
-          // } else if (operand.getType().isIndex()) {
-          // Convert scalar index to i32
-          // Value i32Value = rewriter.create<arith::IndexCastOp>(loc,
-          // rewriter.getIndexType(), operand);
-          // tensorOperands.push_back(i32Value);
         } else {
           tensorOperands.push_back(operand);
         }
@@ -129,22 +113,6 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
 
       result = rewriter.create<arith::MulIOp>(loc, tensorOperands[0],
                                               tensorOperands[1]);
-
-      // If result type is memref with index element type, convert result tensor
-      // to i32 if (auto resultMemrefType = dyn_cast<MemRefType>(resultType)) {
-      //   if (resultMemrefType.getElementType().isIndex()) {
-      //     auto resultTensorType = cast<RankedTensorType>(result.getType());
-      //     auto i32ResultTensorType = RankedTensorType::get(
-      //         resultTensorType.getShape(), i32Type,
-      //         resultTensorType.getEncoding());
-      //     result = rewriter.create<arith::IndexCastOp>(loc,
-      //     i32ResultTensorType, result);
-      //   }
-      // } else if (resultType.isIndex()) {
-      //   // If result is scalar index, convert to i32
-      //   result = rewriter.create<arith::IndexCastOp>(loc, i32Type, result);
-      // }
-
     }
     // Handle AddIOp
     else if (opName == "AddIOp") {
@@ -162,22 +130,7 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
           Value tensor =
               ToTensorOp::create(rewriter, loc, tensorType, operand,
                                  /*restrict=*/true, /*writable=*/false);
-
-          // If memref element type is index, convert tensor<...xindex> to
-          // tensor<...xi32> if (memrefType.getElementType().isIndex()) {
-          //   auto tensorRankedType = cast<RankedTensorType>(tensorType);
-          //   auto i32TensorType = RankedTensorType::get(
-          //       tensorRankedType.getShape(), i32Type,
-          //       tensorRankedType.getEncoding());
-          //   tensor = rewriter.create<arith::IndexCastOp>(loc, i32TensorType,
-          //   tensor);
-          // }
-
           tensorOperands.push_back(tensor);
-          // } else if (operand.getType().isIndex()) {
-          // Convert scalar index to i32
-          // Value i32Value = rewriter.create<arith::IndexCastOp>(loc, i32Type,
-          // operand); tensorOperands.push_back(i32Value);
         } else {
           tensorOperands.push_back(operand);
         }
@@ -185,21 +138,6 @@ struct RockArithOpRewritePattern : public OpRewritePattern<rock::ArithOp> {
 
       result = rewriter.create<arith::AddIOp>(loc, tensorOperands[0],
                                               tensorOperands[1]);
-
-      // If result type is memref with index element type, convert result tensor
-      // to i32 if (auto resultMemrefType = dyn_cast<MemRefType>(resultType)) {
-      //   if (resultMemrefType.getElementType().isIndex()) {
-      //     auto resultTensorType = cast<RankedTensorType>(result.getType());
-      //     auto i32ResultTensorType = RankedTensorType::get(
-      //         resultTensorType.getShape(), i32Type,
-      //         resultTensorType.getEncoding());
-      //     result = rewriter.create<arith::IndexCastOp>(loc,
-      //     i32ResultTensorType, result);
-      //   }
-      // } else if (resultType.isIndex()) {
-      //   // If result is scalar index, convert to i32
-      //   result = rewriter.create<arith::IndexCastOp>(loc, i32Type, result);
-      // }
     } else {
       // Unknown operation name
       return failure();
@@ -404,15 +342,19 @@ struct RockLoadTilePtrOpRewritePattern
 
     // Get the element type from destRegisters
     auto destMemrefType = dyn_cast<MemRefType>(destRegisters.getType());
-    if (!destMemrefType)
+    if (!destMemrefType) {
+      llvm::errs() << "Dest registers is not a memref\n";
       return failure();
+    }
 
     Type elementType = destMemrefType.getElementType();
 
     // Convert pointerTensor from memref<...xindex> to tensor<...xindex>
     auto ptrMemrefType = dyn_cast<MemRefType>(pointerTensor.getType());
-    if (!ptrMemrefType || !ptrMemrefType.getElementType().isInteger(32))
+    if (!ptrMemrefType || !ptrMemrefType.getElementType().isInteger(32)) {
+      llvm::errs() << "Pointer tensor is not a memref of i32\n";
       return failure();
+    }
 
     Type ptrTensorType = getTensorTypeFromMemRefType(ptrMemrefType);
     Value ptrTensor =
@@ -421,8 +363,10 @@ struct RockLoadTilePtrOpRewritePattern
 
     // Convert maskTensor from memref<...xi1> to tensor<...xi1>
     auto maskMemrefType = dyn_cast<MemRefType>(maskTensor.getType());
-    if (!maskMemrefType || !maskMemrefType.getElementType().isInteger(1))
+    if (!maskMemrefType || !maskMemrefType.getElementType().isInteger(1)) {
+      llvm::errs() << "Mask tensor is not a tensor of i1\n";
       return failure();
+    }
 
     Type maskTensorType = getTensorTypeFromMemRefType(maskMemrefType);
     Value maskTensorValue =
@@ -431,7 +375,7 @@ struct RockLoadTilePtrOpRewritePattern
 
     // Create pointer type: !tt.ptr<elementType>
     // Use address space 1 (global) as default for Triton
-    PointerType ptrType = PointerType::get(elementType, 1);
+    triton::PointerType ptrType = triton::PointerType::get(elementType, 1);
 
     // Create tensor of pointers: tensor<...x!tt.ptr<elementType>>
     auto ptrTensorRankedType = cast<RankedTensorType>(ptrTensorType);
@@ -505,7 +449,7 @@ struct RockBlockwiseGemmAccelOpRewritePattern
     Value b = op.getMatrixB();
     Value c = op.getMatrixC();
 
-    // Get the element type from c
+    // Get the element type from a, b, and c.
     auto aMemrefType = dyn_cast<MemRefType>(a.getType());
     auto bMemrefType = dyn_cast<MemRefType>(b.getType());
     auto cMemrefType = dyn_cast<MemRefType>(c.getType());
@@ -531,6 +475,226 @@ struct RockBlockwiseGemmAccelOpRewritePattern
 
     // We dont use replaceOp because result has one result whereas op has none.
     rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// RockMicroKernelOpRewritePattern 
+//===----------------------------------------------------------------------===//
+struct RockMicroKernelOpRewritePattern
+    : public OpRewritePattern<scf::ForOp> {
+  using OpRewritePattern<scf::ForOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(scf::ForOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    
+    // Make sure this is a microkernel
+    bool isMicroKernel = false;
+    Block *body = op.getBody();
+
+    for (Operation &bodyOp : *body) {
+      if (isa<triton::DotOp>(bodyOp)) {
+        isMicroKernel = true;
+        break;
+      }
+    }
+
+    if (!isMicroKernel) {
+      llvm::errs() << "Loop is not a microkernel\n";
+      return failure();
+    }
+
+    // Get the parent function first.
+    func::FuncOp func = op->getParentOfType<func::FuncOp>();
+    if (!func) {
+      llvm::errs() << "Cannot find the parent function\n";
+      return failure();
+    }
+
+    // Find the output buffer by looking for rock::GpuAllocOp with f32 element type.
+    Value outputBuffer;
+    func.walk([&](rock::GpuAllocOp allocOp) {
+      auto memrefType = dyn_cast<MemRefType>(allocOp.getResult().getType());
+      if (memrefType && memrefType.getElementType().isF32() &&
+          allocOp->getParentOp() == func) {
+        outputBuffer = allocOp.getResult();
+      }
+    });
+    if (!outputBuffer) {
+      llvm::errs() << "Cannot find output buffer (rock::GpuAllocOp with f32 element type)\n";
+      return failure();
+    }
+
+    SmallVector<Operation *> argPointers;
+    rock::CastToPtrOp castToPtrOp = nullptr;
+    // The first argument is the output buffer, which we need to convert to a tensor pointer.
+    auto outputBufferType = cast<MemRefType>(outputBuffer.getType());
+    auto outputTensorType = getTensorTypeFromMemRefType(outputBufferType);
+    Value outputTensor = ToTensorOp::create(rewriter, loc, outputTensorType, outputBuffer,
+                                             /*restrict=*/true, /*writable=*/false);
+    Value outputTensorPointer = CastToPtrOp::create(rewriter, loc, outputTensorType, outputTensor);
+    castToPtrOp = cast<CastToPtrOp>(outputTensorPointer.getDefiningOp());
+
+    // Now, we need to find the arg pointers for A and B only (we dont need C as
+    // it is not yielded from the loop).
+    // This is hacky, but right now we just want to match triton generated IR.
+    func.walk([&](memref::ExtractAlignedPointerAsIndexOp extractOp) {
+      auto memrefType = dyn_cast<MemRefType>(extractOp.getSource().getType());
+      if (!memrefType) {
+        return;  // Skip ops without valid memref type
+      }
+      // C is F32, so do not add it here.
+      if (memrefType.getElementType().isF16()) {
+        argPointers.push_back(extractOp);      
+      }
+    });
+
+    // Make sure all arg pointers are in the function body.
+    for (Operation *argPointerOp : argPointers) {
+      if (argPointerOp->getParentOp() != func) {
+        llvm::errs() << "Arg pointer is not in the function body\n";
+        return failure();
+      }
+    }
+
+    // Make sure all arg pointers input operands are actually a function argument.
+    for (Operation *argPointerOp : argPointers) {
+      for (OpOperand &operand : argPointerOp->getOpOperands()) {
+        if (!isa<BlockArgument>(operand.get())) {
+          llvm::errs() << "Arg pointer input operand is not a function argument\n";
+          return failure();
+        }
+      }
+    }
+
+    // We need to cast the argPointers to triton pointers, since the yield operands inside the loop
+    // are triton pointers.
+    // Then, we will create a new scf.for with the same body but with the arg pointers as the init args.
+    SmallVector<Value> initArgs;
+    initArgs.push_back(castToPtrOp->getResult(0));
+    for (Operation *argPointerOp : argPointers) {
+      Value result = argPointerOp->getResult(0);
+
+      // The result should have one user that is an arith::IndexCastOp
+      if (!result.hasOneUse()) {
+        llvm::errs() << "Arg pointer result does not have exactly one user\n";
+        return failure();
+      }
+
+      Operation *user = *result.getUsers().begin();
+      auto indexCastOp = dyn_cast<arith::IndexCastOp>(user);
+      if (!indexCastOp) {
+        llvm::errs() << "Arg pointer user is not an IndexCastOp\n";
+        return failure();
+      }
+
+      // The IndexCastOp result should have one user that is a triton::SplatOp
+      if (!indexCastOp.getResult().hasOneUse()) {
+        llvm::errs() << "IndexCastOp result does not have exactly one user\n";
+        return failure();
+      }
+
+      Operation *splatUser = *indexCastOp.getResult().getUsers().begin();
+      auto splatOp = dyn_cast<triton::SplatOp>(splatUser);
+      if (!splatOp) {
+        llvm::errs() << "IndexCastOp user is not a SplatOp\n";
+        return failure();
+      }
+
+      // Get the memref type from the extract op to determine element type
+      auto extractOp = cast<memref::ExtractAlignedPointerAsIndexOp>(argPointerOp);
+      auto memrefType = cast<MemRefType>(extractOp.getSource().getType());
+      Type elementType = memrefType.getElementType();
+
+      // Create triton pointer type
+      triton::PointerType ptrType = triton::PointerType::get(elementType, 1);
+
+      // Create tensor of pointers type matching the SplatOp result shape
+      auto splatResultType = cast<RankedTensorType>(splatOp.getResult().getType());
+      RankedTensorType ptrTensorType = RankedTensorType::get(
+          splatResultType.getShape(), ptrType, splatResultType.getEncoding());
+
+      // Create CastToPtrOp from the SplatOp result
+      rewriter.setInsertionPointAfter(splatOp);
+      Value castResult = rewriter.create<rock::CastToPtrOp>(
+          loc, ptrTensorType, splatOp.getResult());
+
+      initArgs.push_back(castResult);
+    }
+
+    // Create new ForOp with same bounds but new init args.
+    // The empty body builder avoids implicit scf.yield construction.
+    auto newForOp = scf::ForOp::create(
+        rewriter, loc, op.getLowerBound(), op.getUpperBound(), op.getStep(),
+        initArgs, [](OpBuilder &, Location, Value, ValueRange) {});
+    newForOp->setAttrs(op->getAttrs());
+
+    // Move operations from old body to new body using splice.
+    Block *oldBody = op.getBody();
+    Block *newBody = newForOp.getBody();
+    newBody->getOperations().splice(newBody->getOperations().begin(),
+                                    oldBody->getOperations());
+
+    // Replace old block arguments with new ones.
+    // First argument is the induction variable.
+    op.getInductionVar().replaceAllUsesWith(newForOp.getInductionVar());
+    // Replace any existing iter args (old loop might have had some).
+    // for (auto [oldArg, newArg] :
+    //      llvm::zip(op.getRegionIterArgs(), newForOp.getRegionIterArgs())) {
+    //   oldArg.replaceAllUsesWith(newArg);
+    // }
+
+    // Find the tt.load and tt.dot operations in the new body.
+    SmallVector<triton::LoadOp> loadOps;
+    triton::DotOp dotOp = nullptr;
+    for (Operation &bodyOp : *newBody) {
+      if (auto load = dyn_cast<triton::LoadOp>(bodyOp)) {
+        loadOps.push_back(load);
+      } else if (auto dot = dyn_cast<triton::DotOp>(bodyOp)) {
+        dotOp = dot;
+      }
+    }
+
+    if (loadOps.size() < 2) {
+      llvm::errs() << "Expected at least 2 tt.load ops in the loop body\n";
+      return failure();
+    }
+    if (!dotOp) {
+      llvm::errs() << "Expected a tt.dot op in the loop body\n";
+      return failure();
+    }
+
+    llvm::errs() << "OK\n";
+
+    // Update the yield to yield the correct values:
+    // 1. Input of the first tt.load (pointer tensor)
+    // 2. Input of the second tt.load (pointer tensor)
+    // 3. Output of the tt.dot
+    auto yieldOp = cast<scf::YieldOp>(newBody->getTerminator());
+
+    llvm::errs() << "OK\n";
+    rewriter.setInsertionPoint(yieldOp);
+    llvm::errs() << "OK\n";
+    SmallVector<Value> yieldOperands;
+    llvm::errs() << "OK\n";
+    yieldOperands.push_back(loadOps[0].getPtr());  // Input of first tt.load
+    llvm::errs() << "OK\n";
+    yieldOperands.push_back(loadOps[1].getPtr());  // Input of second tt.load
+    llvm::errs() << "OK\n";
+    yieldOperands.push_back(dotOp.getResult());    // Output of tt.dot
+
+    
+    // Modify the yield op in place.
+    yieldOp->setOperands(yieldOperands);
+
+    llvm::errs() << "All done: " << yieldOperands.size() << "\n";
+    op->getParentOfType<func::FuncOp>().dump();
+
+    // Erase the old ForOp now that all uses are replaced.
+    rewriter.eraseOp(op);
+
     return success();
   }
 };
@@ -569,6 +733,18 @@ void RockToTTIRPass::runOnOperation() {
   // RockLoadTilePtrOp, keep rest as-is
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
-    signalPassFailure();
-  }
+                                      return signalPassFailure();
+                                    }
+  
+  ConversionTarget target2(*ctx);
+  target2.addDynamicallyLegalOp<scf::ForOp>([](scf::ForOp op) {
+    return op.getNumResults() > 0;
+  });
+
+  RewritePatternSet patterns2(ctx);
+  patterns2.add<RockMicroKernelOpRewritePattern>(ctx);
+  if (failed(applyPartialConversion(getOperation(), target2,
+                                    std::move(patterns2)))) {
+                                      return signalPassFailure();
+                                    }
 }
