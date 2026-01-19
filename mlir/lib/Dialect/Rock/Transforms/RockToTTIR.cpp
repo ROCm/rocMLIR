@@ -333,8 +333,11 @@ struct RockBroadCastOpRewritePattern
     
     // Create tt.broadcast operation
     Value result = triton::BroadcastOp::create(rewriter, loc, finalResultTensorType, finalSrcTensor);
+
+    // BroadcastOp returns a tensor, we need to convert it to memref
+    Value resultMemref = ToBufferOp::create(rewriter, loc, resultType, result);
     
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOp(op, resultMemref);
     return success();
   }
 };
@@ -476,7 +479,7 @@ void RockToTTIRPass::runOnOperation() {
   // Mark RockArithOp, RockSplatOp, RockBroadcastOp, and RockLoadTilePtrOp as illegal - they should be converted
   target.addIllegalOp<rock::ArithOp>();
   target.addIllegalOp<rock::SplatOp>();
-  // target.addIllegalOp<rock::BroadcastOp>();
+  target.addIllegalOp<rock::BroadcastOp>();
   // target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
   
   // Triton and Rock dialects are legal (Rock for now, will be converted later)
@@ -490,7 +493,7 @@ void RockToTTIRPass::runOnOperation() {
   RewritePatternSet patterns(ctx);
   patterns.add<RockArithOpRewritePattern>(ctx);
   patterns.add<RockSplatOpRewritePattern>(ctx);
-  // patterns.add<RockBroadCastOpRewritePattern>(ctx);
+  patterns.add<RockBroadCastOpRewritePattern>(ctx);
   // patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
   
   // Apply partial conversion - convert RockArithOp, RockSplatOp, and RockLoadTilePtrOp, keep rest as-is
