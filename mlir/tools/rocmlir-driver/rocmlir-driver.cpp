@@ -191,18 +191,17 @@ runKernelPipeline(StringRef arch, ModuleOp m,
     opts.applicabilityMode = mlir::rock::ApplicabilityMode::Applicability;
     opts.arch = arch.str();
     rock::buildKernelPipeline(pm, opts);
-    rock::TritonOptions tritonOpts;
-    tritonOpts.arch = arch.str();
-    rock::buildTritonPipeline(pm, tritonOpts);
   }
   if (kernelPipelineSet.contains("gpu")) {
     // Set up the default lowering pipeline which goes down to GPU dialect.
     rock::KernelOptions opts;
     opts.arch = arch.str();
     rock::buildKernelPipeline(pm, opts);
-    rock::TritonOptions tritonOpts;
-    tritonOpts.arch = arch.str();
-    rock::buildTritonPipeline(pm, tritonOpts);
+  }
+  if (kernelPipelineSet.contains("triton")) {
+    rock::TritonOptions opts;
+    opts.arch = arch.str();
+    rock::buildTritonPipeline(pm, opts);
   }
   bool isRocdlOnly = kernelPipelineSet.contains("rocdl") &&
                      !kernelPipelineSet.contains("binary");
@@ -265,8 +264,8 @@ static LogicalResult runMLIRPasses(ModuleOp &module,
   }
 
   llvm::SmallDenseSet<StringRef> kernelPipelineOptions{
-      "applicability", "migraphx", "highlevel", "gpu", "rocdl", "binary"};
-  llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "binary"};
+      "applicability", "migraphx", "highlevel", "gpu", "rocdl", "binary", "triton"};
+  llvm::SmallDenseSet<StringRef> kernelFullPipeline{"gpu", "triton", "binary"};
   llvm::SmallDenseSet<StringRef> kernelPipelineSet;
   std::string kernelPipelineStr = kernelPipeline.getValue();
   if (failed(parsePipeline(kernelPipelineStr, kernelPipelineSet,
