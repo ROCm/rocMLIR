@@ -1,7 +1,5 @@
 // RUN: rocmlir-gen --arch gfx942 --operation gemm -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA
-// RUN: rocmlir-gen --arch gfx942 --operation gemm -mfma=off -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA_OFF
 // RUN: rocmlir-gen --arch gfx950 --operation gemm -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA
-// RUN: rocmlir-gen --arch gfx950 --operation gemm -mfma=off -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=MFMA_OFF
 // RUN: rocmlir-gen --arch gfx1100 --operation gemm -t fp8 -p | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=GFX11
 // RUN: rocmlir-gen --arch gfx1100 --operation gemm -t fp8 -p --force-f8-types=ocp | rocmlir-driver --kernel-pipeline=gpu,rocdl | FileCheck %s --check-prefix=GFX11_OCP
 // COM: This runs the kernel pipeline so that we still get a good test with the

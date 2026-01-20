@@ -530,15 +530,16 @@ class ConvConfiguration(PerfConfiguration):
             datatype = 'bf8_fp8'
         elif argv[0] == 'convbf8_bf8':
             datatype = 'bf8_bf8'
+        else:
+            raise ValueError(f"Unknown conv datatype: {argv[0]}")
 
         try:
             # TBD:
             # implement -m ?
             # implement -t ?
             opts, _ = getopt.getopt(argv[1:], "F:f:I:O:n:c:H:W:k:y:x:p:q:l:j:u:v:g:m:t:")
-        except getopt.GetoptError:
-            print('getopt error')
-            sys.exit(1)
+        except getopt.GetoptError as e:
+            raise ValueError(f"Invalid conv config: {e}")
 
         for opt, arg in opts:
             if opt == '-F':
