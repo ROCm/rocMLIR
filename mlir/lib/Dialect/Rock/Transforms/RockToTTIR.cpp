@@ -480,16 +480,15 @@ struct RockBlockwiseGemmAccelOpRewritePattern
 };
 
 //===----------------------------------------------------------------------===//
-// RockMicroKernelOpRewritePattern 
+// RockMicroKernelOpRewritePattern
 //===----------------------------------------------------------------------===//
-struct RockMicroKernelOpRewritePattern
-    : public OpRewritePattern<scf::ForOp> {
+struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
   using OpRewritePattern<scf::ForOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(scf::ForOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    
+
     // Make sure this is a microkernel
     bool isMicroKernel = false;
     Block *body = op.getBody();
@@ -513,7 +512,8 @@ struct RockMicroKernelOpRewritePattern
       return failure();
     }
 
-    // Find the output buffer by looking for rock::GpuAllocOp with f32 element type.
+    // Find the output buffer by looking for rock::GpuAllocOp with f32 element
+    // type.
     Value outputBuffer;
     func.walk([&](rock::GpuAllocOp allocOp) {
       auto memrefType = dyn_cast<MemRefType>(allocOp.getResult().getType());
@@ -523,18 +523,22 @@ struct RockMicroKernelOpRewritePattern
       }
     });
     if (!outputBuffer) {
-      llvm::errs() << "Cannot find output buffer (rock::GpuAllocOp with f32 element type)\n";
+      llvm::errs() << "Cannot find output buffer (rock::GpuAllocOp with f32 "
+                      "element type)\n";
       return failure();
     }
 
     SmallVector<Operation *> argPointers;
     rock::CastToPtrOp castToPtrOp = nullptr;
-    // The first argument is the output buffer, which we need to convert to a tensor pointer.
+    // The last argument is the output buffer, which we need to convert to a
+    // tensor pointer.
     auto outputBufferType = cast<MemRefType>(outputBuffer.getType());
     auto outputTensorType = getTensorTypeFromMemRefType(outputBufferType);
-    Value outputTensor = ToTensorOp::create(rewriter, loc, outputTensorType, outputBuffer,
-                                             /*restrict=*/true, /*writable=*/false);
-    Value outputTensorPointer = CastToPtrOp::create(rewriter, loc, outputTensorType, outputTensor);
+    Value outputTensor =
+        ToTensorOp::create(rewriter, loc, outputTensorType, outputBuffer,
+                           /*restrict=*/true, /*writable=*/false);
+    Value outputTensorPointer =
+        CastToPtrOp::create(rewriter, loc, outputTensorType, outputTensor);
     castToPtrOp = cast<CastToPtrOp>(outputTensorPointer.getDefiningOp());
 
     // Now, we need to find the arg pointers for A and B only (we dont need C as
@@ -543,11 +547,11 @@ struct RockMicroKernelOpRewritePattern
     func.walk([&](memref::ExtractAlignedPointerAsIndexOp extractOp) {
       auto memrefType = dyn_cast<MemRefType>(extractOp.getSource().getType());
       if (!memrefType) {
-        return;  // Skip ops without valid memref type
+        return; // Skip ops without valid memref type
       }
       // C is F32, so do not add it here.
       if (memrefType.getElementType().isF16()) {
-        argPointers.push_back(extractOp);      
+        argPointers.push_back(extractOp);
       }
     });
 
@@ -559,21 +563,22 @@ struct RockMicroKernelOpRewritePattern
       }
     }
 
-    // Make sure all arg pointers input operands are actually a function argument.
+    // Make sure all arg pointers input operands are actually a function
+    // argument.
     for (Operation *argPointerOp : argPointers) {
       for (OpOperand &operand : argPointerOp->getOpOperands()) {
         if (!isa<BlockArgument>(operand.get())) {
-          llvm::errs() << "Arg pointer input operand is not a function argument\n";
+          llvm::errs()
+              << "Arg pointer input operand is not a function argument\n";
           return failure();
         }
       }
     }
 
-    // We need to cast the argPointers to triton pointers, since the yield operands inside the loop
-    // are triton pointers.
-    // Then, we will create a new scf.for with the same body but with the arg pointers as the init args.
+    // We need to cast the argPointers to triton pointers, since the yield
+    // operands inside the loop are triton pointers. Then, we will create a new
+    // scf.for with the same body but with the arg pointers as the init args.
     SmallVector<Value> initArgs;
-    initArgs.push_back(castToPtrOp->getResult(0));
     for (Operation *argPointerOp : argPointers) {
       Value result = argPointerOp->getResult(0);
 
@@ -604,7 +609,8 @@ struct RockMicroKernelOpRewritePattern
       }
 
       // Get the memref type from the extract op to determine element type
-      auto extractOp = cast<memref::ExtractAlignedPointerAsIndexOp>(argPointerOp);
+      auto extractOp =
+          cast<memref::ExtractAlignedPointerAsIndexOp>(argPointerOp);
       auto memrefType = cast<MemRefType>(extractOp.getSource().getType());
       Type elementType = memrefType.getElementType();
 
@@ -612,7 +618,8 @@ struct RockMicroKernelOpRewritePattern
       triton::PointerType ptrType = triton::PointerType::get(elementType, 1);
 
       // Create tensor of pointers type matching the SplatOp result shape
-      auto splatResultType = cast<RankedTensorType>(splatOp.getResult().getType());
+      auto splatResultType =
+          cast<RankedTensorType>(splatOp.getResult().getType());
       RankedTensorType ptrTensorType = RankedTensorType::get(
           splatResultType.getShape(), ptrType, splatResultType.getEncoding());
 
@@ -623,19 +630,39 @@ struct RockMicroKernelOpRewritePattern
 
       initArgs.push_back(castResult);
     }
+    initArgs.push_back(castToPtrOp->getResult(0));
 
     // Create new ForOp with same bounds but new init args.
-    // The empty body builder avoids implicit scf.yield construction.
+    rewriter.setInsertionPointAfter(op);
     auto newForOp = scf::ForOp::create(
         rewriter, loc, op.getLowerBound(), op.getUpperBound(), op.getStep(),
-        initArgs, [](OpBuilder &, Location, Value, ValueRange) {});
+        initArgs, [](OpBuilder &builder, Location loc, Value, ValueRange) {
+          // Create an empty yield (will be updated later with proper operands)
+          scf::YieldOp::create(builder, loc, ValueRange{});
+        });
     newForOp->setAttrs(op->getAttrs());
 
-    // Move operations from old body to new body using splice.
+    // Move operations from old body to new body, except the scf.yield
+    // terminator.
     Block *oldBody = op.getBody();
     Block *newBody = newForOp.getBody();
-    newBody->getOperations().splice(newBody->getOperations().begin(),
-                                    oldBody->getOperations());
+
+    // Collect ops to move (excluding the terminator)
+    SmallVector<Operation *> opsToMove;
+    for (Operation &bodyOp : *oldBody) {
+      if (!bodyOp.hasTrait<OpTrait::IsTerminator>()) {
+        opsToMove.push_back(&bodyOp);
+      }
+    }
+
+    // Move the ops to the new body (before the yield terminator)
+    Operation *newTerminator = newBody->getTerminator();
+    for (Operation *opToMove : opsToMove) {
+      opToMove->moveBefore(newTerminator);
+    }
+
+    // llvm::errs() << "Before erasing old ForOp\n";
+    // op->getParentOfType<func::FuncOp>().dump();
 
     // Replace old block arguments with new ones.
     // First argument is the induction variable.
@@ -645,6 +672,13 @@ struct RockMicroKernelOpRewritePattern
     //      llvm::zip(op.getRegionIterArgs(), newForOp.getRegionIterArgs())) {
     //   oldArg.replaceAllUsesWith(newArg);
     // }
+    // llvm::errs() << "Erasing old ForOp\n";
+    // op->getParentOfType<func::FuncOp>().dump();
+
+    // rewriter.eraseOp(op);
+
+    // llvm::errs() << "Erased old ForOp\n";
+    // op->getParentOfType<func::FuncOp>().dump();
 
     // Find the tt.load and tt.dot operations in the new body.
     SmallVector<triton::LoadOp> loadOps;
@@ -679,20 +713,20 @@ struct RockMicroKernelOpRewritePattern
     llvm::errs() << "OK\n";
     SmallVector<Value> yieldOperands;
     llvm::errs() << "OK\n";
-    yieldOperands.push_back(loadOps[0].getPtr());  // Input of first tt.load
+    yieldOperands.push_back(loadOps[1].getPtr()); // Input of first tt.load
     llvm::errs() << "OK\n";
-    yieldOperands.push_back(loadOps[1].getPtr());  // Input of second tt.load
+    yieldOperands.push_back(loadOps[0].getPtr()); // Input of second tt.load
     llvm::errs() << "OK\n";
-    yieldOperands.push_back(dotOp.getResult());    // Output of tt.dot
+    yieldOperands.push_back(dotOp.getResult()); // Output of tt.dot
 
-    
-    // Modify the yield op in place.
+    // // Modify the yield op in place.
     yieldOp->setOperands(yieldOperands);
 
-    llvm::errs() << "All done: " << yieldOperands.size() << "\n";
-    op->getParentOfType<func::FuncOp>().dump();
+    // op->getParentOfType<func::FuncOp>().dump();
 
     // Erase the old ForOp now that all uses are replaced.
+    // llvm::errs() << "Erasing old ForOp\n";
+    // op->getParentOfType<func::FuncOp>().dump();
     rewriter.eraseOp(op);
 
     return success();
@@ -720,6 +754,9 @@ void RockToTTIRPass::runOnOperation() {
   target.addLegalDialect<arith::ArithDialect>();
   target.addLegalDialect<bufferization::BufferizationDialect>();
   target.addLegalDialect<memref::MemRefDialect>();
+  // target.addDynamicallyLegalOp<scf::ForOp>([](scf::ForOp op) {
+  //     return op.getNumResults() > 0;
+  //   });
 
   RewritePatternSet patterns(ctx);
   patterns.add<RockArithOpRewritePattern>(ctx);
@@ -728,23 +765,29 @@ void RockToTTIRPass::runOnOperation() {
   patterns.add<RockWorkgroupIdOpRewritePattern>(ctx);
   patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
   patterns.add<RockBlockwiseGemmAccelOpRewritePattern>(ctx);
+  // patterns.add<RockMicroKernelOpRewritePattern>(ctx);
 
   // Apply partial conversion - convert RockArithOp, RockSplatOp, and
   // RockLoadTilePtrOp, keep rest as-is
   if (failed(applyPartialConversion(getOperation(), target,
                                     std::move(patterns)))) {
-                                      return signalPassFailure();
-                                    }
-  
+    return signalPassFailure();
+  }
+
   ConversionTarget target2(*ctx);
-  target2.addDynamicallyLegalOp<scf::ForOp>([](scf::ForOp op) {
-    return op.getNumResults() > 0;
-  });
+  target2.addLegalDialect<scf::SCFDialect>();
+  target2.addLegalDialect<func::FuncDialect>();
+  target2.addLegalDialect<arith::ArithDialect>();
+  target2.addLegalDialect<bufferization::BufferizationDialect>();
+  target2.addLegalDialect<memref::MemRefDialect>();
+  target2.addLegalDialect<rock::RockDialect>();
+  target2.addDynamicallyLegalOp<scf::ForOp>(
+      [](scf::ForOp op) { return op.getNumResults() > 0; });
 
   RewritePatternSet patterns2(ctx);
   patterns2.add<RockMicroKernelOpRewritePattern>(ctx);
   if (failed(applyPartialConversion(getOperation(), target2,
                                     std::move(patterns2)))) {
-                                      return signalPassFailure();
-                                    }
+    return signalPassFailure();
+  }
 }
