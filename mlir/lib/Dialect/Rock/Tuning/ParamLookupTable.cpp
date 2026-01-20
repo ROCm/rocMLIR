@@ -116,7 +116,7 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
     // For non-accel params, we only support f32
     return "f32";
   } else if (dataType.isBF16()) {
-    // Special case for bf16
+    // Special case for bf16, we don't want to normalize it to f16
     return "bf16";
   } else if (dataType.isFloat()) {
     // Normalize other float types by bitwidth
@@ -129,7 +129,8 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
     case 32:
       return "f" + std::to_string(bitwidth);
     default:
-      llvm::report_fatal_error("Unsupported float bitwidth");
+      llvm::report_fatal_error("Unsupported float bitwidth: " +
+                               Twine(bitwidth));
     }
   } else if (dataType.isInteger()) {
     // Normalize integer types by bitwidth
@@ -138,7 +139,8 @@ std::string ParamLookupTable<ParamsType>::getDataTypeString(Type dataType) {
     case 8:
       return "i" + std::to_string(bitwidth);
     default:
-      llvm::report_fatal_error("Unsupported integer bitwidth");
+      llvm::report_fatal_error("Unsupported integer bitwidth: " +
+                               Twine(bitwidth));
     }
   } else {
     llvm::report_fatal_error("Unsupported data type");

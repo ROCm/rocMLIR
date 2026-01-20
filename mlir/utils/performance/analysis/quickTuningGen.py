@@ -260,23 +260,23 @@ def init_inc_file(path):
     path.write_text("\n".join(lines))
 
 
-def replace_section(content, endif_marker, begin_marker, end_marker, new_content):
+def replace_section(content, insert_marker, begin_marker, end_marker, new_content):
     """Replace content between markers, creating section if needed."""
     pattern = re.compile(f'{re.escape(begin_marker)}.*?{re.escape(end_marker)}', re.DOTALL)
 
     if pattern.search(content):
         return pattern.sub(f'{begin_marker}\n{new_content}\n{end_marker}', content)
 
-    # Section doesn't exist - insert before #endif
-    insert_pos = content.find(endif_marker)
+    # Section doesn't exist - insert before 'insert_marker'
+    insert_pos = content.find(insert_marker)
     if insert_pos == -1:
-        raise ValueError(f"Cannot find {endif_marker}")
+        raise ValueError(f"Cannot find {insert_marker}")
 
     section = f'{begin_marker}\n{new_content}\n{end_marker}\n\n'
     return content[:insert_pos] + section + content[insert_pos:]
 
 
-def add_lookup_entry(content, endif_marker, entry):
+def add_lookup_entry(content, insert_marker, entry):
     """Add or replace lookup table entry."""
     match = LOOKUP_ENTRY_PATTERN.match(entry)
     if not match:
@@ -292,9 +292,9 @@ def add_lookup_entry(content, endif_marker, entry):
         insert_pos = existing.start()
         content = content[:existing.start()] + content[existing.end():]
     else:
-        insert_pos = content.find(endif_marker)
+        insert_pos = content.find(insert_marker)
         if insert_pos == -1:
-            raise ValueError(f"Cannot find {endif_marker}")
+            raise ValueError(f"Cannot find {insert_marker}")
 
     return content[:insert_pos] + f'{entry}\n\n' + content[insert_pos:]
 
