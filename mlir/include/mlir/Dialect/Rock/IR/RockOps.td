@@ -1229,9 +1229,10 @@ defvar SameShapeVectorOfI1 = [{
 def Rock_LDSTransposeLoadOp
     : Rock_Op<"lds_transpose_load", [DeclareOpInterfaceMethods<
                                         MemoryEffectsOpInterface>]>,
-      Arguments<(ins Arg<MemRefOf<[F16, BF16]>, "LDS source buffer">:$source,
+      Arguments<(ins Arg<MemRefOf<[F16, BF16, F8E4M3FN, F8E5M2]>,
+                         "LDS source buffer">:$source,
           Variadic<Index>:$indices)>,
-      Results<(outs VectorOfLengthAndType<[4], [F16, BF16]>:$result)> {
+      Results<(outs AnyVectorOfNonZeroRank:$result)> {
   let summary =
       "Hardware-assisted LDS transpose load for matrix accelerator tile";
   let description = [{
@@ -1241,8 +1242,14 @@ def Rock_LDSTransposeLoadOp
     instruction geometry (`dDim × instrK`), where:
     - `dDim` is the accelerator M/N dimension (e.g., 16 or 32)
     - `instrK` is the accelerator K dimension (e.g., 8, 16, or 32)
-    The operation returns a vector of 4 elements per thread containing
-    transposed elements in a layout suitable for matrix accelerator instructions.
+
+    For 16-bit types (f16, bf16):
+    - Uses ds_read_tr16_b64 instruction
+    - Returns vector<4xtype> (4 elements per thread)
+
+    For 8-bit types (f8E4M3FN, f8E5M2 - OCP FP8 for gfx950):
+    - Uses ds_read_tr8_b64 instruction
+    - Returns vector<8xtype> (8 elements per thread)
 
     Benefits:
     - Reduces LDS bank conflicts through optimized access patterns

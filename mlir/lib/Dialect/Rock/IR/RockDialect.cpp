@@ -2161,6 +2161,27 @@ LogicalResult LDSTransposeLoadOp::verify() {
            << srcElemType << ")";
   }
 
+  // Verify result vector length based on element type:
+  // - 16-bit types (f16, bf16): ds_read_tr16_b64 returns 4 elements
+  // - 8-bit types (f8E4M3FN, f8E5M2 - OCP FP8 for gfx950): ds_read_tr8_b64
+  // returns 8 elements
+  int64_t expectedVecLen;
+  if (srcElemType.isF16() || srcElemType.isBF16()) {
+    expectedVecLen = 4;
+  } else if (isa<Float8E4M3FNType>(srcElemType) ||
+             isa<Float8E5M2Type>(srcElemType)) {
+    expectedVecLen = 8;
+  } else {
+    return emitOpError("unsupported element type for LDS transpose load: ")
+           << srcElemType;
+  }
+
+  if (resultType.getNumElements() != expectedVecLen) {
+    return emitOpError("expected result vector of ")
+           << expectedVecLen << " elements for " << srcElemType
+           << " type, but got " << resultType.getNumElements();
+  }
+
   // Check hardware support using AmdArchDb
   StringRef arch = rock::getArchValue(*this);
   AmdArchInfo archInfo = rock::lookupArchInfo(arch);

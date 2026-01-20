@@ -433,6 +433,27 @@ func.func @rock_lds_transpose_load_full_arch(%lds_buffer: memref<128x64xf16, #gp
   return
 }
 
+// CHECK-LABEL: func.func @rock_lds_transpose_load_fp8_e4m3
+// CHECK: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_fp8_e4m3(%lds_buffer: memref<128x64xf8E4M3FN, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %fragment = rock.lds_transpose_load %lds_buffer[%c0, %c0]
+    : memref<128x64xf8E4M3FN, #gpu.address_space<workgroup>> -> vector<8xf8E4M3FN>
+  return
+}
+
+// CHECK-LABEL: func.func @rock_lds_transpose_load_fp8_e5m2
+// CHECK: rock.lds_transpose_load
+func.func @rock_lds_transpose_load_fp8_e5m2(%lds_buffer: memref<256x128xf8E5M2, #gpu.address_space<workgroup>>) 
+    attributes {arch = "amdgcn-amd-amdhsa:gfx950"} {
+  %c0 = arith.constant 0 : index
+  %c32 = arith.constant 32 : index
+  %fragment = rock.lds_transpose_load %lds_buffer[%c32, %c0]
+    : memref<256x128xf8E5M2, #gpu.address_space<workgroup>> -> vector<8xf8E5M2>
+  return
+}
+
 // CHECK-LABEL: func.func @test_lds_transpose_config_attr_16x32
 // CHECK: ldsTransposeConfig = #rock.lds_transpose_config<dDim = 16, kDim = 32, mPerBlock = 64, nPerBlock = 64, kPerBlock = 32, mPerWave = 16, nPerWave = 64, doubleBuffering = true, isOperandA = true>
 func.func @test_lds_transpose_config_attr_16x32(%src: memref<8192xf16, #gpu.address_space<workgroup>>, 
