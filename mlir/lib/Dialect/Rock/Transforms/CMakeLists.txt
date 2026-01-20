@@ -16,6 +16,7 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   RockToTTIR.cpp
   MemrefToTensor.cpp
   Unbufferize.cpp
+  RestoreHostCode.cpp
 
   ADDITIONAL_HEADER_DIRS
   ${MLIR_MAIN_INCLUDE_DIR}/mlir/Dialect/Rock

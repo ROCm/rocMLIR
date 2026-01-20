@@ -37,6 +37,7 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir {
 namespace rock {
@@ -80,8 +81,11 @@ private:
   /// Map from original i32 values to converted tt.ptr values
   IRMapping valueMapping;
 
-  /// Process a single function
+  /// Process a single kernel function (convert to tt.func)
   void processFunction(func::FuncOp funcOp);
+
+  /// Fix up func.call ops in wrapper functions that reference converted kernels
+  void fixupKernelCalls(ModuleOp moduleOp);
 };
 
 } // end anonymous namespace
@@ -170,7 +174,8 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   for (NamedAttribute attr : funcOp->getAttrs()) {
     StringRef name = attr.getName();
     // Skip attributes that triton::FuncOp will set itself
-    if (name == "function_type" || name == "sym_name" || name == "sym_visibility")
+    if (name == "function_type" || name == "sym_name" ||
+        name == "sym_visibility")
       continue;
     attrsToKeep.push_back(attr);
   }
@@ -178,8 +183,11 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   // Create a new triton::FuncOp to replace the func.func
   builder.setInsertionPoint(funcOp);
   auto ttFuncOp = triton::FuncOp::create(
-      builder, funcOp.getLoc(), funcOp.getName(), newFuncType,
-      attrsToKeep);
+      builder, funcOp.getLoc(), funcOp.getName(), newFuncType, attrsToKeep);
+
+  // Mark the kernel as noinline to prevent the Triton Inliner from inlining
+  // it into wrapper functions that use tt.call
+  ttFuncOp->setAttr("noinline", builder.getBoolAttr(true));
 
   // Move the body from func.func to tt.func
   Region &oldRegion = funcOp.getBody();
@@ -197,7 +205,8 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   // Convert func.return to tt.return
   ttFuncOp.walk([&](func::ReturnOp returnOp) {
     builder.setInsertionPoint(returnOp);
-    triton::ReturnOp::create(builder, returnOp.getLoc(), returnOp.getOperands());
+    triton::ReturnOp::create(builder, returnOp.getLoc(),
+                             returnOp.getOperands());
     returnOp.erase();
   });
 
@@ -493,17 +502,113 @@ void RockMemrefToTensorPass::processFunction(func::FuncOp funcOp) {
   }
 }
 
+/// Fix up func.call ops that reference tt.func kernels.
+/// Converts them to tt.call with proper pointer type conversions.
+void RockMemrefToTensorPass::fixupKernelCalls(ModuleOp moduleOp) {
+  MLIRContext *ctx = &getContext();
+  OpBuilder builder(ctx);
+
+  // Collect all func.call ops that need to be converted
+  SmallVector<func::CallOp> callsToFix;
+  moduleOp.walk([&](func::CallOp callOp) {
+    // Check if the callee is a triton::FuncOp
+    auto callee = moduleOp.lookupSymbol<triton::FuncOp>(callOp.getCallee());
+    if (callee) {
+      callsToFix.push_back(callOp);
+    }
+  });
+
+  // Convert each call
+  for (func::CallOp callOp : callsToFix) {
+    auto callee = moduleOp.lookupSymbol<triton::FuncOp>(callOp.getCallee());
+    if (!callee)
+      continue;
+
+    builder.setInsertionPoint(callOp);
+    Location loc = callOp.getLoc();
+
+    // Get the expected argument types from the triton function
+    FunctionType calleeType = callee.getFunctionType();
+    SmallVector<Value> newOperands;
+
+    for (auto [idx, operand] : llvm::enumerate(callOp.getOperands())) {
+      Type expectedType = calleeType.getInput(idx);
+
+      // If the operand is a memref and the expected type is a tt.ptr,
+      // we need to extract the pointer
+      if (auto memrefType = dyn_cast<MemRefType>(operand.getType())) {
+        if (auto ptrType = dyn_cast<triton::PointerType>(expectedType)) {
+          // Extract the aligned pointer from the memref
+          Value indexPtr = memref::ExtractAlignedPointerAsIndexOp::create(
+              builder, loc, operand);
+          // Convert index to i64 for pointer conversion
+          Value i64Ptr = arith::IndexCastOp::create(
+              builder, loc, builder.getI64Type(), indexPtr);
+          // Convert i64 to tt.ptr
+          Value ttPtr =
+              triton::IntToPtrOp::create(builder, loc, ptrType, i64Ptr);
+          newOperands.push_back(ttPtr);
+          continue;
+        }
+      }
+
+      // If types match or no conversion needed, use the operand as-is
+      newOperands.push_back(operand);
+    }
+
+    // Create the tt.call operation
+    triton::CallOp::create(builder, loc, callee, newOperands);
+
+    // Erase the old func.call
+    callOp.erase();
+  }
+}
+
 void RockMemrefToTensorPass::runOnOperation() {
   ModuleOp moduleOp = getOperation();
-  // Collect functions first to avoid iterator invalidation when we erase them
+  MLIRContext *ctx = &getContext();
+
+  // Collect functions first to avoid iterator invalidation when we move/erase
+  // them
   SmallVector<func::FuncOp> funcsToProcess;
+  SmallVector<func::FuncOp> nonKernelFuncs;
   moduleOp.walk([&](func::FuncOp funcOp) {
+    // Only process top-level functions (not in nested modules)
+    if (funcOp->getParentOfType<ModuleOp>() != moduleOp)
+      return;
     if (funcOp->hasAttr("kernel"))
       funcsToProcess.push_back(funcOp);
     else
-      llvm::errs() << "Skipping RockMemrefToTensorPass because it is not a kernel function\n";
+      nonKernelFuncs.push_back(funcOp);
   });
+
+  // Process kernel functions (convert to tt.func)
   for (func::FuncOp funcOp : funcsToProcess) {
     processFunction(funcOp);
+  }
+
+  // Store non-kernel functions (host code) as serialized MLIR in a module
+  // attribute. This isolates them from Triton passes. We use local scope
+  // printing to avoid issues with symbol references that will change during
+  // Triton compilation. The host code will be restored and lowered separately
+  // after Triton compilation.
+  if (!nonKernelFuncs.empty()) {
+    OpBuilder builder(ctx);
+    SmallVector<Attribute> funcStrings;
+
+    for (func::FuncOp funcOp : nonKernelFuncs) {
+      std::string funcStr;
+      llvm::raw_string_ostream os(funcStr);
+      // Use local scope to allow printing without verifying symbol references
+      funcOp.print(os, OpPrintingFlags().useLocalScope());
+      funcStrings.push_back(StringAttr::get(ctx, funcStr));
+    }
+
+    moduleOp->setAttr("rock.host_functions", ArrayAttr::get(ctx, funcStrings));
+
+    // Erase the original host functions from the main module
+    for (func::FuncOp funcOp : nonKernelFuncs) {
+      funcOp.erase();
+    }
   }
 }

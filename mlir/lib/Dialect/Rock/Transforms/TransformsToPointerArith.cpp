@@ -505,7 +505,6 @@ struct TransformsToPtrRewritePattern
 
   LogicalResult matchAndRewrite(TransformsToPtrOp op,
                                 PatternRewriter &b) const override {
-    llvm::errs() << "debug0\n";
     using AffineResults = SmallVector<Value>;
     Location loc = op.getLoc();
     Value source = op.getSource();
@@ -514,28 +513,17 @@ struct TransformsToPtrRewritePattern
     Value mask = op.getMask();
 
     source = isolateTransforms(b, source);
-    llvm::errs() << "debug1\n";
 
     // TODO(roctriton): buffer could be the output of input fusion instead of an
     // input tensor! Fix this when we enable fusions.
     auto [buffer, transforms, needs64BitIdx] = untransform(b, source);
-    llvm::errs() << "debug2\n";
 
     size_t bufferIdxCount = cast<MemRefType>(pointers.getType()).getRank();
     ArrayRef<int64_t> shape = cast<MemRefType>(pointers.getType()).getShape();
-    llvm::errs() << "shape=";
-    llvm::interleaveComma(shape, llvm::errs());
-    llvm::errs() << "\n";
     assert(bufferIdxCount != 0);
     size_t extraIdxCount = extraIndices.size();
-    llvm::errs() << "bufferIdxCount=" << bufferIdxCount << "\n";
-    llvm::errs() << "extraIdxCount=" << extraIdxCount << "\n";
     assert(extraIdxCount >= bufferIdxCount);
     SmallVector<Value> initValues(extraIndices);
-    llvm::errs() << "initValues=";
-    llvm::interleaveComma(initValues, llvm::errs());
-    llvm::errs() << "\n";
-    llvm::errs() << "debug3\n";
     for (size_t dimension = 0; dimension < shape.size(); ++dimension) {
       // Create memref shape with 1s everywhere except the current dimension
       SmallVector<int64_t> memrefShape(shape.size(), 1);
@@ -556,10 +544,6 @@ struct TransformsToPtrRewritePattern
           b.getIntegerAttr(b.getI32Type(), shape[dimension]));
       initValues.push_back(rangeMemref);
     }
-    llvm::errs() << "initValues=";
-    llvm::interleaveComma(initValues, llvm::errs());
-    llvm::errs() << "\n";
-    llvm::errs() << "debug4\n";
 
     // TODO(roctriton): check rangeIndices match `pointers` and `mask` shapes
 
@@ -583,7 +567,6 @@ struct TransformsToPtrRewritePattern
     // Account for all maps after the last validity impact.
     AffineMap finalComposed = composeTransforms(toCompose);
     composedMaps.emplace_back(finalComposed, nullptr);
-    llvm::errs() << "debug6\n";
 
     //////
 
@@ -610,7 +593,6 @@ struct TransformsToPtrRewritePattern
             ValueRange{broadcastedValidityUpdate, broadcastedIsValid});
       }
     }
-    llvm::errs() << "debug7\n";
 
     // Hoist pointer extraction to function entry to avoid redundant extractions
     // when TransformsToPtrOp is inside loops or other control flow.
@@ -622,7 +604,6 @@ struct TransformsToPtrRewritePattern
 
       Value baseAddr =
           memref::ExtractAlignedPointerAsIndexOp::create(b, loc, buffer);
-      llvm::errs() << "debug5\n";
       baseAddr = arith::IndexCastOp::create(b, loc, b.getI32Type(), baseAddr);
       baseAddrSplat =
           rock::SplatOp::create(b, loc, computed[0].getType(), baseAddr);
@@ -633,17 +614,12 @@ struct TransformsToPtrRewritePattern
     Value pointerTensor = createArithOp(b, loc, computed[0].getType(), "AddIOp",
                                         nullptr, {baseAddrSplat, computed[0]});
 
-    llvm::errs() << "debug8 op=" << op << "\n";
-    llvm::errs() << "computed=";
-    llvm::interleaveComma(computed, llvm::errs());
-    llvm::errs() << "\n";
     // Copy the computed pointer values into the pointers memref
     // Since computed[0] is a memref of the same shape as pointers, we need
     // memref.copy
     memref::CopyOp::create(b, loc, pointerTensor, pointers);
 
     // Store the validity mask into the mask memref
-    llvm::errs() << "isValid=" << isValid << "\n";
     // For mask, we need to handle it similarly - isValid should be a memref
     // that we copy
     auto [broadcastedIsValid, _] =
@@ -651,7 +627,6 @@ struct TransformsToPtrRewritePattern
     memref::CopyOp::create(b, loc, broadcastedIsValid, mask);
     //////
     b.eraseOp(op);
-    llvm::errs() << "debug9\n";
 
     return success();
   }

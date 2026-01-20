@@ -48,10 +48,10 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/PassRegistry.h"
 
-#include "triton/Dialect/Triton/IR/Dialect.h"
-#include "triton/Dialect/Triton/Transforms/Passes.h"
 #include "triton/Conversion/TritonToTritonGPU/Passes.h"
+#include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Utility.h"
+#include "triton/Dialect/Triton/Transforms/Passes.h"
 #include "triton/Dialect/TritonGPU/Transforms/Passes.h"
 #include "triton/Dialect/TritonNvidiaGPU/IR/Dialect.h"
 
@@ -82,41 +82,37 @@ static void makeTTIR(mlir::OpPassManager *pm) {
   pm->addPass(mlir::triton::createTritonLoopUnroll());
 }
 
-static bool
-isPingpongScheduleEnabled(StringRef arch,
-                          bool useAsyncCopy) {
-  return arch.starts_with("gfx942") || (arch.starts_with("gfx950") && useAsyncCopy);
+static bool isPingpongScheduleEnabled(StringRef arch, bool useAsyncCopy) {
+  return arch.starts_with("gfx942") ||
+         (arch.starts_with("gfx950") && useAsyncCopy);
 }
 
-static bool isInThreadTransposeEnabled(
-    StringRef arch) {
+static bool isInThreadTransposeEnabled(StringRef arch) {
   return arch.starts_with("gfx942");
 }
 
-static bool isAsyncCopyEnabled(
-    StringRef arch) {
+static bool isAsyncCopyEnabled(StringRef arch) {
   return arch.starts_with("gfx950") || arch.starts_with("gfx1250");
 }
 
 // Based on make_ttgir() in
 // @triton//:third_party/amd/backend/compiler.py
-static void makeTTGIR(mlir::OpPassManager *pm,
-                      std::string arch,
-                      int numWarps, int numCTAs, int numStages, int threadPerWarp, int matrixInstrNonkdim, int kpack) {
+static void makeTTGIR(mlir::OpPassManager *pm, std::string arch, int numWarps,
+                      int numCTAs, int numStages, int threadPerWarp,
+                      int matrixInstrNonkdim, int kpack) {
   pm->addPass(mlir::triton::createConvertTritonToTritonGPU(
-      {"hip:" + arch, numWarps,
-       threadPerWarp, numCTAs}));
+      {"hip:" + arch, numWarps, threadPerWarp, numCTAs}));
   pm->addPass(mlir::triton::gpu::createTritonGPUCoalesce());
   pm->addPass(mlir::triton::gpu::createTritonGPUF32DotTC({false}));
   pm->addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
   pm->addPass(mlir::triton::gpu::createTritonGPUOptimizeThreadLocality());
-  pm->addPass(
-      mlir::createTritonAMDGPUAccelerateMatmul({arch, matrixInstrNonkdim, kpack}));
+  pm->addPass(mlir::createTritonAMDGPUAccelerateMatmul(
+      {arch, matrixInstrNonkdim, kpack}));
   pm->addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
   // TODO ROCm Check if we want to compare MI100 and greater
   pm->addPass(mlir::createTritonAMDGPUOptimizeEpilogue());
-  pm->addPass(mlir::triton::amdgpu::createTritonAMDGPUOptimizeDotOperands(
-      {arch}));
+  pm->addPass(
+      mlir::triton::amdgpu::createTritonAMDGPUOptimizeDotOperands({arch}));
   pm->addNestedPass<mlir::triton::FuncOp>(
       mlir::createTritonAMDGPUHoistLayoutConversions());
   pm->addNestedPass<mlir::triton::FuncOp>(
@@ -135,16 +131,14 @@ static void makeTTGIR(mlir::OpPassManager *pm,
 
   pm->addPass(mlir::createTritonAMDGPUScheduleLoops({numStages}));
   pm->addPass(
-      mlir::createTritonAMDGPUPipeline({useAsyncCopy,
-      useBlockPingpong}));
+      mlir::createTritonAMDGPUPipeline({useAsyncCopy, useBlockPingpong}));
   if (useAsyncCopy) {
-    pm->addPass(
-        mlir::createTritonAMDGPUCoalesceAsyncCopy({arch}));
+    pm->addPass(mlir::createTritonAMDGPUCoalesceAsyncCopy({arch}));
   }
   pm->addPass(mlir::createCanonicalizerPass());
   if (scheduleHint != "none") {
-    pm->addPass(
-        mlir::triton::createTritonAMDGPUInsertInstructionSchedHintsPass({scheduleHint}));
+    pm->addPass(mlir::triton::createTritonAMDGPUInsertInstructionSchedHintsPass(
+        {scheduleHint}));
   }
   pm->addPass(mlir::triton::gpu::createTritonGPURemoveLayoutConversions());
   pm->addPass(mlir::triton::gpu::createTritonGPUReduceDataDuplication());
@@ -176,8 +170,8 @@ static void makeTTGIR(mlir::OpPassManager *pm,
 
 // Based on make_llir() in
 // @triton//:third_party/amd/backend/compiler.py
-static void makeLLIR(mlir::OpPassManager *pm,
-                     const std::string& arch, int numStages) {
+static void makeLLIR(mlir::OpPassManager *pm, const std::string &arch,
+                     int numStages) {
   pm->addPass(mlir::createTritonAMDGPUUpdateAsyncWaitCount({arch}));
   pm->addPass(mlir::triton::AMD::createConvertWarpPipelinePass());
   pm->addPass(mlir::createSCFToControlFlowPass());
@@ -187,17 +181,20 @@ static void makeLLIR(mlir::OpPassManager *pm,
   pm->addPass(mlir::createConvertIndexToLLVMPass());
 
   pm->addPass(mlir::triton::createAllocateAMDGPUSharedMemory());
-  
-// ## __HIP_FTZ is used to control the denorm flushing behavior of exp2 op as follows:
-// ## 1. If __HIP_FTZ = 1, exp2 flushes denorms in input and output regardless
-// ##    of the value of kernel arg `allow_flush_denorm`.
-// ## 2. If __HIP_FTZ = 0, whether exp2 flushes denorms in input and output
-// ##    depends on the value of kernel arg `allow_flush_denorm`.
-// ## 3. __HIP_FTZ is default to 1 and not exposed as a kernel argument.
-// ##    For now it is used as a controller for developers only.
+
+  // ## __HIP_FTZ is used to control the denorm flushing behavior of exp2 op as
+  // follows:
+  // ## 1. If __HIP_FTZ = 1, exp2 flushes denorms in input and output regardless
+  // ##    of the value of kernel arg `allow_flush_denorm`.
+  // ## 2. If __HIP_FTZ = 0, whether exp2 flushes denorms in input and output
+  // ##    depends on the value of kernel arg `allow_flush_denorm`.
+  // ## 3. __HIP_FTZ is default to 1 and not exposed as a kernel argument.
+  // ##    For now it is used as a controller for developers only.
   pm->addPass(
       mlir::triton::createConvertTritonAMDGPUToLLVMPass(arch, /*ftz=*/true));
-  pm->addPass(mlir::triton::AMD::createTritonAMDGPUConvertWarpSpecializeToLLVMPass(arch));
+  pm->addPass(
+      mlir::triton::AMD::createTritonAMDGPUConvertWarpSpecializeToLLVMPass(
+          arch));
   pm->addPass(mlir::createCanonicalizerPass());
   pm->addPass(mlir::createCSEPass());
 
@@ -208,7 +205,7 @@ static void makeLLIR(mlir::OpPassManager *pm,
   pm->addPass(mlir::createCSEPass());
   pm->addPass(mlir::createSymbolDCEPass());
   if (/*(instruction_sched_variant=="none") == */ /* DISABLES CODE */
-  (false)) {
+      (false)) {
     pm->addPass(mlir::triton::createTritonAMDGPULowerInstructionSchedHintsPass(
         arch, numStages));
   }
@@ -361,7 +358,8 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     funcPm.addPass(createCanonicalizerPass());
     funcPm.addPass(createCSEPass());
     funcPm.addPass(rock::createRockToTTIRPass());
-    // RockMemrefToTensorPass operates on ModuleOp (converts func.func to tt.func)
+    // RockMemrefToTensorPass operates on ModuleOp (converts func.func to
+    // tt.func)
     pm.addPass(rock::createRockMemrefToTensorPass());
     // After this point, function is triton::FuncOp
     auto &ttFuncPm = pm.nest<triton::FuncOp>();
@@ -385,34 +383,83 @@ void rock::buildKernelPipeline(OpPassManager &pm,
     int threadPerWarp = archInfo.waveSize;
     int matrixInstrNonkdim = 16;
     int kpack = 1;
-    makeTTGIR(&pm, arch.str(), numWarps, numCTAs, numStages, threadPerWarp, matrixInstrNonkdim, kpack);
+    makeTTGIR(&pm, arch.str(), numWarps, numCTAs, numStages, threadPerWarp,
+              matrixInstrNonkdim, kpack);
   }
+}
+
+// Build host code lowering pipeline (func + GPU ops -> LLVM)
+// Follows the pattern from mlir-hal/lib/Dialect/MHAL/Pipelines/Pipelines.cpp
+static void buildHostLoweringPipeline(mlir::OpPassManager &pm) {
+  // Lower linalg to loops (for operations like linalg.fill in -pv mode)
+  pm.addPass(createConvertLinalgToLoopsPass());
+
+  // Lower affine to standard loops
+  pm.addPass(createLowerAffinePass());
+
+  // Expand strided metadata (handles memref.expand_shape, etc.)
+  pm.addPass(memref::createExpandStridedMetadataPass());
+
+  // Lower SCF to control flow
+  pm.addPass(createSCFToControlFlowPass());
+
+  // Make GPU operations async - required by GpuToLLVMConversionPass patterns
+  pm.addNestedPass<func::FuncOp>(createGpuAsyncRegionPass());
+
+  // Lower remaining operations to LLVM (order follows MHAL pipeline)
+  pm.addPass(createConvertControlFlowToLLVMPass());
+  pm.addPass(createArithToLLVMConversionPass());
+
+  // Lower memref operations to LLVM BEFORE GPU conversion (per MHAL pattern)
+  pm.addPass(createFinalizeMemRefToLLVMConversionPass());
+
+  // Convert GPU operations to runtime calls
+  GpuToLLVMConversionPassOptions gpuOpts;
+  gpuOpts.kernelBarePtrCallConv = true; // Use kernel bare ptr, not host
+  pm.addPass(createGpuToLLVMConversionPass(gpuOpts));
+
+  // Lower any remaining func operations to LLVM (including external
+  // declarations)
+  pm.addPass(createConvertFuncToLLVMPass());
+
+  // Cleanup
+  pm.addPass(createCanonicalizerPass());
+  pm.addPass(createCSEPass());
+  pm.addPass(createReconcileUnrealizedCastsPass());
 }
 
 void rock::buildBackendPipeline(OpPassManager &pm,
                                 const rock::BackendOptions &options) {
-    // Get architecture from options or use default
-    std::string arch = options.chip.empty() ? "gfx1100" : options.chip.getValue();
-    int numStages = 2;
+  // Get architecture from options or use default
+  std::string arch = options.chip.empty() ? "gfx1100" : options.chip.getValue();
+  int numStages = 2;
 
-    // Run MLIR passes to convert TritonGPU -> LLVM dialect
-    makeLLIR(&pm, arch, numStages);
+  // Run MLIR passes to convert TritonGPU -> LLVM dialect
+  makeLLIR(&pm, arch, numStages);
 
-    // Optionally generate the HSACO binary
-    if (options.compile) {
-      // Add the TritonToHsaco pass to convert LLVM dialect to HSACO binary
-      // This implements the functionality from Triton's compiler.py:
-      // - make_llir() lines 358-449: LLVM-IR (MLIR) -> LLVM-IR (LLVM)
-      // - make_amdgcn() lines 452-473: LLVM -> AMDGCN assembly
-      // - make_hsaco() lines 476-488: AMDGCN assembly -> HSACO binary
-      rock::TritonToHsacoPassOptions hsacoOpts;
-      hsacoOpts.arch = arch;
-      hsacoOpts.numWarps = 4;  // TODO: Get from options
-      hsacoOpts.wavesPerEU = 0;
-      hsacoOpts.enableFpFusion = true;
-      hsacoOpts.allowFlushDenorm = false;
-      pm.addPass(rock::createTritonToHsacoPass(hsacoOpts));
-    }
+  // Optionally generate the HSACO binary
+  if (options.compile) {
+    // Add the TritonToHsaco pass to convert LLVM dialect to HSACO binary
+    // This implements the functionality from Triton's compiler.py:
+    // - make_llir() lines 358-449: LLVM-IR (MLIR) -> LLVM-IR (LLVM)
+    // - make_amdgcn() lines 452-473: LLVM -> AMDGCN assembly
+    // - make_hsaco() lines 476-488: AMDGCN assembly -> HSACO binary
+    rock::TritonToHsacoPassOptions hsacoOpts;
+    hsacoOpts.arch = arch;
+    hsacoOpts.numWarps = 4; // TODO: Get from options
+    hsacoOpts.wavesPerEU = 0;
+    hsacoOpts.enableFpFusion = true;
+    hsacoOpts.allowFlushDenorm = false;
+    pm.addPass(rock::createTritonToHsacoPass(hsacoOpts));
+
+    // Restore host functions (main, wrapper) that were stored during
+    // RockMemrefToTensorPass. This converts func.call @kernel to
+    // gpu.launch_func.
+    pm.addPass(rock::createRockRestoreHostCodePass());
+
+    // Lower host code (GPU launch + func/memref ops) to LLVM
+    buildHostLoweringPipeline(pm);
+  }
 }
 
 //===----------------------------------------------------------------------===//

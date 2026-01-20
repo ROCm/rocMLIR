@@ -1021,7 +1021,6 @@ void RockToTTIRPass::runOnOperation() {
 
   auto funcOp = getOperation();
   if (!funcOp->hasAttr("kernel")) {
-    llvm::errs() << "Skipping RockToTTIRPass because it is not a kernel function\n";
     return;
   }
 

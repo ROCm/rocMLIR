@@ -164,4 +164,23 @@ def TritonToHsacoPass : Pass<"triton-to-hsaco", "::mlir::ModuleOp"> {
   ];
 }
 
+def RockRestoreHostCodePass : Pass<"rock-restore-host-code", "::mlir::ModuleOp"> {
+  let summary = "Restore host functions after Triton kernel compilation";
+  let description = [{
+    This pass restores host functions (like the GPU wrapper and main) that were
+    stored during RockMemrefToTensorPass. It:
+    1. Reads the serialized host functions from the module attribute
+    2. Parses them back into the module
+    3. Updates kernel calls to use the compiled kernel
+
+    This allows the full test harness to work with the Triton-compiled kernel.
+  }];
+  let dependentDialects = [
+    "func::FuncDialect",
+    "gpu::GPUDialect",
+    "arith::ArithDialect",
+    "memref::MemRefDialect",
+  ];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

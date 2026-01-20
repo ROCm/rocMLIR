@@ -918,9 +918,9 @@ LogicalResult ConvGenerator::genConvModule(ModuleOp &module, int kernelId,
         builder.getNamedAttr("usesV4R1", builder.getBoolAttr(config.usesV4R1)));
   }
   // features
-  GemmFeaturesAttr features =
-      builder.getAttr<GemmFeaturesAttr>(config.features);
-  attributes.push_back(builder.getNamedAttr("features", features));
+  // GemmFeaturesAttr features =
+  //     builder.getAttr<GemmFeaturesAttr>(config.features);
+  // attributes.push_back(builder.getNamedAttr("features", features));
 
   SmallVector<int64_t, 8> paddingArray;
   for (const auto &[left, right] :
