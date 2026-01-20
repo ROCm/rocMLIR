@@ -806,6 +806,42 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
         });
     newForOp->setAttrs(op->getAttrs());
 
+    // This is a hack to update tt.dot output operand.
+    //
+    // Make sure that the users of outputTensor now use the value from
+    // iter_args, instead of the original outputTensor. Because outputTensor is
+    // defined by a bufferization.to_tensor, we need to get the source of the
+    // to_tensor and replace the use of the outputTensor with the value from the
+    // iter_args.
+    auto toTensorOp = cast<ToTensorOp>(outputTensor.getDefiningOp());
+    Value source = toTensorOp.getBuffer();
+    bool updatedIterArg = false;
+    for (Operation *user : source.getUsers()) {
+      if (user->getParentOp() != op) {
+        // We only care about ops inside the original for loop.
+        continue;
+      }
+      if (dyn_cast<ToTensorOp>(user)) {
+        for (Operation *user2 : user->getUsers()) {
+          if (auto dotOp = dyn_cast<triton::DotOp>(user2)) {
+            // First iter arg is at index 1 (index 0 is the induction variable)
+            dotOp->setOperand(2, newForOp.getBody()->getArgument(1));
+            updatedIterArg = true;
+            break;
+          }
+        }
+      } else {
+        llvm::errs() << "User of outputTensor is not a triton::DotOp\n";
+        user->dump();
+        return failure();
+      }
+    }
+
+    if (!updatedIterArg) {
+      llvm::errs() << "Expected to update the iter arg\n";
+      return failure();
+    }
+
     // Move operations from old body to new body, except the scf.yield
     // terminator.
     Block *oldBody = op.getBody();
