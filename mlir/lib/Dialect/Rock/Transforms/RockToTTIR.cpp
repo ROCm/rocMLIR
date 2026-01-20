@@ -742,57 +742,58 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     // operands inside the loop are triton pointers. Then, we will create a new
     // scf.for with the same body but with the arg pointers as the init args.
     SmallVector<Value> initArgs;
-    for (Operation *argPointerOp : argPointers) {
-      Value result = argPointerOp->getResult(0);
+    // for (Operation *argPointerOp : argPointers) {
+    //   Value result = argPointerOp->getResult(0);
 
-      // The result should have one user that is an arith::IndexCastOp
-      if (!result.hasOneUse()) {
-        llvm::errs() << "Arg pointer result does not have exactly one user\n";
-        return failure();
-      }
+    //   // The result should have one user that is an arith::IndexCastOp
+    //   if (!result.hasOneUse()) {
+    //     llvm::errs() << "Arg pointer result does not have exactly one
+    //     user\n"; return failure();
+    //   }
 
-      Operation *user = *result.getUsers().begin();
-      auto indexCastOp = dyn_cast<arith::IndexCastOp>(user);
-      if (!indexCastOp) {
-        llvm::errs() << "Arg pointer user is not an IndexCastOp\n";
-        return failure();
-      }
+    //   Operation *user = *result.getUsers().begin();
+    //   auto indexCastOp = dyn_cast<arith::IndexCastOp>(user);
+    //   if (!indexCastOp) {
+    //     llvm::errs() << "Arg pointer user is not an IndexCastOp\n";
+    //     return failure();
+    //   }
 
-      // The IndexCastOp result should have one user that is a triton::SplatOp
-      if (!indexCastOp.getResult().hasOneUse()) {
-        llvm::errs() << "IndexCastOp result does not have exactly one user\n";
-        return failure();
-      }
+    //   // The IndexCastOp result should have one user that is a
+    //   triton::SplatOp if (!indexCastOp.getResult().hasOneUse()) {
+    //     llvm::errs() << "IndexCastOp result does not have exactly one
+    //     user\n"; return failure();
+    //   }
 
-      Operation *splatUser = *indexCastOp.getResult().getUsers().begin();
-      auto splatOp = dyn_cast<triton::SplatOp>(splatUser);
-      if (!splatOp) {
-        llvm::errs() << "IndexCastOp user is not a SplatOp\n";
-        return failure();
-      }
+    //   Operation *splatUser = *indexCastOp.getResult().getUsers().begin();
+    //   auto splatOp = dyn_cast<triton::SplatOp>(splatUser);
+    //   if (!splatOp) {
+    //     llvm::errs() << "IndexCastOp user is not a SplatOp\n";
+    //     return failure();
+    //   }
 
-      // Get the memref type from the extract op to determine element type
-      auto extractOp =
-          cast<memref::ExtractAlignedPointerAsIndexOp>(argPointerOp);
-      auto memrefType = cast<MemRefType>(extractOp.getSource().getType());
-      Type elementType = memrefType.getElementType();
+    //   // Get the memref type from the extract op to determine element type
+    //   auto extractOp =
+    //       cast<memref::ExtractAlignedPointerAsIndexOp>(argPointerOp);
+    //   auto memrefType = cast<MemRefType>(extractOp.getSource().getType());
+    //   Type elementType = memrefType.getElementType();
 
-      // Create triton pointer type
-      triton::PointerType ptrType = triton::PointerType::get(elementType, 1);
+    //   // Create triton pointer type
+    //   triton::PointerType ptrType = triton::PointerType::get(elementType, 1);
 
-      // Create tensor of pointers type matching the SplatOp result shape
-      auto splatResultType =
-          cast<RankedTensorType>(splatOp.getResult().getType());
-      RankedTensorType ptrTensorType = RankedTensorType::get(
-          splatResultType.getShape(), ptrType, splatResultType.getEncoding());
+    //   // Create tensor of pointers type matching the SplatOp result shape
+    //   auto splatResultType =
+    //       cast<RankedTensorType>(splatOp.getResult().getType());
+    //   RankedTensorType ptrTensorType = RankedTensorType::get(
+    //       splatResultType.getShape(), ptrType,
+    //       splatResultType.getEncoding());
 
-      // Create CastToPtrOp from the SplatOp result
-      rewriter.setInsertionPointAfter(splatOp);
-      Value castResult = rewriter.create<rock::CastToPtrOp>(
-          loc, ptrTensorType, splatOp.getResult());
+    //   // Create CastToPtrOp from the SplatOp result
+    //   rewriter.setInsertionPointAfter(splatOp);
+    //   Value castResult = rewriter.create<rock::CastToPtrOp>(
+    //       loc, ptrTensorType, splatOp.getResult());
 
-      initArgs.push_back(castResult);
-    }
+    //   initArgs.push_back(castResult);
+    // }
     initArgs.push_back(outputTensor);
 
     // Create new ForOp with same bounds but new init args.
@@ -856,9 +857,9 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
 
     rewriter.setInsertionPoint(yieldOp);
     SmallVector<Value> yieldOperands;
-    yieldOperands.push_back(loadOps[1].getPtr()); // Input of first tt.load
-    yieldOperands.push_back(loadOps[0].getPtr()); // Input of second tt.load
-    yieldOperands.push_back(dotOp.getResult());   // Output of tt.dot
+    // yieldOperands.push_back(loadOps[1].getPtr()); // Input of first tt.load
+    // yieldOperands.push_back(loadOps[0].getPtr()); // Input of second tt.load
+    yieldOperands.push_back(dotOp.getResult()); // Output of tt.dot
 
     // Modify the yield op in place.
     yieldOp->setOperands(yieldOperands);
@@ -888,7 +889,7 @@ struct RockStoreTilePtrOpRewritePattern
       if (&blockOp == op.getOperation())
         continue;
       if (auto candidateForOp = dyn_cast<scf::ForOp>(&blockOp)) {
-        if (candidateForOp.getNumResults() >= 3) {
+        if (candidateForOp.getNumResults() == 1) {
           forOp = candidateForOp;
           break;
         }
@@ -896,7 +897,7 @@ struct RockStoreTilePtrOpRewritePattern
     }
 
     if (!forOp) {
-      llvm::errs() << "Cannot find scf.for with at least 3 results\n";
+      llvm::errs() << "Cannot find scf.for with exactly 1 result\n";
       return failure();
     }
 
