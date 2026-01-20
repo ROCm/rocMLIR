@@ -200,14 +200,16 @@ static void makeLoadRegsIterMerge(TopDownTMBuilder &viewBuilder,
 
 FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
     OpBuilder &b, Location loc, Value globalBuffer, StringRef dName,
-    ArrayRef<int64_t> bidGridLengths, int64_t kPerBlock, int64_t dPerBlock,
-    bool isKContiguousDim) {
+    ArrayRef<int64_t> bidGridLengths, int64_t kPerBlock, int64_t dPerBlock) {
   SmallVector<StringRef, 3> bidGridOrder = {"g_block", "m_block", "n_block"};
   if (dName != "m" && dName != "n") {
     return emitError(loc, "expected dName to be m or n but got " + dName);
   }
   StringRef thisBlockDim = dName == "m" ? "m_block" : "n_block";
   StringRef otherBlockDim = dName == "m" ? "n_block" : "m_block";
+  bool isKFirst = dName != "m";
+  int kIndex = isKFirst ? 1 : 2;
+  int dIndex = isKFirst ? 2 : 1;
 
   MemRefType matrixType = cast<MemRefType>(globalBuffer.getType());
   ArrayRef<int64_t> matrixShape = matrixType.getShape();
@@ -228,8 +230,8 @@ FailureOr<RegsAsMatrixSubTiles> mlir::rock::getLoadRegsAsTileViews(
         loc);
 
     toGlobalIdx.passThrough({"g"}, {0}, {"g_block"});
-    toGlobalIdx.unmerge("k", 1, {"k_loop", "k_iter"}, {kIters, kPerBlock});
-    toGlobalIdx.unmerge(dName, 2, {thisBlockDim, dIterName},
+    toGlobalIdx.unmerge("k", kIndex, {"k_loop", "k_iter"}, {kIters, kPerBlock});
+    toGlobalIdx.unmerge(dName, dIndex, {thisBlockDim, dIterName},
                         {dGlobal / dPerBlock, dPerBlock});
 
     toGlobalIdx.ignore(otherBlockDim);

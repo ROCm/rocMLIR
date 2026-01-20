@@ -710,9 +710,8 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
   ArrayRef<int64_t> scaleAShape, scaleBShape;
 
-  // Note: the gridwise ops take K x M and K x N, so A must be transposed if
-  // it's in the natural M x K form
-  a = normalizeMatrix(a, rw, loc, !op.getATransposed(), "gemmK", "gemmM");
+  // Note: the gridwise ops take M x K and K x N
+  a = normalizeMatrix(a, rw, loc, op.getATransposed(), "gemmK", "gemmM");
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
   c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
   aShape = cast<MemRefType>(a.getType()).getShape();

@@ -108,11 +108,11 @@ static void loadAndStoreGemmInputTile(PatternRewriter &rewriter, Location loc,
                                       Value in, Value kIter, StringRef dName,
                                       rock::layout::GridCoordinates gridCoords,
                                       Value destRegs, int64_t kPerBlock,
-                                      int64_t dPerBlock, bool isKContiguousDim,
+                                      int64_t dPerBlock, 
                                       SmallVector<int64_t, 3> &bidGridLengths) {
   FailureOr<RegsAsMatrixSubTiles> maybeBufferViews =
       getLoadRegsAsTileViews(rewriter, loc, in, dName, bidGridLengths,
-                             kPerBlock, dPerBlock, isKContiguousDim);
+                             kPerBlock, dPerBlock);
   assert(succeeded(maybeBufferViews));
   Value wrappedSource = transform(rewriter, in, maybeBufferViews->gridSubTile);
 
@@ -127,10 +127,8 @@ static void loadAndStoreGemmInputTile(PatternRewriter &rewriter, Location loc,
 // loaded from the LDS before accelerator intrinsics are called
 static Value createRegInterrimBufferForAccel(PatternRewriter &rewriter,
                                              Location loc, Type argType,
-                                             int64_t dPerBlock,
-                                             int64_t kPerBlock) {
+                                             SmallVector<int64_t>& shape) {
   Value array;
-  SmallVector<int64_t> shape{dPerBlock, kPerBlock};
   auto privateMemoryAddressSpace = rewriter.getAttr<gpu::AddressSpaceAttr>(
       gpu::GPUDialect::getPrivateAddressSpace());
 
@@ -215,8 +213,8 @@ struct GridwiseGemmAccelRewritePattern
     bShape = op.getB().getType().getShape();
     // Obtain critical matrix dimensions.
     int64_t G = aShape[0];
-    int64_t K = aShape[1];
-    int64_t M = aShape[2];
+    int64_t M = aShape[1];
+    int64_t K = aShape[2];
     int64_t N = bShape[2];
 
     // Obtain critical tuning parameters.
@@ -272,12 +270,6 @@ struct GridwiseGemmAccelRewritePattern
     int64_t mPerWave = tuningParams.getMPerWave();
     int64_t nPerWave = tuningParams.getNPerWave();
 
-    GemmDimension vecDimA = getVectorDim(matA);
-    bool isKContiguousDimA = vecDimA == GemmDimension::K;
-
-    GemmDimension vecDimB = getVectorDim(matB);
-    bool isKContiguousDimB = vecDimB == GemmDimension::K;
-
     bool useIndexDiffs = true;
 
     LLVM_DEBUG(llvm::dbgs() << "M: " << M << "\n"
@@ -293,10 +285,10 @@ struct GridwiseGemmAccelRewritePattern
                             << "mPerWave: " << mPerWave << "\n"
                             << "nPerWave: " << nPerWave << "\n");
 
-    auto arrayA = createRegInterrimBufferForAccel(b, loc, elementTypeA,
-                                                  mPerBlock, kPerBlock);
-    auto arrayB = createRegInterrimBufferForAccel(b, loc, elementTypeB,
-                                                  nPerBlock, kPerBlock);
+    auto aTileShape = SmallVector<int64_t>{mPerBlock, kPerBlock};
+    auto bTileShape = SmallVector<int64_t>{kPerBlock, nPerBlock};
+    auto arrayA = createRegInterrimBufferForAccel(b, loc, elementTypeA, aTileShape);
+    auto arrayB = createRegInterrimBufferForAccel(b, loc, elementTypeB, bTileShape);
 
     // TODO(roctriton): f32 if float, i32 if int
     Type accType = b.getF32Type();
@@ -305,10 +297,8 @@ struct GridwiseGemmAccelRewritePattern
     zeroAccBuffer(b, loc, regCAllocOp);
     Value arrayScaleA, arrayScaleB;
     if (isScaledGemm) {
-      arrayScaleA = createRegInterrimBufferForAccel(b, loc, elementTypeScaleA,
-                                                    mPerBlock, kPerBlock);
-      arrayScaleB = createRegInterrimBufferForAccel(b, loc, elementTypeScaleB,
-                                                    nPerBlock, kPerBlock);
+      arrayScaleA = createRegInterrimBufferForAccel(b, loc, elementTypeScaleA, aTileShape);
+      arrayScaleB = createRegInterrimBufferForAccel(b, loc, elementTypeScaleB, bTileShape);
     }
 
     // Emit loop.
@@ -323,18 +313,18 @@ struct GridwiseGemmAccelRewritePattern
 
       // Load from global memory to LDS
       loadAndStoreGemmInputTile(b, loc, matB, /*kiter=*/iv, "n", gridCoords,
-                                arrayB, kPerBlock, nPerBlock, isKContiguousDimB,
+                                arrayB, kPerBlock, nPerBlock,  
                                 bidGridLengths);
       loadAndStoreGemmInputTile(b, loc, matA, /*kiter=*/iv, "m", gridCoords,
-                                arrayA, kPerBlock, mPerBlock, isKContiguousDimA,
+                                arrayA, kPerBlock, mPerBlock, 
                                 bidGridLengths);
       if (isScaledGemm) {
         loadAndStoreGemmInputTile(b, loc, scaleB, /*kiter=*/iv, "n", gridCoords,
                                   arrayScaleB, kPerBlock, nPerBlock,
-                                  isKContiguousDimB, bidGridLengths);
+                                  bidGridLengths);
         loadAndStoreGemmInputTile(b, loc, scaleA, /*kiter=*/iv, "m", gridCoords,
                                   arrayScaleA, kPerBlock, mPerBlock,
-                                  isKContiguousDimA, bidGridLengths);
+                                   bidGridLengths);
       }
 
       // Emit blockwise GEMM. This will load data from LDS (or registers) and

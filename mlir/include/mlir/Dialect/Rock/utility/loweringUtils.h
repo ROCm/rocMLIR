@@ -89,8 +89,7 @@ RegsAsMatrixSubTiles transposeSubTileViews(PatternRewriter &rewriter,
 FailureOr<RegsAsMatrixSubTiles>
 getLoadRegsAsTileViews(OpBuilder &b, Location loc, Value globalBuffer,
                        StringRef dName, ArrayRef<int64_t> bidGridLengths,
-                       int64_t kPerBlock, int64_t dPerBlock,
-                       bool isKContiguousDim);
+                       int64_t kPerBlock, int64_t dPerBlock);
 
 bool isWrWAtomicKernel(GemmFeatures features, Type dataType,
                        bool requiredPadding);

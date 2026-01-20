@@ -1211,7 +1211,7 @@ static LogicalResult verifyGridwiseGemm(GridOp op) {
 
   ArrayRef<int64_t> aShape = aType.getShape(), bShape = bType.getShape(),
                     cShape = cType.getShape();
-  int64_t g = aShape[0], k = aShape[1], m = aShape[2], n = bShape[2];
+  int64_t g = aShape[0], k = aShape[2], m = aShape[1], n = bShape[2];
   if (bShape[0] != g || cShape[0] != g) {
     return op.emitOpError("Mismatched G dimensions in matrix multiply;")
            << " A[0] = " << g << " b[0] = " << bShape[0]
