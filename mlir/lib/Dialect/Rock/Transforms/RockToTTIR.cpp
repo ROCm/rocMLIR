@@ -1019,6 +1019,12 @@ struct RockStoreTilePtrOpRewritePattern
 void RockToTTIRPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
 
+  auto funcOp = getOperation();
+  if (!funcOp->hasAttr("kernel")) {
+    llvm::errs() << "Skipping RockToTTIRPass because it is not a kernel function\n";
+    return;
+  }
+
   // First, apply rock.fill -> tt.splat conversion using greedy rewriting.
   // This must be done before partial conversion because the pattern uses
   // replaceAllUsesExcept which isn't supported in conversion rollback mode.

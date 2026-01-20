@@ -498,7 +498,10 @@ void RockMemrefToTensorPass::runOnOperation() {
   // Collect functions first to avoid iterator invalidation when we erase them
   SmallVector<func::FuncOp> funcsToProcess;
   moduleOp.walk([&](func::FuncOp funcOp) {
-    funcsToProcess.push_back(funcOp);
+    if (funcOp->hasAttr("kernel"))
+      funcsToProcess.push_back(funcOp);
+    else
+      llvm::errs() << "Skipping RockMemrefToTensorPass because it is not a kernel function\n";
   });
   for (func::FuncOp funcOp : funcsToProcess) {
     processFunction(funcOp);
