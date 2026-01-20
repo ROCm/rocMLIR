@@ -2236,23 +2236,23 @@ struct GridwiseAttentionAccelRewritePattern
     if (elemTypeQ == rewriter.getI8Type()) {
       gemmOutElemType = rewriter.getI32Type();
     }
-    // If there's a preSoftmax body with linalg.generics, the gemm0 output
-    // element type must match what the preSoftmax body expects. Get the
-    // element type from the first linalg.generic's gemm0-based input.
-    if (!op.getPreSoftmaxBody().getBlocks().empty() &&
-        !op.getFirstGemmIndices().empty()) {
-      op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
-        int64_t gemm0InputIdx = op.getFirstGemmIndices()[0];
-        if (gemm0InputIdx < static_cast<int64_t>(genOp.getInputs().size())) {
-          Value gemm0Input = genOp.getInputs()[gemm0InputIdx];
-          gemmOutElemType = getElementTypeOrSelf(gemm0Input.getType());
-        }
-        return WalkResult::interrupt(); // Only check the first generic
-      });
-    }
+
+    // Walk the preSoftmax body to determine element types:
+    // - gemmOutElemType: from the first generic's gemm0-based input
+    // - fusionOutElemType: from the last generic's output
     Type fusionOutElemType = elemTypeV;
+    bool isFirstGeneric = true;
     op.getPreSoftmaxBody().walk([&](linalg::GenericOp genOp) {
-      // Keep visiting to get the fusionOutElement type from the last genOp
+      if (isFirstGeneric && !op.getFirstGemmIndices().empty()) {
+        int64_t gemm0InputIdx = op.getFirstGemmIndices()[0];
+        assert(gemm0InputIdx < static_cast<int64_t>(genOp.getInputs().size()) &&
+               "firstGemmIndices[0] out of bounds for first linalg.generic");
+        Value gemm0Input = genOp.getInputs()[gemm0InputIdx];
+        gemmOutElemType = getElementTypeOrSelf(gemm0Input.getType());
+        isFirstGeneric = false;
+      }
+
+      // Keep visiting to get fusionOutElemType from the last generic's output
       fusionOutElemType =
           cast<ShapedType>(genOp.getOutputs()[0].getType()).getElementType();
     });
