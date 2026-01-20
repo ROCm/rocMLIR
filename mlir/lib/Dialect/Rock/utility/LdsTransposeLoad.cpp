@@ -21,8 +21,13 @@
 // to the LDS transpose load operation in an accelerator-friendly layout.
 //
 // It is intended to simplify the IR generation logic and ensure
-// consistent handling of f16/bf16 matrix accelerator tile loads from LDS
-// memory.
+// consistent handling of f16/bf16/fp8/bf8 matrix accelerator tile loads from
+// LDS memory.
+//
+// Supported element types:
+// - f16, bf16: uses ds_read_tr16_b64 (returns 4 elements per thread)
+// - f8E4M3FN, f8E5M2 (OCP FP8): uses ds_read_tr8_b64 (returns 8 elements per
+// thread)
 //
 //===----------------------------------------------------------------------===//
 
@@ -46,6 +51,32 @@ namespace mlir::rock::hwtranspose {
 namespace {
 
 bool archSupported(StringRef arch) { return arch.contains("gfx950"); }
+
+// Check if element type is supported for LDS transpose load
+// - f16, bf16: ds_read_tr16_b64 (4 elements)
+// - f8E4M3FN, f8E5M2 (OCP FP8 for gfx950): ds_read_tr8_b64 (8 elements)
+static bool isSupportedElementType(Type t) {
+  return t.isF16() || t.isBF16() || isa<Float8E4M3FNType>(t) ||
+         isa<Float8E5M2Type>(t);
+}
+
+// Check if element type is 8-bit float (FP8 E4M3 or BF8 E5M2)
+// Used for:
+// 1. Selecting ds_read_tr8_b64 vs ds_read_tr16_b64
+// 2. Checking mixed-type compatibility (fp8+bf8 combinations are valid)
+static bool isFp8Type(Type t) {
+  return isa<Float8E4M3FNType>(t) || isa<Float8E5M2Type>(t);
+}
+
+// Returns the number of elements returned by LDS transpose load instruction
+static int64_t getTransposeLoadVectorLength(Type elemType) {
+  if (elemType.isF16() || elemType.isBF16()) {
+    return 4; // ds_read_tr16_b64
+  } else if (isFp8Type(elemType)) {
+    return 8; // ds_read_tr8_b64
+  }
+  llvm_unreachable("Unsupported element type for LDS transpose load");
+}
 
 // Validates MFMA geometry for LDS transpose support.
 // Only specific combinations are supported: (16,16), (16,32), (32,8), (32,16)
@@ -119,7 +150,16 @@ static Decision makeDecision(StringRef arch, Type elemTypeA, Type elemTypeB,
     return dec;
   }
 
-  if (elemTypeA != elemTypeB || !(elemTypeA.isF16() || elemTypeA.isBF16()))
+  // Check type compatibility:
+  // - Same types are always allowed (f16==f16, fp8==fp8, etc.)
+  // - Mixed FP8/BF8 combinations are allowed (hardware supports mixed fp8/bf8
+  // MFMA:
+  //   mfma_f32_16x16x32_fp8_fp8, mfma_f32_16x16x32_fp8_bf8, etc.)
+  // - Other mixed types are NOT allowed (e.g., f16 with fp8)
+  bool typesCompatible = (elemTypeA == elemTypeB) ||
+                         (isFp8Type(elemTypeA) && isFp8Type(elemTypeB));
+  if (!typesCompatible || !isSupportedElementType(elemTypeA) ||
+      !isSupportedElementType(elemTypeB))
     return dec;
 
   // Validate MFMA geometry
@@ -489,8 +529,9 @@ static Value computePanelFinalOffset(PatternRewriter &b, Location loc,
 // emitPanelLoad - Emit an LDS transpose load operation
 //
 // Computes the final LDS offset and emits a hardware LDS transpose load
-// instruction (ds_read_tr16_b64). This instruction always returns vector<4xf16>
-// regardless of the layout.
+// instruction:
+// - ds_read_tr16_b64 for f16/bf16: returns vector<4>
+// - ds_read_tr8_b64 for fp8/bf8: returns vector<8>
 //
 // The final offset is computed as: final_offset = k_base * ldsStride + m_base
 // where ldsStride depends on the operand (mPerBlock for A, nPerBlock for B).
@@ -503,10 +544,10 @@ static Value computePanelFinalOffset(PatternRewriter &b, Location loc,
 //   kBase        - K dimension base offset for this panel
 //   mBase        - M/N dimension base offset for this panel
 //   ldsStride    - Stride between K rows in LDS (mPerBlock or nPerBlock)
-//   panelVecType - Result type (always vector<4xf16> or vector<4xbf16>)
+//   panelVecType - Result type (vector<4> for f16/bf16, vector<8> for fp8/bf8)
 //
 // Returns:
-//   The loaded panel vector (vector<4xf16/bf16>)
+//   The loaded panel vector (vector<4> for f16/bf16, vector<8> for fp8/bf8)
 //===----------------------------------------------------------------------===//
 static Value emitPanelLoad(PatternRewriter &b, Location loc, Value rawSrc,
                            Value kBase, Value mBase, Value ldsStride,
@@ -515,7 +556,7 @@ static Value emitPanelLoad(PatternRewriter &b, Location loc, Value rawSrc,
   Value kOffset = arith::MulIOp::create(b, loc, kBase, ldsStride);
   Value finalOffset = arith::AddIOp::create(b, loc, mBase, kOffset);
 
-  // Emit hardware LDS transpose load: ds_read_tr16_b64
+  // Emit hardware LDS transpose load
   auto loadOp = rock::LDSTransposeLoadOp::create(b, loc, panelVecType, rawSrc,
                                                  ValueRange{finalOffset});
 
@@ -530,9 +571,9 @@ static Value emitPanelLoad(PatternRewriter &b, Location loc, Value rawSrc,
 // elements (ds_read_tr16_b64 always returns vector<4xf16>).
 //
 // Parameters:
-//   panelVectors - Array of loaded panel vectors (each is vector<4xf16>)
-//   dest         - Destination memref (rank-1, scalar layout)
-//   targetElems  - Maximum number of elements to write
+//   panelVectors - Array of loaded panel vectors (vector<4> for f16/bf16,
+//   vector<8> for fp8/bf8) dest     - Destination memref (rank-1, scalar
+//   layout) targetElems  - Maximum number of elements to write
 //
 // Returns:
 //   success() if all target elements were written
@@ -546,14 +587,16 @@ writePanelVectorsToDestination(PatternRewriter &b, Location loc,
   int64_t produced = 0;
 
   // Extract elements per vector from the actual vector type
-  // Hardware instruction ds_read_tr16_b64 always returns vector<4xf16>
+  // Hardware instructions:
+  // - ds_read_tr16_b64 returns vector<4xf16/bf16>
+  // - ds_read_tr8_b64 returns vector<8xfp8>
   assert(!panelVectors.empty() && "Panel vectors array must not be empty");
   auto panelVecType = cast<VectorType>(panelVectors[0].getType());
   int64_t elementsPerVector = panelVecType.getShape()[0];
 
-  // Verify hardware constraint: ds_read_tr16_b64 returns exactly 4 elements
-  assert(elementsPerVector == 4 &&
-         "LDS transpose load must produce vector<4xf16> per panel");
+  // Verify hardware constraint: 4 elements for 16-bit, 8 elements for 8-bit
+  assert((elementsPerVector == 4 || elementsPerVector == 8) &&
+         "LDS transpose load must produce vector<4> or vector<8> per panel");
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Writing " << panelVectors.size()
                           << " panel vectors ("
@@ -609,60 +652,114 @@ writePanelVectorsToDestination(PatternRewriter &b, Location loc,
 //===----------------------------------------------------------------------===//
 static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
                                               int64_t dDim, int64_t kDim,
-                                              Value lane) {
-  Value c16 = arith::ConstantIndexOp::create(b, loc, 16);
-  Value c4 = arith::ConstantIndexOp::create(b, loc, 4);
+                                              Value lane, Type elemType) {
+  // Common constants used by both FP8 and F16/BF16
   Value c2 = arith::ConstantIndexOp::create(b, loc, 2);
+  Value c4 = arith::ConstantIndexOp::create(b, loc, 4);
+  Value c16 = arith::ConstantIndexOp::create(b, loc, 16);
 
-  Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
-  Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
+  Value kOffsetBase, mOffsetBase;
 
-  // Base offset calculations
-  Value mOffsetBase = arith::MulIOp::create(
-      b, loc, arith::RemUIOp::create(b, loc, laneInBlock, c4), c4);
-  Value kOffsetBase = arith::DivUIOp::create(b, loc, laneInBlock, c4);
+  if (isFp8Type(elemType)) {
+    Value c8 = arith::ConstantIndexOp::create(b, loc, 8);
 
-  SmallVector<Value> panelOffsets;
+    if (dDim == 16 && kDim == 32) {
+      // FP8/BF8 16x32: 4-block formula
+      // Block layout:
+      //   Block 0 (T0-T15):   K=0..7
+      //   Block 1 (T16-T31):  K=8..15
+      //   Block 2 (T32-T47):  K=16..23
+      //   Block 3 (T48-T63):  K=24..31
 
-  if (dDim == 16 && kDim == 32) {
-    // 16x32 layout
-    panelOffsets = {kOffsetBase, mOffsetBase};
-  } else if (dDim == 16 && kDim == 16) {
-    // 16x16 layout
-    // kbase = kOffsetBase + (blockId * 4)
-    Value kBase = arith::AddIOp::create(
-        b, loc, arith::MulIOp::create(b, loc, blockId, c4), kOffsetBase);
-    panelOffsets = {kBase, mOffsetBase};
-  } else if (dDim == 32 && kDim == 16) {
-    // 32x16 layout
-    // mbase = mOffsetBase + (blockId % 2) * 16
-    Value mBase = arith::AddIOp::create(
-        b, loc,
-        arith::MulIOp::create(b, loc,
-                              arith::RemUIOp::create(b, loc, blockId, c2), c16),
-        mOffsetBase);
-    panelOffsets = {kOffsetBase, mBase};
-  } else if (dDim == 32 && kDim == 8) {
-    // 32x8 layout
-    // k_base_local = kOffsetBase + (blockId / 2) * 4
-    Value kBase = arith::AddIOp::create(
-        b, loc,
-        arith::MulIOp::create(b, loc,
-                              arith::DivUIOp::create(b, loc, blockId, c2), c4),
-        kOffsetBase);
+      Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
+      Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
+      Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c2);
+      Value mParity = arith::RemUIOp::create(b, loc, laneInBlock, c2);
 
-    // m_offset_base = mOffsetBase + (blockId % 2) * 16
-    Value mBase = arith::AddIOp::create(
-        b, loc,
-        arith::MulIOp::create(b, loc,
-                              arith::RemUIOp::create(b, loc, blockId, c2), c16),
-        mOffsetBase);
-    panelOffsets = {kBase, mBase};
+      // kOffsetBase = k_local + block_id * 8
+      Value blockKOffset = arith::MulIOp::create(b, loc, blockId, c8);
+      kOffsetBase = arith::AddIOp::create(b, loc, kLocal, blockKOffset);
+
+      // mOffsetBase = m_parity * 8
+      mOffsetBase = arith::MulIOp::create(b, loc, mParity, c8);
+
+    } else if (dDim == 32 && kDim == 16) {
+      // FP8 32x16: 4-block formula (VERIFIED from HIP testing)
+      // Block layout:
+      //   Block 0 (T0-T15):   M=0..15,  K=0..7
+      //   Block 1 (T16-T31):  M=16..31, K=0..7
+      //   Block 2 (T32-T47):  M=0..15,  K=8..15
+      //   Block 3 (T48-T63):  M=16..31, K=8..15
+
+      Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
+      Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
+      Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c2);
+      Value mParity = arith::RemUIOp::create(b, loc, laneInBlock, c2);
+
+      // m_block = block_id % 2, k_block = block_id / 2
+      Value mBlock = arith::RemUIOp::create(b, loc, blockId, c2);
+      Value kBlock = arith::DivUIOp::create(b, loc, blockId, c2);
+
+      // kOffsetBase = k_local + k_block * 8
+      Value kBlockOffset = arith::MulIOp::create(b, loc, kBlock, c8);
+      kOffsetBase = arith::AddIOp::create(b, loc, kLocal, kBlockOffset);
+
+      // mOffsetBase = m_parity * 8 + m_block * 16
+      Value mParityOffset = arith::MulIOp::create(b, loc, mParity, c8);
+      Value mBlockOffset = arith::MulIOp::create(b, loc, mBlock, c16);
+      mOffsetBase = arith::AddIOp::create(b, loc, mParityOffset, mBlockOffset);
+
+    } else {
+      llvm_unreachable("Unsupported FP8 MFMA geometry in getBasePanelOffsets");
+    }
+
   } else {
-    llvm_unreachable("Unsupported MFMA geometry in getBasePanelOffsets");
+    // F16/BF16 uses block-based lane mapping
+    Value blockId = arith::DivUIOp::create(b, loc, lane, c16);
+    Value laneInBlock = arith::RemUIOp::create(b, loc, lane, c16);
+
+    // Base calculations common to all F16/BF16 geometries
+    Value kLocal = arith::DivUIOp::create(b, loc, laneInBlock, c4);
+    Value mLocal = arith::MulIOp::create(
+        b, loc, arith::RemUIOp::create(b, loc, laneInBlock, c4), c4);
+
+    if (dDim == 16 && kDim == 32) {
+      // 16x32: direct mapping
+      kOffsetBase = kLocal;
+      mOffsetBase = mLocal;
+
+    } else if (dDim == 16 && kDim == 16) {
+      // 16x16: k += blockId * 4
+      kOffsetBase = arith::AddIOp::create(
+          b, loc, kLocal, arith::MulIOp::create(b, loc, blockId, c4));
+      mOffsetBase = mLocal;
+
+    } else if (dDim == 32 && kDim == 16) {
+      // 32x16: m += (blockId % 2) * 16
+      kOffsetBase = kLocal;
+      mOffsetBase = arith::AddIOp::create(
+          b, loc, mLocal,
+          arith::MulIOp::create(
+              b, loc, arith::RemUIOp::create(b, loc, blockId, c2), c16));
+
+    } else if (dDim == 32 && kDim == 8) {
+      // 32x8: k += (blockId / 2) * 4, m += (blockId % 2) * 16
+      kOffsetBase = arith::AddIOp::create(
+          b, loc, kLocal,
+          arith::MulIOp::create(
+              b, loc, arith::DivUIOp::create(b, loc, blockId, c2), c4));
+      mOffsetBase = arith::AddIOp::create(
+          b, loc, mLocal,
+          arith::MulIOp::create(
+              b, loc, arith::RemUIOp::create(b, loc, blockId, c2), c16));
+
+    } else {
+      llvm_unreachable(
+          "Unsupported F16/BF16 MFMA geometry in getBasePanelOffsets");
+    }
   }
 
-  return panelOffsets;
+  return {kOffsetBase, mOffsetBase};
 }
 
 //===----------------------------------------------------------------------===//
@@ -683,6 +780,7 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
 //   dDim - MFMA D dimension (M or N, 16 or 32)
 //   kDim - MFMA K dimension (8, 16, or 32)
 //   lane - Thread's lane ID within the workgroup
+//   elemType - Element type (f16, bf16, fp8, or bf8) for selecting lane mapping
 //
 // Returns:
 //   std::pair<Value, Value>:
@@ -691,8 +789,10 @@ static SmallVector<Value> getBasePanelOffsets(PatternRewriter &b, Location loc,
 //===----------------------------------------------------------------------===//
 static std::pair<Value, Value> computeLDSBaseOffsets(PatternRewriter &b,
                                                      Location loc, int64_t dDim,
-                                                     int64_t kDim, Value lane) {
-  SmallVector<Value> offsets = getBasePanelOffsets(b, loc, dDim, kDim, lane);
+                                                     int64_t kDim, Value lane,
+                                                     Type elemType) {
+  SmallVector<Value> offsets =
+      getBasePanelOffsets(b, loc, dDim, kDim, lane, elemType);
 
   LLVM_DEBUG(llvm::dbgs() << "[lds_transpose] Computed LDS base offsets for "
                           << dDim << "x" << kDim << ": "
@@ -1098,8 +1198,9 @@ static Value computeFinalMNOffset(PatternRewriter &b, Location loc,
 // emitThreadwiseHWTranspose - Lower threadwise_read_into to HW transpose loads
 //===----------------------------------------------------------------------===//
 // Lowers threadwise_read_into with LDS transpose config into hardware transpose
-// load instructions (ds_read_tr16_b64) that read from LDS in MFMA-friendly
-// order.
+// load instructions that read from LDS in MFMA-friendly order:
+// - ds_read_tr16_b64 for f16/bf16 (returns vector<4>)
+// - ds_read_tr8_b64 for fp8/bf8 (returns vector<8>)
 //
 // Algorithm:
 // 1. Extract config: MFMA geometry (dDim, kDim), tiling params, operand kind
@@ -1112,8 +1213,8 @@ static Value computeFinalMNOffset(PatternRewriter &b, Location loc,
 //    - Outer: M/N tiles (all at once for double-buffering, one at a time
 //    otherwise)
 //    - Inner: K tiles (1 load for single-rate, 2 loads for double-rate layouts)
-// 6. For each iteration: compute final LDS offset, emit ds_read_tr16_b64
-//    instruction (returns vector<4xf16>)
+// 6. For each iteration: compute final LDS offset, emit LDS transpose load
+//    instruction (ds_read_tr16_b64 for f16/bf16, ds_read_tr8_b64 for fp8/bf8)
 // 7. Extract elements from panel vectors and write sequentially to destination
 //
 // Example: 16x32 layout, 1 M-tile, 2 K-tiles → 2 ds_read_tr16_b64 calls → 8
@@ -1167,23 +1268,27 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   int64_t ldsStride = (operand == OperandKind::A) ? mPerBlock : nPerBlock;
 
   // Determine if this is a double-rate instruction
-  // Double-rate ONLY for (32,16) and (16,32) MFMA
-  // (16,16) and (32,8) are SINGLE-RATE
-  bool isDoubleRate =
-      (dDim == 32 && instrK == 16) || (dDim == 16 && instrK == 32);
+  // Double-rate ONLY for (32,16) and (16,32) MFMA with F16/BF16
+  // FP8/BF8 uses ds_read_tr8_b64 which returns 8 elements, so (16,32) and
+  // (32,16) are SINGLE-RATE for FP8/BF8 (16,16) and (32,8) are always
+  // SINGLE-RATE
+  bool isDoubleRate = !isFp8Type(elemType) && ((dDim == 32 && instrK == 16) ||
+                                               (dDim == 16 && instrK == 32));
 
-  // Each ds_read_tr16_b64 call ALWAYS returns vector<4xf16>
-  // For double-rate, we make 2 calls and store all 8 elements separately
-  VectorType panelVecType = VectorType::get({4}, elemType);
+  // Determine vector length based on element type:
+  // - f16/bf16: ds_read_tr16_b64 returns vector<4>
+  // - fp8/bf8: ds_read_tr8_b64 returns vector<8>
+  int64_t vecLen = getTransposeLoadVectorLength(elemType);
+  VectorType panelVecType = VectorType::get({vecLen}, elemType);
 
   // panelVectors will contain:
-  // - Single-rate: 1 vector<4xf16> per K tile
-  // - Double-rate: 2 vector<4xf16> per K tile (low + high)
+  // - Single-rate: 1 vector per K tile
+  // - Double-rate (f16/bf16 only): 2 vectors per K tile (low + high)
   SmallVector<Value> panelVectors;
 
   // Get base offsets using computeLDSBaseOffsets helper
   auto [k_base_local, m_offset_base] =
-      computeLDSBaseOffsets(b, loc, dDim, instrK, lane);
+      computeLDSBaseOffsets(b, loc, dDim, instrK, lane, elemType);
 
   // K stride per tile: instrK (MFMA K dimension)
   int64_t kTileStride = instrK;
@@ -1238,20 +1343,21 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
           useDynamicMnIndex, waveOffsetStrideVal, tileOffsetStrideVal);
 
       if (!isDoubleRate) {
-        // SINGLE-RATE (L32x8, L16x16): One load per K tile
+        // SINGLE-RATE (L32x8, L16x16, or FP8/BF8): One load per K tile
         Value k_base =
             computePanelFinalOffset(b, loc, isDoubleRate, k_base_local,
                                     kOffsetBase, kIdx, kTileStrideVal);
 
-        // Emit LDS transpose load for this K tile (single-rate: one per K tile)
+        // Emit LDS transpose load for this K tile
         Value panelVec = emitPanelLoad(b, loc, rawSrc, k_base, m_base,
                                        ldsStrideVal, panelVecType);
         panelVectors.push_back(panelVec);
 
       } else {
-        // DOUBLE-RATE (L32x16, L16x32): TWO loads per K tile
-        // Each load returns vector<4xf16>, total 8 elements per K tile
-        // Compute K offsets for low and high halves
+        // DOUBLE-RATE (L32x16, L16x32 with F16/BF16 only): TWO loads per K tile
+        // Each load returns vector<4> for f16/bf16, total 8 elements per K tile
+        // Note: FP8/BF8 is NEVER double-rate (ds_read_tr8_b64 returns 8
+        // elements) Compute K offsets for low and high halves
         Value k_base_low = computePanelFinalOffset(
             b, loc, isDoubleRate, k_base_local, kOffsetBase, kIdx,
             kTileStrideVal, /*isHighHalf=*/false);
@@ -1281,8 +1387,10 @@ LogicalResult emitThreadwiseHWTranspose(PatternRewriter &b,
   int64_t loadsPerKTile = isDoubleRate ? 2 : 1;
   int64_t expectedLoads = actualMnTiles * kPanels * loadsPerKTile;
 
-  // Each load ALWAYS produces 4 elements (ds_read_tr16_b64 → vector<4xf16>)
-  int64_t sliceElems = expectedLoads * 4;
+  // Each load produces vecLen elements:
+  // - f16/bf16: 4 elements (ds_read_tr16_b64)
+  // - fp8/bf8: 8 elements (ds_read_tr8_b64)
+  int64_t sliceElems = expectedLoads * vecLen;
 
   // Verify we generated the expected number of loads
   if (panelVectors.size() != (size_t)expectedLoads) {
