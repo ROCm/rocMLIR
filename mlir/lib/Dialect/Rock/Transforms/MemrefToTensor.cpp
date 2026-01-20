@@ -582,6 +582,19 @@ void RockMemrefToTensorPass::runOnOperation() {
       nonKernelFuncs.push_back(funcOp);
   });
 
+  // Store kernel grid/block sizes as module attributes BEFORE converting to
+  // tt.func (which erases the func::FuncOp). These will be used later for
+  // gpu.launch_func.
+  for (func::FuncOp funcOp : funcsToProcess) {
+    std::string kernelName = funcOp.getName().str();
+    if (auto gridAttr = funcOp->getAttrOfType<IntegerAttr>("grid_size")) {
+      moduleOp->setAttr("rock.kernel_grid_size." + kernelName, gridAttr);
+    }
+    if (auto blockAttr = funcOp->getAttrOfType<IntegerAttr>("block_size")) {
+      moduleOp->setAttr("rock.kernel_block_size." + kernelName, blockAttr);
+    }
+  }
+
   // Process kernel functions (convert to tt.func)
   for (func::FuncOp funcOp : funcsToProcess) {
     processFunction(funcOp);

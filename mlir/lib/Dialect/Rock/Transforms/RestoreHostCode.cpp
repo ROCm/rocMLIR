@@ -53,7 +53,8 @@ struct KernelInfo {
   StringRef name;
   LLVM::LLVMFuncOp llvmFunc;
   int64_t gridSize = 1;
-  int64_t blockSize = 256;
+  int64_t blockSize = 128;  // Default to 128 (common Triton block size)
+  int64_t sharedMemorySize = 0;
   SmallVector<Type> argTypes; // Original func argument types
 };
 
@@ -125,6 +126,23 @@ bool RockRestoreHostCodePass::restoreHostFunctions(ModuleOp moduleOp) {
 
 void RockRestoreHostCodePass::collectKernelInfo(
     ModuleOp moduleOp, SmallVectorImpl<KernelInfo> &kernels) {
+  // Get Triton metadata from module attributes for block size
+  // The HSACO is compiled with these settings, so we must use them for launch
+  int64_t numWarps = 4;  // default
+  int64_t warpSize = 32; // default for AMD
+  int64_t sharedMemory = 0;
+
+  if (auto numWarpsAttr =
+          moduleOp->getAttrOfType<IntegerAttr>("triton.num_warps"))
+    numWarps = numWarpsAttr.getInt();
+  if (auto warpSizeAttr =
+          moduleOp->getAttrOfType<IntegerAttr>("triton.warp_size"))
+    warpSize = warpSizeAttr.getInt();
+  if (auto sharedAttr = moduleOp->getAttrOfType<IntegerAttr>("ttg.shared"))
+    sharedMemory = sharedAttr.getInt();
+
+  int64_t tritonBlockSize = numWarps * warpSize;
+
   moduleOp.walk([&](LLVM::LLVMFuncOp funcOp) {
     if (!funcOp->hasAttr("kernel"))
       return;
@@ -132,12 +150,15 @@ void RockRestoreHostCodePass::collectKernelInfo(
     KernelInfo info;
     info.name = funcOp.getName();
     info.llvmFunc = funcOp;
+    info.blockSize = tritonBlockSize; // Use Triton's block size (matches HSACO)
+    info.sharedMemorySize = sharedMemory;
 
-    // Get grid and block sizes from attributes
-    if (auto gridAttr = funcOp->getAttrOfType<IntegerAttr>("grid_size"))
+    // Get the saved grid_size from module attribute (set by MemrefToTensor)
+    // This is the problem-specific value from the original rocMLIR kernel
+    std::string gridAttrName = "rock.kernel_grid_size." + info.name.str();
+    if (auto gridAttr =
+            moduleOp->getAttrOfType<IntegerAttr>(gridAttrName))
       info.gridSize = gridAttr.getInt();
-    if (auto blockAttr = funcOp->getAttrOfType<IntegerAttr>("block_size"))
-      info.blockSize = blockAttr.getInt();
 
     // Store the argument types from the LLVM function
     auto llvmFuncType = funcOp.getFunctionType();
@@ -273,6 +294,14 @@ void RockRestoreHostCodePass::createGpuBinaryAndLaunchFuncs(
       launchArgs.push_back(nullPtr);
     }
 
+    // Create dynamic shared memory size if needed
+    Value dynSharedMem = nullptr;
+    if (kernel.sharedMemorySize > 0) {
+      dynSharedMem = arith::ConstantOp::create(
+          builder, callLoc, builder.getI32Type(),
+          builder.getI32IntegerAttr(kernel.sharedMemorySize));
+    }
+
     // Create gpu.launch_func
     // Note: gpu.launch_func expects kernel operands to have proper types
     gpu::LaunchFuncOp::create(
@@ -281,7 +310,7 @@ void RockRestoreHostCodePass::createGpuBinaryAndLaunchFuncs(
                            {SymbolRefAttr::get(ctx, kernel.name)}),
         gpu::KernelDim3{gridX, one, one},  // grid dimensions
         gpu::KernelDim3{blockX, one, one}, // block dimensions
-        /*dynamicSharedMemorySize=*/nullptr, launchArgs,
+        dynSharedMem, launchArgs,
         /*asyncToken=*/nullptr,
         /*asyncDependencies=*/ValueRange{},
         /*clusterSize=*/std::nullopt);
