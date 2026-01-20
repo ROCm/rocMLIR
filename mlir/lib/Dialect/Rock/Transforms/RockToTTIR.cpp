@@ -572,7 +572,7 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     }
 
     SmallVector<Operation *> argPointers;
-    rock::CastToPtrOp castToPtrOp = nullptr;
+    // rock::CastToPtrOp castToPtrOp = nullptr;
     // The last argument is the output buffer, which we need to convert to a
     // tensor pointer.
     auto outputBufferType = cast<MemRefType>(outputBuffer.getType());
@@ -580,9 +580,9 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     Value outputTensor =
         ToTensorOp::create(rewriter, loc, outputTensorType, outputBuffer,
                            /*restrict=*/true, /*writable=*/false);
-    Value outputTensorPointer =
-        CastToPtrOp::create(rewriter, loc, outputTensorType, outputTensor);
-    castToPtrOp = cast<CastToPtrOp>(outputTensorPointer.getDefiningOp());
+    // Value outputTensorPointer =
+    //     CastToPtrOp::create(rewriter, loc, outputTensorType, outputTensor);
+    // castToPtrOp = cast<CastToPtrOp>(outputTensorPointer.getDefiningOp());
 
     // Now, we need to find the arg pointers for A and B only (we dont need C as
     // it is not yielded from the loop).
@@ -673,7 +673,7 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
 
       initArgs.push_back(castResult);
     }
-    initArgs.push_back(castToPtrOp->getResult(0));
+    initArgs.push_back(outputTensor);
 
     // Create new ForOp with same bounds but new init args.
     rewriter.setInsertionPointAfter(op);
