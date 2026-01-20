@@ -35,6 +35,9 @@ add_rocmlir_dialect_library(MLIRRockPipeline
   TritonAMDAnalysis
   TritonAMDGPUDialectToLLVM
   TritonAMDUtils
+
+  # Translation for HSACO generation
+  TritonToHsacoTranslation
 )
 
 # Add Triton include directories for compilation

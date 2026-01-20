@@ -131,4 +131,39 @@ def RockUnbufferizePass : Pass<"rock-unbufferize", "::mlir::func::FuncOp"> {
   ];
 }
 
+def TritonToHsacoPass : Pass<"triton-to-hsaco", "::mlir::ModuleOp"> {
+  let summary = "Convert Triton LLVM dialect IR to HSACO binary";
+  let description = [{
+    This pass translates Triton LLVM dialect IR to HSACO binary format.
+    It wraps the TritonToHsaco translation and implements the functionality
+    from Triton's compiler.py:
+    - make_llir() lines 358-449: LLVM-IR (MLIR) -> LLVM-IR (LLVM)
+    - make_amdgcn() lines 452-473: LLVM -> AMDGCN assembly
+    - make_hsaco() lines 476-488: AMDGCN assembly -> HSACO binary
+
+    The resulting HSACO binary is stored as a "triton.hsaco" attribute on the module.
+  }];
+  let dependentDialects = [
+    "LLVM::LLVMDialect",
+  ];
+  let options = [
+    Option<"arch", "arch", "std::string", "\"gfx90a\"",
+      "AMDGPU architecture (e.g., gfx90a, gfx942, gfx1100)">,
+    Option<"numWarps", "num-warps", "int", "4",
+      "Number of warps per block">,
+    Option<"wavesPerEU", "waves-per-eu", "int", "0",
+      "Waves per execution unit hint (0 for default)">,
+    Option<"enableFpFusion", "enable-fp-fusion", "bool", "true",
+      "Enable FP fusion optimizations">,
+    Option<"allowFlushDenorm", "allow-flush-denorm", "bool", "false",
+      "Allow flushing denormal numbers">,
+    Option<"enableAsan", "enable-asan", "bool", "false",
+      "Enable address sanitizer">,
+    Option<"scalarizePackedFops", "scalarize-packed-fops", "bool", "false",
+      "Scalarize packed float operations">,
+    Option<"scheduleHint", "schedule-hint", "std::string", "\"none\"",
+      "Scheduling hint (e.g., 'memory-bound-attention' for iterative-ilp scheduler)">
+  ];
+}
+
 #endif // MLIR_DIALECT_ROCK_PASSES

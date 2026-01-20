@@ -14,9 +14,7 @@
 #ifndef MLIR_INITROCMLIRTRANSLATIONS_H
 #define MLIR_INITROCMLIRTRANSLATIONS_H
 
-// TODO: Translation to ROCDL is being replaced by Triton backend
-// #include "mlir/Target/LLVMIR/Dialect/GPU/GPUToLLVMIRTranslation.h"
-// #include "mlir/Translation/GpuModuleToRocdir.h"
+#include "mlir/Translation/TritonToHsaco.h"
 
 namespace mlir {
 namespace rock {
@@ -24,13 +22,9 @@ namespace rock {
 // This function should be called before creating any MLIRContext if one
 // expects all the possible translations to be made available to the context
 // automatically.
-//
-// NOTE: With Triton backend, translation is handled by Triton's pipeline.
-// This function is kept for compatibility but may become a no-op.
 inline void registerRocMLIRTranslations() {
   static bool initOnce = []() {
-    // TODO: GPU module translation is being replaced by Triton backend
-    // registerGpuModuleToROCDLIRTranslation();
+    registerTritonToHsacoTranslation();
     return true;
   }();
   (void)initOnce;

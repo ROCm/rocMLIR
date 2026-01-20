@@ -54,29 +54,16 @@ add_rocmlir_dialect_library(MLIRRockTransforms
   MLIRUBDialect
   MLIRVectorTransforms
   # MLIRMHAL  # TODO: Re-enable when MHAL updated for LLVM 22
-  # MLIRMHALTransforms
+
   # Triton dependencies
   # TritonIR depends on TritonGPUIR because Traits.cpp uses MemDescType
   # TritonGPUIR depends on TritonNvidiaGPUIR because it references NVIDIA types/ops
   # TritonAnalysis provides supportMMA, getReshapeDecomposition
   # TritonGPUTransforms provides inferDstEncoding, verifyBarrierType
-  # TritonIR
-  # TritonGPUIR
-  # TritonNvidiaGPUIR
-  # TritonAnalysis
   TritonGPUTransforms
-
   TritonIR
   TritonGPUIR
   TritonAnalysis
-  
-  # TritonGPUToLLVM  
-  # TritonInstrumentTransforms
-  # TritonLLVMIR
-  # TritonNvidiaGPUTransforms
-  # TritonToTritonGPU  
-  # TritonTransforms
-  
 )
 
 # Add Triton include directories for compilation

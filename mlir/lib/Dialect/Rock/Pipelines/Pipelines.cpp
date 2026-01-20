@@ -384,12 +384,28 @@ void rock::buildKernelPipeline(OpPassManager &pm,
 
 void rock::buildBackendPipeline(OpPassManager &pm,
                                 const rock::BackendOptions &options) {
-
-    std::string arch = "gfx1100";
+    // Get architecture from options or use default
+    std::string arch = options.chip.empty() ? "gfx1100" : options.chip.getValue();
     int numStages = 2;
 
+    // Run MLIR passes to convert TritonGPU -> LLVM dialect
     makeLLIR(&pm, arch, numStages);
 
+    // Optionally generate the HSACO binary
+    if (options.compile) {
+      // Add the TritonToHsaco pass to convert LLVM dialect to HSACO binary
+      // This implements the functionality from Triton's compiler.py:
+      // - make_llir() lines 358-449: LLVM-IR (MLIR) -> LLVM-IR (LLVM)
+      // - make_amdgcn() lines 452-473: LLVM -> AMDGCN assembly
+      // - make_hsaco() lines 476-488: AMDGCN assembly -> HSACO binary
+      rock::TritonToHsacoPassOptions hsacoOpts;
+      hsacoOpts.arch = arch;
+      hsacoOpts.numWarps = 4;  // TODO: Get from options
+      hsacoOpts.wavesPerEU = 0;
+      hsacoOpts.enableFpFusion = true;
+      hsacoOpts.allowFlushDenorm = false;
+      pm.addPass(rock::createTritonToHsacoPass(hsacoOpts));
+    }
 }
 
 //===----------------------------------------------------------------------===//

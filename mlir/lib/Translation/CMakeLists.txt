@@ -1,1 +1,2 @@
 add_subdirectory(GpuModuleToRocdlir)
+add_subdirectory(TritonToHsaco)
