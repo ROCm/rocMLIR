@@ -558,11 +558,11 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
     // Find the output buffer by looking for rock::GpuAllocOp with f32 element
     // type.
     Value outputBuffer;
-    func.walk([&](rock::GpuAllocOp allocOp) {
-      auto memrefType = dyn_cast<MemRefType>(allocOp.getResult().getType());
+    func.walk([&](bufferization::ToBufferOp toBufferOp) {
+      auto memrefType = dyn_cast<MemRefType>(toBufferOp.getResult().getType());
       if (memrefType && memrefType.getElementType().isF32() &&
-          allocOp->getParentOp() == func) {
-        outputBuffer = allocOp.getResult();
+          toBufferOp->getParentOp() == func) {
+        outputBuffer = toBufferOp.getResult();
       }
     });
     if (!outputBuffer) {
