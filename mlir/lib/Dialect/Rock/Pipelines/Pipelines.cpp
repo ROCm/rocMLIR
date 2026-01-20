@@ -353,10 +353,6 @@ void rock::buildKernelPipeline(OpPassManager &pm,
       options.applicabilityMode == rock::ApplicabilityMode::Full) {
     funcPm.addPass(rock::createRockTransformsToPtrPass());
     funcPm.addPass(rock::createRockTransformsToPointerArithPass());
-    // Canonicalize and CSE the Rock IR before converting to Triton IR.
-    // TODO: Does it break something?
-    funcPm.addPass(createCanonicalizerPass());
-    funcPm.addPass(createCSEPass());
     funcPm.addPass(rock::createRockToTTIRPass());
     // RockMemrefToTensorPass operates on ModuleOp (converts func.func to
     // tt.func)
