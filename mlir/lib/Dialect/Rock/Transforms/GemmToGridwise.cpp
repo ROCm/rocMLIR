@@ -711,7 +711,7 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   ArrayRef<int64_t> scaleAShape, scaleBShape;
 
   // Note: the gridwise ops take M x K and K x N
-  a = normalizeMatrix(a, rw, loc, op.getATransposed(), "gemmK", "gemmM");
+  a = normalizeMatrix(a, rw, loc, op.getATransposed(), "gemmM", "gemmK");
   b = normalizeMatrix(b, rw, loc, op.getBTransposed(), "gemmK", "gemmN");
   c = normalizeMatrix(c, rw, loc, op.getCTransposed(), "gemmM", "gemmN");
   aShape = cast<MemRefType>(a.getType()).getShape();
@@ -754,13 +754,13 @@ GemmRewritePattern::matchAndRewrite(GemmOp op, GemmOpAdaptor adaptor,
   }
 
   // Note, matrix dimension correctness is handled in the verifier
-  GemmSize size(/*g=*/aShape[0], /*m=*/aShape[2], /*k=*/aShape[1],
+  GemmSize size(/*g=*/aShape[0], /*m=*/aShape[1], /*k=*/aShape[2],
                 /*n=*/bShape[2]);
 
   GemmSize extraPad =
       requiredPadding(params, size).value_or(GemmSize{0, 0, 0, 0});
 
-  a = padMatrix(a, rw, loc, "gemmK", extraPad.k, "gemmM", extraPad.m);
+  a = padMatrix(a, rw, loc, "gemmM", extraPad.m, "gemmK", extraPad.k);
   b = padMatrix(b, rw, loc, "gemmK", extraPad.k, "gemmN", extraPad.n);
   c = padMatrix(c, rw, loc, "gemmM", extraPad.m, "gemmN", extraPad.n);
   if (scaleA && scaleB) {
