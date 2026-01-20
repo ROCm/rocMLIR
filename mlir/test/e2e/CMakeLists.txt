@@ -50,6 +50,7 @@ if (ROCMLIR_DRIVER_PR_E2E_TEST_ENABLED)
     PrConvElementwiseGemmBF16SplitK
     PrGemmDirectToLDS
     PrLdsTransposeLoad
+    PrLdsTransposeLoadFp8
     PrLdsTransposeLoadAttention
     PrConvDirectToLDS
     PrAttentionDirectToLDS

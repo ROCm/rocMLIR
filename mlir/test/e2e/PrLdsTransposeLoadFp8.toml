@@ -1,0 +1,126 @@
+directory = "PrLdsTransposeLoadFp8"
+prefix = "rocmlir-gen"
+suffix = "--operation gemm --arch %arch %pv %constrained_float_range_random_data %rocmlir_gen_flags | rocmlir-driver -c | mlir-runner -O2 --shared-libs=%linalg_test_lib_dir/libmlir_rocm_runtime%shlibext,%conv_validation_wrapper_library_dir/libconv-validation-wrappers%shlibext,%linalg_test_lib_dir/libmlir_runner_utils%shlibext,%linalg_test_lib_dir/libmlir_float16_utils%shlibext --entry-point-result=void | FileCheck %s --check-prefix="
+
+[[axis]]
+name = "data type"
+values = ["fp8_fp8", "bf8_bf8", "fp8_bf8", "bf8_fp8"]
+prefix = "-t "
+
+# ============================================================================
+# Suite 1: BOTH A and B use LDS transpose (transA=true, transB=false)
+# 5 tests covering different MFMA geometries and kpack/kPerBlock combinations
+# Only fp8_fp8 and bf8_bf8
+# ============================================================================
+[[suite]]
+name = "lds_transpose_both_operands_fp8"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v3:64,64,32,16,16,8,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 64 -n 64 --transA=true --transB=false --perf_config v3:128,64,16,32,16,16,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+[[suite.test]]
+config = "-g 1 -m 256 -k 256 -n 64 --transA=true --transB=false --perf_config v3:256,64,8,64,16,32,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=false --perf_config v3:128,128,16,32,32,8,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+[[suite.test]]
+config = "-g 1 -m 256 -k 128 -n 128 --transA=true --transB=false --perf_config v3:256,128,32,64,32,8,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+# ============================================================================
+# Suite 2: ONLY A uses LDS transpose (transA=true, transB=true)
+# 3 tests - B uses regular load
+# Only fp8_fp8 and bf8_bf8
+# ============================================================================
+[[suite]]
+name = "lds_transpose_A_only_fp8"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=true --transB=true --perf_config v3:64,64,16,16,16,8,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 64 --transA=true --transB=true --perf_config v3:128,64,8,32,16,16,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 256 -n 128 --transA=true --transB=true --perf_config v3:128,128,32,32,32,8,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+# ============================================================================
+# Suite 3: ONLY B uses LDS transpose (transA=false, transB=false)
+# 3 tests - A uses regular load
+# Only fp8_fp8 and bf8_bf8
+# ============================================================================
+[[suite]]
+name = "lds_transpose_B_only_fp8"
+
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v3:64,64,16,16,16,8,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 64 --transA=false --transB=false --perf_config v3:128,64,32,32,16,1,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+[[suite.test]]
+config = "-g 1 -m 128 -k 256 -n 128 --transA=false --transB=false --perf_config v3:128,128,8,32,32,32,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_bf8", "bf8_fp8"]
+
+# ============================================================================
+# Suite 4: Mixed FP8/BF8 types (fp8_bf8 and bf8_fp8 only)
+# 3 tests: both operands, only A, only B
+# ============================================================================
+[[suite]]
+name = "lds_transpose_mixed_fp8_bf8"
+
+# Test 1: Mixed types, both operands use LDS transpose, 16x32 MFMA
+[[suite.test]]
+config = "-g 1 -m 64 -k 128 -n 64 --transA=true --transB=false --perf_config v3:64,64,32,16,16,8,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_fp8", "bf8_bf8"]
+
+# Test 2: Mixed types, only A uses LDS transpose, 32x16 MFMA
+[[suite.test]]
+config = "-g 1 -m 128 -k 128 -n 128 --transA=true --transB=true --perf_config v3:128,128,16,32,32,8,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_fp8", "bf8_bf8"]
+
+# Test 3: Mixed types, only B uses LDS transpose, 16x32 MFMA
+[[suite.test]]
+config = "-g 1 -m 64 -k 64 -n 64 --transA=false --transB=false --perf_config v3:64,64,16,16,16,8,1,3,2,1,1"
+[[suite.test.exclude]]
+name = "data type"
+values = ["fp8_fp8", "bf8_bf8"]
