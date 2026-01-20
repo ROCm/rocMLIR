@@ -661,24 +661,9 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
       opToMove->moveBefore(newTerminator);
     }
 
-    // llvm::errs() << "Before erasing old ForOp\n";
-    // op->getParentOfType<func::FuncOp>().dump();
-
     // Replace old block arguments with new ones.
     // First argument is the induction variable.
     op.getInductionVar().replaceAllUsesWith(newForOp.getInductionVar());
-    // Replace any existing iter args (old loop might have had some).
-    // for (auto [oldArg, newArg] :
-    //      llvm::zip(op.getRegionIterArgs(), newForOp.getRegionIterArgs())) {
-    //   oldArg.replaceAllUsesWith(newArg);
-    // }
-    // llvm::errs() << "Erasing old ForOp\n";
-    // op->getParentOfType<func::FuncOp>().dump();
-
-    // rewriter.eraseOp(op);
-
-    // llvm::errs() << "Erased old ForOp\n";
-    // op->getParentOfType<func::FuncOp>().dump();
 
     // Find the tt.load and tt.dot operations in the new body.
     SmallVector<triton::LoadOp> loadOps;
@@ -700,33 +685,22 @@ struct RockMicroKernelOpRewritePattern : public OpRewritePattern<scf::ForOp> {
       return failure();
     }
 
-    llvm::errs() << "OK\n";
-
     // Update the yield to yield the correct values:
     // 1. Input of the first tt.load (pointer tensor)
     // 2. Input of the second tt.load (pointer tensor)
     // 3. Output of the tt.dot
     auto yieldOp = cast<scf::YieldOp>(newBody->getTerminator());
 
-    llvm::errs() << "OK\n";
     rewriter.setInsertionPoint(yieldOp);
-    llvm::errs() << "OK\n";
     SmallVector<Value> yieldOperands;
-    llvm::errs() << "OK\n";
     yieldOperands.push_back(loadOps[1].getPtr()); // Input of first tt.load
-    llvm::errs() << "OK\n";
     yieldOperands.push_back(loadOps[0].getPtr()); // Input of second tt.load
-    llvm::errs() << "OK\n";
-    yieldOperands.push_back(dotOp.getResult()); // Output of tt.dot
+    yieldOperands.push_back(dotOp.getResult());   // Output of tt.dot
 
-    // // Modify the yield op in place.
+    // Modify the yield op in place.
     yieldOp->setOperands(yieldOperands);
 
-    // op->getParentOfType<func::FuncOp>().dump();
-
-    // Erase the old ForOp now that all uses are replaced.
-    // llvm::errs() << "Erasing old ForOp\n";
-    // op->getParentOfType<func::FuncOp>().dump();
+    // Finally, erase the old ForOp
     rewriter.eraseOp(op);
 
     return success();
@@ -754,9 +728,6 @@ void RockToTTIRPass::runOnOperation() {
   target.addLegalDialect<arith::ArithDialect>();
   target.addLegalDialect<bufferization::BufferizationDialect>();
   target.addLegalDialect<memref::MemRefDialect>();
-  // target.addDynamicallyLegalOp<scf::ForOp>([](scf::ForOp op) {
-  //     return op.getNumResults() > 0;
-  //   });
 
   RewritePatternSet patterns(ctx);
   patterns.add<RockArithOpRewritePattern>(ctx);
@@ -765,7 +736,6 @@ void RockToTTIRPass::runOnOperation() {
   patterns.add<RockWorkgroupIdOpRewritePattern>(ctx);
   patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
   patterns.add<RockBlockwiseGemmAccelOpRewritePattern>(ctx);
-  // patterns.add<RockMicroKernelOpRewritePattern>(ctx);
 
   // Apply partial conversion - convert RockArithOp, RockSplatOp, and
   // RockLoadTilePtrOp, keep rest as-is
@@ -774,6 +744,9 @@ void RockToTTIRPass::runOnOperation() {
     return signalPassFailure();
   }
 
+  // Second conversion step: unbufferize the micro kernel loop
+  // by converting the scf.for op to a scf.for op with iter_args and
+  // yield.
   ConversionTarget target2(*ctx);
   target2.addLegalDialect<scf::SCFDialect>();
   target2.addLegalDialect<func::FuncDialect>();
