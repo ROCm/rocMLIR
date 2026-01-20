@@ -276,6 +276,83 @@ struct RockFillOpRewritePattern : public OpRewritePattern<rock::FillOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// RockMakeRangeOpRewritePattern - Convert rock.make_range to tt.make_range
+//===----------------------------------------------------------------------===//
+struct RockMakeRangeOpRewritePattern
+    : public OpRewritePattern<rock::MakeRangeOp> {
+  using OpRewritePattern<rock::MakeRangeOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(rock::MakeRangeOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    Value outMemref = op.getOut();
+    int32_t start = op.getStart();
+    int32_t end = op.getEnd();
+
+    auto memrefType = dyn_cast<MemRefType>(outMemref.getType());
+    if (!memrefType)
+      return failure();
+
+    // Find the alloc op that defines outMemref
+    Operation *allocOp = outMemref.getDefiningOp();
+    if (!allocOp || !isa<rock::GpuAllocOp>(allocOp)) {
+      llvm::errs() << "outMemref must be defined by a rock.alloc op\n";
+      return failure();
+    }
+
+    // Check that the alloc has exactly 2 users: the MakeRangeOp and one other
+    SmallVector<Operation *> users(allocOp->getUsers().begin(),
+                                   allocOp->getUsers().end());
+    if (users.size() != 2) {
+      llvm::errs() << "Expected alloc to have exactly 2 users, got "
+                   << users.size() << "\n";
+      return failure();
+    }
+
+    // Find the other user (not the MakeRangeOp)
+    Operation *otherUser = nullptr;
+    for (Operation *user : users) {
+      if (user != op.getOperation()) {
+        otherUser = user;
+        break;
+      }
+    }
+
+    if (!otherUser) {
+      llvm::errs() << "Cannot find the other user of the alloc\n";
+      return failure();
+    }
+
+    // Create tensor type matching the memref shape with i32 element type
+    // (triton::MakeRangeOp returns tensor of i32)
+    auto tensorType =
+        RankedTensorType::get(memrefType.getShape(), rewriter.getI32Type());
+
+    // Create tt.make_range operation
+    Value rangeTensor =
+        triton::MakeRangeOp::create(rewriter, loc, tensorType, start, end);
+
+    // Convert the tensor back to a memref so the other user can use it
+    Value rangeMemref =
+        ToBufferOp::create(rewriter, loc, memrefType, rangeTensor);
+
+    // Replace the other user's use of the alloc with the rangeMemref
+    for (OpOperand &operand : otherUser->getOpOperands()) {
+      if (operand.get() == outMemref) {
+        rewriter.modifyOpInPlace(otherUser,
+                                 [&]() { operand.set(rangeMemref); });
+      }
+    }
+
+    // Erase the make_range op first, then the alloc
+    rewriter.eraseOp(op);
+    rewriter.eraseOp(allocOp);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
 // RockBroadCastOpRewritePattern - Convert rock.broadcast to tt.broadcast
 //===----------------------------------------------------------------------===//
 struct RockBroadCastOpRewritePattern
@@ -883,6 +960,7 @@ void RockToTTIRPass::runOnOperation() {
   target.addIllegalOp<rock::WorkgroupIdOp>();
   target.addIllegalOp<rock::BlockwiseLoadTilePtrOp>();
   target.addIllegalOp<rock::BlockwiseGemmAccelOp>();
+  target.addIllegalOp<rock::MakeRangeOp>();
 
   // Triton and Rock dialects are legal (Rock for now, will be converted later)
   target.addLegalDialect<triton::TritonDialect>();
@@ -899,6 +977,7 @@ void RockToTTIRPass::runOnOperation() {
   patterns.add<RockWorkgroupIdOpRewritePattern>(ctx);
   patterns.add<RockLoadTilePtrOpRewritePattern>(ctx);
   patterns.add<RockBlockwiseGemmAccelOpRewritePattern>(ctx);
+  patterns.add<RockMakeRangeOpRewritePattern>(ctx);
 
   // Apply partial conversion - convert RockArithOp, RockSplatOp, and
   // RockLoadTilePtrOp, keep rest as-is
